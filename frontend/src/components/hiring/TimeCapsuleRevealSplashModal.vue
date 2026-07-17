@@ -34,12 +34,12 @@ async function loadQueue() {
   err.value = '';
   openedPredictions.value = [];
   try {
-    const ir = await api.get('/hiring/me/pending-interview-splashes');
+    const ir = await api.get('/hiring/me/pending-interview-splashes', { skipGlobalLoading: true });
     if (Array.isArray(ir.data) && ir.data.length > 0) {
       queue.value = [];
       return;
     }
-    const r = await api.get('/hiring/me/pending-time-capsule-reveals');
+    const r = await api.get('/hiring/me/pending-time-capsule-reveals', { skipGlobalLoading: true });
     queue.value = Array.isArray(r.data) ? r.data : [];
   } catch {
     queue.value = [];

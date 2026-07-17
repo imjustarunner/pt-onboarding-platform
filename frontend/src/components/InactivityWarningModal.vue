@@ -32,8 +32,15 @@
               <span class="iw-timer-value">{{ clock }}</span>
             </div>
 
-            <!-- Randomly-roaming stay button (desktop only) -->
-            <button type="button" class="iw-stay" :style="stayBtnStyle" @click="stayLoggedIn">
+            <!-- Randomly-roaming stay button (desktop only). Hidden when privileged
+                 status prompt is handling "I'm still here" / Away options. -->
+            <button
+              v-if="!suppressActions"
+              type="button"
+              class="iw-stay"
+              :style="stayBtnStyle"
+              @click="stayLoggedIn"
+            >
               I'm still here — stay logged in
             </button>
           </template>
@@ -52,7 +59,12 @@
                 <span class="iw-mobile-countdown-label">Timing out in</span>
                 <span class="iw-mobile-countdown-value">{{ clock }}</span>
               </div>
-              <button type="button" class="iw-mobile-stay" @click="stayLoggedIn">
+              <button
+                v-if="!suppressActions"
+                type="button"
+                class="iw-mobile-stay"
+                @click="stayLoggedIn"
+              >
                 I'm still here — stay logged in
               </button>
             </div>
@@ -84,6 +96,11 @@ import {
   formatCountdownClock
 } from '../utils/sessionTimeoutBranding.js';
 import { getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } from '../utils/loginRedirect.js';
+
+defineProps({
+  /** When true, hide stay/logout buttons (privileged StatusPromptModal owns actions). */
+  suppressActions: { type: Boolean, default: false }
+});
 
 const sessionLockStore = useSessionLockStore();
 const agencyStore = useAgencyStore();

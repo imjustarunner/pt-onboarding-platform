@@ -1651,12 +1651,17 @@ const handleLogin = async () => {
       loading.value = false;
       return;
     }
-    // Fetch user's agencies and set default if not super admin
-    if (authStore.user.role !== 'super_admin' && authStore.user.type !== 'approved_employee') {
-      await agencyStore.fetchUserAgencies();
-    } else if (authStore.user.type === 'approved_employee') {
-      // For approved employees, fetch agencies from the login response
-      await agencyStore.fetchUserAgencies();
+    // Prefer agencies from login payload (already fetched server-side). Fall back to a dedicated fetch.
+    if (authStore.user.role !== 'super_admin') {
+      const loginAgencies = Array.isArray(result.agencies) ? result.agencies : [];
+      if (loginAgencies.length > 0 && authStore.user.type !== 'approved_employee') {
+        agencyStore.applyLoginAgencies(loginAgencies);
+      } else {
+        await agencyStore.fetchUserAgencies();
+      }
+    } else if (Array.isArray(result.agencies) && result.agencies.length) {
+      // Super-admin: seed membership list without blocking on the full /agencies catalog.
+      agencyStore.applyLoginAgencies(result.agencies);
     }
 
     if (authStore.user?.requiresPasswordChange) {

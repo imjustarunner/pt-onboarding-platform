@@ -585,11 +585,21 @@ export const listMyThreads = async (req, res, next) => {
     const placeholders = agencyIds.map(() => '?').join(',');
     const hasTeamCol = await hasChatThreadsTeamColumn();
     const teamCol = hasTeamCol ? ', t.team_id' : '';
+    let channelCols = '';
+    try {
+      const [colCheck] = await pool.execute(
+        `SELECT 1 FROM information_schema.columns
+         WHERE table_schema = DATABASE() AND table_name = 'chat_threads' AND column_name = 'slug' LIMIT 1`
+      );
+      if (colCheck?.length) channelCols = ', t.name AS channel_name, t.slug AS channel_slug';
+    } catch {
+      /* ignore */
+    }
     const [rows] = await pool.execute(
       `SELECT t.id AS thread_id,
               t.agency_id,
               t.organization_id,
-              t.thread_type${teamCol},
+              t.thread_type${teamCol}${channelCols},
               t.updated_at,
               lm.id AS last_message_id,
               lm.body AS last_message_body,
@@ -696,6 +706,8 @@ export const listMyThreads = async (req, res, next) => {
       } else if (tType === 'club') {
         const c = clubLabelById.get(Number(r.agency_id));
         label = c?.label || 'Club thread';
+      } else if (tType === 'channel') {
+        label = r.channel_name || r.channel_slug || 'Channel';
       }
       return {
         thread_id: r.thread_id,
@@ -704,6 +716,8 @@ export const listMyThreads = async (req, res, next) => {
         thread_type: tType,
         team_id: hasTeamCol ? (r.team_id || null) : null,
         thread_label: label,
+        channel_name: r.channel_name || null,
+        channel_slug: r.channel_slug || null,
         team_meta: teamMeta,
         updated_at: r.updated_at,
         unread_count: Number(r.unread_count || 0),

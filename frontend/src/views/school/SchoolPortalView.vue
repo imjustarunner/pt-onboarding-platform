@@ -1,22 +1,383 @@
 <template>
-  <div class="school-portal">
+  <div
+    class="school-portal"
+    :class="{
+      'sidebar-collapsed': sidebarCollapsed,
+      'sidebar-mobile-open': sidebarMobileOpen
+    }"
+  >
     <PlatformPreviewBanner
       v-if="props.previewMode"
       :title="`Previewing ${organizationDisplayName} portal`"
       subtitle="This platform preview shows the tenant portal shell without acting like a live school staff session."
     />
-    <div class="portal-header">
-      <div class="portal-header-row">
-        <div class="portal-header-left">
-          <div v-if="schoolLogoUrl" class="school-logo">
+
+    <div
+      v-if="sidebarMobileOpen"
+      class="sp-sidebar-backdrop"
+      aria-hidden="true"
+      @click="sidebarMobileOpen = false"
+    />
+
+    <aside
+      class="sp-sidebar"
+      :class="{ locked: waiverGateLocked, collapsed: sidebarCollapsed }"
+      aria-label="School Portal navigation"
+      data-tour="school-nav-rail"
+    >
+      <div class="sp-sidebar-brand">
+        <div v-if="schoolLogoUrl" class="sp-sidebar-logo">
+          <img :src="schoolLogoUrl" alt="" />
+        </div>
+        <div v-else class="sp-sidebar-logo sp-sidebar-logo-fallback" aria-hidden="true">
+          {{ organizationDisplayName?.charAt(0) || 'S' }}
+        </div>
+      </div>
+
+      <nav class="sp-sidebar-nav">
+        <button
+          data-tour="school-nav-home"
+          class="sp-nav-item"
+          type="button"
+          :class="{ active: portalMode === 'home' }"
+          @click="navigateSidebar(() => setPortalMode('home'))"
+        >
+          <span class="sp-nav-icon">
+            <img v-if="homeIconUrl" :src="homeIconUrl" alt="" class="sp-nav-icon-img" />
+            <span v-else aria-hidden="true">⌂</span>
+          </span>
+          <span class="sp-nav-label">Portal Home</span>
+        </button>
+
+        <button
+          data-tour="school-nav-days"
+          class="sp-nav-item"
+          type="button"
+          :disabled="!canAccessSchedulingPanels"
+          :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+          :class="{ active: portalMode === 'days', disabled: !canAccessSchedulingPanels }"
+          @click="navigateSidebar(openDaysPanel)"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">DY</span>
+          </span>
+          <span class="sp-nav-label">Days / Schedule</span>
+        </button>
+
+        <button
+          data-tour="school-nav-providers"
+          class="sp-nav-item"
+          type="button"
+          :disabled="!canAccessSchedulingPanels"
+          :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+          :class="{ active: portalMode === 'providers', disabled: !canAccessSchedulingPanels }"
+          @click="navigateSidebar(openProvidersPanel)"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">PR</span>
+          </span>
+          <span class="sp-nav-label">Providers</span>
+        </button>
+
+        <button
+          data-tour="school-nav-roster"
+          class="sp-nav-item"
+          type="button"
+          :class="{ active: portalMode === 'roster' }"
+          @click="navigateSidebar(() => openRosterPanel())"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">RS</span>
+          </span>
+          <span class="sp-nav-label">{{ isProvider ? 'My roster' : 'Roster' }}</span>
+        </button>
+
+        <button
+          v-if="canAccessSkillBuildersSchoolProgramNav"
+          data-tour="school-nav-skills"
+          class="sp-nav-item"
+          type="button"
+          :class="{ active: portalMode === 'skills' }"
+          @click="navigateSidebar(() => setPortalMode('skills'))"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">SG</span>
+          </span>
+          <span class="sp-nav-label">Skill Builders</span>
+        </button>
+
+        <button
+          data-tour="school-nav-events"
+          class="sp-nav-item"
+          type="button"
+          :class="{ active: portalMode === 'events' }"
+          @click="navigateSidebar(openSchoolEventsPanel)"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">EV</span>
+          </span>
+          <span class="sp-nav-label">Events</span>
+        </button>
+
+        <button
+          data-tour="school-nav-calendar"
+          class="sp-nav-item"
+          type="button"
+          :class="{ active: portalMode === 'calendar' }"
+          @click="navigateSidebar(openSchoolCalendarPanel)"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">CL</span>
+          </span>
+          <span class="sp-nav-label">School Calendar</span>
+        </button>
+
+        <button
+          data-tour="school-nav-staff"
+          class="sp-nav-item"
+          type="button"
+          :class="{ active: portalMode === 'school_staff' }"
+          @click="navigateSidebar(() => setPortalMode('school_staff'))"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">SS</span>
+            <span
+              v-if="Number(store.portalStats?.school_staff_count) > 0"
+              class="sp-nav-badge"
+              :title="`${store.portalStats.school_staff_count} staff`"
+            >
+              {{ store.portalStats.school_staff_count }}
+            </span>
+          </span>
+          <span class="sp-nav-label">School Staff</span>
+        </button>
+
+        <button
+          data-tour="school-nav-docs"
+          class="sp-nav-item"
+          type="button"
+          :class="{ active: portalMode === 'documents' }"
+          @click="navigateSidebar(() => setPortalMode('documents'))"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">DO</span>
+          </span>
+          <span class="sp-nav-label">Docs / Links</span>
+        </button>
+
+        <button
+          data-tour="school-nav-faq"
+          class="sp-nav-item"
+          type="button"
+          :class="{ active: portalMode === 'faq' }"
+          @click="navigateSidebar(() => setPortalMode('faq'))"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">FQ</span>
+          </span>
+          <span class="sp-nav-label">FAQ</span>
+        </button>
+
+        <button
+          data-tour="school-nav-notifications"
+          class="sp-nav-item"
+          type="button"
+          :class="{ active: portalMode === 'notifications' }"
+          @click="navigateSidebar(openNotificationsPanel)"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">AN</span>
+            <span
+              v-if="notificationsUnreadCount > 0"
+              class="sp-nav-badge pulse"
+              :title="`${notificationsUnreadCount} unread`"
+            >
+              {{ notificationsUnreadCount }}
+            </span>
+          </span>
+          <span class="sp-nav-label">Notifications</span>
+        </button>
+
+        <button
+          data-tour="school-nav-help"
+          class="sp-nav-item"
+          type="button"
+          @click="navigateSidebar(() => { showHelpDesk = true; })"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">CA</span>
+          </span>
+          <span class="sp-nav-label">Contact Admin</span>
+        </button>
+
+        <button
+          data-tour="school-nav-messages"
+          class="sp-nav-item"
+          type="button"
+          :class="{ active: portalMode === 'messages' }"
+          @click="navigateSidebar(openMessages)"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">CH</span>
+            <span
+              v-if="messagesUnreadCount > 0"
+              class="sp-nav-badge pulse"
+              :title="`${messagesUnreadCount} unread`"
+            >
+              {{ messagesUnreadCount }}
+            </span>
+          </span>
+          <span class="sp-nav-label">Messages</span>
+        </button>
+
+        <button
+          data-tour="school-nav-digital-forms"
+          class="sp-nav-item"
+          type="button"
+          @click="navigateSidebar(() => openIntakeModal('qr'))"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">QR</span>
+          </span>
+          <span class="sp-nav-label">Digital Forms</span>
+        </button>
+
+        <button
+          data-tour="school-nav-upload"
+          class="sp-nav-item"
+          type="button"
+          @click="navigateSidebar(() => { showUploadModal = true; })"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('upload_packet', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('upload_packet', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <span v-else aria-hidden="true">UP</span>
+          </span>
+          <span class="sp-nav-label">Upload Packet</span>
+        </button>
+      </nav>
+
+      <div class="sp-sidebar-footer">
+        <div class="sp-sidebar-school-row">
+          <div v-if="schoolLogoUrl" class="sp-sidebar-footer-logo">
             <img :src="schoolLogoUrl" alt="" />
           </div>
-          <div>
-            <h1 data-tour="school-header-title">{{ organizationDisplayName }} Portal</h1>
-            <p class="portal-subtitle">Schedule + roster</p>
+          <div v-else class="sp-sidebar-footer-logo sp-sidebar-footer-logo-fallback" aria-hidden="true">
+            {{ organizationDisplayName?.charAt(0) || 'S' }}
+          </div>
+          <div class="sp-sidebar-school-meta">
+            <div class="sp-sidebar-school-name">{{ organizationDisplayName }}</div>
           </div>
         </div>
-        <div class="portal-header-right">
+        <button
+          type="button"
+          class="sp-sidebar-collapse"
+          :aria-label="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          @click="toggleSidebarCollapsed"
+        >
+          <span aria-hidden="true">{{ sidebarCollapsed ? '›' : '‹' }}</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="sp-main">
+      <header class="sp-topbar">
+        <button
+          type="button"
+          class="sp-mobile-menu-btn"
+          aria-label="Open navigation"
+          @click="sidebarMobileOpen = true"
+        >
+          ☰
+        </button>
+        <div class="sp-topbar-titles">
+          <h1 data-tour="school-header-title">{{ organizationDisplayName }} Portal</h1>
+          <p class="sp-topbar-subtitle">Schedule + roster</p>
+        </div>
+        <div class="sp-topbar-right">
           <div v-if="showSchoolSelector" class="school-selector-wrap">
             <label for="school-selector" class="school-selector-label">School:</label>
             <select
@@ -38,10 +399,10 @@
           <router-link
             v-if="canManageMarketingCampaigns"
             to="/admin/marketing-campaigns"
-            class="btn btn-secondary btn-sm"
+            class="btn btn-primary btn-sm sp-marketing-btn"
             title="Manage campaigns shown on this portal"
           >
-            📣 School Marketing Campaign
+            School Marketing Campaign
           </router-link>
           <button
             v-if="isSchoolStaff"
@@ -54,350 +415,130 @@
           >
             Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
           </button>
+          <div v-if="authStore.user?.id" class="sp-user-chip">
+            <div class="sp-user-avatar" aria-hidden="true">{{ portalUserInitials }}</div>
+            <div class="sp-user-meta">
+              <div class="sp-user-name">{{ portalUserDisplayName }}</div>
+              <div class="sp-user-role">{{ portalUserRoleLabel }}</div>
+            </div>
+            <button
+              v-if="isSchoolStaff && !props.previewMode"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="authStore.logout()"
+            >
+              Logout
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
+
       <AnnouncementMarquee
         v-if="bannerTexts.length > 0"
         :items="bannerTexts"
         variant="brand"
         aria-label="School announcements banner"
         interactive
+        class="sp-marquee"
         @activate="openNotificationsPanel"
       />
-    </div>
 
-    <SurveyPromptCard v-if="authStore.user?.id && !props.previewMode" :splash="true" />
+      <SurveyPromptCard v-if="authStore.user?.id && !props.previewMode" :splash="true" />
 
-    <div class="portal-content">
-      <div class="top-row">
-        <div class="top-left">
-          <div class="muted-small">
-            {{
-              portalMode === 'home'
-                ? 'Choose a section'
-                : portalMode === 'providers'
-                  ? 'Providers'
-                  : portalMode === 'roster'
-                    ? 'Roster'
-                    : portalMode === 'skills'
-                      ? 'Skill Builders'
-                      : portalMode === 'school_staff'
-                        ? 'School staff'
-                        : portalMode === 'messages'
-                          ? 'Messages'
-                          : 'School Portal'
-            }}
+      <div class="portal-content" :class="{ 'is-home': portalMode === 'home' }">
+        <div class="top-row" data-tour="school-top-actions">
+          <div class="top-left">
+            <div class="section-kicker">{{ portalSectionLabel }}</div>
+          </div>
+          <div class="top-actions">
+            <div class="top-actions-utils">
+              <button
+                v-if="canShowSchoolSettingsButton"
+                class="btn btn-secondary btn-sm settings-icon-btn"
+                type="button"
+                @click="openSchoolSettings"
+                title="Organization settings"
+                aria-label="Organization settings"
+              >
+                <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="btn-icon-img" />
+                <span v-else aria-hidden="true">⚙</span>
+              </button>
+              <label
+                v-if="authStore.user?.id"
+                class="school-portal-dark-mode-toggle"
+                :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'"
+              >
+                <input type="checkbox" :checked="isDarkMode" @change="onDarkModeToggle" />
+                <span class="school-portal-dark-mode-text">Dark mode</span>
+              </label>
+              <div class="codes-toggle" data-tour="school-codes-toggle">
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="toggleClientLabelMode"
+                  :title="codesPrivacyHelp"
+                >
+                  {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm codes-info"
+                  type="button"
+                  :title="codesPrivacyHelp"
+                  @click="showCodesHelp = !showCodesHelp"
+                >
+                  i
+                </button>
+                <div v-if="showCodesHelp" class="codes-help" role="note">
+                  {{ codesPrivacyHelp }}
+                </div>
+              </div>
+            </div>
+            <div class="top-actions-primary">
+              <router-link
+                v-if="canBackToSchools"
+                :to="backToSchoolsPath"
+                class="btn btn-secondary btn-sm"
+              >
+                All schools
+              </router-link>
+              <button
+                v-if="authStore.user?.id && !props.previewMode"
+                class="btn btn-primary btn-sm"
+                type="button"
+                @click="openAnnouncementModal"
+              >
+                Create announcement
+              </button>
+              <button
+                v-if="isSuperAdmin && organizationId"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="openAdminToolsModal"
+              >
+                Admin Tools
+              </button>
+              <button
+                v-if="isFakeySchoolForSplashTest"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="openWeeklySplashPreview"
+              >
+                Weekly splash
+              </button>
+              <button
+                v-if="canManageSchoolEvents"
+                class="btn btn-primary btn-sm"
+                type="button"
+                @click="openPostSchoolEvent()"
+              >
+                Add school event
+              </button>
+            </div>
           </div>
         </div>
-        <div class="top-actions" data-tour="school-top-actions">
-          <button
-            v-if="canShowSchoolSettingsButton"
-            class="btn btn-secondary btn-sm settings-icon-btn"
-            type="button"
-            @click="openSchoolSettings"
-            :title="'Organization settings'"
-            aria-label="Organization settings"
-          >
-            <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="btn-icon-img" />
-            <span v-else aria-hidden="true">⚙</span>
-          </button>
-          <router-link
-            v-if="canBackToSchools"
-            :to="backToSchoolsPath"
-            class="btn btn-secondary btn-sm"
-          >
-            Back to show all schools
-          </router-link>
-          <label v-if="authStore.user?.id" class="school-portal-dark-mode-toggle" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
-            <input type="checkbox" :checked="isDarkMode" @change="onDarkModeToggle" />
-            <span class="school-portal-dark-mode-text">Dark mode</span>
-          </label>
-          <div class="codes-toggle" data-tour="school-codes-toggle">
-            <button
-              class="btn btn-secondary btn-sm"
-              type="button"
-              @click="toggleClientLabelMode"
-              :title="codesPrivacyHelp"
-            >
-              {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
-            </button>
-            <button
-              class="btn btn-secondary btn-sm codes-info"
-              type="button"
-              :title="codesPrivacyHelp"
-              @click="showCodesHelp = !showCodesHelp"
-            >
-              i
-            </button>
-            <div v-if="showCodesHelp" class="codes-help" role="note">
-              {{ codesPrivacyHelp }}
-            </div>
-          </div>
-          <button
-            v-if="authStore.user?.id && !props.previewMode"
-            class="btn btn-secondary btn-sm"
-            type="button"
-            @click="openAnnouncementModal"
-          >
-            Create announcement
-          </button>
-          <button
-            v-if="isSuperAdmin && organizationId"
-            class="btn btn-secondary btn-sm"
-            type="button"
-            @click="openAdminToolsModal"
-          >
-            Admin Tools
-          </button>
-          <button
-            v-if="isFakeySchoolForSplashTest"
-            class="btn btn-secondary btn-sm"
-            type="button"
-            @click="openWeeklySplashPreview"
-          >
-            Display weekly splash
-          </button>
-          <button
-            v-if="canManageSchoolEvents"
-            class="btn btn-secondary btn-sm"
-            type="button"
-            @click="openPostSchoolEvent()"
-          >
-            Add school event
-          </button>
-          <button v-if="!props.previewMode" class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact admin</button>
-          <button
-            v-if="isSchoolStaff && !props.previewMode"
-            class="btn btn-secondary btn-sm"
-            type="button"
-            @click="authStore.logout()"
-          >
-            Logout
-          </button>
-        </div>
-      </div>
 
-      <div class="main-layout" :class="{ 'with-rail': portalMode !== 'home' }">
-        <nav
-          v-if="portalMode !== 'home'"
-          class="nav-rail"
-          :class="{ locked: waiverGateLocked }"
-          aria-label="School Portal navigation"
-          data-tour="school-nav-rail"
-        >
-          <button data-tour="school-nav-home" class="nav-item" type="button" @click="setPortalMode('home')" :class="{ active: portalMode === 'home' }">
-            <div class="nav-icon">
-              <img v-if="homeIconUrl" :src="homeIconUrl" alt="" class="nav-icon-img" />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">⌂</div>
-            </div>
-            <div class="nav-label">Home</div>
-          </button>
-
-          <button
-            data-tour="school-nav-providers"
-            class="nav-item"
-            type="button"
-            :disabled="!canAccessSchedulingPanels"
-            :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
-            @click="openProvidersPanel"
-            :class="{ active: portalMode === 'providers', disabled: !canAccessSchedulingPanels }"
-          >
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">PR</div>
-            </div>
-            <div class="nav-label">Providers</div>
-          </button>
-
-          <button
-            data-tour="school-nav-days"
-            class="nav-item"
-            type="button"
-            :disabled="!canAccessSchedulingPanels"
-            :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
-            @click="openDaysPanel"
-            :class="{ active: portalMode === 'days', disabled: !canAccessSchedulingPanels }"
-          >
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">DY</div>
-            </div>
-            <div class="nav-label">Days</div>
-          </button>
-
-          <button data-tour="school-nav-roster" class="nav-item" type="button" @click="openRosterPanel()" :class="{ active: portalMode === 'roster' }">
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">RS</div>
-            </div>
-            <div class="nav-label">{{ isProvider ? 'My roster' : 'Roster' }}</div>
-          </button>
-
-          <button
-            v-if="canAccessSkillBuildersSchoolProgramNav"
-            data-tour="school-nav-skills"
-            class="nav-item"
-            type="button"
-            @click="setPortalMode('skills')"
-            :class="{ active: portalMode === 'skills' }"
-          >
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">SG</div>
-            </div>
-            <div class="nav-label">Skill Builders</div>
-          </button>
-
-          <button
-            data-tour="school-nav-events"
-            class="nav-item"
-            type="button"
-            @click="openSchoolEventsPanel"
-            :class="{ active: portalMode === 'events' }"
-          >
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">EV</div>
-            </div>
-            <div class="nav-label">Events</div>
-          </button>
-
-          <button
-            data-tour="school-nav-calendar"
-            class="nav-item"
-            type="button"
-            @click="openSchoolCalendarPanel"
-            :class="{ active: portalMode === 'calendar' }"
-          >
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">CL</div>
-            </div>
-            <div class="nav-label">Calendar</div>
-          </button>
-
-          <button data-tour="school-nav-staff" class="nav-item" type="button" @click="setPortalMode('school_staff')" :class="{ active: portalMode === 'school_staff' }">
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">SS</div>
-            </div>
-            <div class="nav-label">Staff</div>
-          </button>
-
-          <button data-tour="school-nav-docs" class="nav-item" type="button" @click="setPortalMode('documents')" :class="{ active: portalMode === 'documents' }">
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">DO</div>
-            </div>
-            <div class="nav-label">Docs/Links</div>
-          </button>
-
-          <button
-            data-tour="school-nav-notifications"
-            class="nav-item"
-            type="button"
-            @click="openNotificationsPanel"
-            :class="{ active: portalMode === 'notifications' }"
-          >
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">AN</div>
-              <span v-if="notificationsUnreadCount > 0" class="nav-badge" :class="{ pulse: notificationsUnreadCount > 0 }" :title="`${notificationsUnreadCount} unread`">
-                {{ notificationsUnreadCount }}
-              </span>
-            </div>
-            <div class="nav-label">Notifications</div>
-          </button>
-
-          <button data-tour="school-nav-messages" class="nav-item" type="button" @click="openMessages" :class="{ active: portalMode === 'messages' }">
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">CH</div>
-              <span v-if="messagesUnreadCount > 0" class="nav-badge" :class="{ pulse: messagesUnreadCount > 0 }" :title="`${messagesUnreadCount} unread`">
-                {{ messagesUnreadCount }}
-              </span>
-            </div>
-            <div class="nav-label">Messages</div>
-          </button>
-
-          <button data-tour="school-nav-faq" class="nav-item" type="button" @click="setPortalMode('faq')" :class="{ active: portalMode === 'faq' }">
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">FQ</div>
-            </div>
-            <div class="nav-label">FAQ</div>
-          </button>
-
-          <button data-tour="school-nav-help" class="nav-item" type="button" @click="showHelpDesk = true">
-            <div class="nav-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
-                alt=""
-                class="nav-icon-img"
-              />
-              <div v-else class="nav-icon-fallback" aria-hidden="true">CA</div>
-            </div>
-            <div class="nav-label">Help</div>
-          </button>
-        </nav>
-
-        <div class="main-content">
+        <div class="main-layout">
+          <div class="main-content">
           <div v-if="waiverGateLocked" class="waiver-lock-banner">
             <strong>School Staff Waiver required.</strong>
             <span>You can only access Docs/Links until it is signed.</span>
@@ -424,58 +565,69 @@
             </div>
           </div>
           <div v-if="portalMode === 'home'" class="home">
-        <div class="home-snapshot" data-tour="school-home-snapshot">
-          <div class="home-snapshot-title">At a glance</div>
-          <div class="home-snapshot-grid">
-            <button class="home-pill home-pill-clickable home-pill-notifications" type="button" @click="openNotificationsPanel">
-              <div class="home-pill-k">
-                <span v-if="notificationsUnreadCount > 0" class="home-pill-badge" :class="{ pulse: notificationsUnreadCount > 0 }" :title="`${notificationsUnreadCount} unread`">
-                  {{ notificationsUnreadCount }}
-                </span>
-                <span v-else class="home-pill-k-text">Notifications</span>
-              </div>
-              <div class="home-pill-v home-pill-v-notifications">
-                <span v-if="notificationsNewestSnippet">{{ notificationsNewestSnippet }}</span>
-                <span v-else>School-wide announcements + client updates</span>
-              </div>
-            </button>
-            <button
-              class="home-pill home-pill-clickable"
-              type="button"
-              :disabled="!canAccessSchedulingPanels"
-              :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
-              @click="openDaysPanel"
-            >
-              <div class="home-pill-k">{{ atGlance.days }}</div>
-              <div class="home-pill-v">Days supported</div>
-            </button>
-            <button class="home-pill home-pill-clickable" type="button" @click="openRosterPanel()">
-              <div class="home-pill-k">{{ atGlance.clients }}</div>
-              <div class="home-pill-v">Clients being seen</div>
-            </button>
-            <button
-              class="home-pill home-pill-clickable"
-              type="button"
-              :disabled="!canAccessSchedulingPanels"
-              :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
-              @click="openProvidersPanel"
-            >
-              <div class="home-pill-k">{{ atGlance.slots }}</div>
-              <div class="home-pill-v">Slots available</div>
-            </button>
-            <button class="home-pill home-pill-clickable" type="button" @click="openRosterPanel('pending')">
-              <div class="home-pill-k">{{ atGlance.pending }}</div>
-              <div class="home-pill-v">Pending clients</div>
-            </button>
-            <button class="home-pill home-pill-clickable" type="button" @click="openRosterPanel('waitlist')">
-              <div class="home-pill-k">{{ atGlance.waitlist }}</div>
-              <div class="home-pill-v">Waitlist clients</div>
-            </button>
-            <button class="home-pill home-pill-clickable" type="button" @click="setPortalMode('school_staff')">
-              <div class="home-pill-k">{{ atGlance.staff }}</div>
-              <div class="home-pill-v">School staff users</div>
-            </button>
+        <div class="home-hero">
+          <div class="home-greeting-card">
+            <div class="home-greeting-copy">
+              <h2 class="home-greeting-title">{{ homeGreeting }}</h2>
+              <p class="home-greeting-sub">Here’s what’s happening at {{ organizationDisplayName }} today.</p>
+            </div>
           </div>
+          <div class="home-snapshot" data-tour="school-home-snapshot">
+            <div class="home-snapshot-grid">
+              <button class="home-metric" type="button" @click="openNotificationsPanel">
+                <span class="home-metric-icon" aria-hidden="true">📣</span>
+                <span class="home-metric-value">{{ notificationsUnreadCount }}</span>
+                <span class="home-metric-label">Notifications</span>
+              </button>
+              <button
+                class="home-metric"
+                type="button"
+                :disabled="!canAccessSchedulingPanels"
+                :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+                @click="openDaysPanel"
+              >
+                <span class="home-metric-icon" aria-hidden="true">📅</span>
+                <span class="home-metric-value">{{ atGlance.days }}</span>
+                <span class="home-metric-label">Days supported</span>
+              </button>
+              <button class="home-metric" type="button" @click="openRosterPanel()">
+                <span class="home-metric-icon" aria-hidden="true">👥</span>
+                <span class="home-metric-value">{{ atGlance.clients }}</span>
+                <span class="home-metric-label">Clients being seen</span>
+              </button>
+              <button
+                class="home-metric"
+                type="button"
+                :disabled="!canAccessSchedulingPanels"
+                :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+                @click="openProvidersPanel"
+              >
+                <span class="home-metric-icon" aria-hidden="true">📋</span>
+                <span class="home-metric-value">{{ atGlance.slots }}</span>
+                <span class="home-metric-label">Slots available</span>
+              </button>
+              <button class="home-metric" type="button" @click="openRosterPanel('pending')">
+                <span class="home-metric-icon" aria-hidden="true">👤</span>
+                <span class="home-metric-value">{{ atGlance.pending }}</span>
+                <span class="home-metric-label">Pending clients</span>
+              </button>
+              <button class="home-metric" type="button" @click="openRosterPanel('waitlist')">
+                <span class="home-metric-icon" aria-hidden="true">⏱</span>
+                <span class="home-metric-value">{{ atGlance.waitlist }}</span>
+                <span class="home-metric-label">Waitlist clients</span>
+              </button>
+              <button class="home-metric" type="button" @click="setPortalMode('school_staff')">
+                <span class="home-metric-icon" aria-hidden="true">🏫</span>
+                <span class="home-metric-value">{{ atGlance.staff }}</span>
+                <span class="home-metric-label">School staff</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-sections-head">
+          <h3 class="home-sections-title">Choose a section</h3>
+          <p class="home-sections-sub muted">Open a workspace, or use the sidebar anytime.</p>
         </div>
 
         <div class="dashboard-card-grid" data-tour="school-home-cards">
@@ -500,7 +652,7 @@
             <div class="dash-card-title">Providers</div>
             <div class="dash-card-desc">View provider cards, profiles, and messages.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
             </div>
           </button>
 
@@ -525,7 +677,7 @@
             <div class="dash-card-title">Days</div>
             <div class="dash-card-desc">Choose a weekday and view schedules.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
             </div>
           </button>
 
@@ -542,7 +694,7 @@
             <div class="dash-card-title">Roster</div>
             <div class="dash-card-desc">View and sort the client roster.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
             </div>
           </button>
 
@@ -565,7 +717,7 @@
             <div class="dash-card-title">Skill Builders</div>
             <div class="dash-card-desc">After-school program groups, meetings, providers, and participants.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
             </div>
           </button>
 
@@ -582,7 +734,7 @@
             <div class="dash-card-title">Events</div>
             <div class="dash-card-desc">School events associated with this portal (canonical company events).</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
               <span v-if="schoolPortalEvents.length" class="dash-card-badge">{{ schoolPortalEvents.length }}</span>
             </div>
           </button>
@@ -600,7 +752,7 @@
             <div class="dash-card-title">School calendar</div>
             <div class="dash-card-desc">Month view of holidays, days off, and parent events for this school.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
             </div>
           </button>
 
@@ -617,7 +769,7 @@
             <div class="dash-card-title">School staff</div>
             <div class="dash-card-desc">Manage linked school staff accounts and requests.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
               <span v-if="Number(store.portalStats?.school_staff_count) >= 0" class="dash-card-badge">
                 {{ Number(store.portalStats?.school_staff_count || 0) }}
               </span>
@@ -637,7 +789,7 @@
             <div class="dash-card-title">Docs / Links</div>
             <div class="dash-card-desc">Shared calendars and school-wide reference docs/links.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
             </div>
           </button>
 
@@ -654,7 +806,7 @@
             <div class="dash-card-title">FAQ</div>
             <div class="dash-card-desc">Common questions and answers.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
             </div>
           </button>
 
@@ -673,7 +825,7 @@
               {{ notificationsNewestSnippet || 'School-wide updates and notifications.' }}
             </div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
               <span v-if="notificationsUnreadCount > 0" class="dash-card-badge dash-card-badge-pulse" :title="`${notificationsUnreadCount} unread`">
                 {{ notificationsUnreadCount }}
               </span>
@@ -693,7 +845,7 @@
             <div class="dash-card-title">Contact admin</div>
             <div class="dash-card-desc">Send a message to agency staff.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
             </div>
           </button>
 
@@ -713,7 +865,7 @@
               <span v-if="messagesUnreadCount > 0" class="dash-card-badge dash-card-badge-pulse" :title="`${messagesUnreadCount} unread`">
                 {{ messagesUnreadCount }}
               </span>
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
             </div>
           </button>
 
@@ -730,7 +882,7 @@
             <div class="dash-card-title">Digital forms</div>
             <div class="dash-card-desc">Replaces the paper intake packet. Share QR code or link for parents to complete forms.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
             </div>
           </button>
 
@@ -747,7 +899,7 @@
             <div class="dash-card-title">Upload packet</div>
             <div class="dash-card-desc">Upload a referral packet (no PHI exposed on portal).</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Upload</span>
+              <span class="dash-card-cta">Upload ›</span>
             </div>
           </button>
 
@@ -769,7 +921,7 @@
             <div class="dash-card-title">Manage school digital forms</div>
             <div class="dash-card-desc">Create or copy English/Spanish intake links for this portal only.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Open</span>
+              <span class="dash-card-cta">Open ›</span>
             </div>
           </router-link>
         </div>
@@ -1005,6 +1157,7 @@
           </div>
 
           <div v-else class="empty-state">Organization not loaded.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -3187,6 +3340,102 @@ const homeIconUrl = computed(() => {
   return toUploadsUrl(raw);
 });
 
+const SIDEBAR_COLLAPSE_KEY = 'schoolPortalSidebarCollapsed';
+const sidebarCollapsed = ref(false);
+const sidebarMobileOpen = ref(false);
+try {
+  sidebarCollapsed.value = localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === '1';
+} catch {
+  sidebarCollapsed.value = false;
+}
+
+const toggleSidebarCollapsed = () => {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSE_KEY, sidebarCollapsed.value ? '1' : '0');
+  } catch {
+    // ignore storage failures
+  }
+};
+
+const navigateSidebar = (action) => {
+  sidebarMobileOpen.value = false;
+  if (typeof action === 'function') action();
+};
+
+const portalUserFirstName = computed(() => {
+  const u = authStore.user || {};
+  const first = String(u.first_name || u.firstName || '').trim();
+  if (first) return first;
+  if (roleNorm.value === 'super_admin') return 'Admin';
+  const email = String(u.email || '').trim();
+  if (!email.includes('@')) return '';
+  const local = email.split('@')[0].replace(/[._]+/g, ' ').trim();
+  if (!local) return '';
+  if (local.toLowerCase() === 'superadmin') return 'Admin';
+  return local.charAt(0).toUpperCase() + local.slice(1);
+});
+
+const homeGreeting = computed(() => {
+  const hour = new Date().getHours();
+  const part = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const name = portalUserFirstName.value || 'there';
+  return `${part}, ${name}!`;
+});
+
+const portalUserDisplayName = computed(() => {
+  const u = authStore.user || {};
+  const first = String(u.first_name || u.firstName || '').trim();
+  const last = String(u.last_name || u.lastName || '').trim();
+  if (first && last) return `${first} ${last.charAt(0)}.`;
+  if (first) return first;
+  if (roleNorm.value === 'super_admin') return 'Super Admin';
+  return portalUserFirstName.value || 'User';
+});
+
+const portalUserInitials = computed(() => {
+  const u = authStore.user || {};
+  const f = String(u.first_name || u.firstName || '').charAt(0);
+  const l = String(u.last_name || u.lastName || '').charAt(0);
+  const initials = `${f}${l}`.toUpperCase();
+  if (initials) return initials;
+  if (roleNorm.value === 'super_admin') return 'SA';
+  const name = portalUserFirstName.value;
+  if (name) return name.slice(0, 2).toUpperCase();
+  return 'U';
+});
+
+const portalUserRoleLabel = computed(() => {
+  const r = roleNorm.value;
+  if (r === 'school_staff') return 'School staff';
+  if (r === 'super_admin') return 'Super Admin';
+  if (r === 'admin') return 'Admin';
+  if (r === 'provider_plus') return 'Provider+';
+  if (r === 'provider') return 'Provider';
+  if (r === 'clinical_practice_assistant') return 'CPA';
+  if (r === 'staff') return 'Staff';
+  if (r === 'support') return 'Support';
+  return r ? r.replace(/_/g, ' ') : 'User';
+});
+
+const portalSectionLabel = computed(() => {
+  switch (portalMode.value) {
+    case 'home': return 'Overview';
+    case 'providers': return 'Providers';
+    case 'roster': return isProvider.value ? 'My roster' : 'Roster';
+    case 'skills': return 'Skill Builders';
+    case 'school_staff': return 'School staff';
+    case 'messages': return 'Messages';
+    case 'days': return 'Days / Schedule';
+    case 'events': return 'Events';
+    case 'calendar': return 'School calendar';
+    case 'documents': return 'Docs / Links';
+    case 'faq': return 'FAQ';
+    case 'notifications': return 'Notifications';
+    default: return 'School Portal';
+  }
+});
+
 const organizationId = computed(() => {
   return organizationStore.organizationContext?.id || 
          organizationStore.currentOrganization?.id || 
@@ -3639,17 +3888,405 @@ watch(() => store.selectedWeekday, async (weekday) => {
 
 <style scoped>
 .school-portal {
+  --sp-sidebar-width: 200px;
+  --sp-sidebar-collapsed-width: 68px;
   min-height: 100vh;
-  background: var(--bg-alt);
-  padding: 32px;
+  background: var(--bg-alt, #f4f6f8);
+  display: flex;
+  align-items: stretch;
+  padding: 0;
 }
 
-.portal-header {
-  margin-bottom: 32px;
+.sp-sidebar-backdrop {
+  display: none;
+}
+
+.sp-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  width: var(--sp-sidebar-width);
+  flex: 0 0 var(--sp-sidebar-width);
+  display: flex;
+  flex-direction: column;
   background: var(--primary);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 14px;
-  padding: 18px 20px;
+  color: var(--header-text-color, #fff);
+  z-index: 40;
+  transition: width 0.18s ease, flex-basis 0.18s ease;
+  overflow: hidden;
+  border-radius: 0 18px 18px 0;
+  box-shadow: 4px 0 24px rgba(15, 23, 42, 0.08);
+}
+
+.school-portal.sidebar-collapsed .sp-sidebar,
+.sp-sidebar.collapsed {
+  width: var(--sp-sidebar-collapsed-width);
+  flex-basis: var(--sp-sidebar-collapsed-width);
+}
+
+.sp-sidebar-brand {
+  padding: 18px 16px 10px;
+  display: flex;
+  justify-content: center;
+}
+
+.sp-sidebar-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 1.25rem;
+}
+
+.sp-sidebar-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.sp-sidebar-nav {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sp-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 9px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s ease;
+  border-left: 3px solid transparent;
+}
+
+.sp-nav-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sp-nav-item.active {
+  background: rgba(255, 255, 255, 0.16);
+  border-left-color: rgba(255, 255, 255, 0.85);
+}
+
+.sp-nav-item.disabled,
+.sp-nav-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sp-nav-icon {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border-radius: 7px;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  overflow: visible;
+  font-size: 11px;
+  font-weight: 800;
+  opacity: 0.95;
+}
+
+.sp-nav-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+
+.sp-nav-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.95;
+}
+
+.sp-nav-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.sp-nav-badge.pulse {
+  animation: homePillPulse 1.35s ease-in-out infinite;
+}
+
+.school-portal.sidebar-collapsed .sp-nav-label,
+.sp-sidebar.collapsed .sp-nav-label,
+.school-portal.sidebar-collapsed .sp-sidebar-school-meta,
+.sp-sidebar.collapsed .sp-sidebar-school-meta {
+  display: none;
+}
+
+.school-portal.sidebar-collapsed .sp-nav-item,
+.sp-sidebar.collapsed .sp-nav-item {
+  justify-content: center;
+  padding: 10px 8px;
+}
+
+.sp-sidebar-footer {
+  padding: 12px 14px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sp-sidebar-school-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sp-sidebar-footer-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  flex: 0 0 40px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 1rem;
+}
+
+.sp-sidebar-footer-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.sp-sidebar-school-meta {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.sp-sidebar-school-name {
+  font-weight: 800;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.school-portal.sidebar-collapsed .sp-sidebar-school-row,
+.sp-sidebar.collapsed .sp-sidebar-school-row {
+  justify-content: center;
+}
+
+.school-portal.sidebar-collapsed .sp-sidebar-footer-logo,
+.sp-sidebar.collapsed .sp-sidebar-footer-logo {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+  border-radius: 10px;
+}
+
+.sp-sidebar-collapse {
+  align-self: flex-start;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+
+.sp-sidebar-collapse:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.school-portal.sidebar-collapsed .sp-sidebar-collapse,
+.sp-sidebar.collapsed .sp-sidebar-collapse {
+  align-self: center;
+}
+
+.sp-sidebar.locked .sp-nav-item {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+.sp-sidebar.locked .sp-nav-item[data-tour="school-nav-docs"] {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+.sp-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 28px 36px;
+}
+
+.sp-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.sp-mobile-menu-btn {
+  display: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+
+.sp-topbar-titles {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.sp-topbar-titles h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--primary);
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.sp-topbar-subtitle {
+  margin: 3px 0 0;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
+.sp-topbar-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+}
+
+.sp-marketing-btn {
+  border-radius: 999px !important;
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+}
+
+.sp-user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px 5px 5px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.sp-user-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--header-text-color, #fff);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sp-user-meta {
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.sp-user-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sp-user-role {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.sp-marquee {
+  margin-bottom: 12px;
+}
+
+.school-selector-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.school-selector-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.school-selector-wrap .school-selector {
+  padding: 6px 10px;
+  font-size: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-primary);
+  min-width: 160px;
+  cursor: pointer;
+}
+
+/* legacy header tokens kept for any remaining nested use */
+.portal-header {
+  display: none;
 }
 
 .compliance-corner-btn {
@@ -3709,83 +4346,6 @@ watch(() => store.selectedWeekday, async (weekday) => {
   100% { transform: translateX(-50%); }
 }
 
-.portal-header h1 {
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--header-text-color, #fff);
-  margin: 0 0 8px 0;
-}
-
-.portal-header-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.portal-header-left {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-}
-
-.school-selector-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.school-selector-label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--header-text-color, rgba(255, 255, 255, 0.9));
-  white-space: nowrap;
-}
-.school-selector-wrap .school-selector {
-  padding: 6px 10px;
-  font-size: 0.875rem;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.15);
-  color: var(--header-text-color, #fff);
-  min-width: 160px;
-  cursor: pointer;
-}
-.school-selector-wrap .school-selector:hover {
-  background: rgba(255, 255, 255, 0.22);
-}
-.school-selector-wrap .school-selector:focus {
-  outline: 2px solid rgba(255, 255, 255, 0.5);
-  outline-offset: 2px;
-}
-
-.portal-header-right {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex: 0 0 auto;
-}
-.school-logo {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.20);
-  background: rgba(255, 255, 255, 0.10);
-  overflow: hidden;
-  flex: 0 0 auto;
-}
-.school-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.portal-subtitle {
-  font-size: 16px;
-  color: var(--header-text-muted, rgba(255,255,255,0.85));
-  margin: 0;
-}
 
 .dash-card-badge {
   margin-left: auto;
@@ -3804,35 +4364,62 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 
 .dash-card-default-roster {
-  border-color: rgba(16, 185, 129, 0.45);
-  background: rgba(16, 185, 129, 0.08);
+  border-color: color-mix(in srgb, var(--primary) 35%, #e5e7eb);
+  background: color-mix(in srgb, var(--primary) 5%, #fff);
 }
 
 .home-roster {
-  margin-top: 18px;
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
+  margin-top: 20px;
+  padding: 16px 16px 8px;
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 
 .portal-content {
-  background: white;
-  border-radius: 12px;
-  padding: 32px;
-  box-shadow: var(--shadow);
-  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 18px;
+  padding: 18px 22px 26px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--border, #e5e7eb);
+  flex: 1 1 auto;
+}
+
+.portal-content.is-home {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
 }
 
 .top-row {
   display: flex;
-  align-items: start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 14px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.portal-content.is-home .top-row {
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 14px;
+  margin-bottom: 14px;
 }
 .top-left {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  min-width: 0;
+}
+.section-kicker {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .muted-small {
   color: var(--text-secondary);
@@ -3843,7 +4430,19 @@ watch(() => store.selectedWeekday, async (weekday) => {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.top-actions-utils,
+.top-actions-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.top-actions-utils {
+  padding-right: 10px;
+  border-right: 1px solid var(--border, #e5e7eb);
 }
 .school-portal-dark-mode-toggle {
   display: inline-flex;
@@ -3920,84 +4519,6 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .main-layout {
   display: block;
 }
-.main-layout.with-rail {
-  display: grid;
-  grid-template-columns: 84px 1fr;
-  gap: 18px;
-  align-items: start;
-}
-.nav-rail {
-  position: sticky;
-  top: 12px;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  padding: 4px 0;
-  display: grid;
-  justify-items: center;
-  gap: 12px;
-}
-.nav-item {
-  border: none;
-  border-radius: 16px;
-  background: transparent;
-  padding: 0;
-  display: grid;
-  gap: 6px;
-  place-items: center;
-  cursor: pointer;
-}
-.nav-item:hover {
-  transform: translateY(-1px);
-}
-.nav-item.disabled,
-.nav-item:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  transform: none;
-}
-.nav-item.disabled .nav-icon,
-.nav-item:disabled .nav-icon {
-  filter: grayscale(0.95);
-}
-.nav-item.active {
-  transform: none;
-}
-.nav-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
-  border: 1px solid var(--border);
-  background: white;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  font-weight: 900;
-  color: var(--text-primary);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.02);
-}
-.nav-item:hover .nav-icon {
-  border-color: rgba(79, 70, 229, 0.35);
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.10);
-}
-.nav-item.active .nav-icon {
-  border-color: rgba(79, 70, 229, 0.55);
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
-}
-.nav-icon-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.nav-label {
-  font-size: 10px;
-  font-weight: 800;
-  color: var(--text-secondary);
-  line-height: 1;
-  letter-spacing: 0.02em;
-}
 .main-content {
   min-width: 0;
 }
@@ -4012,16 +4533,6 @@ watch(() => store.selectedWeekday, async (weekday) => {
   border: 1px solid rgba(245, 158, 11, 0.45);
   background: rgba(245, 158, 11, 0.12);
   color: #7c2d12;
-}
-
-.nav-rail.locked .nav-item {
-  pointer-events: none;
-  opacity: 0.45;
-}
-
-.nav-rail.locked .nav-item[data-tour="school-nav-docs"] {
-  pointer-events: auto;
-  opacity: 1;
 }
 
 .days-top-wrap {
@@ -4071,99 +4582,132 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 
 .home {
-  padding: 6px 0;
+  padding: 0;
+}
+
+.home-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.home-greeting-card {
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.home-greeting-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.home-greeting-sub {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.35;
 }
 
 .home-snapshot {
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
-  margin-bottom: 14px;
-}
-.home-snapshot-title {
-  font-weight: 800;
-  color: var(--text-primary);
-  margin-bottom: 10px;
-}
-.home-snapshot-grid {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: nowrap;
-  overflow: auto;
-  padding-bottom: 2px;
-}
-.home-pill {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 10px;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 10px;
-  white-space: nowrap;
-  flex: 0 0 auto;
+  margin: 0;
+  min-width: 0;
 }
 
-.home-pill-clickable {
-  cursor: pointer;
+.home-snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.home-metric {
   appearance: none;
   font: inherit;
   text-align: left;
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 6px;
+  row-gap: 2px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 
-.home-pill-clickable:hover {
-  border-color: var(--primary);
+.home-metric:hover {
+  border-color: color-mix(in srgb, var(--primary) 45%, #cbd5e1);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
 }
-.home-pill-clickable:disabled {
+
+.home-metric:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-}
-.home-pill-k {
-  font-weight: 900;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-.home-pill-k-text {
-  font-weight: 1000;
-}
-.home-pill-v {
-  margin-top: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
+  transform: none;
+  box-shadow: none;
 }
 
-.home-pill-notifications {
-  border-color: rgba(47, 143, 131, 0.45);
-  background: rgba(47, 143, 131, 0.08);
-  align-items: center;
+.home-metric-icon {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.7;
+  justify-self: end;
+  align-self: start;
+}
+
+.home-metric-value {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  align-self: end;
+}
+
+.home-metric-label {
+  grid-column: 1 / span 2;
+  grid-row: 2;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1.25;
+}
+
+.home-sections-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 12px;
-  min-width: 320px;
-  max-width: 680px;
+  margin: 4px 2px 12px;
+  flex-wrap: wrap;
 }
-.home-pill-v-notifications {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 520px;
+.home-sections-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-primary);
 }
-.home-pill-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: rgba(47, 143, 131, 0.16);
-  color: #0f3f39;
-  font-weight: 1000;
-  border: 1px solid rgba(47, 143, 131, 0.35);
+.home-sections-sub {
+  margin: 0;
+  font-size: 12.5px;
 }
-.home-pill-badge.pulse {
-  animation: homePillPulse 1.35s ease-in-out infinite;
-}
+
 @keyframes homePillPulse {
   0% { transform: scale(1); box-shadow: 0 0 0 rgba(47, 143, 131, 0.0); }
   55% { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(47, 143, 131, 0.12); }
@@ -4177,21 +4721,26 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 .dash-card {
   text-align: left;
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 18px 18px;
+  background: #fff;
+  border: 1px solid var(--border, #e8eaed);
+  border-radius: 14px;
+  padding: 14px;
   cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
   display: grid;
-  grid-template-columns: 92px 1fr;
-  grid-template-rows: auto auto 1fr;
-  gap: 8px 16px;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 4px;
   align-items: start;
+  text-decoration: none;
+  color: inherit;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 .dash-card:hover {
-  border-color: var(--primary);
-  box-shadow: var(--shadow);
+  border-color: color-mix(in srgb, var(--primary) 45%, #cbd5e1);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
 }
 .dash-card.disabled,
 .dash-card:disabled {
@@ -4199,55 +4748,75 @@ watch(() => store.selectedWeekday, async (weekday) => {
   cursor: not-allowed;
   border-color: var(--border);
   box-shadow: none;
+  transform: none;
 }
 .dash-card-icon {
-  width: 92px;
-  height: 92px;
-  border-radius: 22px;
-  border: 1px solid var(--border);
-  background: var(--bg-alt);
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, #e5e7eb);
+  background: color-mix(in srgb, var(--primary) 7%, #fff);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  grid-row: 1 / span 3;
+  grid-row: 1 / span 2;
   grid-column: 1;
+  align-self: start;
 }
 .dash-card-icon-img {
-  width: 64px;
-  height: 64px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
 }
 .dash-card-icon-fallback {
-  width: 64px;
-  height: 64px;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-weight: 900;
-  font-size: 18px;
-  color: var(--text-secondary);
+  font-size: 13px;
+  color: var(--primary);
 }
 .dash-card-title {
   font-weight: 800;
   color: var(--text-primary);
-  margin-bottom: 6px;
+  margin: 0;
+  grid-row: 1;
   grid-column: 2;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  min-width: 0;
+  align-self: center;
 }
 .dash-card-desc {
   color: var(--text-secondary);
-  font-size: 13px;
-  margin-bottom: 10px;
-  grid-column: 2;
+  font-size: 12px;
+  margin: 0;
+  grid-row: 2;
+  grid-column: 2 / span 2;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .dash-card-meta {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  grid-column: 2;
+  gap: 6px;
+  grid-row: 1;
+  grid-column: 3;
+  margin: 0;
+  align-self: center;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .dash-card-cta {
   font-size: 12px;
-  color: var(--text-secondary);
+  font-weight: 700;
+  color: var(--primary);
 }
 
 .dash-card-coming-soon {
@@ -4554,30 +5123,118 @@ watch(() => store.selectedWeekday, async (weekday) => {
   font-size: 13px;
 }
 
+@media (max-width: 1280px) {
+  .home-snapshot-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
 @media (max-width: 1100px) {
   .dashboard-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .home-snapshot-grid { flex-wrap: wrap; }
+  .home-snapshot-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .top-actions-utils {
+    border-right: none;
+    padding-right: 0;
+  }
+}
+@media (max-width: 900px) {
+  .sp-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 45;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+  .school-portal.sidebar-mobile-open .sp-sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .sp-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    width: min(280px, 86vw);
+    flex-basis: auto;
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.28);
+  }
+  .school-portal.sidebar-collapsed .sp-sidebar,
+  .sp-sidebar.collapsed {
+    width: min(280px, 86vw);
+    flex-basis: auto;
+  }
+  .school-portal.sidebar-mobile-open .sp-sidebar {
+    transform: translateX(0);
+  }
+  .school-portal.sidebar-collapsed .sp-nav-label,
+  .sp-sidebar.collapsed .sp-nav-label,
+  .school-portal.sidebar-collapsed .sp-sidebar-school-meta,
+  .sp-sidebar.collapsed .sp-sidebar-school-meta {
+    display: block;
+  }
+  .sp-mobile-menu-btn {
+    display: inline-grid;
+    place-items: center;
+  }
+  .sp-main {
+    padding: 14px 14px 24px;
+  }
+  .sp-topbar-titles h1 {
+    font-size: 1.3rem;
+  }
+  .sp-user-meta {
+    display: none;
+  }
 }
 @media (max-width: 760px) {
   .dashboard-card-grid {
     grid-template-columns: 1fr;
   }
-  .home-snapshot-grid { flex-wrap: wrap; }
-  .main-layout.with-rail {
-    grid-template-columns: 1fr;
+  .home-snapshot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .nav-rail {
-    position: static;
-    padding: 0;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-    grid-auto-flow: column;
-    overflow: auto;
+  .top-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
-  .nav-label {
-    display: none;
+  .sp-topbar {
+    flex-wrap: wrap;
   }
+}
+
+:global([data-theme="dark"]) .school-portal {
+  background: var(--bg-alt, #0f172a);
+}
+:global([data-theme="dark"]) .portal-content,
+:global([data-theme="dark"]) .portal-content.is-home .top-row,
+:global([data-theme="dark"]) .home-metric,
+:global([data-theme="dark"]) .dash-card,
+:global([data-theme="dark"]) .sp-user-chip,
+:global([data-theme="dark"]) .home-greeting-card,
+:global([data-theme="dark"]) .home-roster {
+  background: var(--card-bg, #111827);
+  border-color: var(--border, #334155);
+}
+:global([data-theme="dark"]) .portal-content.is-home {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+:global([data-theme="dark"]) .sp-mobile-menu-btn {
+  background: var(--card-bg, #111827);
+  color: var(--text-primary, #e2e8f0);
+}
+:global([data-theme="dark"]) .school-selector-wrap .school-selector {
+  background: var(--card-bg, #111827);
+  color: var(--text-primary, #e2e8f0);
 }
 
 .blocking-splash {

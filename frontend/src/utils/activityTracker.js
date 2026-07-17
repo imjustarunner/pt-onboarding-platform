@@ -22,6 +22,7 @@
 import { unref } from 'vue';
 import { useAuthStore } from '../store/auth';
 import { useSessionLockStore } from '../store/sessionLock';
+import { usePresenceSessionStore } from '../store/presenceSession';
 import api, { isApiRateLimited } from '../services/api';
 import { useAgencyStore } from '../store/agency';
 import {
@@ -32,6 +33,7 @@ import {
   rememberSessionEndedContext,
   markSessionEndedRedirecting
 } from './sessionTimeoutBranding';
+import { isPrivilegedPresenceRole } from './presenceStatus';
 
 /** Presence cadence when the user was active recently (agency setting can raise this). */
 const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60;
@@ -65,6 +67,9 @@ let lastPresenceSentAt = 0;
 let lastSentPhase = null;
 let isTracking = false;
 let timeoutInFlight = false;
+/** When set (ISO), Timedown idle clock is paused until this time (privileged away status). */
+let sessionExtendUntilMs = null;
+let extendWatchTimer = null;
 
 /** Runtime timeouts from agency settings (fall back to branding defaults). */
 let idleBeforeTimedownMs = IDLE_BEFORE_TIMEDOWN_MS;
@@ -93,9 +98,27 @@ function currentSessionPhase() {
   }
 }
 
+function isSessionExtendActive() {
+  if (!sessionExtendUntilMs) return false;
+  if (Date.now() >= sessionExtendUntilMs) {
+    // Expired but timer may have been lost (HMR / tab freeze) — clear so Timedown can run.
+    sessionExtendUntilMs = null;
+    if (extendWatchTimer) {
+      clearTimeout(extendWatchTimer);
+      extendWatchTimer = null;
+    }
+    return false;
+  }
+  return true;
+}
+
 function canSendHeartbeat() {
   if (isApiRateLimited()) return false;
-  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return false;
+  // Away/session-extend: keep presence heartbeats even if the tab is hidden
+  // so privileged users stay "Away" instead of flipping to Offline.
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden' && !isSessionExtendActive()) {
+    return false;
+  }
   return true;
 }
 
@@ -232,6 +255,7 @@ function fireTimedown() {
   const auth = useAuthStore();
   if (!isTracking || !auth.isAuthenticated) return;
   if (store.warningActive || store.isLocked) return;
+  if (isSessionExtendActive()) return;
 
   if (warningTimer) {
     clearTimeout(warningTimer);
@@ -241,6 +265,16 @@ function fireTimedown() {
   pendingPassive = false;
   // Phase change → force ledger tick so timedown time accrues correctly.
   sendPlatformSessionHeartbeat({ force: true });
+
+  // Privileged roles: ask for status instead of only "I'm still here"
+  try {
+    const presenceSession = usePresenceSessionStore();
+    if (presenceSession.shouldUseStatusPrompt(auth.user?.role)) {
+      presenceSession.openTimedownPrompt();
+    }
+  } catch {
+    /* store may not be ready */
+  }
 
   store.showWarning(getTimedownSeconds(), () => {
     handleTimeout();
@@ -257,6 +291,7 @@ function resetTimer() {
   if (sessionLockStore.warningActive) return;
   if (sessionLockStore.isLocked) return;
   if (!isTracking) return;
+  if (isSessionExtendActive()) return;
 
   // Schedule from lastActivityTime so background throttling + resume stay accurate.
   const elapsed = Math.max(0, Date.now() - lastActivityTime);
@@ -281,6 +316,17 @@ function resetTimer() {
 /** Wall-clock backup: browsers throttle setTimeout in background tabs. */
 function checkIdleWatchdog() {
   if (!isTracking || timeoutInFlight) return;
+  // Recover a stuck Away pause if the expire timer was lost.
+  if (sessionExtendUntilMs && Date.now() < sessionExtendUntilMs && !extendWatchTimer) {
+    const delay = Math.max(1000, sessionExtendUntilMs - Date.now());
+    extendWatchTimer = setTimeout(() => {
+      extendWatchTimer = null;
+      sessionExtendUntilMs = null;
+      lastActivityTime = Date.now() - getWarningDelayMs();
+      fireTimedown();
+    }, delay);
+  }
+  if (isSessionExtendActive()) return;
   const store = useSessionLockStore();
   if (store.warningActive || store.isLocked) return;
   if (Date.now() - lastActivityTime >= getWarningDelayMs()) {
@@ -326,10 +372,29 @@ function onVisibilityChange() {
   if (!isTracking) return;
   if (document.visibilityState !== 'visible') return;
 
-  // Tab visible again — do NOT treat focus as activity. Re-evaluate idle wall clock.
   const store = useSessionLockStore();
-  if (store.warningActive) return;
 
+  // If Timedown already hit 0 while this tab was hidden, grant a visible grace
+  // window instead of logging out before the user can see any modal.
+  if (store.warningActive) {
+    const grantedGrace = store.onTabBecameVisible();
+    if (grantedGrace) {
+      try {
+        const auth = useAuthStore();
+        const presenceSession = usePresenceSessionStore();
+        if (presenceSession.shouldUseStatusPrompt(auth.user?.role)) {
+          presenceSession.openTimedownPrompt();
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    sendPresenceHeartbeat({ force: true });
+    sendPlatformSessionHeartbeat({ force: true });
+    return;
+  }
+
+  // Tab visible again — do NOT treat focus as activity. Re-evaluate idle wall clock.
   if (Date.now() - lastActivityTime >= getWarningDelayMs()) {
     fireTimedown();
   } else {
@@ -356,7 +421,8 @@ async function sendPresenceHeartbeat({ force = false } = {}) {
   if (!force && lastPresenceSentAt && Date.now() - lastPresenceSentAt < presenceIntervalMs()) return;
 
   const roleNorm = String(authStore.user?.role || '').toLowerCase();
-  if (!roleNorm || roleNorm === 'school_staff') return;
+  // school_staff send presence heartbeats so school-scoped DMs show who is online
+  if (!roleNorm || roleNorm === 'client_guardian' || roleNorm === 'kiosk') return;
 
   const agencyId = agencyStore.currentAgency?.id || null;
   try {
@@ -388,8 +454,7 @@ function runHeartbeatScheduler() {
  */
 function isAdminRole() {
   try {
-    const role = String(useAuthStore().user?.role || '').toLowerCase();
-    return role === 'admin' || role === 'super_admin';
+    return isPrivilegedPresenceRole(useAuthStore().user?.role);
   } catch {
     return false;
   }
@@ -433,6 +498,15 @@ export async function startActivityTracking({ force = false } = {}) {
     /* ignore */
   }
 
+  // Never trust a leftover local Away pause alone — that was freezing Timedown for up to 2h
+  // after a prior status choice even when the user thought they were Active.
+  clearSessionExtendPause();
+  try {
+    usePresenceSessionStore().clearLocalExtend();
+  } catch {
+    /* ignore */
+  }
+
   try {
     const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
     useSessionLockStore().setLockConfig(res.data || null);
@@ -447,11 +521,25 @@ export async function startActivityTracking({ force = false } = {}) {
   document.addEventListener('visibilitychange', onVisibilityChange);
   window.addEventListener('storage', onStorageActivity);
 
+  // Re-apply Away pause only when the server still has an active session extend.
+  try {
+    const presenceSession = usePresenceSessionStore();
+    const data = await presenceSession.refreshFromServer();
+    if (data?.session_extend_active && data?.presence_session_extend_until) {
+      pauseIdleForSessionExtend(data.presence_session_extend_until);
+    } else {
+      clearSessionExtendPause();
+    }
+  } catch {
+    clearSessionExtendPause();
+  }
+
   resetTimer();
   sendPresenceHeartbeat({ force: true });
   sendPlatformSessionHeartbeat({ forceMeaningful: true, force: true });
   heartbeatTimer = setInterval(runHeartbeatScheduler, HEARTBEAT_SCHEDULER_MS);
   idleWatchdog = setInterval(checkIdleWatchdog, IDLE_WATCHDOG_MS);
+  attachIdleTimeoutDebugGlobals();
 }
 
 export function stopActivityTracking({ dismissWarning: shouldDismiss = true } = {}) {
@@ -460,6 +548,7 @@ export function stopActivityTracking({ dismissWarning: shouldDismiss = true } = 
     return;
   }
   isTracking = false;
+  clearSessionExtendPause();
 
   MEANINGFUL_EVENTS.forEach((event) => document.removeEventListener(event, onMeaningfulActivity, true));
   PASSIVE_EVENTS.forEach((event) => document.removeEventListener(event, onPassiveActivity, true));
@@ -506,6 +595,102 @@ export function reportTimedownDismissed() {
   sendPlatformSessionHeartbeat({ forceMeaningful: true, force: true });
 }
 
+/**
+ * Pause Timedown while a privileged away status is active (max 2h).
+ * When the window ends, re-open the status / Timedown prompt.
+ * Idempotent for the same until-time so presence polls do not keep resetting the idle clock.
+ */
+export function pauseIdleForSessionExtend(isoUntil) {
+  const ms = isoUntil ? new Date(isoUntil).getTime() : NaN;
+  const maxUntil = Date.now() + 2 * 60 * 60 * 1000 + 5000;
+  if (!Number.isFinite(ms) || ms <= Date.now() || ms > maxUntil) {
+    clearSessionExtendPause({ reschedule: true });
+    return;
+  }
+  // Same window already armed — do not touch lastActivityTime (chat polls every ~20s).
+  if (sessionExtendUntilMs === ms && extendWatchTimer) {
+    return;
+  }
+  sessionExtendUntilMs = ms;
+  if (warningTimer) {
+    clearTimeout(warningTimer);
+    warningTimer = null;
+  }
+  if (extendWatchTimer) {
+    clearTimeout(extendWatchTimer);
+    extendWatchTimer = null;
+  }
+  const delay = Math.max(1000, ms - Date.now());
+  extendWatchTimer = setTimeout(() => {
+    extendWatchTimer = null;
+    sessionExtendUntilMs = null;
+    try {
+      usePresenceSessionStore().clearLocalExtend();
+    } catch {
+      /* ignore */
+    }
+    // Extension ended — ask again (or Timedown)
+    lastActivityTime = Date.now() - getWarningDelayMs();
+    fireTimedown();
+  }, delay);
+  // Keep away presence fresh
+  sendPresenceHeartbeat({ force: true });
+}
+
+export function clearSessionExtendPause({ reschedule = false } = {}) {
+  sessionExtendUntilMs = null;
+  if (extendWatchTimer) {
+    clearTimeout(extendWatchTimer);
+    extendWatchTimer = null;
+  }
+  if (reschedule && isTracking) resetTimer();
+}
+
+/**
+ * Console/dev helper: clear Away pause and open Timedown immediately.
+ * Also available as window.__forceTimedown() after tracking starts.
+ */
+export function forceTimedownNow() {
+  try {
+    usePresenceSessionStore().clearLocalExtend();
+  } catch {
+    /* ignore */
+  }
+  clearSessionExtendPause();
+  try {
+    useSessionLockStore().dismissWarning();
+  } catch {
+    /* ignore */
+  }
+  lastActivityTime = Date.now() - getWarningDelayMs() - 1000;
+  try {
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
+  } catch {
+    /* ignore */
+  }
+  fireTimedown();
+  return getIdleTimeoutDebug();
+}
+
+function attachIdleTimeoutDebugGlobals() {
+  if (typeof window === 'undefined') return;
+  window.__getIdleTimeoutDebug = getIdleTimeoutDebug;
+  window.__forceTimedown = forceTimedownNow;
+  window.__clearSessionExtendPause = () => {
+    try {
+      usePresenceSessionStore().clearLocalExtend();
+    } catch {
+      /* ignore */
+    }
+    clearSessionExtendPause({ reschedule: true });
+    return getIdleTimeoutDebug();
+  };
+}
+
+export function getSessionExtendUntilMs() {
+  return sessionExtendUntilMs;
+}
+
 export async function refetchSessionLockConfig() {
   try {
     const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
@@ -528,11 +713,23 @@ export function getIdleTimeoutDebug() {
     lastLedgerSentAt,
     lastPresenceSentAt,
     idleElapsedMs: Date.now() - lastActivityTime,
+    sessionExtendUntilMs,
+    sessionExtendActive: isSessionExtendActive(),
+    sessionExtendRemainingSec: sessionExtendUntilMs
+      ? Math.max(0, Math.round((sessionExtendUntilMs - Date.now()) / 1000))
+      : 0,
     warningActive: (() => {
       try {
         return useSessionLockStore().warningActive;
       } catch {
         return false;
+      }
+    })(),
+    warningSecondsLeft: (() => {
+      try {
+        return useSessionLockStore().warningSecondsLeft;
+      } catch {
+        return null;
       }
     })()
   };

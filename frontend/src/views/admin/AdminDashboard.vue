@@ -82,7 +82,7 @@ onMounted(() => {
   api.post('/auth/activity-log', {
     actionType: 'admin_dashboard_view',
     metadata: { dashboardType, path: '/admin', agencyId }
-  }).catch(() => {});
+  }, { skipGlobalLoading: true }).catch(() => {});
 });
 
 const goModernPlatform = () => {

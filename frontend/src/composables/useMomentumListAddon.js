@@ -24,7 +24,7 @@ export function useMomentumListAddon(agencyIdRef) {
     }
     loading.value = true;
     try {
-      const res = await api.get(`/billing/${agencyId}/addons`);
+      const res = await api.get(`/billing/${agencyId}/addons`, { skipGlobalLoading: true });
       const enabled = Boolean(res.data?.momentumList);
       cache.set(agencyId, enabled);
       momentumListEnabled.value = enabled;

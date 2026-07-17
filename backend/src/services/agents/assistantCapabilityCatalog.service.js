@@ -460,7 +460,7 @@ function catalogEntries() {
   return [
     {
       id: 'workspace_open',
-      audience: ['provider_like', 'admin_like'],
+      audience: ['provider_like', 'admin_like', 'general'],
       group: 'Schedule and meetings',
       prompt: 'Open my workspace for today',
       requiredToolsAll: ['openTodaysWorkspace'],
@@ -469,14 +469,34 @@ function catalogEntries() {
         'what is going on today',
         'show todays active sessions',
         'open my events for today',
-        'whats happening right now in my workspace'
+        'whats happening right now in my workspace',
+        'what my day',
+        "what's on my agenda",
+        'whats on my schedule today'
       ],
-      matcher: (lower, allowedTools) =>
-        allowedTools.has('openTodaysWorkspace') &&
-        (
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('openTodaysWorkspace')) return false;
+        if (/\b(cancel|clear|wipe|kill)\b/.test(lower) && /\b(day|meetings?)\b/.test(lower)) return false;
+        if (/\b(handbook|polic(?:y|ies)|document|pdf)\b/.test(lower)) return false;
+        // Telegraphic: "what my day", "my agenda", "todays schedule"
+        if (/^(what(?:'?s|s)?\s+)?(is\s+)?(on\s+)?(my\s+)?(day|agenda|schedule|calendar)\??$/.test(lower)) {
+          return true;
+        }
+        if (/\b(what(?:'?s|s)?\s+(on\s+)?)?(my\s+)?(day|agenda)\b/.test(lower)) return true;
+        if (
+          /\b(what|whats|what's|show|open|list)\b/.test(lower) &&
+          /\b(my\s+)?(day|agenda|schedule|calendar|workspace)\b/.test(lower)
+        ) {
+          return true;
+        }
+        if (/\b(today'?s?\s+(agenda|schedule|events?|meetings?|workspace)|schedule\s+for\s+today)\b/.test(lower)) {
+          return true;
+        }
+        return (
           /\b(workspace|active events?|what.*(?:active|going on|happening) (?:now|today|right now))\b/.test(lower) ||
           (/\bopen.*today/.test(lower) && /\b(events?|sessions?|meetings?)\b/.test(lower))
-        ),
+        );
+      },
       buildIntent: (lower) => {
         const dateHint = parseDateHintFromPrompt(lower);
         const today = new Date().toISOString().slice(0, 10);
@@ -747,6 +767,42 @@ function catalogEntries() {
         intent: 'training_kb_search',
         capabilityId: 'training_kb_search',
         toolCalls: [{ name: 'searchTrainingKnowledgeBase', args: { query: lower.slice(0, 200), limit: 5 } }]
+      })
+    },
+    {
+      id: 'team_presence',
+      audience: ['provider_like', 'admin_like', 'general'],
+      group: 'Availability',
+      prompt: 'Who is available on my team right now?',
+      requiredToolsAll: ['listTeamPresence'],
+      subtitleTag: 'live presence',
+      semanticExamples: [
+        'who is online',
+        'anyone available right now',
+        'who is around on the team',
+        'show me team presence',
+        'who is free right now'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('listTeamPresence')) return false;
+        if (/\bintake\b/.test(lower)) return false;
+        if (/\b(handbook|polic(?:y|ies)|document|pdf)\b/.test(lower)) return false;
+        if (/\b(who'?s\s+online|who\s+is\s+online|team\s+presence)\b/.test(lower)) return true;
+        if (
+          /\b(who|anyone|anybody)\b/.test(lower) &&
+          /\b(available|online|idle|away|around|free|here|reachable)\b/.test(lower)
+        ) {
+          return true;
+        }
+        return (
+          /\b(available|online)\b/.test(lower) &&
+          /\b(team|staff|people|colleagues|right\s+now|currently)\b/.test(lower)
+        );
+      },
+      buildIntent: () => ({
+        intent: 'list_team_presence',
+        capabilityId: 'team_presence',
+        toolCalls: [{ name: 'listTeamPresence', args: { includeOffline: false } }]
       })
     },
     {

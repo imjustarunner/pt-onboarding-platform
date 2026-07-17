@@ -41,4 +41,3 @@ export function trackPromise(promise, text) {
 export function getLoadingTextRef() {
   return loadingText;
 }
-

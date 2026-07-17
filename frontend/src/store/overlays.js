@@ -37,7 +37,10 @@ export const useOverlaysStore = defineStore('overlays', () => {
 
     try {
       loadingKeys.value = { ...loadingKeys.value, [k]: true };
-      const resp = await api.get(`/overlays/agencies/${encodeURIComponent(String(agencyId))}/routes/${encodeURIComponent(String(routeName))}`);
+      const resp = await api.get(
+        `/overlays/agencies/${encodeURIComponent(String(agencyId))}/routes/${encodeURIComponent(String(routeName))}`,
+        { skipGlobalLoading: true }
+      );
       const payload = resp?.data || {};
       const next = {
         tutorial: payload.tutorial || null,
@@ -78,7 +81,7 @@ export const useOverlaysStore = defineStore('overlays', () => {
 
   const fetchPlatformHelper = async () => {
     try {
-      const resp = await api.get('/overlays/platform/helper-settings');
+      const resp = await api.get('/overlays/platform/helper-settings', { skipGlobalLoading: true });
       const data = resp?.data || {};
       platformHelper.value = {
         enabled: data.enabled !== false,

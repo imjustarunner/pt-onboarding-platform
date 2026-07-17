@@ -179,9 +179,9 @@ export default {
     {
       element: '[data-tour="school-nav-rail"]',
       popover: {
-        title: 'Navigation rail',
+        title: 'Portal sidebar',
         description:
-          'When you leave home, this rail appears. Use it to switch between Home, Providers, Days, Roster, Skills, Staff, Docs/Links, Notifications, FAQ, and Help.',
+          'Use this sidebar anytime to switch between Portal Home, Days, Providers, Roster, Skill Builders, Events, Calendar, Staff, Docs/Links, Notifications, Messages, FAQ, Contact Admin, Digital Forms, and Upload Packet.',
         side: 'right',
         align: 'center'
       }

@@ -49,31 +49,34 @@
             <div class="aap-empty-core" />
           </div>
           <h3 class="aap-empty-title">What can I help with?</h3>
-          <p class="aap-empty-desc">Use plain language. These are actions this assistant can handle right now:</p>
+          <p class="aap-empty-desc">One-click actions for your day — tap a button to run it:</p>
           <div class="aap-capabilities">
-            <div v-for="(group, i) in capabilityGroups" :key="i" class="aap-capability">
+            <div v-for="(group, i) in quickActionGroups" :key="i" class="aap-capability">
               <div class="aap-capability-title">{{ group.title }}</div>
               <div class="aap-capability-prompts">
                 <button
-                  v-for="(s, j) in group.prompts"
+                  v-for="(a, j) in group.actions"
                   :key="`${i}-${j}`"
                   type="button"
-                  class="aap-capability-chip"
-                  @click="applySuggestion(s)"
+                  class="aap-capability-chip aap-action-chip"
+                  :disabled="busy"
+                  :title="a.hint || a.label"
+                  @click="runQuickAction(a)"
                 >
-                  {{ s }}
+                  {{ a.label }}
                 </button>
               </div>
             </div>
           </div>
-          <div class="aap-suggestions-label">More examples</div>
-          <div class="aap-suggestions">
+          <div v-if="moreExamplePrompts.length" class="aap-suggestions-label">Also try asking</div>
+          <div v-if="moreExamplePrompts.length" class="aap-suggestions">
             <button
-              v-for="(s, i) in suggestions"
+              v-for="(s, i) in moreExamplePrompts"
               :key="i"
               type="button"
               class="aap-chip"
-              @click="applySuggestion(s)"
+              :disabled="busy"
+              @click="runQuickPrompt(s)"
             >
               {{ s }}
             </button>
@@ -308,7 +311,7 @@
           type="button"
           class="aap-help-action"
           :disabled="busy"
-          @click="applySuggestion(capabilityActionPrompt)"
+          @click="runQuickPrompt(capabilityActionPrompt)"
         >
           What can you do?
         </button>
@@ -393,101 +396,125 @@ const subtitle = computed(() => {
   return 'I can navigate, run referrals, and check recent activity.';
 });
 
-const capabilityGroups = computed(() => {
-  if (Array.isArray(capabilityPayload.value?.groups) && capabilityPayload.value.groups.length) {
-    return capabilityPayload.value.groups;
-  }
-  const groups = [];
-  if (isProviderLike.value) {
-    groups.push(
-      {
-        title: 'Schedule and meetings',
-        prompts: [
-          'Open my workspace for today',
-          'Start a meeting with Sarah',
-          'Move my 3pm to 4pm'
-        ]
-      },
-      {
-        title: 'Coverage and referrals',
-        prompts: [
-          'Who has an intake opening today?',
-          'Who uses CBT?',
-          'Find pediatric psychiatry referrals'
-        ]
-      }
-    );
-  } else if (isAdminLike.value) {
-    groups.push(
-      {
-        title: 'Navigation and lookup',
-        prompts: [
-          'Open Twain school portal',
-          'Open upcoming events',
-          'Open payroll summary'
-        ]
-      },
-      {
-        title: 'Operations',
-        prompts: [
-          'What offices are open today?',
-          'Who RSVP for this Friday event?',
-          'What activity happened in my agency this week?'
-        ]
-      }
-    );
-  } else {
+/** Everyday one-click actions — always tool/prefill (never free-text submit that can hit doc search). */
+const quickActionGroups = computed(() => {
+  const day = [
+    {
+      id: 'agenda',
+      label: "What's on my agenda",
+      kind: 'tool',
+      toolCall: { name: 'openTodaysWorkspace', args: {} },
+      hint: 'Today’s schedule / workspace'
+    },
+    {
+      id: 'todos',
+      label: "What's on my to-do list",
+      kind: 'tool',
+      toolCall: { name: 'listMyOpenTasks', args: { limit: 20 } },
+      hint: 'Your open tasks'
+    },
+    {
+      id: 'prioritize',
+      label: 'What should I prioritize',
+      kind: 'tool',
+      toolCalls: [
+        { name: 'openTodaysWorkspace', args: {} },
+        { name: 'listMyOpenTasks', args: { limit: 10 } }
+      ],
+      hint: 'Today’s calendar + open tasks'
+    }
+  ];
+  const availability = [
+    {
+      id: 'who-available',
+      label: 'Who is available',
+      kind: 'tool',
+      toolCall: { name: 'listTeamPresence', args: { includeOffline: false } },
+      hint: 'Live team online / away'
+    },
+    {
+      id: 'first-available',
+      label: 'When is my first available',
+      kind: 'tool',
+      toolCall: { name: 'openTodaysWorkspace', args: {} },
+      hint: 'See what’s booked today — open windows are between events'
+    },
+    {
+      id: 'next-meeting',
+      label: 'What’s my next meeting',
+      kind: 'tool',
+      toolCall: { name: 'findNextMeeting', args: {} },
+      hint: 'Find your next meeting'
+    }
+  ];
+  const communicate = [
+    {
+      id: 'video',
+      label: 'Start a video call',
+      kind: 'prefill',
+      prefill: 'Start a video call with ',
+      autoJoinMeeting: true,
+      hint: 'Type a name, send — join link is copied and opened after confirm'
+    },
+    {
+      id: 'message',
+      label: 'Send a message to',
+      kind: 'prefill',
+      prefill: 'Send a message to ',
+      hint: 'Type who, then your message'
+    },
+    {
+      id: 'activity',
+      label: 'Show what I did today',
+      kind: 'tool',
+      toolCall: { name: 'listMyRecentActivity', args: { limit: 20 } },
+      hint: 'Recent activity log'
+    }
+  ];
+  const groups = [
+    { title: 'My day', actions: day },
+    { title: 'Availability', actions: availability },
+    { title: 'Communicate', actions: communicate }
+  ];
+  if (isProviderLike.value || isAdminLike.value) {
     groups.push({
-      title: 'Common actions',
-      prompts: [
-        'Open my schedule',
-        'Find pediatric psychiatry referrals',
-        'Show me what I did today'
+      title: 'Coverage and referrals',
+      actions: [
+        {
+          id: 'intake',
+          label: 'Who has an intake opening',
+          kind: 'tool',
+          toolCall: { name: 'findIntakeOpenings', args: {} },
+          hint: 'Find intake openings today'
+        },
+        {
+          id: 'referrals',
+          label: 'Find pediatric psychiatry referrals',
+          kind: 'tool',
+          toolCall: { name: 'searchReferralDirectory', args: { query: 'pediatric psychiatry' } },
+          hint: 'Referral directory search'
+        }
       ]
     });
   }
   return groups;
 });
 
-const suggestions = computed(() => {
-  if (Array.isArray(capabilityPayload.value?.suggestions) && capabilityPayload.value.suggestions.length) {
-    return capabilityPayload.value.suggestions.slice(0, 6);
-  }
+const moreExamplePrompts = computed(() => {
   const s = [];
-  const rn = String(route?.name || '').toLowerCase();
-
-  // Provider-first defaults
-  if (isProviderLike.value) {
-    s.push('Take me to my schedule');
-    s.push('I need a few pediatrics or psychiatry referrals for my client');
-    s.push('Show me what I did today');
-    s.push('When did I last log in?');
-  } else {
-    // Everyone else still gets safe, personal prompts
-    s.push('Show me what I did today');
-    s.push('When did I last log in?');
-    s.push('I need a few pediatrics or psychiatry referrals for my client');
-  }
-
-  // Route/context boosts (still safe)
-  if (rn.includes('skillbuilders') || rn.includes('program') || String(route?.path || '').includes('/program-events')) {
-    s.unshift('Find the program event called "Orientation"');
-  }
-  if (String(route?.path || '').includes('/referral-directory')) {
-    s.unshift('Find pediatric psychiatry referrals');
-  }
-
-  // Admin-only prompts
   if (isAdminLike.value) {
     s.push('What activity happened in my agency this week?');
-    if (isSuperAdmin.value) {
-      s.push('Who sent password reset links in the last 7 days?');
-    }
+    s.push('Open upcoming events');
   }
-
-  // Keep it short + stable
-  return Array.from(new Set(s)).slice(0, 6);
+  if (isProviderLike.value) {
+    s.push('Move my next meeting back 30 minutes');
+  }
+  s.push('Open Training Knowledge Base');
+  return s.slice(0, 4);
 });
+
+/** Remember auto-join preference for the next meeting-ready response. */
+const pendingAutoJoinMeeting = ref(false);
 
 const capabilityActionPrompt = computed(() => {
   const p = capabilityPayload.value?.inChatAction;
@@ -760,8 +787,94 @@ function applySuggestion(s) {
   });
 }
 
+async function runQuickPrompt(text) {
+  const t = String(text || '').trim();
+  if (!t || busy.value) return;
+  prompt.value = t;
+  await nextTick();
+  await submit();
+}
+
+async function runQuickAction(a) {
+  if (!a || busy.value) return;
+  markEngaged();
+  const kind = String(a.kind || 'submit');
+  if (a.autoJoinMeeting) pendingAutoJoinMeeting.value = true;
+
+  if (kind === 'prefill') {
+    prompt.value = String(a.prefill || '');
+    await nextTick();
+    textareaRef.value?.focus?.();
+    autoGrow();
+    // Place caret at end so the user types the name immediately
+    try {
+      const ta = textareaRef.value;
+      if (ta) {
+        const len = ta.value.length;
+        ta.setSelectionRange(len, len);
+      }
+    } catch {
+      /* noop */
+    }
+    return;
+  }
+  if (kind === 'tool' && (a.toolCall || (Array.isArray(a.toolCalls) && a.toolCalls.length))) {
+    await runNextAction({
+      label: a.label,
+      type: 'tool',
+      toolCall: a.toolCall || null,
+      toolCalls: Array.isArray(a.toolCalls) ? a.toolCalls : null,
+      autoJoinMeeting: !!a.autoJoinMeeting
+    });
+    return;
+  }
+  // Everyday buttons must be tool/prefill — never fall through to free-text research.
+  error.value = `Action "${a.label || 'button'}" is not wired to a tool yet.`;
+}
+
+/** After a meeting is created, copy join link and open it when requested. */
+async function maybeAutoJoinFromResponse(data) {
+  if (!pendingAutoJoinMeeting.value) return;
+  pendingAutoJoinMeeting.value = false;
+  const cards = Array.isArray(data?.nextCards) ? data.nextCards : [];
+  let join = '';
+  for (const c of cards) {
+    join = String(c?.details?.joinUrl || c?.details?.joinPath || '').trim();
+    if (join) break;
+  }
+  if (!join) {
+    // Also check nextActions for copy/navigate payloads
+    for (const a of data?.nextActions || []) {
+      if (a?.copyText && String(a.copyText).includes('/join/')) {
+        join = String(a.copyText).trim();
+        break;
+      }
+      if (a?.toolCall?.name === 'openWorkspaceEvent' && a?.toolCall?.args?.eventId) {
+        join = `/join/team-meeting/${a.toolCall.args.eventId}`;
+        break;
+      }
+    }
+  }
+  if (!join) return;
+  const absolute =
+    join.startsWith('http') ? join : `${window.location.origin}${join.startsWith('/') ? '' : '/'}${join}`;
+  await copyTextToClipboard(absolute);
+  try {
+    markEngaged();
+    if (join.startsWith('http')) {
+      window.open(join, '_blank', 'noopener,noreferrer');
+    } else {
+      await router.push(join);
+      close();
+    }
+  } catch (e) {
+    console.warn('[AskAssistantPanel] auto-join failed', e?.message);
+  }
+}
+
 function close() {
   reportDisengage('closed_without_engagement');
+  pendingAutoJoinMeeting.value = false;
   if (isListening.value) stopListening();
   emit('close');
 }
@@ -772,6 +885,7 @@ function clearChat({ report = false } = {}) {
   turns.value = [];
   error.value = '';
   prompt.value = '';
+  pendingAutoJoinMeeting.value = false;
   stickToBottom.value = true;
   sessionEngagement.value.lastPrompt = '';
   sessionEngagement.value.lastExcerpt = '';
@@ -875,6 +989,7 @@ async function submit() {
       cards: Array.isArray(data.nextCards) ? data.nextCards : [],
       feedback: attachFeedbackMeta(data, q)
     });
+    await maybeAutoJoinFromResponse(data);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Assistant request failed';
   } finally {
@@ -976,8 +1091,12 @@ async function copyTextToClipboard(text) {
 async function runNextAction(a) {
   if (!a || busy.value) return;
   const label = String(a.label || '').trim() || 'Run action';
+  const toolCalls = Array.isArray(a.toolCalls)
+    ? a.toolCalls.filter((t) => t && typeof t === 'object' && t.name)
+    : null;
   const toolCall = a.toolCall && typeof a.toolCall === 'object' ? a.toolCall : null;
-  if (!toolCall) return;
+  if (!toolCall && !(toolCalls && toolCalls.length)) return;
+  if (a.autoJoinMeeting) pendingAutoJoinMeeting.value = true;
 
   busy.value = true;
   error.value = '';
@@ -985,11 +1104,15 @@ async function runNextAction(a) {
   nextTick(() => scrollTurnsToBottom());
 
   try {
+    const clientAction = { confirmRequest: a?.confirmRequest === true };
+    if (toolCalls && toolCalls.length) clientAction.toolCalls = toolCalls;
+    else clientAction.toolCall = toolCall;
+
     const resp = await api.post(
       '/agents/assist',
       {
         prompt: '',
-        clientAction: { toolCall, confirmRequest: a?.confirmRequest === true },
+        clientAction,
         context: buildContextPayload(),
         history: buildHistoryPayload()
       },
@@ -1008,6 +1131,7 @@ async function runNextAction(a) {
       cards: Array.isArray(data.nextCards) ? data.nextCards : [],
       feedback: attachFeedbackMeta(data, priorPrompt)
     });
+    await maybeAutoJoinFromResponse(data);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Action failed';
   } finally {
@@ -1377,6 +1501,20 @@ onUnmounted(() => {
 .aap-capability-chip:hover {
   border-color: rgba(13, 148, 136, 0.45);
   background: #f0fdfa;
+}
+.aap-capability-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.aap-action-chip {
+  font-weight: 650;
+  border-color: rgba(13, 148, 136, 0.35);
+  background: #f0fdfa;
+  color: #0f766e;
+}
+.aap-action-chip:hover:not(:disabled) {
+  border-color: rgba(13, 148, 136, 0.65);
+  background: #ccfbf1;
 }
 
 .aap-suggestions-label {

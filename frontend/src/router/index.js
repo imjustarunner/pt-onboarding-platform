@@ -4152,7 +4152,7 @@ router.afterEach((to) => {
   api.post('/auth/activity-log', {
     actionType: 'admin_page_view',
     metadata: { path, page: page || 'dashboard' }
-  }).catch(() => {});
+  }, { skipGlobalLoading: true }).catch(() => {});
 });
 
 export default router;

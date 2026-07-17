@@ -386,7 +386,7 @@ const loadScopePreference = async () => {
   try {
     const userId = authStore.user?.id;
     if (!userId) return;
-    const resp = await api.get(`/users/${userId}/preferences`);
+    const resp = await api.get(`/users/${userId}/preferences`, { skipGlobalLoading: true });
     const prefs = resp.data || {};
     const raw = prefs.dashboard_notification_org_types;
     const parsed = parseJsonMaybe(raw);
@@ -441,7 +441,7 @@ const fetchAgencies = async () => {
 
     // Get user's agencies based on role
     if (authStore.user?.role === 'super_admin') {
-      const response = await api.get('/agencies');
+      const response = await api.get('/agencies', { skipGlobalLoading: true });
       agencies.value = response.data;
     } else {
       await agencyStore.fetchAgencies(authStore.user?.id);
@@ -463,7 +463,7 @@ const fetchAgencies = async () => {
     const affLists = await Promise.all(
       parents.map(async (a) => {
         try {
-          const r = await api.get(`/agencies/${a.id}/affiliated-organizations`);
+          const r = await api.get(`/agencies/${a.id}/affiliated-organizations`, { skipGlobalLoading: true });
           return r.data || [];
         } catch {
           return [];

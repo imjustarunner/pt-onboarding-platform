@@ -11,6 +11,8 @@ import {
   isDemoWindowSession,
   persistDemoWindowSession
 } from '../utils/demoWindowSession';
+import { isPrivilegedPresenceRole } from '../utils/presenceStatus';
+import { openLogoutStatusPrompt } from '../utils/statusPromptBridge';
 
 export const useAuthStore = defineStore('auth', () => {
   // Token is now stored in HttpOnly cookie, not localStorage
@@ -244,7 +246,7 @@ export const useAuthStore = defineStore('auth', () => {
   const refreshUser = async () => {
     try {
       // Fetch current user data from backend to get updated role
-      const response = await api.get('/users/me');
+      const response = await api.get('/users/me', { skipGlobalLoading: true });
       if (response.data) {
         // Merge to avoid dropping client-side-only fields (e.g., approved employee agencyIds).
         // Deep-merge capabilities so a partial /users/me response cannot wipe agency-scoped flags.
@@ -288,35 +290,60 @@ export const useAuthStore = defineStore('auth', () => {
 
   const logout = async (reason = 'user_logout', options = {}) => {
     try {
+      // Privileged roles: optional status prompt before leaving (manual logout only)
+      if (
+        !options.skipStatusPrompt &&
+        reason === 'user_logout' &&
+        user.value &&
+        isPrivilegedPresenceRole(user.value.role)
+      ) {
+        try {
+          const proceed = await openLogoutStatusPrompt({ userId: user.value?.id || null });
+          if (!proceed) return;
+        } catch {
+          /* continue with logout */
+        }
+      }
+
+      // Stop idle tracking only once logout is confirmed (not before the status prompt).
+      try {
+        const { stopActivityTracking } = await import('../utils/activityTracker');
+        stopActivityTracking();
+      } catch {
+        /* ignore */
+      }
+
       // Get session ID from localStorage if available
       const sessionId = localStorage.getItem('sessionId');
-      
+
       // Get user info before clearing to determine login redirect
       const currentUser = user.value;
-      
+
       // Always ask backend to clear auth cookie before redirect.
       // sessionId can be null; cookie invalidation still matters.
+      // skipGlobalLoading: teardown must not toggle the page loader (Vue patch races).
       try {
         await Promise.race([
-          api.post('/auth/logout', { sessionId, reason }, { skipAuthRedirect: true }),
+          api.post(
+            '/auth/logout',
+            { sessionId, reason },
+            { skipAuthRedirect: true, skipGlobalLoading: true }
+          ),
           new Promise((_, reject) => setTimeout(() => reject(new Error('logout_timeout')), 3000))
         ]);
       } catch (err) {
+        // 401 is fine — session may already be gone.
         if (err?.message !== 'logout_timeout' && err?.response?.status !== 401) {
           console.error('Failed to log logout event:', err);
         }
       }
 
-      // Mark presence offline (best-effort) so chat can move to notifications when away.
-      api.post('/presence/offline', {}, { skipAuthRedirect: true }).catch(() => {});
-      
-      // Always clear auth even if logging fails
-      localStorage.removeItem('sessionId');
-      clearAuth();
-      clearBiometricToken().catch(() => {});
-      
-      // Redirect to branded login when possible.
-      // Prefer the current route slug so users stay in the same portal context on logout.
+      // Mark presence offline (best-effort). Never block or flash the global loader.
+      api
+        .post('/presence/offline', {}, { skipAuthRedirect: true, skipGlobalLoading: true })
+        .catch(() => {});
+
+      // Resolve login URL before clearing auth/localStorage helpers.
       let loginUrl = options.redirectTo || null;
       if (!loginUrl && String(currentUser?.role || '').toLowerCase() === 'super_admin') {
         loginUrl = '/login';
@@ -349,27 +376,19 @@ export const useAuthStore = defineStore('auth', () => {
         }
       }
 
-      // Get agencies from localStorage before clearing (they're cleared in clearStoredAgencies)
       const { getLoginUrlForRedirect, clearStoredAgencies } = await import('../utils/loginRedirect');
       if (!loginUrl) {
         loginUrl = getLoginUrlForRedirect(currentUser);
       }
-      clearStoredAgencies(); // Clear stored agencies on logout
-      
-      // Prefer SPA navigation; fallback to hard redirect if router is unavailable.
-      // Session Ended must be a hard navigation so a racing 401 cannot send the user to /login.
-      try {
-        const isSessionEndedTarget =
-          typeof loginUrl === 'string' && String(loginUrl).includes('/session-ended');
-        if (options.useRouter === false || isSessionEndedTarget) {
-          window.location.assign(loginUrl);
-          return;
-        }
-        const { default: router } = await import('../router');
-        await router.replace(loginUrl);
-      } catch {
-        window.location.assign(loginUrl || '/login');
-      }
+      clearStoredAgencies();
+
+      localStorage.removeItem('sessionId');
+      clearAuth();
+      clearBiometricToken().catch(() => {});
+
+      // Hard navigation only — SPA router.replace during auth teardown races Vue's patcher
+      // (emitsOptions / __vnode null) and can leave the status modal / app stuck.
+      window.location.assign(loginUrl || '/login');
     } catch (err) {
       console.error('Error during logout:', err);
       // Final fallback: still preserve branded portal login when possible.

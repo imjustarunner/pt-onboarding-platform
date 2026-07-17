@@ -1,5 +1,7 @@
 # SuperAdmin Feature Proposal: Presence + Time Tracker Module (Testing Only)
 
+> **Superseded for entry UX:** Status setting now lives in the Messages chat sidebar (and Timedown/logout prompts for admin/super_admin/support). See [`docs/TEAM_COLLABORATION_OVERHAUL.md`](docs/TEAM_COLLABORATION_OVERHAUL.md). Team Board remains a roster view of the same `user_presence_status` data.
+
 ## Internal Development Instruction (Cursor)
 
 Build and implement a **SuperAdmin-only** feature module inside the web application called:

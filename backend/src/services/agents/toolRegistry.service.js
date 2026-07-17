@@ -21,6 +21,7 @@ import UserActivityLog from '../../models/UserActivityLog.model.js';
 import auditActionRegistry from '../../config/auditActionRegistry.js';
 import { getUserCapabilities } from '../../utils/capabilities.js';
 import { searchTrainingKnowledgeBase } from '../trainingKnowledgeBase.service.js';
+import { listTeamPresenceForAssist } from './teamPresenceAssist.service.js';
 
 function str(v, maxLen = 2000) {
   const s = String(v ?? '').trim();
@@ -121,6 +122,7 @@ const NAVIGATION_ROUTE_WHITELIST = {
   // Dashboards / core (match frontend router paths)
   Dashboard: { path: '/dashboard', roles: null },
   Schedule: { path: '/dashboard?tab=my_schedule', roles: null },
+  Tasks: { path: '/tasks', roles: null },
   AccountInfo: { path: '/dashboard?tab=my&my=account', roles: null },
   Preferences: { path: '/dashboard?tab=my&my=preferences', roles: null },
   Credentials: { path: '/dashboard?tab=my&my=credentials', roles: null },
@@ -637,6 +639,24 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'openWorkspaceEvent':
         // Anyone signed in: returns whatever events the actor is part of today.
         return true;
+      case 'listMyOpenTasks':
+        // Anyone signed in can see their own open tasks.
+        return true;
+      case 'listTeamPresence':
+        // Team online/away roster for Messages / presence.
+        return roleAllowed(reqUser, [
+          'admin',
+          'super_admin',
+          'support',
+          'staff',
+          'assistant_admin',
+          'provider',
+          'provider_plus',
+          'supervisor',
+          'clinical_practice_assistant',
+          'intern',
+          'intern_plus'
+        ]);
       case 'searchTrainingKnowledgeBase':
         // Agency handbook / policies — available to signed-in staff (not guardians/clients).
         return roleAllowed(reqUser, [
@@ -1212,6 +1232,36 @@ export function getToolSchemas() {
           activeOnly: {
             type: 'boolean',
             description: 'If true, only events currently happening or starting within the next 30 minutes. Default false (return all of today).'
+          }
+        }
+      }
+    },
+    {
+      name: 'listTeamPresence',
+      description:
+        'List who is online or away on the agency team right now (live chat presence). Use for "who is available", "who is online", "anyone around", "team presence". Do NOT use for intake openings or handbook questions. Returns Active and Away people with status labels.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          includeOffline: {
+            type: 'boolean',
+            description: 'If true, also list offline team members. Default false (online + away only).'
+          }
+        }
+      }
+    },
+    {
+      name: 'listMyOpenTasks',
+      description:
+        'List the signed-in user’s open (not completed) tasks — training, documents, checklist items. Use for "what\'s on my to-do list", "open tasks", "my tasks".',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          limit: {
+            type: 'integer',
+            description: 'Max tasks to return (default 20, max 40).'
           }
         }
       }
@@ -3069,6 +3119,72 @@ export async function executeToolCall({ req, toolCall }) {
   }
 
   // ---------------------------------------------------------------------
+  // listMyOpenTasks — signed-in user's open checklist / training / docs.
+  // ---------------------------------------------------------------------
+  if (name === 'listMyOpenTasks') {
+    requireAuthed(req);
+    const actorId = Number(req.user?.id || 0);
+    const limitRaw = intOrNull(args.limit);
+    const limit = Math.min(40, Math.max(1, limitRaw || 20));
+    const rows = await Task.findByUser(actorId, {});
+    const closed = new Set(['completed', 'overridden', 'cancelled']);
+    const open = (rows || [])
+      .filter((t) => !closed.has(String(t.status || '').toLowerCase().trim()))
+      .slice(0, limit)
+      .map((t) => ({
+        id: Number(t.id),
+        title: t.title || 'Untitled task',
+        taskType: t.task_type || null,
+        status: t.status || null,
+        dueDate: t.due_date || null,
+        urgency: t.urgency || null,
+        assignmentType: t.assignment_type || null
+      }));
+    return {
+      ok: true,
+      tool: name,
+      result: { tasks: open, totalOpen: open.length }
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // listTeamPresence — live online/away roster for the agency team.
+  // ---------------------------------------------------------------------
+  if (name === 'listTeamPresence') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, [
+      'admin',
+      'super_admin',
+      'support',
+      'staff',
+      'assistant_admin',
+      'provider',
+      'provider_plus',
+      'supervisor',
+      'clinical_practice_assistant',
+      'intern',
+      'intern_plus'
+    ])) {
+      const err = new Error('Team presence is not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context — select an agency first');
+      err.status = 400;
+      throw err;
+    }
+    await ensureAgencyAccess(req.user, agencyId);
+    const includeOffline = args.includeOffline === true;
+    const snapshot = await listTeamPresenceForAssist({
+      agencyId,
+      viewerUserId: req.user.id,
+      includeOffline
+    });
+    return { ok: true, tool: name, result: snapshot };
+  }
+
   // openTodaysWorkspace — list today's events for the actor.
   // ---------------------------------------------------------------------
   if (name === 'openTodaysWorkspace') {

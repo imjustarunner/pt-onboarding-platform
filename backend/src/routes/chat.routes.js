@@ -14,6 +14,12 @@ import {
   sendMessage,
   unsendMessage
 } from '../controllers/chat.controller.js';
+import {
+  listChannels,
+  createChannel,
+  joinChannel,
+  openChannel
+} from '../controllers/chatChannels.controller.js';
 import { uploadChatAttachment } from '../controllers/chatAttachments.controller.js';
 import {
   addReaction,
@@ -40,6 +46,11 @@ const chatAttachmentUpload = multer({
 });
 
 router.use(authenticate);
+
+router.get('/channels', listChannels);
+router.post('/channels', createChannel);
+router.post('/channels/:threadId/join', joinChannel);
+router.post('/channels/:threadId/open', openChannel);
 
 router.get('/threads', listMyThreads);
 router.post('/threads/direct', createOrGetDirectThread);

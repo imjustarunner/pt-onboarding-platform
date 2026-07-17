@@ -4,6 +4,8 @@
 
 The Team Board evolves from a flat list of people to a **role-based circle** where agencies see their assigned team organized by function (credentialing, billing, support, etc.). Management assigns teams to agencies; team members may serve multiple agencies. Agencies see **who is filling each slot today**—including replacements when someone is out—and have **direct access** to message the right person.
 
+> **Presence status entry** for admin/super_admin/support now lives in the Messages sidebar (+ Timedown/logout prompts). Team Board should remain a **roster/coverage view** of the same `user_presence_status` data. See [`TEAM_COLLABORATION_OVERHAUL.md`](./TEAM_COLLABORATION_OVERHAUL.md).
+
 ---
 
 ## Current State

@@ -82,8 +82,11 @@
             <div
               ref="navLinksWrapperEl"
               class="nav-links-wrapper"
-              :class="{ 'nav-menus-open': navDropdownOpen }"
-              @wheel="onNavWheelScroll"
+              :class="{
+                'nav-menus-open': navDropdownOpen,
+                'nav-links-scrollable': navLinksCanScroll
+              }"
+              :title="navLinksCanScroll ? 'Scroll sideways to see more menu items' : undefined"
             >
               <div class="nav-links">
               <!-- SSTC Summit: primary nav order (matches mobile sidebar) -->
@@ -410,12 +413,17 @@
                   </button>
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu nav-dropdown-menu-wide">
                     <router-link :to="orgTo('/operations-dashboard')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant')" >{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
-                    <div v-if="canSeeScheduleBuildingsDirectoryNav && !isSscSstcTenant" class="nav-dropdown-group nav-dropdown-group-collapsible">
+                    <div
+                      v-if="canSeeScheduleBuildingsDirectoryNav && !isSscSstcTenant"
+                      class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout"
+                      @mouseenter="setDirectoryFlyout('schedules')"
+                      @mouseleave="setDirectoryFlyout(null)"
+                    >
                       <button
                         type="button"
                         class="nav-dropdown-group-trigger"
                         :aria-expanded="directorySchedulesNavExpanded ? 'true' : 'false'"
-                        @click.stop="directorySchedulesNavExpanded = !directorySchedulesNavExpanded"
+                        @click.stop="setDirectoryFlyout(directorySchedulesNavExpanded ? null : 'schedules')"
                       >
                         <span>Schedules</span>
                         <span class="nav-dropdown-group-caret" :class="{ open: directorySchedulesNavExpanded }" aria-hidden="true">▸</span>
@@ -428,13 +436,15 @@
                     </div>
                     <div
                       v-if="canSeeEventsProgramsNavGroup && !isAffiliationContext"
-                      class="nav-dropdown-group nav-dropdown-group-collapsible"
+                      class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout"
+                      @mouseenter="setDirectoryFlyout('events')"
+                      @mouseleave="setDirectoryFlyout(null)"
                     >
                       <button
                         type="button"
                         class="nav-dropdown-group-trigger"
                         :aria-expanded="directorySkillBuildersNavExpanded ? 'true' : 'false'"
-                        @click.stop="directorySkillBuildersNavExpanded = !directorySkillBuildersNavExpanded"
+                        @click.stop="setDirectoryFlyout(directorySkillBuildersNavExpanded ? null : 'events')"
                       >
                         <span>Events &amp; programs</span>
                         <span class="nav-dropdown-group-caret" :class="{ open: directorySkillBuildersNavExpanded }" aria-hidden="true">▸</span>
@@ -489,7 +499,12 @@
                         </template>
                       </div>
                     </div>
-                    <div v-if="!isSscSstcTenant" class="nav-dropdown-group nav-dropdown-group-collapsible">
+                    <div
+                      v-if="!isSscSstcTenant"
+                      class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout"
+                      @mouseenter="setDirectoryFlyout('public')"
+                      @mouseleave="setDirectoryFlyout(null)"
+                    >
                       <button
                         type="button"
                         class="nav-dropdown-group-trigger"
@@ -583,9 +598,9 @@
                     </div>
                     <div
                       v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav"
-                      class="nav-dropdown-group nav-dropdown-group-collapsible school-mgmt-nav"
-                      @mouseenter="directorySchoolsNavExpanded = true"
-                      @mouseleave="directorySchoolsNavExpanded = false"
+                      class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout school-mgmt-nav"
+                      @mouseenter="setDirectoryFlyout('schools')"
+                      @mouseleave="setDirectoryFlyout(null)"
                     >
                       <div
                         class="nav-dropdown-group-trigger school-mgmt-trigger"
@@ -612,13 +627,36 @@
                           type="button"
                           class="nav-dropdown-group-caret-btn"
                           :aria-label="directorySchoolsNavExpanded ? 'Collapse school links' : 'Expand school links'"
-                          @click.stop="directorySchoolsNavExpanded = !directorySchoolsNavExpanded"
+                          @click.stop="setDirectoryFlyout(directorySchoolsNavExpanded ? null : 'schools')"
                         >
                           <span class="nav-dropdown-group-caret" :class="{ open: directorySchoolsNavExpanded }" aria-hidden="true">▸</span>
                         </button>
                       </div>
                       <div v-show="directorySchoolsNavExpanded" class="nav-dropdown-group-items">
-                        <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav">School Portals</router-link>
+                        <div
+                          v-if="canSeeSchoolPortalsNav"
+                          class="nav-dropdown-group nav-dropdown-group-collapsible school-portals-nav"
+                          @mouseenter="directorySchoolPortalsNavExpanded = true"
+                        >
+                          <div
+                            class="nav-dropdown-group-trigger"
+                            :aria-expanded="directorySchoolPortalsNavExpanded ? 'true' : 'false'"
+                          >
+                            <span class="school-portals-nav-label">School Portals</span>
+                            <button
+                              type="button"
+                              class="nav-dropdown-group-caret-btn"
+                              :aria-label="directorySchoolPortalsNavExpanded ? 'Collapse school portal links' : 'Expand school portal links'"
+                              @click.stop="directorySchoolPortalsNavExpanded = !directorySchoolPortalsNavExpanded"
+                            >
+                              <span class="nav-dropdown-group-caret" :class="{ open: directorySchoolPortalsNavExpanded }" aria-hidden="true">▸</span>
+                            </button>
+                          </div>
+                          <div v-show="directorySchoolPortalsNavExpanded" class="nav-dropdown-group-items nav-dropdown-group-items-nested">
+                            <router-link :to="orgTo('/admin/schools/overview?orgType=school')" @click="closeAllNavMenus">Overview</router-link>
+                            <router-link :to="orgTo('/admin/school-portals')" @click="closeAllNavMenus">All school portals</router-link>
+                          </div>
+                        </div>
                         <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav">School Events</router-link>
                         <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav">School Calendar</router-link>
                         <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav">
@@ -1022,7 +1060,11 @@
                 >
                   <span aria-hidden="true">👤</span>
                 </router-link>
-                <button @click="handleLogout" class="btn btn-secondary">Logout</button>
+                <LogoutStatusSplit
+                  class="nav-logout-split"
+                  @logout="handleLogout"
+                  @timeout="onLogoutTimeoutPrompt"
+                />
               </div>
               </div>
             </div>
@@ -1586,7 +1628,21 @@
                       </button>
                     </div>
                     <template v-if="directorySchoolsNavExpanded">
-                      <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Portals</router-link>
+                      <div v-if="canSeeSchoolPortalsNav" class="mobile-nav-group mobile-nav-group-collapsible">
+                        <button
+                          type="button"
+                          class="mobile-nav-group-trigger mobile-nav-sublink"
+                          :aria-expanded="directorySchoolPortalsNavExpanded ? 'true' : 'false'"
+                          @click.stop="directorySchoolPortalsNavExpanded = !directorySchoolPortalsNavExpanded"
+                        >
+                          <span>School Portals</span>
+                          <span class="mobile-nav-group-caret" :class="{ open: directorySchoolPortalsNavExpanded }" aria-hidden="true">▸</span>
+                        </button>
+                        <template v-if="directorySchoolPortalsNavExpanded">
+                          <router-link :to="orgTo('/admin/schools/overview?orgType=school')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink mobile-nav-nested-sublink">Overview</router-link>
+                          <router-link :to="orgTo('/admin/school-portals')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink mobile-nav-nested-sublink">All school portals</router-link>
+                        </template>
+                      </div>
                       <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Events</router-link>
                       <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Calendar</router-link>
                       <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
@@ -1708,7 +1764,11 @@
             </button>
           </div>
           <div class="mobile-sidebar-footer">
-            <button @click="handleLogout" class="btn btn-secondary mobile-logout">Logout</button>
+            <LogoutStatusSplit
+              class="mobile-logout"
+              @logout="handleLogout"
+              @timeout="onLogoutTimeoutPrompt"
+            />
           </div>
         </div>
       </div>
@@ -1751,14 +1811,24 @@
       <BetaFeedbackWidget v-if="isAuthenticated && !isNative" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
       <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome" />
-      <PlatformChatDrawer v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isSscSstcTenant" />
+      <!-- School staff get DM-only Messages (no global nav); other hidden-chrome verticals stay without it. -->
+      <PlatformChatDrawer
+        v-if="isAuthenticated && !isSscSstcTenant && (String(user?.role || '').toLowerCase() === 'school_staff' || !hideGlobalNavForSchoolStaff)"
+      />
       <SessionLockScreen
         v-if="isAuthenticated"
         :is-locked="sessionLockStore.isLocked"
         @unlock="onSessionUnlock"
         @logout="onSessionLockLogout"
       />
-      <InactivityWarningModal v-if="isAuthenticated || sessionLockStore.warningActive" />
+      <!-- Branded 10‑min Timedown stays visible for everyone. Privileged roles also get
+           StatusPromptModal on top (Away / Meal / stay signed in up to 2h). -->
+      <InactivityWarningModal
+        v-if="isAuthenticated || sessionLockStore.warningActive"
+        :suppress-actions="statusPromptOpenForActions"
+      />
+      <StatusPromptModal />
+      <AwaySessionOverlay />
       <LoginSplashModal
         v-if="loginSplashVisible && loginSplashSeasons.length"
         :seasons="loginSplashSeasons"
@@ -2005,7 +2075,12 @@ import WeatherChip from './components/WeatherChip.vue';
 import AskAssistantLauncher from './components/assistant/AskAssistantLauncher.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
 import InactivityWarningModal from './components/InactivityWarningModal.vue';
+import StatusPromptModal from './components/StatusPromptModal.vue';
+import AwaySessionOverlay from './components/AwaySessionOverlay.vue';
+import LogoutStatusSplit from './components/LogoutStatusSplit.vue';
 import LoginSplashModal from './components/LoginSplashModal.vue';
+import { usePresenceSessionStore } from './store/presenceSession';
+import { getStatusPromptMode, subscribeStatusPrompt } from './utils/statusPromptBridge';
 import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
 import OfficeMandatoryReviewSplash from './components/office/OfficeMandatoryReviewSplash.vue';
 import InterviewCapsuleSplashModal from './components/hiring/InterviewCapsuleSplashModal.vue';
@@ -2076,6 +2151,20 @@ const notificationStore = useNotificationStore();
 const notificationsUnreadCount = computed(() => Number(notificationStore.unreadCount || 0));
 const communicationsCountsStore = useCommunicationsCountsStore();
 const sessionLockStore = useSessionLockStore();
+const presenceSessionStore = usePresenceSessionStore();
+const statusPromptBridgeMode = ref(getStatusPromptMode());
+const statusPromptOpenForActions = computed(
+  () => !!presenceSessionStore.promptOpen || !!statusPromptBridgeMode.value
+);
+let _unsubStatusPromptBridge = null;
+onMounted(() => {
+  _unsubStatusPromptBridge = subscribeStatusPrompt((m) => {
+    statusPromptBridgeMode.value = m || null;
+  }, 'app');
+});
+onUnmounted(() => {
+  if (typeof _unsubStatusPromptBridge === 'function') _unsubStatusPromptBridge();
+});
 const userPreferencesStore = useUserPreferencesStore();
 const router = useRouter();
 const route = useRoute();
@@ -2172,7 +2261,12 @@ const loadNavActiveSeason = async () => {
 const pageLoading = ref(true);
 const loadingText = getLoadingTextRef();
 let loadingStartedAt = 0;
-const LOADER_MIN_MS = 250;
+/** Only show overlay after continuous load — avoids flash storms from brief nav/API pulses. */
+const LOADER_SHOW_DELAY_MS = 200;
+/** Once shown, keep visible briefly so it doesn't strobe if pending count blips. */
+const LOADER_MIN_VISIBLE_MS = 150;
+let loaderShowTimer = null;
+let loaderHideTimer = null;
 
 // Prefer the selected agency icon for the loader even before authStore hydrates.
 // Falls back through: club logo → portal-agency logo (e.g. SSTC org icon) → platform branding logo.
@@ -2251,16 +2345,43 @@ const sstcClubBannerImageUrl = computed(() => {
 const navBarLogoUrl = computed(() => sstcAffiliationNavLogoUrl.value || navBrandLogoUrl.value);
 
 function syncPageLoading(isOn) {
-  if (isOn) {
-    loadingStartedAt = Date.now();
-    pageLoading.value = true;
-    return;
+  try {
+    if (isOn) {
+      if (loaderHideTimer) {
+        clearTimeout(loaderHideTimer);
+        loaderHideTimer = null;
+      }
+      if (pageLoading.value || loaderShowTimer) return;
+      loaderShowTimer = window.setTimeout(() => {
+        loaderShowTimer = null;
+        try {
+          if (!globalLoading.value) return;
+          loadingStartedAt = Date.now();
+          pageLoading.value = true;
+        } catch {
+          /* ignore — can race logout teardown */
+        }
+      }, LOADER_SHOW_DELAY_MS);
+      return;
+    }
+    if (loaderShowTimer) {
+      clearTimeout(loaderShowTimer);
+      loaderShowTimer = null;
+    }
+    if (!pageLoading.value) return;
+    const elapsed = Date.now() - loadingStartedAt;
+    const wait = Math.max(0, LOADER_MIN_VISIBLE_MS - elapsed);
+    loaderHideTimer = window.setTimeout(() => {
+      loaderHideTimer = null;
+      try {
+        if (!globalLoading.value) pageLoading.value = false;
+      } catch {
+        /* ignore — can race logout teardown */
+      }
+    }, wait);
+  } catch {
+    /* ignore — can race logout teardown */
   }
-  const elapsed = Date.now() - loadingStartedAt;
-  const wait = Math.max(0, LOADER_MIN_MS - elapsed);
-  window.setTimeout(() => {
-    if (!globalLoading.value) pageLoading.value = false;
-  }, wait);
 }
 watch(globalLoading, syncPageLoading);
 
@@ -2314,15 +2435,65 @@ watch(effectivePreviewViewport, (next) => {
 
 // ---- Brand switcher + nav dropdowns (top-nav) ----
 const navLinksWrapperEl = ref(null);
+const navLinksCanScroll = ref(false);
+let navLinksResizeObserver = null;
+let navLinksBoundEl = null;
+
+const updateNavLinksScrollState = () => {
+  const el = navLinksWrapperEl.value;
+  if (!el) {
+    navLinksCanScroll.value = false;
+    return;
+  }
+  navLinksCanScroll.value = el.scrollWidth > el.clientWidth + 2;
+};
 
 const onNavWheelScroll = (e) => {
   const el = navLinksWrapperEl.value;
-  if (!el || navDropdownOpen.value) return;
+  if (!el) return;
   // Only hijack when the nav actually overflows horizontally
-  if (el.scrollWidth <= el.clientWidth) return;
+  if (el.scrollWidth <= el.clientWidth + 2) return;
+  // Prefer native horizontal trackpad gestures; convert vertical wheel to scroll-x.
+  if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
   e.preventDefault();
-  el.scrollLeft += e.deltaY !== 0 ? e.deltaY : e.deltaX;
+  el.scrollLeft += e.deltaY;
 };
+
+function unbindNavLinksScrollHelpers() {
+  if (navLinksBoundEl) {
+    navLinksBoundEl.removeEventListener('wheel', onNavWheelScroll);
+    navLinksBoundEl = null;
+  }
+  if (navLinksResizeObserver) {
+    navLinksResizeObserver.disconnect();
+    navLinksResizeObserver = null;
+  }
+  window.removeEventListener('resize', updateNavLinksScrollState);
+}
+
+function bindNavLinksScrollHelpers() {
+  unbindNavLinksScrollHelpers();
+  const el = navLinksWrapperEl.value;
+  if (!el) return;
+  navLinksBoundEl = el;
+  // Non-passive so vertical wheel can scroll the overflowed nav row.
+  el.addEventListener('wheel', onNavWheelScroll, { passive: false });
+  updateNavLinksScrollState();
+  if (typeof ResizeObserver !== 'undefined') {
+    navLinksResizeObserver = new ResizeObserver(() => updateNavLinksScrollState());
+    navLinksResizeObserver.observe(el);
+  }
+  window.addEventListener('resize', updateNavLinksScrollState);
+}
+
+watch(
+  navLinksWrapperEl,
+  (el) => {
+    if (el) bindNavLinksScrollHelpers();
+    else unbindNavLinksScrollHelpers();
+  },
+  { flush: 'post', immediate: true }
+);
 
 const brandMenuOpen = ref(false);
 const peopleOpsMenuOpen = ref(false);
@@ -2332,6 +2503,7 @@ const directorySchedulesNavExpanded = ref(false);
 const directorySkillBuildersNavExpanded = ref(false);
 const directoryPublicLinksNavExpanded = ref(false);
 const directorySchoolsNavExpanded = ref(false);
+const directorySchoolPortalsNavExpanded = ref(false);
 /** Brief double-flash so School Management reads as clickable. */
 const schoolMgmtFlashActive = ref(false);
 let schoolMgmtFlashTimer = null;
@@ -2388,6 +2560,9 @@ const navDropdownOpen = computed(() => {
     activeSeasonsMenuOpen.value
   );
 });
+
+// Recheck when dropdowns/flyouts change layout width of the link row.
+watch(navDropdownOpen, () => nextTick(updateNavLinksScrollState));
 
 const clearNavMenuHoverTimer = () => {
   if (navMenuHoverTimer.value) {
@@ -2494,14 +2669,39 @@ function applyDirectorySubgroupStateFromRoute() {
     p.includes('/intake/') ||
     p.includes('/find-provider') ||
     /\/p\/[^/]+/.test(p);
-  const inSchools =
+  const overviewOrgType = String(route.query?.orgType || 'school').trim().toLowerCase();
+  const inSchoolPortals =
     p.includes('/school-portals') ||
+    (p.includes('/schools/overview') && overviewOrgType === 'school');
+  const inSchools =
+    inSchoolPortals ||
     p.includes('/caseload-hub') ||
     p.includes('/school-clients');
+  // Desktop Directory uses right flyouts — don't auto-open a panel from the
+  // route (keeps the main list scannable). Mobile accordion still syncs below.
+  if (typeof window !== 'undefined' && window.matchMedia('(min-width: 769px)').matches) {
+    directorySchedulesNavExpanded.value = false;
+    directorySkillBuildersNavExpanded.value = false;
+    directoryPublicLinksNavExpanded.value = false;
+    directorySchoolsNavExpanded.value = false;
+    directorySchoolPortalsNavExpanded.value = false;
+    return;
+  }
   directorySchedulesNavExpanded.value = inSchedules;
   directorySkillBuildersNavExpanded.value = inSkillBuilders;
   directoryPublicLinksNavExpanded.value = inPublicLinks;
   directorySchoolsNavExpanded.value = inSchools;
+  directorySchoolPortalsNavExpanded.value = inSchoolPortals;
+}
+
+/** Desktop Directory: exclusive right-side flyout (one subgroup open at a time). */
+function setDirectoryFlyout(key) {
+  directorySchedulesNavExpanded.value = key === 'schedules';
+  directorySkillBuildersNavExpanded.value = key === 'events';
+  directoryPublicLinksNavExpanded.value = key === 'public';
+  directorySchoolsNavExpanded.value = key === 'schools';
+  if (key !== 'schools') directorySchoolPortalsNavExpanded.value = false;
+  if (key === 'public') loadDirectoryPublicLinks();
 }
 
 const toggleDirectoryMenu = () => {
@@ -2514,10 +2714,13 @@ const toggleDirectoryMenu = () => {
 };
 
 const toggleDirectoryPublicLinksNav = () => {
-  directoryPublicLinksNavExpanded.value = !directoryPublicLinksNavExpanded.value;
-  if (directoryPublicLinksNavExpanded.value) {
-    loadDirectoryPublicLinks();
+  const opening = !directoryPublicLinksNavExpanded.value;
+  if (typeof window !== 'undefined' && window.matchMedia('(min-width: 769px)').matches) {
+    setDirectoryFlyout(opening ? 'public' : null);
+    return;
   }
+  directoryPublicLinksNavExpanded.value = opening;
+  if (opening) loadDirectoryPublicLinks();
 };
 const toggleManagementMenu = () => {
   const next = !managementMenuOpen.value;
@@ -3193,7 +3396,7 @@ watch(
   { immediate: true }
 );
 
-/** School Portals hub (overview + all portals). Same roles as prior School Overview links; gated by platform + tenant flags. */
+/** School Portals nav (Overview + All school portals). Same roles as prior School Overview links; gated by platform + tenant flags. */
 const canSeeSchoolPortalsNav = computed(() => {
   if (!authStore.isAuthenticated) return false;
   if (hideGlobalNavForSchoolStaff.value) return false;
@@ -4232,9 +4435,26 @@ const onMyDashboardClick = (e) => {
 };
 
 const handleLogout = async () => {
-  stopActivityTracking();
+  // Do not close the hamburger or stop tracking before the status prompt paints.
+  // Closing the sidebar here raced Vue's patcher and left promptMode stuck on
+  // 'logout' with no visible modal (confirmed by runtime logs).
+  try {
+    await authStore.logout();
+  } catch (err) {
+    throw err;
+  }
+  // If user cancelled the status prompt, keep Timedown alive.
+  if (authStore.isAuthenticated) {
+    startActivityTracking({ force: true });
+  }
+};
+
+/** "Set timeout / Away" from Logout ▾ — close sidebar so the status card is usable. */
+const onLogoutTimeoutPrompt = async () => {
+  // Close after prompt is requested; never close the menu in the same tick as
+  // opening the status modal (that aborted Vue's flush — modal never painted).
+  await nextTick();
   mobileMenuOpen.value = false;
-  await authStore.logout();
 };
 
 const onSessionUnlock = () => {
@@ -4943,62 +5163,6 @@ onMounted(async () => {
     // best effort
   }
 
-  // Load agency list for brand switching.
-  // Use authStore role directly — brandingStore.isSuperAdmin may not yet be truthy at this point
-  // if the branding store hasn't finished initializing, causing fetchUserAgencies to run instead
-  // of fetchAgencies and leaving agencyStore.agencies empty (only Platform shown in menu).
-  if (isAuthenticated.value) {
-    try {
-      if (authStore.user?.role === 'super_admin') {
-        await agencyStore.fetchAgencies();
-      } else {
-        await agencyStore.fetchUserAgencies();
-      }
-    } catch {
-      // ignore
-    }
-  }
-  
-  if (isAuthenticated.value) {
-    startActivityTracking();
-    // Sync dark mode: prefer localStorage (user's current session choice) over server
-    // so toggling dark mode without clicking Save isn't overwritten on navigation
-    const uid = authStore.user?.id;
-    if (uid) {
-      try {
-        const { default: api } = await import('./services/api');
-        const { setDarkMode, getStoredDarkMode } = await import('./utils/darkMode');
-        const { useUserPreferencesStore } = await import('./store/userPreferences');
-        const res = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
-        const data = res?.data || {};
-        const stored = getStoredDarkMode(uid);
-        const dark = stored !== null ? stored : !!data.dark_mode;
-        setDarkMode(uid, dark);
-        const prefsStore = useUserPreferencesStore();
-        prefsStore.setFromApi(data);
-        const density = data.layout_density || 'standard';
-        document.documentElement.removeAttribute('data-layout-density');
-        if (density !== 'standard') document.documentElement.setAttribute('data-layout-density', density);
-      } catch {
-        /* ignore - use localStorage fallback */
-      }
-    }
-    
-    // Check if user role needs to be refreshed (e.g., after role change in database)
-    // This helps catch cases where the database role was updated but token still has old role
-    try {
-      const authStore = useAuthStore();
-      if (authStore.user && authStore.refreshUser) {
-        await authStore.refreshUser();
-        // Note: Super admin status is determined by role, not email
-        // All permission checks use user.role === 'super_admin'
-        // The backend enforces role-based permissions
-      }
-    } catch (err) {
-      console.error('Error checking user role:', err);
-    }
-  }
-
   // Super admin default: Platform context unless we're on a branded (slug) route.
   // Uses setPlatformMode() so subsequent fetchUserAgencies calls don't snap back to a tenant.
   try {
@@ -5011,36 +5175,66 @@ onMounted(async () => {
     // ignore
   }
 
+  // Do not hold the global loader on agency catalog / prefs / refreshUser.
+  // These were sequentially awaited and blocked first paint for ~6–9s on ITSCO (esp. super_admin GET /agencies).
+  if (isAuthenticated.value) {
+    startActivityTracking();
+
+    void (async () => {
+      try {
+        if (authStore.user?.role === 'super_admin') {
+          await agencyStore.fetchAgencies();
+        } else {
+          await agencyStore.fetchUserAgencies();
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
+    void (async () => {
+      const uid = authStore.user?.id;
+      if (uid) {
+        try {
+          const { default: api } = await import('./services/api');
+          const { setDarkMode, getStoredDarkMode } = await import('./utils/darkMode');
+          const { useUserPreferencesStore } = await import('./store/userPreferences');
+          const res = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
+          const data = res?.data || {};
+          const stored = getStoredDarkMode(uid);
+          const dark = stored !== null ? stored : !!data.dark_mode;
+          setDarkMode(uid, dark);
+          const prefsStore = useUserPreferencesStore();
+          prefsStore.setFromApi(data);
+          const density = data.layout_density || 'standard';
+          document.documentElement.removeAttribute('data-layout-density');
+          if (density !== 'standard') document.documentElement.setAttribute('data-layout-density', density);
+        } catch {
+          /* ignore - use localStorage fallback */
+        }
+      }
+
+      try {
+        if (authStore.user && authStore.refreshUser) {
+          await authStore.refreshUser();
+        }
+      } catch (err) {
+        console.error('Error checking user role:', err);
+      }
+    })();
+  }
+
   } finally {
     endLoading(bootId);
   }
 });
 
-// Show loader during route navigations.
-// The loader will remain visible until all API calls (and any tracked preloads) complete.
-let navLoadId = null;
-router.beforeEach((to, from, next) => {
-  // Avoid flashing loader on hash-only changes / same route.
-  if ((to.fullPath || '') !== (from.fullPath || '')) {
-    try {
-      if (navLoadId) endLoading(navLoadId);
-    } catch {}
-    navLoadId = beginLoading('Loading…');
-  }
-  next();
-});
-router.afterEach(() => {
-  if (navLoadId) {
-    const id = navLoadId;
-    navLoadId = null;
-    // Give the new route a tick to kick off its API calls (which will keep the loader up).
-    window.setTimeout(() => {
-      try { endLoading(id); } catch {}
-    }, 0);
-  }
-});
+// Do not begin a global loader on every route change — soft navigations (query/replace)
+// were opening/closing "Loading…" in <5ms and flashing the overlay via LOADER_MIN.
+// Longer API work still drives the overlay through the axios interceptor.
 
 onUnmounted(() => {
+  unbindNavLinksScrollHelpers();
   document.removeEventListener('click', onDocumentClick);
   window.removeEventListener('app:just-logged-in', resetLoginNotificationGate);
   window.removeEventListener('superadmin-preview-updated', onPreviewUpdated);
@@ -5201,6 +5395,10 @@ onUnmounted(() => {
   overflow-x: clip;
   overflow-y: visible;
   box-sizing: border-box;
+}
+/* Directory right-flyouts extend horizontally past the bar */
+.navbar:has(.nav-dropdown-menu-wide) {
+  overflow: visible;
 }
 
 /* Native app: extra safety in case env() isn't supported */
@@ -5530,9 +5728,63 @@ onUnmounted(() => {
 
 .nav-dropdown-menu-wide {
   min-width: 280px;
+  /* Flyouts extend to the right — do not clip them */
+  overflow: visible;
+  max-height: none;
 }
 .nav-dropdown-group {
   padding: 2px 0 4px;
+}
+
+/* Directory subgroups: open to the right so the main list stays scannable */
+.nav-dropdown-menu-wide .nav-dropdown-group-flyout {
+  position: relative;
+  padding: 0;
+}
+.nav-dropdown-menu-wide .nav-dropdown-group-flyout > .nav-dropdown-group-items {
+  position: absolute;
+  left: calc(100% - 6px);
+  top: 0;
+  z-index: 1200;
+  min-width: 240px;
+  max-width: min(360px, 46vw);
+  max-height: min(70vh, 520px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin: 0;
+  padding: 8px 8px 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+}
+.nav-dropdown-menu-wide .nav-dropdown-group-flyout > .nav-dropdown-group-items a {
+  padding-left: 10px;
+}
+.nav-dropdown-menu-wide .nav-dropdown-group-items-nested {
+  position: static;
+  margin: 0 0 4px 8px;
+  padding: 2px 0 2px 8px;
+  max-height: none;
+  overflow: visible;
+  border: none;
+  border-left: 2px solid #e2e8f0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.nav-dropdown-menu-wide .nav-dropdown-group-flyout > .nav-dropdown-group-trigger:hover,
+.nav-dropdown-menu-wide .nav-dropdown-group-flyout:hover > .nav-dropdown-group-trigger {
+  background: #f0fdfa;
+}
+/* Keep caret pointing right for flyouts (submenu cue) */
+.nav-dropdown-menu-wide .nav-dropdown-group-flyout > .nav-dropdown-group-trigger .nav-dropdown-group-caret.open {
+  transform: none;
+  opacity: 0.9;
+  color: #0f766e;
 }
 .nav-dropdown-group-label {
   font-size: 11px;
@@ -5599,6 +5851,16 @@ onUnmounted(() => {
   color: inherit !important;
   text-decoration: none !important;
   font-weight: 600;
+}
+.school-portals-nav {
+  padding: 0;
+}
+.school-portals-nav > .nav-dropdown-group-trigger {
+  padding-left: 10px;
+  font-size: 15px;
+}
+.school-portals-nav-label {
+  flex: 1;
 }
 .school-mgmt-flash {
   animation: school-mgmt-flash-twice 1.1s ease-in-out 1;
@@ -5785,13 +6047,36 @@ onUnmounted(() => {
   width: 100%;
 }
 
-/* Wrapper for nav-links to enable horizontal scrolling */
+/* Wrapper for nav-links — horizontal scroll when items overflow (common under ~1600px). */
 .nav-links-wrapper {
   flex: 1;
   min-width: 0;
-  /* IMPORTANT: Dropdown menus must be able to render outside this row.
-     Avoid horizontal scrolling here; use dropdowns instead. */
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.45) transparent;
+  /* Soft cue that more items exist off-screen to the right */
+  mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 28px), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 28px), transparent 100%);
+}
+
+.nav-links-wrapper:not(.nav-links-scrollable) {
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+.nav-links-wrapper::-webkit-scrollbar {
+  height: 6px;
+}
+.nav-links-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+}
+.nav-links-wrapper::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .nav-links {
@@ -5799,8 +6084,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 20px;
   flex-wrap: nowrap;
-  flex-shrink: 1;
-  min-width: 0;
+  flex-shrink: 0;
+  min-width: max-content;
 }
 
 .nav-right-group {
@@ -5811,28 +6096,11 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-@media (max-width: 1600px) {
-  .nav-links-wrapper {
-    overflow-x: auto;
-    overflow-y: visible;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-    touch-action: pan-x;
-  }
-
-  .nav-links-wrapper::-webkit-scrollbar {
-    display: none;
-  }
-
-  .nav-links {
-    min-width: max-content;
-    flex-wrap: nowrap;
-  }
-
-  .nav-links-wrapper.nav-menus-open {
-    overflow: visible;
-  }
+/* Dropdowns/flyouts need to paint outside the scroll row */
+.nav-links-wrapper.nav-menus-open {
+  overflow: visible;
+  mask-image: none;
+  -webkit-mask-image: none;
 }
 
 .nav-availability {
@@ -7002,6 +7270,9 @@ details[open].mobile-nav-group-collapsible .mobile-nav-group-caret {
   padding-left: 42px !important;
   font-weight: 800;
 }
+.mobile-nav-nested-sublink {
+  padding-left: 42px !important;
+}
 
 .mobile-sidebar-footer {
   padding: 20px;
@@ -7009,6 +7280,10 @@ details[open].mobile-nav-group-collapsible .mobile-nav-group-caret {
   border-top: 2px solid var(--accent, rgba(255, 255, 255, 0.2));
   flex-shrink: 0;
   background-color: var(--primary);
+  /* Logout ▾ menu is teleported to body; keep footer from clipping its trigger. */
+  overflow: visible;
+  position: relative;
+  z-index: 2;
 }
 
 .mobile-logout {
@@ -7111,7 +7386,8 @@ details[open].mobile-nav-group-collapsible .mobile-nav-group-caret {
   }
 
   /* Logout is in the sidebar — remove it from the top bar at narrower widths */
-  .nav-right-group > .btn {
+  .nav-right-group > .btn,
+  .nav-right-group > .nav-logout-split {
     display: none;
   }
 }

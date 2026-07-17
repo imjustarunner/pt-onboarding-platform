@@ -13,7 +13,9 @@ import {
   bulkUpdatePresence,
   nudgeUserPresence,
   markOffline,
-  setAvailability
+  setAvailability,
+  setAwayStatus,
+  clearMyPresenceStatus
 } from '../controllers/presence.controller.js';
 
 const router = express.Router();
@@ -29,10 +31,12 @@ router.get('/agency/:agencyId/team', listPresenceForAgency);
 router.get('/agency/:agencyId', listAgencyPresence);
 router.get('/admins', listAdminPresence);
 
-// Team Board presence (status-based: In/Out/Traveling)
+// Team Board presence (status-based: In/Out/Traveling) + rich away flow
 router.get('/', requireSuperAdmin, listPresence);
 router.get('/status/me', getMyPresenceStatus);
 router.put('/status/me', updateMyPresence);
+router.post('/status/away', setAwayStatus);
+router.post('/status/clear', clearMyPresenceStatus);
 router.post('/bulk-update', requireSuperAdmin, bulkUpdatePresence);
 router.put('/status/:userId', requireSuperAdmin, updateUserPresence);
 router.post('/status/:userId/nudge', requireSuperAdmin, nudgeUserPresence);

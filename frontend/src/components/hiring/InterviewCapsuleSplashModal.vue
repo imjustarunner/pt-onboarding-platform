@@ -53,7 +53,7 @@ async function loadQueue() {
   loading.value = true;
   err.value = '';
   try {
-    const r = await api.get('/hiring/me/pending-interview-splashes');
+    const r = await api.get('/hiring/me/pending-interview-splashes', { skipGlobalLoading: true });
     queue.value = Array.isArray(r.data) ? r.data : [];
     syncStepFromQueue();
   } catch {

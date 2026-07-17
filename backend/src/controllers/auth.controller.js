@@ -646,9 +646,10 @@ export const login = async (req, res, next) => {
       isValidPassword = await bcrypt.compare(password, user.password_hash);
     }
 
-    // Temporary password: verify hash first, then enforce expiry (avoid "expired" on wrong password)
+    // Temporary password: verify hash first, then enforce expiry (avoid "expired" on wrong password).
+    // Skip when the primary hash already matched — bcrypt is intentionally slow.
     let tempPasswordMatched = false;
-    if (hasTempHash) {
+    if (hasTempHash && !isValidPassword) {
       tempPasswordMatched = await bcrypt.compare(password, user.temporary_password_hash);
     }
     if (!isValidPassword && tempPasswordMatched) {
@@ -747,7 +748,11 @@ export const login = async (req, res, next) => {
     // Get user's primary agency (first agency if multiple)
     let agencyId = null;
     try {
-      const agencies = await User.getAgencies(user.id);
+      // Reuse agencies already loaded for SSO check when possible.
+      const agencies =
+        Array.isArray(userOrgs) && userOrgs.length
+          ? userOrgs
+          : await User.getAgencies(user.id);
       if (agencies && agencies.length > 0) {
         agencyId = agencies[0].id;
       }
@@ -880,6 +885,8 @@ export const login = async (req, res, next) => {
     const companyCarSubmitAccess = Boolean(freshUser?.company_car_submit_access);
     const companyCarManageAccess = Boolean(freshUser?.company_car_manage_access);
 
+    const payrollCaps = await buildPayrollCaps(user);
+
     const responseData = {
       token,
       user: {
@@ -916,8 +923,10 @@ export const login = async (req, res, next) => {
           freshUser?.skill_builder_confirm_required_next_login === 1 ||
           freshUser?.skill_builder_confirm_required_next_login === '1'
         ),
-        ...(await buildPayrollCaps(user))
+        ...payrollCaps
       },
+      // Already loaded for SSO checks — lets the client skip a post-login /users/me/agencies round-trip.
+      agencies: Array.isArray(userOrgs) ? userOrgs : [],
       sessionId
     };
     
@@ -1548,7 +1557,13 @@ export const getSessionLockConfig = async (req, res, next) => {
     }
 
     const roleNorm = String(req.user?.role || '').toLowerCase();
-    if (roleNorm === 'admin' || roleNorm === 'super_admin') {
+    // Privileged practice roles: floor idle → Timedown at 5 minutes (matches frontend).
+    if (
+      roleNorm === 'admin' ||
+      roleNorm === 'super_admin' ||
+      roleNorm === 'support' ||
+      roleNorm === 'clinical_practice_assistant'
+    ) {
       idleBeforeTimedownSeconds = Math.max(idleBeforeTimedownSeconds, 300);
     }
 

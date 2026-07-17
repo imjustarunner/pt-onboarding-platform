@@ -100,7 +100,7 @@ export const useBrandingStore = defineStore('branding', () => {
         if (iconFetchInFlight.has(key)) return iconFetchInFlight.get(key);
 
         const p = api
-          .get(`/icons/${encodeURIComponent(key)}`)
+          .get(`/icons/${encodeURIComponent(key)}`, { skipGlobalLoading: true })
           .then((res) => {
             const fp = res?.data?.file_path || null;
             iconFilePathCache.value = { ...iconFilePathCache.value, [key]: fp };
@@ -199,7 +199,7 @@ export const useBrandingStore = defineStore('branding', () => {
     try {
       // Add cache-busting parameter if force refresh is requested
       const params = forceRefresh ? { _t: Date.now() } : {};
-      const response = await (await import('../services/api')).default.get('/platform-branding', { params });
+      const response = await (await import('../services/api')).default.get('/platform-branding', { params, skipGlobalLoading: true });
       // Prevent stale/slow responses from clobbering newer platformBranding (race condition).
       if (seq !== platformBrandingFetchSeq.value) return;
       platformBranding.value = response.data;
@@ -472,7 +472,8 @@ export const useBrandingStore = defineStore('branding', () => {
             const req = api
               .get('/fonts/public', {
                 params: { agencyId: brandingAgencyId || undefined, familyName },
-                skipAuthRedirect: true
+                skipAuthRedirect: true,
+                skipGlobalLoading: true
               })
               .then((res) => {
                 const fonts = res.data || [];

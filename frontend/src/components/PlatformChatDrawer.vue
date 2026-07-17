@@ -2,11 +2,19 @@
   <div
     v-if="isAuthenticated"
     class="chat-drawer"
-    :class="{ open: isOpen }"
+    :class="[
+      { open: isOpen && !isDragging, dragging: isDragging },
+      `dock-${dock.edge}`
+    ]"
+    :style="drawerStyle"
     @mouseenter="onEnter"
     @mouseleave="onLeave"
   >
-    <div class="rail" :title="needsAgency ? 'Select an agency to use messages' : 'Messages'">
+    <div
+      class="rail"
+      :title="railTitle"
+      @pointerdown="onRailPointerDown"
+    >
       <div class="rail-badge rail-badge-top" :class="{ zero: totalUnread <= 0 }">
         {{ totalUnread }}
       </div>
@@ -21,57 +29,39 @@
       </div>
     </div>
 
+    <div v-if="isDragging" class="dock-hint" aria-live="polite">Snap to any edge</div>
+
     <div class="panel">
       <div class="panel-header">
-        <div>
+        <div class="org-header">
           <div class="title">Messages</div>
-          <div class="subtitle">{{ isClubContext ? 'Club members online' : 'Agency presence + internal messages' }}</div>
-        </div>
-
-        <div class="presence-controls" v-if="isAuthenticated">
-          <template v-if="isAdminLike && !isClubContext">
-            <button
-              class="btn btn-xs"
-              :class="myAvailability === 'admins_only' ? 'btn-primary' : 'btn-secondary'"
-              type="button"
-              @click="setMyAvailability('admins_only')"
-              title="Visible to admins only"
-            >
-              Go Online (Admins)
-            </button>
-            <button
-              class="btn btn-xs"
-              :class="myAvailability === 'everyone' ? 'btn-primary' : 'btn-secondary'"
-              type="button"
-              @click="setMyAvailability('everyone')"
-              title="Visible to everyone in the agency"
-            >
-              Go Online
-            </button>
-            <button
-              class="btn btn-xs"
-              :class="myAvailability === 'offline' ? 'btn-primary' : 'btn-secondary'"
-              type="button"
-              @click="setMyAvailability('offline')"
-              title="Appear offline"
-            >
-              Go Offline
-            </button>
-          </template>
-
-          <template v-else>
-            <button
-              class="btn btn-xs"
-              :class="myAvailability === 'offline' ? 'btn-secondary' : 'btn-primary'"
-              type="button"
-              @click="toggleMyAvailability"
-              title="Toggle your online visibility"
-            >
-              {{ myAvailability === 'offline' ? 'Go Online' : 'Go Offline' }}
-            </button>
-          </template>
+          <div class="subtitle">{{ panelSubtitle }}</div>
         </div>
       </div>
+
+      <nav class="nav-stubs" aria-label="Team communication">
+        <button
+          type="button"
+          class="nav-stub"
+          :class="{ active: mainTab === 'dms' }"
+          @click="switchToDms"
+        >
+          Direct Messages
+        </button>
+        <template v-if="!isSchoolStaffViewer">
+          <button
+            type="button"
+            class="nav-stub"
+            :class="{ active: mainTab === 'channels' }"
+            @click="switchToChannels"
+          >
+            Channels
+            <span v-if="channelsUnreadTotal > 0" class="nav-stub-badge">{{ channelsUnreadTotal }}</span>
+          </button>
+          <button type="button" class="nav-stub" disabled title="Coming soon">Threads</button>
+          <button type="button" class="nav-stub" disabled title="Coming soon">Mentions</button>
+        </template>
+      </nav>
 
       <div class="panel-body">
         <template v-if="needsAgency">
@@ -80,23 +70,120 @@
           </div>
 
           <div v-if="pendingThreads.length > 0" class="section" style="margin-top: 12px;">
-            <div class="section-title">Pending chats</div>
+            <div class="section-title">Unread</div>
             <button
               v-for="t in pendingThreads"
               :key="`${t.agency_id}-${t.thread_id}`"
               class="person"
               @click="openThread(t)"
             >
-              <span class="dot dot-online"></span>
-              <span class="name">{{ t.other_participant.first_name }} {{ t.other_participant.last_name }}</span>
+              <span class="dot" :class="dotClassForUserId(t.other_participant?.id)"></span>
+              <span class="name-block">
+                <span class="name">{{ t.other_participant.first_name }} {{ t.other_participant.last_name }}</span>
+                <span class="status-line">{{ subtitleForUserId(t.other_participant?.id) }}</span>
+              </span>
               <span class="pill">{{ t.unread_count }}</span>
             </button>
           </div>
         </template>
 
         <template v-else>
+          <template v-if="mainTab === 'channels' && !isSchoolStaffViewer">
+            <div class="toolbar">
+              <input v-model="channelQ" class="search" placeholder="Search channels…" />
+              <button
+                v-if="canCreateChannel"
+                type="button"
+                class="filter-chip"
+                @click="showCreateChannel = !showCreateChannel"
+              >
+                {{ showCreateChannel ? 'Cancel' : '+ New channel' }}
+              </button>
+            </div>
+            <div v-if="showCreateChannel && canCreateChannel" class="create-channel">
+              <input v-model="newChannelName" class="search" placeholder="Channel name" maxlength="120" />
+              <input v-model="newChannelDesc" class="search" placeholder="Description (optional)" maxlength="500" />
+              <label class="create-channel-check">
+                <input v-model="newChannelPrivate" type="checkbox" />
+                Private (invite-only)
+              </label>
+              <button
+                type="button"
+                class="btn btn-xs btn-primary"
+                :disabled="creatingChannel || !newChannelName.trim()"
+                @click="createNewChannel"
+              >
+                {{ creatingChannel ? 'Creating…' : 'Create' }}
+              </button>
+              <div v-if="channelError" class="error">{{ channelError }}</div>
+            </div>
+            <div v-if="channelsLoading" class="loading">Loading channels…</div>
+            <div v-else-if="channelError && !showCreateChannel" class="error">{{ channelError }}</div>
+            <div v-else class="lists">
+              <div class="section">
+                <div class="section-title">Channels</div>
+                <div v-if="filteredChannels.length === 0" class="muted">No channels yet.</div>
+                <button
+                  v-for="ch in filteredChannels"
+                  :key="ch.thread_id"
+                  type="button"
+                  class="person channel-row"
+                  :class="{ active: activeChannel?.thread_id === ch.thread_id }"
+                  @click="openChannelThread(ch)"
+                >
+                  <span class="channel-hash" aria-hidden="true">#</span>
+                  <span class="name-block">
+                    <span class="name">
+                      {{ ch.name }}
+                      <span v-if="ch.kind === 'school'" class="agency-chip">School</span>
+                      <span v-if="ch.visibility === 'private'" class="agency-chip">Private</span>
+                    </span>
+                    <span class="status-line">{{ channelPreview(ch) }}</span>
+                  </span>
+                  <span v-if="ch.unread_count" class="pill">{{ ch.unread_count }}</span>
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <template v-else>
           <div class="toolbar">
-            <input v-model="q" class="search" :placeholder="isClubContext ? 'Search club members…' : 'Search people…'" />
+            <input v-model="q" class="search" :placeholder="searchPlaceholder" />
+            <div v-if="canToggleAudience" class="filter-chips audience-chips">
+              <button
+                type="button"
+                class="filter-chip"
+                :class="{ active: audienceMode === 'team' }"
+                @click="setAudienceMode('team')"
+              >
+                Team
+              </button>
+              <button
+                type="button"
+                class="filter-chip"
+                :class="{ active: audienceMode === 'directory' }"
+                @click="setAudienceMode('directory')"
+              >
+                Other roles
+              </button>
+            </div>
+            <div v-if="canToggleAudience && audienceMode === 'directory'" class="filter-chips">
+              <button
+                v-for="opt in DIRECTORY_ROLE_OPTIONS"
+                :key="opt.id"
+                type="button"
+                class="filter-chip"
+                :class="{ active: directoryRole === opt.id }"
+                @click="setDirectoryRole(opt.id)"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+            <div class="filter-chips">
+              <button type="button" class="filter-chip" :class="{ active: listFilter === 'all' }" @click="listFilter = 'all'">All</button>
+              <button type="button" class="filter-chip" :class="{ active: listFilter === 'online' }" @click="listFilter = 'online'">Online</button>
+              <button type="button" class="filter-chip" :class="{ active: listFilter === 'away' }" @click="listFilter = 'away'">Away</button>
+            </div>
           </div>
 
           <div v-if="loading" class="loading">Loading…</div>
@@ -104,68 +191,52 @@
 
           <div v-else class="lists">
             <div v-if="pendingThreads.length > 0" class="section">
-              <div class="section-title">Pending chats</div>
+              <div class="section-title">Unread</div>
               <button
                 v-for="t in pendingThreads"
                 :key="`${t.agency_id}-${t.thread_id}`"
                 class="person"
                 @click="openThread(t)"
               >
-                <span class="dot dot-online"></span>
-                <span class="name">
-                  {{ t.other_participant.first_name }} {{ t.other_participant.last_name }}
-                  <span v-if="!isClubContext && t.agencyLabel" class="agency-chip">{{ t.agencyLabel }}</span>
+                <span class="dot" :class="dotClassForUserId(t.other_participant?.id)"></span>
+                <span class="name-block">
+                  <span class="name">
+                    {{ t.other_participant.first_name }} {{ t.other_participant.last_name }}
+                    <span v-if="!isClubContext && t.agencyLabel" class="agency-chip">{{ t.agencyLabel }}</span>
+                  </span>
+                  <span class="status-line">{{ subtitleForUserId(t.other_participant?.id) }}</span>
                 </span>
                 <span class="pill">{{ t.unread_count }}</span>
               </button>
             </div>
 
             <div class="section">
-              <div class="section-title">Online</div>
-              <div v-if="online.length === 0" class="muted">{{ isClubContext ? 'No club members online.' : 'No one is online.' }}</div>
-              <button v-for="u in online" :key="u.id" class="person" @click="openChat(u)">
-                <span class="dot dot-online"></span>
-                <span class="name">
-                  {{ u.first_name }} {{ u.last_name }}
-                  <span v-if="adminsAllMode && u.agency_names" class="agency-chip">{{ u.agency_names }}</span>
-                </span>
-                <span v-if="u.unreadCount" class="pill">{{ u.unreadCount }}</span>
-              </button>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Idle</div>
-              <div v-if="idle.length === 0" class="muted">{{ isClubContext ? 'No club members idle.' : 'No one is idle.' }}</div>
-              <button v-for="u in idle" :key="u.id" class="person" @click="openChat(u)">
-                <span class="dot dot-idle"></span>
-                <span class="name">
-                  {{ u.first_name }} {{ u.last_name }}
-                  <span v-if="adminsAllMode && u.agency_names" class="agency-chip">{{ u.agency_names }}</span>
-                </span>
-                <span v-if="u.unreadCount" class="pill">{{ u.unreadCount }}</span>
-              </button>
-            </div>
-
-            <div v-if="!isClubContext" class="section">
-              <div class="section-title">Offline</div>
-              <div class="scroll">
-                <div v-if="offline.length === 0" class="muted">No offline users.</div>
-                <button v-for="u in offline" :key="u.id" class="person" @click="openChat(u)">
-                  <span class="dot dot-offline"></span>
+              <div class="section-title">{{ dmSectionTitle }}</div>
+              <div v-if="dmList.length === 0" class="muted">
+                {{ emptyDirectoryMessage }}
+              </div>
+              <button v-for="u in dmList" :key="u.id" class="person" @click="openChat(u)">
+                <span class="dot" :class="presenceDotClass(u.status)"></span>
+                <span class="name-block">
                   <span class="name">
                     {{ u.first_name }} {{ u.last_name }}
-                    <span v-if="adminsAllMode && u.agency_names" class="agency-chip">{{ u.agency_names }}</span>
+                    <span v-if="u.id === meId" class="you-chip">you</span>
+                    <span v-if="personOrgLabel(u)" class="agency-chip">{{ personOrgLabel(u) }}</span>
+                    <span v-else-if="adminsAllMode && u.agency_names" class="agency-chip">{{ u.agency_names }}</span>
                   </span>
-                  <span v-if="u.unreadCount" class="pill">{{ u.unreadCount }}</span>
-                </button>
-              </div>
+                  <span class="status-line">{{ statusSubtitle(u) }}</span>
+                </span>
+                <span v-if="u.unreadCount" class="pill">{{ u.unreadCount }}</span>
+              </button>
             </div>
           </div>
+          </template>
 
-          <div v-if="activeChatUser" class="chat-box">
+          <div v-if="activeChatUser || activeChannel" class="chat-box">
             <div class="chat-box-header">
               <div class="chat-title">
-                {{ activeChatUser.first_name }} {{ activeChatUser.last_name }}
+                <template v-if="activeChannel"># {{ activeChannel.name }}</template>
+                <template v-else>{{ activeChatUser.first_name }} {{ activeChatUser.last_name }}</template>
               </div>
               <div class="chat-box-actions">
                 <button class="btn btn-xs btn-secondary" type="button" @click="toggleSelectMode" :disabled="sending || chatLoading">
@@ -182,7 +253,7 @@
                   Delete ({{ selectedMessageIds.length }})
                 </button>
                 <button class="btn btn-xs btn-danger" type="button" @click="deleteThread" :disabled="sending || chatLoading">
-                  Delete thread
+                  {{ activeChannel ? 'Hide channel' : 'Delete thread' }}
                 </button>
                 <button class="btn-close" @click="closeChat">×</button>
               </div>
@@ -241,6 +312,62 @@
           </div>
         </template>
       </div>
+
+      <div class="self-footer">
+        <button type="button" class="self-status-btn" @click="statusMenuOpen = !statusMenuOpen">
+          <span class="dot" :class="presenceDotClass(myHeartbeatStatus)"></span>
+          <span class="self-meta">
+            <span class="self-name">{{ myDisplayName }}</span>
+            <span class="self-status-label">{{ myStatusDisplay }}</span>
+          </span>
+          <span class="self-chevron">▾</span>
+        </button>
+        <div v-if="statusMenuOpen" class="status-menu" @click.stop>
+          <template v-if="isPrivileged">
+            <div class="status-menu-label">Set status</div>
+            <button
+              v-for="r in AWAY_REASONS"
+              :key="r.id"
+              type="button"
+              class="status-menu-item"
+              @click="quickSetAway(r.id)"
+            >
+              {{ r.label }}
+            </button>
+            <button type="button" class="status-menu-item" @click="clearMyAway">I'm back · Active</button>
+            <div class="status-menu-divider"></div>
+            <button
+              type="button"
+              class="status-menu-item"
+              :class="{ active: myAvailability === 'admins_only' }"
+              @click="setMyAvailability('admins_only')"
+            >
+              Visible to admins only
+            </button>
+            <button
+              type="button"
+              class="status-menu-item"
+              :class="{ active: myAvailability === 'everyone' }"
+              @click="setMyAvailability('everyone')"
+            >
+              Visible to everyone
+            </button>
+            <button
+              type="button"
+              class="status-menu-item"
+              :class="{ active: myAvailability === 'offline' }"
+              @click="setMyAvailability('offline')"
+            >
+              Appear offline
+            </button>
+          </template>
+          <template v-else>
+            <button type="button" class="status-menu-item" @click="toggleMyAvailability">
+              {{ myAvailability === 'offline' ? 'Go Online' : 'Go Offline' }}
+            </button>
+          </template>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -252,7 +379,21 @@ import api from '../services/api';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
+import { usePresenceSessionStore } from '../store/presenceSession';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+import {
+  AWAY_REASONS,
+  DIRECTORY_ROLE_OPTIONS,
+  canToggleDirectoryAudience,
+  isPrivilegedPresenceRole,
+  isSchoolStaffRole,
+  personOrgLabel,
+  presenceDotClass,
+  presenceSortRank,
+  statusSubtitle
+} from '../utils/presenceStatus';
+import { pauseIdleForSessionExtend, clearSessionExtendPause, resetActivityTimer } from '../utils/activityTracker';
+import { dockToStyle, loadDock, saveDock, snapPointerToEdge } from '../utils/chatDrawerDock';
 
 const route = useRoute();
 const router = useRouter();
@@ -265,8 +406,25 @@ const isAffiliationOrgType = (org) => {
   const t = String(org?.organization_type || org?.organizationType || '').toLowerCase();
   return t === 'affiliation' || t === 'clubwebapp';
 };
+const isSchoolOrgType = (org) =>
+  String(org?.organization_type || org?.organizationType || '').toLowerCase() === 'school';
+
 const agencyId = computed(() => {
   const current = agencyStore.currentAgency || null;
+  const role = String(authStore.user?.role || '').toLowerCase();
+
+  // School staff: prefer school org id (DM directory is school-scoped server-side).
+  if (role === 'school_staff') {
+    if (current && isSchoolOrgType(current) && current.id) return current.id;
+    const schoolMembership = (agencyStore.userAgencies || []).find((a) => isSchoolOrgType(a));
+    if (schoolMembership?.id) return schoolMembership.id;
+    const affiliated =
+      Number(current?.affiliated_agency_id || 0) ||
+      Number(current?.affiliatedAgencyId || 0) ||
+      null;
+    if (affiliated) return affiliated;
+  }
+
   if (!current) return null;
   if (isAgencyOrgType(current)) return current?.id || null;
 
@@ -286,10 +444,80 @@ const agencyId = computed(() => {
   const knownAgency = (agencyStore.agencies || []).find((a) => isAgencyOrgType(a));
   return knownAgency?.id || null;
 });
+const presenceSession = usePresenceSessionStore();
 const myRole = computed(() => authStore.user?.role || '');
-const isAdminLike = computed(() => myRole.value === 'admin' || myRole.value === 'super_admin');
+const isPrivileged = computed(() => isPrivilegedPresenceRole(myRole.value));
+const isAdminLike = computed(() => isPrivileged.value);
 const adminsAllMode = computed(() => myRole.value === 'super_admin' && myAvailability.value === 'admins_only');
 const needsAgency = computed(() => !agencyId.value && !adminsAllMode.value);
+const listFilter = ref('all');
+const audienceMode = ref('team'); // team | directory
+const directoryRole = ref('school_staff');
+const statusMenuOpen = ref(false);
+const myHeartbeatStatus = ref('offline');
+const myStatusLabel = ref(null);
+
+const isSchoolStaffViewer = computed(() => isSchoolStaffRole(myRole.value));
+const canToggleAudience = computed(() => canToggleDirectoryAudience(myRole.value) && !isClubContext.value);
+const canCreateChannel = computed(() => {
+  const r = myRole.value;
+  return ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant'].includes(r);
+});
+const mainTab = ref('dms');
+const channels = ref([]);
+const channelsLoading = ref(false);
+const channelError = ref('');
+const channelQ = ref('');
+const activeChannel = ref(null);
+const showCreateChannel = ref(false);
+const newChannelName = ref('');
+const newChannelDesc = ref('');
+const newChannelPrivate = ref(false);
+const creatingChannel = ref(false);
+
+const panelSubtitle = computed(() => {
+  if (isClubContext.value) return 'Club direct messages';
+  if (isSchoolStaffViewer.value) return 'Direct messages · your schools';
+  if (mainTab.value === 'channels') return 'Team channels';
+  if (audienceMode.value === 'directory') return 'Direct messages · other roles';
+  return 'Direct messages · team employees';
+});
+
+const channelsUnreadTotal = computed(() =>
+  (channels.value || []).reduce((sum, c) => sum + (Number(c.unread_count) || 0), 0)
+);
+
+const filteredChannels = computed(() => {
+  const query = channelQ.value.trim().toLowerCase();
+  const list = channels.value || [];
+  if (!query) return list;
+  return list.filter(
+    (c) =>
+      String(c.name || '').toLowerCase().includes(query) ||
+      String(c.slug || '').toLowerCase().includes(query) ||
+      String(c.description || '').toLowerCase().includes(query)
+  );
+});
+const dmSectionTitle = computed(() => {
+  if (isSchoolStaffViewer.value) return 'School contacts';
+  if (audienceMode.value === 'directory') {
+    const opt = DIRECTORY_ROLE_OPTIONS.find((o) => o.id === directoryRole.value);
+    return opt ? opt.label : 'Directory';
+  }
+  return 'Team';
+});
+const searchPlaceholder = computed(() => {
+  if (isClubContext.value) return 'Search club members…';
+  if (isSchoolStaffViewer.value) return 'Search your schools…';
+  if (audienceMode.value === 'directory') return 'Search directory…';
+  return 'Search team…';
+});
+const emptyDirectoryMessage = computed(() => {
+  if (isClubContext.value) return 'No club members found.';
+  if (isSchoolStaffViewer.value) return 'No contacts at your schools yet.';
+  if (audienceMode.value === 'directory') return 'No users in this role directory.';
+  return 'No team employees to show.';
+});
 const isClubContext = computed(() => {
   const current = agencyStore.currentAgency || null;
   return !!current && isAffiliationOrgType(current);
@@ -341,8 +569,25 @@ const loggedInNow = computed(() => {
   return (people.value || []).filter((u) => u.status === 'online' || u.status === 'idle').length;
 });
 
+const dock = ref(loadDock());
+const isDragging = ref(false);
+const dragPoint = ref(null);
+let holdTimer = null;
+let dragMoved = false;
+let activePointerId = null;
+let suppressOpenUntil = 0;
+
+const drawerStyle = computed(() => dockToStyle(dock.value, isDragging.value ? dragPoint.value : null));
+
+const railTitle = computed(() => {
+  if (needsAgency.value) return 'Select an agency to use messages — hold & drag to move';
+  return 'Messages — hold & drag to snap to an edge';
+});
+
 let closeTimer = null;
 const onEnter = () => {
+  if (isDragging.value) return;
+  if (Date.now() < suppressOpenUntil) return;
   if (closeTimer) {
     clearTimeout(closeTimer);
     closeTimer = null;
@@ -350,6 +595,7 @@ const onEnter = () => {
   isOpen.value = true;
 };
 const onLeave = () => {
+  if (isDragging.value) return;
   if (closeTimer) clearTimeout(closeTimer);
   // Debounce close to avoid flicker/quiver while interacting.
   closeTimer = setTimeout(() => {
@@ -357,6 +603,77 @@ const onLeave = () => {
     closeTimer = null;
   }, 180);
 };
+
+function clearHoldTimer() {
+  if (holdTimer) {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+  }
+}
+
+function beginDrag(clientX, clientY) {
+  clearHoldTimer();
+  isDragging.value = true;
+  dragMoved = true;
+  isOpen.value = false;
+  dragPoint.value = { x: clientX, y: clientY };
+  document.body.style.userSelect = 'none';
+  document.body.style.cursor = 'grabbing';
+}
+
+function onRailPointerDown(e) {
+  if (e.button != null && e.button !== 0) return;
+  // Don't start a dock drag from interactive children inside an open panel — rail only.
+  activePointerId = e.pointerId;
+  dragMoved = false;
+  const startX = e.clientX;
+  const startY = e.clientY;
+
+  clearHoldTimer();
+  holdTimer = setTimeout(() => {
+    holdTimer = null;
+    beginDrag(startX, startY);
+  }, 180);
+
+  const onMove = (ev) => {
+    if (activePointerId != null && ev.pointerId !== activePointerId) return;
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+    if (!isDragging.value && Math.hypot(dx, dy) > 8) {
+      beginDrag(ev.clientX, ev.clientY);
+    }
+    if (isDragging.value) {
+      dragPoint.value = { x: ev.clientX, y: ev.clientY };
+      ev.preventDefault();
+    }
+  };
+
+  const onUp = (ev) => {
+    if (activePointerId != null && ev.pointerId !== activePointerId) return;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+    clearHoldTimer();
+    activePointerId = null;
+
+    if (isDragging.value) {
+      const next = snapPointerToEdge(ev.clientX, ev.clientY);
+      dock.value = next;
+      saveDock(next);
+      isDragging.value = false;
+      dragPoint.value = null;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      // Avoid accidental reopen from the mouseenter that follows pointerup
+      suppressOpenUntil = Date.now() + 350;
+      ev.preventDefault();
+    }
+  };
+
+  window.addEventListener('pointermove', onMove, { passive: false });
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+}
 
 const shouldLoadAllThreads = computed(() => {
   if (isClubContext.value) return false; // Club: scope to club only
@@ -407,9 +724,52 @@ const peopleWithUnread = computed(() => {
   }));
 });
 
-const online = computed(() => peopleWithUnread.value.filter((u) => u.status === 'online' && u.id !== meId.value));
-const idle = computed(() => peopleWithUnread.value.filter((u) => u.status === 'idle' && u.id !== meId.value));
-const offline = computed(() => peopleWithUnread.value.filter((u) => u.status === 'offline' && u.id !== meId.value));
+const presenceByUserId = computed(() => {
+  const map = new Map();
+  for (const u of people.value || []) {
+    map.set(u.id, u);
+  }
+  return map;
+});
+
+const myDisplayName = computed(() => {
+  const u = authStore.user;
+  if (!u) return 'You';
+  return `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email || 'You';
+});
+
+const myStatusDisplay = computed(() => {
+  if (presenceSession.myStatusLabel) return presenceSession.myStatusLabel;
+  if (myStatusLabel.value) return myStatusLabel.value;
+  if (myHeartbeatStatus.value === 'online') return 'Active';
+  if (myHeartbeatStatus.value === 'idle') return 'Away';
+  return 'Offline';
+});
+
+/** Slack-style single DM list: Online → Away → Offline (includes self). */
+const dmList = computed(() => {
+  let list = [...(peopleWithUnread.value || [])];
+  if (listFilter.value === 'online') list = list.filter((u) => u.status === 'online');
+  else if (listFilter.value === 'away') list = list.filter((u) => u.status === 'idle');
+  list.sort((a, b) => {
+    const rank = presenceSortRank(a.status) - presenceSortRank(b.status);
+    if (rank !== 0) return rank;
+    const an = `${a.first_name || ''} ${a.last_name || ''}`.toLowerCase();
+    const bn = `${b.first_name || ''} ${b.last_name || ''}`.toLowerCase();
+    return an.localeCompare(bn);
+  });
+  return list;
+});
+
+function dotClassForUserId(userId) {
+  const u = presenceByUserId.value.get(userId);
+  return presenceDotClass(u?.status);
+}
+
+function subtitleForUserId(userId) {
+  const u = presenceByUserId.value.get(userId);
+  return u ? statusSubtitle(u) : 'Offline';
+}
 
 const loadPresence = async () => {
   try {
@@ -423,7 +783,19 @@ const loadPresence = async () => {
         people.value = [];
         return;
       }
-      const resp = await api.get(`/presence/agency/${agencyId.value}`, { skipGlobalLoading: true });
+      const params = {};
+      if (isSchoolStaffViewer.value) {
+        params.audience = 'school';
+      } else if (canToggleAudience.value && audienceMode.value === 'directory') {
+        params.audience = 'directory';
+        params.role = directoryRole.value || 'school_staff';
+      } else {
+        params.audience = 'team';
+      }
+      const resp = await api.get(`/presence/agency/${agencyId.value}`, {
+        params,
+        skipGlobalLoading: true
+      });
       people.value = resp.data || [];
     }
   } catch {
@@ -432,6 +804,17 @@ const loadPresence = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const setAudienceMode = async (mode) => {
+  audienceMode.value = mode === 'directory' ? 'directory' : 'team';
+  await loadPresence();
+};
+
+const setDirectoryRole = async (roleId) => {
+  directoryRole.value = roleId;
+  audienceMode.value = 'directory';
+  await loadPresence();
 };
 
 const loadThreads = async () => {
@@ -451,10 +834,108 @@ const loadThreads = async () => {
   }
 };
 
+const loadChannels = async () => {
+  if (isSchoolStaffViewer.value || isClubContext.value) {
+    channels.value = [];
+    return;
+  }
+  if (!agencyId.value) {
+    channels.value = [];
+    return;
+  }
+  try {
+    channelsLoading.value = true;
+    channelError.value = '';
+    const resp = await api.get('/chat/channels', {
+      params: { agencyId: agencyId.value },
+      skipGlobalLoading: true
+    });
+    channels.value = resp.data?.channels || [];
+  } catch (e) {
+    channelError.value = e.response?.data?.error?.message || 'Failed to load channels';
+    channels.value = [];
+  } finally {
+    channelsLoading.value = false;
+  }
+};
+
+const switchToDms = () => {
+  mainTab.value = 'dms';
+  if (activeChannel.value) closeChat();
+};
+
+const switchToChannels = async () => {
+  mainTab.value = 'channels';
+  if (activeChatUser.value) closeChat();
+  await loadChannels();
+};
+
+function channelPreview(ch) {
+  const body = String(ch?.last_message?.body || '').trim();
+  if (body) return body.length > 60 ? `${body.slice(0, 60)}…` : body;
+  if (ch?.description) return ch.description;
+  if (ch?.kind === 'general') return 'Organization-wide';
+  if (ch?.kind === 'school') return 'School team channel';
+  return 'No messages yet';
+}
+
+const openChannelThread = async (ch) => {
+  if (!ch?.thread_id) return;
+  chatError.value = '';
+  channelError.value = '';
+  chatMessages.value = [];
+  draft.value = '';
+  activeChatUser.value = null;
+  try {
+    chatLoading.value = true;
+    const resp = await api.post(`/chat/channels/${ch.thread_id}/open`, {}, { skipGlobalLoading: true });
+    activeThreadId.value = resp.data?.threadId || ch.thread_id;
+    activeThreadAgencyId.value = resp.data?.agencyId || ch.agency_id || agencyId.value;
+    activeChannel.value = resp.data?.channel || ch;
+    await loadMessages({ markRead: true, scrollToBottom: true });
+    await loadChannels();
+  } catch (e) {
+    chatError.value = e.response?.data?.error?.message || 'Failed to open channel';
+  } finally {
+    chatLoading.value = false;
+  }
+};
+
+const createNewChannel = async () => {
+  const name = newChannelName.value.trim();
+  if (!name || !agencyId.value) return;
+  try {
+    creatingChannel.value = true;
+    channelError.value = '';
+    const resp = await api.post(
+      '/chat/channels',
+      {
+        agencyId: agencyId.value,
+        name,
+        description: newChannelDesc.value.trim() || null,
+        visibility: newChannelPrivate.value ? 'private' : 'public'
+      },
+      { skipGlobalLoading: true }
+    );
+    showCreateChannel.value = false;
+    newChannelName.value = '';
+    newChannelDesc.value = '';
+    newChannelPrivate.value = false;
+    await loadChannels();
+    if (resp.data?.channel) await openChannelThread(resp.data.channel);
+  } catch (e) {
+    channelError.value = e.response?.data?.error?.message || 'Failed to create channel';
+  } finally {
+    creatingChannel.value = false;
+  }
+};
+
 const openChat = async (u, agencyIdOverride = null, organizationIdOverride = null) => {
   chatError.value = '';
   chatMessages.value = [];
   draft.value = '';
+  activeChannel.value = null;
+  mainTab.value = 'dms';
 
   try {
     chatLoading.value = true;
@@ -489,6 +970,17 @@ const openChat = async (u, agencyIdOverride = null, organizationIdOverride = nul
 };
 
 const openThread = async (t) => {
+  if (String(t?.thread_type || '') === 'channel') {
+    mainTab.value = 'channels';
+    await openChannelThread({
+      thread_id: t.thread_id,
+      agency_id: t.agency_id,
+      name: t.channel_name || t.thread_label || t.channel_slug || 'channel',
+      slug: t.channel_slug,
+      unread_count: t.unread_count
+    });
+    return;
+  }
   if (!t?.other_participant) return;
   await openChat(t.other_participant, t.agency_id, t.organization_id);
 };
@@ -671,6 +1163,7 @@ const deleteThread = async () => {
 
 const closeChat = () => {
   activeChatUser.value = null;
+  activeChannel.value = null;
   activeThreadId.value = null;
   activeThreadAgencyId.value = null;
   chatMessages.value = [];
@@ -682,8 +1175,18 @@ const closeChat = () => {
 
 const fetchMyPresence = async () => {
   try {
-    const resp = await api.get('/presence/me', { skipGlobalLoading: true });
-    myAvailability.value = resp.data?.availability_level || null;
+    const data = await presenceSession.refreshFromServer();
+    if (data) {
+      myAvailability.value = data.availability_level || null;
+      myHeartbeatStatus.value = data.heartbeat_status || data.status || 'offline';
+      myStatusLabel.value = data.status_label || data.presence_display_label || null;
+      if (data.session_extend_active && data.presence_session_extend_until) {
+        pauseIdleForSessionExtend(data.presence_session_extend_until);
+      } else {
+        // Server cleared Away extend — resume normal Timedown immediately.
+        clearSessionExtendPause({ reschedule: true });
+      }
+    }
   } catch {
     // ignore
   }
@@ -693,7 +1196,8 @@ const setMyAvailability = async (level) => {
   try {
     await api.post('/presence/availability', { availabilityLevel: level }, { skipGlobalLoading: true });
     myAvailability.value = level;
-    await Promise.all([loadPresence(), loadThreads()]);
+    statusMenuOpen.value = false;
+    await Promise.all([fetchMyPresence(), loadPresence(), loadThreads()]);
   } catch {
     // ignore
   }
@@ -702,6 +1206,33 @@ const setMyAvailability = async (level) => {
 const toggleMyAvailability = async () => {
   const next = myAvailability.value === 'offline' ? 'everyone' : 'offline';
   await setMyAvailability(next);
+};
+
+const quickSetAway = async (reason) => {
+  try {
+    if (reason === 'out_day') {
+      await presenceSession.applyAway({ reason: 'out_day', extendSession: false });
+    } else {
+      await presenceSession.applyAway({ reason, durationMinutes: 60, extendSession: true });
+      pauseIdleForSessionExtend(presenceSession.sessionExtendUntil);
+    }
+    statusMenuOpen.value = false;
+    await Promise.all([fetchMyPresence(), loadPresence()]);
+  } catch {
+    // ignore
+  }
+};
+
+const clearMyAway = async () => {
+  try {
+    await presenceSession.clearAway();
+    clearSessionExtendPause({ reschedule: true });
+    resetActivityTimer();
+    statusMenuOpen.value = false;
+    await Promise.all([fetchMyPresence(), loadPresence()]);
+  } catch {
+    // ignore
+  }
 };
 
 const formatTime = (d) => {
@@ -716,7 +1247,9 @@ const startPolling = () => {
   stopPolling();
   pollTimer = setInterval(() => {
     if (!isAuthenticated.value) return;
-    Promise.all([loadPresence(), loadThreads()]);
+    const jobs = [loadPresence(), loadThreads()];
+    if (mainTab.value === 'channels' && !isSchoolStaffViewer.value) jobs.push(loadChannels());
+    Promise.all(jobs);
     if (activeThreadId.value) {
       // Poll messages without marking them as read (prevents background tabs from auto-reading).
       loadMessages({ markRead: false });
@@ -733,7 +1266,9 @@ const stopPolling = () => {
 
 watch(agencyId, async () => {
   closeChat();
-  await Promise.all([loadPresence(), loadThreads()]);
+  const jobs = [loadPresence(), loadThreads()];
+  if (mainTab.value === 'channels') jobs.push(loadChannels());
+  await Promise.all(jobs);
 });
 
 // When URL has openChat=1 (e.g. Messages card clicked), open the drawer.
@@ -783,25 +1318,65 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPolling();
+  clearHoldTimer();
   if (closeTimer) {
     clearTimeout(closeTimer);
     closeTimer = null;
   }
+  document.body.style.userSelect = '';
+  document.body.style.cursor = '';
 });
 </script>
 
 <style scoped>
 .chat-drawer {
   position: fixed;
-  top: 50%;
-  bottom: auto;
-  left: 0;
-  transform: translateY(-50%);
   z-index: 1200; /* stay above page nav/buttons */
   display: flex;
   align-items: stretch;
   pointer-events: auto;
   max-height: calc(100vh - 24px);
+  /* left/top/transform come from dock style */
+}
+
+.chat-drawer.dock-left {
+  flex-direction: row;
+}
+.chat-drawer.dock-right {
+  flex-direction: row-reverse;
+}
+.chat-drawer.dock-top {
+  flex-direction: column;
+  max-width: min(360px, 96vw);
+}
+.chat-drawer.dock-bottom {
+  flex-direction: column-reverse;
+  max-width: min(360px, 96vw);
+}
+
+.chat-drawer.dragging {
+  z-index: 1400;
+  opacity: 0.96;
+  transition: none;
+}
+
+.dock-hint {
+  position: absolute;
+  left: 50%;
+  top: -28px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(15, 23, 42, 0.85);
+  border-radius: 999px;
+  padding: 4px 10px;
+  pointer-events: none;
+}
+.chat-drawer.dock-top .dock-hint {
+  top: auto;
+  bottom: -28px;
 }
 
 .rail {
@@ -816,6 +1391,19 @@ onUnmounted(() => {
   gap: 6px;
   border-radius: 0;
   box-shadow: none;
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+}
+.chat-drawer.dragging .rail {
+  cursor: grabbing;
+}
+.chat-drawer.dock-top .rail,
+.chat-drawer.dock-bottom .rail {
+  flex-direction: row;
+  width: auto;
+  min-width: 120px;
+  height: 44px;
 }
 
 .rail-icon {
@@ -891,6 +1479,21 @@ onUnmounted(() => {
   max-height: calc(100vh - 24px);
   border-right: 1px solid var(--border);
 }
+.chat-drawer.dock-right.open .panel {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+.chat-drawer.dock-top.open .panel,
+.chat-drawer.dock-bottom.open .panel {
+  width: min(360px, 96vw);
+  border-right: 1px solid var(--border);
+}
+.chat-drawer.dock-top.open .panel {
+  border-top: 1px solid var(--border);
+}
+.chat-drawer.dock-bottom.open .panel {
+  border-bottom: 1px solid var(--border);
+}
 
 .panel-header {
   padding: 12px 14px;
@@ -912,11 +1515,195 @@ onUnmounted(() => {
   margin-top: 4px;
 }
 
-.presence-controls {
+.nav-stubs {
   display: flex;
   flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.nav-stub {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.nav-stub.active {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--text-primary);
+}
+.nav-stub:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.nav-stub-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.channel-row .channel-hash {
+  width: 18px;
+  flex-shrink: 0;
+  text-align: center;
+  font-weight: 700;
+  color: #0f766e;
+  opacity: 0.85;
+}
+.channel-row.active {
+  background: #f0fdfa;
+}
+.create-channel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.create-channel-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+}
+
+.filter-chips {
+  display: flex;
   gap: 6px;
-  justify-content: flex-end;
+  margin-top: 8px;
+}
+.filter-chip {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.filter-chip.active {
+  border-color: #22c55e;
+  color: #166534;
+  background: #f0fdf4;
+}
+
+.name-block {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.status-line {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.you-chip {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+
+.self-footer {
+  position: relative;
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  background: #f8fafc;
+}
+.self-status-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+.self-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.self-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+.self-status-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.self-chevron {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.status-menu {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(100% + 6px);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  padding: 8px;
+  z-index: 5;
+  max-height: 280px;
+  overflow: auto;
+}
+.status-menu-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  padding: 4px 8px 6px;
+}
+.status-menu-item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.status-menu-item:hover,
+.status-menu-item.active {
+  background: #f0fdf4;
+}
+.status-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 0;
 }
 
 .btn.btn-xs {
@@ -942,6 +1729,8 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .toolbar { margin-bottom: 10px; }
@@ -954,7 +1743,7 @@ onUnmounted(() => {
 }
 
 .lists {
-  height: calc(100% - 44px);
+  height: calc(100% - 84px);
   overflow: auto;
   padding-right: 4px;
 }

@@ -83,9 +83,9 @@
       </div>
     </div>
 
-    <div v-else-if="loading" class="loading">Loading agency statistics...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     
+    <!-- Shell paints immediately; stat numbers fill in (no full-page "Loading agency statistics…" gate). -->
     <div v-else class="dashboard-content" :class="{ 'dashboard-content--club': isSummitStatsContext }">
       <div class="dashboard-grid" :class="{ 'dashboard-grid--club': isSummitStatsContext }">
         <component 
@@ -96,7 +96,7 @@
           :class="{ 'preview-disabled': previewMode }"
         >
           <h3>My Agencies</h3>
-          <p class="stat-value">{{ stats.myAgencies }}</p>
+          <p class="stat-value">{{ formatStat(stats.myAgencies) }}</p>
         </component>
         
         <component 
@@ -107,7 +107,7 @@
           :class="{ 'preview-disabled': previewMode }"
         >
           <h3>Training Focus Templates</h3>
-          <p class="stat-value">{{ stats.trainingFocusTemplates }}</p>
+          <p class="stat-value">{{ formatStat(stats.trainingFocusTemplates) }}</p>
         </component>
         
         <component 
@@ -118,7 +118,7 @@
           :class="{ 'preview-disabled': previewMode }"
         >
           <h3>Agency Modules</h3>
-          <p class="stat-value">{{ stats.agencyModules }}</p>
+          <p class="stat-value">{{ formatStat(stats.agencyModules) }}</p>
         </component>
         
         <component 
@@ -129,7 +129,7 @@
           :class="{ 'preview-disabled': previewMode }"
         >
           <h3>Active Users</h3>
-          <p class="stat-value">{{ stats.activeUsers }}</p>
+          <p class="stat-value">{{ formatStat(stats.activeUsers) }}</p>
         </component>
 
         <component
@@ -229,6 +229,7 @@ import { useAuthStore } from '../../store/auth';
 import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import { isSupervisor } from '../../utils/helpers.js';
+import BrandingLogo from '../../components/BrandingLogo.vue';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
 import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
@@ -304,7 +305,8 @@ const dashboardTitle = computed(() => (isSummitStatsContext.value ? 'Club Dashbo
 const dashboardBadge = computed(() => (isSummitStatsContext.value ? 'Club Manager' : 'Agency Admin'));
 
 const showSupervisionModal = ref(false);
-const loading = ref(true);
+/** True until first successful stats hydrate — cards show "—" meanwhile; never gates the whole page. */
+const statsReady = ref(false);
 const error = ref('');
 const stats = ref({
   myAgencies: 0,
@@ -312,6 +314,8 @@ const stats = ref({
   trainingFocusTemplates: 0,
   activeUsers: 0
 });
+const formatStat = (value) => (statsReady.value ? value : '—');
+let fetchStatsInFlight = null;
 const clubMemberStats = ref({ active: null, dormant: null });
 const myAgencies = ref([]);
 const branding = computed(() => brandingStore.platformBranding);
@@ -376,7 +380,7 @@ const applyClubTargetAgency = async (target) => {
     return;
   }
   try {
-    const { data } = await api.get(`/agencies/${targetId}`);
+    const { data } = await api.get(`/agencies/${targetId}`, { skipGlobalLoading: true });
     if (data?.id) agencyStore.setCurrentAgency(data);
   } catch {
     // ignore
@@ -493,7 +497,7 @@ const onClubSwitch = async (event) => {
     agencyStore.setCurrentAgency(full);
   } else {
     try {
-      const { data } = await api.get(`/agencies/${id}`);
+      const { data } = await api.get(`/agencies/${id}`, { skipGlobalLoading: true });
       if (data?.id) agencyStore.setCurrentAgency(data);
     } catch {
       return;
@@ -559,6 +563,8 @@ const selectedOrgId = computed({
 });
 
 const fetchStats = async () => {
+  if (fetchStatsInFlight) return fetchStatsInFlight;
+  fetchStatsInFlight = (async () => {
   // In preview mode, use mock data
   if (props.previewMode) {
     if (props.previewStats) {
@@ -572,87 +578,105 @@ const fetchStats = async () => {
     myAgencies.value = currentAgency.value
       ? [{ id: currentAgency.value.id, name: currentAgency.value.name, is_active: currentAgency.value.is_active !== false }]
       : [{ id: 1, name: 'Preview Agency', is_active: true }];
-    loading.value = false;
+    statsReady.value = true;
     return;
   }
   
   try {
-    loading.value = true;
-    
-    // Get all agencies the user has access to
-    const agenciesRes = await api.get('/agencies');
-    const rawAgencies = Array.isArray(agenciesRes.data) ? agenciesRes.data : [];
+    const skipLoader = { skipGlobalLoading: true };
+    const roleNorm = String(authStore.user?.role || '').toLowerCase();
+
+    // Super-admin needs the full catalog — never treat a tiny membership list as "ready".
+    let rawAgencies = null;
+    if (roleNorm === 'super_admin') {
+      const stored = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
+      if (stored.length > 5) {
+        rawAgencies = stored;
+      } else {
+        await agencyStore.fetchAgencies();
+        rawAgencies = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
+      }
+    } else {
+      const stored = Array.isArray(agencyStore.userAgencies) && agencyStore.userAgencies.length
+        ? agencyStore.userAgencies
+        : (Array.isArray(agencyStore.agencies) && agencyStore.agencies.length ? agencyStore.agencies : null);
+      if (stored) {
+        rawAgencies = stored;
+      } else {
+        const agenciesRes = await api.get('/users/me/agencies', skipLoader);
+        rawAgencies = Array.isArray(agenciesRes.data) ? agenciesRes.data : [];
+      }
+    }
+
     const primaryAgencies = rawAgencies.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
     // If current selection isn't an agency (rare), keep it available as a secondary option.
     const cur = currentAgency.value;
     const needsCurrent =
       cur?.id && !primaryAgencies.some((a) => Number(a?.id) === Number(cur.id));
     myAgencies.value = needsCurrent ? [...primaryAgencies, cur] : primaryAgencies;
-    
-    // Fetch training focuses for each agency the admin has access to
-    // Also include platform templates (agency_id IS NULL)
-    const trainingFocusPromises = [
-      api.get('/training-focuses', { params: { agencyId: null } }).catch(() => ({ data: [] })) // Platform templates
-    ];
-    
-    // Add promises for each agency
-    rawAgencies.forEach(agency => {
-      trainingFocusPromises.push(
-        api.get('/training-focuses', { params: { agencyId: agency.id } }).catch(() => ({ data: [] }))
-      );
-    });
-    
-    // Ensure branding is fetched from store
+
+    // Agency count can show before the heavier modules/users/training calls finish.
+    stats.value = {
+      ...stats.value,
+      myAgencies: primaryAgencies.length || rawAgencies.length
+    };
+
     if (!brandingStore.platformBranding) {
-      await brandingStore.fetchPlatformBranding();
+      void brandingStore.fetchPlatformBranding();
     }
     
     // Club (affiliation) context: skip modules/training-focuses (may require canViewTraining which club managers lack)
     const isClub = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase() === 'affiliation';
-    const modulesPromise = isClub ? Promise.resolve({ data: [] }) : api.get('/modules').catch(() => ({ data: [] }));
-    const trainingPromises = isClub ? [] : trainingFocusPromises;
 
-    const [modulesRes, usersRes, ...trainingFocusResults] = await Promise.all([
-      modulesPromise,
-      api.get('/users').catch(err => {
-        // If users fetch fails (e.g., for supervisors without assignments), return empty array
-        console.warn('Could not fetch users:', err.message);
-        return { data: [] };
-      }),
-      ...trainingPromises
+    // ONE /training-focuses call (backend returns all accessible focuses).
+    // Defer the heavy platform-wide /users list so the shell is interactive sooner.
+    const [modulesRes, trainingRes, agencyDetailRes] = await Promise.all([
+      isClub ? Promise.resolve({ data: [] }) : api.get('/modules', skipLoader).catch(() => ({ data: [] })),
+      isClub
+        ? Promise.resolve({ data: [] })
+        : api.get('/training-focuses', skipLoader).catch(() => ({ data: [] })),
+      currentAgency.value?.id
+        ? api.get(`/agencies/${currentAgency.value.id}`, skipLoader).catch(() => null)
+        : Promise.resolve(null)
     ]);
-    
-    // Fetch current agency data if available
-    if (currentAgency.value) {
-      try {
-        const agencyRes = await api.get(`/agencies/${currentAgency.value.id}`);
-        agencyData.value = agencyRes.data;
-      } catch (err) {
-        console.error('Failed to fetch agency data:', err);
-      }
+
+    if (agencyDetailRes?.data) {
+      agencyData.value = agencyDetailRes.data;
     }
     
-    // Filter modules for user's agencies
     const agencyModules = (modulesRes?.data || []).filter(m =>
       !m.is_shared && rawAgencies.some(a => a.id === m.agency_id)
     );
     
-    // Count all unique training focuses across platform templates and all user's agencies
-    const allTrainingFocuses = trainingFocusResults.flatMap(res => res.data || []);
-    const uniqueTrainingFocusIds = new Set(allTrainingFocuses.map(tf => tf.id));
+    const allTrainingFocuses = Array.isArray(trainingRes?.data) ? trainingRes.data : [];
+    const uniqueTrainingFocusIds = new Set(allTrainingFocuses.map(tf => tf.id).filter(Boolean));
     const totalTrainingFocuses = uniqueTrainingFocusIds.size;
     
     stats.value = {
-      myAgencies: rawAgencies.length,
+      ...stats.value,
+      myAgencies: primaryAgencies.length || rawAgencies.length,
       agencyModules: agencyModules.length,
-      trainingFocusTemplates: totalTrainingFocuses,
-      activeUsers: (usersRes.data || []).filter((u) => String(u?.status || '').toUpperCase() === 'ACTIVE_EMPLOYEE').length
+      trainingFocusTemplates: totalTrainingFocuses
     };
+    statsReady.value = true;
+
+    // Active-user count: full /users list is large (400+) — load after cards are already shown.
+    void (async () => {
+      try {
+        const usersRes = await api.get('/users', skipLoader);
+        stats.value = {
+          ...stats.value,
+          activeUsers: (usersRes.data || []).filter((u) => String(u?.status || '').toUpperCase() === 'ACTIVE_EMPLOYEE').length
+        };
+      } catch (err) {
+        console.warn('Could not fetch users:', err.message);
+      }
+    })();
 
     // For SSTC club context: fetch active/dormant member counts
     if (isClub && currentAgency.value?.id) {
       try {
-        const msRes = await api.get(`/summit-stats/clubs/${currentAgency.value.id}/member-stats`);
+        const msRes = await api.get(`/summit-stats/clubs/${currentAgency.value.id}/member-stats`, skipLoader);
         clubMemberStats.value = { active: msRes.data.active ?? null, dormant: msRes.data.dormant ?? null };
       } catch {
         // non-critical — leave nulls so badge just hides
@@ -660,8 +684,13 @@ const fetchStats = async () => {
     }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load statistics';
+    statsReady.value = true;
+  }
+  })();
+  try {
+    return await fetchStatsInFlight;
   } finally {
-    loading.value = false;
+    fetchStatsInFlight = null;
   }
 };
 
@@ -680,7 +709,7 @@ const fetchOrgOverviewSummary = async () => {
     return;
   }
   try {
-    const res = await api.get(url, { params: { agencyId } });
+    const res = await api.get(url, { params: { agencyId }, skipGlobalLoading: true });
     const data = res.data || { counts: { school: 0, program: 0, learning: 0, other: 0 } };
     orgOverviewSummary.value = data;
     setCached(url, params, data);
@@ -1211,7 +1240,7 @@ const resolveQuickActionIcon = (action) => {
 watch(currentAgency, async (newAgency) => {
   if (newAgency) {
     try {
-      const agencyRes = await api.get(`/agencies/${newAgency.id}`);
+      const agencyRes = await api.get(`/agencies/${newAgency.id}`, { skipGlobalLoading: true });
       agencyData.value = agencyRes.data;
     } catch (err) {
       console.error('Failed to fetch agency data:', err);
@@ -1240,12 +1269,20 @@ watch(
 );
 
 onMounted(async () => {
-  // Ensure branding is loaded before fetching stats
+  // Do not block first paint on branding / agency catalog — shell + quick actions should appear immediately.
   if (!brandingStore.platformBranding) {
-    await brandingStore.fetchPlatformBranding();
+    void brandingStore.fetchPlatformBranding();
   }
-  // Ensure currentAgency is set/hydrated for non-super-admins; Quick Action icon overrides depend on it.
-  await agencyStore.fetchUserAgencies();
+  const roleNorm = String(authStore.user?.role || '').toLowerCase();
+  if (roleNorm === 'super_admin') {
+    // Full catalog for brand switcher / My Agencies count (do not call fetchUserAgencies — it shrinks agencies[]).
+    if (!Array.isArray(agencyStore.agencies) || agencyStore.agencies.length <= 5) {
+      void agencyStore.fetchAgencies();
+    }
+  } else {
+    // Ensure currentAgency is set/hydrated; Quick Action icon overrides depend on it.
+    void agencyStore.fetchUserAgencies();
+  }
   // Summit Stats club managers only (sstc/sstc): load context for create-club flow
   if (isSscAdminRoute.value) {
     await loadClubManagerContext();
@@ -1257,14 +1294,14 @@ onMounted(async () => {
     delete q.openAddSeason;
     router.replace({ query: q });
   }
-  await fetchStats();
-  await fetchOrgOverviewSummary();
+  void fetchStats();
+  void fetchOrgOverviewSummary();
 });
 
 const loadMyOpenTickets = async () => {
   if (props.previewMode) return;
   try {
-    const r = await api.get('/support-tickets', { params: { mine: true, status: 'open' } });
+    const r = await api.get('/support-tickets', { params: { mine: true, status: 'open' }, skipGlobalLoading: true });
     const list = Array.isArray(r.data) ? r.data : [];
     myOpenTickets.value = String(list.length);
   } catch {

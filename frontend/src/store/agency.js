@@ -129,7 +129,7 @@ export const useAgencyStore = defineStore('agency', () => {
 
     const promise = (async () => {
       try {
-        const res = await api.get(url);
+        const res = await api.get(url, { skipGlobalLoading: true });
         const full = res.data;
         if (!full?.id) return null;
         _applyHydrated(full);
@@ -191,7 +191,7 @@ export const useAgencyStore = defineStore('agency', () => {
       // If userId is provided, fetch user's assigned agencies
       if (userId) {
         const url = `/users/${userId}/agencies`;
-        const response = await api.get(url);
+        const response = await api.get(url, { skipGlobalLoading: true });
         agencies.value = response.data;
         userAgencies.value = response.data;
         
@@ -204,7 +204,7 @@ export const useAgencyStore = defineStore('agency', () => {
           agenciesAllInFlight = (async () => {
             const url = '/agencies';
             const cached = getCached(url);
-            const response = cached ? { data: cached } : await api.get(url);
+            const response = cached ? { data: cached } : await api.get(url, { skipGlobalLoading: true });
             agencies.value = response.data;
             if (!cached) setCached(url, {}, response.data);
 
@@ -241,6 +241,132 @@ export const useAgencyStore = defineStore('agency', () => {
     }
   };
 
+  const pickPortalKey = (org) => String(org?.portal_url || org?.portalUrl || org?.slug || '').trim().toLowerCase();
+  const inferPreferredPortalFromRuntime = () => {
+    try {
+      // Preferred source: explicit slug in path (e.g. /itsco/login or /nlu/dashboard).
+      const pathname = String(window.location?.pathname || '/');
+      const first = pathname.split('/').filter(Boolean)[0] || '';
+      const reserved = new Set([
+        'login', 'admin', 'dashboard', 'logout', 'schools', 'kiosk',
+        'passwordless-login', 'reset-password', 'change-password', 'intake'
+      ]);
+      const slugCandidate = String(first).trim().toLowerCase();
+      if (slugCandidate && !reserved.has(slugCandidate)) return slugCandidate;
+
+      // Fallback: host-resolved portal cache (set by branding initialization).
+      const host = String(window.location?.hostname || '').trim().toLowerCase();
+      if (host) {
+        const raw = sessionStorage.getItem(`__pt_portal_host__:${host}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const p = String(parsed?.portalUrl || '').trim().toLowerCase();
+          if (p) return p;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  };
+
+  const pickDefaultAgencyForUser = (list, roleNorm) => {
+    const arr = Array.isArray(list) ? list : [];
+    if (!arr.length) return null;
+    // Club managers: first path segment is the Summit *platform* slug (e.g. ssc), which matches the
+    // tenant agency row—not the club affiliation. Prefer affiliation before portal-key matching.
+    if (roleNorm === 'club_manager') {
+      const affiliation = arr.find((a) => {
+        const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+        return t === 'affiliation';
+      });
+      if (affiliation) return affiliation;
+    }
+    const preferredPortal = inferPreferredPortalFromRuntime();
+    if (preferredPortal) {
+      const preferred = arr.find((a) => pickPortalKey(a) === preferredPortal);
+      if (preferred) return preferred;
+    }
+    if (roleNorm === 'school_staff') {
+      // School staff should land in portal orgs (school/program/learning), not the parent agency.
+      const portal = arr.find((a) => {
+        const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+        return t === 'school' || t === 'program' || t === 'learning';
+      }) || null;
+      if (portal) return portal;
+    }
+    // Club managers with Summit Stats Club (affiliation) access should default to the club.
+    // Admins/backoffice roles who are also club members should stay on their work tenant.
+    if (roleNorm === 'club_manager') {
+      const affiliation = arr.find((a) => {
+        const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+        return t === 'affiliation';
+      });
+      if (affiliation) return affiliation;
+    }
+    return arr[0] || null;
+  };
+
+  const syncCurrentAgencyForUser = (list, roleNorm) => {
+    const arr = Array.isArray(list) ? list : [];
+    if (roleNorm === 'super_admin' || platformMode.value) return;
+    if (!arr.length) {
+      currentAgency.value = null;
+      localStorage.setItem('currentAgency', JSON.stringify(null));
+      return;
+    }
+    const currentId = Number(currentAgency.value?.id || 0);
+    const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
+    const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
+    const isAffiliation = currentType === 'affiliation';
+    const hasAffiliation = arr.some((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation');
+    const preferredPortal = inferPreferredPortalFromRuntime();
+    const currentPortal = pickPortalKey(currentAgency.value);
+    const hasPreferredMismatch = !!(preferredPortal && preferredPortal !== currentPortal);
+    const currentAgencyStillAccessible =
+      currentId > 0 && arr.some((a) => Number(a?.id || 0) === currentId);
+    // Only snap non-admin users with an affiliation back to the club — admins who are
+    // also club members should be able to stay on their work tenant without being overridden.
+    const snapToAffiliation = hasAffiliation && !isAffiliation && roleNorm === 'club_manager';
+    const shouldOverride =
+      !currentAgency.value ||
+      !currentAgencyStillAccessible ||
+      hasPreferredMismatch ||
+      (roleNorm === 'school_staff' && !isPortal) ||
+      snapToAffiliation;
+    if (shouldOverride) {
+      const def = pickDefaultAgencyForUser(arr, roleNorm);
+      if (def) setCurrentAgency(def);
+    }
+  };
+
+  /** Hydrate from login payload so post-login UI can skip a /users/me/agencies round-trip. */
+  const applyLoginAgencies = (list) => {
+    const agencyList = Array.isArray(list) ? list : [];
+    userAgencies.value = agencyList;
+    let roleNorm = '';
+    try {
+      // Dynamic import kept sync-unsafe; role from localStorage is set by auth.setAuth before login returns.
+      roleNorm = String((JSON.parse(localStorage.getItem('user') || 'null') || {})?.role || '').toLowerCase();
+    } catch {
+      roleNorm = '';
+    }
+    // Super-admin brand switcher still needs the full /agencies catalog; don't overwrite that with membership rows.
+    if (roleNorm !== 'super_admin') {
+      agencies.value = agencyList;
+    }
+    import('../utils/loginRedirect')
+      .then(({ storeUserAgencies }) => {
+        storeUserAgencies(agencyList);
+      })
+      .catch(() => {});
+    syncCurrentAgencyForUser(agencyList, roleNorm);
+    if (currentAgency.value?.id) {
+      hydrateAgencyById(currentAgency.value.id);
+    }
+    return agencyList;
+  };
+
   const fetchUserAgencies = async () => {
     if (userAgenciesInFlight) return await userAgenciesInFlight;
     userAgenciesInFlight = (async () => {
@@ -248,112 +374,13 @@ export const useAgencyStore = defineStore('agency', () => {
       const { useAuthStore } = await import('./auth');
       const authStore = useAuthStore();
       const roleNorm = String(authStore.user?.role || '').toLowerCase();
-
-      const pickPortalKey = (org) => String(org?.portal_url || org?.portalUrl || org?.slug || '').trim().toLowerCase();
-      const inferPreferredPortalFromRuntime = () => {
-        try {
-          // Preferred source: explicit slug in path (e.g. /itsco/login or /nlu/dashboard).
-          const pathname = String(window.location?.pathname || '/');
-          const first = pathname.split('/').filter(Boolean)[0] || '';
-          const reserved = new Set([
-            'login', 'admin', 'dashboard', 'logout', 'schools', 'kiosk',
-            'passwordless-login', 'reset-password', 'change-password', 'intake'
-          ]);
-          const slugCandidate = String(first).trim().toLowerCase();
-          if (slugCandidate && !reserved.has(slugCandidate)) return slugCandidate;
-
-          // Fallback: host-resolved portal cache (set by branding initialization).
-          const host = String(window.location?.hostname || '').trim().toLowerCase();
-          if (host) {
-            const raw = sessionStorage.getItem(`__pt_portal_host__:${host}`);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              const p = String(parsed?.portalUrl || '').trim().toLowerCase();
-              if (p) return p;
-            }
-          }
-        } catch {
-          // ignore
-        }
-        return null;
-      };
-
-      const pickDefaultAgencyForUser = (list) => {
-        const arr = Array.isArray(list) ? list : [];
-        if (!arr.length) return null;
-        // Club managers: first path segment is the Summit *platform* slug (e.g. ssc), which matches the
-        // tenant agency row—not the club affiliation. Prefer affiliation before portal-key matching.
-        if (roleNorm === 'club_manager') {
-          const affiliation = arr.find((a) => {
-            const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-            return t === 'affiliation';
-          });
-          if (affiliation) return affiliation;
-        }
-        const preferredPortal = inferPreferredPortalFromRuntime();
-        if (preferredPortal) {
-          const preferred = arr.find((a) => pickPortalKey(a) === preferredPortal);
-          if (preferred) return preferred;
-        }
-        if (roleNorm === 'school_staff') {
-          // School staff should land in portal orgs (school/program/learning), not the parent agency.
-          const portal = arr.find((a) => {
-            const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-            return t === 'school' || t === 'program' || t === 'learning';
-          }) || null;
-          if (portal) return portal;
-        }
-        // Club managers with Summit Stats Club (affiliation) access should default to the club.
-        // Admins/backoffice roles who are also club members should stay on their work tenant.
-        if (roleNorm === 'club_manager') {
-          const affiliation = arr.find((a) => {
-            const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-            return t === 'affiliation';
-          });
-          if (affiliation) return affiliation;
-        }
-        return arr[0] || null;
-      };
-
-      const syncCurrentAgencyForUser = (list) => {
-        const arr = Array.isArray(list) ? list : [];
-        if (roleNorm === 'super_admin' || platformMode.value) return;
-        if (!arr.length) {
-          currentAgency.value = null;
-          localStorage.setItem('currentAgency', JSON.stringify(null));
-          return;
-        }
-        const currentId = Number(currentAgency.value?.id || 0);
-        const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
-        const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
-        const isAffiliation = currentType === 'affiliation';
-        const hasAffiliation = arr.some((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation');
-        const preferredPortal = inferPreferredPortalFromRuntime();
-        const currentPortal = pickPortalKey(currentAgency.value);
-        const hasPreferredMismatch = !!(preferredPortal && preferredPortal !== currentPortal);
-        const currentAgencyStillAccessible =
-          currentId > 0 && arr.some((a) => Number(a?.id || 0) === currentId);
-        // Only snap non-admin users with an affiliation back to the club — admins who are
-        // also club members should be able to stay on their work tenant without being overridden.
-        const snapToAffiliation = hasAffiliation && !isAffiliation && roleNorm === 'club_manager';
-        const shouldOverride =
-          !currentAgency.value ||
-          !currentAgencyStillAccessible ||
-          hasPreferredMismatch ||
-          (roleNorm === 'school_staff' && !isPortal) ||
-          snapToAffiliation;
-        if (shouldOverride) {
-          const def = pickDefaultAgencyForUser(arr);
-          if (def) setCurrentAgency(def);
-        }
-      };
       
       // For approved employees, use agencyIds from the user object
       if (authStore.user?.type === 'approved_employee' && authStore.user?.agencyIds) {
         // Fetch agency details for each agency ID
         const agencyPromises = authStore.user.agencyIds.map(async (agencyId) => {
           try {
-            const response = await api.get(`/agencies/${agencyId}`);
+            const response = await api.get(`/agencies/${agencyId}`, { skipGlobalLoading: true });
             return response.data;
           } catch (err) {
             console.error(`Failed to fetch agency ${agencyId}:`, err);
@@ -368,19 +395,19 @@ export const useAgencyStore = defineStore('agency', () => {
         // Store agencies in localStorage for login redirect after logout
         const { storeUserAgencies } = await import('../utils/loginRedirect');
         storeUserAgencies(agencyList);
-        syncCurrentAgencyForUser(userAgencies.value);
+        syncCurrentAgencyForUser(userAgencies.value, roleNorm);
         
         return agencyList;
       } else {
         // Regular users - use the API endpoint
-        const response = await api.get('/users/me/agencies');
+        const response = await api.get('/users/me/agencies', { skipGlobalLoading: true });
         userAgencies.value = response.data;
         agencies.value = response.data;
         
         // Store agencies in localStorage for login redirect after logout
         const { storeUserAgencies } = await import('../utils/loginRedirect');
         storeUserAgencies(response.data);
-        syncCurrentAgencyForUser(userAgencies.value);
+        syncCurrentAgencyForUser(userAgencies.value, roleNorm);
 
         // If a current agency is already persisted, ensure we hydrate it so downstream UI
         // (dashboard card icons, theme settings, etc.) gets the full shape.
@@ -406,7 +433,7 @@ export const useAgencyStore = defineStore('agency', () => {
     try {
       const params = agencyId ? { agencyId } : {};
       // Support both endpoints for backward compatibility
-      const response = await api.get('/training-focuses', { params });
+      const response = await api.get('/training-focuses', { params, skipGlobalLoading: true });
       tracks.value = response.data;
     } catch (error) {
       console.error('Failed to fetch training focuses:', error);
@@ -452,7 +479,7 @@ export const useAgencyStore = defineStore('agency', () => {
         superviseePortalSlugsFetched = true;
         return;
       }
-      const response = await api.get('/users/me/supervisee-portal-slugs');
+      const response = await api.get('/users/me/supervisee-portal-slugs', { skipGlobalLoading: true });
       superviseePortalSlugs.value = Array.isArray(response.data?.slugs) ? response.data.slugs : [];
     } catch {
       superviseePortalSlugs.value = [];
@@ -472,6 +499,7 @@ export const useAgencyStore = defineStore('agency', () => {
     setCurrentAgency,
     setPlatformMode,
     hydrateAgencyById,
+    applyLoginAgencies,
     fetchAgencies,
     fetchUserAgencies,
     fetchTracks,

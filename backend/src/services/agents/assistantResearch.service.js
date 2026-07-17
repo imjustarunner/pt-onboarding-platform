@@ -95,6 +95,61 @@ export function looksLikeOperationalDataQuery(prompt) {
 }
 
 /**
+ * Personal schedule / agenda / "my day" — never answer from handbook PDFs.
+ */
+export function looksLikeMyDayScheduleQuery(prompt) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return false;
+  if (/\b(handbook|polic(?:y|ies)|document|pdf|training\s+knowledge|progress\s+note)\b/.test(lower)) {
+    return false;
+  }
+  // Short / telegraphic: "what my day", "my day", "todays agenda"
+  if (/^(what(?:'?s|s)?\s+)?(is\s+)?(on\s+)?(my\s+)?(day|agenda|schedule|calendar)\??$/.test(lower)) {
+    return true;
+  }
+  if (/\b(what(?:'?s|s)?\s+(on\s+)?)?(my\s+)?(day|agenda)\b/.test(lower)) return true;
+  if (
+    /\b(what|whats|what's|show|open|list)\b/.test(lower) &&
+    /\b(my\s+)?(day|agenda|schedule|calendar|workspace)\b/.test(lower)
+  ) {
+    return true;
+  }
+  if (/\b(today'?s?\s+(agenda|schedule|events?|meetings?|workspace)|schedule\s+for\s+today)\b/.test(lower)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Live team presence / online status — never answer from handbook PDFs.
+ * Excludes intake-slot questions (those use findIntakeOpenings).
+ */
+export function looksLikeTeamPresenceQuery(prompt) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return false;
+  if (/\bintake\b/.test(lower)) return false;
+  if (/\b(handbook|polic(?:y|ies)|document|pdf|training\s+knowledge)\b/.test(lower)) return false;
+
+  if (/\b(team\s+presence|presence\s+board|who'?s\s+online|who\s+is\s+online)\b/.test(lower)) {
+    return true;
+  }
+  if (
+    /\b(who|anyone|anybody)\b/.test(lower) &&
+    /\b(available|online|idle|away|around|free|here|reachable)\b/.test(lower) &&
+    !/\b(intake|slot|opening|referral|cbt|dbt|emdr)\b/.test(lower)
+  ) {
+    return true;
+  }
+  if (
+    /\b(available|online)\b/.test(lower) &&
+    /\b(team|staff|people|colleagues|right\s+now|currently)\b/.test(lower)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Prefer research for unanswered natural questions (incl. service codes).
  * Always safe to try — empty hits fall through to capability help.
  * Skips operational DB asks (school client counts, etc.).
@@ -113,6 +168,8 @@ export function shouldAttemptAgencyResearch(prompt) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower || lower.length < 2) return false;
   if (looksLikeOperationalDataQuery(lower)) return false;
+  if (looksLikeTeamPresenceQuery(lower)) return false;
+  if (looksLikeMyDayScheduleQuery(lower)) return false;
   if (looksLikeStartMeetingWithPerson(lower)) return false;
   if (looksLikeBillingOrServiceCodeTopic(lower)) return true;
   if (looksLikeServiceCodeQuery(lower) || extractServiceCodes(lower).length) return true;

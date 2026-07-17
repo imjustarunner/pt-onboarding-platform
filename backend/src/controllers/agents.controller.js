@@ -721,6 +721,15 @@ function buildNextActionsFromToolResults({ toolResults, allowedToolNames }) {
   }
 
   // "What next?" helpers for common tools (safe + personal)
+  const myTasks = lastOkToolResult(toolResults, 'listMyOpenTasks');
+  if (myTasks?.ok && canNav) {
+    actions.push({
+      type: 'tool',
+      label: 'Open Tasks',
+      toolCall: { name: 'navigateTo', args: { routeName: 'Tasks' } }
+    });
+  }
+
   const myAct = lastOkToolResult(toolResults, 'listMyRecentActivity');
   if (myAct?.ok) {
     actions.push({ type: 'prefill', label: 'Show just my logins (last 7 days)', prefillText: 'Show my logins in the last 7 days' });
@@ -976,6 +985,58 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
     }
   }
 
+  // Standalone "What's my next meeting" button / tool path.
+  const nextMeetingRes = lastOkToolResult(toolResults, 'findNextMeeting');
+  const nextMeeting = nextMeetingRes?.result?.meeting;
+  if (nextMeeting?.id && !cards.some((c) => c.kind === 'meeting' || c.kind === 'event')) {
+    const id = Number(nextMeeting.id);
+    const start = nextMeeting.startAt ? new Date(nextMeeting.startAt) : null;
+    const when =
+      start && !Number.isNaN(start.getTime())
+        ? start.toLocaleString('en-US', {
+            weekday: 'short',
+            hour: 'numeric',
+            minute: '2-digit'
+          })
+        : '';
+    const attendeeNames = (nextMeeting.attendees || [])
+      .map((a) => a?.name || a?.email)
+      .filter(Boolean)
+      .slice(0, 3);
+    const canCancel = allowedToolNames.has('cancelMeeting');
+    const canReschedule = allowedToolNames.has('rescheduleMeeting');
+    const startHm = String(nextMeeting.startAt || '').slice(11, 16);
+    pushCard({
+      kind: 'meeting',
+      title: safeTitle(nextMeeting.title, 'Next meeting'),
+      subtitle: [nextMeeting.kind || 'TEAM_MEETING', when, attendeeNames.length ? `with ${attendeeNames.join(', ')}` : '']
+        .filter(Boolean)
+        .join(' · '),
+      details: {
+        startAt: nextMeeting.startAt || null,
+        endAt: nextMeeting.endAt || null
+      },
+      actions: [
+        {
+          type: 'tool',
+          label: 'Join meeting',
+          toolCall: { name: 'openWorkspaceEvent', args: { eventId: id } }
+        },
+        ...(canReschedule && startHm
+          ? [{ type: 'prefill', label: 'Reschedule', prefillText: `Move my ${startHm} to ` }]
+          : []),
+        ...(canCancel
+          ? [{
+              type: 'tool',
+              label: 'Cancel',
+              confirmRequest: true,
+              toolCall: { name: 'cancelMeeting', args: { eventId: id } }
+            }]
+          : [])
+      ]
+    });
+  }
+
   const refRes = lastOkToolResult(toolResults, 'searchReferralDirectory');
   const entries = refRes?.result?.entries;
   if (Array.isArray(entries) && entries.length) {
@@ -1114,6 +1175,19 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         });
         lines.push(`${header}\n${items.join('\n')}`);
       }
+    } else if (r.tool === 'listMyOpenTasks') {
+      const tasks = r.result?.tasks || [];
+      if (!tasks.length) {
+        lines.push('You have no open tasks right now.');
+      } else {
+        const items = tasks.slice(0, 20).map((t) => {
+          const due = t.dueDate ? ` · due ${String(t.dueDate).slice(0, 10)}` : '';
+          const urg = t.urgency && t.urgency !== 'medium' ? ` · ${t.urgency}` : '';
+          const typ = t.taskType ? ` [${t.taskType}]` : '';
+          return `• ${t.title || 'Task'}${typ}${due}${urg}`;
+        });
+        lines.push(`Your open tasks (${tasks.length}):\n${items.join('\n')}`);
+      }
     } else if (r.tool === 'searchAgencyActivity') {
       const rows = r.result?.rows || [];
       const total = Number(r.result?.total || rows.length);
@@ -1211,9 +1285,53 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         lines.push(`Cancelled ${cancelled} ${cancelled === 1 ? 'meeting' : 'meetings'} for the rest of today and emailed ${totalEmails} ${totalEmails === 1 ? 'person' : 'people'}.`);
       }
     } else if (r.tool === 'findNextMeeting') {
-      // Intentionally silent — used only as a resolver step.
+      const m = r.result?.meeting;
+      if (!m) {
+        lines.push("You don't have any upcoming meetings scheduled for the rest of today.");
+      } else {
+        const start = m.startAt ? new Date(m.startAt) : null;
+        const when =
+          start && !Number.isNaN(start.getTime())
+            ? start.toLocaleString('en-US', {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit'
+              })
+            : 'soon';
+        const attendeeNames = (m.attendees || [])
+          .map((a) => a?.name || a?.email)
+          .filter(Boolean)
+          .slice(0, 4);
+        const withLine = attendeeNames.length
+          ? ` with ${attendeeNames.join(', ')}${(m.attendees || []).length > 4 ? '…' : ''}`
+          : '';
+        lines.push(`Your next meeting: "${m.title || 'Meeting'}" — ${when}${withLine}.`);
+      }
     } else if (r.tool === 'findMyMeetings') {
-      // Intentionally silent — used only as a resolver step.
+      const list = r.result?.meetings || [];
+      if (!list.length) {
+        lines.push('No matching meetings found on your schedule for the rest of today.');
+      } else if (list.length === 1) {
+        const m = list[0];
+        const start = m.startAt ? new Date(m.startAt) : null;
+        const when =
+          start && !Number.isNaN(start.getTime())
+            ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+            : '';
+        lines.push(`Found: "${m.title || 'Meeting'}"${when ? ` at ${when}` : ''}.`);
+      } else {
+        const parts = list.slice(0, 6).map((m) => {
+          const start = m.startAt ? new Date(m.startAt) : null;
+          const when =
+            start && !Number.isNaN(start.getTime())
+              ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+              : '';
+          return `• ${when ? `${when} — ` : ''}${m.title || 'Meeting'}`;
+        });
+        lines.push(`Found ${list.length} meetings:\n${parts.join('\n')}`);
+      }
     } else if (r.tool === 'rescheduleMeeting') {
       const out = r.result || {};
       const fmt = (iso) => {
@@ -1248,13 +1366,51 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       const events = out.events || [];
       const dateLabel = out.dateYmd || 'today';
       if (!events.length) {
-        lines.push(`Nothing on your schedule for ${dateLabel}.`);
+        lines.push(`Nothing on your schedule for ${dateLabel} — your calendar looks open.`);
       } else if (events.length === 1) {
         const e = events[0];
         const time = e.allDay ? '(all day)' : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
-        lines.push(`One event for ${dateLabel}: "${e.title}" ${time} — opening it.`);
+        lines.push(`One event for ${dateLabel}: "${e.title}" ${time}.`);
       } else {
-        lines.push(`You have ${events.length} events on ${dateLabel} — pick one:`);
+        const ordered = events.slice(0, 8).map((e) => {
+          const time = e.allDay
+            ? 'all day'
+            : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
+          return `• ${time} — ${e.title || e.kind || 'Event'}`;
+        });
+        lines.push(
+          `You have ${events.length} events on ${dateLabel}. Suggested order (by start time):\n${ordered.join('\n')}`
+        );
+      }
+    } else if (r.tool === 'listTeamPresence') {
+      const out = r.result || {};
+      const online = out.online || [];
+      const away = out.away || [];
+      if (!online.length && !away.length) {
+        lines.push('No one on your team is online or away right now (based on live Messages presence).');
+      } else {
+        lines.push('Live team presence (Messages):');
+        if (online.length) {
+          lines.push(`\nActive (${online.length}):`);
+          for (const p of online.slice(0, 20)) {
+            lines.push(`• ${p.name}${p.status_label && p.status_label !== 'Active' ? ` — ${p.status_label}` : ''}`);
+          }
+        }
+        if (away.length) {
+          lines.push(`\nAway (${away.length}):`);
+          for (const p of away.slice(0, 20)) {
+            const back = p.expected_return_at
+              ? (() => {
+                  try {
+                    return ` · back ${new Date(p.expected_return_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                  } catch {
+                    return '';
+                  }
+                })()
+              : '';
+            lines.push(`• ${p.name} — ${p.status_label || 'Away'}${back}`);
+          }
+        }
       }
     } else if (r.tool === 'createTask') {
       const t = r.result?.task || r.result;
@@ -1358,7 +1514,47 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
     }
   }
   const out = lines.filter(Boolean).join('\n\n');
-  return out || 'Done.';
+  if (out) return out;
+  // Never collapse a successful client-action tool into a bare "Done."
+  const names = (toolResults || []).map((r) => r?.tool).filter(Boolean);
+  if (names.length) {
+    return `Finished ${names.join(', ')}, but there was nothing to display.`;
+  }
+  return 'Done.';
+}
+
+/** Tools used by Ask Assistant everyday buttons — must never reply with silent/Done-only text. */
+export const ASSISTANT_QUICK_ACTION_TOOLS = [
+  'openTodaysWorkspace',
+  'listMyOpenTasks',
+  'listTeamPresence',
+  'findNextMeeting',
+  'listMyRecentActivity',
+  'findIntakeOpenings',
+  'searchReferralDirectory',
+  'navigateTo'
+];
+
+/** Test helper: ensure quick-action tools produce human-readable replies (never bare Done.). */
+export function assertQuickActionToolsHaveReplies(buildReply = buildAssistantReplyFromTools) {
+  const samples = {
+    openTodaysWorkspace: { ok: true, tool: 'openTodaysWorkspace', result: { dateYmd: '2026-07-16', events: [] } },
+    listMyOpenTasks: { ok: true, tool: 'listMyOpenTasks', result: { tasks: [], totalOpen: 0 } },
+    listTeamPresence: { ok: true, tool: 'listTeamPresence', result: { online: [], away: [] } },
+    findNextMeeting: { ok: true, tool: 'findNextMeeting', result: { meeting: null } },
+    listMyRecentActivity: { ok: true, tool: 'listMyRecentActivity', result: { rows: [] } },
+    findIntakeOpenings: { ok: true, tool: 'findIntakeOpenings', result: { dateYmd: '2026-07-16', results: [] } },
+    searchReferralDirectory: { ok: true, tool: 'searchReferralDirectory', result: { entries: [] } },
+    navigateTo: { ok: true, tool: 'navigateTo', result: { path: '/dashboard?tab=my_schedule' } }
+  };
+  const failures = [];
+  for (const name of ASSISTANT_QUICK_ACTION_TOOLS) {
+    const text = String(buildReply('', [samples[name]]) || '').trim();
+    if (!text || text === 'Done.' || /^Finished /.test(text)) {
+      failures.push(`${name}: got "${text || '(empty)'}"`);
+    }
+  }
+  return failures;
 }
 
 function buildCapabilityPayloadForReq(req, agentConfig = null) {
@@ -1735,11 +1931,18 @@ export const assist = async (req, res, next) => {
     const agentConfig = req.body?.agentConfig && typeof req.body.agentConfig === 'object' ? req.body.agentConfig : null;
     const prompt = String(req.body?.prompt || req.body?.message || '').trim();
     const forceCapabilityId = String(req.body?.forceCapabilityId || '').trim() || null;
-    const clientToolCall =
+    const clientToolCallsRaw = Array.isArray(req.body?.clientAction?.toolCalls)
+      ? req.body.clientAction.toolCalls
+      : null;
+    const clientToolCallSingle =
       req.body?.clientAction?.toolCall && typeof req.body.clientAction.toolCall === 'object'
         ? req.body.clientAction.toolCall
         : null;
-    if (!prompt && !clientToolCall) return res.status(400).json({ error: { message: 'prompt is required' } });
+    const clientToolCalls = (clientToolCallsRaw || (clientToolCallSingle ? [clientToolCallSingle] : []))
+      .map((t) => toolCallEntryToNormalized(t))
+      .filter(Boolean)
+      .slice(0, 4);
+    if (!prompt && !clientToolCalls.length) return res.status(400).json({ error: { message: 'prompt is required' } });
 
     // Enforce strict tenant scoping for agents/assist (critical for new tenants like Burning Sage)
     const agencyContextId = parseInt(context.agencyId || req.headers['x-agency-id'] || req.user?.agencyId || 0, 10);
@@ -1767,18 +1970,21 @@ export const assist = async (req, res, next) => {
       );
     }
 
-    // Fast path: UI-clickable "next action" buttons execute a single, explicit tool call.
+    // Fast path: UI-clickable "next action" buttons execute explicit tool call(s).
     // No LLM call; still fully role-gated and scoped.
-    if (clientToolCall) {
-      const tc = toolCallEntryToNormalized(clientToolCall);
-      if (!tc?.name) return res.status(400).json({ error: { message: 'Invalid clientAction.toolCall' } });
-      if (!allowedToolNames.has(tc.name)) return res.status(403).json({ error: { message: 'Tool not allowed for your role' } });
+    if (clientToolCalls.length) {
+      for (const tc of clientToolCalls) {
+        if (!tc?.name) return res.status(400).json({ error: { message: 'Invalid clientAction.toolCall' } });
+        if (!allowedToolNames.has(tc.name)) {
+          return res.status(403).json({ error: { message: `Tool not allowed for your role: ${tc.name}` } });
+        }
+      }
 
       // Caller may request a confirmation card instead of immediate execution
       // for write actions (e.g. "Start meeting" button on a user search card).
       const wantsConfirm = req.body?.clientAction?.confirmRequest === true;
-      if (wantsConfirm && isWriteActionTool(tc.name)) {
-        const card = await buildConfirmationCardForWriteAction(req, tc);
+      if (wantsConfirm && clientToolCalls.length === 1 && isWriteActionTool(clientToolCalls[0].name)) {
+        const card = await buildConfirmationCardForWriteAction(req, clientToolCalls[0]);
         return res.json({
           assistantText: `I drafted this for you — review and click Confirm to proceed: ${card.title}`,
           uiCommands: [],
@@ -1791,10 +1997,24 @@ export const assist = async (req, res, next) => {
       }
 
       try {
-        const result = await executeToolCall({ req, toolCall: tc });
-        const uiCommands = Array.isArray(result?.uiCommands) ? normalizeUiCommands(result.uiCommands) : [];
-        const toolResults = [result];
-        const assistantText = buildAssistantReplyFromTools('', toolResults);
+        const toolResults = [];
+        const uiCommands = [];
+        for (const tc of clientToolCalls) {
+          const result = await executeToolCall({ req, toolCall: tc });
+          toolResults.push(result);
+          if (Array.isArray(result?.uiCommands) && result.uiCommands.length) {
+            for (const cmd of normalizeUiCommands(result.uiCommands)) uiCommands.push(cmd);
+          }
+        }
+        let assistantText = buildAssistantReplyFromTools('', toolResults);
+        if (!String(assistantText || '').trim() || assistantText === 'Done.') {
+          const errBits = toolResults
+            .filter((r) => !r?.ok)
+            .map((r) => r?.error?.message || `${r?.tool || 'tool'} failed`);
+          assistantText = errBits.length
+            ? errBits.join('\n')
+            : `I ran ${clientToolCalls.map((t) => t.name).join(', ')} but got nothing to show.`;
+        }
         // Write actions (e.g. startMeeting) need post-run cards — Join now / Copy link —
         // otherwise the success text references UI that never arrives.
         const nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
@@ -1806,7 +2026,10 @@ export const assist = async (req, res, next) => {
               actionType: 'agent_tool_execute',
               userId: req.user?.id ?? null,
               agencyId: context?.agencyId ?? null,
-              metadata: { tool: tc.name, runtime: 'client_action' }
+              metadata: {
+                tools: clientToolCalls.map((t) => t.name),
+                runtime: 'client_action'
+              }
             },
             req
           );
@@ -1815,9 +2038,9 @@ export const assist = async (req, res, next) => {
         }
 
         return res.json({
-          assistantText: String(assistantText || '').trim() || 'Done.',
+          assistantText: String(assistantText || '').trim(),
           uiCommands,
-          toolCalls: [tc],
+          toolCalls: clientToolCalls,
           toolResults,
           nextActions,
           nextCards,

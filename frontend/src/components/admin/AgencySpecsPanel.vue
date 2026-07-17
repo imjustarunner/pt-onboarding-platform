@@ -155,7 +155,7 @@ const fetchSpecs = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get(url, { params });
+    const resp = await api.get(url, { params, skipGlobalLoading: true });
     const data = resp.data || null;
     stats.value = data;
     setCached(url, params, data);
