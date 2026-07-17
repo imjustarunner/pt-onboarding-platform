@@ -137,7 +137,7 @@
                 <th>Benefit</th>
                 <th>Eligibility Rule</th>
                 <th>{{ isSelfView ? 'Eligible' : 'Employee Eligible' }}</th>
-                <th>Status</th>
+                <th>Enrollment / Status</th>
                 <th>Employer Contribution</th>
               </tr>
             </thead>
@@ -152,6 +152,14 @@
                     {{ row.eligible ? 'Yes' : 'No' }}
                   </span>
                   <ToggleSwitch
+                    v-else-if="row.id === 'school_mileage'"
+                    :model-value="row.eligible"
+                    :disabled="!canEditUser || saving || isPartTime"
+                    :label="row.eligible ? 'Yes (in contract)' : 'No'"
+                    compact
+                    @update:model-value="(v) => setSchoolMileageContract(v)"
+                  />
+                  <ToggleSwitch
                     v-else
                     :model-value="row.eligible"
                     :disabled="!canEditUser || saving || isPartTime"
@@ -161,10 +169,46 @@
                   />
                 </td>
                 <td>
-                  <span :class="['ub-status', row.statusClass]">{{ row.status }}</span>
-                  <div v-if="row.statusDetail" class="ub-status-detail muted">{{ row.statusDetail }}</div>
+                  <!-- Health / 401k enrollment -->
+                  <template v-if="row.id === 'health_insurance' || row.id === '401k'">
+                    <div v-if="isSelfView">
+                      <span :class="['ub-status', row.enrolled ? 'ub-status--yes' : 'ub-status--muted']">
+                        {{ row.enrolled ? 'Enrolled' : 'Not enrolled' }}
+                      </span>
+                      <div v-if="row.statusDetail" class="ub-status-detail muted">{{ row.statusDetail }}</div>
+                    </div>
+                    <div v-else class="ub-enroll-cell">
+                      <ToggleSwitch
+                        :model-value="row.enrolled"
+                        :disabled="!canEditUser || saving || isPartTime || !row.eligible"
+                        :label="row.enrolled ? 'Enrolled' : 'Not enrolled'"
+                        compact
+                        @update:model-value="(v) => setEnrolled(row.id, v)"
+                      />
+                      <label v-if="row.id === 'health_insurance' && row.enrolled" class="ub-premium-field">
+                        <span>Plan premium (monthly)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          class="ub-premium-input"
+                          :value="draft.enrollment.health_insurance.premiumMonthly ?? ''"
+                          :disabled="!canEditUser || saving"
+                          placeholder="0.00"
+                          @input="onHealthPremiumInput($event)"
+                        />
+                      </label>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <span :class="['ub-status', row.statusClass]">{{ row.status }}</span>
+                    <div v-if="row.statusDetail" class="ub-status-detail muted">{{ row.statusDetail }}</div>
+                  </template>
                 </td>
-                <td class="muted">{{ row.contribution }}</td>
+                <td class="muted">
+                  <div>{{ row.contribution }}</div>
+                  <div v-if="row.contributionDetail" class="ub-status-detail">{{ row.contributionDetail }}</div>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -181,13 +225,13 @@
       </section>
 
       <div class="ub-side">
-        <!-- Med Cancel (moved from Account) -->
+        <!-- Medicaid Cancel -->
         <section class="ub-card" :class="{ 'ub-card--disabled': isPartTime }">
-          <h3>Medicare Cancel Reimbursement</h3>
+          <h3>Medicaid Cancel Reimbursement</h3>
           <p class="ub-card-sub">
             {{ isSelfView
-              ? 'Your Med Cancel reimbursement schedule for this organization.'
-              : 'Managed here (moved from Account → Contracts). Controls Med Cancel rate schedule for this employee.' }}
+              ? 'Your Medicaid Cancel reimbursement schedule for this organization.'
+              : 'Controls the Medicaid Cancel rate schedule for this employee (contract).' }}
           </p>
           <div v-if="isSelfView" class="ub-field">
             <span>Rate schedule</span>
@@ -203,6 +247,31 @@
             </select>
           </label>
           <small v-if="!isSelfView" class="ub-hint">{{ isPartTime ? 'Cleared / disabled while part-time (non-tiered).' : 'Save Changes to persist.' }}</small>
+        </section>
+
+        <!-- Health employer contribution summary -->
+        <section v-if="healthContributionSummary.show" class="ub-card">
+          <h3>Health employer contribution</h3>
+          <p class="ub-card-sub">Based on plan premium and tier (Tier 2 = 25%, Tier 3 = 50%).</p>
+          <dl class="ub-contrib-dl">
+            <div><dt>Plan premium (monthly)</dt><dd>{{ healthContributionSummary.premiumLabel }}</dd></div>
+            <div><dt>Employer share</dt><dd>{{ healthContributionSummary.shareLabel }}</dd></div>
+            <div><dt>Per pay period</dt><dd>{{ healthContributionSummary.perPeriodLabel }}</dd></div>
+            <div><dt>YTD employer contribution</dt><dd>{{ healthContributionSummary.ytdLabel }}</dd></div>
+          </dl>
+          <label v-if="!isSelfView && canEditUser" class="ub-field" style="margin-top: 10px;">
+            <span>Recorded YTD employer contribution (optional override)</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              class="ub-premium-input"
+              :value="draft.enrollment.healthEmployerContributionYtd ?? ''"
+              :disabled="saving"
+              placeholder="Leave blank to use estimate"
+              @input="onHealthYtdInput($event)"
+            />
+          </label>
         </section>
 
         <!-- Tier overview -->
@@ -221,37 +290,32 @@
               </thead>
               <tbody>
                 <tr>
-                  <td>Mileage / mile</td>
-                  <td>{{ fmtMoney(mileageRates.tier1) }}</td>
-                  <td>{{ fmtMoney(mileageRates.tier2) }}</td>
-                  <td>{{ fmtMoney(mileageRates.tier3) }}</td>
-                  <td :class="{ 'ub-col-active': isPartTime }">{{ fmtMoney(mileageRates.standard) }}</td>
+                  <td>School mileage / mile</td>
+                  <td>{{ fmtMoney(SCHOOL_MILEAGE_TIER_RATES[1]) }}</td>
+                  <td>{{ fmtMoney(SCHOOL_MILEAGE_TIER_RATES[2]) }} <span class="muted">(50% of $0.70)</span></td>
+                  <td>{{ fmtMoney(SCHOOL_MILEAGE_TIER_RATES[3]) }} <span class="muted">(100% of $0.70)</span></td>
+                  <td :class="{ 'ub-col-active': isPartTime }" class="muted">—</td>
                 </tr>
                 <tr>
                   <td>Health premium share</td>
                   <td class="muted">—</td>
-                  <td class="muted">Partial</td>
-                  <td class="muted">Highest</td>
+                  <td>25%</td>
+                  <td>50%</td>
                   <td :class="{ 'ub-col-active': isPartTime }" class="muted">—</td>
                 </tr>
                 <tr>
-                  <td>401(k) match</td>
-                  <td class="muted">Eligible</td>
-                  <td class="muted">Eligible</td>
-                  <td class="muted">Eligible</td>
-                  <td :class="{ 'ub-col-active': isPartTime }" class="muted">—</td>
-                </tr>
-                <tr>
-                  <td>Wellness / PD stipends</td>
-                  <td class="muted">—</td>
-                  <td class="muted">Tier 2+</td>
-                  <td class="muted">Tier 2+</td>
+                  <td>401(k)</td>
+                  <td class="muted">Enroll if eligible</td>
+                  <td class="muted">Enroll if eligible</td>
+                  <td class="muted">Enroll if eligible</td>
                   <td :class="{ 'ub-col-active': isPartTime }" class="muted">—</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <p class="ub-footnote">Mileage rates from agency payroll settings. Other contribution columns are handbook reference until enrollment is wired.</p>
+          <p class="ub-footnote">
+            School mileage is contract-only. Health employer share applies when enrolled at Tier 2+. 401(k) is enroll/not enroll (no employer match).
+          </p>
         </section>
 
         <!-- Notes (admin only) -->
@@ -275,6 +339,15 @@
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import ToggleSwitch from '../ui/ToggleSwitch.vue';
+import {
+  SCHOOL_MILEAGE_TIER_RATES,
+  parseBenefitsEnrollment,
+  emptyEnrollment,
+  healthEmployerSharePct,
+  healthEmployerPerPayPeriod,
+  estimateHealthEmployerYtd,
+  schoolMileageRateForTier
+} from '../../utils/benefitsEnrollment.js';
 
 const props = defineProps({
   userId: { type: [Number, String], required: true },
@@ -296,13 +369,12 @@ const BENEFIT_DEFS = [
     id: 'health_insurance',
     name: 'Health Insurance',
     rule: 'Tier 2 or Tier 3',
-    minTier: 2,
-    contributionByTier: { 2: 'Partial employer share', 3: 'Highest employer share', default: '—' }
+    minTier: 2
   },
   {
     id: 'medcancel',
-    name: 'Medicare Cancel Reimbursement',
-    rule: 'Based on title / Med Cancel schedule',
+    name: 'Medicaid Cancel Reimbursement',
+    rule: 'Based on title / Medicaid Cancel schedule',
     minTier: 1,
     titleBased: true
   },
@@ -310,29 +382,14 @@ const BENEFIT_DEFS = [
     id: '401k',
     name: '401(k)',
     rule: 'Tier 1, Tier 2, Tier 3',
-    minTier: 1,
-    contributionByTier: { 1: 'Company match (policy)', 2: 'Company match (policy)', 3: 'Company match (policy)', default: '—' }
+    minTier: 1
   },
   {
-    id: 'mileage',
-    name: 'Mileage Reimbursement',
-    rule: 'All employees (Tier-based rate)',
+    id: 'school_mileage',
+    name: 'School Mileage Reimbursement',
+    rule: 'In contract (school mileage)',
     minTier: 0,
-    alwaysEligibleWhenTiered: true
-  },
-  {
-    id: 'wellness_stipend',
-    name: 'Wellness Stipend',
-    rule: 'Tier 2 or Tier 3',
-    minTier: 2,
-    contributionByTier: { 2: 'Up to policy max / pay period', 3: 'Up to policy max / pay period', default: '—' }
-  },
-  {
-    id: 'pd_stipend',
-    name: 'Professional Development Stipend',
-    rule: 'Tier 2 or Tier 3',
-    minTier: 2,
-    contributionByTier: { 2: 'Up to policy max / pay period', 3: 'Up to policy max / pay period', default: '—' }
+    contractBased: true
   }
 ];
 
@@ -340,7 +397,8 @@ const draft = reactive({
   employmentType: 'full_time',
   medcancelRateSchedule: 'none',
   benefitsNotes: '',
-  eligibilityOverrides: {}
+  eligibilityOverrides: {},
+  enrollment: emptyEnrollment()
 });
 
 const saving = ref(false);
@@ -350,7 +408,6 @@ const loadError = ref('');
 const tierLoading = ref(false);
 const tier = ref(null);
 const graceActive = ref(false);
-const mileageRates = reactive({ tier1: null, tier2: null, tier3: null, standard: null });
 
 const displayName = computed(() => {
   const u = props.user || {};
@@ -434,8 +491,19 @@ const hydrateFromUser = () => {
   const sched = String(u.medcancel_rate_schedule || u.medcancelRateSchedule || 'none').toLowerCase();
   draft.medcancelRateSchedule = ['low', 'high', 'none'].includes(sched) ? sched : 'none';
   draft.benefitsNotes = u.benefits_notes ?? u.benefitsNotes ?? '';
-  draft.eligibilityOverrides = parseOverrides(
+  const overrides = parseOverrides(
     u.benefits_eligibility_overrides_json ?? u.benefitsEligibilityOverrides ?? null
+  );
+  // Migrate legacy mileage override key → school_mileage
+  if (Object.prototype.hasOwnProperty.call(overrides, 'mileage') && !Object.prototype.hasOwnProperty.call(overrides, 'school_mileage')) {
+    overrides.school_mileage = overrides.mileage;
+    delete overrides.mileage;
+  }
+  delete overrides.wellness_stipend;
+  delete overrides.pd_stipend;
+  draft.eligibilityOverrides = overrides;
+  draft.enrollment = parseBenefitsEnrollment(
+    u.benefits_enrollment_json ?? u.benefitsEnrollment ?? null
   );
 };
 
@@ -443,13 +511,52 @@ const setEligibilityOverride = (benefitId, eligible) => {
   if (isPartTime.value) return;
   const next = { ...draft.eligibilityOverrides };
   const ruleEligible = ruleEligibleFor(benefitId);
-  // Only store override when it differs from the rule default
   if (Boolean(eligible) === Boolean(ruleEligible)) {
     delete next[benefitId];
   } else {
     next[benefitId] = Boolean(eligible);
   }
   draft.eligibilityOverrides = next;
+};
+
+const setSchoolMileageContract = (inContract) => {
+  if (isPartTime.value) return;
+  draft.enrollment.school_mileage.inContract = !!inContract;
+};
+
+const setEnrolled = (benefitId, enrolled) => {
+  if (benefitId !== 'health_insurance' && benefitId !== '401k') return;
+  const bucket = draft.enrollment[benefitId];
+  if (!bucket) return;
+  const next = !!enrolled;
+  bucket.enrolled = next;
+  if (next && !bucket.enrolledAt) {
+    bucket.enrolledAt = new Date().toISOString();
+  }
+  if (!next) {
+    bucket.enrolledAt = null;
+    if (benefitId === 'health_insurance') bucket.premiumMonthly = null;
+  }
+};
+
+const onHealthPremiumInput = (e) => {
+  const raw = String(e?.target?.value ?? '').trim();
+  if (raw === '') {
+    draft.enrollment.health_insurance.premiumMonthly = null;
+    return;
+  }
+  const n = Number(raw);
+  draft.enrollment.health_insurance.premiumMonthly = Number.isFinite(n) && n >= 0 ? n : null;
+};
+
+const onHealthYtdInput = (e) => {
+  const raw = String(e?.target?.value ?? '').trim();
+  if (raw === '') {
+    draft.enrollment.healthEmployerContributionYtd = null;
+    return;
+  }
+  const n = Number(raw);
+  draft.enrollment.healthEmployerContributionYtd = Number.isFinite(n) && n >= 0 ? n : null;
 };
 
 const ruleEligibleFor = (benefitId) => {
@@ -459,51 +566,113 @@ const ruleEligibleFor = (benefitId) => {
   if (def.id === 'medcancel') {
     return ['low', 'high'].includes(String(draft.medcancelRateSchedule || '').toLowerCase());
   }
-  if (def.alwaysEligibleWhenTiered) return true;
+  if (def.id === 'school_mileage') {
+    return !!draft.enrollment.school_mileage?.inContract;
+  }
   const level = tierLevel.value;
   if (!level) return false;
   return level >= Number(def.minTier || 0);
 };
+
+const healthContributionSummary = computed(() => {
+  const health = draft.enrollment.health_insurance || {};
+  const enrolled = !!health.enrolled && !isPartTime.value && ruleEligibleFor('health_insurance');
+  const premium = health.premiumMonthly;
+  const share = healthEmployerSharePct(tierLevel.value);
+  const perPeriod = enrolled ? healthEmployerPerPayPeriod(premium, tierLevel.value) : null;
+  const estimated = enrolled
+    ? estimateHealthEmployerYtd(premium, tierLevel.value, health.enrolledAt)
+    : 0;
+  const recorded = draft.enrollment.healthEmployerContributionYtd;
+  const ytd = recorded != null && Number.isFinite(Number(recorded)) ? Number(recorded) : estimated;
+  return {
+    show: enrolled || (!isSelfView.value && ruleEligibleFor('health_insurance')),
+    premiumLabel: premium != null ? fmtMoney(premium) : '—',
+    shareLabel: share > 0 ? `${Math.round(share * 100)}%` : '—',
+    perPeriodLabel: perPeriod != null ? `${fmtMoney(perPeriod)} / pay period` : '—',
+    ytdLabel: enrolled ? `${fmtMoney(ytd)}${recorded == null ? ' (est.)' : ''}` : '—'
+  };
+});
 
 const benefitRows = computed(() => {
   return BENEFIT_DEFS.map((def) => {
     const ruleEligible = ruleEligibleFor(def.id);
     const hasOverride = Object.prototype.hasOwnProperty.call(draft.eligibilityOverrides || {}, def.id);
     const overrideVal = draft.eligibilityOverrides?.[def.id];
-    const eligible = isPartTime.value
+    let eligible = isPartTime.value
       ? false
-      : (hasOverride ? Boolean(overrideVal) : ruleEligible);
+      : (def.contractBased
+        ? ruleEligible
+        : (hasOverride ? Boolean(overrideVal) : ruleEligible));
 
     let status = 'Not Eligible';
     let statusClass = 'ub-status--no';
     let statusDetail = '';
     let contribution = '—';
+    let contributionDetail = '';
+    let enrolled = false;
+
+    if (def.id === 'health_insurance') {
+      enrolled = !!draft.enrollment.health_insurance?.enrolled && eligible;
+    } else if (def.id === '401k') {
+      enrolled = !!draft.enrollment['401k']?.enrolled && eligible;
+    }
 
     if (isPartTime.value) {
       status = 'Non-Tiered';
       statusClass = 'ub-status--muted';
-      if (def.id === 'mileage') {
-        contribution = mileageRates.standard != null ? `${fmtMoney(mileageRates.standard)} / mile` : '—';
-        status = 'Part-time rate';
-        statusDetail = 'Uses non-tiered mileage rate';
+      if (def.id === 'school_mileage') {
+        statusDetail = 'School mileage is for contracted tiered employees';
       }
     } else if (eligible) {
       status = 'Eligible';
       statusClass = 'ub-status--yes';
       if (def.id === 'medcancel') {
         statusDetail = `Schedule: ${draft.medcancelRateSchedule}`;
-        contribution = draft.medcancelRateSchedule === 'high' ? 'High schedule' : draft.medcancelRateSchedule === 'low' ? 'Low schedule' : '—';
-      } else if (def.id === 'mileage') {
-        const rate = mileageRates[`tier${tierLevel.value}`] ?? mileageRates.standard;
-        contribution = rate != null ? `${fmtMoney(rate)} / mile` : 'Tier-based';
+        contribution = draft.medcancelRateSchedule === 'high'
+          ? 'High schedule'
+          : draft.medcancelRateSchedule === 'low'
+            ? 'Low schedule'
+            : '—';
+      } else if (def.id === 'school_mileage') {
+        const rate = schoolMileageRateForTier(tierLevel.value);
+        contribution = rate != null ? `${fmtMoney(rate)} / mile` : '—';
         status = 'Active';
-      } else if (def.contributionByTier) {
-        contribution = def.contributionByTier[tierLevel.value] || def.contributionByTier.default || '—';
+        if (tierLevel.value === 1) statusDetail = 'Tier 1: no reimbursement';
+        else if (tierLevel.value === 2) statusDetail = '50% of $0.70 / mile';
+        else if (tierLevel.value === 3) statusDetail = '100% of $0.70 / mile';
+      } else if (def.id === 'health_insurance') {
+        if (enrolled) {
+          status = 'Enrolled';
+          const share = healthEmployerSharePct(tierLevel.value);
+          const per = healthEmployerPerPayPeriod(
+            draft.enrollment.health_insurance.premiumMonthly,
+            tierLevel.value
+          );
+          contribution = share > 0 ? `${Math.round(share * 100)}% of premium` : '—';
+          if (per != null) contributionDetail = `${fmtMoney(per)} / pay period`;
+        } else {
+          status = 'Not enrolled';
+          statusClass = 'ub-status--muted';
+          contribution = tierLevel.value >= 2
+            ? `${Math.round(healthEmployerSharePct(tierLevel.value) * 100)}% if enrolled`
+            : '—';
+        }
+      } else if (def.id === '401k') {
+        contribution = 'No employer match';
+        if (enrolled) {
+          status = 'Enrolled';
+        } else {
+          status = 'Not enrolled';
+          statusClass = 'ub-status--muted';
+        }
       }
     } else {
       status = 'Not Eligible';
       statusClass = 'ub-status--no';
-      if (!tierLevel.value && !isPartTime.value) {
+      if (def.id === 'school_mileage') {
+        statusDetail = 'Not in contract';
+      } else if (!tierLevel.value && !isPartTime.value) {
         statusDetail = 'Below Tier 1 / no posted tier';
       }
     }
@@ -513,10 +682,12 @@ const benefitRows = computed(() => {
       name: def.name,
       rule: def.rule,
       eligible,
+      enrolled,
       status,
       statusClass,
       statusDetail,
-      contribution
+      contribution,
+      contributionDetail
     };
   });
 });
@@ -567,47 +738,40 @@ const loadTier = async () => {
   }
 };
 
-const loadMileage = async () => {
-  const agencyId = Number(props.agencyId || 0);
-  if (!agencyId) return;
-  if (!isSelfView.value && !props.canViewPayroll) return;
-  try {
-    const url = isSelfView.value ? '/payroll/me/mileage-rates' : '/payroll/mileage-rates';
-    const { data } = await api.get(url, {
-      params: { agencyId },
-      skipGlobalLoading: true
-    });
-    const rates = Array.isArray(data?.rates) ? data.rates : [];
-    const byTier = new Map(rates.map((r) => [Number(r.tierLevel ?? r.tier_level), Number((r.ratePerMile ?? r.rate_per_mile) || 0)]));
-    mileageRates.tier1 = byTier.has(1) ? byTier.get(1) : null;
-    mileageRates.tier2 = byTier.has(2) ? byTier.get(2) : null;
-    mileageRates.tier3 = byTier.has(3) ? byTier.get(3) : null;
-    const settings = data?.settings || {};
-    mileageRates.standard =
-      settings.standardMileageRatePerMile ??
-      settings.standardRatePerMile ??
-      settings.standard_rate_per_mile ??
-      mileageRates.tier1;
-  } catch {
-    // best-effort (requires payroll access in admin mode)
-  }
-};
-
 const saveAll = async () => {
   if (!props.canEditUser) return;
   saving.value = true;
   saveError.value = '';
   saveSuccess.value = false;
   try {
+    if (isPartTime.value) {
+      draft.medcancelRateSchedule = 'none';
+      draft.enrollment.school_mileage.inContract = false;
+      draft.enrollment.health_insurance.enrolled = false;
+      draft.enrollment['401k'].enrolled = false;
+    }
+    const enrollmentPayload = {
+      health_insurance: {
+        enrolled: !!draft.enrollment.health_insurance.enrolled,
+        premiumMonthly: draft.enrollment.health_insurance.premiumMonthly,
+        enrolledAt: draft.enrollment.health_insurance.enrolledAt
+      },
+      '401k': {
+        enrolled: !!draft.enrollment['401k'].enrolled,
+        enrolledAt: draft.enrollment['401k'].enrolledAt
+      },
+      school_mileage: {
+        inContract: !!draft.enrollment.school_mileage.inContract
+      },
+      healthEmployerContributionYtd: draft.enrollment.healthEmployerContributionYtd
+    };
     const payload = {
       employmentType: draft.employmentType || 'full_time',
       benefitsNotes: draft.benefitsNotes || null,
       benefitsEligibilityOverrides: draft.eligibilityOverrides || {},
+      benefitsEnrollment: enrollmentPayload,
       medcancelRateSchedule: isPartTime.value ? 'none' : (draft.medcancelRateSchedule || 'none')
     };
-    if (isPartTime.value) {
-      draft.medcancelRateSchedule = 'none';
-    }
     await api.put(`/users/${props.userId}`, payload);
     saveSuccess.value = true;
     setTimeout(() => { saveSuccess.value = false; }, 2500);
@@ -629,7 +793,9 @@ watch(
     props.user?.medcancel_rate_schedule,
     props.user?.medcancelRateSchedule,
     props.user?.benefits_eligibility_overrides_json,
-    props.user?.benefitsEligibilityOverrides
+    props.user?.benefitsEligibilityOverrides,
+    props.user?.benefits_enrollment_json,
+    props.user?.benefitsEnrollment
   ],
   () => hydrateFromUser(),
   { immediate: true }
@@ -639,7 +805,6 @@ watch(
   () => [props.userId, props.agencyId, props.canViewPayroll, props.mode],
   () => {
     loadTier();
-    loadMileage();
   },
   { immediate: true }
 );
@@ -702,6 +867,50 @@ watch(
   margin: 0 0 12px;
   font-size: 0.85rem;
   color: var(--text-secondary, #64748b);
+}
+.ub-enroll-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.ub-premium-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+}
+.ub-premium-input {
+  width: 140px;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #111827;
+}
+.ub-contrib-dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.ub-contrib-dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.9rem;
+}
+.ub-contrib-dl dt {
+  margin: 0;
+  color: var(--text-secondary, #64748b);
+  font-weight: 500;
+}
+.ub-contrib-dl dd {
+  margin: 0;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
 .ub-card--disabled {
   opacity: 0.55;

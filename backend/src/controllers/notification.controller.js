@@ -8,6 +8,18 @@ import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTrigge
 import NotificationDispatcherService from '../services/notificationDispatcher.service.js';
 import ProgramReminderService from '../services/programReminder.service.js';
 import pool from '../config/database.js';
+import NotificationTypePreference from '../models/NotificationTypePreference.model.js';
+import AgencyNotificationPreferences from '../models/AgencyNotificationPreferences.model.js';
+import {
+  NOTIFICATION_CATEGORIES,
+  getNotificationCatalogEntry,
+  listNotificationCatalog
+} from '../services/notificationCatalog.service.js';
+import {
+  loadNotificationPreferenceContext,
+  resolveNotificationTypePreference,
+  listEffectiveNotificationPreferences
+} from '../services/notificationPreferences.service.js';
 
 // Guardians should not see the full internal staff notification feed.
 // They only need a narrow, family-facing set: announcements/reminders and
@@ -112,7 +124,8 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, o
     hasMedicalRecordsReleaseAccess = false,
     notificationCategories = null,
     guardianClientIds = null,
-    guardianAgencyIds = null
+    guardianAgencyIds = null,
+    hiddenNotificationTypes = null
   } = opts;
 
   // Guardian feed: strict allowlist + only items tied to this guardian or
@@ -149,6 +162,7 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, o
   }
 
   return (notifications || [])
+    .filter((n) => !(hiddenNotificationTypes instanceof Set && hiddenNotificationTypes.has(String(n?.type || ''))))
     .filter((n) => {
       const key = IN_APP_CATEGORY_BY_TYPE[String(n?.type || '').toLowerCase()];
       if (!key) return true;
@@ -237,6 +251,9 @@ function collapseEquivalentNotifications(notifications) {
 }
 
 const PERSONAL_ONLY_ROLES = new Set(['provider', 'staff', 'intern', 'facilitator']);
+const EVENT_REGISTRATION_SCOPED_ROLES = new Set([
+  'provider', 'provider_plus', 'intern', 'intern_plus', 'facilitator', 'clinician'
+]);
 
 async function loadGuardianClientAccess({ guardianUserId }) {
   const uid = Number(guardianUserId);
@@ -365,6 +382,8 @@ async function appendNotificationContext(notifications) {
     if (n._muted_until_for_viewer !== undefined) {
       n.muted_until = n._muted_until_for_viewer;
     }
+    n.dismissed_at = n._dismissed_at_for_viewer || null;
+    n.snoozed_until = n._snoozed_until_for_viewer || null;
   }
 
   return list;
@@ -376,6 +395,20 @@ async function getViewerNotificationCategories(userId) {
   return categories && typeof categories === 'object' ? categories : {};
 }
 
+async function getViewerHiddenNotificationTypes(userId, userRole) {
+  try {
+    const context = await loadNotificationPreferenceContext({ userId, userRole });
+    return new Set(
+      listNotificationCatalog()
+        .map((entry) => resolveNotificationTypePreference(entry.type, context))
+        .filter((resolved) => resolved?.effective?.inApp === false)
+        .map((resolved) => resolved.type)
+    );
+  } catch {
+    return new Set(['user_login', 'user_logout']);
+  }
+}
+
 export const getNotifications = async (req, res, next) => {
   try {
     const { agencyId, type, isRead, isResolved, limit: limitParam } = req.query;
@@ -385,7 +418,8 @@ export const getNotifications = async (req, res, next) => {
     const fullUser = await User.findById(userId);
     const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
     const notificationCategories = await getViewerNotificationCategories(userId);
-    const filterOpts = { hasMedicalRecordsReleaseAccess, notificationCategories };
+    const hiddenNotificationTypes = await getViewerHiddenNotificationTypes(userId, userRole);
+    const filterOpts = { hasMedicalRecordsReleaseAccess, notificationCategories, hiddenNotificationTypes };
 
     // Guardian portal: limit notifications to a small family-facing set.
     if (isGuardianRole(userRole)) {
@@ -690,10 +724,32 @@ export const getNotificationCounts = async (req, res, next) => {
     const userRole = req.user.role;
     const requestedScope = String(req.query?.scope || '').trim().toLowerCase();
 
+    // Compatibility endpoint: delegate badge counts to the same indexed visibility,
+    // preference, and viewer-state query used by the v2 inbox. `legacy=1` remains
+    // available for one transition release while older clients are phased out.
+    if (String(req.query?.legacy || '') !== '1') {
+      const originalQuery = req.query;
+      try {
+        req.query = {
+          status: 'unread',
+          page: 1,
+          pageSize: 1,
+          scope: requestedScope === 'managed_feed' ? 'managed' : (requestedScope || 'inbox')
+        };
+        const result = await queryNotificationFeed(req);
+        const counts = {};
+        for (const facet of result.facets.agencies || []) counts[facet.agencyId] = facet.unread;
+        return res.json(counts);
+      } finally {
+        req.query = originalQuery;
+      }
+    }
+
     const fullUser = await User.findById(userId);
     const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
     const notificationCategories = await getViewerNotificationCategories(userId);
-    const filterOpts = { hasMedicalRecordsReleaseAccess, notificationCategories };
+    const hiddenNotificationTypes = await getViewerHiddenNotificationTypes(userId, userRole);
+    const filterOpts = { hasMedicalRecordsReleaseAccess, notificationCategories, hiddenNotificationTypes };
 
     // Guardian counts: only count the guardian-allowed subset across the agencies
     // where the guardian has linked clients.
@@ -987,7 +1043,7 @@ export const markAllAsRead = async (req, res, next) => {
       count = await Notification.markAllAsReadForAgencyForUser(parseInt(agencyId), userId);
     }
     
-    res.json({ message: `${count} notifications marked as read (muted for 48 hours)` });
+    res.json({ message: `${count} notifications marked as read` });
   } catch (error) {
     next(error);
   }
@@ -1243,6 +1299,652 @@ export const syncNotifications = async (req, res, next) => {
         results 
       });
     }
+  } catch (error) {
+    next(error);
+  }
+};
+
+const FEED_PRIVATE_TYPES = ['chat_message', 'inbound_client_message', 'support_safety_net_alert'];
+
+async function getFeedAccess(req, requestedAgencyId = null, requestedScope = 'inbox') {
+  const uid = Number(req.user.id);
+  const role = String(req.user.role || '').toLowerCase();
+  if (requestedScope === 'managed' && !['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(role)) {
+    const error = new Error('Managed notification scope is not available for this role');
+    error.status = 403;
+    throw error;
+  }
+  let agencyIds = [];
+  if (role === 'super_admin') {
+    const [rows] = await pool.execute('SELECT id FROM agencies WHERE is_active = TRUE');
+    agencyIds = (rows || []).map((r) => Number(r.id)).filter(Boolean);
+  } else {
+    agencyIds = (await User.getAgencies(uid) || []).map((a) => Number(a.id)).filter(Boolean);
+  }
+  if (requestedAgencyId) {
+    const aid = Number(requestedAgencyId);
+    if (!aid || (role !== 'super_admin' && !agencyIds.includes(aid))) {
+      const error = new Error('Access denied to this agency');
+      error.status = 403;
+      throw error;
+    }
+    agencyIds = [aid];
+  }
+
+  let superviseeIds = [];
+  if (requestedScope === 'team') {
+    if (!['supervisor', 'clinical_practice_assistant', 'provider_plus'].includes(role)) {
+      const error = new Error('Team notification scope is not available for this role');
+      error.status = 403;
+      throw error;
+    }
+    const SupervisorAssignment = (await import('../models/SupervisorAssignment.model.js')).default;
+    for (const agencyId of agencyIds) {
+      superviseeIds.push(...await SupervisorAssignment.getSuperviseeIds(uid, agencyId));
+    }
+    superviseeIds = uniquePositiveIds(superviseeIds);
+  }
+
+  let guardianClientIds = [];
+  if (isGuardianRole(role)) {
+    const access = await loadGuardianClientAccess({ guardianUserId: uid });
+    guardianClientIds = access.clientIds;
+    agencyIds = requestedAgencyId ? agencyIds : access.agencyIds;
+  }
+  return { uid, role, agencyIds: uniquePositiveIds(agencyIds), superviseeIds, guardianClientIds };
+}
+
+function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, includeAfterId = false }) {
+  const params = [];
+  const clauses = ['n.is_resolved = FALSE'];
+  if (access.agencyIds.length) {
+    clauses.push(`n.agency_id IN (${access.agencyIds.map(() => '?').join(',')})`);
+    params.push(...access.agencyIds);
+    // Historical first-login notifications were fanned out once per agency.
+    // Keep the audit rows, but expose one account-level event to each viewer.
+    clauses.push(`(
+      n.type NOT IN ('first_login', 'first_login_pending')
+      OR n.id = (
+        SELECT n2.id
+        FROM notifications n2
+        LEFT JOIN organization_affiliations oa2
+          ON oa2.organization_id = n2.agency_id AND oa2.is_active = TRUE
+        LEFT JOIN agency_schools axs2
+          ON axs2.school_organization_id = n2.agency_id AND axs2.is_active = TRUE
+        WHERE n2.type IN ('first_login', 'first_login_pending')
+          AND COALESCE(n2.related_entity_id, n2.user_id) = COALESCE(n.related_entity_id, n.user_id)
+          AND n2.agency_id IN (${access.agencyIds.map(() => '?').join(',')})
+        ORDER BY CASE
+          WHEN oa2.organization_id IS NULL AND axs2.school_organization_id IS NULL THEN 0
+          ELSE 1
+        END, n2.agency_id ASC, n2.id ASC
+        LIMIT 1
+      )
+    )`);
+    params.push(...access.agencyIds);
+  } else {
+    clauses.push('1 = 0');
+  }
+
+  if (isGuardianRole(access.role)) {
+    clauses.push(`n.type IN (${Array.from(GUARDIAN_ALLOWED_NOTIFICATION_TYPES).map(() => '?').join(',')})`);
+    params.push(...Array.from(GUARDIAN_ALLOWED_NOTIFICATION_TYPES));
+    const guardianParts = ['n.user_id = ?'];
+    params.push(access.uid);
+    if (access.guardianClientIds.length) {
+      guardianParts.push(`(LOWER(COALESCE(n.related_entity_type, '')) = 'client' AND n.related_entity_id IN (${access.guardianClientIds.map(() => '?').join(',')}))`);
+      params.push(...access.guardianClientIds);
+    }
+    guardianParts.push(`(n.user_id IS NULL AND n.type IN ('emergency_broadcast', 'program_reminder'))`);
+    clauses.push(`(${guardianParts.join(' OR ')})`);
+  } else if (access.superviseeIds.length || String(req.query.scope || '') === 'team') {
+    if (access.superviseeIds.length) {
+      clauses.push(`n.user_id IN (${access.superviseeIds.map(() => '?').join(',')})`);
+      params.push(...access.superviseeIds);
+    } else {
+      clauses.push('1 = 0');
+    }
+  } else if (PERSONAL_ONLY_ROLES.has(access.role)) {
+    clauses.push('n.user_id = ?');
+    params.push(access.uid);
+  } else {
+    clauses.push(`(n.user_id = ? OR n.type NOT IN (${FEED_PRIVATE_TYPES.map(() => '?').join(',')}))`);
+    params.push(access.uid, ...FEED_PRIVATE_TYPES);
+  }
+
+  // Registration activity is relevant to clinical users only when they are
+  // attached to the owning program or directly assigned to the event. This
+  // also prevents historically over-broadcast personal records from affecting
+  // their feed or badge while retaining the underlying audit rows.
+  if (EVENT_REGISTRATION_SCOPED_ROLES.has(access.role)) {
+    clauses.push(`(
+      n.type <> 'company_event_registration_submitted'
+      OR LOWER(COALESCE(n.related_entity_type, '')) <> 'company_event'
+      OR EXISTS (
+        SELECT 1
+        FROM company_events ce_access
+        WHERE ce_access.id = n.related_entity_id
+          AND (
+            ce_access.created_by_user_id = ?
+            OR EXISTS (
+              SELECT 1 FROM user_agencies ua_access
+              WHERE ua_access.user_id = ?
+                AND ua_access.agency_id = ce_access.organization_id
+                AND ua_access.is_active = TRUE
+            )
+            OR EXISTS (
+              SELECT 1 FROM company_event_provider_assignments cepa_access
+              WHERE cepa_access.company_event_id = ce_access.id
+                AND cepa_access.provider_user_id = ?
+            )
+            OR EXISTS (
+              SELECT 1 FROM company_event_session_providers cesp_access
+              WHERE cesp_access.company_event_id = ce_access.id
+                AND cesp_access.provider_user_id = ?
+                AND cesp_access.assignment_status IN ('tentative', 'finalized')
+            )
+          )
+      )
+    )`);
+    params.push(access.uid, access.uid, access.uid, access.uid);
+  }
+
+  const audienceKey = viewerAudienceKey(access.role);
+  clauses.push(`(
+    n.audience_json IS NULL
+    OR JSON_EXTRACT(n.audience_json, '$.${audienceKey}') IS NULL
+    OR JSON_EXTRACT(n.audience_json, '$.${audienceKey}') = TRUE
+  )`);
+  if (access.role !== 'super_admin' && !req._feedHasMedicalAccess) {
+    clauses.push("n.type <> 'medical_records_release_submitted'");
+  }
+  const baseHidden = visibilityPolicy?.baseHidden || [];
+  const agencyOverrides = visibilityPolicy?.agencyOverrides || [];
+  if (baseHidden.length) {
+    const visibleParts = [`n.type NOT IN (${baseHidden.map(() => '?').join(',')})`];
+    params.push(...baseHidden);
+    for (const override of agencyOverrides.filter((item) => item.unhidden.length)) {
+      visibleParts.push(`(n.agency_id = ? AND n.type IN (${override.unhidden.map(() => '?').join(',')}))`);
+      params.push(override.agencyId, ...override.unhidden);
+    }
+    clauses.push(`(${visibleParts.join(' OR ')})`);
+  }
+  for (const override of agencyOverrides.filter((item) => item.extraHidden.length)) {
+    clauses.push(`NOT (n.agency_id = ? AND n.type IN (${override.extraHidden.map(() => '?').join(',')}))`);
+    params.push(override.agencyId, ...override.extraHidden);
+  }
+  if (includeAfterId && Number(req.query.afterId || 0) > 0) {
+    clauses.push('n.id > ?');
+    params.push(Number(req.query.afterId));
+  }
+
+  const search = String(req.query.search || '').trim();
+  if (search) {
+    const like = `%${search.slice(0, 120)}%`;
+    clauses.push(`(
+      n.title LIKE ? OR n.message LIKE ? OR n.actor_source LIKE ? OR a.name LIKE ?
+      OR CONCAT_WS(' ', au.first_name, au.last_name) LIKE ? OR au.email LIKE ?
+      OR c.identifier_code LIKE ?
+    )`);
+    params.push(like, like, like, like, like, like, like);
+  }
+
+  const readExpr = `COALESCE(nur.is_read, CASE WHEN n.user_id = ${access.uid} THEN n.is_read ELSE FALSE END)`;
+  if (applyFilters) {
+    const type = String(req.query.type || '').trim();
+    if (type && getNotificationCatalogEntry(type)) {
+      clauses.push('n.type = ?');
+      params.push(type);
+    }
+    const category = String(req.query.category || '').trim();
+    if (category && NOTIFICATION_CATEGORIES[category]) {
+      const types = listNotificationCatalog().filter((entry) => entry.category === category).map((entry) => entry.type);
+      clauses.push(`n.type IN (${types.map(() => '?').join(',')})`);
+      params.push(...types);
+    }
+    const status = String(req.query.status || 'unread').toLowerCase();
+    if (status === 'read') {
+      clauses.push(`${readExpr} = TRUE AND nur.dismissed_at IS NULL AND (nur.snoozed_until IS NULL OR nur.snoozed_until <= NOW())`);
+    } else if (status === 'follow_up') {
+      clauses.push('COALESCE(nur.requires_follow_up, FALSE) = TRUE');
+    } else if (status === 'high_priority') {
+      clauses.push("n.severity = 'urgent' AND nur.dismissed_at IS NULL AND (nur.snoozed_until IS NULL OR nur.snoozed_until <= NOW())");
+    } else if (status === 'snoozed') {
+      clauses.push('nur.snoozed_until > NOW() AND nur.dismissed_at IS NULL');
+    } else if (status === 'dismissed') {
+      clauses.push('nur.dismissed_at IS NOT NULL');
+    } else if (status === 'all') {
+      clauses.push('nur.dismissed_at IS NULL AND (nur.snoozed_until IS NULL OR nur.snoozed_until <= NOW())');
+    } else {
+      clauses.push(`${readExpr} = FALSE AND nur.dismissed_at IS NULL AND (nur.snoozed_until IS NULL OR nur.snoozed_until <= NOW())`);
+    }
+  }
+  return { sql: clauses.join(' AND '), params, readExpr };
+}
+
+async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId = false } = {}) {
+  const requestedAgencyId = req.query.agencyId ? Number(req.query.agencyId) : null;
+  const scope = String(req.query.scope || 'inbox').toLowerCase();
+  const access = await getFeedAccess(req, requestedAgencyId, scope);
+  const fullUser = await User.findById(access.uid);
+  req._feedHasMedicalAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
+  const preferenceContext = await loadNotificationPreferenceContext({ userId: access.uid, userRole: access.role });
+  const agencyPolicies = await AgencyNotificationPreferences.listByAgencyIds(access.agencyIds);
+  const contextByAgency = new Map(agencyPolicies.map((policy) => [
+    Number(policy.agencyId),
+    { ...preferenceContext, agencyPreferences: policy }
+  ]));
+  const effectivePreferences = listNotificationCatalog()
+    .map((entry) => resolveNotificationTypePreference(entry.type, preferenceContext));
+  const baseHidden = effectivePreferences.filter((item) => item?.effective?.inApp === false).map((item) => item.type);
+  const baseHiddenSet = new Set(baseHidden);
+  const agencyOverrides = agencyPolicies.map((policy) => {
+    const agencyHidden = listNotificationCatalog()
+      .map((entry) => resolveNotificationTypePreference(entry.type, contextByAgency.get(Number(policy.agencyId))))
+      .filter((item) => item?.effective?.inApp === false)
+      .map((item) => item.type);
+    const agencyHiddenSet = new Set(agencyHidden);
+    return {
+      agencyId: Number(policy.agencyId),
+      unhidden: baseHidden.filter((type) => !agencyHiddenSet.has(type)),
+      extraHidden: agencyHidden.filter((type) => !baseHiddenSet.has(type))
+    };
+  });
+  const visibilityPolicy = { baseHidden, agencyOverrides };
+  const current = buildFeedWhere({ req, access, visibilityPolicy, applyFilters: true, includeAfterId });
+  const requestedStatus = String(req.query.status || 'unread').toLowerCase();
+  const unreadMatch = requestedStatus === 'unread'
+    ? current
+    : buildFeedWhere({
+        req: { ...req, query: { ...req.query, status: 'unread' } },
+        access,
+        visibilityPolicy,
+        applyFilters: true,
+        includeAfterId
+      });
+  const facetBase = buildFeedWhere({ req, access, visibilityPolicy, applyFilters: false, includeAfterId: false });
+  const categoryFacetQuery = { ...req.query };
+  delete categoryFacetQuery.type;
+  delete categoryFacetQuery.category;
+  const categoryFacetBase = buildFeedWhere({
+    req: { ...req, query: categoryFacetQuery },
+    access,
+    visibilityPolicy,
+    applyFilters: true,
+    includeAfterId: false
+  });
+  const typeFacetQuery = { ...req.query };
+  delete typeFacetQuery.type;
+  const typeFacetBase = buildFeedWhere({
+    req: { ...req, query: typeFacetQuery },
+    access,
+    visibilityPolicy,
+    applyFilters: true,
+    includeAfterId: false
+  });
+  const joins = `
+    FROM notifications n
+    LEFT JOIN notification_user_reads nur ON nur.notification_id = n.id AND nur.user_id = ${access.uid}
+    LEFT JOIN agencies a ON a.id = n.agency_id
+    LEFT JOIN users au ON au.id = n.actor_user_id
+    LEFT JOIN clients c ON LOWER(COALESCE(n.related_entity_type, '')) = 'client' AND c.id = n.related_entity_id`;
+  const page = Math.max(1, Number.parseInt(req.query.page || '1', 10) || 1);
+  const requestedSize = forcePageSize || Number.parseInt(req.query.pageSize || '25', 10) || 25;
+  const pageSize = Math.max(1, Math.min(forcePageSize ? 10000 : 100, requestedSize));
+  const offset = (page - 1) * pageSize;
+  const sort = String(req.query.sort || 'newest').toLowerCase();
+  const orderBy = sort === 'oldest'
+    ? 'n.created_at ASC, n.id ASC'
+    : sort === 'priority'
+      ? "FIELD(n.severity, 'urgent', 'warning', 'info') ASC, n.created_at DESC, n.id DESC"
+      : 'n.created_at DESC, n.id DESC';
+
+  const [[countRow], [rows], [facetRows], [categoryFacetRows], [typeFacetRows], [unreadCountRows]] = await Promise.all([
+    pool.execute(`SELECT COUNT(*) AS total ${joins} WHERE ${current.sql}`, current.params),
+    pool.execute(
+      `SELECT n.*, ${current.readExpr} AS _is_read_for_viewer,
+        COALESCE(nur.requires_follow_up, FALSE) AS _requires_follow_up_for_viewer,
+        nur.dismissed_at AS _dismissed_at_for_viewer,
+        nur.snoozed_until AS _snoozed_until_for_viewer,
+        a.name AS agency_name,
+        NULLIF(TRIM(CONCAT_WS(' ', au.first_name, au.last_name)), '') AS actor_display_name
+       ${joins}
+       WHERE ${current.sql}
+       ORDER BY ${orderBy}
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      current.params
+    ),
+    pool.execute(
+      `SELECT n.agency_id, n.type, n.severity, ${facetBase.readExpr} AS viewer_is_read,
+        COALESCE(nur.requires_follow_up, FALSE) AS viewer_follow_up,
+        (nur.dismissed_at IS NOT NULL) AS viewer_dismissed,
+        (nur.snoozed_until > NOW()) AS viewer_snoozed,
+        COUNT(*) AS count
+       ${joins}
+       WHERE ${facetBase.sql}
+       GROUP BY n.agency_id, n.type, n.severity, viewer_is_read, viewer_follow_up, viewer_dismissed, viewer_snoozed`,
+      facetBase.params
+    ),
+    pool.execute(
+      `SELECT n.type, COUNT(*) AS count
+       ${joins}
+       WHERE ${categoryFacetBase.sql}
+       GROUP BY n.type`,
+      categoryFacetBase.params
+    ),
+    pool.execute(
+      `SELECT n.type, COUNT(*) AS count
+       ${joins}
+       WHERE ${typeFacetBase.sql}
+       GROUP BY n.type`,
+      typeFacetBase.params
+    ),
+    requestedStatus === 'unread'
+      ? Promise.resolve([[{ total: null }]])
+      : pool.execute(`SELECT COUNT(*) AS total ${joins} WHERE ${unreadMatch.sql}`, unreadMatch.params)
+  ]);
+
+  const items = rows || [];
+  for (const item of items) {
+    item.is_read = !!item._is_read_for_viewer;
+    item._requires_follow_up_for_viewer = !!item._requires_follow_up_for_viewer;
+    item.dismissed_at = item._dismissed_at_for_viewer || null;
+    item.snoozed_until = item._snoozed_until_for_viewer || null;
+    const catalog = getNotificationCatalogEntry(item.type);
+    if (catalog) item.catalog = catalog;
+    const itemContext = contextByAgency.get(Number(item.agency_id)) || preferenceContext;
+    item.notification_preference = resolveNotificationTypePreference(item.type, itemContext)?.effective || null;
+  }
+  await appendNotificationContext(items);
+
+  const statusCounts = { unread: 0, read: 0, follow_up: 0, high_priority: 0, snoozed: 0, dismissed: 0 };
+  const typeMap = new Map();
+  const categoryMap = new Map();
+  const agencyMap = new Map();
+  for (const row of facetRows || []) {
+    const count = Number(row.count || 0);
+    if (row.viewer_dismissed) statusCounts.dismissed += count;
+    else if (row.viewer_snoozed) statusCounts.snoozed += count;
+    else if (row.viewer_is_read) statusCounts.read += count;
+    else {
+      statusCounts.unread += count;
+      const agencyKey = Number(row.agency_id);
+      if (agencyKey) agencyMap.set(agencyKey, (agencyMap.get(agencyKey) || 0) + count);
+    }
+    if (row.viewer_follow_up) statusCounts.follow_up += count;
+    if (row.severity === 'urgent' && !row.viewer_dismissed && !row.viewer_snoozed) statusCounts.high_priority += count;
+  }
+  let categoryTotal = 0;
+  for (const row of categoryFacetRows || []) {
+    const count = Number(row.count || 0);
+    const entry = getNotificationCatalogEntry(row.type);
+    categoryTotal += count;
+    if (entry) categoryMap.set(entry.category, (categoryMap.get(entry.category) || 0) + count);
+  }
+  let matchingTotal = 0;
+  for (const row of typeFacetRows || []) {
+    const count = Number(row.count || 0);
+    matchingTotal += count;
+    typeMap.set(row.type, (typeMap.get(row.type) || 0) + count);
+  }
+  const total = Number(countRow?.[0]?.total || 0);
+  const matchingUnreadCount = requestedStatus === 'unread'
+    ? total
+    : Number(unreadCountRows?.[0]?.total || 0);
+  return {
+    items,
+    pagination: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    facets: {
+      statuses: statusCounts,
+      matchingTotal,
+      categoryTotal,
+      agencies: Array.from(agencyMap.entries()).map(([agencyId, unread]) => ({ agencyId, unread })),
+      categories: Object.entries(NOTIFICATION_CATEGORIES).map(([key, meta]) => ({ key, ...meta, count: categoryMap.get(key) || 0 })),
+      types: Array.from(typeMap.entries())
+        .map(([type, count]) => ({ type, count, ...(getNotificationCatalogEntry(type) || {}) }))
+        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    },
+    scopes: {
+      inbox: true,
+      team: ['supervisor', 'clinical_practice_assistant', 'provider_plus'].includes(access.role),
+      managed: ['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(access.role)
+    },
+    unreadCount: matchingUnreadCount
+  };
+}
+
+export const getNotificationFeed = async (req, res, next) => {
+  try {
+    res.json(await queryNotificationFeed(req));
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+};
+
+export const getNotificationCatalog = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? Number(req.query.agencyId) : null;
+    if (agencyId) await getFeedAccess(req, agencyId, 'inbox');
+    const preferences = await listEffectiveNotificationPreferences({
+      userId: req.user.id,
+      userRole: req.user.role,
+      agencyId
+    });
+    const globalPreferences = await UserPreferences.findByUserId(Number(req.user.id)) || {};
+    const userAgencies = await User.getAgencies(Number(req.user.id));
+    const agencyPolicies = await AgencyNotificationPreferences.listByAgencyIds((userAgencies || []).map((item) => item.id));
+    const agencyNameById = new Map((userAgencies || []).map((item) => [Number(item.id), item.name || `Agency ${item.id}`]));
+    res.json({
+      categories: Object.entries(NOTIFICATION_CATEGORIES).map(([key, value]) => ({ key, ...value })),
+      types: preferences,
+      global: {
+        email: globalPreferences.email_enabled !== false,
+        sms: globalPreferences.sms_enabled === true,
+        push: globalPreferences.push_notifications_enabled === true,
+        sound: globalPreferences.notification_sound_enabled !== false,
+        digestEmail: globalPreferences.daily_digest_enabled === true,
+        digestTime: globalPreferences.daily_digest_time || '07:00',
+        timezone: globalPreferences.timezone || null
+      },
+      agencyPolicies: agencyPolicies.map((policy) => ({
+        agencyId: policy.agencyId,
+        agencyName: agencyNameById.get(Number(policy.agencyId)) || `Agency ${policy.agencyId}`,
+        userEditable: policy.userEditable,
+        enforceDefaults: policy.enforceDefaults
+      }))
+    });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+};
+
+export const updateNotificationTypePreference = async (req, res, next) => {
+  try {
+    const type = String(req.params.type || '').trim();
+    const entry = getNotificationCatalogEntry(type);
+    if (!entry) return res.status(404).json({ error: { message: 'Unknown notification type' } });
+    const allowed = ['inApp', 'toast', 'sound', 'push', 'email', 'sms', 'digest', 'toastDurationMode', 'toastDurationSeconds'];
+    const updates = {};
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) updates[key] = req.body[key];
+    }
+    for (const channel of ['inApp', 'toast', 'sound', 'push', 'email', 'sms', 'digest']) {
+      if (updates[channel] !== undefined && updates[channel] !== null && typeof updates[channel] !== 'boolean') {
+        return res.status(400).json({ error: { message: `${channel} must be true, false, or null` } });
+      }
+      if (updates[channel] === true && entry.capabilities[channel] !== true) {
+        return res.status(400).json({ error: { message: `${channel} is not available for this notification type` } });
+      }
+    }
+    if (entry.required && updates.inApp === false) {
+      return res.status(409).json({ error: { message: 'This safety notification is required in-app' } });
+    }
+    if (entry.digestOnly && (
+      updates.inApp === true || updates.toast === true || updates.sound === true
+      || updates.push === true || updates.email === true || updates.sms === true
+      || updates.digest === false
+    )) {
+      return res.status(409).json({ error: { message: 'High-volume account activity is delivered only through the daily digest' } });
+    }
+    if (updates.toastDurationMode != null && !['timed', 'dismissable'].includes(String(updates.toastDurationMode))) {
+      return res.status(400).json({ error: { message: 'toastDurationMode must be timed or dismissable' } });
+    }
+    if (updates.toastDurationSeconds != null) {
+      const seconds = Number(updates.toastDurationSeconds);
+      if (!Number.isFinite(seconds) || seconds < 3 || seconds > 120) {
+        return res.status(400).json({ error: { message: 'Toast duration must be between 3 and 120 seconds' } });
+      }
+      updates.toastDurationSeconds = Math.round(seconds);
+    }
+    if (req.body?.reset === true) {
+      await NotificationTypePreference.reset(req.user.id, type);
+    } else {
+      await NotificationTypePreference.upsert(req.user.id, type, updates);
+    }
+    const context = await loadNotificationPreferenceContext({ userId: req.user.id, userRole: req.user.role });
+    res.json(resolveNotificationTypePreference(type, context));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const applyRecommendedNotificationPreferences = async (req, res, next) => {
+  try {
+    await pool.execute('DELETE FROM user_notification_type_preferences WHERE user_id = ?', [Number(req.user.id)]);
+    for (const type of ['user_login', 'user_logout']) {
+      await NotificationTypePreference.upsert(req.user.id, type, {
+        inApp: false, toast: false, sound: false, push: false, email: false, sms: false, digest: true,
+        toastDurationMode: 'timed', toastDurationSeconds: 8
+      });
+    }
+    res.json({ ok: true, types: await listEffectiveNotificationPreferences({ userId: req.user.id, userRole: req.user.role }) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+async function verifyNotificationViewerAccess(req, notification) {
+  if (!notification) return false;
+  if (MESSAGE_PRIVATE_TYPES.has(String(notification.type || '')) && Number(notification.user_id) !== Number(req.user.id)) return false;
+  if (req.user.role === 'super_admin') return true;
+  const agencies = await User.getAgencies(req.user.id);
+  return (agencies || []).some((agency) => Number(agency.id) === Number(notification.agency_id));
+}
+
+export const updateNotificationState = async (req, res, next) => {
+  try {
+    const notification = await Notification.findById(req.params.id);
+    if (!notification) return res.status(404).json({ error: { message: 'Notification not found' } });
+    if (!await verifyNotificationViewerAccess(req, notification)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const updates = {};
+    for (const key of ['read', 'followUp', 'dismissed', 'snoozedUntil']) {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) updates[key] = req.body[key];
+    }
+    for (const key of ['read', 'followUp', 'dismissed']) {
+      if (updates[key] !== undefined && typeof updates[key] !== 'boolean') {
+        return res.status(400).json({ error: { message: `${key} must be true or false` } });
+      }
+    }
+    if (updates.snoozedUntil !== undefined && updates.snoozedUntil !== null) {
+      const parsed = new Date(updates.snoozedUntil);
+      if (!Number.isFinite(parsed.getTime())) {
+        return res.status(400).json({ error: { message: 'snoozedUntil must be a valid timestamp or null' } });
+      }
+      updates.snoozedUntil = parsed;
+    }
+    const ok = await Notification.setViewerState(notification.id, req.user.id, updates);
+    if (!ok) return res.status(409).json({ error: { message: 'Unable to update notification state; clear follow-up before dismissing' } });
+    const list = [notification];
+    await Notification.applyReadStateForViewer(list, req.user.id);
+    await appendNotificationContext(list);
+    res.json(list[0]);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const bulkNotificationActions = async (req, res, next) => {
+  try {
+    const action = String(req.body?.action || '').trim();
+    const allowed = ['mark_read', 'mark_unread', 'dismiss', 'restore'];
+    if (!allowed.includes(action)) return res.status(400).json({ error: { message: 'Unsupported bulk action' } });
+    const originalQuery = req.query;
+    const targetIds = [];
+    try {
+      req.query = { ...(req.body?.filters || {}), page: 1, pageSize: 10000 };
+      let result = await queryNotificationFeed(req, { forcePageSize: 10000 });
+      targetIds.push(...result.items.map((item) => Number(item.id)).filter(Boolean));
+      for (let page = 2; page <= result.pagination.totalPages; page += 1) {
+        req.query.page = page;
+        result = await queryNotificationFeed(req, { forcePageSize: 10000 });
+        targetIds.push(...result.items.map((item) => Number(item.id)).filter(Boolean));
+      }
+    } finally {
+      req.query = originalQuery;
+    }
+    const affected = await Notification.bulkSetViewerState(targetIds, req.user.id, action);
+    res.json({ ok: true, affected });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+};
+
+export const getNotificationUpdates = async (req, res, next) => {
+  try {
+    const initialize = String(req.query.initialize || '') === '1';
+    req.query = { ...req.query, status: 'all', sort: initialize ? 'newest' : 'oldest', page: 1, pageSize: initialize ? 1 : 50 };
+    const result = await queryNotificationFeed(req, { includeAfterId: !initialize });
+    res.json({
+      items: result.items,
+      unreadCount: result.unreadCount,
+      latestId: Math.max(Number(req.query.afterId || 0), ...result.items.map((item) => Number(item.id || 0))),
+      hasMore: !initialize && result.pagination.total > result.items.length
+    });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+};
+
+export const getNotificationDigestEvents = async (req, res, next) => {
+  try {
+    const digestId = Number(req.params.id);
+    const [digestRows] = await pool.execute(
+      `SELECT * FROM notification_activity_digests WHERE id = ? AND user_id = ? LIMIT 1`,
+      [digestId, Number(req.user.id)]
+    );
+    const digest = digestRows?.[0];
+    if (!digest) return res.status(404).json({ error: { message: 'Activity digest not found' } });
+    const access = await getFeedAccess(req, req.query.agencyId ? Number(req.query.agencyId) : null, 'inbox');
+    const page = Math.max(1, Number(req.query.page || 1));
+    const pageSize = Math.max(1, Math.min(100, Number(req.query.pageSize || 25)));
+    const offset = (page - 1) * pageSize;
+    if (!access.agencyIds.length) {
+      return res.json({ digest, items: [], pagination: { page, pageSize, total: 0, totalPages: 1 } });
+    }
+    const placeholders = access.agencyIds.map(() => '?').join(',');
+    const params = [...access.agencyIds, digest.period_start, digest.period_end];
+    const [countRows] = await pool.execute(
+      `SELECT COUNT(*) AS total FROM notifications
+       WHERE agency_id IN (${placeholders}) AND type IN ('user_login', 'user_logout')
+         AND created_at >= ? AND created_at < ?`,
+      params
+    );
+    const [events] = await pool.execute(
+      `SELECT * FROM notifications
+       WHERE agency_id IN (${placeholders}) AND type IN ('user_login', 'user_logout')
+         AND created_at >= ? AND created_at < ?
+       ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
+      params
+    );
+    await appendNotificationContext(events);
+    const total = Number(countRows?.[0]?.total || 0);
+    res.json({ digest, items: events, pagination: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) } });
   } catch (error) {
     next(error);
   }

@@ -9,33 +9,8 @@ export const SOAP_SECTION_DEFS = [
   { key: 'Plan', letter: 'P', label: 'Plan', aliases: ['P - Plan'] }
 ];
 
-export const INTERVENTION_TYPE_OPTIONS = [
-  'CBT',
-  'DBT',
-  'Mindfulness-Based',
-  'Psychoeducation',
-  'Motivational Interviewing',
-  'Supportive Therapy',
-  'Behavioral Activation',
-  'Problem Solving',
-  'Relapse Prevention',
-  'Family/Caregiver Involvement',
-  'Crisis Intervention',
-  'Other'
-];
-
-export function extractSections(obj) {
-  if (!obj || typeof obj !== 'object') return {};
-  if (obj.sections && typeof obj.sections === 'object' && !Array.isArray(obj.sections)) return obj.sections;
-  const out = {};
-  for (const [k, v] of Object.entries(obj)) {
-    const key = String(k || '').trim();
-    if (!key) continue;
-    if (key.toLowerCase() === 'meta' || key.toLowerCase() === 'metadata') continue;
-    if (typeof v === 'string') out[key] = v;
-  }
-  return out;
-}
+const SOAP_INLINE_HEADER_RE =
+  /^(?:\d+[\).\s-]*)?(?:\*\*)?(Symptom Description and Subjective Report|Subjective|S\s*-\s*Subjective|Objective Content|Objective|O\s*-\s*Objective|Interventions Used|Interventions|I\s*-\s*Interventions|Plan|P\s*-\s*Plan)(?:\*\*)?\s*:?\s*(.*)$/i;
 
 function normalizeSectionKey(title) {
   const t = String(title || '').trim().toLowerCase();
@@ -48,11 +23,90 @@ function normalizeSectionKey(title) {
 }
 
 /**
+ * Split raw note text (including a single "Output" blob) into SOAP section keys.
+ * Handles inline headers like "1. Subjective: Client reported…"
+ */
+export function parseSoapSectionsFromText(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return {};
+
+  const lines = raw.split(/\r?\n/);
+  const sections = {};
+  let currentKey = null;
+  let buffer = [];
+
+  const flush = () => {
+    if (!currentKey) return;
+    const content = buffer.join('\n').trim();
+    if (content) sections[currentKey] = content;
+    buffer = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (currentKey) buffer.push(line);
+      continue;
+    }
+    const match = trimmed.match(SOAP_INLINE_HEADER_RE);
+    if (match) {
+      const key = normalizeSectionKey(match[1]);
+      if (key) {
+        flush();
+        currentKey = key;
+        const inlineBody = String(match[2] || '').trim();
+        if (inlineBody) buffer.push(inlineBody);
+        continue;
+      }
+    }
+    buffer.push(line);
+  }
+  flush();
+  return sections;
+}
+
+/** Expand a sections map when the model returned one numbered Output blob. */
+export function expandSoapSections(sectionsObj) {
+  const sections = sectionsObj && typeof sectionsObj === 'object' ? { ...sectionsObj } : {};
+  const soapCount = SOAP_SECTION_DEFS.filter((d) => String(sections[d.key] || '').trim()).length;
+  if (soapCount >= 2) return sections;
+
+  const blob =
+    String(sections.Output || '').trim() ||
+    (Object.keys(sections).length === 1 ? String(Object.values(sections)[0] || '').trim() : '');
+  if (!blob) return sections;
+
+  const parsed = parseSoapSectionsFromText(blob);
+  if (Object.keys(parsed).length < 2) return sections;
+
+  const { Output: _drop, ...rest } = sections;
+  return { ...rest, ...parsed };
+}
+
+export function extractSections(obj) {
+  if (!obj || typeof obj !== 'object') return {};
+  let out = {};
+  if (obj.sections && typeof obj.sections === 'object' && !Array.isArray(obj.sections)) {
+    out = { ...obj.sections };
+  } else {
+    for (const [k, v] of Object.entries(obj)) {
+      const key = String(k || '').trim();
+      if (!key) continue;
+      if (key.toLowerCase() === 'meta' || key.toLowerCase() === 'metadata') continue;
+      if (typeof v === 'string') out[key] = v;
+    }
+  }
+  return expandSoapSections(out);
+}
+
+/**
  * Returns ordered display panels. SOAP panels first when any SOAP content exists;
  * remaining non-SOAP sections follow.
  */
 export function buildDisplaySections(sectionsObj) {
-  const sections = sectionsObj && typeof sectionsObj === 'object' ? sectionsObj : {};
+  const sections = expandSoapSections(
+    sectionsObj && typeof sectionsObj === 'object' ? sectionsObj : {}
+  );
   const usedKeys = new Set();
   const soapPanels = [];
 
@@ -108,27 +162,6 @@ export function buildDisplaySections(sectionsObj) {
     .filter((p) => p.text);
 }
 
-export function inferInterventionTypes(interventionsText) {
-  const raw = String(interventionsText || '').toLowerCase();
-  if (!raw) return [];
-  return INTERVENTION_TYPE_OPTIONS.filter((opt) => {
-    if (opt === 'Other') return false;
-    const needle = opt.toLowerCase();
-    if (needle === 'cbt') return /\bcbt\b|cognitive.?behavioral/i.test(raw);
-    if (needle === 'dbt') return /\bdbt\b|dialectical/i.test(raw);
-    if (needle === 'mindfulness-based') return /mindfulness/i.test(raw);
-    if (needle === 'psychoeducation') return /psychoeducation|psycho.?ed/i.test(raw);
-    if (needle === 'motivational interviewing') return /motivational interviewing|\bmi\b/i.test(raw);
-    if (needle === 'supportive therapy') return /supportive/i.test(raw);
-    if (needle === 'behavioral activation') return /behavioral activation/i.test(raw);
-    if (needle === 'problem solving') return /problem.?solv/i.test(raw);
-    if (needle === 'relapse prevention') return /relapse/i.test(raw);
-    if (needle === 'family/caregiver involvement') return /family|caregiver|collateral/i.test(raw);
-    if (needle === 'crisis intervention') return /crisis/i.test(raw);
-    return raw.includes(needle);
-  });
-}
-
 export function formatFullNoteCopy({
   sections = {},
   meta = {},
@@ -136,8 +169,7 @@ export function formatFullNoteCopy({
   dateOfService = '',
   dateWritten = '',
   noteTypeLabel = 'Progress Note',
-  includeInteractiveComplexity = false,
-  interventionTypes = []
+  includeInteractiveComplexity = false
 }) {
   const panels = buildDisplaySections(sections);
   const lines = [];
@@ -149,9 +181,6 @@ export function formatFullNoteCopy({
   lines.push(`Note Type: ${noteTypeLabel}`);
   if (includeInteractiveComplexity || meta.includeInteractiveComplexity) {
     lines.push('Interactive Complexity: Included');
-  }
-  if (interventionTypes.length) {
-    lines.push(`Intervention Types: ${interventionTypes.join(', ')}`);
   }
   lines.push('');
   for (const panel of panels) {

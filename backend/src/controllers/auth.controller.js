@@ -806,18 +806,16 @@ export const login = async (req, res, next) => {
         try {
           const NotificationService = (await import('../services/notification.service.js')).default;
           
-          // Get all user agencies and create notifications for each
-          const agencies = await User.getAgencies(user.id);
-          for (const agency of agencies) {
-            if (user.status === 'PREHIRE_OPEN' || user.status === 'PENDING_SETUP') {
-              NotificationService.createFirstLoginPendingNotification(user.id, agency.id).catch(err => {
-                console.error('Failed to create first login pending notification:', err);
-              });
-            } else {
-              NotificationService.createFirstLoginNotification(user.id, agency.id).catch(err => {
-                console.error('Failed to create first login notification:', err);
-              });
-            }
+          // First login is one account-level event. Anchor it to the user's main
+          // agency for tenant visibility instead of fanning it out to every membership.
+          const loginTenantId = await NotificationService.getTopTenantIdForOrganization(agencyId);
+          const mainAgencyId = await NotificationService.getMainAgencyIdForUser(user.id);
+          const targetAgencyId = loginTenantId || mainAgencyId || agencyId;
+          if (!targetAgencyId) return;
+          if (user.status === 'PREHIRE_OPEN' || user.status === 'PENDING_SETUP') {
+            await NotificationService.createFirstLoginPendingNotification(user.id, targetAgencyId);
+          } else {
+            await NotificationService.createFirstLoginNotification(user.id, targetAgencyId);
           }
         } catch (err) {
           console.error('Failed to get user agencies for notification:', err);
@@ -903,6 +901,8 @@ export const login = async (req, res, next) => {
         companyCardEnabled,
         companyCarSubmitAccess,
         companyCarManageAccess,
+        isHourlyWorker: !!(freshUser?.is_hourly_worker === true || freshUser?.is_hourly_worker === 1 || freshUser?.is_hourly_worker === '1'),
+        is_hourly_worker: !!(freshUser?.is_hourly_worker === true || freshUser?.is_hourly_worker === 1 || freshUser?.is_hourly_worker === '1'),
         requiresPasswordChange: pw.requiresPasswordChange || tempActive,
         passwordExpiresAt: pw.passwordExpiresAt,
         passwordExpired: pw.passwordExpired,

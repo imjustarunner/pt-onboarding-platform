@@ -285,33 +285,48 @@ function normalizeSectionTitle(raw) {
   return t;
 }
 
+const NOTE_SECTION_ALIASES = new Map([
+  ['Symptom Description and Subjective Report', 'Subjective'],
+  ['Subjective', 'Subjective'],
+  ['S - Subjective', 'Subjective'],
+  ['S Subjective', 'Subjective'],
+  ['Objective Content', 'Objective'],
+  ['Objective', 'Objective'],
+  ['O - Objective', 'Objective'],
+  ['O Objective', 'Objective'],
+  ['Interventions Used', 'Interventions'],
+  ['Interventions', 'Interventions'],
+  ['I - Interventions', 'Interventions'],
+  ['I Interventions', 'Interventions'],
+  ['Plan', 'Plan'],
+  ['P - Plan', 'Plan'],
+  ['P Plan', 'Plan'],
+  ['Additional Notes / Assessment', 'Additional Notes / Assessment'],
+  ['Assessment', 'Assessment'],
+  ['Code', 'Code'],
+  ['Rationale', 'Rationale'],
+  ['Progress Note', 'Progress Note'],
+  ['Consultation Note', 'Consultation Note']
+]);
+
+function resolveNoteSectionKey(rawTitle) {
+  const title = normalizeSectionTitle(rawTitle);
+  if (!title) return null;
+  if (NOTE_SECTION_ALIASES.has(title)) return NOTE_SECTION_ALIASES.get(title);
+  const lower = title.toLowerCase();
+  for (const [alias, key] of NOTE_SECTION_ALIASES.entries()) {
+    if (alias.toLowerCase() === lower) return key;
+  }
+  return null;
+}
+
+/**
+ * Parse model note text into SOAP (and related) sections.
+ * Supports header-only lines and inline content, e.g. "1. Subjective: Client reported…"
+ */
 function parseNoteSections(text) {
   const raw = String(text || '').trim();
   if (!raw) return {};
-
-  const known = new Map([
-    ['Symptom Description and Subjective Report', 'Subjective'],
-    ['Subjective', 'Subjective'],
-    ['S - Subjective', 'Subjective'],
-    ['S Subjective', 'Subjective'],
-    ['Objective Content', 'Objective'],
-    ['Objective', 'Objective'],
-    ['O - Objective', 'Objective'],
-    ['O Objective', 'Objective'],
-    ['Interventions Used', 'Interventions'],
-    ['Interventions', 'Interventions'],
-    ['I - Interventions', 'Interventions'],
-    ['I Interventions', 'Interventions'],
-    ['Plan', 'Plan'],
-    ['P - Plan', 'Plan'],
-    ['P Plan', 'Plan'],
-    ['Additional Notes / Assessment', 'Additional Notes / Assessment'],
-    ['Assessment', 'Assessment'],
-    ['Code', 'Code'],
-    ['Rationale', 'Rationale'],
-    ['Progress Note', 'Progress Note'],
-    ['Consultation Note', 'Consultation Note']
-  ]);
 
   const lines = raw.split(/\r?\n/);
   const sections = {};
@@ -325,17 +340,36 @@ function parseNoteSections(text) {
     buffer = [];
   };
 
+  // Optional leading number + optional bold + known title + optional colon + optional same-line body
+  const inlineHeaderRe =
+    /^(?:\d+[\).\s-]*)?(?:\*\*)?(Symptom Description and Subjective Report|Subjective|S\s*-\s*Subjective|Objective Content|Objective|O\s*-\s*Objective|Interventions Used|Interventions|I\s*-\s*Interventions|Additional Notes\s*\/\s*Assessment|Assessment|Plan|P\s*-\s*Plan|Code|Rationale|Progress Note|Consultation Note)(?:\*\*)?\s*:?\s*(.*)$/i;
+
   for (const line of lines) {
     const trimmed = line.trim();
-    const headerMatch =
+    if (!trimmed) {
+      if (currentKey) buffer.push(line);
+      continue;
+    }
+
+    const inline = trimmed.match(inlineHeaderRe);
+    if (inline) {
+      const key = resolveNoteSectionKey(inline[1]);
+      if (key) {
+        flush();
+        currentKey = key;
+        const inlineBody = String(inline[2] || '').trim();
+        if (inlineBody) buffer.push(inlineBody);
+        continue;
+      }
+    }
+
+    // Fallback: header-only lines with bold/number wrappers
+    const headerOnly =
       trimmed.match(/^\d+[\).\s-]+\*\*(.+?)\*\*:?$/) ||
-      trimmed.match(/^\d+[\).\s-]+(.+?):?$/) ||
       trimmed.match(/^\*\*(.+?)\*\*:?$/) ||
       trimmed.match(/^([A-Za-z0-9][A-Za-z0-9 \-/]+):\s*$/);
-
-    if (headerMatch) {
-      const title = normalizeSectionTitle(headerMatch[1]);
-      const key = known.get(title);
+    if (headerOnly) {
+      const key = resolveNoteSectionKey(headerOnly[1]);
       if (key) {
         flush();
         currentKey = key;
@@ -347,10 +381,6 @@ function parseNoteSections(text) {
   }
 
   flush();
-  if (sections['Interventions Used'] && !sections.Interventions) {
-    sections.Interventions = normalizeInterventionsList(sections['Interventions Used']);
-    delete sections['Interventions Used'];
-  }
   if (sections.Interventions) {
     sections.Interventions = normalizeInterventionsList(sections.Interventions);
   }
@@ -368,20 +398,49 @@ function extractCodeDeciderSections(text) {
 }
 
 function normalizeInterventionsList(raw) {
-  const text = String(raw || '').trim();
+  let text = String(raw || '').trim();
   if (!text) return '';
+  // Strip common narrative wrappers so we keep a clean CSV list.
+  text = text
+    .replace(/^(interventions?\s*(used|include[ds]?|were)?\s*[:\-–]?\s*)/i, '')
+    .replace(/^(the\s+following\s+interventions?\s*(were\s+)?(used|applied|utilized)\s*[:\-–]?\s*)/i, '')
+    .trim();
   const cleaned = text
-    .split(/\r?\n|•|\*|- /g)
+    .split(/\r?\n|•|\*|;\s+(?=[A-Z])|- /g)
     .map((t) => t.replace(/^[\d\.\)\s-]+/, '').trim())
     .filter(Boolean);
   if (!cleaned.length) return text;
   const items = [];
   for (const chunk of cleaned) {
+    // If the model returned one long sentence with "and", still prefer comma splits first.
     const parts = chunk.split(',').map((p) => p.trim()).filter(Boolean);
-    items.push(...parts);
+    for (const part of parts) {
+      const item = part
+        .replace(/\.$/, '')
+        .replace(/^(and|&)\s+/i, '')
+        .trim();
+      if (item) items.push(item);
+    }
   }
-  return items.join(', ');
+  // Dedupe while preserving order (case-insensitive).
+  const seen = new Set();
+  const unique = [];
+  for (const item of items) {
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(item);
+  }
+  return unique.join(', ');
 }
+
+const INTERVENTIONS_CSV_INSTRUCTION = [
+  'Interventions section format (required):',
+  '- Output ONLY a single comma-separated list of interventions likely utilized in the session.',
+  '- Infer labels from the session content (techniques/modalities the clinician used).',
+  '- No paragraphs, bullets, numbering, or full sentences in Interventions.',
+  '- Example: Supportive Therapy, Psychoeducation, Communication Skills Training, Coping Skills Training'
+].join('\n');
 async function getAgencyServiceCodeCatalog({ agencyId }) {
   const aid = safeInt(agencyId);
   if (!aid) return [];
@@ -954,7 +1013,9 @@ export const generateClinicalNote = async (req, res, next) => {
         'Subjective:',
         'Objective:',
         'Interventions:',
-        'Plan:'
+        'Plan:',
+        '',
+        INTERVENTIONS_CSV_INSTRUCTION
       ].join('\n');
     } else if (!effectiveAutoSelect) {
       prompt = [
@@ -964,7 +1025,9 @@ export const generateClinicalNote = async (req, res, next) => {
         'Subjective:',
         'Objective:',
         'Interventions:',
-        'Plan:'
+        'Plan:',
+        '',
+        INTERVENTIONS_CSV_INSTRUCTION
       ].join('\n');
     }
     if (revisionInstruction) {

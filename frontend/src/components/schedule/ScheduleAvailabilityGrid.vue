@@ -734,7 +734,7 @@
                 :class="[{ on: requestType === act.id }, `icon-${quickActionIconKey(act.id)}`]"
                 :disabled="!!act.disabledReason"
                 :title="act.disabledReason || act.description"
-                @click="requestType = act.id; requestTypeChosenByUser = true"
+                @click="onQuickActionSelect(act)"
               >
                 <span class="nr-action-icon" :class="`tone-${act.tone || 'slate'}`" aria-hidden="true">
                   <!-- office -->
@@ -5248,7 +5248,7 @@ const modalContext = ref({
 });
 
 const isHourlyWorker = computed(() => {
-  const raw = authStore.user?.is_hourly_worker;
+  const raw = authStore.user?.isHourlyWorker ?? authStore.user?.is_hourly_worker;
   return raw === true || raw === 1 || raw === '1';
 });
 
@@ -5474,8 +5474,10 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'indirect_services',
-      label: 'Indirect service time',
-      description: isHourlyWorker.value ? 'Track indirect time for hourly work' : 'Use for hourly worker indirect service time',
+      label: 'Log Time',
+      description: isHourlyWorker.value
+        ? 'Open the hourly indirect time log for payroll'
+        : 'Hourly workers log indirect time for payroll here',
       disabledReason: (isAdminMode.value || isHourlyWorker.value) ? '' : 'Hourly worker only',
       visible: !supervisionOnlyMode,
       tone: 'amber'
@@ -8105,6 +8107,19 @@ const submitOfficeAssign = async () => {
   } finally {
     officeAssignLoading.value = false;
   }
+};
+
+const onQuickActionSelect = (act) => {
+  const id = String(act?.id || '');
+  if (id === 'indirect_services' && (isHourlyWorker.value || isAdminMode.value)) {
+    // Payroll indirect time is logged via the dedicated Time Submission flow.
+    closeModal();
+    const q = { ...route.query, tab: 'log_time' };
+    router.push({ query: q }).catch(() => {});
+    return;
+  }
+  requestType.value = id;
+  requestTypeChosenByUser.value = true;
 };
 
 const closeModal = () => {

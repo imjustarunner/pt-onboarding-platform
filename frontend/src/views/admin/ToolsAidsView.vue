@@ -203,6 +203,7 @@ import {
 import ToolCard from '../../components/tools/ToolCard.vue';
 import ToolsAssignModal from '../../components/tools/ToolsAssignModal.vue';
 import ToolsEditModal from '../../components/tools/ToolsEditModal.vue';
+import { ensureHourlySessionForNoteAid } from '../../utils/noteAidIndirectSession.js';
 
 const props = defineProps({
   /** When embedded in My Dashboard, parent sets the hub tab (assessments | games | ai). */
@@ -531,10 +532,21 @@ function gameAsEditable(game) {
   };
 }
 
-function openAiTool(tool) {
+async function openAiTool(tool) {
   if (tool.status === 'coming_soon') return;
   if (tool.routePath) {
-    router.push(orgTo(tool.routePath));
+    const query = {};
+    if (tool.id === 'note-aid') {
+      const alreadyFromSession = String(route.query?.fromIndirectSession || '').trim();
+      const skipPrompt =
+        alreadyFromSession === '1' || alreadyFromSession.toLowerCase() === 'true';
+      const { fromIndirectSession } = await ensureHourlySessionForNoteAid({ skipPrompt });
+      if (fromIndirectSession || skipPrompt) {
+        query.fromIndirectSession = '1';
+        query.launchIntent = 'note';
+      }
+    }
+    router.push({ path: orgTo(tool.routePath), query }).catch(() => {});
     return;
   }
   if (tool.id === 'ask-assistant') {
@@ -544,6 +556,21 @@ function openAiTool(tool) {
   if (tool.id === 'momentum') {
     showToast('Use Momentum stickies from the workspace overlay');
   }
+}
+
+/** Deep-link: ?openAiTool=note-aid (e.g. Log Time → Do my notes via Tools & Aids → AI). */
+async function launchOpenAiToolFromQuery() {
+  const id = String(route.query?.openAiTool || '').trim();
+  if (!id) return;
+  if (hubTab.value !== 'ai') {
+    hubTab.value = 'ai';
+  }
+  const tool = aiCatalog.value.find((t) => t.id === id);
+  if (!tool || tool.status === 'coming_soon') return;
+  const nextQuery = { ...route.query };
+  delete nextQuery.openAiTool;
+  router.replace({ query: nextQuery }).catch(() => {});
+  await openAiTool(tool);
 }
 
 async function copyAiLink(tool) {
@@ -625,7 +652,15 @@ onMounted(() => {
   reloadUserToolData();
   syncHubTabFromRoute();
   loadGames();
+  launchOpenAiToolFromQuery();
 });
+
+watch(
+  () => [String(route.query?.openAiTool || ''), String(props.initialTab || ''), hubTab.value],
+  () => {
+    if (route.query?.openAiTool) launchOpenAiToolFromQuery();
+  }
+);
 
 watch(canSeeGames, (v) => {
   if (v) loadGames();

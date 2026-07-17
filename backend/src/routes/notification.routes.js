@@ -11,7 +11,15 @@ import {
   deleteNotification,
   purgeNotifications,
   createProgramReminder,
-  setNotificationFollowUp
+  setNotificationFollowUp,
+  getNotificationFeed,
+  getNotificationCatalog,
+  updateNotificationTypePreference,
+  applyRecommendedNotificationPreferences,
+  updateNotificationState,
+  bulkNotificationActions,
+  getNotificationUpdates,
+  getNotificationDigestEvents
 } from '../controllers/notification.controller.js';
 import { getMySmsLogs, getSmsLogs } from '../controllers/notificationSmsLog.controller.js';
 import { authenticate, requireBackofficeAdmin, requireAgencyAdmin } from '../middleware/auth.middleware.js';
@@ -26,6 +34,15 @@ router.get('/', getNotifications);
 
 // Get notification counts per agency
 router.get('/counts', getNotificationCounts);
+
+// Unified notification inbox APIs (kept ahead of /:id routes).
+router.get('/feed', getNotificationFeed);
+router.get('/catalog', getNotificationCatalog);
+router.get('/updates', getNotificationUpdates);
+router.patch('/preferences/types/:type', updateNotificationTypePreference);
+router.post('/preferences/apply-recommended', applyRecommendedNotificationPreferences);
+router.post('/bulk-actions', bulkNotificationActions);
+router.get('/digests/:id/events', getNotificationDigestEvents);
 
 // SMS logs for notification-dispatched texts
 router.get('/sms-logs/me', getMySmsLogs);
@@ -51,6 +68,8 @@ router.put('/resolve-all', markAllAsResolved);
 
 // Mark notification as read
 router.put('/:id/read', markAsRead);
+
+router.patch('/:id/state', updateNotificationState);
 
 // Mark/unmark notification as needs follow-up for current user
 router.put('/:id/follow-up', setNotificationFollowUp);

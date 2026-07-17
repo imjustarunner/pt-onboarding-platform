@@ -354,11 +354,12 @@ export async function notifyNewPacketUploaded({
 }
 
 /** Resolve recipient user IDs for a company-event registration notification.
- * Targets agency admin/staff plus any portal staff (school_staff role) on the
- * program organization that hosts the event, plus any user flagged as a
- * Skill Builders coordinator within the agency. Returns a deduped list.
+ * Targets agency admin/staff plus active members of the program that owns the
+ * event and providers directly assigned to the event. The broad agency-level
+ * coordinator flag is intentionally insufficient: it does not mean the user
+ * participates in every program or event in that agency.
  */
-async function getCompanyEventRegistrationRecipientUserIds({ agencyId, programOrganizationId }) {
+async function getCompanyEventRegistrationRecipientUserIds({ agencyId, eventId, programOrganizationId }) {
   const ids = new Set();
   try {
     const agencyStaff = await getAgencyAdminStaffUserIds(agencyId);
@@ -368,27 +369,46 @@ async function getCompanyEventRegistrationRecipientUserIds({ agencyId, programOr
   }
   if (programOrganizationId) {
     try {
-      // Same shape as getSchoolStaffUserIds: any user_agencies row on the
-      // program org with role school_staff (program portals reuse this role).
-      const portalStaff = await getSchoolStaffUserIds(programOrganizationId);
-      portalStaff.forEach((id) => ids.add(Number(id)));
+      const [programRows] = await pool.execute(
+        `SELECT DISTINCT u.id
+         FROM user_agencies ua
+         JOIN users u ON u.id = ua.user_id
+         JOIN agencies program ON program.id = ua.agency_id
+         WHERE ua.agency_id = ?
+           AND ua.is_active = TRUE
+           AND u.is_active = TRUE
+           AND program.is_active = TRUE`,
+        [programOrganizationId]
+      );
+      (programRows || []).forEach((row) => ids.add(Number(row.id)));
     } catch {
       // ignore
     }
   }
-  try {
-    const [coordRows] = await pool.execute(
-      `SELECT DISTINCT u.id
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ?
-         AND u.is_active = TRUE
-         AND u.has_skill_builder_coordinator_access = TRUE`,
-      [agencyId]
-    );
-    (coordRows || []).forEach((r) => ids.add(Number(r.id)));
-  } catch {
-    // Column may not exist on older deployments — safe to ignore.
+  if (eventId) {
+    try {
+      const [eventRows] = await pool.execute(
+        `SELECT DISTINCT eligible.user_id AS id
+         FROM (
+           SELECT provider_user_id AS user_id
+           FROM company_event_provider_assignments
+           WHERE company_event_id = ?
+           UNION
+           SELECT provider_user_id AS user_id
+           FROM company_event_session_providers
+           WHERE company_event_id = ? AND assignment_status IN ('tentative', 'finalized')
+           UNION
+           SELECT created_by_user_id AS user_id
+           FROM company_events
+           WHERE id = ? AND created_by_user_id IS NOT NULL
+         ) eligible
+         JOIN users u ON u.id = eligible.user_id AND u.is_active = TRUE`,
+        [eventId, eventId, eventId]
+      );
+      (eventRows || []).forEach((row) => ids.add(Number(row.id)));
+    } catch {
+      // Older deployments may not yet have all assignment tables.
+    }
   }
   return Array.from(ids).filter((n) => Number.isFinite(n) && n > 0);
 }
@@ -446,6 +466,7 @@ export async function notifyCompanyEventRegistrationSubmitted({
 
   const recipients = await getCompanyEventRegistrationRecipientUserIds({
     agencyId: aid,
+    eventId: eid,
     programOrganizationId
   });
   if (!recipients.length) return;
@@ -699,4 +720,3 @@ export async function notifyClientChecklistUpdated({
     )
   );
 }
-

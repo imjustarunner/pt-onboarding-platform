@@ -6278,6 +6278,27 @@
               </div>
             </template>
 
+            <!-- indirect_time (hourly log) -->
+            <template v-else-if="reviewedTimeClaim.claim_type === 'indirect_time'">
+              <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
+                <div class="field"><label>Entry method</label><div>{{ reviewedTimeClaim.payload?.entryMethod || '—' }}</div></div>
+                <div class="field"><label>Start</label><div>{{ reviewedTimeClaim.payload?.startTime || '—' }}</div></div>
+                <div class="field"><label>End</label><div>{{ reviewedTimeClaim.payload?.endTime || '—' }}</div></div>
+              </div>
+              <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
+              <div v-if="Array.isArray(reviewedTimeClaim.payload?.allocations) && reviewedTimeClaim.payload.allocations.length" class="card" style="margin-top: 8px;">
+                <h4 style="margin: 0 0 8px 0;">Allocations</h4>
+                <div
+                  v-for="(a, idx) in reviewedTimeClaim.payload.allocations"
+                  :key="idx"
+                  style="font-size: 13px; margin-bottom: 6px;"
+                >
+                  {{ a.serviceTypeLabel || a.label || 'Type' }} — {{ a.minutes ?? 0 }} min
+                </div>
+              </div>
+              <div class="field"><label>Attestation</label><div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.attestation) }}</div></div>
+            </template>
+
             <!-- meeting_training / mentor_cpa_meeting -->
             <template v-else-if="reviewedTimeClaim.claim_type === 'meeting_training' || reviewedTimeClaim.claim_type === 'mentor_cpa_meeting'">
               <div class="field-row" style="grid-template-columns: 1fr 1fr;">
@@ -8271,6 +8292,7 @@ const timeTypeLabel = (c) => {
   if (t === 'overtime_evaluation') return 'Overtime eval';
   if (t === 'holiday_pay') return 'Holiday pay';
   if (t === 'jury_duty') return 'Jury Duty';
+  if (t === 'indirect_time') return 'Indirect time';
   return t ? t.replace(/_/g, ' ') : 'Time';
 };
 

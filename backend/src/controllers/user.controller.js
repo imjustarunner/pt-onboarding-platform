@@ -347,7 +347,14 @@ export const getCurrentUser = async (req, res, next) => {
         if (typeof raw === 'object') return raw;
         try { return JSON.parse(raw); } catch { return {}; }
       })(),
+      benefitsEnrollment: (() => {
+        const raw = user.benefits_enrollment_json;
+        if (!raw) return null;
+        if (typeof raw === 'object') return raw;
+        try { return JSON.parse(raw); } catch { return null; }
+      })(),
       isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
+      is_hourly_worker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
       companyCardEnabled: Boolean(user.company_card_enabled),
       companyCarSubmitAccess: Boolean(user.company_car_submit_access),
       companyCarManageAccess: Boolean(user.company_car_manage_access),
@@ -2312,7 +2319,8 @@ export const updateUser = async (req, res, next) => {
       work_role: workRoleRaw,
       employmentType,
       benefitsNotes,
-      benefitsEligibilityOverrides
+      benefitsEligibilityOverrides,
+      benefitsEnrollment
     } = req.body;
     const loginEmailAliases = req.body?.loginEmailAliases;
 
@@ -2750,10 +2758,11 @@ export const updateUser = async (req, res, next) => {
     if (medcancelEnabled !== undefined) updateData.medcancelEnabled = Boolean(medcancelEnabled);
     if (medcancelRateSchedule !== undefined) updateData.medcancelRateSchedule = medcancelRateSchedule;
 
-    // Benefits tab: employment classification, notes, eligibility overrides
+    // Benefits tab: employment classification, notes, eligibility overrides, enrollment
     if (employmentType !== undefined) updateData.employmentType = employmentType;
     if (benefitsNotes !== undefined) updateData.benefitsNotes = benefitsNotes;
     if (benefitsEligibilityOverrides !== undefined) updateData.benefitsEligibilityOverrides = benefitsEligibilityOverrides;
+    if (benefitsEnrollment !== undefined) updateData.benefitsEnrollment = benefitsEnrollment;
 
     // Company Card (contract feature)
     if (companyCardEnabled !== undefined) updateData.companyCardEnabled = Boolean(companyCardEnabled);
@@ -7067,6 +7076,12 @@ export const getAccountInfo = async (req, res, next) => {
         if (!raw) return {};
         if (typeof raw === 'object') return raw;
         try { return JSON.parse(raw); } catch { return {}; }
+      })(),
+      benefitsEnrollment: (() => {
+        const raw = user.benefits_enrollment_json;
+        if (!raw) return null;
+        if (typeof raw === 'object') return raw;
+        try { return JSON.parse(raw); } catch { return null; }
       })(),
       ...(resetLinkSent && {
         resetLinkSentAt: resetLinkSent.resetLinkSentAt,

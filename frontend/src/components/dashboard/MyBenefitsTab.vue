@@ -62,6 +62,8 @@ const benefitsUser = computed(() => {
     medcancel_rate_schedule: p.medcancelRateSchedule ?? me.medcancelRateSchedule ?? 'none',
     benefitsEligibilityOverrides: p.benefitsEligibilityOverrides ?? me.benefitsEligibilityOverrides ?? {},
     benefits_eligibility_overrides_json: p.benefitsEligibilityOverrides ?? me.benefitsEligibilityOverrides ?? {},
+    benefitsEnrollment: p.benefitsEnrollment ?? me.benefitsEnrollment ?? null,
+    benefits_enrollment_json: p.benefitsEnrollment ?? me.benefitsEnrollment ?? null,
     isHourlyWorker: isHourlyWorker.value,
     is_hourly_worker: isHourlyWorker.value
   };

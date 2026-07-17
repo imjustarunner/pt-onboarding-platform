@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { NOTIFICATION_TYPES } from '../services/notificationCatalog.service.js';
 
 const PRIVATE_CROSS_USER_TYPES = new Set([
   'chat_message',
@@ -9,135 +10,7 @@ const PRIVATE_CROSS_USER_TYPES = new Set([
 class Notification {
   // Valid notification types - enforced at application layer
   // This replaces ENUM validation which caused migration issues in Cloud SQL
-  static VALID_TYPES = [
-    'status_expired',
-    'temp_password_expired',
-    'task_overdue',
-    'onboarding_completed',
-    'invitation_expired',
-    'first_login_pending',
-    'first_login',
-    'password_changed',
-    'passwordless_token_expired',
-    'pending_completed',
-    'checklist_incomplete',
-    // Documents / credentials compliance
-    'credential_expiring',
-    'credential_expired_blocking',
-    // Communications (messaging)
-    'inbound_client_message',
-    'support_safety_net_alert',
-    // Kiosk
-    'kiosk_checkin',
-    'survey_completed',
-    // Emergency broadcasts
-    'emergency_broadcast',
-    // Client chat / notes
-    'client_note',
-    // Platform chat (internal DM)
-    'chat_message',
-    // Shared task list: mentioned in a comment
-    'task_comment_mention',
-    // School portal ticketing
-    'support_ticket_created',
-    'support_ticket_forwarded_to_provider',
-    // Client pipeline automation
-    'paperwork_received',
-    'new_packet_uploaded', // Packet uploaded from school portal
-    'company_event_registration_submitted', // Guardian/applicant enrolled into a Skill Builders / program company event
-    'client_became_current',
-    'client_checklist_updated',
-    'client_terminated',
-    'client_assigned',
-    // Background check automation
-    'background_check_reimbursement_due',
-    'background_check_renewal_due',
-    // Payroll claims
-    'mileage_claim_approved',
-    'mileage_claim_rejected',
-    'mileage_claim_returned',
-    'medcancel_claim_approved',
-    'medcancel_claim_rejected',
-    'medcancel_claim_returned',
-    // Payroll: documentation aging
-    'payroll_unpaid_notes_2_periods_old',
-    // Payroll: reminder when period is posted and notes still need attention
-    'payroll_missing_notes_reminder',
-    // Payroll: supervisor reminders (unsigned draft notes)
-    'payroll_unsigned_draft_notes',
-    // Payroll: Direct/Indirect ratio yellow or red (hourly workers)
-    'payroll_direct_indirect_ratio_alert',
-    // Office scheduling
-    'office_schedule_biweekly_review',
-    'office_schedule_booking_confirm_6_weeks',
-    'office_schedule_unbooked_forfeit',
-    'office_schedule_booked_no_external_calendar_2_weeks',
-    'office_schedule_booked_reverted_no_tn',
-    'office_schedule_slot_rescheduled',
-    // Supervision tracking
-    'supervision_individual_50_reached',
-    'supervision_total_100_reached',
-    'supervision_supervisee_completed',
-    'supervision_presenter_reminder',
-    // Payroll: home address changes (mileage / compliance workflow)
-    'payroll_home_address_updated',
-    // Custom program reminders
-    'program_reminder',
-    // Presence: nudge when Out Quick return time has passed
-    'presence_return_overdue_nudge',
-    // Agency announcement automation
-    'birthday_announcement',
-    'anniversary_announcement',
-    // Platform activity (admin/staff/provider_plus/super_admin visibility)
-    'user_login',
-    'user_logout',
-    // Kudos
-    'kudos_received',
-    'kudos_earned_admin_digest',
-    // Office availability request (provider requesting office space)
-    'office_availability_request_pending',
-    // Office availability request approved (provider reminder to mark booked)
-    'office_availability_request_approved',
-    // School availability request pending review (availability intake)
-    'school_availability_request_pending',
-    // School availability request approved (provider notified)
-    'school_availability_request_approved',
-    // School availability request denied
-    'school_availability_request_denied',
-    // School portal: provider confirmed weekly availability/slots/hours
-    'school_provider_availability_confirmed',
-    // School portal: provider directly updated slots/hours
-    'school_provider_availability_updated',
-    // School portal: admin/staff/super_admin/support pushed a slot verification to a provider
-    'school_provider_slot_verification_requested',
-    // School portal: provider responded to a pushed slot verification
-    'school_provider_slot_verification_completed',
-    // Budget Management: expense pending approval (department approvers)
-    'budget_expense_pending_approval',
-    // Referral Directory: non-admin change request awaiting admin review
-    'referral_directory_pending_approval',
-    // School portal: primary sent password reset link (notify agency admin)
-    'school_primary_password_reset_sent',
-    // School portal: primary removed staff (notify agency admin to remove from school group email)
-    'school_primary_staff_removed',
-    // Public form submission (no client) - document landed in Unassigned Documents
-    'unassigned_document_submitted',
-    // Facilitator availability
-    'facilitator_availability_push',
-    // Hiring
-    'new_job_application_submitted',
-    'hiring_task_assigned',
-    // Medical records release (ROI) - only visible to users with has_medical_records_release_access
-    'medical_records_release_submitted',
-    // School ROI lifecycle (admin/staff visibility)
-    'client_school_roi_link_generated',
-    'client_school_roi_link_copied',
-    'client_school_roi_link_sent',
-    'client_school_roi_completed',
-    'client_school_roi_provider_reminder',
-    // Summit Stats Team Challenge: pending member application (club managers)
-    'ssc_club_member_application_pending'
-  ];
+  static VALID_TYPES = NOTIFICATION_TYPES;
 
   static async create(notificationData) {
     const {
@@ -260,7 +133,7 @@ class Notification {
     if (ids.length === 0) return notifications;
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT notification_id, is_read, read_at, muted_until, requires_follow_up
+      `SELECT notification_id, is_read, read_at, muted_until, requires_follow_up, dismissed_at, snoozed_until
        FROM notification_user_reads
        WHERE notification_id IN (${placeholders}) AND user_id = ?`,
       [...ids, uid]
@@ -271,7 +144,9 @@ class Notification {
         is_read: !!r.is_read,
         read_at: r.read_at,
         muted_until: r.muted_until,
-        requires_follow_up: !!r.requires_follow_up
+        requires_follow_up: !!r.requires_follow_up,
+        dismissed_at: r.dismissed_at,
+        snoozed_until: r.snoozed_until
       });
     }
 
@@ -295,14 +170,20 @@ class Notification {
         n._is_read_for_viewer = !!state.is_read;
         n._muted_until_for_viewer = state.muted_until;
         n._requires_follow_up_for_viewer = !!state.requires_follow_up;
+        n._dismissed_at_for_viewer = state.dismissed_at;
+        n._snoozed_until_for_viewer = state.snoozed_until;
       } else if (n.user_id != null && notificationOwnerId === uid) {
         n._is_read_for_viewer = !!n.is_read;
         n._muted_until_for_viewer = n.muted_until;
         n._requires_follow_up_for_viewer = false;
+        n._dismissed_at_for_viewer = null;
+        n._snoozed_until_for_viewer = null;
       } else {
         n._is_read_for_viewer = false;
         n._muted_until_for_viewer = null;
         n._requires_follow_up_for_viewer = false;
+        n._dismissed_at_for_viewer = null;
+        n._snoozed_until_for_viewer = null;
       }
     }
     return notifications;
@@ -336,7 +217,7 @@ class Notification {
     if ((exists || []).length > 0) {
       const [result] = await pool.execute(
         `UPDATE notification_user_reads
-         SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR), requires_follow_up = FALSE
+         SET is_read = TRUE, read_at = NOW(), muted_until = NULL, requires_follow_up = FALSE
          WHERE notification_id = ? AND user_id = ?`,
         [notificationId, uid]
       );
@@ -344,7 +225,7 @@ class Notification {
     }
     const [result] = await pool.execute(
       `INSERT INTO notification_user_reads (notification_id, user_id, is_read, read_at, muted_until)
-       VALUES (?, ?, TRUE, NOW(), DATE_ADD(NOW(), INTERVAL 48 HOUR))`,
+       VALUES (?, ?, TRUE, NOW(), NULL)`,
       [notificationId, uid]
     );
     return result.affectedRows > 0;
@@ -405,8 +286,7 @@ class Notification {
 
   /**
    * Dismiss a notification for a specific viewer only.
-   * Uses notification_user_reads muted_until far in the future so it no longer appears
-   * for that viewer, without deleting/closing it for everyone else.
+   * Stores an explicit dismissed timestamp without deleting or closing it for anyone else.
    */
   static async dismissForUser(notificationId, userId) {
     const notification = await this.findById(notificationId);
@@ -429,18 +309,146 @@ class Notification {
     if ((exists || []).length > 0) {
       const [result] = await pool.execute(
         `UPDATE notification_user_reads
-         SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 10 YEAR)
+         SET is_read = TRUE, read_at = NOW(), muted_until = NULL, dismissed_at = NOW(), snoozed_until = NULL
          WHERE notification_id = ? AND user_id = ?`,
         [notificationId, uid]
       );
       return result.affectedRows > 0;
     }
     const [result] = await pool.execute(
-      `INSERT INTO notification_user_reads (notification_id, user_id, is_read, read_at, muted_until)
-       VALUES (?, ?, TRUE, NOW(), DATE_ADD(NOW(), INTERVAL 10 YEAR))`,
+      `INSERT INTO notification_user_reads
+        (notification_id, user_id, is_read, read_at, muted_until, dismissed_at, snoozed_until)
+       VALUES (?, ?, TRUE, NOW(), NULL, NOW(), NULL)`,
       [notificationId, uid]
     );
     return result.affectedRows > 0;
+  }
+
+  static async setViewerState(notificationId, userId, updates = {}) {
+    const notification = await this.findById(notificationId);
+    if (!notification) return false;
+    const uid = Number(userId);
+    if (!uid) return false;
+    if (
+      notification.user_id != null
+      && Number(notification.user_id) !== uid
+      && PRIVATE_CROSS_USER_TYPES.has(String(notification.type || ''))
+    ) return false;
+
+    const [existingRows] = await pool.execute(
+      `SELECT is_read, read_at, requires_follow_up, dismissed_at, snoozed_until
+       FROM notification_user_reads WHERE notification_id = ? AND user_id = ? LIMIT 1`,
+      [notificationId, uid]
+    );
+    const existing = existingRows?.[0] || {};
+    let isRead = updates.read === undefined ? !!existing.is_read : !!updates.read;
+    let followUp = updates.followUp === undefined ? !!existing.requires_follow_up : !!updates.followUp;
+    let dismissedAt = existing.dismissed_at || null;
+    let snoozedUntil = existing.snoozed_until || null;
+    if (updates.dismissed === true) {
+      if (followUp) return false;
+      dismissedAt = new Date();
+      snoozedUntil = null;
+      isRead = true;
+    } else if (updates.dismissed === false) {
+      dismissedAt = null;
+    }
+    if (updates.snoozedUntil !== undefined) {
+      snoozedUntil = updates.snoozedUntil ? new Date(updates.snoozedUntil) : null;
+      if (snoozedUntil && !Number.isFinite(snoozedUntil.getTime())) return false;
+    }
+    if (followUp) {
+      isRead = false;
+      dismissedAt = null;
+      snoozedUntil = null;
+    }
+    await pool.execute(
+      `INSERT INTO notification_user_reads
+        (notification_id, user_id, is_read, read_at, muted_until, requires_follow_up, dismissed_at, snoozed_until)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         is_read = VALUES(is_read), read_at = VALUES(read_at), muted_until = NULL,
+         requires_follow_up = VALUES(requires_follow_up), dismissed_at = VALUES(dismissed_at),
+         snoozed_until = VALUES(snoozed_until)`,
+      [notificationId, uid, isRead ? 1 : 0, isRead ? new Date() : null, followUp ? 1 : 0, dismissedAt, snoozedUntil]
+    );
+    if (Number(notification.user_id) === uid) {
+      await pool.execute(
+        `UPDATE notifications SET is_read = ?, read_at = ?, muted_until = NULL WHERE id = ?`,
+        [isRead ? 1 : 0, isRead ? new Date() : null, notificationId]
+      );
+    }
+    return true;
+  }
+
+  static async bulkSetViewerState(notificationIds, userId, action) {
+    const uid = Number(userId);
+    const ids = [...new Set((notificationIds || []).map(Number).filter(Boolean))];
+    if (!uid || !ids.length) return 0;
+    if (!['mark_read', 'mark_unread', 'dismiss', 'restore'].includes(action)) return 0;
+    let affected = 0;
+    const chunkSize = 500;
+    for (let start = 0; start < ids.length; start += chunkSize) {
+      const chunk = ids.slice(start, start + chunkSize);
+      const placeholders = chunk.map(() => '?').join(',');
+      const [rows] = await pool.execute(
+        `SELECT n.id, n.user_id, n.is_read AS personal_is_read, n.read_at AS personal_read_at,
+                nur.is_read, nur.read_at, nur.requires_follow_up, nur.dismissed_at, nur.snoozed_until
+         FROM notifications n
+         LEFT JOIN notification_user_reads nur ON nur.notification_id = n.id AND nur.user_id = ?
+         WHERE n.id IN (${placeholders})`,
+        [uid, ...chunk]
+      );
+      const values = [];
+      const now = new Date();
+      for (const row of rows || []) {
+        const followUp = !!row.requires_follow_up;
+        if (action === 'dismiss' && followUp) continue;
+        let isRead = row.is_read == null
+          ? (Number(row.user_id) === uid ? !!row.personal_is_read : false)
+          : !!row.is_read;
+        let readAt = row.read_at || (Number(row.user_id) === uid ? row.personal_read_at : null);
+        let dismissedAt = row.dismissed_at || null;
+        let snoozedUntil = row.snoozed_until || null;
+        if (action === 'mark_read' && !followUp) {
+          isRead = true;
+          readAt = now;
+        } else if (action === 'mark_unread') {
+          isRead = false;
+          readAt = null;
+        } else if (action === 'dismiss') {
+          isRead = true;
+          readAt = now;
+          dismissedAt = now;
+          snoozedUntil = null;
+        } else if (action === 'restore') {
+          dismissedAt = null;
+        }
+        values.push([Number(row.id), uid, isRead ? 1 : 0, readAt, followUp ? 1 : 0, dismissedAt, snoozedUntil]);
+      }
+      if (!values.length) continue;
+      const valueSql = values.map(() => '(?, ?, ?, ?, NULL, ?, ?, ?)').join(',');
+      await pool.execute(
+        `INSERT INTO notification_user_reads
+          (notification_id, user_id, is_read, read_at, muted_until, requires_follow_up, dismissed_at, snoozed_until)
+         VALUES ${valueSql}
+         ON DUPLICATE KEY UPDATE
+           is_read = VALUES(is_read), read_at = VALUES(read_at), muted_until = NULL,
+           requires_follow_up = VALUES(requires_follow_up), dismissed_at = VALUES(dismissed_at),
+           snoozed_until = VALUES(snoozed_until)`,
+        values.flat()
+      );
+      const affectedIds = values.map((value) => value[0]);
+      await pool.execute(
+        `UPDATE notifications n
+         JOIN notification_user_reads nur ON nur.notification_id = n.id AND nur.user_id = ?
+         SET n.is_read = nur.is_read, n.read_at = nur.read_at, n.muted_until = NULL
+         WHERE n.user_id = ? AND n.id IN (${affectedIds.map(() => '?').join(',')})`,
+        [uid, uid, ...affectedIds]
+      );
+      affected += values.length;
+    }
+    return affected;
   }
 
   /**
@@ -452,7 +460,7 @@ class Notification {
     const uid = Number(userId);
     const [personal] = await pool.execute(
       `UPDATE notifications
-       SET is_read = TRUE, read_at = NOW(), read_by_user_id = ?, muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR)
+       SET is_read = TRUE, read_at = NOW(), read_by_user_id = ?, muted_until = NULL
        WHERE agency_id = ? AND user_id = ? AND is_read = FALSE AND is_resolved = FALSE`,
       [uid, agencyId, uid]
     );
@@ -475,14 +483,14 @@ class Notification {
       if ((exists || []).length > 0) {
         await pool.execute(
           `UPDATE notification_user_reads
-           SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR), requires_follow_up = FALSE
+           SET is_read = TRUE, read_at = NOW(), muted_until = NULL, requires_follow_up = FALSE
            WHERE notification_id = ? AND user_id = ?`,
           [nid, uid]
         );
       } else {
         await pool.execute(
           `INSERT INTO notification_user_reads (notification_id, user_id, is_read, read_at, muted_until)
-           VALUES (?, ?, TRUE, NOW(), DATE_ADD(NOW(), INTERVAL 48 HOUR))`,
+           VALUES (?, ?, TRUE, NOW(), NULL)`,
           [nid, uid]
         );
       }
@@ -509,14 +517,14 @@ class Notification {
       if ((exists || []).length > 0) {
         await pool.execute(
           `UPDATE notification_user_reads
-           SET is_read = TRUE, read_at = NOW(), muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR), requires_follow_up = FALSE
+           SET is_read = TRUE, read_at = NOW(), muted_until = NULL, requires_follow_up = FALSE
            WHERE notification_id = ? AND user_id = ?`,
           [nid, uid]
         );
       } else {
         await pool.execute(
           `INSERT INTO notification_user_reads (notification_id, user_id, is_read, read_at, muted_until)
-           VALUES (?, ?, TRUE, NOW(), DATE_ADD(NOW(), INTERVAL 48 HOUR))`,
+           VALUES (?, ?, TRUE, NOW(), NULL)`,
           [nid, uid]
         );
       }
@@ -603,10 +611,10 @@ class Notification {
   }
 
   static async markAsRead(notificationId, userId) {
-    // Mute notification for 48 hours from now
+    // Compatibility path: read state no longer implies a temporary mute.
     const [result] = await pool.execute(
       `UPDATE notifications 
-       SET is_read = TRUE, read_at = NOW(), read_by_user_id = ?, muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR)
+       SET is_read = TRUE, read_at = NOW(), read_by_user_id = ?, muted_until = NULL
        WHERE id = ?`,
       [userId, notificationId]
     );
@@ -652,10 +660,10 @@ class Notification {
   }
 
   static async markAllAsReadForAgency(agencyId, userId) {
-    // Mute all notifications for 48 hours
+    // Compatibility path: mark read without hiding the notifications.
     const [result] = await pool.execute(
       `UPDATE notifications 
-       SET is_read = TRUE, read_at = NOW(), read_by_user_id = ?, muted_until = DATE_ADD(NOW(), INTERVAL 48 HOUR)
+       SET is_read = TRUE, read_at = NOW(), read_by_user_id = ?, muted_until = NULL
        WHERE agency_id = ? AND is_read = FALSE AND is_resolved = FALSE`,
       [userId, agencyId]
     );

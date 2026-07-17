@@ -753,7 +753,8 @@ class User {
       work_role,
       employmentType,
       benefitsNotes,
-      benefitsEligibilityOverrides
+      benefitsEligibilityOverrides,
+      benefitsEnrollment
     } = userData;
     
     // Get current user to check if it's superadmin
@@ -1403,6 +1404,37 @@ class User {
           values.push(jsonVal === null ? null : JSON.stringify(jsonVal));
         } else {
           throw new Error('Database is missing users.benefits_eligibility_overrides_json. Run migrations (see database/migrations/935_user_benefits_employment_type.sql).');
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // Benefits enrollment (health premium, 401k, school mileage contract, YTD)
+    if (benefitsEnrollment !== undefined) {
+      let jsonVal = null;
+      if (benefitsEnrollment !== null && benefitsEnrollment !== '') {
+        if (typeof benefitsEnrollment === 'string') {
+          try {
+            jsonVal = JSON.parse(benefitsEnrollment);
+          } catch {
+            throw new Error('benefitsEnrollment must be valid JSON');
+          }
+        } else if (typeof benefitsEnrollment === 'object') {
+          jsonVal = benefitsEnrollment;
+        } else {
+          throw new Error('benefitsEnrollment must be an object or JSON string');
+        }
+      }
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'benefits_enrollment_json'"
+        );
+        if (columns.length > 0) {
+          updates.push('benefits_enrollment_json = ?');
+          values.push(jsonVal === null ? null : JSON.stringify(jsonVal));
+        } else {
+          throw new Error('Database is missing users.benefits_enrollment_json. Run migrations (see database/migrations/970_user_benefits_enrollment_json.sql).');
         }
       } catch (err) {
         throw err;

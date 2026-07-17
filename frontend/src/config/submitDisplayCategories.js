@@ -42,6 +42,15 @@ export const SUBMIT_ROOT_GROUPS = [
       tagMutedColor: '#5b21b6',
     },
     actions: [
+      {
+        id: 'log_time',
+        title: 'Log Time',
+        description: 'Clock in/out and allocate indirect time for payroll.',
+        event: 'log-time',
+        icon: 'clock',
+        visibleKey: 'hourlyLogTime',
+        featured: true
+      },
       { id: 'time_menu', title: 'Time claims', description: 'Meeting, excess time, corrections, overtime.', event: 'open-time', icon: 'clock' },
       { id: 'availability', title: 'Additional availability', description: 'Office or school availability + confirmations.', event: 'availability', icon: 'calendar' },
       { id: 'virtual_hours', title: 'Virtual working hours', description: 'Weekly virtual hours (not tied to a room).', event: 'virtual-hours', icon: 'video' },

@@ -75,6 +75,16 @@ let extendWatchTimer = null;
 let idleBeforeTimedownMs = IDLE_BEFORE_TIMEDOWN_MS;
 let timedownSeconds = TIMEDOWN_SECONDS;
 
+/**
+ * Optional override while an hourly worker is clocked into indirect time.
+ * { idleBeforeTimedownMs, timedownSeconds } — timedown may be up to 2 hours.
+ */
+let runtimeTimeoutOverride = null;
+
+/** Clocked-in Timedown: 3 min idle → 2 hour countdown (not the default 10 min). */
+export const CLOCKED_IN_IDLE_BEFORE_TIMEDOWN_MS = 3 * 60 * 1000;
+export const CLOCKED_IN_TIMEDOWN_SECONDS = 2 * 60 * 60;
+
 /** Pending flags flushed on next platform-session heartbeat. */
 let pendingMeaningful = false;
 let pendingPassive = false;
@@ -83,11 +93,69 @@ const MEANINGFUL_EVENTS = ['mousedown', 'keypress', 'keydown', 'scroll', 'touchs
 const PASSIVE_EVENTS = ['mousemove'];
 
 function getWarningDelayMs() {
+  if (runtimeTimeoutOverride?.idleBeforeTimedownMs != null) {
+    return Number(runtimeTimeoutOverride.idleBeforeTimedownMs);
+  }
   return idleBeforeTimedownMs;
 }
 
 function getTimedownSeconds() {
+  if (runtimeTimeoutOverride?.timedownSeconds != null) {
+    return Number(runtimeTimeoutOverride.timedownSeconds);
+  }
   return timedownSeconds;
+}
+
+/**
+ * Force idle/timedown while clocked into indirect time (or clear with null).
+ * Does not persist across full config refetch unless re-applied after refetch.
+ */
+export function setRuntimeTimeoutOverride(override) {
+  if (!override || typeof override !== 'object') {
+    runtimeTimeoutOverride = null;
+  } else {
+    const idleMs = Number(override.idleBeforeTimedownMs);
+    const tdSec = Number(override.timedownSeconds);
+    runtimeTimeoutOverride = {
+      idleBeforeTimedownMs: Number.isFinite(idleMs) && idleMs >= 30_000
+        ? Math.min(3600_000, Math.floor(idleMs))
+        : CLOCKED_IN_IDLE_BEFORE_TIMEDOWN_MS,
+      timedownSeconds: Number.isFinite(tdSec) && tdSec >= 30
+        ? Math.min(7200, Math.floor(tdSec))
+        : CLOCKED_IN_TIMEDOWN_SECONDS
+    };
+  }
+  // Reschedule idle → Timedown with the new values (no-op if Timedown already open).
+  try {
+    resetTimer();
+  } catch {
+    /* tracking may not be started yet */
+  }
+}
+
+export function getRuntimeTimeoutOverride() {
+  return runtimeTimeoutOverride ? { ...runtimeTimeoutOverride } : null;
+}
+
+export function applyClockedInTimeoutOverride() {
+  setRuntimeTimeoutOverride({
+    idleBeforeTimedownMs: CLOCKED_IN_IDLE_BEFORE_TIMEDOWN_MS,
+    timedownSeconds: CLOCKED_IN_TIMEDOWN_SECONDS
+  });
+}
+
+export async function clearClockedInTimeoutOverride() {
+  runtimeTimeoutOverride = null;
+  try {
+    await refetchSessionLockConfig();
+  } catch {
+    applyTimeoutConfig({});
+    try {
+      resetTimer();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 function currentSessionPhase() {
@@ -189,6 +257,17 @@ async function handleTimeout() {
   }
 
   markSessionEndedRedirecting();
+
+  // If still clocked into indirect time, close the session before logout.
+  try {
+    const { useIndirectTimeSessionStore } = await import('../store/indirectTimeSession');
+    const indirectStore = useIndirectTimeSessionStore();
+    if (indirectStore.isClockedIn) {
+      await indirectStore.forceClockOutOnLogout();
+    }
+  } catch {
+    /* ignore */
+  }
 
   try {
     const sessionId = localStorage.getItem('sessionId');
@@ -692,6 +771,7 @@ export function getSessionExtendUntilMs() {
 }
 
 export async function refetchSessionLockConfig() {
+  const preservedOverride = runtimeTimeoutOverride ? { ...runtimeTimeoutOverride } : null;
   try {
     const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
     useSessionLockStore().setLockConfig(res.data || null);
@@ -699,6 +779,10 @@ export async function refetchSessionLockConfig() {
   } catch {
     useSessionLockStore().setLockConfig(null);
     applyTimeoutConfig({});
+  }
+  // Agency config refetch must not wipe the clocked-in 2h Timedown override.
+  if (preservedOverride) {
+    runtimeTimeoutOverride = preservedOverride;
   }
   resetTimer();
 }
@@ -709,6 +793,9 @@ export function getIdleTimeoutDebug() {
     isTracking,
     idleBeforeTimedownMs,
     timedownSeconds,
+    effectiveIdleBeforeTimedownMs: getWarningDelayMs(),
+    effectiveTimedownSeconds: getTimedownSeconds(),
+    runtimeTimeoutOverride,
     lastActivityTime,
     lastLedgerSentAt,
     lastPresenceSentAt,

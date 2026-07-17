@@ -7,6 +7,18 @@
       </div>
       <div class="ov-header-actions">
         <button
+          v-if="showLogTime"
+          type="button"
+          class="ov-log-time-btn"
+          data-tour="dash-overview-log-time"
+          @click="navigate('log_time')"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+          </svg>
+          Log Time
+        </button>
+        <button
           type="button"
           class="ov-icon-btn"
           :aria-label="`Notifications${unreadCount ? `, ${unreadCount} unread` : ''}`"
@@ -151,6 +163,7 @@ const props = defineProps({
   showPayroll: { type: Boolean, default: false },
   showNotes: { type: Boolean, default: false },
   showClaims: { type: Boolean, default: false },
+  showLogTime: { type: Boolean, default: false },
   showSupervision: { type: Boolean, default: false },
   showMySupervision: { type: Boolean, default: false },
   showChats: { type: Boolean, default: false },
@@ -215,6 +228,18 @@ const showSupervisionMetric = computed(() => props.showSupervision || props.show
 
 const quickActions = computed(() => {
   const list = [];
+  if (props.showLogTime) {
+    list.unshift({
+      id: 'log_time',
+      title: 'Log Time',
+      description: 'Clock in/out and submit indirect time for payroll.',
+      icon: '⏱',
+      iconBg: '#dcfce7',
+      iconColor: '#166534',
+      type: 'tab',
+      tab: 'log_time'
+    });
+  }
   if (props.showClaims) {
     list.push({
       id: 'submit_claim',
@@ -374,12 +399,32 @@ const onQuickAction = (action) => {
   flex-wrap: wrap;
   margin-bottom: -2px;
 }
-.ov-quick-nav {
-  margin-top: 2px;
-}
 .ov-header-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+.ov-log-time-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 10px;
+  background: #166534;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 10px 14px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(22, 101, 52, 0.25);
+}
+.ov-log-time-btn:hover { background: #14532d; }
+.ov-log-time-btn:focus-visible {
+  outline: 2px solid #86efac;
+  outline-offset: 2px;
+}
+.ov-quick-nav {
+  margin-top: 2px;
 }
 .ov-icon-btn {
   position: relative;

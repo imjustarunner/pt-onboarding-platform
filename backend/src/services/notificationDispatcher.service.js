@@ -7,6 +7,7 @@ import VonageService from './vonage.service.js';
 import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
 import AgencyNotificationPreferences from '../models/AgencyNotificationPreferences.model.js';
 import MagicLinkService from './magicLink.service.js';
+import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
 
 const SMS_CATEGORY_BY_TYPE = {
   inbound_client_message: 'messaging_new_inbound_client_text',
@@ -143,6 +144,14 @@ class NotificationDispatcherService {
     const categories = await resolveNotificationCategories({ userId, agencyId });
     const categoryEnabled = categories[categoryKey];
     if (categoryEnabled === false) return { dispatched: false, reason: 'category_disabled' };
+    const typeSmsEnabled = await isNotificationChannelEnabled({
+      userId,
+      userRole: user.role,
+      agencyId,
+      type: notification.type,
+      channel: 'sms'
+    });
+    if (!typeSmsEnabled) return { dispatched: false, reason: 'type_sms_disabled' };
 
     const toRaw = pickUserSmsNumber(user);
     const to = User.normalizePhone(toRaw);
@@ -228,6 +237,15 @@ class NotificationDispatcherService {
     if (!notification?.user_id) return { dispatched: false };
     const prefs = await UserPreferences.findByUserId(notification.user_id);
     if (!prefs?.push_notifications_enabled) return { dispatched: false };
+    const user = await User.findById(notification.user_id);
+    const typePushEnabled = await isNotificationChannelEnabled({
+      userId: notification.user_id,
+      userRole: user?.role,
+      agencyId: notification.agency_id,
+      type: notification.type,
+      channel: 'push'
+    });
+    if (!typePushEnabled) return { dispatched: false, reason: 'type_push_disabled' };
     const result = await PushService.sendPushToUser(notification.user_id, {
       title: notification.title || 'Notification',
       body: notification.message || '',
@@ -250,4 +268,3 @@ export const isCategoryEnabledForUser = async ({ userId, agencyId, categoryKey }
 };
 
 export default NotificationDispatcherService;
-

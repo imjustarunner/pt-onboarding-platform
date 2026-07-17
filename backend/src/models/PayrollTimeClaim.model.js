@@ -224,6 +224,59 @@ class PayrollTimeClaim {
     return PayrollTimeClaim.findById(id);
   }
 
+  /** Employee withdrew from payroll review — keep row for edit/resubmit. */
+  static async softWithdraw({ id }) {
+    await pool.execute(
+      `UPDATE payroll_time_claims
+       SET status = 'withdrawn',
+           target_payroll_period_id = NULL,
+           applied_amount = NULL,
+           approved_by_user_id = NULL,
+           approved_at = NULL,
+           rejection_reason = NULL,
+           rejected_by_user_id = NULL,
+           rejected_at = NULL
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    );
+    return this.findById(id);
+  }
+
+  /** Resubmit after edit/withdraw — back to pending review. */
+  static async resubmit({ id, claimDate = null, payload = null }) {
+    const sets = [
+      `status = 'submitted'`,
+      `target_payroll_period_id = NULL`,
+      `applied_amount = NULL`,
+      `approved_by_user_id = NULL`,
+      `approved_at = NULL`,
+      `rejection_reason = NULL`,
+      `rejected_by_user_id = NULL`,
+      `rejected_at = NULL`
+    ];
+    const params = [];
+    if (claimDate) {
+      sets.push('claim_date = ?');
+      params.push(claimDate);
+    }
+    if (payload != null) {
+      sets.push('payload_json = ?');
+      params.push(JSON.stringify(payload || {}));
+    }
+    params.push(id);
+    await pool.execute(
+      `UPDATE payroll_time_claims SET ${sets.join(', ')} WHERE id = ? LIMIT 1`,
+      params
+    );
+    return this.findById(id);
+  }
+
+  static async hardDelete({ id }) {
+    await pool.execute('DELETE FROM payroll_time_claims WHERE id = ? LIMIT 1', [id]);
+    return true;
+  }
+
   static async sumApprovedForPeriodUser({ payrollPeriodId, agencyId, userId }) {
     const [rows] = await pool.execute(
       `SELECT SUM(applied_amount) AS total

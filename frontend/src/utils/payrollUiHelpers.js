@@ -1,6 +1,6 @@
 /** Helpers for My Payroll hub panel (stats, action required, claim status pills). */
 
-const NEEDS_ACTION = new Set(['submitted', 'deferred', 'rejected']);
+const NEEDS_ACTION = new Set(['submitted', 'deferred', 'rejected', 'withdrawn']);
 
 export function claimNeedsAction(row) {
   const s = String(row?.status || '').toLowerCase();
@@ -13,14 +13,14 @@ export function getClaimStatusLabel(status) {
   if (s === 'deferred') return 'Needs changes';
   if (s === 'rejected') return 'Rejected';
   if (s === 'submitted') return 'Pending';
-  if (s === 'withdrawn') return 'Withdrawn';
+  if (s === 'withdrawn') return 'Needs resubmit';
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—';
 }
 
 export function getClaimStatusBadgeClass(status) {
   const s = String(status || '').toLowerCase();
   if (s === 'approved' || s === 'paid' || s === 'applied') return 'hub-pill--success';
-  if (s === 'deferred' || s === 'submitted') return 'hub-pill--warning';
+  if (s === 'deferred' || s === 'submitted' || s === 'withdrawn') return 'hub-pill--warning';
   if (s === 'rejected') return 'hub-pill--danger';
   return 'hub-pill--muted';
 }
@@ -162,7 +162,7 @@ export function getPayrollActionRequired({
   for (const s of eventTimeSessions) pushEventSessionAction(out, s);
   for (const r of medcancelClaims) pushAction(out, r, { type: 'medcancel', title: `Med Cancel — ${fmtActionDate(r.claim_date) || 'claim'}` });
 
-  const priority = { rejected: 3, deferred: 2, submitted: 1 };
+  const priority = { rejected: 3, deferred: 2, withdrawn: 2, submitted: 1 };
   out.sort((a, b) => (priority[String(b.status).toLowerCase()] || 0) - (priority[String(a.status).toLowerCase()] || 0));
   return out.slice(0, limit);
 }

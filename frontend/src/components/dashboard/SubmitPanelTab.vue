@@ -6,6 +6,22 @@
   >
     <!-- Root: categorized submit actions -->
     <div v-if="view === 'root'" class="submit-hub__root">
+      <button
+        v-if="featuredLogTime"
+        type="button"
+        class="submit-hub__featured"
+        data-tour="submit-log-time-featured"
+        @click="onAction(featuredLogTime.event)"
+      >
+        <span class="submit-hub__featured-icon" v-html="actionIcon(featuredLogTime.icon)" />
+        <span class="submit-hub__featured-body">
+          <span class="submit-hub__featured-eyebrow">Hourly employees</span>
+          <span class="submit-hub__featured-title">{{ featuredLogTime.title }}</span>
+          <span class="submit-hub__featured-desc">{{ featuredLogTime.description }}</span>
+        </span>
+        <span class="submit-hub__featured-cta">Open Log Time →</span>
+      </button>
+
       <SubmitHubSection
         v-for="group in visibleRootGroups"
         :key="group.id"
@@ -17,6 +33,7 @@
             :key="action.id"
             type="button"
             class="submit-hub__action"
+            :class="{ 'submit-hub__action--featured-inline': action.featured }"
             @click="onAction(action.event)"
           >
             <span class="submit-hub__action-icon" v-html="actionIcon(action.icon)" />
@@ -123,8 +140,18 @@ const isVisible = (action) => {
   return Boolean(flags.value[key]);
 };
 
+const featuredLogTime = computed(() => {
+  if (!flags.value.hourlyLogTime) return null;
+  for (const group of SUBMIT_ROOT_GROUPS) {
+    const hit = (group.actions || []).find((a) => a.id === 'log_time' && isVisible(a));
+    if (hit) return hit;
+  }
+  return null;
+});
+
 const visibleRootGroups = computed(() =>
   SUBMIT_ROOT_GROUPS.map((group) => {
+    // Featured Log Time is shown as the hero button above; keep it in the Time group too for scanability.
     const visibleActions = (group.actions || []).filter(isVisible);
     return { ...group, visibleActions };
   }).filter((g) => g.visibleActions.length > 0)
@@ -180,6 +207,77 @@ const onAction = (event) => {
 </script>
 
 <style scoped>
+.submit-hub__featured {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  margin: 0 0 18px;
+  padding: 18px 20px;
+  text-align: left;
+  border: 2px solid #166534;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 55%, #bbf7d0 100%);
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(22, 101, 52, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.submit-hub__featured:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(22, 101, 52, 0.18);
+}
+.submit-hub__featured-icon {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: #166534;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.submit-hub__featured-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.submit-hub__featured-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #166534;
+}
+.submit-hub__featured-title {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #14532d;
+}
+.submit-hub__featured-desc {
+  font-size: 0.9rem;
+  color: #3f6212;
+  line-height: 1.4;
+}
+.submit-hub__featured-cta {
+  flex-shrink: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #14532d;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .submit-hub__featured {
+    flex-wrap: wrap;
+  }
+  .submit-hub__featured-cta {
+    width: 100%;
+    padding-left: 68px;
+  }
+}
+
 .submit-hub__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -204,6 +302,11 @@ const onAction = (event) => {
   background: #fff;
   border-color: #86efac;
   box-shadow: 0 2px 8px rgba(22, 101, 52, 0.08);
+}
+
+.submit-hub__action--featured-inline {
+  border-color: #86efac;
+  background: #f0fdf4;
 }
 
 .submit-hub__action-icon {

@@ -620,12 +620,23 @@ Section 4 — Assessment / Academic Context (Optional).
 Generate structured, clinically appropriate progress notes for individual therapy sessions.
 Use the same note format and tone for 90832, 90834, and 90837; the only difference is session length/code selection.
 
-Output Format:
-1. Symptom Description and Subjective Report
-2. Objective Content (Describe observations, affect, behavior, interventions).
-3. Interventions Used (List from approved list).
-4. Plan (Summarize next steps, future focus areas).
-Always write in third person. Never generate new clinical conclusions.
+Output Format (use these exact section headers):
+1. Subjective:
+2. Objective:
+3. Interventions:
+4. Plan:
+
+Interventions section rules (required):
+- Output ONLY a single comma-separated list on one line (no bullets, numbering, or paragraph narrative).
+- Infer interventions that were likely utilized from the session content (what the clinician did / techniques applied).
+- Use concise clinical labels, not full sentences.
+- Prefer labels such as: Supportive Therapy, Psychoeducation, CBT, DBT, Mindfulness-Based, Motivational Interviewing, Behavioral Activation, Problem Solving, Relapse Prevention, Communication Skills Training, Coping Skills Training, Exploration of Relational Dynamics, Family/Caregiver Involvement, Crisis Intervention.
+- Include only interventions supported by the session details; do not invent unrelated modalities.
+- Example: Supportive Therapy, Psychoeducation, Communication Skills Training, Coping Skills Training
+
+Objective should describe session process/observations; do not put the intervention list there.
+Plan should be 1–3 complete forward-looking sentences.
+Always write in third person. Never generate new clinical conclusions not supported by the input.
 `,
   FAMILY_NOTE: String.raw`
 90846 and 90847 | Family Session Note Writer
@@ -945,11 +956,14 @@ export const CLINICAL_NOTE_AGENT_TOOLS = [
     description: '90837/90834/90832 psychotherapy note.',
     category: baseCategory,
     systemPrompt: AGENT_PROMPTS.PSYCHOTHERAPY_NOTE,
-    outputInstructions: 'Return the note sections only.',
+    outputInstructions: [
+      'Return the note sections only with headers Subjective:, Objective:, Interventions:, Plan:.',
+      'Interventions must be a single comma-separated list of interventions likely utilized from the session content (no narrative paragraphs).'
+    ].join('\n'),
     includeKnowledgeBase: true,
     kbFolders: ['shared', 'psychotherapy'],
     temperature: 0.2,
-    maxOutputTokens: 1400
+    maxOutputTokens: 1800
   },
   {
     id: 'clinical_family_note',

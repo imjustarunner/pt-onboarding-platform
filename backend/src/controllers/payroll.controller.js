@@ -16479,7 +16479,7 @@ export const patchReimbursementClaim = async (req, res, next) => {
 
 function timeClaimAllowedType(t) {
   const k = String(t || '').trim().toLowerCase();
-  return ['meeting_training', 'mentor_cpa_meeting', 'excess_holiday', 'service_correction', 'overtime_evaluation', 'holiday_pay', 'jury_duty'].includes(k) ? k : null;
+  return ['meeting_training', 'mentor_cpa_meeting', 'excess_holiday', 'service_correction', 'overtime_evaluation', 'holiday_pay', 'jury_duty', 'indirect_time'].includes(k) ? k : null;
 }
 
 function isOfficeStaffForHolidayPay(role) {
@@ -16825,6 +16825,77 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       // Save the uploaded summons and attach the path to the payload.
       const saved = await StorageService.savePtoProof(req.file.buffer, req.file.originalname, req.file.mimetype, userId);
       payload = { ...payload, proofFilePath: saved.path, proofOriginalName: req.file.originalname, proofMimeType: req.file.mimetype };
+    } else if (claimType === 'indirect_time') {
+      // Hourly employee indirect time log — minutes allocated across admin-managed service types.
+      const [hwRows] = await pool.execute(
+        'SELECT is_hourly_worker FROM users WHERE id = ? LIMIT 1',
+        [userId]
+      );
+      const isHourly = hwRows?.[0]?.is_hourly_worker === 1
+        || hwRows?.[0]?.is_hourly_worker === true
+        || hwRows?.[0]?.is_hourly_worker === '1';
+      if (!isHourly && !isAdminRole(req.user?.role)) {
+        return res.status(403).json({ error: { message: 'Indirect time logging is for hourly employees only' } });
+      }
+      const allocations = Array.isArray(payload?.allocations) ? payload.allocations : [];
+      const cleaned = [];
+      let allocatedSum = 0;
+      for (const row of allocations) {
+        const mins = toMinutes(row?.minutes ?? row?.totalMinutes);
+        const label = String(row?.serviceTypeLabel || row?.label || '').trim();
+        const typeKey = String(row?.serviceTypeKey || row?.typeKey || '').trim();
+        const typeId = Number(row?.serviceTypeId || row?.id || 0);
+        if (!(mins >= 1) || !label) continue;
+        allocatedSum += mins;
+        const startTime = row?.startTime != null ? String(row.startTime).trim() : null;
+        const endTime = row?.endTime != null ? String(row.endTime).trim() : null;
+        const percentRaw = Number(row?.percent);
+        const sortOrder = Number(row?.sortOrder);
+        const noteRaw = String(row?.note || row?.activityNote || '').trim();
+        cleaned.push({
+          serviceTypeId: Number.isFinite(typeId) && typeId > 0 ? typeId : null,
+          serviceTypeKey: typeKey || null,
+          serviceTypeLabel: label,
+          minutes: mins,
+          ...(startTime ? { startTime } : {}),
+          ...(endTime ? { endTime } : {}),
+          ...(Number.isFinite(percentRaw) ? { percent: percentRaw } : {}),
+          ...(Number.isFinite(sortOrder) && sortOrder > 0 ? { sortOrder } : {}),
+          ...(noteRaw ? { note: noteRaw.slice(0, 1000) } : {})
+        });
+      }
+      if (!cleaned.length) {
+        return res.status(400).json({ error: { message: 'At least one service type allocation with minutes is required' } });
+      }
+      let totalMinutes = toMinutes(payload?.totalMinutes);
+      if (!(totalMinutes >= 1)) totalMinutes = allocatedSum;
+      if (allocatedSum !== totalMinutes) {
+        return res.status(400).json({
+          error: { message: `Allocated minutes (${allocatedSum}) must equal total time (${totalMinutes})` }
+        });
+      }
+      const entryMethod = String(payload?.entryMethod || 'manual').trim().toLowerCase() === 'clock'
+        ? 'clock'
+        : 'manual';
+      const allocationModeRaw = String(payload?.allocationMode || 'duration').trim().toLowerCase();
+      const allocationMode = ['start_end', 'duration', 'percent'].includes(allocationModeRaw)
+        ? allocationModeRaw
+        : 'duration';
+      const noteAidUsed = payload?.noteAidUsedDuringSession === true
+        || payload?.noteAidUsedDuringSession === 1
+        || String(payload?.noteAidUsedDuringSession || '').toLowerCase() === 'true';
+      payload = {
+        ...payload,
+        entryMethod,
+        allocationMode,
+        totalMinutes,
+        allocations: cleaned,
+        bucket: 'indirect',
+        noteAidUsedDuringSession: !!noteAidUsed,
+        ...(noteAidUsed && payload?.noteAidOpenedAt
+          ? { noteAidOpenedAt: String(payload.noteAidOpenedAt).slice(0, 40) }
+          : {})
+      };
     }
 
     // Enforce submission deadlines (and choose suggested period accordingly).
@@ -16920,6 +16991,11 @@ export const listMyTimeClaims = async (req, res, next) => {
   }
 };
 
+/**
+ * Withdraw (default) or permanently delete (?hard=1) a time claim.
+ * Soft withdraw keeps the row as status=withdrawn so the employee can edit & resubmit.
+ * Hard delete removes it permanently (cannot be paid).
+ */
 export const deleteMyTimeClaim = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -16932,12 +17008,148 @@ export const deleteMyTimeClaim = async (req, res, next) => {
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const s = String(claim.status || '').toLowerCase();
-    if (!['submitted', 'deferred', 'rejected'].includes(s)) {
-      return res.status(409).json({ error: { message: 'Only pending or returned claims can be withdrawn' } });
+    const hard = String(req.query?.hard || req.body?.hard || '') === '1'
+      || String(req.query?.hard || req.body?.hard || '').toLowerCase() === 'true';
+
+    if (hard) {
+      if (!['submitted', 'deferred', 'rejected', 'withdrawn'].includes(s)) {
+        return res.status(409).json({
+          error: { message: 'Only pending, returned, or withdrawn claims can be deleted' }
+        });
+      }
+      const confirm = String(req.query?.confirmDelete || req.body?.confirmDelete || '').trim().toUpperCase();
+      if (confirm !== 'DELETE') {
+        return res.status(400).json({
+          error: {
+            message: 'Permanent delete requires confirmDelete=DELETE. Deleted time cannot be paid.'
+          }
+        });
+      }
+      await PayrollTimeClaim.hardDelete({ id });
+      return res.json({ ok: true, deleted: true });
     }
 
-    await pool.execute('DELETE FROM payroll_time_claims WHERE id = ? LIMIT 1', [id]);
-    res.json({ ok: true });
+    if (!['submitted', 'deferred', 'rejected'].includes(s)) {
+      return res.status(409).json({
+        error: { message: 'Only pending or returned claims can be withdrawn' }
+      });
+    }
+
+    const updated = await PayrollTimeClaim.softWithdraw({ id });
+    res.json({ ok: true, withdrawn: true, claim: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Employee edit + resubmit for indirect_time (and similar) claims.
+ * Requires editReason. Allowed from submitted / withdrawn / deferred / rejected.
+ */
+export const updateMyTimeClaim = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!id) return res.status(400).json({ error: { message: 'id is required' } });
+
+    const claim = await PayrollTimeClaim.findById(id);
+    if (!claim) return res.status(404).json({ error: { message: 'Time claim not found' } });
+    if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const s = String(claim.status || '').toLowerCase();
+    if (!['submitted', 'withdrawn', 'deferred', 'rejected'].includes(s)) {
+      return res.status(409).json({
+        error: { message: 'Only pending, withdrawn, or returned claims can be edited' }
+      });
+    }
+
+    const claimType = String(claim.claim_type || '').toLowerCase();
+    if (claimType !== 'indirect_time') {
+      return res.status(400).json({
+        error: { message: 'This claim type must be edited via resubmit from My Payroll' }
+      });
+    }
+
+    const editReason = String(req.body?.editReason || req.body?.changeReason || '').trim();
+    if (editReason.length < 5) {
+      return res.status(400).json({
+        error: { message: 'A reason for this edit is required (at least 5 characters)' }
+      });
+    }
+
+    const payloadIn = req.body?.payload && typeof req.body.payload === 'object'
+      ? req.body.payload
+      : {};
+    const allocations = Array.isArray(payloadIn.allocations) ? payloadIn.allocations : [];
+    const cleaned = [];
+    let allocatedSum = 0;
+    for (const row of allocations) {
+      const mins = toMinutes(row?.minutes ?? row?.totalMinutes);
+      const label = String(row?.serviceTypeLabel || row?.label || '').trim();
+      const typeKey = String(row?.serviceTypeKey || row?.typeKey || '').trim();
+      const typeId = Number(row?.serviceTypeId || row?.id || 0);
+      if (!(mins >= 1) || !label) continue;
+      allocatedSum += mins;
+      const noteRaw = String(row?.note || row?.activityNote || '').trim();
+      cleaned.push({
+        serviceTypeId: Number.isFinite(typeId) && typeId > 0 ? typeId : null,
+        serviceTypeKey: typeKey || null,
+        serviceTypeLabel: label,
+        minutes: mins,
+        ...(row?.startTime ? { startTime: String(row.startTime) } : {}),
+        ...(row?.endTime ? { endTime: String(row.endTime) } : {}),
+        ...(Number.isFinite(Number(row?.percent)) ? { percent: Number(row.percent) } : {}),
+        ...(Number.isFinite(Number(row?.sortOrder)) ? { sortOrder: Number(row.sortOrder) } : {}),
+        ...(noteRaw ? { note: noteRaw.slice(0, 1000) } : {})
+      });
+    }
+    if (!cleaned.length) {
+      return res.status(400).json({ error: { message: 'At least one service type allocation with minutes is required' } });
+    }
+    let totalMinutes = toMinutes(payloadIn.totalMinutes);
+    if (!(totalMinutes >= 1)) totalMinutes = allocatedSum;
+    if (allocatedSum !== totalMinutes) {
+      return res.status(400).json({
+        error: { message: `Allocated minutes (${allocatedSum}) must equal total time (${totalMinutes})` }
+      });
+    }
+    if (!payloadIn.attestation && !req.body?.attestation) {
+      return res.status(400).json({ error: { message: 'Attestation is required' } });
+    }
+
+    const prevPayload = claim.payload && typeof claim.payload === 'object' ? claim.payload : {};
+    const history = Array.isArray(prevPayload.editHistory) ? [...prevPayload.editHistory] : [];
+    history.push({
+      at: new Date().toISOString(),
+      reason: editReason,
+      byUserId: userId,
+      fromStatus: s
+    });
+
+    const nextPayload = {
+      ...prevPayload,
+      ...payloadIn,
+      allocations: cleaned,
+      totalMinutes,
+      attestation: true,
+      bucket: 'indirect',
+      editReason,
+      editHistory: history.slice(-20)
+    };
+
+    let claimDate = claim.claim_date;
+    if (req.body?.claimDate) {
+      const ymd = String(req.body.claimDate).slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) claimDate = ymd;
+    }
+
+    const updated = await PayrollTimeClaim.resubmit({
+      id,
+      claimDate,
+      payload: nextPayload
+    });
+    res.json({ claim: updated });
   } catch (e) {
     next(e);
   }
@@ -17104,7 +17316,7 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
     return null;
   }
 
-  if (type === 'meeting_training' || type === 'mentor_cpa_meeting') {
+  if (type === 'meeting_training' || type === 'mentor_cpa_meeting' || type === 'indirect_time') {
     const mins = Number(payload?.totalMinutes || 0);
     if (Number.isFinite(mins) && mins > 0 && indirectRate > 0) {
       return Math.round(((mins / 60) * indirectRate) * 100) / 100;
@@ -17188,12 +17400,22 @@ export const patchTimeClaim = async (req, res, next) => {
 
       const bucketRaw = String(body.bucket || body.category || 'indirect').trim().toLowerCase();
       const bucket = bucketRaw === 'direct' ? 'direct' : 'indirect';
-      const creditsHoursRaw =
+      let creditsHoursRaw =
         body.creditsHours === null || body.creditsHours === undefined || body.creditsHours === ''
           ? (body.credits_hours === null || body.credits_hours === undefined || body.credits_hours === '' ? null : Number(body.credits_hours))
           : Number(body.creditsHours);
       if (creditsHoursRaw !== null && (!Number.isFinite(creditsHoursRaw) || creditsHoursRaw < 0)) {
         return res.status(400).json({ error: { message: 'creditsHours must be a non-negative number (or blank)' } });
+      }
+      // Default hours from totalMinutes for meeting / hourly indirect logs when admin leaves blank.
+      if (creditsHoursRaw === null) {
+        const claimTypeKey = String(claim.claim_type || '').toLowerCase();
+        if (claimTypeKey === 'indirect_time' || claimTypeKey === 'meeting_training' || claimTypeKey === 'mentor_cpa_meeting') {
+          const mins = Number(claim?.payload?.totalMinutes || 0);
+          if (Number.isFinite(mins) && mins > 0) {
+            creditsHoursRaw = Math.round((mins / 60) * 100) / 100;
+          }
+        }
       }
 
       // Applied amount is dollar-based.

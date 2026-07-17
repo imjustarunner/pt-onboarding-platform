@@ -184,13 +184,20 @@ export const getUserPreferences = async (req, res, next) => {
     const preferences = await UserPreferences.findByUserId(parseInt(userId));
     const targetUser = await User.findById(parseInt(userId));
     const agencies = await User.getAgencies(parseInt(userId));
-    const agencyId = agencies?.[0]?.id || null;
     const AgencyNotificationPreferences = (await import('../models/AgencyNotificationPreferences.model.js')).default;
-    const agencyPrefs = agencyId ? await AgencyNotificationPreferences.getByAgencyId(agencyId) : null;
-    const agencyDefaults = agencyPrefs?.defaults || null;
-    // No agency defaults row → staff can edit (match update path). Only lock when explicitly disabled.
-    const agencyUserEditable = agencyPrefs ? agencyPrefs.userEditable !== false : true;
-    const agencyEnforceDefaults = agencyPrefs ? agencyPrefs.enforceDefaults === true : false;
+    const agencyPolicies = (await Promise.all(
+      (agencies || []).map(async (agency) => ({
+        agencyId: Number(agency.id),
+        agencyName: agency.name || null,
+        policy: await AgencyNotificationPreferences.getByAgencyId(agency.id)
+      }))
+    )).filter((item) => item.policy);
+    // Account preferences are global. Agency policies are returned separately and are
+    // applied at notification-delivery time instead of pretending the first agency wins.
+    const agencyDefaults = agencies.length === 1 ? agencyPolicies[0]?.policy?.defaults || null : null;
+    const agencyUserEditable = agencyPolicies.every((item) => item.policy.userEditable !== false);
+    const agencyEnforceDefaults = agencyPolicies.some((item) => item.policy.enforceDefaults === true);
+    const agencyId = agencies?.[0]?.id || null;
     
     const { platformMax, agencyMax } = await getSessionLockMaxMinutes(agencyId);
 
@@ -213,7 +220,12 @@ export const getUserPreferences = async (req, res, next) => {
         agencyNotificationSettings: {
           defaults: agencyDefaults || null,
           userEditable: agencyUserEditable,
-          enforceDefaults: agencyEnforceDefaults
+          enforceDefaults: agencyEnforceDefaults,
+          policies: agencyPolicies.map((item) => ({
+            agencyId: item.agencyId,
+            agencyName: item.agencyName,
+            ...item.policy
+          }))
         }
       });
     }
@@ -239,7 +251,12 @@ export const getUserPreferences = async (req, res, next) => {
       agencyNotificationSettings: {
         defaults: agencyDefaults || null,
         userEditable: agencyUserEditable,
-        enforceDefaults: agencyEnforceDefaults
+        enforceDefaults: agencyEnforceDefaults,
+        policies: agencyPolicies.map((item) => ({
+          agencyId: item.agencyId,
+          agencyName: item.agencyName,
+          ...item.policy
+        }))
       }
     });
   } catch (error) {
@@ -384,12 +401,11 @@ export const updateUserPreferences = async (req, res, next) => {
     }
 
     const agencies = await User.getAgencies(parseInt(userId));
-    const agencyId = agencies?.[0]?.id || null;
     const AgencyNotificationPreferences = (await import('../models/AgencyNotificationPreferences.model.js')).default;
-    const agencyPrefs = agencyId ? await AgencyNotificationPreferences.getByAgencyId(agencyId) : null;
-    const agencyDefaults = agencyPrefs?.defaults || null;
-    const agencyUserEditable = agencyPrefs?.userEditable !== false;
-    const agencyEnforceDefaults = agencyPrefs?.enforceDefaults === true;
+    const agencyPolicies = (await Promise.all(
+      (agencies || []).map((agency) => AgencyNotificationPreferences.getByAgencyId(agency.id))
+    )).filter(Boolean);
+    const agencyUserEditable = agencyPolicies.every((policy) => policy.userEditable !== false);
 
     // Enforce safety-required notification category settings (if client sends them)
     // Note: the UI labels these as “Required – cannot be disabled”.
@@ -421,17 +437,7 @@ export const updateUserPreferences = async (req, res, next) => {
     if (updates.notification_categories && typeof updates.notification_categories === 'object') {
       if (!agencyUserEditable && !isAdmin) {
         delete updates.notification_categories;
-      } else if (agencyEnforceDefaults) {
-        updates.notification_categories = {
-          ...buildDefaultCategories(),
-          ...(agencyDefaults || {})
-        };
       }
-    } else if (agencyEnforceDefaults) {
-      updates.notification_categories = {
-        ...buildDefaultCategories(),
-        ...(agencyDefaults || {})
-      };
     }
 
     const preferences = await UserPreferences.update(parseInt(userId), updates);

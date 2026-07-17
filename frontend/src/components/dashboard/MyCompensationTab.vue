@@ -38,6 +38,38 @@
         If anything looks wrong, payroll admins can update your rates for a specific pay period.
       </div>
     </div>
+
+    <div v-if="healthBenefits.show" class="card health-card">
+      <div class="sheet-title">Health insurance — employer contribution</div>
+      <p class="muted" style="margin-top: 4px;">
+        When enrolled at Tier 2 (25%) or Tier 3 (50%), your plan premium drives the employer share each pay period.
+      </p>
+      <div class="grid" style="margin-top: 12px;">
+        <div class="field">
+          <div class="label">Enrollment</div>
+          <div class="value">{{ healthBenefits.enrolled ? 'Enrolled' : 'Not enrolled' }}</div>
+        </div>
+        <div class="field">
+          <div class="label">Plan premium (monthly)</div>
+          <div class="value">{{ healthBenefits.premiumLabel }}</div>
+        </div>
+        <div class="field">
+          <div class="label">Employer share</div>
+          <div class="value">{{ healthBenefits.shareLabel }}</div>
+        </div>
+        <div class="field">
+          <div class="label">Per pay period</div>
+          <div class="value">{{ healthBenefits.perPeriodLabel }}</div>
+        </div>
+        <div class="field">
+          <div class="label">YTD employer contribution</div>
+          <div class="value">{{ healthBenefits.ytdLabel }}</div>
+        </div>
+      </div>
+      <div class="hint">
+        Premium and enrollment are managed under My Benefits. Contact HR/payroll if figures look incorrect.
+      </div>
+    </div>
   </div>
 </template>
 
@@ -46,6 +78,12 @@ import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import {
+  parseBenefitsEnrollment,
+  healthEmployerSharePct,
+  healthEmployerPerPayPeriod,
+  estimateHealthEmployerYtd
+} from '../../utils/benefitsEnrollment.js';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -59,6 +97,8 @@ const loading = ref(false);
 const error = ref('');
 const data = ref(null);
 const otherRateTitles = ref({ title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' });
+const benefitsEnrollment = ref(null);
+const currentTierLevel = ref(0);
 
 const rateCard = computed(() => data.value?.rateCard || null);
 const perCodeRates = computed(() => data.value?.perCodeRates || []);
@@ -109,6 +149,30 @@ const fullRateRows = computed(() => {
 
 const visibleRateRows = computed(() => (fullRateRows.value || []).filter((r) => r.rateAmount !== null && r.visible));
 
+const healthBenefits = computed(() => {
+  const en = parseBenefitsEnrollment(benefitsEnrollment.value);
+  const health = en.health_insurance || {};
+  const tier = currentTierLevel.value;
+  const enrolled = !!health.enrolled && tier >= 2;
+  const share = healthEmployerSharePct(tier);
+  const per = enrolled ? healthEmployerPerPayPeriod(health.premiumMonthly, tier) : null;
+  const estimated = enrolled
+    ? estimateHealthEmployerYtd(health.premiumMonthly, tier, health.enrolledAt)
+    : 0;
+  const recorded = en.healthEmployerContributionYtd;
+  const ytd = recorded != null ? recorded : estimated;
+  return {
+    show: true,
+    enrolled,
+    premiumLabel: health.premiumMonthly != null ? fmtMoney(health.premiumMonthly) : '—',
+    shareLabel: enrolled && share > 0 ? `${Math.round(share * 100)}%` : '—',
+    perPeriodLabel: per != null ? fmtMoney(per) : '—',
+    ytdLabel: enrolled
+      ? `${fmtMoney(ytd)}${recorded == null ? ' (est.)' : ''}`
+      : '—'
+  };
+});
+
 const load = async () => {
   if (!agencyId.value) return;
   try {
@@ -125,6 +189,22 @@ const load = async () => {
       };
     } catch {
       otherRateTitles.value = { title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' };
+    }
+    try {
+      const me = await api.get('/users/me', { skipGlobalLoading: true });
+      benefitsEnrollment.value = me.data?.benefitsEnrollment ?? me.data?.benefits_enrollment_json ?? null;
+    } catch {
+      benefitsEnrollment.value = null;
+    }
+    try {
+      const tierResp = await api.get('/payroll/me/current-tier', {
+        params: { agencyId: agencyId.value },
+        skipGlobalLoading: true
+      });
+      const t = tierResp.data?.tier || null;
+      currentTierLevel.value = Number(t?.tierLevel ?? t?.tier_level ?? 0) || 0;
+    } catch {
+      currentTierLevel.value = 0;
     }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load compensation';
@@ -160,5 +240,9 @@ onMounted(load);
 .rate-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: #fff; }
 .rate-code { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rate-value { font-variant-numeric: tabular-nums; text-align: right; }
+.health-card { margin-top: 14px; }
+@media (max-width: 720px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+}
 </style>
 

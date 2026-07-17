@@ -10,6 +10,18 @@ function parseJsonMaybe(v) {
   }
 }
 
+function fromRow(r) {
+  if (!r) return null;
+  return {
+    agencyId: Number(r.agency_id),
+    defaults: parseJsonMaybe(r.defaults_json) || null,
+    userEditable: r.user_editable === null || r.user_editable === undefined ? true : !!r.user_editable,
+    enforceDefaults: r.enforce_defaults === true || r.enforce_defaults === 1,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  };
+}
+
 class AgencyNotificationPreferences {
   static async getByAgencyId(agencyId) {
     const [rows] = await pool.execute(
@@ -19,16 +31,19 @@ class AgencyNotificationPreferences {
        LIMIT 1`,
       [agencyId]
     );
-    const r = rows?.[0] || null;
-    if (!r) return null;
-    return {
-      agencyId: r.agency_id,
-      defaults: parseJsonMaybe(r.defaults_json) || null,
-      userEditable: r.user_editable === null || r.user_editable === undefined ? true : !!r.user_editable,
-      enforceDefaults: r.enforce_defaults === true || r.enforce_defaults === 1,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at
-    };
+    return fromRow(rows?.[0]);
+  }
+
+  static async listByAgencyIds(agencyIds) {
+    const ids = [...new Set((agencyIds || []).map(Number).filter(Boolean))];
+    if (!ids.length) return [];
+    const [rows] = await pool.execute(
+      `SELECT agency_id, defaults_json, user_editable, enforce_defaults, created_at, updated_at
+       FROM agency_notification_preferences
+       WHERE agency_id IN (${ids.map(() => '?').join(',')})`,
+      ids
+    );
+    return (rows || []).map(fromRow);
   }
 
   static async upsert({ agencyId, defaults = null, userEditable = true, enforceDefaults = false }) {

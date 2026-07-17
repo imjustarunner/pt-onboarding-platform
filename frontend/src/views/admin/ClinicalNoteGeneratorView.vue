@@ -23,6 +23,16 @@
       </button>
     </header>
 
+    <div v-if="fromIndirectSession" class="na-indirect-banner" role="status">
+      <span>
+        You’re still clocked in on Log Time — Note Aid (Tools &amp; Aids → AI Tools) counts on that session.
+        Use the clock chip or Back to Log Time when you’re done.
+      </span>
+      <button type="button" class="na-indirect-back" @click="returnToLogTime">
+        Back to Log Time
+      </button>
+    </div>
+
     <div v-if="!canUseTool" class="na-shell na-shell--empty">
       <div class="na-empty-card">
         <strong>Not available</strong>
@@ -366,21 +376,28 @@
 
           <div class="na-soap-list">
             <div v-for="panel in displayPanels" :key="panel.id" class="na-soap-card">
-              <button type="button" class="na-soap-header" @click="togglePanelCollapsed(panel.id)">
-                <span class="na-soap-title">
-                  <span v-if="panel.letter" class="na-soap-letter">{{ panel.letter }}</span>
-                  {{ panel.title }}
-                </span>
-                <span class="na-soap-actions" @click.stop>
+              <div class="na-soap-header">
+                <button type="button" class="na-soap-title-btn" @click="togglePanelCollapsed(panel.id)">
+                  <span class="na-soap-title">
+                    <span v-if="panel.letter" class="na-soap-letter">{{ panel.letter }}</span>
+                    {{ panel.title }}
+                  </span>
+                  <span class="na-chevron" :class="{ open: !isPanelCollapsed(panel.id) }">▾</span>
+                </button>
+                <span class="na-soap-actions">
                   <button type="button" class="na-mini-btn" @click="toggleSectionEdit(panel.id)">
                     {{ sectionEditing[panel.id] ? 'Done' : 'Edit' }}
                   </button>
-                  <button type="button" class="na-mini-btn" :disabled="!panelText(panel)" @click="copyText(panelText(panel))">
-                    Copy
+                  <button
+                    type="button"
+                    class="na-mini-btn"
+                    :disabled="!panelText(panel)"
+                    @click="copySectionContent(panel)"
+                  >
+                    {{ copiedSectionId === panel.id ? 'Copied' : 'Copy' }}
                   </button>
-                  <span class="na-chevron" :class="{ open: !isPanelCollapsed(panel.id) }">▾</span>
                 </span>
-              </button>
+              </div>
               <div v-show="!isPanelCollapsed(panel.id)" class="na-soap-body">
                 <textarea
                   v-if="sectionEditing[panel.id]"
@@ -390,16 +407,6 @@
                 />
                 <pre v-else>{{ panelText(panel) }}</pre>
               </div>
-            </div>
-          </div>
-
-          <div class="na-interventions">
-            <h3>Intervention Types Used</h3>
-            <div class="na-intervention-grid">
-              <label v-for="opt in interventionOptions" :key="opt" class="na-check">
-                <input v-model="selectedInterventionTypes" type="checkbox" :value="opt" />
-                <span>{{ opt }}</span>
-              </label>
             </div>
           </div>
 
@@ -495,29 +502,38 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import ClinicalArtifactRetentionPanel from '../../components/clinical/ClinicalArtifactRetentionPanel.vue';
 import {
-  INTERVENTION_TYPE_OPTIONS,
   buildDisplaySections,
   extractSections,
   formatDraftListDate,
   formatDraftListTime,
   formatFullNoteCopy,
-  inferInterventionTypes,
   todayIsoDate
 } from '../../utils/noteAidUiHelpers';
+import { ensureHourlySessionForNoteAid } from '../../utils/noteAidIndirectSession.js';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const route = useRoute();
+const router = useRouter();
 
 const orgTo = (path) => {
   const slug = route.params.organizationSlug;
   if (typeof slug === 'string' && slug) return `/${slug}${path}`;
   return path;
 };
+
+const fromIndirectSession = computed(() => {
+  const v = String(route.query?.fromIndirectSession || route.query?.from_indirect_session || '').trim();
+  return v === '1' || v.toLowerCase() === 'true';
+});
+
+function returnToLogTime() {
+  router.push({ path: orgTo('/dashboard'), query: { tab: 'log_time' } }).catch(() => {});
+}
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
 const bookingContext = computed(() => {
@@ -611,8 +627,6 @@ const inputMode = ref('type'); // type | speak
 const sidebarTab = ref('active'); // active | archived
 const draftSearch = ref('');
 const openDateGroups = ref({});
-const selectedInterventionTypes = ref([]);
-const interventionOptions = INTERVENTION_TYPE_OPTIONS;
 const collapseAllSections = ref(false);
 const collapsedPanels = reactive({});
 const archivingDraft = ref(false);
@@ -690,6 +704,8 @@ const generating = ref(false);
 const generateError = ref('');
 const outputObj = ref(null);
 const copied = ref(false);
+const copiedSectionId = ref('');
+let copiedSectionTimer = null;
 const revisionInstruction = ref('');
 const approvalMessage = ref('');
 const approvalError = ref('');
@@ -1224,12 +1240,6 @@ watch(outputObj, () => {
   Object.keys(sectionOverrides).forEach((k) => delete sectionOverrides[k]);
   Object.keys(sectionEditing).forEach((k) => delete sectionEditing[k]);
   Object.keys(collapsedPanels).forEach((k) => delete collapsedPanels[k]);
-  const sections = extractSections(outputObj.value);
-  const interventionsText =
-    sections.Interventions ||
-    sections['Interventions Used'] ||
-    '';
-  selectedInterventionTypes.value = inferInterventionTypes(interventionsText);
   if (outputObj.value?.meta?.includeInteractiveComplexity != null) {
     includeInteractiveComplexity.value = !!outputObj.value.meta.includeInteractiveComplexity;
   }
@@ -1299,9 +1309,22 @@ const copyText = async (text) => {
     }
     copied.value = true;
     window.setTimeout(() => (copied.value = false), 1500);
+    return true;
   } catch {
-    // ignore
+    return false;
   }
+};
+
+/** Copy section body only (not the S/O/I/P title). */
+const copySectionContent = async (panel) => {
+  const ok = await copyText(panelText(panel));
+  if (!ok) return;
+  copiedSectionId.value = panel?.id || '';
+  if (copiedSectionTimer) window.clearTimeout(copiedSectionTimer);
+  copiedSectionTimer = window.setTimeout(() => {
+    copiedSectionId.value = '';
+    copiedSectionTimer = null;
+  }, 1500);
 };
 
 const loadContext = async () => {
@@ -1946,7 +1969,6 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
     recordSessionIntentHandled.value = false;
     currentDraftArchivedAt.value = null;
     archiveMessage.value = '';
-    selectedInterventionTypes.value = [];
     includeInteractiveComplexity.value = true;
   }
 
@@ -1983,7 +2005,6 @@ const startNewNote = () => {
   inputMode.value = 'type';
   outputObj.value = null;
   revisionInstruction.value = '';
-  selectedInterventionTypes.value = [];
   clearAudio();
   transcriptSource.value = '';
   liveTranscript.value = '';
@@ -2068,8 +2089,7 @@ const copyFullNote = async () => {
     dateOfService: dateOfService.value,
     dateWritten: effectiveCreatedDate.value,
     noteTypeLabel: noteTypeDisplayLabel.value,
-    includeInteractiveComplexity: includeInteractiveComplexity.value,
-    interventionTypes: selectedInterventionTypes.value
+    includeInteractiveComplexity: includeInteractiveComplexity.value
   });
   await copyText(text);
 };
@@ -2143,6 +2163,17 @@ onMounted(async () => {
   if (String(route.query?.new || '') === '1' || String(route.query?.newNote || '') === '1') {
     startNewNote();
   }
+
+  // Direct entry (bookmark / quick nav): hourly workers not clocked in get offered a Log Time start.
+  // Launchers (Tools & Aids / nav) already prompt; skipPrompt when already linked to a session.
+  if (!fromIndirectSession.value) {
+    const { fromIndirectSession: linked } = await ensureHourlySessionForNoteAid();
+    if (linked) {
+      const nextQuery = { ...route.query, fromIndirectSession: '1', launchIntent: 'note' };
+      router.replace({ query: nextQuery }).catch(() => {});
+    }
+  }
+
   if (canUseTool.value) {
     await bootstrapWorkspace();
   }
@@ -2239,6 +2270,32 @@ onBeforeUnmount(() => {
   top: 0;
   z-index: 5;
 }
+
+.na-indirect-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 10px 20px;
+  background: #ecfdf5;
+  border-bottom: 1px solid #bbf7d0;
+  color: #14532d;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+.na-indirect-back {
+  border: 1px solid #166534;
+  background: #fff;
+  color: #14532d;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.na-indirect-back:hover { background: #f0fdf4; }
 
 .na-brand {
   display: flex;
@@ -2785,8 +2842,7 @@ onBeforeUnmount(() => {
 }
 
 .na-output-head h2,
-.na-output--empty h2,
-.na-interventions h3 {
+.na-output--empty h2 {
   margin: 0 0 6px;
   font-size: 1.15rem;
 }
@@ -2850,10 +2906,22 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 12px 14px;
   background: #f8fafc;
+}
+
+.na-soap-title-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
   border: none;
+  background: transparent;
   cursor: pointer;
   text-align: left;
   font: inherit;
+  color: inherit;
 }
 
 .na-soap-title {
@@ -2909,16 +2977,6 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   font-family: inherit;
   line-height: 1.5;
-}
-
-.na-interventions {
-  margin: 16px 0 12px;
-}
-
-.na-intervention-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px 12px;
 }
 
 .na-output-actions {

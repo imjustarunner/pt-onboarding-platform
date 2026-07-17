@@ -15,6 +15,39 @@ function parseJsonMaybe(v) {
 }
 
 class NotificationService {
+  static async createFirstLoginOnce({ user, agencyId, type, title, message }) {
+    const connection = await pool.getConnection();
+    const lockName = `notification:first-login:${Number(user.id)}`;
+    let lockAcquired = false;
+    try {
+      const [lockRows] = await connection.query('SELECT GET_LOCK(?, 5) AS acquired', [lockName]);
+      lockAcquired = Number(lockRows?.[0]?.acquired) === 1;
+      if (!lockAcquired) throw new Error(`Timed out acquiring first-login notification lock for user ${user.id}`);
+      const [existing] = await connection.execute(
+        `SELECT id FROM notifications
+         WHERE type IN ('first_login', 'first_login_pending')
+           AND COALESCE(related_entity_id, user_id) = ?
+         LIMIT 1`,
+        [Number(user.id)]
+      );
+      if (existing?.[0]) return null;
+      return Notification.create({
+        type,
+        severity: 'info',
+        title,
+        message,
+        userId: user.id,
+        agencyId,
+        relatedEntityType: 'user',
+        relatedEntityId: user.id,
+        actorSource: 'System'
+      });
+    } finally {
+      if (lockAcquired) await connection.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => {});
+      connection.release();
+    }
+  }
+
   /**
    * Check for expired statuses (completed/terminated > 7 days)
    */
@@ -662,34 +695,17 @@ class NotificationService {
    */
   static async createFirstLoginPendingNotification(userId, agencyId) {
     const user = await User.findById(userId);
-    if (!user || user.status !== 'pending') {
+    const status = String(user?.status || '').trim().toUpperCase();
+    if (!user || !['PENDING', 'PREHIRE_OPEN', 'PENDING_SETUP'].includes(status)) {
       return null;
     }
 
-    // Check if notification already exists
-    const existing = await Notification.findByAgency(agencyId, {
+    return this.createFirstLoginOnce({
+      user,
+      agencyId,
       type: 'first_login_pending',
-      isResolved: false
-    });
-    
-    const alreadyNotified = existing.some(n => 
-      n.user_id === userId && n.related_entity_id === userId
-    );
-
-    if (alreadyNotified) {
-      return null;
-    }
-
-    return await Notification.create({
-      type: 'first_login_pending',
-      severity: 'info',
       title: `First Login - Pending User`,
       message: `Pending user ${user.first_name} ${user.last_name} (${user.email}) has logged in for the first time.`,
-      userId: userId,
-      agencyId: agencyId,
-      relatedEntityType: 'user',
-      relatedEntityId: userId,
-      actorSource: 'System'
     });
   }
 
@@ -698,34 +714,17 @@ class NotificationService {
    */
   static async createFirstLoginNotification(userId, agencyId) {
     const user = await User.findById(userId);
-    if (!user || user.status === 'pending') {
+    const status = String(user?.status || '').trim().toUpperCase();
+    if (!user || ['PENDING', 'PREHIRE_OPEN', 'PENDING_SETUP'].includes(status)) {
       return null;
     }
 
-    // Check if notification already exists
-    const existing = await Notification.findByAgency(agencyId, {
+    return this.createFirstLoginOnce({
+      user,
+      agencyId,
       type: 'first_login',
-      isResolved: false
-    });
-    
-    const alreadyNotified = existing.some(n => 
-      n.user_id === userId && n.related_entity_id === userId
-    );
-
-    if (alreadyNotified) {
-      return null;
-    }
-
-    return await Notification.create({
-      type: 'first_login',
-      severity: 'info',
       title: `First Login`,
       message: `User ${user.first_name} ${user.last_name} (${user.email}) has logged in for the first time.`,
-      userId: userId,
-      agencyId: agencyId,
-      relatedEntityType: 'user',
-      relatedEntityId: userId,
-      actorSource: 'System'
     });
   }
 
@@ -771,13 +770,51 @@ class NotificationService {
    */
   static async getMainAgencyIdForUser(userId) {
     try {
-      const agencies = await User.getAgencies(userId);
-      const main = (agencies || []).find(
-        (a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency'
+      // Resolve memberships upward to the top tenant. Child organizations can
+      // themselves use organization_type='agency', so type alone is insufficient.
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT COALESCE(oa.agency_id, axs.agency_id, a.id) AS tenant_id,
+                CASE WHEN oa.organization_id IS NULL AND axs.school_organization_id IS NULL THEN 0 ELSE 1 END AS inherited_depth
+         FROM user_agencies ua
+         JOIN agencies a ON a.id = ua.agency_id
+         LEFT JOIN organization_affiliations oa
+           ON oa.organization_id = a.id AND oa.is_active = TRUE
+         LEFT JOIN agency_schools axs
+           ON axs.school_organization_id = a.id AND axs.is_active = TRUE
+         WHERE ua.user_id = ?
+         ORDER BY inherited_depth ASC, tenant_id ASC
+         LIMIT 1`,
+        [Number(userId)]
       );
-      return main?.id ? Number(main.id) : agencies?.[0]?.id ? Number(agencies[0].id) : null;
-    } catch {
+      if (rows?.[0]?.tenant_id) return Number(rows[0].tenant_id);
       return null;
+    } catch {
+      // Backward-compatible fallback for databases without affiliation tables.
+      const agencies = await User.getAgencies(userId).catch(() => []);
+      const childTypes = new Set(['school', 'program', 'learning', 'affiliation', 'clubwebapp']);
+      const tenant = (agencies || []).find((agency) => !childTypes.has(String(agency?.organization_type || '').toLowerCase()));
+      return tenant?.id ? Number(tenant.id) : agencies?.[0]?.id ? Number(agencies[0].id) : null;
+    }
+  }
+
+  static async getTopTenantIdForOrganization(organizationId) {
+    const id = Number(organizationId);
+    if (!id) return null;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(oa.agency_id, axs.agency_id, a.id) AS tenant_id
+         FROM agencies a
+         LEFT JOIN organization_affiliations oa
+           ON oa.organization_id = a.id AND oa.is_active = TRUE
+         LEFT JOIN agency_schools axs
+           ON axs.school_organization_id = a.id AND axs.is_active = TRUE
+         WHERE a.id = ?
+         LIMIT 1`,
+        [id]
+      );
+      return rows?.[0]?.tenant_id ? Number(rows[0].tenant_id) : id;
+    } catch {
+      return id;
     }
   }
 

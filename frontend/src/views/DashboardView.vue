@@ -1,5 +1,5 @@
 <template>
-  <div class="container" :class="{ 'container-wide': activeTab === 'my_schedule' || activeTab === 'overview' }">
+  <div class="container" :class="{ 'container-wide': activeTab === 'my_schedule' || activeTab === 'overview' || activeTab === 'log_time' }">
     <!-- Dashboard Header with Logo (shown in preview mode) -->
     <div v-if="previewMode" class="dashboard-header-preview">
       <div class="header-content">
@@ -275,6 +275,10 @@
           :key="card.id"
           class="rail-card-row"
           :class="{ 'rail-card-row--nested': !!card.nestedUnder }"
+          @mouseenter="onSubmitRailRowEnter(card)"
+          @mouseleave="onSubmitRailRowLeave(card)"
+          @focusin="onSubmitRailRowEnter(card)"
+          @focusout="onSubmitRailRowLeave(card)"
         >
           <button
             type="button"
@@ -287,12 +291,13 @@
               'rail-card-submit': card.id === 'submit',
               'rail-card-pending-alert': card.id === 'clients' && providerPendingClientsCount > 0,
               'rail-card--nest': card.kind === 'nest',
-              'rail-card--nested': !!card.nestedUnder
+              'rail-card--nested': !!card.nestedUnder,
+              'rail-card--has-flyout': card.id === 'submit' && isHourlyWorkerUser
             }"
             :aria-current="isRailCardActive(card) ? 'page' : undefined"
-            :aria-expanded="card.kind === 'nest' ? (isNestExpanded(card.id) ? 'true' : 'false') : undefined"
+            :aria-expanded="card.kind === 'nest' ? (isNestExpanded(card.id) ? 'true' : 'false') : (card.id === 'submit' && isHourlyWorkerUser ? showSubmitLogTimeChild : undefined)"
             :disabled="previewMode"
-            :title="card.label"
+            :title="card.id === 'submit' && isHourlyWorkerUser ? 'Submit — hover for Log Time' : card.label"
             :data-label="card.label"
             @click="handleCardClick(card)"
           >
@@ -324,6 +329,11 @@
               <span v-if="card.kind === 'nest'" class="rail-card-cta" aria-hidden="true">
                 {{ isNestExpanded(card.id) ? '▾' : '▸' }}
               </span>
+              <span
+                v-else-if="card.id === 'submit' && isHourlyWorkerUser"
+                class="rail-card-cta"
+                aria-hidden="true"
+              >{{ showSubmitLogTimeChild ? '▾' : '▸' }}</span>
               <span v-else class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
             </div>
           </button>
@@ -382,7 +392,8 @@
             'card-content--sstc-account': isSummitStatsSurface && activeTab === 'my',
             'card-content--account-hub': activeTab === 'my',
             'card-content--documents': activeTab === 'documents',
-            'card-content--overview': activeTab === 'overview'
+            'card-content--overview': activeTab === 'overview',
+            'card-content--log-time': activeTab === 'log_time'
           }"
         >
           <div
@@ -398,6 +409,7 @@
               :show-payroll="overviewFlags.showPayroll"
               :show-notes="overviewFlags.showNotes"
               :show-claims="overviewFlags.showClaims"
+              :show-log-time="isHourlyWorkerUser"
               :show-supervision="overviewFlags.showSupervision"
               :show-my-supervision="overviewFlags.showMySupervision"
               :show-chats="overviewFlags.showChats"
@@ -413,6 +425,19 @@
               @book-schedule="onOverviewBookSchedule"
               @book-virtual="onOverviewBookVirtual"
             />
+          </div>
+
+          <div
+            v-if="!previewMode && isOnboardingComplete && !isClubContext && isHourlyWorkerUser && activeTab === 'log_time'"
+            class="my-panel my-panel--log-time"
+            data-tour="dash-log-time-panel"
+          >
+            <HourlyIndirectTimeLog
+              v-if="currentAgencyId"
+              :agency-id="currentAgencyId"
+              :enabled="activeTab === 'log_time'"
+            />
+            <div v-else class="hint" style="padding: 16px;">Select an organization to log indirect time.</div>
           </div>
 
           <div v-if="!previewMode && activeTab === PROGRAM_WORKSPACE_TAB && inlineProgramHubState.mode" class="my-panel">
@@ -1114,6 +1139,7 @@ import MomentumListTab from '../components/dashboard/MomentumListTab.vue';
 import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue';
 import { useMomentumListAddon } from '../composables/useMomentumListAddon';
 import DashboardOverviewHome from '../components/dashboard/DashboardOverviewHome.vue';
+import HourlyIndirectTimeLog from '../components/dashboard/HourlyIndirectTimeLog.vue';
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
@@ -1250,8 +1276,13 @@ const inlineProgramHubState = ref({
 function isRailCardActive(card) {
   const id = String(card?.id || '');
   if (!id) return false;
+  // Submit stays highlighted while viewing nested Log Time.
+  if (id === 'submit' && activeTab.value === 'log_time') return true;
   if ((id === 'portals_nest' || id === 'tools_nest') && Array.isArray(card.children)) {
     return card.children.some((c) => isRailCardActive(c));
+  }
+  if (id === 'submit' && Array.isArray(card.children) && card.children.some((c) => isRailCardActive(c))) {
+    return true;
   }
   if (card?.kind === 'link' && card?.to) {
     const path = String(route.path || '');
@@ -1484,6 +1515,12 @@ const canShowBudgetSubmitExpenses = computed(() => {
   if (caps.canAccessBudgetManagement) return true;
   const deptIds = Array.isArray(authStore.user?.departmentAgencyIds) ? authStore.user.departmentAgencyIds : [];
   return currentAgencyId.value && deptIds.includes(Number(currentAgencyId.value));
+});
+
+const isHourlyWorkerUser = computed(() => {
+  const u = authStore.user || {};
+  const raw = u.isHourlyWorker ?? u.is_hourly_worker;
+  return raw === true || raw === 1 || raw === '1';
 });
 
 /** Role / feature gates for Overview landing widgets (mirrors rail card visibility). */
@@ -3442,7 +3479,18 @@ const dashboardCards = computed(() => {
             kind: 'content',
             badgeCount: 0,
             iconUrl: brandingStore.getDashboardCardIconUrl('submit', iconOrg),
-            description: 'Submit mileage, in-school claims, and more.'
+            description: 'Submit mileage, in-school claims, and more.',
+            // Log Time lives under Submit (hover / while Submit is open) to keep the rail short.
+            children: isHourlyWorkerUser.value
+              ? [{
+                  id: 'log_time',
+                  label: 'Log Time',
+                  kind: 'content',
+                  badgeCount: 0,
+                  iconUrl: brandingStore.getDashboardCardIconUrl('submit', iconOrg),
+                  description: 'Clock in/out and submit indirect time for payroll.'
+                }]
+              : []
           });
         }
         if (shiftProgramsEnabledForAgency.value) {
@@ -3793,6 +3841,42 @@ const railCards = computed(() => {
   });
 });
 
+/** Show Log Time under Submit on hover, or while Submit / Log Time is open. */
+const submitLogTimeHover = ref(false);
+let submitLogTimeHoverTimer = null;
+
+function onSubmitRailRowEnter(card) {
+  if (!isHourlyWorkerUser.value) return;
+  const id = String(card?.id || '');
+  const under = String(card?.nestedUnder || '');
+  if (id === 'submit' || id === 'log_time' || under === 'submit') {
+    if (submitLogTimeHoverTimer) {
+      clearTimeout(submitLogTimeHoverTimer);
+      submitLogTimeHoverTimer = null;
+    }
+    submitLogTimeHover.value = true;
+  }
+}
+
+function onSubmitRailRowLeave(card) {
+  const id = String(card?.id || '');
+  const under = String(card?.nestedUnder || '');
+  if (id === 'submit' || id === 'log_time' || under === 'submit') {
+    if (submitLogTimeHoverTimer) clearTimeout(submitLogTimeHoverTimer);
+    submitLogTimeHoverTimer = setTimeout(() => {
+      submitLogTimeHover.value = false;
+      submitLogTimeHoverTimer = null;
+    }, 200);
+  }
+}
+
+const showSubmitLogTimeChild = computed(() => {
+  if (!isHourlyWorkerUser.value) return false;
+  if (submitLogTimeHover.value) return true;
+  const tab = String(activeTab.value || '');
+  return tab === 'submit' || tab === 'log_time';
+});
+
 /** Flatten nest children into the rail when expanded. */
 const railCardsForDisplay = computed(() => {
   const out = [];
@@ -3806,6 +3890,15 @@ const railCardsForDisplay = computed(() => {
     ) {
       for (const child of card.children) {
         out.push({ ...child, nestedUnder: card.id });
+      }
+    } else if (
+      card?.id === 'submit' &&
+      showSubmitLogTimeChild.value &&
+      Array.isArray(card.children) &&
+      card.children.length
+    ) {
+      for (const child of card.children) {
+        out.push({ ...child, nestedUnder: 'submit' });
       }
     }
   }
@@ -3944,11 +4037,17 @@ const handleCardClick = (card) => {
     }
     return;
   }
+  if (card.id === 'log_time') {
+    closeInlineProgramHub();
+    openLogTimeTab();
+    return;
+  }
   if (card.id === 'submit') {
     closeInlineProgramHub();
     submitPanelView.value = 'root';
     activeTab.value = 'submit';
     previousContentTab.value = 'submit';
+    submitLogTimeHover.value = true;
     loadMyAssignedSchools();
     navFn({ query: { ...route.query, tab: 'submit' } });
     return;
@@ -3974,6 +4073,10 @@ const handleCardClick = (card) => {
 const onOverviewNavigate = (tab) => {
   const id = String(tab || '').trim();
   if (!id) return;
+  if (id === 'log_time') {
+    openLogTimeTab();
+    return;
+  }
   if (id === 'payroll') {
     openMyPayrollSection();
     return;
@@ -4059,6 +4162,7 @@ const onOverviewSubmitAction = ({ event, tab } = {}) => {
     else if (ev === 'virtual-hours') openVirtualWorkingHours();
     else if (ev === 'open-time') openTimeClaims();
     else if (ev === 'open-in-school') openInSchoolClaims();
+    else if (ev === 'log-time') openLogTimeTab();
     else submitPanelView.value = 'root';
   });
 };
@@ -4207,6 +4311,7 @@ const submitPanelFlags = computed(() => ({
   budgetExpenses: canShowBudgetSubmitExpenses.value,
   companyCar: Boolean(authStore.user?.companyCarSubmitAccess || authStore.user?.companyCarManageAccess),
   inSchoolGroup: inSchoolEnabled.value && hasAssignedSchools.value,
+  hourlyLogTime: isHourlyWorkerUser.value,
   timeExcess: timeClaimExcessEnabled.value,
   timeCorrection: timeClaimServiceCorrectionEnabled.value,
   hasSchools: hasAssignedSchools.value,
@@ -4217,8 +4322,20 @@ const submitPanelFlags = computed(() => ({
     : 'Submit overtime evaluation details.',
 }));
 
+const openLogTimeTab = () => {
+  closeInlineProgramHub();
+  activeTab.value = 'log_time';
+  previousContentTab.value = 'log_time';
+  selectedRailCardId.value = 'log_time';
+  submitLogTimeHover.value = true;
+  router.replace({ query: { ...route.query, tab: 'log_time' } }).catch(() => {});
+};
+
 const onSubmitPanelAction = (event) => {
   switch (event) {
+    case 'log-time':
+      openLogTimeTab();
+      break;
     case 'mileage':
       openRegularMileageModal();
       break;
@@ -6253,7 +6370,9 @@ h1 {
 }
 
 .card-content.card-content--overview,
-.my-panel.my-panel--overview {
+.my-panel.my-panel--overview,
+.card-content.card-content--log-time,
+.my-panel.my-panel--log-time {
   background: #f3f4f6;
   padding: 16px 18px 24px;
   border: none;

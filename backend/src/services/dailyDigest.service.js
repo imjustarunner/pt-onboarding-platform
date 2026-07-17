@@ -1,6 +1,11 @@
 import pool from '../config/database.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import NotificationGatekeeperService from './notificationGatekeeper.service.js';
+import UserActivityDigestService from './userActivityDigest.service.js';
+import {
+  loadNotificationPreferenceContext,
+  resolveNotificationTypePreference
+} from './notificationPreferences.service.js';
 
 const DEFAULT_DIGEST_TIME = '07:00';
 const WINDOW_MINUTES = 15;
@@ -68,6 +73,8 @@ const shouldSendNow = ({ digestTime, lastSentAt, now, timezone }) => {
 
 class DailyDigestService {
   static async runDailyDigestTick({ now = new Date() } = {}) {
+    // Materialize the viewer-aware in-app activity summary before optional email digests.
+    await UserActivityDigestService.runTick({ now });
     const [rows] = await pool.execute(
       `SELECT
          up.user_id,
@@ -76,6 +83,7 @@ class DailyDigestService {
          up.timezone,
          u.email,
          u.work_email,
+         u.role,
          (SELECT MIN(ua.agency_id) FROM user_agencies ua WHERE ua.user_id = up.user_id) AS agency_id
        FROM user_preferences up
        JOIN users u ON u.id = up.user_id
@@ -97,8 +105,8 @@ class DailyDigestService {
       if (!shouldSendNow({ digestTime: row.daily_digest_time, lastSentAt, now, timezone: row.timezone })) continue;
 
       const since = lastSentAt || new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const [notifications] = await pool.execute(
-        `SELECT type, title, message, created_at
+      const [rawNotifications] = await pool.execute(
+        `SELECT type, title, message, agency_id, created_at
          FROM notifications
          WHERE user_id = ?
            AND created_at >= ?
@@ -107,7 +115,19 @@ class DailyDigestService {
         [userId, since]
       );
 
-      const count = (notifications || []).length;
+      const agencyIds = [...new Set((rawNotifications || []).map((notification) => Number(notification.agency_id)).filter(Boolean))];
+      const contexts = new Map(await Promise.all(agencyIds.map(async (originAgencyId) => [
+        originAgencyId,
+        await loadNotificationPreferenceContext({ userId, userRole: row.role, agencyId: originAgencyId })
+      ])));
+      const accountContext = await loadNotificationPreferenceContext({ userId, userRole: row.role });
+      const notifications = (rawNotifications || []).filter((notification) => {
+        if (notification.type === 'user_login' || notification.type === 'user_logout') return false;
+        const preferenceContext = contexts.get(Number(notification.agency_id)) || accountContext;
+        const effective = resolveNotificationTypePreference(notification.type, preferenceContext)?.effective;
+        return effective?.digest === true && effective?.email === true;
+      });
+      const count = notifications.length;
       const byType = new Map();
       for (const n of notifications || []) {
         const key = String(n.type || '').trim() || 'Other';

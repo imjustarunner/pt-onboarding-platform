@@ -88,17 +88,12 @@ export const useNotificationStore = defineStore('notifications', () => {
 
   const markAsRead = async (notificationId) => {
     try {
-      await api.put(`/notifications/${notificationId}/read`);
-      
-      // Update local state - set muted_until to 48 hours from now
+      await api.patch(`/notifications/${notificationId}/state`, { read: true });
       const notification = notifications.value.find(n => n.id === notificationId);
       if (notification) {
-        const mutedUntil = new Date();
-        mutedUntil.setHours(mutedUntil.getHours() + 48);
-        
         notification.is_read = true;
         notification.read_at = new Date().toISOString();
-        notification.muted_until = mutedUntil.toISOString();
+        notification.muted_until = null;
         
         // Update count
         if (counts.value[notification.agency_id] > 0) {
@@ -174,10 +169,6 @@ export const useNotificationStore = defineStore('notifications', () => {
     try {
       await api.put('/notifications/read-all', { agencyId, filters });
       
-      // Update local state - set muted_until to 48 hours from now
-      const mutedUntil = new Date();
-      mutedUntil.setHours(mutedUntil.getHours() + 48);
-      
       notifications.value.forEach(notification => {
         let shouldUpdate = notification.agency_id === agencyId && !notification.is_read;
         
@@ -191,7 +182,7 @@ export const useNotificationStore = defineStore('notifications', () => {
         if (shouldUpdate) {
           notification.is_read = true;
           notification.read_at = new Date().toISOString();
-          notification.muted_until = mutedUntil.toISOString();
+          notification.muted_until = null;
         }
       });
       
@@ -252,6 +243,19 @@ export const useNotificationStore = defineStore('notifications', () => {
     }
   };
 
+  const fetchUpdates = async (afterId = 0, initialize = false) => {
+    try {
+      const response = await api.get('/notifications/updates', {
+        params: { afterId: Number(afterId || 0), ...(initialize ? { initialize: 1 } : {}) },
+        skipGlobalLoading: true
+      });
+      return response.data || { items: [], unreadCount: unreadCount.value, latestId: Number(afterId || 0) };
+    } catch (error) {
+      console.error('Error fetching notification updates:', error);
+      return { items: [], unreadCount: unreadCount.value, latestId: Number(afterId || 0) };
+    }
+  };
+
   return {
     notifications,
     counts,
@@ -271,6 +275,7 @@ export const useNotificationStore = defineStore('notifications', () => {
     setFollowUp,
     setSelectedAgency,
     clearNotifications,
-    fetchLatestNotifications
+    fetchLatestNotifications,
+    fetchUpdates
   };
 });

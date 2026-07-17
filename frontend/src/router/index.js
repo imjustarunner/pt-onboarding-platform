@@ -1905,7 +1905,10 @@ const routes = [
   {
     path: '/:organizationSlug/admin/notifications',
     name: 'OrganizationNotifications',
-    component: () => import('../views/admin/NotificationsView.vue'),
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/notifications`,
+      query: { ...to.query, scope: 'managed' }
+    }),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'school_staff', 'club_manager'], organizationSlug: true }
   },
   {
@@ -2043,7 +2046,10 @@ const routes = [
   {
     path: '/:organizationSlug/notifications/team',
     name: 'OrganizationTeamNotifications',
-    component: () => import('../views/SupervisorNotificationsView.vue'),
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/notifications`,
+      query: { ...to.query, scope: 'team' }
+    }),
     meta: { requiresAuth: true, requiresRole: 'supervisor_or_cpa', organizationSlug: true }
   },
   {
@@ -2826,7 +2832,7 @@ const routes = [
   {
     path: '/admin/notifications',
     name: 'Notifications',
-    component: () => import('../views/admin/NotificationsView.vue'),
+    redirect: (to) => ({ path: '/notifications', query: { ...to.query, scope: 'managed' } }),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'school_staff'] }
   },
   {
@@ -2946,7 +2952,7 @@ const routes = [
   {
     path: '/notifications/team',
     name: 'TeamNotifications',
-    component: () => import('../views/SupervisorNotificationsView.vue'),
+    redirect: (to) => ({ path: '/notifications', query: { ...to.query, scope: 'team' } }),
     meta: { requiresAuth: true, requiresRole: 'supervisor_or_cpa' }
   },
   {

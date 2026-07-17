@@ -831,11 +831,14 @@
                   <div v-if="String(c.status||'').toLowerCase()==='rejected' && c.rejection_reason" class="muted" style="margin-top: 4px;">
                     Rejected: {{ c.rejection_reason }}
                   </div>
+                  <div v-if="String(c.status||'').toLowerCase()==='withdrawn'" class="muted" style="margin-top: 4px;">
+                    Withdrawn — edit and resubmit when ready. Not in payroll review until resubmitted.
+                  </div>
                 </td>
               <td class="right">{{ c.applied_amount ? fmtMoney(c.applied_amount) : '—' }}</td>
                 <td class="right">
                   <button
-                    v-if="['deferred','rejected'].includes(String(c.status||'').toLowerCase())"
+                    v-if="canEditTimeClaim(c)"
                     class="btn btn-secondary btn-sm"
                     type="button"
                     @click="openEditTimeClaim(c)"
@@ -845,11 +848,20 @@
                   </button>
                   <button
                     v-if="['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
-                    class="btn btn-danger btn-sm"
+                    class="btn btn-secondary btn-sm"
                     type="button"
                     @click="withdrawTimeClaim(c)"
+                    style="margin-right: 8px;"
                   >
                     Withdraw
+                  </button>
+                  <button
+                    v-if="canHardDeleteTimeClaim(c)"
+                    class="btn btn-danger btn-sm"
+                    type="button"
+                    @click="hardDeleteTimeClaim(c)"
+                  >
+                    Delete
                   </button>
                 </td>
             </tr>
@@ -2227,6 +2239,14 @@
     </div>
   </div>
   </Teleport>
+
+  <IndirectTimeClaimEditModal
+    :open="showIndirectTimeEditModal"
+    :claim="editingIndirectTimeClaim"
+    :agency-id="agencyId"
+    @close="closeIndirectTimeEditModal"
+    @saved="onIndirectTimeClaimSaved"
+  />
 </template>
 
 <script setup>
@@ -2237,6 +2257,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import PayrollHubPanel from './PayrollHubPanel.vue';
 import PayrollHubSection from './PayrollHubSection.vue';
+import IndirectTimeClaimEditModal from './IndirectTimeClaimEditModal.vue';
 import { computePayrollHubStats, getPayrollActionRequired } from '../../utils/payrollUiHelpers';
 
 const props = defineProps({
@@ -2251,7 +2272,9 @@ const props = defineProps({
   /** When true, open company card expense modal immediately on mount (e.g. from Submit panel). */
   openCompanyCardOnMount: { type: Boolean, default: false },
   /** When set, open the corresponding time claim modal on mount (e.g. from Submit panel): 'meeting' | 'excess' | 'correction' | 'overtime'. */
-  openTimeOnMount: { type: String, default: null }
+  openTimeOnMount: { type: String, default: null },
+  /** Deep-link: open this time claim for edit (e.g. from Log Time). */
+  openTimeClaimId: { type: [Number, String], default: null }
 });
 const emit = defineEmits(['mileage-modal-closed', 'mileage-submitted', 'reimbursement-modal-closed', 'reimbursement-submitted', 'medcancel-modal-closed', 'medcancel-submitted', 'pto-modal-closed', 'pto-submitted', 'company-card-modal-closed', 'company-card-submitted', 'time-modal-closed', 'time-submitted']);
 
@@ -4058,6 +4081,7 @@ const timeClaimTypeLabel = (c) => {
   if (t === 'holiday_pay') return 'Holiday pay';
   if (t === 'jury_duty') return 'Jury Duty';
   if (t === 'skill_builder_event') return 'Event time';
+  if (t === 'indirect_time') return 'Indirect time';
   return t ? t.replace(/_/g, ' ') : 'Time';
 };
 
@@ -4090,7 +4114,9 @@ const submitTimeClaim = async ({ claimType, claimDate, payload }) => {
     // If this was a resubmit, silently withdraw the old deferred/rejected claim.
     if (replacingId) {
       try {
-        await api.delete(`/payroll/me/time-claims/${replacingId}`, { params: { agencyId: agencyId.value } });
+        await api.delete(`/payroll/me/time-claims/${replacingId}`, {
+          params: { agencyId: agencyId.value, hard: 1, confirmDelete: 'DELETE' }
+        });
       } catch { /* ignore — old claim may already be gone */ }
       editingTimeClaimId.value = null;
     }
@@ -4104,9 +4130,35 @@ const submitTimeClaim = async ({ claimType, claimDate, payload }) => {
   }
 };
 
+const showIndirectTimeEditModal = ref(false);
+const editingIndirectTimeClaim = ref(null);
+
+const canEditTimeClaim = (c) => {
+  const s = String(c?.status || '').toLowerCase();
+  return ['submitted', 'deferred', 'rejected', 'withdrawn'].includes(s);
+};
+
+const canHardDeleteTimeClaim = (c) => {
+  const s = String(c?.status || '').toLowerCase();
+  return ['withdrawn', 'deferred', 'rejected'].includes(s);
+};
+
+const closeIndirectTimeEditModal = () => {
+  showIndirectTimeEditModal.value = false;
+  editingIndirectTimeClaim.value = null;
+};
+
+const onIndirectTimeClaimSaved = async () => {
+  submitSuccess.value = 'Indirect time updated and resubmitted for payroll review.';
+  window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+  await loadTimeClaims();
+};
+
 const withdrawTimeClaim = async (c) => {
   if (!agencyId.value || !c?.id) return;
-  const ok = window.confirm('Withdraw this time claim? You can submit a new one if needed.');
+  const ok = window.confirm(
+    'Withdraw this time claim from payroll review?\n\nIt will stay in your submissions as “Needs resubmit” so you can edit and send it again. It will not be paid until you resubmit.'
+  );
   if (!ok) return;
   try {
     submitTimeClaimError.value = '';
@@ -4114,6 +4166,30 @@ const withdrawTimeClaim = async (c) => {
     await loadTimeClaims();
   } catch (e) {
     submitTimeClaimError.value = e.response?.data?.error?.message || e.message || 'Failed to withdraw time claim';
+  }
+};
+
+const hardDeleteTimeClaim = async (c) => {
+  if (!agencyId.value || !c?.id) return;
+  const first = window.confirm(
+    'DELETE this time claim permanently?\n\nIf you delete it, this time cannot be paid. Prefer Withdraw + Edit & resubmit if you still want to be paid for this work.'
+  );
+  if (!first) return;
+  const typed = window.prompt(
+    'Type DELETE to permanently remove this claim. This cannot be undone and you will not be paid for this time.'
+  );
+  if (String(typed || '').trim().toUpperCase() !== 'DELETE') {
+    window.alert('Delete cancelled. You must type DELETE to confirm.');
+    return;
+  }
+  try {
+    submitTimeClaimError.value = '';
+    await api.delete(`/payroll/me/time-claims/${c.id}`, {
+      params: { agencyId: agencyId.value, hard: 1, confirmDelete: 'DELETE' }
+    });
+    await loadTimeClaims();
+  } catch (e) {
+    submitTimeClaimError.value = e.response?.data?.error?.message || e.message || 'Failed to delete time claim';
   }
 };
 
@@ -4287,7 +4363,9 @@ const submitJuryDuty = async () => {
     await api.post('/payroll/me/time-claims', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
     if (replacingId) {
       try {
-        await api.delete(`/payroll/me/time-claims/${replacingId}`, { params: { agencyId: agencyId.value } });
+        await api.delete(`/payroll/me/time-claims/${replacingId}`, {
+          params: { agencyId: agencyId.value, hard: 1, confirmDelete: 'DELETE' }
+        });
       } catch { /* ignore */ }
       editingTimeClaimId.value = null;
     }
@@ -4309,6 +4387,12 @@ const openEditTimeClaim = (c) => {
   editingTimeClaimId.value = c.id; // track so we can auto-withdraw on successful resubmit
   const type = String(c.claim_type || '').toLowerCase();
   const payload = c.payload || {};
+  if (type === 'indirect_time') {
+    editingTimeClaimId.value = null;
+    editingIndirectTimeClaim.value = c;
+    showIndirectTimeEditModal.value = true;
+    return;
+  }
   if (type === 'skill_builder_event') {
     // Event time is auto-completed from the kiosk — never edited as a manual
     // time claim. Open the dedicated event-time editor instead so we don't
@@ -5175,7 +5259,50 @@ onMounted(async () => {
     delete next.expandPayrollPeriodId;
     router.replace({ query: next });
   }
+
+  // Deep-link from Log Time → edit this claim in My Payroll.
+  const focusClaimId = Number(props.openTimeClaimId || route.query?.timeClaimId || 0);
+  if (Number.isFinite(focusClaimId) && focusClaimId > 0) {
+    await loadTimeClaims();
+    await nextTick();
+    const el = document.getElementById('payroll-section-time_claims');
+    if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const row = (timeClaims.value || []).find((r) => Number(r.id) === focusClaimId);
+    if (row) openEditTimeClaim(row);
+    if (route.query?.timeClaimId) {
+      const next = { ...route.query };
+      delete next.timeClaimId;
+      router.replace({ query: next }).catch(() => {});
+    }
+  }
 });
+
+async function focusTimeClaimById(rawId) {
+  const id = Number(rawId || 0);
+  if (!Number.isFinite(id) || id <= 0) return;
+  await loadTimeClaims();
+  await nextTick();
+  const el = document.getElementById('payroll-section-time_claims');
+  if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const row = (timeClaims.value || []).find((r) => Number(r.id) === id);
+  if (row) openEditTimeClaim(row);
+}
+
+watch(
+  () => props.openTimeClaimId,
+  (raw) => { focusTimeClaimById(raw); }
+);
+
+watch(
+  () => route.query?.timeClaimId,
+  async (raw) => {
+    if (!raw) return;
+    await focusTimeClaimById(raw);
+    const next = { ...route.query };
+    delete next.timeClaimId;
+    router.replace({ query: next }).catch(() => {});
+  }
+);
 </script>
 
 <style scoped>

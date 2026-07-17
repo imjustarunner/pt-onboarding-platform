@@ -65,6 +65,7 @@
               </div>
               <h1 v-if="navTitleText" class="nav-title">{{ navTitleText }}</h1>
               <span v-if="isSummitStatsChallengeChrome" class="sstc-nav-brand-label">{{ summitTeamBrandLabel }}</span>
+              <IndirectTimeClockChip class="itc-chip--brand" />
             </div>
             <div v-if="showSstcSurfaceSwitcher" class="nav-surface-switcher">
               <label class="nav-surface-switcher-label" for="sstc-surface-select">View</label>
@@ -89,6 +90,12 @@
               :title="navLinksCanScroll ? 'Scroll sideways to see more menu items' : undefined"
             >
               <div class="nav-links">
+              <!--
+                Desktop word links / dropdowns: admin · super_admin · support only.
+                Everyone else uses the hamburger (sandwich) sidebar for these items.
+                Tutorial + everything after it stay in the top bar for all roles.
+              -->
+              <template v-if="showDesktopHeaderWordNav">
               <!-- SSTC Summit: primary nav order (matches mobile sidebar) -->
               <template v-if="isSummitStatsChallengeChrome && isAuthenticated && isSscClubManager">
                 <router-link :to="myAccountNavTo" @click="closeMobileMenu">My Account</router-link>
@@ -991,6 +998,7 @@
                   <strong>Reminder:</strong> Please ensure your schedule is open in the Therapy Notes for the times you are available via “Extra availability”.
                 </div>
               </div>
+              </template>
               <button
                 v-if="!isAffiliationContext && !isSummitStatsChallengeChrome"
                 type="button"
@@ -1071,6 +1079,22 @@
           </div>
         </div>
       </nav>
+      <div
+        v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && indirectTimeSessionStore.isClockedIn"
+        class="itc-hang-wrap"
+      >
+        <button
+          type="button"
+          class="itc-hang"
+          :class="{ break: indirectTimeSessionStore.isOnBreak }"
+          @click="goToIndirectLogTime"
+        >
+          <span class="itc-hang-dot" aria-hidden="true" />
+          <span class="itc-hang-status">{{ indirectTimeSessionStore.statusLabel }}</span>
+          <span class="itc-hang-timer">{{ indirectTimeSessionStore.formattedElapsed }}</span>
+          <span class="itc-hang-cta">Log Time →</span>
+        </button>
+      </div>
       <div v-if="sstcClubBannerImageUrl" class="sstc-club-banner-strip" aria-hidden="true">
         <img :src="sstcClubBannerImageUrl" alt="" class="sstc-club-banner-img" />
       </div>
@@ -1103,6 +1127,16 @@
             <p v-if="isSummitStatsChallengeChrome" class="mobile-brand-label">{{ summitTeamBrandLabel }}</p>
             <button class="mobile-close" @click="mobileMenuOpen = false" aria-label="Close menu">×</button>
           </div>
+          <button
+            v-if="indirectTimeSessionStore.isClockedIn"
+            type="button"
+            class="mobile-itc-banner"
+            @click="goToIndirectLogTime(); closeMobileMenu();"
+          >
+            <span>{{ indirectTimeSessionStore.statusLabel }}</span>
+            <strong>{{ indirectTimeSessionStore.formattedElapsed }}</strong>
+            <span>Log Time →</span>
+          </button>
           <div class="mobile-nav-links">
             <div v-if="showSstcSurfaceSwitcher" class="mobile-surface-switcher">
               <label class="mobile-surface-switcher-label" for="sstc-surface-select-mobile">View</label>
@@ -1752,6 +1786,18 @@
                 </template>
               </div>
             </template>
+            <div v-if="showGlobalAvailabilityToggle" class="mobile-nav-availability" @click.stop>
+              <div class="mobile-nav-availability-row">
+                <span class="mobile-nav-availability-label">Global availability</span>
+                <label class="switch" :title="globalAvailabilityTitle">
+                  <input type="checkbox" :checked="globalAvailabilityOpen" @change="onToggleGlobalAvailability" />
+                  <span class="slider" />
+                </label>
+              </div>
+              <p v-if="showAvailabilityHint" class="mobile-nav-availability-hint">
+                <strong>Reminder:</strong> Please ensure your schedule is open in Therapy Notes for the times you are available via “Extra availability”.
+              </p>
+            </div>
             <button
               v-if="!isAffiliationContext && !isSummitStatsChallengeChrome"
               type="button"
@@ -1827,6 +1873,7 @@
         v-if="isAuthenticated || sessionLockStore.warningActive"
         :suppress-actions="statusPromptOpenForActions"
       />
+      <NoteAidClockInPromptModal v-if="isAuthenticated" />
       <StatusPromptModal />
       <AwaySessionOverlay />
       <LoginSplashModal
@@ -1838,7 +1885,7 @@
       <PoweredByFooter v-if="isAuthenticated" />
       <Teleport to="body">
         <div
-          v-if="showLoginNotificationsModal"
+          v-if="showLoginNotificationsModal && !isOnNotificationsRoute"
           class="notifications-alert-overlay"
           @click.self="remindMeNextLogin"
         >
@@ -1905,63 +1952,17 @@
           class="new-notification-toast"
           @click="goToNotifications"
         >
-          <span class="new-notification-toast-icon" aria-hidden="true">🔔</span>
-          <span>New notification{{ notificationsUnreadCount > 1 ? 's' : '' }}</span>
+          <span class="new-notification-toast-icon" aria-hidden="true">{{ liveNotificationToast.icon || '🔔' }}</span>
+          <span class="live-notification-toast-copy">
+            <strong>{{ liveNotificationToast.title || 'New notification' }}</strong>
+            <small v-if="liveNotificationToast.message">{{ liveNotificationToast.message }}</small>
+          </span>
         </button>
         <button
           type="button"
           class="toast-dismiss-btn new-notification-toast-dismiss"
           aria-label="Dismiss"
           @click.stop="dismissNewNotificationToast"
-        >×</button>
-      </div>
-      <div
-        v-if="loginActivityToast.visible"
-        class="login-activity-toast"
-      >
-        <button type="button" class="login-activity-toast-body" @click="goToNotifications">
-          <span class="login-activity-toast-icon" aria-hidden="true">
-            {{ loginActivityToast.type === 'user_logout' ? '👋' : '✓' }}
-          </span>
-          <span class="login-activity-toast-message">{{ loginActivityToast.message }}</span>
-        </button>
-        <button
-          type="button"
-          class="toast-dismiss-btn"
-          aria-label="Dismiss"
-          @click.stop="dismissLoginActivityToast"
-        >×</button>
-      </div>
-      <div
-        v-if="newPacketToast.visible"
-        class="new-packet-toast"
-        role="alert"
-      >
-        <button type="button" class="new-packet-toast-body" @click="goToNotifications">
-          <span class="new-packet-toast-icon" aria-hidden="true">📄</span>
-          <span class="new-packet-toast-message">{{ newPacketToast.message }}</span>
-        </button>
-        <button
-          type="button"
-          class="toast-dismiss-btn"
-          aria-label="Dismiss"
-          @click.stop="dismissNewPacketToast"
-        >×</button>
-      </div>
-      <div
-        v-if="kudosToast.visible"
-        class="kudos-toast"
-        role="alert"
-      >
-        <button type="button" class="kudos-toast-body" @click="goToNotifications">
-          <span class="kudos-toast-plus" aria-hidden="true">+1</span>
-          <span class="kudos-toast-message">{{ kudosToast.reason }}</span>
-        </button>
-        <button
-          type="button"
-          class="toast-dismiss-btn kudos-toast-dismiss-btn"
-          aria-label="Dismiss"
-          @click.stop="dismissKudosToast"
         >×</button>
       </div>
       <div
@@ -2056,6 +2057,7 @@ import {
   toolsAidsHubLocation
 } from './navigation/toolsCatalog.js';
 import { getToolOverrides, applyToolOverride } from './navigation/toolsCatalogOverrides.js';
+import { ensureHourlySessionForNoteAid } from './utils/noteAidIndirectSession.js';
 import ToolsAssignModal from './components/tools/ToolsAssignModal.vue';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
@@ -2072,9 +2074,12 @@ import AddToStickyContextMenu from './components/momentum/AddToStickyContextMenu
 import { useMomentumListAddon } from './composables/useMomentumListAddon';
 import { useReminderSnooze, isLoginNotificationDismissed, markLoginNotificationDismissed } from './composables/useReminderSnooze';
 import WeatherChip from './components/WeatherChip.vue';
+import IndirectTimeClockChip from './components/IndirectTimeClockChip.vue';
 import AskAssistantLauncher from './components/assistant/AskAssistantLauncher.vue';
+import { useIndirectTimeSessionStore } from './store/indirectTimeSession';
 import SessionLockScreen from './components/SessionLockScreen.vue';
 import InactivityWarningModal from './components/InactivityWarningModal.vue';
+import NoteAidClockInPromptModal from './components/NoteAidClockInPromptModal.vue';
 import StatusPromptModal from './components/StatusPromptModal.vue';
 import AwaySessionOverlay from './components/AwaySessionOverlay.vue';
 import LogoutStatusSplit from './components/LogoutStatusSplit.vue';
@@ -2117,6 +2122,7 @@ import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from './constants/summitStatsBrandin
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+const indirectTimeSessionStore = useIndirectTimeSessionStore();
 const isSummitStatsChallengeChrome = useSummitStatsChallengeChrome();
 const summitTeamBrandLabel = SUMMIT_STATS_TEAM_CHALLENGE_NAME;
 
@@ -2168,6 +2174,38 @@ onUnmounted(() => {
 const userPreferencesStore = useUserPreferencesStore();
 const router = useRouter();
 const route = useRoute();
+const goToIndirectLogTime = () => {
+  const base = getDashboardRoute() || '/dashboard';
+  const path = typeof base === 'string' ? base : (base?.path || '/dashboard');
+  const cur = String(route.path || '').replace(/\/$/, '') || '/';
+  const want = String(path || '').replace(/\/$/, '') || '/';
+  const query = { ...(route.query || {}), tab: 'log_time' };
+  if (cur === want) router.replace({ path: want, query }).catch(() => {});
+  else router.push({ path: want, query }).catch(() => {});
+};
+
+watch(
+  () => [
+    authStore.isAuthenticated,
+    authStore.user?.isHourlyWorker,
+    authStore.user?.is_hourly_worker,
+    agencyStore.currentAgency?.id
+  ],
+  () => {
+    if (
+      authStore.isAuthenticated &&
+      indirectTimeSessionStore.isHourlyWorker &&
+      indirectTimeSessionStore.agencyId
+    ) {
+      indirectTimeSessionStore.startPolling();
+    } else {
+      indirectTimeSessionStore.stopPolling();
+      indirectTimeSessionStore.resetAll();
+    }
+  },
+  { immediate: true }
+);
+
 const showPublicTranslateWidget = computed(() => shouldShowPublicTranslate(route));
 
 // One-time sweep: legacy googtrans cookies from the old Google Translate
@@ -2891,10 +2929,18 @@ const copyToolsGameLink = async (game) => {
   }
 };
 
-const openToolsAi = (tool) => {
+const openToolsAi = async (tool) => {
   if (tool.status === 'coming_soon' || !tool.routePath) return;
   toolsMenuOpen.value = false;
-  router.push(orgTo(tool.routePath));
+  const query = {};
+  if (tool.id === 'note-aid') {
+    const { fromIndirectSession } = await ensureHourlySessionForNoteAid();
+    if (fromIndirectSession) {
+      query.fromIndirectSession = '1';
+      query.launchIntent = 'note';
+    }
+  }
+  router.push({ path: orgTo(tool.routePath), query }).catch(() => {});
 };
 
 const copyToolsAiLink = async (tool) => {
@@ -3280,6 +3326,9 @@ const isAdminLike = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
+
+/** Desktop top-bar word links/dropdowns — only admin / super_admin / support. */
+const showDesktopHeaderWordNav = computed(() => isAdminLike.value);
 
 const isTrueAdmin = computed(() => {
   const role = user.value?.role;
@@ -4698,39 +4747,13 @@ const playNotificationSound = () => {
 // Live toast when new notification arrives (shown to all authenticated users)
 const newNotificationToastVisible = ref(false);
 const newNotificationToastTimer = ref(null);
-// Login/logout activity toast – shows who logged in/out, pokes out by chat rail
-const loginActivityToast = ref({ visible: false, message: '', type: null, notificationId: null });
-const loginActivityToastTimer = ref(null);
-/** Prevents the same login/logout notification from re-opening the toast after dismiss or navigation. */
-const dismissedLoginActivityNotificationIds = ref([]);
-const MAX_DISMISSED_LOGIN_ACTIVITY_IDS = 80;
-
-const recordLoginActivityNotificationDismissed = (id) => {
-  if (id == null || id === '') return;
-  const key = String(id);
-  const cur = dismissedLoginActivityNotificationIds.value;
-  if (cur.includes(key)) return;
-  const next = [...cur, key];
-  if (next.length > MAX_DISMISSED_LOGIN_ACTIVITY_IDS) {
-    next.splice(0, next.length - MAX_DISMISSED_LOGIN_ACTIVITY_IDS);
-  }
-  dismissedLoginActivityNotificationIds.value = next;
-};
-
-const dismissLoginActivityToast = () => {
-  recordLoginActivityNotificationDismissed(loginActivityToast.value?.notificationId);
-  loginActivityToast.value = { visible: false, message: '', type: null, notificationId: null };
-  if (loginActivityToastTimer.value) {
-    clearTimeout(loginActivityToastTimer.value);
-    loginActivityToastTimer.value = null;
-  }
-};
-const kudosToast = ref({ visible: false, message: '', reason: '' });
-const kudosToastTimer = ref(null);
+const liveNotificationToast = ref({ id: null, title: '', message: '', icon: '🔔' });
+const notificationUpdateCursor = ref(0);
+const notificationUpdatesInitialized = ref(false);
+const notificationToastQueue = ref([]);
+const seenNotificationToastIds = new Set();
 const joinReminderToast = ref({ visible: false, message: '', prompt: null });
 let joinReminderPollInterval = null;
-const newPacketToast = ref({ visible: false, message: '', notificationId: null });
-const newPacketToastTimer = ref(null);
 
 const dismissNewNotificationToast = () => {
   newNotificationToastVisible.value = false;
@@ -4738,108 +4761,66 @@ const dismissNewNotificationToast = () => {
     clearTimeout(newNotificationToastTimer.value);
     newNotificationToastTimer.value = null;
   }
-};
-
-const dismissNewPacketToast = () => {
-  newPacketToast.value = { visible: false, message: '', notificationId: null };
-  if (newPacketToastTimer.value) {
-    clearTimeout(newPacketToastTimer.value);
-    newPacketToastTimer.value = null;
-  }
-};
-
-const dismissKudosToast = () => {
-  kudosToast.value = { visible: false, message: '', reason: '' };
-  if (kudosToastTimer.value) {
-    clearTimeout(kudosToastTimer.value);
-    kudosToastTimer.value = null;
-  }
+  showNextNotificationToast();
 };
 
 const dismissJoinReminderToast = () => {
   joinReminderToast.value = { visible: false, message: '', prompt: null };
 };
 
-const getToastPref = (type) => {
-  const tp = userPreferencesStore.toastPreferences;
-  if (!tp || typeof tp !== 'object') return { toast_enabled: type === 'login_logout', duration_seconds: 6, sound_enabled: type === 'login_logout' };
-  return tp[type] || { toast_enabled: false, duration_seconds: 6, sound_enabled: false };
-};
+function showNextNotificationToast() {
+  if (newNotificationToastVisible.value || notificationToastQueue.value.length === 0) return;
+  const candidate = notificationToastQueue.value.shift();
+  const pref = candidate.notification_preference || {};
+  liveNotificationToast.value = {
+    id: candidate.id,
+    title: candidate.title || candidate.catalog?.label || 'New notification',
+    message: candidate.message || '',
+    icon: candidate.catalog?.icon || '🔔'
+  };
+  newNotificationToastVisible.value = true;
+  if (newNotificationToastTimer.value) clearTimeout(newNotificationToastTimer.value);
+  if (pref.toastDurationMode !== 'dismissable') {
+    const seconds = Number(pref.toastDurationSeconds || 8);
+    newNotificationToastTimer.value = setTimeout(() => {
+      newNotificationToastVisible.value = false;
+      newNotificationToastTimer.value = null;
+      showNextNotificationToast();
+    }, seconds * 1000);
+  }
+  if (pref.sound === true) playNotificationSound();
+}
 
 const showNewNotificationToast = async () => {
   try {
-    const latest = await notificationStore.fetchLatestNotifications(10);
-    // Kudos (always shown, not configurable)
-    const kudosReceived = (latest || []).filter((n) => n.type === 'kudos_received');
-    const firstKudos = kudosReceived[0];
-    if (firstKudos?.message) {
-      kudosToast.value = { visible: true, message: firstKudos.message, reason: firstKudos.message };
-      if (kudosToastTimer.value) clearTimeout(kudosToastTimer.value);
-      kudosToastTimer.value = setTimeout(() => {
-        kudosToast.value = { visible: false, message: '', reason: '' };
-        kudosToastTimer.value = null;
-      }, 6000);
+    if (!notificationUpdatesInitialized.value) {
+      await initializeNotificationUpdateCursor();
       return;
     }
-
-    const isSchoolStaff = String(user.value?.role || '').toLowerCase() === 'school_staff';
-
-    // New packet / intake submission toast
-    const packetPref = getToastPref('new_packet');
-    if (packetPref.toast_enabled && !isSchoolStaff) {
-      const packetTypes = ['new_packet_uploaded', 'client_school_roi_link_sent', 'client_school_roi_link_generated', 'client_school_roi_link_copied'];
-      const packetNotif = (latest || []).find((n) => packetTypes.includes(n.type));
-      if (packetNotif?.message) {
-        newPacketToast.value = { visible: true, message: packetNotif.message, notificationId: packetNotif.id };
-        if (newPacketToastTimer.value) clearTimeout(newPacketToastTimer.value);
-        if (packetPref.duration_seconds !== null && packetPref.duration_seconds > 0) {
-          newPacketToastTimer.value = setTimeout(() => {
-            newPacketToast.value = { visible: false, message: '', notificationId: null };
-            newPacketToastTimer.value = null;
-          }, packetPref.duration_seconds * 1000);
-        }
-        if (packetPref.sound_enabled) playNotificationSound();
-        return;
-      }
+    const items = [];
+    let updates = { items: [], latestId: notificationUpdateCursor.value, hasMore: false };
+    do {
+      updates = await notificationStore.fetchUpdates(notificationUpdateCursor.value);
+      notificationUpdateCursor.value = Math.max(notificationUpdateCursor.value, Number(updates.latestId || 0));
+      items.push(...(updates.items || []));
+    } while (updates.hasMore && updates.items?.length);
+    if (!notificationUpdatesInitialized.value) {
+      for (const item of items) seenNotificationToastIds.add(String(item.id));
+      notificationUpdatesInitialized.value = true;
+      return;
     }
-
-    // Login/logout activity toast
-    const llPref = getToastPref('login_logout');
-    if (llPref.toast_enabled && !isSchoolStaff) {
-      const dismissed = new Set(dismissedLoginActivityNotificationIds.value.map(String));
-      const loginLogout = (latest || []).filter(
-        (n) =>
-          (n.type === 'user_login' || n.type === 'user_logout') &&
-          (n.id == null || n.id === '' || !dismissed.has(String(n.id)))
-      );
-      const first = loginLogout[0];
-      if (first?.message) {
-        loginActivityToast.value = {
-          visible: true,
-          message: first.message,
-          type: first.type,
-          notificationId: first.id != null ? first.id : null
-        };
-        if (loginActivityToastTimer.value) clearTimeout(loginActivityToastTimer.value);
-        if (llPref.duration_seconds !== null && llPref.duration_seconds > 0) {
-          loginActivityToastTimer.value = setTimeout(() => {
-            loginActivityToast.value = { visible: false, message: '', type: null, notificationId: null };
-            loginActivityToastTimer.value = null;
-          }, llPref.duration_seconds * 1000);
-        }
-        if (llPref.sound_enabled) playNotificationSound();
-        return;
-      }
+    const candidates = [];
+    for (const item of items) {
+      const key = String(item.id);
+      if (seenNotificationToastIds.has(key)) continue;
+      seenNotificationToastIds.add(key);
+      if (item.notification_preference?.toast === true) candidates.push(item);
     }
+    notificationToastQueue.value.push(...candidates);
+    showNextNotificationToast();
   } catch {
-    // fall through to generic toast
+    // Best-effort live notification polling.
   }
-  newNotificationToastVisible.value = true;
-  if (newNotificationToastTimer.value) clearTimeout(newNotificationToastTimer.value);
-  newNotificationToastTimer.value = setTimeout(() => {
-    newNotificationToastVisible.value = false;
-    newNotificationToastTimer.value = null;
-  }, 5000);
 };
 
 const maybeShowLoginNotificationsModal = () => {
@@ -4946,30 +4927,24 @@ const joinReminderToastJoin = () => {
   dismissJoinReminderToast();
 };
 
-const goToNotifications = () => {
+const goToNotifications = async () => {
   markLoginNotificationDismissed();
   loginNotificationGateConsumed.value = true;
   clearJustLoggedIn();
   showLoginNotificationsModal.value = false;
   notificationsNudgeVisible.value = false;
   newNotificationToastVisible.value = false;
-  recordLoginActivityNotificationDismissed(loginActivityToast.value?.notificationId);
-  loginActivityToast.value = { visible: false, message: '', type: null, notificationId: null };
-  kudosToast.value = { visible: false, message: '', reason: '' };
+  notificationToastQueue.value = [];
   if (newNotificationToastTimer.value) {
     clearTimeout(newNotificationToastTimer.value);
     newNotificationToastTimer.value = null;
   }
-  if (loginActivityToastTimer.value) {
-    clearTimeout(loginActivityToastTimer.value);
-    loginActivityToastTimer.value = null;
-  }
-  if (kudosToastTimer.value) {
-    clearTimeout(kudosToastTimer.value);
-    kudosToastTimer.value = null;
-  }
   closeAllNavMenus();
-  router.push(orgTo('/notifications'));
+  // Render the Teleported modal removal before changing routes. Batching both
+  // updates can leave the old modal vnode mounted until a refresh if the large
+  // app-shell route render is interrupted.
+  await nextTick();
+  if (!isOnNotificationsRoute.value) await router.push(orgTo('/notifications'));
 };
 
 let notificationsInterval = null;
@@ -4994,15 +4969,27 @@ const fetchNotificationsCounts = async () => {
   }
 };
 
+const initializeNotificationUpdateCursor = async () => {
+  if (notificationUpdatesInitialized.value) return;
+  const updates = await notificationStore.fetchUpdates(0, true);
+  notificationUpdateCursor.value = Number(updates.latestId || 0);
+  notificationUpdatesInitialized.value = true;
+};
+
 function syncNotificationsCounts(enabled) {
   if (enabled) {
     fetchNotificationsCounts();
+    void initializeNotificationUpdateCursor();
     if (notificationsInterval) clearInterval(notificationsInterval);
     notificationsInterval = setInterval(fetchNotificationsCounts, 2 * 60 * 1000);
   } else {
     showLoginNotificationsModal.value = false;
     notificationsNudgeVisible.value = false;
     notificationsCountsLoadedOnce.value = false;
+    notificationUpdatesInitialized.value = false;
+    notificationUpdateCursor.value = 0;
+    notificationToastQueue.value = [];
+    seenNotificationToastIds.clear();
     if (notificationsInterval) clearInterval(notificationsInterval);
     notificationsInterval = null;
   }
@@ -5050,20 +5037,10 @@ watch(isOnNotificationsRoute, (onNotifications) => {
     showLoginNotificationsModal.value = false;
     notificationsNudgeVisible.value = false;
     newNotificationToastVisible.value = false;
-    recordLoginActivityNotificationDismissed(loginActivityToast.value?.notificationId);
-    loginActivityToast.value = { visible: false, message: '', type: null, notificationId: null };
-    newPacketToast.value = { visible: false, message: '', notificationId: null };
+    notificationToastQueue.value = [];
     if (newNotificationToastTimer.value) {
       clearTimeout(newNotificationToastTimer.value);
       newNotificationToastTimer.value = null;
-    }
-    if (loginActivityToastTimer.value) {
-      clearTimeout(loginActivityToastTimer.value);
-      loginActivityToastTimer.value = null;
-    }
-    if (newPacketToastTimer.value) {
-      clearTimeout(newPacketToastTimer.value);
-      newPacketToastTimer.value = null;
     }
   }
 });
@@ -5084,14 +5061,7 @@ watch(notificationsUnreadCount, (next, prev) => {
   // For ALL authenticated users: live toast when NEW notification arrives
   if (!isAuthenticated.value || isOnNotificationsRoute.value) return;
   if (prev === undefined || next <= prev) return;
-  // Sound is now played per-type inside showNewNotificationToast;
-  // fall back to global sound only if no per-type handler fired
-  showNewNotificationToast().then(() => {
-    // If neither login/logout nor new_packet toast was shown, play global sound for generic toast
-    if (newNotificationToastVisible.value && userPreferencesStore.notificationSoundEnabled) {
-      playNotificationSound();
-    }
-  });
+  void showNewNotificationToast();
 });
 
 watch(() => route.params.organizationSlug, async (newSlug) => {
@@ -6498,6 +6468,20 @@ onUnmounted(() => {
   font-size: 18px;
   flex-shrink: 0;
 }
+.live-notification-toast-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.live-notification-toast-copy small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .new-notification-toast-wrap .new-notification-toast-dismiss {
   border-radius: 0;
   flex-shrink: 0;
@@ -6612,52 +6596,6 @@ onUnmounted(() => {
   color: var(--text-muted, #6b7280);
 }
 
-/* Login/logout activity toast – pokes out by the chat rail on the left */
-.login-activity-toast {
-  position: fixed;
-  left: 56px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 1550;
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: white;
-  color: var(--text-primary);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
-  font-weight: 700;
-  font-size: 14px;
-  max-width: 360px;
-  animation: loginActivityToastIn 0.35s ease-out;
-  text-align: left;
-}
-.login-activity-toast-body {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
-  background: transparent;
-  border: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-.login-activity-toast-body:hover {
-  background: var(--bg-secondary);
-  border-radius: 12px 0 0 12px;
-}
-.login-activity-toast-icon {
-  font-size: 18px;
-  flex-shrink: 0;
-}
-.login-activity-toast-message {
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-
 .toast-dismiss-btn {
   position: relative;
   z-index: 2;
@@ -6678,111 +6616,6 @@ onUnmounted(() => {
 .toast-dismiss-btn:hover {
   background: #fee;
   color: #b91c1c;
-}
-
-.new-packet-toast {
-  position: fixed;
-  left: 56px;
-  top: calc(50% + 60px);
-  transform: translateY(-50%);
-  z-index: 1550;
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  border-radius: 12px;
-  border: 1px solid #93c5fd;
-  background: #eff6ff;
-  color: var(--text-primary);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
-  font-weight: 700;
-  font-size: 14px;
-  max-width: 360px;
-  animation: loginActivityToastIn 0.35s ease-out;
-  text-align: left;
-}
-.new-packet-toast-body {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
-  background: transparent;
-  border: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-.new-packet-toast-body:hover {
-  background: #dbeafe;
-  border-radius: 12px 0 0 12px;
-}
-.new-packet-toast-icon {
-  font-size: 18px;
-  flex-shrink: 0;
-}
-.new-packet-toast-message {
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-
-/* Kudos received toast – reason + +1 */
-.kudos-toast {
-  position: fixed;
-  top: 16px;
-  right: 20px;
-  z-index: 1550;
-  display: inline-flex;
-  align-items: stretch;
-  max-width: min(360px, calc(100vw - 40px));
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-.kudos-toast-body {
-  flex: 1;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
-  background: var(--success-color, #2F8F83);
-  color: #fff;
-  font-size: 14px;
-  font: inherit;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-}
-.kudos-toast-body:hover {
-  filter: brightness(1.05);
-}
-.kudos-toast-plus {
-  font-weight: 700;
-  font-size: 1.1rem;
-  flex-shrink: 0;
-}
-.kudos-toast-message {
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-.kudos-toast .kudos-toast-dismiss-btn {
-  border-left-color: rgba(255, 255, 255, 0.35);
-  color: rgba(255, 255, 255, 0.95);
-}
-.kudos-toast .kudos-toast-dismiss-btn:hover {
-  background: rgba(0, 0, 0, 0.15);
-  color: #fff;
-}
-
-@keyframes loginActivityToastIn {
-  from {
-    opacity: 0;
-    transform: translateY(-50%) translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(-50%) translateX(0);
-  }
 }
 
 @keyframes newNotificationToastIn {
@@ -6886,6 +6719,64 @@ onUnmounted(() => {
   justify-content: flex-end;
   padding: 0 20px;
   margin-top: -2px; /* visually attaches to navbar bottom border */
+}
+
+.itc-hang-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 0 16px;
+  margin-top: -2px;
+  position: relative;
+  z-index: 20;
+}
+.itc-hang {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  border-radius: 0 0 12px 12px;
+  background: #14532d;
+  color: #fff;
+  padding: 8px 16px 10px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(20, 83, 45, 0.28);
+}
+.itc-hang:hover { background: #166534; }
+.itc-hang--break,
+.itc-hang.break {
+  background: #92400e;
+}
+.itc-hang--break:hover,
+.itc-hang.break:hover {
+  background: #b45309;
+}
+.itc-hang-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #86efac;
+  box-shadow: 0 0 0 0 rgba(134, 239, 172, 0.55);
+  animation: itcHangPulse 1.6s ease-out infinite;
+}
+.itc-hang-status {
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+}
+.itc-hang-timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+  font-weight: 800;
+}
+.itc-hang-cta {
+  font-size: 0.8rem;
+  opacity: 0.9;
+  margin-left: 4px;
+}
+@keyframes itcHangPulse {
+  0% { box-shadow: 0 0 0 0 rgba(134, 239, 172, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(134, 239, 172, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(134, 239, 172, 0); }
 }
 
 /* Password expiry warning banner */
@@ -7138,6 +7029,28 @@ onUnmounted(() => {
   background-color: rgba(255, 255, 255, 0.1);
 }
 
+.mobile-itc-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: calc(100% - 32px);
+  margin: 12px 16px 0;
+  border: 1px solid rgba(134, 239, 172, 0.45);
+  background: rgba(22, 101, 52, 0.35);
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.mobile-itc-banner strong {
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+}
+
 .mobile-nav-links {
   display: flex;
   flex-direction: column;
@@ -7293,6 +7206,31 @@ details[open].mobile-nav-group-collapsible .mobile-nav-group-caret {
   margin: 10px 20px 0;
 }
 
+.mobile-nav-availability {
+  margin: 12px 20px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.mobile-nav-availability-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mobile-nav-availability-label {
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: inherit;
+}
+.mobile-nav-availability-hint {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  opacity: 0.9;
+}
+
 .mobile-overlay {
   position: fixed;
   top: 0;
@@ -7390,6 +7328,11 @@ details[open].mobile-nav-group-collapsible .mobile-nav-group-caret {
   /* On small phones the right group must not overflow the bar */
   .nav-right-group {
     gap: 4px;
+  }
+
+  /* Keep the clocked-in chip visible even when other right-side chrome is trimmed */
+  .nav-right-group :deep(.itc-chip) {
+    display: inline-flex;
   }
 }
 

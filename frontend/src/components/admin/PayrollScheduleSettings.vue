@@ -28,6 +28,9 @@
         <button type="button" class="tab" :class="{ active: payrollTab === 'time_claims' }" @click="payrollTab = 'time_claims'; loadTimeClaimSettings()">
           Time claims
         </button>
+        <button type="button" class="tab" :class="{ active: payrollTab === 'indirect_types' }" @click="payrollTab = 'indirect_types'; loadIndirectTypes()">
+          Indirect types
+        </button>
         <button type="button" class="tab" :class="{ active: payrollTab === 'percent_pay' }" @click="payrollTab = 'percent_pay'; loadPercentPay()">
           Percent-of-charge pay
         </button>
@@ -208,6 +211,86 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <div v-else-if="payrollTab === 'indirect_types'" class="card">
+      <h3 style="margin:0 0 4px 0;">Indirect service types</h3>
+      <p class="hint" style="margin:0 0 14px 0;">
+        Types shown on the hourly employee Log Time screen. Add new types anytime; deactivate instead of deleting if they were used historically.
+      </p>
+      <div v-if="indirectTypesError" class="warn">{{ indirectTypesError }}</div>
+      <div v-if="indirectTypesLoading" class="muted">Loading…</div>
+      <template v-else>
+        <div class="filters-row" style="align-items:flex-end; margin-bottom:12px;">
+          <div class="filters-group" style="min-width:200px;">
+            <label class="filters-label">Label</label>
+            <input v-model="indirectTypeDraft.label" class="filters-input" type="text" placeholder="e.g., Chart review" :disabled="indirectTypesSaving" />
+          </div>
+          <div class="filters-group" style="min-width:220px;">
+            <label class="filters-label">Description</label>
+            <input v-model="indirectTypeDraft.description" class="filters-input" type="text" placeholder="Short help text" :disabled="indirectTypesSaving" />
+          </div>
+          <div class="filters-group">
+            <label class="filters-label">Icon</label>
+            <select v-model="indirectTypeDraft.iconKey" class="filters-input" :disabled="indirectTypesSaving">
+              <option v-for="opt in indirectIconOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
+            </select>
+          </div>
+          <div class="filters-group">
+            <label class="filters-label">Sort</label>
+            <input v-model.number="indirectTypeDraft.sortOrder" class="filters-input" type="number" style="width:80px;" :disabled="indirectTypesSaving" />
+          </div>
+          <div class="filters-group">
+            <button class="btn btn-primary" type="button" @click="createIndirectType" :disabled="indirectTypesSaving || !String(indirectTypeDraft.label||'').trim()">
+              {{ indirectTypesSaving ? 'Saving…' : 'Add type' }}
+            </button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th>Key</th>
+                <th>Icon</th>
+                <th>Sort</th>
+                <th>Active</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="t in indirectTypes" :key="t.id">
+                <td>
+                  <input v-model="t.label" type="text" style="width:100%; min-width:160px;" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
+                  <div class="hint" style="margin-top:4px;">
+                    <input v-model="t.description" type="text" style="width:100%;" placeholder="Description" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
+                  </div>
+                </td>
+                <td><code>{{ t.typeKey }}</code></td>
+                <td>
+                  <select v-model="t.iconKey" :disabled="indirectTypesSaving" @change="saveIndirectType(t)">
+                    <option v-for="opt in indirectIconOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
+                  </select>
+                </td>
+                <td>
+                  <input v-model.number="t.sortOrder" type="number" style="width:72px;" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
+                </td>
+                <td>
+                  <input type="checkbox" v-model="t.isActive" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
+                </td>
+                <td>
+                  <button class="btn btn-danger btn-sm" type="button" @click="deactivateIndirectType(t)" :disabled="indirectTypesSaving || !t.isActive">
+                    Deactivate
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="!indirectTypes.length">
+                <td colspan="6" class="empty-state-inline">No types yet — defaults will seed on first employee open, or add one above.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
 
     <!-- ── Med Cancel ─────────────────────────────────────────────────────── -->
@@ -679,6 +762,7 @@ import { computed, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import CompensationLevelsSettings from './CompensationLevelsSettings.vue';
+import { INDIRECT_TIME_ICON_OPTIONS } from '../../utils/indirectTimeIcons';
 
 const props = defineProps({
   scopedAgencyId: { type: Number, default: null }
@@ -906,6 +990,89 @@ const saveTimeClaimSettings = async () => {
     timeClaimSettingsError.value = e.response?.data?.error?.message || e.message || 'Failed to save';
   } finally {
     timeClaimSettingsSaving.value = false;
+  }
+};
+
+const indirectIconOptions = INDIRECT_TIME_ICON_OPTIONS;
+const indirectTypes = ref([]);
+const indirectTypesLoading = ref(false);
+const indirectTypesSaving = ref(false);
+const indirectTypesError = ref('');
+const indirectTypeDraft = ref({
+  label: '',
+  description: '',
+  iconKey: 'circle',
+  sortOrder: 200
+});
+
+const loadIndirectTypes = async () => {
+  if (!agencyId.value) return;
+  try {
+    indirectTypesLoading.value = true;
+    indirectTypesError.value = '';
+    const resp = await api.get('/payroll/indirect-service-types', { params: { agencyId: agencyId.value } });
+    indirectTypes.value = Array.isArray(resp.data?.types) ? resp.data.types : [];
+  } catch (e) {
+    indirectTypesError.value = e.response?.data?.error?.message || e.message || 'Failed to load types';
+  } finally {
+    indirectTypesLoading.value = false;
+  }
+};
+
+const createIndirectType = async () => {
+  if (!agencyId.value) return;
+  const label = String(indirectTypeDraft.value.label || '').trim();
+  if (!label) return;
+  try {
+    indirectTypesSaving.value = true;
+    indirectTypesError.value = '';
+    await api.post('/payroll/indirect-service-types', {
+      agencyId: agencyId.value,
+      label,
+      description: indirectTypeDraft.value.description || '',
+      iconKey: indirectTypeDraft.value.iconKey || 'circle',
+      sortOrder: Number(indirectTypeDraft.value.sortOrder || 0)
+    });
+    indirectTypeDraft.value = { label: '', description: '', iconKey: 'circle', sortOrder: 200 };
+    await loadIndirectTypes();
+  } catch (e) {
+    indirectTypesError.value = e.response?.data?.error?.message || e.message || 'Failed to add type';
+  } finally {
+    indirectTypesSaving.value = false;
+  }
+};
+
+const saveIndirectType = async (t) => {
+  if (!t?.id) return;
+  try {
+    indirectTypesSaving.value = true;
+    indirectTypesError.value = '';
+    await api.patch(`/payroll/indirect-service-types/${t.id}`, {
+      label: t.label,
+      description: t.description,
+      iconKey: t.iconKey,
+      sortOrder: t.sortOrder,
+      isActive: !!t.isActive
+    });
+    await loadIndirectTypes();
+  } catch (e) {
+    indirectTypesError.value = e.response?.data?.error?.message || e.message || 'Failed to update type';
+  } finally {
+    indirectTypesSaving.value = false;
+  }
+};
+
+const deactivateIndirectType = async (t) => {
+  if (!t?.id) return;
+  try {
+    indirectTypesSaving.value = true;
+    indirectTypesError.value = '';
+    await api.delete(`/payroll/indirect-service-types/${t.id}`);
+    await loadIndirectTypes();
+  } catch (e) {
+    indirectTypesError.value = e.response?.data?.error?.message || e.message || 'Failed to deactivate type';
+  } finally {
+    indirectTypesSaving.value = false;
   }
 };
 
@@ -1443,6 +1610,7 @@ const saveRateTitles = async () => {
 watch(agencyId, async () => {
   await load();
   if (payrollTab.value === 'time_claims') await loadTimeClaimSettings();
+  if (payrollTab.value === 'indirect_types') await loadIndirectTypes();
   if (payrollTab.value === 'percent_pay') await loadPercentPay();
   if (payrollTab.value === 'med_cancel') await loadMedcancel();
   if (payrollTab.value === 'mileage') await loadMileage();

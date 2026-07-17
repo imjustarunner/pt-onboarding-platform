@@ -19,9 +19,9 @@
             <div class="field checkbox disabled">
               <label>
                 <input type="checkbox" checked disabled />
-                In-App Notifications <span class="required-tag">Required</span>
+                In-App notification center <span class="required-tag">Available</span>
               </label>
-              <div class="field-help">Always enabled for safety and audit integrity.</div>
+              <div class="field-help">The center stays available; optional types can be muted below. Safety alerts remain required.</div>
             </div>
 
             <div class="field checkbox">
@@ -107,7 +107,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div v-if="false" class="card">
             <h3 class="card-title">Toast Notifications</h3>
             <div class="field-help" style="margin-bottom: 14px;">
               Control pop-up toast alerts for specific notification types. Each type can have its own toast, duration, and sound settings.
@@ -178,6 +178,11 @@
             </div>
           </div>
 
+          <div class="card notification-type-settings-card">
+            <NotificationTypeSettingsPanel v-if="props.userId === authStore.user?.id" />
+            <p v-else class="field-help">Per-type delivery settings are account-wide and must be managed by the account owner.</p>
+          </div>
+
           <div class="card">
             <h3 class="card-title">Daily Digest</h3>
             <div class="field checkbox">
@@ -194,7 +199,7 @@
                 type="time"
                 :disabled="viewOnly || !prefs.daily_digest_enabled"
               />
-              <div class="field-help">Uses server local time.</div>
+              <div class="field-help">Uses your profile timezone. Login/logout activity is summarized in-app at this time even when digest email is off.</div>
             </div>
           </div>
 
@@ -269,7 +274,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div v-if="false" class="card">
             <h3 class="card-title">Categories</h3>
 
             <div class="category-group">
@@ -1045,6 +1050,7 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useUserPreferencesStore } from '../store/userPreferences';
 import api from '../services/api';
+import NotificationTypeSettingsPanel from './notifications/NotificationTypeSettingsPanel.vue';
 import { refetchSessionLockConfig } from '../utils/activityTracker';
 import { setDarkMode, getStoredDarkMode } from '../utils/darkMode';
 import {
@@ -2206,4 +2212,3 @@ input, select {
   padding: 6px 12px;
 }
 </style>
-

@@ -128,6 +128,7 @@ import {
   ,createUserTimeClaim
   ,listMyTimeClaims
   ,deleteMyTimeClaim
+  ,updateMyTimeClaim
   ,listTimeClaims
   ,patchTimeClaim
   ,listEventTimeSubmissions
@@ -201,6 +202,18 @@ import {
   ,patchPtoRequest
   ,getPendingSubmissionsSummary
 } from '../controllers/payroll.controller.js';
+import {
+  listMyIndirectServiceTypes,
+  listIndirectServiceTypes,
+  createIndirectServiceType,
+  updateIndirectServiceType,
+  deleteIndirectServiceType,
+  getMyIndirectTimeSession,
+  clockInIndirectTime,
+  breakIndirectTime,
+  clockOutIndirectTime,
+  adjustIndirectTimeClockOut
+} from '../controllers/indirectTime.controller.js';
 
 const router = express.Router();
 
@@ -299,8 +312,21 @@ router.delete('/me/company-card-expenses/:id', deleteMyCompanyCardExpense);
 router.post('/me/time-claims', ...createMyTimeClaim);
 router.post('/users/:userId/time-claims', createUserTimeClaim);
 router.get('/me/time-claims', listMyTimeClaims);
+
+// Hourly indirect time log (service types + clock session)
+router.get('/me/indirect-service-types', listMyIndirectServiceTypes);
+router.get('/indirect-service-types', listIndirectServiceTypes);
+router.post('/indirect-service-types', createIndirectServiceType);
+router.patch('/indirect-service-types/:id', updateIndirectServiceType);
+router.delete('/indirect-service-types/:id', deleteIndirectServiceType);
+router.get('/me/indirect-time-session', getMyIndirectTimeSession);
+router.post('/me/indirect-time-session/clock-in', clockInIndirectTime);
+router.post('/me/indirect-time-session/break', breakIndirectTime);
+router.post('/me/indirect-time-session/clock-out', clockOutIndirectTime);
+router.patch('/me/indirect-time-session/:id/clock-out', adjustIndirectTimeClockOut);
 router.get('/me/event-time', listMyEventTime);
 router.patch('/me/event-time/:punchInId', patchMyEventTime);
+router.patch('/me/time-claims/:id', updateMyTimeClaim);
 router.delete('/me/time-claims/:id', deleteMyTimeClaim);
 router.get('/me/assigned-schools', listMyAssignedSchoolsForPayroll);
 router.get('/users/:userId/assigned-schools', listUserAssignedSchoolsForPayroll);
