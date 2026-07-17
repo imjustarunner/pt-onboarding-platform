@@ -23,7 +23,7 @@
       >
         <button type="button" class="logout-split-item" role="menuitem" @click="onLogout">
           <span class="logout-split-item-title">Log out</span>
-          <span class="logout-split-item-sub">End session (optional status)</span>
+          <span class="logout-split-item-sub">End session now</span>
         </button>
         <button type="button" class="logout-split-item" role="menuitem" @click="onTimeout">
           <span class="logout-split-item-title">Set timeout / Away</span>

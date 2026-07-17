@@ -4435,17 +4435,11 @@ const onMyDashboardClick = (e) => {
 };
 
 const handleLogout = async () => {
-  // Do not close the hamburger or stop tracking before the status prompt paints.
-  // Closing the sidebar here raced Vue's patcher and left promptMode stuck on
-  // 'logout' with no visible modal (confirmed by runtime logs).
+  // Straight logout — status/Away is the separate "Set timeout / Away" menu item.
   try {
-    await authStore.logout();
+    await authStore.logout('user_logout', { skipStatusPrompt: true });
   } catch (err) {
     throw err;
-  }
-  // If user cancelled the status prompt, keep Timedown alive.
-  if (authStore.isAuthenticated) {
-    startActivityTracking({ force: true });
   }
 };
 
