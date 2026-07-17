@@ -583,15 +583,24 @@
                     </div>
                     <div
                       v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav"
-                      class="nav-dropdown-group nav-dropdown-group-collapsible"
+                      class="nav-dropdown-group nav-dropdown-group-collapsible school-mgmt-nav"
+                      @mouseenter="directorySchoolsNavExpanded = true"
+                      @mouseleave="directorySchoolsNavExpanded = false"
                     >
-                      <button
-                        type="button"
-                        class="nav-dropdown-group-trigger"
+                      <div
+                        class="nav-dropdown-group-trigger school-mgmt-trigger"
+                        :class="{ 'school-mgmt-flash': schoolMgmtFlashActive }"
                         :aria-expanded="directorySchoolsNavExpanded ? 'true' : 'false'"
-                        @click.stop="directorySchoolsNavExpanded = !directorySchoolsNavExpanded"
                       >
-                        <span>Schools</span>
+                        <router-link
+                          v-if="canSeeSchoolPortalsNav"
+                          :to="orgTo('/admin/caseload-hub/schools-staff')"
+                          class="school-mgmt-link"
+                          @click="closeAllNavMenus"
+                        >
+                          School Management
+                        </router-link>
+                        <span v-else class="school-mgmt-link">School Management</span>
                         <span
                           v-if="schoolClientsPendingCount > 0"
                           class="nav-badge nav-badge-pulse"
@@ -599,11 +608,17 @@
                         >
                           {{ schoolClientsPendingCount }}
                         </span>
-                        <span class="nav-dropdown-group-caret" :class="{ open: directorySchoolsNavExpanded }" aria-hidden="true">▸</span>
-                      </button>
+                        <button
+                          type="button"
+                          class="nav-dropdown-group-caret-btn"
+                          :aria-label="directorySchoolsNavExpanded ? 'Collapse school links' : 'Expand school links'"
+                          @click.stop="directorySchoolsNavExpanded = !directorySchoolsNavExpanded"
+                        >
+                          <span class="nav-dropdown-group-caret" :class="{ open: directorySchoolsNavExpanded }" aria-hidden="true">▸</span>
+                        </button>
+                      </div>
                       <div v-show="directorySchoolsNavExpanded" class="nav-dropdown-group-items">
                         <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav">School Portals</router-link>
-                        <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" v-if="canSeeSchoolPortalsNav">Caseload Hub</router-link>
                         <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav">School Events</router-link>
                         <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav">School Calendar</router-link>
                         <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav">
@@ -1541,13 +1556,20 @@
               </div>
 
                   <div v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav" class="mobile-nav-group mobile-nav-group-collapsible">
-                    <button
-                      type="button"
-                      class="mobile-nav-group-trigger mobile-nav-sublink"
+                    <div
+                      class="mobile-nav-group-trigger mobile-nav-sublink school-mgmt-trigger"
+                      :class="{ 'school-mgmt-flash': schoolMgmtFlashActive }"
                       :aria-expanded="directorySchoolsNavExpanded ? 'true' : 'false'"
-                      @click="directorySchoolsNavExpanded = !directorySchoolsNavExpanded"
                     >
-                      <span>Schools</span>
+                      <router-link
+                        v-if="canSeeSchoolPortalsNav"
+                        :to="orgTo('/admin/caseload-hub/schools-staff')"
+                        class="school-mgmt-link"
+                        @click="closeMobileMenu"
+                      >
+                        School Management
+                      </router-link>
+                      <span v-else class="school-mgmt-link">School Management</span>
                       <span
                         v-if="schoolClientsPendingCount > 0"
                         class="nav-badge nav-badge-pulse"
@@ -1555,11 +1577,16 @@
                       >
                         {{ schoolClientsPendingCount }}
                       </span>
-                      <span class="mobile-nav-group-caret" :class="{ open: directorySchoolsNavExpanded }" aria-hidden="true">▸</span>
-                    </button>
+                      <button
+                        type="button"
+                        class="nav-dropdown-group-caret-btn"
+                        @click.stop="directorySchoolsNavExpanded = !directorySchoolsNavExpanded"
+                      >
+                        <span class="mobile-nav-group-caret" :class="{ open: directorySchoolsNavExpanded }" aria-hidden="true">▸</span>
+                      </button>
+                    </div>
                     <template v-if="directorySchoolsNavExpanded">
                       <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Portals</router-link>
-                      <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Caseload Hub</router-link>
                       <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Events</router-link>
                       <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Calendar</router-link>
                       <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
@@ -2305,6 +2332,20 @@ const directorySchedulesNavExpanded = ref(false);
 const directorySkillBuildersNavExpanded = ref(false);
 const directoryPublicLinksNavExpanded = ref(false);
 const directorySchoolsNavExpanded = ref(false);
+/** Brief double-flash so School Management reads as clickable. */
+const schoolMgmtFlashActive = ref(false);
+let schoolMgmtFlashTimer = null;
+const triggerSchoolMgmtFlash = () => {
+  if (schoolMgmtFlashTimer) clearTimeout(schoolMgmtFlashTimer);
+  schoolMgmtFlashActive.value = false;
+  requestAnimationFrame(() => {
+    schoolMgmtFlashActive.value = true;
+    schoolMgmtFlashTimer = setTimeout(() => {
+      schoolMgmtFlashActive.value = false;
+      schoolMgmtFlashTimer = null;
+    }, 1200);
+  });
+};
 const directoryPublicLinksLoading = ref(false);
 const directoryPublicLinksError = ref('');
 const directoryPublicLinksData = ref({
@@ -2521,7 +2562,10 @@ const openNavMenuByKey = (key) => {
   if (!menuRef) return;
   menuRef.value = true;
   if (key === 'tools') ensureToolsFlyoutCategory();
-  if (key === 'directory') applyDirectorySubgroupStateFromRoute();
+  if (key === 'directory') {
+    applyDirectorySubgroupStateFromRoute();
+    triggerSchoolMgmtFlash();
+  }
 };
 
 const closeNavMenuByKey = (key) => {
@@ -5533,6 +5577,52 @@ onUnmounted(() => {
 }
 .nav-dropdown-group-caret.open {
   transform: rotate(90deg);
+}
+.nav-dropdown-group-caret-btn {
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  margin: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  color: inherit;
+}
+.school-mgmt-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.school-mgmt-link {
+  flex: 1;
+  color: inherit !important;
+  text-decoration: none !important;
+  font-weight: 600;
+}
+.school-mgmt-flash {
+  animation: school-mgmt-flash-twice 1.1s ease-in-out 1;
+}
+@keyframes school-mgmt-flash-twice {
+  0%,
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
+  15%,
+  35% {
+    background: rgba(14, 116, 144, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(14, 116, 144, 0.35);
+  }
+  50% {
+    background: transparent;
+    box-shadow: none;
+  }
+  65%,
+  85% {
+    background: rgba(14, 116, 144, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(14, 116, 144, 0.35);
+  }
 }
 .nav-dropdown-group-items {
   display: flex;

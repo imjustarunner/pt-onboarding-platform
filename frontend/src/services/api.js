@@ -143,11 +143,21 @@ api.interceptors.request.use(
     // Prefer window-scoped demo lab token (sessionStorage) so a launched demo
     // window does not share / overwrite the parent Platform cookie session.
     // Then fall back to localStorage JWT (Capacitor), then cookie-only auth.
+    // Do not overwrite Authorization when a caller already set one (e.g. public
+    // kiosk session tokens for school-events / event-day stations).
     try {
-      const demoToken = sessionStorage.getItem('__pt_demo_window_token__');
-      const storedToken = demoToken || localStorage.getItem('authToken');
-      if (storedToken) {
-        config.headers['Authorization'] = `Bearer ${storedToken}`;
+      const existingAuth =
+        config.headers?.Authorization ||
+        config.headers?.authorization ||
+        (typeof config.headers?.get === 'function'
+          ? config.headers.get('Authorization') || config.headers.get('authorization')
+          : null);
+      if (!existingAuth) {
+        const demoToken = sessionStorage.getItem('__pt_demo_window_token__');
+        const storedToken = demoToken || localStorage.getItem('authToken');
+        if (storedToken) {
+          config.headers['Authorization'] = `Bearer ${storedToken}`;
+        }
       }
     } catch {
       // ignore — cookie auth still works in web browsers
@@ -226,9 +236,13 @@ api.interceptors.response.use(
       reqUrl.includes('/members/directory/public') ||
       reqUrl.includes('/public-intake') ||
       reqUrl.startsWith('/public-intake');
-    const publicPathPrefixes = ['/intake/', '/schools', '/kiosk', '/p/', '/pre-hire/'];
+    const publicPathPrefixes = ['/intake/', '/schools', '/kiosk', '/p/', '/pre-hire/', '/school-events/kiosk'];
     const isBrandedKioskPath =
-      /\/[^/]+\/kiosk\/?$/.test(path) || path.includes('/skill-builders/kiosk/');
+      /\/[^/]+\/kiosk\/?$/.test(path) ||
+      path.includes('/skill-builders/kiosk/') ||
+      path.includes('/program-event/kiosk/') ||
+      path.includes('/event-day-kiosk') ||
+      path.includes('/school-events/kiosk');
     const isPublicPath =
       publicPathPrefixes.some((prefix) => path.startsWith(prefix)) ||
       path.includes('/clubs') ||

@@ -4071,10 +4071,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
                 cesd.location_label,
                 ce.id AS company_event_id,
                 ce.title AS event_title,
+                ce.event_type,
+                sch.name AS school_name,
                 cesp.assignment_status
          FROM company_event_session_providers cesp
          INNER JOIN company_event_session_dates cesd ON cesd.id = cesp.session_date_id
          INNER JOIN company_events ce ON ce.id = cesp.company_event_id
+         LEFT JOIN agencies sch ON sch.id = ce.organization_id
          WHERE cesp.provider_user_id = ?
            AND cesp.agency_id = ?
            AND (
@@ -4234,7 +4237,14 @@ export const getUserScheduleSummary = async (req, res, next) => {
         return s;
       };
       for (const r of ceRows || []) {
-        const evTitle = String(r.event_title || '').trim() || 'Program event';
+        const eventType = String(r.event_type || '').trim().toLowerCase();
+        const isSchoolEvent = eventType.startsWith('school_');
+        const schoolName = String(r.school_name || '').trim();
+        let evTitle = String(r.event_title || '').trim()
+          || (isSchoolEvent ? 'School event' : 'Program event');
+        if (isSchoolEvent && schoolName && !evTitle.toLowerCase().includes(schoolName.toLowerCase())) {
+          evTitle = `${evTitle} — ${schoolName}`;
+        }
         const status = String(r.assignment_status || 'draft');
         const statusLabel = assignmentStatusLabel(status);
         const title = statusLabel === 'Confirmed' ? evTitle : `${evTitle} (${statusLabel})`;
@@ -4252,6 +4262,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const bookingExtras = {
           companyEventId,
           sessionDateId,
+          eventType: eventType || null,
+          isSchoolPortalEvent: isSchoolEvent,
+          schoolName: schoolName || null,
           kioskEventPinSet: !!kiosk.kioskEventPinSet,
           kioskEventPinCode: kiosk.kioskEventPinCode || null,
           sessionProviders,
@@ -4288,7 +4301,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             appJoinUrl: null,
             assignmentStatus: status,
             assignmentStatusLabel: statusLabel,
-            locationLabel: r.location_label ? String(r.location_label).trim() : null,
+            locationLabel: (r.location_label ? String(r.location_label).trim() : null) || schoolName || null,
             timezone: r.timezone ? String(r.timezone).trim() : null,
             ...bookingExtras
           });
@@ -4315,7 +4328,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             appJoinUrl: null,
             assignmentStatus: status,
             assignmentStatusLabel: statusLabel,
-            locationLabel: r.location_label ? String(r.location_label).trim() : null,
+            locationLabel: (r.location_label ? String(r.location_label).trim() : null) || schoolName || null,
             timezone: r.timezone ? String(r.timezone).trim() : null,
             ...bookingExtras
           });

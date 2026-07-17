@@ -30,9 +30,31 @@
       <div class="status-row">
         <span class="sev" :class="sevClass(event.staffingStatus)">{{ labelStatus(event.staffingStatus) }}</span>
         <span class="muted">
-          {{ event.providersAssigned || 0 }}/{{ event.providersRequested || 0 }} assigned
+          {{ event.providersAssigned || 0 }}/{{ providersNeededDisplay }} assigned
           <template v-if="event.pendingRequests"> · {{ event.pendingRequests }} pending</template>
         </span>
+      </div>
+
+      <div v-if="canManage" class="providers-needed-row">
+        <label>
+          <span class="lbl">Providers needed</span>
+          <input
+            v-model.number="providersNeededDraft"
+            type="number"
+            min="1"
+            max="99"
+            class="input-sm"
+            :disabled="savingProvidersNeeded"
+          />
+        </label>
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="savingProvidersNeeded || !providersNeededChanged"
+          @click="saveProvidersNeeded"
+        >
+          {{ savingProvidersNeeded ? 'Saving…' : 'Save' }}
+        </button>
       </div>
 
       <div v-if="!staffingOpen" class="enable-box">
@@ -247,12 +269,24 @@ const unassigningKey = ref('');
 const assignPick = reactive({});
 const providerOptions = ref([]);
 const showEditModal = ref(false);
+const providersNeededDraft = ref(1);
+const savingProvidersNeeded = ref(false);
 
 const sessions = computed(() => staffingSummary.value?.sessions || []);
 const staffingOpen = computed(() => {
   if (props.event?.staffingEnabled) return true;
   const cfg = staffingSummary.value?.staffingConfig;
   return !!(cfg && cfg.enabled !== false);
+});
+
+const providersNeededDisplay = computed(() => {
+  const fromCfg = Number(staffingSummary.value?.staffingConfig?.minProvidersPerSession);
+  if (Number.isFinite(fromCfg) && fromCfg >= 1) return fromCfg;
+  return Math.max(1, Number(props.event?.providersRequested || props.event?.minProvidersPerSession || 1));
+});
+
+const providersNeededChanged = computed(() => {
+  return Math.max(1, Number(providersNeededDraft.value) || 1) !== providersNeededDisplay.value;
 });
 
 const editSchoolOrgId = computed(() => {
@@ -271,6 +305,8 @@ function eventTypeToCategory(eventType) {
     school_resource_fair: 'resource_fair',
     school_family_night: 'family_night',
     school_orientation: 'orientation',
+    school_holiday: 'holiday',
+    school_day_off: 'day_off',
     school_other: 'other'
   };
   return map[t] || props.event?.category || 'other';
@@ -289,6 +325,7 @@ const editEventPayload = computed(() => {
     timezone: e.timezone,
     employeeReportTime: e.employeeReportTime || null,
     skillBuilderDirectHours: e.skillBuilderDirectHours != null ? Number(e.skillBuilderDirectHours) : 0,
+    minProvidersPerSession: providersNeededDisplay.value,
     schoolEventStatus: e.schoolEventStatus || 'scheduled',
     outreachTableInvited: !!e.outreachTableInvited,
     flierFileUrl: e.flierFileUrl || '',
@@ -461,7 +498,9 @@ async function enableStaffing() {
   actionError.value = '';
   actionMsg.value = '';
   try {
-    await enableSchoolEventStaffing(props.agencyId, props.event.id);
+    await enableSchoolEventStaffing(props.agencyId, props.event.id, {
+      minProvidersPerSession: Math.max(1, Number(providersNeededDraft.value) || 1)
+    });
     actionMsg.value = 'Event opened for provider applications.';
     emit('changed');
     await reload();
@@ -469,6 +508,32 @@ async function enableStaffing() {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Could not open staffing';
   } finally {
     enabling.value = false;
+  }
+}
+
+async function saveProvidersNeeded() {
+  const schoolId = editSchoolOrgId.value;
+  if (!props.event?.id || !schoolId) return;
+  const n = Math.max(1, Math.min(99, Number(providersNeededDraft.value) || 1));
+  savingProvidersNeeded.value = true;
+  actionError.value = '';
+  actionMsg.value = '';
+  try {
+    if (staffingOpen.value) {
+      await enableSchoolEventStaffing(props.agencyId, props.event.id, { minProvidersPerSession: n });
+    } else {
+      await api.put(`/school-portal/${schoolId}/school-events/${props.event.id}`, {
+        minProvidersPerSession: n
+      });
+    }
+    providersNeededDraft.value = n;
+    actionMsg.value = `Providers needed set to ${n}.`;
+    emit('changed');
+    await reload();
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Could not update providers needed';
+  } finally {
+    savingProvidersNeeded.value = false;
   }
 }
 
@@ -598,6 +663,14 @@ async function deny(reqRow) {
 }
 
 watch(
+  () => [props.event?.id, props.agencyId, providersNeededDisplay.value],
+  () => {
+    providersNeededDraft.value = providersNeededDisplay.value;
+  },
+  { immediate: true }
+);
+
+watch(
   () => [props.event?.id, props.agencyId],
   () => {
     actionMsg.value = '';
@@ -641,6 +714,26 @@ watch(
 .pad { padding: 0.75rem 0; }
 .hint { font-size: 0.8rem; color: #475569; margin: 0 0 0.75rem; }
 .status-row { display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.providers-needed-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+.providers-needed-row .lbl {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 0.2rem;
+}
+.providers-needed-row .input-sm {
+  width: 5rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
 .enable-box {
   background: #f8fafc;
   border: 1px solid #e2e8f0;

@@ -23,7 +23,7 @@
         <button type="button" class="btn btn-secondary" @click="goToday">Today</button>
         <button type="button" class="btn btn-secondary" @click="shift(1)">›</button>
         <router-link class="btn btn-ghost" :to="orgTo('/admin/caseload-hub/events')">Event list</router-link>
-        <button type="button" class="btn btn-primary" @click="openAddEvent">+ Add Event</button>
+        <button type="button" class="btn btn-primary" @click="openAddEvent()">+ Add Event</button>
       </div>
     </header>
 
@@ -40,6 +40,8 @@
         <option value="school_resource_fair">Resource Fair</option>
         <option value="school_family_night">Family Night</option>
         <option value="school_orientation">Orientation</option>
+        <option value="school_holiday">Holiday</option>
+        <option value="school_day_off">Day off</option>
         <option value="school_other">Other</option>
       </select>
       <span class="range-chip">{{ rangeLabel }}</span>
@@ -84,8 +86,13 @@
             <div
               v-for="cell in cells"
               :key="cell.key"
-              class="cell"
+              class="cell cell-clickable"
               :class="{ outside: cell.outside, today: cell.isToday }"
+              role="button"
+              tabindex="0"
+              :title="cell.outside ? '' : `Add event on ${cell.key}`"
+              @click="onDayClick(cell)"
+              @keydown.enter.prevent="onDayClick(cell)"
             >
               <div class="day-num">{{ cell.day }}</div>
               <button
@@ -95,7 +102,7 @@
                 class="evt"
                 :class="typeColor(e)"
                 :title="`${e.schoolName ? e.schoolName + ' — ' : ''}${e.title}`"
-                @click="openEvent(e)"
+                @click.stop="openEvent(e)"
               >
                 <span v-if="e.schoolName" class="evt-school">{{ shortSchool(e.schoolName) }}</span>
                 {{ e.title }}
@@ -109,6 +116,7 @@
             <span><i class="lg open" /> Open House / Orientation</span>
             <span><i class="lg family" /> Family Night</span>
             <span><i class="lg spring" /> Spring / Other</span>
+            <span><i class="lg holiday" /> Holiday / Day off</span>
             <span><i class="lg needs" /> Needs providers</span>
           </div>
         </div>
@@ -157,23 +165,64 @@
     <div v-if="showAddSchoolPicker" class="modal-backdrop" @click.self="showAddSchoolPicker = false">
       <div class="modal-card">
         <h2>Add school event</h2>
-        <p class="muted">Choose the school this event belongs to.</p>
-        <select v-model="addSchoolId" class="agency-select full">
-          <option :value="null">Select a school…</option>
-          <option v-for="s in schoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select>
+        <div class="scope-toggle">
+          <button
+            type="button"
+            class="chip"
+            :class="{ active: addScope === 'school' }"
+            @click="addScope = 'school'"
+          >
+            One school
+          </button>
+          <button
+            type="button"
+            class="chip"
+            :class="{ active: addScope === 'district' }"
+            @click="addScope = 'district'; loadDistricts()"
+          >
+            Entire district
+          </button>
+        </div>
+        <template v-if="addScope === 'school'">
+          <p class="muted">Choose the school this event belongs to.</p>
+          <select v-model="addSchoolId" class="agency-select full">
+            <option :value="null">Select a school…</option>
+            <option v-for="s in schoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </template>
+        <template v-else>
+          <p class="muted">Creates the same event for every school in the district.</p>
+          <select v-model="addDistrictName" class="agency-select full">
+            <option value="">Select a district…</option>
+            <option v-for="d in districtOptions" :key="d.districtName" :value="d.districtName">
+              {{ d.districtName }} ({{ d.schoolCount }} schools)
+            </option>
+          </select>
+          <p v-if="districtsError" class="error-inline">{{ districtsError }}</p>
+        </template>
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" @click="showAddSchoolPicker = false">Cancel</button>
-          <button type="button" class="btn btn-primary" :disabled="!addSchoolId" @click="confirmAddSchool">Continue</button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="addScope === 'school' ? !addSchoolId : !addDistrictName"
+            @click="confirmAddSchool"
+          >
+            Continue
+          </button>
         </div>
       </div>
     </div>
 
     <PostSchoolEventModal
-      v-if="showPostModal && addSchoolId"
-      :school-organization-id="Number(addSchoolId)"
-      initial-category="back_to_school"
-      @close="showPostModal = false"
+      v-if="showPostModal && (addSchoolId || addDistrictName)"
+      :school-organization-id="addSchoolId ? Number(addSchoolId) : null"
+      :school-name="addSchoolName"
+      :agency-id="agencyId"
+      :district-name="addDistrictName || ''"
+      :initial-date="addInitialDate"
+      :initial-category="addDistrictName ? 'holiday' : 'back_to_school'"
+      @close="closePostModal"
       @saved="onEventSaved"
     />
   </div>
@@ -184,6 +233,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../../store/auth';
 import { useAgencyStore } from '../../../store/agency';
+import api from '../../../services/api';
 import { fetchHubEvents, fetchSchoolCoverageSummary } from '../../../services/schoolCoverageApi';
 import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
 import {
@@ -215,12 +265,27 @@ const enabledTypes = ref([
   'school_resource_fair',
   'school_family_night',
   'school_orientation',
+  'school_holiday',
+  'school_day_off',
   'school_other'
 ]);
 const showAddSchoolPicker = ref(false);
 const showPostModal = ref(false);
 const addSchoolId = ref(null);
+const addInitialDate = ref('');
+const addScope = ref('school');
+const addDistrictName = ref('');
+const districtOptions = ref([]);
+const districtsError = ref('');
+const districtsLoadedForAgency = ref(null);
 const selectedMiniKey = ref('');
+
+const addSchoolName = computed(() => {
+  const id = Number(addSchoolId.value);
+  if (!Number.isFinite(id) || id <= 0) return '';
+  const match = schoolOptions.value.find((s) => Number(s.id) === id);
+  return String(match?.name || '').trim();
+});
 
 const dowLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const typeChecklist = [
@@ -230,6 +295,8 @@ const typeChecklist = [
   { value: 'school_orientation', label: 'Orientation', color: 'open' },
   { value: 'school_family_night', label: 'Family Night', color: 'family' },
   { value: 'school_spring_event', label: 'Spring Event', color: 'spring' },
+  { value: 'school_holiday', label: 'Holiday', color: 'holiday' },
+  { value: 'school_day_off', label: 'Day off', color: 'holiday' },
   { value: 'school_other', label: 'Other school event', color: 'spring' }
 ];
 
@@ -396,6 +463,7 @@ function typeColor(e) {
   if (t === 'school_resource_fair' || t === 'school_other') return 'fair';
   if (t === 'school_open_house' || t === 'school_orientation') return 'open';
   if (t === 'school_family_night') return 'family';
+  if (t === 'school_holiday' || t === 'school_day_off') return 'holiday';
   return 'spring';
 }
 
@@ -464,20 +532,61 @@ function applyQuick(kind) {
   }
 }
 
-function openAddEvent() {
+async function loadDistricts() {
+  if (!agencyId.value) return;
+  if (districtsLoadedForAgency.value === agencyId.value && districtOptions.value.length) return;
+  districtsError.value = '';
+  try {
+    const res = await api.get('/school-portal/school-events/districts', {
+      params: { agencyId: agencyId.value }
+    });
+    districtOptions.value = Array.isArray(res.data?.districts) ? res.data.districts : [];
+    districtsLoadedForAgency.value = agencyId.value;
+  } catch (e) {
+    districtsError.value = e?.response?.data?.error?.message || 'Failed to load districts';
+    districtOptions.value = [];
+  }
+}
+
+function openAddEvent(dateYmd = '') {
+  const raw = typeof dateYmd === 'string' ? dateYmd : '';
+  addInitialDate.value = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
+  addScope.value = 'school';
+  addDistrictName.value = '';
   addSchoolId.value = schoolFilter.value ? Number(schoolFilter.value) : null;
-  if (addSchoolId.value) showPostModal.value = true;
-  else showAddSchoolPicker.value = true;
+  if (addSchoolId.value) {
+    showPostModal.value = true;
+  } else {
+    showAddSchoolPicker.value = true;
+  }
+}
+
+function onDayClick(cell) {
+  if (!cell || cell.outside) return;
+  openAddEvent(cell.key);
 }
 
 function confirmAddSchool() {
-  if (!addSchoolId.value) return;
+  if (addScope.value === 'district') {
+    if (!addDistrictName.value) return;
+    addSchoolId.value = null;
+  } else if (!addSchoolId.value) {
+    return;
+  } else {
+    addDistrictName.value = '';
+  }
   showAddSchoolPicker.value = false;
   showPostModal.value = true;
 }
 
-async function onEventSaved() {
+function closePostModal() {
   showPostModal.value = false;
+  addDistrictName.value = '';
+  addInitialDate.value = '';
+}
+
+async function onEventSaved() {
+  closePostModal();
   await reload();
 }
 
@@ -494,7 +603,11 @@ async function reload({ silent = false } = {}) {
     ]);
     events.value = data.events || [];
     schoolOptions.value = (schools.schools || [])
-      .map((s) => ({ id: s.schoolId, name: s.schoolName }))
+      .map((s) => ({
+        id: Number(s.schoolId ?? s.id),
+        name: String(s.schoolName || s.name || '').trim() || `School ${s.schoolId ?? s.id}`
+      }))
+      .filter((s) => Number.isFinite(s.id) && s.id > 0)
       .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   } catch (e) {
     if (!silent) {
@@ -698,9 +811,16 @@ onUnmounted(() => {
   min-height: 108px;
   padding: 0.35rem;
 }
+.cell-clickable:not(.outside) {
+  cursor: pointer;
+}
+.cell-clickable:not(.outside):hover {
+  background: #f0fdfa;
+}
 .cell.outside {
   background: #f8fafc;
   color: #94a3b8;
+  cursor: default;
 }
 .cell.today {
   outline: 2px solid #2563eb;
@@ -747,7 +867,7 @@ onUnmounted(() => {
 }
 .evt.family,
 .lg.family {
-  background: #db2777;
+  background: #0f766e;
 }
 .evt.spring,
 .lg.spring {
@@ -756,6 +876,35 @@ onUnmounted(() => {
 .evt.needs,
 .lg.needs {
   background: #dc2626;
+}
+.evt.holiday,
+.lg.holiday {
+  background: #b45309;
+}
+.scope-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.75rem;
+}
+.scope-toggle .chip {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.scope-toggle .chip.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 650;
+}
+.error-inline {
+  color: #b91c1c;
+  font-size: 0.85rem;
+  margin: 0.35rem 0 0;
 }
 .legend {
   display: flex;

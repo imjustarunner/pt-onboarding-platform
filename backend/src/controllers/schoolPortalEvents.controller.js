@@ -10,11 +10,13 @@ import EmailService from '../services/email.service.js';
 import {
   SCHOOL_EVENT_CATEGORIES,
   categoryToEventType,
+  createDistrictSchoolEvents,
   createPostToken,
   createSchoolPortalEvent,
   currentCalendarYear,
   getMissingCategoriesForOrg,
   getSchoolEventOverviewForAgency,
+  listDistrictsForAgency,
   listSchoolEventsForOrg,
   markPostTokenUsed,
   parseSchoolEventWallTime,
@@ -241,6 +243,12 @@ function parseSchoolEventBody(body) {
     const n = Number(directRaw);
     skillBuilderDirectHours = Number.isFinite(n) && n >= 0 ? n : undefined;
   }
+  const minRaw = body?.minProvidersPerSession ?? body?.min_providers_per_session;
+  let minProvidersPerSession;
+  if (minRaw !== undefined && minRaw !== null && minRaw !== '') {
+    const n = Number(minRaw);
+    minProvidersPerSession = Number.isFinite(n) && n >= 1 ? Math.min(99, Math.floor(n)) : undefined;
+  }
   return {
     category,
     title,
@@ -257,7 +265,8 @@ function parseSchoolEventBody(body) {
     employeeReportTime: reportRaw !== undefined
       ? (reportRaw === null || reportRaw === '' ? null : parseSchoolEventWallTime(reportRaw))
       : undefined,
-    skillBuilderDirectHours
+    skillBuilderDirectHours,
+    minProvidersPerSession
   };
 }
 
@@ -327,7 +336,8 @@ export const createSchoolPortalEventHandler = async (req, res, next) => {
       employeeReportTime: parsed.employeeReportTime,
       skillBuilderDirectHours: canEditPayroll && parsed.skillBuilderDirectHours !== undefined
         ? parsed.skillBuilderDirectHours
-        : 0
+        : 0,
+      minProvidersPerSession: parsed.minProvidersPerSession ?? 1
     });
 
     const postToken = String(req.body?.postToken || req.body?.setk || '').trim();
@@ -379,7 +389,8 @@ export const updateSchoolPortalEventHandler = async (req, res, next) => {
       clearFlier: req.body?.clearFlier === true || req.body?.clear_flier === true,
       schoolEventStatus: parsed.schoolEventStatus,
       employeeReportTime: parsed.employeeReportTime,
-      skillBuilderDirectHours: canEditPayroll ? parsed.skillBuilderDirectHours : undefined
+      skillBuilderDirectHours: canEditPayroll ? parsed.skillBuilderDirectHours : undefined,
+      minProvidersPerSession: parsed.minProvidersPerSession
     });
     res.json(event);
   } catch (e) {
@@ -425,6 +436,69 @@ export const getSchoolEventsOverview = async (req, res, next) => {
     res.json(overview);
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/** GET /api/school-portal/school-events/districts?agencyId= */
+export const listSchoolEventDistricts = async (req, res, next) => {
+  try {
+    const agencyId = await assertAgencyAdminAccess(req, req.query?.agencyId);
+    const districts = await listDistrictsForAgency(agencyId);
+    res.json({ agencyId, districts });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/** POST /api/school-portal/school-events/district — fan-out to all schools in a district */
+export const createDistrictSchoolEventHandler = async (req, res, next) => {
+  try {
+    const agencyId = await assertAgencyAdminAccess(req, req.body?.agencyId ?? req.query?.agencyId);
+    const districtName = String(req.body?.districtName || req.body?.district_name || '').trim();
+    if (!districtName) {
+      return res.status(400).json({ error: { message: 'districtName is required' } });
+    }
+    const parsed = parseSchoolEventBody(req.body || {});
+    if (!parsed.category || !SCHOOL_EVENT_CATEGORIES.includes(parsed.category)) {
+      return res.status(400).json({
+        error: { message: `category must be one of: ${SCHOOL_EVENT_CATEGORIES.join(', ')}` }
+      });
+    }
+    if (!parsed.title) return res.status(400).json({ error: { message: 'title is required' } });
+    if (!parsed.startsAt || !parsed.endsAt) {
+      return res.status(400).json({ error: { message: 'startsAt and endsAt are required' } });
+    }
+
+    const canEditPayroll = await userCanEditSchoolEventPayrollFields({
+      userId: req.user?.id,
+      role: req.user?.role,
+      agencyId
+    });
+
+    const result = await createDistrictSchoolEvents({
+      agencyId,
+      userId: req.user?.id,
+      districtName,
+      category: parsed.category,
+      title: parsed.title,
+      description: parsed.description,
+      startsAt: parsed.startsAt,
+      endsAt: parsed.endsAt,
+      timezone: parsed.timezone,
+      employeeReportTime: parsed.employeeReportTime,
+      skillBuilderDirectHours: canEditPayroll && parsed.skillBuilderDirectHours !== undefined
+        ? parsed.skillBuilderDirectHours
+        : 0,
+      minProvidersPerSession: parsed.minProvidersPerSession ?? 1,
+      schoolEventStatus: parsed.schoolEventStatus || 'scheduled'
+    });
+    res.status(201).json(result);
+  } catch (e) {
+    if (e.status) {
+      return res.status(e.status).json({ error: { message: e.message, details: e.details } });
+    }
     next(e);
   }
 };

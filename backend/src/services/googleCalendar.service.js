@@ -981,10 +981,13 @@ export class GoogleCalendarService {
          cesd.timezone,
          cesd.location_label,
          ce.title AS event_title,
+         ce.event_type,
+         sch.name AS school_name,
          u.email AS provider_email
        FROM company_event_session_providers cesp
        INNER JOIN company_event_session_dates cesd ON cesd.id = cesp.session_date_id
        INNER JOIN company_events ce ON ce.id = cesp.company_event_id
+       LEFT JOIN agencies sch ON sch.id = ce.organization_id
        INNER JOIN users u ON u.id = cesp.provider_user_id
        WHERE cesp.id = ?
        LIMIT 1`,
@@ -1004,12 +1007,18 @@ export class GoogleCalendarService {
       return { ok: false, reason: 'missing_provider_email' };
     }
 
+    const schoolName = String(row.school_name || '').trim();
+    let eventTitle = String(row.event_title || '').trim();
+    const isSchool = String(row.event_type || '').toLowerCase().startsWith('school_');
+    if (isSchool && schoolName && eventTitle && !eventTitle.toLowerCase().includes(schoolName.toLowerCase())) {
+      eventTitle = `${eventTitle} — ${schoolName}`;
+    }
     const summary = this.companyEventAssignmentSummary({
-      eventTitle: row.event_title,
+      eventTitle: eventTitle || (isSchool ? 'School event' : 'Program event'),
       assignmentStatus: row.assignment_status
     });
     const timeZone = String(row.timezone || '').trim() || 'America/New_York';
-    const location = String(row.location_label || '').trim() || null;
+    const location = String(row.location_label || '').trim() || schoolName || null;
     const startRaw = row.starts_at;
     const endRaw = row.ends_at;
     const sessionDate = row.session_date ? String(row.session_date).slice(0, 10) : null;

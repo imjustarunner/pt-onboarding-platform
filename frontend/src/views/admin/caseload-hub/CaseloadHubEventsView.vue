@@ -129,6 +129,8 @@
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_family_night' }" @click="typeFilter = 'school_family_night'">Family Night</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_orientation' }" @click="typeFilter = 'school_orientation'">Orientation</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_spring_event' }" @click="typeFilter = 'school_spring_event'">Spring</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_holiday' }" @click="typeFilter = 'school_holiday'">Holiday</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_day_off' }" @click="typeFilter = 'school_day_off'">Day off</button>
       <button type="button" class="chip" :class="{ active: staffingFilter === 'needs_providers' }" @click="toggleStaffingFilter('needs_providers')">Needs providers</button>
     </div>
 
@@ -238,27 +240,67 @@
       <!-- provider-requests / archived reuse same split above via displayList -->
     </template>
 
-    <!-- Add event: pick school then post -->
+    <!-- Add event: one school or entire district -->
     <div v-if="showAddSchoolPicker" class="modal-backdrop" @click.self="showAddSchoolPicker = false">
       <div class="modal-card">
         <h2>Add school event</h2>
-        <p class="muted">Choose the school this event belongs to.</p>
-        <select v-model="addSchoolId" class="agency-select full">
-          <option :value="null">Select a school…</option>
-          <option v-for="s in schoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select>
+        <div class="scope-toggle">
+          <button
+            type="button"
+            class="chip"
+            :class="{ active: addScope === 'school' }"
+            @click="addScope = 'school'"
+          >
+            One school
+          </button>
+          <button
+            type="button"
+            class="chip"
+            :class="{ active: addScope === 'district' }"
+            @click="addScope = 'district'; loadDistricts()"
+          >
+            Entire district
+          </button>
+        </div>
+        <template v-if="addScope === 'school'">
+          <p class="muted">Choose the school this event belongs to.</p>
+          <select v-model="addSchoolId" class="agency-select full">
+            <option :value="null">Select a school…</option>
+            <option v-for="s in schoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </template>
+        <template v-else>
+          <p class="muted">Creates the same event for every school in the district.</p>
+          <select v-model="addDistrictName" class="agency-select full">
+            <option value="">Select a district…</option>
+            <option v-for="d in districtOptions" :key="d.districtName" :value="d.districtName">
+              {{ d.districtName }} ({{ d.schoolCount }} schools)
+            </option>
+          </select>
+          <p v-if="districtsError" class="error-inline">{{ districtsError }}</p>
+        </template>
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" @click="showAddSchoolPicker = false">Cancel</button>
-          <button type="button" class="btn btn-primary" :disabled="!addSchoolId" @click="confirmAddSchool">Continue</button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="addScope === 'school' ? !addSchoolId : !addDistrictName"
+            @click="confirmAddSchool"
+          >
+            Continue
+          </button>
         </div>
       </div>
     </div>
 
     <PostSchoolEventModal
-      v-if="showPostModal && addSchoolId"
-      :school-organization-id="Number(addSchoolId)"
-      initial-category="back_to_school"
-      @close="showPostModal = false"
+      v-if="showPostModal && (addSchoolId || addDistrictName)"
+      :school-organization-id="addSchoolId ? Number(addSchoolId) : null"
+      :school-name="addSchoolName"
+      :agency-id="agencyId"
+      :district-name="addDistrictName || ''"
+      :initial-category="addDistrictName ? 'holiday' : 'back_to_school'"
+      @close="showPostModal = false; addDistrictName = ''"
       @saved="onEventSaved"
     />
   </div>
@@ -313,6 +355,18 @@ const pageSize = 11;
 const showAddSchoolPicker = ref(false);
 const showPostModal = ref(false);
 const addSchoolId = ref(null);
+const addScope = ref('school'); // school | district
+const addDistrictName = ref('');
+const districtOptions = ref([]);
+const districtsError = ref('');
+const districtsLoadedForAgency = ref(null);
+
+const addSchoolName = computed(() => {
+  const id = Number(addSchoolId.value);
+  if (!Number.isFinite(id) || id <= 0) return '';
+  const match = schoolOptions.value.find((s) => Number(s.id) === id);
+  return String(match?.name || '').trim();
+});
 
 function orgTo(path) {
   const slug = route.params.organizationSlug;
@@ -341,6 +395,8 @@ function labelType(t) {
     school_resource_fair: 'Resource Fair',
     school_family_night: 'Family Event',
     school_orientation: 'Orientation',
+    school_holiday: 'Holiday',
+    school_day_off: 'Day off',
     school_other: 'School Event'
   };
   return map[t] || t || 'Event';
@@ -353,6 +409,7 @@ function typeClass(t) {
   if (t === 'school_orientation') return 'orient';
   if (t === 'school_family_night') return 'family';
   if (t === 'school_spring_event') return 'spring';
+  if (t === 'school_holiday' || t === 'school_day_off') return 'holiday';
   return 'other';
 }
 
@@ -547,23 +604,45 @@ function clearSelection() {
   router.replace({ query: q });
 }
 
-function openAddEvent() {
-  addSchoolId.value = schoolFilter.value ? Number(schoolFilter.value) : null;
-  if (addSchoolId.value) {
-    showPostModal.value = true;
-  } else {
-    showAddSchoolPicker.value = true;
+async function loadDistricts() {
+  if (!agencyId.value) return;
+  if (districtsLoadedForAgency.value === agencyId.value && districtOptions.value.length) return;
+  districtsError.value = '';
+  try {
+    const res = await api.get('/school-portal/school-events/districts', {
+      params: { agencyId: agencyId.value }
+    });
+    districtOptions.value = Array.isArray(res.data?.districts) ? res.data.districts : [];
+    districtsLoadedForAgency.value = agencyId.value;
+  } catch (e) {
+    districtsError.value = e?.response?.data?.error?.message || 'Failed to load districts';
+    districtOptions.value = [];
   }
 }
 
+function openAddEvent() {
+  addScope.value = 'school';
+  addDistrictName.value = '';
+  addSchoolId.value = schoolFilter.value ? Number(schoolFilter.value) : null;
+  showAddSchoolPicker.value = true;
+}
+
 function confirmAddSchool() {
-  if (!addSchoolId.value) return;
+  if (addScope.value === 'district') {
+    if (!addDistrictName.value) return;
+    addSchoolId.value = null;
+  } else if (!addSchoolId.value) {
+    return;
+  } else {
+    addDistrictName.value = '';
+  }
   showAddSchoolPicker.value = false;
   showPostModal.value = true;
 }
 
 async function onEventSaved() {
   showPostModal.value = false;
+  addDistrictName.value = '';
   await reload();
 }
 
@@ -607,7 +686,11 @@ async function reload({ silent = false } = {}) {
     events.value = data.events || [];
     summary.value = data.summary || null;
     schoolOptions.value = (schools.schools || [])
-      .map((s) => ({ id: s.schoolId, name: s.schoolName }))
+      .map((s) => ({
+        id: Number(s.schoolId ?? s.id),
+        name: String(s.schoolName || s.name || '').trim() || `School ${s.schoolId ?? s.id}`
+      }))
+      .filter((s) => Number.isFinite(s.id) && s.id > 0)
       .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   } catch (e) {
     if (!silent) {
@@ -966,8 +1049,8 @@ watch(
   color: #3730a3;
 }
 .type-pill.family {
-  background: #fce7f3;
-  color: #9d174d;
+  background: #ccfbf1;
+  color: #0f766e;
 }
 .type-pill.spring {
   background: #ecfccb;
@@ -976,6 +1059,16 @@ watch(
 .type-pill.other {
   background: #f1f5f9;
   color: #475569;
+}
+.type-pill.holiday {
+  background: #fef3c7;
+  color: #92400e;
+}
+.scope-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.75rem;
 }
 .provider-stack {
   display: flex;

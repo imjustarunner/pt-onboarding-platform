@@ -231,7 +231,7 @@ export const unlockSchoolEventsKiosk = async (req, res, next) => {
     if (!agencyId) return res.status(404).json({ error: { message: 'Agency not found' } });
 
     const pin = normalizeEventKioskPin(req.body?.pin);
-    if (!pin) return res.status(400).json({ error: { message: 'Enter the 6-digit station PIN' } });
+    if (!pin) return res.status(400).json({ error: { message: 'Enter the 4–6 digit station PIN' } });
     const pinHash = KioskModel.hashPin(pin);
 
     const [rows] = await pool.execute(

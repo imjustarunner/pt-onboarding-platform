@@ -9,11 +9,51 @@ import {
   syncCompanySessionProviderBySlotBestEffort,
   cancelCompanySessionProvidersBeforeDelete
 } from '../services/providerAssignmentGoogleSync.service.js';
+import { isSchoolPortalEventType } from '../services/schoolPortalEvents.service.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw ?? ''), 10);
   return Number.isFinite(value) && value > 0 ? value : null;
 };
+
+/**
+ * Upsert a session staffing row. School portal events finalize immediately so the
+ * assignment shows on the provider's My Schedule / Google calendar as confirmed.
+ */
+async function upsertSessionProviderAssignment(connOrPool, {
+  eventId,
+  agencyId,
+  sessionDateId,
+  providerUserId,
+  assignedByUserId,
+  eventType = null
+}) {
+  const db = connOrPool || pool;
+  const finalize = isSchoolPortalEventType(eventType);
+  if (finalize) {
+    await db.execute(
+      `INSERT INTO company_event_session_providers
+        (company_event_id, agency_id, session_date_id, provider_user_id, assigned_by_user_id,
+         assigned_at, assignment_status, published_at, published_by_user_id)
+       VALUES (?, ?, ?, ?, ?, NOW(), 'finalized', NOW(), ?)
+       ON DUPLICATE KEY UPDATE
+         assigned_by_user_id = VALUES(assigned_by_user_id),
+         assigned_at = NOW(),
+         assignment_status = 'finalized',
+         published_at = COALESCE(company_event_session_providers.published_at, NOW()),
+         published_by_user_id = COALESCE(company_event_session_providers.published_by_user_id, VALUES(published_by_user_id))`,
+      [eventId, agencyId, sessionDateId, providerUserId, assignedByUserId, assignedByUserId]
+    );
+    return;
+  }
+  await db.execute(
+    `INSERT INTO company_event_session_providers
+      (company_event_id, agency_id, session_date_id, provider_user_id, assigned_by_user_id, assigned_at)
+     VALUES (?, ?, ?, ?, ?, NOW())
+     ON DUPLICATE KEY UPDATE assigned_by_user_id = VALUES(assigned_by_user_id), assigned_at = VALUES(assigned_at)`,
+    [eventId, agencyId, sessionDateId, providerUserId, assignedByUserId]
+  );
+}
 
 async function userHasAgencyAccess(req, agencyId) {
   if (!agencyId) return false;
@@ -764,13 +804,15 @@ export const approveCompanyEventSessionRequest = async (req, res, next) => {
        WHERE id = ?`,
       [userId, requestId]
     );
-    await conn.execute(
-      `INSERT INTO company_event_session_providers
-        (company_event_id, agency_id, session_date_id, provider_user_id, assigned_by_user_id, assigned_at)
-       VALUES (?, ?, ?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE assigned_by_user_id = VALUES(assigned_by_user_id), assigned_at = VALUES(assigned_at)`,
-      [eventId, agencyId, sessionDateId, providerUserId, userId]
-    );
+    const eventRow = await loadEventForAgency(eventId, agencyId);
+    await upsertSessionProviderAssignment(conn, {
+      eventId,
+      agencyId,
+      sessionDateId,
+      providerUserId,
+      assignedByUserId: userId,
+      eventType: eventRow?.event_type
+    });
 
     await conn.commit();
     syncCompanySessionProviderBySlotBestEffort({ sessionDateId, providerUserId }).catch(() => {});
@@ -874,11 +916,13 @@ export const assignProviderToSession = async (req, res, next) => {
     const scope = await ensureProgramEventScope(eventRow);
     if (!scope.ok) return res.status(scope.status).json({ error: { message: scope.message } });
 
+    // company_event_session_dates has no agency_id column — scope via company_event_id
+    // after loadEventForAgency already verified the event belongs to this agency.
     const [sessionRows] = await pool.execute(
       `SELECT id FROM company_event_session_dates
-       WHERE id = ? AND company_event_id = ? AND agency_id = ?
+       WHERE id = ? AND company_event_id = ?
        LIMIT 1`,
-      [sessionDateId, eventId, agencyId]
+      [sessionDateId, eventId]
     );
     if (!sessionRows?.length) {
       return res.status(404).json({ error: { message: 'Session date not found for this event' } });
@@ -892,13 +936,14 @@ export const assignProviderToSession = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Provider not found' } });
     }
 
-    await pool.execute(
-      `INSERT INTO company_event_session_providers
-        (company_event_id, agency_id, session_date_id, provider_user_id, assigned_by_user_id, assigned_at)
-       VALUES (?, ?, ?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE assigned_by_user_id = VALUES(assigned_by_user_id), assigned_at = VALUES(assigned_at)`,
-      [eventId, agencyId, sessionDateId, providerUserId, userId]
-    );
+    await upsertSessionProviderAssignment(pool, {
+      eventId,
+      agencyId,
+      sessionDateId,
+      providerUserId,
+      assignedByUserId: userId,
+      eventType: eventRow.event_type
+    });
 
     // Mark any pending request from this provider as approved for audit consistency
     try {
@@ -923,6 +968,11 @@ export const assignProviderToSession = async (req, res, next) => {
     if (String(e?.message || '').includes('company_event_session_providers')) {
       return res.status(503).json({
         error: { message: 'Run database migration 740_company_events_staffing_and_session_groups.sql' }
+      });
+    }
+    if (String(e?.message || '').includes('assignment_status') || String(e?.message || '').includes('published_at')) {
+      return res.status(503).json({
+        error: { message: 'Run database migration 820_session_provider_assignment_status.sql' }
       });
     }
     next(e);

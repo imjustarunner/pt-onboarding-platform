@@ -2,7 +2,7 @@
   <div class="hub-page" data-tour="caseload-hub-schools-staff">
     <header class="hub-header">
       <div>
-        <h1>Schools &amp; Staff</h1>
+        <h1>School Management</h1>
         <p class="subtitle">View caseloads by school or by person. Coverage needs and open school days surface live data.</p>
       </div>
       <div class="header-actions">
@@ -364,7 +364,7 @@
           <button type="button" :class="{ active: eventsView === 'calendar' }" @click="eventsView = 'calendar'">Calendar</button>
           <button type="button" :class="{ active: eventsView === 'agenda' }" @click="eventsView = 'agenda'">Agenda</button>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" @click="openEventsAddEvent">+ Add Event</button>
+        <button type="button" class="btn btn-primary btn-sm" @click="openEventsAddEvent()">+ Add Event</button>
         <router-link class="btn btn-secondary btn-sm" :to="orgTo('/admin/caseload-hub/events')">Full event hub →</router-link>
       </div>
       <p class="events-tz-note">
@@ -381,8 +381,13 @@
             <div
               v-for="cell in calendarCells"
               :key="cell.key"
-              class="evt-cell"
+              class="evt-cell evt-cell-clickable"
               :class="{ outside: cell.outside, today: cell.isToday }"
+              role="button"
+              tabindex="0"
+              :title="cell.outside ? '' : `Add event on ${cell.key}`"
+              @click="onEventsDayClick(cell)"
+              @keydown.enter.prevent="onEventsDayClick(cell)"
             >
               <div class="evt-day-num">{{ cell.day }}</div>
               <button
@@ -392,7 +397,7 @@
                 class="evt-chip"
                 :class="[eventsTypeColor(e), { active: eventsSelectedId === e.id }]"
                 :title="`${e.schoolName ? e.schoolName + ' — ' : ''}${e.title}`"
-                @click="selectEventsEvent(e.id)"
+                @click.stop="selectEventsEvent(e.id)"
               >
                 <span v-if="e.schoolName" class="evt-chip-school">{{ e.schoolName }}</span>
                 {{ e.title }}
@@ -449,29 +454,70 @@
         />
       </div>
 
-      <!-- Add event flow -->
-      <div v-if="eventsShowSchoolPicker" class="caseload-modal-backdrop" @click.self="eventsShowSchoolPicker = false">
+      <!-- Add event: one school or entire district -->
+      <div v-if="eventsShowSchoolPicker" class="caseload-modal-backdrop" @click.self="closeEventsAddPicker">
         <div class="caseload-modal">
           <header class="caseload-modal-header">
             <h2>Add school event</h2>
-            <button type="button" class="btn btn-secondary btn-sm" @click="eventsShowSchoolPicker = false">Cancel</button>
+            <button type="button" class="btn btn-secondary btn-sm" @click="closeEventsAddPicker">Cancel</button>
           </header>
-          <p class="muted">Choose the school this event belongs to.</p>
-          <select v-model="eventsPostSchoolId" class="search" style="width:100%;margin-top:0.5rem;">
-            <option :value="null">Select a school…</option>
-            <option v-for="s in eventSchoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
-          </select>
+          <div class="events-scope-toggle">
+            <button
+              type="button"
+              class="events-scope-chip"
+              :class="{ active: eventsAddScope === 'school' }"
+              @click="eventsAddScope = 'school'"
+            >
+              One school
+            </button>
+            <button
+              type="button"
+              class="events-scope-chip"
+              :class="{ active: eventsAddScope === 'district' }"
+              @click="eventsAddScope = 'district'; loadEventsDistricts()"
+            >
+              Entire district
+            </button>
+          </div>
+          <template v-if="eventsAddScope === 'school'">
+            <p class="muted">Choose the school this event belongs to.</p>
+            <select v-model="eventsPostSchoolId" class="search" style="width:100%;margin-top:0.5rem;">
+              <option :value="null">Select a school…</option>
+              <option v-for="s in eventSchoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </template>
+          <template v-else>
+            <p class="muted">Creates the same event for every school in the selected district.</p>
+            <select v-model="eventsPostDistrictName" class="search" style="width:100%;margin-top:0.5rem;">
+              <option value="">Select a district…</option>
+              <option v-for="d in eventsDistrictOptions" :key="d.districtName" :value="d.districtName">
+                {{ d.districtName }} ({{ d.schoolCount }} schools)
+              </option>
+            </select>
+            <p v-if="eventsDistrictsError" class="error-inline">{{ eventsDistrictsError }}</p>
+          </template>
           <footer class="caseload-modal-actions" style="margin-top:1rem;">
-            <button type="button" class="btn btn-secondary" @click="eventsShowSchoolPicker = false">Cancel</button>
-            <button type="button" class="btn btn-primary" :disabled="!eventsPostSchoolId" @click="eventsShowSchoolPicker = false; showEventsPostModal = true">Continue</button>
+            <button type="button" class="btn btn-secondary" @click="closeEventsAddPicker">Cancel</button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="eventsAddScope === 'school' ? !eventsPostSchoolId : !eventsPostDistrictName"
+              @click="confirmEventsAddPicker"
+            >
+              Continue
+            </button>
           </footer>
         </div>
       </div>
       <PostSchoolEventModal
-        v-if="showEventsPostModal && eventsPostSchoolId"
-        :school-organization-id="Number(eventsPostSchoolId)"
-        initial-category="back_to_school"
-        @close="showEventsPostModal = false"
+        v-if="showEventsPostModal && (eventsPostSchoolId || eventsPostDistrictName)"
+        :school-organization-id="eventsPostSchoolId ? Number(eventsPostSchoolId) : null"
+        :school-name="eventsPostSchoolName"
+        :agency-id="agencyId"
+        :district-name="eventsPostDistrictName || ''"
+        :initial-date="eventsPostInitialDate"
+        :initial-category="eventsPostDistrictName ? 'holiday' : 'back_to_school'"
+        @close="closeEventsPostModal"
         @saved="onEventsEventSaved"
       />
     </div>
@@ -772,6 +818,7 @@ import {
   upsertProviderDaySlots,
   fetchHubEvents
 } from '../../../services/schoolCoverageApi';
+import api from '../../../services/api';
 import SchoolEventStaffingPanel from '../../../components/caseload-hub/SchoolEventStaffingPanel.vue';
 import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
 
@@ -816,7 +863,22 @@ const eventsTypeFilter = ref('');
 const eventsSelectedId = ref(null);
 const showEventsPostModal = ref(false);
 const eventsPostSchoolId = ref(null);
+const eventsPostInitialDate = ref('');
 const eventsShowSchoolPicker = ref(false);
+const eventsAddScope = ref('school'); // school | district
+const eventsPostDistrictName = ref('');
+const eventsDistrictOptions = ref([]);
+const eventsDistrictsError = ref('');
+const eventsDistrictsLoadedForAgency = ref(null);
+
+const eventsPostSchoolName = computed(() => {
+  const id = Number(eventsPostSchoolId.value);
+  if (!Number.isFinite(id) || id <= 0) return '';
+  const fromOpts = eventSchoolOptions.value.find((s) => Number(s.id) === id);
+  if (fromOpts?.name) return String(fromOpts.name);
+  const fromSchools = schools.value.find((s) => Number(s.schoolId) === id);
+  return String(fromSchools?.schoolName || '').trim();
+});
 
 function eventsStartOfMonth(d) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -978,17 +1040,87 @@ function eventsLabelStatus(s) {
   return 'Scheduled';
 }
 
-function openEventsAddEvent() {
-  if (eventsSchoolFilter.value) {
-    eventsPostSchoolId.value = Number(eventsSchoolFilter.value);
-    showEventsPostModal.value = true;
-  } else {
-    eventsShowSchoolPicker.value = true;
+async function loadEventsDistricts() {
+  if (!agencyId.value) return;
+  if (eventsDistrictsLoadedForAgency.value === agencyId.value && eventsDistrictOptions.value.length) {
+    return;
+  }
+  eventsDistrictsError.value = '';
+  try {
+    const res = await api.get('/school-portal/school-events/districts', {
+      params: { agencyId: agencyId.value }
+    });
+    const fromApi = Array.isArray(res.data?.districts) ? res.data.districts : [];
+    if (fromApi.length) {
+      eventsDistrictOptions.value = fromApi;
+    } else {
+      // Fallback from loaded school list (name + count)
+      const counts = new Map();
+      for (const s of schools.value) {
+        const d = String(s.districtName || '').trim();
+        if (!d) continue;
+        counts.set(d, (counts.get(d) || 0) + 1);
+      }
+      eventsDistrictOptions.value = Array.from(counts.entries())
+        .map(([districtName, schoolCount]) => ({ districtName, schoolCount }))
+        .sort((a, b) => a.districtName.localeCompare(b.districtName));
+    }
+    eventsDistrictsLoadedForAgency.value = agencyId.value;
+  } catch (e) {
+    eventsDistrictsError.value = e?.response?.data?.error?.message || 'Failed to load districts';
+    eventsDistrictOptions.value = schoolDistrictOptions.value.map((d) => ({
+      districtName: d,
+      schoolCount: schools.value.filter((s) => String(s.districtName || '').trim() === d).length
+    }));
   }
 }
 
-async function onEventsEventSaved() {
+function openEventsAddEvent(dateYmd = '') {
+  const raw = typeof dateYmd === 'string' ? dateYmd : '';
+  eventsPostInitialDate.value = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
+  eventsPostDistrictName.value = '';
+  eventsPostSchoolId.value = eventsSchoolFilter.value ? Number(eventsSchoolFilter.value) : null;
+  // Prefer district scope when a district filter is set (and no specific school).
+  if (eventsDistrictFilter.value && !eventsSchoolFilter.value) {
+    eventsAddScope.value = 'district';
+    eventsPostDistrictName.value = eventsDistrictFilter.value;
+    loadEventsDistricts();
+  } else {
+    eventsAddScope.value = 'school';
+  }
+  eventsShowSchoolPicker.value = true;
+}
+
+function confirmEventsAddPicker() {
+  if (eventsAddScope.value === 'district') {
+    if (!eventsPostDistrictName.value) return;
+    eventsPostSchoolId.value = null;
+  } else if (!eventsPostSchoolId.value) {
+    return;
+  } else {
+    eventsPostDistrictName.value = '';
+  }
+  eventsShowSchoolPicker.value = false;
+  showEventsPostModal.value = true;
+}
+
+function closeEventsAddPicker() {
+  eventsShowSchoolPicker.value = false;
+}
+
+function onEventsDayClick(cell) {
+  if (!cell || cell.outside) return;
+  openEventsAddEvent(cell.key);
+}
+
+function closeEventsPostModal() {
   showEventsPostModal.value = false;
+  eventsPostInitialDate.value = '';
+  eventsPostDistrictName.value = '';
+}
+
+async function onEventsEventSaved() {
+  closeEventsPostModal();
   eventsShowSchoolPicker.value = false;
   hubEvents.value = (await fetchHubEvents(agencyId.value).catch(() => ({ events: [] }))).events || [];
 }
@@ -2149,6 +2281,32 @@ watch(
   background: #5b21b6;
   color: #fff;
 }
+.events-scope-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0.65rem;
+}
+.events-scope-chip {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  color: #475569;
+}
+.events-scope-chip.active {
+  border-color: #5b21b6;
+  background: #f5f3ff;
+  color: #5b21b6;
+  font-weight: 650;
+}
+.error-inline {
+  color: #b91c1c;
+  font-size: 0.85rem;
+  margin: 0.4rem 0 0;
+}
 .events-body {
   display: grid;
   grid-template-columns: 1fr;
@@ -2181,7 +2339,13 @@ watch(
   min-height: 90px;
   padding: 0.3rem;
 }
-.evt-cell.outside { background: #f8fafc; color: #94a3b8; }
+.evt-cell-clickable:not(.outside) {
+  cursor: pointer;
+}
+.evt-cell-clickable:not(.outside):hover {
+  background: #f0fdfa;
+}
+.evt-cell.outside { background: #f8fafc; color: #94a3b8; cursor: default; }
 .evt-cell.today { outline: 2px solid #7c3aed; outline-offset: -2px; }
 .evt-day-num { font-size: 0.72rem; font-weight: 700; margin-bottom: 0.2rem; }
 .evt-chip {
@@ -2206,7 +2370,7 @@ watch(
 .evt-chip.bts, .evtdot.bts { background: #2563eb; }
 .evt-chip.fair, .evtdot.fair { background: #16a34a; }
 .evt-chip.open, .evtdot.open { background: #ea580c; }
-.evt-chip.family, .evtdot.family { background: #db2777; }
+.evt-chip.family, .evtdot.family { background: #0f766e; }
 .evt-chip.spring, .evtdot.spring { background: #7c3aed; }
 .evt-chip.needs, .evtdot.needs { background: #dc2626; }
 .evt-legend {

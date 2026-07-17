@@ -2938,7 +2938,12 @@
               <div class="dashboard-icon-item">
                 <label>School Overview Icon</label>
                 <IconSelector v-model="agencyForm.schoolOverviewIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Icon for the "School Overview" action card</small>
+                <small>Icon for School Overview / the Schools &amp; Portals nest on My Dashboard</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Program Overview Icon</label>
+                <IconSelector v-model="agencyForm.programOverviewIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for Program Overview / program portals on My Dashboard</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Agency Calendar Icon</label>
@@ -3080,12 +3085,22 @@
                 <IconSelector v-model="agencyForm.myDashboardStaffIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Your Team" card when Kudos is enabled</small>
               </div>
+              <div class="dashboard-icon-item">
+                <label>Schools / Portals Nest Icon</label>
+                <IconSelector v-model="agencyForm.schoolOverviewIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the Schools &amp; Portals nest on My Dashboard (same as School Overview)</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Program Portals Icon</label>
+                <IconSelector v-model="agencyForm.programOverviewIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for Program Portals on My Dashboard (same as Program Overview)</small>
+              </div>
             </div>
 
             <div v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'agency'" class="settings-section-divider">
               <h4>School Portal Card Icons</h4>
               <p class="section-description">
-                Icons displayed on the School Portal home cards (Providers, Days, Roster, Skills Groups, Contact Admin) for affiliated schools/programs. These override platform defaults.
+                Icons displayed on the School Portal home cards (Providers, Days, Events, Digital Forms, etc.) for affiliated schools/programs. These override platform defaults.
               </p>
             </div>
 
@@ -3121,9 +3136,24 @@
                 <small>Icon for the "School staff" card in school portals</small>
               </div>
               <div class="dashboard-icon-item">
-                <label>Parent QR code Card Icon</label>
+                <label>Events Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalEventsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Events" card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>School Calendar Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalCalendarIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "School calendar" card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Digital forms Card Icon</label>
                 <IconSelector v-model="agencyForm.schoolPortalParentQrIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Icon for the "Parent QR code" card in school portals</small>
+                <small>Icon for the "Digital forms" (parent intake) card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Manage digital forms Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalDigitalFormsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Manage school digital forms" card in school portals</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Parent fill + sign Card Icon</label>
@@ -6372,6 +6402,7 @@ const ICON_TEMPLATE_FIELDS = [
   'viewAllProgressIconId',
   'manageClientsIconId',
   'schoolOverviewIconId',
+  'programOverviewIconId',
   'externalCalendarAuditIconId',
   'dashboardPayrollIconId',
   'dashboardBillingIconId',
@@ -6410,6 +6441,9 @@ const ICON_TEMPLATE_FIELDS = [
   'schoolPortalUploadPacketIconId',
   'schoolPortalPublicDocumentsIconId',
   'schoolPortalAnnouncementsIconId',
+  'schoolPortalEventsIconId',
+  'schoolPortalDigitalFormsIconId',
+  'schoolPortalCalendarIconId',
   'statusExpiredIconId',
   'tempPasswordExpiredIconId',
   'taskOverdueIconId',
@@ -6459,6 +6493,7 @@ const defaultAgencyForm = () => ({
   viewAllProgressIconId: null,
   manageClientsIconId: null,
   schoolOverviewIconId: null,
+  programOverviewIconId: null,
   externalCalendarAuditIconId: null,
   dashboardPayrollIconId: null,
   dashboardBillingIconId: null,
@@ -6497,6 +6532,9 @@ const defaultAgencyForm = () => ({
   schoolPortalUploadPacketIconId: null,
   schoolPortalPublicDocumentsIconId: null,
   schoolPortalAnnouncementsIconId: null,
+  schoolPortalEventsIconId: null,
+  schoolPortalDigitalFormsIconId: null,
+  schoolPortalCalendarIconId: null,
   onboardingTeamEmail: '',
   notificationsSenderEmail: '',
   intakeSenderEmail: '',
@@ -7884,6 +7922,7 @@ const editAgency = async (agency) => {
     viewAllProgressIconId: agency.view_all_progress_icon_id ?? null,
     manageClientsIconId: agency.manage_clients_icon_id ?? null,
     schoolOverviewIconId: agency.school_overview_icon_id ?? null,
+    programOverviewIconId: agency.program_overview_icon_id ?? null,
     externalCalendarAuditIconId: agency.external_calendar_audit_icon_id ?? null,
     dashboardPayrollIconId: agency.dashboard_payroll_icon_id ?? null,
     dashboardBillingIconId: agency.dashboard_billing_icon_id ?? null,
@@ -7922,6 +7961,9 @@ const editAgency = async (agency) => {
     schoolPortalUploadPacketIconId: agency.school_portal_upload_packet_icon_id ?? null,
     schoolPortalPublicDocumentsIconId: agency.school_portal_public_documents_icon_id ?? null,
     schoolPortalAnnouncementsIconId: agency.school_portal_announcements_icon_id ?? null,
+    schoolPortalEventsIconId: agency.school_portal_events_icon_id ?? null,
+    schoolPortalDigitalFormsIconId: agency.school_portal_digital_forms_icon_id ?? null,
+    schoolPortalCalendarIconId: agency.school_portal_calendar_icon_id ?? null,
     onboardingTeamEmail: agency.onboarding_team_email || '',
     notificationsSenderEmail: '',
     intakeSenderEmail: '',
@@ -8821,6 +8863,7 @@ const saveAgency = async () => {
       viewAllProgressIconId: agencyForm.value.viewAllProgressIconId ?? null,
       manageClientsIconId: agencyForm.value.manageClientsIconId ?? null,
       schoolOverviewIconId: agencyForm.value.schoolOverviewIconId ?? null,
+      programOverviewIconId: agencyForm.value.programOverviewIconId ?? null,
       externalCalendarAuditIconId: agencyForm.value.externalCalendarAuditIconId ?? null,
       dashboardPayrollIconId: agencyForm.value.dashboardPayrollIconId ?? null,
       dashboardBillingIconId: agencyForm.value.dashboardBillingIconId ?? null,
@@ -8859,6 +8902,9 @@ const saveAgency = async () => {
       schoolPortalUploadPacketIconId: agencyForm.value.schoolPortalUploadPacketIconId ?? null,
       schoolPortalPublicDocumentsIconId: agencyForm.value.schoolPortalPublicDocumentsIconId ?? null,
       schoolPortalAnnouncementsIconId: agencyForm.value.schoolPortalAnnouncementsIconId ?? null,
+      schoolPortalEventsIconId: agencyForm.value.schoolPortalEventsIconId ?? null,
+      schoolPortalDigitalFormsIconId: agencyForm.value.schoolPortalDigitalFormsIconId ?? null,
+      schoolPortalCalendarIconId: agencyForm.value.schoolPortalCalendarIconId ?? null,
       onboardingTeamEmail: normalizeNullableText(agencyForm.value.onboardingTeamEmail),
       phoneNumber: normalizePhoneNumber(agencyForm.value.phoneNumber),
       // Schools don't use extensions (per directory requirements)

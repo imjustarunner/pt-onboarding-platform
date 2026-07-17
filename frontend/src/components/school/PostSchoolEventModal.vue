@@ -4,11 +4,23 @@
       <div class="pse-modal" role="dialog" aria-modal="true" :aria-label="editEvent ? 'Edit school event' : 'Post school event'" @click.stop>
         <header class="pse-header">
           <div>
-            <h2>{{ editEvent ? 'Edit school event' : 'Post school event' }}</h2>
+            <h2>
+              {{ editEvent
+                ? 'Edit school event'
+                : isDistrictCreate
+                  ? 'Add district event'
+                  : 'Post school event' }}
+            </h2>
             <p class="pse-sub">
               {{ editEvent
                 ? 'Update details, status, or timing. Rescheduling replaces the previous date/time.'
-                : "Share your school's parent event. It will appear on the portal banner the week of the event." }}
+                : isDistrictCreate
+                  ? `Creates this event for every school in ${districtName}.`
+                  : "Share your school's parent event. It will appear on the portal banner the week of the event." }}
+            </p>
+            <p v-if="displaySchoolName && !isDistrictCreate" class="pse-school">
+              {{ editEvent ? 'School' : 'Adding for' }}:
+              <strong>{{ displaySchoolName }}</strong>
             </p>
           </div>
           <button class="pse-close" type="button" aria-label="Close" @click="$emit('close')">×</button>
@@ -23,6 +35,8 @@
               <option value="resource_fair">Resource Fair</option>
               <option value="family_night">Family Night</option>
               <option value="orientation">Orientation</option>
+              <option value="holiday">Holiday</option>
+              <option value="day_off">Day off</option>
               <option value="other">Other school event</option>
               <option value="spring">Spring Event</option>
             </select>
@@ -75,6 +89,20 @@
             Report by is when staff should arrive. Times are saved in {{ timezoneLabel }} ({{ timezoneAbbrev }}).
           </p>
 
+          <label v-if="!isCalendarOnlyCategory" class="field">
+            <span class="lbl">Providers needed</span>
+            <input
+              v-model.number="form.minProvidersPerSession"
+              type="number"
+              min="1"
+              max="99"
+              step="1"
+              class="input"
+            />
+            <span class="hint">How many providers to staff for this event (default 1).</span>
+          </label>
+          <p v-else class="hint">Holidays and days off do not open provider staffing.</p>
+
           <label v-if="canEditPayrollFields" class="field">
             <span class="lbl">Direct hours cap (payroll)</span>
             <input
@@ -89,7 +117,7 @@
             </span>
           </label>
 
-          <label class="field">
+          <label v-if="!isDistrictCreate" class="field">
             <span class="lbl">Flier (optional)</span>
             <input type="file" accept=".pdf,image/jpeg,image/png,image/jpg" @change="onFileChange" />
             <div v-if="uploading" class="hint">Uploading…</div>
@@ -97,6 +125,7 @@
               <a :href="displayFlierUrl" target="_blank" rel="noopener">View uploaded flier</a>
             </div>
           </label>
+          <p v-else class="hint">Fliers can be attached per school after the district event is created.</p>
 
           <label class="checkbox-row">
             <input v-model="form.outreachTableInvited" type="checkbox" />
@@ -131,8 +160,17 @@ import {
 } from '../../utils/timezones';
 
 const props = defineProps({
-  schoolOrganizationId: { type: Number, required: true },
+  schoolOrganizationId: { type: Number, default: null },
+  /** Display name for the school this event is for (e.g. filter selection). */
+  schoolName: { type: String, default: '' },
+  agencyId: { type: [Number, String], default: null },
+  /** When set, create fans out to every school in this district (agency admin). */
+  districtName: { type: String, default: '' },
   initialCategory: { type: String, default: 'back_to_school' },
+  /** Prefill date (YYYY-MM-DD) when creating from a calendar day click. */
+  initialDate: { type: String, default: '' },
+  initialStartTime: { type: String, default: '' },
+  initialEndTime: { type: String, default: '' },
   lockedCategory: { type: Boolean, default: false },
   postToken: { type: String, default: '' },
   editEvent: { type: Object, default: null }
@@ -145,6 +183,15 @@ const submitting = ref(false);
 const uploading = ref(false);
 const error = ref('');
 const success = ref('');
+
+const isDistrictCreate = computed(() => !!String(props.districtName || '').trim() && !props.editEvent);
+
+const displaySchoolName = computed(() => {
+  const fromProp = String(props.schoolName || '').trim();
+  if (fromProp) return fromProp;
+  const fromEdit = String(props.editEvent?.schoolName || '').trim();
+  return fromEdit || '';
+});
 
 const canEditPayrollFields = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -160,12 +207,18 @@ const form = reactive({
   reportTime: '',
   startTime: '17:00',
   endTime: '19:00',
+  minProvidersPerSession: 1,
   skillBuilderDirectHours: 0,
   schoolEventStatus: 'scheduled',
   outreachTableInvited: false,
   flierFileUrl: '',
   eventImageUrl: '',
   timezone: SCHOOL_EVENT_FALLBACK_TIMEZONE
+});
+
+const isCalendarOnlyCategory = computed(() => {
+  const c = String(form.category || '').toLowerCase();
+  return c === 'holiday' || c === 'day_off';
 });
 
 const wallTimeToInput = (value) => {
@@ -218,6 +271,10 @@ const onFileChange = async (event) => {
   try {
     uploading.value = true;
     error.value = '';
+    if (!props.schoolOrganizationId) {
+      error.value = 'Flier upload requires a single school. Create the district event first, then edit one school.';
+      return;
+    }
     const fd = new FormData();
     fd.append('file', file);
     const res = await api.post(`/school-portal/${props.schoolOrganizationId}/school-events/upload-flier`, fd, {
@@ -260,6 +317,9 @@ const submit = async () => {
       eventImageUrl: form.eventImageUrl || null,
       postToken: props.postToken || undefined
     };
+    if (!isCalendarOnlyCategory.value) {
+      payload.minProvidersPerSession = Math.max(1, Math.min(99, Number(form.minProvidersPerSession) || 1));
+    }
     if (canEditPayrollFields.value) {
       payload.skillBuilderDirectHours = Number(form.skillBuilderDirectHours) || 0;
     }
@@ -269,7 +329,21 @@ const submit = async () => {
         `/school-portal/${props.schoolOrganizationId}/school-events/${props.editEvent.id}`,
         payload
       );
+    } else if (isDistrictCreate.value) {
+      if (!props.agencyId) {
+        error.value = 'Agency is required for district events';
+        return;
+      }
+      res = await api.post('/school-portal/school-events/district', {
+        ...payload,
+        agencyId: Number(props.agencyId),
+        districtName: String(props.districtName).trim()
+      });
     } else {
+      if (!props.schoolOrganizationId) {
+        error.value = 'School is required';
+        return;
+      }
       res = await api.post(`/school-portal/${props.schoolOrganizationId}/school-events`, payload);
     }
     success.value = props.editEvent?.id
@@ -278,7 +352,9 @@ const submit = async () => {
         : form.schoolEventStatus === 'rescheduled'
           ? 'Event rescheduled. New date/time is live and the portal banner will update.'
           : 'Event updated.'
-      : 'Event posted. It will appear on the portal banner the week of the event.';
+      : isDistrictCreate.value
+        ? `Created for ${res.data?.createdCount || 0} school(s) in the district.`
+        : 'Event posted. It will appear on the portal banner the week of the event.';
     emit('saved', res.data);
     setTimeout(() => emit('close'), 1100);
   } catch (e) {
@@ -302,6 +378,12 @@ const hydrateFromEdit = () => {
     e.skillBuilderDirectHours != null && e.skillBuilderDirectHours !== ''
       ? Number(e.skillBuilderDirectHours)
       : 0;
+  form.minProvidersPerSession =
+    e.minProvidersPerSession != null && e.minProvidersPerSession !== ''
+      ? Math.max(1, Number(e.minProvidersPerSession) || 1)
+      : e.providersRequested != null
+        ? Math.max(1, Number(e.providersRequested) || 1)
+        : 1;
   form.schoolEventStatus = e.schoolEventStatus || e.status || 'scheduled';
   form.outreachTableInvited = !!e.outreachTableInvited;
   form.flierFileUrl = e.flierFileUrl || '';
@@ -312,7 +394,16 @@ const hydrateFromEdit = () => {
 onMounted(() => {
   form.category = props.initialCategory || 'back_to_school';
   form.timezone = detectLocalTimezone() || SCHOOL_EVENT_FALLBACK_TIMEZONE;
-  hydrateFromEdit();
+  if (props.editEvent) {
+    hydrateFromEdit();
+    return;
+  }
+  const d = String(props.initialDate || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) form.date = d;
+  const st = String(props.initialStartTime || '').trim();
+  if (/^\d{2}:\d{2}$/.test(st)) form.startTime = st;
+  const et = String(props.initialEndTime || '').trim();
+  if (/^\d{2}:\d{2}$/.test(et)) form.endTime = et;
 });
 
 watch(
@@ -350,6 +441,15 @@ watch(
   padding: 16px 18px 12px;
   border-bottom: 1px solid #e2e8f0;
   background: #fff;
+}
+.pse-school {
+  margin: 0.45rem 0 0;
+  font-size: 0.88rem;
+  color: #334155;
+}
+.pse-school strong {
+  color: #0f766e;
+  font-weight: 700;
 }
 .pse-header h2 {
   margin: 0;

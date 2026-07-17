@@ -1497,7 +1497,10 @@ export const useBrandingStore = defineStore('branding', () => {
       upload_packet: 'school_portal_upload_packet_icon_path',
       public_documents: 'school_portal_public_documents_icon_path',
       announcements: 'school_portal_announcements_icon_path',
-      messages: 'school_portal_messages_icon_path'
+      messages: 'school_portal_messages_icon_path',
+      events: 'school_portal_events_icon_path',
+      digital_forms: 'school_portal_digital_forms_icon_path',
+      calendar: 'school_portal_calendar_icon_path'
     };
     const field = iconFieldMap[cardId];
     if (!field) return null;

@@ -276,9 +276,34 @@
             :class="{ active: portalMode === 'events' }"
           >
             <div class="nav-icon">
-              <div class="nav-icon-fallback" aria-hidden="true">EV</div>
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">EV</div>
             </div>
             <div class="nav-label">Events</div>
+          </button>
+
+          <button
+            data-tour="school-nav-calendar"
+            class="nav-item"
+            type="button"
+            @click="openSchoolCalendarPanel"
+            :class="{ active: portalMode === 'calendar' }"
+          >
+            <div class="nav-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">CL</div>
+            </div>
+            <div class="nav-label">Calendar</div>
           </button>
 
           <button data-tour="school-nav-staff" class="nav-item" type="button" @click="setPortalMode('school_staff')" :class="{ active: portalMode === 'school_staff' }">
@@ -546,13 +571,36 @@
 
           <button data-tour="school-home-card-events" class="dash-card" type="button" @click="openSchoolEventsPanel">
             <div class="dash-card-icon">
-              <div class="dash-card-icon-fallback" aria-hidden="true">EV</div>
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
+                alt="Events icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">EV</div>
             </div>
             <div class="dash-card-title">Events</div>
             <div class="dash-card-desc">School events associated with this portal (canonical company events).</div>
             <div class="dash-card-meta">
               <span class="dash-card-cta">Open</span>
               <span v-if="schoolPortalEvents.length" class="dash-card-badge">{{ schoolPortalEvents.length }}</span>
+            </div>
+          </button>
+
+          <button data-tour="school-home-card-calendar" class="dash-card" type="button" @click="openSchoolCalendarPanel">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
+                alt="School calendar icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">CL</div>
+            </div>
+            <div class="dash-card-title">School calendar</div>
+            <div class="dash-card-desc">Month view of holidays, days off, and parent events for this school.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
             </div>
           </button>
 
@@ -710,7 +758,13 @@
             data-tour="school-home-card-manage-digital-intakes"
           >
             <div class="dash-card-icon">
-              <div class="dash-card-icon-fallback" aria-hidden="true">DF</div>
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('digital_forms', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('digital_forms', cardIconOrg)"
+                alt="Manage digital forms icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">DF</div>
             </div>
             <div class="dash-card-title">Manage school digital forms</div>
             <div class="dash-card-desc">Create or copy English/Spanish intake links for this portal only.</div>
@@ -860,6 +914,18 @@
         </div>
           </div>
 
+          <div v-else-if="portalMode === 'calendar'">
+            <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
+            <SchoolPortalCalendarPanel
+              v-else
+              ref="schoolCalendarPanelRef"
+              :school-organization-id="organizationId"
+              :can-manage="canManageSchoolEvents"
+              @add-event="onCalendarAddEvent"
+              @edit-event="onCalendarEditEvent"
+            />
+          </div>
+
           <div v-else-if="portalMode === 'school_staff'">
         <div data-tour="school-staff-panel">
           <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
@@ -985,7 +1051,9 @@
     <PostSchoolEventModal
       v-if="showPostSchoolEvent && organizationId"
       :school-organization-id="organizationId"
+      :school-name="organizationName || organizationDisplayName || ''"
       :initial-category="postSchoolEventCategory"
+      :initial-date="postSchoolEventDate"
       :locked-category="!!postSchoolEventToken"
       :post-token="postSchoolEventToken"
       :edit-event="editingSchoolEvent"
@@ -1456,6 +1524,7 @@ import { useTutorialStore } from '../../store/tutorial';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
 import PostSchoolEventModal from '../../components/school/PostSchoolEventModal.vue';
+import SchoolPortalCalendarPanel from '../../components/school/SchoolPortalCalendarPanel.vue';
 import AnnouncementMarquee from '../../components/common/AnnouncementMarquee.vue';
 import SchoolEventPromptModal from '../../components/school/SchoolEventPromptModal.vue';
 import ReviewPromptModal from '../../components/school/ReviewPromptModal.vue';
@@ -1512,6 +1581,7 @@ const showHelpDesk = ref(false);
 const showPostSchoolEvent = ref(false);
 const editingSchoolEvent = ref(null);
 const postSchoolEventCategory = ref('back_to_school');
+const postSchoolEventDate = ref('');
 const postSchoolEventToken = ref('');
 const showSchoolEventPrompt = ref(false);
 const schoolEventPromptCategory = ref('back_to_school');
@@ -1520,6 +1590,7 @@ const schoolEventsMissingCategories = ref([]);
 const schoolPortalEvents = ref([]);
 const schoolPortalEventsLoading = ref(false);
 const schoolPortalEventsError = ref('');
+const schoolCalendarPanelRef = ref(null);
 
 const formatSchoolEventWhen = (evOrStartsAt, endsAt, timezone) => {
   if (evOrStartsAt && typeof evOrStartsAt === 'object') {
@@ -1545,6 +1616,8 @@ const formatSchoolEventCategory = (c) => {
     resource_fair: 'Resource Fair',
     family_night: 'Family Night',
     orientation: 'Orientation',
+    holiday: 'Holiday',
+    day_off: 'Day off',
     other: 'Other'
   };
   return map[String(c || '')] || c || 'Event';
@@ -1577,9 +1650,22 @@ const openSchoolEventsPanel = async () => {
   await loadSchoolPortalEvents();
 };
 
-const openPostSchoolEvent = (category = 'back_to_school') => {
+const openSchoolCalendarPanel = async () => {
+  await setPortalMode('calendar');
+  await nextTick();
+  await schoolCalendarPanelRef.value?.reload?.();
+};
+
+const openPostSchoolEvent = (categoryOrOpts = 'back_to_school') => {
   editingSchoolEvent.value = null;
-  postSchoolEventCategory.value = String(category || 'back_to_school');
+  if (categoryOrOpts && typeof categoryOrOpts === 'object') {
+    const d = String(categoryOrOpts.date || '').trim();
+    postSchoolEventDate.value = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : '';
+    postSchoolEventCategory.value = String(categoryOrOpts.category || 'back_to_school');
+  } else {
+    postSchoolEventDate.value = '';
+    postSchoolEventCategory.value = String(categoryOrOpts || 'back_to_school');
+  }
   showPostSchoolEvent.value = true;
 };
 
@@ -1587,8 +1673,20 @@ const openEditSchoolEvent = (ev) => {
   if (!ev?.id || !canManageSchoolEvents.value) return;
   editingSchoolEvent.value = ev;
   postSchoolEventCategory.value = String(ev.category || 'back_to_school');
+  postSchoolEventDate.value = '';
   postSchoolEventToken.value = '';
   showPostSchoolEvent.value = true;
+};
+
+const onCalendarAddEvent = (payload) => {
+  if (!canManageSchoolEvents.value) return;
+  openPostSchoolEvent(payload && typeof payload === 'object' ? payload : {});
+};
+
+const onCalendarEditEvent = (ev) => {
+  if (canManageSchoolEvents.value && ev?.id) {
+    openEditSchoolEvent(ev);
+  }
 };
 
 const openPostSchoolEventFromPrompt = (category) => {
@@ -1599,12 +1697,14 @@ const openPostSchoolEventFromPrompt = (category) => {
 const closePostSchoolEvent = () => {
   showPostSchoolEvent.value = false;
   postSchoolEventToken.value = '';
+  postSchoolEventDate.value = '';
   editingSchoolEvent.value = null;
 };
 
 const handleSchoolEventSaved = async () => {
   await loadSchoolEventsMissing();
   await loadSchoolPortalEvents();
+  await schoolCalendarPanelRef.value?.reload?.();
   showSchoolEventPrompt.value = false;
   editingSchoolEvent.value = null;
 };
@@ -1876,7 +1976,7 @@ const comingSoonTitle = computed(() => {
   return 'Coming soon';
 });
 const selectedClient = ref(null);
-const portalMode = ref('home'); // home | providers | days | roster | skills | school_staff | documents | faq | messages
+const portalMode = ref('home'); // home | providers | days | roster | skills | events | calendar | school_staff | documents | faq | messages
 const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel (pending/waitlist)
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);

@@ -12,6 +12,8 @@ export const SCHOOL_PORTAL_EVENT_TYPES = new Set([
   'school_resource_fair',
   'school_family_night',
   'school_orientation',
+  'school_holiday',
+  'school_day_off',
   'school_other'
 ]);
 
@@ -25,6 +27,8 @@ export const SCHOOL_EVENT_CATEGORIES = [
   'resource_fair',
   'family_night',
   'orientation',
+  'holiday',
+  'day_off',
   'other'
 ];
 
@@ -46,6 +50,8 @@ export function categoryToEventType(category) {
   if (c === 'resource_fair') return 'school_resource_fair';
   if (c === 'family_night') return 'school_family_night';
   if (c === 'orientation') return 'school_orientation';
+  if (c === 'holiday') return 'school_holiday';
+  if (c === 'day_off') return 'school_day_off';
   if (c === 'other') return 'school_other';
   return null;
 }
@@ -58,6 +64,8 @@ export function eventTypeToCategory(eventType) {
   if (t === 'school_resource_fair') return 'resource_fair';
   if (t === 'school_family_night') return 'family_night';
   if (t === 'school_orientation') return 'orientation';
+  if (t === 'school_holiday') return 'holiday';
+  if (t === 'school_day_off') return 'day_off';
   if (t === 'school_other') return 'other';
   return null;
 }
@@ -105,17 +113,20 @@ export async function findExistingSchoolEventForYear({ organizationId, eventType
   return rows?.[0] || null;
 }
 
-export function buildSchoolEventStaffingConfig({ minProvidersPerSession = 1 } = {}) {
+export function buildSchoolEventStaffingConfig({ minProvidersPerSession = 1, enabled = true } = {}) {
   return {
-    enabled: true,
+    enabled: enabled !== false,
     minProvidersPerSession: Math.max(1, Number(minProvidersPerSession) || 1),
     clientRule: { enabled: false, confirmedStepSize: 1, additionalProvidersPerStep: 0, threshold: null },
     groupRule: { enabled: false, baseProvidersForOneGroup: 0, additionalProvidersPerGroup: 0 },
     onCall: { enabled: false, leadHours: 0 },
     waitlist: { enabled: false },
-    providerSignup: { enabled: true }
+    providerSignup: { enabled: enabled !== false }
   };
 }
+
+/** Categories that are calendar-only (no provider staffing by default). */
+export const CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES = new Set(['holiday', 'day_off']);
 
 /** @deprecated use buildSchoolEventStaffingConfig */
 function buildOutreachStaffingConfig() {
@@ -182,6 +193,21 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
   const eventType = String(row.event_type || '').trim();
   const reportRaw = row.employee_report_time;
   const directRaw = row.skill_builder_direct_hours;
+  let minProvidersPerSession = 1;
+  let staffingEnabled = false;
+  try {
+    const cfg =
+      typeof row.staffing_config_json === 'string'
+        ? JSON.parse(row.staffing_config_json)
+        : row.staffing_config_json || null;
+    if (cfg && typeof cfg === 'object') {
+      staffingEnabled = cfg.enabled !== false && !!row.staffing_config_json;
+      const n = Number(cfg.minProvidersPerSession);
+      if (Number.isFinite(n) && n >= 1) minProvidersPerSession = Math.min(99, Math.floor(n));
+    }
+  } catch {
+    /* ignore */
+  }
   return {
     id: Number(row.id),
     agencyId: Number(row.agency_id),
@@ -200,6 +226,8 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
       directRaw != null && directRaw !== '' && Number.isFinite(Number(directRaw))
         ? Number(directRaw)
         : 0,
+    minProvidersPerSession,
+    staffingEnabled,
     isActive: !!(row.is_active === 1 || row.is_active === true),
     outreachTableInvited: !!(row.outreach_table_invited === 1 || row.outreach_table_invited === true),
     eventImageUrl: row.event_image_url ? String(row.event_image_url).trim() : '',
@@ -207,6 +235,7 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
     schoolEventStatus: normalizeSchoolEventStatus(row.school_event_status, {
       fallback: row.is_active ? 'scheduled' : 'canceled'
     }),
+    districtBroadcastId: row.district_broadcast_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     schoolName: schoolMeta.name || null,
@@ -222,6 +251,8 @@ function categoryLabel(category) {
     resource_fair: 'Resource Fair',
     family_night: 'Family Night',
     orientation: 'Orientation',
+    holiday: 'Holiday',
+    day_off: 'Day Off',
     other: 'School Event'
   };
   return map[String(category || '')] || 'School Event';
@@ -402,7 +433,9 @@ export async function createSchoolPortalEvent({
   flierFileUrl,
   schoolEventStatus,
   employeeReportTime = null,
-  skillBuilderDirectHours = 0
+  skillBuilderDirectHours = 0,
+  minProvidersPerSession = 1,
+  districtBroadcastId = null
 }) {
   const eventType = categoryToEventType(category);
   if (!eventType) throw Object.assign(new Error('Invalid event category'), { status: 400 });
@@ -435,14 +468,22 @@ export async function createSchoolPortalEvent({
   }
 
   const status = normalizeSchoolEventStatus(schoolEventStatus, { fallback: 'scheduled' });
-  // School portal events are staffable by default so providers can apply from hub / schedule.
-  const staffingConfig = buildSchoolEventStaffingConfig();
+  const catNorm = String(category || '').trim().toLowerCase();
+  const staffingEnabled = !CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(catNorm);
+  const staffingConfig = buildSchoolEventStaffingConfig({
+    minProvidersPerSession,
+    enabled: staffingEnabled
+  });
   const reportTime = parseSchoolEventWallTime(employeeReportTime);
   // Default all-indirect for school-event kiosk payroll (cap 0 → only indirect claim).
   const directHours =
     skillBuilderDirectHours != null && Number.isFinite(Number(skillBuilderDirectHours))
       ? Math.max(0, Number(skillBuilderDirectHours))
       : 0;
+
+  const broadcastId = districtBroadcastId
+    ? String(districtBroadcastId).trim().slice(0, 36) || null
+    : null;
 
   let insertResult;
   try {
@@ -452,8 +493,8 @@ export async function createSchoolPortalEvent({
          title, description, event_type, starts_at, ends_at, timezone,
          recurrence_json, is_active, rsvp_mode, outreach_table_invited,
          event_image_url, flier_file_url, staffing_config_json, school_event_status,
-         employee_report_time, skill_builder_direct_hours)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?, ?, ?, ?)`,
+         employee_report_time, skill_builder_direct_hours, district_broadcast_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         organizationId,
@@ -472,36 +513,70 @@ export async function createSchoolPortalEvent({
         JSON.stringify(staffingConfig),
         status,
         reportTime,
-        directHours
+        directHours,
+        broadcastId
       ]
     );
   } catch (e) {
     if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-    [insertResult] = await pool.execute(
-      `INSERT INTO company_events
-        (agency_id, organization_id, created_by_user_id, updated_by_user_id,
-         title, description, event_type, starts_at, ends_at, timezone,
-         recurrence_json, is_active, rsvp_mode, outreach_table_invited,
-         event_image_url, flier_file_url, staffing_config_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?)`,
-      [
-        agencyId,
-        organizationId,
-        userId,
-        userId,
-        String(title || '').trim(),
-        String(description || '').trim() || null,
-        eventType,
-        start,
-        end,
-        tz,
-        JSON.stringify({ frequency: 'none' }),
-        outreachTableInvited ? 1 : 0,
-        eventImageUrl || null,
-        flierFileUrl || null,
-        JSON.stringify(staffingConfig)
-      ]
-    );
+    try {
+      [insertResult] = await pool.execute(
+        `INSERT INTO company_events
+          (agency_id, organization_id, created_by_user_id, updated_by_user_id,
+           title, description, event_type, starts_at, ends_at, timezone,
+           recurrence_json, is_active, rsvp_mode, outreach_table_invited,
+           event_image_url, flier_file_url, staffing_config_json, school_event_status,
+           employee_report_time, skill_builder_direct_hours)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          agencyId,
+          organizationId,
+          userId,
+          userId,
+          String(title || '').trim(),
+          String(description || '').trim() || null,
+          eventType,
+          start,
+          end,
+          tz,
+          JSON.stringify({ frequency: 'none' }),
+          outreachTableInvited ? 1 : 0,
+          eventImageUrl || null,
+          flierFileUrl || null,
+          JSON.stringify(staffingConfig),
+          status,
+          reportTime,
+          directHours
+        ]
+      );
+    } catch (e2) {
+      if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
+      [insertResult] = await pool.execute(
+        `INSERT INTO company_events
+          (agency_id, organization_id, created_by_user_id, updated_by_user_id,
+           title, description, event_type, starts_at, ends_at, timezone,
+           recurrence_json, is_active, rsvp_mode, outreach_table_invited,
+           event_image_url, flier_file_url, staffing_config_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?)`,
+        [
+          agencyId,
+          organizationId,
+          userId,
+          userId,
+          String(title || '').trim(),
+          String(description || '').trim() || null,
+          eventType,
+          start,
+          end,
+          tz,
+          JSON.stringify({ frequency: 'none' }),
+          outreachTableInvited ? 1 : 0,
+          eventImageUrl || null,
+          flierFileUrl || null,
+          JSON.stringify(staffingConfig)
+        ]
+      );
+    }
   }
 
   const eventId = Number(insertResult.insertId);
@@ -539,7 +614,8 @@ export async function updateSchoolPortalEvent({
   clearFlier,
   schoolEventStatus,
   employeeReportTime,
-  skillBuilderDirectHours
+  skillBuilderDirectHours,
+  minProvidersPerSession
 }) {
   const [existingRows] = await pool.execute(
     `SELECT * FROM company_events WHERE id = ? AND agency_id = ? AND organization_id = ? LIMIT 1`,
@@ -583,11 +659,30 @@ export async function updateSchoolPortalEvent({
       ? !!outreachTableInvited
       : !!(existing.outreach_table_invited === 1 || existing.outreach_table_invited === true);
 
-  // Keep school events staffable; outreach flag is independent of provider signup.
-  let staffingConfig = existing.staffing_config_json;
-  if (!staffingConfig || outreach) {
-    staffingConfig = JSON.stringify(buildSchoolEventStaffingConfig());
+  let existingCfg = {};
+  try {
+    existingCfg =
+      typeof existing.staffing_config_json === 'string'
+        ? JSON.parse(existing.staffing_config_json || '{}')
+        : existing.staffing_config_json || {};
+  } catch {
+    existingCfg = {};
   }
+  const prevMin = Number(existingCfg?.minProvidersPerSession) || 1;
+  const nextMin =
+    minProvidersPerSession !== undefined && minProvidersPerSession !== null
+      ? Math.max(1, Math.min(99, Number(minProvidersPerSession) || 1))
+      : prevMin;
+  const calendarOnly = CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(
+    String(categoryForUniqueness || '').toLowerCase()
+  );
+  const staffingWasEnabled = existingCfg?.enabled !== false && !!existing.staffing_config_json;
+  const staffingConfig = JSON.stringify(
+    buildSchoolEventStaffingConfig({
+      minProvidersPerSession: nextMin,
+      enabled: calendarOnly ? false : staffingWasEnabled || true
+    })
+  );
 
   const nextImage =
     eventImageUrl !== undefined ? (eventImageUrl || null) : existing.event_image_url;
@@ -855,4 +950,138 @@ export async function markPostTokenUsed(token, companyEventId) {
      WHERE token = ? AND used_at IS NULL`,
     [Number(companyEventId), String(token)]
   );
+}
+
+/** Distinct district names for schools linked to an agency (affiliation + agency_schools). */
+export async function listDistrictsForAgency(agencyId) {
+  const aid = Number(agencyId);
+  if (!aid) return [];
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT TRIM(sp.district_name) AS district_name, COUNT(*) AS school_count
+     FROM school_profiles sp
+     INNER JOIN agencies org ON org.id = sp.school_organization_id
+     WHERE TRIM(COALESCE(sp.district_name, '')) <> ''
+       AND (org.is_archived = FALSE OR org.is_archived IS NULL)
+       AND (
+         EXISTS (
+           SELECT 1 FROM organization_affiliations oa
+           WHERE oa.organization_id = sp.school_organization_id
+             AND oa.agency_id = ? AND oa.is_active = TRUE
+         )
+         OR EXISTS (
+           SELECT 1 FROM agency_schools asx
+           WHERE asx.school_organization_id = sp.school_organization_id
+             AND asx.agency_id = ? AND asx.is_active = TRUE
+         )
+       )
+     GROUP BY TRIM(sp.district_name)
+     ORDER BY district_name ASC`,
+    [aid, aid]
+  ).catch(() => [[]]);
+  return (rows || [])
+    .map((r) => ({
+      districtName: String(r.district_name || '').trim(),
+      schoolCount: Number(r.school_count) || 0
+    }))
+    .filter((r) => r.districtName);
+}
+
+export async function listSchoolIdsForDistrict(agencyId, districtName) {
+  const aid = Number(agencyId);
+  const district = String(districtName || '').trim();
+  if (!aid || !district) return [];
+  const [rows] = await pool.execute(
+    `SELECT sp.school_organization_id AS id
+     FROM school_profiles sp
+     INNER JOIN agencies org ON org.id = sp.school_organization_id
+     WHERE LOWER(TRIM(sp.district_name)) = LOWER(?)
+       AND (org.is_archived = FALSE OR org.is_archived IS NULL)
+       AND (
+         EXISTS (
+           SELECT 1 FROM organization_affiliations oa
+           WHERE oa.organization_id = sp.school_organization_id
+             AND oa.agency_id = ? AND oa.is_active = TRUE
+         )
+         OR EXISTS (
+           SELECT 1 FROM agency_schools asx
+           WHERE asx.school_organization_id = sp.school_organization_id
+             AND asx.agency_id = ? AND asx.is_active = TRUE
+         )
+       )`,
+    [district, aid, aid]
+  ).catch(() => [[]]);
+  return (rows || []).map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0);
+}
+
+/**
+ * Fan-out one school event (holiday/day off/etc.) to every school in a district.
+ * Returns created events + shared districtBroadcastId.
+ */
+export async function createDistrictSchoolEvents({
+  agencyId,
+  userId,
+  districtName,
+  category,
+  title,
+  description,
+  startsAt,
+  endsAt,
+  timezone,
+  employeeReportTime = null,
+  skillBuilderDirectHours = 0,
+  minProvidersPerSession = 1,
+  schoolEventStatus = 'scheduled'
+}) {
+  const schoolIds = await listSchoolIdsForDistrict(agencyId, districtName);
+  if (!schoolIds.length) {
+    throw Object.assign(
+      new Error(`No schools found for district "${String(districtName || '').trim()}"`),
+      { status: 404 }
+    );
+  }
+  const broadcastId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+  const events = [];
+  const errors = [];
+  for (const organizationId of schoolIds) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const event = await createSchoolPortalEvent({
+        agencyId,
+        organizationId,
+        userId,
+        title,
+        description,
+        category,
+        startsAt,
+        endsAt,
+        timezone,
+        outreachTableInvited: false,
+        schoolEventStatus,
+        employeeReportTime,
+        skillBuilderDirectHours,
+        minProvidersPerSession,
+        districtBroadcastId: broadcastId
+      });
+      events.push(event);
+    } catch (e) {
+      errors.push({
+        organizationId,
+        message: e?.message || 'Failed to create event'
+      });
+    }
+  }
+  if (!events.length) {
+    throw Object.assign(
+      new Error(errors[0]?.message || 'Failed to create district events'),
+      { status: errors[0]?.status || 500, details: errors }
+    );
+  }
+  return {
+    districtBroadcastId: broadcastId,
+    districtName: String(districtName || '').trim(),
+    createdCount: events.length,
+    schoolCount: schoolIds.length,
+    events,
+    errors
+  };
 }

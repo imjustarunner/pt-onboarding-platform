@@ -234,6 +234,9 @@ class Agency {
         { col: 'school_portal_upload_packet_icon_id', alias: 'sp_up_i', path: 'school_portal_upload_packet_icon_path', name: 'school_portal_upload_packet_icon_name' },
         { col: 'school_portal_public_documents_icon_id', alias: 'sp_docs_i', path: 'school_portal_public_documents_icon_path', name: 'school_portal_public_documents_icon_name' },
         { col: 'school_portal_announcements_icon_id', alias: 'sp_ann_i', path: 'school_portal_announcements_icon_path', name: 'school_portal_announcements_icon_name' },
+        { col: 'school_portal_events_icon_id', alias: 'sp_ev_i', path: 'school_portal_events_icon_path', name: 'school_portal_events_icon_name' },
+        { col: 'school_portal_digital_forms_icon_id', alias: 'sp_df_i', path: 'school_portal_digital_forms_icon_path', name: 'school_portal_digital_forms_icon_name' },
+        { col: 'school_portal_calendar_icon_id', alias: 'sp_cal_i', path: 'school_portal_calendar_icon_path', name: 'school_portal_calendar_icon_name' },
         { col: 'club_add_member_icon_id', alias: 'cam_i', path: 'club_add_member_icon_path', name: 'club_add_member_icon_name' },
         { col: 'club_add_season_icon_id', alias: 'cas_i', path: 'club_add_season_icon_path', name: 'club_add_season_icon_name' },
         { col: 'club_settings_icon_id', alias: 'cs_i', path: 'club_settings_icon_path', name: 'club_settings_icon_name' }
@@ -812,6 +815,9 @@ class Agency {
       schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       schoolPortalAnnouncementsIconId,
+      schoolPortalEventsIconId,
+      schoolPortalDigitalFormsIconId,
+      schoolPortalCalendarIconId,
 
       // Tier system (agency-specific; optional columns)
       tierSystemEnabled,
@@ -1176,9 +1182,12 @@ class Agency {
     let hasUploadPacket = false;
     let hasPublicDocs = false;
     let hasAnnouncements = false;
+    let hasEvents = false;
+    let hasDigitalForms = false;
+    let hasCalendar = false;
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_faq_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id','school_portal_public_documents_icon_id','school_portal_announcements_icon_id')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_faq_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id','school_portal_public_documents_icon_id','school_portal_announcements_icon_id','school_portal_events_icon_id','school_portal_digital_forms_icon_id','school_portal_calendar_icon_id')"
       );
       const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
       hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
@@ -1189,6 +1198,9 @@ class Agency {
       hasUploadPacket = names.has('school_portal_upload_packet_icon_id');
       hasPublicDocs = names.has('school_portal_public_documents_icon_id');
       hasAnnouncements = names.has('school_portal_announcements_icon_id');
+      hasEvents = names.has('school_portal_events_icon_id');
+      hasDigitalForms = names.has('school_portal_digital_forms_icon_id');
+      hasCalendar = names.has('school_portal_calendar_icon_id');
     } catch (e) {
       hasSchoolPortalIcons = false;
       hasSchoolPortalStaffIcon = false;
@@ -1198,6 +1210,9 @@ class Agency {
       hasUploadPacket = false;
       hasPublicDocs = false;
       hasAnnouncements = false;
+      hasEvents = false;
+      hasDigitalForms = false;
+      hasCalendar = false;
     }
     if (schoolPortalSchoolStaffIconId !== undefined && !hasSchoolPortalStaffIcon) {
       const err = new Error(
@@ -1241,6 +1256,27 @@ class Agency {
       err.status = 409;
       throw err;
     }
+    if (schoolPortalEventsIconId !== undefined && !hasEvents) {
+      const err = new Error(
+        'Cannot save Events icon: database missing agencies.school_portal_events_icon_id. Run database/migrations/959_school_portal_events_and_digital_forms_icons.sql.'
+      );
+      err.status = 409;
+      throw err;
+    }
+    if (schoolPortalDigitalFormsIconId !== undefined && !hasDigitalForms) {
+      const err = new Error(
+        'Cannot save Manage digital forms icon: database missing agencies.school_portal_digital_forms_icon_id. Run database/migrations/959_school_portal_events_and_digital_forms_icons.sql.'
+      );
+      err.status = 409;
+      throw err;
+    }
+    if (schoolPortalCalendarIconId !== undefined && !hasCalendar) {
+      const err = new Error(
+        'Cannot save School calendar icon: database missing agencies.school_portal_calendar_icon_id. Run database/migrations/960_school_event_district_broadcast_and_calendar_icon.sql.'
+      );
+      err.status = 409;
+      throw err;
+    }
     if (schoolPortalFaqIconId !== undefined && !hasFaq) {
       const err = new Error(
         'Cannot save FAQ icon: database missing agencies.school_portal_faq_icon_id. Run database/migrations/329_school_portal_faq.sql.'
@@ -1261,7 +1297,10 @@ class Agency {
         ...(hasParentSign ? ['school_portal_parent_sign_icon_id'] : []),
         ...(hasUploadPacket ? ['school_portal_upload_packet_icon_id'] : []),
         ...(hasPublicDocs ? ['school_portal_public_documents_icon_id'] : []),
-        ...(hasAnnouncements ? ['school_portal_announcements_icon_id'] : [])
+        ...(hasAnnouncements ? ['school_portal_announcements_icon_id'] : []),
+        ...(hasEvents ? ['school_portal_events_icon_id'] : []),
+        ...(hasDigitalForms ? ['school_portal_digital_forms_icon_id'] : []),
+        ...(hasCalendar ? ['school_portal_calendar_icon_id'] : [])
       );
       insertValues.push(
         schoolPortalProvidersIconId || null,
@@ -1275,7 +1314,10 @@ class Agency {
         ...(hasParentSign ? [schoolPortalParentSignIconId || null] : []),
         ...(hasUploadPacket ? [schoolPortalUploadPacketIconId || null] : []),
         ...(hasPublicDocs ? [schoolPortalPublicDocumentsIconId || null] : []),
-        ...(hasAnnouncements ? [schoolPortalAnnouncementsIconId || null] : [])
+        ...(hasAnnouncements ? [schoolPortalAnnouncementsIconId || null] : []),
+        ...(hasEvents ? [schoolPortalEventsIconId || null] : []),
+        ...(hasDigitalForms ? [schoolPortalDigitalFormsIconId || null] : []),
+        ...(hasCalendar ? [schoolPortalCalendarIconId || null] : [])
       );
     }
     
@@ -1311,6 +1353,9 @@ class Agency {
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       schoolPortalAnnouncementsIconId,
+      schoolPortalEventsIconId,
+      schoolPortalDigitalFormsIconId,
+      schoolPortalCalendarIconId,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId,
       clubAddMemberIconId, clubAddSeasonIconId, clubSettingsIconId,
       hiringReferenceSenderIdentityId
@@ -2066,9 +2111,12 @@ class Agency {
       let hasUploadPacket = false;
       let hasPublicDocs = false;
       let hasAnnouncements = false;
+      let hasEvents = false;
+      let hasDigitalForms = false;
+      let hasCalendar = false;
       try {
         const [cols] = await pool.execute(
-          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_faq_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id','school_portal_public_documents_icon_id','school_portal_announcements_icon_id')"
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_faq_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id','school_portal_public_documents_icon_id','school_portal_announcements_icon_id','school_portal_events_icon_id','school_portal_digital_forms_icon_id','school_portal_calendar_icon_id')"
         );
         const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
         hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
@@ -2079,6 +2127,9 @@ class Agency {
         hasUploadPacket = names.has('school_portal_upload_packet_icon_id');
         hasPublicDocs = names.has('school_portal_public_documents_icon_id');
         hasAnnouncements = names.has('school_portal_announcements_icon_id');
+        hasEvents = names.has('school_portal_events_icon_id');
+        hasDigitalForms = names.has('school_portal_digital_forms_icon_id');
+        hasCalendar = names.has('school_portal_calendar_icon_id');
       } catch (e) {
         hasSchoolPortalIcons = false;
         hasSchoolPortalStaffIcon = false;
@@ -2088,6 +2139,9 @@ class Agency {
         hasUploadPacket = false;
         hasPublicDocs = false;
         hasAnnouncements = false;
+        hasEvents = false;
+        hasDigitalForms = false;
+        hasCalendar = false;
       }
       if (schoolPortalSchoolStaffIconId !== undefined && !hasSchoolPortalStaffIcon) {
         const err = new Error(
@@ -2127,6 +2181,27 @@ class Agency {
       if (schoolPortalAnnouncementsIconId !== undefined && !hasAnnouncements) {
         const err = new Error(
           'Cannot save Announcements icon: database missing agencies.school_portal_announcements_icon_id. Run database/migrations/336_school_portal_announcements_and_notifications.sql.'
+        );
+        err.status = 409;
+        throw err;
+      }
+      if (schoolPortalEventsIconId !== undefined && !hasEvents) {
+        const err = new Error(
+          'Cannot save Events icon: database missing agencies.school_portal_events_icon_id. Run database/migrations/959_school_portal_events_and_digital_forms_icons.sql.'
+        );
+        err.status = 409;
+        throw err;
+      }
+      if (schoolPortalDigitalFormsIconId !== undefined && !hasDigitalForms) {
+        const err = new Error(
+          'Cannot save Manage digital forms icon: database missing agencies.school_portal_digital_forms_icon_id. Run database/migrations/959_school_portal_events_and_digital_forms_icons.sql.'
+        );
+        err.status = 409;
+        throw err;
+      }
+      if (schoolPortalCalendarIconId !== undefined && !hasCalendar) {
+        const err = new Error(
+          'Cannot save School calendar icon: database missing agencies.school_portal_calendar_icon_id. Run database/migrations/960_school_event_district_broadcast_and_calendar_icon.sql.'
         );
         err.status = 409;
         throw err;
@@ -2186,6 +2261,18 @@ class Agency {
         if (hasAnnouncements && schoolPortalAnnouncementsIconId !== undefined) {
           updates.push('school_portal_announcements_icon_id = ?');
           values.push(schoolPortalAnnouncementsIconId || null);
+        }
+        if (hasEvents && schoolPortalEventsIconId !== undefined) {
+          updates.push('school_portal_events_icon_id = ?');
+          values.push(schoolPortalEventsIconId || null);
+        }
+        if (hasDigitalForms && schoolPortalDigitalFormsIconId !== undefined) {
+          updates.push('school_portal_digital_forms_icon_id = ?');
+          values.push(schoolPortalDigitalFormsIconId || null);
+        }
+        if (hasCalendar && schoolPortalCalendarIconId !== undefined) {
+          updates.push('school_portal_calendar_icon_id = ?');
+          values.push(schoolPortalCalendarIconId || null);
         }
       }
     }

@@ -5,6 +5,7 @@
  */
 import pool from '../config/database.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import AgencySchool from '../models/AgencySchool.model.js';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -25,14 +26,51 @@ function isMissingSchemaError(e) {
 }
 
 export async function listAffiliatedSchools(agencyId, { orgType = 'school' } = {}) {
-  const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
   const allowed = new Set(['school', 'program', 'learning']);
   const filter = allowed.has(String(orgType || '').toLowerCase()) ? String(orgType).toLowerCase() : 'school';
-  return (affiliated || []).filter((o) => {
-    const t = String(o?.organization_type || 'agency').toLowerCase();
+  const matchesFilter = (tRaw) => {
+    const t = String(tRaw || 'agency').toLowerCase() || 'school';
     if (filter === 'program') return t === 'program' || t === 'learning';
     return t === filter;
-  });
+  };
+
+  const byId = new Map();
+  const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
+  for (const o of affiliated || []) {
+    if (!matchesFilter(o?.organization_type)) continue;
+    const id = safeInt(o?.id);
+    if (!id) continue;
+    byId.set(id, o);
+  }
+
+  // Legacy agency_schools links (many tenants still use these without organization_affiliations).
+  try {
+    const legacy = await AgencySchool.listByAgency(agencyId, { includeInactive: false });
+    for (const row of legacy || []) {
+      const id = safeInt(row?.school_organization_id);
+      if (!id || byId.has(id)) continue;
+      const orgTypeRaw = row?.school_organization_type || 'school';
+      if (!matchesFilter(orgTypeRaw)) continue;
+      byId.set(id, {
+        id,
+        name: row?.school_name || null,
+        slug: row?.school_slug || null,
+        portal_url: row?.school_slug || null,
+        organization_type: orgTypeRaw,
+        is_active: row?.school_is_active !== false && row?.is_active !== false,
+        logo_path: null,
+        logo_url: null,
+        icon_file_path: null,
+        icon_path: null
+      });
+    }
+  } catch {
+    /* agency_schools may be missing in older DBs */
+  }
+
+  return Array.from(byId.values()).sort((a, b) =>
+    String(a?.name || '').localeCompare(String(b?.name || ''))
+  );
 }
 
 /**

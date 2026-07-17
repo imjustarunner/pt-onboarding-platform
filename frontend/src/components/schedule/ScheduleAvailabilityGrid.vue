@@ -9991,7 +9991,7 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
       return;
     }
     const targetKind = String(targetEvent?.kind || '').trim().toUpperCase();
-    const kindLabel = scheduleKindLabel(targetKind);
+    const kindLabel = scheduleKindLabel(targetKind, targetEvent);
     const detailText = buildScheduleEventDetailText(targetEvent);
     openStackDetailsModal({
       title: `${kindLabel} — ${dayName} ${hourLabel(hour)}`,
@@ -10350,8 +10350,12 @@ const SCHEDULE_EVENT_KIND_LABELS = {
   DOCUMENTATION: 'Documentation'
 };
 
-const scheduleKindLabel = (kindRaw) => {
+const scheduleKindLabel = (kindRaw, ev = null) => {
   const k = String(kindRaw || '').trim().toUpperCase();
+  if (k === 'COMPANY_EVENT_BOOKING') {
+    const et = String(ev?.eventType || '').trim().toLowerCase();
+    if (et.startsWith('school_') || ev?.isSchoolPortalEvent) return 'School event';
+  }
   if (SCHEDULE_EVENT_KIND_LABELS[k]) return SCHEDULE_EVENT_KIND_LABELS[k];
   if (!k) return 'Schedule event';
   return k
@@ -10377,6 +10381,9 @@ const scheduleEventStackExtras = (ev) => {
   return {
     companyEventId: Number(ev?.companyEventId || 0) || null,
     sessionDateId: Number(ev?.sessionDateId || ev?.id || 0) || null,
+    eventType: ev?.eventType ? String(ev.eventType) : null,
+    isSchoolPortalEvent: !!ev?.isSchoolPortalEvent,
+    schoolName: ev?.schoolName ? String(ev.schoolName).trim() : null,
     kioskEventPinSet: !!ev?.kioskEventPinSet,
     kioskEventPinCode: ev?.kioskEventPinCode ? String(ev.kioskEventPinCode) : null,
     sessionProviders: Array.isArray(ev?.sessionProviders) ? ev.sessionProviders : [],
@@ -10486,8 +10493,10 @@ const buildScheduleEventDetailText = (ev) => {
   if (kind === 'COMPANY_EVENT_BOOKING') {
     const statusLabel = String(ev?.assignmentStatusLabel || ev?.assignmentStatus || '').trim();
     if (statusLabel) lines.push(`Assignment: ${statusLabel}`);
+    const school = String(ev?.schoolName || '').trim();
+    if (school) lines.push(`School: ${school}`);
     const loc = String(ev?.locationLabel || '').trim();
-    if (loc) lines.push(`Location: ${loc}`);
+    if (loc && loc !== school) lines.push(`Location: ${loc}`);
     const coworkers = Array.isArray(ev?.sessionProviders) && ev.sessionProviders.length
       ? ev.sessionProviders
       : Array.isArray(ev?.eventRosterProviders)
@@ -10580,7 +10589,7 @@ const buildStackDetailsForBlock = (block, dayName, hour, minute = 0) => {
         id: `sevt-${String(ev?.kind || 'evt').toUpperCase()}-${String(ev?.id || ev?.googleEventId || idx)}`,
         label: String(ev?.title || '').trim() || 'Schedule event',
         subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt),
-        kindLabel: scheduleKindLabel(String(ev?.kind || '').trim().toUpperCase()),
+        kindLabel: scheduleKindLabel(String(ev?.kind || '').trim().toUpperCase(), ev),
         detailText: buildScheduleEventDetailText(ev),
         link: String(ev?.htmlLink || '').trim() || '',
         appJoinUrl: String(ev?.appJoinUrl || '').trim() || '',

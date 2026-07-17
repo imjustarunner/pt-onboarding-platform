@@ -340,10 +340,10 @@ function buildAppEntries() {
     {
       id: 'admin-caseload-hub-schools-staff',
       routeName: 'CaseloadHubSchoolsStaff',
-      label: 'Caseload Hub',
+      label: 'School Management',
       description: 'Schools & staff coverage, open school days, and coverage needs.',
       group: 'admin',
-      keywords: ['caseload', 'coverage', 'schools staff', 'open school spots', 'by school', 'by person'],
+      keywords: ['caseload', 'coverage', 'school management', 'schools staff', 'open school spots', 'by school', 'by person'],
       kind: 'path',
       path: '/admin/caseload-hub/schools-staff',
       rolesAny: [
