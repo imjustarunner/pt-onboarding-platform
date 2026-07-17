@@ -43,6 +43,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useSuperadminPlatformPreview } from '../../composables/useSuperadminPlatformPreview';
 import { isSupervisor } from '../../utils/helpers.js';
+import { setRememberedGoogleLogin } from '../../utils/loginRemember';
 import api from '../../services/api';
 import SuperAdminDashboard from './SuperAdminDashboard.vue';
 import SuperadminPlatformDashboard from './SuperadminPlatformDashboard.vue';
@@ -76,6 +77,21 @@ const isTenantAdminRole = computed(() => {
 });
 
 onMounted(() => {
+  // Fresh Google SSO (or any hit with sso=1): enter platform mode so a sticky
+  // localStorage tenant does not hide the full Plot Twist HQ dashboard.
+  if (isSuperAdmin.value && String(route.query?.sso || '') === '1') {
+    const ssoOrg = String(route.query?.ssoOrg || '').trim().toLowerCase();
+    const username = String(authStore.user?.username || authStore.user?.email || '').trim();
+    if (ssoOrg && username) {
+      setRememberedGoogleLogin({ username, orgSlug: ssoOrg });
+    }
+    agencyStore.setPlatformMode();
+    const nextQuery = { ...route.query };
+    delete nextQuery.sso;
+    delete nextQuery.ssoOrg;
+    router.replace({ path: '/admin', query: nextQuery }).catch(() => {});
+  }
+
   const role = String(user.value?.role || '').toLowerCase();
   const dashboardType = role === 'super_admin' || role === 'superadmin' ? 'super_admin' : 'agency';
   const agencyId = agencyStore.currentAgency?.value?.id ?? agencyStore.currentAgency?.id ?? null;

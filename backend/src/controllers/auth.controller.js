@@ -1917,9 +1917,17 @@ export const googleOAuthCallback = async (req, res, next) => {
     }, 0);
 
     const url = new URL(frontendBase || config.frontendUrl);
-    url.pathname = `/${orgSlug}/dashboard`;
-    // Mark successful Google OAuth return so frontend can remember quick-login only after real use.
-    url.searchParams.set('sso', '1');
+    // Super admins should land on the platform command center (same as password login → /admin),
+    // not a tenant personal dashboard. Pass ssoOrg so the frontend can still remember quick-login.
+    if (userRole === 'super_admin' || userRole === 'superadmin') {
+      url.pathname = '/admin';
+      url.searchParams.set('sso', '1');
+      if (orgSlug) url.searchParams.set('ssoOrg', orgSlug);
+    } else {
+      url.pathname = `/${orgSlug}/dashboard`;
+      // Mark successful Google OAuth return so frontend can remember quick-login only after real use.
+      url.searchParams.set('sso', '1');
+    }
     return res.redirect(302, url.toString());
   } catch (error) {
     next(error);
