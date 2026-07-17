@@ -878,9 +878,61 @@ const toggleSort = (key) => {
 
 const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
+const shortDayToken = (day) => {
+  const map = {
+    Monday: 'Mon',
+    Tuesday: 'Tue',
+    Wednesday: 'Wed',
+    Thursday: 'Thu',
+    Friday: 'Fri'
+  };
+  return map[String(day)] || String(day || '').slice(0, 3);
+};
+
+/** Parse "id:Name:Monday|id:Name:|id2:Other:Tuesday" into per-provider day labels. */
+const parseProviderDayPairs = (client) => {
+  const raw = String(client?.provider_day_pairs || '').trim();
+  if (!raw) return [];
+  const byProvider = new Map();
+  for (const part of raw.split('|')) {
+    const bits = String(part || '').split(':');
+    if (bits.length < 2) continue;
+    const id = parseInt(bits[0], 10);
+    if (!id) continue;
+    const day = String(bits[bits.length - 1] || '').trim();
+    const name = bits.slice(1, -1).join(':').trim() || `Provider ${id}`;
+    if (!byProvider.has(id)) {
+      byProvider.set(id, { id, name, days: [] });
+    }
+    if (day && !byProvider.get(id).days.includes(day)) {
+      byProvider.get(id).days.push(day);
+    }
+  }
+  return Array.from(byProvider.values());
+};
+
 const formatAssignedDayLabel = (client) => {
+  const pairs = parseProviderDayPairs(client);
+  if (pairs.length > 1) {
+    return pairs
+      .map((p) => {
+        const first = String(p.name || '').split(/\s+/)[0] || 'Provider';
+        const days = (p.days || []).map(shortDayToken).join(', ');
+        return `${first}: ${days || '—'}`;
+      })
+      .join(' · ');
+  }
+  if (pairs.length === 1) {
+    const days = (pairs[0].days || []).map(shortDayToken).join(', ');
+    return days || '—';
+  }
   const raw = String(client?.service_day || '').trim();
-  return raw || '—';
+  if (!raw) return '—';
+  return raw
+    .split(',')
+    .map((d) => shortDayToken(d.trim()))
+    .filter(Boolean)
+    .join(', ') || '—';
 };
 
 const resolveProviderIdsForClient = (client) => {
@@ -956,16 +1008,43 @@ const closeAssignDay = () => {
   assignDayOrgId.value = null;
 };
 
-const onAssignDayUpdated = ({ clientId, assignedDays }) => {
+const onAssignDayUpdated = async ({ clientId, providers: providerList }) => {
   const cid = Number(clientId || 0);
   if (!cid) return;
-  const label = Array.isArray(assignedDays) && assignedDays.length
-    ? assignedDays.join(', ')
-    : '';
-  const apply = (list) => {
-    if (!Array.isArray(list)) return;
-    const row = list.find((c) => Number(c?.id) === cid);
-    if (row) row.service_day = label || null;
+
+  // Prefer a full roster refresh so multi-provider day labels stay accurate.
+  if (!useClientsOverride()) {
+    try {
+      await fetchClients();
+      return;
+    } catch {
+      // fall through to local merge
+    }
+  }
+
+  const list = Array.isArray(providerList) ? providerList : [];
+  const dayLabel = list
+    .flatMap((p) => (Array.isArray(p.assigned_days) ? p.assigned_days : []))
+    .filter(Boolean);
+  const uniqueDays = [...new Set(dayLabel)];
+  const pairs = list
+    .map((p) => {
+      const pid = Number(p.provider_user_id || 0);
+      if (!pid) return null;
+      const name = [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || `Provider ${pid}`;
+      const days = Array.isArray(p.assigned_days) ? p.assigned_days : [];
+      if (!days.length) return `${pid}:${name}:`;
+      return days.map((d) => `${pid}:${name}:${d}`).join('|');
+    })
+    .filter(Boolean)
+    .join('|');
+
+  const apply = (rows) => {
+    if (!Array.isArray(rows)) return;
+    const row = rows.find((c) => Number(c?.id) === cid);
+    if (!row) return;
+    row.service_day = uniqueDays.length ? uniqueDays.join(', ') : null;
+    row.provider_day_pairs = pairs || null;
   };
   apply(clients.value);
   if (Array.isArray(props.clientsOverride)) apply(props.clientsOverride);
@@ -2054,6 +2133,9 @@ onMounted(() => {
   text-decoration: underline;
   text-underline-offset: 2px;
   text-align: left;
+  white-space: normal;
+  max-width: 220px;
+  line-height: 1.25;
 }
 .roi-status-link {
   font-weight: 800;

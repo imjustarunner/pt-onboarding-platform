@@ -768,96 +768,157 @@ export const moveSoftScheduleSlot = async (req, res, next) => {
 
 /**
  * Context for roster "Assigned Day" editor.
- * GET /api/school-portal/:schoolId/clients/:clientId/day-assignment-context?providerUserId=
+ * Returns every assigned provider for the client (providers only see themselves).
+ * GET /api/school-portal/:schoolId/clients/:clientId/day-assignment-context
+ * Optional query: providerUserId (legacy focus hint; response still includes all editable providers)
  */
 export const getClientDayAssignmentContext = async (req, res, next) => {
   try {
     const schoolId = parseInt(req.params.schoolId, 10);
     const clientId = parseInt(req.params.clientId, 10);
-    const providerUserId = parseInt(req.query?.providerUserId || req.query?.provider_user_id, 10);
-    if (!schoolId || !clientId || !providerUserId) {
-      return res.status(400).json({ error: { message: 'schoolId, clientId, and providerUserId are required' } });
+    const focusProviderUserId = parseInt(req.query?.providerUserId || req.query?.provider_user_id, 10) || null;
+    if (!schoolId || !clientId) {
+      return res.status(400).json({ error: { message: 'schoolId and clientId are required' } });
     }
 
     const access = await ensureSchoolAccess(req, schoolId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
-    if (!canEditClientAssignedDay(req, providerUserId)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-    const providerAllowed = await ensureSupervisorCanAccessProvider({ req, access, providerUserId });
-    if (!providerAllowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const affiliated = await ensureClientAffiliatedToSchool({ clientId, schoolId });
     if (!affiliated.ok) {
       return res.status(404).json({ error: { message: 'Client is not affiliated with this school' } });
     }
 
-    const [provRows] = await pool.execute(
-      `SELECT id, first_name, last_name FROM users WHERE id = ? LIMIT 1`,
-      [providerUserId]
-    );
-    const provider = provRows?.[0] || null;
-    if (!provider) return res.status(404).json({ error: { message: 'Provider not found' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    const selfProviderId =
+      role === 'provider' || role === 'provider_plus' ? parseInt(req.user?.id, 10) : null;
 
-    const [workRows] = await pool.execute(
-      `SELECT day_of_week, slots_total, slots_available, start_time, end_time
-       FROM provider_school_assignments
-       WHERE school_organization_id = ? AND provider_user_id = ? AND is_active = TRUE
-         AND day_of_week IN (${allowedDays.map(() => '?').join(',')})
-       ORDER BY FIELD(day_of_week, ${allowedDays.map(() => '?').join(',')})`,
-      [schoolId, providerUserId, ...allowedDays, ...allowedDays]
-    );
-
-    let assignedDays = [];
+    // All active provider assignments for this client at this school.
+    let assignRows = [];
     try {
-      const [aRows] = await pool.execute(
-        `SELECT id, service_day
-         FROM client_provider_assignments
-         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ? AND is_active = TRUE`,
-        [clientId, schoolId, providerUserId]
+      const [rows] = await pool.execute(
+        `SELECT cpa.provider_user_id, u.first_name, u.last_name, cpa.service_day
+         FROM client_provider_assignments cpa
+         JOIN users u ON u.id = cpa.provider_user_id
+         WHERE cpa.client_id = ? AND cpa.organization_id = ? AND cpa.is_active = TRUE
+         ORDER BY u.last_name ASC, u.first_name ASC, FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday')`,
+        [clientId, schoolId]
       );
-      assignedDays = (aRows || [])
-        .map((r) => ({
-          assignment_id: Number(r.id),
-          service_day: r.service_day ? String(r.service_day) : null
-        }))
-        .filter((r) => r.service_day && allowedDays.includes(r.service_day));
+      assignRows = rows || [];
     } catch (e) {
       const msg = String(e?.message || '');
       if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
       const [legacy] = await pool.execute(
-        `SELECT provider_id, service_day FROM clients WHERE id = ? LIMIT 1`,
+        `SELECT c.provider_id AS provider_user_id, u.first_name, u.last_name, c.service_day
+         FROM clients c
+         LEFT JOIN users u ON u.id = c.provider_id
+         WHERE c.id = ? AND c.provider_id IS NOT NULL
+         LIMIT 1`,
         [clientId]
       );
-      const day = legacy?.[0]?.service_day ? String(legacy[0].service_day) : null;
-      if (
-        parseInt(legacy?.[0]?.provider_id || 0, 10) === providerUserId &&
-        day &&
-        allowedDays.includes(day)
-      ) {
-        assignedDays = [{ assignment_id: null, service_day: day }];
+      assignRows = legacy || [];
+    }
+
+    // Group assignment rows by provider.
+    const byProvider = new Map();
+    for (const row of assignRows) {
+      const pid = parseInt(row.provider_user_id, 10);
+      if (!pid) continue;
+      if (!byProvider.has(pid)) {
+        byProvider.set(pid, {
+          provider_user_id: pid,
+          first_name: row.first_name || '',
+          last_name: row.last_name || '',
+          assigned_days: []
+        });
+      }
+      const day = row.service_day ? String(row.service_day) : null;
+      if (day && allowedDays.includes(day)) {
+        const list = byProvider.get(pid).assigned_days;
+        if (!list.includes(day)) list.push(day);
       }
     }
 
-    const workDays = (workRows || []).map((r) => ({
-      day_of_week: String(r.day_of_week),
-      slots_total: r.slots_total == null ? null : Number(r.slots_total),
-      slots_available: r.slots_available == null ? null : Number(r.slots_available),
-      start_time: r.start_time || null,
-      end_time: r.end_time || null,
-      assigned: assignedDays.some((a) => a.service_day === String(r.day_of_week))
-    }));
+    // If a focus provider was requested but has no assignment row yet, still include them.
+    if (focusProviderUserId && !byProvider.has(focusProviderUserId)) {
+      const [provRows] = await pool.execute(
+        `SELECT id, first_name, last_name FROM users WHERE id = ? LIMIT 1`,
+        [focusProviderUserId]
+      );
+      if (provRows?.[0]) {
+        byProvider.set(focusProviderUserId, {
+          provider_user_id: focusProviderUserId,
+          first_name: provRows[0].first_name || '',
+          last_name: provRows[0].last_name || '',
+          assigned_days: []
+        });
+      }
+    }
+
+    let providerList = Array.from(byProvider.values());
+    // Providers may only edit themselves.
+    if (selfProviderId) {
+      providerList = providerList.filter((p) => p.provider_user_id === selfProviderId);
+    }
+
+    const providersOut = [];
+    for (const p of providerList) {
+      if (!canEditClientAssignedDay(req, p.provider_user_id)) continue;
+      const providerAllowed = await ensureSupervisorCanAccessProvider({
+        req,
+        access,
+        providerUserId: p.provider_user_id
+      });
+      if (!providerAllowed) continue;
+
+      const [workRows] = await pool.execute(
+        `SELECT day_of_week, slots_total, slots_available, start_time, end_time
+         FROM provider_school_assignments
+         WHERE school_organization_id = ? AND provider_user_id = ? AND is_active = TRUE
+           AND day_of_week IN (${allowedDays.map(() => '?').join(',')})
+         ORDER BY FIELD(day_of_week, ${allowedDays.map(() => '?').join(',')})`,
+        [schoolId, p.provider_user_id, ...allowedDays, ...allowedDays]
+      );
+
+      const assignedDays = Array.isArray(p.assigned_days) ? p.assigned_days : [];
+      const workDays = (workRows || []).map((r) => ({
+        day_of_week: String(r.day_of_week),
+        slots_total: r.slots_total == null ? null : Number(r.slots_total),
+        slots_available: r.slots_available == null ? null : Number(r.slots_available),
+        start_time: r.start_time || null,
+        end_time: r.end_time || null,
+        assigned: assignedDays.includes(String(r.day_of_week))
+      }));
+
+      providersOut.push({
+        provider_user_id: p.provider_user_id,
+        first_name: p.first_name,
+        last_name: p.last_name,
+        work_days: workDays,
+        assigned_days: assignedDays
+      });
+    }
+
+    if (!providersOut.length) {
+      return res.status(404).json({ error: { message: 'No editable providers found for this client' } });
+    }
+
+    // Backward-compatible single-provider fields (first / focused provider).
+    const primary =
+      (focusProviderUserId && providersOut.find((p) => p.provider_user_id === focusProviderUserId)) ||
+      providersOut[0];
 
     res.json({
       client_id: clientId,
       school_organization_id: schoolId,
+      providers: providersOut,
       provider: {
-        provider_user_id: providerUserId,
-        first_name: provider.first_name || '',
-        last_name: provider.last_name || ''
+        provider_user_id: primary.provider_user_id,
+        first_name: primary.first_name || '',
+        last_name: primary.last_name || ''
       },
-      work_days: workDays,
-      assigned_days: assignedDays.map((a) => a.service_day)
+      work_days: primary.work_days,
+      assigned_days: primary.assigned_days
     });
   } catch (e) {
     next(e);

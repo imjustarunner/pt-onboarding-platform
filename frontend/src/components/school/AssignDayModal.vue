@@ -9,8 +9,8 @@
           <div class="sub">
             <span class="muted">Client:</span>
             <span class="mono">{{ clientLabel }}</span>
-            <span v-if="providerName" class="muted">·</span>
-            <span v-if="providerName">{{ providerName }}</span>
+            <span v-if="providers.length" class="muted">·</span>
+            <span v-if="providers.length">{{ providers.length }} provider{{ providers.length === 1 ? '' : 's' }}</span>
           </div>
         </div>
         <button class="btn btn-secondary btn-sm" type="button" @click="$emit('close')">Close</button>
@@ -22,38 +22,47 @@
 
         <template v-else>
           <p class="hint">
-            Select the day(s) this provider sees the client. Only days on the provider’s work schedule are shown.
+            Select the day(s) each provider sees this client. Only days on that provider’s work schedule are shown.
           </p>
 
-          <div v-if="!workDays.length" class="empty">
-            This provider has no active work days at this school yet. Set their schedule first.
-          </div>
+          <div v-if="!providers.length" class="empty">No editable providers found for this client.</div>
 
-          <div v-else class="day-grid" role="group" aria-label="Provider work days">
-            <button
-              v-for="day in workDays"
-              :key="day.day_of_week"
-              type="button"
-              class="day-chip"
-              :class="{
-                active: isAssigned(day.day_of_week),
-                busy: savingDay === day.day_of_week
-              }"
-              :disabled="!!savingDay"
-              :title="dayTitle(day)"
-              @click="toggleDay(day)"
-            >
-              <span class="day-short">{{ shortDay(day.day_of_week) }}</span>
-              <span class="day-meta">{{ dayHours(day) }}</span>
-            </button>
+          <div
+            v-for="prov in providers"
+            :key="prov.provider_user_id"
+            class="provider-block"
+          >
+            <div class="provider-heading">{{ providerDisplayName(prov) }}</div>
+
+            <div v-if="!(prov.work_days || []).length" class="empty small">
+              No active work days at this school yet. Set their schedule first.
+            </div>
+
+            <div v-else class="day-grid" role="group" :aria-label="`${providerDisplayName(prov)} work days`">
+              <button
+                v-for="day in prov.work_days"
+                :key="`${prov.provider_user_id}-${day.day_of_week}`"
+                type="button"
+                class="day-chip"
+                :class="{
+                  active: isAssigned(prov, day.day_of_week),
+                  busy: savingKey === saveKey(prov.provider_user_id, day.day_of_week)
+                }"
+                :disabled="!!savingKey"
+                :title="dayTitle(day)"
+                @click="toggleDay(prov, day)"
+              >
+                <span class="day-short">{{ shortDay(day.day_of_week) }}</span>
+                <span class="day-meta">{{ dayHours(day) }}</span>
+              </button>
+            </div>
           </div>
 
           <div v-if="actionError" class="error action-error">{{ actionError }}</div>
 
-          <!-- Soft schedule prompt after selecting a day -->
           <div v-if="slotPrompt" class="slot-prompt" role="region" aria-label="Soft schedule slot">
             <div class="slot-prompt-title">
-              Place on soft schedule for {{ slotPrompt.serviceDay }}?
+              Place on {{ slotPrompt.providerName }}’s soft schedule for {{ slotPrompt.serviceDay }}?
             </div>
             <p class="hint slot-hint">
               Assign this client to an open soft-schedule slot now, or choose Later if the time isn’t known yet.
@@ -111,7 +120,8 @@ import api from '../../services/api';
 const props = defineProps({
   organizationId: { type: [Number, String], required: true },
   client: { type: Object, required: true },
-  providerUserId: { type: Number, required: true },
+  /** Optional focus / fallback when opening from a single provider id */
+  providerUserId: { type: Number, default: null },
   clientLabelMode: { type: String, default: 'codes' }
 });
 
@@ -120,11 +130,9 @@ const emit = defineEmits(['close', 'updated']);
 const loading = ref(false);
 const error = ref('');
 const actionError = ref('');
-const workDays = ref([]);
-const assignedDays = ref([]);
-const provider = ref(null);
-const savingDay = ref('');
-const slotPrompt = ref(null); // { serviceDay, openSlots }
+const providers = ref([]);
+const savingKey = ref('');
+const slotPrompt = ref(null);
 const selectedSlotIndex = ref(null);
 const placingSlot = ref(false);
 const slotError = ref('');
@@ -136,11 +144,10 @@ const clientLabel = computed(() => {
   return code || initials || '—';
 });
 
-const providerName = computed(() => {
-  const p = provider.value;
-  if (!p) return props.client?.provider_name || '';
-  return [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || props.client?.provider_name || '';
-});
+const providerDisplayName = (prov) => {
+  const name = [prov?.first_name, prov?.last_name].filter(Boolean).join(' ').trim();
+  return name || `Provider ${prov?.provider_user_id || ''}`.trim();
+};
 
 const shortDay = (day) => {
   const map = {
@@ -185,15 +192,16 @@ const formatSlotRange = (slot) => {
   return 'Time TBD';
 };
 
-const isAssigned = (day) => (assignedDays.value || []).includes(String(day));
+const saveKey = (providerUserId, day) => `${providerUserId}:${day}`;
+
+const isAssigned = (prov, day) => (prov?.assigned_days || []).includes(String(day));
 
 const slotIndexOf = (slot) => {
-  const list = slotPrompt.value?.openSlots || [];
   const all = slotPrompt.value?._allSlots || [];
-  // Prefer slot_index from payload; fall back to position among all slots by matching start/end/id
   if (slot?.slot_index) return Number(slot.slot_index);
   const byId = all.findIndex((s) => slot?.id && Number(s.id) === Number(slot.id));
   if (byId >= 0) return byId + 1;
+  const list = slotPrompt.value?.openSlots || [];
   const amongOpen = list.indexOf(slot);
   return amongOpen >= 0 ? amongOpen + 1 : null;
 };
@@ -201,9 +209,8 @@ const slotIndexOf = (slot) => {
 const load = async () => {
   const orgId = Number(props.organizationId);
   const clientId = Number(props.client?.id);
-  const providerUserId = Number(props.providerUserId);
-  if (!orgId || !clientId || !providerUserId) {
-    error.value = 'Missing school, client, or provider.';
+  if (!orgId || !clientId) {
+    error.value = 'Missing school or client.';
     return;
   }
   loading.value = true;
@@ -211,27 +218,43 @@ const load = async () => {
   actionError.value = '';
   slotPrompt.value = null;
   try {
-    const r = await api.get(
-      `/school-portal/${orgId}/clients/${clientId}/day-assignment-context`,
-      { params: { providerUserId }, skipGlobalLoading: true }
-    );
-    provider.value = r.data?.provider || null;
-    workDays.value = Array.isArray(r.data?.work_days) ? r.data.work_days : [];
-    assignedDays.value = Array.isArray(r.data?.assigned_days) ? r.data.assigned_days : [];
+    const params = {};
+    if (props.providerUserId) params.providerUserId = Number(props.providerUserId);
+    const r = await api.get(`/school-portal/${orgId}/clients/${clientId}/day-assignment-context`, {
+      params,
+      skipGlobalLoading: true
+    });
+    const list = Array.isArray(r.data?.providers) ? r.data.providers : [];
+    if (list.length) {
+      providers.value = list;
+    } else if (r.data?.provider) {
+      // Backward-compatible single-provider payload
+      providers.value = [
+        {
+          provider_user_id: r.data.provider.provider_user_id,
+          first_name: r.data.provider.first_name,
+          last_name: r.data.provider.last_name,
+          work_days: Array.isArray(r.data.work_days) ? r.data.work_days : [],
+          assigned_days: Array.isArray(r.data.assigned_days) ? r.data.assigned_days : []
+        }
+      ];
+    } else {
+      providers.value = [];
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load assigned days';
-    workDays.value = [];
-    assignedDays.value = [];
+    providers.value = [];
   } finally {
     loading.value = false;
   }
 };
 
-const toggleDay = async (day) => {
+const toggleDay = async (prov, day) => {
   const serviceDay = String(day?.day_of_week || '');
-  if (!serviceDay || savingDay.value) return;
-  const nextAssigned = !isAssigned(serviceDay);
-  savingDay.value = serviceDay;
+  const providerUserId = Number(prov?.provider_user_id || 0);
+  if (!serviceDay || !providerUserId || savingKey.value) return;
+  const nextAssigned = !isAssigned(prov, serviceDay);
+  savingKey.value = saveKey(providerUserId, serviceDay);
   actionError.value = '';
   slotError.value = '';
   try {
@@ -239,24 +262,26 @@ const toggleDay = async (day) => {
     const clientId = Number(props.client?.id);
     const r = await api.post(
       `/school-portal/${orgId}/clients/${clientId}/assigned-day`,
-      {
-        providerUserId: Number(props.providerUserId),
-        serviceDay,
-        assigned: nextAssigned
-      },
+      { providerUserId, serviceDay, assigned: nextAssigned },
       { skipGlobalLoading: true }
     );
-    assignedDays.value = Array.isArray(r.data?.assigned_days)
+    const nextDays = Array.isArray(r.data?.assigned_days)
       ? r.data.assigned_days
       : nextAssigned
-        ? [...new Set([...(assignedDays.value || []), serviceDay])]
-        : (assignedDays.value || []).filter((d) => d !== serviceDay);
+        ? [...new Set([...(prov.assigned_days || []), serviceDay])]
+        : (prov.assigned_days || []).filter((d) => d !== serviceDay);
+
+    providers.value = providers.value.map((p) =>
+      Number(p.provider_user_id) === providerUserId ? { ...p, assigned_days: nextDays } : p
+    );
 
     emit('updated', {
       clientId,
-      assignedDays: assignedDays.value,
+      providerUserId,
+      assignedDays: nextDays,
       serviceDay,
-      assigned: nextAssigned
+      assigned: nextAssigned,
+      providers: providers.value
     });
 
     if (nextAssigned) {
@@ -270,23 +295,30 @@ const toggleDay = async (day) => {
             ? allSlots.findIndex(
                 (s) =>
                   (firstOpen.id && Number(s.id) === Number(firstOpen.id)) ||
-                  (s.start_time === firstOpen.start_time && s.end_time === firstOpen.end_time && !s.client_id)
+                  (s.start_time === firstOpen.start_time &&
+                    s.end_time === firstOpen.end_time &&
+                    !s.client_id)
               ) + 1
             : null;
       slotPrompt.value = {
+        providerUserId,
+        providerName: providerDisplayName(prov),
         serviceDay,
         openSlots,
         _allSlots: allSlots
       };
       selectedSlotIndex.value = firstIndex > 0 ? firstIndex : null;
-    } else if (slotPrompt.value?.serviceDay === serviceDay) {
+    } else if (
+      slotPrompt.value?.serviceDay === serviceDay &&
+      Number(slotPrompt.value?.providerUserId) === providerUserId
+    ) {
       slotPrompt.value = null;
       selectedSlotIndex.value = null;
     }
   } catch (e) {
     actionError.value = e.response?.data?.error?.message || 'Failed to update assigned day';
   } finally {
-    savingDay.value = '';
+    savingKey.value = '';
   }
 };
 
@@ -306,7 +338,7 @@ const placeInSlot = async () => {
     await api.post(
       `/school-portal/${orgId}/clients/${clientId}/place-in-open-slot`,
       {
-        providerUserId: Number(props.providerUserId),
+        providerUserId: Number(slotPrompt.value.providerUserId),
         serviceDay: slotPrompt.value.serviceDay,
         slotIndex: Number(selectedSlotIndex.value)
       },
@@ -342,12 +374,13 @@ onMounted(load);
   padding: 16px;
 }
 .modal {
-  width: min(520px, 100%);
+  width: min(560px, 100%);
+  max-height: min(90vh, 820px);
+  overflow: auto;
   background: var(--bg, #fff);
   border: 1px solid var(--border, #d7e0d9);
   border-radius: 14px;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
-  overflow: hidden;
 }
 .modal-header {
   display: flex;
@@ -357,6 +390,9 @@ onMounted(load);
   padding: 14px 16px;
   border-bottom: 1px solid var(--border, #d7e0d9);
   background: var(--bg-alt, #f4f7f5);
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 .title-row {
   font-size: 1rem;
@@ -385,12 +421,28 @@ onMounted(load);
   font-size: 0.9rem;
   line-height: 1.4;
 }
+.provider-block {
+  padding: 12px;
+  border: 1px solid var(--border, #d7e0d9);
+  border-radius: 12px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+.provider-heading {
+  font-weight: 800;
+  margin-bottom: 10px;
+  color: var(--text, #1f2a24);
+}
 .empty {
   padding: 12px;
   border: 1px dashed var(--border, #d7e0d9);
   border-radius: 10px;
   color: var(--text-secondary, #5b6b60);
   font-size: 0.9rem;
+}
+.empty.small {
+  padding: 8px 10px;
+  margin: 0;
 }
 .day-grid {
   display: flex;
@@ -443,7 +495,7 @@ onMounted(load);
   margin-top: 10px;
 }
 .slot-prompt {
-  margin-top: 16px;
+  margin-top: 12px;
   padding: 12px;
   border-radius: 12px;
   border: 1px solid #c9d6cc;

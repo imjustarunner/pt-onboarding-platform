@@ -691,6 +691,16 @@ export const getSchoolClients = async (req, res, next) => {
            GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name) ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ', ') AS provider_name,
            GROUP_CONCAT(DISTINCT cpa.provider_user_id ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ',') AS provider_ids,
            GROUP_CONCAT(DISTINCT cpa.service_day ORDER BY FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday') SEPARATOR ', ') AS service_day,
+           GROUP_CONCAT(
+             CONCAT(
+               cpa.provider_user_id, ':',
+               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), 'Provider'),
+               ':',
+               COALESCE(cpa.service_day, '')
+             )
+             ORDER BY u.last_name ASC, u.first_name ASC, FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday')
+             SEPARATOR '|'
+           ) AS provider_day_pairs,
            MAX(CASE WHEN ? IS NOT NULL AND cpa.provider_user_id = ? THEN 1 ELSE 0 END) AS user_is_assigned_provider,
            c.submission_date,
            c.source,
@@ -1044,6 +1054,7 @@ export const getSchoolClients = async (req, res, next) => {
         })(),
         provider_name: client.provider_name || null,
         service_day: client.service_day || null,
+        provider_day_pairs: client.provider_day_pairs || null,
         user_is_assigned_provider: client.user_is_assigned_provider === 1 || client.user_is_assigned_provider === true,
         submission_date: client.submission_date,
         source: client.source || null,
@@ -1237,6 +1248,16 @@ export const getProviderMyRoster = async (req, res, next) => {
            GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name) ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ', ') AS provider_name,
            GROUP_CONCAT(DISTINCT cpa.provider_user_id ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ',') AS provider_ids,
            GROUP_CONCAT(DISTINCT cpa.service_day ORDER BY FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday') SEPARATOR ', ') AS service_day,
+           GROUP_CONCAT(
+             CONCAT(
+               cpa.provider_user_id, ':',
+               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), 'Provider'),
+               ':',
+               COALESCE(cpa.service_day, '')
+             )
+             ORDER BY u.last_name ASC, u.first_name ASC, FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday')
+             SEPARATOR '|'
+           ) AS provider_day_pairs,
            1 AS user_is_assigned_provider,
            c.submission_date,
            c.source,
@@ -1526,8 +1547,10 @@ export const getProviderMyRoster = async (req, res, next) => {
         grade: client.grade || null,
         school_year: client.school_year || null,
         provider_id: providerUserId,
+        provider_ids: client.provider_ids || String(providerUserId),
         provider_name: client.provider_name || null,
         service_day: client.service_day || null,
+        provider_day_pairs: client.provider_day_pairs || null,
         user_is_assigned_provider: true,
         submission_date: client.submission_date,
         source: client.source || null,
