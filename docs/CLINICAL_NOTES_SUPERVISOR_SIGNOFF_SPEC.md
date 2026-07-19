@@ -48,8 +48,8 @@ Gated by: user assigned to programs/clinical/learning that have clients and note
 | Supervisor sign-off UI | Done |
 | Payroll unpaid → running list (no payroll link) | Done |
 | Clinical notes eligibility gating | Done |
-| Clinical notes list (full page) | Pending |
-| Billing integration | Pending |
+| Clinical notes list (full page) | Partial — `/api/medical-billing/notes/signing` + Medical Billing UI when flags ON |
+| Billing integration | Designed — gated via `medicalBillingEnabled` / `clinicalNoteSigningEnabled` / `medicalClaimsEnabled` / `claimMdEnabled`; see `docs/MEDICAL_BILLING_CLAIMMD_PLAN.md` |
 
 ## Key files
 

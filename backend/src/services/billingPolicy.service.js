@@ -834,22 +834,61 @@ export async function listEligiblePolicyServiceCodes({ agencyId, credentialTier 
   }
 }
 
-export function computeUnitsFromRule({ minutes, minMinutes = null, maxMinutes = null, unitMinutes = null, unitCalcMode = 'NONE' }) {
+export function computeUnitsFromRule({
+  minutes,
+  minMinutes = null,
+  maxMinutes = null,
+  unitMinutes = null,
+  unitCalcMode = 'NONE',
+  maxUnitsPerSession = null,
+  ladderBandsJson = null
+} = {}) {
   const m = toInt(minutes, 0);
   const min = toInt(minMinutes, 0) || null;
   const max = toInt(maxMinutes, 0) || null;
   const unit = toInt(unitMinutes, 0) || null;
-  const mode = String(unitCalcMode || 'NONE').toUpperCase();
+  let mode = String(unitCalcMode || 'NONE').toUpperCase();
+  // Treat SINGLE like NONE for unit count (1 unit when claimable)
+  if (mode === 'SINGLE') mode = 'NONE';
 
   if (m <= 0) return 0;
   if (min && m < min) return 0;
-  if (max && m > max && !unit) return 0;
+  if (max && m > max && !unit && mode === 'NONE') return 0;
 
-  if (mode === 'MEDICAID_8_MINUTE_LADDER') {
+  let bands = null;
+  if (ladderBandsJson) {
+    try {
+      bands = typeof ladderBandsJson === 'string' ? JSON.parse(ladderBandsJson) : ladderBandsJson;
+    } catch {
+      bands = null;
+    }
+  }
+  if (Array.isArray(bands) && bands.length) {
+    const hit = bands.find((b) => {
+      const lo = toInt(b.minMinutes ?? b.min_minutes, 0);
+      const hi = toInt(b.maxMinutes ?? b.max_minutes, 0);
+      return m >= lo && m <= hi;
+    });
+    if (hit) {
+      let units = Math.max(0, toInt(hit.units ?? hit.unit, 0));
+      const maxU = toInt(maxUnitsPerSession, 0);
+      if (maxU > 0 && units > maxU) units = maxU;
+      return units;
+    }
+  }
+
+  if (mode === 'NONE') {
+    return 1;
+  }
+
+  if (mode === 'MEDICAID_8_MINUTE_LADDER' || mode === 'CUSTOM_BANDS') {
     const effectiveStart = min || MEDICAID_8_MIN_MINUTES;
     if (m < effectiveStart) return 0;
     const assumedUnit = unit || 15;
-    return Math.max(1, Math.floor((m - effectiveStart) / assumedUnit) + 1);
+    let units = Math.max(1, Math.floor((m - effectiveStart) / assumedUnit) + 1);
+    const maxU = toInt(maxUnitsPerSession, 0);
+    if (maxU > 0 && units > maxU) units = maxU;
+    return units;
   }
   if (mode === 'FIXED_BLOCK' && unit) {
     return Math.floor(m / unit);

@@ -1382,6 +1382,22 @@
             </div>
             <small class="hint">Enables the Clinical Note Generator tool for this organization (providers see it on My Dashboard).</small>
 
+            <div v-if="isFeatureAvailable('medicalBillingEnabled')" class="toggle-row" style="margin-top: 14px;">
+              <span>Enable Medical Billing</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.medicalBillingEnabled" compact />
+            </div>
+            <small v-if="isFeatureAvailable('medicalBillingEnabled')" class="hint">
+              Turns on clinical chart, note signing/cosign, medical claims, fee schedules, and Claim.MD. Off by default — does not change payroll or Note Aid drafts. Claim.MD still needs BAA + AccountKey before production use.
+            </small>
+
+            <div v-if="agencyForm.id" class="sunset-booking-types-note" style="margin-top: 14px;">
+              <p class="hint" style="margin: 0;">
+                <strong>Booking &amp; service types</strong> (counseling, tutoring, coaching, consulting)
+                moved to Tenant home → <strong>Booking &amp; service types</strong>. Feature toggles below
+                still respect the verticals enabled there.
+              </p>
+            </div>
+
             <div v-if="isFeatureAvailable('publicProviderFinderEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Public Provider Finder (agency-paid)</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.publicProviderFinderEnabled" compact />
@@ -4131,6 +4147,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import { isFeatureKeyAvailableAfterMerge } from '../../utils/mergeAvailableAgencyFeatures.js';
+import { isFeatureAllowedForBusinessTypes } from '../../config/businessTypeCapabilities.js';
 import { clearAdminApiCache } from '../../utils/adminApiCache.js';
 import IconSelector from './IconSelector.vue';
 import DashboardPreviewModal from './DashboardPreviewModal.vue';
@@ -4206,12 +4223,46 @@ const embeddedSingleOrg = computed(() => {
   return Number.isFinite(id) && id > 0;
 });
 
+const tenantCapabilities = ref(null);
+
+const loadTenantCapabilities = async (agencyId) => {
+  const aid = Number(agencyId || 0);
+  if (!aid) {
+    tenantCapabilities.value = null;
+    return;
+  }
+  try {
+    const r = await api.get(`/tenant-booking/agencies/${aid}/capabilities`, {
+      params: { ensureDefaults: 'true' }
+    });
+    tenantCapabilities.value = r.data?.capabilities || r.data || null;
+  } catch {
+    tenantCapabilities.value = null;
+  }
+};
+
+watch(
+  () => Number(agencyForm.value?.id || editingAgency.value?.id || 0),
+  (aid) => {
+    void loadTenantCapabilities(aid);
+  },
+  { immediate: true }
+);
+
 // Platform default + optional per-tenant override (superadmin organization Overview / API)
+// Vertical modules also require a matching enabled business type once types are configured.
 const isFeatureAvailable = (key) => {
   const pb = brandingStore.platformBranding;
   const raw = pb?.available_agency_features_json;
   const tenantRaw = editingAgency.value?.tenant_available_agency_features_json;
-  return isFeatureKeyAvailableAfterMerge(raw, tenantRaw, key);
+  if (!isFeatureKeyAvailableAfterMerge(raw, tenantRaw, key)) return false;
+  const codes = tenantCapabilities.value?.enabledBusinessTypes || [];
+  if (!codes.length) return true; // bootstrap until catalog loads / types saved
+  return isFeatureAllowedForBusinessTypes(
+    key,
+    codes.map((businessType) => ({ businessType, isEnabled: true })),
+    { allowBootstrap: false }
+  );
 };
 
 const TENANT_FEATURE_PROFILES = {
@@ -4233,6 +4284,11 @@ const TENANT_FEATURE_PROFILES = {
       groupClassSessionsEnabled: false,
       guardianWaiversEnabled: false,
       clinicalNoteGeneratorEnabled: true,
+      medicalBillingEnabled: false,
+      clinicalChartEnabled: false,
+      clinicalNoteSigningEnabled: false,
+      medicalClaimsEnabled: false,
+      claimMdEnabled: false,
       publicProviderFinderEnabled: false,
       momentumListEnabled: false,
       budgetManagementEnabled: false,
@@ -4268,6 +4324,11 @@ const TENANT_FEATURE_PROFILES = {
       groupClassSessionsEnabled: false,
       guardianWaiversEnabled: true,
       clinicalNoteGeneratorEnabled: true,
+      medicalBillingEnabled: false,
+      clinicalChartEnabled: false,
+      clinicalNoteSigningEnabled: false,
+      medicalClaimsEnabled: false,
+      claimMdEnabled: false,
       publicProviderFinderEnabled: false,
       momentumListEnabled: true,
       budgetManagementEnabled: true,
@@ -4303,6 +4364,11 @@ const TENANT_FEATURE_PROFILES = {
       groupClassSessionsEnabled: true,
       guardianWaiversEnabled: true,
       clinicalNoteGeneratorEnabled: true,
+      medicalBillingEnabled: false,
+      clinicalChartEnabled: false,
+      clinicalNoteSigningEnabled: false,
+      medicalClaimsEnabled: false,
+      claimMdEnabled: false,
       publicProviderFinderEnabled: false,
       momentumListEnabled: true,
       budgetManagementEnabled: true,
@@ -6630,6 +6696,13 @@ const defaultAgencyForm = () => ({
     // Default ON for all tenants (admins can still disable per org)
     clinicalNoteGeneratorEnabled: true,
 
+    // Medical billing stack — always OFF until explicitly enabled
+    medicalBillingEnabled: false,
+    clinicalChartEnabled: false,
+    clinicalNoteSigningEnabled: false,
+    medicalClaimsEnabled: false,
+    claimMdEnabled: false,
+
     // Default OFF until explicitly enabled (agency-paid)
     publicProviderFinderEnabled: false,
 
@@ -8056,6 +8129,11 @@ const editAgency = async (agency) => {
       groupClassSessionsEnabled: featureFlags.groupClassSessionsEnabled === true,
       guardianWaiversEnabled: featureFlags.guardianWaiversEnabled === true,
       clinicalNoteGeneratorEnabled: featureFlags.clinicalNoteGeneratorEnabled === true,
+      medicalBillingEnabled: featureFlags.medicalBillingEnabled === true,
+      clinicalChartEnabled: featureFlags.medicalBillingEnabled === true,
+      clinicalNoteSigningEnabled: featureFlags.medicalBillingEnabled === true,
+      medicalClaimsEnabled: featureFlags.medicalBillingEnabled === true,
+      claimMdEnabled: featureFlags.medicalBillingEnabled === true,
       publicProviderFinderEnabled: featureFlags.publicProviderFinderEnabled === true,
       momentumListEnabled: featureFlags.momentumListEnabled === true,
       budgetManagementEnabled: featureFlags.budgetManagementEnabled === true,

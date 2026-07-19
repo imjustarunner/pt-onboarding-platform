@@ -22,7 +22,7 @@
       </div>
 
       <div
-        v-if="!hidePortalCards"
+        v-if="organizationPortalCards.length > 0 || bookClubChipVisible"
         class="portal-strip"
         :class="{ 'portal-strip--empty': organizationPortalCards.length === 0 && !bookClubChipVisible }"
         aria-label="Assigned portals"
@@ -35,7 +35,7 @@
             type="button"
             class="portal-chip"
             role="listitem"
-            :class="{ active: Number(selectedAgencyId) === Number(card.id) }"
+            :class="{ active: isPortalCardActive(card) }"
             :title="`${card.name} · ${card.typeLabel}`"
             @click="openOrganizationPortal(card.org)"
           >
@@ -57,7 +57,7 @@
             </span>
           </button>
           <BookClubPortalChip
-            v-if="!hidePortalCards"
+            v-if="!hasBookClubMembershipCard"
             role="listitem"
             @visibility="onBookClubVisibility"
           />
@@ -66,7 +66,7 @@
     </div>
 
     <!-- SSTC clubs the user belongs to (any role). Always visible if they have any. -->
-    <MySstcClubsCard v-if="!hidePortalCards" class="agency-sstc" />
+    <MySstcClubsCard class="agency-sstc" />
   </div>
 </template>
 
@@ -76,6 +76,16 @@ import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import { useRoute, useRouter } from 'vue-router';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+import { isBookClubAgency } from '../utils/bookClubAgency.js';
+import {
+  isTenantOrganizationType,
+  isPortalBubbleOrg,
+  nestedOrganizationTypeLabel,
+  getOrganizationType,
+  getOrgSlug,
+  listNestedPortalOrgs,
+  resolveNestedOrgNavigation
+} from '../utils/organizationTypes.js';
 import MySstcClubsCard from './sstc/MySstcClubsCard.vue';
 import BookClubPortalChip from './bookClub/BookClubPortalChip.vue';
 
@@ -93,36 +103,12 @@ const onBookClubVisibility = (visible) => {
 };
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
-const hidePortalCards = computed(() => {
-  const r = roleNorm.value;
-  return r === 'admin' || r === 'support' || r === 'super_admin';
-});
 
 const isDashboardRoute = computed(() => {
   const p = String(route.path || '');
   return /(^|\/)(dashboard|mydashboard)(\/|$)/i.test(p);
 });
 
-const isPortalOrg = (a) => {
-  const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-  return t === 'school' || t === 'program' || t === 'learning';
-};
-const isAgencyOrg = (a) => {
-  const t = String(a?.organization_type || a?.organizationType || '').toLowerCase().trim();
-  return !t || !['school', 'program', 'learning'].includes(t);
-};
-const toTypeLabel = (orgType) => {
-  const t = String(orgType || '').toLowerCase();
-  if (t === 'school') return 'School';
-  if (t === 'program') return 'Program';
-  if (t === 'learning') return 'Learning';
-  if (t) return `${t.charAt(0).toUpperCase()}${t.slice(1)}`;
-  return 'Organization';
-};
-const getPortalSlug = (org) => {
-  const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').trim();
-  return slug || null;
-};
 const toInitials = (name) => {
   const parts = String(name || '')
     .trim()
@@ -132,6 +118,7 @@ const toInitials = (name) => {
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
 };
+
 const resolveOrgLogoUrl = (org) => {
   const candidates = [
     org?.logo_path,
@@ -151,39 +138,56 @@ const resolveOrgLogoUrl = (org) => {
   return s;
 };
 
+const allMembershipOrgs = computed(() => {
+  const fromUser = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  const fromAgencies = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
+  if (fromUser.length) return fromUser;
+  return fromAgencies;
+});
+
+/** Org dropdown: full tenants only. */
 const agencies = computed(() => {
-  const list = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
-  if (roleNorm.value !== 'school_staff') return list;
-  const portal = list.filter(isPortalOrg);
-  return portal.length ? portal : list;
+  const list = allMembershipOrgs.value || [];
+  const tenants = list.filter((a) => isTenantOrganizationType(a));
+  if (roleNorm.value === 'school_staff' && !tenants.length) {
+    // School-only staff: no tenant switcher (portals cover navigation).
+    return [];
+  }
+  return tenants;
 });
 
 const organizationPortalCards = computed(() => {
-  return (agencies.value || [])
-    .filter((org) => !isAgencyOrg(org) && !!getPortalSlug(org))
-    .map((org) => ({
-      id: org.id,
-      org,
-      name: String(org?.name || 'Organization').trim(),
-      typeLabel: toTypeLabel(org?.organization_type || org?.organizationType),
-      logoUrl: resolveOrgLogoUrl(org),
-      initials: toInitials(org?.name)
-    }));
+  return listNestedPortalOrgs(allMembershipOrgs.value).map((org) => ({
+    id: org.id,
+    org,
+    name: String(org?.name || 'Organization').trim(),
+    typeLabel: nestedOrganizationTypeLabel(org),
+    logoUrl: resolveOrgLogoUrl(org),
+    initials: toInitials(org?.name),
+    slug: getOrgSlug(org)
+  }));
 });
 
-const navigateToOrganization = (agency) => {
+const hasBookClubMembershipCard = computed(() =>
+  (organizationPortalCards.value || []).some((card) => isBookClubAgency(card.org))
+);
+
+const isPortalCardActive = (card) => {
+  const slug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+  const cardSlug = String(card?.slug || '').trim().toLowerCase();
+  if (slug && cardSlug && slug === cardSlug) return true;
+  if (isBookClubAgency(card?.org) && /\/bookclub(\/|$)/i.test(String(route.path || ''))) return true;
+  return false;
+};
+
+const navigateToTenantOrganization = (agency) => {
   if (!agency) return;
   agencyStore.setCurrentAgency(agency);
 
-  const slug = getPortalSlug(agency);
+  const slug = getOrgSlug(agency);
   if (!slug) return;
 
   const nextDashboard = `/${slug}/dashboard`;
-  if (!isAgencyOrg(agency)) {
-    router.push(nextDashboard);
-    return;
-  }
-
   const onAdminSurface = String(route.path || '').includes('/admin/');
   const onTickets = String(route.path || '').includes('/tickets');
   if (!onAdminSurface && !onTickets) {
@@ -205,16 +209,37 @@ const navigateToOrganization = (agency) => {
   router.push(nextDashboard);
 };
 
+const openNestedPortal = async (org) => {
+  if (!org?.id) return;
+  const nav = resolveNestedOrgNavigation(org, allMembershipOrgs.value);
+  if (nav.setCurrentAgencyToNested) {
+    try {
+      const hydrated = await agencyStore.hydrateAgencyById?.(org.id);
+      agencyStore.setCurrentAgency(hydrated || org);
+    } catch {
+      agencyStore.setCurrentAgency(org);
+    }
+  } else if (nav.setCurrentAgencyToParent && nav.parent) {
+    agencyStore.setCurrentAgency(nav.parent);
+    selectedAgencyId.value = Number(nav.parent.id);
+  }
+  if (nav.path) await router.push(nav.path);
+};
+
 const handleAgencyChange = () => {
   const agency = agencies.value.find((a) => Number(a.id) === Number(selectedAgencyId.value));
   if (!agency) return;
-  navigateToOrganization(agency);
+  navigateToTenantOrganization(agency);
 };
 
 const openOrganizationPortal = (org) => {
   if (!org?.id) return;
+  if (isPortalBubbleOrg(org)) {
+    void openNestedPortal(org);
+    return;
+  }
   selectedAgencyId.value = Number(org.id);
-  navigateToOrganization(org);
+  navigateToTenantOrganization(org);
 };
 
 const onCardLogoError = (cardId) => {
@@ -232,8 +257,31 @@ onMounted(async () => {
     await agencyStore.fetchAgencies(authStore.user.id);
   }
 
-  if (agencyStore.currentAgency) {
-    selectedAgencyId.value = agencyStore.currentAgency.id;
+  const current = agencyStore.currentAgency;
+  if (current && isTenantOrganizationType(current)) {
+    selectedAgencyId.value = current.id;
+  } else if (current && !isTenantOrganizationType(current)) {
+    // Book Club / school / learning / program / clinical must not own tenant context.
+    // SSTC affiliation clubs may temporarily own currentAgency for Summit chrome.
+    const t = getOrganizationType(current);
+    const shouldDemote =
+      isBookClubAgency(current) ||
+      t === 'school' ||
+      t === 'program' ||
+      t === 'learning' ||
+      t === 'clinical';
+    if (shouldDemote) {
+      const nav = resolveNestedOrgNavigation(current, allMembershipOrgs.value);
+      if (nav.parent) {
+        agencyStore.setCurrentAgency(nav.parent);
+        selectedAgencyId.value = Number(nav.parent.id);
+      } else if (agencies.value.length > 0) {
+        selectedAgencyId.value = agencies.value[0].id;
+        agencyStore.setCurrentAgency(agencies.value[0]);
+      }
+    } else if (agencies.value.length > 0) {
+      selectedAgencyId.value = agencies.value[0].id;
+    }
   } else if (agencies.value.length > 0) {
     selectedAgencyId.value = agencies.value[0].id;
     agencyStore.setCurrentAgency(agencies.value[0]);
@@ -241,7 +289,7 @@ onMounted(async () => {
 });
 
 watch(() => agencyStore.currentAgency, (newAgency) => {
-  if (newAgency) {
+  if (newAgency && isTenantOrganizationType(newAgency)) {
     selectedAgencyId.value = newAgency.id;
   }
 });
@@ -251,220 +299,123 @@ watch(() => agencyStore.currentAgency, (newAgency) => {
 .agency-selector {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 10px;
+  width: 100%;
 }
-
-.agency-selector--dashboard {
-  margin-bottom: 6px;
-}
-
 .agency-bar {
   display: flex;
-  align-items: center;
-  gap: 10px 14px;
   flex-wrap: wrap;
-  padding: 8px 12px;
-  background: #fff;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  min-width: 0;
+  align-items: center;
+  gap: 12px 16px;
 }
-
-.agency-selector--dashboard .agency-bar {
-  padding: 4px 8px;
-  gap: 8px 10px;
-  border-radius: 8px;
-}
-
 .org-pick {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 0 0 auto;
-  min-width: 0;
 }
-
 .org-pick-label {
   font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #6b7280;
-  white-space: nowrap;
+  color: var(--text-secondary, #64748b);
 }
-
 .org-pick-select {
-  min-width: 140px;
-  max-width: 220px;
+  min-width: 160px;
+  max-width: 240px;
   padding: 6px 10px;
-  border: 1px solid #e5e7eb;
-  border-radius: 7px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: var(--surface, #fff);
+  color: var(--text, #0f172a);
   font-size: 13px;
-  font-weight: 600;
-  background: #f9fafb;
-  color: var(--text-primary, #111827);
-  cursor: pointer;
 }
-
-.org-pick-select:focus {
-  outline: none;
-  border-color: #166534;
-  box-shadow: 0 0 0 2px rgba(22, 101, 52, 0.15);
-  background: #fff;
-}
-
 .portal-strip {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 1 1 200px;
+  gap: 10px;
+  flex: 1;
   min-width: 0;
 }
-
-.portal-strip--empty {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  pointer-events: none;
-}
-
 .portal-strip-label {
   font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #6b7280;
+  color: var(--text-secondary, #64748b);
   flex-shrink: 0;
 }
-
 .portal-chips {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   align-items: center;
-  gap: 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 2px 0;
   min-width: 0;
-  flex: 1;
-  scrollbar-width: thin;
 }
-
 .portal-chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  flex: 0 0 auto;
-  max-width: 180px;
-  padding: 4px 10px 4px 4px;
-  border: 1px solid #e5e7eb;
+  gap: 8px;
+  padding: 5px 10px 5px 5px;
   border-radius: 999px;
-  background: #fff;
+  border: 1px solid var(--border, #e2e8f0);
+  background: var(--surface, #fff);
+  color: var(--text, #0f172a);
   cursor: pointer;
+  max-width: 220px;
   text-align: left;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
-
 .portal-chip:hover {
-  border-color: #cbd5e1;
-  background: #f8fafc;
+  border-color: var(--primary, #0f766e);
 }
-
 .portal-chip.active {
-  border-color: #166534;
-  background: #f0fdf4;
-  box-shadow: 0 0 0 1px rgba(22, 101, 52, 0.2);
+  border-color: var(--primary, #0f766e);
+  box-shadow: 0 0 0 1px var(--primary, #0f766e);
 }
-
 .portal-chip-logo {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   overflow: hidden;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
-  display: flex;
+  flex-shrink: 0;
+  background: var(--surface-2, #f1f5f9);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
 }
-
 .portal-chip-logo-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-
 .portal-chip-logo-fallback {
-  font-size: 9px;
-  font-weight: 800;
-  color: #374151;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
 }
-
 .portal-chip-text {
   display: flex;
   flex-direction: column;
   min-width: 0;
   line-height: 1.15;
 }
-
 .portal-chip-name {
   font-size: 12px;
-  font-weight: 650;
-  color: #111827;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 120px;
 }
-
 .portal-chip-type {
-  font-size: 9px;
-  font-weight: 700;
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: #6b7280;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #64748b);
 }
-
 .agency-sstc {
-  margin: 0;
+  margin-top: 2px;
 }
-
-.agency-selector--dashboard :deep(.my-sstc-card) {
-  padding: 10px 12px;
-  margin-bottom: 0;
-}
-
-@media (max-width: 640px) {
-  .agency-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .org-pick {
-    width: 100%;
-  }
-
-  .org-pick-select {
-    flex: 1;
-    max-width: none;
-  }
-
-  .portal-strip {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-  }
-
-  .portal-chip {
-    max-width: none;
-  }
-
-  .portal-chip-name {
-    max-width: none;
-  }
+.agency-selector--dashboard .org-pick-select {
+  background: rgba(255, 255, 255, 0.92);
 }
 </style>

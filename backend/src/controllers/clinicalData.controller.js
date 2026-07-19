@@ -10,9 +10,10 @@ import ClinicalDocument from '../models/clinical/ClinicalDocument.model.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import pool from '../config/database.js';
+import { maybeEncryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 
 const BACKOFFICE_ROLES = new Set(['admin', 'super_admin', 'support']);
-const CLINICAL_DB_HINT = 'Clinical database schema missing. Run database/clinical_migrations/001_create_clinical_data_plane.sql';
+const CLINICAL_DB_HINT = 'Clinical database schema missing. Run database/clinical_migrations/001_create_clinical_data_plane.sql (and 002_medical_billing_foundations.sql for billing).';
 const MAIN_DB_HINT = 'Main database clinical references missing. Run database/migrations/443_create_clinical_record_refs.sql';
 
 function isBackoffice(role) {
@@ -201,10 +202,11 @@ export const createSessionNote = async (req, res, next) => {
 
     const title = String(req.body?.title || '').trim();
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
-    const notePayload =
+    const notePayloadRaw =
       req.body?.notePayload !== undefined && req.body?.notePayload !== null
         ? String(req.body.notePayload)
         : null;
+    const notePayload = notePayloadRaw != null ? maybeEncryptNotePayload(notePayloadRaw) : null;
     const metadata = {
       ...(req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {}),
       noteType: req.body?.noteType ? String(req.body.noteType).trim() : null,
@@ -214,7 +216,8 @@ export const createSessionNote = async (req, res, next) => {
         ? req.body.modifiers.map((m) => String(m || '').trim().toUpperCase()).filter(Boolean)
         : [],
       officeEventId: parseIntValue(req.body?.officeEventId) || session.office_event_id || null,
-      source: req.body?.source ? String(req.body.source).trim() : null
+      source: req.body?.source ? String(req.body.source).trim() : null,
+      payloadEncrypted: !!(notePayload && notePayload !== notePayloadRaw)
     };
     const note = await ClinicalNote.create({
       clinicalSessionId: session.id,

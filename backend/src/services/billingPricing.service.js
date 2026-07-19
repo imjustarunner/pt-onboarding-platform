@@ -139,6 +139,12 @@ const DEFAULT_FEATURE_CATALOG = {
     'Clinical note generation tools surfaced in provider workflows.',
     { featureFlagKey: 'clinicalNoteGeneratorEnabled' }
   ),
+  medicalBillingEnabled: createFeatureCatalogEntry(
+    'medicalBillingEnabled',
+    'Medical Billing',
+    'Clinical chart, note signing/cosign, medical claims, fee schedules, and Claim.MD (separate from payroll).',
+    { featureFlagKey: 'medicalBillingEnabled', defaultAvailable: false, tenantSelfServe: false }
+  ),
   aiProviderSearchEnabled: createFeatureCatalogEntry(
     'aiProviderSearchEnabled',
     'AI Provider Search',
@@ -449,6 +455,14 @@ function normalizeFeatureCatalogEntry(key, value, fallback = {}) {
   };
 }
 
+/** Removed from the matrix — medical billing is a single switch now. */
+const RETIRED_FEATURE_CATALOG_KEYS = new Set([
+  'clinicalChartEnabled',
+  'clinicalNoteSigningEnabled',
+  'medicalClaimsEnabled',
+  'claimMdEnabled'
+]);
+
 export function getFeatureCatalog(pricingConfig = null) {
   const pricing = pricingConfig || FALLBACK_PRICING;
   const legacy = legacyFeatureCatalogFromPricing(pricing);
@@ -457,7 +471,7 @@ export function getFeatureCatalog(pricingConfig = null) {
     ...Object.keys(DEFAULT_FEATURE_CATALOG),
     ...Object.keys(legacy),
     ...Object.keys(raw)
-  ]));
+  ])).filter((key) => !RETIRED_FEATURE_CATALOG_KEYS.has(key));
   const catalog = {};
   for (const key of keys) {
     catalog[key] = normalizeFeatureCatalogEntry(key, raw[key], legacy[key]);

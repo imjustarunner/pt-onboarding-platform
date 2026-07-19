@@ -577,6 +577,16 @@
                 <option value="TELEHEALTH">Telehealth</option>
               </select>
             </div>
+            <div v-if="showClinicalSessionControls" class="row" style="margin-bottom: 10px;">
+              <label style="font-weight: 700;">Service location</label>
+              <select v-model="bookingServiceLocationId" class="select" :disabled="saving || bookingMetadataLoading">
+                <option :value="0">Select location…</option>
+                <option v-for="loc in bookingServiceLocationOptions" :key="`loc-${loc.id}`" :value="loc.id">
+                  {{ loc.name }} (POS {{ loc.placeOfService }}){{ loc.billingOfficeName ? ` · bills under ${loc.billingOfficeName}` : '' }}
+                </option>
+              </select>
+            </div>
+            <div class="muted" v-if="showClinicalSessionControls && bookingUnitPreview">{{ bookingUnitPreview }}</div>
             <div class="muted" v-if="showClinicalSessionControls && bookingMetadataLoading">Loading taxonomy and service code eligibility…</div>
             <div class="muted" v-else-if="showClinicalSessionControls && bookingMetadataError">{{ bookingMetadataError }}</div>
             <div class="muted" v-if="showClinicalSessionControls && bookingClassificationInvalidReason">{{ bookingClassificationInvalidReason }}</div>
@@ -815,6 +825,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { timezoneLabelFor } from '../utils/timezones.js';
+import { isMedicalBillingEnabled } from '../config/medicalBillingAccess.js';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ClinicalArtifactRetentionPanel from '../components/clinical/ClinicalArtifactRetentionPanel.vue';
 const route = useRoute();
@@ -824,6 +835,7 @@ const agencyStore = useAgencyStore();
 
 const officeId = computed(() => (typeof route.query.officeId === 'string' ? route.query.officeId : ''));
 const currentAgencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
+const medicalBillingOn = computed(() => isMedicalBillingEnabled(agencyStore.currentAgency?.feature_flags));
 const normalizeServiceCode = (value) => String(value || '').trim().toUpperCase();
 const resolveSlotServiceCode = (slot) =>
   normalizeServiceCode(slot?.serviceCode || slot?.service_code || slot?.appointment?.serviceCode || slot?.appointment?.service_code || '');
@@ -1373,12 +1385,16 @@ const bookingMetadataError = ref('');
 const bookingMetadata = ref({
   appointmentTypes: [],
   appointmentSubtypes: [],
-  serviceCodes: []
+  serviceCodes: [],
+  serviceLocations: []
 });
 const bookingAppointmentType = ref(DEFAULT_BOOKING_TYPE);
 const bookingAppointmentSubtype = ref('');
 const bookingServiceCode = ref('');
 const bookingModality = ref('');
+const bookingServiceLocationId = ref(0);
+const bookingUnitPreview = ref('');
+let bookingUnitPreviewTimer = null;
 const purgingFuture = ref(false);
 const deletingGoogleEventIds = ref([]);
 const successToast = ref('');
@@ -1494,35 +1510,74 @@ const bookingServiceCodeOptions = computed(() => {
     label: String(row?.label || row?.code || '').trim(),
     minDurationMinutes: Number(row?.minDurationMinutes || 0) || null,
     unitMinutes: Number(row?.unitMinutes || 0) || null,
-    maxUnitsPerDay: Number(row?.maxUnitsPerDay || 0) || null
+    maxUnitsPerDay: Number(row?.maxUnitsPerDay || 0) || null,
+    maxUnitsPerSession: Number(row?.maxUnitsPerSession || 0) || null,
+    unitCalcMode: row?.unitCalcMode || null,
+    overflowServiceCode: row?.overflowServiceCode || null,
+    medical: !!row?.medical
   })).filter((row) => row.code);
   const selected = normalizeCodeValue(bookingServiceCode.value);
   if (selected && !out.some((row) => row.code === selected)) {
-    out.push({ code: selected, label: `Legacy (${selected})`, minDurationMinutes: null, unitMinutes: null, maxUnitsPerDay: null });
+    out.push({
+      code: selected,
+      label: `Legacy (${selected})`,
+      minDurationMinutes: null,
+      unitMinutes: null,
+      maxUnitsPerDay: null,
+      maxUnitsPerSession: null,
+      unitCalcMode: null,
+      overflowServiceCode: null,
+      medical: false
+    });
   }
   return out;
+});
+const bookingServiceLocationOptions = computed(() => {
+  const rows = Array.isArray(bookingMetadata.value?.serviceLocations) ? bookingMetadata.value.serviceLocations : [];
+  return rows.map((row) => ({
+    id: Number(row?.id || 0),
+    name: String(row?.name || '').trim() || `Location #${row?.id}`,
+    placeOfService: String(row?.place_of_service || row?.placeOfService || '').trim(),
+    billingOfficeName: String(row?.billing_office_name || row?.billingOfficeName || '').trim()
+  })).filter((row) => row.id > 0);
 });
 const serviceCodeOptionHints = (opt) => {
   const hints = [];
   if (Number(opt?.minDurationMinutes || 0) > 0) hints.push(`min ${Number(opt.minDurationMinutes)}m`);
   if (Number(opt?.unitMinutes || 0) > 0) hints.push(`${Number(opt.unitMinutes)}m units`);
+  if (Number(opt?.maxUnitsPerSession || 0) > 0) hints.push(`max ${Number(opt.maxUnitsPerSession)} units`);
   if (Number(opt?.maxUnitsPerDay || 0) > 0) hints.push(`max ${Number(opt.maxUnitsPerDay)}/day`);
+  if (opt?.overflowServiceCode) hints.push(`overflow → ${opt.overflowServiceCode}`);
   return hints.length ? ` (${hints.join(', ')})` : '';
 };
 const bookingRequiresServiceCode = computed(() => ['SESSION', 'ASSESSMENT'].includes(normalizeCodeValue(bookingAppointmentType.value)));
-// Building modal "Book" is office availability booking; clinical-session taxonomy will live in a separate action.
-const showClinicalSessionControls = computed(() => false);
+const showClinicalSessionControls = computed(() => medicalBillingOn.value);
+const modalSlotDurationMinutes = computed(() => {
+  const s = modalSlot.value || {};
+  const startRaw = s.startAt || s.start_at;
+  const endRaw = s.endAt || s.end_at;
+  if (startRaw && endRaw) {
+    const ms = new Date(endRaw).getTime() - new Date(startRaw).getTime();
+    if (Number.isFinite(ms) && ms > 0) return Math.round(ms / 60000);
+  }
+  // Office grid cells are hour blocks
+  return 60;
+});
 const bookingClassificationInvalidReason = computed(() => {
   const hasAnyClassificationInput = Boolean(
     normalizeCodeValue(bookingAppointmentType.value)
     || normalizeCodeValue(bookingAppointmentSubtype.value)
     || normalizeCodeValue(bookingServiceCode.value)
     || normalizeCodeValue(bookingModality.value)
+    || Number(bookingServiceLocationId.value || 0) > 0
   );
   if (!hasAnyClassificationInput) return '';
   if (!normalizeCodeValue(bookingAppointmentType.value)) return 'Select an appointment type.';
   if (bookingRequiresServiceCode.value && !normalizeCodeValue(bookingServiceCode.value)) {
     return 'A service code is required for this appointment type.';
+  }
+  if (bookingRequiresServiceCode.value && !Number(bookingServiceLocationId.value || 0)) {
+    return 'Select a service location (place of service) for this session.';
   }
   return '';
 });
@@ -1607,6 +1662,8 @@ const resetBookingSelectionDefaults = () => {
   bookingAppointmentSubtype.value = '';
   bookingServiceCode.value = '';
   bookingModality.value = '';
+  bookingServiceLocationId.value = 0;
+  bookingUnitPreview.value = '';
 };
 
 const hydrateBookingSelectionFromSlot = (slot = null) => {
@@ -1615,6 +1672,7 @@ const hydrateBookingSelectionFromSlot = (slot = null) => {
   const currentSubtype = normalizeCodeValue(s?.appointmentSubtype || s?.appointment_subtype_code);
   const currentServiceCode = normalizeCodeValue(s?.serviceCode || s?.service_code);
   const currentModality = normalizeCodeValue(s?.modality);
+  const currentLocationId = Number(s?.serviceLocationId || s?.service_location_id || 0) || 0;
   const state = String(s?.state || '').trim().toLowerCase();
   const shouldPromoteToSession =
     showClinicalSessionControls.value &&
@@ -1626,6 +1684,7 @@ const hydrateBookingSelectionFromSlot = (slot = null) => {
   bookingAppointmentSubtype.value = currentSubtype || '';
   bookingServiceCode.value = currentServiceCode || '';
   bookingModality.value = ['IN_PERSON', 'TELEHEALTH'].includes(currentModality) ? currentModality : '';
+  bookingServiceLocationId.value = currentLocationId;
 };
 
 const normalizeBookingSelectionPayload = () => {
@@ -1634,19 +1693,51 @@ const normalizeBookingSelectionPayload = () => {
       appointmentTypeCode: 'AVAILABLE_SLOT',
       appointmentSubtypeCode: null,
       serviceCode: null,
-      modality: null
+      modality: null,
+      serviceLocationId: null
     };
   }
   const appointmentTypeCode = normalizeCodeValue(bookingAppointmentType.value) || null;
   const appointmentSubtypeCode = normalizeCodeValue(bookingAppointmentSubtype.value) || null;
   const serviceCode = normalizeCodeValue(bookingServiceCode.value) || null;
   const modality = normalizeCodeValue(bookingModality.value) || null;
+  const serviceLocationId = Number(bookingServiceLocationId.value || 0) || null;
   return {
     appointmentTypeCode,
     appointmentSubtypeCode,
     serviceCode,
-    modality
+    modality,
+    serviceLocationId
   };
+};
+
+const refreshBookingUnitPreview = async () => {
+  bookingUnitPreview.value = '';
+  if (!showClinicalSessionControls.value || !currentAgencyId.value) return;
+  const code = normalizeCodeValue(bookingServiceCode.value);
+  if (!code) return;
+  const minutes = modalSlotDurationMinutes.value;
+  try {
+    const res = await api.post('/medical-billing/service-codes/preview-units', {
+      agencyId: currentAgencyId.value,
+      serviceCode: code,
+      minutes
+    });
+    const d = res?.data || {};
+    if (d.claimable === false) {
+      bookingUnitPreview.value = d.reason || `Not claimable at ${minutes} min for ${code}.`;
+      return;
+    }
+    const parts = [`~${minutes} min → ${d.units || 0} unit(s)`];
+    if (d.effectiveServiceCode && d.effectiveServiceCode !== code) {
+      parts.push(`bills as ${d.effectiveServiceCode}`);
+    }
+    if (d.overflowApplied) parts.push('overflow code applied');
+    bookingUnitPreview.value = parts.join(' · ');
+  } catch {
+    // Code may not be in agency medical catalog yet — skip preview
+    bookingUnitPreview.value = '';
+  }
 };
 
 const loadBookingMetadataForProvider = async (providerId) => {
@@ -1655,7 +1746,8 @@ const loadBookingMetadataForProvider = async (providerId) => {
   bookingMetadata.value = {
     appointmentTypes: [],
     appointmentSubtypes: [],
-    serviceCodes: []
+    serviceCodes: [],
+    serviceLocations: []
   };
   if (!pid || !officeId.value) return;
   try {
@@ -1666,7 +1758,8 @@ const loadBookingMetadataForProvider = async (providerId) => {
     bookingMetadata.value = {
       appointmentTypes: Array.isArray(res?.data?.appointmentTypes) ? res.data.appointmentTypes : [],
       appointmentSubtypes: Array.isArray(res?.data?.appointmentSubtypes) ? res.data.appointmentSubtypes : [],
-      serviceCodes: Array.isArray(res?.data?.serviceCodes) ? res.data.serviceCodes : []
+      serviceCodes: Array.isArray(res?.data?.serviceCodes) ? res.data.serviceCodes : [],
+      serviceLocations: Array.isArray(res?.data?.serviceLocations) ? res.data.serviceLocations : []
     };
   } catch (e) {
     bookingMetadataError.value = e?.response?.data?.error?.message || 'Could not load booking metadata for this provider.';
@@ -1686,13 +1779,20 @@ watch(bookingAppointmentType, (nextType) => {
   if (!matches) bookingAppointmentSubtype.value = '';
 });
 
+watch([bookingServiceCode, modalSlotDurationMinutes, currentAgencyId, showClinicalSessionControls], () => {
+  if (bookingUnitPreviewTimer) clearTimeout(bookingUnitPreviewTimer);
+  bookingUnitPreviewTimer = setTimeout(() => {
+    void refreshBookingUnitPreview();
+  }, 250);
+});
+
 const closeModal = () => {
   showModal.value = false;
   modalSlot.value = null;
   error.value = '';
   bookingMetadataLoading.value = false;
   bookingMetadataError.value = '';
-  bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [] };
+  bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [], serviceLocations: [] };
   resetBookingSelectionDefaults();
   bookFreq.value = '';
   bookOccurrenceCount.value = 6;

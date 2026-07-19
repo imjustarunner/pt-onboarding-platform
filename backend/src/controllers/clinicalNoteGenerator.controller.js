@@ -264,7 +264,7 @@ function resolveClinicalToolId({ serviceCode, programId }) {
   if (sc === 'H0032') return 'clinical_h0032_plan_development';
   if (sc === 'H0002') return 'clinical_psc_17';
   if (sc === '90791') return 'clinical_90791_intake_plan';
-  if (sc === '90832' || sc === '90834' || sc === '90837') return 'clinical_psychotherapy_note';
+  if (sc === '90832' || sc === '90834' || sc === '90837' || sc === '90839') return 'clinical_psychotherapy_note';
   if (sc === '90846' || sc === '90847') return 'clinical_family_note';
   if (sc === 'H0023') return 'clinical_h0023_full_packet';
   return 'clinical_code_decider';
@@ -317,6 +317,16 @@ function resolveNoteSectionKey(rawTitle) {
   for (const [alias, key] of NOTE_SECTION_ALIASES.entries()) {
     if (alias.toLowerCase() === lower) return key;
   }
+  const goalObj = title.match(/^(Goal|Objective)\s*(\d+)$/i);
+  if (goalObj) {
+    const word = goalObj[1].toLowerCase() === 'goal' ? 'Goal' : 'Objective';
+    return `${word} ${goalObj[2]}`;
+  }
+  if (/^projected\s*time/i.test(title)) {
+    const n = title.match(/(\d+)\s*$/);
+    return n ? `Projected Time ${n[1]}` : 'Projected Time';
+  }
+  if (/^discharge/i.test(title)) return 'Discharge Plan';
   return null;
 }
 
@@ -342,7 +352,7 @@ function parseNoteSections(text) {
 
   // Optional leading number + optional bold + known title + optional colon + optional same-line body
   const inlineHeaderRe =
-    /^(?:\d+[\).\s-]*)?(?:\*\*)?(Symptom Description and Subjective Report|Subjective|S\s*-\s*Subjective|Objective Content|Objective|O\s*-\s*Objective|Interventions Used|Interventions|I\s*-\s*Interventions|Additional Notes\s*\/\s*Assessment|Assessment|Plan|P\s*-\s*Plan|Code|Rationale|Progress Note|Consultation Note)(?:\*\*)?\s*:?\s*(.*)$/i;
+    /^(?:\d+[\).\s-]*)?(?:\*\*)?(Symptom Description and Subjective Report|Subjective|S\s*-\s*Subjective|Objective Content|Objective|O\s*-\s*Objective|Interventions Used|Interventions|I\s*-\s*Interventions|Additional Notes\s*\/\s*Assessment|Assessment|Plan|P\s*-\s*Plan|Code|Rationale|Progress Note|Consultation Note|Goal\s*\d+|Objective\s*\d+|Projected\s*Time(?:\s*to\s*Completion)?(?:\s*\d+)?|Discharge(?:\s*Plan)?)(?:\*\*)?\s*:?\s*(.*)$/i;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -934,17 +944,21 @@ export const generateClinicalNote = async (req, res, next) => {
     const allowedCodes = catalogCodes
       ? (Array.isArray(tierCodes) ? intersectCodes(catalogCodes, tierCodes) : catalogCodes)
       : tierCodes;
+    const requestedToolId = req.body?.toolId ? String(req.body.toolId).trim() : '';
     const effectiveAutoSelect = autoSelectCode || tier === 'unknown';
-    if (!effectiveAutoSelect && !serviceCode) {
-      return res.status(400).json({ error: { message: 'serviceCode is required unless autoSelectCode is true' } });
+    // Billing code optional when an explicit Note Aid tool (gem) is selected (plans / termination / diagnosis).
+    if (!effectiveAutoSelect && !serviceCode && !requestedToolId) {
+      return res.status(400).json({
+        error: { message: 'serviceCode or toolId is required unless autoSelectCode is true' }
+      });
     }
 
     // Program rule: only allow programId/label when service code is H2014.
-    if ((programId || programLabel) && serviceCode !== 'H2014') {
+    if ((programId || programLabel) && serviceCode && serviceCode !== 'H2014') {
       return res.status(400).json({ error: { message: 'programId is only allowed for service code H2014' } });
     }
 
-    if (!effectiveAutoSelect) {
+    if (!effectiveAutoSelect && serviceCode) {
       const policyEligibleCodes = await listEligiblePolicyServiceCodes({ agencyId, credentialTier: tier });
       if (policyEligibleCodes.length) {
         if (!policyEligibleCodes.includes(serviceCode)) {
@@ -993,10 +1007,13 @@ export const generateClinicalNote = async (req, res, next) => {
 
     if (!inputText) return res.status(400).json({ error: { message: 'inputText is required' } });
 
-    const toolId = effectiveAutoSelect ? 'clinical_code_decider' : resolveClinicalToolId({ serviceCode, programId });
+    // Explicit toolId (Note Aid category → gem) wins over service-code routing.
+    const toolId = effectiveAutoSelect
+      ? 'clinical_code_decider'
+      : (requestedToolId || resolveClinicalToolId({ serviceCode, programId }));
     const tool = getNoteAidToolById(toolId);
     if (!tool) {
-      return res.status(400).json({ error: { message: 'No tool configured for this service code' } });
+      return res.status(400).json({ error: { message: 'No tool configured for this note type' } });
     }
 
     let prompt = buildPromptForTool({ tool, inputText });

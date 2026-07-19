@@ -80,11 +80,24 @@ class ProviderScheduleEvent {
     return rows?.[0] || null;
   }
 
-  static async listForUserInWindow({ agencyId, providerId, windowStart, windowEnd }) {
-    const aId = Number(agencyId || 0);
+  static async listForUserInWindow({ agencyId, agencyIds = null, allAgencies = false, providerId, windowStart, windowEnd }) {
     const pId = Number(providerId || 0);
     if (!pId || !windowStart || !windowEnd) return [];
-    const scopeClause = aId > 0 ? '(pse.agency_id = ? OR pse.agency_id IS NULL)' : 'pse.agency_id IS NULL';
+    const ids = Array.isArray(agencyIds)
+      ? Array.from(new Set(agencyIds.map((n) => Number(n || 0)).filter((n) => n > 0)))
+      : [];
+    const aId = Number(agencyId || 0);
+    let scopeClause = 'pse.agency_id IS NULL';
+    let scopeParams = [];
+    if (allAgencies) {
+      scopeClause = '1=1';
+    } else if (ids.length) {
+      scopeClause = `(pse.agency_id IN (${ids.map(() => '?').join(',')}) OR pse.agency_id IS NULL)`;
+      scopeParams = ids;
+    } else if (aId > 0) {
+      scopeClause = '(pse.agency_id = ? OR pse.agency_id IS NULL)';
+      scopeParams = [aId];
+    }
     // Include events where user is provider (host) OR where user is attendee of a TEAM_MEETING
     const userClause = `(pse.provider_id = ? OR (
       UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
@@ -93,9 +106,7 @@ class ProviderScheduleEvent {
         WHERE psea.event_id = pse.id AND psea.user_id = ?
       )
     ))`;
-    const params = aId > 0
-      ? [aId, pId, pId, windowEnd, windowStart, windowEnd, windowStart]
-      : [pId, pId, windowEnd, windowStart, windowEnd, windowStart];
+    const params = [...scopeParams, pId, pId, windowEnd, windowStart, windowEnd, windowStart];
     const [rows] = await pool.execute(
       `SELECT *
        FROM provider_schedule_events pse
@@ -139,6 +150,85 @@ class ProviderScheduleEvent {
       [eid, pid]
     );
     return rows?.[0] || null;
+  }
+
+  static async updateForProvider({
+    eventId,
+    providerId,
+    title = undefined,
+    description = undefined,
+    isPrivate = undefined,
+    allDay = undefined,
+    startAt = undefined,
+    endAt = undefined,
+    startDate = undefined,
+    endDate = undefined,
+    agencyId = undefined,
+    clientId = undefined,
+    reasonCode = undefined,
+    updatedByUserId = null
+  }) {
+    const eid = Number(eventId || 0);
+    const pid = Number(providerId || 0);
+    if (!eid || !pid) return null;
+    const sets = [];
+    const params = [];
+    if (title !== undefined) {
+      sets.push('title = ?');
+      params.push(String(title || '').trim().slice(0, 200));
+    }
+    if (description !== undefined) {
+      sets.push('description = ?');
+      params.push(description == null || description === '' ? null : String(description).slice(0, 4000));
+    }
+    if (isPrivate !== undefined) {
+      sets.push('is_private = ?');
+      params.push(isPrivate ? 1 : 0);
+    }
+    if (allDay !== undefined) {
+      sets.push('all_day = ?');
+      params.push(allDay ? 1 : 0);
+    }
+    if (startAt !== undefined) {
+      sets.push('start_at = ?');
+      params.push(startAt || null);
+    }
+    if (endAt !== undefined) {
+      sets.push('end_at = ?');
+      params.push(endAt || null);
+    }
+    if (startDate !== undefined) {
+      sets.push('start_date = ?');
+      params.push(startDate || null);
+    }
+    if (endDate !== undefined) {
+      sets.push('end_date = ?');
+      params.push(endDate || null);
+    }
+    if (agencyId !== undefined) {
+      sets.push('agency_id = ?');
+      params.push(agencyId == null || Number(agencyId) <= 0 ? null : Number(agencyId));
+    }
+    if (clientId !== undefined) {
+      sets.push('client_id = ?');
+      params.push(clientId == null || Number(clientId) <= 0 ? null : Number(clientId));
+    }
+    if (reasonCode !== undefined) {
+      sets.push('reason_code = ?');
+      params.push(reasonCode ? String(reasonCode).trim().toUpperCase() : null);
+    }
+    if (!sets.length) return this.findByIdForProvider({ eventId: eid, providerId: pid });
+    sets.push('updated_by_user_id = ?');
+    params.push(updatedByUserId ? Number(updatedByUserId) : null);
+    params.push(eid, pid);
+    await pool.execute(
+      `UPDATE provider_schedule_events
+       SET ${sets.join(', ')}
+       WHERE id = ? AND provider_id = ?
+         AND UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED'`,
+      params
+    );
+    return this.findByIdForProvider({ eventId: eid, providerId: pid });
   }
 
   static async listActiveSeriesFromPoint({

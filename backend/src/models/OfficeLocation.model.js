@@ -72,7 +72,19 @@ class OfficeLocation {
   }
 
   static async update(id, updates = {}) {
-    const allowed = ['name', 'timezone', 'svg_markup', 'svg_url', 'is_active', 'street_address', 'city', 'state', 'postal_code'];
+    const allowed = [
+      'name',
+      'timezone',
+      'svg_markup',
+      'svg_url',
+      'is_active',
+      'street_address',
+      'city',
+      'state',
+      'postal_code',
+      'default_place_of_service',
+      'use_as_billing_address'
+    ];
     const fields = [];
     const values = [];
 

@@ -99,6 +99,7 @@ export const createIndirectServiceType = async (req, res, next) => {
       label,
       description: body.description || '',
       iconKey: body.iconKey || 'circle',
+      payBucket: body.payBucket || body.pay_bucket || 'indirect',
       sortOrder: body.sortOrder,
       isActive: body.isActive !== false
     });

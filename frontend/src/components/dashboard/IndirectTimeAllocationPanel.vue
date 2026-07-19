@@ -1006,18 +1006,25 @@ defineExpose({
 }
 .iap-note-input {
   width: 100%;
-  border: 1px solid #d1d5db;
+  border: 1.5px solid #94a3b8;
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;
   font-size: 0.85rem;
+  color: #0f172a;
   resize: vertical;
   min-height: 52px;
-  background: #fff;
+  background: #f8fafc;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.iap-note-input::placeholder {
+  color: #64748b;
+  opacity: 1;
 }
 .iap-note-input:focus {
   outline: 2px solid #86efac;
   border-color: #166534;
+  background: #fff;
 }
 .iap-cols--start_end {
   grid-template-columns: 28px 28px minmax(110px, 1.5fr) 96px 96px 64px minmax(120px, auto);

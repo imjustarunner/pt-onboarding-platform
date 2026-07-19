@@ -1823,6 +1823,34 @@ export const upsertAgencyServiceType = async (req, res, next) => {
     const isEnabled = req.body?.isEnabled === false || req.body?.isEnabled === 0 ? 0 : 1;
     const sortOrder = Number.isFinite(Number(req.body?.sortOrder)) ? Number(req.body.sortOrder) : 0;
 
+    if (isEnabled) {
+      try {
+        const {
+          getCapabilitiesForAgency,
+          isPublicServiceTypeAllowed
+        } = await import('../services/businessTypeCapabilities.service.js');
+        const caps = await getCapabilitiesForAgency(agency.id, {
+          ensureDefaults: true,
+          organizationType: agency.organization_type || agency.organizationType
+        });
+        const allowedRows = (caps.enabledBusinessTypes || []).map((businessType) => ({
+          businessType,
+          isEnabled: true
+        }));
+        if (allowedRows.length && !isPublicServiceTypeAllowed(serviceType, allowedRows)) {
+          return res.status(400).json({
+            error: {
+              message: `Public service type "${serviceType}" is not allowed for this tenant’s enabled business types. Enable the matching tenant service type first.`,
+              code: 'BUSINESS_TYPE_GATE',
+              allowedPublicServiceTypes: caps.allowedPublicServiceTypes || []
+            }
+          });
+        }
+      } catch {
+        /* if catalog missing, allow legacy behavior */
+      }
+    }
+
     await pool.execute(
       `INSERT INTO agency_public_service_types
          (agency_id, service_type, display_name, intro_blurb, hero_image_url, is_enabled, sort_order)

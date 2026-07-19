@@ -183,7 +183,13 @@ const slotName = (dateYmd, hour, roomId) => {
   if (pending > 0 && (state === 'open' || !state)) return 'Requested';
   if (state === 'open') return 'Open';
   if (state === 'assigned_booked') {
-    return String(s.bookedProviderName || s.assignedProviderName || '').trim() || 'Booked';
+    const provider = String(s.bookedProviderName || s.assignedProviderName || '').trim();
+    const type = String(s.appointmentType || '').trim().toUpperCase();
+    const modality = String(s.modality || '').trim().toUpperCase();
+    const sessionHint = type === 'SESSION'
+      ? (modality === 'TELEHEALTH' ? 'Session' : modality === 'IN_PERSON' ? 'In-person' : 'Session')
+      : (type && type !== 'NONE' ? type.replace(/_/g, ' ') : 'Booked');
+    return provider ? `${provider} · ${sessionHint}` : sessionHint;
   }
   if (state === 'assigned_temporary') {
     return String(s.assignedProviderName || '').trim() || 'Temporary';

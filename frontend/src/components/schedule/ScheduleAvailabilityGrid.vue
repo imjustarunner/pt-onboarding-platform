@@ -1,32 +1,75 @@
 <template>
-  <div class="sched-wrap" :class="{ 'sched-wrap-quarter': showQuarterDetail }" :style="scheduleWrapVars" data-tour="my-schedule-grid">
+  <div
+    class="sched-wrap"
+    :class="{
+      'sched-wrap-quarter': showQuarterDetail,
+      'sched-wrap--dark': darkScheduleTheme
+    }"
+    :style="scheduleWrapVars"
+    data-tour="my-schedule-grid"
+  >
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
       <div class="sched-chrome-top" data-tour="my-schedule-week-nav">
         <div class="sched-chrome-title-block">
-          <h2 class="sched-page-title">Schedule</h2>
-          <p class="sched-page-sub">View and manage your availability.</p>
+          <template v-if="!compactPageChrome">
+            <h2 class="sched-page-title">Schedule</h2>
+            <p class="sched-page-sub">View and manage availability.</p>
+          </template>
           <p class="sched-week-range">Week of {{ weekStart }} · Today {{ todayMmdd }}</p>
         </div>
         <div class="sched-chrome-nav" role="group" aria-label="Week navigation">
-          <button class="sched-nav-btn" type="button" @click="goToTodayWeek" :disabled="loading" data-tour="my-schedule-today-btn">
+          <button
+            class="sched-nav-btn"
+            type="button"
+            title="Jump the grid to the week that contains today"
+            @click="goToTodayWeek"
+            :disabled="loading"
+            data-tour="my-schedule-today-btn"
+          >
             Today
           </button>
           <div class="sched-nav-arrows">
-            <button class="sched-nav-icon-btn" type="button" aria-label="Previous week" @click="prevWeek" :disabled="loading">
+            <button class="sched-nav-icon-btn" type="button" aria-label="Previous week" title="Previous week" @click="prevWeek" :disabled="loading">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button class="sched-nav-icon-btn" type="button" aria-label="Next week" @click="nextWeek" :disabled="loading">
+            <button class="sched-nav-icon-btn" type="button" aria-label="Next week" title="Next week" @click="nextWeek" :disabled="loading">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
-          <button class="sched-nav-icon-btn" type="button" aria-label="Refresh schedule" title="Refresh" @click="load" :disabled="loading">
+          <button class="sched-nav-icon-btn" type="button" aria-label="Refresh schedule" title="Reload this week’s schedule from the server" @click="load" :disabled="loading">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18" stroke-linecap="round"/>
             </svg>
           </button>
-          <span class="sched-nav-view-pill" title="Weekly schedule view">Week view</span>
+          <button
+            v-if="Number(effectiveAgencyId || 0) > 0"
+            class="sched-nav-btn"
+            type="button"
+            title="Book a session with a client using unified tenant booking"
+            :disabled="loading || !effectiveAgencyId"
+            @click="openUnifiedBookingPanel()"
+          >
+            Book session
+          </button>
+          <div class="sched-span-switch" role="group" aria-label="Day or week schedule">
+            <button
+              type="button"
+              class="sched-span-btn"
+              :class="{ on: scheduleSpanMode === 'day' }"
+              title="Focus one day (best on phone)"
+              @click="setScheduleSpanMode('day')"
+            >Day</button>
+            <button
+              type="button"
+              class="sched-span-btn"
+              :class="{ on: scheduleSpanMode === 'week' }"
+              title="Show the full week grid"
+              @click="setScheduleSpanMode('week')"
+            >Week</button>
+          </div>
         </div>
       </div>
+
       <div class="sched-toolbar-main">
         <div class="sched-toolbar-left" :class="{ 'sched-office-pulse': showOfficeReminderPulse && !hideOfficeAndCalendarIntegration }">
           <div v-if="!hideOfficeAndCalendarIntegration" class="sched-office-toolbar-group">
@@ -36,6 +79,7 @@
               :class="{ 'sched-office-cta--active': viewMode === 'office_layout' }"
               :disabled="loading || officeGridLoading"
               data-tour="my-schedule-request-office-cta"
+              title="Switch to the office/room board to request or book rooms for approval"
               @click="viewMode === 'office_layout' ? viewMode = 'open_finder' : viewMode = 'office_layout'"
             >
               <span class="sched-office-cta-icon" aria-hidden="true">
@@ -50,8 +94,8 @@
                 </svg>
               </span>
               <span class="sched-office-cta-copy">
-                <span class="sched-office-cta-title">{{ viewMode === 'office_layout' ? 'My Schedule' : 'Request office or room' }}</span>
-                <span class="sched-office-cta-sub">{{ viewMode === 'office_layout' ? 'Back to your personal calendar' : 'Send a time for staff approval' }}</span>
+                <span class="sched-office-cta-title">{{ viewMode === 'office_layout' ? 'Personal calendar' : 'Request office or room' }}</span>
+                <span class="sched-office-cta-sub">{{ viewMode === 'office_layout' ? 'Back to your week grid' : 'Send a time for staff approval' }}</span>
               </span>
             </button>
             <div class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
@@ -67,6 +111,9 @@
                   'sched-seg--back': opt.id === 'open_finder' && viewMode === 'office_layout'
                 }"
                 :disabled="loading"
+                :title="opt.id === 'open_finder'
+                  ? 'Personal week grid — book sessions, meetings, and holds on your calendar'
+                  : 'Office & room board — request or assign rooms in a building'"
                 @click="viewMode = opt.id"
               >
                 <span v-if="opt.id === 'open_finder' && viewMode === 'office_layout'">← </span>{{ opt.label }}
@@ -78,94 +125,137 @@
         <div v-if="officeReminderToast && !hideOfficeAndCalendarIntegration" class="sched-office-reminder-toast">
           {{ officeReminderToast }}
         </div>
-        <div class="sched-toolbar-right">
-          <template v-if="!hideOfficeAndCalendarIntegration">
-            <label class="sched-inline" data-tour="my-schedule-office-select">
-              <span>Office</span>
-              <select v-model.number="selectedOfficeLocationId" class="sched-select" :disabled="loading || officeGridLoading">
-                <option :value="0">None</option>
-                <option v-for="o in officeLocations" :key="`sched-office-${o.id}`" :value="Number(o.id)">{{ o.name }}</option>
-              </select>
-            </label>
+      </div>
 
-            <router-link
-              v-if="canManageOffices"
-              class="btn btn-secondary btn-sm sched-btn"
-              :to="officeRequestsApproveLink"
-              data-tour="my-schedule-approve-office-requests"
-              title="Approve pending office availability requests"
-            >
-              Approve office requests
-            </router-link>
+      <div class="sched-tool-bar" data-tour="my-schedule-tool-groups">
+        <div v-if="!hideOfficeAndCalendarIntegration" class="sched-tool-cluster" title="Ways to see other people’s calendars">
+          <span class="sched-tool-cluster__label">People</span>
+          <button
+            type="button"
+            class="sched-pill sched-pill--emphasis"
+            :class="{ on: showPeerBusyOverlay }"
+            role="switch"
+            :aria-checked="String(!!showPeerBusyOverlay)"
+            :disabled="loading"
+            @click="togglePeerBusyOverlay"
+            title="Overlay selected coworkers’ busy times on your grid. Shows Busy / initials only (no client names) unless you turn on Show details."
+            data-tour="my-schedule-peers-busy-toggle"
+          >
+            Peers (busy)
+          </button>
+          <router-link
+            class="sched-pill sched-pill-link"
+            :to="staffSchedulesCompareTo"
+            title="Open Staff schedules to compare several people at once. Providers see busy-only; admins can use detailed stacked view."
+            data-tour="my-schedule-staff-compare-link"
+          >
+            Staff schedules
+          </router-link>
+        </div>
 
-            <button
-              v-if="selectedOfficeLocationId"
-              class="sched-icon-btn"
-              type="button"
-              title="Clear office selection"
-              :disabled="loading || officeGridLoading"
-              @click="selectedOfficeLocationId = 0"
-            >
-              ✕
-            </button>
+        <div v-if="!hideOfficeAndCalendarIntegration" class="sched-tool-cluster" title="Office bookings for this person — All buildings, one building, or Off">
+          <span class="sched-tool-cluster__label">Office</span>
+          <select
+            v-model.number="selectedOfficeLocationId"
+            class="sched-select sched-select--compact"
+            :disabled="loading || officeGridLoading"
+            data-tour="my-schedule-office-select"
+            title="All = every office booking for this person. Pick a building for room-count overlay, or Off to hide office blocks."
+          >
+            <option :value="OFFICE_SCOPE_ALL">All offices</option>
+            <option :value="OFFICE_SCOPE_OFF">Off</option>
+            <option v-for="o in officeLocations" :key="`sched-office-${o.id}`" :value="Number(o.id)">{{ o.name }}</option>
+          </select>
+          <button
+            v-if="isOfficeScopeSpecific"
+            type="button"
+            class="sched-pill"
+            :class="{ on: showOfficeOverlay }"
+            role="switch"
+            :aria-checked="String(!!showOfficeOverlay)"
+            :disabled="loading"
+            @click="showOfficeOverlay = !showOfficeOverlay"
+            title="When a specific office is selected, show open/assigned room-count labels on empty cells"
+          >
+            Room counts
+          </button>
+          <router-link
+            v-if="canManageOffices"
+            class="sched-pill sched-pill-link"
+            :to="officeRequestsApproveLink"
+            data-tour="my-schedule-approve-office-requests"
+            title="Open the approval inbox for pending office / room availability requests"
+          >
+            Approvals
+          </router-link>
+        </div>
 
-            <button
-              v-if="selectedOfficeLocationId"
-              type="button"
-              class="sched-pill"
-              :class="{ on: showOfficeOverlay }"
-              role="switch"
-              :aria-checked="String(!!showOfficeOverlay)"
-              :disabled="loading"
-              @click="showOfficeOverlay = !showOfficeOverlay"
-              title="Show or hide office room-count overlay labels"
-            >
-              Office overlay
-            </button>
+        <div v-if="!hideOfficeAndCalendarIntegration" class="sched-tool-cluster" title="External calendar overlays on your grid">
+          <span class="sched-tool-cluster__label">Calendars</span>
+          <button
+            type="button"
+            class="sched-pill"
+            :class="{ on: showGoogleBusy }"
+            role="switch"
+            :aria-checked="String(!!showGoogleBusy)"
+            :disabled="loading"
+            @click="toggleGoogleBusy"
+            title="Show grey busy blocks from your Google Calendar (times only, no titles)."
+            data-tour="my-schedule-google-busy-toggle"
+          >
+            Google busy
+          </button>
+          <button
+            type="button"
+            class="sched-pill"
+            :class="{ on: showGoogleEvents }"
+            role="switch"
+            :aria-checked="String(!!showGoogleEvents)"
+            :disabled="loading"
+            @click="toggleGoogleEvents"
+            title="Show Google event titles on the grid (sensitive — may include personal meeting names)."
+            data-tour="my-schedule-google-titles-toggle"
+          >
+            Google titles
+          </button>
+          <button
+            type="button"
+            class="sched-pill"
+            :class="{ on: showExternalBusy }"
+            role="switch"
+            :aria-checked="String(!!showExternalBusy)"
+            :disabled="loading || !externalCalendarsAvailable.length"
+            @click="toggleExternalBusy"
+            title="Show busy times imported from Therapy Notes / ICS feeds. Choose which feeds under More tools."
+          >
+            Therapy Notes
+          </button>
+          <button
+            v-if="!calendarsHidden"
+            class="sched-pill"
+            type="button"
+            :disabled="loading"
+            @click="hideAllCalendars"
+            title="Temporarily hide Google and Therapy Notes overlays so your platform events stand out."
+            data-tour="my-schedule-hide-calendars"
+          >
+            Hide
+          </button>
+          <button
+            v-else
+            class="sched-pill on"
+            type="button"
+            :disabled="loading"
+            @click="showAllCalendars"
+            title="Restore Google / Therapy Notes overlays to your last settings."
+            data-tour="my-schedule-show-calendars"
+          >
+            Show
+          </button>
+        </div>
 
-            <button
-              type="button"
-              class="sched-pill"
-              :class="{ on: showGoogleBusy }"
-              role="switch"
-              :aria-checked="String(!!showGoogleBusy)"
-              :disabled="loading"
-              @click="toggleGoogleBusy"
-              data-tour="my-schedule-google-busy-toggle"
-            >
-              Google busy
-            </button>
-
-            <button
-              type="button"
-              class="sched-pill"
-              :class="{ on: showGoogleEvents }"
-              role="switch"
-              :aria-checked="String(!!showGoogleEvents)"
-              :disabled="loading"
-              @click="toggleGoogleEvents"
-              title="Shows event titles (sensitive)"
-              data-tour="my-schedule-google-titles-toggle"
-            >
-              Google titles
-            </button>
-
-            <button
-              v-if="externalCalendarsAvailable.length"
-              type="button"
-              class="sched-pill"
-              :class="{ on: !hideExternalIcsTitles }"
-              role="switch"
-              :aria-checked="String(!hideExternalIcsTitles)"
-              :disabled="loading || !showExternalBusy"
-              title="Show or hide ICS event titles on Therapy Notes busy blocks (when the feed includes titles)"
-              @click="hideExternalIcsTitles = !hideExternalIcsTitles"
-              data-tour="my-schedule-ehr-titles-toggle"
-            >
-              Therapy Notes titles
-            </button>
-          </template>
-
+        <div class="sched-tool-cluster" title="How the week grid is laid out">
+          <span class="sched-tool-cluster__label">Display</span>
           <button
             type="button"
             class="sched-pill"
@@ -174,44 +264,11 @@
             :aria-checked="String(!!hideWeekend)"
             :disabled="loading"
             @click="hideWeekend = !hideWeekend"
+            title="Hide Saturday and Sunday columns to focus on weekdays."
             data-tour="my-schedule-hide-weekends-toggle"
           >
             Hide weekends
           </button>
-
-          <button
-            v-if="showCompanyEventsCalendarButton"
-            type="button"
-            class="sched-pill"
-            :disabled="loading"
-            title="Company-wide events and school outreach opportunities"
-            @click="emit('open-company-events-calendar')"
-          >
-            Company events
-          </button>
-
-          <button
-            v-if="showSkillBuildersProgramsButton"
-            type="button"
-            class="sched-pill"
-            :disabled="loading"
-            title="Skill Builders events, meetings, and availability"
-            @click="emit('open-skill-builders-programs')"
-          >
-            Events / Classes / Programs
-          </button>
-
-          <button
-            v-if="mode === 'self'"
-            type="button"
-            class="sched-pill"
-            :disabled="loading"
-            @click="toggleWeekStartsOn"
-            title="Toggle week start day"
-          >
-            Week starts: {{ effectiveWeekStartsOn === 'sunday' ? 'Sunday' : 'Monday' }}
-          </button>
-
           <button
             type="button"
             class="sched-pill"
@@ -220,11 +277,10 @@
             :aria-checked="String(!!showQuarterDetail)"
             :disabled="loading"
             @click="showQuarterDetail = !showQuarterDetail"
-            title="Show 15-minute timing detail on event blocks"
+            title="Expand each hour into 15-minute rows so short appointments align more precisely."
           >
-            15-min detail
+            15-min
           </button>
-
           <button
             type="button"
             class="sched-pill"
@@ -234,60 +290,196 @@
             :disabled="loading"
             @click="showAllHours = !showAllHours"
             :title="showAllHours
-              ? 'Switch back to working hours (default day range)'
-              : 'Show all 24 hours (12 AM–11 PM)'"
+              ? 'Collapse back to the default daytime hour band'
+              : 'Show all 24 hours (midnight–11 PM) for early or late sessions'"
           >
-            {{ showAllHours ? 'Working hours' : 'Full day (24h)' }}
+            {{ showAllHours ? 'Day band' : '24h' }}
           </button>
-
-          <button
-            v-if="!hideOfficeAndCalendarIntegration"
-            type="button"
-            class="sched-pill"
-            :class="{ on: showExternalBusy }"
-            role="switch"
-            :aria-checked="String(!!showExternalBusy)"
-            :disabled="loading || !externalCalendarsAvailable.length"
-            @click="toggleExternalBusy"
-            title="Show or hide Therapy Notes busy overlays"
-          >
-            Therapy Notes busy
-          </button>
-
-          <button
-            v-if="!hideOfficeAndCalendarIntegration && !calendarsHidden"
-            class="sched-pill"
-            type="button"
-            :disabled="loading"
-            @click="hideAllCalendars"
-            title="Hide all calendar overlays (keeps office overlay)"
-            data-tour="my-schedule-hide-calendars"
-          >
-            Hide calendars
-          </button>
-          <button
-            v-else-if="!hideOfficeAndCalendarIntegration"
-            class="sched-pill on"
-            type="button"
-            :disabled="loading"
-            @click="showAllCalendars"
-            title="Restore calendar overlays"
-            data-tour="my-schedule-show-calendars"
-          >
-            Show calendars
-          </button>
-
         </div>
       </div>
 
-      <div v-if="!hideOfficeAndCalendarIntegration && selectedOfficeLocationId && officeGridError" class="error" style="margin-top: 10px;">
+      <div
+        v-if="!showMobileDayTimeline"
+        class="sched-day-focus-bar"
+        title="Narrow the week grid to specific days"
+      >
+        <span class="sched-calendars-label">Day focus</span>
+        <button
+          v-for="d in focusableDays"
+          :key="`focus-day-top-${d}`"
+          type="button"
+          class="sched-chip"
+          :class="{ on: focusedDaySet.has(d) }"
+          :disabled="loading"
+          :title="focusedDaySet.has(d) ? `Remove ${d} from day focus` : `Show only ${d} (Cmd/Ctrl-click to multi-select)`"
+          @click="toggleFocusedDay(d, $event)"
+        >
+          {{ d.slice(0, 3) }}
+        </button>
+        <button
+          type="button"
+          class="sched-chip"
+          :disabled="loading || !focusedDays.length"
+          @click="clearFocusedDays"
+          title="Clear day focus and show the full week again"
+        >
+          Full view
+        </button>
+      </div>
+
+      <details class="sched-more-tools" data-tour="my-schedule-more-tools">
+        <summary class="sched-more-tools__summary" title="Therapy Notes feeds, organization filters, programs, and row height">
+          More tools
+          <span class="muted">feeds · organization · programs · row height</span>
+        </summary>
+        <div class="sched-more-tools__body">
+          <div class="sched-tool-cluster sched-tool-cluster--wrap">
+            <span class="sched-tool-cluster__label">Programs & layout</span>
+            <button
+              v-if="showCompanyEventsCalendarButton"
+              type="button"
+              class="sched-pill"
+              :disabled="loading"
+              title="Open company-wide events and school outreach opportunities"
+              @click="emit('open-company-events-calendar')"
+            >
+              Company events
+            </button>
+            <button
+              v-if="showSkillBuildersProgramsButton"
+              type="button"
+              class="sched-pill"
+              :disabled="loading"
+              title="Open Skill Builders events, classes, programs, and related availability"
+              @click="emit('open-skill-builders-programs')"
+            >
+              Events / Classes / Programs
+            </button>
+            <button
+              v-if="mode === 'self'"
+              type="button"
+              class="sched-pill"
+              :disabled="loading"
+              @click="toggleWeekStartsOn"
+              title="Choose whether the week grid starts on Monday or Sunday"
+            >
+              Week starts: {{ effectiveWeekStartsOn === 'sunday' ? 'Sunday' : 'Monday' }}
+            </button>
+            <button
+              v-if="!hideOfficeAndCalendarIntegration && externalCalendarsAvailable.length"
+              type="button"
+              class="sched-pill"
+              :class="{ on: !hideExternalIcsTitles }"
+              role="switch"
+              :aria-checked="String(!hideExternalIcsTitles)"
+              :disabled="loading || !showExternalBusy"
+              title="When on, show ICS event titles on Therapy Notes busy blocks (if the feed includes titles)"
+              @click="hideExternalIcsTitles = !hideExternalIcsTitles"
+              data-tour="my-schedule-ehr-titles-toggle"
+            >
+              Therapy Notes titles
+            </button>
+          </div>
+
+          <div class="sched-toolbar-secondary">
+            <div class="sched-zoom-controls">
+              <label class="sched-inline compact" title="Change how tall each hour row is">
+                <span>Row height</span>
+                <select v-model="rowHeightMode" class="sched-select compact">
+                  <option value="compact">Compact</option>
+                  <option value="normal">Normal</option>
+                  <option value="large">Large</option>
+                  <option value="xl">XL</option>
+                </select>
+              </label>
+            </div>
+
+            <div v-if="!hideOfficeAndCalendarIntegration" class="sched-calendars" data-tour="my-schedule-ehr-calendars">
+              <div class="sched-calendars-label" title="Which Therapy Notes / ICS feeds contribute busy blocks">Therapy Notes calendars</div>
+              <div class="sched-calendars-actions">
+                <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" title="Include all connected Therapy Notes calendars" @click="selectAllExternalCalendars">All</button>
+                <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" title="Clear all Therapy Notes calendar selections" @click="clearExternalCalendars">None</button>
+                <button
+                  v-if="showExternalBusy && externalCalendarsAvailable.length"
+                  type="button"
+                  class="sched-chip"
+                  :class="{ on: hideExternalIcsTitles }"
+                  :disabled="loading"
+                  title="Hide event titles from ICS feeds (busy times stay visible)"
+                  @click="hideExternalIcsTitles = !hideExternalIcsTitles"
+                >
+                  {{ hideExternalIcsTitles ? 'ICS titles off' : 'ICS titles on' }}
+                </button>
+              </div>
+              <button
+                v-for="c in externalCalendarsAvailable"
+                :key="`cal-${c.id}`"
+                type="button"
+                class="sched-chip"
+                :class="{ on: selectedExternalCalendarIds.includes(Number(c.id)) }"
+                :disabled="loading || !showExternalBusy"
+                :title="`Toggle busy overlay for “${c.label}”`"
+                @click="toggleExternalCalendar(Number(c.id))"
+              >
+                {{ c.label }}
+              </button>
+              <div v-if="!externalCalendarsAvailable.length" class="muted" style="font-size: 12px;">
+                No Therapy Notes calendars connected for this provider.
+              </div>
+            </div>
+
+            <div v-if="agencyFilterOptions.length" class="sched-org-filters">
+              <div class="sched-calendars-label" title="Which tenant organizations appear on this calendar">Organization</div>
+              <select
+                class="sched-select"
+                :value="scheduleOrgScopeValue"
+                :disabled="loading"
+                title="Pick which organization context to emphasize when booking"
+                @change="onScheduleOrganizationChange($event)"
+              >
+                <option :value="0">All organizations</option>
+                <option v-for="opt in scheduleOrgSelectOptions" :key="`org-select-${opt.id}`" :value="Number(opt.id)">
+                  {{ opt.label }}
+                </option>
+              </select>
+              <template v-if="agencyFilterOptions.length > 1">
+                <div class="sched-calendars-label" style="margin-left: 8px;">Shown</div>
+                <div class="sched-calendars-actions">
+                  <button type="button" class="sched-chip" :class="{ on: scheduleOrgScopeAll }" :disabled="loading" title="Show events from every organization you belong to" @click="selectAllScheduleAgencies">All</button>
+                </div>
+                <button
+                  v-for="opt in agencyFilterOptions"
+                  :key="`org-chip-${opt.id}`"
+                  type="button"
+                  class="sched-chip"
+                  :class="{ on: activeScheduleAgencyIdSet.has(Number(opt.id)) }"
+                  :disabled="loading"
+                  @click="toggleScheduleAgencyFilter(Number(opt.id))"
+                  :title="activeScheduleAgencyIdSet.has(Number(opt.id)) ? `Hide ${opt.label} from this schedule` : `Show ${opt.label} on this schedule`"
+                  :style="activeScheduleAgencyIdSet.has(Number(opt.id)) ? { '--chipAccent': agencyBadgeColorById(opt.id) || undefined } : undefined"
+                >
+                  <span
+                    v-if="agencyBadgeColorById(opt.id)"
+                    class="sched-org-chip-dot"
+                    :style="{ background: agencyBadgeColorById(opt.id) }"
+                    aria-hidden="true"
+                  ></span>
+                  {{ opt.label }}
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <div v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGridError" class="error" style="margin-top: 10px;">
         {{ officeGridError }}
       </div>
-      <div v-else-if="!hideOfficeAndCalendarIntegration && selectedOfficeLocationId && officeGridLoading" class="loading" style="margin-top: 10px;">
+      <div v-else-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGridLoading" class="loading" style="margin-top: 10px;">
         Loading office availability…
       </div>
 
-      <div v-if="!hideOfficeAndCalendarIntegration && selectedOfficeLocationId && officeGrid && !officeGridLoading" class="office-quick-glance">
+      <div v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGrid && !officeGridLoading" class="office-quick-glance">
         <div class="office-quick-glance-head">
           <div class="office-quick-glance-title">Office at this time</div>
           <div class="office-quick-glance-controls">
@@ -336,94 +528,6 @@
           </div>
         </div>
       </div>
-
-      <div class="sched-toolbar-secondary">
-        <div class="sched-zoom-controls">
-          <div class="sched-calendars-label">Day focus</div>
-          <button
-            v-for="d in focusableDays"
-            :key="`focus-day-${d}`"
-            type="button"
-            class="sched-chip"
-            :class="{ on: focusedDaySet.has(d) }"
-            :disabled="loading"
-            :title="focusedDaySet.has(d) ? `Remove ${d} focus` : `Focus ${d}`"
-            @click="toggleFocusedDay(d, $event)"
-          >
-            {{ d.slice(0, 3) }}
-          </button>
-          <button
-            type="button"
-            class="sched-chip"
-            :disabled="loading || !focusedDays.length"
-            @click="clearFocusedDays"
-            title="Return to full week view"
-          >
-            Full view
-          </button>
-          <label class="sched-inline compact" style="margin-left: 6px;">
-            <span>Row height</span>
-            <select v-model="rowHeightMode" class="sched-select compact">
-              <option value="compact">Compact</option>
-              <option value="normal">Normal</option>
-              <option value="large">Large</option>
-              <option value="xl">XL</option>
-            </select>
-          </label>
-        </div>
-
-        <div v-if="!hideOfficeAndCalendarIntegration" class="sched-calendars" data-tour="my-schedule-ehr-calendars">
-          <div class="sched-calendars-label">Therapy Notes calendars</div>
-          <div class="sched-calendars-actions">
-            <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" @click="selectAllExternalCalendars">All</button>
-            <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" @click="clearExternalCalendars">None</button>
-            <button
-              v-if="showExternalBusy && externalCalendarsAvailable.length"
-              type="button"
-              class="sched-chip"
-              :class="{ on: hideExternalIcsTitles }"
-              :disabled="loading"
-              title="Hide event titles from ICS feeds (busy times stay visible)"
-              @click="hideExternalIcsTitles = !hideExternalIcsTitles"
-            >
-              {{ hideExternalIcsTitles ? 'ICS titles off' : 'ICS titles on' }}
-            </button>
-          </div>
-          <button
-            v-for="c in externalCalendarsAvailable"
-            :key="`cal-${c.id}`"
-            type="button"
-            class="sched-chip"
-            :class="{ on: selectedExternalCalendarIds.includes(Number(c.id)) }"
-            :disabled="loading || !showExternalBusy"
-            @click="toggleExternalCalendar(Number(c.id))"
-          >
-            {{ c.label }}
-          </button>
-          <div v-if="!externalCalendarsAvailable.length" class="muted" style="font-size: 12px;">
-            No Therapy Notes calendars connected for this provider.
-          </div>
-        </div>
-
-        <div v-if="agencyFilterOptions.length > 1" class="sched-org-filters">
-          <div class="sched-calendars-label">Agencies shown</div>
-          <div class="sched-calendars-actions">
-            <button type="button" class="sched-chip" :disabled="loading" @click="selectAllScheduleAgencies">All</button>
-          </div>
-          <button
-            v-for="opt in agencyFilterOptions"
-            :key="`org-chip-${opt.id}`"
-            type="button"
-            class="sched-chip"
-            :class="{ on: activeScheduleAgencyIdSet.has(Number(opt.id)) }"
-            :disabled="loading"
-            @click="toggleScheduleAgencyFilter(Number(opt.id))"
-            :title="activeScheduleAgencyIdSet.has(Number(opt.id)) ? 'Hide organization from schedule' : 'Show organization in schedule'"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
-      </div>
     </div>
 
     <div v-if="selectedActionCount > 0" class="selection-toolbar">
@@ -461,8 +565,8 @@
 
     <!-- Office layout view (room-by-room weekly board) -->
     <div v-if="!hideOfficeAndCalendarIntegration && viewMode === 'office_layout'" class="sched-grid-wrap" data-tour="my-schedule-office-layout-panel">
-      <div v-if="!selectedOfficeLocationId" class="hint" style="margin-top: 10px;">
-        Select an office above to view the room-by-room weekly layout.
+      <div v-if="!isOfficeScopeSpecific" class="hint" style="margin-top: 10px;">
+        Choose a specific office (not All / Off) to view the room-by-room weekly layout.
       </div>
       <div v-else-if="officeGridError" class="error" style="margin-top: 10px;">{{ officeGridError }}</div>
       <div v-else-if="officeGridLoading && !officeGrid" class="loading" style="margin-top: 10px;">Loading office availability…</div>
@@ -485,13 +589,198 @@
       <div v-if="!hideOfficeAndCalendarIntegration && googleBusyDisabledHint" class="hint" style="margin-top: 10px;">
         {{ googleBusyDisabledHint }}
       </div>
+      <div
+        v-if="showPeerBusyOverlay && !hideOfficeAndCalendarIntegration"
+        class="peer-busy-panel"
+        data-tour="my-schedule-peers-busy-panel"
+      >
+        <div class="peer-busy-panel__head">
+          <strong>Peers</strong>
+          <span class="muted" style="font-size: 12px;">
+            {{ peerBusySelectedIds.length }} selected · overlays activity type (session / hold / open) and office on your grid.
+            {{ canManagePeerCalendar ? 'Click a peer block to inspect or manage their calendar.' : 'For side-by-side compare, use Staff schedules.' }}
+          </span>
+        </div>
+        <div class="peer-busy-panel__controls">
+          <input
+            v-model="peerBusySearch"
+            class="input peer-busy-search"
+            type="search"
+            placeholder="Search coworkers…"
+            data-tour="my-schedule-peers-busy-search"
+          />
+          <button class="btn btn-secondary btn-sm" type="button" :disabled="peerBusyLoading" @click="loadPeerBusyCandidates">
+            {{ peerBusyLoading ? 'Loading…' : 'Refresh peers' }}
+          </button>
+        </div>
+        <div v-if="peerBusyError" class="error" style="margin-top: 6px;">{{ peerBusyError }}</div>
+        <div class="peer-busy-list">
+          <label v-for="p in filteredPeerBusyCandidates" :key="`peer-${p.id}`" class="peer-busy-item">
+            <input
+              type="checkbox"
+              :checked="peerBusySelectedIdSet.has(p.id)"
+              :disabled="!peerBusySelectedIdSet.has(p.id) && peerBusySelectedIds.length >= maxPeerBusySelected"
+              @change="togglePeerBusyUser(p.id)"
+            />
+            <img
+              v-if="p.profilePhotoUrl"
+              class="peer-busy-face"
+              :src="p.profilePhotoUrl"
+              alt=""
+            />
+            <span
+              v-else
+              class="peer-busy-face peer-busy-face--initials"
+              :style="{ background: peerColorById(p.id) }"
+              aria-hidden="true"
+            >{{ peerInitials(p.id) }}</span>
+            <span
+              class="peer-busy-swatch"
+              :style="{ background: peerColorById(p.id) }"
+              aria-hidden="true"
+            ></span>
+            <img
+              v-if="peerPrimaryAgencyIconUrl(p)"
+              class="peer-busy-tenant-icon"
+              :src="peerPrimaryAgencyIconUrl(p)"
+              alt=""
+            />
+            <span>{{ p.label }}</span>
+          </label>
+          <div v-if="!filteredPeerBusyCandidates.length" class="muted" style="font-size: 12px;">
+            {{ peerBusyLoading ? 'Loading coworkers…' : 'No coworkers found in your agencies.' }}
+          </div>
+        </div>
+      </div>
       <div v-if="overlayErrorText" class="error" style="margin-top: 10px;">
         {{ overlayErrorText }}
       </div>
 
-      <div v-else-if="summary" class="sched-grid-wrap">
+      <div
+        v-else-if="showMobileDayTimeline"
+        class="sched-day-timeline"
+        data-tour="my-schedule-day-timeline"
+      >
+        <div class="sched-day-timeline__strip" aria-label="Pick a day">
+          <button
+            v-for="d in focusableDays"
+            :key="`mday-${d}`"
+            type="button"
+            class="sched-day-timeline__chip"
+            :class="{ on: mobileTimelineDay === d, today: isTodayDay(d) }"
+            @click="focusedDays = [d]; scheduleSpanMode = 'day'"
+          >
+            <span class="sched-day-timeline__dow">{{ d.slice(0, 3) }}</span>
+            <span class="sched-day-timeline__date">{{ dayDateLabel(d) }}</span>
+          </button>
+        </div>
+        <div class="sched-day-timeline__title">
+          {{ mobileTimelineDay }} · {{ dayDateLabel(mobileTimelineDay) }}
+        </div>
+        <div class="sched-day-timeline__hours">
+          <div
+            v-for="h in mobileTimelineHours"
+            :key="`mhour-${h}`"
+            class="sched-day-timeline__row"
+          >
+            <div class="sched-day-timeline__time">{{ hourLabel(h) }}</div>
+            <div class="sched-day-timeline__cards">
+              <button
+                v-for="b in mobileDayCardsForHour(h)"
+                :key="`mcard-${b.key}`"
+                type="button"
+                class="sched-day-card"
+                :class="[
+                  `cell-block-${b.kind}`,
+                  b.isOfficeBlock ? `cell-block-office cell-block-office--${b.officeStatus || 'reserved'}` : '',
+                  b.peerActivityType ? `cell-block-peer-${b.peerActivityType}` : ''
+                ]"
+                :style="cellBlockStyle(b)"
+                :title="b.title"
+                @click="onCellBlockClick($event, b, mobileTimelineDay, h, 0)"
+              >
+                <img
+                  v-if="b.peerPhotoUrl && b.kind === 'peerbusy'"
+                  class="cell-block-peer-face"
+                  :src="b.peerPhotoUrl"
+                  alt=""
+                />
+                <span
+                  v-else-if="b.kind === 'peerbusy'"
+                  class="cell-block-peer-face cell-block-peer-face--initials"
+                  :style="{ background: peerColorById(b.peerUserId) }"
+                >{{ peerInitials(b.peerUserId) }}</span>
+                <img
+                  v-if="b.agencyId && agencyIconUrlById(b.agencyId)"
+                  class="cell-block-agency-icon"
+                  :src="agencyIconUrlById(b.agencyId)"
+                  alt=""
+                />
+                <div class="sched-day-card__body">
+                  <div class="sched-day-card__title">
+                    {{ b.isOfficeBlock ? (b.officeRoomLabel || b.shortLabel) : (b.shortLabel || b.title) }}
+                  </div>
+                  <div v-if="b.isOfficeBlock" class="sched-day-card__meta cell-block-office-status">
+                    <svg class="cell-block-door-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M3 21h18" /><path d="M5 21V7l7-4v18" /><path d="M19 21V11l-7-4" />
+                    </svg>
+                    {{ b.officeStatusLabel }}
+                    <span v-if="b.officeEmpty" class="cell-block-office-empty"> · No bookings</span>
+                  </div>
+                  <div v-else-if="!b.isOfficeBlock && b.kind !== 'peerbusy'" class="sched-day-card__meta muted">
+                    No office / any location
+                  </div>
+                </div>
+              </button>
+              <button
+                v-if="canBookFromGrid"
+                type="button"
+                class="sched-day-timeline__add"
+                title="Add or edit this hour"
+                @click="openMobileDayHour(h)"
+              >+</button>
+            </div>
+          </div>
+        </div>
+        <button
+          v-if="canBookFromGrid"
+          type="button"
+          class="sched-day-timeline__fab"
+          title="Add to schedule"
+          @click="openMobileDayHour(mobileTimelineHours[0] || 9)"
+        >+</button>
+      </div>
+
+      <div v-else-if="summary" class="sched-grid-wrap" :class="{ 'sched-grid-wrap--hidden-mobile-day': false }">
       <div class="sched-legend" aria-label="Schedule legend">
-        <template v-if="hideOfficeAndCalendarIntegration">
+        <template v-if="colorBlocksByTenant">
+          <span
+            v-for="opt in activeScheduleAgencyLegend"
+            :key="`legend-org-${opt.id}`"
+            class="sched-legend-chip"
+          >
+            <span
+              v-if="agencyIconUrlById(opt.id)"
+              class="sched-legend-icon-wrap"
+              aria-hidden="true"
+            >
+              <img
+                class="sched-legend-icon"
+                :src="agencyIconUrlById(opt.id)"
+                alt=""
+              />
+            </span>
+            <span
+              v-else
+              class="sched-legend-dot"
+              :style="{ background: agencyBadgeColorById(opt.id) || '#64748b' }"
+              aria-hidden="true"
+            ></span>
+            {{ opt.label }}
+          </span>
+          <span class="sched-legend-chip muted" style="font-size: 11px;">Fill = organization · label = appointment type</span>
+        </template>
+        <template v-else-if="hideOfficeAndCalendarIntegration">
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--sevt" aria-hidden="true"></span> Team meeting</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--request" aria-hidden="true"></span> Pending</span>
         </template>
@@ -500,14 +789,16 @@
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--school" aria-hidden="true"></span> School assigned</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--supv sched-legend-dot--ring" aria-hidden="true"></span> Supervision</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--sevt" aria-hidden="true"></span> Schedule event</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--oa" aria-hidden="true"></span> Assigned</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ot sched-legend-dot--ring" aria-hidden="true"></span> Temporary hold</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ob" aria-hidden="true"></span> Booked</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--oa sched-legend-dot--dashed" aria-hidden="true"></span> Office reserved (empty)</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ot sched-legend-dot--ring" aria-hidden="true"></span> Temp hold</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ob" aria-hidden="true"></span> Office reserved (booked)</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-ip sched-legend-dot--ring" aria-hidden="true"></span> In-person intake</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-vi sched-legend-dot--ring" aria-hidden="true"></span> Virtual intake</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--portal sched-legend-dot--ring" aria-hidden="true"></span> Open for new clients</span>
           <span v-if="showGoogleBusy" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gbusy" aria-hidden="true"></span> Google busy</span>
           <span v-if="showGoogleEvents" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gevt" aria-hidden="true"></span> Google event</span>
           <span v-if="showExternalBusy && selectedExternalCalendarIds.length" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ebusy" aria-hidden="true"></span> Therapy Notes busy</span>
+          <span v-if="showPeerBusyOverlay" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--peerbusy" aria-hidden="true"></span> Peer activity (color = person)</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--agency" aria-hidden="true"></span> Agency</span>
         </template>
       </div>
@@ -561,7 +852,7 @@
             </button>
             <div v-if="availabilityClass(d, slot.hour, slot.minute)" class="cell-avail" :class="availabilityClass(d, slot.hour, slot.minute)"></div>
             <div
-              v-if="selectedOfficeLocationId && showOfficeOverlay && slot.minute === 0 && officeOverlay(d, slot.hour) && !cellBlocks(d, slot.hour, slot.minute).length"
+              v-if="isOfficeScopeSpecific && showOfficeOverlay && slot.minute === 0 && officeOverlay(d, slot.hour) && !cellBlocks(d, slot.hour, slot.minute).length"
               class="cell-office-overlay"
               :style="officeOverlayStyle"
               :title="officeOverlayTitle(d, slot.hour)"
@@ -575,8 +866,10 @@
                 class="cell-block"
                 :class="[
                   `cell-block-${b.kind}`,
+                  b.isOfficeBlock ? `cell-block-office cell-block-office--${b.officeStatus || 'reserved'}` : '',
+                  b.peerActivityType ? `cell-block-peer-${b.peerActivityType}` : '',
                   b.segmentClass ? `cell-block-segment-${b.segmentClass}` : '',
-                  { 'cell-block-hovered': isBlockHovered(d, slot.hour, b) }
+                  { 'cell-block-hovered': isBlockHovered(d, slot.hour, b), 'cell-block-peer-interactive': b.peerInteractive }
                 ]"
                 :title="b.title"
                 :style="cellBlockStyle(b)"
@@ -586,12 +879,50 @@
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
                 <span
-                  v-if="hasAgencyBadge(b) && !b.hideAgencyDot"
+                  v-if="colorBlocksByTenant"
+                  class="cell-block-type-stripe"
+                  aria-hidden="true"
+                ></span>
+                <img
+                  v-if="b.peerPhotoUrl && b.kind === 'peerbusy'"
+                  class="cell-block-peer-face"
+                  :src="b.peerPhotoUrl"
+                  alt=""
+                  :title="b.title"
+                />
+                <span
+                  v-else-if="b.kind === 'peerbusy' && b.shortLabel"
+                  class="cell-block-peer-face cell-block-peer-face--initials"
+                  :style="{ background: peerColorById(b.peerUserId) }"
+                  aria-hidden="true"
+                >{{ peerInitials(b.peerUserId) }}</span>
+                <img
+                  v-if="hasAgencyBadge(b) && !b.hideAgencyDot && agencyIconUrlById(b.agencyId)"
+                  class="cell-block-agency-icon"
+                  :src="agencyIconUrlById(b.agencyId)"
+                  alt=""
+                  :title="agencyBadgeTitle(b)"
+                />
+                <span
+                  v-else-if="hasAgencyBadge(b) && !b.hideAgencyDot && !colorBlocksByTenant && b.kind !== 'peerbusy'"
                   class="cell-block-agency-dot"
                   :style="agencyBadgeStyle(b)"
                   :title="agencyBadgeTitle(b)"
                 ></span>
-                <span v-if="b.shortLabel" class="cell-block-text">{{ b.shortLabel }}</span>
+                <template v-if="b.isOfficeBlock">
+                  <span class="cell-block-office-body">
+                    <span class="cell-block-text">{{ b.officeRoomLabel || b.shortLabel }}</span>
+                    <span class="cell-block-office-status" :title="b.officeStatusLabel">
+                      <svg class="cell-block-door-icon" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 21h18" /><path d="M5 21V7l7-4v18" /><path d="M19 21V11l-7-4" /><circle cx="10" cy="12" r="0.8" fill="currentColor" stroke="none" />
+                      </svg>
+                      <span class="cell-block-office-status-text">{{ b.officeStatusLabel }}</span>
+                    </span>
+                    <span v-if="b.officeEmpty && visibleDays.length === 1" class="cell-block-office-empty">No bookings</span>
+                  </span>
+                </template>
+                <span v-else-if="b.shortLabel && b.kind !== 'peerbusy'" class="cell-block-text">{{ b.shortLabel }}</span>
+                <span v-else-if="b.kind === 'peerbusy' && b.shortLabel" class="cell-block-text">{{ peerActivityShortFromBlock(b) }}</span>
                 <span
                   v-if="b.hasPendingRequest"
                   class="cell-block-pending-badge"
@@ -607,12 +938,24 @@
 
     <!-- Read-only slot info modal for non-admin users viewing someone else's booked slot -->
     <div v-if="showSlotInfoModal" class="modal-backdrop modal-backdrop--request" @click.self="showSlotInfoModal = false">
-      <div class="modal modal--slot-info">
-        <div class="modal-head">
-          <div class="modal-title">Office booking info</div>
-          <button class="btn btn-secondary btn-sm" type="button" @click="showSlotInfoModal = false">Close</button>
+      <div class="modal modal--new-request modal--stack-details modal--slot-info" style="max-width: 520px;">
+        <div class="nr-head">
+          <div class="nr-head-main">
+            <div class="nr-head-copy">
+              <div class="nr-title">Office booking info</div>
+              <div class="nr-subtitle">Frequency and assignment details for this slot</div>
+            </div>
+          </div>
+          <div class="nr-head-context">
+            <button class="nr-close" type="button" aria-label="Close" @click="showSlotInfoModal = false">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M6 6l12 12M18 6L6 18"/>
+              </svg>
+            </button>
+          </div>
         </div>
-        <div class="slot-info-card" v-if="slotInfoModalData">
+        <div class="nr-chooser" v-if="slotInfoModalData">
+        <div class="slot-info-card">
           <div class="slot-info-row">
             <span class="slot-info-label">Room</span>
             <span class="slot-info-value">{{ slotInfoModalData.roomLabel }}</span>
@@ -621,11 +964,15 @@
             <span class="slot-info-label">Provider</span>
             <span class="slot-info-value slot-info-value--provider">{{ slotInfoModalData.providerLabel || '—' }}</span>
           </div>
-          <div class="slot-info-row" v-if="slotInfoModalData.slot?.assignedFrequency || slotInfoModalData.slot?.frequencyLabel">
-            <span class="slot-info-label">Schedule</span>
+          <div class="slot-info-row" v-if="slotInfoModalData.slot?.assignedFrequency || slotInfoModalData.slot?.frequencyLabel || slotInfoModalData.slot?.bookedFrequency">
+            <span class="slot-info-label">Booking</span>
             <span class="slot-info-value">
-              {{ slotInfoModalData.slot?.frequencyLabel || (slotInfoModalData.slot?.assignedFrequency === 'WEEKLY' ? 'Weekly' : slotInfoModalData.slot?.assignedFrequency === 'BIWEEKLY' ? 'Biweekly' : slotInfoModalData.slot?.assignedFrequency || '—') }}
+              {{ slotInfoModalData.slot?.frequencyLabel || (slotInfoModalData.slot?.assignedFrequency === 'WEEKLY' ? 'Weekly' : slotInfoModalData.slot?.assignedFrequency === 'BIWEEKLY' ? 'Biweekly' : slotInfoModalData.slot?.assignedFrequency === 'MONTHLY' ? 'Monthly' : slotInfoModalData.slot?.assignedFrequency || '—') }}
             </span>
+          </div>
+          <div class="slot-info-row" v-if="slotInfoModalData.slot?.bookingActiveUntilDate || slotInfoModalData.slot?.assignmentTemporaryUntilDate">
+            <span class="slot-info-label">Booked until</span>
+            <span class="slot-info-value">{{ slotInfoModalData.slot?.bookingActiveUntilDate || slotInfoModalData.slot?.assignmentTemporaryUntilDate }}</span>
           </div>
           <div class="slot-info-row" v-if="slotInfoModalData.slot?.appointmentType && slotInfoModalData.slot?.appointmentType !== 'NONE'">
             <span class="slot-info-label">Session type</span>
@@ -644,11 +991,17 @@
             <span class="slot-info-value slot-info-status" :class="`slot-info-status--${slotInfoModalData.state}`">{{ slotInfoModalData.statusLabel }}</span>
           </div>
         </div>
+        </div>
       </div>
     </div>
 
-    <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" data-schedule-ui="v2" @click.self="closeModal">
-      <div class="modal modal--request modal--new-request" role="dialog" aria-labelledby="nr-title">
+    <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" data-schedule-ui="v2" @click.self="requestCloseModal">
+      <div
+        class="modal modal--request modal--new-request"
+        :class="{ 'modal--chooser': showActionChooser || isAppointmentEditMode }"
+        role="dialog"
+        aria-labelledby="nr-title"
+      >
         <div class="nr-head">
           <div class="nr-head-main">
             <span class="nr-head-icon" aria-hidden="true">
@@ -659,73 +1012,575 @@
                 <path d="M12 13v5M9.5 15.5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
               </svg>
             </span>
-            <div>
+            <div class="nr-head-copy">
               <div id="nr-title" class="nr-title">Schedule</div>
               <div class="nr-subtitle">{{ modalScheduleSubtitle }}</div>
-              <div class="nr-slot-meta">{{ modalDay }} • {{ modalTimeRangeLabel }}</div>
-              <div v-if="bookingTimezoneLabel" class="nr-tz-label">Times are in {{ bookingTimezoneLabel }}</div>
             </div>
           </div>
-          <button class="nr-close" type="button" aria-label="Close" @click="closeModal">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <path d="M6 6l12 12M18 6L6 18"/>
-            </svg>
-          </button>
+          <div class="nr-head-context" data-testid="schedule-modal-context">
+            <button
+              v-if="isPickScheduleEventMode || (isScheduleEventEditMode && stackDetailsItems.length > 1)"
+              type="button"
+              class="nr-back-chooser"
+              @click="requestType = 'pick_schedule_event'; scheduleEventEditId = 0"
+            >
+              ← All items
+            </button>
+            <button
+              v-else-if="!showActionChooser && !isAppointmentEditMode"
+              type="button"
+              class="nr-back-chooser"
+              @click="goBackToActionChooser"
+            >
+              ← All actions
+            </button>
+            <button class="nr-close" type="button" aria-label="Close" @click="requestCloseModal">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M6 6l12 12M18 6L6 18"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <!-- Occupied-slot summary: who/what for the selected office cell -->
+        <!-- Shared editable slot header (chooser + form modes + appointment edit) -->
         <div
-          v-if="modalOccupiedSlotSummary.visible"
-          class="admin-slot-info-header"
+          class="nr-slot-header"
+          :class="{ 'nr-slot-header--form': !showActionChooser }"
+          data-testid="schedule-slot-editor"
         >
-          <div class="admin-slot-info-row">
-            <span class="admin-slot-info-icon" aria-hidden="true">👤</span>
-            <span><strong>{{ modalOccupiedSlotSummary.providerLabel }}</strong></span>
-            <span v-if="modalOccupiedSlotSummary.statusLabel" class="admin-slot-info-pill">{{ modalOccupiedSlotSummary.statusLabel }}</span>
-            <span v-if="modalOccupiedSlotSummary.frequencyLabel" class="admin-slot-info-pill">{{ modalOccupiedSlotSummary.frequencyLabel }}</span>
-            <span v-if="modalOccupiedSlotSummary.assignmentModeLabel" class="admin-slot-info-pill admin-slot-info-pill--mode">{{ modalOccupiedSlotSummary.assignmentModeLabel }}</span>
-            <span v-if="modalOccupiedSlotSummary.sessionTypeLabel" class="admin-slot-info-pill admin-slot-info-pill--type">{{ modalOccupiedSlotSummary.sessionTypeLabel }}</span>
-          </div>
-          <div v-if="modalOccupiedSlotSummary.roomLabel || modalOccupiedSlotSummary.dateRangeLabel" class="admin-slot-info-dates">
-            <template v-if="modalOccupiedSlotSummary.roomLabel">{{ modalOccupiedSlotSummary.roomLabel }}</template>
-            <template v-if="modalOccupiedSlotSummary.roomLabel && modalOccupiedSlotSummary.dateRangeLabel"> · </template>
-            <template v-if="modalOccupiedSlotSummary.dateRangeLabel">{{ modalOccupiedSlotSummary.dateRangeLabel }}</template>
-            <template v-if="modalOccupiedSlotSummary.createdByLabel"> · Assigned by {{ modalOccupiedSlotSummary.createdByLabel }}</template>
+          <div class="nr-info-bar nr-info-bar--edit">
+            <div class="nr-info-cell nr-info-cell--when">
+              <span class="nr-info-label">When</span>
+              <template v-if="isScheduleEventEditMode">
+                <div class="nr-when-edit nr-when-edit--datetime">
+                  <input v-model="scheduleEventEditForm.startAt" class="nr-info-select" type="datetime-local" />
+                  <span class="nr-when-sep">–</span>
+                  <input v-model="scheduleEventEditForm.endAt" class="nr-info-select" type="datetime-local" />
+                </div>
+                <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
+              </template>
+              <template v-else-if="isSupervisionEditMode">
+                <div class="nr-when-edit nr-when-edit--datetime">
+                  <input v-model="supvStartIsoLocal" class="nr-info-select" type="datetime-local" />
+                  <span class="nr-when-sep">–</span>
+                  <input v-model="supvEndIsoLocal" class="nr-info-select" type="datetime-local" />
+                </div>
+                <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
+              </template>
+              <template v-else>
+                <div class="nr-when-edit">
+                  <select
+                    v-model="modalDay"
+                    class="nr-info-select nr-info-select--day"
+                    :disabled="!canManageOffices && !canSelectBookingProvider"
+                    title="Day"
+                    @change="onChooserWhenChanged"
+                  >
+                    <option v-for="d in orderedDays" :key="`nr-day-${d}`" :value="d">{{ d }}</option>
+                  </select>
+                  <select
+                    v-model.number="modalHour"
+                    class="nr-info-select nr-info-select--time"
+                    title="Start"
+                    @change="onChooserWhenChanged"
+                  >
+                    <option v-for="h in startHourOptions" :key="`nr-start-${h}`" :value="h">{{ hourLabel(h) }}</option>
+                  </select>
+                  <span class="nr-when-sep">–</span>
+                  <select
+                    v-model.number="modalEndHour"
+                    class="nr-info-select nr-info-select--time"
+                    title="End"
+                    @change="onChooserWhenChanged"
+                  >
+                    <option v-for="h in endHourOptions" :key="`nr-end-${h}`" :value="h">{{ hourLabel(h) }}</option>
+                  </select>
+                </div>
+                <span class="nr-duration-under">{{ modalDurationLabel }}</span>
+                <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
+              </template>
+            </div>
+            <div class="nr-info-cell nr-info-cell--tenant">
+              <span class="nr-info-label">Tenant</span>
+              <div class="nr-tenant-row">
+                <img
+                  v-if="agencyIconUrlById(isScheduleEventEditMode ? scheduleEventEditForm.agencyId : (selectedActionAgencyId || effectiveAgencyId))"
+                  class="nr-tenant-logo"
+                  :src="agencyIconUrlById(isScheduleEventEditMode ? scheduleEventEditForm.agencyId : (selectedActionAgencyId || effectiveAgencyId))"
+                  alt=""
+                />
+                <select
+                  v-if="isScheduleEventEditMode"
+                  v-model.number="scheduleEventEditForm.agencyId"
+                  class="nr-info-select"
+                  @change="onScheduleEventEditAgencyChange"
+                >
+                  <option :value="0">{{ scheduleEventOrgNoneLabel }}</option>
+                  <option v-for="opt in scheduleEventOrgOptions" :key="`nr-edit-org-${opt.id}`" :value="Number(opt.id)">
+                    {{ opt.label }}
+                  </option>
+                </select>
+                <select
+                  v-else-if="headerTenantOptions.length > 1"
+                  v-model.number="selectedActionAgencyId"
+                  class="nr-info-select"
+                  @change="onBookingAgencyChange"
+                >
+                  <option v-for="opt in headerTenantOptions" :key="`nr-info-tenant-${opt.id}`" :value="Number(opt.id)">
+                    {{ opt.label }}
+                  </option>
+                </select>
+                <span v-else class="nr-info-value">{{ modalTenantLabel }}</span>
+              </div>
+            </div>
+            <div class="nr-info-cell nr-info-cell--provider">
+              <span class="nr-info-label">{{ isAppointmentEditMode ? 'Booked for' : 'Provider' }}</span>
+              <PersonSearchSelect
+                v-if="canSelectBookingProvider && !isAppointmentEditMode"
+                :model-value="bookingTargetUserId"
+                :options="bookingProviderPickerOptions"
+                placeholder="Type a name to search…"
+                :disabled="bookingProvidersLoading"
+                :show-photos="true"
+                class="nr-info-person"
+                @update:model-value="setBookingTargetUser"
+              />
+              <div v-else class="nr-provider-readonly">
+                <img
+                  v-if="assignedProviderFace?.photoUrl"
+                  class="nr-provider-face"
+                  :src="assignedProviderFace.photoUrl"
+                  alt=""
+                />
+                <span
+                  v-else
+                  class="nr-provider-face nr-provider-face--initials"
+                  aria-hidden="true"
+                >{{ providerInitials(assignedProviderFace || { first_name: bookingTargetUserLabel }) }}</span>
+                <span class="nr-info-value">{{ bookingTargetUserLabel }}</span>
+              </div>
+            </div>
           </div>
           <div
-            v-if="modalOccupiedSlotSummary.blockSpanNote"
-            class="admin-slot-info-block-note"
-            :class="{ 'is-partial': modalOccupiedSlotSummary.isPartialOfLongerBlock }"
+            v-if="isScheduleEventEditMode && editingScheduleStackItem"
+            class="nr-booking-strip"
+            data-testid="schedule-appt-meta"
           >
-            {{ modalOccupiedSlotSummary.blockSpanNote }}
+            <div class="nr-booking-strip-cell">
+              <span class="nr-info-label">Type</span>
+              <span class="nr-info-value">{{ editingScheduleStackItem.kindLabel || appointmentEditKindLabel }}</span>
+            </div>
+            <div v-if="!isMeetingStackItem(editingScheduleStackItem)" class="nr-booking-strip-cell">
+              <span class="nr-info-label">Client</span>
+              <select
+                v-model.number="scheduleEventEditForm.clientId"
+                class="nr-info-select"
+                :disabled="virtualSessionClientsLoading"
+              >
+                <option :value="0">— None —</option>
+                <option
+                  v-for="c in scheduleEventEditClientOptions"
+                  :key="`nr-edit-client-${c.id}`"
+                  :value="Number(c.id)"
+                >
+                  {{ c.displayName || c.fullName || `Client #${c.id}` }}
+                </option>
+              </select>
+            </div>
+            <div v-else class="nr-booking-strip-cell">
+              <span class="nr-info-label">Coworkers</span>
+              <span class="nr-info-value">{{ selectedMeetingParticipantIdSet.size }} selected</span>
+            </div>
+            <div class="nr-booking-strip-cell">
+              <span class="nr-info-label">Booked for</span>
+              <span class="nr-info-value">{{ bookingTargetUserLabel }}</span>
+            </div>
+          </div>
+          <div
+            v-else-if="isSupervisionEditMode"
+            class="nr-booking-strip"
+            data-testid="schedule-supv-meta"
+          >
+            <div class="nr-booking-strip-cell">
+              <span class="nr-info-label">Type</span>
+              <span class="nr-info-value">Supervision</span>
+            </div>
+            <div class="nr-booking-strip-cell">
+              <span class="nr-info-label">Participant</span>
+              <span class="nr-info-value">{{ selectedSupvSession?.counterpartyName || '—' }}</span>
+            </div>
+            <div class="nr-booking-strip-cell">
+              <span class="nr-info-label">Booked for</span>
+              <span class="nr-info-value">{{ bookingTargetUserLabel }}</span>
+            </div>
+            <div class="nr-booking-strip-cell">
+              <span class="nr-info-label">Status</span>
+              <span class="nr-info-value">Scheduled</span>
+            </div>
+          </div>
+          <div
+            v-if="modalOccupiedSlotSummary.showBookingMeta && !isAppointmentEditMode"
+            class="nr-booking-strip"
+            :class="{ 'nr-booking-strip--edit': canEditBookingStrip }"
+            data-testid="schedule-booking-meta"
+          >
+            <div class="nr-booking-strip-cell">
+              <span class="nr-info-label">Booking</span>
+              <select
+                v-if="canEditBookingStrip"
+                v-model="bookingStripFrequency"
+                class="nr-info-select"
+                :disabled="bookingStripSaving"
+              >
+                <option value="ONCE">Once</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="BIWEEKLY">Biweekly</option>
+                <option value="MONTHLY">Monthly</option>
+              </select>
+              <span v-else class="nr-info-value">{{ modalOccupiedSlotSummary.frequencyLabel || '—' }}</span>
+            </div>
+            <div class="nr-booking-strip-cell">
+              <span class="nr-info-label">Status</span>
+              <select
+                v-if="canEditBookingStrip"
+                v-model="bookingStripStatus"
+                class="nr-info-select"
+                :disabled="bookingStripSaving"
+              >
+                <option value="BOOKED">Booked</option>
+                <option value="ASSIGNED">Assigned</option>
+                <option value="TEMPORARY">Temporary</option>
+              </select>
+              <span v-else class="nr-info-value">{{ modalOccupiedSlotSummary.statusLabel || '—' }}</span>
+            </div>
+            <div class="nr-booking-strip-cell">
+              <span class="nr-info-label">Booked until</span>
+              <input
+                v-if="canEditBookingStrip"
+                v-model="bookingStripUntil"
+                class="nr-info-select"
+                type="date"
+                :disabled="bookingStripSaving || bookingStripFrequency === 'ONCE'"
+                :title="bookingStripFrequency === 'ONCE' ? 'One-time bookings apply to this occurrence only' : 'Leave blank for ongoing'"
+              />
+              <span v-else class="nr-info-value">{{ modalOccupiedSlotSummary.bookedUntilLabel || '—' }}</span>
+            </div>
+            <div class="nr-booking-strip-cell">
+              <span class="nr-info-label">Room</span>
+              <span class="nr-info-value">{{ modalOccupiedSlotSummary.roomDisplay || '—' }}</span>
+            </div>
+            <div
+              v-if="canEditBookingStrip"
+              class="nr-booking-strip-actions"
+            >
+              <button
+                type="button"
+                class="btn btn-primary btn-sm stack-details-edit-btn"
+                :disabled="bookingStripSaving || !bookingStripDirty"
+                @click="saveBookingStripEdits"
+              >
+                {{ bookingStripSaving ? 'Saving…' : 'Update booking' }}
+              </button>
+              <div v-if="bookingStripError" class="error" style="margin-top: 4px; font-size: 12px;">{{ bookingStripError }}</div>
+            </div>
           </div>
         </div>
 
-        <div class="nr-layout">
-          <aside class="nr-sidebar">
+        <!-- Appointment edit (Session / Personal / Meeting / Supervision) — same Schedule shell -->
+        <div v-if="isAppointmentEditMode" class="nr-chooser nr-appt-edit-body" data-testid="schedule-appointment-edit">
+          <div v-if="isPickScheduleEventMode">
+            <div class="nr-chooser-intro">
+              <div>
+                <div class="nr-chooser-title">Which item do you want to edit?</div>
+                <p class="nr-chooser-help">Multiple items overlap this time. Pick one to open in the Schedule editor.</p>
+              </div>
+            </div>
+            <div class="nr-action-grid">
+              <button
+                v-for="item in stackDetailsItems"
+                :key="`pick-${item.id}`"
+                type="button"
+                class="nr-card"
+                @click="pickScheduleEventForEdit(item)"
+              >
+                <span class="nr-card-label">{{ item.kindLabel || 'Item' }}</span>
+                <span class="nr-card-desc">{{ item.label }}{{ item.subLabel ? ` · ${item.subLabel}` : '' }}</span>
+                <span class="nr-card-chevron" aria-hidden="true">›</span>
+              </button>
+            </div>
+          </div>
+
+          <template v-else-if="isScheduleEventEditMode && editingScheduleStackItem">
+            <div v-if="scheduleEventEditError" class="error" style="margin-bottom: 10px;">{{ scheduleEventEditError }}</div>
+            <label class="lbl">Title</label>
+            <input v-model="scheduleEventEditForm.title" class="input" type="text" maxlength="200" />
+            <label class="lbl" style="margin-top: 10px;">Notes / description</label>
+            <textarea
+              v-model="scheduleEventEditForm.description"
+              class="input"
+              rows="3"
+              maxlength="4000"
+              placeholder="Optional notes for this event…"
+            />
+
+            <template v-if="isMeetingStackItem(editingScheduleStackItem)">
+              <label class="lbl" style="margin-top: 14px;">Coworkers (agency staff)</label>
+              <div v-if="meetingCandidatesLoading" class="muted" style="margin-top: 4px;">Loading coworkers…</div>
+              <template v-else>
+                <input
+                  v-model="meetingParticipantSearch"
+                  class="input"
+                  type="text"
+                  placeholder="Search coworkers by name or email"
+                  style="margin-bottom: 8px;"
+                />
+                <div v-if="selectedMeetingParticipantChips.length" class="supervision-selected-chips">
+                  <button
+                    v-for="chip in selectedMeetingParticipantChips"
+                    :key="`nr-meeting-chip-${chip.id}`"
+                    type="button"
+                    class="supervision-chip"
+                    @click="removeSelectedMeetingParticipant(chip.id)"
+                  >
+                    <span>{{ supervisionParticipantLabel(chip.row || { id: chip.id }) }}</span>
+                    <span aria-hidden="true">x</span>
+                  </button>
+                </div>
+                <div class="participant-scroll" style="margin-top: 6px; max-height: 200px;">
+                  <div class="participant-grid">
+                    <button
+                      v-for="p in filteredMeetingCandidates"
+                      :key="`nr-meeting-p-${p.id}`"
+                      type="button"
+                      class="participant-card participant-card--rich"
+                      :class="{ on: selectedMeetingParticipantIdSet.has(Number(p.id)) }"
+                      @click="toggleMeetingParticipant(Number(p.id))"
+                    >
+                      <img
+                        v-if="participantPhotoUrl(p)"
+                        class="participant-face"
+                        :src="participantPhotoUrl(p)"
+                        alt=""
+                      />
+                      <span
+                        v-else
+                        class="participant-face participant-face--initials"
+                        aria-hidden="true"
+                      >{{ providerInitials(p) }}</span>
+                      <span class="participant-copy">
+                        <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
+                        <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </template>
+
+            <label class="sched-toggle" style="margin-top: 12px;">
+              <input type="checkbox" v-model="scheduleEventEditForm.isPrivate" />
+              <span>Private on calendar</span>
+            </label>
+
+            <div
+              v-if="editingScheduleStackItem.appJoinUrl || editingScheduleStackItem.meetLink"
+              style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;"
+            >
+              <a
+                v-if="editingScheduleStackItem.appJoinUrl || editingScheduleStackItem.meetLink"
+                class="btn btn-secondary btn-sm"
+                :href="editingScheduleStackItem.appJoinUrl || editingScheduleStackItem.meetLink"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {{ editingScheduleStackItem.appJoinUrl ? 'Open video room' : 'Open meeting link' }}
+              </a>
+            </div>
+          </template>
+
+          <template v-else-if="isSupervisionEditMode">
+            <div v-if="supvModalError" class="error" style="margin-bottom: 10px;">{{ supvModalError }}</div>
+            <div v-if="supvOptions.length > 1" style="margin-bottom: 10px;">
+              <label class="lbl">Session</label>
+              <select v-model.number="selectedSupvSessionId" class="input">
+                <option v-for="o in supvOptions" :key="`nr-supv-opt-${o.id}`" :value="o.id">{{ o.label }}</option>
+              </select>
+            </div>
+            <label class="lbl">Notes</label>
+            <textarea v-model="supvNotes" class="input" rows="4" placeholder="Optional notes for the Google Calendar description…" />
+            <div v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink" style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+              <button
+                class="btn btn-primary btn-sm"
+                type="button"
+                :disabled="supvMeetOpening || supvAppVideoLoading"
+                @click="startTrackedSupvMeet"
+              >
+                {{ (supvMeetOpening || supvAppVideoLoading) ? 'Joining…' : (selectedSupvSession?.joinUrl ? 'Join with app' : 'Join Meet (tracked)') }}
+              </button>
+              <a
+                class="btn btn-secondary btn-sm"
+                :href="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open in new tab
+              </a>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="!selectedSupvSessionId"
+                @click="showAgendaPanel = true"
+              >
+                Agenda
+              </button>
+            </div>
+            <div style="margin-top: 14px; border: 1px solid var(--nr-line); border-radius: 12px; padding: 12px; background: var(--nr-soft);">
+              <label class="lbl">Transcript link</label>
+              <input v-model="supvTranscriptUrl" class="input" type="url" placeholder="https://... transcript link" />
+              <label class="lbl" style="margin-top: 8px;">Transcript text</label>
+              <textarea v-model="supvTranscriptText" class="input" rows="3" placeholder="Paste transcript text so Gemini can generate a summary." />
+              <label class="lbl" style="margin-top: 8px;">Summary</label>
+              <textarea v-model="supvSummaryText" class="input" rows="3" placeholder="Session summary" />
+              <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  :disabled="supvArtifactSaving || supvArtifactLoading || !selectedSupvSessionId"
+                  @click="saveSupvArtifact({ autoSummarize: false })"
+                >
+                  {{ supvArtifactSaving ? 'Saving…' : 'Save transcript + summary' }}
+                </button>
+                <button
+                  class="btn btn-primary btn-sm"
+                  type="button"
+                  :disabled="supvArtifactSaving || supvArtifactLoading || !selectedSupvSessionId || !supvTranscriptText.trim()"
+                  @click="saveSupvArtifact({ autoSummarize: true })"
+                >
+                  Generate summary with Gemini
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Chooser: action cards -->
+        <div v-else-if="showActionChooser" class="nr-chooser" data-testid="schedule-action-chooser">
+          <div class="nr-chooser-intro">
+            <div>
+              <div class="nr-chooser-title">What would you like to do?</div>
+              <p class="nr-chooser-help">Choose an option to manage this time slot. Most-used actions rise to the top.</p>
+            </div>
+            <button
+              type="button"
+              class="nr-reorder-toggle"
+              :class="{ on: slotActionReorderMode }"
+              @click="slotActionReorderMode = !slotActionReorderMode"
+            >
+              {{ slotActionReorderMode ? 'Done reordering' : 'Reorder' }}
+            </button>
+          </div>
+
+          <div class="nr-action-grid">
+            <button
+              v-if="canUnrequestAllPending"
+              type="button"
+              class="nr-card"
+              :disabled="submitting"
+              @click="unrequestAllPendingRequests({ keepModalOpen: true })"
+            >
+              <span class="nr-card-icon tone-cyan" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <path d="M4 8h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8z" />
+                  <path d="M9 13h6" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <span class="nr-card-label">Unrequest all pending ({{ pendingRequestTotalCount }})</span>
+              <span class="nr-card-desc">Clear outstanding requests for this range</span>
+            </button>
+
+            <button
+              v-for="act in displayedChooserActions"
+              :key="`chooser-${act.id}`"
+              type="button"
+              class="nr-card"
+              :class="[`tone-${act.tone || 'slate'}`, { disabled: !!act.disabledReason }]"
+              :disabled="!!act.disabledReason && !slotActionReorderMode"
+              :title="act.disabledReason || act.description"
+              :draggable="slotActionReorderMode"
+              @click="!slotActionReorderMode && onQuickActionSelect(act)"
+              @dragstart="onChooserDragStart(act.id, $event)"
+              @dragover.prevent
+              @drop.prevent="onChooserDrop(act.id)"
+            >
+              <span class="nr-card-icon" :class="`tone-${act.tone || 'slate'}`" aria-hidden="true">
+                <svg v-if="quickActionIconKey(act.id) === 'office'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <path d="M4 20V7a2 2 0 0 1 2-2h5v15H4zM13 20V4h5a2 2 0 0 1 2 2v14h-7z"/>
+                </svg>
+                <svg v-else-if="quickActionIconKey(act.id) === 'session'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <circle cx="12" cy="8" r="3.2"/>
+                  <path d="M5 19c1-3.5 3.4-5.2 7-5.2S18 15.5 19 19"/>
+                </svg>
+                <svg v-else-if="quickActionIconKey(act.id) === 'portal'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <rect x="3" y="5" width="18" height="14" rx="2"/>
+                  <path d="M3 10h18" stroke-linecap="round"/>
+                </svg>
+                <svg v-else-if="quickActionIconKey(act.id) === 'meeting'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <circle cx="9" cy="9" r="3"/><circle cx="17" cy="10" r="2.5"/>
+                  <path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5S14 16 14.5 19"/>
+                </svg>
+                <svg v-else-if="quickActionIconKey(act.id) === 'hold'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <circle cx="12" cy="12" r="8"/>
+                  <path d="M12 8v5l3 2" stroke-linecap="round"/>
+                </svg>
+                <svg v-else viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <rect x="3" y="5" width="18" height="15" rx="2"/>
+                  <path d="M3 10h18" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <span class="nr-card-label">{{ quickActionDisplayLabel(act) }}</span>
+              <span class="nr-card-desc">{{ act.disabledReason || quickActionDisplayDescription(act) }}</span>
+              <span v-if="slotActionReorderMode" class="nr-card-reorder">
+                <button type="button" class="nr-move" title="Move earlier" @click.stop="moveChooserAction(act.id, -1)">↑</button>
+                <button type="button" class="nr-move" title="Move later" @click.stop="moveChooserAction(act.id, 1)">↓</button>
+              </span>
+              <span v-else class="nr-card-chevron" aria-hidden="true">›</span>
+            </button>
+
+            <button
+              v-if="moreQuickActions.length && !showMoreSlotActions"
+              type="button"
+              class="nr-card nr-card--more"
+              @click="showMoreSlotActions = true"
+            >
+              <span class="nr-card-icon tone-slate" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <circle cx="6" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="18" cy="12" r="1.5" fill="currentColor"/>
+                </svg>
+              </span>
+              <span class="nr-card-label">More Actions</span>
+              <span class="nr-card-desc">{{ moreQuickActions.length }} additional option{{ moreQuickActions.length === 1 ? '' : 's' }}</span>
+              <span class="nr-card-chevron" aria-hidden="true">›</span>
+            </button>
+          </div>
+
+          <div v-if="!visibleQuickActions.length" class="nr-empty-actions">
+            No actions are available for this slot.
+          </div>
+
+          <div class="nr-chooser-foot">
+            <p class="nr-chooser-tip">
+              Everything you need, in one place. Notes belong to a session — open a booked session to write or edit notes.
+            </p>
+            <button type="button" class="btn nr-btn-today" @click="goToTodayWeek(); requestCloseModal();">
+              View Today’s Schedule
+            </button>
+          </div>
+        </div>
+
+        <div v-else class="nr-layout">
+          <aside class="nr-sidebar nr-sidebar--compact">
             <div class="nr-sidebar-title">Actions</div>
             <div class="nr-action-list">
-              <button
-                v-if="canUnrequestAllPending"
-                type="button"
-                class="nr-action"
-                :disabled="submitting"
-                @click="unrequestAllPendingRequests({ keepModalOpen: true })"
-              >
-                <span class="nr-action-icon tone-cyan" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
-                    <path d="M4 8h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8z" />
-                    <path d="M4 8l2.2-3.2A2 2 0 0 1 7.9 4h8.2a2 2 0 0 1 1.7.8L20 8" />
-                    <path d="M9 13h6" stroke-linecap="round"/>
-                  </svg>
-                </span>
-                <span class="nr-action-copy">
-                  <span class="nr-action-label">Unrequest all pending requests ({{ pendingRequestTotalCount }})</span>
-                  <span class="nr-action-desc">Clear all outstanding requests</span>
-                </span>
-                <span class="nr-action-chevron" aria-hidden="true">›</span>
-              </button>
-
               <button
                 v-for="act in visibleQuickActions"
                 :key="`act-${act.id}`"
@@ -737,50 +1592,20 @@
                 @click="onQuickActionSelect(act)"
               >
                 <span class="nr-action-icon" :class="`tone-${act.tone || 'slate'}`" aria-hidden="true">
-                  <!-- office -->
                   <svg v-if="quickActionIconKey(act.id) === 'office'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
                     <path d="M4 20V7a2 2 0 0 1 2-2h5v15H4zM13 20V4h5a2 2 0 0 1 2 2v14h-7z"/>
-                    <path d="M7 9h2M7 12h2M16 8h2M16 11h2M16 14h2" stroke-linecap="round"/>
                   </svg>
-                  <!-- school daytime -->
-                  <svg v-else-if="quickActionIconKey(act.id) === 'school'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
-                    <rect x="3" y="5" width="18" height="15" rx="2"/>
-                    <path d="M3 10h18M8 3v4M16 3v4M8 14h2M12 14h2M16 14h2M8 17h2M12 17h2" stroke-linecap="round"/>
-                  </svg>
-                  <!-- individual session -->
                   <svg v-else-if="quickActionIconKey(act.id) === 'session'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
-                    <rect x="3" y="5" width="18" height="14" rx="2"/>
-                    <circle cx="12" cy="11" r="2.5"/>
-                    <path d="M8 16c.7-1.5 2-2.3 4-2.3s3.3.8 4 2.3" stroke-linecap="round"/>
-                  </svg>
-                  <!-- portal intake -->
-                  <svg v-else-if="quickActionIconKey(act.id) === 'portal'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
-                    <circle cx="12" cy="12" r="8"/>
-                    <path d="M4 12h16M12 4c2.5 2.8 2.5 13.2 0 16M12 4c-2.5 2.8-2.5 13.2 0 16" stroke-linecap="round"/>
-                  </svg>
-                  <!-- meeting -->
-                  <svg v-else-if="quickActionIconKey(act.id) === 'meeting'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
-                    <circle cx="9" cy="9" r="3"/><circle cx="17" cy="10" r="2.5"/>
-                    <path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5S14 16 14.5 19M14 14.5c1.7.2 3.2 1.2 3.8 3.5"/>
-                  </svg>
-                  <!-- person -->
-                  <svg v-else-if="quickActionIconKey(act.id) === 'person'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
                     <circle cx="12" cy="8" r="3.2"/>
                     <path d="M5 19c1-3.5 3.4-5.2 7-5.2S18 15.5 19 19"/>
                   </svg>
-                  <!-- hold / clock -->
-                  <svg v-else-if="quickActionIconKey(act.id) === 'hold'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <svg v-else-if="quickActionIconKey(act.id) === 'portal'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
                     <circle cx="12" cy="12" r="8"/>
-                    <path d="M12 8v5l3 2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M4 12h16" stroke-linecap="round"/>
                   </svg>
-                  <!-- sun -->
-                  <svg v-else-if="quickActionIconKey(act.id) === 'sun'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
-                    <circle cx="12" cy="12" r="4"/>
-                    <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4" stroke-linecap="round"/>
-                  </svg>
-                  <!-- hourglass -->
-                  <svg v-else-if="quickActionIconKey(act.id) === 'hourglass'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
-                    <path d="M7 4h10M7 20h10M8 4c0 4 4 4 4 8s-4 4-4 8M16 4c0 4-4 4-4 8s4 4 4 8"/>
+                  <svg v-else-if="quickActionIconKey(act.id) === 'meeting'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <circle cx="9" cy="9" r="3"/><circle cx="17" cy="10" r="2.5"/>
+                    <path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5S14 16 14.5 19"/>
                   </svg>
                   <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
                     <rect x="3" y="5" width="18" height="15" rx="2"/>
@@ -793,58 +1618,92 @@
                 </span>
               </button>
             </div>
-
-            <div v-if="!visibleQuickActions.length" class="nr-empty-actions">
-              No actions are available for this slot. Choose an assigned/booked office slot or select an office from the toolbar.
-            </div>
-
-            <div class="nr-tip">
-              <span class="nr-tip-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
-                  <path d="M9 18h6M10 21h4"/>
-                  <path d="M12 3a6 6 0 0 0-3.5 10.8c.6.4 1 1.1 1.1 1.9h4.8c.1-.8.5-1.5 1.1-1.9A6 6 0 0 0 12 3z"/>
-                </svg>
-              </span>
-              <div>
-                <div class="nr-tip-title">Tip</div>
-                <p class="nr-tip-text">
-                  <template v-if="!canScheduleSupervisionFromGrid && !hideOfficeAndCalendarIntegration">
-                    <strong>Supervision</strong> can be scheduled only by supervisors.
-                    If you are a supervisee, open <strong>My Supervision</strong> to view and join sessions your supervisor books.
-                  </template>
-                  <template v-else>
-                    Use <strong>Individual session → Virtual</strong> to book a video session without an office.
-                    Use <strong>Open for new clients</strong> for portal intake hours (not office-tied).
-                    <strong>School daytime availability</strong> is for school assignment blocks — not telehealth.
-                  </template>
-                </p>
-              </div>
-            </div>
           </aside>
 
           <div class="nr-main modal-body">
-          <div v-if="actionRequiresAgency && actionAgencyOptions.length" class="nr-field">
-            <label class="lbl">Agency for this action</label>
+          <div
+            v-if="showInitialBookingContext"
+            class="nr-context-card"
+            data-testid="schedule-modal-initial-context"
+          >
+            <div class="nr-context-card-title">Who are you scheduling for?</div>
+            <p class="nr-context-card-help">
+              Choose the tenant and provider before continuing.
+            </p>
+            <div class="nr-context-card-grid">
+              <div v-if="headerTenantOptions.length" class="nr-field">
+                <label class="lbl">Tenant</label>
+                <select
+                  v-model.number="selectedActionAgencyId"
+                  class="input"
+                  :disabled="headerTenantOptions.length <= 1"
+                  @change="onBookingAgencyChange"
+                >
+                  <option v-for="opt in headerTenantOptions" :key="`nr-body-tenant-${opt.id}`" :value="Number(opt.id)">
+                    {{ opt.label }}
+                  </option>
+                </select>
+              </div>
+              <div v-if="canSelectBookingProvider" class="nr-field">
+                <label class="lbl">Provider</label>
+                <PersonSearchSelect
+                  :model-value="bookingTargetUserId"
+                  :options="bookingProviderPickerOptions"
+                  placeholder="Type a name to search…"
+                  :disabled="bookingProvidersLoading"
+                  :show-photos="true"
+                  @update:model-value="setBookingTargetUser"
+                />
+              </div>
+              <div v-else class="nr-field">
+                <label class="lbl">Provider</label>
+                <div class="nr-provider-readonly">
+                  <img
+                    v-if="assignedProviderFace?.photoUrl"
+                    class="nr-provider-face"
+                    :src="assignedProviderFace.photoUrl"
+                    alt=""
+                  />
+                  <div class="nr-context-readonly">{{ bookingTargetUserLabel }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="showActionAgencyPicker && !showInitialBookingContext && !isSessionBookingRequestType" class="nr-field">
+            <label class="lbl">{{ requestType === 'portal_intake' ? 'Tenant' : 'Agency for this action' }}</label>
             <div class="nr-input-wrap">
               <span class="nr-input-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7">
                   <path d="M4 20V8l4-3 4 3v12H4zM12 20V6l4-2 4 2v14h-8z"/>
                 </svg>
               </span>
-              <select v-model.number="selectedActionAgencyId" class="input nr-input" :disabled="actionAgencyOptions.length === 1">
-                <option v-for="opt in actionAgencyOptions" :key="`action-agency-${opt.id}`" :value="Number(opt.id)">
+              <select
+                v-model.number="selectedActionAgencyId"
+                class="input nr-input"
+                :disabled="!canChangeActionAgency && headerTenantOptions.length <= 1"
+                @change="onBookingAgencyChange"
+              >
+                <option
+                  v-for="opt in (isSessionBookingRequestType ? headerTenantOptions : actionAgencyOptions)"
+                  :key="`action-agency-${opt.id}`"
+                  :value="Number(opt.id)"
+                >
                   {{ opt.label }}
                 </option>
               </select>
             </div>
             <div class="muted nr-help">
-              <template v-if="actionAgencyFilteredToOffice">
+              <template v-if="headerTenantOptions.length <= 1 && !canChangeActionAgency">
+                Only one organization is available for this account/context.
+              </template>
+              <template v-else-if="actionAgencyFilteredToOffice && !isSessionBookingRequestType">
                 Only organizations linked to this office are listed
                 <template v-if="isScheduleSuperAdmin"> (superadmin can pick any linked tenant)</template>
                 <template v-else> (and that you belong to)</template>.
               </template>
               <template v-else>
-                Chooses which organization this action is created under.
+                Clients, service codes, and video sessions use this organization.
               </template>
             </div>
           </div>
@@ -921,99 +1780,99 @@
                   </button>
                 </div>
                 <p v-if="virtualSessionShareUrl" class="muted nr-help" style="margin-top: 6px;">
-                  Link is active — share it with selected clients or guardians, then open the room when you are ready.
+                  Link is active — share it with the selected client or guardians, then open the room when you are ready.
                 </p>
                 <p v-else class="muted nr-help" style="margin-top: 4px;">
                   The shareable link appears here after you schedule. It does not work until the session is saved.
                 </p>
               </div>
+            </div>
 
-              <template v-if="linkPlatformVideoRoom">
-                <div v-if="virtualSessionClientsLoading" class="muted" style="margin-top: 10px;">
-                  Loading your clients…
-                </div>
-                <label class="lbl" style="margin-top: 10px;">Clients (optional)</label>
-                <div class="muted nr-help">
-                  {{ virtualSessionIsGroup ? 'Group virtual session — add clients who should attend.' : 'No clients added yet — this stays an individual virtual session. Add a client to make it a group session.' }}
-                </div>
-                <label class="sched-toggle" style="margin-top: 8px;">
-                  <input type="checkbox" v-model="virtualSessionIncludeGuardians" />
-                  <span>Include guardians</span>
-                </label>
-                <input
-                  v-model="virtualSessionParticipantSearch"
-                  class="input"
-                  type="text"
-                  placeholder="Search clients or guardians"
-                  style="margin-top: 8px; margin-bottom: 8px;"
-                />
-                <div class="row" style="gap: 8px; flex-wrap: wrap;">
-                  <button class="btn btn-secondary btn-sm" type="button" @click="addAllFilteredVirtualSessionParticipants">
-                    Add all shown
-                  </button>
-                  <button class="btn btn-secondary btn-sm" type="button" @click="clearVirtualSessionParticipants">
-                    Clear selection
-                  </button>
-                </div>
-                <div class="muted" style="margin-top: 6px;">
-                  Selected: {{ virtualSessionSelectedCount }}
-                </div>
-                <div v-if="virtualSessionParticipantChips.length" class="supervision-selected-chips" style="margin-top: 6px;">
-                  <button
-                    v-for="chip in virtualSessionParticipantChips"
-                    :key="`virtual-attendee-${chip.key}`"
-                    type="button"
-                    class="supervision-chip"
-                    @click="removeVirtualSessionParticipant(chip)"
-                  >
-                    <span>{{ chip.label }}</span>
-                    <span aria-hidden="true">×</span>
-                  </button>
-                </div>
-                <div v-if="filteredVirtualSessionClients.length" style="margin-top: 10px;">
-                  <div class="muted nr-help" style="margin-bottom: 6px;">Clients</div>
-                  <div class="participant-scroll">
-                    <div class="participant-grid">
-                      <button
-                        v-for="c in filteredVirtualSessionClients"
-                        :key="`virtual-client-${c.id}`"
-                        type="button"
-                        class="participant-card"
-                        :class="{ on: virtualSessionSelectedClientIdSet.has(Number(c.id)) }"
-                        @click="toggleVirtualSessionClient(Number(c.id))"
-                      >
-                        <span class="participant-name">{{ c.displayName }}</span>
-                        <span class="participant-role">{{ virtualSessionClientRoleLabel(c) }}</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div v-if="virtualSessionIncludeGuardians && filteredVirtualSessionGuardians.length" style="margin-top: 10px;">
-                  <div class="muted nr-help" style="margin-bottom: 6px;">Guardians</div>
-                  <div class="participant-scroll">
-                    <div class="participant-grid">
-                      <button
-                        v-for="g in filteredVirtualSessionGuardians"
-                        :key="`virtual-guardian-${g.userId}-${g.clientId}`"
-                        type="button"
-                        class="participant-card"
-                        :class="{ on: virtualSessionSelectedGuardianKeySet.has(virtualSessionGuardianKey(g)) }"
-                        @click="toggleVirtualSessionGuardian(g)"
-                      >
-                        <span class="participant-name">{{ g.displayName }}</span>
-                        <span class="participant-role">Guardian{{ g.clientName ? ` · ${g.clientName}` : '' }}</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div
-                  v-else-if="!virtualSessionClientsLoading && !filteredVirtualSessionClients.length && (!virtualSessionIncludeGuardians || !filteredVirtualSessionGuardians.length)"
-                  class="muted"
-                  style="margin-top: 6px;"
+            <div v-if="bookingModality" class="nr-session-client" style="margin-top: 12px;">
+              <div v-if="virtualSessionClientsLoading" class="muted" style="margin-top: 4px;">
+                Loading your clients…
+              </div>
+              <label class="lbl" style="margin-top: 4px;">Client (required)</label>
+              <div class="muted nr-help">
+                Individual sessions must be attached to a client. Use Group session if multiple clients attend.
+              </div>
+              <label class="sched-toggle" style="margin-top: 8px;">
+                <input type="checkbox" v-model="virtualSessionIncludeGuardians" />
+                <span>Include guardians</span>
+              </label>
+              <input
+                v-model="virtualSessionParticipantSearch"
+                class="input"
+                type="text"
+                placeholder="Search clients or guardians"
+                style="margin-top: 8px; margin-bottom: 8px;"
+              />
+              <div class="row" style="gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-secondary btn-sm" type="button" @click="clearVirtualSessionParticipants">
+                  Clear selection
+                </button>
+              </div>
+              <div class="muted" style="margin-top: 6px;">
+                {{ primarySessionClientLabel ? `Client: ${primarySessionClientLabel}` : 'No client selected' }}
+                <span v-if="virtualSessionSelectedGuardianKeySet.size">
+                  · Guardians: {{ virtualSessionSelectedGuardianKeySet.size }}
+                </span>
+              </div>
+              <div v-if="virtualSessionParticipantChips.length" class="supervision-selected-chips" style="margin-top: 6px;">
+                <button
+                  v-for="chip in virtualSessionParticipantChips"
+                  :key="`virtual-attendee-${chip.key}`"
+                  type="button"
+                  class="supervision-chip"
+                  @click="removeVirtualSessionParticipant(chip)"
                 >
-                  No matching clients{{ virtualSessionIncludeGuardians ? ' or guardians' : '' }} for this agency.
+                  <span>{{ chip.label }}</span>
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+              <div v-if="filteredVirtualSessionClients.length" style="margin-top: 10px;">
+                <div class="muted nr-help" style="margin-bottom: 6px;">Clients</div>
+                <div class="participant-scroll">
+                  <div class="participant-grid">
+                    <button
+                      v-for="c in filteredVirtualSessionClients"
+                      :key="`virtual-client-${c.id}`"
+                      type="button"
+                      class="participant-card"
+                      :class="{ on: virtualSessionSelectedClientIdSet.has(Number(c.id)) }"
+                      @click="toggleVirtualSessionClient(Number(c.id))"
+                    >
+                      <span class="participant-name">{{ c.displayName }}</span>
+                      <span class="participant-role">{{ virtualSessionClientRoleLabel(c) }}</span>
+                    </button>
+                  </div>
                 </div>
-              </template>
+              </div>
+              <div v-if="virtualSessionIncludeGuardians && filteredVirtualSessionGuardians.length" style="margin-top: 10px;">
+                <div class="muted nr-help" style="margin-bottom: 6px;">Guardians</div>
+                <div class="participant-scroll">
+                  <div class="participant-grid">
+                    <button
+                      v-for="g in filteredVirtualSessionGuardians"
+                      :key="`virtual-guardian-${g.userId}-${g.clientId}`"
+                      type="button"
+                      class="participant-card"
+                      :class="{ on: virtualSessionSelectedGuardianKeySet.has(virtualSessionGuardianKey(g)) }"
+                      @click="toggleVirtualSessionGuardian(g)"
+                    >
+                      <span class="participant-name">{{ g.displayName }}</span>
+                      <span class="participant-role">Guardian{{ g.clientName ? ` · ${g.clientName}` : '' }}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div
+                v-else-if="!virtualSessionClientsLoading && !filteredVirtualSessionClients.length && (!virtualSessionIncludeGuardians || !filteredVirtualSessionGuardians.length)"
+                class="muted"
+                style="margin-top: 6px;"
+              >
+                No matching clients{{ virtualSessionIncludeGuardians ? ' or guardians' : '' }} for this agency.
+              </div>
             </div>
 
             <label
@@ -1025,6 +1884,47 @@
               <span>Also request an office room for this time (optional)</span>
             </label>
           </div>
+
+          <!-- Medical session fields: service code + location (type/subtype inferred from Individual + modality + attendees) -->
+          <div
+            v-if="showClinicalBookingFields && isSessionBookingRequestType"
+            class="nr-field"
+            style="margin-top: 12px;"
+          >
+            <div class="muted nr-help" style="margin-bottom: 8px;">
+              {{ bookingSessionSummaryHint }}
+            </div>
+
+            <label class="lbl">Service code</label>
+            <select v-model="bookingServiceCode" class="input" :disabled="bookingMetadataLoading">
+              <option value="">Select service code…</option>
+              <option v-for="opt in bookingServiceCodeOptions" :key="`svc-main-${opt.code}`" :value="opt.code">
+                {{ opt.code }}{{ opt.label ? ` — ${opt.label}` : '' }}{{ serviceCodeOptionHints(opt) }}
+              </option>
+            </select>
+            <div v-if="!bookingMetadataLoading && !bookingServiceCodeOptions.length" class="muted nr-help" style="margin-top: 4px;">
+              No service codes available for this provider’s credential tier. Enable mental health under Booking &amp; service types, or check the provider’s credentials.
+            </div>
+
+            <label class="lbl" style="margin-top: 10px;">Service location</label>
+            <select
+              v-model="bookingServiceLocationId"
+              class="input"
+              :disabled="bookingMetadataLoading || !bookingServiceLocationOptions.length"
+            >
+              <option :value="0">{{ bookingServiceLocationOptions.length ? 'Select location…' : 'No locations yet…' }}</option>
+              <option v-for="loc in bookingServiceLocationOptions" :key="`loc-main-${loc.id}`" :value="loc.id">
+                {{ loc.name }} (POS {{ loc.placeOfService }}){{ loc.billingOfficeName ? ` · bills under ${loc.billingOfficeName}` : '' }}
+              </option>
+            </select>
+            <div v-if="bookingUnitPreview" class="muted nr-help" style="margin-top: 6px;">{{ bookingUnitPreview }}</div>
+            <div v-if="bookingMetadataLoading" class="muted" style="margin-top: 6px;">Loading service codes and locations…</div>
+            <div v-else-if="bookingMetadataError" class="muted" style="margin-top: 6px;">{{ bookingMetadataError }}</div>
+            <div v-if="bookingClassificationInvalidReason" class="muted" style="margin-top: 6px;">
+              {{ bookingClassificationInvalidReason }}
+            </div>
+          </div>
+
           <div v-if="requestType === 'supervision' && supervisionProvidersLoading" class="muted" style="margin-top: 6px;">
             Loading providers…
           </div>
@@ -1057,12 +1957,25 @@
                 v-for="p in filteredSupervisionParticipants"
                 :key="`supv-provider-${p.id}`"
                 type="button"
-                class="participant-card"
+                class="participant-card participant-card--rich"
                 :class="{ on: Number(selectedSupervisionParticipantId || 0) === Number(p.id) }"
                 @click="togglePrimarySupervisionParticipant(Number(p.id))"
               >
-                <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
-                <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
+                <img
+                  v-if="participantPhotoUrl(p)"
+                  class="participant-face"
+                  :src="participantPhotoUrl(p)"
+                  alt=""
+                />
+                <span
+                  v-else
+                  class="participant-face participant-face--initials"
+                  aria-hidden="true"
+                >{{ providerInitials(p) }}</span>
+                <span class="participant-copy">
+                  <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
+                  <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
+                </span>
               </button>
               </div>
             </div>
@@ -1125,12 +2038,25 @@
                       v-for="p in filteredSupervisionAdditionalParticipants"
                       :key="`supv-extra-${p.id}`"
                       type="button"
-                      class="participant-card"
+                      class="participant-card participant-card--rich"
                       :class="{ on: selectedSupervisionAdditionalParticipantIdSet.has(Number(p.id)) }"
                       @click="toggleSupervisionAdditionalParticipant(Number(p.id))"
                     >
-                      <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
-                      <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
+                      <img
+                        v-if="participantPhotoUrl(p)"
+                        class="participant-face"
+                        :src="participantPhotoUrl(p)"
+                        alt=""
+                      />
+                      <span
+                        v-else
+                        class="participant-face participant-face--initials"
+                        aria-hidden="true"
+                      >{{ providerInitials(p) }}</span>
+                      <span class="participant-copy">
+                        <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
+                        <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -1206,23 +2132,31 @@
             </div>
           </div>
 
-          <div v-if="requestType === 'agency_meeting' || requestType === 'huddle'" style="margin-top: 10px;">
+          <div
+            v-if="requestType === 'agency_meeting' || requestType === 'huddle'"
+            class="nr-required-panel"
+            :class="{ 'input--required-missing': isMeetingParticipantsMissing }"
+            style="margin-top: 10px;"
+          >
             <div v-if="meetingCandidatesLoading" class="muted" style="margin-top: 6px;">
-              Loading agency participants…
+              Loading agency coworkers…
             </div>
             <div v-else-if="!availableMeetingCandidates.length" class="muted" style="margin-top: 6px;">
-              No meeting participants are available in this scope.
+              No coworkers are available in this scope.
             </div>
             <label v-if="meetingCanUseAllAgencies" class="sched-toggle" style="margin-top: 8px; margin-bottom: 8px;">
               <input type="checkbox" v-model="meetingIncludeAllAgencies" />
-              <span>Include participants from all my agencies</span>
+              <span>Include coworkers from all my agencies</span>
             </label>
-            <label class="lbl">Meeting participants</label>
+            <label class="lbl" :class="{ 'lbl--required-missing': isMeetingParticipantsMissing }">
+              Coworkers (agency staff) <span aria-hidden="true">*</span>
+            </label>
+            <div v-if="isMeetingParticipantsMissing" class="nr-required-hint">Select at least one coworker to invite.</div>
             <input
               v-model="meetingParticipantSearch"
               class="input"
               type="text"
-              placeholder="Search participants by name or email"
+              placeholder="Search coworkers by name or email"
               style="margin-bottom: 8px;"
             />
             <div class="row" style="gap: 8px; margin-top: 6px; flex-wrap: wrap;">
@@ -1233,11 +2167,11 @@
                 Add everyone in list
               </button>
               <button class="btn btn-secondary btn-sm" type="button" @click="clearMeetingParticipants">
-                Clear participants
+                Clear coworkers
               </button>
             </div>
             <div class="muted" style="margin-top: 6px;">
-              Selected participants: {{ selectedMeetingParticipantIdSet.size }}
+              Selected coworkers: {{ selectedMeetingParticipantIdSet.size }}
             </div>
             <div v-if="selectedMeetingParticipantChips.length" class="supervision-selected-chips">
               <button
@@ -1257,13 +2191,26 @@
                   v-for="p in filteredMeetingCandidates"
                   :key="`meeting-participant-${p.id}`"
                   type="button"
-                  class="participant-card"
+                  class="participant-card participant-card--rich"
                   :class="{ on: selectedMeetingParticipantIdSet.has(Number(p.id)) }"
                   @click="toggleMeetingParticipant(Number(p.id))"
                 >
-                  <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
-                  <span class="participant-role">
-                    {{ String(p.role || '').trim() || 'provider' }} • {{ meetingParticipantBusyText(p.id) }}
+                  <img
+                    v-if="participantPhotoUrl(p)"
+                    class="participant-face"
+                    :src="participantPhotoUrl(p)"
+                    alt=""
+                  />
+                  <span
+                    v-else
+                    class="participant-face participant-face--initials"
+                    aria-hidden="true"
+                  >{{ providerInitials(p) }}</span>
+                  <span class="participant-copy">
+                    <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
+                    <span class="participant-role">
+                      {{ String(p.role || '').trim() || 'provider' }} • {{ meetingParticipantBusyText(p.id) }}
+                    </span>
                   </span>
                 </button>
               </div>
@@ -1353,34 +2300,6 @@
                 Default is 6 sessions. You can change this.
               </div>
 
-              <template v-if="showClinicalBookingFields && isSessionBookingRequestType">
-                <label class="lbl" style="margin-top: 10px;">Appointment type</label>
-                <select v-model="bookingAppointmentType" class="input" :disabled="bookingMetadataLoading">
-                  <option value="">Select type…</option>
-                  <option v-for="opt in bookingTypeOptions" :key="`type-${opt.code}`" :value="opt.code">
-                    {{ opt.label }}
-                  </option>
-                </select>
-
-                <label class="lbl" style="margin-top: 10px;">Subtype (optional)</label>
-                <select v-model="bookingAppointmentSubtype" class="input" :disabled="bookingMetadataLoading || !bookingSubtypeOptions.length">
-                  <option value="">Optional subtype…</option>
-                  <option v-for="opt in bookingSubtypeOptions" :key="`sub-${opt.code}`" :value="opt.code">
-                    {{ opt.label }}
-                  </option>
-                </select>
-
-                <label class="lbl" style="margin-top: 10px;">Service code</label>
-                <select v-model="bookingServiceCode" class="input" :disabled="bookingMetadataLoading">
-                  <option value="">Select service code…</option>
-                  <option v-for="opt in bookingServiceCodeOptions" :key="`svc-${opt.code}`" :value="opt.code">
-                    {{ opt.code }}{{ opt.label ? ` - ${opt.label}` : '' }}{{ serviceCodeOptionHints(opt) }}
-                  </option>
-                </select>
-
-                <!-- Modality is chosen via Virtual / In-person controls above for individual sessions -->
-              </template>
-
               <label v-if="viewMode === 'office_layout'" class="lbl" style="margin-top: 10px;">Room</label>
               <div v-if="viewMode === 'office_layout' && officeGridLoading" class="muted">Loading rooms…</div>
               <div v-else-if="viewMode === 'office_layout' && officeGridError" class="error">{{ officeGridError }}</div>
@@ -1404,11 +2323,11 @@
                 </label>
               </div>
               <div v-else-if="viewMode === 'office_layout'" class="muted">Separate office request mode does not require room selection.</div>
-              <div v-else-if="(requestType === 'office' || requestType === 'individual_session' || requestType === 'group_session') && viewMode === 'open_finder'" class="muted">Any open room will be used. Switch to Office layout for specific room selection.</div>
-              <div v-if="showClinicalBookingFields && isSessionBookingRequestType && bookingMetadataLoading" class="muted" style="margin-top: 6px;">Loading appointment type and service code options…</div>
-              <div v-else-if="bookingMetadataError" class="muted" style="margin-top: 6px;">{{ bookingMetadataError }}</div>
-              <div v-if="showClinicalBookingFields && isSessionBookingRequestType && bookingClassificationInvalidReason" class="muted" style="margin-top: 6px;">
-                {{ bookingClassificationInvalidReason }}
+              <div
+                v-else-if="(requestType === 'office' || requestType === 'group_session' || (requestType === 'individual_session' && bookingModality === 'IN_PERSON')) && viewMode === 'open_finder'"
+                class="muted"
+              >
+                Any open room will be used. Switch to Office layout for specific room selection.
               </div>
               <div v-if="officeBookingHint" class="muted" style="margin-top: 6px;">{{ officeBookingHint }}</div>
             </template>
@@ -1455,14 +2374,35 @@
               Creates a calendar event for this provider. It appears in Google titles when enabled.
             </div>
 
-            <label class="lbl" style="margin-top: 10px;">Event title</label>
+            <label class="lbl" :class="{ 'lbl--required-missing': isScheduleEventTitleMissing }" style="margin-top: 10px;">
+              Event title <span aria-hidden="true">*</span>
+            </label>
             <input
               v-model="scheduleEventTitle"
               class="input"
+              :class="{ 'input--required-missing': isScheduleEventTitleMissing }"
               type="text"
               :placeholder="scheduleEventTitlePlaceholder"
               maxlength="200"
             />
+            <div v-if="isScheduleEventTitleMissing" class="nr-required-hint">Title is required before you can schedule.</div>
+
+            <div v-if="showScheduleEventOrgPicker" style="margin-top: 10px;">
+              <label class="lbl">Organization</label>
+              <select v-model.number="scheduleEventAgencyScope" class="input">
+                <option :value="0">{{ scheduleEventOrgNoneLabel }}</option>
+                <option
+                  v-for="opt in scheduleEventOrgOptions"
+                  :key="`sched-evt-org-${opt.id}`"
+                  :value="Number(opt.id)"
+                >
+                  {{ opt.label }}
+                </option>
+              </select>
+              <div class="muted nr-help" style="margin-top: 4px;">
+                {{ scheduleEventOrgHelpText }}
+              </div>
+            </div>
 
             <div v-if="requestType === 'schedule_hold' || requestType === 'schedule_hold_all_day'" style="margin-top: 10px;">
               <label class="lbl">Hold reason</label>
@@ -1618,15 +2558,16 @@
               <dl class="nr-summary-grid">
                 <div><dt>Type</dt><dd>{{ virtualSessionSummaryTypeLabel }}</dd></div>
                 <div v-if="isVirtualTelehealthSession && linkPlatformVideoRoom"><dt>Video</dt><dd>Platform counseling room</dd></div>
-                <div v-if="virtualSessionSelectedCount"><dt>Attendees</dt><dd>{{ virtualSessionSelectedCount }}</dd></div>
-                <div><dt>Agency</dt><dd>{{ selectedActionAgencyLabel }}</dd></div>
+                <div v-if="primarySessionClientLabel"><dt>Client</dt><dd>{{ primarySessionClientLabel }}</dd></div>
+                <div v-else-if="requestType === 'individual_session'"><dt>Client</dt><dd>—</dd></div>
+                <div><dt>Organization</dt><dd>{{ requestSummaryOrganizationLabel }}</dd></div>
                 <div><dt>End time</dt><dd>{{ requestSummaryEndTimeLabel }}</dd></div>
                 <div><dt>Notes</dt><dd>{{ requestNotes.trim() ? requestNotes.trim() : '—' }}</dd></div>
               </dl>
             </div>
 
             <div v-if="modalError" class="error" style="margin-top: 10px;">{{ modalError }}</div>
-            <div v-else-if="requestSubmitBlockedReason && requestType" class="muted nr-help" style="margin-top: 8px;">
+            <div v-else-if="requestSubmitBlockedReason && requestType" class="nr-blocked-reason">
               {{ requestSubmitBlockedReason }}
             </div>
           </template>
@@ -1833,9 +2774,46 @@
           </div><!-- /.nr-main -->
         </div><!-- /.nr-layout -->
 
-        <div v-if="!intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking' && requestType !== 'slot_details'" class="nr-footer">
-          <button class="btn btn-secondary nr-btn-cancel" type="button" @click="closeModal">
+        <div
+          v-if="isScheduleEventEditMode && editingScheduleStackItem"
+          class="nr-footer"
+        >
+          <button class="btn btn-secondary nr-btn-cancel" type="button" :disabled="scheduleEventSaving" @click="requestCloseModal">
             Cancel
+          </button>
+          <button
+            class="btn nr-btn-submit"
+            type="button"
+            :disabled="scheduleEventSaving"
+            @click="saveScheduleStackItem(editingScheduleStackItem)"
+          >
+            {{ scheduleEventSaving ? 'Saving…' : 'Save changes' }}
+          </button>
+        </div>
+        <div
+          v-else-if="isSupervisionEditMode"
+          class="nr-footer"
+        >
+          <button
+            class="btn btn-danger"
+            type="button"
+            :disabled="supvSaving || !selectedSupvSessionId"
+            @click="cancelSupvSession"
+          >
+            Cancel session
+          </button>
+          <button
+            class="btn nr-btn-submit"
+            type="button"
+            :disabled="supvSaving || !selectedSupvSessionId"
+            @click="saveSupvSessionFromScheduleModal"
+          >
+            {{ supvSaving ? 'Saving…' : 'Save changes' }}
+          </button>
+        </div>
+        <div v-else-if="!showActionChooser && !isAppointmentEditMode && !intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking' && requestType !== 'slot_details'" class="nr-footer">
+          <button class="btn btn-secondary nr-btn-cancel" type="button" @click="requestCloseModal">
+            {{ virtualSessionShareUrl && isVirtualTelehealthSession ? 'Done' : 'Cancel' }}
           </button>
           <button
             class="btn nr-btn-submit"
@@ -1853,46 +2831,70 @@
       </div>
     </div>
 
-    <div v-if="showSupvModal" class="modal-backdrop" @click.self="closeSupvModal">
-      <div class="modal">
-        <div class="modal-head">
-          <div class="modal-title">Supervision session</div>
-          <button class="btn btn-secondary btn-sm" type="button" @click="closeSupvModal">Close</button>
+    <div v-if="showSupvModal" class="modal-backdrop modal-backdrop--request" @click.self="closeSupvModal">
+      <div class="modal modal--new-request modal--stack-details" style="max-width: 680px;">
+        <div class="nr-head">
+          <div class="nr-head-main">
+            <span class="nr-head-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+                <circle cx="12" cy="8" r="3.2"/>
+                <path d="M5 19c1-3.5 3.4-5.2 7-5.2S18 15.5 19 19"/>
+              </svg>
+            </span>
+            <div class="nr-head-copy">
+              <div class="nr-title">Supervision session</div>
+              <div class="nr-subtitle">{{ supvDisplayDayLabel }} • {{ hourLabel(supvStartHour) }}–{{ hourLabel(supvEndHour) }}</div>
+            </div>
+          </div>
+          <div class="nr-head-context">
+            <button class="nr-close" type="button" aria-label="Close" @click="closeSupvModal">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M6 6l12 12M18 6L6 18"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <div v-if="supvModalError" class="error" style="margin-top: 10px;">{{ supvModalError }}</div>
+        <div class="nr-chooser stack-details-body">
+          <div v-if="supvModalError" class="error" style="margin-bottom: 10px;">{{ supvModalError }}</div>
 
-        <div class="muted" style="margin-top: 6px;">
-          {{ supvDisplayDayLabel }} • {{ hourLabel(supvStartHour) }}–{{ hourLabel(supvEndHour) }}
-        </div>
+          <div class="stack-details-static nr-appt-edit">
+            <div class="stack-details-kind">Supervision</div>
+            <div class="stack-details-label">{{ selectedSupvSession?.counterpartyName || 'Session details' }}</div>
+            <div class="stack-details-sub">{{ supvDisplayDayLabel }} • {{ hourLabel(supvStartHour) }}–{{ hourLabel(supvEndHour) }}</div>
 
-        <div class="modal-body">
-          <div v-if="supvOptions.length > 1" style="margin-bottom: 10px;">
+          <div v-if="supvOptions.length > 1" style="margin: 12px 0 0;">
             <label class="lbl">Session</label>
-            <select v-model.number="selectedSupvSessionId" class="input">
+            <select v-model.number="selectedSupvSessionId" class="input nr-appt-input">
               <option v-for="o in supvOptions" :key="`supv-opt-${o.id}`" :value="o.id">
                 {{ o.label }}
               </option>
             </select>
           </div>
 
-          <div class="field-grid">
-            <div>
-              <label class="lbl">Start</label>
-              <input v-model="supvStartIsoLocal" class="input" type="datetime-local" />
+          <div class="nr-info-bar nr-info-bar--edit" style="margin-top: 12px;">
+            <div class="nr-info-cell">
+              <span class="nr-info-label">When</span>
+              <div class="nr-when-edit nr-when-edit--stack">
+                <input v-model="supvStartIsoLocal" class="nr-info-select" type="datetime-local" />
+                <span class="nr-when-sep">–</span>
+                <input v-model="supvEndIsoLocal" class="nr-info-select" type="datetime-local" />
+              </div>
+              <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
             </div>
-            <div>
-              <label class="lbl">End</label>
-              <input v-model="supvEndIsoLocal" class="input" type="datetime-local" />
+            <div class="nr-info-cell">
+              <span class="nr-info-label">Participant</span>
+              <span class="nr-info-value">{{ selectedSupvSession?.counterpartyName || '—' }}</span>
+            </div>
+            <div class="nr-info-cell">
+              <span class="nr-info-label">Status</span>
+              <span class="nr-info-value">Scheduled</span>
             </div>
           </div>
-          <p v-if="bookingTimezoneLabel" class="muted" style="margin-top: 6px; font-size: 12px;">
-            Times are in {{ bookingTimezoneLabel }}
-          </p>
 
-          <div style="margin-top: 10px;">
+          <div style="margin-top: 12px;">
             <label class="lbl">Notes</label>
-            <textarea v-model="supvNotes" class="input" rows="4" placeholder="Optional notes for the Google Calendar description…" />
+            <textarea v-model="supvNotes" class="input nr-appt-input" rows="4" placeholder="Optional notes for the Google Calendar description…" />
           </div>
 
           <div v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink" class="muted" style="margin-top: 8px;">
@@ -2011,13 +3013,14 @@
             </div>
           </div>
 
-          <div class="modal-actions" style="justify-content: space-between;">
+          <div class="modal-actions" style="margin-top: 14px; justify-content: space-between;">
             <button class="btn btn-danger" type="button" @click="cancelSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
               Cancel session
             </button>
-            <button class="btn btn-primary" type="button" @click="saveSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
+            <button class="btn btn-primary btn-sm stack-details-edit-btn" type="button" @click="saveSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
               {{ supvSaving ? 'Saving…' : 'Save changes' }}
             </button>
+          </div>
           </div>
         </div>
       </div>
@@ -2116,25 +3119,175 @@
       </div>
     </div>
 
-    <div v-if="showStackDetailsModal" class="modal-backdrop" @click.self="closeStackDetailsModal">
-      <div class="modal" style="max-width: 560px;">
-        <div class="modal-head">
-          <div class="modal-title">{{ stackDetailsTitle }}</div>
-          <button class="btn btn-secondary btn-sm" type="button" @click="closeStackDetailsModal">Close</button>
+    <div v-if="showStackDetailsModal" class="modal-backdrop modal-backdrop--request" @click.self="requestCloseStackDetailsModal">
+      <div class="modal modal--new-request modal--stack-details" style="max-width: 680px;">
+        <div class="nr-head">
+          <div class="nr-head-main">
+            <span class="nr-head-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+                <circle cx="9" cy="9" r="3"/><circle cx="17" cy="10" r="2.5"/>
+                <path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5S14 16 14.5 19"/>
+              </svg>
+            </span>
+            <div class="nr-head-copy">
+              <div class="nr-title">{{ stackDetailsTitle }}</div>
+              <div class="nr-subtitle">View or edit this calendar block</div>
+            </div>
+          </div>
+          <div class="nr-head-context">
+            <button class="nr-close" type="button" aria-label="Close" @click="requestCloseStackDetailsModal">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M6 6l12 12M18 6L6 18"/>
+              </svg>
+            </button>
+          </div>
         </div>
-        <div class="modal-body">
+        <div class="nr-chooser stack-details-body">
           <div v-if="!stackDetailsItems.length" class="muted">No overlapping details available for this block.</div>
           <div v-else class="stack-details-list">
+            <div
+              v-if="stackDetailsItems.length > 1"
+              class="stack-details-multi-hint"
+            >
+              {{ stackDetailsItems.length }} items in this slot — use <strong>Edit / move</strong> on the one you want to change.
+            </div>
             <div
               v-for="item in stackDetailsItems"
               :key="`stack-item-${item.id}`"
               class="stack-details-item-wrap"
+              :class="{ 'stack-details-item-wrap--editing': scheduleEventEditId === Number(item.eventId || 0) }"
             >
               <div class="stack-details-static">
                 <div v-if="item.kindLabel" class="stack-details-kind">{{ item.kindLabel }}</div>
                 <div class="stack-details-label">{{ item.label }}</div>
                 <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
-                <div v-if="item.detailText" class="stack-details-detail">{{ item.detailText }}</div>
+                <div v-if="item.detailText && scheduleEventEditId !== Number(item.eventId || 0)" class="stack-details-detail">{{ item.detailText }}</div>
+
+                <div
+                  v-if="isEditableScheduleStackItem(item) && scheduleEventEditId === Number(item.eventId || 0)"
+                  class="stack-details-edit nr-appt-edit"
+                >
+                  <div v-if="scheduleEventEditError" class="error" style="margin-bottom: 8px;">{{ scheduleEventEditError }}</div>
+
+                  <div class="nr-info-bar nr-info-bar--edit">
+                    <div class="nr-info-cell">
+                      <span class="nr-info-label">When</span>
+                      <div class="nr-when-edit nr-when-edit--stack">
+                        <input v-model="scheduleEventEditForm.startAt" class="nr-info-select" type="datetime-local" />
+                        <span class="nr-when-sep">–</span>
+                        <input v-model="scheduleEventEditForm.endAt" class="nr-info-select" type="datetime-local" />
+                      </div>
+                    </div>
+                    <div class="nr-info-cell">
+                      <span class="nr-info-label">Organization</span>
+                      <select v-model.number="scheduleEventEditForm.agencyId" class="nr-info-select" @change="onScheduleEventEditAgencyChange">
+                        <option :value="0">{{ scheduleEventOrgNoneLabel }}</option>
+                        <option v-for="opt in scheduleEventOrgOptions" :key="`edit-org-${opt.id}`" :value="Number(opt.id)">
+                          {{ opt.label }}
+                        </option>
+                      </select>
+                    </div>
+                    <div class="nr-info-cell">
+                      <span class="nr-info-label">{{ isMeetingStackItem(item) ? 'Type' : 'Client' }}</span>
+                      <template v-if="isMeetingStackItem(item)">
+                        <span class="nr-info-value">{{ item.kindLabel || 'Meeting' }}</span>
+                      </template>
+                      <select
+                        v-else
+                        v-model.number="scheduleEventEditForm.clientId"
+                        class="nr-info-select"
+                        :disabled="virtualSessionClientsLoading"
+                      >
+                        <option :value="0">— None —</option>
+                        <option
+                          v-for="c in scheduleEventEditClientOptions"
+                          :key="`edit-client-${c.id}`"
+                          :value="Number(c.id)"
+                        >
+                          {{ c.displayName || c.fullName || `Client #${c.id}` }}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <label class="lbl">Title</label>
+                  <input v-model="scheduleEventEditForm.title" class="input nr-appt-input" type="text" maxlength="200" />
+                  <label class="lbl" style="margin-top: 8px;">Notes / description</label>
+                  <textarea
+                    v-model="scheduleEventEditForm.description"
+                    class="input nr-appt-input stack-details-notes"
+                    rows="3"
+                    maxlength="4000"
+                    placeholder="Optional notes for this event…"
+                  />
+
+                  <template v-if="isMeetingStackItem(item)">
+                    <label class="lbl" style="margin-top: 12px;">Coworkers (agency staff)</label>
+                    <div v-if="meetingCandidatesLoading" class="muted" style="margin-top: 4px;">Loading coworkers…</div>
+                    <template v-else>
+                      <input
+                        v-model="meetingParticipantSearch"
+                        class="input nr-appt-input"
+                        type="text"
+                        placeholder="Search coworkers by name or email"
+                        style="margin-bottom: 8px;"
+                      />
+                      <div v-if="selectedMeetingParticipantChips.length" class="supervision-selected-chips">
+                        <button
+                          v-for="chip in selectedMeetingParticipantChips"
+                          :key="`edit-meeting-chip-${chip.id}`"
+                          type="button"
+                          class="supervision-chip"
+                          @click="removeSelectedMeetingParticipant(chip.id)"
+                        >
+                          <span>{{ supervisionParticipantLabel(chip.row || { id: chip.id }) }}</span>
+                          <span aria-hidden="true">x</span>
+                        </button>
+                      </div>
+                      <div class="participant-scroll" style="margin-top: 6px; max-height: 160px;">
+                        <div class="participant-grid">
+                          <button
+                            v-for="p in filteredMeetingCandidates"
+                            :key="`edit-meeting-participant-${p.id}`"
+                            type="button"
+                            class="participant-card participant-card--rich"
+                            :class="{ on: selectedMeetingParticipantIdSet.has(Number(p.id)) }"
+                            @click="toggleMeetingParticipant(Number(p.id))"
+                          >
+                            <img
+                              v-if="participantPhotoUrl(p)"
+                              class="participant-face"
+                              :src="participantPhotoUrl(p)"
+                              alt=""
+                            />
+                            <span
+                              v-else
+                              class="participant-face participant-face--initials"
+                              aria-hidden="true"
+                            >{{ providerInitials(p) }}</span>
+                            <span class="participant-copy">
+                              <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
+                              <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="muted" style="margin-top: 4px;">Selected coworkers: {{ selectedMeetingParticipantIdSet.size }}</div>
+                    </template>
+                  </template>
+
+                  <label class="sched-toggle" style="margin-top: 10px;">
+                    <input type="checkbox" v-model="scheduleEventEditForm.isPrivate" />
+                    <span>Private on calendar</span>
+                  </label>
+                  <div class="nr-appt-edit-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" :disabled="scheduleEventSaving" @click="cancelEditScheduleStackItem">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm stack-details-edit-btn" :disabled="scheduleEventSaving" @click="saveScheduleStackItem(item)">
+                      {{ scheduleEventSaving ? 'Saving…' : 'Save changes' }}
+                    </button>
+                  </div>
+                </div>
+
                 <div
                   v-if="item.eventKind === 'COMPANY_EVENT_BOOKING'"
                   class="stack-details-company-event"
@@ -2221,25 +3374,52 @@
                     </div>
                   </div>
                 </div>
-                <div class="stack-details-actions" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
-                  <button
-                    type="button"
-                    class="btn btn-danger btn-sm"
-                    :disabled="deletingScheduleEventId === item.eventId"
-                    @click.stop="deleteScheduleMeetingOccurrence(item)"
-                  >
-                    {{ deletingScheduleEventId === item.eventId && deletingScheduleEventScope === 'single' ? 'Deleting…' : 'Delete this occurrence' }}
-                  </button>
-                  <button
-                    v-if="item.recurrenceSeriesId"
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="deletingScheduleEventId === item.eventId"
-                    @click.stop="deleteScheduleMeetingFuture(item)"
-                  >
-                    {{ deletingScheduleEventId === item.eventId && deletingScheduleEventScope === 'future' ? 'Deleting…' : 'Delete this and all future' }}
-                  </button>
-                </div>
+              </div>
+
+              <div
+                v-if="isEditableScheduleStackItem(item) && scheduleEventEditId !== Number(item.eventId || 0)"
+                class="stack-details-actions"
+                style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;"
+              >
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm stack-details-edit-btn"
+                  @click.stop="openAppointmentEditInScheduleModal({
+                    item,
+                    items: stackDetailsItems,
+                    dayName: stackDetailsDayName,
+                    hour: stackDetailsHour,
+                    minute: stackDetailsMinute,
+                    focusEventId: item.eventId
+                  })"
+                >
+                  Edit / move
+                </button>
+                <button
+                  v-if="item.appJoinUrl || item.meetLink"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click.stop="openStackDetailsItem(item)"
+                >
+                  {{ item.appJoinUrl ? 'Open video room' : 'Open meeting link' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-danger btn-sm"
+                  :disabled="deletingScheduleEventId === item.eventId"
+                  @click.stop="deleteScheduleMeetingOccurrence(item)"
+                >
+                  {{ deletingScheduleEventId === item.eventId && deletingScheduleEventScope === 'single' ? 'Deleting…' : 'Delete' }}
+                </button>
+                <button
+                  v-if="item.recurrenceSeriesId"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="deletingScheduleEventId === item.eventId"
+                  @click.stop="deleteScheduleMeetingFuture(item)"
+                >
+                  {{ deletingScheduleEventId === item.eventId && deletingScheduleEventScope === 'future' ? 'Deleting…' : 'Delete this & future' }}
+                </button>
               </div>
             </div>
           </div>
@@ -2409,6 +3589,69 @@
         </div>
       </div>
     </div>
+
+    <UnifiedBookingPanel
+      :open="showUnifiedBookingPanel"
+      :agency-id="Number(effectiveAgencyId || 0)"
+      :provider-user-id-default="Number(userId || 0)"
+      :start-at="unifiedBookingStartAt"
+      :end-at="unifiedBookingEndAt"
+      :day-label="unifiedBookingDayLabel"
+      @close="showUnifiedBookingPanel = false"
+      @booked="onUnifiedBookingBooked"
+    />
+
+    <div
+      v-if="peerActivityModal"
+      class="modal-backdrop modal-backdrop--request"
+      @click.self="closePeerActivityModal"
+    >
+      <div class="modal modal--slot-info peer-activity-modal" data-tour="peer-activity-modal">
+        <div class="modal-head">
+          <div class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+            <span
+              class="peer-busy-swatch"
+              :style="{ background: peerActivityModal.color, width: '12px', height: '12px' }"
+              aria-hidden="true"
+            ></span>
+            <img
+              v-if="peerActivityModal.agencyId && agencyIconUrlById(peerActivityModal.agencyId)"
+              class="peer-busy-tenant-icon"
+              :src="agencyIconUrlById(peerActivityModal.agencyId)"
+              alt=""
+            />
+            <span>{{ peerActivityModal.label }}</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closePeerActivityModal">Close</button>
+        </div>
+        <div class="muted" style="font-size: 12px; margin-bottom: 10px;">
+          {{ peerActivityModal.dayName }} {{ hourLabel(peerActivityModal.hour) }}
+          · {{ canManagePeerCalendar ? 'Inspect and manage from Staff schedules' : 'Activity type (client details hidden)' }}
+        </div>
+        <div class="peer-activity-list">
+          <div
+            v-for="(act, idx) in peerActivityModal.activities"
+            :key="`peer-act-${idx}`"
+            class="peer-activity-row"
+          >
+            <span
+              class="peer-activity-type"
+              :class="`peer-activity-type--${String(act.activityType || 'busy').toLowerCase()}`"
+            >{{ peerActivityShortLabel(act.activityType) }}</span>
+            <div class="peer-activity-body">
+              <div class="peer-activity-title">{{ act.title || peerActivityShortLabel(act.activityType) }}</div>
+              <div v-if="act.officeLabel" class="muted" style="font-size: 12px;">{{ act.officeLabel }}</div>
+            </div>
+          </div>
+          <div v-if="!(peerActivityModal.activities || []).length" class="muted">No activity details for this slot.</div>
+        </div>
+        <div v-if="peerActivityModal.canManage" class="modal-actions" style="margin-top: 14px;">
+          <button class="btn btn-primary" type="button" @click="openPeerStaffSchedule">
+            Open schedule to edit
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -2423,12 +3666,17 @@ import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheF
 import { timezoneLabelFor } from '../../utils/timezones.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useBrandingStore } from '../../store/branding';
 import { useUserPreferencesStore } from '../../store/userPreferences';
+import { isMedicalBillingEnabled } from '../../config/medicalBillingAccess.js';
+import { isTenantOrganizationType as isTenantOrganizationTypeShared } from '../../utils/organizationTypes.js';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import BrandingLogo from '../BrandingLogo.vue';
 import SupervisionVideoRoom from '../supervision/SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from '../supervision/SupervisionVideoLobbyPanel.vue';
+import UnifiedBookingPanel from './UnifiedBookingPanel.vue';
+import PersonSearchSelect from './PersonSearchSelect.vue';
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -2447,14 +3695,63 @@ const props = defineProps({
   // Club/affiliation context: hide office space, Open finder, Google busy, Therapy Notes.
   hideOfficeAndCalendarIntegration: { type: Boolean, default: false },
   showSkillBuildersProgramsButton: { type: Boolean, default: false },
-  showCompanyEventsCalendarButton: { type: Boolean, default: true }
+  showCompanyEventsCalendarButton: { type: Boolean, default: true },
+  /** Hide the large duplicate “Schedule” heading when the parent page already has a title. */
+  compactPageChrome: { type: Boolean, default: false },
+  /** Plot Twist HQ embed: dark platform chrome instead of default light schedule page. */
+  platformTheme: { type: Boolean, default: false }
 });
-const emit = defineEmits(['update:weekStartYmd', 'open-skill-builders-programs', 'open-company-events-calendar']);
+const emit = defineEmits([
+  'update:weekStartYmd',
+  'open-skill-builders-programs',
+  'open-company-events-calendar',
+  'change-schedule-user'
+]);
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
+
+const isDocumentDark = ref(
+  typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark'
+);
+/** HQ embed or user dark-mode preference — shared purple/slate schedule chrome. */
+const darkScheduleTheme = computed(() => props.platformTheme || isDocumentDark.value);
+
+let darkThemeObserver = null;
+const scheduleOrgSlug = computed(() => (
+  typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : ''
+));
+const scheduleOrgTo = (path) => (scheduleOrgSlug.value ? `/${scheduleOrgSlug.value}${path}` : path);
+const staffSchedulesCompareTo = computed(() => scheduleOrgTo('/schedule/staff'));
+
+const showUnifiedBookingPanel = ref(false);
+const unifiedBookingStartAt = ref('');
+const unifiedBookingEndAt = ref('');
+const unifiedBookingDayLabel = ref('');
+
+const buildUnifiedBookingWallTime = (dayName, hour, minute = 0) => {
+  const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
+  const pad = (n) => String(Number(n) || 0).padStart(2, '0');
+  return `${dateYmd} ${pad(hour)}:${pad(minute)}:00`;
+};
+
+const openUnifiedBookingPanel = (dayName = null, hour = null) => {
+  const dn = dayName || modalDay.value || visibleDays.value?.[0] || 'Monday';
+  const h = hour != null ? Number(hour) : Number(modalHour.value || 9);
+  const endH = Number(modalEndHour.value || (h + 1));
+  unifiedBookingDayLabel.value = `${dn} ${hourLabel(h)}`;
+  unifiedBookingStartAt.value = buildUnifiedBookingWallTime(dn, h, Number(modalStartMinute.value || 0));
+  unifiedBookingEndAt.value = buildUnifiedBookingWallTime(dn, endH, Number(modalEndMinute.value || 0));
+  showUnifiedBookingPanel.value = true;
+};
+
+const onUnifiedBookingBooked = async () => {
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  await load({ forceRefresh: true });
+};
 
 const supvAppVideoOrgSlug = computed(() => String(route.params?.organizationSlug || '').trim());
 
@@ -2541,14 +3838,14 @@ const scheduleColorVars = computed(() => {
     return { bg, br };
   };
 
-  const reqv = set(req, 0.35, 0.65);
-  const schv = set(school, 0.28, 0.60);
-  const supvv = set(supv, 0.20, 0.55);
-  const oav = set(oa, 0.22, 0.55);
-  const otv = set(ot, 0.24, 0.58);
-  const obv = set(ob, 0.22, 0.58);
-  const gbv = set(gb, 0.14, 0.42);
-  const ebv = set(eb, 0.16, 0.45);
+  const reqv = set(req, darkScheduleTheme.value ? 0.52 : 0.35, darkScheduleTheme.value ? 0.78 : 0.65);
+  const schv = set(school, darkScheduleTheme.value ? 0.46 : 0.28, darkScheduleTheme.value ? 0.76 : 0.60);
+  const supvv = set(supv, darkScheduleTheme.value ? 0.42 : 0.20, darkScheduleTheme.value ? 0.72 : 0.55);
+  const oav = set(oa, darkScheduleTheme.value ? 0.48 : 0.22, darkScheduleTheme.value ? 0.78 : 0.55);
+  const otv = set(ot, darkScheduleTheme.value ? 0.50 : 0.24, darkScheduleTheme.value ? 0.80 : 0.58);
+  const obv = set(ob, darkScheduleTheme.value ? 0.50 : 0.22, darkScheduleTheme.value ? 0.80 : 0.58);
+  const gbv = set(gb, darkScheduleTheme.value ? 0.28 : 0.14, darkScheduleTheme.value ? 0.58 : 0.42);
+  const ebv = set(eb, darkScheduleTheme.value ? 0.32 : 0.16, darkScheduleTheme.value ? 0.62 : 0.45);
 
   if (reqv.bg) v['--sched-request-bg'] = reqv.bg;
   if (reqv.br) v['--sched-request-border'] = reqv.br;
@@ -2633,6 +3930,41 @@ const showGoogleEvents = ref(false);
 const showExternalBusy = ref(true);
 const showOfficeOverlay = ref(true);
 const showQuarterDetail = ref(false);
+/** Peer busy overlay on My Schedule (anonymous intervals unless privileged Show details). */
+const showPeerBusyOverlay = ref(false);
+const peerBusySearch = ref('');
+const peerBusyCandidates = ref([]);
+const peerBusySelectedIds = ref([]);
+const peerBusySummariesByUserId = ref({});
+const peerBusyLoading = ref(false);
+const peerBusyError = ref('');
+const maxPeerBusySelected = 6;
+const PEER_BUSY_EXCLUDED_ROLES = new Set([
+  'client_guardian', 'guardian', 'school_staff', 'school_support',
+  'client', 'parent', 'kiosk', 'super_admin', 'superadmin'
+]);
+const parsePeerAgencyIds = (raw) => {
+  if (Array.isArray(raw)) {
+    return raw.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+  }
+  return String(raw || '')
+    .split(',')
+    .map((s) => Number(String(s || '').trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+};
+const peerMatchesScheduleAgencies = (user, agencyIds = effectiveAgencyIds.value) => {
+  const scope = (agencyIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+  if (!scope.length) return false;
+  const userAgencyIds = parsePeerAgencyIds(user?.agencyIds ?? user?.agency_ids);
+  if (!userAgencyIds.length) return false;
+  return userAgencyIds.some((id) => scope.includes(id));
+};
+const isPeerBusyCandidate = (user) => {
+  const role = String(user?.role || '').trim().toLowerCase();
+  if (role && PEER_BUSY_EXCLUDED_ROLES.has(role)) return false;
+  return peerMatchesScheduleAgencies(user);
+};
+const peerBusyLoadGeneration = ref(0);
 /** When true, external ICS blocks stay visible but SUMMARY/titles are not shown (generic labels only). */
 const hideExternalIcsTitles = ref(false);
 const selectedExternalCalendarIds = ref([]); // populated from available list once loaded
@@ -2647,6 +3979,53 @@ const selectedExternalCalendarIdSet = computed(
 let schedMouseUpHandler = null;
 const hideWeekend = ref(props.mode === 'self');
 const focusedDays = ref([]);
+/** day = single-day focus (+ mobile timeline); week = full multi-day grid */
+const scheduleSpanMode = ref('week');
+const isNarrowSchedule = ref(false);
+let narrowScheduleMql = null;
+let narrowScheduleHandler = null;
+const todayDayName = () => {
+  const map = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return map[new Date().getDay()] || 'Monday';
+};
+const setScheduleSpanMode = (mode) => {
+  const next = String(mode || '').toLowerCase() === 'day' ? 'day' : 'week';
+  scheduleSpanMode.value = next;
+  if (next === 'day') {
+    const today = todayDayName();
+    const allowed = focusableDays.value || [];
+    focusedDays.value = allowed.includes(today) ? [today] : (allowed[0] ? [allowed[0]] : []);
+  } else {
+    focusedDays.value = [];
+  }
+};
+const showMobileDayTimeline = computed(() => (
+  isNarrowSchedule.value
+  && scheduleSpanMode.value === 'day'
+  && viewMode.value !== 'office_layout'
+  && !!summary.value
+));
+const mobileTimelineDay = computed(() => {
+  const days = visibleDays.value || [];
+  if (days.length === 1) return days[0];
+  const today = todayDayName();
+  if ((focusableDays.value || []).includes(today)) return today;
+  return days[0] || today;
+});
+const mobileTimelineHours = computed(() => (Array.isArray(hours.value) ? hours.value : []));
+const mobileDayCardsForHour = (hour) => {
+  const day = mobileTimelineDay.value;
+  if (!day) return [];
+  return (cellBlocks(day, hour, 0) || []).filter((b) => b && b.kind !== 'more');
+};
+const openMobileDayHour = (hour) => {
+  openSlotActionModal({
+    dayName: mobileTimelineDay.value,
+    hour: Number(hour),
+    preserveSelectionRange: false,
+    actionSource: 'plus_or_blank'
+  });
+};
 const rowHeightMode = ref('normal');
 const initializedOverlayDefaults = ref(false);
 
@@ -2831,6 +4210,332 @@ const toggleGoogleEvents = () => {
   if (next) showGoogleBusy.value = false;
 };
 
+const canShowPeerScheduleDetails = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'superadmin', 'admin', 'support', 'clinical_practice_assistant'].includes(role)
+    || isSupervisor(authStore.user);
+});
+/** Privileged roles may open/edit peer calendars from the overlay. */
+const canManagePeerCalendar = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'superadmin', 'admin', 'support'].includes(role)
+    || isSupervisor(authStore.user);
+});
+const peerBusySelectedIdSet = computed(() => new Set((peerBusySelectedIds.value || []).map((n) => Number(n)).filter((n) => n > 0)));
+/** Privileged → full payload; everyone else → typed (activity + office, no client PII). */
+const peerBusyDetailLevel = computed(() => (
+  canShowPeerScheduleDetails.value ? 'full' : 'typed'
+));
+const peerColorPalette = [
+  '#0f766e', // teal
+  '#7c3aed', // violet
+  '#c2410c', // orange
+  '#1d4ed8', // blue
+  '#be185d', // pink
+  '#a16207' // amber
+];
+const peerColorById = (uid) => {
+  const n = Number(uid || 0);
+  if (!Number.isFinite(n) || n <= 0) return '#64748b';
+  return peerColorPalette[n % peerColorPalette.length];
+};
+const peerPrimaryAgencyIconUrl = (peer) => {
+  const ids = parsePeerAgencyIds(peer?.agencyIds ?? peer?.agency_ids);
+  const scope = (effectiveAgencyIds.value || []).map((n) => Number(n)).filter((n) => n > 0);
+  const preferred = ids.find((id) => scope.includes(id)) || ids[0] || 0;
+  return preferred ? agencyIconUrlById(preferred) : null;
+};
+const filteredPeerBusyCandidates = computed(() => {
+  const q = String(peerBusySearch.value || '').trim().toLowerCase();
+  const me = Number(authStore.user?.id || 0);
+  const rows = (peerBusyCandidates.value || []).filter((p) => Number(p?.id || 0) !== me);
+  if (!q) return rows;
+  return rows.filter((p) => String(p?.label || '').toLowerCase().includes(q) || String(p?.email || '').toLowerCase().includes(q));
+});
+const peerInitials = (uid) => {
+  const row = (peerBusyCandidates.value || []).find((p) => Number(p.id) === Number(uid));
+  const label = String(row?.label || '').trim();
+  const parts = label.split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] || '';
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] || '' : '';
+  return (first + last).toUpperCase() || String(uid);
+};
+const peerLabelById = (uid) => {
+  const row = (peerBusyCandidates.value || []).find((p) => Number(p.id) === Number(uid));
+  return String(row?.label || '').trim() || `User ${uid}`;
+};
+const peerActivityShortLabel = (activityType) => {
+  const t = String(activityType || '').toLowerCase();
+  if (t === 'session') return 'Session';
+  if (t === 'hold') return 'Hold';
+  if (t === 'opening') return 'Open';
+  if (t === 'school') return 'School';
+  if (t === 'supervision') return 'Supv';
+  if (t === 'team_meeting') return 'Meet';
+  if (t === 'huddle') return 'Huddle';
+  if (t === 'indirect') return 'Indirect';
+  if (t === 'personal') return 'Personal';
+  if (t === 'external') return 'Ext';
+  if (t === 'office') return 'Office';
+  return 'Busy';
+};
+const peerActivityShortFromBlock = (b) => {
+  if (!b) return '';
+  const raw = String(b.shortLabel || '').trim();
+  if (raw) return raw;
+  return peerActivityShortLabel(b.peerActivityType);
+};
+const peerTypedBlocksInCell = (uid, dayName, hour, ws, minute = 0) => {
+  const peerSummary = peerBusySummariesByUserId.value?.[uid];
+  if (!peerSummary) return [];
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
+  const pad = (n) => String(Number(n) || 0).padStart(2, '0');
+  const cellStart = new Date(`${cellDate}T${pad(hour)}:${pad(minute)}:00`);
+  const cellEndMin = Number(minute) + (showQuarterDetail.value ? 15 : 60);
+  const endH = hour + Math.floor(cellEndMin / 60);
+  const endM = cellEndMin % 60;
+  const cellEnd = new Date(`${cellDate}T${pad(endH)}:${pad(endM)}:00`);
+  const out = [];
+  const pushIfOverlap = (row, defaults = {}) => {
+    const st = new Date(String(row?.startAt || row?.start || '').includes('T')
+      ? row.startAt || row.start
+      : String(row?.startAt || row?.start || '').replace(' ', 'T'));
+    const en = new Date(String(row?.endAt || row?.end || '').includes('T')
+      ? row.endAt || row.end
+      : String(row?.endAt || row?.end || '').replace(' ', 'T'));
+    if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) return;
+    if (!(en > cellStart && st < cellEnd)) return;
+    out.push({ ...defaults, ...row, startAt: row.startAt || row.start, endAt: row.endAt || row.end });
+  };
+  const detail = String(peerSummary.detailLevel || peerBusyDetailLevel.value || '').toLowerCase();
+  if (detail === 'full') {
+    for (const row of peerSummary.officeEvents || []) {
+      const slotState = String(row?.slotState || '').toUpperCase();
+      let activityType = 'office';
+      if (slotState === 'ASSIGNED_BOOKED') activityType = 'session';
+      else if (slotState === 'ASSIGNED_TEMPORARY' || slotState === 'COMPANY_HOLD') activityType = 'hold';
+      else if (slotState === 'ASSIGNED_AVAILABLE') activityType = 'opening';
+      const building = String(row?.buildingName || '').trim();
+      const roomNumber = String(row?.roomNumber || '').trim();
+      const roomLabel = String(row?.roomLabel || '').trim();
+      const officeLabel = [building, roomNumber ? `#${roomNumber}` : roomLabel].filter(Boolean).join(' ');
+      pushIfOverlap(row, {
+        activityType,
+        title: activityType === 'session'
+          ? (officeLabel ? `Session · ${officeLabel}` : 'Session')
+          : activityType === 'opening'
+            ? (officeLabel ? `Open · ${officeLabel}` : 'Open')
+            : activityType === 'hold'
+              ? (officeLabel ? `Hold · ${officeLabel}` : 'Hold')
+              : (officeLabel || 'Office'),
+        officeLabel,
+        agencyId: Number(row?.agencyId || row?._agencyId || peerSummary.agencyId || 0) || null,
+        source: 'office'
+      });
+    }
+    for (const row of peerSummary.scheduleEvents || []) {
+      if (row?.allDay) continue;
+      const kind = String(row?.kind || '').toUpperCase();
+      let activityType = 'event';
+      let title = String(row?.title || '').trim() || 'Schedule event';
+      if (kind === 'SCHEDULE_HOLD') { activityType = 'hold'; title = title || 'Schedule hold'; }
+      else if (kind === 'INDIRECT_SERVICES') { activityType = 'indirect'; title = title || 'Indirect'; }
+      else if (kind === 'TEAM_MEETING') { activityType = 'team_meeting'; title = title || 'Team meeting'; }
+      else if (kind === 'HUDDLE') { activityType = 'huddle'; title = title || 'Huddle'; }
+      else if (kind === 'PERSONAL_EVENT') {
+        if (isClientSessionScheduleEvent(ev)) {
+          activityType = 'session';
+          title = title || 'Session';
+        } else {
+          activityType = 'personal';
+          title = title || 'Personal';
+        }
+      }
+      else if (/session|virtual/i.test(title)) { activityType = 'session'; }
+      pushIfOverlap(row, {
+        activityType,
+        title,
+        eventKind: kind,
+        eventId: Number(row?.id || 0) || null,
+        agencyId: Number(row?.agencyId || row?._agencyId || peerSummary.agencyId || 0) || null,
+        source: 'meeting'
+      });
+    }
+    for (const row of peerSummary.supervisionSessions || []) {
+      pushIfOverlap(row, {
+        activityType: 'supervision',
+        title: String(row?.counterpartyName || '').trim()
+          ? `Supervision · ${row.counterpartyName}`
+          : 'Supervision',
+        agencyId: Number(row?.agencyId || row?._agencyId || peerSummary.agencyId || 0) || null,
+        source: 'meeting'
+      });
+    }
+    for (const row of peerSummary.schoolAssignments || []) {
+      // school rows often use dayOfWeek + times; fall back to busyBlocks if no timestamps
+      if (row?.startAt || row?.start_at) {
+        pushIfOverlap(row, {
+          activityType: 'school',
+          title: String(row?.schoolName || '').trim() || 'School',
+          agencyId: Number(row?.agencyId || row?._agencyId || peerSummary.agencyId || 0) || null,
+          source: 'school'
+        });
+      }
+    }
+  }
+  if (!out.length) {
+    for (const row of peerSummary.busyBlocks || []) {
+      pushIfOverlap(row, {
+        activityType: row?.activityType || 'busy',
+        title: row?.title || 'Busy',
+        agencyId: Number(row?.agencyId || peerSummary.agencyId || 0) || null
+      });
+    }
+  }
+  // Prefer more specific activity first for the primary chip
+  const rank = (t) => ({
+    session: 6, supervision: 5, team_meeting: 4, huddle: 4, school: 3, hold: 2, opening: 2, indirect: 1, personal: 1
+  }[String(t || '').toLowerCase()] || 0);
+  out.sort((a, b) => rank(b.activityType) - rank(a.activityType));
+  return out;
+};
+const togglePeerBusyOverlay = () => {
+  showPeerBusyOverlay.value = !showPeerBusyOverlay.value;
+  if (showPeerBusyOverlay.value) {
+    void loadPeerBusyCandidates();
+    void loadPeerBusySummaries();
+  }
+};
+const togglePeerBusyUser = (id) => {
+  const uid = Number(id || 0);
+  if (!uid) return;
+  const cur = (peerBusySelectedIds.value || []).slice();
+  const idx = cur.indexOf(uid);
+  if (idx >= 0) cur.splice(idx, 1);
+  else if (cur.length < maxPeerBusySelected) cur.push(uid);
+  peerBusySelectedIds.value = cur;
+};
+const loadPeerBusyCandidates = async () => {
+  const me = Number(authStore.user?.id || props.userId || 0);
+  if (!me) return;
+  try {
+    peerBusyLoading.value = true;
+    peerBusyError.value = '';
+    const scopeIds = (effectiveAgencyIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+    const params = scopeIds.length === 1
+      ? { agencyId: scopeIds[0] }
+      : { allAgencies: 'true' };
+    const r = await api.get(`/users/${me}/meeting-candidates`, { params });
+    const rows = Array.isArray(r?.data?.users) ? r.data.users : [];
+    peerBusyCandidates.value = rows.map((u) => {
+      const id = Number(u.id || 0);
+      const first = String(u.firstName || u.first_name || '').trim();
+      const last = String(u.lastName || u.last_name || '').trim();
+      const email = String(u.email || '').trim();
+      const agencyIds = parsePeerAgencyIds(u.agencyIds ?? u.agency_ids);
+      return {
+        id,
+        email,
+        role: String(u.role || '').trim().toLowerCase(),
+        agencyIds,
+        profilePhotoUrl: String(u.profilePhotoUrl || u.profile_photo_url || '').trim() || null,
+        label: `${first} ${last}`.trim() || email || `User ${id}`
+      };
+    }).filter((u) => u.id > 0 && isPeerBusyCandidate(u));
+    const allowed = new Set(peerBusyCandidates.value.map((p) => Number(p.id)));
+    peerBusySelectedIds.value = (peerBusySelectedIds.value || []).filter((id) => allowed.has(Number(id)));
+    const agencyIdsToHydrate = new Set();
+    for (const p of peerBusyCandidates.value) {
+      for (const aid of (p.agencyIds || [])) agencyIdsToHydrate.add(Number(aid));
+    }
+    for (const aid of agencyIdsToHydrate) {
+      if (!aid) continue;
+      void agencyStore.hydrateAgencyById?.(aid)?.then((full) => {
+        const iconId = full?.icon_id ?? full?.iconId;
+        if (iconId) void brandingStore.prefetchIconIds?.([iconId]);
+      });
+    }
+  } catch (e) {
+    peerBusyCandidates.value = [];
+    peerBusySelectedIds.value = [];
+    peerBusyError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load coworkers';
+  } finally {
+    peerBusyLoading.value = false;
+  }
+};
+const loadPeerBusySummaries = async () => {
+  if (!showPeerBusyOverlay.value) return;
+  const generation = peerBusyLoadGeneration.value + 1;
+  peerBusyLoadGeneration.value = generation;
+  const ids = (peerBusySelectedIds.value || []).map((n) => Number(n)).filter((n) => n > 0);
+  const agencyIds = (effectiveAgencyIds.value || []).map((n) => Number(n)).filter((n) => n > 0);
+  if (!ids.length || !agencyIds.length) {
+    if (generation === peerBusyLoadGeneration.value) peerBusySummariesByUserId.value = {};
+    return;
+  }
+  const ws = weekStart.value;
+  const detailLevel = peerBusyDetailLevel.value;
+  const next = {};
+  await Promise.all(ids.map(async (uid) => {
+    try {
+      const perAgency = await Promise.all(
+        agencyIds.map((agencyId) =>
+          api.get(`/users/${uid}/schedule-summary`, {
+            params: {
+              agencyId,
+              weekStart: ws,
+              detailLevel,
+              includeGoogleBusy: detailLevel === 'busy' ? 'true' : (showGoogleBusy.value ? 'true' : 'false'),
+              includeGoogleEvents: 'false'
+            }
+          }).then((r) => r?.data || null).catch(() => null)
+        )
+      );
+      const first = perAgency.find(Boolean);
+      if (!first) return;
+      const busyBlocks = [];
+      const seen = new Set();
+      const mergeList = (key) => {
+        const out = [];
+        const seenRow = new Set();
+        for (const data of perAgency.filter(Boolean)) {
+          for (const row of (data[key] || [])) {
+            const k = `${row?.id || ''}|${row?.startAt || row?.start_at || ''}|${row?.endAt || row?.end_at || ''}|${row?.kind || row?.slotState || ''}`;
+            if (seenRow.has(k)) continue;
+            seenRow.add(k);
+            out.push({ ...row, _agencyId: Number(row?.agencyId || row?._agencyId || data.agencyId || 0) || null });
+          }
+        }
+        return out;
+      };
+      for (const data of perAgency.filter(Boolean)) {
+        for (const b of (data.busyBlocks || [])) {
+          const k = `${b.startAt}|${b.endAt}|${b.source || ''}|${b.activityType || ''}|${b.officeLabel || ''}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          busyBlocks.push({
+            ...b,
+            agencyId: Number(b.agencyId || data.agencyId || 0) || null
+          });
+        }
+      }
+      next[uid] = {
+        ...first,
+        busyBlocks,
+        detailLevel,
+        officeEvents: mergeList('officeEvents'),
+        scheduleEvents: mergeList('scheduleEvents'),
+        supervisionSessions: mergeList('supervisionSessions'),
+        schoolAssignments: mergeList('schoolAssignments')
+      };
+    } catch {
+      // skip failed peer
+    }
+  }));
+  if (generation !== peerBusyLoadGeneration.value) return;
+  peerBusySummariesByUserId.value = next;
+};
+
 const hideAllCalendars = () => {
   // Preserve the last visible configuration so "Show calendars" can restore it.
   lastCalendarPrefs.value = {
@@ -2901,12 +4606,12 @@ const openQuickOfficeRoomRequest = async () => {
   }
   viewMode.value = 'office_layout';
   await nextTick();
-  const offices = officeLocations.value || [];
-  if (!Number(selectedOfficeLocationId.value || 0) && offices.length === 1) {
-    selectedOfficeLocationId.value = Number(offices[0].id);
+  if (!isOfficeScopeSpecific.value) {
+    const specific = resolveSpecificOfficeId();
+    if (specific) selectedOfficeLocationId.value = specific;
   }
-  if (!Number(selectedOfficeLocationId.value || 0)) {
-    officeReminderToast.value = 'Choose an office from the Office dropdown (right), then tap Request again or pick a time on the board.';
+  if (!isOfficeScopeSpecific.value) {
+    officeReminderToast.value = 'Choose a specific office from the Office dropdown, then tap Request again or pick a time on the board.';
     setTimeout(() => { officeReminderToast.value = ''; }, 6000);
     return;
   }
@@ -2939,19 +4644,13 @@ const openQuickBook = async ({ virtual = false } = {}) => {
     viewMode.value = 'open_finder';
     await nextTick();
   }
-  if (!props.hideOfficeAndCalendarIntegration) {
-    const offices = officeLocations.value || [];
-    if (!Number(selectedOfficeLocationId.value || 0) && offices.length === 1) {
-      selectedOfficeLocationId.value = Number(offices[0].id);
-    }
-  }
   const ymd = String(todayLocalYmd.value || weekStart.value || '').slice(0, 10);
   const dayName = dayNameForDateYmd(ymd) || 'Monday';
   const nowHour = new Date().getHours();
   const hour = Math.max(7, Math.min(20, Number.isFinite(nowHour) ? nowHour : 9));
   const flags = effectiveAgencyFeatureFlags.value || {};
   const hasClinicalOrLearning = !!(flags.hasClinicalOrg || flags.hasLearningOrg);
-  const hasOffice = Number(selectedOfficeLocationId.value || 0) > 0;
+  const hasOffice = isOfficeScopeSpecific.value || isOfficeScopeAll.value;
   let initialRequestType = '';
   if (virtual) {
     // Virtual session is always Individual session + Telehealth (office optional).
@@ -3061,11 +4760,44 @@ const loadSelfScheduleAgencies = async () => {
       deduped.push({
         id,
         name: String(row?.name || row?.agency_name || `Agency ${id}`).trim(),
+        organization_type: row?.organization_type || row?.organizationType || 'agency',
         hasClinicalOrg: !!row?.hasClinicalOrg,
-        hasLearningOrg: !!row?.hasLearningOrg
+        hasLearningOrg: !!row?.hasLearningOrg,
+        medicalBillingEnabled: isMedicalBillingEnabled(row?.feature_flags || row?.featureFlags),
+        featureFlags: row?.feature_flags || row?.featureFlags || null
       });
     }
+    // Always include the currently selected tenant (superadmin may be scoping a non-membership org).
+    const current = agencyStore.currentAgency;
+    const currentId = Number(current?.id || 0);
+    if (currentId && !seen.has(currentId) && isTenantOrganizationType(current?.organization_type || current?.organizationType)) {
+      deduped.push({
+        id: currentId,
+        name: String(current?.name || `Agency ${currentId}`).trim(),
+        organization_type: current?.organization_type || current?.organizationType || 'agency',
+        hasClinicalOrg: !!current?.hasClinicalOrg,
+        hasLearningOrg: !!current?.hasLearningOrg,
+        medicalBillingEnabled: isMedicalBillingEnabled(current?.feature_flags),
+        featureFlags: current?.feature_flags || null
+      });
+      seen.add(currentId);
+    }
     selfScheduleAgencyOptions.value = deduped;
+    for (const row of deduped) {
+      void agencyStore.hydrateAgencyById?.(row.id)?.then((full) => {
+        const iconId = full?.icon_id ?? full?.iconId;
+        if (iconId) void brandingStore.prefetchIconIds?.([iconId]);
+      });
+    }
+    // Superadmin: load org catalog so the booking tenant picker isn't stuck on one membership.
+    const role = String(authStore.user?.role || '').toLowerCase();
+    if ((role === 'super_admin' || role === 'superadmin') && !(agencyStore.agencies || []).length) {
+      try {
+        await agencyStore.fetchAgencies();
+      } catch {
+        // best-effort
+      }
+    }
   } catch {
     selfScheduleAgencyOptions.value = [];
   } finally {
@@ -3130,6 +4862,23 @@ onMounted(() => {
     }
   }
   void loadSelfScheduleAgencies();
+  try {
+    narrowScheduleMql = window.matchMedia('(max-width: 820px)');
+    narrowScheduleHandler = () => {
+      const narrow = !!narrowScheduleMql?.matches;
+      const wasNarrow = isNarrowSchedule.value;
+      isNarrowSchedule.value = narrow;
+      // Only auto day-focus when entering the narrow breakpoint (not when user chose Week).
+      if (narrow && !wasNarrow) {
+        setScheduleSpanMode('day');
+      }
+    };
+    narrowScheduleHandler();
+    if (narrowScheduleMql?.addEventListener) narrowScheduleMql.addEventListener('change', narrowScheduleHandler);
+    else if (narrowScheduleMql?.addListener) narrowScheduleMql.addListener(narrowScheduleHandler);
+  } catch {
+    isNarrowSchedule.value = false;
+  }
   const handleMouseUp = () => {
     const wasDragging = isCellDragSelecting.value;
     // Preserve anchor across nextTick — mouseup clears drag state before auto-open runs.
@@ -3151,6 +4900,12 @@ onMounted(() => {
   }, 30000);
   // Deep-link from dashboard overview Book / Book virtual CTAs.
   void consumeScheduleActionQuery();
+  if (typeof document !== 'undefined') {
+    darkThemeObserver = new MutationObserver(() => {
+      isDocumentDark.value = document.documentElement.getAttribute('data-theme') === 'dark';
+    });
+    darkThemeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
 });
 
 watch(
@@ -3171,10 +4926,20 @@ onUnmounted(() => {
     clearInterval(joinPromptTimer);
     joinPromptTimer = null;
   }
+  try {
+    if (narrowScheduleMql && narrowScheduleHandler) {
+      if (narrowScheduleMql.removeEventListener) narrowScheduleMql.removeEventListener('change', narrowScheduleHandler);
+      else if (narrowScheduleMql.removeListener) narrowScheduleMql.removeListener(narrowScheduleHandler);
+    }
+  } catch { /* ignore */ }
+  narrowScheduleMql = null;
+  narrowScheduleHandler = null;
   if (schedMouseUpHandler) {
     window.removeEventListener('mouseup', schedMouseUpHandler);
     schedMouseUpHandler = null;
   }
+  darkThemeObserver?.disconnect();
+  darkThemeObserver = null;
 });
 
 const focusableDays = computed(() => {
@@ -3514,7 +5279,8 @@ const openOfficeOccupiedSelectionModal = (focusItem, bookingRows) => {
     dateYmd: focus.dateYmd,
     slot: focus.slot,
     preserveSelectionRange: rows.length > 1,
-    initialRequestType: 'slot_details',
+    // Chooser-first — do not auto-select slot_details / a form action.
+    initialRequestType: '',
     actionSource: 'office_block'
   });
 };
@@ -3655,23 +5421,63 @@ const agencyLabel = (agencyId) => {
   return '';
 };
 
+const isTenantOrganizationType = (raw) => {
+  if (raw && typeof raw === 'object') return isTenantOrganizationTypeShared(raw);
+  // Empty/legacy rows are treated as agency tenants
+  const t = String(raw || 'agency').trim().toLowerCase();
+  if (!t) return true;
+  return isTenantOrganizationTypeShared(t);
+};
+
+const mapAgencyOption = (row) => {
+  if (!row) return null;
+  const id = Number(row.id || row.agency_id || 0);
+  if (!id) return null;
+  const flags = row.feature_flags || row.featureFlags || row.featureFlagsParsed || null;
+  const organizationType = String(row.organization_type || row.organizationType || 'agency').trim().toLowerCase() || 'agency';
+  return {
+    id,
+    label: String(row.name || row.agency_name || row.label || `Agency ${id}`).trim() || `Agency ${id}`,
+    organizationType,
+    hasClinicalOrg: row.hasClinicalOrg == null ? null : !!row.hasClinicalOrg,
+    hasLearningOrg: row.hasLearningOrg == null ? null : !!row.hasLearningOrg,
+    medicalBillingEnabled: !!row.medicalBillingEnabled || isMedicalBillingEnabled(flags)
+  };
+};
+
 const agencyFilterOptions = computed(() => {
   if (props.mode === 'self' && (selfScheduleAgencyOptions.value || []).length) {
     return selfScheduleAgencyOptions.value
-      .map((row) => ({
-        id: Number(row.id),
-        label: String(row.name || `Agency ${row.id}`),
-        hasClinicalOrg: !!row?.hasClinicalOrg,
-        hasLearningOrg: !!row?.hasLearningOrg
-      }))
-      .filter((row) => Number.isFinite(row.id) && row.id > 0);
+      .map((row) => mapAgencyOption(row))
+      .filter(Boolean);
   }
-  return propAgencyIds.value.map((id) => ({
-    id: Number(id),
-    label: agencyLabel(id) || `Agency ${id}`,
-    hasClinicalOrg: agencyStore.currentAgency?.id === id ? !!agencyStore.currentAgency?.hasClinicalOrg : null,
-    hasLearningOrg: agencyStore.currentAgency?.id === id ? !!agencyStore.currentAgency?.hasLearningOrg : null
-  }));
+  return propAgencyIds.value.map((id) => {
+    const fromStore = (agencyStore.userAgencies || []).find((a) => Number(a?.id) === Number(id))
+      || (agencyStore.agencies || []).find((a) => Number(a?.id) === Number(id))
+      || (Number(agencyStore.currentAgency?.id) === Number(id) ? agencyStore.currentAgency : null);
+    return mapAgencyOption(fromStore || { id, name: agencyLabel(id) || `Agency ${id}` });
+  }).filter(Boolean);
+});
+
+/** Billable tenants only (agency / life_coach / consultant) — not schools, programs, clubs. */
+const bookingAgencyOptions = computed(() => {
+  const byId = new Map();
+  const add = (row) => {
+    const opt = mapAgencyOption(row);
+    if (!opt) return;
+    if (!isTenantOrganizationType(opt.organizationType)) return;
+    const prev = byId.get(opt.id);
+    byId.set(opt.id, prev ? { ...prev, ...opt, label: opt.label || prev.label } : opt);
+  };
+  for (const row of agencyFilterOptions.value || []) add(row);
+  for (const row of selfScheduleAgencyOptions.value || []) add(row);
+  for (const row of agencyStore.userAgencies || []) add(row);
+  if (agencyStore.currentAgency) add(agencyStore.currentAgency);
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'superadmin') {
+    for (const row of agencyStore.agencies || []) add(row);
+  }
+  return Array.from(byId.values()).sort((a, b) => a.label.localeCompare(b.label));
 });
 
 /** Actions tied to a specific office/room — agency list must be office-affiliated tenants only. */
@@ -3683,7 +5489,6 @@ const OFFICE_AGENCY_SCOPED_ACTIONS = new Set([
   'unbook_slot',
   'cancel_booking',
   'extend_assignment',
-  'booked_note',
   'intake_virtual_on',
   'intake_inperson_on',
   'intake_virtual_off',
@@ -3693,10 +5498,15 @@ const OFFICE_AGENCY_SCOPED_ACTIONS = new Set([
 const showClinicalBookingFields = computed(() => {
   const effId = Number(effectiveAgencyId.value || 0);
   if (!effId) return false;
-  const opt = (agencyFilterOptions.value || []).find((r) => Number(r?.id) === effId);
+  const opt = (bookingAgencyOptions.value || []).find((r) => Number(r?.id) === effId)
+    || (agencyFilterOptions.value || []).find((r) => Number(r?.id) === effId);
+  if (opt?.medicalBillingEnabled === true) return true;
   if (opt?.hasClinicalOrg === true) return true;
-  if (opt?.hasClinicalOrg === false) return false;
-  return !!agencyStore.currentAgency?.hasClinicalOrg && Number(agencyStore.currentAgency?.id) === effId;
+  if (Number(agencyStore.currentAgency?.id) === effId) {
+    if (isMedicalBillingEnabled(agencyStore.currentAgency?.feature_flags)) return true;
+    if (agencyStore.currentAgency?.hasClinicalOrg) return true;
+  }
+  return false;
 });
 
 const effectiveAgencyFeatureFlags = computed(() => {
@@ -3705,9 +5515,64 @@ const effectiveAgencyFeatureFlags = computed(() => {
   const fallbackMatches = Number(agencyStore.currentAgency?.id || 0) === effId;
   return {
     hasClinicalOrg: opt?.hasClinicalOrg === true || (opt?.hasClinicalOrg == null && fallbackMatches && !!agencyStore.currentAgency?.hasClinicalOrg),
-    hasLearningOrg: opt?.hasLearningOrg === true || (opt?.hasLearningOrg == null && fallbackMatches && !!agencyStore.currentAgency?.hasLearningOrg)
+    hasLearningOrg: opt?.hasLearningOrg === true || (opt?.hasLearningOrg == null && fallbackMatches && !!agencyStore.currentAgency?.hasLearningOrg),
+    medicalBillingEnabled: opt?.medicalBillingEnabled === true
+      || (fallbackMatches && isMedicalBillingEnabled(agencyStore.currentAgency?.feature_flags))
   };
 });
+
+const applySelectedBookingAgency = (agencyId) => {
+  const id = Number(agencyId || 0);
+  if (!id) return;
+  selectedActionAgencyId.value = id;
+  if (!activeScheduleAgencyIdSet.value.has(id)) {
+    activeScheduleAgencyIds.value = [...(activeScheduleAgencyIds.value || []), id];
+  }
+  const fromOptions = (bookingAgencyOptions.value || []).find((row) => Number(row?.id) === id);
+  const fromSelf = (selfScheduleAgencyOptions.value || []).find((row) => Number(row?.id) === id);
+  const fromStore = (agencyStore.userAgencies || []).find((row) => Number(row?.id) === id)
+    || (agencyStore.agencies || []).find((row) => Number(row?.id) === id)
+    || (Number(agencyStore.currentAgency?.id) === id ? agencyStore.currentAgency : null);
+  const agency = fromStore || (fromSelf
+    ? {
+      id: fromSelf.id,
+      name: fromSelf.name,
+      hasClinicalOrg: fromSelf.hasClinicalOrg,
+      hasLearningOrg: fromSelf.hasLearningOrg,
+      feature_flags: fromSelf.featureFlags
+    }
+    : null) || (fromOptions
+    ? {
+      id: fromOptions.id,
+      name: fromOptions.label,
+      hasClinicalOrg: fromOptions.hasClinicalOrg,
+      hasLearningOrg: fromOptions.hasLearningOrg,
+      feature_flags: fromOptions.medicalBillingEnabled ? { medicalBillingEnabled: true } : null
+    }
+    : null);
+  if (agency) agencyStore.setCurrentAgency(agency);
+  if (showRequestModal.value && showClinicalBookingFields.value) {
+    void loadBookingMetadataForProvider();
+  }
+  if (showRequestModal.value && String(requestType.value || '') === 'individual_session') {
+    void loadVirtualSessionClients();
+  }
+};
+
+const onScheduleOrganizationChange = (event) => {
+  const raw = event?.target?.value;
+  const id = Number(raw || 0);
+  if (!id) {
+    selectAllScheduleAgencies();
+    return;
+  }
+  activeScheduleAgencyIds.value = [id];
+  applySelectedBookingAgency(id);
+};
+
+const onBookingAgencyChange = () => {
+  applySelectedBookingAgency(selectedActionAgencyId.value);
+};
 
 // NOTE: actionAgencyOptions is declared later (after officeLocations / requestType / modalContext)
 // to avoid TDZ crashes during setup when watchers evaluate the computed.
@@ -3715,6 +5580,35 @@ const effectiveAgencyFeatureFlags = computed(() => {
 const activeScheduleAgencyIdSet = computed(
   () => new Set((activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0))
 );
+
+const scheduleOrgScopeAll = computed(() => {
+  const allIds = (agencyFilterOptions.value || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0);
+  if (!allIds.length) return true;
+  return allIds.every((id) => activeScheduleAgencyIdSet.value.has(id));
+});
+
+const scheduleOrgScopeValue = computed(() => {
+  if (scheduleOrgScopeAll.value) return 0;
+  const active = (activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0);
+  return active.length === 1 ? active[0] : 0;
+});
+
+const scheduleOrgSelectOptions = computed(() => {
+  const byId = new Map();
+  for (const row of agencyFilterOptions.value || []) {
+    if (row?.id) byId.set(Number(row.id), row);
+  }
+  for (const row of bookingAgencyOptions.value || []) {
+    if (row?.id && !byId.has(Number(row.id))) byId.set(Number(row.id), row);
+  }
+  return Array.from(byId.values()).sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
+});
+
+const colorBlocksByTenant = computed(() => activeScheduleAgencyIdSet.value.size > 1);
+
+const activeScheduleAgencyLegend = computed(() => (
+  (agencyFilterOptions.value || []).filter((row) => activeScheduleAgencyIdSet.value.has(Number(row?.id || 0)))
+));
 
 const effectiveAgencyIds = computed(() => {
   if (props.mode === 'self' && agencyFilterOptions.value.length) {
@@ -3724,6 +5618,15 @@ const effectiveAgencyIds = computed(() => {
   }
   return propAgencyIds.value;
 });
+
+watch([showPeerBusyOverlay, peerBusySelectedIds, peerBusyDetailLevel, weekStart, effectiveAgencyIds], () => {
+  if (showPeerBusyOverlay.value) void loadPeerBusySummaries();
+}, { deep: true });
+
+watch(effectiveAgencyIds, () => {
+  if (!showPeerBusyOverlay.value) return;
+  void loadPeerBusyCandidates();
+}, { deep: true });
 
 const effectiveAgencyId = computed(() => {
   const selected = Number(selectedActionAgencyId.value || 0);
@@ -3748,10 +5651,193 @@ const toggleScheduleAgencyFilter = (agencyId) => {
   }
   activeScheduleAgencyIds.value = Array.from(next.values());
 };
+
+const mergeDiscoveredScheduleAgencies = (agencyIds = []) => {
+  const ids = Array.from(new Set((agencyIds || []).map((n) => Number(n || 0)).filter((n) => n > 0)));
+  if (!ids.length) return;
+  const existing = new Set((selfScheduleAgencyOptions.value || []).map((row) => Number(row?.id || 0)));
+  const additions = [];
+  for (const id of ids) {
+    if (existing.has(id)) continue;
+    const fromBooking = (bookingAgencyOptions.value || []).find((row) => Number(row?.id || 0) === id);
+    const fromStore = (agencyStore.agencies || []).find((row) => Number(row?.id || 0) === id)
+      || (agencyStore.userAgencies || []).find((row) => Number(row?.id || 0) === id)
+      || (Number(agencyStore.currentAgency?.id || 0) === id ? agencyStore.currentAgency : null);
+    const source = fromBooking || fromStore;
+    additions.push({
+      id,
+      name: String(source?.label || source?.name || agencyLabel(id) || `Agency ${id}`).trim(),
+      organization_type: source?.organizationType || source?.organization_type || 'agency',
+      hasClinicalOrg: !!source?.hasClinicalOrg,
+      hasLearningOrg: !!source?.hasLearningOrg,
+      medicalBillingEnabled: source?.medicalBillingEnabled === true
+        || isMedicalBillingEnabled(source?.featureFlags || source?.feature_flags),
+      featureFlags: source?.featureFlags || source?.feature_flags || null
+    });
+    existing.add(id);
+    void agencyStore.hydrateAgencyById?.(id)?.then((full) => {
+      const iconId = full?.icon_id ?? full?.iconId;
+      if (iconId) void brandingStore.prefetchIconIds?.([iconId]);
+    });
+  }
+  if (additions.length) {
+    selfScheduleAgencyOptions.value = [...(selfScheduleAgencyOptions.value || []), ...additions];
+  }
+  // Keep All selected by default when new tenants appear on the calendar.
+  if (scheduleOrgScopeAll.value || !activeScheduleAgencyIds.value.length) {
+    activeScheduleAgencyIds.value = Array.from(existing.values());
+  }
+};
 const canManageOffices = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
 });
+
+/** Staff/admin/platform (and supervisors for supervisees) can pick who a booking is for. */
+const canSelectBookingProvider = computed(() => canManageOffices.value || isSupervisor(authStore.user));
+
+const bookingTargetUserId = ref(0);
+const bookingProvidersRaw = ref([]);
+const bookingProvidersLoading = ref(false);
+
+const scheduleActorUserId = computed(() => {
+  const selected = Number(bookingTargetUserId.value || 0);
+  if (selected > 0) return selected;
+  return Number(props.userId || authStore.user?.id || 0) || 0;
+});
+
+const bookingProviderPickerOptions = computed(() => {
+  const me = Number(authStore.user?.id || 0);
+  const aid = Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0);
+  const rows = Array.isArray(bookingProvidersRaw.value) ? bookingProvidersRaw.value : [];
+  const mapped = rows
+    .map((u) => {
+      const id = Number(u?.id || 0);
+      if (!id) return null;
+      const agencyIds = String(u?.agency_ids ?? u?.agencyIds ?? '')
+        .split(',')
+        .map((x) => Number(String(x).trim()))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      const role = String(u.role || u.user_role || '').trim().replace(/_/g, ' ');
+      return {
+        id,
+        first_name: String(u.first_name || u.firstName || '').trim(),
+        last_name: String(u.last_name || u.lastName || '').trim(),
+        email: String(u.email || '').trim(),
+        role,
+        photoUrl: String(u.profile_photo_url || u.profilePhotoUrl || '').trim() || '',
+        agencyIds
+      };
+    })
+    .filter(Boolean);
+  const filtered = aid
+    ? mapped.filter((u) => !u.agencyIds.length || u.agencyIds.includes(aid) || u.id === me || u.id === Number(props.userId || 0))
+    : mapped;
+  // Always include current actor + selected target even if directory is still loading.
+  const ensure = (id, fallback = null) => {
+    const n = Number(id || 0);
+    if (!n || filtered.some((u) => u.id === n)) return;
+    const fromRaw = mapped.find((u) => u.id === n);
+    if (fromRaw) filtered.unshift(fromRaw);
+    else if (fallback) filtered.unshift(fallback);
+    else if (n === me) {
+      filtered.unshift({
+        id: me,
+        first_name: String(authStore.user?.first_name || authStore.user?.firstName || 'Me').trim(),
+        last_name: String(authStore.user?.last_name || authStore.user?.lastName || '').trim(),
+        email: String(authStore.user?.email || '').trim(),
+        role: String(authStore.user?.role || '').replace(/_/g, ' '),
+        photoUrl: String(authStore.user?.profile_photo_url || authStore.user?.profilePhotoUrl || '').trim() || '',
+        agencyIds: []
+      });
+    } else {
+      filtered.unshift({
+        id: n, first_name: 'Provider', last_name: String(n), email: '', role: '', photoUrl: '', agencyIds: []
+      });
+    }
+  };
+  ensure(props.userId);
+  ensure(bookingTargetUserId.value);
+  ensure(me);
+  return filtered.map(({ id, first_name, last_name, email, role, photoUrl }) => ({
+    id, first_name, last_name, email, role, photoUrl
+  }));
+});
+
+const assignedProviderFace = computed(() => {
+  const id = Number(
+    bookingTargetUserId.value
+    || modalContext.value?.assignedProviderId
+    || scheduleActorUserId.value
+    || 0
+  );
+  if (!id) return null;
+  return bookingProviderPickerOptions.value.find((u) => Number(u.id) === id) || null;
+});
+
+const bookingTargetUserLabel = computed(() => {
+  const id = Number(bookingTargetUserId.value || scheduleActorUserId.value || props.userId || 0);
+  const opt = bookingProviderPickerOptions.value.find((u) => Number(u.id) === id);
+  if (opt) {
+    const ln = String(opt.last_name || '').trim();
+    const fn = String(opt.first_name || '').trim();
+    if (ln && fn) return `${ln}, ${fn}`;
+    const name = `${fn} ${ln}`.trim();
+    return name || opt.email || `User ${id}`;
+  }
+  if (id && id === Number(authStore.user?.id || 0)) {
+    const meLn = String(authStore.user?.last_name || authStore.user?.lastName || '').trim();
+    const meFn = String(authStore.user?.first_name || authStore.user?.firstName || '').trim();
+    if (meLn && meFn) return `${meLn}, ${meFn}`;
+    return 'Me';
+  }
+  return id ? `User ${id}` : '—';
+});
+
+const headerTenantOptions = computed(() => (bookingAgencyOptions.value || []).slice());
+
+const requestedProviderPayload = () => {
+  const pid = Number(scheduleActorUserId.value || 0);
+  const me = Number(authStore.user?.id || 0);
+  if (!pid) return {};
+  if (canSelectBookingProvider.value || isAdminMode.value || pid !== me) {
+    return { requestedProviderId: pid };
+  }
+  return {};
+};
+
+const loadBookingProviderDirectory = async () => {
+  if (!canSelectBookingProvider.value) {
+    bookingProvidersRaw.value = [];
+    return;
+  }
+  try {
+    bookingProvidersLoading.value = true;
+    const resp = await api.get('/users', { params: { _t: Date.now() }, skipGlobalLoading: true });
+    bookingProvidersRaw.value = Array.isArray(resp?.data) ? resp.data : [];
+  } catch {
+    bookingProvidersRaw.value = [];
+  } finally {
+    bookingProvidersLoading.value = false;
+  }
+};
+
+const setBookingTargetUser = (userId) => {
+  const id = Number(userId || 0);
+  if (!id) return;
+  const prev = Number(bookingTargetUserId.value || 0);
+  bookingTargetUserId.value = id;
+  if (id !== prev) {
+    emit('change-schedule-user', id);
+  }
+  if (showRequestModal.value && String(requestType.value || '') === 'individual_session') {
+    void loadVirtualSessionClients();
+  }
+  if (showRequestModal.value && showClinicalBookingFields.value) {
+    void loadBookingMetadataForProvider();
+  }
+};
+
 const officeRequestsApproveLink = computed(() => {
   const orgSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
   const path = orgSlug ? `/${orgSlug}/admin/availability-intake` : '/admin/availability-intake';
@@ -3805,6 +5891,27 @@ const googleBusyDisabledHint = ref('');
 const autoDisabledGoogleBusy = ref(false);
 const isGoogleInvalidGrant = (msg) => String(msg || '').toLowerCase().includes('invalid_grant');
 
+const filterSummaryByActiveAgencies = (data) => {
+  if (!data || typeof data !== 'object') return data;
+  const active = activeScheduleAgencyIdSet.value;
+  // When All (or only one) is selected, keep everything from the all-agencies payload.
+  if (!active.size || scheduleOrgScopeAll.value) return data;
+  const keep = (row) => {
+    const aid = Number(row?.agencyId || row?._agencyId || 0);
+    return !aid || active.has(aid);
+  };
+  return {
+    ...data,
+    officeRequests: (data.officeRequests || []).filter(keep),
+    schoolRequests: (data.schoolRequests || []).filter(keep),
+    schoolAssignments: (data.schoolAssignments || []).filter(keep),
+    officeEvents: (data.officeEvents || []).filter(keep),
+    supervisionSessions: (data.supervisionSessions || []).filter(keep),
+    scheduleEvents: (data.scheduleEvents || []).filter(keep),
+    virtualWorkingHours: (data.virtualWorkingHours || []).filter(keep)
+  };
+};
+
 const load = async ({ forceRefresh = false } = {}) => {
   if (!props.userId) return;
   if (!effectiveAgencyIds.value.length) {
@@ -3813,18 +5920,21 @@ const load = async ({ forceRefresh = false } = {}) => {
       summary.value = null;
       return;
     }
-    summary.value = null;
-    error.value = props.mode === 'self'
-      ? 'No organizations are attached to this account.'
-      : 'Select an organization first.';
-    return;
+    // Self mode can still load cross-tenant bookings even with empty membership chips.
+    if (props.mode !== 'self') {
+      summary.value = null;
+      error.value = 'Select an organization first.';
+      return;
+    }
   }
 
   const ids = effectiveAgencyIds.value;
-  const cacheKey = `${props.userId}|${[...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
+  const useAllAgencies = props.mode === 'self';
+  const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
   const cached = forceRefresh ? null : getScheduleSummary(cacheKey);
   if (cached) {
-    summary.value = cached;
+    mergeDiscoveredScheduleAgencies(cached.scheduleAgencyIds || []);
+    summary.value = filterSummaryByActiveAgencies(cached);
     error.value = '';
     loading.value = false;
     return;
@@ -3834,7 +5944,59 @@ const load = async ({ forceRefresh = false } = {}) => {
     if (!cached) loading.value = true;
     error.value = '';
 
-    if (ids.length === 1) {
+    // Self / My Schedule: one cross-tenant request so every booking shows (and load stays fast).
+    if (useAllAgencies) {
+      const resp = await api.get(`/users/${props.userId}/schedule-summary`, {
+        params: {
+          weekStart: weekStart.value,
+          includeAllAgencies: 'true',
+          includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
+          includeGoogleEvents: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleEvents.value ? 'true' : 'false'),
+          ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
+            ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
+            : {}))
+        }
+      });
+      const data = resp.data || null;
+      if (data) {
+        const tagged = {
+          ...data,
+          scheduleEvents: (data.scheduleEvents || []).map((ev) => ({
+            ...ev,
+            _agencyId: Number(ev?.agencyId || 0) || null
+          })),
+          officeEvents: (data.officeEvents || []).map((ev) => ({
+            ...ev,
+            _agencyId: Number(ev?.agencyId || 0) || null
+          })),
+          supervisionSessions: (data.supervisionSessions || []).map((ev) => ({
+            ...ev,
+            _agencyId: Number(ev?.agencyId || 0) || null
+          })),
+          schoolAssignments: (data.schoolAssignments || []).map((ev) => ({
+            ...ev,
+            _agencyId: Number(ev?.agencyId || 0) || null
+          })),
+          officeRequests: (data.officeRequests || []).map((ev) => ({
+            ...ev,
+            _agencyId: Number(ev?.agencyId || 0) || null
+          })),
+          schoolRequests: (data.schoolRequests || []).map((ev) => ({
+            ...ev,
+            _agencyId: Number(ev?.agencyId || 0) || null
+          })),
+          virtualWorkingHours: (data.virtualWorkingHours || []).map((row) => ({
+            ...row,
+            _agencyId: Number(row?.agencyId || 0) || null
+          }))
+        };
+        mergeDiscoveredScheduleAgencies(tagged.scheduleAgencyIds || []);
+        setScheduleSummary(cacheKey, tagged);
+        summary.value = filterSummaryByActiveAgencies(tagged);
+      } else {
+        summary.value = null;
+      }
+    } else if (ids.length === 1) {
       const resp = await api.get(`/users/${props.userId}/schedule-summary`, {
         params: {
           weekStart: weekStart.value,
@@ -3901,7 +6063,8 @@ const load = async ({ forceRefresh = false } = {}) => {
         schoolAssignments: [],
         officeEvents: [],
         supervisionSessions: [],
-        scheduleEvents: []
+        scheduleEvents: [],
+        virtualWorkingHours: []
       };
 
       // Union calendars available (per-user, but keep stable)
@@ -3946,6 +6109,12 @@ const load = async ({ forceRefresh = false } = {}) => {
           if (seenScheduleEventKeys.has(k)) continue;
           seenScheduleEventKeys.add(k);
           merged.scheduleEvents.push(e);
+        }
+        for (const row of (r.data?.virtualWorkingHours || []).map((x) => tag(x, aId))) {
+          const k = `vwh|${Number(row?.agencyId || aId || 0)}|${row?.dayOfWeek}|${row?.startTime}|${row?.endTime}|${row?.sessionType}`;
+          if (seenScheduleEventKeys.has(k)) continue;
+          seenScheduleEventKeys.add(k);
+          merged.virtualWorkingHours.push(row);
         }
       }
 
@@ -4017,8 +6186,28 @@ const deferredLoad = () => {
     }
   }, 150);
 };
-watch([() => props.userId, effectiveAgencyIds], deferredLoad, { immediate: true });
+watch(() => props.userId, deferredLoad, { immediate: true });
+// Admin/multi-user mode still reloads when the agency scope changes. Self mode uses one
+// includeAllAgencies payload and filters client-side (avoids N× slow schedule-summary calls).
+watch(effectiveAgencyIds, () => {
+  if (props.mode === 'self') return;
+  deferredLoad();
+}, { deep: true });
 watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalendarIds], deferredLoad, { deep: true });
+
+// Org chip toggles filter the already-loaded all-tenant payload (no refetch).
+watch(activeScheduleAgencyIds, () => {
+  if (props.mode !== 'self') return;
+  const cached = getScheduleSummary(
+    `${props.userId}|all|${weekStart.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`
+  );
+  if (cached) summary.value = filterSummaryByActiveAgencies(cached);
+}, { deep: true });
+
+// Once self agencies finish loading, kick the first all-tenant fetch if needed.
+watch(selfScheduleAgenciesLoaded, (loaded) => {
+  if (props.mode === 'self' && loaded) deferredLoad();
+});
 
 watch([() => props.mode, () => props.userId], () => {
   void loadSelfScheduleAgencies();
@@ -4427,9 +6616,22 @@ const shouldHideQuarterAgencyDot = (segmentClass, minute = 0) => {
 
 const scheduleEventShortLabel = (ev) => {
   const raw = String(ev?.title || '').trim() || 'Event';
+  const eventKind = String(ev?.kind || '').trim().toUpperCase();
+  let typePrefix = '';
+  if (colorBlocksByTenant.value) {
+    if (eventKind === 'TEAM_MEETING') typePrefix = 'Mtg';
+    else if (eventKind === 'HUDDLE') typePrefix = 'Huddle';
+    else if (eventKind === 'SCHEDULE_HOLD') typePrefix = 'Hold';
+    else if (eventKind === 'INDIRECT_SERVICES') typePrefix = 'Indirect';
+    else if (eventKind === 'PERSONAL_EVENT' && isClientSessionScheduleEvent(ev)) typePrefix = 'Session';
+    else if (eventKind === 'PERSONAL_EVENT') typePrefix = 'Personal';
+    else if (/virtual|session/i.test(raw)) typePrefix = 'Session';
+    else typePrefix = 'Event';
+  }
+  const labeled = typePrefix ? `${typePrefix} · ${raw}` : raw;
   const timing = quarterTimingFromRange(ev?.startAt, ev?.endAt);
-  const withTiming = showQuarterDetail.value && timing ? `${timing} ${raw}` : raw;
-  return withTiming.length > 22 ? `${withTiming.slice(0, 22)}…` : withTiming;
+  const withTiming = showQuarterDetail.value && timing ? `${timing} ${labeled}` : labeled;
+  return withTiming.length > 26 ? `${withTiming.slice(0, 26)}…` : withTiming;
 };
 
 const scheduleEventBlockTitle = (ev, dayName, hour) => {
@@ -4709,6 +6911,30 @@ const schoolAssignmentsInCell = (dayName, hour) => {
   });
 };
 
+const portalIntakeInCell = (dayName, hour, minute = 0) => {
+  const s = summary.value;
+  if (!s) return [];
+  const rows = Array.isArray(s.virtualWorkingHours) ? s.virtualWorkingHours : [];
+  if (!rows.length) return [];
+  const slotMinutes = showQuarterDetail.value ? 15 : 60;
+  const cellStart = (Number(hour) * 60) + Number(minute || 0);
+  const cellEnd = cellStart + slotMinutes;
+  const toMin = (t) => {
+    const m = String(t || '').match(/^(\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    return (Number(m[1]) * 60) + Number(m[2]);
+  };
+  return rows.filter((row) => {
+    if (String(row?.dayOfWeek || '') !== String(dayName || '')) return false;
+    const sessionType = String(row?.sessionType || '').toUpperCase();
+    if (!['INTAKE', 'BOTH'].includes(sessionType)) return false;
+    const startMin = toMin(String(row?.startTime || '').slice(0, 5));
+    const endMin = toMin(String(row?.endTime || '').slice(0, 5));
+    if (startMin == null || endMin == null) return false;
+    return endMin > cellStart && startMin < cellEnd;
+  });
+};
+
 const supervisionSessionsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
@@ -4882,34 +7108,92 @@ const cellBlocks = (dayName, hour, minute = 0) => {
   const singleDayFocused = visibleDays.value.length === 1;
   const perTypeInlineLimit = singleDayFocused ? Number.MAX_SAFE_INTEGER : 2;
 
-  // Office assignment state — one block per unique assignment (office is assigned to user, not agency)
+  // Office assignment blocks: All offices, one building, or Off.
   const selectedOfficeId = Number(selectedOfficeLocationId.value || 0);
-  const officeHits = selectedOfficeId > 0
-    ? officeEventsInCell(dayName, hour, minute).filter((e) => Number(e?.buildingId || 0) === selectedOfficeId)
-    : [];
-  const officeByAgency = new Map();
+  const officeHits = selectedOfficeId === OFFICE_SCOPE_OFF
+    ? []
+    : selectedOfficeId === OFFICE_SCOPE_ALL
+      ? officeEventsInCell(dayName, hour, minute)
+      : officeEventsInCell(dayName, hour, minute).filter((e) => Number(e?.buildingId || 0) === selectedOfficeId);
+  const officeByKey = new Map();
   for (const e of officeHits) {
     const aid = Number(e?._agencyId || 0) || null;
-    const key = aid || 'none';
-    if (!officeByAgency.has(key)) officeByAgency.set(key, []);
-    officeByAgency.get(key).push(e);
+    const bid = Number(e?.buildingId || 0) || 0;
+    const rid = Number(e?.roomId || 0) || 0;
+    const key = selectedOfficeId === OFFICE_SCOPE_ALL
+      ? `${aid || 'none'}|${bid}|${rid}`
+      : `${aid || 'none'}`;
+    if (!officeByKey.has(key)) officeByKey.set(key, []);
+    officeByKey.get(key).push(e);
   }
-  for (const [, events] of officeByAgency) {
+  for (const [, events] of officeByKey) {
     const top = events.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0] || null;
     const agencyId = Number(top?._agencyId || 0) || null;
     const buildingId = top?.buildingId ? Number(top.buildingId) : null;
     const roomId = top?.roomId ? Number(top.roomId) : null;
+    const buildingPrefix = selectedOfficeId === OFFICE_SCOPE_ALL && buildingId
+      ? `${officeBuildingShortName(buildingId)} `
+      : '';
     const intakeSuffix = [
       top?.inPersonIntakeEnabled ? ' IP' : '',
       top?.virtualIntakeEnabled ? ' VI' : ''
     ].join('');
     const st = String(top?.slotState || '').toUpperCase();
+    const blockKeySuffix = `${agencyId || 'x'}-${buildingId || 0}-${roomId || 0}`;
+    const roomShort = shortOfficeLabel(top, 'Office');
+    const officeRoomLabel = `${buildingPrefix}${roomShort}${intakeSuffix}`.trim();
     if (st === 'ASSIGNED_BOOKED') {
-      blocks.push({ key: `office-booked-${agencyId || 'x'}`, kind: 'ob', shortLabel: shortOfficeLabel(top, 'Booked') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId, roomId });
+      const bookedLabel = colorBlocksByTenant.value
+        ? `Booked · ${roomShort}`
+        : roomShort || 'Booked';
+      blocks.push({
+        key: `office-booked-${blockKeySuffix}`,
+        kind: 'ob',
+        isOfficeBlock: true,
+        officeStatus: 'booked',
+        officeStatusLabel: 'Office reserved',
+        officeRoomLabel,
+        shortLabel: `${buildingPrefix}${bookedLabel}${intakeSuffix}`,
+        title: officeTitle(dayName, hour, top),
+        buildingId,
+        agencyId,
+        roomId
+      });
     } else if (st === 'ASSIGNED_TEMPORARY') {
-      blocks.push({ key: `office-temp-${agencyId || 'x'}`, kind: 'ot', shortLabel: shortOfficeLabel(top, 'Temp') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId, roomId });
+      const tempLabel = colorBlocksByTenant.value
+        ? `Temp · ${roomShort}`
+        : roomShort || 'Temp';
+      blocks.push({
+        key: `office-temp-${blockKeySuffix}`,
+        kind: 'ot',
+        isOfficeBlock: true,
+        officeStatus: 'temp',
+        officeStatusLabel: 'Temp hold',
+        officeRoomLabel,
+        shortLabel: `${buildingPrefix}${tempLabel}${intakeSuffix}`,
+        title: officeTitle(dayName, hour, top),
+        buildingId,
+        agencyId,
+        roomId
+      });
     } else if (st === 'ASSIGNED_AVAILABLE') {
-      blocks.push({ key: `office-assigned-${agencyId || 'x'}`, kind: 'oa', shortLabel: shortOfficeLabel(top, 'Office') + intakeSuffix, title: officeTitle(dayName, hour, top), buildingId, agencyId, roomId });
+      const assignedLabel = colorBlocksByTenant.value
+        ? `Assigned · ${roomShort}`
+        : roomShort || 'Office';
+      blocks.push({
+        key: `office-assigned-${blockKeySuffix}`,
+        kind: 'oa',
+        isOfficeBlock: true,
+        officeStatus: 'reserved',
+        officeStatusLabel: 'Office reserved',
+        officeEmpty: true,
+        officeRoomLabel,
+        shortLabel: `${buildingPrefix}${assignedLabel}${intakeSuffix}`,
+        title: officeTitle(dayName, hour, top),
+        buildingId,
+        agencyId,
+        roomId
+      });
     }
   }
   const top = officeHits.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0] || null;
@@ -4918,6 +7202,32 @@ const cellBlocks = (dayName, hour, minute = 0) => {
   }
   if (top?.virtualIntakeEnabled) {
     blocks.push({ key: 'intake-vi', kind: 'intake-vi', shortLabel: 'VI', title: `Virtual intake enabled — ${officeTitle(dayName, hour, top)}`, agencyId: Number(top?._agencyId || 0) || null, buildingId: top?.buildingId ? Number(top.buildingId) : null, roomId: top?.roomId ? Number(top.roomId) : null });
+  }
+
+  // Portal intake ("Open for new clients") — virtual working hours with INTAKE/BOTH
+  const portalHits = portalIntakeInCell(dayName, hour, minute);
+  const portalByAgency = new Map();
+  for (const row of portalHits) {
+    const aid = Number(row?.agencyId || row?._agencyId || 0) || null;
+    const key = aid || 'none';
+    if (!portalByAgency.has(key)) portalByAgency.set(key, row);
+  }
+  for (const [aid, row] of portalByAgency) {
+    const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
+    const label = agencyId && colorBlocksByTenant.value
+      ? `Open · ${agencyLabel(agencyId) || 'Portal'}`
+      : 'Open';
+    blocks.push({
+      key: `portal-${agencyId || 'x'}`,
+      kind: 'portal',
+      shortLabel: singleDayFocused
+        ? (label.length > 22 ? `${label.slice(0, 22)}…` : label)
+        : (agencyId ? 'Open' : 'Open'),
+      title: `Open for new clients${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${String(row?.startTime || '').slice(0, 5)}–${String(row?.endTime || '').slice(0, 5)}`,
+      agencyId,
+      startTime: row?.startTime || null,
+      endTime: row?.endTime || null
+    });
   }
 
   // Assigned school — one block per agency
@@ -5056,6 +7366,48 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     });
   }
 
+  if (showPeerBusyOverlay.value) {
+    const ws = summary.value?.weekStart || weekStart.value;
+    for (const uid of peerBusySelectedIds.value || []) {
+      const typedHits = peerTypedBlocksInCell(uid, dayName, hour, ws, minute);
+      if (!typedHits.length) continue;
+      const top = typedHits[0];
+      const activityType = String(top?.activityType || 'busy').toLowerCase();
+      const typeShort = peerActivityShortLabel(activityType);
+      const officeBit = String(top?.officeLabel || '').trim();
+      const range = busyRangeForCell(typedHits, dayName, hour, ws, minute);
+      const segmentClass = range ? quarterSegmentForRange(dayName, hour, minute, range.startAt, range.endAt) : 'single';
+      const showLabel = shouldShowQuarterBlockLabel(segmentClass, minute);
+      const labelCore = activityType === 'session' && officeBit
+        ? `${typeShort} · ${officeBit.length > 14 ? `${officeBit.slice(0, 14)}…` : officeBit}`
+        : typeShort;
+      const peerName = peerLabelById(uid);
+      const titleLines = typedHits.map((h) => String(h?.title || typeShort).trim()).filter(Boolean);
+      const title = `${peerName} — ${titleLines.join(' · ')}${typedHits.length > 1 ? ` (+${typedHits.length - 1})` : ''}`;
+      const agencyId = Number(top?.agencyId || 0) || null;
+      const peerRow = (peerBusyCandidates.value || []).find((p) => Number(p.id) === Number(uid));
+      blocks.push({
+        key: `peerbusy-${uid}-${activityType}`,
+        kind: 'peerbusy',
+        peerActivityType: activityType,
+        peerUserId: Number(uid),
+        peerPhotoUrl: String(peerRow?.profilePhotoUrl || '').trim() || null,
+        peerInteractive: !!canManagePeerCalendar.value,
+        shortLabel: showLabel ? labelCore : '',
+        title,
+        agencyId,
+        hideAgencyDot: shouldHideQuarterAgencyDot(segmentClass, minute),
+        eventId: Number(top?.eventId || top?.id || 0) || null,
+        eventKind: String(top?.eventKind || '').toUpperCase() || null,
+        buildingId: Number(top?.buildingId || 0) || null,
+        roomId: Number(top?.roomId || 0) || null,
+        segmentClass,
+        peerOnly: !canManagePeerCalendar.value,
+        peerActivities: typedHits
+      });
+    }
+  }
+
   // Week grid: fold pending requests into a primary assigned block (school/office)
   // so the same hour isn't split into two competing columns (e.g. Hogwarts | Req).
   const PRIMARY_OVERLAP_KINDS = new Set(['school', 'ob', 'ot', 'oa']);
@@ -5138,6 +7490,13 @@ const clearSelectedActionSlots = () => {
 
 // ---- In-grid request creation (self mode) ----
 const showRequestModal = ref(false);
+// Keep modal “Schedule for” in sync when parent changes the viewed user (declared after showRequestModal to avoid TDZ).
+watch(() => props.userId, (uid) => {
+  const id = Number(uid || 0);
+  if (id > 0 && showRequestModal.value) {
+    bookingTargetUserId.value = id;
+  }
+});
 const showSlotInfoModal = ref(false);
 const slotInfoModalData = ref(null);
 const modalDay = ref('Monday');
@@ -5155,8 +7514,7 @@ const modalError = ref('');
 const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'agency_meeting', 'huddle']);
 const AGENCY_OPTIONAL_ACTIONS = new Set([
   'office',
-  'individual_session',
-  'group_session',
+  // individual_session / group_session require an agency (clients, medical billing, video room)
   'unbook_slot',
   'forfeit_slot',
   'personal_event',
@@ -5167,6 +7525,7 @@ const AGENCY_OPTIONAL_ACTIONS = new Set([
   'admin_assign',
   'extend_assignment'
 ]);
+const SESSION_BOOKING_ACTIONS = new Set(['individual_session', 'group_session', 'portal_intake']);
 
 const officeSlotStatusLabel = (rawState) => {
   const st = String(rawState || '').trim().toUpperCase();
@@ -5187,6 +7546,8 @@ const SCHEDULE_HOLD_REASON_OPTIONS = [
   { code: 'CUSTOM', label: 'Custom reason' }
 ];
 const scheduleEventTitle = ref('');
+/** 0 = none / all orgs (agency_id null); >0 = specific tenant */
+const scheduleEventAgencyScope = ref(0);
 const scheduleEventAllDay = ref(false);
 const scheduleEventPrivate = ref(false);
 const scheduleEventRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | MONTHLY (meeting/huddle only)
@@ -5213,11 +7574,15 @@ const bookingMetadataError = ref('');
 const bookingMetadata = ref({
   appointmentTypes: [],
   appointmentSubtypes: [],
-  serviceCodes: []
+  serviceCodes: [],
+  serviceLocations: []
 });
 const bookingAppointmentType = ref(DEFAULT_BOOKING_TYPE);
 const bookingAppointmentSubtype = ref('');
 const bookingServiceCode = ref('');
+const bookingServiceLocationId = ref(0);
+const bookingUnitPreview = ref('');
+let bookingUnitPreviewTimer = null;
 const bookingModality = ref('');
 /** When booking a virtual individual session with an office selected, optionally also submit an office request. */
 const sessionAlsoRequestOffice = ref(false);
@@ -5233,15 +7598,19 @@ const virtualSessionClientsLoading = ref(false);
 const virtualSessionShareUrl = ref('');
 const virtualSessionShareCopied = ref(false);
 const virtualSessionScheduledSessionKey = ref('');
+const virtualSessionGoogleWarning = ref('');
 const modalContext = ref({
   officeEventId: null,
   officeLocationId: null,
   roomId: null,
   assignedProviderId: null,
   assignedFrequency: null,
+  bookedFrequency: null,
   frequencyLabel: null,
   assignmentAvailableSinceDate: null,
   assignmentTemporaryUntilDate: null,
+  bookingActiveUntilDate: null,
+  bookingStartDate: null,
   slotState: '',
   virtualIntakeEnabled: false,
   inPersonIntakeEnabled: false
@@ -5280,6 +7649,11 @@ const scheduleEventTitlePlaceholder = computed(() => {
   return 'Personal event';
 });
 const scheduleEventCanSubmit = computed(() => String(scheduleEventTitle.value || '').trim().length > 0);
+const isScheduleEventTitleMissing = computed(() => (
+  isScheduleEventRequestType.value
+  && !!String(requestType.value || '').trim()
+  && !scheduleEventCanSubmit.value
+));
 const disableEndTimeInput = computed(() => {
   if (requestType.value === 'intake_virtual_on' || requestType.value === 'intake_virtual_off' || requestType.value === 'intake_inperson_on' || requestType.value === 'intake_inperson_off') return true;
   if (isScheduleEventRequestType.value && scheduleEventAllDay.value) return true;
@@ -5309,7 +7683,8 @@ const availableQuickActions = computed(() => {
   const schoolWindowOk = canUseSchool(modalDay.value, modalHour.value, modalEndHour.value);
   const supervisionOptionVisible = canScheduleSupervisionFromGrid.value;
   // Admins with office-management rights can still see all office actions when viewing another user's schedule.
-  const supervisionOnlyMode = isViewingOtherUserSchedule.value && !canManageOffices.value;
+  // Privileged book-on-behalf + supervisors (supervisees enforced by API) keep full actions.
+  const supervisionOnlyMode = isViewingOtherUserSchedule.value && !canSelectBookingProvider.value;
   const hasClinicalOrLearningOrg = effectiveAgencyFeatureFlags.value.hasClinicalOrg || effectiveAgencyFeatureFlags.value.hasLearningOrg;
   const actorId = Number(authStore.user?.id || 0);
   const assignedId = Number(ctx.assignedProviderId || 0);
@@ -5325,13 +7700,14 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'individual_session',
-      label: 'Individual session',
+      label: 'Book Individual Session',
       description: hasOffice
-        ? 'Book a session — Virtual or In-person'
-        : 'Book a virtual session now (office optional)',
+        ? 'Schedule a session for a client — Virtual or In-person'
+        : 'Schedule a virtual session now (office optional)',
       disabledReason: '',
       visible: !supervisionOnlyMode,
-      tone: 'sky'
+      tone: 'violet',
+      chooserPriority: 10
     },
     {
       id: 'group_session',
@@ -5339,15 +7715,20 @@ const availableQuickActions = computed(() => {
       description: hasOffice ? 'Book group session and office together' : 'Select office first',
       disabledReason: hasOffice ? '' : 'Select office',
       visible: !supervisionOnlyMode && hasClinicalOrLearningOrg,
-      tone: 'violet'
+      tone: 'violet',
+      chooserPriority: 40
     },
     {
       id: 'portal_intake',
-      label: 'Open for new clients',
-      description: 'Portal intake hours — not tied to an office',
+      label: 'Open Slot for Booking',
+      description: 'Publish open hours so new clients can book this time',
       disabledReason: '',
-      visible: !supervisionOnlyMode && !isAdminMode.value,
-      tone: 'cyan'
+      visible: !supervisionOnlyMode && (
+        !isAdminMode.value
+        || String(modalContext.value?.slotState || '').toUpperCase() === 'ASSIGNED_AVAILABLE'
+      ),
+      tone: 'teal',
+      chooserPriority: 20
     },
     {
       id: 'office',
@@ -5371,29 +7752,34 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'admin_assign',
-      label: booked ? 'Edit / reassign slot' : 'Assign slot (admin)',
-      description: booked
-        ? 'Update this booking — change duration, provider, or frequency'
+      // Occupied slots: edit date/time/provider in the top bar. Keep this for open assign / holds.
+      label: (booked || hasAssignedOffice) ? 'Advanced assign / hold' : 'Assign slot (admin)',
+      description: (booked || hasAssignedOffice)
+        ? 'Company hold, recurrence, or advanced reassignment options'
         : 'Directly assign this slot to a person or hold it — no request needed',
       disabledReason: '',
       visible: !supervisionOnlyMode && canManageOffices.value,
-      tone: booked ? 'amber' : 'red'
+      tone: 'amber',
+      // Push occupied-slot advanced assign into More; keep open-slot assign primary.
+      chooserPriority: (booked || hasAssignedOffice) ? 90 : 15
     },
     {
       id: 'intake_virtual_on',
-      label: 'Enable virtual intake',
+      label: 'Enable Virtual Intake',
       description: 'Auto-add virtual work hours if missing',
       disabledReason: hasEvent && !ctx.virtualIntakeEnabled ? '' : 'Needs assigned office slot',
       visible: hasEvent && !ctx.virtualIntakeEnabled,
-      tone: 'cyan'
+      tone: 'cyan',
+      chooserPriority: 25
     },
     {
       id: 'intake_inperson_on',
-      label: 'Enable in-person intake',
-      description: 'Only on assigned office slots',
+      label: 'Enable In-Person Intake',
+      description: 'Only available on assigned office slots',
       disabledReason: hasEvent && hasAssignedOffice && !ctx.inPersonIntakeEnabled ? '' : 'Needs assigned office slot',
       visible: hasEvent && hasAssignedOffice && !ctx.inPersonIntakeEnabled,
-      tone: 'green'
+      tone: 'green',
+      chooserPriority: 26
     },
     {
       id: 'intake_virtual_off',
@@ -5421,24 +7807,26 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'supervision',
-      label: 'Supervision',
+      label: 'Schedule Supervision',
       description: supervisionOptionVisible
-        ? (supervisionProvidersLoading.value ? 'Loading participants...' : 'Schedule supervision with your supervisees')
+        ? (supervisionProvidersLoading.value ? 'Loading participants...' : 'Book supervision with your supervisees')
         : 'Supervisors schedule sessions; supervisees join from My Supervision',
       disabledReason: !supervisionOptionVisible
         ? 'Available when you have supervisor privileges'
         : (supervisionProvidersLoading.value ? 'Loading providers' : ''),
       // Always list the action so non-supervisors see why it is unavailable (not a missing feature).
       visible: !supervisionOnlyMode || supervisionOptionVisible,
-      tone: 'violet'
+      tone: 'indigo',
+      chooserPriority: 35
     },
     {
       id: 'agency_meeting',
-      label: 'Agency meeting',
-      description: 'Schedule a meeting with one or more agency participants',
+      label: 'Schedule Meeting',
+      description: 'Book a meeting with one or more participants',
       disabledReason: '',
       visible: !supervisionOnlyMode,
-      tone: 'teal'
+      tone: 'blue',
+      chooserPriority: 18
     },
     {
       id: 'huddle',
@@ -5483,29 +7871,15 @@ const availableQuickActions = computed(() => {
       tone: 'amber'
     },
     {
-      id: 'booked_note',
-      label: 'Write note',
-      description: 'Open Note Aid with booking context',
-      disabledReason: booked ? '' : 'Needs booked office slot',
-      visible: !supervisionOnlyMode && booked,
-      tone: 'amber'
-    },
-    {
       id: 'start_video',
-      label: 'Start video session',
+      label: 'Start Video Session',
       description: 'Open in-app telehealth video (client optional — share invite link later)',
       disabledReason: booked && Number(ctx.officeEventId || 0) > 0 ? '' : 'Needs booked office slot',
       visible: !supervisionOnlyMode && booked,
-      tone: 'emerald'
+      tone: 'emerald',
+      chooserPriority: 12
     },
-    {
-      id: 'booked_record',
-      label: 'Record session',
-      description: 'Open Note Aid record-session mode',
-      disabledReason: booked ? '' : 'Needs booked office slot',
-      visible: !supervisionOnlyMode && booked,
-      tone: 'rose'
-    },
+    // Notes are session-affiliated: open the booked session (start_video / session edit) — not from empty office.
     {
       id: 'unbook_slot',
       label: 'Unbook (keep assigned)',
@@ -5517,18 +7891,20 @@ const availableQuickActions = computed(() => {
     {
       id: 'forfeit_slot',
       label: 'Forfeit this slot',
-      description: 'Release this assigned/booked slot to others',
+      description: 'Give up your assignment so someone else can use this office time',
       disabledReason: hasEvent ? '' : 'Needs assigned/booked slot',
       visible: !supervisionOnlyMode && (hasAssignedOffice || booked),
-      tone: 'red'
+      tone: 'red',
+      chooserPriority: 70
     },
     {
       id: 'cancel_booking',
       label: 'Cancel booking',
-      description: 'Remove this booking from the schedule',
+      description: 'Admin: delete this booking from the calendar (does not forfeit a standing assignment)',
       disabledReason: '',
       visible: !supervisionOnlyMode && canManageOffices.value && booked,
-      tone: 'red'
+      tone: 'red',
+      chooserPriority: 72
     },
     {
       id: 'extend_assignment',
@@ -5566,14 +7942,16 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
   'office_request_only',
   'admin_assign',
   'unbook_slot',
-  'booked_note',
   'start_video',
-  'booked_record',
-  'cancel_booking'
+  'cancel_booking',
+  'individual_session',
+  'agency_meeting',
+  'portal_intake',
+  'group_session'
 ]);
 
+/** Clicking an office block on the week grid — curated, no note writing. */
 const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
-  'slot_details',
   'supervision',
   'forfeit_slot',
   'extend_assignment',
@@ -5584,32 +7962,336 @@ const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
   'office',
   'individual_session',
   'group_session',
+  'agency_meeting',
+  'portal_intake',
   'admin_assign',
   'unbook_slot',
-  'booked_note',
   'start_video',
-  'booked_record',
   'cancel_booking'
 ]);
 
+/** Empty reserved office (ASSIGNED_AVAILABLE): session, meeting, open booking, virtual set. */
+const EMPTY_OFFICE_ACTIONS = new Set([
+  'individual_session',
+  'group_session',
+  'agency_meeting',
+  'portal_intake',
+  'office',
+  'intake_virtual_on',
+  'intake_virtual_off',
+  'intake_inperson_on',
+  'intake_inperson_off',
+  'admin_assign',
+  'supervision',
+  'forfeit_slot',
+  'extend_assignment'
+]);
+
+const EMPTY_OFFICE_PRIMARY_IDS = [
+  'individual_session',
+  'agency_meeting',
+  'portal_intake',
+  'office',
+  'intake_virtual_on',
+  'intake_inperson_on',
+  'supervision'
+];
+
 const CLUB_SCHEDULING_ACTIONS = new Set(['agency_meeting', 'huddle']);
+
+const SLOT_ACTION_PREFS_PREFIX = 'schedule.slotActionPrefs.v1:';
+const slotActionPrefs = ref({ order: [], usage: {} });
+const showMoreSlotActions = ref(false);
+const slotActionReorderMode = ref(false);
+const slotActionDragId = ref('');
+
+const loadSlotActionPrefs = () => {
+  const uid = Number(authStore.user?.id || 0);
+  try {
+    const raw = localStorage.getItem(`${SLOT_ACTION_PREFS_PREFIX}${uid || 'anon'}`);
+    if (!raw) {
+      slotActionPrefs.value = { order: [], usage: {} };
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    slotActionPrefs.value = {
+      order: Array.isArray(parsed?.order) ? parsed.order.map(String) : [],
+      usage: parsed?.usage && typeof parsed.usage === 'object' ? parsed.usage : {}
+    };
+  } catch {
+    slotActionPrefs.value = { order: [], usage: {} };
+  }
+};
+
+const persistSlotActionPrefs = () => {
+  const uid = Number(authStore.user?.id || 0);
+  try {
+    localStorage.setItem(
+      `${SLOT_ACTION_PREFS_PREFIX}${uid || 'anon'}`,
+      JSON.stringify(slotActionPrefs.value || { order: [], usage: {} })
+    );
+  } catch { /* ignore */ }
+};
+
+const recordSlotActionUsage = (actionId) => {
+  const id = String(actionId || '').trim();
+  if (!id) return;
+  const usage = { ...(slotActionPrefs.value.usage || {}) };
+  usage[id] = Number(usage[id] || 0) + 1;
+  slotActionPrefs.value = { ...slotActionPrefs.value, usage };
+  persistSlotActionPrefs();
+};
+
+const sortQuickActionsSmart = (rows) => {
+  const order = Array.isArray(slotActionPrefs.value.order) ? slotActionPrefs.value.order : [];
+  const usage = slotActionPrefs.value.usage || {};
+  const orderIndex = new Map(order.map((id, i) => [String(id), i]));
+  return [...rows].sort((a, b) => {
+    const aid = String(a?.id || '');
+    const bid = String(b?.id || '');
+    const ao = orderIndex.has(aid) ? orderIndex.get(aid) : 1000;
+    const bo = orderIndex.has(bid) ? orderIndex.get(bid) : 1000;
+    if (ao !== bo) return ao - bo;
+    const au = Number(usage[aid] || 0);
+    const bu = Number(usage[bid] || 0);
+    if (bu !== au) return bu - au;
+    return Number(a?.chooserPriority || 50) - Number(b?.chooserPriority || 50);
+  });
+};
+
 const visibleQuickActions = computed(() => {
   const rows = Array.isArray(availableQuickActions.value) ? availableQuickActions.value : [];
-  const filtered = rows.filter((row) => row?.visible !== false);
+  let filtered = rows.filter((row) => row?.visible !== false && row?.id !== 'booked_note' && row?.id !== 'booked_record');
   if (props.hideOfficeAndCalendarIntegration) {
-    return filtered.filter((row) => row?.id && CLUB_SCHEDULING_ACTIONS.has(row.id));
+    filtered = filtered.filter((row) => row?.id && CLUB_SCHEDULING_ACTIONS.has(row.id));
+  } else {
+    const state = String(modalContext.value?.slotState || '').toUpperCase();
+    const isEmptyOffice = modalActionSource.value === 'office_block' && state === 'ASSIGNED_AVAILABLE';
+    if (isEmptyOffice) {
+      filtered = filtered.filter((row) => row?.id && EMPTY_OFFICE_ACTIONS.has(row.id));
+    } else if (modalActionSource.value === 'office_block') {
+      filtered = filtered.filter((row) => row?.id && OFFICE_BLOCK_ONLY_ACTIONS.has(row.id));
+    } else if (viewMode.value === 'office_layout') {
+      filtered = filtered.filter((row) => row?.id && OFFICE_LAYOUT_ONLY_ACTIONS.has(row.id));
+    }
   }
-  if (modalActionSource.value === 'office_block') {
-    return filtered.filter((row) => row?.id && OFFICE_BLOCK_ONLY_ACTIONS.has(row.id));
-  }
-  if (viewMode.value === 'office_layout') {
-    return filtered.filter((row) => row?.id && OFFICE_LAYOUT_ONLY_ACTIONS.has(row.id));
-  }
-  return filtered;
+  return sortQuickActionsSmart(filtered);
 });
+
+const SLOT_ACTION_PRIMARY_COUNT = 7;
+const primaryQuickActions = computed(() => {
+  const state = String(modalContext.value?.slotState || '').toUpperCase();
+  const occupiedOffice = ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state);
+  // Date/time/provider edit lives in the top bar — keep Advanced assign in More for occupied slots.
+  const rows = (visibleQuickActions.value || []).filter((r) => !(occupiedOffice && r.id === 'admin_assign'));
+  const isEmptyOffice = modalActionSource.value === 'office_block' && state === 'ASSIGNED_AVAILABLE';
+  if (isEmptyOffice) {
+    const byId = new Map(rows.map((r) => [String(r.id), r]));
+    const preferred = EMPTY_OFFICE_PRIMARY_IDS.map((id) => byId.get(id)).filter(Boolean);
+    const preferredIds = new Set(preferred.map((r) => r.id));
+    const rest = rows.filter((r) => !preferredIds.has(r.id));
+    return sortQuickActionsSmart([...preferred, ...rest]).slice(0, SLOT_ACTION_PRIMARY_COUNT);
+  }
+  return rows.slice(0, SLOT_ACTION_PRIMARY_COUNT);
+});
+const moreQuickActions = computed(() => {
+  const primaryIds = new Set((primaryQuickActions.value || []).map((r) => r.id));
+  return (visibleQuickActions.value || []).filter((r) => !primaryIds.has(r.id));
+});
+const displayedChooserActions = computed(() => {
+  if (showMoreSlotActions.value) return visibleQuickActions.value || [];
+  return primaryQuickActions.value || [];
+});
+
+const APPOINTMENT_EDIT_REQUEST_TYPES = new Set([
+  'edit_schedule_event',
+  'edit_supervision',
+  'pick_schedule_event'
+]);
+const isAppointmentEditMode = computed(() =>
+  APPOINTMENT_EDIT_REQUEST_TYPES.has(String(requestType.value || '').trim())
+);
+const isScheduleEventEditMode = computed(() => String(requestType.value || '') === 'edit_schedule_event');
+const isSupervisionEditMode = computed(() => String(requestType.value || '') === 'edit_supervision');
+const isPickScheduleEventMode = computed(() => String(requestType.value || '') === 'pick_schedule_event');
+
+/** True when no action is selected yet — card grid, not the form+sidebar. */
+const showActionChooser = computed(() => {
+  if (!showRequestModal.value) return false;
+  if (isAppointmentEditMode.value) return false;
+  return !String(requestType.value || '').trim();
+});
+
+const editingScheduleStackItem = computed(() => {
+  const eid = Number(scheduleEventEditId.value || 0);
+  if (!eid) return null;
+  return (stackDetailsItems.value || []).find((it) => Number(it?.eventId || 0) === eid) || null;
+});
+
+const appointmentEditKindLabel = computed(() => {
+  if (isSupervisionEditMode.value) return 'Supervision';
+  const item = editingScheduleStackItem.value;
+  if (item) return String(item.kindLabel || 'Schedule event');
+  if (isPickScheduleEventMode.value) return 'Schedule';
+  return 'Schedule';
+});
+
+const modalDurationLabel = computed(() => {
+  const startH = Number(effectiveModalStartHour.value ?? modalHour.value ?? 0);
+  const endH = Number(modalEndHour.value || 0);
+  const startM = Number(modalStartMinute.value || 0);
+  const endM = Number(modalEndMinute.value || 0);
+  const mins = Math.max(0, (endH * 60 + endM) - (startH * 60 + startM));
+  if (!mins) return '—';
+  if (mins % 60 === 0) {
+    const h = mins / 60;
+    return `${h} hour${h === 1 ? '' : 's'}`;
+  }
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (!h) return `${m} min`;
+  return `${h}h ${m}m`;
+});
+
+const modalWhenLabel = computed(() => {
+  const day = String(modalDay.value || '');
+  const range = String(modalTimeRangeLabel.value || '');
+  const tz = bookingTimezoneLabel.value ? ` (${bookingTimezoneLabel.value})` : '';
+  return [day, range].filter(Boolean).join(', ') + tz;
+});
+
+const modalTenantLabel = computed(() => {
+  const id = Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0);
+  if (!id) return '—';
+  return agencyLabel(id) || `Agency ${id}`;
+});
+
+const providerInitials = (personOrName) => {
+  if (personOrName && typeof personOrName === 'object') {
+    const f = String(personOrName.first_name || personOrName.firstName || '').trim();
+    const l = String(personOrName.last_name || personOrName.lastName || '').trim();
+    const a = (f[0] || '').toUpperCase();
+    const b = (l[0] || '').toUpperCase();
+    if (a || b) return `${a}${b}`;
+    const label = String(personOrName.displayName || personOrName.fullName || personOrName.label || '').trim();
+    if (label) {
+      const parts = label.split(/[\s,]+/).filter(Boolean);
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+      if (parts.length > 1) return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+    }
+  }
+  const parts = String(personOrName || '').split(/[\s,]+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+};
+
+const participantPhotoUrl = (row) => String(
+  row?.profilePhotoUrl
+  || row?.profile_photo_url
+  || row?.photoUrl
+  || row?.photo_url
+  || ''
+).trim() || '';
+
+const onChooserWhenChanged = () => {
+  const start = Number(modalHour.value || 0);
+  let end = Number(modalEndHour.value || 0);
+  modalStartHour.value = start;
+  if (!Number.isFinite(end) || end <= start) {
+    end = Math.min(start + 1, Number(gridMaxHour.value || 22));
+    modalEndHour.value = end;
+  }
+  officeAssignStartHour.value = start;
+  officeAssignEndHour.value = end;
+  officeAssignDay.value = String(modalDay.value || officeAssignDay.value || 'Monday');
+};
+
+const moveChooserAction = (actionId, direction) => {
+  const id = String(actionId || '');
+  const ids = (visibleQuickActions.value || []).map((r) => String(r.id));
+  if (!ids.includes(id)) return;
+  let order = Array.isArray(slotActionPrefs.value.order) && slotActionPrefs.value.order.length
+    ? slotActionPrefs.value.order.map(String).filter((x) => ids.includes(x))
+    : [...ids];
+  for (const x of ids) {
+    if (!order.includes(x)) order.push(x);
+  }
+  const idx = order.indexOf(id);
+  const next = idx + direction;
+  if (idx < 0 || next < 0 || next >= order.length) return;
+  const copy = [...order];
+  const [item] = copy.splice(idx, 1);
+  copy.splice(next, 0, item);
+  slotActionPrefs.value = { ...slotActionPrefs.value, order: copy };
+  persistSlotActionPrefs();
+};
+
+const onChooserDragStart = (actionId, evt) => {
+  slotActionDragId.value = String(actionId || '');
+  try { evt?.dataTransfer?.setData('text/plain', slotActionDragId.value); } catch { /* ignore */ }
+};
+const onChooserDrop = (targetId) => {
+  const from = String(slotActionDragId.value || '');
+  const to = String(targetId || '');
+  slotActionDragId.value = '';
+  if (!from || !to || from === to) return;
+  const ids = (visibleQuickActions.value || []).map((r) => String(r.id));
+  let order = Array.isArray(slotActionPrefs.value.order) && slotActionPrefs.value.order.length
+    ? slotActionPrefs.value.order.map(String).filter((x) => ids.includes(x))
+    : [...ids];
+  for (const x of ids) {
+    if (!order.includes(x)) order.push(x);
+  }
+  const fromIdx = order.indexOf(from);
+  const toIdx = order.indexOf(to);
+  if (fromIdx < 0 || toIdx < 0) return;
+  const copy = [...order];
+  const [item] = copy.splice(fromIdx, 1);
+  copy.splice(toIdx, 0, item);
+  slotActionPrefs.value = { ...slotActionPrefs.value, order: copy };
+  persistSlotActionPrefs();
+};
+
+const goBackToActionChooser = () => {
+  requestType.value = '';
+  requestTypeChosenByUser.value = false;
+  modalError.value = '';
+};
 
 const actionRequiresAgency = computed(() => !AGENCY_OPTIONAL_ACTIONS.has(String(requestType.value || '')));
 const scheduleEventRequiresAgency = computed(() => ['indirect_services', 'agency_meeting', 'huddle'].includes(String(requestType.value || '')));
+const isAgencyOptionalScheduleEvent = computed(() => (
+  ['personal_event', 'schedule_hold', 'schedule_hold_all_day'].includes(String(requestType.value || ''))
+));
+const showScheduleEventOrgPicker = computed(() => isAgencyOptionalScheduleEvent.value);
+const scheduleEventOrgOptions = computed(() => {
+  const byId = new Map();
+  for (const row of scheduleOrgSelectOptions.value || []) {
+    if (row?.id) byId.set(Number(row.id), row);
+  }
+  for (const row of actionAgencyOptions.value || []) {
+    if (row?.id && !byId.has(Number(row.id))) byId.set(Number(row.id), row);
+  }
+  return Array.from(byId.values()).sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
+});
+const scheduleEventOrgNoneLabel = computed(() => (
+  (scheduleEventOrgOptions.value || []).length > 1
+    ? 'All / none (not tied to one organization)'
+    : 'None (not tied to an organization)'
+));
+const scheduleEventOrgHelpText = computed(() => {
+  if ((scheduleEventOrgOptions.value || []).length > 1) {
+    return 'Pick a tenant to color-code this event, or All/none so it stays visible across every organization filter.';
+  }
+  return 'Optional — leave as None if this personal event is not tenant-specific.';
+});
+const scheduleEventAgencyScopeLabel = computed(() => {
+  const id = Number(scheduleEventAgencyScope.value || 0);
+  if (!id) return scheduleEventOrgNoneLabel.value;
+  const opt = (scheduleEventOrgOptions.value || []).find((row) => Number(row?.id) === id);
+  return String(opt?.label || opt?.name || '').trim() || agencyLabel(id) || `Agency ${id}`;
+});
 
 const intakeActionHelpText = computed(() => {
   const labels = {
@@ -5677,6 +8359,10 @@ const selectedActionAgencyLabel = computed(() => {
   const opt = (actionAgencyOptions.value || []).find((row) => Number(row?.id) === id);
   return String(opt?.label || opt?.name || '').trim() || (id ? `Agency ${id}` : '—');
 });
+const requestSummaryOrganizationLabel = computed(() => {
+  if (isAgencyOptionalScheduleEvent.value) return scheduleEventAgencyScopeLabel.value;
+  return selectedActionAgencyLabel.value;
+});
 const selectedQuickActionLabel = computed(() => {
   const t = String(requestType.value || '');
   if (!t) return 'Not selected';
@@ -5688,13 +8374,25 @@ const selectedQuickActionLabel = computed(() => {
 });
 const modalScheduleSubtitle = computed(() => {
   const t = String(requestType.value || '');
-  if (!t) return 'Book time or schedule an event.';
+  if (t === 'edit_schedule_event') {
+    const item = editingScheduleStackItem.value;
+    const kind = appointmentEditKindLabel.value;
+    const title = String(item?.label || '').trim();
+    return title ? `Edit ${kind.toLowerCase()} — ${title}` : `Edit ${kind.toLowerCase()}`;
+  }
+  if (t === 'edit_supervision') {
+    const who = String(selectedSupvSession.value?.counterpartyName || '').trim();
+    return who ? `Edit supervision — ${who}` : 'Edit supervision session';
+  }
+  if (t === 'pick_schedule_event') return 'Choose which item to open and edit.';
+  if (!t || showActionChooser.value) return 'Manage this office time slot';
   if (t === 'slot_details') return 'Selected office slot details.';
   if (['office', 'office_request_only'].includes(t)) return 'Send an office or room request for approval.';
   if (t === 'portal_intake') return 'Publish open hours for new clients on the portal.';
   if (t === 'school') return 'Mark school daytime availability (not virtual).';
   if (t === 'individual_session') return 'Schedule an individual session — virtual or in-person.';
   if (t === 'group_session') return 'Schedule a group session.';
+  if (t === 'admin_assign') return 'Update this booking — change duration, provider, or frequency.';
   if (selectedQuickActionLabel.value && selectedQuickActionLabel.value !== 'Not selected') {
     return selectedQuickActionLabel.value;
   }
@@ -5722,22 +8420,22 @@ const requestSubmitBlockedReason = computed(() => {
     const modality = String(bookingModality.value || '').toUpperCase();
     const hasOffice = Number(selectedOfficeLocationId.value || 0) > 0;
     if (!modality) return 'Choose Virtual or In-person.';
+    if (!effectiveAgencyId.value) return 'Select an agency for this session.';
+    if (!primarySessionClientId.value) return 'Select a client for this individual session.';
     if (modality === 'IN_PERSON' && !hasOffice) return 'In-person sessions need an office selected in the toolbar.';
-    if (modality === 'TELEHEALTH' && linkPlatformVideoRoom.value) {
-      if (!effectiveAgencyId.value) return 'Select an agency for this virtual session.';
-      if (sessionAlsoRequestOffice.value && hasOffice) {
-        if (bookingMetadataLoading.value) return 'Loading booking options…';
-        if (!officeBookingValid.value) return 'Choose a valid office booking window.';
-        if (bookingClassificationInvalidReason.value) return String(bookingClassificationInvalidReason.value);
+    if (modality === 'TELEHEALTH') {
+      if (bookingMetadataLoading.value) return 'Loading booking options…';
+      if (bookingClassificationInvalidReason.value) return String(bookingClassificationInvalidReason.value);
+      if (sessionAlsoRequestOffice.value && hasOffice && !officeBookingValid.value) {
+        return 'Choose a valid office booking window.';
       }
       return '';
     }
-    if (modality === 'IN_PERSON' || (modality === 'TELEHEALTH' && hasOffice)) {
+    if (modality === 'IN_PERSON') {
       if (bookingMetadataLoading.value) return 'Loading booking options…';
       if (hasOffice && !officeBookingValid.value) return 'Choose a valid office booking window.';
       if (bookingClassificationInvalidReason.value) return String(bookingClassificationInvalidReason.value);
     }
-    if (modality === 'TELEHEALTH' && !effectiveAgencyId.value) return 'Select an agency for this virtual session.';
   }
   if (t === 'portal_intake') {
     if (!effectiveAgencyId.value) return 'Select an agency for portal availability.';
@@ -5752,7 +8450,7 @@ const requestSubmitBlockedReason = computed(() => {
     return 'Add the required supervision participants before submitting.';
   }
   if ((t === 'agency_meeting' || t === 'huddle') && !meetingCanSubmit.value) {
-    return 'Add meeting participants before submitting.';
+    return 'Add at least one coworker before submitting.';
   }
   if (['intake_virtual_on', 'intake_virtual_off', 'intake_inperson_on', 'intake_inperson_off'].includes(t)
     && !Number(modalContext.value?.officeEventId || 0)) {
@@ -5779,7 +8477,7 @@ const requestSubmitDisabled = computed(() => !!requestSubmitBlockedReason.value)
 const isVirtualGroupFromClients = computed(() => (
   isVirtualTelehealthSession.value
   && linkPlatformVideoRoom.value
-  && virtualSessionIsGroup.value
+  && virtualSessionSelectedClientIdSet.value.size > 1
 ));
 
 const quickActionDisplayLabel = (act) => {
@@ -5790,7 +8488,7 @@ const quickActionDisplayLabel = (act) => {
 
 const quickActionDisplayDescription = (act) => {
   if (act.id === 'individual_session' && isVirtualGroupFromClients.value) {
-    return `Group virtual session — ${virtualSessionSelectedCount.value} client${virtualSessionSelectedCount.value === 1 ? '' : 's'} selected`;
+    return `Group virtual session — ${virtualSessionSelectedClientIdSet.value.size} clients selected`;
   }
   return act.description;
 };
@@ -5864,30 +8562,79 @@ const bookingServiceCodeOptions = computed(() => {
     label: String(row?.label || row?.code || '').trim(),
     minDurationMinutes: Number(row?.minDurationMinutes || 0) || null,
     unitMinutes: Number(row?.unitMinutes || 0) || null,
-    maxUnitsPerDay: Number(row?.maxUnitsPerDay || 0) || null
+    maxUnitsPerDay: Number(row?.maxUnitsPerDay || 0) || null,
+    maxUnitsPerSession: Number(row?.maxUnitsPerSession || 0) || null,
+    overflowServiceCode: row?.overflowServiceCode || null,
+    allowedCredentialTiers: Array.isArray(row?.allowedCredentialTiers) ? row.allowedCredentialTiers : null,
+    medical: !!row?.medical
   })).filter((row) => row.code);
   const selected = normalizeCodeValue(bookingServiceCode.value);
   if (selected && !out.some((row) => row.code === selected)) {
-    out.push({ code: selected, label: `Legacy (${selected})`, minDurationMinutes: null, unitMinutes: null, maxUnitsPerDay: null });
+    out.push({
+      code: selected,
+      label: `Legacy (${selected})`,
+      minDurationMinutes: null,
+      unitMinutes: null,
+      maxUnitsPerDay: null,
+      maxUnitsPerSession: null,
+      overflowServiceCode: null,
+      allowedCredentialTiers: null,
+      medical: false
+    });
   }
   return out;
 });
+const bookingServiceLocationOptions = computed(() => {
+  const rows = Array.isArray(bookingMetadata.value?.serviceLocations) ? bookingMetadata.value.serviceLocations : [];
+  return rows.map((row) => ({
+    id: Number(row?.id || 0),
+    name: String(row?.name || '').trim() || `Location #${row?.id}`,
+    placeOfService: String(row?.place_of_service || row?.placeOfService || '').trim(),
+    billingOfficeName: String(row?.billing_office_name || row?.billingOfficeName || '').trim()
+  })).filter((row) => row.id > 0);
+});
+const providerTierLabel = (tiers) => {
+  if (!Array.isArray(tiers) || !tiers.length) return '';
+  const map = { qbha: 'QBHA', bachelors: 'Bachelor’s+', intern_plus: 'Licensed / pre-licensed' };
+  return tiers.map((t) => map[String(t).toLowerCase()] || t).join(', ');
+};
 const serviceCodeOptionHints = (opt) => {
   const hints = [];
   if (Number(opt?.minDurationMinutes || 0) > 0) hints.push(`min ${Number(opt.minDurationMinutes)}m`);
   if (Number(opt?.unitMinutes || 0) > 0) hints.push(`${Number(opt.unitMinutes)}m units`);
-  if (Number(opt?.maxUnitsPerDay || 0) > 0) hints.push(`max ${Number(opt.maxUnitsPerDay)}/day`);
+  if (Number(opt?.maxUnitsPerSession || 0) > 0) hints.push(`max ${Number(opt.maxUnitsPerSession)} units`);
+  if (opt?.overflowServiceCode) hints.push(`overflow → ${opt.overflowServiceCode}`);
+  const tierHint = providerTierLabel(opt?.allowedCredentialTiers);
+  if (tierHint) hints.push(tierHint);
   return hints.length ? ` (${hints.join(', ')})` : '';
 };
 
-const bookingRequiresServiceCode = computed(() => ['SESSION', 'ASSESSMENT'].includes(normalizeCodeValue(bookingAppointmentType.value)));
 const isSessionBookingRequestType = computed(() => ['individual_session', 'group_session'].includes(String(requestType.value || '')));
+const inferredSessionIsGroup = computed(() => {
+  if (String(requestType.value || '') === 'group_session') return true;
+  return virtualSessionSelectedClientIdSet.value.size > 1;
+});
+const bookingSessionSummaryHint = computed(() => {
+  const modality = String(bookingModality.value || '').toUpperCase() === 'IN_PERSON' ? 'In-person' : 'Telehealth';
+  const kind = inferredSessionIsGroup.value ? 'group' : 'individual';
+  return `${kind.charAt(0).toUpperCase()}${kind.slice(1)} ${modality.toLowerCase()} session — pick the service code and location.`;
+});
+const modalSessionDurationMinutes = computed(() => {
+  const startH = Number(modalHour.value || 0);
+  const endH = Number(modalEndHour.value || startH + 1);
+  const startM = Number(modalStartMinute.value || 0);
+  const endM = Number(modalEndMinute.value || 0);
+  const mins = (endH * 60 + endM) - (startH * 60 + startM);
+  return Number.isFinite(mins) && mins > 0 ? mins : 60;
+});
 const bookingClassificationInvalidReason = computed(() => {
   if (!showClinicalBookingFields.value) return '';
   if (!isSessionBookingRequestType.value) return '';
-  if (!normalizeCodeValue(bookingAppointmentType.value)) return 'Select an appointment type.';
-  if (bookingRequiresServiceCode.value && !normalizeCodeValue(bookingServiceCode.value)) {
-    return 'A service code is required for this appointment type.';
+  if (!normalizeCodeValue(bookingServiceCode.value)) {
+    return 'A service code is required for this session.';
+  }
+  if (!Number(bookingServiceLocationId.value || 0)) {
+    return 'Select a service location for this session.';
   }
   return '';
 });
@@ -5896,38 +8643,81 @@ const resetBookingSelectionDefaults = () => {
   bookingAppointmentType.value = DEFAULT_BOOKING_TYPE;
   bookingAppointmentSubtype.value = '';
   bookingServiceCode.value = '';
+  bookingServiceLocationId.value = 0;
+  bookingUnitPreview.value = '';
   bookingModality.value = '';
 };
 
 const resetBookingMetadataState = () => {
   bookingMetadataLoading.value = false;
   bookingMetadataError.value = '';
-  bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [] };
+  bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [], serviceLocations: [] };
 };
 
-const normalizeBookingSelectionPayload = () => ({
-  appointmentTypeCode: (showClinicalBookingFields.value && isSessionBookingRequestType.value)
-    ? (normalizeCodeValue(bookingAppointmentType.value) || null)
-    : 'AVAILABLE_SLOT',
-  appointmentSubtypeCode: (showClinicalBookingFields.value && isSessionBookingRequestType.value)
-    ? (normalizeCodeValue(bookingAppointmentSubtype.value) || null)
-    : null,
-  serviceCode: (showClinicalBookingFields.value && isSessionBookingRequestType.value)
-    ? (normalizeCodeValue(bookingServiceCode.value) || null)
-    : null,
-  modality: isSessionBookingRequestType.value
-    ? (normalizeCodeValue(bookingModality.value) || null)
-    : null
-});
+const normalizeBookingSelectionPayload = () => {
+  const isSession = showClinicalBookingFields.value && isSessionBookingRequestType.value;
+  // Individual/group session already chosen in the sidebar; modality + attendee count imply subtype.
+  const appointmentTypeCode = isSession
+    ? 'SESSION'
+    : 'AVAILABLE_SLOT';
+  const clientId = String(requestType.value || '') === 'individual_session'
+    ? (Number(primarySessionClientId.value || 0) || null)
+    : null;
+  return {
+    appointmentTypeCode,
+    appointmentSubtypeCode: null,
+    serviceCode: isSession ? (normalizeCodeValue(bookingServiceCode.value) || null) : null,
+    modality: isSessionBookingRequestType.value
+      ? (normalizeCodeValue(bookingModality.value) || null)
+      : null,
+    serviceLocationId: isSession ? (Number(bookingServiceLocationId.value || 0) || null) : null,
+    agencyId: Number(effectiveAgencyId.value || 0) || null,
+    ...(clientId ? { clientId } : {})
+  };
+};
+
+const preferDefaultServiceLocation = () => {
+  if (Number(bookingServiceLocationId.value || 0) > 0) return;
+  const locs = bookingServiceLocationOptions.value || [];
+  if (!locs.length) return;
+  const modality = String(bookingModality.value || '').toUpperCase();
+  const preferPos = modality === 'IN_PERSON' ? '11' : '02';
+  const hit = locs.find((l) => l.placeOfService === preferPos)
+    || locs.find((l) => modality !== 'IN_PERSON' && (l.placeOfService === '10' || l.placeOfService === '02'))
+    || locs[0];
+  if (hit?.id) bookingServiceLocationId.value = hit.id;
+};
+
+const refreshBookingUnitPreview = async () => {
+  bookingUnitPreview.value = '';
+  if (!showClinicalBookingFields.value || !effectiveAgencyFeatureFlags.value.medicalBillingEnabled) return;
+  const agencyId = Number(effectiveAgencyId.value || 0);
+  const code = normalizeCodeValue(bookingServiceCode.value);
+  if (!agencyId || !code) return;
+  try {
+    const res = await api.post('/medical-billing/service-codes/preview-units', {
+      agencyId,
+      serviceCode: code,
+      minutes: modalSessionDurationMinutes.value
+    });
+    const d = res?.data || {};
+    if (d.claimable === false) {
+      bookingUnitPreview.value = d.reason || `Not claimable at ${modalSessionDurationMinutes.value} min for ${code}.`;
+      return;
+    }
+    const parts = [`~${modalSessionDurationMinutes.value} min → ${d.units || 0} unit(s)`];
+    if (d.effectiveServiceCode && d.effectiveServiceCode !== code) parts.push(`bills as ${d.effectiveServiceCode}`);
+    if (d.overflowApplied) parts.push('overflow code applied');
+    bookingUnitPreview.value = parts.join(' · ');
+  } catch {
+    bookingUnitPreview.value = '';
+  }
+};
 
 const loadBookingMetadataForProvider = async () => {
   if (!['office', 'individual_session', 'group_session'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
   if (!showClinicalBookingFields.value) return;
-  if (!Number(selectedOfficeLocationId.value || 0)) {
-    resetBookingMetadataState();
-    return;
-  }
-  const providerId = Number(props.userId || authStore.user?.id || 0);
+  const providerId = Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0);
   if (!providerId) {
     resetBookingMetadataState();
     return;
@@ -5935,14 +8725,23 @@ const loadBookingMetadataForProvider = async () => {
   try {
     bookingMetadataLoading.value = true;
     bookingMetadataError.value = '';
-    const resp = await api.get('/office-schedule/booking-metadata', { params: { providerId } });
+    const resp = await api.get('/office-schedule/booking-metadata', {
+      params: {
+        providerId,
+        agencyId: Number(effectiveAgencyId.value || 0) || undefined
+      }
+    });
     bookingMetadata.value = {
       appointmentTypes: Array.isArray(resp?.data?.appointmentTypes) ? resp.data.appointmentTypes : [],
       appointmentSubtypes: Array.isArray(resp?.data?.appointmentSubtypes) ? resp.data.appointmentSubtypes : [],
-      serviceCodes: Array.isArray(resp?.data?.serviceCodes) ? resp.data.serviceCodes : []
+      serviceCodes: Array.isArray(resp?.data?.serviceCodes) ? resp.data.serviceCodes : [],
+      serviceLocations: Array.isArray(resp?.data?.serviceLocations) ? resp.data.serviceLocations : []
     };
+    bookingAppointmentType.value = 'SESSION';
+    bookingAppointmentSubtype.value = '';
+    preferDefaultServiceLocation();
   } catch (e) {
-    bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [] };
+    bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [], serviceLocations: [] };
     bookingMetadataError.value = e?.response?.data?.error?.message || 'Could not load booking metadata for this provider.';
   } finally {
     bookingMetadataLoading.value = false;
@@ -6137,21 +8936,231 @@ const modalOccupiedSlotSummary = computed(() => {
     }
   }
 
+  const rawFreq = String(ctx.frequencyLabel || '').trim()
+    || ({
+      ONCE: 'Once',
+      WEEKLY: 'Weekly',
+      BIWEEKLY: 'Biweekly',
+      MONTHLY: 'Monthly'
+    }[String(ctx.bookedFrequency || ctx.assignedFrequency || '').toUpperCase()] || '');
+  const untilYmd = String(ctx.bookingActiveUntilDate || ctx.assignmentTemporaryUntilDate || '').slice(0, 10);
+  let bookedUntilLabel = '';
+  if (untilYmd) {
+    try {
+      const d = new Date(`${untilYmd}T12:00:00`);
+      bookedUntilLabel = Number.isNaN(d.getTime())
+        ? untilYmd
+        : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch {
+      bookedUntilLabel = untilYmd;
+    }
+  } else if (occupied && String(rawFreq).toLowerCase() !== 'once') {
+    bookedUntilLabel = 'Ongoing';
+  } else if (occupied && String(rawFreq).toLowerCase() === 'once') {
+    bookedUntilLabel = 'This occurrence';
+  }
+
+  const roomDisplay = String(ctx.roomLabel || '').trim()
+    || (Number(ctx.roomId || 0) > 0 ? `Room ${ctx.roomId}` : '');
+
   return {
     visible: occupied && (!!providerLabel || st === 'COMPANY_HOLD'),
     providerLabel: providerLabel || '—',
     statusLabel: officeSlotStatusLabel(st),
-    frequencyLabel: String(ctx.frequencyLabel || '').trim() || '',
+    frequencyLabel: rawFreq,
+    bookedUntilLabel,
+    untilYmd,
+    statusKey: st === 'ASSIGNED_BOOKED'
+      ? 'BOOKED'
+      : (st === 'ASSIGNED_TEMPORARY' || mode === 'TEMPORARY' ? 'TEMPORARY' : 'ASSIGNED'),
+    frequencyKey: (() => {
+      const fromLabel = String(rawFreq || '').trim().toLowerCase();
+      if (fromLabel === 'once' || fromLabel === 'one time' || fromLabel === '1x') return 'ONCE';
+      if (fromLabel === 'weekly') return 'WEEKLY';
+      if (fromLabel === 'biweekly') return 'BIWEEKLY';
+      if (fromLabel === 'monthly') return 'MONTHLY';
+      const fromCode = String(ctx.bookedFrequency || ctx.assignedFrequency || 'WEEKLY').toUpperCase();
+      return ['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(fromCode) ? fromCode : 'WEEKLY';
+    })(),
     assignmentModeLabel: mode === 'PERMANENT' ? 'Permanent' : (mode === 'TEMPORARY' ? 'Temporary' : ''),
     sessionTypeLabel: String(ctx.appointmentTypeLabel || '').trim() || '',
     roomLabel: String(ctx.roomLabel || '').trim() || '',
+    roomDisplay,
     dateRangeLabel: `${String(ctx.dayName || modalDay.value || '')} • ${modalTimeRangeLabel.value || ''}`.trim(),
     createdByLabel: String(ctx.assignmentCreatedByName || ctx.bookingCreatedByName || '').trim() || '',
     isPartialOfLongerBlock,
     blockSpanNote,
-    fullBlockRangeLabel: fullBlock?.rangeLabel || ''
+    fullBlockRangeLabel: fullBlock?.rangeLabel || '',
+    showBookingMeta: occupied && (!!rawFreq || !!bookedUntilLabel || !!officeSlotStatusLabel(st) || !!roomDisplay)
   };
 });
+
+const bookingStripFrequency = ref('WEEKLY');
+const bookingStripStatus = ref('ASSIGNED');
+const bookingStripUntil = ref('');
+const bookingStripSaving = ref(false);
+const bookingStripError = ref('');
+const bookingStripBaseline = ref({ frequency: 'WEEKLY', status: 'ASSIGNED', until: '' });
+
+const canEditBookingStrip = computed(() => {
+  if (!canManageOffices.value) return false;
+  if (!modalOccupiedSlotSummary.value?.showBookingMeta) return false;
+  return Number(modalContext.value?.standingAssignmentId || 0) > 0
+    || Number(modalContext.value?.officeEventId || 0) > 0;
+});
+
+const bookingStripDirty = computed(() => {
+  const b = bookingStripBaseline.value || {};
+  return String(bookingStripFrequency.value || '') !== String(b.frequency || '')
+    || String(bookingStripStatus.value || '') !== String(b.status || '')
+    || String(bookingStripUntil.value || '') !== String(b.until || '');
+});
+
+const syncBookingStripFromContext = () => {
+  const sum = modalOccupiedSlotSummary.value || {};
+  const freq = String(sum.frequencyKey || 'WEEKLY').toUpperCase();
+  const status = String(sum.statusKey || 'ASSIGNED').toUpperCase();
+  const until = String(sum.untilYmd || '').slice(0, 10);
+  bookingStripFrequency.value = ['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(freq) ? freq : 'WEEKLY';
+  bookingStripStatus.value = ['BOOKED', 'ASSIGNED', 'TEMPORARY'].includes(status) ? status : 'ASSIGNED';
+  bookingStripUntil.value = until;
+  bookingStripError.value = '';
+  bookingStripBaseline.value = {
+    frequency: bookingStripFrequency.value,
+    status: bookingStripStatus.value,
+    until: bookingStripUntil.value
+  };
+};
+
+watch(
+  () => [
+    showRequestModal.value,
+    modalContext.value?.standingAssignmentId,
+    modalContext.value?.officeEventId,
+    modalContext.value?.slotState,
+    modalContext.value?.frequencyLabel,
+    modalContext.value?.bookingActiveUntilDate,
+    modalContext.value?.assignmentTemporaryUntilDate
+  ],
+  () => {
+    if (!showRequestModal.value) return;
+    if (!modalOccupiedSlotSummary.value?.showBookingMeta) return;
+    syncBookingStripFromContext();
+  },
+  { immediate: true }
+);
+
+const saveBookingStripEdits = async () => {
+  bookingStripError.value = '';
+  const ctx = modalContext.value || {};
+  const officeLocationId = Number(ctx.officeLocationId || selectedOfficeLocationId.value || 0);
+  const standingId = Number(ctx.standingAssignmentId || 0);
+  const eventId = Number(ctx.officeEventId || 0);
+  if (!officeLocationId || (!standingId && !eventId)) {
+    bookingStripError.value = 'Missing office booking context.';
+    return;
+  }
+  if (!canManageOffices.value) {
+    bookingStripError.value = 'Only schedule managers can edit this booking.';
+    return;
+  }
+
+  let freq = String(bookingStripFrequency.value || 'WEEKLY').toUpperCase();
+  let status = String(bookingStripStatus.value || 'ASSIGNED').toUpperCase();
+  const until = String(bookingStripUntil.value || '').slice(0, 10);
+  const startYmd = String(ctx.bookingStartDate || ctx.dateYmd || '').slice(0, 10)
+    || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
+
+  // Monthly only exists on booking plans.
+  if (freq === 'MONTHLY' && status !== 'BOOKED') status = 'BOOKED';
+  // One-time is occurrence-scoped.
+  if (freq === 'ONCE') {
+    bookingStripUntil.value = '';
+  }
+
+  bookingStripSaving.value = true;
+  try {
+    if (standingId > 0) {
+      if (status === 'TEMPORARY') {
+        await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/temporary`, {
+          untilDate: until || undefined,
+          weeks: until ? undefined : 4
+        });
+      } else if (status === 'ASSIGNED') {
+        const current = String(ctx.slotState || '').toUpperCase();
+        if (current === 'ASSIGNED_BOOKED' || Number(ctx.bookingPlanId || 0) > 0) {
+          await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/downgrade`, { to: 'assigned' });
+        }
+        if (String(ctx.assignmentAvailabilityMode || '').toUpperCase() === 'TEMPORARY' || current === 'ASSIGNED_TEMPORARY') {
+          await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/keep-available`, { acknowledged: true });
+        }
+        if (freq === 'WEEKLY' || freq === 'BIWEEKLY') {
+          await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/recurrence`, {
+            recurrenceFrequency: freq
+          });
+        } else if (freq === 'ONCE') {
+          await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/temporary`, {
+            untilDate: startYmd
+          });
+        }
+      } else if (status === 'BOOKED') {
+        const bookedFreq = freq === 'ONCE' ? 'WEEKLY' : freq;
+        await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/booking-plan`, {
+          bookedFrequency: ['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(bookedFreq) ? bookedFreq : 'WEEKLY',
+          bookingStartDate: startYmd,
+          recurringUntilDate: until || undefined,
+          bookedOccurrenceCount: freq === 'ONCE' ? 1 : undefined
+        });
+        if (freq === 'WEEKLY' || freq === 'BIWEEKLY') {
+          await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/recurrence`, {
+            recurrenceFrequency: freq
+          });
+        }
+      }
+    } else if (eventId > 0) {
+      if (status === 'BOOKED' || freq !== 'ONCE') {
+        await api.post(`/office-slots/${officeLocationId}/events/${eventId}/booking-plan`, {
+          bookedFrequency: freq === 'ONCE' ? 'WEEKLY' : freq,
+          bookingStartDate: startYmd,
+          recurringUntilDate: until || undefined,
+          bookedOccurrenceCount: freq === 'ONCE' ? 1 : undefined
+        });
+      }
+      if (freq === 'WEEKLY' || freq === 'BIWEEKLY') {
+        await api.post(`/office-slots/${officeLocationId}/events/${eventId}/recurrence`, {
+          recurrenceFrequency: freq
+        });
+      }
+    }
+
+    bookingStripBaseline.value = {
+      frequency: bookingStripFrequency.value,
+      status: bookingStripStatus.value,
+      until: bookingStripUntil.value
+    };
+    await loadSelectedOfficeGrid();
+    await load({ forceRefresh: true });
+    // Re-open context from refreshed grid if possible
+    const ymd = String(ctx.dateYmd || startYmd).slice(0, 10);
+    const hour = Number(ctx.hour ?? modalHour.value);
+    const roomId = Number(ctx.roomId || 0);
+    const slot = lookupOfficeGridSlot(ymd, hour, roomId);
+    if (slot) {
+      modalContext.value = buildModalContext({
+        dayName: modalDay.value,
+        dateYmd: ymd,
+        hour,
+        roomId,
+        slot
+      });
+      syncBookingStripFromContext();
+    }
+  } catch (e) {
+    bookingStripError.value = e?.response?.data?.error?.message || e?.message || 'Could not update booking.';
+  } finally {
+    bookingStripSaving.value = false;
+  }
+};
 
 const isTelehealthModality = computed(
   () => String(bookingModality.value || '').toUpperCase() === 'TELEHEALTH'
@@ -6435,6 +9444,20 @@ const selectedMeetingParticipantIdSet = computed(
 const meetingCanSubmit = computed(
   () => !meetingCandidatesLoading.value && selectedMeetingParticipantIdSet.value.size > 0
 );
+const isMeetingParticipantsMissing = computed(() => (
+  ['agency_meeting', 'huddle'].includes(String(requestType.value || ''))
+  && !meetingCandidatesLoading.value
+  && selectedMeetingParticipantIdSet.value.size === 0
+));
+const requestModalIsDirty = computed(() => {
+  if (submitting.value) return true;
+  if (String(requestType.value || '').trim()) return true;
+  if (String(requestNotes.value || '').trim()) return true;
+  if (String(scheduleEventTitle.value || '').trim()) return true;
+  if ((selectedMeetingParticipantIds.value || []).length) return true;
+  if ((virtualSessionSelectedClientIds.value || []).length) return true;
+  return false;
+});
 const selectedMeetingParticipantChips = computed(() => {
   const byId = new Map();
   for (const row of (availableMeetingCandidates.value || [])) {
@@ -6501,7 +9524,17 @@ const virtualSessionSelectedGuardianKeySet = computed(
 const virtualSessionSelectedCount = computed(() => (
   virtualSessionSelectedClientIdSet.value.size + virtualSessionSelectedGuardianKeySet.value.size
 ));
-const virtualSessionIsGroup = computed(() => virtualSessionSelectedCount.value >= 1);
+const virtualSessionIsGroup = computed(() => virtualSessionSelectedClientIdSet.value.size > 1);
+const primarySessionClientId = computed(() => {
+  const ids = Array.from(virtualSessionSelectedClientIdSet.value.values());
+  return ids.length ? Number(ids[0]) : null;
+});
+const primarySessionClientLabel = computed(() => {
+  const id = Number(primarySessionClientId.value || 0);
+  if (!id) return '';
+  const row = (virtualSessionClients.value || []).find((c) => Number(c?.id || 0) === id);
+  return String(row?.displayName || `Client ${id}`).trim();
+});
 const virtualSessionGuardianKey = (guardian) => `${Number(guardian?.userId || 0)}:${Number(guardian?.clientId || 0)}`;
 const virtualSessionClientRoleLabel = (client) => {
   const type = String(client?.clientType || '').trim();
@@ -6556,17 +9589,24 @@ const showSessionOfficeBookingPanel = computed(() => {
   const t = String(requestType.value || '');
   const hasOffice = Number(selectedOfficeLocationId.value || 0) > 0;
   const modality = String(bookingModality.value || '').toUpperCase();
-  if (t === 'individual_session' && modality === 'TELEHEALTH' && linkPlatformVideoRoom.value && !sessionAlsoRequestOffice.value) {
-    return false;
+  // Pure virtual sessions are not office bookings — only show room UI when the user opts in.
+  if (t === 'individual_session' && modality === 'TELEHEALTH') {
+    return sessionAlsoRequestOffice.value && hasOffice;
   }
   return t === 'office'
     || t === 'office_request_only'
     || t === 'group_session'
-    || (t === 'individual_session' && (modality === 'IN_PERSON' || hasOffice));
+    || (t === 'individual_session' && modality === 'IN_PERSON' && hasOffice);
 });
 const toggleVirtualSessionClient = (clientId) => {
   const id = Number(clientId || 0);
   if (!id) return;
+  // Individual sessions attach exactly one client; group bookings use the Group session action.
+  if (String(requestType.value || '') === 'individual_session') {
+    const current = Number(primarySessionClientId.value || 0);
+    virtualSessionSelectedClientIds.value = current === id ? [] : [id];
+    return;
+  }
   const next = new Set((virtualSessionSelectedClientIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
   if (next.has(id)) next.delete(id);
   else next.add(id);
@@ -6619,6 +9659,7 @@ const resetVirtualSessionShareState = () => {
   virtualSessionShareUrl.value = '';
   virtualSessionShareCopied.value = false;
   virtualSessionScheduledSessionKey.value = '';
+  virtualSessionGoogleWarning.value = '';
 };
 const buildVirtualSessionShareUrl = (sharePath) => {
   const path = String(sharePath || '').trim();
@@ -6647,9 +9688,86 @@ const copyVirtualSessionShareUrl = async () => {
     /* ignore */
   }
 };
-const loadVirtualSessionClients = async () => {
-  const uid = Number(props.userId || authStore.user?.id || 0);
-  const agencyId = Number(effectiveAgencyId.value || 0);
+const ensureScheduleAgencyVisible = (agencyId) => {
+  const id = Number(agencyId || 0);
+  if (!id) return;
+  const existing = (selfScheduleAgencyOptions.value || []).some((row) => Number(row?.id || 0) === id);
+  if (!existing) {
+    const fromBooking = (bookingAgencyOptions.value || []).find((row) => Number(row?.id || 0) === id);
+    const fromStore = (agencyStore.agencies || []).find((row) => Number(row?.id || 0) === id)
+      || (Number(agencyStore.currentAgency?.id || 0) === id ? agencyStore.currentAgency : null);
+    const source = fromBooking || fromStore;
+    if (source) {
+      selfScheduleAgencyOptions.value = [
+        ...(selfScheduleAgencyOptions.value || []),
+        {
+          id,
+          name: String(source.label || source.name || `Agency ${id}`).trim(),
+          organization_type: source.organizationType || source.organization_type || 'agency',
+          hasClinicalOrg: !!source.hasClinicalOrg,
+          hasLearningOrg: !!source.hasLearningOrg,
+          medicalBillingEnabled: source.medicalBillingEnabled === true
+            || isMedicalBillingEnabled(source.featureFlags || source.feature_flags),
+          featureFlags: source.featureFlags || source.feature_flags || null
+        }
+      ];
+    }
+  }
+  const active = new Set((activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  if (!active.has(id)) {
+    activeScheduleAgencyIds.value = [...active, id];
+  }
+};
+
+const patchScheduleSummaryWithBookedEvent = ({
+  eventId = null,
+  agencyId = null,
+  title = '',
+  startAt = '',
+  endAt = '',
+  kind = 'PERSONAL_EVENT'
+}) => {
+  const normalizeWall = (raw) => {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    return s.includes('T') ? s.slice(0, 19) : s.replace(' ', 'T').slice(0, 19);
+  };
+  const start = normalizeWall(startAt);
+  const end = normalizeWall(endAt);
+  if (!start || !end) return;
+  const aId = Number(agencyId || 0) || null;
+  const ev = {
+    id: Number(eventId || 0) || null,
+    agencyId: aId,
+    _agencyId: aId,
+    kind: String(kind || 'PERSONAL_EVENT').trim().toUpperCase(),
+    title: String(title || '').trim() || 'Virtual session',
+    isPrivate: false,
+    allDay: false,
+    startAt: start,
+    endAt: end
+  };
+  const base = summary.value && typeof summary.value === 'object'
+    ? { ...summary.value }
+    : { weekStart: weekStart.value, scheduleEvents: [], officeEvents: [], officeRequests: [], schoolRequests: [], schoolAssignments: [], supervisionSessions: [] };
+  const list = Array.isArray(base.scheduleEvents) ? [...base.scheduleEvents] : [];
+  const sig = `${ev.kind}|${ev.startAt}|${ev.endAt}|${ev.title}|${ev.id || ''}`;
+  const exists = list.some((row) => {
+    const rowSig = `${String(row?.kind || '').toUpperCase()}|${normalizeWall(row?.startAt)}|${normalizeWall(row?.endAt)}|${String(row?.title || '').trim()}|${Number(row?.id || 0) || ''}`;
+    return rowSig === sig;
+  });
+  if (!exists) list.push(ev);
+  summary.value = { ...base, scheduleEvents: list };
+};
+
+const refreshScheduleSummaryInBackground = () => {
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  void load({ forceRefresh: true });
+};
+
+const loadVirtualSessionClients = async (agencyIdOverride = null) => {
+  const uid = Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0);
+  const agencyId = Number(agencyIdOverride || effectiveAgencyId.value || 0);
   if (!uid || !agencyId) {
     virtualSessionClients.value = [];
     virtualSessionGuardians.value = [];
@@ -6937,7 +10055,7 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
     assignedProviderId: Number(slot?.assignedProviderId || top?.assignedProviderId || 0) || null,
     bookedProviderId: Number(slot?.bookedProviderId || top?.bookedProviderId || 0) || null,
     assignedFrequency: String(slot?.assignedFrequency || top?.assignedFrequency || '').toUpperCase() || null,
-    bookedFrequency: String(slot?.bookedFrequency || '').toUpperCase() || null,
+    bookedFrequency: String(slot?.bookedFrequency || top?.bookedFrequency || '').toUpperCase() || null,
     frequencyLabel: String(slot?.frequencyLabel || top?.frequencyLabel || '').trim() || null,
     standingAssignmentId: Number(slot?.standingAssignmentId || top?.standingAssignmentId || 0) || null,
     bookingPlanId: Number(slot?.bookingPlanId || 0) || null,
@@ -6946,6 +10064,8 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
     assignmentAvailabilityMode: String(slot?.assignmentAvailabilityMode || top?.assignmentAvailabilityMode || '').toUpperCase() || null,
     assignmentAvailableSinceDate: String(slot?.assignmentAvailableSinceDate || top?.assignmentAvailableSinceDate || '').slice(0, 10) || null,
     assignmentTemporaryUntilDate: String(slot?.assignmentTemporaryUntilDate || top?.assignmentTemporaryUntilDate || '').slice(0, 10) || null,
+    bookingActiveUntilDate: String(slot?.bookingActiveUntilDate || top?.bookingActiveUntilDate || '').slice(0, 10) || null,
+    bookingStartDate: String(slot?.bookingStartDate || top?.bookingStartDate || '').slice(0, 10) || null,
     assignmentTemporaryExtensionCount: Number(slot?.assignmentTemporaryExtensionCount ?? top?.assignmentTemporaryExtensionCount ?? 0),
     assignmentCreatedByName: String(slot?.assignmentCreatedByName || '').trim() || null,
     bookingCreatedByName: String(slot?.bookingCreatedByName || '').trim() || null,
@@ -7093,9 +10213,16 @@ const openSlotActionModal = ({
   createAgendaDraftTitle.value = '';
   createAgendaDraftItems.value = [];
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
+  bookingTargetUserId.value = Number(props.userId || authStore.user?.id || 0) || 0;
+  if (canSelectBookingProvider.value) {
+    void loadBookingProviderDirectory();
+  }
+  if (isScheduleSuperAdmin.value && !(agencyStore.agencies || []).length) {
+    void agencyStore.fetchAgencies().catch(() => {});
+  }
   // Pre-fill admin assign person with the schedule's user (works in both self and admin mode)
   if (canManageOffices.value) {
-    adminAssignPersonId.value = Number(props.userId || 0);
+    adminAssignPersonId.value = Number(scheduleActorUserId.value || props.userId || 0);
     adminAssignPersonName.value = '';
     adminAssignPersonSearch.value = '';
   }
@@ -7103,22 +10230,35 @@ const openSlotActionModal = ({
     selectedOfficeRoomId.value = Number(modalContext.value?.roomId || 0) || 0;
     officeBookingRecurrence.value = 'ONCE';
   }
+  const bookingIds = new Set((bookingAgencyOptions.value || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
   const contextAgencyId = Number(modalContext.value?.agencyId || 0);
-  if (contextAgencyId && effectiveAgencyIds.value.includes(contextAgencyId)) {
+  const currentId = Number(agencyStore.currentAgency?.id || 0);
+  if (currentId && bookingIds.has(currentId)) {
+    selectedActionAgencyId.value = currentId;
+  } else if (contextAgencyId && bookingIds.has(contextAgencyId)) {
     selectedActionAgencyId.value = contextAgencyId;
-  } else if (!selectedActionAgencyId.value || !effectiveAgencyIds.value.includes(Number(selectedActionAgencyId.value))) {
-    selectedActionAgencyId.value = Number(effectiveAgencyIds.value[0] || 0) || 0;
+  } else if (selectedActionAgencyId.value && bookingIds.has(Number(selectedActionAgencyId.value))) {
+    // keep
+  } else {
+    selectedActionAgencyId.value = Number([...bookingIds][0] || effectiveAgencyIds.value[0] || 0) || 0;
   }
-  if (!normalizedInitialRequestType && (viewMode.value === 'office_layout' || modalActionSource.value === 'office_block')) {
-    const ss = String(modalContext.value.slotState || '').toUpperCase();
-    if (['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'COMPANY_HOLD'].includes(ss)) {
-      // Occupied cell: show selected slot details first (actions remain in the sidebar).
-      requestType.value = 'slot_details';
-    } else {
-      // Open slot: admin can assign, others can request
-      requestType.value = canManageOffices.value ? 'admin_assign' : 'office_request_only';
+  // Office / layout opens always land on the chooser unless a real deep-link action was passed
+  // (e.g. portal_intake, school, individual_session from dashboard CTA).
+  if (
+    modalActionSource.value === 'office_block'
+    || modalActionSource.value === 'plus_or_blank'
+    || viewMode.value === 'office_layout'
+  ) {
+    const deepLinkOk = normalizedInitialRequestType
+      && !['slot_details', 'office_request_only', ''].includes(normalizedInitialRequestType);
+    if (!deepLinkOk) {
+      requestType.value = '';
+      requestTypeChosenByUser.value = false;
     }
   }
+  loadSlotActionPrefs();
+  showMoreSlotActions.value = false;
+  slotActionReorderMode.value = false;
   const rows = preserveSelectionRange ? sortedSelectedActionSlots() : [];
   // Signature still keyed off selection rows (duration already applied above).
   const fallbackDate = String(dateYmd || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName))).slice(0, 10);
@@ -7229,14 +10369,14 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
         dateYmd,
         slot,
         preserveSelectionRange: false,
-        initialRequestType: 'slot_details',
+        initialRequestType: '',
         actionSource: 'office_block'
       });
       return;
     }
     const officeTop = officeId ? officeTopEvent(dayName, hour, officeId, roomId) : null;
     if (officeTop) {
-      // User has assignment in this room – show selected slot details first
+      // Assigned/booked room — open same schedule modal on the action chooser
       openSlotActionModal({
         dayName,
         hour,
@@ -7244,7 +10384,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
         dateYmd,
         slot: officeTop,
         preserveSelectionRange: false,
-        initialRequestType: 'slot_details',
+        initialRequestType: '',
         actionSource: 'office_block'
       });
     } else {
@@ -7254,7 +10394,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   } else if (isCellVisuallyBlank(dayName, hour)) {
     openSlotActionModal({ ...item, preserveSelectionRange: false, actionSource: 'plus_or_blank' });
   } else if (canBookFromGrid.value) {
-    // Cell has content (e.g. user's assigned office slot) – single-click opens modal for forfeit/extend
+    // Cell has content (e.g. user's assigned office slot) – same modal, chooser-first
     const blocks = cellBlocks(dayName, hour);
     const officeBlock = blocks.find((b) => ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(String(b?.kind || '')));
     if (officeBlock) {
@@ -7268,7 +10408,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
         dateYmd,
         slot: officeTop,
         preserveSelectionRange: false,
-        initialRequestType: 'slot_details',
+        initialRequestType: '',
         actionSource: 'office_block'
       });
     }
@@ -7386,10 +10526,31 @@ const cancelBookingLoading = ref(false);
 const cancelBookingError = ref('');
 
 // ---- Provider office overlay (selected office location weekly grid) ----
-const selectedOfficeLocationId = ref(0);
+/** 0 = Off (hide office blocks), -1 = All offices for this person, >0 = specific building */
+const OFFICE_SCOPE_OFF = 0;
+const OFFICE_SCOPE_ALL = -1;
+const selectedOfficeLocationId = ref(OFFICE_SCOPE_ALL);
+const isOfficeScopeSpecific = computed(() => Number(selectedOfficeLocationId.value) > 0);
+const isOfficeScopeAll = computed(() => Number(selectedOfficeLocationId.value) === OFFICE_SCOPE_ALL);
 const officeGridLoading = ref(false);
 const officeGridError = ref('');
 const officeGrid = ref(null); // { location, weekStart, days, hours, rooms, slots }
+
+const officeBuildingShortName = (buildingId) => {
+  const id = Number(buildingId || 0);
+  if (!id) return 'Office';
+  const row = (officeLocations.value || []).find((o) => Number(o?.id || 0) === id);
+  const name = String(row?.name || '').trim();
+  if (!name) return `B${id}`;
+  return name.length > 10 ? `${name.slice(0, 10)}…` : name;
+};
+
+const resolveSpecificOfficeId = () => {
+  const cur = Number(selectedOfficeLocationId.value || 0);
+  if (cur > 0) return cur;
+  const first = Number((officeLocations.value || [])[0]?.id || 0);
+  return first > 0 ? first : 0;
+};
 
 /** IANA timezone for the selected (or first) office — schedule wall clock source of truth. */
 const bookingTimezoneIana = computed(() => {
@@ -7404,15 +10565,23 @@ const bookingTimezoneIana = computed(() => {
 });
 const bookingTimezoneLabel = computed(() => timezoneLabelFor(bookingTimezoneIana.value));
 
-const actionAgencyOptions = computed(() => {
+const isScheduleSuperAdmin = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  const isSuperAdmin = role === 'super_admin' || role === 'superadmin';
+  return role === 'super_admin' || role === 'superadmin';
+});
+
+const actionAgencyOptions = computed(() => {
+  const t = String(requestType.value || '');
+  // Session booking: full tenant list (calendar “shown” chips must not lock the tenant picker).
+  if (SESSION_BOOKING_ACTIONS.has(t)) {
+    return bookingAgencyOptions.value.slice();
+  }
+
   const active = new Set((activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
   let rows = agencyFilterOptions.value.filter((row) => active.has(Number(row.id)));
   if (!rows.length) rows = agencyFilterOptions.value.slice();
 
   // Office-locked actions: only tenants affiliated with this building.
-  const t = String(requestType.value || '');
   if (OFFICE_AGENCY_SCOPED_ACTIONS.has(t)) {
     const officeId = Number(modalContext.value?.officeLocationId || selectedOfficeLocationId.value || 0);
     if (officeId > 0) {
@@ -7422,16 +10591,17 @@ const actionAgencyOptions = computed(() => {
         : [];
       if (affiliated.length) {
         const allowed = new Set(affiliated);
-        // Superadmin can pick any office-linked tenant (not only personal memberships).
-        if (isSuperAdmin) {
+        if (isScheduleSuperAdmin.value) {
           return affiliated.map((id) => {
-            const existing = rows.find((row) => Number(row.id) === id)
+            const existing = (bookingAgencyOptions.value || []).find((row) => Number(row.id) === id)
+              || rows.find((row) => Number(row.id) === id)
               || agencyFilterOptions.value.find((row) => Number(row.id) === id);
             return {
               id,
               label: existing?.label || agencyLabel(id) || `Agency ${id}`,
               hasClinicalOrg: existing?.hasClinicalOrg ?? null,
-              hasLearningOrg: existing?.hasLearningOrg ?? null
+              hasLearningOrg: existing?.hasLearningOrg ?? null,
+              medicalBillingEnabled: !!existing?.medicalBillingEnabled
             };
           });
         }
@@ -7443,18 +10613,33 @@ const actionAgencyOptions = computed(() => {
   return rows;
 });
 
+const showActionAgencyPicker = computed(() => {
+  if (!actionAgencyOptions.value.length && !headerTenantOptions.value.length) return false;
+  if (SESSION_BOOKING_ACTIONS.has(String(requestType.value || ''))) return true;
+  return actionRequiresAgency.value;
+});
+
+const canChangeActionAgency = computed(() => {
+  if (SESSION_BOOKING_ACTIONS.has(String(requestType.value || ''))) {
+    return headerTenantOptions.value.length > 1;
+  }
+  return actionAgencyOptions.value.length > 1;
+});
+
+const showInitialBookingContext = computed(() => {
+  if (!showRequestModal.value) return false;
+  const t = String(requestType.value || '').trim();
+  return !t || t === 'slot_details';
+});
+
 const actionAgencyFilteredToOffice = computed(() => {
   const t = String(requestType.value || '');
   if (!OFFICE_AGENCY_SCOPED_ACTIONS.has(t)) return false;
+  if (SESSION_BOOKING_ACTIONS.has(t)) return false;
   const officeId = Number(modalContext.value?.officeLocationId || selectedOfficeLocationId.value || 0);
   if (!officeId) return false;
   const office = (officeLocations.value || []).find((o) => Number(o?.id || 0) === officeId);
   return Array.isArray(office?.agencyIds) && office.agencyIds.length > 0;
-});
-
-const isScheduleSuperAdmin = computed(() => {
-  const role = String(authStore.user?.role || '').toLowerCase();
-  return role === 'super_admin' || role === 'superadmin';
 });
 
 // Keep selected agency inside the (possibly office-filtered) option list.
@@ -7498,6 +10683,39 @@ const agencyBadgeColorById = (agencyId) => {
   const n = Number(agencyId || 0);
   if (!Number.isFinite(n) || n <= 0) return null;
   return agencyBadgePalette[n % agencyBadgePalette.length];
+};
+
+/** Reactive map of tenant main icon URLs for schedule blocks and legend. */
+const scheduleAgencyIconUrls = computed(() => {
+  const ids = new Set();
+  for (const id of activeScheduleAgencyIdSet.value || []) ids.add(Number(id));
+  for (const row of selfScheduleAgencyOptions.value || []) {
+    const id = Number(row?.id || 0);
+    if (id > 0) ids.add(id);
+  }
+  for (const row of agencyFilterOptions.value || []) {
+    const id = Number(row?.id || 0);
+    if (id > 0) ids.add(id);
+  }
+  // Re-render when hydrated agencies or lazy icon paths arrive.
+  void agencyStore.currentAgency;
+  void agencyStore.userAgencies;
+  void agencyStore.agencies;
+  void brandingStore.iconFilePathCache;
+
+  const out = {};
+  for (const id of ids) {
+    if (!Number.isFinite(id) || id <= 0) continue;
+    const url = brandingStore.getOrganizationChromeIconUrl(id);
+    if (url) out[id] = url;
+  }
+  return out;
+});
+
+const agencyIconUrlById = (agencyId) => {
+  const id = Number(agencyId || 0);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return scheduleAgencyIconUrls.value[id] || brandingStore.getOrganizationChromeIconUrl(id) || null;
 };
 
 const officeOverlayStyle = computed(() => {
@@ -7594,10 +10812,7 @@ const onQuickGlanceRowClick = (row) => {
   const dayName = dayNameForDateYmd(dateYmd);
   if (!dateYmd || !Number.isFinite(hour) || !dayName) return;
   const st = String(row?.state || 'open').toUpperCase();
-  const initialRequestType =
-    ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'COMPANY_HOLD'].includes(st)
-      ? 'slot_details'
-      : (st === 'OPEN' ? 'office_request_only' : '');
+  const isOfficeOccupied = ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'COMPANY_HOLD'].includes(st);
   openSlotActionModal({
     dayName,
     hour,
@@ -7605,16 +10820,18 @@ const onQuickGlanceRowClick = (row) => {
     slot: row?.slot || null,
     dateYmd,
     preserveSelectionRange: false,
-    initialRequestType,
-    actionSource: 'quick_glance'
+    initialRequestType: '',
+    actionSource: isOfficeOccupied ? 'office_block' : 'plus_or_blank'
   });
 };
 
 const loadSelectedOfficeGrid = async () => {
   const id = Number(selectedOfficeLocationId.value || 0);
-  if (!id) {
+  // Only a concrete building loads a room grid (All / Off do not).
+  if (!(id > 0)) {
     officeGrid.value = null;
     officeGridError.value = '';
+    officeGridLoading.value = false;
     return;
   }
   const hadGrid = !!officeGrid.value;
@@ -7634,13 +10851,7 @@ const loadSelectedOfficeGrid = async () => {
   }
 };
 
-watch([selectedOfficeLocationId, weekStart, viewMode], () => {
-  if (viewMode.value !== 'office_layout') {
-    officeGrid.value = null;
-    officeGridError.value = '';
-    officeGridLoading.value = false;
-    return;
-  }
+watch([selectedOfficeLocationId, weekStart], () => {
   void loadSelectedOfficeGrid();
 });
 
@@ -7683,8 +10894,7 @@ const officeOverlayStats = computed(() => {
 });
 
 const officeOverlay = (dayName, hour) => {
-  const id = Number(selectedOfficeLocationId.value || 0);
-  if (!id) return '';
+  if (!isOfficeScopeSpecific.value) return '';
   if (ALL_DAYS.indexOf(String(dayName)) < 0) return '';
   const date = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const rec = officeOverlayStats.value.get(officeOverlayKey(date, hour));
@@ -7710,14 +10920,65 @@ const officeOverlayTitle = (dayName, hour) => {
   ].join('\n');
 };
 
+const hexToRgba = (hex, alpha = 0.28) => {
+  const raw = String(hex || '').replace('#', '').trim();
+  if (raw.length !== 6) return null;
+  const r = parseInt(raw.slice(0, 2), 16);
+  const g = parseInt(raw.slice(2, 4), 16);
+  const b = parseInt(raw.slice(4, 6), 16);
+  if (![r, g, b].every((n) => Number.isFinite(n))) return null;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+/** Tint tenant/event colors toward white so blocks stay readable on dark grid backgrounds. */
+const lightenHex = (hex, amount = 0.42) => {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  const mix = Math.max(0, Math.min(1, Number(amount)));
+  const r = Math.round(rgb.r + (255 - rgb.r) * mix);
+  const g = Math.round(rgb.g + (255 - rgb.g) * mix);
+  const b = Math.round(rgb.b + (255 - rgb.b) * mix);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+};
+
+const typeStyleToken = (b) => {
+  const kind = String(b?.kind || '');
+  if (kind === 'ob') return 'Booked';
+  if (kind === 'oa') return 'Assigned';
+  if (kind === 'ot') return 'Temp';
+  if (kind === 'supv') return 'Supv';
+  if (kind === 'school') return 'School';
+  if (kind === 'request') return 'Req';
+  if (kind === 'intake-ip') return 'IP';
+  if (kind === 'intake-vi') return 'VI';
+  if (kind === 'sevt') {
+    const eventKind = String(b?.eventKind || '').toUpperCase();
+    if (eventKind === 'TEAM_MEETING') return 'Meeting';
+    if (eventKind === 'HUDDLE') return 'Huddle';
+    if (eventKind === 'SCHEDULE_HOLD') return 'Hold';
+    if (eventKind === 'INDIRECT_SERVICES') return 'Indirect';
+    const title = String(b?.title || b?.shortLabel || '').toLowerCase();
+    if (title.includes('virtual') || title.includes('session')) return 'Session';
+    return 'Event';
+  }
+  return '';
+};
+
 const cellBlockStyle = (b) => {
   const kind = String(b?.kind || '');
   const style = {};
-  const officeKindFillMap = {
-    oa: { fill: 'rgba(59, 130, 246, 0.24)', border: 'rgba(37, 99, 235, 0.60)' }, // assigned
-    ot: { fill: 'rgba(249, 115, 22, 0.24)', border: 'rgba(194, 65, 12, 0.62)' }, // temporary
-    ob: { fill: 'rgba(239, 68, 68, 0.24)', border: 'rgba(185, 28, 28, 0.62)' } // booked
-  };
+  const dark = darkScheduleTheme.value;
+  const officeKindFillMap = dark
+    ? {
+      oa: { fill: 'rgba(147, 197, 253, 0.52)', border: 'rgba(147, 197, 253, 0.88)' },
+      ot: { fill: 'rgba(253, 186, 116, 0.52)', border: 'rgba(251, 146, 60, 0.88)' },
+      ob: { fill: 'rgba(252, 165, 165, 0.52)', border: 'rgba(248, 113, 113, 0.88)' }
+    }
+    : {
+      oa: { fill: 'rgba(59, 130, 246, 0.24)', border: 'rgba(37, 99, 235, 0.60)' },
+      ot: { fill: 'rgba(249, 115, 22, 0.24)', border: 'rgba(194, 65, 12, 0.62)' },
+      ob: { fill: 'rgba(239, 68, 68, 0.24)', border: 'rgba(185, 28, 28, 0.62)' }
+    };
   if (officeKindFillMap[kind]) {
     style['--blockFill'] = officeKindFillMap[kind].fill;
     style['--blockBorder'] = officeKindFillMap[kind].border;
@@ -7725,12 +10986,37 @@ const cellBlockStyle = (b) => {
   if (kind === 'sevt') {
     const eventKind = String(b?.eventKind || '').toUpperCase();
     if (eventKind === 'TEAM_MEETING') {
-      style['--blockFill'] = 'rgba(147, 51, 234, 0.22)';
-      style['--blockBorder'] = 'rgba(126, 34, 206, 0.52)';
+      style['--blockFill'] = dark ? 'rgba(216, 180, 254, 0.48)' : 'rgba(147, 51, 234, 0.22)';
+      style['--blockBorder'] = dark ? 'rgba(196, 181, 253, 0.85)' : 'rgba(126, 34, 206, 0.52)';
     } else if (eventKind === 'HUDDLE') {
-      style['--blockFill'] = 'rgba(6, 182, 212, 0.22)';
-      style['--blockBorder'] = 'rgba(14, 116, 144, 0.50)';
+      style['--blockFill'] = dark ? 'rgba(103, 232, 249, 0.42)' : 'rgba(6, 182, 212, 0.22)';
+      style['--blockBorder'] = dark ? 'rgba(34, 211, 238, 0.82)' : 'rgba(14, 116, 144, 0.50)';
     }
+  }
+  if (kind === 'peerbusy') {
+    const peerColor = peerColorById(b?.peerUserId);
+    const fillColor = dark ? lightenHex(peerColor, 0.38) : peerColor;
+    const borderColor = dark ? lightenHex(peerColor, 0.18) : peerColor;
+    const fill = hexToRgba(fillColor, dark ? 0.52 : 0.22);
+    const border = hexToRgba(borderColor, dark ? 0.88 : 0.70);
+    if (fill) style['--blockFill'] = fill;
+    if (border) style['--blockBorder'] = border;
+    style['--peerAccent'] = peerColor;
+  }
+  // Multi-tenant view: fill by organization; appointment type stays in the label/stripe.
+  if (colorBlocksByTenant.value && kind !== 'peerbusy') {
+    const tenantColor = agencyBadgeColorById(b?.agencyId);
+    const fillColor = dark ? lightenHex(tenantColor, 0.45) : tenantColor;
+    const borderColor = dark ? lightenHex(tenantColor, 0.22) : tenantColor;
+    const fill = hexToRgba(fillColor, dark ? 0.56 : 0.30);
+    const border = hexToRgba(borderColor, dark ? 0.88 : 0.72);
+    if (fill) style['--blockFill'] = fill;
+    if (border) style['--blockBorder'] = border;
+    style['--blockTypeStripe'] = officeKindFillMap[kind]?.border
+      || (kind === 'supv' ? (dark ? 'rgba(216, 180, 254, 0.92)' : 'rgba(147, 51, 234, 0.85)')
+        : kind === 'school' ? (dark ? 'rgba(147, 197, 253, 0.92)' : 'rgba(37, 99, 235, 0.85)')
+          : kind === 'sevt' ? (dark ? 'rgba(110, 231, 183, 0.92)' : 'rgba(15, 118, 110, 0.85)')
+            : (dark ? 'rgba(203, 213, 225, 0.85)' : 'rgba(100, 116, 139, 0.75)'));
   }
   return style;
 };
@@ -8111,21 +11397,39 @@ const submitOfficeAssign = async () => {
 
 const onQuickActionSelect = (act) => {
   const id = String(act?.id || '');
+  if (act?.disabledReason) return;
   if (id === 'indirect_services' && (isHourlyWorker.value || isAdminMode.value)) {
     // Payroll indirect time is logged via the dedicated Time Submission flow.
+    recordSlotActionUsage(id);
     closeModal();
     const q = { ...route.query, tab: 'log_time' };
     router.push({ query: q }).catch(() => {});
     return;
   }
+  recordSlotActionUsage(id);
   requestType.value = id;
   requestTypeChosenByUser.value = true;
+  if (id === 'individual_session' && !String(bookingModality.value || '').trim()) {
+    bookingModality.value = 'TELEHEALTH';
+  }
+};
+
+const requestCloseModal = () => {
+  if (requestModalIsDirty.value) {
+    const ok = window.confirm('Discard this schedule entry? Your unsaved changes will be lost.');
+    if (!ok) return;
+  }
+  closeModal();
 };
 
 const closeModal = () => {
+  appointmentEditOpenGen += 1;
   showRequestModal.value = false;
   modalActionSource.value = 'general';
   requestType.value = '';
+  scheduleEventEditId.value = 0;
+  scheduleEventEditError.value = '';
+  scheduleEventSaving.value = false;
   requestTypeChosenByUser.value = false;
   showAdditionalParticipantsPicker.value = false;
   sessionAlsoRequestOffice.value = false;
@@ -8425,18 +11729,21 @@ const completePlatformVirtualSessionBooking = async ({
   alsoBookOffice,
   officeId
 }) => {
-  const uid = Number(props.userId || authStore.user?.id || 0);
+  const uid = Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0);
   if (!uid) throw new Error('Provider is required.');
   const agencyId = Number(effectiveAgencyId.value || 0);
   if (!agencyId) throw new Error('Select an agency for this virtual session.');
-  const isGroup = virtualSessionSelectedCount.value >= 1;
+  const clientId = Number(primarySessionClientId.value || 0);
+  if (!clientId) throw new Error('Select a client for this individual session.');
   const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const startAt = `${dateYmd}T${pad2(hour)}:${pad2(startMinute)}:00`;
   const endAt = `${dateYmd}T${pad2(endHour)}:${pad2(endMinute)}:00`;
-  const baseTitle = isGroup ? 'Group virtual session' : 'Virtual session';
+  const clientLabel = primarySessionClientLabel.value || `Client ${clientId}`;
+  const baseTitle = `Virtual session · ${clientLabel}`;
   const attendeeNote = buildVirtualAttendeeNotes();
   const descriptionParts = [
     String(requestNotes.value || '').trim() || 'Platform counseling video session.',
+    `Client id: ${clientId}`,
     attendeeNote
   ].filter(Boolean);
   const description = descriptionParts.join('\n\n');
@@ -8462,14 +11769,15 @@ const completePlatformVirtualSessionBooking = async ({
       recurrence,
       openToAlternativeRoom: !roomId,
       notes: description,
+      clientId,
       ...normalizeBookingSelectionPayload(),
-      ...(isAdminMode.value ? { requestedProviderId: Number(props.userId) } : {})
+      ...requestedProviderPayload()
     });
     appointmentId = Number(r?.data?.appointmentId || r?.data?.eventId || r?.data?.officeEventId || 0) || null;
     if (r?.data?.kind === 'auto_booked') await loadSelectedOfficeGrid();
   }
 
-  await api.post(`/users/${uid}/schedule-events`, {
+  const scheduleResp = await api.post(`/users/${uid}/schedule-events`, {
     agencyId,
     kind: 'PERSONAL_EVENT',
     title: baseTitle,
@@ -8477,7 +11785,10 @@ const completePlatformVirtualSessionBooking = async ({
     allDay: false,
     startAt,
     endAt,
-    isPrivate: false
+    isPrivate: false,
+    clientId,
+    // Platform video room does not depend on Google Calendar.
+    allowLocalOnly: true
   });
 
   const data = await createCounselingSession({
@@ -8492,9 +11803,18 @@ const completePlatformVirtualSessionBooking = async ({
   virtualSessionScheduledSessionKey.value = String(sessionKey);
   virtualSessionShareUrl.value = buildVirtualSessionShareUrl(data?.sharePath || '');
   virtualSessionShareCopied.value = false;
+  virtualSessionGoogleWarning.value = String(scheduleResp?.data?.googleCalendarWarning || '').trim();
   clearSelectedActionSlots();
-  invalidateScheduleSummaryCacheForUser(props.userId);
-  await load({ forceRefresh: true });
+  ensureScheduleAgencyVisible(agencyId);
+  patchScheduleSummaryWithBookedEvent({
+    eventId: scheduleResp?.data?.event?.providerScheduleEventId || scheduleResp?.data?.event?.id,
+    agencyId,
+    title: baseTitle,
+    startAt,
+    endAt,
+    kind: 'PERSONAL_EVENT'
+  });
+  refreshScheduleSummaryInBackground();
 };
 
 const submitRequest = async () => {
@@ -8536,13 +11856,7 @@ const submitRequest = async () => {
       throw new Error('End time must be after start time.');
     }
 
-    if (requestType.value === 'booked_note') {
-      openNoteAidFromContext('note');
-      return;
-    } else if (requestType.value === 'booked_record') {
-      openNoteAidFromContext('record_session');
-      return;
-    } else if (requestType.value === 'start_video') {
+    if (requestType.value === 'start_video') {
       const ctx = modalContext.value || {};
       const appointmentId = Number(ctx.officeEventId || 0);
       if (!appointmentId) throw new Error('Booked office event is required for video.');
@@ -8628,11 +11942,13 @@ const submitRequest = async () => {
       if ((normalizedAction === 'agency_meeting' || normalizedAction === 'huddle') && !meetingAttendeeUserIds.length) {
         throw new Error('Select at least one participant.');
       }
-      const eventAgencyId = scheduleEventRequiresAgency.value
-        ? (Number(effectiveAgencyId.value || 0) || null)
-        : null;
-      if (scheduleEventRequiresAgency.value && !eventAgencyId) {
-        throw new Error('Select an agency for this event type.');
+      let eventAgencyId = null;
+      if (scheduleEventRequiresAgency.value) {
+        eventAgencyId = Number(effectiveAgencyId.value || 0) || null;
+        if (!eventAgencyId) throw new Error('Select an agency for this event type.');
+      } else if (isAgencyOptionalScheduleEvent.value) {
+        // 0 = all/none (null agency_id); specific id ties the event to that tenant.
+        eventAgencyId = Number(scheduleEventAgencyScope.value || 0) || null;
       }
       const title = String(scheduleEventTitle.value || '').trim() || defaultScheduleEventTitleForAction(normalizedAction);
       const reasonCode = eventKind === 'SCHEDULE_HOLD' ? effectiveScheduleHoldReason() : null;
@@ -8736,6 +12052,7 @@ const submitRequest = async () => {
       }
       if (createdScheduleEvents.length) {
         refreshInBackground = true;
+        if (eventAgencyId) ensureScheduleAgencyVisible(eventAgencyId);
         if ((requestType.value === 'agency_meeting' || requestType.value === 'huddle') && createAgendaDraftItems.value.length) {
           const items = [...createAgendaDraftItems.value];
           for (const ev of createdScheduleEvents) {
@@ -8832,6 +12149,9 @@ const submitRequest = async () => {
       if (requestType.value === 'individual_session' && !modality) {
         throw new Error('Choose Virtual or In-person.');
       }
+      if (requestType.value === 'individual_session' && !primarySessionClientId.value) {
+        throw new Error('Select a client for this individual session.');
+      }
       if (requestType.value === 'individual_session' && modality === 'IN_PERSON' && !officeId) {
         throw new Error('In-person sessions need an office selected in the toolbar.');
       }
@@ -8839,22 +12159,75 @@ const submitRequest = async () => {
         throw new Error('Select an office first.');
       }
 
-      // Platform-linked virtual session: calendar block + counseling video room.
-      if (isVirtualIndividual && linkPlatformVideoRoom.value) {
-        if (virtualSessionScheduledSessionKey.value) {
-          await pushCounselingSessionRoute(virtualSessionScheduledSessionKey.value);
-          closeModal();
+      // Virtual sessions are not office bookings unless the user opts into a room request.
+      if (isVirtualIndividual && !(sessionAlsoRequestOffice.value && officeId > 0)) {
+        if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
+          throw new Error(bookingClassificationInvalidReason.value);
+        }
+        if (linkPlatformVideoRoom.value) {
+          if (virtualSessionScheduledSessionKey.value) {
+            await pushCounselingSessionRoute(virtualSessionScheduledSessionKey.value);
+            closeModal();
+            return;
+          }
+          await completePlatformVirtualSessionBooking({
+            dayName: dn,
+            hour: h,
+            startMinute,
+            endHour: endH,
+            endMinute,
+            alsoBookOffice: false,
+            officeId: 0
+          });
+          // Keep modal open so the join link can be copied.
+          modalError.value = '';
+          officeReminderToast.value = virtualSessionGoogleWarning.value
+            ? `Virtual session scheduled (Google Calendar not synced). Copy the join link above.`
+            : 'Virtual session scheduled. Copy the join link above.';
+          setTimeout(() => { officeReminderToast.value = ''; }, 6000);
           return;
         }
-        await completePlatformVirtualSessionBooking({
-          dayName: dn,
-          hour: h,
-          startMinute,
-          endHour: endH,
-          endMinute,
-          alsoBookOffice: sessionAlsoRequestOffice.value && officeId > 0,
-          officeId
+        // Virtual without platform video room: personal schedule event only (no office room).
+        const agencyId = Number(effectiveAgencyId.value || 0);
+        if (!agencyId) throw new Error('Select an agency for this virtual session.');
+        const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
+        const startAt = `${dateYmd}T${pad2(h)}:${pad2(startMinute)}:00`;
+        const endAt = `${dateYmd}T${pad2(endH)}:${pad2(endMinute)}:00`;
+        const bookingSelection = normalizeBookingSelectionPayload();
+        const titleParts = ['Virtual session'];
+        if (primarySessionClientLabel.value) titleParts.push(primarySessionClientLabel.value);
+        if (bookingSelection.serviceCode) titleParts.push(bookingSelection.serviceCode);
+        const scheduleResp = await api.post(`/users/${Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0)}/schedule-events`, {
+          agencyId,
+          kind: 'PERSONAL_EVENT',
+          title: titleParts.join(' · '),
+          description: [
+            String(requestNotes.value || '').trim(),
+            bookingSelection.clientId ? `Client id: ${bookingSelection.clientId}` : '',
+            buildVirtualAttendeeNotes(),
+            bookingSelection.appointmentTypeCode ? `Type: ${bookingSelection.appointmentTypeCode}` : '',
+            bookingSelection.serviceCode ? `Service: ${bookingSelection.serviceCode}` : '',
+            bookingSelection.serviceLocationId ? `Location id: ${bookingSelection.serviceLocationId}` : ''
+          ].filter(Boolean).join('\n'),
+          allDay: false,
+          startAt,
+          endAt,
+          isPrivate: false,
+          allowLocalOnly: true,
+          ...bookingSelection
         });
+        clearSelectedActionSlots();
+        ensureScheduleAgencyVisible(agencyId);
+        patchScheduleSummaryWithBookedEvent({
+          eventId: scheduleResp?.data?.event?.providerScheduleEventId || scheduleResp?.data?.event?.id,
+          agencyId,
+          title: titleParts.join(' · '),
+          startAt,
+          endAt,
+          kind: 'PERSONAL_EVENT'
+        });
+        refreshScheduleSummaryInBackground();
+        closeModal();
         return;
       }
 
@@ -8888,7 +12261,7 @@ const submitRequest = async () => {
           openToAlternativeRoom: !roomId,
           notes: requestNotes.value || '',
           ...normalizeBookingSelectionPayload(),
-          ...(isAdminMode.value ? { requestedProviderId: Number(props.userId) } : {})
+          ...requestedProviderPayload()
         });
         if (r?.data?.kind === 'auto_booked') {
           // eslint-disable-next-line no-await-in-loop
@@ -9235,6 +12608,7 @@ const submitRequest = async () => {
           recurrenceIndex: ev?.recurrenceIndex ?? null,
           htmlLink: ev?.htmlLink || null,
           appJoinUrl: ev?.appJoinUrl || null,
+          agencyId: Number(ev?.agencyId || 0) || null,
           _agencyId: Number(ev?.agencyId || 0) || null
         }));
         current.scheduleEvents = [...(Array.isArray(current.scheduleEvents) ? current.scheduleEvents : []), ...mapped];
@@ -9288,12 +12662,10 @@ watch(requestType, (t) => {
     virtualSessionIncludeGuardians.value = false;
     resetVirtualSessionShareState();
     if (!String(bookingModality.value || '').trim()) {
-      bookingModality.value = Number(selectedOfficeLocationId.value || 0) > 0 ? 'TELEHEALTH' : 'TELEHEALTH';
+      bookingModality.value = 'TELEHEALTH';
     }
-    if (showClinicalBookingFields.value) void loadBookingMetadataForProvider();
-    if (String(bookingModality.value || '').toUpperCase() === 'TELEHEALTH' && linkPlatformVideoRoom.value) {
-      void loadVirtualSessionClients();
-    }
+    void loadBookingMetadataForProvider();
+    void loadVirtualSessionClients();
   } else if ((t === 'office' || t === 'group_session') && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
   } else if (SCHEDULE_EVENT_ACTIONS.has(String(t || ''))) {
@@ -9304,6 +12676,19 @@ watch(requestType, (t) => {
     if (t === 'schedule_hold') scheduleEventAllDay.value = false;
     if (t === 'personal_event' || t === 'indirect_services' || t === 'agency_meeting' || t === 'huddle') {
       scheduleEventAllDay.value = false;
+    }
+    if (['personal_event', 'schedule_hold', 'schedule_hold_all_day'].includes(String(t || ''))) {
+      const opts = scheduleEventOrgOptions.value || [];
+      const current = Number(scheduleEventAgencyScope.value || 0);
+      const validIds = new Set(opts.map((row) => Number(row?.id || 0)).filter((n) => n > 0));
+      if (current > 0 && validIds.has(current)) {
+        // keep prior choice
+      } else if (opts.length === 1) {
+        // Single-tenant accounts default to that org; multi-tenant defaults to all/none.
+        scheduleEventAgencyScope.value = Number(opts[0].id);
+      } else {
+        scheduleEventAgencyScope.value = 0;
+      }
     }
   }
   if (!['agency_meeting', 'huddle'].includes(String(t || ''))) {
@@ -9350,10 +12735,9 @@ watch(meetingIncludeAllAgencies, () => {
 });
 
 watch([bookingModality, linkPlatformVideoRoom, virtualSessionIncludeGuardians], () => {
-  if (!isVirtualTelehealthSession.value || !showRequestModal.value) return;
+  if (String(requestType.value || '') !== 'individual_session' || !showRequestModal.value) return;
   if (!linkPlatformVideoRoom.value) {
     resetVirtualSessionShareState();
-    return;
   }
   if (!virtualSessionIncludeGuardians.value) {
     virtualSessionSelectedGuardianKeys.value = [];
@@ -9363,7 +12747,7 @@ watch([bookingModality, linkPlatformVideoRoom, virtualSessionIncludeGuardians], 
 
 watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agencyId], [prevOpen, prevType, prevAgencyId]) => {
   if (!isOpen) return;
-  if (isVirtualTelehealthSession.value && linkPlatformVideoRoom.value) {
+  if (String(type || '') === 'individual_session') {
     const currentAgencyId = Number(agencyId || 0);
     const previousAgencyId = Number(prevAgencyId || 0);
     if (currentAgencyId > 0 && currentAgencyId !== previousAgencyId) {
@@ -9452,23 +12836,41 @@ watch(() => summary.value?.supervisionSessions, (rows) => {
 watch([showRequestModal, visibleQuickActions], ([isOpen, actions]) => {
   if (!isOpen) return;
   const rows = Array.isArray(actions) ? actions : [];
-  if (!rows.length) {
-    requestType.value = '';
+  const current = String(requestType.value || '').trim();
+  if (!current) {
     requestTypeChosenByUser.value = false;
     return;
   }
+  // Edit shells are not chooser cards — never wipe them back to the action grid.
+  if (APPOINTMENT_EDIT_REQUEST_TYPES.has(current)) return;
   const ids = new Set(rows.map((row) => String(row?.id || '')).filter(Boolean));
-  if (!ids.has(String(requestType.value || ''))) {
-    if (rows.length === 1) {
-      requestType.value = String(rows[0]?.id || '');
-      requestTypeChosenByUser.value = false;
-    } else if (requestTypeChosenByUser.value) {
-      requestType.value = String(rows[0]?.id || '');
-    } else {
-      requestType.value = '';
-    }
+  // Never auto-pick a replacement action — return to the chooser when current is unavailable.
+  if (!ids.has(current)) {
+    requestType.value = '';
+    requestTypeChosenByUser.value = false;
   }
 }, { deep: true });
+
+watch(
+  [bookingServiceCode, modalSessionDurationMinutes, effectiveAgencyId, showClinicalBookingFields, showRequestModal],
+  () => {
+    if (bookingUnitPreviewTimer) clearTimeout(bookingUnitPreviewTimer);
+    bookingUnitPreviewTimer = setTimeout(() => {
+      void refreshBookingUnitPreview();
+    }, 250);
+  }
+);
+
+watch([bookingModality, () => bookingServiceLocationOptions.value.length], () => {
+  preferDefaultServiceLocation();
+});
+
+watch([effectiveAgencyId, showClinicalBookingFields, requestType, showRequestModal], () => {
+  if (!showRequestModal.value) return;
+  if (!showClinicalBookingFields.value) return;
+  if (!['office', 'individual_session', 'group_session'].includes(String(requestType.value || ''))) return;
+  void loadBookingMetadataForProvider();
+});
 
 watch(bookingAppointmentType, () => {
   const selectedSubtype = normalizeCodeValue(bookingAppointmentSubtype.value);
@@ -9672,8 +13074,21 @@ const parseMaybeDate = (raw) => {
   const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
   return Number.isNaN(d.getTime()) ? null : d;
 };
-const toDatetimeLocalValue = (d) => {
-  if (!d) return '';
+const toDatetimeLocalValue = (raw) => {
+  if (raw instanceof Date) {
+    if (Number.isNaN(raw.getTime())) return '';
+    const p2 = (n) => String(n).padStart(2, '0');
+    return `${raw.getFullYear()}-${p2(raw.getMonth() + 1)}-${p2(raw.getDate())}T${p2(raw.getHours())}:${p2(raw.getMinutes())}`;
+  }
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  // Prefer wall-clock local (no Z) so datetime-local matches booked local times.
+  const wall = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})/.exec(s);
+  if (wall && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) {
+    return `${wall[1]}T${wall[2]}:${wall[3]}`;
+  }
+  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
+  if (Number.isNaN(d.getTime())) return '';
   const p2 = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
 };
@@ -9900,7 +13315,7 @@ const togglePresenterPresented = async (presenter) => {
   }
 };
 
-const saveSupvSession = async () => {
+const saveSupvSession = async ({ closeScheduleShell = false } = {}) => {
   const id = Number(selectedSupvSessionId.value || 0);
   if (!id) return;
   try {
@@ -9916,12 +13331,15 @@ const saveSupvSession = async () => {
     });
     await load();
     closeSupvModal();
+    if (closeScheduleShell) requestCloseModal();
   } catch (e) {
     supvModalError.value = e.response?.data?.error?.message || e.message || 'Failed to save session';
   } finally {
     supvSaving.value = false;
   }
 };
+
+const saveSupvSessionFromScheduleModal = () => saveSupvSession({ closeScheduleShell: true });
 
 const ensureSupvMeetLink = async () => {
   const id = Number(selectedSupvSessionId.value || 0);
@@ -9950,6 +13368,7 @@ const cancelSupvSession = async () => {
     invalidateScheduleSummaryCacheForUser(props.userId);
     await load({ forceRefresh: true });
     closeSupvModal();
+    if (isSupervisionEditMode.value) requestCloseModal();
   } catch (e) {
     supvModalError.value = e.response?.data?.error?.message || e.message || 'Failed to cancel session';
   } finally {
@@ -9957,13 +13376,59 @@ const cancelSupvSession = async () => {
   }
 };
 
+const peerActivityModal = ref(null);
+
+const openPeerActivityModal = (block, dayName, hour, minute = 0) => {
+  const uid = Number(block?.peerUserId || 0);
+  if (!uid) return;
+  const activities = Array.isArray(block?.peerActivities) ? block.peerActivities : [];
+  peerActivityModal.value = {
+    userId: uid,
+    label: peerLabelById(uid),
+    dayName,
+    hour,
+    minute,
+    color: peerColorById(uid),
+    agencyId: Number(block?.agencyId || 0) || null,
+    activities,
+    canManage: !!canManagePeerCalendar.value
+  };
+};
+
+const closePeerActivityModal = () => {
+  peerActivityModal.value = null;
+};
+
+const openPeerStaffSchedule = () => {
+  const uid = Number(peerActivityModal.value?.userId || 0);
+  if (!uid) return;
+  const base = staffSchedulesCompareTo.value;
+  router.push({ path: base, query: { userId: String(uid) } });
+  closePeerActivityModal();
+};
+
 const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
   e?.preventDefault?.();
   e?.stopPropagation?.();
+  if (kind === 'peerbusy') {
+    openPeerActivityModal(block, dayName, hour, minute);
+    return;
+  }
+  if (block?.peerOnly) return;
   if (kind === 'ebusy') {
     const stackDetails = buildStackDetailsForBlock(block, dayName, hour, minute);
     if (stackDetails) openStackDetailsModal(stackDetails);
+    return;
+  }
+  if (kind === 'portal') {
+    openSlotActionModal({
+      dayName,
+      hour,
+      preserveSelectionRange: false,
+      initialRequestType: 'portal_intake',
+      actionSource: 'other_block'
+    });
     return;
   }
   const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
@@ -9986,7 +13451,12 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
   lastSelectedActionKey.value = selectedActionSlots.value[0]?.key || '';
   const stackDetails = buildStackDetailsForBlock(block, dayName, hour, minute);
   if (stackDetails) {
-    openStackDetailsModal(stackDetails);
+    const focusEventId = kind === 'sevt' ? Number(block?.eventId || 0) : 0;
+    openStackDetailsModal({
+      ...stackDetails,
+      autoEdit: focusEventId > 0,
+      focusEventId
+    });
     return;
   }
   if (kind === 'sevt') {
@@ -10006,24 +13476,18 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
       return;
     }
     const targetKind = String(targetEvent?.kind || '').trim().toUpperCase();
-    const kindLabel = scheduleKindLabel(targetKind, targetEvent);
-    const detailText = buildScheduleEventDetailText(targetEvent);
-    openStackDetailsModal({
-      title: `${kindLabel} — ${dayName} ${hourLabel(hour)}`,
-      items: [{
-        id: `sevt-single-${targetKind}-${Number(targetEvent?.id || 0) || Date.now()}`,
-        label: String(targetEvent?.title || '').trim() || 'Schedule event',
-        subLabel: targetEvent?.allDay ? 'All day' : formatRangeFromRaw(targetEvent?.startAt, targetEvent?.endAt),
-        kindLabel,
-        detailText,
-        link: String(targetEvent?.htmlLink || '').trim() || '',
-        appJoinUrl: String(block?.appJoinUrl || targetEvent?.appJoinUrl || '').trim() || '',
-        meetLink: String(targetEvent?.meetLink || '').trim() || '',
-        eventId: Number(targetEvent?.id || 0) || null,
-        eventKind: targetKind,
-        recurrenceSeriesId: String(targetEvent?.recurrenceSeriesId || '').trim() || '',
-        ...scheduleEventStackExtras(targetEvent)
-      }]
+    const stackItem = buildScheduleStackItemFromEvent(targetEvent, {
+      id: `sevt-single-${targetKind}-${Number(targetEvent?.id || 0) || Date.now()}`,
+      appJoinUrl: String(block?.appJoinUrl || targetEvent?.appJoinUrl || '').trim() || '',
+      providerId: resolveBookedProviderIdForEvent(targetEvent)
+    });
+    void openAppointmentEditInScheduleModal({
+      item: stackItem,
+      items: [stackItem],
+      dayName,
+      hour,
+      minute,
+      focusEventId: Number(stackItem.eventId || 0)
     });
     return;
   }
@@ -10039,7 +13503,7 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
     return;
   }
   if (kind === 'supv') {
-    openSupvModal(dayName, hour);
+    openSupervisionEditInScheduleModal(dayName, hour);
     return;
   }
   if (['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(kind)) {
@@ -10047,12 +13511,7 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
     if (officeLocationId > 0 && Number(selectedOfficeLocationId.value || 0) !== officeLocationId) {
       selectedOfficeLocationId.value = officeLocationId;
     }
-    const slotState = String(officeTop?.slotState || '').toUpperCase();
-    // Occupied office cells open on selected-slot details; manage actions stay in the sidebar.
-    const initialRequestType =
-      ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'COMPANY_HOLD'].includes(slotState)
-        ? 'slot_details'
-        : 'office_request_only';
+    // Same schedule modal for every office block — chooser first; permissions filter cards.
     openSlotActionModal({
       dayName,
       hour,
@@ -10060,7 +13519,7 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
       dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName)),
       slot: officeTop,
       preserveSelectionRange: false,
-      initialRequestType,
+      initialRequestType: '',
       actionSource: 'office_block'
     });
     return;
@@ -10097,6 +13556,9 @@ const clearGevtClickTimer = () => {
 const showStackDetailsModal = ref(false);
 const stackDetailsTitle = ref('');
 const stackDetailsItems = ref([]);
+const stackDetailsDayName = ref('');
+const stackDetailsHour = ref(0);
+const stackDetailsMinute = ref(0);
 const kioskPinRevealedByItemId = ref({});
 
 function revealKioskPin(itemId) {
@@ -10106,16 +13568,219 @@ function revealKioskPin(itemId) {
 }
 const deletingScheduleEventId = ref(0);
 const deletingScheduleEventScope = ref('');
+const scheduleEventEditId = ref(0);
+const scheduleEventSaving = ref(false);
+const scheduleEventEditError = ref('');
+const scheduleEventEditForm = ref({
+  title: '',
+  description: '',
+  startAt: '',
+  endAt: '',
+  agencyId: 0,
+  clientId: 0,
+  isPrivate: false
+});
+
+const EDITABLE_SCHEDULE_EVENT_KINDS = new Set([
+  'PERSONAL_EVENT',
+  'SCHEDULE_HOLD',
+  'INDIRECT_SERVICES',
+  'TEAM_MEETING',
+  'HUDDLE'
+]);
+const MEETING_SCHEDULE_EVENT_KINDS = new Set(['TEAM_MEETING', 'HUDDLE']);
+
+const isMeetingStackItem = (item) => MEETING_SCHEDULE_EVENT_KINDS.has(String(item?.eventKind || '').trim().toUpperCase());
+
+function parseClientIdFromScheduleEvent(evOrItem) {
+  const fromField = Number(evOrItem?.clientId || 0);
+  if (fromField > 0) return fromField;
+  const desc = String(evOrItem?.description || '').trim();
+  const m = /Client\s*id:\s*(\d+)/i.exec(desc);
+  return m ? Number(m[1]) : 0;
+}
+
+/** True when a PERSONAL_EVENT row is actually a client session (not a personal time block). */
+function isClientSessionScheduleEvent(ev = null) {
+  if (!ev) return false;
+  const kind = String(ev?.kind || ev?.eventKind || '').trim().toUpperCase();
+  if (kind && kind !== 'PERSONAL_EVENT') return false;
+  if (Number(ev?.clientId || 0) > 0) return true;
+  if (parseClientIdFromScheduleEvent(ev) > 0) return true;
+  const title = String(ev?.title || ev?.label || '').trim().toLowerCase();
+  if (title.startsWith('virtual session')) return true;
+  const desc = String(ev?.description || '').trim().toLowerCase();
+  if (desc.includes('client id:') || desc.includes('platform counseling')) return true;
+  return false;
+}
+
+const scheduleEventClientDisplayName = (clientId) => {
+  const id = Number(clientId || 0);
+  if (!id) return '';
+  const row = (virtualSessionClients.value || []).find((c) => Number(c?.id || 0) === id);
+  return String(row?.displayName || row?.fullName || '').trim() || `Client #${id}`;
+};
+
+const scheduleEventEditClientOptions = computed(() => {
+  const rows = Array.isArray(virtualSessionClients.value) ? [...virtualSessionClients.value] : [];
+  const selectedId = Number(scheduleEventEditForm.value.clientId || 0);
+  if (selectedId > 0 && !rows.some((c) => Number(c?.id || 0) === selectedId)) {
+    rows.unshift({ id: selectedId, displayName: `Client #${selectedId}` });
+  }
+  return rows;
+});
+
+const isEditableScheduleStackItem = (item) => {
+  const kind = String(item?.eventKind || '').trim().toUpperCase();
+  if (!EDITABLE_SCHEDULE_EVENT_KINDS.has(kind)) return false;
+  if (item?.canEdit === false) return false;
+  return Number(item?.eventId || 0) > 0;
+};
+
+const beginEditScheduleStackItem = async (item) => {
+  const eid = Number(item?.eventId || 0);
+  if (!eid) return;
+  scheduleEventEditError.value = '';
+  scheduleEventEditId.value = eid;
+  const agencyId = Number(item?.agencyId || 0) || 0;
+  const clientId = parseClientIdFromScheduleEvent(item);
+  scheduleEventEditForm.value = {
+    title: String(item?.label || '').trim(),
+    description: String(item?.description || '').trim(),
+    startAt: toDatetimeLocalValue(item?.startAt),
+    endAt: toDatetimeLocalValue(item?.endAt),
+    agencyId,
+    clientId,
+    isPrivate: !!item?.isPrivate
+  };
+  // Load pickers in the background — never block the edit shell on network.
+  if (isMeetingStackItem(item)) {
+    selectedMeetingParticipantIds.value = Array.isArray(item?.attendeeUserIds)
+      ? item.attendeeUserIds.map((n) => Number(n)).filter((n) => n > 0)
+      : [];
+    meetingParticipantSearch.value = '';
+    if (agencyId > 0) void loadMeetingCandidates();
+  } else if (agencyId > 0) {
+    void loadVirtualSessionClients(agencyId);
+  }
+};
+
+const onScheduleEventEditAgencyChange = () => {
+  const agencyId = Number(scheduleEventEditForm.value.agencyId || 0);
+  const editingItem = (stackDetailsItems.value || []).find(
+    (it) => Number(it?.eventId || 0) === Number(scheduleEventEditId.value || 0)
+  );
+  if (isMeetingStackItem(editingItem)) {
+    if (agencyId > 0) void loadMeetingCandidates();
+    return;
+  }
+  if (agencyId > 0) void loadVirtualSessionClients(agencyId);
+};
+
+const cancelEditScheduleStackItem = () => {
+  scheduleEventEditId.value = 0;
+  scheduleEventEditError.value = '';
+};
+
+const saveScheduleStackItem = async (item) => {
+  const eid = Number(item?.eventId || 0);
+  const uid = Number(props.userId || authStore.user?.id || 0);
+  if (!eid || !uid) return;
+  let title = String(scheduleEventEditForm.value.title || '').trim();
+  if (!title) {
+    scheduleEventEditError.value = 'Title is required.';
+    return;
+  }
+  const startAt = String(scheduleEventEditForm.value.startAt || '').trim();
+  const endAt = String(scheduleEventEditForm.value.endAt || '').trim();
+  if (!startAt || !endAt) {
+    scheduleEventEditError.value = 'Start and end times are required.';
+    return;
+  }
+  const isMeeting = isMeetingStackItem(item);
+  if (isMeeting && selectedMeetingParticipantIdSet.value.size === 0) {
+    scheduleEventEditError.value = 'Add at least one coworker before saving.';
+    return;
+  }
+  const clientId = isMeeting ? null : (Number(scheduleEventEditForm.value.clientId || 0) || null);
+  let description = String(scheduleEventEditForm.value.description || '').trim();
+  if (!isMeeting && clientId) {
+    if (/Client\s*id:\s*\d+/i.test(description)) {
+      description = description.replace(/Client\s*id:\s*\d+/i, `Client id: ${clientId}`);
+    } else {
+      description = [description, `Client id: ${clientId}`].filter(Boolean).join('\n\n');
+    }
+    if (/^Virtual session/i.test(title)) {
+      title = `Virtual session · ${scheduleEventClientDisplayName(clientId)}`;
+    }
+  }
+  try {
+    scheduleEventSaving.value = true;
+    scheduleEventEditError.value = '';
+    await api.patch(`/users/${uid}/schedule-events/${eid}`, {
+      title,
+      description,
+      startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
+      endAt: endAt.length === 16 ? `${endAt}:00` : endAt,
+      agencyId: Number(scheduleEventEditForm.value.agencyId || 0) || null,
+      isPrivate: !!scheduleEventEditForm.value.isPrivate,
+      allDay: false,
+      clientId,
+      ...(isMeeting ? { attendeeUserIds: Array.from(selectedMeetingParticipantIdSet.value) } : {})
+    });
+    scheduleEventEditId.value = 0;
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    await load({ forceRefresh: true });
+    // Keep picker open when multiple events share the slot so another can be edited.
+    if (stackDetailsItems.value.length > 1 && stackDetailsDayName.value) {
+      const refreshed = scheduleEventsInCell(
+        stackDetailsDayName.value,
+        Number(stackDetailsHour.value || 0),
+        Number(stackDetailsMinute.value || 0)
+      );
+      if (refreshed.length > 1) {
+        stackDetailsItems.value = refreshed.map((ev, idx) => buildScheduleStackItemFromEvent(ev, {
+          id: `sevt-${String(ev?.kind || 'evt').toUpperCase()}-${String(ev?.id || ev?.googleEventId || idx)}`
+        }));
+        requestType.value = 'pick_schedule_event';
+      } else {
+        closeStackDetailsModal();
+        requestCloseModal();
+      }
+    } else {
+      closeStackDetailsModal();
+      requestCloseModal();
+    }
+  } catch (e) {
+    scheduleEventEditError.value = e?.response?.data?.error?.message || e?.message || 'Failed to save changes';
+  } finally {
+    scheduleEventSaving.value = false;
+  }
+};
 const teamMeetingActivityExpandedById = ref({});
 const teamMeetingActivityById = ref({});
 const teamMeetingActivityLoadingById = ref({});
 const teamMeetingActivityErrorById = ref({});
+const requestCloseStackDetailsModal = () => {
+  if (scheduleEventEditId.value > 0 && !scheduleEventSaving.value) {
+    const ok = window.confirm('Discard unsaved edits for this event?');
+    if (!ok) return;
+  }
+  closeStackDetailsModal();
+};
+
 const closeStackDetailsModal = () => {
   showStackDetailsModal.value = false;
   stackDetailsTitle.value = '';
   stackDetailsItems.value = [];
+  stackDetailsDayName.value = '';
+  stackDetailsHour.value = 0;
+  stackDetailsMinute.value = 0;
   kioskPinRevealedByItemId.value = {};
   teamMeetingActivityExpandedById.value = {};
+  scheduleEventEditId.value = 0;
+  scheduleEventEditError.value = '';
+  scheduleEventSaving.value = false;
 };
 const formatActivityTime = (createdAt) => {
   if (!createdAt) return '';
@@ -10145,9 +13810,187 @@ async function toggleTeamMeetingActivity(eventId) {
     teamMeetingActivityLoadingById.value = { ...teamMeetingActivityLoadingById.value, [eid]: false };
   }
 }
-const openStackDetailsModal = ({ title = '', items = [] } = {}) => {
+const resolveBookedProviderIdForEvent = (evOrItem = null) => {
+  const fromEvent = Number(
+    evOrItem?.providerId
+    || evOrItem?.provider_id
+    || evOrItem?.bookedProviderId
+    || evOrItem?.assignedProviderId
+    || 0
+  );
+  if (fromEvent > 0) return fromEvent;
+  return Number(props.userId || authStore.user?.id || 0) || 0;
+};
+
+let appointmentEditOpenGen = 0;
+
+const openAppointmentEditInScheduleModal = async ({
+  item = null,
+  items = [],
+  dayName = '',
+  hour = 0,
+  minute = 0,
+  focusEventId = 0
+} = {}) => {
+  const gen = ++appointmentEditOpenGen;
+  const list = Array.isArray(items) && items.length
+    ? items
+    : (item ? [item] : []);
+  if (!list.length) return;
+
+  showStackDetailsModal.value = false;
+  showSupvModal.value = false;
+  stackDetailsItems.value = list;
+  stackDetailsDayName.value = String(dayName || '').trim();
+  stackDetailsHour.value = Number(hour || 0);
+  stackDetailsMinute.value = Number(minute || 0);
+  stackDetailsTitle.value = '';
+  scheduleEventEditError.value = '';
+  modalError.value = '';
+
+  const providerId = resolveBookedProviderIdForEvent(item || list[0]);
+  if (providerId > 0) bookingTargetUserId.value = providerId;
+
+  modalDay.value = String(dayName || modalDay.value || 'Monday');
+  modalHour.value = Number(hour || 0);
+  modalStartHour.value = Number(hour || 0);
+  modalEndHour.value = Number(hour || 0) + 1;
+  modalStartMinute.value = Number(minute || 0);
+  modalEndMinute.value = 0;
+
+  const focusId = Number(focusEventId || item?.eventId || 0);
+  const editableCount = list.filter((it) => isEditableScheduleStackItem(it)).length;
+
+  if (list.length > 1 && editableCount > 1 && !focusId) {
+    // Set mode before showing so the office chooser never flashes.
+    requestType.value = 'pick_schedule_event';
+    scheduleEventEditId.value = 0;
+    showRequestModal.value = true;
+    return;
+  }
+
+  const target = list.find((it) => focusId > 0 && Number(it?.eventId || 0) === focusId)
+    || list.find((it) => isEditableScheduleStackItem(it))
+    || list[0];
+
+  if (!isEditableScheduleStackItem(target)) {
+    // Non-editable items (e.g. program events) stay on the legacy details surface.
+    openStackDetailsModal({
+      title: `${scheduleKindLabel(target?.eventKind, target)} — ${dayName} ${hourLabel(hour)}`,
+      items: list,
+      dayName,
+      hour,
+      minute,
+      autoEdit: false,
+      forceLegacy: true
+    });
+    showRequestModal.value = false;
+    return;
+  }
+
+  const agencyId = Number(target?.agencyId || 0);
+  if (agencyId > 0) selectedActionAgencyId.value = agencyId;
+  // Mode first, then open — avoids empty requestType → office action chooser.
+  requestType.value = 'edit_schedule_event';
+  showRequestModal.value = true;
+  void loadBookingMetadataForProvider();
+  await beginEditScheduleStackItem(target);
+  if (gen !== appointmentEditOpenGen || !showRequestModal.value) return;
+};
+
+const pickScheduleEventForEdit = async (item) => {
+  if (!item) return;
+  if (!isEditableScheduleStackItem(item)) {
+    openStackDetailsModal({
+      title: String(item.kindLabel || 'Details'),
+      items: [item],
+      dayName: stackDetailsDayName.value,
+      hour: stackDetailsHour.value,
+      minute: stackDetailsMinute.value,
+      autoEdit: false,
+      forceLegacy: true
+    });
+    showRequestModal.value = false;
+    return;
+  }
+  const agencyId = Number(item?.agencyId || 0);
+  if (agencyId > 0) selectedActionAgencyId.value = agencyId;
+  const providerId = resolveBookedProviderIdForEvent(item);
+  if (providerId > 0) bookingTargetUserId.value = providerId;
+  await beginEditScheduleStackItem(item);
+  requestType.value = 'edit_schedule_event';
+};
+
+const openSupervisionEditInScheduleModal = (dayName, hour) => {
+  const hits = supervisionSessionsInCell(dayName, hour);
+  if (!hits.length) return;
+  showStackDetailsModal.value = false;
+  showSupvModal.value = false;
+  supvModalError.value = '';
+  supvSaving.value = false;
+  supvDayLabel.value = String(dayName);
+  supvStartHour.value = Number(hour);
+  supvEndHour.value = Number(hour) + 1;
+  const first = hits[0];
+  selectedSupvSessionId.value = Number(first.id || 0);
+  supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.startAt));
+  supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
+  supvNotes.value = String(first.notes || '');
+  supvCreateMeetLink.value = false;
+
+  const providerId = Number(
+    first?.providerId
+    || first?.provider_id
+    || first?.supervisorId
+    || props.userId
+    || authStore.user?.id
+    || 0
+  );
+  if (providerId > 0) bookingTargetUserId.value = providerId;
+  modalDay.value = String(dayName || modalDay.value || 'Monday');
+  modalHour.value = Number(hour || 0);
+  modalStartHour.value = Number(hour || 0);
+  modalEndHour.value = Number(hour || 0) + 1;
+
+  requestType.value = 'edit_supervision';
+  showRequestModal.value = true;
+  void loadSupvPresenters(selectedSupvSessionId.value);
+  void loadSupvArtifact(selectedSupvSessionId.value);
+  void loadBookingMetadataForProvider();
+};
+
+const openStackDetailsModal = ({
+  title = '',
+  items = [],
+  autoEdit = false,
+  focusEventId = 0,
+  dayName = '',
+  hour = 0,
+  minute = 0,
+  forceLegacy = false
+} = {}) => {
+  const list = Array.isArray(items) ? items : [];
+  const editable = list.filter((it) => isEditableScheduleStackItem(it));
+  // Editable appointments always use the shared Schedule shell.
+  if (!forceLegacy && editable.length > 0) {
+    void openAppointmentEditInScheduleModal({
+      items: list,
+      dayName,
+      hour,
+      minute,
+      focusEventId,
+      item: editable.find((it) => Number(it?.eventId || 0) === Number(focusEventId || 0)) || editable[0]
+    });
+    return;
+  }
+
   stackDetailsTitle.value = String(title || '').trim() || 'Overlapping items';
-  stackDetailsItems.value = Array.isArray(items) ? items : [];
+  stackDetailsItems.value = list;
+  stackDetailsDayName.value = String(dayName || '').trim();
+  stackDetailsHour.value = Number(hour || 0);
+  stackDetailsMinute.value = Number(minute || 0);
+  scheduleEventEditId.value = 0;
+  scheduleEventEditError.value = '';
   showStackDetailsModal.value = true;
 };
 
@@ -10155,10 +13998,10 @@ const deleteScheduleMeeting = async (item, scope = 'single') => {
   const eventId = Number(item?.eventId || 0);
   if (!eventId) return;
   const normalizedScope = scope === 'future' ? 'future' : 'single';
-  const title = String(item?.label || 'this meeting').trim();
+  const title = String(item?.label || 'this session').trim();
   const confirmMsg = normalizedScope === 'future'
     ? `Delete "${title}" and all future occurrences in this series?`
-    : `Delete "${title}" for this occurrence only?`;
+    : `Delete "${title}"?`;
   if (!window.confirm(confirmMsg)) return;
   const uid = Number(props.userId || authStore.user?.id || 0);
   if (!uid) {
@@ -10371,6 +14214,10 @@ const scheduleKindLabel = (kindRaw, ev = null) => {
     const et = String(ev?.eventType || '').trim().toLowerCase();
     if (et.startsWith('school_') || ev?.isSchoolPortalEvent) return 'School event';
   }
+  if (k === 'PERSONAL_EVENT' || (!k && isClientSessionScheduleEvent(ev))) {
+    if (isClientSessionScheduleEvent(ev || { kind: k })) return 'Session';
+    return 'Personal';
+  }
   if (SCHEDULE_EVENT_KIND_LABELS[k]) return SCHEDULE_EVENT_KIND_LABELS[k];
   if (!k) return 'Schedule event';
   return k
@@ -10462,9 +14309,59 @@ const formatSkillBuildersProgramWallTime = (t) => {
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 };
 
+const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
+  const targetKind = String(ev?.kind || '').trim().toUpperCase();
+  const clientId = parseClientIdFromScheduleEvent(ev);
+  const attendeeUserIds = Array.isArray(ev?.attendeeUserIds)
+    ? ev.attendeeUserIds.map((n) => Number(n)).filter((n) => n > 0)
+    : [];
+  const withClient = { ...ev, kind: targetKind, clientId: clientId || ev?.clientId || null };
+  return {
+    id: `sevt-${targetKind || 'evt'}-${String(ev?.id || ev?.googleEventId || Date.now())}`,
+    label: String(ev?.title || '').trim() || 'Schedule event',
+    subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt),
+    kindLabel: scheduleKindLabel(targetKind, withClient),
+    detailText: buildScheduleEventDetailText(ev),
+    description: String(ev?.description || '').trim() || '',
+    agencyId: Number(ev?.agencyId || ev?._agencyId || 0) || null,
+    clientId: clientId || null,
+    providerId: Number(ev?.providerId || ev?.provider_id || props.userId || 0) || null,
+    attendeeUserIds,
+    canEdit: ev?.canEdit !== false,
+    isPrivate: !!ev?.isPrivate,
+    allDay: !!ev?.allDay,
+    startAt: ev?.startAt || null,
+    endAt: ev?.endAt || null,
+    link: String(ev?.htmlLink || '').trim() || '',
+    appJoinUrl: String(ev?.appJoinUrl || '').trim() || '',
+    meetLink: String(ev?.meetLink || '').trim() || '',
+    eventId: Number(ev?.id || 0) || null,
+    eventKind: targetKind,
+    recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || '',
+    ...scheduleEventStackExtras(ev),
+    ...overrides
+  };
+};
+
 const buildScheduleEventDetailText = (ev) => {
   if (!ev) return '';
   const lines = [];
+  const kind = String(ev?.kind || '').trim().toUpperCase();
+  const agencyId = Number(ev?.agencyId || ev?._agencyId || 0);
+  if (agencyId > 0) {
+    lines.push(`Organization: ${agencyLabel(agencyId) || `Agency ${agencyId}`}`);
+  } else if (['PERSONAL_EVENT', 'SCHEDULE_HOLD'].includes(kind)) {
+    lines.push('Organization: All / none (not tied to one organization)');
+  }
+  lines.push(`Type: ${scheduleKindLabel(kind, ev)}`);
+  const when = ev?.allDay
+    ? `All day (${String(ev?.startDate || '').slice(0, 10)} – ${String(ev?.endDate || '').slice(0, 10)})`
+    : formatRangeFromRaw(ev?.startAt, ev?.endAt);
+  if (when) lines.push(`When: ${when}`);
+  const clientId = parseClientIdFromScheduleEvent(ev);
+  if (clientId) lines.push(`Client: ${scheduleEventClientDisplayName(clientId)}`);
+  const desc = String(ev?.description || '').trim();
+  if (desc) lines.push(`Notes:\n${desc}`);
   const rc = String(ev?.reasonCode || '').trim();
   if (rc) lines.push(`Reason code: ${rc}`);
   if (ev?.sessionOfLabel) lines.push(String(ev.sessionOfLabel));
@@ -10474,11 +14371,11 @@ const buildScheduleEventDetailText = (ev) => {
     const money = `$${(amt / 100).toFixed(amt % 100 === 0 ? 0 : 2)}`;
     lines.push(`Payment: ${money} (${ev.payment.paymentMode || 'attached'})`);
   }
-  if (ev?.clientId) lines.push(`Client profile: Packages tab (client #${ev.clientId})`);
   if (ev?.isPrivate) lines.push('Marked private on your calendar');
+  if (ev?.meetLink) lines.push(`Meet link: ${ev.meetLink}`);
+  if (ev?.appJoinUrl) lines.push(`Video room: ${ev.appJoinUrl}`);
   const rf = String(ev?.recurrenceFrequency || '').trim();
   if (rf && rf !== 'ONCE') lines.push(`Recurrence: ${rf}`);
-  const kind = String(ev?.kind || '').trim().toUpperCase();
   if (kind === 'SKILL_BUILDERS_PROGRAM') {
     const arr = formatSkillBuildersProgramWallTime(ev?.employeeReportTime);
     const dep = formatSkillBuildersProgramWallTime(ev?.employeeDepartureTime);
@@ -10600,19 +14497,11 @@ const buildStackDetailsForBlock = (block, dayName, hour, minute = 0) => {
     if (!isScheduleOverflow || events.length <= 1) return null;
     return {
       title: `Schedule events — ${dayName} ${hourLabel(hour)}`,
-      items: events.map((ev, idx) => ({
-        id: `sevt-${String(ev?.kind || 'evt').toUpperCase()}-${String(ev?.id || ev?.googleEventId || idx)}`,
-        label: String(ev?.title || '').trim() || 'Schedule event',
-        subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt),
-        kindLabel: scheduleKindLabel(String(ev?.kind || '').trim().toUpperCase(), ev),
-        detailText: buildScheduleEventDetailText(ev),
-        link: String(ev?.htmlLink || '').trim() || '',
-        appJoinUrl: String(ev?.appJoinUrl || '').trim() || '',
-        meetLink: String(ev?.meetLink || '').trim() || '',
-        eventId: Number(ev?.id || 0) || null,
-        eventKind: String(ev?.kind || '').trim().toUpperCase() || '',
-        recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || '',
-        ...scheduleEventStackExtras(ev)
+      dayName,
+      hour,
+      minute,
+      items: events.map((ev, idx) => buildScheduleStackItemFromEvent(ev, {
+        id: `sevt-${String(ev?.kind || 'evt').toUpperCase()}-${String(ev?.id || ev?.googleEventId || idx)}`
       }))
     };
   }
@@ -10713,7 +14602,7 @@ const openStackDetailsItem = (item) => {
   const sessionId = Number(item?.sessionId || 0);
   if (sessionId > 0) {
     closeStackDetailsModal();
-    openSupvModal(String(item?.dayName || ''), Number(item?.hour || 0));
+    openSupervisionEditInScheduleModal(String(item?.dayName || ''), Number(item?.hour || 0));
     selectedSupvSessionId.value = sessionId;
   }
 };
@@ -10759,12 +14648,100 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   --sched-today: rgba(167, 139, 250, 0.12);
 }
 .sched-toolbar { margin-top: 4px; }
+.sched-tool-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 8px;
+  align-items: center;
+}
+.sched-tool-cluster {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+}
+.sched-tool-cluster--wrap {
+  border-radius: 12px;
+  width: 100%;
+}
+.sched-tool-cluster__label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+  margin-right: 2px;
+}
+.sched-select--compact {
+  min-width: 132px;
+  max-width: 180px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 999px;
+}
+.sched-pill--emphasis {
+  border-color: rgba(37, 99, 235, 0.35);
+  color: rgba(29, 78, 216, 0.95);
+  font-weight: 900;
+}
+.sched-pill--emphasis.on {
+  background: rgba(37, 99, 235, 0.14);
+}
+.sched-pill-link {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.sched-day-focus-bar {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.sched-more-tools {
+  margin-top: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 2px 0;
+}
+.sched-more-tools[open] {
+  border-color: var(--border, #e2e8f0);
+  background: var(--bg-alt, #f8fafc);
+  padding: 6px 10px;
+}
+.sched-more-tools__summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+}
+.sched-more-tools__summary .muted {
+  font-weight: 600;
+  font-size: 11px;
+}
+.sched-more-tools__body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .sched-chrome-top {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 8px;
   flex-wrap: wrap;
 }
 .sched-chrome-title-block { min-width: 0; }
@@ -10859,6 +14836,160 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border-top: 5px solid #94a3b8;
   margin-left: 2px;
 }
+.sched-span-switch {
+  display: inline-flex;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+.sched-span-btn {
+  border: 0;
+  background: transparent;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+}
+.sched-span-btn.on {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
+}
+.sched-day-timeline {
+  position: relative;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  padding: 12px 12px 72px;
+}
+.sched-day-timeline__strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+}
+.sched-day-timeline__chip {
+  flex: 0 0 auto;
+  min-width: 56px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+.sched-day-timeline__chip.on {
+  background: #1e293b;
+  border-color: #1e293b;
+  color: #fff;
+}
+.sched-day-timeline__chip.today:not(.on) {
+  border-color: #93c5fd;
+}
+.sched-day-timeline__dow {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.sched-day-timeline__date {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+.sched-day-timeline__title {
+  font-weight: 800;
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+.sched-day-timeline__hours {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.sched-day-timeline__row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 8px;
+  min-height: 56px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  padding: 8px 0;
+}
+.sched-day-timeline__time {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  padding-top: 4px;
+}
+.sched-day-timeline__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.sched-day-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border-radius: 12px;
+  border: 1.5px solid transparent;
+  padding: 10px 12px;
+  cursor: pointer;
+  background: rgba(248, 250, 252, 0.95);
+}
+.sched-day-card__body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.sched-day-card__title {
+  font-size: 14px;
+  font-weight: 800;
+  color: rgba(15, 23, 42, 0.92);
+  line-height: 1.25;
+}
+.sched-day-card__meta {
+  margin-top: 4px;
+  font-size: 12px;
+}
+.sched-day-timeline__add {
+  align-self: flex-start;
+  border: 1px dashed #cbd5e1;
+  background: #fff;
+  color: #64748b;
+  border-radius: 8px;
+  width: 32px;
+  height: 28px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sched-day-timeline__fab {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  border: 0;
+  background: #0f766e;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1;
+  box-shadow: 0 8px 20px rgba(15, 118, 110, 0.35);
+  cursor: pointer;
+}
+@media (min-width: 821px) {
+  .sched-day-timeline { display: none; }
+}
 .sched-toolbar-main {
   display: flex;
   gap: 8px;
@@ -10914,8 +15045,8 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   background: #fff;
   color: var(--text-secondary);
   font-weight: 800;
-  font-size: 13px;
-  padding: 6px 10px;
+  font-size: 12px;
+  padding: 4px 8px;
   border-radius: 999px;
   white-space: nowrap;
   cursor: pointer;
@@ -11322,7 +15453,54 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .sched-legend-dot--ob { background: #f87171; }
 .sched-legend-dot--intake-ip { color: #22c55e; background: rgba(34, 197, 94, 0.14); }
 .sched-legend-dot--intake-vi { color: #3b82f6; background: rgba(59, 130, 246, 0.14); }
+.sched-legend-dot--portal { color: #0d9488; background: rgba(13, 148, 136, 0.14); }
 .sched-legend-dot--gbusy { background: #94a3b8; }
+.sched-legend-dot--peerbusy { background: #64748b; }
+.peer-busy-panel {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt, #f8fafc);
+  padding: 10px 12px;
+}
+.peer-busy-panel__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.peer-busy-panel__controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.peer-busy-search { min-width: 200px; max-width: 280px; }
+.peer-busy-details {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.peer-busy-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+  max-height: 120px;
+  overflow: auto;
+}
+.peer-busy-item {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+}
 .sched-legend-dot--gevt { background: #60a5fa; }
 .sched-legend-dot--ebusy { background: #9ca3af; }
 .sched-legend-dot--agency {
@@ -11532,16 +15710,48 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   flex-direction: column;
   gap: 8px;
 }
+.stack-details-multi-hint {
+  margin-bottom: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
 .stack-details-item-wrap {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.stack-details-item-wrap--editing .stack-details-static {
+  border-color: #166534;
+  box-shadow: 0 0 0 1px rgba(22, 101, 52, 0.25);
 }
 .stack-details-static {
   border: 1px solid var(--border);
   background: var(--bg-card, #fff);
   border-radius: 10px;
   padding: 10px;
+}
+.stack-details-edit-btn {
+  background: #166534 !important;
+  border-color: #166534 !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+.stack-details-edit-btn:hover:not(:disabled) {
+  background: #14532d !important;
+}
+.stack-details-notes {
+  border: 1.5px solid #94a3b8 !important;
+  background: #f8fafc !important;
+  color: #0f172a;
+}
+.stack-details-notes::placeholder {
+  color: #64748b;
+  opacity: 1;
 }
 .stack-details-kind {
   font-size: 11px;
@@ -11557,6 +15767,22 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   line-height: 1.45;
   color: var(--text-secondary);
   white-space: pre-wrap;
+}
+.stack-details-edit {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, #e5e7eb);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stack-details-edit .lbl {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.stack-details-actions {
+  margin-top: 10px;
 }
 .stack-details-company-event {
   margin-top: 10px;
@@ -11765,6 +15991,18 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   flex: 0 0 6px;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75);
 }
+.sched-wrap-quarter .cell-block-agency-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin-left: -3px;
+  margin-right: -1px;
+}
+.sched-wrap-quarter .cell-block:has(.cell-block-agency-icon) {
+  gap: 2px;
+  padding-left: 2px;
+  padding-right: 4px;
+}
 .sched-wrap-quarter .cell-block-text {
   max-width: calc(100% - 10px);
   text-align: center;
@@ -11799,11 +16037,62 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   background: var(--agencyDot, rgba(71, 85, 105, 0.85));
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 0 2px rgba(15, 23, 42, 0.18);
 }
+.cell-block-agency-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 4px;
+  object-fit: cover;
+  object-position: center;
+  background: transparent;
+  margin-left: -4px;
+  margin-right: -2px;
+  align-self: center;
+}
+.cell-block:has(.cell-block-agency-icon) {
+  gap: 3px;
+  padding-left: 3px;
+}
+.sched-legend-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.sched-legend-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+  background: transparent;
+}
+.cell-block-type-stripe {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 999px;
+  flex: 0 0 3px;
+  background: var(--blockTypeStripe, rgba(100, 116, 139, 0.75));
+}
+.sched-org-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: middle;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+}
 .cell-block-text {
-  max-width: calc(100% - 14px);
+  max-width: calc(100% - 18px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.cell-block:has(.cell-block-agency-icon) .cell-block-text {
+  max-width: calc(100% - 24px);
 }
 .cell-block-request { background: var(--blockFill, rgba(253, 224, 71, 0.42)); border-color: var(--blockBorder, rgba(234, 179, 8, 0.28)); }
 .cell-block-school { background: var(--blockFill, rgba(147, 197, 253, 0.45)); border-color: var(--blockBorder, rgba(59, 130, 246, 0.22)); }
@@ -11823,6 +16112,109 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .cell-block-supv { background: var(--blockFill, rgba(216, 180, 254, 0.42)); border-color: var(--blockBorder, rgba(147, 51, 234, 0.22)); }
 .cell-block-oa { background: var(--blockFill, rgba(191, 219, 254, 0.55)); border-color: var(--blockBorder, rgba(59, 130, 246, 0.2)); }
+.cell-block-office {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+.cell-block-office-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+  line-height: 1.15;
+}
+.cell-block-office-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: rgba(30, 64, 175, 0.92);
+  white-space: nowrap;
+}
+.cell-block-door-icon {
+  flex: 0 0 auto;
+}
+.cell-block-office-status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 9.5em;
+}
+.cell-block-office-empty {
+  font-size: 9px;
+  font-style: italic;
+  font-weight: 600;
+  color: rgba(71, 85, 105, 0.9);
+}
+.cell-block-office--reserved,
+.cell-block-office--temp {
+  border-style: dashed;
+  border-width: 1.5px;
+}
+.cell-block-office--booked {
+  border-style: solid;
+  border-width: 1.5px;
+}
+.cell-block-office--reserved {
+  background: var(--blockFill, rgba(191, 219, 254, 0.42));
+  border-color: var(--blockBorder, rgba(37, 99, 235, 0.55));
+}
+.cell-block-office--temp {
+  background: var(--blockFill, rgba(254, 215, 170, 0.45));
+  border-color: var(--blockBorder, rgba(194, 65, 12, 0.55));
+}
+.cell-block-office--temp .cell-block-office-status { color: rgba(154, 52, 18, 0.95); }
+.cell-block-office--booked {
+  background: var(--blockFill, rgba(187, 247, 208, 0.5));
+  border-color: var(--blockBorder, rgba(21, 128, 61, 0.55));
+}
+.cell-block-office--booked .cell-block-office-status { color: rgba(22, 101, 52, 0.95); }
+.cell-block-peer-face {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 999px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.14);
+}
+.cell-block-peer-face--initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+.peer-busy-face {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  object-fit: cover;
+  flex: 0 0 22px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+}
+.peer-busy-face--initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  color: #fff;
+}
+.sched-legend-dot--dashed {
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.25);
+  background: repeating-linear-gradient(
+    45deg,
+    #4ade80,
+    #4ade80 2px,
+    transparent 2px,
+    transparent 4px
+  ) !important;
+  background-color: rgba(74, 222, 128, 0.35) !important;
+}
 .cell-block-ot { background: var(--blockFill, rgba(251, 207, 232, 0.5)); border-color: var(--blockBorder, rgba(236, 72, 153, 0.22)); }
 .cell-block-ob { background: var(--blockFill, rgba(254, 202, 202, 0.55)); border-color: var(--blockBorder, rgba(239, 68, 68, 0.22)); }
 
@@ -11857,11 +16249,73 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   white-space: nowrap;
 }
 .cell-block-gbusy { background: var(--sched-gbusy-bg, rgba(148, 163, 184, 0.22)); border-color: var(--sched-gbusy-border, rgba(100, 116, 139, 0.28)); color: rgba(51, 65, 85, 0.9); }
+.cell-block-peerbusy {
+  background: var(--blockFill, rgba(100, 116, 139, 0.16));
+  border-color: var(--blockBorder, rgba(100, 116, 139, 0.32));
+  color: rgba(15, 23, 42, 0.92);
+  opacity: 0.95;
+  cursor: pointer;
+  box-shadow: inset 3px 0 0 var(--peerAccent, #64748b);
+}
+.cell-block-peer-interactive { cursor: pointer; }
+.cell-block-peer-session { font-weight: 800; }
+.cell-block-peer-hold { font-style: italic; }
+.cell-block-peer-opening { opacity: 0.88; }
+.peer-busy-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 10px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+}
+.peer-busy-tenant-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: cover;
+  object-position: center;
+  background: transparent;
+}
+.peer-busy-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.peer-activity-modal { max-width: 480px; }
+.peer-activity-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow: auto; }
+.peer-activity-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+.peer-activity-type {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.16);
+  color: rgba(51, 65, 85, 0.95);
+}
+.peer-activity-type--session { background: rgba(185, 28, 28, 0.14); color: #991b1b; }
+.peer-activity-type--hold { background: rgba(194, 65, 12, 0.14); color: #9a3412; }
+.peer-activity-type--opening { background: rgba(21, 128, 61, 0.14); color: #166534; }
+.peer-activity-type--supervision { background: rgba(126, 34, 206, 0.14); color: #6b21a8; }
+.peer-activity-type--school { background: rgba(37, 99, 235, 0.14); color: #1d4ed8; }
+.peer-activity-title { font-weight: 700; font-size: 13px; }
+.peer-activity-body { min-width: 0; }
 .cell-block-gevt { background: rgba(191, 219, 254, 0.45); border-color: rgba(59, 130, 246, 0.2); cursor: pointer; }
 .cell-block-sevt { background: var(--blockFill, rgba(167, 243, 208, 0.55)); border-color: var(--blockBorder, rgba(16, 185, 129, 0.22)); color: rgba(6, 95, 70, 0.95); cursor: pointer; }
 .cell-block-ebusy { background: var(--sched-ebusy-bg, rgba(203, 213, 225, 0.4)); border-color: var(--sched-ebusy-border, rgba(100, 116, 139, 0.28)); color: rgba(51, 65, 85, 0.9); }
 .cell-block-intake-ip { background: rgba(187, 247, 208, 0.55); border-color: rgba(34, 197, 94, 0.25); color: rgba(21, 128, 61, 0.95); }
 .cell-block-intake-vi { background: rgba(191, 219, 254, 0.55); border-color: rgba(59, 130, 246, 0.22); color: rgba(29, 78, 216, 0.95); }
+.cell-block-portal { background: rgba(153, 246, 228, 0.55); border-color: rgba(13, 148, 136, 0.28); color: rgba(15, 118, 110, 0.98); cursor: pointer; }
 .cell-block-more { background: rgba(148, 163, 184, 0.18); border-color: rgba(148, 163, 184, 0.45); color: rgba(51, 65, 85, 0.92); }
 
 .cell-block-selected,
@@ -12467,6 +16921,34 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   cursor: pointer;
   transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
 }
+.participant-card--rich {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.participant-face {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  object-fit: cover;
+  flex: 0 0 36px;
+  background: #e2e8f0;
+}
+.participant-face--initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #2563eb);
+}
+.participant-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .participant-card:hover {
   transform: translateY(-1px);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
@@ -12483,6 +16965,120 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   font-size: 12px;
   color: rgba(71, 85, 105, 0.92);
   text-transform: capitalize;
+}
+.modal--stack-details {
+  max-width: min(720px, 100%);
+  --nr-ink: #0f172a;
+  --nr-muted: #64748b;
+  --nr-line: #e8eef5;
+  --nr-soft: #f8fafc;
+  color: #0f172a;
+  background: #fff;
+}
+.modal--stack-details .stack-details-body {
+  max-height: min(78vh, 720px);
+}
+.modal--stack-details .stack-details-static {
+  border: 1px solid #e8eef5;
+  background: #fff;
+  border-radius: 14px;
+  padding: 14px;
+}
+.modal--stack-details .stack-details-kind {
+  color: #64748b;
+}
+.modal--stack-details .stack-details-label {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.modal--stack-details .stack-details-sub {
+  margin-top: 4px;
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: #475569;
+}
+.modal--stack-details .stack-details-edit {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #e8eef5;
+}
+.modal--stack-details .nr-info-bar {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 0;
+  border: 1px solid #e8eef5;
+  border-radius: 14px;
+  background: #fff;
+  margin: 10px 0 12px;
+  overflow: visible;
+}
+.modal--stack-details .nr-info-cell {
+  padding: 12px 14px;
+  border-right: 1px solid #e8eef5;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.modal--stack-details .nr-info-cell:last-child { border-right: none; }
+.modal--stack-details .nr-info-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.modal--stack-details .nr-info-value {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.3;
+}
+.modal--stack-details .nr-info-select,
+.modal--stack-details .nr-appt-input,
+.modal--stack-details input.input,
+.modal--stack-details select.input,
+.modal--stack-details textarea.input {
+  width: 100%;
+  border: 1px solid #e8eef5 !important;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  font-weight: 650;
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  color-scheme: light;
+}
+.modal--stack-details .nr-when-edit--stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.modal--stack-details .nr-when-edit--stack .nr-when-sep {
+  display: none;
+}
+.modal--stack-details .nr-appt-edit-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.modal--stack-details .nr-tz-under {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+@media (max-width: 700px) {
+  .modal--stack-details .nr-info-bar {
+    grid-template-columns: 1fr;
+  }
+  .modal--stack-details .nr-info-cell {
+    border-right: none;
+    border-bottom: 1px solid #e8eef5;
+  }
+  .modal--stack-details .nr-info-cell:last-child { border-bottom: none; }
 }
 .supervision-selected-chips {
   display: flex;
@@ -12961,6 +17557,312 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .aa-temp-check input {
   margin-top: 2px;
   flex-shrink: 0;
+}
+
+/* Plot Twist HQ embed + app dark mode (`data-theme="dark"`) */
+.sched-wrap--dark {
+  --sched-ink: #f8fafc;
+  --sched-muted: #cbd5e1;
+  --sched-line: rgba(148, 163, 184, 0.18);
+  --sched-soft: rgba(15, 23, 42, 0.88);
+  --sched-today: rgba(139, 92, 246, 0.24);
+  --border: rgba(148, 163, 184, 0.28);
+  --bg-alt: rgba(15, 23, 42, 0.78);
+  --bg-card: rgba(17, 24, 39, 0.92);
+  --text: #f8fafc;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  color: var(--sched-ink);
+}
+.sched-wrap--dark .sched-page-title {
+  color: #f8fafc;
+}
+.sched-wrap--dark .sched-page-sub {
+  color: #cbd5e1;
+}
+.sched-wrap--dark .sched-week-range {
+  color: #cbd5e1;
+}
+.sched-wrap--dark .sched-nav-btn,
+.sched-wrap--dark .sched-nav-icon-btn,
+.sched-wrap--dark .sched-nav-view-pill,
+.sched-wrap--dark .sched-icon-btn {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.82);
+  color: #e2e8f0;
+}
+.sched-wrap--dark .sched-nav-btn:hover:not(:disabled),
+.sched-wrap--dark .sched-nav-icon-btn:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.18);
+  border-color: rgba(167, 139, 250, 0.42);
+  color: #f5f3ff;
+}
+.sched-wrap--dark .sched-span-switch {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.72);
+}
+.sched-wrap--dark .sched-span-btn {
+  color: #cbd5e1;
+}
+.sched-wrap--dark .sched-span-btn.on {
+  background: rgba(139, 92, 246, 0.28);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.28);
+}
+.sched-wrap--dark .sched-tool-cluster {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.72);
+}
+.sched-wrap--dark .sched-tool-cluster__label,
+.sched-wrap--dark .sched-more-tools__summary,
+.sched-wrap--dark .sched-toggle,
+.sched-wrap--dark .peer-busy-details,
+.sched-wrap--dark .peer-busy-item {
+  color: #cbd5e1;
+}
+.sched-wrap--dark .sched-pill,
+.sched-wrap--dark .sched-chip {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.78);
+  color: #e2e8f0;
+}
+.sched-wrap--dark .sched-pill.on {
+  background: rgba(139, 92, 246, 0.26);
+  border-color: rgba(196, 181, 253, 0.48);
+  color: #ede9fe;
+}
+.sched-wrap--dark .sched-pill--emphasis {
+  border-color: rgba(96, 165, 250, 0.42);
+  color: #bfdbfe;
+}
+.sched-wrap--dark .sched-pill--emphasis.on {
+  background: rgba(59, 130, 246, 0.22);
+  color: #dbeafe;
+}
+.sched-wrap--dark .sched-chip.on {
+  background: rgba(251, 146, 60, 0.16);
+  border-color: rgba(251, 146, 60, 0.38);
+  color: #fdba74;
+}
+.sched-wrap--dark .sched-view-switch {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.72);
+}
+.sched-wrap--dark .sched-seg {
+  color: #cbd5e1;
+}
+.sched-wrap--dark .sched-seg.on {
+  background: rgba(139, 92, 246, 0.28);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.28);
+}
+.sched-wrap--dark .sched-seg--back {
+  background: rgba(59, 130, 246, 0.14);
+  color: #93c5fd;
+  border-color: rgba(96, 165, 250, 0.35);
+}
+.sched-wrap--dark .sched-seg--back:hover {
+  background: rgba(59, 130, 246, 0.22);
+  color: #bfdbfe;
+  border-color: rgba(96, 165, 250, 0.45);
+}
+.sched-wrap--dark .sched-zoom-controls {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.72);
+}
+.sched-wrap--dark .sched-more-tools[open] {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.72);
+}
+.sched-wrap--dark .sched-select--compact,
+.sched-wrap--dark select,
+.sched-wrap--dark input[type="search"],
+.sched-wrap--dark input[type="text"]:not([type="time"]) {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.82);
+  color: #f1f5f9;
+}
+.sched-wrap--dark .sched-legend {
+  color: #cbd5e1;
+}
+.sched-wrap--dark .sched-legend-chip {
+  background: rgba(15, 23, 42, 0.78);
+  border-color: rgba(148, 163, 184, 0.26);
+  color: #e2e8f0;
+}
+.sched-wrap--dark .peer-busy-panel {
+  background: rgba(15, 23, 42, 0.72);
+  border-color: rgba(148, 163, 184, 0.26);
+  color: #e2e8f0;
+}
+.sched-wrap--dark .sched-grid {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(17, 24, 39, 0.92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+.sched-wrap--dark .sched-head-cell,
+.sched-wrap--dark .sched-hour,
+.sched-wrap--dark .sched-cell {
+  background: rgba(17, 24, 39, 0.92);
+}
+.sched-wrap--dark .sched-head-cell-day:hover {
+  background: rgba(139, 92, 246, 0.12);
+}
+.sched-wrap--dark .sched-head-today,
+.sched-wrap--dark .sched-cell-today {
+  background: rgba(139, 92, 246, 0.14);
+}
+.sched-wrap--dark .sched-head-dow {
+  color: #f8fafc;
+}
+.sched-wrap--dark .sched-head-date,
+.sched-wrap--dark .sched-hour,
+.sched-wrap--dark .sched-hour-quarter {
+  color: #cbd5e1;
+}
+.sched-wrap--dark .sched-cell.clickable:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+.sched-wrap--dark .cell-plus-btn {
+  color: rgba(148, 163, 184, 0.55);
+}
+.sched-wrap--dark .sched-cell:hover .cell-plus-btn,
+.sched-wrap--dark .sched-cell-selected .cell-plus-btn {
+  color: #cbd5e1;
+}
+.sched-wrap--dark .cell-plus-btn:hover {
+  background: rgba(139, 92, 246, 0.18);
+  color: #e9d5ff;
+}
+.sched-wrap--dark .sched-day-timeline {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(17, 24, 39, 0.92);
+}
+.sched-wrap--dark .sched-day-timeline__chip {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.78);
+  color: #e2e8f0;
+}
+.sched-wrap--dark .sched-day-timeline__chip.on {
+  background: rgba(139, 92, 246, 0.32);
+  border-color: rgba(196, 181, 253, 0.48);
+  color: #ffffff;
+}
+.sched-wrap--dark .sched-day-timeline__title {
+  color: #f8fafc;
+}
+.sched-wrap--dark .sched-day-timeline__row {
+  border-top-color: rgba(148, 163, 184, 0.18);
+}
+.sched-wrap--dark .sched-day-timeline__time {
+  color: #cbd5e1;
+}
+.sched-wrap--dark .sched-day-card {
+  background: rgba(15, 23, 42, 0.82);
+}
+.sched-wrap--dark .sched-day-card__title {
+  color: #f8fafc;
+}
+.sched-wrap--dark .sched-day-card__meta {
+  color: #cbd5e1;
+}
+.sched-wrap--dark .sched-day-timeline__add {
+  border-color: rgba(148, 163, 184, 0.32);
+  background: rgba(15, 23, 42, 0.78);
+  color: #cbd5e1;
+}
+.sched-wrap--dark .selection-toolbar {
+  border-color: rgba(148, 163, 184, 0.26);
+  background: rgba(15, 23, 42, 0.82);
+  color: #e2e8f0;
+}
+.sched-wrap--dark .muted {
+  color: #cbd5e1;
+}
+/* Event blocks: lighter fills + light text on dark grid */
+.sched-wrap--dark .cell-block {
+  color: #f8fafc;
+}
+.sched-wrap--dark .cell-block-text {
+  color: #f8fafc;
+}
+.sched-wrap--dark .cell-block-office-status {
+  color: #e0e7ff;
+}
+.sched-wrap--dark .cell-block-office-empty {
+  color: #cbd5e1;
+}
+.sched-wrap--dark .cell-block-office--reserved {
+  background: var(--blockFill, rgba(147, 197, 253, 0.48));
+  border-color: var(--blockBorder, rgba(147, 197, 253, 0.82));
+}
+.sched-wrap--dark .cell-block-office--reserved .cell-block-office-status {
+  color: #dbeafe;
+}
+.sched-wrap--dark .cell-block-office--temp {
+  background: var(--blockFill, rgba(253, 186, 116, 0.48));
+  border-color: var(--blockBorder, rgba(251, 146, 60, 0.82));
+}
+.sched-wrap--dark .cell-block-office--temp .cell-block-office-status {
+  color: #ffedd5;
+}
+.sched-wrap--dark .cell-block-office--booked {
+  background: var(--blockFill, rgba(252, 165, 165, 0.50));
+  border-color: var(--blockBorder, rgba(248, 113, 113, 0.85));
+}
+.sched-wrap--dark .cell-block-office--booked .cell-block-office-status {
+  color: #fee2e2;
+}
+.sched-wrap--dark .cell-block-request {
+  background: var(--blockFill, rgba(253, 224, 71, 0.42));
+  border-color: var(--blockBorder, rgba(250, 204, 21, 0.72));
+  color: #fef9c3;
+}
+.sched-wrap--dark .cell-block-school {
+  background: var(--blockFill, rgba(147, 197, 253, 0.46));
+  border-color: var(--blockBorder, rgba(96, 165, 250, 0.78));
+  color: #eff6ff;
+}
+.sched-wrap--dark .cell-block-supv {
+  background: var(--blockFill, rgba(216, 180, 254, 0.46));
+  border-color: var(--blockBorder, rgba(192, 132, 252, 0.78));
+  color: #faf5ff;
+}
+.sched-wrap--dark .cell-block-oa,
+.sched-wrap--dark .cell-block-ot,
+.sched-wrap--dark .cell-block-ob {
+  color: #f8fafc;
+}
+.sched-wrap--dark .cell-block-peerbusy {
+  color: #f8fafc;
+}
+.sched-wrap--dark .cell-block-sevt {
+  background: var(--blockFill, rgba(110, 231, 183, 0.42));
+  border-color: var(--blockBorder, rgba(52, 211, 153, 0.75));
+  color: #ecfdf5;
+}
+.sched-wrap--dark .cell-block-intake-ip {
+  background: rgba(134, 239, 172, 0.42);
+  border-color: rgba(74, 222, 128, 0.72);
+  color: #ecfdf5;
+}
+.sched-wrap--dark .cell-block-intake-vi {
+  background: rgba(147, 197, 253, 0.46);
+  border-color: rgba(96, 165, 250, 0.75);
+  color: #eff6ff;
+}
+.sched-wrap--dark .cell-block-portal {
+  background: rgba(153, 246, 228, 0.42);
+  border-color: rgba(45, 212, 191, 0.72);
+  color: #ecfdf5;
+}
+.sched-wrap--dark .cell-block-gbusy,
+.sched-wrap--dark .cell-block-ebusy,
+.sched-wrap--dark .cell-block-gevt {
+  color: #f1f5f9;
+}
+.sched-wrap--dark .sched-day-card {
+  color: #f8fafc;
 }
 </style>
 

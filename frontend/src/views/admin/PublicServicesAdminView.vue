@@ -261,9 +261,13 @@
       <div v-if="saveSuccess" class="success-banner">{{ saveSuccess }}</div>
       <div v-if="saveError" class="error-banner">{{ saveError }}</div>
 
+      <div v-if="businessTypeGateNote" class="card status-bar">
+        <div class="status-note">{{ businessTypeGateNote }}</div>
+      </div>
+
       <div class="service-type-list">
         <div
-          v-for="svc in serviceTypeConfigs"
+          v-for="svc in visibleServiceTypeConfigs"
           :key="svc.serviceType"
           class="card service-type-card"
           :class="{ 'service-type-card--active': svc.isEnabled }"
@@ -324,7 +328,7 @@
         <h3>Provider enrollment summary</h3>
         <p class="subtitle">Providers enrolled in each public finder. Manage individual enrollments from each provider's Profile Info tab → Public Listings section.</p>
         <div class="enrollment-grid">
-          <div v-for="svc in enrollmentCounts" :key="svc.serviceType" class="enrollment-item">
+          <div v-for="svc in visibleEnrollmentCounts" :key="svc.serviceType" class="enrollment-item">
             <strong>{{ svc.count }}</strong>
             <span>{{ enrollmentLabel(svc.serviceType) }} enrolled</span>
             <span v-if="previewPath(svc.serviceType) !== '#'">
@@ -451,6 +455,21 @@ const valuePropsText = computed({
 });
 
 const SERVICE_TYPE_DEFS = ['counseling', 'tutoring', 'evaluation', 'coaching', 'consulting'];
+const allowedPublicServiceTypes = ref([...SERVICE_TYPE_DEFS]);
+const businessTypeGateNote = ref('');
+
+const visibleServiceTypeConfigs = computed(() => {
+  const allowed = new Set(allowedPublicServiceTypes.value || []);
+  if (!allowed.size) return [];
+  // Before capabilities load, allowed is the full SERVICE_TYPE_DEFS list.
+  return serviceTypeConfigs.value.filter((svc) => allowed.has(svc.serviceType));
+});
+
+const visibleEnrollmentCounts = computed(() => {
+  const allowed = new Set(allowedPublicServiceTypes.value || []);
+  if (!allowed.size) return [];
+  return (enrollmentCounts.value || []).filter((svc) => allowed.has(svc.serviceType));
+});
 
 function serviceTypeTitle(t) {
   const map = {
@@ -561,6 +580,26 @@ async function load() {
         svc.introBlurb = existing.introBlurb || '';
         svc.heroImageUrl = existing.heroImageUrl || '';
         svc.sortOrder = existing.sortOrder ?? SERVICE_TYPE_DEFS.indexOf(svc.serviceType);
+      }
+    }
+
+    allowedPublicServiceTypes.value = [...SERVICE_TYPE_DEFS];
+    businessTypeGateNote.value = '';
+    if (agencyId.value) {
+      try {
+        const capRes = await api.get(`/tenant-booking/agencies/${agencyId.value}/capabilities`, {
+          params: { ensureDefaults: 'true' }
+        });
+        const allowed = capRes.data?.capabilities?.allowedPublicServiceTypes || [];
+        const enabledTypes = capRes.data?.capabilities?.enabledBusinessTypes || [];
+        if (enabledTypes.length) {
+          allowedPublicServiceTypes.value = allowed.length ? allowed : [];
+          businessTypeGateNote.value = allowed.length
+            ? `Public finders are limited to your enabled tenant service types (${enabledTypes.join(', ')}): ${allowed.join(', ')}.`
+            : `No public finders are available for the enabled tenant service types (${enabledTypes.join(', ')}). Add counseling/learning/coaching/consulting types in Agency Management.`;
+        }
+      } catch {
+        /* keep full list if capabilities unavailable */
       }
     }
 

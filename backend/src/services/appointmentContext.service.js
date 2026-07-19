@@ -1,7 +1,15 @@
 import pool from '../config/database.js';
+import clinicalPool from '../config/clinicalDatabase.js';
 import Client from '../models/Client.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
+import AgencyMedicalServiceCode from '../models/AgencyMedicalServiceCode.model.js';
+import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
+import OfficeLocation from '../models/OfficeLocation.model.js';
+import {
+  resolveWithOverflowChain,
+  ruleFromMedicalServiceCodeRow
+} from './serviceCodeUnits.service.js';
 
 function parseIntId(value) {
   const n = Number(value || 0);
@@ -114,6 +122,83 @@ export async function ensureAppointmentContext({
     (await lookupBillingContextIdByOfficeEvent({ officeEventId: eid })) ||
     parseIntId(event.billing_context_id) ||
     clinicalSessionId;
+
+  // Apply service code / location / units onto the encounter when medical codes exist.
+  try {
+    const serviceCode = String(event.service_code || '').trim().toUpperCase() || null;
+    const startMs = event.start_at ? new Date(event.start_at).getTime() : 0;
+    const endMs = event.end_at ? new Date(event.end_at).getTime() : 0;
+    const durationMinutes =
+      startMs && endMs && endMs > startMs ? Math.round((endMs - startMs) / 60000) : null;
+    const officeLocationId = parseIntId(event.office_location_id);
+    const serviceLocationId = parseIntId(event.service_location_id);
+
+    let placeOfService = null;
+    let billingOfficeLocationId = officeLocationId;
+    if (serviceLocationId) {
+      const loc = await AgencyServiceLocation.findById(serviceLocationId);
+      if (loc && Number(loc.agency_id) === resolvedAgencyId) {
+        placeOfService = loc.place_of_service || null;
+        billingOfficeLocationId = parseIntId(loc.billing_office_location_id) || officeLocationId;
+      }
+    }
+    if (!placeOfService && officeLocationId) {
+      const office = await OfficeLocation.findById(officeLocationId);
+      placeOfService = office?.default_place_of_service || null;
+    }
+
+    let effectiveCode = serviceCode;
+    let billedUnits = null;
+    let claimBlocked = null;
+    if (serviceCode && durationMinutes) {
+      const row = await AgencyMedicalServiceCode.findByAgencyAndCode(resolvedAgencyId, serviceCode);
+      if (row) {
+        const primary = ruleFromMedicalServiceCodeRow(row);
+        const all = await AgencyMedicalServiceCode.listByAgency(resolvedAgencyId);
+        const byCode = new Map(all.map((c) => [String(c.service_code).toUpperCase(), c]));
+        const resolution = resolveWithOverflowChain(durationMinutes, primary, (code) => {
+          const hit = byCode.get(String(code).toUpperCase());
+          return hit ? ruleFromMedicalServiceCodeRow(hit) : null;
+        });
+        effectiveCode = resolution.effectiveServiceCode || serviceCode;
+        billedUnits = resolution.claimable ? resolution.units : null;
+        claimBlocked = resolution.claimable ? null : resolution.reason;
+        placeOfService = placeOfService || primary.defaultPlaceOfService || null;
+      }
+    }
+
+    if (clinicalSessionId) {
+      await clinicalPool.execute(
+        `UPDATE clinical_sessions SET
+           service_code = COALESCE(?, service_code),
+           effective_service_code = COALESCE(?, effective_service_code),
+           service_location_id = COALESCE(?, service_location_id),
+           billing_office_location_id = COALESCE(?, billing_office_location_id),
+           place_of_service = COALESCE(?, place_of_service),
+           duration_minutes = COALESCE(?, duration_minutes),
+           billed_units = COALESCE(?, billed_units),
+           claim_blocked_reason = ?,
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [
+          serviceCode,
+          effectiveCode,
+          serviceLocationId,
+          billingOfficeLocationId,
+          placeOfService,
+          durationMinutes,
+          billedUnits,
+          claimBlocked,
+          clinicalSessionId
+        ]
+      );
+    }
+  } catch (e) {
+    // Best-effort: older schemas / missing medical tables should not block booking
+    if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') {
+      console.warn('[appointmentContext] encounter billing apply failed:', e?.message);
+    }
+  }
 
   const updatedEvent = await OfficeEvent.setContextLinkage({
     eventId: eid,

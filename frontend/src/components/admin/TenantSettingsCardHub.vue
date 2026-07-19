@@ -44,6 +44,18 @@
       <h3 class="hub-section-title">You & your admins</h3>
       <p class="hub-section-hint">Day-to-day {{ contextNoun }} configuration (admins see the same screens with role limits).</p>
       <div class="hub-cards">
+        <button type="button" class="hub-card" @click="openArea('general', 'booking-service-types')">
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('booking-service-types')" :src="iconFor('booking-service-types')" alt="" class="hub-card-icon-img" />
+            <span v-else>📅</span>
+          </span>
+          <span class="hub-card-body">
+            <span class="hub-card-label">Booking &amp; service types</span>
+            <span class="hub-card-desc">
+              Which verticals this {{ contextNoun }} sells (counseling, tutoring, coaching, consulting) — unlocks matching finders, packages, and notifications.
+            </span>
+          </span>
+        </button>
         <button type="button" class="hub-card" @click="openArea('general', 'company-profile')">
           <span class="hub-card-icon" aria-hidden="true">
             <img v-if="iconFor('company-profile')" :src="iconFor('company-profile')" alt="" class="hub-card-icon-img" />
@@ -51,12 +63,12 @@
           </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Company profile</span>
-            <span class="hub-card-desc">Branding, features, terminology, org structure for this {{ contextNoun }}.</span>
+            <span class="hub-card-desc">Name, contact, address, branding tabs, and org structure for this {{ contextNoun }}.</span>
           </span>
         </button>
         <button type="button" class="hub-card" @click="openArea('general', 'tenant-features')">
           <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('company-profile')" :src="iconFor('company-profile')" alt="" class="hub-card-icon-img" />
+            <img v-if="iconFor('tenant-features')" :src="iconFor('tenant-features')" alt="" class="hub-card-icon-img" />
             <span v-else>🎛️</span>
           </span>
           <span class="hub-card-body">
@@ -98,6 +110,7 @@
 
     <section v-for="block in secondaryBlocks" :key="block.title" class="hub-section">
       <h3 class="hub-section-title">{{ block.title }}</h3>
+      <p v-if="block.hint" class="hub-section-hint">{{ block.hint }}</p>
       <div class="hub-cards">
         <button
           v-for="row in block.items"

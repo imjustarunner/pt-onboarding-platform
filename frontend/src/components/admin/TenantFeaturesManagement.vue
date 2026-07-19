@@ -616,6 +616,12 @@ const buildAgencyFeatureFlagsPayload = (rows) => {
     if (!row?.featureFlagKey) continue;
     next[row.featureFlagKey] = row.enabled === true || row.included === true;
   }
+  // Medical Billing is a single switch; keep legacy child keys aligned for older rows.
+  const medicalOn = next.medicalBillingEnabled === true;
+  next.clinicalChartEnabled = medicalOn;
+  next.clinicalNoteSigningEnabled = medicalOn;
+  next.medicalClaimsEnabled = medicalOn;
+  next.claimMdEnabled = medicalOn;
   next.otherMileageTierRatesEnabled = payrollOptionsDraft.value.otherMileageTierRatesEnabled === true;
   next.percentOfChargePayEnabled = payrollOptionsDraft.value.percentOfChargePayEnabled === true;
   return next;

@@ -203,7 +203,8 @@ const FLAG_KEY_TO_BILLING_CATALOG = {
   shiftProgramsEnabled: 'officeSchedulingPublishing',
   publicProviderFinderEnabled: 'publicAvailability',
   schoolPortalsEnabled: 'schoolPortals',
-  skillBuildersSchoolProgramEnabled: 'skillBuildersSchoolProgram'
+  skillBuildersSchoolProgramEnabled: 'skillBuildersSchoolProgram',
+  medicalBillingEnabled: 'medicalBillingEnabled'
 };
 
 const loadError = ref('');

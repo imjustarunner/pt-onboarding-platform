@@ -1,5 +1,5 @@
 import express from 'express';
-import { getCurrentUser, getAllUsers, getGuardianUsers, getGuardianLinkedClients, getGuardianEvents, bulkDeleteGuardians, aiQueryUsers, getUserById, getUserStravaConnection, updateUser, updateUserStatus, requireSkillBuilderConfirmNextLogin, getUserAgencies, getSuperviseePortalSlugs, getProvidersForSupport, getAffiliatedPortals, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyDepartmentAccess, getUserDepartmentAccess, setUserAgencyH0032Mode, setUserAgencySupervisionPrelicensed, generateInvitationToken, generateTemporaryPassword, setCustomTemporaryPassword, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, getProfileOverview, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, setStaffInactive, restoreUser, deleteUser, deleteMe, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias, removeUserLoginEmailAlias, getUserScheduleSummary, listUserMeetingCandidates, listUserVirtualSessionClients, createUserScheduleEvent, deleteUserScheduleEvent, getUserGoogleEvent, patchUserGoogleEvent, deleteUserGoogleEvent, getUserExternalCalendars, createUserExternalCalendar, addUserExternalCalendarFeed, patchUserExternalCalendar, patchUserExternalCalendarFeed, setSsoPasswordOverride } from '../controllers/user.controller.js';
+import { getCurrentUser, getAllUsers, getGuardianUsers, getGuardianLinkedClients, getGuardianEvents, bulkDeleteGuardians, aiQueryUsers, getUserById, getUserStravaConnection, updateUser, updateUserStatus, requireSkillBuilderConfirmNextLogin, getUserAgencies, getSuperviseePortalSlugs, getProvidersForSupport, getAffiliatedPortals, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyDepartmentAccess, getUserDepartmentAccess, setUserAgencyH0032Mode, setUserAgencySupervisionPrelicensed, generateInvitationToken, generateTemporaryPassword, setCustomTemporaryPassword, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, getProfileOverview, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, setStaffInactive, restoreUser, deleteUser, deleteMe, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias, removeUserLoginEmailAlias, getUserScheduleSummary, listUserMeetingCandidates, listUserVirtualSessionClients, createUserScheduleEvent, updateUserScheduleEvent, deleteUserScheduleEvent, getUserGoogleEvent, patchUserGoogleEvent, deleteUserGoogleEvent, getUserExternalCalendars, createUserExternalCalendar, addUserExternalCalendarFeed, patchUserExternalCalendar, patchUserExternalCalendarFeed, setSsoPasswordOverride } from '../controllers/user.controller.js';
 import { getUserOfficeAssignments, upsertUserOfficeAssignments } from '../controllers/userOfficeAssignments.controller.js';
 import { upload as uploadProfilePhoto, uploadUserProfilePhoto } from '../controllers/userProfilePhoto.controller.js';
 import {
@@ -20,7 +20,12 @@ import {
   getAgencyProviderPortalSettings,
   upsertAgencyProviderPortalSettings
 } from '../controllers/providerPublicProfile.controller.js';
+import {
+  getUserAgencyPracticeCategories,
+  putUserAgencyPracticeCategories
+} from '../controllers/practiceCategories.controller.js';
 import { authenticate, requireAdmin, requireBackofficeAdmin, requireBackofficeAdminOrCpa } from '../middleware/auth.middleware.js';
+import { getUserWorkSchedule, putUserWorkSchedule } from '../controllers/userWorkSchedule.controller.js';
 import {
   getUserLifecycle,
   updateLifecycleDates,
@@ -50,9 +55,12 @@ router.get('/:id/login-email-aliases', authenticate, requireBackofficeAdmin, get
 router.post('/:id/login-email-alias', authenticate, requireBackofficeAdmin, addUserLoginEmailAlias);
 router.delete('/:id/login-email-alias', authenticate, requireBackofficeAdmin, removeUserLoginEmailAlias);
 router.get('/:id/schedule-summary', authenticate, getUserScheduleSummary);
+router.get('/:id/work-schedule', authenticate, getUserWorkSchedule);
+router.put('/:id/work-schedule', authenticate, putUserWorkSchedule);
 router.get('/:id/meeting-candidates', authenticate, listUserMeetingCandidates);
 router.get('/:id/virtual-session-clients', authenticate, listUserVirtualSessionClients);
 router.post('/:id/schedule-events', authenticate, createUserScheduleEvent);
+router.patch('/:id/schedule-events/:eventId', authenticate, updateUserScheduleEvent);
 router.delete('/:id/schedule-events/:eventId', authenticate, deleteUserScheduleEvent);
 router.get('/:id/google-events/:eventId', authenticate, getUserGoogleEvent);
 router.patch('/:id/google-events/:eventId', authenticate, patchUserGoogleEvent);
@@ -61,6 +69,8 @@ router.get('/:id/office-assignments', authenticate, requireBackofficeAdmin, getU
 router.put('/:id/office-assignments', authenticate, requireBackofficeAdmin, upsertUserOfficeAssignments);
 router.get('/:id/provider-public-profile', authenticate, getUserProviderPublicProfile);
 router.put('/:id/provider-public-profile', authenticate, upsertUserProviderPublicProfile);
+router.get('/:userId/agencies/:agencyId/practice-categories', authenticate, getUserAgencyPracticeCategories);
+router.put('/:userId/agencies/:agencyId/practice-categories', authenticate, putUserAgencyPracticeCategories);
 router.get('/agency-provider-portal/:agencyId', authenticate, getAgencyProviderPortalSettings);
 router.put('/agency-provider-portal/:agencyId', authenticate, upsertAgencyProviderPortalSettings);
 router.get('/:id/affiliated-portals', authenticate, getAffiliatedPortals);

@@ -18,8 +18,18 @@ import { userChoseWorkOverSummitFromStores } from '../utils/sstcSurfaceChoice.js
 import { isSstcTenantSlug } from '../config/tenantAppProfiles.js';
 import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuildersSchoolProgramAccess.js';
+import { isBookClubAgency } from '../utils/bookClubAgency.js';
+import {
+  isTenantOrganizationType,
+  isNestedOrganizationType,
+  getParentAgencyFromOrg,
+  getOrgSlug
+} from '../utils/organizationTypes.js';
 
 const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'];
+/** Hub landing + Staff Schedules busy overlay (providers cannot open buildings/approvals from hub). */
+const SCHEDULE_HUB_VIEW_ROLES = [...SCHEDULE_HUB_ROLES, 'provider'];
+const STAFF_SCHEDULE_COMPARE_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'provider', 'staff'];
 
 /** School Overview (orgType=school) + All portals + hub + school clients + school digital intakes — not Program Overview (orgType=program). */
 function routeRequiresSchoolPortalsFeature(to) {
@@ -805,6 +815,13 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true, publicProviderBook: true }
   },
   {
+    path: '/:organizationSlug/book-session',
+    name: 'PublicUnifiedBooking',
+    component: () => import('../views/public/PublicUnifiedBookingView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true, publicUnifiedBooking: true }
+  },
+
+  {
     path: '/:organizationSlug/discovery/:token',
     name: 'PublicDiscoverySession',
     component: () => import('../views/public/PublicDiscoverySessionView.vue'),
@@ -1248,6 +1265,16 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/medical-billing',
+    name: 'OrganizationMedicalBilling',
+    component: () => import('../views/admin/MedicalBillingView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'provider'],
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/preferences',
     name: 'OrganizationPreferences',
     redirect: (to) => `/${to.params.organizationSlug}/dashboard?tab=my&my=preferences`,
@@ -1314,12 +1341,18 @@ const routes = [
     redirect: (to) => `/${to.params.organizationSlug}/buildings/review`,
     meta: { requiresAuth: true, organizationSlug: true }
   },
+  {
+    path: '/:organizationSlug/my-schedule',
+    name: 'OrganizationMySchedule',
+    component: () => import('../views/MyScheduleView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
   // Backward-compatible: legacy schedule route
   {
     path: '/:organizationSlug/schedule',
     name: 'OrganizationScheduleHub',
     component: () => import('../views/ScheduleHubView.vue'),
-    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_VIEW_ROLES, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/schedule/event-staffing',
@@ -1331,7 +1364,7 @@ const routes = [
     path: '/:organizationSlug/schedule/staff',
     name: 'OrganizationStaffScheduleCompare',
     component: () => import('../views/StaffScheduleCompareView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'] }
+    meta: { requiresAuth: true, organizationSlug: true, requiresRole: STAFF_SCHEDULE_COMPARE_ROLES }
   },
   {
     path: '/:organizationSlug/schedule/board/:locationId',
@@ -2305,12 +2338,18 @@ const routes = [
     redirect: '/buildings/review',
     meta: { requiresAuth: true }
   },
+  {
+    path: '/my-schedule',
+    name: 'MySchedule',
+    component: () => import('../views/MyScheduleView.vue'),
+    meta: { requiresAuth: true }
+  },
   // Backward-compatible: legacy schedule route
   {
     path: '/schedule',
     name: 'OfficeScheduleLegacy',
     component: () => import('../views/ScheduleHubView.vue'),
-    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_VIEW_ROLES }
   },
   {
     path: '/schedule/event-staffing',
@@ -2322,7 +2361,7 @@ const routes = [
     path: '/schedule/staff',
     name: 'StaffScheduleCompare',
     component: () => import('../views/StaffScheduleCompareView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant'] }
+    meta: { requiresAuth: true, requiresRole: STAFF_SCHEDULE_COMPARE_ROLES }
   },
   {
     path: '/schedule/board/:locationId',
@@ -3497,8 +3536,9 @@ router.beforeEach(async (to, from, next) => {
           // best effort: do not block navigation
         }
 
-        // Keep organization + agency stores aligned to the slug so the rest of the app
-        // (filters, permissions, agency-scoped data) stays consistent.
+        // Keep organization store aligned to the slug for portal pages.
+        // Nested orgs (school/program/learning/book club) must NOT become currentAgency —
+        // keep the parent tenant for nav/theme/data scoping.
         try {
           const org = await organizationStore.fetchBySlug(slug);
           if (org && authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
@@ -3508,7 +3548,41 @@ router.beforeEach(async (to, from, next) => {
             // - the user actually belongs to that organization (prevents “/school” prefix sticking).
             const shouldSyncAgencyContext = !!to.meta.requiresAuth || userHasSlugAccess(slug, agencyStore, authStore);
             if (shouldSyncAgencyContext) {
-              agencyStore.setCurrentAgency(org);
+              const memberships = [
+                ...(Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : []),
+                ...(Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [])
+              ];
+              const isBookClub = isBookClubAgency(org);
+              const isNested = isNestedOrganizationType(org);
+              const orgType = String(org?.organization_type || org?.organizationType || '').toLowerCase();
+              const isSstcAffiliation = isNested && (orgType === 'affiliation' || orgType === 'clubwebapp') && !isBookClub;
+
+              // Book Club dashboard bookmarks → parent bookclub surface.
+              const pathNorm = String(to.path || '');
+              if (isBookClub && /\/dashboard\/?$/i.test(pathNorm)) {
+                const parent = getParentAgencyFromOrg(org, memberships);
+                const parentSlug = getOrgSlug(parent) || String(org?.parent_slug || org?.parentSlug || '').trim();
+                if (parent) agencyStore.setCurrentAgency(parent);
+                if (parentSlug) {
+                  next({ path: `/${parentSlug}/bookclub`, replace: true });
+                  return;
+                }
+              }
+
+              if (isBookClub || (isNested && !isSstcAffiliation)) {
+                const parent = getParentAgencyFromOrg(org, memberships);
+                if (parent && isTenantOrganizationType(parent)) {
+                  agencyStore.setCurrentAgency(parent);
+                } else if (isTenantOrganizationType(agencyStore.currentAgency)) {
+                  // keep existing tenant
+                } else {
+                  const fallbackTenant = memberships.find((a) => isTenantOrganizationType(a));
+                  if (fallbackTenant) agencyStore.setCurrentAgency(fallbackTenant);
+                }
+              } else {
+                // Full tenants + SSTC clubs (summit chrome) may own currentAgency.
+                agencyStore.setCurrentAgency(org);
+              }
             }
           }
         } catch (e) {

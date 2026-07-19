@@ -595,6 +595,38 @@
           </div>
         </div>
 
+        <!-- Dual-rate hourly contract (EMP-0485 pilot) -->
+        <div v-if="showDualRateContractCard" class="settings-card" style="border-color: #0d9488;">
+          <div class="settings-head">
+            <div>
+              <h3 class="card-title" style="margin: 0;">New Hourly Contract</h3>
+              <div class="muted" style="margin-top: 4px;">
+                Dual-rate Log Time: left-side activities pay at Indirect; right-side (Type 2) pay at Other 1.
+                Direct services continue through normal service codes.
+              </div>
+            </div>
+          </div>
+          <div v-if="dualRateSwitchError" class="error-box" style="margin-top: 10px;">{{ dualRateSwitchError }}</div>
+          <div v-if="dualRateSwitchMessage" class="muted" style="margin-top: 10px; color: #0f766e;">{{ dualRateSwitchMessage }}</div>
+          <div v-if="isDualRateActive" class="muted" style="margin-top: 12px;">
+            <span class="dual-rate-badge">Dual-rate hourly contract active</span>
+            Set Direct, Indirect, and Other 1 on the hourly rate card below before their first Log Time submit.
+          </div>
+          <div v-else style="margin-top: 12px;">
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="switchingDualRate || !selectedAgencyId"
+              @click="switchToNewHourlyContract"
+            >
+              {{ switchingDualRate ? 'Switching…' : 'Switch to New Hourly Contract' }}
+            </button>
+            <div class="muted" style="margin-top: 8px; font-size: 12px;">
+              Ends the active salary position for this company, enables hourly Log Time, and turns on Indirect + Other 1 split submit.
+            </div>
+          </div>
+        </div>
+
         <!-- Salary -->
         <div class="settings-card">
           <div class="settings-head">
@@ -681,14 +713,76 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import {
+  isDualRateContractPilotUser,
+  isHourlyDualRateEnabled
+} from '../../utils/hourlyDualRateContract.js';
 
 const props = defineProps({
   userId: { type: Number, required: true },
-  userAgencies: { type: Array, default: () => [] }
+  userAgencies: { type: Array, default: () => [] },
+  user: { type: Object, default: null }
 });
+
+const emit = defineEmits(['dual-rate-contract-switched']);
 
 const authStore = useAuthStore();
 const myRole = computed(() => String(authStore.user?.role || '').trim());
+
+const dualRateLocal = ref(null);
+const switchingDualRate = ref(false);
+const dualRateSwitchError = ref('');
+const dualRateSwitchMessage = ref('');
+
+const dualRateUser = computed(() => {
+  const base = props.user || { id: props.userId };
+  if (dualRateLocal.value && typeof dualRateLocal.value === 'object') {
+    return { ...base, ...dualRateLocal.value };
+  }
+  return base;
+});
+
+const isDualRatePilot = computed(() => isDualRateContractPilotUser({
+  ...dualRateUser.value,
+  id: props.userId
+}));
+
+const isDualRateActive = computed(() => isHourlyDualRateEnabled(dualRateUser.value));
+
+const showDualRateContractCard = computed(() => isDualRatePilot.value || isDualRateActive.value);
+
+const switchToNewHourlyContract = async () => {
+  if (!selectedAgencyId.value || !props.userId) return;
+  const ok = window.confirm(
+    'Switch this user to the New Hourly Contract?\n\n'
+    + '• End their active salary position for this company\n'
+    + '• Enable hourly worker Log Time\n'
+    + '• Enable Indirect + Other 1 split on Log Time submits\n\n'
+    + 'You must set Direct, Indirect, and Other 1 rates on their hourly rate card afterward.'
+  );
+  if (!ok) return;
+  try {
+    switchingDualRate.value = true;
+    dualRateSwitchError.value = '';
+    dualRateSwitchMessage.value = '';
+    const resp = await api.post(
+      `/payroll/users/${props.userId}/switch-hourly-dual-rate-contract`,
+      { agencyId: selectedAgencyId.value }
+    );
+    dualRateLocal.value = resp.data?.user || {
+      is_hourly_worker: true,
+      hourly_dual_rate_enabled: true
+    };
+    dualRateSwitchMessage.value = resp.data?.reminder
+      || 'Dual-rate hourly contract is active. Set Direct / Indirect / Other 1 rates on the rate card.';
+    await loadSalaryPositions();
+    emit('dual-rate-contract-switched', resp.data || {});
+  } catch (e) {
+    dualRateSwitchError.value = e.response?.data?.error?.message || e.message || 'Failed to switch contract';
+  } finally {
+    switchingDualRate.value = false;
+  }
+};
 
 const selectedAgencyId = ref(null);
 const payrollAgencyOptions = computed(() => {
@@ -2047,6 +2141,17 @@ select option {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: white;
+}
+
+.dual-rate-badge {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #ccfbf1;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .settings-head {

@@ -371,15 +371,26 @@ async function save() {
   color: #9ca3af;
 }
 .itc-alloc-note textarea {
-  border: 1px solid #d1d5db;
+  border: 1.5px solid #94a3b8;
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;
   font-size: 0.85rem;
   font-weight: 500;
-  color: #111827;
+  color: #0f172a;
   resize: vertical;
   min-height: 48px;
+  background: #f8fafc;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.itc-alloc-note textarea::placeholder {
+  color: #64748b;
+  opacity: 1;
+}
+.itc-alloc-note textarea:focus {
+  outline: 2px solid #86efac;
+  border-color: #166534;
+  background: #fff;
 }
 .itc-alloc-label { font-size: 0.88rem; font-weight: 600; color: #111827; }
 .itc-hhmm {

@@ -815,6 +815,7 @@
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
                 @open-skill-builders-programs="goSkillBuildersProgramsPage"
                 @open-company-events-calendar="openCompanyEventsCalendar"
+                @change-schedule-user="onScheduleModalChangeUser"
               />
               </div>
             </ScheduleHubPanel>
@@ -2126,6 +2127,21 @@ const employeeSchedulePickerOptions = computed(() => {
 
 const clearMyScheduleViewAs = () => {
   myScheduleViewAsUserId.value = 0;
+};
+
+/** Schedule modal header provider picker — keep dashboard “View as” in sync. */
+const onScheduleModalChangeUser = (userId) => {
+  if (!canPickEmployeeSchedule.value) return;
+  const id = Number(userId || 0);
+  const me = Number(authStore.user?.id || 0);
+  if (!id || id === me) {
+    myScheduleViewAsUserId.value = 0;
+    return;
+  }
+  if (scheduleViewMode.value !== 'self') {
+    scheduleViewMode.value = 'self';
+  }
+  myScheduleViewAsUserId.value = id;
 };
 
 const fetchUsersForEmployeeSchedulePicker = async () => {
@@ -4073,6 +4089,11 @@ const handleCardClick = (card) => {
 const onOverviewNavigate = (tab) => {
   const id = String(tab || '').trim();
   if (!id) return;
+  if (id === 'my_schedule') {
+    const slug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+    router.push(slug ? `/${slug}/my-schedule` : '/my-schedule').catch(() => {});
+    return;
+  }
   if (id === 'log_time') {
     openLogTimeTab();
     return;
@@ -4115,34 +4136,20 @@ const onOverviewNavigate = (tab) => {
   }
 };
 
-/** Overview My Schedule → open booking modal on full schedule (existing grid flow). */
+/** Overview My Schedule → open booking modal on full-screen schedule. */
 const onOverviewBookSchedule = () => {
-  closeInlineProgramHub();
-  scheduleViewMode.value = 'self';
-  activeTab.value = 'my_schedule';
-  previousContentTab.value = 'my_schedule';
-  selectedRailCardId.value = 'my_schedule';
   if (props.previewMode) return;
-  const nextQuery = { ...route.query, tab: 'my_schedule', scheduleAction: 'book' };
-  delete nextQuery.scheduleMode;
-  delete nextQuery.superviseeId;
-  delete nextQuery.employeeId;
-  router.push({ query: nextQuery }).catch(() => {});
+  const slug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  const path = slug ? `/${slug}/my-schedule` : '/my-schedule';
+  router.push({ path, query: { scheduleAction: 'book' } }).catch(() => {});
 };
 
 /** Overview My Schedule → calendar booking modal with Individual session → Virtual preselected. */
 const onOverviewBookVirtual = () => {
-  closeInlineProgramHub();
-  scheduleViewMode.value = 'self';
-  activeTab.value = 'my_schedule';
-  previousContentTab.value = 'my_schedule';
-  selectedRailCardId.value = 'my_schedule';
   if (props.previewMode) return;
-  const nextQuery = { ...route.query, tab: 'my_schedule', scheduleAction: 'book_virtual' };
-  delete nextQuery.scheduleMode;
-  delete nextQuery.superviseeId;
-  delete nextQuery.employeeId;
-  router.push({ query: nextQuery }).catch(() => {});
+  const slug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  const path = slug ? `/${slug}/my-schedule` : '/my-schedule';
+  router.push({ path, query: { scheduleAction: 'book_virtual' } }).catch(() => {});
 };
 
 const onOverviewSubmitAction = ({ event, tab } = {}) => {

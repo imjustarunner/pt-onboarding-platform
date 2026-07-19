@@ -177,7 +177,9 @@
 
         <section class="itl-card" aria-labelledby="itl-types-heading">
           <div class="itl-section-head">
-            <h3 id="itl-types-heading" class="itl-section-title">Select Indirect Service Type(s)</h3>
+            <h3 id="itl-types-heading" class="itl-section-title">
+              {{ dualRateEnabled ? 'Select Service Type(s)' : 'Select Indirect Service Type(s)' }}
+            </h3>
             <div class="itl-section-actions">
               <button type="button" class="itl-link-btn" @click="selectAllTypes">Select All</button>
               <button type="button" class="itl-link-btn" @click="clearAllTypes">Clear All</button>
@@ -185,9 +187,65 @@
           </div>
           <div v-if="typesLoading" class="itl-muted">Loading service types…</div>
           <div v-else-if="!serviceTypes.length" class="itl-muted">No indirect service types are configured yet. Ask an admin to add them in Payroll Settings.</div>
+          <div v-else-if="dualRateEnabled" class="itl-dual-cols">
+            <div class="itl-dual-col itl-dual-col--indirect">
+              <div class="itl-dual-head">
+                <span class="itl-dual-badge itl-dual-badge--indirect">Type 1 – Indirect</span>
+                <span class="itl-dual-sub">Paid at Indirect rate</span>
+              </div>
+              <div class="itl-type-grid" role="group" aria-label="Indirect service types">
+                <label
+                  v-for="t in indirectServiceTypes"
+                  :key="t.id"
+                  class="itl-type-card"
+                  :class="{ selected: selectedTypeIds.has(t.id) }"
+                >
+                  <input
+                    type="checkbox"
+                    class="itl-type-check"
+                    :checked="selectedTypeIds.has(t.id)"
+                    :aria-label="t.label"
+                    @change="toggleType(t)"
+                  />
+                  <span class="itl-type-icon" aria-hidden="true">
+                    <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
+                  </span>
+                  <span class="itl-type-label">{{ t.label }}</span>
+                  <span v-if="t.description" class="itl-type-desc">{{ t.description }}</span>
+                </label>
+              </div>
+            </div>
+            <div class="itl-dual-col itl-dual-col--other1">
+              <div class="itl-dual-head">
+                <span class="itl-dual-badge itl-dual-badge--other1">Type 2 – Other 1</span>
+                <span class="itl-dual-sub">Paid at Other 1 rate</span>
+              </div>
+              <div class="itl-type-grid" role="group" aria-label="Other 1 service types">
+                <label
+                  v-for="t in other1ServiceTypes"
+                  :key="t.id"
+                  class="itl-type-card"
+                  :class="{ selected: selectedTypeIds.has(t.id) }"
+                >
+                  <input
+                    type="checkbox"
+                    class="itl-type-check"
+                    :checked="selectedTypeIds.has(t.id)"
+                    :aria-label="t.label"
+                    @change="toggleType(t)"
+                  />
+                  <span class="itl-type-icon" aria-hidden="true">
+                    <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
+                  </span>
+                  <span class="itl-type-label">{{ t.label }}</span>
+                  <span v-if="t.description" class="itl-type-desc">{{ t.description }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
           <div v-else class="itl-type-grid" role="group" aria-label="Indirect service types">
             <label
-              v-for="t in serviceTypes"
+              v-for="t in visibleServiceTypes"
               :key="t.id"
               class="itl-type-card"
               :class="{ selected: selectedTypeIds.has(t.id) }"
@@ -318,6 +376,10 @@ import {
   isNoteAidEmployeeRole,
   isNoteAidEnabledForAgencyFlags
 } from '../../config/noteAidAccess';
+import {
+  isHourlyDualRateEnabled,
+  normalizePayBucket
+} from '../../utils/hourlyDualRateContract.js';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
@@ -332,6 +394,18 @@ const prefsStore = useUserPreferencesStore();
 const indirectSessionStore = useIndirectTimeSessionStore();
 const router = useRouter();
 const route = useRoute();
+
+const dualRateEnabled = computed(() => isHourlyDualRateEnabled(authStore.user));
+const indirectServiceTypes = computed(() =>
+  (serviceTypes.value || []).filter((t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'indirect')
+);
+const other1ServiceTypes = computed(() =>
+  (serviceTypes.value || []).filter((t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'other_1')
+);
+/** Non dual-rate workers only see Indirect types (Other 1 is dual-contract only). */
+const visibleServiceTypes = computed(() =>
+  dualRateEnabled.value ? (serviceTypes.value || []) : indirectServiceTypes.value
+);
 
 const noteAidUsedDuringSession = computed(() => !!indirectSessionStore.noteAidUsedDuringSession);
 
@@ -717,7 +791,7 @@ function toggleType(t) {
 }
 
 function selectAllTypes() {
-  selectedTypeIds.value = new Set(serviceTypes.value.map((t) => t.id));
+  selectedTypeIds.value = new Set(visibleServiceTypes.value.map((t) => t.id));
 }
 
 function clearAllTypes() {
@@ -925,6 +999,38 @@ function unrefAllocationMode(panel) {
   return m || 'duration';
 }
 
+function typePayBucket(typeId) {
+  const t = (serviceTypes.value || []).find((x) => Number(x.id) === Number(typeId));
+  return normalizePayBucket(t?.payBucket || t?.pay_bucket || 'indirect');
+}
+
+async function postIndirectTimeClaim({ totalMinutes, allocations, bucket, startTime, endTime, allocationMode, usedNoteAid }) {
+  const tagged = (allocations || []).map((a) => ({
+    ...a,
+    payBucket: bucket
+  }));
+  await api.post('/payroll/me/time-claims', {
+    agencyId: agencyId.value,
+    claimType: 'indirect_time',
+    claimDate: claimDate.value,
+    payload: {
+      entryMethod: entryMethod.value,
+      allocationMode,
+      startTime,
+      endTime,
+      totalMinutes,
+      allocations: tagged,
+      bucket,
+      sessionId: session.value?.id || null,
+      noteAidUsedDuringSession: usedNoteAid,
+      ...(usedNoteAid && indirectSessionStore.noteAidOpenedAt
+        ? { noteAidOpenedAt: indirectSessionStore.noteAidOpenedAt }
+        : {}),
+      attestation: true
+    }
+  });
+}
+
 async function submitTime() {
   if (!canSubmit.value || !agencyId.value) return;
   const panel = allocationPanelRef.value;
@@ -944,31 +1050,65 @@ async function submitTime() {
     if (entryMethod.value === 'clock' && isClockedIn.value) {
       await clockOut();
     }
-    const totalMinutes = sessionTotalMinutes.value;
     const allocations = panel?.getAllocationsForSubmit?.() || [];
     const startTime = sessionBoundsHm.value.start || manualStart.value;
     const endTime = sessionBoundsHm.value.end || manualEnd.value;
     const usedNoteAid = !!indirectSessionStore.noteAidUsedDuringSession;
-    await api.post('/payroll/me/time-claims', {
-      agencyId: agencyId.value,
-      claimType: 'indirect_time',
-      claimDate: claimDate.value,
-      payload: {
-        entryMethod: entryMethod.value,
-        allocationMode: unrefAllocationMode(panel),
-        startTime,
-        endTime,
+    const allocationMode = unrefAllocationMode(panel);
+
+    if (dualRateEnabled.value) {
+      const indirectAlloc = [];
+      const other1Alloc = [];
+      for (const a of allocations) {
+        const bucket = typePayBucket(a.serviceTypeId);
+        if (bucket === 'other_1') other1Alloc.push(a);
+        else indirectAlloc.push(a);
+      }
+      const indirectMins = indirectAlloc.reduce((s, a) => s + Number(a.minutes || 0), 0);
+      const other1Mins = other1Alloc.reduce((s, a) => s + Number(a.minutes || 0), 0);
+      if (indirectMins < 1 && other1Mins < 1) {
+        throw new Error('Allocate minutes to at least one service type');
+      }
+      if (indirectMins >= 1) {
+        await postIndirectTimeClaim({
+          totalMinutes: indirectMins,
+          allocations: indirectAlloc,
+          bucket: 'indirect',
+          startTime,
+          endTime,
+          allocationMode,
+          usedNoteAid
+        });
+      }
+      if (other1Mins >= 1) {
+        await postIndirectTimeClaim({
+          totalMinutes: other1Mins,
+          allocations: other1Alloc,
+          bucket: 'other_1',
+          startTime,
+          endTime,
+          allocationMode,
+          usedNoteAid
+        });
+      }
+      const parts = [];
+      if (indirectMins >= 1) parts.push(`${formatHm(indirectMins)} Indirect`);
+      if (other1Mins >= 1) parts.push(`${formatHm(other1Mins)} Other 1`);
+      success.value = `Submitted ${parts.join(' + ')} for payroll review.`;
+    } else {
+      const totalMinutes = sessionTotalMinutes.value;
+      await postIndirectTimeClaim({
         totalMinutes,
         allocations,
-        sessionId: session.value?.id || null,
-        noteAidUsedDuringSession: usedNoteAid,
-        ...(usedNoteAid && indirectSessionStore.noteAidOpenedAt
-          ? { noteAidOpenedAt: indirectSessionStore.noteAidOpenedAt }
-          : {}),
-        attestation: true
-      }
-    });
-    success.value = 'Time submitted for payroll review. Use Edit in My Payroll if you need to change it (a reason is required).';
+        bucket: 'indirect',
+        startTime,
+        endTime,
+        allocationMode,
+        usedNoteAid
+      });
+      success.value = 'Time submitted for payroll review. Use Edit in My Payroll if you need to change it (a reason is required).';
+    }
+
     attestation.value = false;
     clearAllTypes();
     try {
@@ -1443,6 +1583,47 @@ onUnmounted(() => stopTick());
 }
 .itl-manual-total { font-size: 0.9rem; color: #374151; padding-bottom: 8px; }
 .itl-hint { margin: 12px 0 0; color: var(--itl-muted); font-size: 0.9rem; }
+.itl-dual-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .itl-dual-cols { grid-template-columns: 1fr; }
+}
+.itl-dual-col {
+  border: 1px solid var(--itl-border);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+.itl-dual-col--indirect {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+.itl-dual-col--other1 {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+.itl-dual-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.itl-dual-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+.itl-dual-badge--indirect { background: #166534; color: #fff; }
+.itl-dual-badge--other1 { background: #1d4ed8; color: #fff; }
+.itl-dual-sub { font-size: 0.8rem; color: var(--itl-muted); }
 .itl-type-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

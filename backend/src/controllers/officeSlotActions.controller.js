@@ -22,7 +22,44 @@ import {
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import { validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
+import { upsertAppointmentForOfficeBook } from '../services/appointment.service.js';
 import pool from '../config/database.js';
+
+async function bestEffortUnifiedOfficeAppointment({
+  req,
+  officeLocationId,
+  event,
+  clientId = null,
+  modality = null,
+  appointmentTypeCode = null,
+  agencyIdHint = null
+}) {
+  try {
+    const eid = Number(event?.id || 0);
+    if (!eid || !event?.start_at || !event?.end_at) return;
+    let agencyId = Number(agencyIdHint || req.body?.agencyId || req.query?.agencyId || 0) || null;
+    if (!agencyId) {
+      agencyId = await resolveAuditAgencyIdForOffice(officeLocationId, req.user?.id);
+    }
+    if (!agencyId) return;
+    await upsertAppointmentForOfficeBook({
+      agencyId,
+      officeEventId: eid,
+      providerUserId: Number(event.assigned_provider_id || event.booked_provider_id || 0) || null,
+      clientId: clientId || Number(event.client_id || 0) || null,
+      startAt: event.start_at,
+      endAt: event.end_at,
+      modality: modality || event.modality || null,
+      officeLocationId,
+      roomId: Number(event.room_id || 0) || null,
+      title: appointmentTypeCode || event.appointment_type_code || 'Office session',
+      appointmentTypeCode: appointmentTypeCode || event.appointment_type_code || null,
+      actorUserId: req.user?.id || null
+    });
+  } catch (e) {
+    console.warn('[bestEffortUnifiedOfficeAppointment]', e?.message || e);
+  }
+}
 
 const canManageSchedule = (role) =>
   role === 'clinical_practice_assistant' || role === 'provider_plus' || role === 'admin' || role === 'super_admin' || role === 'superadmin' || role === 'support' || role === 'staff';
@@ -72,7 +109,8 @@ function bookingSelectionFromBody(body = {}) {
     appointmentTypeCode: body?.appointmentTypeCode || body?.appointment_type_code || null,
     appointmentSubtypeCode: body?.appointmentSubtypeCode || body?.appointment_subtype_code || null,
     serviceCode: body?.serviceCode || body?.service_code || null,
-    modality: body?.modality || null
+    modality: body?.modality || null,
+    serviceLocationId: Number(body?.serviceLocationId || body?.service_location_id || 0) || null
   };
 }
 
@@ -623,18 +661,29 @@ export const setBookingPlan = async (req, res, next) => {
       );
       const eventId = Number(rows?.[0]?.id || 0) || 0;
       if (eventId > 0) {
+        const sel = bookingSelectionFromBody(req.body);
         await OfficeEvent.markBooked({
           eventId,
           bookedProviderId: assignment.provider_id,
-          appointmentTypeCode: bookingSelectionFromBody(req.body).appointmentTypeCode,
-          appointmentSubtypeCode: bookingSelectionFromBody(req.body).appointmentSubtypeCode,
-          serviceCode: bookingSelectionFromBody(req.body).serviceCode,
-          modality: bookingSelectionFromBody(req.body).modality
+          appointmentTypeCode: sel.appointmentTypeCode,
+          appointmentSubtypeCode: sel.appointmentSubtypeCode,
+          serviceCode: sel.serviceCode,
+          modality: sel.modality,
+          serviceLocationId: sel.serviceLocationId
         });
         await pool.execute(
           `UPDATE office_events SET booking_plan_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
           [plan.id, eventId]
         );
+        const bookedEv = await OfficeEvent.findById(eventId);
+        await bestEffortUnifiedOfficeAppointment({
+          req,
+          officeLocationId,
+          event: bookedEv,
+          clientId: Number(req.body?.clientId || 0) || null,
+          modality: sel.modality,
+          appointmentTypeCode: sel.appointmentTypeCode
+        });
       }
     } catch {
       // Best-effort immediate occurrence mark; plan save remains source of truth.
@@ -897,11 +946,15 @@ export const setTemporary = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only schedule managers can set temporary mode' } });
     }
 
-    const weeks = parseInt(req.body?.weeks || 4, 10);
-    const w = Number.isFinite(weeks) && weeks > 0 ? weeks : 4;
-    const until = new Date();
-    until.setDate(until.getDate() + w * 7);
-    const untilDate = until.toISOString().slice(0, 10);
+    const explicitUntil = ymdFromDateLike(req.body?.untilDate || req.body?.temporaryUntilDate, null);
+    let untilDate = explicitUntil;
+    if (!untilDate || !/^\d{4}-\d{2}-\d{2}$/.test(untilDate)) {
+      const weeks = parseInt(req.body?.weeks || 4, 10);
+      const w = Number.isFinite(weeks) && weeks > 0 ? weeks : 4;
+      const until = new Date();
+      until.setDate(until.getDate() + w * 7);
+      untilDate = until.toISOString().slice(0, 10);
+    }
 
     await OfficeStandingAssignment.update(sid, {
       availability_mode: 'TEMPORARY',
@@ -1090,7 +1143,8 @@ export const staffBookEvent = async (req, res, next) => {
         appointmentTypeCode: validatedSelection.appointmentTypeCode,
         appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode,
         serviceCode: validatedSelection.serviceCode,
-        modality: validatedSelection.modality
+        modality: validatedSelection.modality,
+        serviceLocationId: bookingSelectionFromBody(req.body).serviceLocationId
       })
       : await OfficeEvent.markAvailable({ eventId: eid });
     if (shouldBook) {
@@ -1107,6 +1161,15 @@ export const staffBookEvent = async (req, res, next) => {
           // best-effort context ensure on booking status toggle
         }
       }
+      const bookedEv = updated || (await OfficeEvent.findById(eid));
+      await bestEffortUnifiedOfficeAppointment({
+        req,
+        officeLocationId,
+        event: bookedEv,
+        clientId,
+        modality: validatedSelection.modality,
+        appointmentTypeCode: validatedSelection.appointmentTypeCode
+      });
     }
     const standingId = Number(ev.standing_assignment_id || 0);
     if (shouldBook) {
@@ -1551,7 +1614,8 @@ export const setEventBookingPlan = async (req, res, next) => {
       appointmentTypeCode: validatedSelection.appointmentTypeCode,
       appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode,
       serviceCode: validatedSelection.serviceCode,
-      modality: validatedSelection.modality
+      modality: validatedSelection.modality,
+      serviceLocationId: rawSelection.serviceLocationId
     });
     await pool.execute(
       `UPDATE office_events
@@ -1580,6 +1644,15 @@ export const setEventBookingPlan = async (req, res, next) => {
         // best-effort context ensure on booking-plan promotion
       }
     }
+    await bestEffortUnifiedOfficeAppointment({
+      req,
+      officeLocationId,
+      event: bookedEvent || (await OfficeEvent.findById(eid)),
+      clientId,
+      modality: validatedSelection.modality,
+      appointmentTypeCode: validatedSelection.appointmentTypeCode,
+      agencyIdHint: policyAgencyId
+    });
     await promoteTemporaryAssignmentIfBooked(assignment?.id || ev.standing_assignment_id);
     try {
       await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: bookedEvent?.id || eid });

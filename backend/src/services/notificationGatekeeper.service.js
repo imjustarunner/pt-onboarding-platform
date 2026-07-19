@@ -1,5 +1,6 @@
 import UserPreferences from '../models/UserPreferences.model.js';
 import User from '../models/User.model.js';
+import UserWorkSchedule from '../models/UserWorkSchedule.model.js';
 
 const employeeLikeRoles = new Set([
   'staff',
@@ -21,6 +22,7 @@ function buildDefaultPreferences(userRole) {
     quiet_hours_allowed_days: null,
     quiet_hours_start_time: null,
     quiet_hours_end_time: null,
+    allow_notifications_outside_work_schedule: false,
     auto_reply_enabled: false,
     auto_reply_message: null,
     emergency_override: false,
@@ -80,6 +82,11 @@ function isInsideWorkingWindow({ now, allowedDays, startMinutes, endMinutes }) {
 /**
  * Notification Gatekeeper (single source of truth)
  *
+ * Precedence for email/SMS windowing:
+ * 1) urgent / emergency_override bypass
+ * 2) quiet hours (if enabled)
+ * 3) else work schedule (if present and active), unless allow_notifications_outside_work_schedule
+ *
  * Use this for future outbound delivery (Email/SMS). Existing in-app notifications
  * can remain as-is; this service determines which channels are eligible.
  */
@@ -127,35 +134,45 @@ class NotificationGatekeeperService {
       return { inApp: true, email: true, sms: true, reasonCodes };
     }
 
-    // Quiet Hours: outside the configured working window => in-app only.
-    let quietHoursBlocksExternal = false;
-    if (prefs.quiet_hours_enabled) {
+    // Precedence: urgent/emergency-override bypass → quiet hours if enabled → else work schedule if present.
+    let windowBlocksExternal = false;
+    const windowBypass = isUrgent || emergencyOverrideEnabled;
+
+    if (windowBypass) {
+      reasonCodes.push(isUrgent ? 'window_bypass_urgent' : 'window_bypass_emergency_override');
+    } else if (prefs.quiet_hours_enabled) {
       const allowedDays = normalizeAllowedDays(prefs.quiet_hours_allowed_days);
       const startMinutes = parseTimeToMinutes(prefs.quiet_hours_start_time);
       const endMinutes = parseTimeToMinutes(prefs.quiet_hours_end_time);
       const inside = isInsideWorkingWindow({ now, allowedDays, startMinutes, endMinutes });
-      quietHoursBlocksExternal = !inside;
-
-      if (quietHoursBlocksExternal) reasonCodes.push('quiet_hours_outside_window');
+      windowBlocksExternal = !inside;
+      if (windowBlocksExternal) reasonCodes.push('quiet_hours_outside_window');
+    } else {
+      const allowOutside = prefs.allow_notifications_outside_work_schedule === true
+        || prefs.allow_notifications_outside_work_schedule === 1
+        || prefs.allow_notifications_outside_work_schedule === '1';
+      if (allowOutside) {
+        reasonCodes.push('work_schedule_bypass_allow_outside');
+      } else {
+        const insideWork = await UserWorkSchedule.isInsideWorkSchedule(userId, now);
+        if (insideWork === false) {
+          windowBlocksExternal = true;
+          reasonCodes.push('work_schedule_outside_window');
+        } else if (insideWork === true) {
+          reasonCodes.push('within_work_schedule');
+        }
+      }
     }
 
-    // Quiet hours exceptions (do not override channel toggles).
-    const quietHoursBypass = isUrgent || emergencyOverrideEnabled;
-    if (quietHoursBlocksExternal && quietHoursBypass) {
-      quietHoursBlocksExternal = false;
-      reasonCodes.push(isUrgent ? 'quiet_hours_bypass_urgent' : 'quiet_hours_bypass_emergency_override');
-    }
-
-    const email = emailToggle && !quietHoursBlocksExternal;
-    const sms = smsToggle && !quietHoursBlocksExternal;
+    const email = emailToggle && !windowBlocksExternal;
+    const sms = smsToggle && !windowBlocksExternal;
 
     if (!emailToggle) reasonCodes.push('email_disabled');
     if (!smsToggle) reasonCodes.push('sms_disabled');
-    if (!quietHoursBlocksExternal) reasonCodes.push('within_delivery_window');
+    if (!windowBlocksExternal) reasonCodes.push('within_delivery_window');
 
     return { inApp, email, sms, reasonCodes };
   }
 }
 
 export default NotificationGatekeeperService;
-

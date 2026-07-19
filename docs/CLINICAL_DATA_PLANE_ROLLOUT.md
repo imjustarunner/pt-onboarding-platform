@@ -8,6 +8,9 @@ This rollout implements a separate clinical database path for booked clinical-se
   - `database/migrations/443_create_clinical_record_refs.sql`
 - Clinical DB:
   - `database/clinical_migrations/001_create_clinical_data_plane.sql`
+  - `database/clinical_migrations/002_medical_billing_foundations.sql` (encounters, signing, plans, diagnoses, claim lines, fee schedules)
+- Main DB (Claim.MD secrets):
+  - `database/migrations/973_agency_claimmd_credentials.sql`
 
 ## Required Environment Variables
 
@@ -33,6 +36,20 @@ If omitted, host/port/user/password fall back to the main DB env vars.
 - `POST /api/clinical-data/records/:recordType/:id/legal-hold/release`
 
 `recordType` must be one of `note`, `claim`, `document`.
+
+### Medical billing (gated — `medicalBillingEnabled`)
+
+- `GET /api/medical-billing/status`
+- `POST /api/medical-billing/treatment-plans`
+- `GET /api/medical-billing/clients/:clientId/chart`
+- `PATCH /api/medical-billing/sessions/:sessionId/encounter`
+- `POST /api/medical-billing/notes/:noteId/sign|cosign`
+- `GET /api/medical-billing/notes/signing`
+- `GET|POST /api/medical-billing/fee-schedule`
+- `GET|POST /api/medical-billing/claims`
+- Claim.MD: `/api/medical-billing/claimmd/*` (credentials, submit, responses, eras, eligibility)
+
+See `docs/MEDICAL_BILLING_CLAIMMD_PLAN.md`.
 
 ## Eligibility Rules Enforced Server-Side
 

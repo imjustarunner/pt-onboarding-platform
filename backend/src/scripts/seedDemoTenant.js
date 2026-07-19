@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt';
 import Agency from '../models/Agency.model.js';
+import AgencyBusinessType from '../models/AgencyBusinessType.model.js';
 import Client from '../models/Client.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import PayrollMileageClaim from '../models/PayrollMileageClaim.model.js';
@@ -9,6 +10,8 @@ import PayrollReimbursementClaim from '../models/PayrollReimbursementClaim.model
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
+import { ensureTenantServiceSuitesForAgency } from '../services/tenantServiceSuiteDefaults.service.js';
+import { setPracticeCategoriesForUserAgency } from '../services/practiceCategories.service.js';
 
 const asJson = (raw, fallback = null) => {
   if (!raw) return fallback;
@@ -84,10 +87,19 @@ const getOrCreateOrg = async ({ name, slug, organizationType, sourceAgency }) =>
   });
 };
 
-const getOrCreateUser = async ({ email, firstName, lastName, role, passwordHash }) => {
+const getOrCreateUser = async ({ email, firstName, lastName, role, passwordHash, title = null }) => {
   const existing = await User.findByEmail(email);
-  if (existing) return existing;
-  return User.create({
+  if (existing) {
+    if (title) {
+      try {
+        await User.update(existing.id, { title });
+      } catch {
+        /* ignore title backfill failures */
+      }
+    }
+    return existing;
+  }
+  const created = await User.create({
     email,
     passwordHash,
     firstName,
@@ -96,6 +108,140 @@ const getOrCreateUser = async ({ email, firstName, lastName, role, passwordHash 
     status: 'ACTIVE_EMPLOYEE',
     personalEmail: email
   });
+  if (title && created?.id) {
+    try {
+      await User.update(created.id, { title });
+    } catch {
+      /* ignore */
+    }
+  }
+  return created;
+};
+
+const DEMO_PRACTICE_BUSINESS_TYPES = ['mental_health', 'tutoring', 'coaching', 'consulting', 'learning'];
+
+const ensureDemoBusinessTypesAndSuites = async (agencyId) => {
+  const aid = Number(agencyId || 0);
+  if (!aid) return;
+  const existing = await AgencyBusinessType.listForAgency(aid);
+  const byType = new Map(existing.map((r) => [r.businessType, r]));
+  const merged = DEMO_PRACTICE_BUSINESS_TYPES.map((businessType, sortOrder) => {
+    const prev = byType.get(businessType);
+    return {
+      businessType,
+      isEnabled: prev ? prev.isEnabled !== false : true,
+      sortOrder: prev?.sortOrder ?? sortOrder
+    };
+  });
+  // Keep any other already-enabled types the tenant had.
+  for (const row of existing) {
+    if (DEMO_PRACTICE_BUSINESS_TYPES.includes(row.businessType)) continue;
+    merged.push({
+      businessType: row.businessType,
+      isEnabled: row.isEnabled,
+      sortOrder: row.sortOrder
+    });
+  }
+  await AgencyBusinessType.setForAgency(
+    aid,
+    merged.map((r, i) => ({
+      ...r,
+      isEnabled: DEMO_PRACTICE_BUSINESS_TYPES.includes(r.businessType) ? true : r.isEnabled !== false,
+      sortOrder: r.sortOrder ?? i
+    }))
+  );
+  try {
+    await ensureTenantServiceSuitesForAgency(aid);
+  } catch (e) {
+    console.warn(`Suite ensure for agency ${aid} failed:`, e?.message || e);
+  }
+};
+
+const seedPracticeCategoryProviders = async ({
+  parentAgencyId,
+  baseSlug,
+  passwordHash,
+  allOrgIds,
+  emailSlug = null
+}) => {
+  // Plan emails use itsco-demo even when the parent org slug is historically "demo".
+  const slugForEmail = slugify(emailSlug || baseSlug || 'itsco-demo') || 'itsco-demo';
+  const providers = [
+    {
+      key: 'mh.provider',
+      firstName: 'Demo',
+      lastName: 'MH Provider',
+      title: 'Therapist',
+      categories: ['mental_health']
+    },
+    {
+      key: 'tutor',
+      firstName: 'Demo',
+      lastName: 'Tutor',
+      title: 'Tutor',
+      categories: ['tutoring']
+    },
+    {
+      key: 'coach',
+      firstName: 'Demo',
+      lastName: 'Coach',
+      title: 'Coach',
+      categories: ['coaching']
+    },
+    {
+      key: 'consultant',
+      firstName: 'Demo',
+      lastName: 'Consultant',
+      title: 'Consultant',
+      categories: ['consulting']
+    },
+    {
+      key: 'mh-tutor',
+      firstName: 'Demo',
+      lastName: 'MH Tutor',
+      title: 'Therapist',
+      categories: ['mental_health', 'tutoring']
+    },
+    {
+      key: 'multi',
+      firstName: 'Demo',
+      lastName: 'Multi Provider',
+      title: 'Therapist',
+      categories: ['mental_health', 'coaching', 'consulting']
+    }
+  ];
+
+  const created = [];
+  for (const p of providers) {
+    const email = `${p.key}.${slugForEmail}@example.demo`;
+    const user = await getOrCreateUser({
+      email,
+      firstName: p.firstName,
+      lastName: p.lastName,
+      role: 'provider',
+      passwordHash,
+      title: p.title
+    });
+    await assignUserToOrgs(user.id, allOrgIds);
+    await setPracticeCategoriesForUserAgency(parentAgencyId, user.id, p.categories);
+    created.push({ email, categories: p.categories, userId: user.id });
+  }
+
+  // Optional: ensure Mike Williams presenter has mental_health if already on the org.
+  try {
+    const mike = await User.findByEmail('williams@itsco.health');
+    if (mike) {
+      const agencies = await User.getAgencies(mike.id);
+      if ((agencies || []).some((a) => Number(a.id) === Number(parentAgencyId))) {
+        await setPracticeCategoriesForUserAgency(parentAgencyId, mike.id, ['mental_health']);
+        console.log('Ensured mental_health practice category for williams@itsco.health');
+      }
+    }
+  } catch (e) {
+    console.warn('Presenter practice category skip:', e?.message || e);
+  }
+
+  return created;
 };
 
 const assignUserToOrgs = async (userId, orgIds) => {
@@ -564,6 +710,24 @@ async function main() {
   const allOrgIds = [parent.id, school.id, program.id, learning.id, clinical.id];
   for (const user of Object.values(createdUsers)) {
     await assignUserToOrgs(user.id, allOrgIds);
+  }
+
+  await ensureDemoBusinessTypesAndSuites(parent.id);
+  const practiceEmailSlug =
+    String(parent.slug || '').toLowerCase() === 'demo' ||
+    String(parent.name || '').toLowerCase().includes('demo itsco')
+      ? 'itsco-demo'
+      : baseSlug;
+  const practiceProviders = await seedPracticeCategoryProviders({
+    parentAgencyId: parent.id,
+    baseSlug,
+    emailSlug: practiceEmailSlug,
+    passwordHash,
+    allOrgIds
+  });
+  console.log(`Seeded practice-category providers: ${practiceProviders.length}`);
+  for (const p of practiceProviders) {
+    console.log(`  ${p.email} → ${p.categories.join(', ')}`);
   }
 
   if (presenterEmail) {

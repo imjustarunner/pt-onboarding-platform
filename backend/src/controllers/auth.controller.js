@@ -903,6 +903,8 @@ export const login = async (req, res, next) => {
         companyCarManageAccess,
         isHourlyWorker: !!(freshUser?.is_hourly_worker === true || freshUser?.is_hourly_worker === 1 || freshUser?.is_hourly_worker === '1'),
         is_hourly_worker: !!(freshUser?.is_hourly_worker === true || freshUser?.is_hourly_worker === 1 || freshUser?.is_hourly_worker === '1'),
+        hourlyDualRateEnabled: !!(freshUser?.hourly_dual_rate_enabled === true || freshUser?.hourly_dual_rate_enabled === 1 || freshUser?.hourly_dual_rate_enabled === '1'),
+        hourly_dual_rate_enabled: !!(freshUser?.hourly_dual_rate_enabled === true || freshUser?.hourly_dual_rate_enabled === 1 || freshUser?.hourly_dual_rate_enabled === '1'),
         requiresPasswordChange: pw.requiresPasswordChange || tempActive,
         passwordExpiresAt: pw.passwordExpiresAt,
         passwordExpired: pw.passwordExpired,

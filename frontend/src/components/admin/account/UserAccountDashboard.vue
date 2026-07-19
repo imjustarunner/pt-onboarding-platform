@@ -128,6 +128,10 @@
                 <div class="acct-field"><span class="acct-field-label">Work Phone</span><span class="acct-field-value">{{ form.workPhone || '—' }}</span></div>
                 <div class="acct-field"><span class="acct-field-label">Extension</span><span class="acct-field-value">{{ form.workPhoneExtension || '—' }}</span></div>
                 <div class="acct-field"><span class="acct-field-label">Role</span><span class="acct-field-value">{{ roleLabel }}</span></div>
+                <div v-if="isProviderRole" class="acct-field acct-field--full">
+                  <span class="acct-field-label">Practice categories</span>
+                  <span class="acct-field-value">{{ practiceCategoriesDisplay }}</span>
+                </div>
               </template>
               <template v-else>
                 <div class="acct-field acct-field--edit"><label>First Name</label><input v-model="form.firstName" type="text" /></div>
@@ -155,6 +159,59 @@
                     <option value="school_staff">School Staff</option>
                     <option value="client_guardian">Guardian (Client Portal)</option>
                   </select>
+                  <p
+                    v-if="isProviderRole && !practiceCategoryOptions.length && practiceCategoryAgencyId"
+                    class="acct-field-hint"
+                  >
+                    {{ practiceCategoriesEmptyHint }}
+                  </p>
+                </div>
+                <div
+                  v-if="isProviderRole && (practiceCategoryAgencyOptions.length > 1 || practiceCategoryAgencyId)"
+                  class="acct-field acct-field--edit acct-field--full"
+                >
+                  <label v-if="practiceCategoryAgencyOptions.length > 1">Practice categories for</label>
+                  <label v-else>Practice categories</label>
+                  <select
+                    v-if="practiceCategoryAgencyOptions.length > 1"
+                    v-model.number="practiceCategoryAgencyId"
+                    class="acct-practice-agency-select"
+                    @change="loadPracticeCategories"
+                  >
+                    <option
+                      v-for="org in practiceCategoryAgencyOptions"
+                      :key="org.id"
+                      :value="org.id"
+                    >
+                      {{ org.name || org.slug || `Agency ${org.id}` }}
+                    </option>
+                  </select>
+                </div>
+                <div
+                  v-if="isProviderRole && practiceCategoryOptions.length"
+                  class="acct-field acct-field--edit acct-field--full"
+                >
+                  <label>Practice categories</label>
+                  <p v-if="practiceCategoryAgencyOptions.length <= 1" class="acct-field-hint acct-field-hint--tight">
+                    For {{ practiceCategoryAgencyName }} — choose what this provider delivers.
+                  </p>
+                  <div class="acct-practice-cats">
+                    <label
+                      v-for="opt in practiceCategoryOptions"
+                      :key="opt.code"
+                      class="acct-practice-cat"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="selectedPracticeCategories.includes(opt.code)"
+                        :disabled="practiceCategoriesSaving"
+                        @change="togglePracticeCategory(opt.code, $event.target.checked)"
+                      />
+                      <span>{{ opt.label }}</span>
+                    </label>
+                  </div>
+                  <p v-if="practiceCategoriesError" class="acct-field-error">{{ practiceCategoriesError }}</p>
+                  <p v-else-if="practiceCategoriesSaved" class="acct-field-ok">Practice categories saved.</p>
                 </div>
               </template>
             </div>
@@ -492,6 +549,13 @@ import AccountDashboardCard from './AccountDashboardCard.vue';
 import { USER_ACCOUNT_CONTEXT_KEY } from '../../../composables/userAccountContext.js';
 import { formatSnapshotValue, formatClinicalFieldValue, findFieldByKeys } from '../../../utils/clinicalFieldDisplay.js';
 
+const PRACTICE_CATEGORY_LABELS = {
+  mental_health: 'Mental health',
+  tutoring: 'Tutoring',
+  coaching: 'Coaching',
+  consulting: 'Consulting'
+};
+
 const ctx = inject(USER_ACCOUNT_CONTEXT_KEY, {});
 
 const unwrap = (v) => (v && typeof v === 'object' && 'value' in v ? v.value : v);
@@ -549,6 +613,124 @@ const roleLabel = computed(() => {
   const r = String(form.value.role || user.value?.role || '').replace(/_/g, ' ');
   return r ? r.replace(/\b\w/g, (c) => c.toUpperCase()) : '—';
 });
+
+const agencyId = computed(() => Number(unwrap(ctx.agencyId) || 0) || 0);
+const userAgencies = computed(() => {
+  const raw = unwrap(ctx.userAgencies);
+  return Array.isArray(raw) ? raw : [];
+});
+const practiceCategoryAgencyId = ref(0);
+const practiceCategoryAgencyOptions = computed(() => {
+  const options = userAgencies.value.filter((org) => Number(org?.id || 0) > 0);
+  const current = unwrap(ctx.currentAgency);
+  const currentId = Number(current?.id || agencyId.value || 0);
+  if (currentId && !options.some((org) => Number(org.id) === currentId)) {
+    return [{ id: currentId, name: current?.name, slug: current?.slug }, ...options];
+  }
+  return options;
+});
+const practiceCategoryAgencyName = computed(() => {
+  const id = Number(practiceCategoryAgencyId.value || 0);
+  const row = practiceCategoryAgencyOptions.value.find((org) => Number(org.id) === id);
+  return row?.name || row?.slug || (id ? `Agency ${id}` : '');
+});
+const practiceCategoriesEmptyHint = computed(() => {
+  const name = practiceCategoryAgencyName.value || 'this tenant';
+  return `No practice categories are enabled for ${name}. Turn on Mental health / Tutoring / Coaching / Consulting under Settings → Booking & service types for that tenant, then save.`;
+});
+
+function resolvePracticeCategoryAgencyId() {
+  const options = practiceCategoryAgencyOptions.value;
+  const preferred = Number(agencyId.value || 0);
+  if (preferred && options.some((org) => Number(org.id) === preferred)) return preferred;
+  const current = Number(practiceCategoryAgencyId.value || 0);
+  if (current && options.some((org) => Number(org.id) === current)) return current;
+  return Number(options[0]?.id || preferred || 0) || 0;
+}
+const isProviderRole = computed(() => {
+  const r = String(form.value.role || user.value?.role || '').trim().toLowerCase();
+  return r === 'provider' || r === 'provider_plus';
+});
+
+const selectedPracticeCategories = ref([]);
+const allowedPracticeCategories = ref([]);
+const practiceCategoriesSaving = ref(false);
+const practiceCategoriesError = ref('');
+const practiceCategoriesSaved = ref(false);
+
+const practiceCategoryOptions = computed(() =>
+  (allowedPracticeCategories.value || []).map((code) => ({
+    code,
+    label: PRACTICE_CATEGORY_LABELS[code] || code.replace(/_/g, ' ')
+  }))
+);
+
+const practiceCategoriesDisplay = computed(() =>
+  (selectedPracticeCategories.value || [])
+    .map((c) => PRACTICE_CATEGORY_LABELS[c] || c)
+    .join(', ') || '—'
+);
+
+async function loadPracticeCategories() {
+  practiceCategoriesError.value = '';
+  practiceCategoriesSaved.value = false;
+  const uid = userId.value;
+  practiceCategoryAgencyId.value = resolvePracticeCategoryAgencyId();
+  const aid = Number(practiceCategoryAgencyId.value || 0);
+  if (!uid || !aid || !api.value || !isProviderRole.value) {
+    selectedPracticeCategories.value = [];
+    allowedPracticeCategories.value = [];
+    return;
+  }
+  try {
+    const res = await api.value.get(`/users/${uid}/agencies/${aid}/practice-categories`, {
+      skipGlobalLoading: true
+    });
+    selectedPracticeCategories.value = Array.isArray(res?.data?.categories) ? [...res.data.categories] : [];
+    allowedPracticeCategories.value = Array.isArray(res?.data?.allowedCategories)
+      ? [...res.data.allowedCategories]
+      : [];
+  } catch (e) {
+    selectedPracticeCategories.value = [];
+    allowedPracticeCategories.value = [];
+    practiceCategoriesError.value = e?.response?.data?.error?.message || 'Could not load practice categories';
+  }
+}
+
+async function persistPracticeCategories(next) {
+  const uid = userId.value;
+  const aid = Number(practiceCategoryAgencyId.value || resolvePracticeCategoryAgencyId() || 0);
+  if (!uid || !aid || !api.value) return;
+  practiceCategoriesSaving.value = true;
+  practiceCategoriesError.value = '';
+  practiceCategoriesSaved.value = false;
+  try {
+    const res = await api.value.put(
+      `/users/${uid}/agencies/${aid}/practice-categories`,
+      { categories: next },
+      { skipGlobalLoading: true }
+    );
+    selectedPracticeCategories.value = Array.isArray(res?.data?.categories) ? [...res.data.categories] : [...next];
+    if (Array.isArray(res?.data?.allowedCategories)) {
+      allowedPracticeCategories.value = [...res.data.allowedCategories];
+    }
+    practiceCategoriesSaved.value = true;
+  } catch (e) {
+    practiceCategoriesError.value = e?.response?.data?.error?.message || 'Could not save practice categories';
+    await loadPracticeCategories();
+  } finally {
+    practiceCategoriesSaving.value = false;
+  }
+}
+
+function togglePracticeCategory(code, checked) {
+  const set = new Set(selectedPracticeCategories.value);
+  if (checked) set.add(code);
+  else set.delete(code);
+  const next = Array.from(set);
+  selectedPracticeCategories.value = next;
+  persistPracticeCategories(next);
+}
 
 const credentialLabel = computed(() => form.value.credential || user.value?.credential || '');
 
@@ -756,6 +938,11 @@ async function onLicenseFileSelected(event) {
 
 onMounted(loadClinicalFields);
 watch(() => ctx.userId?.value ?? ctx.userId, loadClinicalFields);
+watch(
+  [userId, agencyId, isProviderRole, userAgencies],
+  () => { loadPracticeCategories(); },
+  { immediate: true }
+);
 
 // ── Compensation Level ────────────────────────────────────────────────────────
 const COMP_CATEGORIES = {
@@ -1014,6 +1201,28 @@ watch([compUserId, compAgencyId], ([uid, aid]) => {
 .acct-field-value { font-size: 14px; color: var(--acct-text); word-break: break-word; }
 .acct-field-value--block { display: block; white-space: pre-wrap; line-height: 1.45; }
 .acct-field--edit label { display: block; font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 4px; }
+.acct-field-hint { margin: 6px 0 0; font-size: 12px; color: #64748b; line-height: 1.4; }
+.acct-field-hint--tight { margin: 0 0 8px; }
+.acct-practice-agency-select {
+  width: 100%;
+  margin-top: 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.acct-field-error { margin: 6px 0 0; font-size: 12px; color: #b91c1c; }
+.acct-field-ok { margin: 6px 0 0; font-size: 12px; color: #166534; }
+.acct-practice-cats { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 4px; }
+.acct-practice-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+}
+.acct-practice-cat input { margin: 0; }
 .acct-field--edit input,
 .acct-field--edit select {
   width: 100%;

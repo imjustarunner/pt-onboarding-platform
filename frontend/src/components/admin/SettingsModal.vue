@@ -321,6 +321,7 @@ import { preloadImages } from '../../utils/preloadImages';
 // Import all existing components
 import AgencyManagement from './AgencyManagement.vue';
 import AgencyManagementTeamConfig from './AgencyManagementTeamConfig.vue';
+import TenantBookingSettings from './TenantBookingSettings.vue';
 import BrandingConfig from './BrandingConfig.vue';
 import BrandingTemplatesManagement from './BrandingTemplatesManagement.vue';
 import EmailTemplateManagement from './EmailTemplateManagement.vue';
@@ -553,6 +554,16 @@ const allCategories = [
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
+      },
+      {
+        id: 'booking-service-types',
+        label: 'Booking & service types',
+        icon: '📅',
+        component: 'TenantBookingSettings',
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true,
+        requiresAgency: true
       },
       {
         id: 'team-roles',
@@ -1031,25 +1042,93 @@ const tenantHubSidebarCategory = computed(() => {
 const tenantHubSecondaryBlocks = computed(() => {
   if (!tenantSettingsCardHubActive.value) return [];
   const blocks = [];
-  const pushBlock = (title, catId) => {
+  const mapItems = (items, catId) =>
+    items.map((i) => ({
+      category: catId,
+      item: i.id,
+      label: i.label,
+      icon: i.icon,
+      description: HUB_CARD_DESC.value[i.id] || '',
+      superadminOnly: !!(i.roles?.length === 1 && i.roles[0] === 'super_admin')
+    }));
+
+  const workflow = roleFilteredCategories.value.find((x) => x.id === 'workflow');
+  if (workflow?.items?.length) {
+    const byId = Object.fromEntries(workflow.items.map((i) => [i.id, i]));
+    const pick = (ids) => ids.map((id) => byId[id]).filter(Boolean);
+    const peopleCatalog = pick(['client-settings', 'school-settings', 'provider-settings']);
+    const scheduling = pick(['provider-scheduling', 'availability-intake', 'shift-programs']);
+    const peopleOps = pick(['payroll-schedule', 'departments', 'hiring-prehire']);
+    const onboarding = pick([
+      'packages',
+      'digital-forms',
+      'checklist-items',
+      'checklist-items-agency',
+      'field-definitions',
+      'field-definitions-agency'
+    ]);
+    const programs = pick(['challenge-management']);
+    const used = new Set(
+      [...peopleCatalog, ...scheduling, ...peopleOps, ...onboarding, ...programs].map((i) => i.id)
+    );
+    const other = workflow.items.filter((i) => !used.has(i.id));
+
+    if (peopleCatalog.length) {
+      blocks.push({
+        title: 'People & catalogs',
+        hint: 'Clients, schools, and providers for this tenant.',
+        items: mapItems(peopleCatalog, 'workflow')
+      });
+    }
+    if (scheduling.length) {
+      blocks.push({
+        title: 'Scheduling',
+        hint: 'Templates, availability, and shift programs.',
+        items: mapItems(scheduling, 'workflow')
+      });
+    }
+    if (peopleOps.length) {
+      blocks.push({
+        title: 'People ops',
+        hint: 'Payroll, departments, and hiring — when enabled for this tenant.',
+        items: mapItems(peopleOps, 'workflow')
+      });
+    }
+    if (onboarding.length) {
+      blocks.push({
+        title: 'Onboarding & forms',
+        hint: 'Packages, intake links, checklists, and profile fields.',
+        items: mapItems(onboarding, 'workflow')
+      });
+    }
+    if (programs.length) {
+      blocks.push({
+        title: 'Programs & challenges',
+        hint: 'Learning / affiliation program surfaces.',
+        items: mapItems(programs, 'workflow')
+      });
+    }
+    if (other.length) {
+      blocks.push({
+        title: 'Other workflow',
+        hint: 'Additional tenant workflow tools.',
+        items: mapItems(other, 'workflow')
+      });
+    }
+  }
+
+  const pushWholeCategory = (title, hint, catId) => {
     const c = roleFilteredCategories.value.find((x) => x.id === catId);
     if (!c?.items?.length) return;
     blocks.push({
       title,
-      items: c.items.map((i) => ({
-        category: c.id,
-        item: i.id,
-        label: i.label,
-        icon: i.icon,
-        description: HUB_CARD_DESC.value[i.id] || '',
-        superadminOnly: !!(i.roles?.length === 1 && i.roles[0] === 'super_admin')
-      }))
+      hint,
+      items: mapItems(c.items, c.id)
     });
   };
-  pushBlock('Workflow', 'workflow');
-  pushBlock('Theming', 'theming');
-  pushBlock('AI tools', 'ai');
-  pushBlock('System & communications', 'system');
+  pushWholeCategory('Theming', 'Brand look and shared creative assets.', 'theming');
+  pushWholeCategory('AI tools', 'Note Aid and related AI configuration.', 'ai');
+  pushWholeCategory('System & communications', 'Email, SMS, integrations, and archive.', 'system');
   return blocks;
 });
 
@@ -1063,7 +1142,9 @@ const platformSettingsCardHubActive = computed(() => {
 });
 
 const HUB_CARD_DESC = computed(() => ({
-  'client-settings': `Programs, paths, and client catalog — pick an ${contextNoun.value} first.`,
+  'booking-service-types':
+    `Verticals this ${contextNoun.value} sells (counseling, tutoring, coaching, consulting), plus services, packages, and session notifications.`,
+  'client-settings': `Programs, paths, and client catalog for this ${contextNoun.value}.`,
   'school-settings': `School catalog and portal links — ${contextNoun.value}-scoped.`,
   'provider-settings': `Provider records and catalog — ${contextNoun.value}-scoped.`,
   'provider-scheduling': `Scheduling templates and rules — ${contextNoun.value}-scoped.`,
@@ -1071,6 +1152,7 @@ const HUB_CARD_DESC = computed(() => ({
   'shift-programs': `Shift programs and publishing — needs ${contextNoun.value} + feature flag.`,
   'payroll-schedule': `Pay schedules and payroll — agency ${contextPlural.value} with Payroll enabled.`,
   departments: `Org departments — ${contextNoun.value} with budget management.`,
+  'hiring-prehire': `Hiring and pre-hire setup — requires Onboarding & Training.`,
   packages: `Onboarding packages — requires Onboarding & Training for this ${contextNoun.value}.`,
   'digital-forms': 'Intake and digital form links — requires Onboarding & Training.',
   'challenge-management': 'Seasons and challenges — Learning or Affiliation orgs.',
@@ -1079,6 +1161,7 @@ const HUB_CARD_DESC = computed(() => ({
   'checklist-items-agency': `${contextNounTitle.value} checklist assignments — requires Onboarding & Training.`,
   'field-definitions':
     `Platform-wide profile field catalog (superadmin). Shared field definitions across ${contextPlural.value}.`,
+  'field-definitions-agency': `${contextNounTitle.value} profile field assignments — requires Onboarding & Training.`,
   'branding-config': `Colors, fonts, logos — usually edited per ${contextNoun.value}.`,
   'branding-templates': 'Email and document templates.',
   assets: 'Icons, fonts, and shared creative assets.',
@@ -1162,6 +1245,7 @@ const componentMap = {
   TenantSettingsCardHub,
   PlatformSettingsCardHub,
   AgencyManagementTeamConfig,
+  TenantBookingSettings,
   BrandingConfig,
   BrandingTemplatesManagement,
   EmailTemplateManagement,

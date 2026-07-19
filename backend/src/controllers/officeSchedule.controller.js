@@ -17,6 +17,16 @@ import GoogleCalendarService from '../services/googleCalendar.service.js';
 import { refreshLocationBookingsFromEhr, getEhrSyncHealth, auditIcsCoverageForLocation, auditIcsCoverageAllLocations } from '../services/officeScheduleEhrSync.service.js';
 import { getSchedulingBookingMetadata, validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
+import AgencyMedicalServiceCode from '../models/AgencyMedicalServiceCode.model.js';
+import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
+import TenantService from '../models/TenantService.model.js';
+import {
+  ensureAgencyMedicalBillingDefaults,
+  filterCodesForProviderTier,
+  parseAllowedCredentialTiers
+} from '../services/medicalBillingDefaults.service.js';
+import { ensureTenantServiceSuitesForAgency } from '../services/tenantServiceSuiteDefaults.service.js';
+import { eligibleServiceCodesForTier } from '../utils/clinicalServiceCodeEligibility.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import { OfficeScheduleWatchdogService } from '../services/officeScheduleWatchdog.service.js';
 import { validateOfficeSlotSeries, generateOccurrenceDates, recurrenceLabel as officeRecurrenceLabel, normalizeOfficeRequestRecurrence } from '../services/officeSlotSeries.service.js';
@@ -70,7 +80,8 @@ function bookingSelectionFromBody(body = {}) {
     appointmentTypeCode: body?.appointmentTypeCode || body?.appointment_type_code || null,
     appointmentSubtypeCode: body?.appointmentSubtypeCode || body?.appointment_subtype_code || null,
     serviceCode: body?.serviceCode || body?.service_code || null,
-    modality: body?.modality || null
+    modality: body?.modality || null,
+    serviceLocationId: Number(body?.serviceLocationId || body?.service_location_id || 0) || null
   };
 }
 
@@ -1726,6 +1737,34 @@ export const getWeeklyGrid = async (req, res, next) => {
       googleSyncError: String(r.google_sync_error || '').trim() || null
     }));
 
+    // Peer privacy: providers may see that a peer occupies a room / has a session type,
+    // but not client identifiers. Managers keep clientId for clinical workflows.
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const actorId = Number(req.user?.id || 0);
+    const canSeeClientIds = [
+      'super_admin',
+      'superadmin',
+      'admin',
+      'support',
+      'staff',
+      'clinical_practice_assistant'
+    ].includes(actorRole);
+    const privacySlots = (slots || []).map((s) => {
+      const out = { ...s };
+      const isOwn = actorId > 0 && (
+        Number(out.assignedProviderId || 0) === actorId
+        || Number(out.bookedProviderId || 0) === actorId
+        || Number(out.providerId || 0) === actorId
+      );
+      if (!canSeeClientIds && !isOwn) {
+        out.clientId = null;
+        out.clinicalSessionId = null;
+        out.noteContextId = null;
+        out.billingContextId = null;
+      }
+      return out;
+    });
+
     res.json({
       location: { id: loc.id, name: loc.name, timezone: loc.timezone },
       weekStart,
@@ -1737,7 +1776,7 @@ export const getWeeklyGrid = async (req, res, next) => {
         roomNumber: r.room_number ?? null,
         label: r.label ?? null
       })),
-      slots: slots.map(compact),
+      slots: privacySlots.map(compact),
       cancelledGoogleEvents,
       diagnostics: {
         duplicateRoomSlotConflictCount: conflictSlotsByKey.size,
@@ -2237,7 +2276,19 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     }
     const actingAsOtherProvider = requestedProviderId !== Number(req.user.id);
     if (actingAsOtherProvider && !canManageSchedule(req.user.role)) {
-      return res.status(403).json({ error: { message: 'Only staff/admin can book on behalf of another provider' } });
+      // Supervisors may book office slots for their supervisees only.
+      let asSupervisor = false;
+      try {
+        const actor = await User.findById(req.user.id);
+        if (actor && User.isSupervisor(actor)) {
+          asSupervisor = !!(await User.supervisorHasAccess(req.user.id, requestedProviderId, null));
+        }
+      } catch {
+        asSupervisor = false;
+      }
+      if (!asSupervisor) {
+        return res.status(403).json({ error: { message: 'Only staff/admin can book on behalf of another provider' } });
+      }
     }
 
     const blocked = await userHasBlockingExpiredCredential(requestedProviderId);
@@ -2412,6 +2463,16 @@ export const createOfficeBookingRequest = async (req, res, next) => {
           createdByUserId: req.user.id,
           approvedByUserId: req.user.id
         });
+        if (rawSelection.serviceLocationId && ev?.id) {
+          try {
+            await pool.execute(
+              `UPDATE office_events SET service_location_id = ? WHERE id = ?`,
+              [rawSelection.serviceLocationId, ev.id]
+            );
+          } catch {
+            // column may not exist until migration 974
+          }
+        }
         if (clientId) {
           try {
             await ensureAppointmentContext({
@@ -2445,6 +2506,16 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       openToAlternativeRoom: !!openToAlternativeRoom || !room?.id,
       requesterNotes: notes
     });
+    if (rawSelection.serviceLocationId && created?.id) {
+      try {
+        await pool.execute(
+          `UPDATE office_booking_requests SET service_location_id = ? WHERE id = ?`,
+          [rawSelection.serviceLocationId, created.id]
+        );
+      } catch {
+        // ignore until migration 974
+      }
+    }
 
     res.status(201).json({ ok: true, kind: 'request', request: created });
   } catch (e) {
@@ -2883,13 +2954,15 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
 
       if (createdEvent?.id) {
         try {
+          const requestServiceLocationId = Number(reqRow.service_location_id || 0) || null;
           await OfficeEvent.markBooked({
             eventId: createdEvent.id,
             bookedProviderId: reqRow.requested_provider_id,
             appointmentTypeCode: validatedSelection.appointmentTypeCode,
             appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode,
             serviceCode: validatedSelection.serviceCode,
-            modality: validatedSelection.modality
+            modality: validatedSelection.modality,
+            serviceLocationId: requestServiceLocationId
           });
           if (Number(reqRow.client_id || 0) > 0) {
             await OfficeEvent.setContextLinkage({
@@ -2990,7 +3063,8 @@ export const getBookingMetadata = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only schedule managers can request metadata for another provider' } });
     }
 
-    const policyAgencyId = await resolvePolicyAgencyForProvider({
+    const requestedAgencyId = Number(req.query?.agencyId || req.body?.agencyId || 0) || null;
+    const policyAgencyId = requestedAgencyId || await resolvePolicyAgencyForProvider({
       providerId: requestedProviderId,
       fallbackActorUserId: req.user.id
     });
@@ -3000,12 +3074,102 @@ export const getBookingMetadata = async (req, res, next) => {
       providerCredentialText: requestedProvider.credential
     });
 
+    let serviceCodes = Array.isArray(metadata.eligibleServiceCodes) ? [...metadata.eligibleServiceCodes] : [];
+    let serviceLocations = [];
+    if (policyAgencyId) {
+      try {
+        await ensureAgencyMedicalBillingDefaults(policyAgencyId, { actorUserId: req.user.id });
+      } catch {
+        // table/migration may not exist yet
+      }
+      try {
+        await ensureTenantServiceSuitesForAgency(policyAgencyId);
+      } catch {
+        // booking suite seed is best-effort
+      }
+      try {
+        let medicalCodes = await AgencyMedicalServiceCode.listByAgency(policyAgencyId);
+        medicalCodes = filterCodesForProviderTier(medicalCodes, metadata.credentialTier);
+        const byCode = new Map(
+          serviceCodes.map((row) => [String(row?.code || row?.service_code || '').toUpperCase(), row])
+        );
+        for (const row of medicalCodes) {
+          const code = String(row.service_code || '').toUpperCase();
+          if (!code) continue;
+          const existing = byCode.get(code) || {};
+          const tiers = parseAllowedCredentialTiers(row.allowed_credential_tiers_json);
+          const merged = {
+            ...existing,
+            code,
+            label: row.description || existing.label || code,
+            minDurationMinutes: row.min_minutes ?? existing.minDurationMinutes ?? null,
+            unitMinutes: row.unit_minutes ?? existing.unitMinutes ?? null,
+            maxUnitsPerDay: row.max_units_per_day ?? existing.maxUnitsPerDay ?? null,
+            maxUnitsPerSession: row.max_units_per_session ?? null,
+            unitCalcMode: row.unit_calc_mode || null,
+            maxMinutes: row.max_minutes ?? null,
+            overflowServiceCode: row.overflow_service_code || null,
+            overflowAtMinutes: row.overflow_at_minutes ?? null,
+            allowedCredentialTiers: tiers,
+            medical: true
+          };
+          byCode.set(code, merged);
+        }
+
+        // Union with tenant booking suite (mental health) so schedule sees the same codes.
+        try {
+          const tenantSvcs = await TenantService.listForAgency(policyAgencyId, { includeInactive: false });
+          const clinicalTypes = new Set(['mental_health']);
+          for (const svc of tenantSvcs || []) {
+            if (!clinicalTypes.has(String(svc.businessType || ''))) continue;
+            const code = String(svc.serviceCode || '').trim().toUpperCase();
+            if (!code) continue;
+            const existing = byCode.get(code) || {};
+            byCode.set(code, {
+              ...existing,
+              code,
+              label: existing.label || svc.name || code,
+              tenantServiceId: svc.id,
+              defaultDurationMinutes: svc.defaultDurationMinutes || existing.defaultDurationMinutes || null,
+              fromTenantSuite: true,
+              medical: !!existing.medical
+            });
+          }
+        } catch {
+          // tenant_services may not exist yet
+        }
+
+        const tier = metadata.credentialTier;
+        const tierAllowList = eligibleServiceCodesForTier(tier); // null => all
+        const allowSet = tierAllowList ? new Set(tierAllowList.map((c) => String(c).toUpperCase())) : null;
+
+        serviceCodes = Array.from(byCode.values())
+          .filter((row) => row?.code)
+          .filter((row) => {
+            // Medical rows already tier-filtered; tenant-only rows honor credential allow-list.
+            if (row.medical) return true;
+            if (!allowSet) return true;
+            return allowSet.has(String(row.code).toUpperCase());
+          })
+          .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+      } catch {
+        // medical service code table may not exist yet
+      }
+      try {
+        serviceLocations = await AgencyServiceLocation.listByAgency(policyAgencyId);
+      } catch {
+        serviceLocations = [];
+      }
+    }
+
     return res.json({
       providerId: requestedProviderId,
+      agencyId: policyAgencyId,
       credentialTier: metadata.credentialTier,
       appointmentTypes: metadata.appointmentTypes,
       appointmentSubtypes: metadata.appointmentSubtypes,
-      serviceCodes: metadata.eligibleServiceCodes
+      serviceCodes,
+      serviceLocations
     });
   } catch (e) {
     next(e);

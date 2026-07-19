@@ -130,7 +130,8 @@ class PayrollTimeClaim {
   }
 
   static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount, bucket = 'indirect', creditsHours = null }) {
-    const b = String(bucket || 'indirect').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
+    const raw = String(bucket || 'indirect').trim().toLowerCase();
+    const b = raw === 'direct' ? 'direct' : (raw === 'other_1' ? 'other_1' : 'indirect');
     const hrsRaw = creditsHours === null || creditsHours === undefined || creditsHours === '' ? null : Number(creditsHours);
     const safeHrs = Number.isFinite(hrsRaw) ? Math.round(hrsRaw * 100) / 100 : null;
     await pool.execute(

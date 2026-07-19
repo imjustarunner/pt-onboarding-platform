@@ -215,7 +215,7 @@ const props = defineProps({
 });
 
 // --- Settings state ---
-const settingsForceConfirm = ref(true);
+const settingsForceConfirm = ref(false);
 const settingsRequiredHours = ref(6);
 const settingsSaving = ref(false);
 const settingsError = ref('');

@@ -2272,6 +2272,8 @@
           v-if="activeTab === 'payroll'"
           :userId="userId"
           :userAgencies="userAgencies"
+          :user="user"
+          @dual-rate-contract-switched="onDualRateContractSwitched"
         />
 
         <UserDepartmentTab
@@ -5054,6 +5056,23 @@ const fetchAssignedTextingNumbers = async () => {
 };
 
 
+const onDualRateContractSwitched = async (payload) => {
+  // Refresh profile so is_hourly_worker / hourly_dual_rate_enabled reflect the switch.
+  if (payload?.user) {
+    user.value = {
+      ...(user.value || {}),
+      ...payload.user,
+      is_hourly_worker: payload.user.is_hourly_worker,
+      hourly_dual_rate_enabled: payload.user.hourly_dual_rate_enabled
+    };
+  }
+  try {
+    await fetchUser();
+  } catch {
+    /* best-effort */
+  }
+};
+
 const fetchUser = async () => {
   if (!Number.isFinite(userId.value) || userId.value <= 0) {
     error.value = 'Invalid user id';
@@ -6379,7 +6398,9 @@ const getStatusBadgeClass = (status, isActive = true) => {
 provide(USER_ACCOUNT_CONTEXT_KEY, {
   user,
   userId,
-  agencyId: computed(() => agencyStore.currentAgency?.id),
+  agencyId: scheduleAgencyId,
+  userAgencies: affiliatedAgencies,
+  currentAgency: computed(() => agencyStore.currentAgency),
   accountForm,
   saving,
   canEditUser,

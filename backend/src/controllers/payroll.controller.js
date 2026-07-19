@@ -46,7 +46,14 @@ import PayrollMedcancelClaimItem from '../models/PayrollMedcancelClaimItem.model
 import PayrollReimbursementClaim from '../models/PayrollReimbursementClaim.model.js';
 import PayrollCompanyCardExpense from '../models/PayrollCompanyCardExpense.model.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
+import PayrollIndirectServiceType from '../models/PayrollIndirectServiceType.model.js';
 import PayrollHolidayBonusClaim from '../models/PayrollHolidayBonusClaim.model.js';
+import {
+  isDualRateContractPilotUser,
+  isHourlyDualRateEnabled,
+  normalizePayBucket,
+  normalizeTimeClaimBucket
+} from '../utils/hourlyDualRateContract.js';
 import PayrollPtoAccount from '../models/PayrollPtoAccount.model.js';
 import PayrollPtoLedger from '../models/PayrollPtoLedger.model.js';
 import PayrollPtoRequest from '../models/PayrollPtoRequest.model.js';
@@ -1024,7 +1031,8 @@ async function inferManualPayCreditsHoursForUser({ agencyId, userId, category, c
 }
 
 function resolveTimeClaimHours(c) {
-  const bucket = String(c?.bucket || 'indirect').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
+  const payloadBucket = String(c?.payload?.bucket || '').trim().toLowerCase();
+  const bucket = normalizeTimeClaimBucket(c?.bucket || payloadBucket || 'indirect');
   const hrsFromCol =
     (c?.credits_hours === null || c?.credits_hours === undefined || c?.credits_hours === '')
       ? null
@@ -5964,6 +5972,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
 
       if (Number.isFinite(hrs) && hrs > 1e-9) {
         if (b === 'direct') { directHours += hrs; totalHours += hrs; }
+        else if (b === 'other_1') { otherHours += hrs; totalHours += hrs; }
         else { indirectHours += hrs; totalHours += hrs; }
         if (tierSettings.enabled && b === 'direct') {
           tierCreditsCurrent += hrs;
@@ -5977,19 +5986,26 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         if (claimType === 'skill_builder_event') {
           const evTitle = String(payload?.eventTitle || '').trim() || 'Skill Builders event';
           const dateStr = String(c?.claim_date || payload?.clockInAt || '').slice(0, 10);
-          const bucketLabel = b === 'direct' ? 'Direct' : 'Indirect';
+          const bucketLabel = b === 'direct' ? 'Direct' : (b === 'other_1' ? 'Other 1' : 'Indirect');
           lineLabel = `${evTitle}${dateStr ? ` (${dateStr})` : ''} — ${bucketLabel}`;
+        } else if (claimType === 'indirect_time' && b === 'other_1') {
+          lineLabel = 'Time claim (indirect time — Other 1)';
         } else {
           const typeLabel = claimType ? claimType.replace(/_/g, ' ') : 'time claim';
           lineLabel = `Time claim (${typeLabel})`;
         }
         pushLine({
-          type: 'time_claim',
+          type: b === 'other_1' ? 'other_rate_1' : 'time_claim',
           label: lineLabel,
           taxable: true,
           amount: effectiveAmt,
-          bucket: b,
-          meta: { creditsHours: (Number.isFinite(hrs) ? hrs : null) }
+          bucket: b === 'other_1' ? 'other' : b,
+          meta: {
+            creditsHours: (Number.isFinite(hrs) ? hrs : null),
+            ...(b === 'other_1'
+              ? { hours: hrs, rate: Number(rateCard?.other_rate_1 || 0), slot: 1 }
+              : {})
+          }
         });
       }
     }
@@ -13644,6 +13660,76 @@ export const deleteUserSalaryPosition = async (req, res, next) => {
   }
 };
 
+/**
+ * EMP-0485 (and matching pilot) → dual-rate hourly contract:
+ * enable is_hourly_worker + hourly_dual_rate_enabled, end active salary for the agency.
+ */
+export const switchUserHourlyDualRateContract = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.userId, 10);
+    const agencyId = req.body?.agencyId
+      ? parseInt(req.body.agencyId, 10)
+      : (req.query.agencyId ? parseInt(req.query.agencyId, 10) : null);
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+    // Pilot EMP-0485, or re-run for someone already on dual-rate.
+    if (!isDualRateContractPilotUser(user) && !isHourlyDualRateEnabled(user)) {
+      return res.status(403).json({
+        error: { message: 'This contract switch is only available for EMP-0485 (or users already on dual-rate).' }
+      });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const endedPositions = [];
+    const positions = await PayrollSalaryPosition.listForUser({ agencyId, userId });
+    for (const pos of positions || []) {
+      const end = pos.effective_end ? String(pos.effective_end).slice(0, 10) : null;
+      if (end && end < today) continue;
+      const updated = await PayrollSalaryPosition.upsert({
+        id: pos.id,
+        agencyId: pos.agency_id,
+        userId,
+        salaryPerPayPeriod: pos.salary_per_pay_period,
+        includeServicePay: pos.include_service_pay,
+        prorateByDays: pos.prorate_by_days,
+        effectiveStart: pos.effective_start ? String(pos.effective_start).slice(0, 10) : null,
+        effectiveEnd: today,
+        updatedByUserId: req.user.id,
+        createdByUserId: req.user.id
+      });
+      if (updated) endedPositions.push(updated);
+    }
+
+    await pool.execute(
+      `UPDATE users
+       SET is_hourly_worker = 1,
+           hourly_dual_rate_enabled = 1
+       WHERE id = ?
+       LIMIT 1`,
+      [userId]
+    );
+
+    const fresh = await User.findById(userId);
+    res.json({
+      ok: true,
+      user: {
+        id: fresh?.id,
+        is_hourly_worker: !!(fresh?.is_hourly_worker === 1 || fresh?.is_hourly_worker === true || fresh?.is_hourly_worker === '1'),
+        hourly_dual_rate_enabled: !!(fresh?.hourly_dual_rate_enabled === 1 || fresh?.hourly_dual_rate_enabled === true || fresh?.hourly_dual_rate_enabled === '1'),
+        employee_id: fresh?.employee_id || null
+      },
+      endedSalaryPositions: endedPositions.length,
+      reminder: 'Set Direct, Indirect, and Other 1 rates on this user’s hourly rate card before their first Log Time submit.'
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getAgencyMileageRates = async (req, res, next) => {
   try {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
@@ -16828,18 +16914,28 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
     } else if (claimType === 'indirect_time') {
       // Hourly employee indirect time log — minutes allocated across admin-managed service types.
       const [hwRows] = await pool.execute(
-        'SELECT is_hourly_worker FROM users WHERE id = ? LIMIT 1',
+        'SELECT is_hourly_worker, hourly_dual_rate_enabled, employee_id FROM users WHERE id = ? LIMIT 1',
         [userId]
       );
-      const isHourly = hwRows?.[0]?.is_hourly_worker === 1
-        || hwRows?.[0]?.is_hourly_worker === true
-        || hwRows?.[0]?.is_hourly_worker === '1';
+      const hw = hwRows?.[0] || {};
+      const isHourly = hw.is_hourly_worker === 1
+        || hw.is_hourly_worker === true
+        || hw.is_hourly_worker === '1';
       if (!isHourly && !isAdminRole(req.user?.role)) {
         return res.status(403).json({ error: { message: 'Indirect time logging is for hourly employees only' } });
       }
+      const dualRate = isHourlyDualRateEnabled(hw);
+      const requestedBucket = normalizePayBucket(payload?.bucket || 'indirect');
+      if (requestedBucket === 'other_1' && !dualRate && !isAdminRole(req.user?.role)) {
+        return res.status(403).json({
+          error: { message: 'Other 1 Log Time claims require a dual-rate hourly contract' }
+        });
+      }
+      const claimBucket = requestedBucket === 'other_1' ? 'other_1' : 'indirect';
       const allocations = Array.isArray(payload?.allocations) ? payload.allocations : [];
       const cleaned = [];
       let allocatedSum = 0;
+      const typeIds = [];
       for (const row of allocations) {
         const mins = toMinutes(row?.minutes ?? row?.totalMinutes);
         const label = String(row?.serviceTypeLabel || row?.label || '').trim();
@@ -16847,16 +16943,19 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         const typeId = Number(row?.serviceTypeId || row?.id || 0);
         if (!(mins >= 1) || !label) continue;
         allocatedSum += mins;
+        if (Number.isFinite(typeId) && typeId > 0) typeIds.push(typeId);
         const startTime = row?.startTime != null ? String(row.startTime).trim() : null;
         const endTime = row?.endTime != null ? String(row.endTime).trim() : null;
         const percentRaw = Number(row?.percent);
         const sortOrder = Number(row?.sortOrder);
         const noteRaw = String(row?.note || row?.activityNote || '').trim();
+        const rowBucket = normalizePayBucket(row?.payBucket || row?.pay_bucket || claimBucket);
         cleaned.push({
           serviceTypeId: Number.isFinite(typeId) && typeId > 0 ? typeId : null,
           serviceTypeKey: typeKey || null,
           serviceTypeLabel: label,
           minutes: mins,
+          payBucket: rowBucket,
           ...(startTime ? { startTime } : {}),
           ...(endTime ? { endTime } : {}),
           ...(Number.isFinite(percentRaw) ? { percent: percentRaw } : {}),
@@ -16866,6 +16965,23 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       }
       if (!cleaned.length) {
         return res.status(400).json({ error: { message: 'At least one service type allocation with minutes is required' } });
+      }
+      // When dual-rate, ensure allocation service types match the claim bucket.
+      if (dualRate || claimBucket === 'other_1') {
+        const types = await PayrollIndirectServiceType.findByIds(typeIds);
+        const byId = new Map(types.map((t) => [Number(t.id), t]));
+        for (const row of cleaned) {
+          const t = row.serviceTypeId ? byId.get(Number(row.serviceTypeId)) : null;
+          const typeBucket = t ? normalizePayBucket(t.payBucket) : normalizePayBucket(row.payBucket);
+          if (typeBucket !== claimBucket) {
+            return res.status(400).json({
+              error: {
+                message: `Allocation "${row.serviceTypeLabel}" is ${typeBucket === 'other_1' ? 'Other 1' : 'Indirect'} and cannot be submitted on a ${claimBucket === 'other_1' ? 'Other 1' : 'Indirect'} claim`
+              }
+            });
+          }
+          row.payBucket = claimBucket;
+        }
       }
       let totalMinutes = toMinutes(payload?.totalMinutes);
       if (!(totalMinutes >= 1)) totalMinutes = allocatedSum;
@@ -16890,7 +17006,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         allocationMode,
         totalMinutes,
         allocations: cleaned,
-        bucket: 'indirect',
+        bucket: claimBucket,
         noteAidUsedDuringSession: !!noteAidUsed,
         ...(noteAidUsed && payload?.noteAidOpenedAt
           ? { noteAidOpenedAt: String(payload.noteAidOpenedAt).slice(0, 40) }
@@ -17318,7 +17434,16 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
 
   if (type === 'meeting_training' || type === 'mentor_cpa_meeting' || type === 'indirect_time') {
     const mins = Number(payload?.totalMinutes || 0);
-    if (Number.isFinite(mins) && mins > 0 && indirectRate > 0) {
+    if (!(Number.isFinite(mins) && mins > 0)) return null;
+    const claimBucket = normalizeTimeClaimBucket(
+      approveBucket || claim?.bucket || payload?.bucket || 'indirect'
+    );
+    if (type === 'indirect_time' && claimBucket === 'other_1') {
+      const other1 = Number(rateCard?.other_rate_1 || 0);
+      if (other1 > 0) return Math.round(((mins / 60) * other1) * 100) / 100;
+      return null;
+    }
+    if (indirectRate > 0) {
       return Math.round(((mins / 60) * indirectRate) * 100) / 100;
     }
   }
@@ -17398,8 +17523,19 @@ export const patchTimeClaim = async (req, res, next) => {
       });
       if (!ok.ok) return;
 
-      const bucketRaw = String(body.bucket || body.category || 'indirect').trim().toLowerCase();
-      const bucket = bucketRaw === 'direct' ? 'direct' : 'indirect';
+      const claimTypeKeyForBucket = String(claim.claim_type || '').toLowerCase();
+      const payloadBucketHint = String(claim?.payload?.bucket || '').trim().toLowerCase();
+      const bucketRaw = String(body.bucket || body.category || payloadBucketHint || 'indirect').trim().toLowerCase();
+      // Prefer payload bucket for dual-rate indirect_time when admin leaves default.
+      let bucket = normalizeTimeClaimBucket(bucketRaw);
+      if (
+        claimTypeKeyForBucket === 'indirect_time'
+        && payloadBucketHint === 'other_1'
+        && bucketRaw !== 'direct'
+        && !(body.bucket || body.category)
+      ) {
+        bucket = 'other_1';
+      }
       let creditsHoursRaw =
         body.creditsHours === null || body.creditsHours === undefined || body.creditsHours === ''
           ? (body.credits_hours === null || body.credits_hours === undefined || body.credits_hours === '' ? null : Number(body.credits_hours))
@@ -19919,6 +20055,15 @@ export const listServiceCodeRules = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
     if (!resolvedAgencyId) return;
+    // Keep payroll dictionary complete and mirrored to clinical booking/billing catalogs.
+    if (String(req.query.reconcile || 'true') === 'true') {
+      try {
+        const { reconcileAgencyServiceCodeCatalog } = await import('../services/agencyServiceCodeCatalog.service.js');
+        await reconcileAgencyServiceCodeCatalog(resolvedAgencyId, { actorUserId: req.user?.id || null });
+      } catch {
+        /* best-effort */
+      }
+    }
     const rows = await PayrollServiceCodeRule.listForAgency(resolvedAgencyId);
     res.json(rows);
   } catch (e) {
@@ -20040,6 +20185,14 @@ export const upsertServiceCodeRule = async (req, res, next) => {
       payMethod: payMethodNorm,
       payPercent: payPercentNum
     });
+    try {
+      const { syncClinicalCodePresent, isClinicalBookableCode } = await import('../services/agencyServiceCodeCatalog.service.js');
+      if (isClinicalBookableCode(codeTrimmed, { category: cat })) {
+        await syncClinicalCodePresent(resolvedAgencyId, codeTrimmed, { actorUserId: req.user?.id || null });
+      }
+    } catch {
+      /* best-effort mirror */
+    }
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -20049,19 +20202,13 @@ export const upsertServiceCodeRule = async (req, res, next) => {
 export const deleteServiceCodeRule = async (req, res, next) => {
   try {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : (req.body?.agencyId ? parseInt(req.body.agencyId) : null);
-    const serviceCode = req.query.serviceCode || req.body?.serviceCode || null;
+    const serviceCode = req.query.serviceCode || req.body?.serviceCode || req.params?.serviceCode || null;
     if (!agencyId || !serviceCode) return res.status(400).json({ error: { message: 'agencyId and serviceCode are required' } });
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
     if (!resolvedAgencyId) return;
     const code = String(serviceCode).trim();
-    await PayrollServiceCodeRule.delete({ agencyId: resolvedAgencyId, serviceCode: code });
-    // Keep provider rate sheets clean when a code is removed from this agency dictionary.
-    // Blank/removed code should fall back to hourly card; explicit zero remains explicit where code still exists.
-    await pool.execute(
-      `DELETE FROM payroll_rates
-       WHERE agency_id = ? AND service_code = ?`,
-      [resolvedAgencyId, code]
-    );
+    const { removeServiceCodeEverywhere } = await import('../services/agencyServiceCodeCatalog.service.js');
+    await removeServiceCodeEverywhere(resolvedAgencyId, code, { forceAllSurfaces: true });
     res.json({ ok: true });
   } catch (e) {
     next(e);

@@ -3,7 +3,11 @@
     <div class="header" data-tour="sched-compare-header">
       <div>
         <h2 style="margin: 0;" data-tour="sched-compare-title">Staff schedules</h2>
-        <div class="subtitle">Compare multiple providers’ schedules (stacked or overlaid).</div>
+        <div class="subtitle">
+          {{ isBusyOnlyViewer
+            ? 'Overlay busy blocks for coworkers in your agencies (no client or event details).'
+            : 'Overlay selected providers on one grid to coordinate availability. Switch to stacked for full detail on one person at a time.' }}
+        </div>
       </div>
       <div class="header-right" data-tour="sched-compare-controls">
         <router-link class="btn btn-secondary" :to="orgTo('/schedule')" data-tour="sched-compare-back">Back to Schedule</router-link>
@@ -11,10 +15,19 @@
           <label class="lbl-sm">Week of</label>
           <input v-model="weekStartYmd" type="date" class="input" />
         </div>
-        <select v-model="viewMode" class="input" style="min-width: 180px;" data-tour="sched-compare-view-mode">
-          <option value="stacked">Detailed (stacked)</option>
-          <option value="overlay">Overlay (summary)</option>
+        <select
+          v-if="!isBusyOnlyViewer"
+          v-model="viewMode"
+          class="input"
+          style="min-width: 180px;"
+          data-tour="sched-compare-view-mode"
+        >
+          <option value="overlay">Overlay (coordinate)</option>
+          <option value="stacked" :disabled="selectedUserIds.length >= 2">Detailed (stacked)</option>
         </select>
+        <div v-else class="muted" style="font-size: 12px; font-weight: 700;" data-tour="sched-compare-busy-mode">
+          Overlay (busy only)
+        </div>
         <button class="btn btn-secondary" type="button" @click="shiftWeek(-7)">Prev</button>
         <button class="btn btn-secondary" type="button" @click="shiftWeek(7)">Next</button>
         <button class="btn btn-secondary" type="button" @click="goToCurrentWeek">Current week</button>
@@ -29,7 +42,7 @@
     <div class="layout">
       <aside class="panel" data-tour="sched-compare-sidebar">
         <div class="panel-head">
-          <div class="panel-title">Providers</div>
+          <div class="panel-title">{{ isBusyOnlyViewer ? 'Coworkers' : 'Providers' }}</div>
           <div class="muted" style="font-size: 12px;">
             Selected: {{ selectedUserIds.length }}/{{ maxSelected }}
           </div>
@@ -55,14 +68,18 @@
           </div>
         </details>
 
-        <input v-model="search" class="input" placeholder="Search name/email…" data-tour="sched-compare-search" />
+        <input v-model="search" class="input" placeholder="Search name/email…" data-tour="sched-compare-search" :disabled="!agencyIdsForSchedule.length" />
 
         <div class="row" style="margin-top: 10px; gap: 8px;" data-tour="sched-compare-quick-picks">
           <button class="btn btn-secondary btn-sm" type="button" @click="selectNone">None</button>
-          <button class="btn btn-secondary btn-sm" type="button" @click="selectFirstTwo" :disabled="filteredProviders.length < 2">Pick 2</button>
+          <button class="btn btn-secondary btn-sm" type="button" @click="selectFirstTwo" :disabled="!agencyIdsForSchedule.length || filteredProviders.length < 2">Pick 2</button>
         </div>
 
-        <div class="list" data-tour="sched-compare-provider-list">
+        <div v-if="!agencyIdsForSchedule.length" class="muted" style="font-size: 12px; margin-top: 10px;">
+          Select at least one agency to browse providers.
+        </div>
+
+        <div v-else class="list" data-tour="sched-compare-provider-list">
           <label v-for="u in filteredProviders" :key="u.id" class="item">
             <input
               type="checkbox"
@@ -70,6 +87,17 @@
               :disabled="!selectedUserIds.includes(u.id) && selectedUserIds.length >= maxSelected"
               @change="toggleUser(u.id)"
             />
+            <img
+              v-if="userPhotoById[u.id]"
+              class="provider-face"
+              :src="userPhotoById[u.id]"
+              alt=""
+            />
+            <span
+              v-else
+              class="provider-face provider-face--initials"
+              aria-hidden="true"
+            >{{ providerInitials(u) }}</span>
             <span class="name">{{ u.last_name }}, {{ u.first_name }}</span>
             <span class="email muted">{{ u.email }}</span>
           </label>
@@ -78,9 +106,9 @@
 
       <main class="main" data-tour="sched-compare-main">
         <div v-if="loading" class="muted">Loading users…</div>
-        <div v-else-if="!selectedUserIds.length" class="muted">Select providers to compare schedules.</div>
+        <div v-else-if="!selectedUserIds.length" class="muted">Select people to compare schedules.</div>
 
-        <div v-else-if="viewMode === 'overlay'" class="overlay-card" data-tour="sched-compare-overlay">
+        <div v-else-if="effectiveViewMode === 'overlay'" class="overlay-card" data-tour="sched-compare-overlay">
           <ScheduleMultiUserOverlayGrid
             :key="overlayGridKey"
             :user-ids="selectedUserIds"
@@ -88,7 +116,9 @@
             :week-start-ymd="weekStartYmd"
             :week-starts-on="weekStartsOn"
             :user-label-by-id="userLabelById"
-            :hide-google-and-therapy-notes="isClubContext"
+            :user-photo-by-id="userPhotoById"
+            :hide-google-and-therapy-notes="isClubContext || isBusyOnlyViewer"
+            :detail-level="overlayDetailLevel"
             @update:weekStartYmd="(v) => (weekStartYmd = v)"
           />
         </div>
@@ -127,6 +157,8 @@ import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
+import { isTenantOrganizationType } from '../utils/organizationTypes.js';
+import { toUploadsUrl } from '../utils/uploadsUrl.js';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
 import ScheduleMultiUserOverlayGrid from '../components/schedule/ScheduleMultiUserOverlayGrid.vue';
 
@@ -143,9 +175,23 @@ const search = ref('');
 
 const maxSelected = 6;
 const selectedUserIds = ref([]);
-const viewMode = ref('stacked'); // stacked | overlay
+const viewMode = ref('overlay'); // stacked | overlay
 const availabilityByUserId = ref({});
 const overlayLoadGeneration = ref(0);
+
+const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isBusyOnlyViewer = computed(() => actorRole.value === 'provider');
+const canLoadDirectoryUsers = computed(() => [
+  'admin', 'super_admin', 'superadmin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff'
+].includes(actorRole.value));
+const canUseFullAgencyCatalog = computed(() => ['super_admin', 'superadmin'].includes(actorRole.value));
+const overlayDetailLevel = computed(() => (isBusyOnlyViewer.value ? 'typed' : 'full'));
+const effectiveViewMode = computed(() => {
+  if (isBusyOnlyViewer.value) return 'overlay';
+  // Two or more people → always overlay so schedules can be coordinated side-by-side.
+  if ((selectedUserIds.value || []).length >= 2) return 'overlay';
+  return viewMode.value;
+});
 
 const toLocalYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const todayYmd = () => toLocalYmd(new Date());
@@ -178,15 +224,42 @@ const isClubContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
   return t === 'affiliation' || t === 'clubwebapp';
 });
+const availableAgencies = computed(() => {
+  const fromUser = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  const fromCatalog = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
+  // Super admins may have a single membership row but should filter across the full tenant catalog.
+  const list = canUseFullAgencyCatalog.value && fromCatalog.length
+    ? fromCatalog
+    : (fromUser.length ? fromUser : fromCatalog);
+  return list
+    .filter((a) => isTenantOrganizationType(a))
+    .slice()
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+});
+
+const parseUserAgencyIds = (user) => {
+  const raw = user?.agency_ids ?? user?.agencyIds ?? '';
+  if (Array.isArray(raw)) {
+    return raw.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+  }
+  return String(raw || '')
+    .split(',')
+    .map((s) => Number(String(s || '').trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+};
+
+const userMatchesSelectedAgencies = (user, agencyIds = agencyIdsForSchedule.value) => {
+  const selected = (agencyIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+  if (!selected.length) return false;
+  const userAgencyIds = parseUserAgencyIds(user);
+  if (!userAgencyIds.length) return false;
+  return userAgencyIds.some((id) => selected.includes(id));
+};
 const effectiveAgencyId = computed(() => {
   const fromStore = Number(agencyStore.currentAgency?.id || 0);
   if (fromStore) return fromStore;
   const first = Number(availableAgencies.value?.[0]?.id || 0);
   return first || 0;
-});
-const availableAgencies = computed(() => {
-  const list = Array.isArray(agencyStore.userAgencies?.value) ? agencyStore.userAgencies.value : [];
-  return list.filter((a) => String(a?.organization_type || '').toLowerCase() === 'agency');
 });
 const selectedAgencyIds = ref([]);
 const selectAllAgencies = () => {
@@ -219,13 +292,13 @@ const agencyLabelById = computed(() => {
 const overlayGridKey = computed(() => [
   (selectedUserIds.value || []).map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0).join(','),
   (agencyIdsForSchedule.value || []).join(','),
-  String(weekStartYmd.value || '')
+  String(weekStartYmd.value || ''),
+  overlayDetailLevel.value
 ].join('|'));
 
 const isProviderLike = (u) => {
   const role = String(u?.role || '').toLowerCase();
   if (role === 'provider') return true;
-  // Some admins are also providers in this codebase
   if (u?.has_provider_access === true) return true;
   return false;
 };
@@ -266,7 +339,8 @@ function fuzzyScore(text, query) {
 
 const filteredProviders = computed(() => {
   const q = String(search.value || '').trim().toLowerCase();
-  const base = (providers.value || []).slice();
+  let base = (isBusyOnlyViewer.value ? (users.value || []) : (providers.value || [])).slice();
+  base = base.filter((u) => userMatchesSelectedAgencies(u));
   base.sort((a, b) =>
     String(a?.last_name || '').localeCompare(String(b?.last_name || '')) ||
     String(a?.first_name || '').localeCompare(String(b?.first_name || '')) ||
@@ -298,6 +372,36 @@ const userLabelById = computed(() => {
   return m;
 });
 
+const resolveUserPhotoUrl = (u) => {
+  const raw = String(
+    u?.profilePhotoUrl
+    || u?.profile_photo_url
+    || u?.profile_photo_path
+    || u?.profilePhotoPath
+    || ''
+  ).trim();
+  if (!raw) return null;
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  return toUploadsUrl(raw);
+};
+
+const userPhotoById = computed(() => {
+  const m = {};
+  for (const u of users.value || []) {
+    const id = Number(u?.id || 0);
+    if (!id) continue;
+    const url = resolveUserPhotoUrl(u);
+    if (url) m[id] = url;
+  }
+  return m;
+});
+
+const providerInitials = (u) => {
+  const first = String(u?.first_name || '').trim()[0] || '';
+  const last = String(u?.last_name || '').trim()[0] || '';
+  return `${first}${last}`.toUpperCase() || '?';
+};
+
 const toggleUser = (id) => {
   const uid = Number(id);
   const cur = selectedUserIds.value.slice();
@@ -308,7 +412,9 @@ const toggleUser = (id) => {
     return;
   }
   if (cur.length >= maxSelected) return;
-  selectedUserIds.value = [...cur, uid];
+  const next = [...cur, uid];
+  selectedUserIds.value = next;
+  if (next.length >= 2) viewMode.value = 'overlay';
 };
 
 const moveUp = (id) => {
@@ -338,14 +444,37 @@ const selectNone = () => {
 const selectFirstTwo = () => {
   const firstTwo = (filteredProviders.value || []).slice(0, 2).map((u) => Number(u.id));
   selectedUserIds.value = firstTwo;
+  viewMode.value = 'overlay';
 };
 
 const loadUsers = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get('/users', { params: { _t: Date.now() } });
-    users.value = Array.isArray(resp.data) ? resp.data : [];
+    if (canLoadDirectoryUsers.value) {
+      const resp = await api.get('/users', { params: { _t: Date.now() } });
+      users.value = Array.isArray(resp.data) ? resp.data : [];
+      return;
+    }
+    const me = Number(authStore.user?.id || 0);
+    if (!me) {
+      users.value = [];
+      return;
+    }
+    const resp = await api.get(`/users/${me}/meeting-candidates`, {
+      params: { allAgencies: true, _t: Date.now() }
+    });
+    const rows = Array.isArray(resp.data?.users) ? resp.data.users : [];
+    users.value = rows.map((u) => ({
+      id: Number(u.id || 0),
+      first_name: String(u.firstName || u.first_name || '').trim(),
+      last_name: String(u.lastName || u.last_name || '').trim(),
+      email: String(u.email || '').trim(),
+      role: String(u.role || '').trim().toLowerCase(),
+      profilePhotoUrl: String(u.profilePhotoUrl || u.profile_photo_url || '').trim() || null,
+      agency_ids: Array.isArray(u.agencyIds) ? u.agencyIds.join(',') : String(u.agencyIds || u.agency_ids || ''),
+      has_provider_access: true
+    })).filter((u) => u.id > 0);
   } catch (e) {
     users.value = [];
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load users';
@@ -367,6 +496,7 @@ const mergeSlotsByKey = (slots) => {
 };
 
 const loadAvailabilityOverlays = async () => {
+  if (isBusyOnlyViewer.value || effectiveViewMode.value !== 'stacked') return;
   const generation = overlayLoadGeneration.value + 1;
   overlayLoadGeneration.value = generation;
   const uids = (selectedUserIds.value || []).map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
@@ -416,194 +546,128 @@ const loadAvailabilityOverlays = async () => {
 };
 
 onMounted(async () => {
-  // If organizationSlug exists, this route is org-prefixed; still safe to load the same endpoint.
   void route.params.organizationSlug;
-  // Ensure we have a real agency list for the picker (authStore.user.agencies is often empty).
   try {
     await agencyStore.fetchUserAgencies();
   } catch {
-    // ignore; best-effort
+    // ignore
+  }
+  const role = actorRole.value;
+  if (['super_admin', 'superadmin', 'admin', 'support'].includes(role) || !(agencyStore.userAgencies || []).length) {
+    try {
+      await agencyStore.fetchAgencies();
+    } catch {
+      // ignore
+    }
   }
   await loadUsers();
 
-  // Pre-select user from query (e.g. from Providers panel "View schedule" link)
   const userIdFromQuery = route.query?.userId ? parseInt(route.query.userId, 10) : null;
   if (userIdFromQuery && Number.isFinite(userIdFromQuery) && (users.value || []).some((u) => Number(u.id) === userIdFromQuery)) {
     selectedUserIds.value = [userIdFromQuery];
   }
 
-  // Default agency filter to all agencies (best for multi-agency providers) or fall back to current.
   if (!selectedAgencyIds.value.length) {
     const ids = (availableAgencies.value || []).map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0);
     if (ids.length) selectedAgencyIds.value = ids;
     else if (effectiveAgencyId.value) selectedAgencyIds.value = [Number(effectiveAgencyId.value)];
   }
-  await loadAvailabilityOverlays();
+
+  if (isBusyOnlyViewer.value) viewMode.value = 'overlay';
 });
 
-watch([selectedUserIds, agencyIdsForSchedule, weekStartYmd, viewMode], () => {
-  void loadAvailabilityOverlays();
+watch(selectedUserIds, (ids) => {
+  if ((ids || []).length >= 2 && viewMode.value !== 'overlay') {
+    viewMode.value = 'overlay';
+  }
 }, { deep: true });
 
-watch(selectedUserIds, (ids) => {
-  const keep = new Set((ids || []).map((n) => Number(n)));
-  const next = {};
-  for (const [k, v] of Object.entries(availabilityByUserId.value || {})) {
-    if (keep.has(Number(k))) next[k] = v;
+watch(viewMode, (mode) => {
+  if (mode === 'stacked' && (selectedUserIds.value || []).length >= 2) {
+    viewMode.value = 'overlay';
   }
-  availabilityByUserId.value = next;
+});
+
+watch(agencyIdsForSchedule, (ids) => {
+  const selected = (selectedUserIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+  if (!selected.length) return;
+  const allowed = new Set(
+    (users.value || [])
+      .filter((u) => userMatchesSelectedAgencies(u, ids))
+      .map((u) => Number(u.id))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  );
+  const next = selected.filter((id) => allowed.has(id));
+  if (next.length !== selected.length) selectedUserIds.value = next;
+}, { deep: true });
+
+watch([selectedUserIds, agencyIdsForSchedule, weekStartYmd, effectiveViewMode], () => {
+  void loadAvailabilityOverlays();
 }, { deep: true });
 </script>
 
 <style scoped>
 .header {
   display: flex;
-  align-items: flex-end;
   justify-content: space-between;
+  align-items: flex-end;
   gap: 12px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
 }
-.subtitle {
-  margin-top: 6px;
-  color: var(--text-secondary);
-}
-.header-right {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-}
-.lbl-sm {
-  display: block;
-  font-size: 12px;
-  font-weight: 800;
-  margin-bottom: 6px;
-  color: var(--text-secondary);
-}
-.week .input {
-  min-width: 160px;
-}
-.layout {
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 12px;
-}
+.subtitle { color: var(--text-secondary); margin: 6px 0 0 0; font-size: 13px; }
+.header-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.week { display: inline-flex; gap: 6px; align-items: center; }
+.lbl-sm { font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+.layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 12px; }
 .panel {
   border: 1px solid var(--border);
   background: var(--bg-alt);
-  border-radius: 14px;
+  border-radius: 12px;
   padding: 12px;
-  height: calc(100vh - 220px);
-  overflow: auto;
+  min-height: 320px;
 }
-.agency-filter {
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.panel-title { font-weight: 800; }
+.agency-filter { margin-bottom: 10px; }
+.agency-filter-summary { cursor: pointer; font-weight: 700; display: flex; justify-content: space-between; gap: 8px; }
+.agency-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; max-height: 160px; overflow: auto; }
+.agency-item { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; max-height: 520px; overflow: auto; }
+.item { display: grid; grid-template-columns: 18px 22px 1fr; gap: 4px 8px; align-items: start; font-size: 13px; }
+.item .name { grid-column: 3; }
+.item .email { grid-column: 3; font-size: 11px; }
+.provider-face {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+}
+.provider-face--initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  color: #fff;
+  background: #64748b;
+}
+.main { min-width: 0; }
+.overlay-card, .stack-card {
   border: 1px solid var(--border);
   border-radius: 12px;
+  background: #fff;
   padding: 10px;
-  background: white;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
-.agency-filter-summary {
-  cursor: pointer;
-  list-style: none;
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  font-weight: 900;
-  color: var(--text-primary);
-}
-.agency-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-}
-.agency-item {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 13px;
-  color: var(--text-primary);
-}
-.panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 10px;
-}
-.panel-title {
-  font-weight: 900;
-}
-.row {
-  display: flex;
-  align-items: center;
-}
-.list {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.item {
-  display: grid;
-  grid-template-columns: 16px 1fr;
-  gap: 8px;
-  align-items: start;
-  padding: 8px 8px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: white;
-}
-.name {
-  font-weight: 800;
-  line-height: 1.1;
-}
-.email {
-  display: block;
-  font-size: 12px;
-  margin-top: 2px;
-}
-.main {
-  min-height: 300px;
-}
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.stack-card {
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: white;
-  padding: 10px;
-}
-.overlay-card {
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: white;
-  padding: 10px;
-}
-.stack-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-.stack-title {
-  font-weight: 900;
-}
-.stack-actions {
-  display: inline-flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-@media (max-width: 980px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-  .panel {
-    height: auto;
-  }
+.stack-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.stack-title { font-weight: 800; }
+.stack-actions { display: inline-flex; gap: 6px; }
+.row { display: flex; align-items: center; }
+.error { color: #b00020; margin-bottom: 8px; }
+.muted { color: var(--text-secondary); }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
 }
 </style>
-

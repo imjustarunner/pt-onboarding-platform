@@ -250,6 +250,17 @@
                 If enabled, urgent notifications can bypass Quiet Hours (channel toggles still apply).
               </div>
             </div>
+
+            <div class="field checkbox">
+              <label>
+                <input v-model="prefs.allow_notifications_outside_work_schedule" type="checkbox" :disabled="notificationDisabled" />
+                Allow notifications outside work hours
+              </label>
+              <div class="field-help">
+                When off, email/SMS follow your Work hours on My Schedule (if set). Quiet Hours still take precedence when enabled. Edit work hours on
+                <router-link :to="myScheduleLink">My Schedule</router-link>.
+              </div>
+            </div>
           </div>
 
           <div class="card" v-if="prefs.sms_enabled">
@@ -1130,6 +1141,7 @@ const prefs = ref({
   quiet_hours_allowed_days: [],
   quiet_hours_start_time: null,
   quiet_hours_end_time: null,
+  allow_notifications_outside_work_schedule: false,
   auto_reply_enabled: false,
   auto_reply_message: '',
   emergency_override: false,
@@ -1521,6 +1533,7 @@ const save = async () => {
       quiet_hours_allowed_days: prefs.value.quiet_hours_enabled ? (prefs.value.quiet_hours_allowed_days || []) : [],
       quiet_hours_start_time: prefs.value.quiet_hours_enabled && quietStart.value ? quietStart.value : null,
       quiet_hours_end_time: prefs.value.quiet_hours_enabled && quietEnd.value ? quietEnd.value : null,
+      allow_notifications_outside_work_schedule: !!prefs.value.allow_notifications_outside_work_schedule,
       emergency_override: !!prefs.value.emergency_override,
       auto_reply_enabled: prefs.value.sms_enabled ? !!prefs.value.auto_reply_enabled : false,
       auto_reply_message: prefs.value.sms_enabled && prefs.value.auto_reply_enabled ? (prefs.value.auto_reply_message || '') : null,
@@ -1664,6 +1677,10 @@ const identityOrganizations = computed(() => {
 });
 
 const route = useRoute();
+const myScheduleLink = computed(() => {
+  const slug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  return slug ? `/${slug}/my-schedule` : '/my-schedule';
+});
 const clubSummitContext = ref(null);
 const resendVerifySubmitting = ref(false);
 const resendVerifyMessage = ref('');

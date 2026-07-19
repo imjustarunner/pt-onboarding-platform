@@ -216,7 +216,8 @@
     <div v-else-if="payrollTab === 'indirect_types'" class="card">
       <h3 style="margin:0 0 4px 0;">Indirect service types</h3>
       <p class="hint" style="margin:0 0 14px 0;">
-        Types shown on the hourly employee Log Time screen. Add new types anytime; deactivate instead of deleting if they were used historically.
+        Types shown on the hourly employee Log Time screen. Pay bucket controls dual-rate contracts:
+        Indirect (Type 1, left) vs Other 1 (Type 2, right). Add new types anytime; deactivate instead of deleting if they were used historically.
       </p>
       <div v-if="indirectTypesError" class="warn">{{ indirectTypesError }}</div>
       <div v-if="indirectTypesLoading" class="muted">Loading…</div>
@@ -237,6 +238,13 @@
             </select>
           </div>
           <div class="filters-group">
+            <label class="filters-label">Pay bucket</label>
+            <select v-model="indirectTypeDraft.payBucket" class="filters-input" :disabled="indirectTypesSaving">
+              <option value="indirect">Indirect (Type 1)</option>
+              <option value="other_1">Other 1 (Type 2)</option>
+            </select>
+          </div>
+          <div class="filters-group">
             <label class="filters-label">Sort</label>
             <input v-model.number="indirectTypeDraft.sortOrder" class="filters-input" type="number" style="width:80px;" :disabled="indirectTypesSaving" />
           </div>
@@ -252,6 +260,7 @@
               <tr>
                 <th>Label</th>
                 <th>Key</th>
+                <th>Pay bucket</th>
                 <th>Icon</th>
                 <th>Sort</th>
                 <th>Active</th>
@@ -267,6 +276,12 @@
                   </div>
                 </td>
                 <td><code>{{ t.typeKey }}</code></td>
+                <td>
+                  <select v-model="t.payBucket" :disabled="indirectTypesSaving" @change="saveIndirectType(t)">
+                    <option value="indirect">Indirect</option>
+                    <option value="other_1">Other 1</option>
+                  </select>
+                </td>
                 <td>
                   <select v-model="t.iconKey" :disabled="indirectTypesSaving" @change="saveIndirectType(t)">
                     <option v-for="opt in indirectIconOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
@@ -285,7 +300,7 @@
                 </td>
               </tr>
               <tr v-if="!indirectTypes.length">
-                <td colspan="6" class="empty-state-inline">No types yet — defaults will seed on first employee open, or add one above.</td>
+                <td colspan="7" class="empty-state-inline">No types yet — defaults will seed on first employee open, or add one above.</td>
               </tr>
             </tbody>
           </table>
@@ -1002,6 +1017,7 @@ const indirectTypeDraft = ref({
   label: '',
   description: '',
   iconKey: 'circle',
+  payBucket: 'indirect',
   sortOrder: 200
 });
 
@@ -1031,9 +1047,10 @@ const createIndirectType = async () => {
       label,
       description: indirectTypeDraft.value.description || '',
       iconKey: indirectTypeDraft.value.iconKey || 'circle',
+      payBucket: indirectTypeDraft.value.payBucket || 'indirect',
       sortOrder: Number(indirectTypeDraft.value.sortOrder || 0)
     });
-    indirectTypeDraft.value = { label: '', description: '', iconKey: 'circle', sortOrder: 200 };
+    indirectTypeDraft.value = { label: '', description: '', iconKey: 'circle', payBucket: 'indirect', sortOrder: 200 };
     await loadIndirectTypes();
   } catch (e) {
     indirectTypesError.value = e.response?.data?.error?.message || e.message || 'Failed to add type';
@@ -1051,6 +1068,7 @@ const saveIndirectType = async (t) => {
       label: t.label,
       description: t.description,
       iconKey: t.iconKey,
+      payBucket: t.payBucket || 'indirect',
       sortOrder: t.sortOrder,
       isActive: !!t.isActive
     });

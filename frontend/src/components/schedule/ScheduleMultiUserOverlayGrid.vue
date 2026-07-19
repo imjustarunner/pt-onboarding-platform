@@ -27,7 +27,7 @@
           >
             {{ showAllHours ? 'Main hours' : 'Show all hours' }}
           </button>
-          <template v-if="!hideGoogleAndTherapyNotes">
+          <template v-if="!hideGoogleAndTherapyNotes && String(detailLevel || '').toLowerCase() !== 'busy'">
             <button
               type="button"
               class="sched-pill"
@@ -83,6 +83,17 @@
               :title="b.title"
               @click="onBlockClick($event, b)"
             >
+              <img
+                v-if="photoForUser(b.userId)"
+                class="cell-block-face"
+                :src="photoForUser(b.userId)"
+                alt=""
+              />
+              <span
+                v-else-if="b.userId"
+                class="cell-block-face cell-block-face--initials"
+                aria-hidden="true"
+              >{{ initialsForUser(b.userId) }}</span>
               <span class="cell-block-text">{{ b.shortLabel }}</span>
             </div>
           </div>
@@ -102,7 +113,10 @@ const props = defineProps({
   weekStartYmd: { type: String, default: null },
   weekStartsOn: { type: String, default: 'monday' },
   userLabelById: { type: Object, default: null },
-  hideGoogleAndTherapyNotes: { type: Boolean, default: false }
+  userPhotoById: { type: Object, default: null },
+  hideGoogleAndTherapyNotes: { type: Boolean, default: false },
+  /** busy = anonymous intervals only; full = rich titles/clients when authorized */
+  detailLevel: { type: String, default: 'full' }
 });
 const emit = defineEmits(['update:weekStartYmd']);
 
@@ -226,6 +240,14 @@ const initialsForUser = (uid) => {
   return init || String(uid);
 };
 
+const photoForUser = (uid) => {
+  const id = Number(uid || 0);
+  if (!id) return null;
+  const map = props.userPhotoById && typeof props.userPhotoById === 'object' ? props.userPhotoById : null;
+  if (!map) return null;
+  return String(map[id] || map[String(id)] || '').trim() || null;
+};
+
 const load = async () => {
   const generation = loadGeneration.value + 1;
   loadGeneration.value = generation;
@@ -255,8 +277,16 @@ const load = async () => {
                   params: {
                     agencyId,
                     weekStart: ws,
+                    detailLevel: (() => {
+                      const d = String(props.detailLevel || 'full').toLowerCase();
+                      if (d === 'busy' || d === 'typed' || d === 'full') return d;
+                      return 'full';
+                    })(),
                     includeGoogleBusy: props.hideGoogleAndTherapyNotes ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
-                    includeGoogleEvents: props.hideGoogleAndTherapyNotes ? 'false' : (showGoogleEvents.value ? 'true' : 'false')
+                    includeGoogleEvents: props.hideGoogleAndTherapyNotes
+                      || ['busy', 'typed'].includes(String(props.detailLevel || '').toLowerCase())
+                      ? 'false'
+                      : (showGoogleEvents.value ? 'true' : 'false')
                   }
                 })
                 .then((r) => ({ ok: true, agencyId, data: r.data }))
@@ -293,9 +323,11 @@ const load = async () => {
             schoolAssignments: [],
             officeEvents: [],
             supervisionSessions: [],
-            scheduleEvents: []
+            scheduleEvents: [],
+            busyBlocks: []
           };
           const seenScheduleKeys = new Set();
+          const seenBusyKeys = new Set();
           for (const r of okOnes) {
             const aId = r.agencyId;
             merged.schoolAssignments.push(...(r.data?.schoolAssignments || []).map((x) => tag(x, aId)));
@@ -307,6 +339,12 @@ const load = async () => {
               seenScheduleKeys.add(k);
               merged.scheduleEvents.push(e);
             }
+            for (const b of (r.data?.busyBlocks || []).map((x) => tag(x, aId))) {
+              const k = `${String(b?.startAt || '')}|${String(b?.endAt || '')}|${String(b?.source || '')}`;
+              if (seenBusyKeys.has(k)) continue;
+              seenBusyKeys.add(k);
+              merged.busyBlocks.push(b);
+            }
           }
 
           // Overlays are per-user (not agency-scoped), so prefer from the first successful result.
@@ -316,6 +354,7 @@ const load = async () => {
           merged.googleEventsError = first.googleEventsError || null;
           merged.externalCalendars = first.externalCalendars || [];
           merged.externalCalendarsAvailable = first.externalCalendarsAvailable || [];
+          merged.detailLevel = first.detailLevel || props.detailLevel;
 
           return { ok: true, uid, data: merged };
         } catch (e) {
@@ -350,7 +389,7 @@ const deferredLoad = () => {
     }
   }, 120);
 };
-watch([() => props.userIds, effectiveWeekStart, showGoogleBusy, showGoogleEvents, () => props.hideGoogleAndTherapyNotes, effectiveAgencyIds], deferredLoad, { deep: true, immediate: true });
+watch([() => props.userIds, effectiveWeekStart, showGoogleBusy, showGoogleEvents, () => props.hideGoogleAndTherapyNotes, () => props.detailLevel, effectiveAgencyIds], deferredLoad, { deep: true, immediate: true });
 
 const gridStyle = computed(() => ({
   gridTemplateColumns: `64px repeat(${orderedDays.value.length}, minmax(0, 1fr))`
@@ -421,6 +460,59 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
   const ws = s.weekStart || effectiveWeekStart.value;
   const init = initialsForUser(uid);
   const blocks = [];
+  const level = String(props.detailLevel || s.detailLevel || '').toLowerCase();
+  const busyOnly = level === 'busy';
+  const typedOnly = level === 'typed'
+    || (Array.isArray(s.busyBlocks) && s.busyBlocks.some((b) => b?.activityType) && level !== 'full');
+
+  if (busyOnly) {
+    if (hasBusyIntervals(s.busyBlocks || [], dayName, hour, ws)) {
+      blocks.push({
+        kind: 'peerbusy',
+        key: `u${uid}-busy-${dayName}-${hour}`,
+        userId: uid,
+        shortLabel: `${init} Busy`,
+        title: `${props.userLabelById?.[uid] || `User ${uid}`} — Busy`
+      });
+    }
+    return blocks;
+  }
+
+  if (typedOnly) {
+    const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
+    const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
+    const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
+    const hits = (s.busyBlocks || []).filter((b) => {
+      const st = parseMaybeDate(b.startAt || b.start);
+      const en = parseMaybeDate(b.endAt || b.end);
+      return st && en && en > cellStart && st < cellEnd;
+    });
+    if (hits.length) {
+      const top = hits[0];
+      const activityType = String(top?.activityType || 'busy').toLowerCase();
+      const typeLabel = activityType === 'session' ? 'Session'
+        : activityType === 'hold' ? 'Hold'
+          : activityType === 'opening' ? 'Open'
+            : activityType === 'school' ? 'School'
+              : activityType === 'supervision' ? 'Supv'
+                : activityType === 'team_meeting' ? 'Meet'
+                  : activityType === 'huddle' ? 'Huddle'
+                    : activityType === 'indirect' ? 'Indirect'
+                      : 'Busy';
+      const office = String(top?.officeLabel || '').trim();
+      const short = activityType === 'session' && office
+        ? `${init} ${typeLabel} · ${office.length > 12 ? `${office.slice(0, 12)}…` : office}`
+        : `${init} ${typeLabel}`;
+      blocks.push({
+        kind: activityType === 'session' ? 'ob' : activityType === 'opening' ? 'oa' : activityType === 'hold' ? 'ot' : 'peerbusy',
+        key: `u${uid}-typed-${activityType}-${dayName}-${hour}`,
+        userId: uid,
+        shortLabel: short,
+        title: `${props.userLabelById?.[uid] || `User ${uid}`} — ${top?.title || typeLabel}`
+      });
+    }
+    return blocks;
+  }
 
   // school
   const schoolHits = (s.schoolAssignments || []).filter((a) => String(a.dayOfWeek) === dayName && overlapsHour(a.startTime, a.endTime, hour));
@@ -674,10 +766,30 @@ const onBlockClick = (e, b) => {
   border: 1px solid rgba(15, 23, 42, 0.18);
   border-left: 5px solid var(--user-color, rgba(15, 23, 42, 0.18));
   border-radius: 10px;
-  padding: 2px 8px;
+  padding: 2px 6px;
   font-size: 11px;
   font-weight: 900;
   max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cell-block-face {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border-radius: 999px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+}
+.cell-block-face--initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--user-color, #64748b);
 }
 .cell-block-text { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -689,6 +801,7 @@ const onBlockClick = (e, b) => {
 .cell-block-intake-ip { background: rgba(34, 197, 94, 0.20); border-color: rgba(21, 128, 61, 0.45); color: rgba(21, 128, 61, 0.95); }
 .cell-block-intake-vi { background: rgba(59, 130, 246, 0.20); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }
 .cell-block-gbusy { background: rgba(17, 24, 39, 0.10); border-color: rgba(17, 24, 39, 0.35); color: rgba(17, 24, 39, 0.95); }
+.cell-block-peerbusy { background: rgba(100, 116, 139, 0.14); border-color: rgba(100, 116, 139, 0.40); color: rgba(51, 65, 85, 0.92); opacity: 0.85; }
 .cell-block-gevt { cursor: pointer; background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.35); }
 .cell-block-sevt { background: rgba(15, 118, 110, 0.14); border-color: rgba(15, 118, 110, 0.42); color: rgba(15, 118, 110, 0.98); }
 .cell-block-more { background: rgba(148, 163, 184, 0.14); border-color: rgba(148, 163, 184, 0.40); color: rgba(51, 65, 85, 0.92); }

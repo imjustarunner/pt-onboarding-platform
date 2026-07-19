@@ -158,10 +158,48 @@
           <div class="na-step">
             <div class="na-step-num">1</div>
             <div class="na-step-body">
-              <label class="na-label">Note Type</label>
-              <select v-model="selectedServiceCode" class="na-input" :disabled="autoSelectCode || forceAutoSelect">
-                <option value="" disabled>Select a note type</option>
-                <option v-for="code in serviceCodeOptions" :key="code" :value="code">{{ serviceCodeOptionLabel(code) }}</option>
+              <label class="na-label">Output category</label>
+              <select v-model="selectedNoteCategory" class="na-input" :disabled="forceAutoSelect">
+                <option value="" disabled>Select a category</option>
+                <option
+                  v-for="cat in noteAidCategories"
+                  :key="cat.id"
+                  :value="cat.id"
+                >{{ cat.label }}</option>
+              </select>
+              <label class="na-label" style="margin-top: 10px;">Aid</label>
+              <select
+                v-model="selectedAidId"
+                class="na-input"
+                :disabled="!selectedNoteCategory || forceAutoSelect"
+              >
+                <option value="" disabled>Select an aid</option>
+                <option
+                  v-for="aid in aidsForSelectedCategory"
+                  :key="aid.id"
+                  :value="aid.id"
+                >{{ aid.label }}</option>
+              </select>
+              <p v-if="selectedAidGuidance" class="na-field-hint" style="margin-top: 8px;">
+                {{ selectedAidGuidance }}
+              </p>
+              <label
+                v-if="showBillingCodePicker"
+                class="na-label"
+                style="margin-top: 10px;"
+              >Billing code (optional override)</label>
+              <select
+                v-if="showBillingCodePicker"
+                v-model="selectedServiceCode"
+                class="na-input"
+                :disabled="autoSelectCode || forceAutoSelect"
+              >
+                <option value="">Use aid default</option>
+                <option
+                  v-for="opt in noteTypeOptions"
+                  :key="opt.value"
+                  :value="opt.value"
+                >{{ opt.label }}</option>
                 <option v-if="canUseOtherCode" value="__other__">Other (enter code)</option>
               </select>
               <input
@@ -171,8 +209,12 @@
                 style="margin-top: 8px;"
                 placeholder="e.g., 90834"
               />
-              <label class="na-check" style="margin-top: 8px;">
-                <input v-model="autoSelectCode" type="checkbox" :disabled="forceAutoSelect" />
+              <label
+                v-if="showAutoSelectCodeOption"
+                class="na-check"
+                style="margin-top: 8px;"
+              >
+                <input v-model="autoSelectCode" type="checkbox" :disabled="forceAutoSelect || selectedAidForcesAutoSelect" />
                 <span>Let AI choose the best code</span>
               </label>
             </div>
@@ -243,7 +285,7 @@
             class="na-textarea"
             rows="8"
             maxlength="12000"
-            placeholder="Paste or type your session details here…"
+            :placeholder="selectedAidGuidance || 'Paste or type your session details here…'"
           />
 
           <div v-if="inputMode === 'speak'" class="na-speak-tools">
@@ -442,6 +484,15 @@
               {{ approvingNote ? 'Approving…' : 'Approve to clinical record' }}
             </button>
             <button
+              v-if="canSaveTreatmentPlanToChart"
+              type="button"
+              class="na-btn-outline"
+              :disabled="!displayPanels.length || savingTreatmentPlan"
+              @click="saveTreatmentPlanToChart"
+            >
+              {{ savingTreatmentPlan ? 'Saving plan…' : 'Save treatment plan to chart' }}
+            </button>
+            <button
               type="button"
               class="na-link-btn"
               :disabled="generating || !String(inputText || '').trim()"
@@ -514,6 +565,14 @@ import {
   todayIsoDate
 } from '../../utils/noteAidUiHelpers';
 import { ensureHourlySessionForNoteAid } from '../../utils/noteAidIndirectSession.js';
+import {
+  HIDDEN_NOTE_AID_CODES,
+  NOTE_AID_CATEGORIES,
+  NOTE_TYPE_CODE_GROUPS,
+  findNoteAidById,
+  findNoteAidByToolOrCode
+} from '../../config/noteAidWorkspace.js';
+import { isClinicalChartEnabled, parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -616,13 +675,15 @@ const formatProgramLabel = (program) => {
 };
 
 // Form state
+const selectedNoteCategory = ref('');
+const selectedAidId = ref('');
 const selectedServiceCode = ref('');
 const otherServiceCode = ref('');
 const selectedProgramId = ref('');
 const dateOfService = ref('');
 const initials = ref('');
 const inputText = ref('');
-const includeInteractiveComplexity = ref(true);
+const includeInteractiveComplexity = ref(false);
 const inputMode = ref('type'); // type | speak
 const sidebarTab = ref('active'); // active | archived
 const draftSearch = ref('');
@@ -710,6 +771,10 @@ const revisionInstruction = ref('');
 const approvalMessage = ref('');
 const approvalError = ref('');
 const approvingNote = ref(false);
+const savingTreatmentPlan = ref(false);
+const medicalBillingFlags = computed(() =>
+  parseAgencyFeatureFlags(agencyStore.currentAgency?.feature_flags)
+);
 const serverTranscribing = ref(false);
 const serverTranscribeError = ref('');
 const SERVER_TRANSCRIBE_MIN_SECONDS = 75;
@@ -747,6 +812,7 @@ const STATIC_COMMON_CODES = [
   '90832',
   '90834',
   '90837',
+  '90839',
   '90846',
   '90847',
   // Supervision accrual codes used elsewhere in the system
@@ -754,11 +820,16 @@ const STATIC_COMMON_CODES = [
   '99416'
 ];
 
+const HIDDEN_ADDON_CODES = HIDDEN_NOTE_AID_CODES;
+const NOTE_TYPE_GROUPS = NOTE_TYPE_CODE_GROUPS;
+const noteAidCategories = NOTE_AID_CATEGORIES;
+
 const SERVICE_CODE_DESCRIPTIONS = {
   '90791': 'Psychiatric diagnostic intake/assessment.',
   '90832': 'Individual therapy, 16-37 minutes.',
   '90834': 'Individual therapy, 38-52 minutes.',
   '90837': 'Individual therapy, 53+ minutes.',
+  '90839': 'Crisis psychotherapy.',
   '90846': 'Family therapy without client present.',
   '90847': 'Family/couples therapy with client present.',
   'H0002': 'Behavioral health screening/intake-type support.',
@@ -785,11 +856,14 @@ const SERVICE_CODE_DESCRIPTIONS = {
 // Allow manual entry if a code isn't listed; backend still enforces eligibility.
 const canUseOtherCode = computed(() => true);
 
-const serviceCodeOptions = computed(() => {
+const rawEligibleServiceCodes = computed(() => {
   const raw = eligibleServiceCodes.value;
   const list = Array.isArray(raw) ? raw : STATIC_COMMON_CODES;
   return Array.from(new Set(list.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))).sort();
 });
+
+/** @deprecated use noteTypeOptions — kept for any legacy references */
+const serviceCodeOptions = computed(() => rawEligibleServiceCodes.value);
 
 const serviceCodeDescription = (code) => SERVICE_CODE_DESCRIPTIONS[String(code || '').trim().toUpperCase()] || '';
 const serviceCodeOptionLabel = (code) => {
@@ -797,6 +871,144 @@ const serviceCodeOptionLabel = (code) => {
   const desc = serviceCodeDescription(normalized);
   return desc ? `${normalized} — ${desc}` : normalized;
 };
+
+const noteTypeOptions = computed(() => {
+  const available = new Set(rawEligibleServiceCodes.value);
+  const used = new Set();
+  const options = [];
+
+  for (const g of NOTE_TYPE_GROUPS) {
+    const present = g.codes.filter((c) => available.has(c));
+    if (!present.length) continue;
+    present.forEach((c) => used.add(c));
+    const primary = present.includes(g.primary) ? g.primary : present[0];
+    options.push({
+      value: g.id,
+      label: g.label,
+      codes: present,
+      primary
+    });
+  }
+
+  for (const code of rawEligibleServiceCodes.value) {
+    if (used.has(code) || HIDDEN_ADDON_CODES.has(code)) continue;
+    options.push({
+      value: code,
+      label: serviceCodeOptionLabel(code),
+      codes: [code],
+      primary: code
+    });
+  }
+  return options;
+});
+
+const aidsForSelectedCategory = computed(() => {
+  const cat = noteAidCategories.find((c) => c.id === selectedNoteCategory.value);
+  if (!cat) return [];
+  const available = new Set(rawEligibleServiceCodes.value);
+  return (cat.aids || []).filter((aid) => {
+    const code = String(aid.serviceCode || '').toUpperCase();
+    if (!code) return true;
+    if (HIDDEN_ADDON_CODES.has(code)) return false;
+    // If agency catalog is known and non-empty, only show aids whose code is eligible
+    // (or whose code-group has any eligible member).
+    if (!Array.isArray(eligibleServiceCodes.value)) return true;
+    if (!available.size) return true;
+    if (available.has(code)) return true;
+    if (aid.codeGroupId) {
+      const g = NOTE_TYPE_GROUPS.find((x) => x.id === aid.codeGroupId);
+      return !!(g && g.codes.some((c) => available.has(c)));
+    }
+    return true;
+  });
+});
+
+const selectedAid = computed(() => {
+  const hit = findNoteAidById(selectedAidId.value);
+  return hit?.aid || null;
+});
+
+const selectedAidGuidance = computed(() => String(selectedAid.value?.guidance || '').trim());
+const selectedAidForcesAutoSelect = computed(() => !!selectedAid.value?.autoSelect);
+/** Explicit gem/tool from the Aid picker — this is how we reuse the working Gemini Gem prompts in-app. */
+const selectedToolId = computed(() => {
+  if (forceAutoSelect.value || selectedAidForcesAutoSelect.value || autoSelectCode.value) {
+    return 'clinical_code_decider';
+  }
+  return String(selectedAid.value?.toolId || '').trim();
+});
+const showBillingCodePicker = computed(() => {
+  if (forceAutoSelect.value) return false;
+  if (selectedAidForcesAutoSelect.value) return false;
+  // Optional override when the selected gem carries a billing code / code group.
+  return !!(selectedAid.value?.serviceCode || selectedAid.value?.codeGroupId);
+});
+const showAutoSelectCodeOption = computed(() => {
+  if (forceAutoSelect.value) return false;
+  const cat = selectedNoteCategory.value;
+  return cat === 'universal' || cat === 'psychotherapy' || cat === 'additional';
+});
+
+const resolveNoteTypeSelection = (raw) => {
+  const v = String(raw || '').trim();
+  if (!v || v === '__other__') return v;
+  const upper = v.toUpperCase();
+  const byId = NOTE_TYPE_GROUPS.find((g) => g.id === v);
+  if (byId) return byId.id;
+  const byCode = NOTE_TYPE_GROUPS.find((g) => g.codes.includes(upper));
+  if (byCode) {
+    const available = new Set(rawEligibleServiceCodes.value);
+    if (byCode.codes.some((c) => available.has(c))) return byCode.id;
+  }
+  return upper;
+};
+
+const noteTypePrimaryCode = (selection) => {
+  const v = String(selection || '').trim();
+  if (!v || v === '__other__') return '';
+  const opt = (noteTypeOptions.value || []).find((o) => o.value === v);
+  if (opt?.primary) return opt.primary;
+  const group = NOTE_TYPE_GROUPS.find((g) => g.id === v);
+  if (group) return group.primary;
+  return v.toUpperCase();
+};
+
+watch(selectedNoteCategory, (catId, prev) => {
+  if (catId === prev) return;
+  const aids = aidsForSelectedCategory.value;
+  if (!aids.some((a) => a.id === selectedAidId.value)) {
+    selectedAidId.value = aids[0]?.id || '';
+  }
+});
+
+watch(selectedAidId, (aidId) => {
+  const aid = findNoteAidById(aidId)?.aid;
+  if (!aid) return;
+  if (aid.autoSelect) {
+    autoSelectCode.value = true;
+    selectedServiceCode.value = '';
+    otherServiceCode.value = '';
+    return;
+  }
+  // Leaving Code Decider (or switching gems): clear AI-choose unless still on a code-capable family.
+  if (
+    autoSelectCode.value
+    && (selectedNoteCategory.value === 'universal'
+      || selectedNoteCategory.value === 'psychotherapy'
+      || selectedNoteCategory.value === 'additional')
+  ) {
+    // keep checkbox if user still wants it
+  } else {
+    autoSelectCode.value = false;
+  }
+  if (aid.serviceCode || aid.codeGroupId) {
+    selectedServiceCode.value = aid.codeGroupId || aid.serviceCode;
+    otherServiceCode.value = '';
+  } else {
+    selectedServiceCode.value = '';
+    otherServiceCode.value = '';
+  }
+});
 
 const formatTherapyRangeLine = (startRaw, endRaw) => {
   try {
@@ -857,9 +1069,14 @@ const applyBookingContextPrefill = () => {
     return;
   }
   if (forceAutoSelect.value) return;
-  const options = serviceCodeOptions.value || [];
-  if (options.includes(prefilledCode)) {
-    selectedServiceCode.value = prefilledCode;
+  if (HIDDEN_ADDON_CODES.has(prefilledCode)) {
+    bookingPrefillApplied.value = true;
+    return;
+  }
+  const resolved = resolveNoteTypeSelection(prefilledCode);
+  const known = (noteTypeOptions.value || []).some((o) => o.value === resolved || o.codes.includes(prefilledCode));
+  if (known) {
+    selectedServiceCode.value = resolved;
     otherServiceCode.value = '';
   } else {
     selectedServiceCode.value = '__other__';
@@ -871,10 +1088,20 @@ const applyBookingContextPrefill = () => {
 
 const actualServiceCode = computed(() => {
   if (selectedServiceCode.value === '__other__') return String(otherServiceCode.value || '').trim().toUpperCase();
-  return String(selectedServiceCode.value || '').trim().toUpperCase();
+  const fromPicker = noteTypePrimaryCode(selectedServiceCode.value);
+  if (fromPicker) return fromPicker;
+  const aidCode = String(selectedAid.value?.serviceCode || '').trim().toUpperCase();
+  if (aidCode) return aidCode;
+  if (selectedAid.value?.codeGroupId) {
+    const g = NOTE_TYPE_GROUPS.find((x) => x.id === selectedAid.value.codeGroupId);
+    if (g?.primary) return g.primary;
+  }
+  return '';
 });
 
-const showProgramDropdown = computed(() => actualServiceCode.value === 'H2014');
+const showProgramDropdown = computed(
+  () => !!selectedAid.value?.needsProgram || actualServiceCode.value === 'H2014'
+);
 const requiresConsentTemplateSelection = computed(
   () => (
     (clientPresentInRecording.value && clientConsentOnFile.value === 'no')
@@ -999,6 +1226,8 @@ const generateDisabled = computed(() => {
   const hasText = !!String(inputText.value || '').trim();
   const hasAudio = !!audioBlob.value;
   if (!hasText && !hasAudio) return true;
+  // Need a gem/aid unless credential tier forces Code Decider.
+  if (!forceAutoSelect.value && !selectedToolId.value) return true;
   return false;
 });
 
@@ -1091,9 +1320,22 @@ const displayPanels = computed(() => {
   return buildDisplaySections(sections);
 });
 
+const canSaveTreatmentPlanToChart = computed(() => {
+  if (!isClinicalChartEnabled(medicalBillingFlags.value)) return false;
+  const panels = displayPanels.value || [];
+  return panels.some((p) => p.isTreatmentPlan || /^Goal\s*\d+/i.test(p.id || ''));
+});
+
 const noteTypeDisplayLabel = computed(() => {
+  const sel = String(selectedServiceCode.value || '').trim();
+  if (sel && sel !== '__other__') {
+    const opt = (noteTypeOptions.value || []).find((o) => o.value === sel);
+    if (opt?.label) return opt.label;
+  }
   const code = actualServiceCode.value || outputObj.value?.meta?.serviceCode || '';
   if (!code) return 'Progress Note';
+  const group = NOTE_TYPE_GROUPS.find((g) => g.codes.includes(String(code).toUpperCase()));
+  if (group) return group.label;
   return serviceCodeOptionLabel(code);
 });
 
@@ -1231,9 +1473,11 @@ const toggleDateGroup = (key) => {
 const draftDateParts = (raw) => formatDraftListDate(raw);
 const draftTimeLabel = (raw) => formatDraftListTime(raw);
 const draftNoteTypeLabel = (d) => {
-  const code = String(d?.service_code || '').trim();
+  const code = String(d?.service_code || '').trim().toUpperCase();
   if (!code) return 'Progress Note';
-  return serviceCodeDescription(code) ? `${code} Note` : `${code}`;
+  const group = NOTE_TYPE_GROUPS.find((g) => g.codes.includes(code));
+  if (group) return group.label;
+  return serviceCodeDescription(code) ? `${code} Note` : code;
 };
 
 watch(outputObj, () => {
@@ -1768,18 +2012,22 @@ const generateNote = async () => {
     const fd = new FormData();
     fd.append('agencyId', String(currentAgencyId.value));
     fd.append('recordingPurpose', String(recordingPurpose.value || 'dictation'));
-    const shouldAutoSelectCode = autoSelectCode.value || forceAutoSelect.value || !actualServiceCode.value;
+    // Do NOT treat "no billing code" as auto-select — plans/termination/diagnosis use toolId only.
+    const shouldAutoSelectCode =
+      !!forceAutoSelect.value || !!selectedAidForcesAutoSelect.value || !!autoSelectCode.value;
     if (!shouldAutoSelectCode && actualServiceCode.value) {
       fd.append('serviceCode', actualServiceCode.value);
     }
     fd.append('autoSelectCode', String(shouldAutoSelectCode));
+    if (!shouldAutoSelectCode && selectedToolId.value) {
+      fd.append('toolId', selectedToolId.value);
+    }
     if (selectedProgram.value?.isCustom && selectedProgram.value?.name) {
       fd.append('programLabel', String(selectedProgram.value.name));
     } else if (showProgramDropdown.value && selectedProgramId.value) {
       fd.append('programId', String(selectedProgramId.value));
     }
     if (transcriptSource.value) fd.append('transcriptSource', transcriptSource.value);
-    if (showProgramDropdown.value && selectedProgramId.value) fd.append('programId', String(selectedProgramId.value));
     if (dateOfService.value) fd.append('dateOfService', String(dateOfService.value));
     fd.append('dateWritten', String(effectiveCreatedDate.value));
     if (initials.value) fd.append('initials', String(initials.value));
@@ -1888,6 +2136,62 @@ const approveNoteOutput = async () => {
   }
 };
 
+const saveTreatmentPlanToChart = async () => {
+  if (!canSaveTreatmentPlanToChart.value || savingTreatmentPlan.value) return;
+  const clientId = Number(bookingContext.value?.clientId || route.query?.clientId || 0) || null;
+  if (!clientId) {
+    approvalError.value = 'Client context is required to save a treatment plan to the chart.';
+    return;
+  }
+  try {
+    savingTreatmentPlan.value = true;
+    approvalError.value = '';
+    approvalMessage.value = '';
+    const panels = displayPanels.value || [];
+    const goals = [];
+    let current = null;
+    let dischargePlan = null;
+    for (const p of panels) {
+      if (p.kind === 'goal' || /^Goal\s*\d+/i.test(p.id || '')) {
+        current = {
+          goalIndex: p.index || goals.length + 1,
+          goalText: p.text || '',
+          projectedCompletion: null,
+          objectives: []
+        };
+        goals.push(current);
+      } else if (current && (p.kind === 'objective' || /^Objective\s*\d+/i.test(p.id || ''))) {
+        current.objectives.push({
+          objectiveIndex: p.index || current.objectives.length + 1,
+          objectiveText: p.text || ''
+        });
+      } else if (current && (p.kind === 'projected_time' || /^Projected/i.test(p.id || ''))) {
+        current.projectedCompletion = p.text || '';
+      } else if (p.kind === 'discharge' || /Discharge/i.test(p.id || '')) {
+        dischargePlan = p.text || '';
+      }
+    }
+    if (!goals.length) {
+      throw new Error('No Goal/Objective panels found to save.');
+    }
+    await api.post('/medical-billing/treatment-plans', {
+      agencyId: currentAgencyId.value,
+      clientId,
+      officeEventId: bookingContext.value?.officeEventId || null,
+      clinicalSessionId: null,
+      title: 'Treatment Plan',
+      dischargePlan,
+      sourceToolId: selectedToolId.value || outputObj.value?.meta?.toolId || null,
+      goals
+    });
+    approvalMessage.value = 'Treatment plan saved to clinical chart.';
+  } catch (e) {
+    approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to save treatment plan';
+  } finally {
+    savingTreatmentPlan.value = false;
+  }
+};
+
 const formatDateTime = (raw) => {
   try {
     if (!raw) return '';
@@ -1969,7 +2273,7 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
     recordSessionIntentHandled.value = false;
     currentDraftArchivedAt.value = null;
     archiveMessage.value = '';
-    includeInteractiveComplexity.value = true;
+    includeInteractiveComplexity.value = false;
   }
 
   // Critical path in parallel; draft list is soft and must not block the form.
@@ -1995,13 +2299,16 @@ const startNewNote = () => {
   currentDraftArchivedAt.value = null;
   currentDraftCreatedAt.value = null;
   lastSavedAt.value = '';
+  selectedNoteCategory.value = '';
+  selectedAidId.value = '';
   selectedServiceCode.value = '';
   otherServiceCode.value = '';
   selectedProgramId.value = '';
+  autoSelectCode.value = false;
   dateOfService.value = todayIsoDate();
   initials.value = '';
   inputText.value = '';
-  includeInteractiveComplexity.value = true;
+  includeInteractiveComplexity.value = false;
   inputMode.value = 'type';
   outputObj.value = null;
   revisionInstruction.value = '';
@@ -2021,11 +2328,24 @@ const loadDraftIntoWorkspace = (d) => {
   draftId.value = d.id || null;
   currentDraftArchivedAt.value = d.archived_at || null;
   currentDraftCreatedAt.value = d.created_at || null;
-  selectedServiceCode.value = d.service_code || '';
+  const draftCode = String(d.service_code || '').trim().toUpperCase();
   otherServiceCode.value = '';
-  if (d.service_code && !(serviceCodeOptions.value || []).includes(String(d.service_code).toUpperCase())) {
+  if (!draftCode) {
+    selectedServiceCode.value = '';
+  } else if (HIDDEN_ADDON_CODES.has(draftCode)) {
     selectedServiceCode.value = '__other__';
-    otherServiceCode.value = String(d.service_code);
+    otherServiceCode.value = draftCode;
+  } else {
+    const resolved = resolveNoteTypeSelection(draftCode);
+    const known = (noteTypeOptions.value || []).some(
+      (o) => o.value === resolved || o.codes.includes(draftCode)
+    );
+    if (known) {
+      selectedServiceCode.value = resolved;
+    } else {
+      selectedServiceCode.value = '__other__';
+      otherServiceCode.value = draftCode;
+    }
   }
   selectedProgramId.value = d.program_id ? String(d.program_id) : '';
   dateOfService.value = d.date_of_service ? String(d.date_of_service).slice(0, 10) : todayIsoDate();
@@ -2047,6 +2367,13 @@ const loadDraftIntoWorkspace = (d) => {
   }
   if (outputObj.value?.meta?.includeInteractiveComplexity != null) {
     includeInteractiveComplexity.value = !!outputObj.value.meta.includeInteractiveComplexity;
+  }
+  const draftToolId = String(outputObj.value?.meta?.toolId || d.tool_id || '').trim();
+  const aidHit = findNoteAidByToolOrCode({ toolId: draftToolId, serviceCode: draftCode });
+  if (aidHit) {
+    selectedNoteCategory.value = aidHit.category.id;
+    selectedAidId.value = aidHit.aid.id;
+    if (aidHit.aid.autoSelect) autoSelectCode.value = true;
   }
   const dayKey = draftCreatedKey(d.created_at);
   openDateGroups.value = { ...openDateGroups.value, [dayKey]: true };

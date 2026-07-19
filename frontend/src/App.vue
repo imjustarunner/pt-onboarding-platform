@@ -93,7 +93,7 @@
               <!--
                 Desktop word links / dropdowns: admin · super_admin · support only.
                 Everyone else uses the hamburger (sandwich) sidebar for these items.
-                Tutorial + everything after it stay in the top bar for all roles.
+                My Dashboard + everything after the word-nav block stay in the top bar for all roles.
               -->
               <template v-if="showDesktopHeaderWordNav">
               <!-- SSTC Summit: primary nav order (matches mobile sidebar) -->
@@ -604,6 +604,39 @@
                       </div>
                     </div>
                     <div
+                      v-if="showAffiliationsNav"
+                      class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout affiliations-nav"
+                      @mouseenter="directoryAffiliationsNavExpanded = true"
+                      @mouseleave="directoryAffiliationsNavExpanded = false"
+                    >
+                      <div
+                        class="nav-dropdown-group-trigger"
+                        :aria-expanded="directoryAffiliationsNavExpanded ? 'true' : 'false'"
+                      >
+                        <span class="school-portals-nav-label">Affiliations</span>
+                        <button
+                          type="button"
+                          class="nav-dropdown-group-caret-btn"
+                          :aria-label="directoryAffiliationsNavExpanded ? 'Collapse affiliations' : 'Expand affiliations'"
+                          @click.stop="directoryAffiliationsNavExpanded = !directoryAffiliationsNavExpanded"
+                        >
+                          <span class="nav-dropdown-group-caret" :class="{ open: directoryAffiliationsNavExpanded }" aria-hidden="true">▸</span>
+                        </button>
+                      </div>
+                      <div v-show="directoryAffiliationsNavExpanded" class="nav-dropdown-group-items nav-dropdown-group-items-nested">
+                        <button
+                          v-for="row in affiliationPortalLinks"
+                          :key="`dir-aff-${row.id}`"
+                          type="button"
+                          class="nav-dropdown-button-link affiliations-nav-link"
+                          @click="openAffiliationPortalLink(row)"
+                        >
+                          <span class="affiliations-nav-name">{{ row.name }}</span>
+                          <span class="affiliations-nav-type">{{ row.typeLabel }}</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div
                       v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav"
                       class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout school-mgmt-nav"
                       @mouseenter="setDirectoryFlyout('schools')"
@@ -999,16 +1032,15 @@
                 </div>
               </div>
               </template>
-              <button
-                v-if="!isAffiliationContext && !isSummitStatsChallengeChrome"
-                type="button"
-                class="btn btn-secondary tutorial-toggle"
-                :class="{ active: tutorialStore.enabled }"
-                :aria-pressed="tutorialStore.enabled ? 'true' : 'false'"
-                @click="tutorialStore.setEnabled(!tutorialStore.enabled)"
+              <!-- Non-admin desktop: My Dashboard stays in the top bar (other word links are in the hamburger). -->
+              <router-link
+                v-if="isAuthenticated && !showDesktopHeaderWordNav"
+                :to="myDashboardTo"
+                class="nav-my-dashboard-link"
+                @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }"
               >
-                Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
-              </button>
+                {{ desktopMyDashboardLabel }}
+              </router-link>
               <button
                 v-if="brandingStore.isSuperAdmin"
                 type="button"
@@ -1023,9 +1055,9 @@
                 <WeatherChip />
                 <router-link
                   v-if="canShowScheduleIcon && !isSscSstcTenant"
-                  :to="myScheduleNavLink"
+                  :to="scheduleNavLink"
                   class="nav-icon-btn"
-                  title="Schedule"
+                  title="Schedule hub — My Schedule, staff compare, buildings, and approvals"
                   aria-label="Schedule"
                 >
                   <img v-if="scheduleIconUrl" :src="scheduleIconUrl" alt="" class="nav-icon-img" />
@@ -1150,6 +1182,29 @@
                 <option value="summit">Summit / My clubs</option>
                 <option value="work">Employer dashboard</option>
               </select>
+            </div>
+            <div v-if="showAffiliationsNav" class="mobile-nav-group mobile-nav-group-collapsible">
+              <button
+                type="button"
+                class="mobile-nav-group-trigger mobile-nav-link"
+                :aria-expanded="affiliationsNavExpanded ? 'true' : 'false'"
+                @click.stop="affiliationsNavExpanded = !affiliationsNavExpanded"
+              >
+                <span>Affiliations</span>
+                <span class="mobile-nav-group-caret" :class="{ open: affiliationsNavExpanded }" aria-hidden="true">▸</span>
+              </button>
+              <template v-if="affiliationsNavExpanded">
+                <button
+                  v-for="row in affiliationPortalLinks"
+                  :key="`mob-aff-${row.id}`"
+                  type="button"
+                  class="mobile-nav-link mobile-nav-sublink affiliations-nav-link"
+                  @click="openAffiliationPortalLink(row)"
+                >
+                  <span class="affiliations-nav-name">{{ row.name }}</span>
+                  <span class="affiliations-nav-type">{{ row.typeLabel }}</span>
+                </button>
+              </template>
             </div>
             <router-link v-if="showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
             <template v-if="isSummitStatsChallengeChrome && isAuthenticated && isSscClubManager">
@@ -2100,6 +2155,11 @@ import { buildSuperadminAgencyBrandUrl } from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
 import { isBookClubAgency } from './utils/bookClubAgency.js';
+import {
+  listNestedPortalOrgs,
+  nestedOrganizationTypeLabel,
+  resolveNestedOrgNavigation
+} from './utils/organizationTypes.js';
 import { isSummitPlatformRouteSlug } from './utils/summitPlatformSlugs.js';
 import { isStandalonePwa } from './utils/pwa';
 import { getDashboardRoute } from './utils/router';
@@ -2542,6 +2602,8 @@ const directorySkillBuildersNavExpanded = ref(false);
 const directoryPublicLinksNavExpanded = ref(false);
 const directorySchoolsNavExpanded = ref(false);
 const directorySchoolPortalsNavExpanded = ref(false);
+const affiliationsNavExpanded = ref(false);
+const directoryAffiliationsNavExpanded = ref(false);
 /** Brief double-flash so School Management reads as clickable. */
 const schoolMgmtFlashActive = ref(false);
 let schoolMgmtFlashTimer = null;
@@ -3118,6 +3180,47 @@ const closeMobileMenu = () => {
   mobileClubMgmtExpanded.value = false;
   mobileMyClubsExpanded.value = false;
   mobileActiveSeasonsExpanded.value = false;
+  affiliationsNavExpanded.value = false;
+};
+
+const affiliationMembershipOrgs = computed(() => {
+  const fromUser = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  const fromAgencies = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
+  return fromUser.length ? fromUser : fromAgencies;
+});
+
+const affiliationPortalLinks = computed(() => {
+  return listNestedPortalOrgs(affiliationMembershipOrgs.value).map((org) => {
+    const nav = resolveNestedOrgNavigation(org, affiliationMembershipOrgs.value);
+    return {
+      id: Number(org.id || 0),
+      name: String(org.name || 'Organization').trim(),
+      typeLabel: nestedOrganizationTypeLabel(org),
+      path: nav.path,
+      org,
+      nav
+    };
+  }).filter((row) => row.id > 0 && row.path);
+});
+
+const showAffiliationsNav = computed(() => affiliationPortalLinks.value.length > 0);
+
+const openAffiliationPortalLink = async (row) => {
+  if (!row?.org) return;
+  const nav = row.nav || resolveNestedOrgNavigation(row.org, affiliationMembershipOrgs.value);
+  try {
+    if (nav.setCurrentAgencyToNested) {
+      const hydrated = await agencyStore.hydrateAgencyById?.(row.org.id);
+      agencyStore.setCurrentAgency(hydrated || row.org);
+    } else if (nav.setCurrentAgencyToParent && nav.parent) {
+      agencyStore.setCurrentAgency(nav.parent);
+    }
+  } catch {
+    if (nav.parent) agencyStore.setCurrentAgency(nav.parent);
+  }
+  closeAllNavMenus();
+  closeMobileMenu();
+  if (nav.path) await router.push(nav.path);
 };
 
 const closeClubManagementMenu = () => {
@@ -3329,6 +3432,13 @@ const isAdminLike = computed(() => {
 
 /** Desktop top-bar word links/dropdowns — only admin / super_admin / support. */
 const showDesktopHeaderWordNav = computed(() => isAdminLike.value);
+
+/** Label for the always-visible desktop My Dashboard link (non-admin top bar). */
+const desktopMyDashboardLabel = computed(() => {
+  if (isSscClubManager.value) return 'Manager Dashboard';
+  if (isPrivilegedPortalUser.value) return 'My Dashboard';
+  return 'Dashboard';
+});
 
 const isTrueAdmin = computed(() => {
   const role = user.value?.role;
@@ -4404,11 +4514,10 @@ const scheduleNavLink = computed(() => {
   return orgTo('/schedule');
 });
 
-const myScheduleNavLink = computed(() => ({
-  // Always open the user's personal dashboard schedule tab, not an org-scoped portal route.
-  path: '/dashboard',
-  query: { tab: 'my_schedule' }
-}));
+const myScheduleNavLink = computed(() => {
+  // Full-screen My Schedule (not embedded in My Dashboard).
+  return orgTo('/my-schedule');
+});
 
 // Dashboard URL pattern by role (org slug e.g. "itsco" when user is in that agency's context):
 // - Superadmin: My Dashboard = /dashboard (platform personal), Admin = /admin (nav "Admin Dashboard").
@@ -5825,6 +5934,34 @@ onUnmounted(() => {
 }
 .school-portals-nav-label {
   flex: 1;
+}
+.affiliations-nav-link {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.affiliations-nav-name {
+  font-weight: 600;
+}
+.affiliations-nav-type {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.72;
+}
+button.nav-dropdown-button-link {
+  padding: 8px 12px;
+}
+button.nav-dropdown-button-link:hover {
+  background: rgba(15, 23, 42, 0.06);
 }
 .school-mgmt-flash {
   animation: school-mgmt-flash-twice 1.1s ease-in-out 1;

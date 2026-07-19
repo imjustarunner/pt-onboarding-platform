@@ -10,10 +10,21 @@
       </div>
 
       <nav class="pthq-nav">
+        <div class="pthq-nav-section">Workspace</div>
+        <button
+          type="button"
+          class="pthq-nav-item"
+          :class="{ active: panel === 'schedule' }"
+          data-tour="pthq-nav-schedule"
+          @click="setPanel('schedule')"
+        >
+          Schedule
+        </button>
+
         <div class="pthq-nav-section">Tenant Management</div>
-        <button type="button" class="pthq-nav-item" :class="{ active: panel === 'overview' }" @click="panel = 'overview'">Overview</button>
-        <button type="button" class="pthq-nav-item" :class="{ active: panel === 'tenants' }" @click="panel = 'tenants'">Organizations</button>
-        <button type="button" class="pthq-nav-item" :class="{ active: panel === 'individuals' }" @click="panel = 'individuals'">Individuals</button>
+        <button type="button" class="pthq-nav-item" :class="{ active: panel === 'overview' }" @click="setPanel('overview')">Overview</button>
+        <button type="button" class="pthq-nav-item" :class="{ active: panel === 'tenants' }" @click="setPanel('tenants')">Organizations</button>
+        <button type="button" class="pthq-nav-item" :class="{ active: panel === 'individuals' }" @click="setPanel('individuals')">Individuals</button>
         <router-link class="pthq-nav-item" to="/admin/settings?tab=agencies">Manage Organizations</router-link>
 
         <div class="pthq-nav-section">User Management</div>
@@ -26,11 +37,11 @@
         <router-link class="pthq-nav-item" to="/admin/modules">Modules</router-link>
 
         <div class="pthq-nav-section">Developer &amp; Testing</div>
-        <button type="button" class="pthq-nav-item" :class="{ active: panel === 'testing' }" @click="panel = 'testing'">
+        <button type="button" class="pthq-nav-item" :class="{ active: panel === 'testing' }" @click="setPanel('testing')">
           Testing Interface
           <span class="pthq-new">NEW</span>
         </button>
-        <button type="button" class="pthq-nav-item" :class="{ active: panel === 'sandbox' }" @click="panel = 'sandbox'">Sandbox Tenants</button>
+        <button type="button" class="pthq-nav-item" :class="{ active: panel === 'sandbox' }" @click="setPanel('sandbox')">Sandbox Tenants</button>
       </nav>
 
       <div class="pthq-sidebar-foot">
@@ -46,18 +57,51 @@
     </aside>
 
     <div class="pthq-main">
-      <header class="pthq-top">
+      <header class="pthq-top" :class="{ 'pthq-top--schedule': panel === 'schedule' }">
         <div>
           <h1>{{ headerTitle }}</h1>
-          <p class="pthq-top-sub">Platform-wide visibility across every tenant</p>
+          <p class="pthq-top-sub">{{ headerSubtitle }}</p>
         </div>
         <div class="pthq-top-right">
-          <div class="pthq-search">Search tenants, users, settings…</div>
+          <template v-if="panel === 'schedule'">
+            <router-link class="pthq-top-link" to="/schedule" title="Schedule hub">Schedule hub</router-link>
+            <router-link class="pthq-top-link" to="/schedule/staff" title="Compare staff calendars">Staff schedules</router-link>
+            <router-link class="pthq-top-link" to="/buildings/schedule" title="Office &amp; room booking">Buildings</router-link>
+          </template>
+          <div v-else class="pthq-search">Search tenants, users, settings…</div>
           <span class="pthq-pill">SUPER ADMIN</span>
         </div>
       </header>
 
-      <div v-if="loading" class="pthq-loading">Loading platform telemetry…</div>
+      <!-- Platform schedule: available immediately (no telemetry gate) -->
+      <section v-if="panel === 'schedule'" class="pthq-panel pthq-panel--schedule" data-tour="pthq-schedule-panel">
+        <div class="pthq-schedule-shell">
+          <div class="pthq-schedule-toolbar">
+            <WorkHoursEditor
+              v-if="authStore.user?.id"
+              class="pthq-schedule-work-hours"
+              :user-id="Number(authStore.user.id)"
+            />
+            <p class="pthq-schedule-hint muted">
+              Your calendar across tenants — peers overlay, staff compare, and office bookings.
+            </p>
+          </div>
+          <div v-if="!authStore.user?.id" class="muted">Sign in to view your schedule.</div>
+          <ScheduleAvailabilityGrid
+            v-else
+            :user-id="Number(authStore.user.id)"
+            mode="self"
+            :compact-page-chrome="true"
+            :platform-theme="true"
+            :week-start-ymd="weekStartYmd || null"
+            :show-skill-builders-programs-button="true"
+            :show-company-events-calendar-button="true"
+            @update:weekStartYmd="onWeekStartUpdate"
+          />
+        </div>
+      </section>
+
+      <div v-else-if="loading" class="pthq-loading">Loading platform telemetry…</div>
       <div v-else-if="error" class="pthq-error">{{ error }}</div>
 
       <template v-else>
@@ -137,7 +181,7 @@
                 <span class="pthq-new">NEW</span>
               </div>
               <p>Full testing environment for demo tenants — isolated windows, role switching, no session collision.</p>
-              <button type="button" class="pthq-cta" @click="panel = 'testing'">Launch Testing Interface →</button>
+              <button type="button" class="pthq-cta" @click="setPanel('testing')">Launch Testing Interface →</button>
             </article>
           </div>
 
@@ -189,8 +233,9 @@
               <article class="pthq-card">
                 <div class="pthq-card-head"><h2>Quick actions</h2></div>
                 <div class="pthq-qa-grid">
+                  <button type="button" @click="setPanel('schedule')">Schedule</button>
                   <router-link to="/admin/settings?tab=agencies">Add Tenant</router-link>
-                  <button type="button" @click="panel = 'testing'">Impersonate / Demo</button>
+                  <button type="button" @click="setPanel('testing')">Impersonate / Demo</button>
                   <router-link to="/admin/settings">Feature Flags</router-link>
                   <router-link to="/admin/audit-center">Audit Logs</router-link>
                   <router-link to="/admin/users">Users</router-link>
@@ -259,7 +304,7 @@
               <h2>Testing Interface</h2>
               <p class="muted">Platform-only. Launches isolated windows so your superadmin session stays put.</p>
             </div>
-            <button type="button" class="pthq-ghost" @click="panel = 'overview'">← Back to overview</button>
+            <button type="button" class="pthq-ghost" @click="setPanel('overview')">← Back to overview</button>
           </div>
           <SuperadminDemoTestingLab />
         </section>
@@ -269,13 +314,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
 import SuperadminDemoTestingLab from '../../components/admin/SuperadminDemoTestingLab.vue';
+import ScheduleAvailabilityGrid from '../../components/schedule/ScheduleAvailabilityGrid.vue';
+import WorkHoursEditor from '../../components/schedule/WorkHoursEditor.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -283,7 +330,12 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 
-const panel = ref(String(route.query.panel || 'overview'));
+const VALID_PANELS = new Set(['overview', 'schedule', 'tenants', 'individuals', 'sandbox', 'testing']);
+const panelFromQuery = () => {
+  const q = String(route.query.panel || 'overview').trim().toLowerCase();
+  return VALID_PANELS.has(q) ? q : 'overview';
+};
+const panel = ref(panelFromQuery());
 const loading = ref(true);
 const error = ref('');
 const tenantSearch = ref('');
@@ -298,6 +350,34 @@ const stats = ref({
 });
 const myOpenTickets = ref('—');
 const refreshedAt = ref(null);
+const weekStartYmd = ref('');
+
+const setPanel = (next) => {
+  const p = VALID_PANELS.has(String(next || '')) ? String(next) : 'overview';
+  panel.value = p;
+};
+
+const onWeekStartUpdate = (ymd) => {
+  const next = String(ymd || '').slice(0, 10);
+  if (next) weekStartYmd.value = next;
+};
+
+watch(panel, (p) => {
+  const current = String(route.query.panel || 'overview');
+  if (current === p) return;
+  const query = { ...route.query };
+  if (p === 'overview') delete query.panel;
+  else query.panel = p;
+  router.replace({ path: route.path, query }).catch(() => {});
+});
+
+watch(
+  () => route.query.panel,
+  () => {
+    const next = panelFromQuery();
+    if (next !== panel.value) panel.value = next;
+  }
+);
 
 const userName = computed(() => {
   const u = authStore.user || {};
@@ -308,11 +388,18 @@ const userInitials = computed(() => {
   return parts.slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || 'SA';
 });
 const headerTitle = computed(() => {
+  if (panel.value === 'schedule') return 'Schedule';
   if (panel.value === 'testing') return 'Testing Interface';
   if (panel.value === 'tenants') return 'Organizations';
   if (panel.value === 'individuals') return 'Individual Practitioners';
   if (panel.value === 'sandbox') return 'Sandbox Tenants';
   return 'Superadmin Dashboard Overview';
+});
+const headerSubtitle = computed(() => {
+  if (panel.value === 'schedule') {
+    return 'Platform calendar — book across tenants, overlay peers & staff, manage office holds';
+  }
+  return 'Platform-wide visibility across every tenant';
 });
 
 const panelTitle = computed(() => {
@@ -744,6 +831,67 @@ onMounted(fetchAll);
 }
 .pthq-top-sub { margin: 0.3rem 0 0; color: var(--muted); font-size: 0.9rem; }
 .pthq-top-right { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+.pthq-top--schedule { margin-bottom: 0.85rem; }
+.pthq-top-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(15, 23, 42, 0.65);
+  color: #c4b5fd;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.pthq-top-link:hover {
+  border-color: rgba(167, 139, 250, 0.45);
+  color: #e9d5ff;
+  background: rgba(139, 92, 246, 0.16);
+}
+.pthq-panel--schedule {
+  min-width: 0;
+}
+.pthq-schedule-shell {
+  background: rgba(17, 24, 39, 0.55);
+  color: #e5e7eb;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px 18px;
+  min-height: min(70vh, 820px);
+}
+.pthq-schedule-shell :deep(.work-hours__title),
+.pthq-schedule-shell :deep(.work-hours__summary .muted) {
+  color: #94a3b8;
+}
+.pthq-schedule-shell :deep(.work-hours[open]) {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.72);
+}
+.pthq-schedule-shell :deep(.work-hours[open] .work-hours__title) {
+  color: #e5e7eb;
+}
+.pthq-schedule-shell :deep(.work-hours__help),
+.pthq-schedule-shell :deep(.work-hours .muted) {
+  color: #94a3b8;
+}
+.pthq-schedule-hint {
+  margin: 0;
+  max-width: 36rem;
+  font-size: 0.82rem;
+  color: #94a3b8;
+}
+.pthq-schedule-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+.pthq-schedule-work-hours {
+  flex: 1 1 auto;
+}
 .pthq-search {
   min-width: 220px;
   padding: 0.55rem 0.85rem;

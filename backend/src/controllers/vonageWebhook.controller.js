@@ -191,6 +191,53 @@ export const inboundSmsWebhook = async (req, res, next) => {
     const agencyId = route.agencyId || (ownerUser ? await getAgencyIdForUser(ownerUser.id) : null);
     const clientId = client?.id || null;
 
+    // Appointment reminder replies:
+    // - Y/N/R → apply to booking, ACK, done
+    // - other text with upcoming appointment → soft ACK + fall through to inbox so support can text back
+    let appointmentReplyContext = null;
+    if (agencyId && clientId) {
+      try {
+        const { handleInboundSmsAppointmentReply } = await import('../services/appointmentReply.service.js');
+        const apptReply = await handleInboundSmsAppointmentReply({
+          agencyId,
+          clientId,
+          rawBody: body,
+          channel: 'sms'
+        });
+        if (apptReply && !apptReply.fallThroughToInbox && apptReply.ackMessage) {
+          await VonageService.sendSms({
+            to: fromNorm,
+            from: toNorm,
+            body: String(apptReply.ackMessage).slice(0, 480)
+          });
+          return res.status(200).json({
+            ok: true,
+            appointmentReply: {
+              intent: apptReply.intent,
+              appointmentId: apptReply.appointmentId,
+              status: apptReply.status
+            }
+          });
+        }
+        if (apptReply?.fallThroughToInbox) {
+          appointmentReplyContext = apptReply;
+          if (apptReply.ackMessage) {
+            try {
+              await VonageService.sendSms({
+                to: fromNorm,
+                from: toNorm,
+                body: String(apptReply.ackMessage).slice(0, 480)
+              });
+            } catch (e) {
+              console.warn('[VonageWebhook] appointment unknown-reply ACK failed:', e?.message || e);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[VonageWebhook] appointment reply handling failed:', e?.message || e);
+      }
+    }
+
     if (body.trim().toUpperCase() === 'YES' && agencyId && clientId) {
       const handled = await SmsAutoReplyRuleService.handleYesReply({
         fromNumber: fromNorm,
@@ -220,6 +267,15 @@ export const inboundSmsWebhook = async (req, res, next) => {
 
     const metadata = { provider: 'vonage', numberId };
     if (mediaUrls.length > 0) metadata.media_urls = mediaUrls;
+    if (appointmentReplyContext?.needsSupport) {
+      metadata.appointment_reply = {
+        intent: 'unknown',
+        needsSupport: true,
+        appointmentId: appointmentReplyContext.appointmentId || null,
+        reviewId: appointmentReplyContext.reviewId || null,
+        reason: 'non_ynr_reply'
+      };
+    }
 
     const inboundLog = await MessageLog.createInbound({
       agencyId,
@@ -406,13 +462,23 @@ export const inboundSmsWebhook = async (req, res, next) => {
 
     if (agencyId && notifyUserIds.length > 0) {
       const clinicianName = ownerUser ? `${ownerUser.first_name} ${ownerUser.last_name?.slice(0, 1) || ''}.` : 'assigned clinician';
+      const apptCtx = appointmentReplyContext?.needsSupport
+        ? ` Appointment #${appointmentReplyContext.appointmentId} — reply was not Y/N/R; engage in texting.`
+        : '';
+      const inboundTitle = appointmentReplyContext?.needsSupport
+        ? 'Appointment text needs a reply'
+        : 'New inbound client message';
+      const inboundMessage = client?.initials
+        ? `New message from client ${client.initials}.${apptCtx}`
+        : `New inbound message received.${apptCtx}`;
+
       for (const userId of notifyUserIds) {
         await createNotificationAndDispatch(
           {
             type: 'inbound_client_message',
             severity: 'urgent',
-            title: 'New inbound client message',
-            message: client?.initials ? `New message from client ${client.initials}.` : 'New inbound message received.',
+            title: inboundTitle,
+            message: inboundMessage,
             userId,
             agencyId,
             relatedEntityType: 'message_log',
@@ -425,22 +491,62 @@ export const inboundSmsWebhook = async (req, res, next) => {
 
       const eligibleSet = new Set(notifyUserIds.map(Number));
       const supportIds = await listSupportStaffIdsForAgency(agencyId);
+      // Always notify support for ambiguous appointment replies (even if also assigned)
+      const supportNotified = new Set();
       for (const supportUserId of supportIds) {
-        if (eligibleSet.has(Number(supportUserId))) continue;
+        if (!appointmentReplyContext?.needsSupport && eligibleSet.has(Number(supportUserId))) continue;
+        const supportSettings = await UserCallSettings.getByUserId(supportUserId);
+        if (supportSettings?.sms_inbound_enabled === false || supportSettings?.sms_inbound_enabled === 0) continue;
+        supportNotified.add(Number(supportUserId));
+        await createNotificationAndDispatch(
+          {
+            type: 'support_safety_net_alert',
+            severity: 'urgent',
+            title: appointmentReplyContext?.needsSupport
+              ? 'Support: appointment SMS needs engagement'
+              : 'Safety Net: inbound client message',
+            message: appointmentReplyContext?.needsSupport
+              ? (client?.initials
+                ? `${client.initials} replied about appointment #${appointmentReplyContext.appointmentId} with free text — open texting to respond. (${clinicianName})`
+                : `Client free-text reply on appointment #${appointmentReplyContext.appointmentId} — open texting to respond. (${clinicianName})`)
+              : (client?.initials
+                ? `Inbound message from ${client.initials} (${clinicianName})`
+                : `Inbound message (${clinicianName})`),
+            userId: supportUserId,
+            agencyId,
+            relatedEntityType: 'message_log',
+            relatedEntityId: inboundLog.id,
+            actorSource: 'Vonage'
+          },
+          { context: { isUrgent: true } }
+        );
+      }
+
+      // If no assigned SMS recipients but appointment needs support, still hit support list
+      if (appointmentReplyContext?.needsSupport && supportNotified.size === 0 && supportIds.length === 0) {
+        console.warn('[VonageWebhook] Appointment free-text reply but no support staff to notify', {
+          agencyId,
+          appointmentId: appointmentReplyContext.appointmentId
+        });
+      }
+    } else if (agencyId && appointmentReplyContext?.needsSupport) {
+      // No assigned inbox users — still escalate to support so the thread is actionable
+      const supportIds = await listSupportStaffIdsForAgency(agencyId);
+      for (const supportUserId of supportIds) {
         const supportSettings = await UserCallSettings.getByUserId(supportUserId);
         if (supportSettings?.sms_inbound_enabled === false || supportSettings?.sms_inbound_enabled === 0) continue;
         await createNotificationAndDispatch(
           {
             type: 'support_safety_net_alert',
             severity: 'urgent',
-            title: 'Safety Net: inbound client message',
+            title: 'Support: appointment SMS needs engagement',
             message: client?.initials
-              ? `Inbound message from ${client.initials} (${clinicianName})`
-              : `Inbound message (${clinicianName})`,
+              ? `${client.initials} sent free text about appointment #${appointmentReplyContext.appointmentId}. Open texting to respond.`
+              : `Client free-text about appointment #${appointmentReplyContext.appointmentId}. Open texting to respond.`,
             userId: supportUserId,
             agencyId,
             relatedEntityType: 'message_log',
-            relatedEntityId: inboundLog.id,
+            relatedEntityId: inboundLog?.id || null,
             actorSource: 'Vonage'
           },
           { context: { isUrgent: true } }

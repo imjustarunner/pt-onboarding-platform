@@ -726,7 +726,8 @@ async function canAccessSkillBuilderAdmin(req) {
  * Returns defaults when no row exists or the table hasn't been migrated yet.
  */
 async function getAgencySkillBuilderSettings(agencyId) {
-  const defaults = { forceConfirmEnabled: true, requiredHoursPerWeek: 6 };
+  // School-year biweekly force-confirm ended after May; default OFF unless an agency opts back in.
+  const defaults = { forceConfirmEnabled: false, requiredHoursPerWeek: 6 };
   try {
     const [rows] = await pool.execute(
       `SELECT force_confirm_enabled, required_hours_per_week

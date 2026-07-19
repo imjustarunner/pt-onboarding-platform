@@ -105,6 +105,7 @@ const buildDefaultPreferences = (userRole) => {
     quiet_hours_allowed_days: null,
     quiet_hours_start_time: null,
     quiet_hours_end_time: null,
+    allow_notifications_outside_work_schedule: false,
     auto_reply_enabled: false,
     auto_reply_message: null,
     emergency_override: false,
@@ -429,6 +430,7 @@ export const updateUserPreferences = async (req, res, next) => {
       delete updates.quiet_hours_allowed_days;
       delete updates.quiet_hours_start_time;
       delete updates.quiet_hours_end_time;
+      delete updates.allow_notifications_outside_work_schedule;
       delete updates.emergency_override;
       delete updates.auto_reply_enabled;
       delete updates.auto_reply_message;

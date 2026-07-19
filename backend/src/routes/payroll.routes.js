@@ -192,6 +192,7 @@ import {
   ,listUserSalaryPositions
   ,upsertUserSalaryPosition
   ,deleteUserSalaryPosition
+  ,switchUserHourlyDualRateContract
   ,getMyPtoBalances
   ,getUserPtoBalances
   ,createMyPtoRequest
@@ -273,6 +274,7 @@ router.post('/rate-cards', upsertPayrollRateCard);
 router.get('/service-code-rules', listServiceCodeRules);
 router.post('/service-code-rules', upsertServiceCodeRule);
 router.delete('/service-code-rules', deleteServiceCodeRule);
+router.delete('/service-code-rules/:serviceCode', deleteServiceCodeRule);
 router.get('/excess-compensation-rules', listExcessCompensationRules);
 router.get('/me/excess-compensation-rules', listMyExcessCompensationRules);
 router.post('/excess-compensation-rules', upsertExcessCompensationRule);
@@ -402,6 +404,7 @@ router.put('/users/:userId/pto-account', upsertUserPtoAccount);
 router.get('/users/:userId/salary-positions', listUserSalaryPositions);
 router.post('/users/:userId/salary-positions', upsertUserSalaryPosition);
 router.delete('/users/:userId/salary-positions/:positionId', deleteUserSalaryPosition);
+router.post('/users/:userId/switch-hourly-dual-rate-contract', switchUserHourlyDualRateContract);
 router.get('/pending-submissions-summary', getPendingSubmissionsSummary);
 router.get('/pto-requests', listPtoRequests);
 router.patch('/pto-requests/:id', patchPtoRequest);

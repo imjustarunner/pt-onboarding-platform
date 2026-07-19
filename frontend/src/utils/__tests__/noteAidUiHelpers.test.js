@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildDisplaySections,
+  buildTreatmentPlanPanels,
   formatFullNoteCopy,
-  parseSoapSectionsFromText
+  parseSoapSectionsFromText,
+  parseTreatmentPlanPanelsFromText
 } from '../../utils/noteAidUiHelpers.js';
 
 describe('noteAidUiHelpers', () => {
@@ -49,6 +51,49 @@ describe('noteAidUiHelpers', () => {
       Interventions: 'CBT',
       Plan: 'Follow up'
     });
+  });
+
+  it('splits treatment plan into copyable Goal then Objective panels', () => {
+    const blob = [
+      'Goal 1: Reduce anxiety symptoms',
+      'Objective 1:',
+      'Client will practice coping skills rated 4/10 currently.',
+      'Projected Time to Completion: 12 weeks',
+      'Goal 2: Improve school engagement',
+      'Objective 2:',
+      'Client will attend school 4 days per week.',
+      'Projected Time to Completion: 16 weeks',
+      'Goal 3: Strengthen family communication',
+      'Objective 3: Family will use weekly check-ins.',
+      'Projected Time to Completion: 10 weeks',
+      'Discharge Plan',
+      'Services end when goals are met and functioning stabilizes.'
+    ].join('\n');
+    const panels = buildDisplaySections({ Output: blob });
+    expect(panels.map((p) => p.id)).toEqual([
+      'Goal 1',
+      'Objective 1',
+      'Projected Time 1',
+      'Goal 2',
+      'Objective 2',
+      'Projected Time 2',
+      'Goal 3',
+      'Objective 3',
+      'Projected Time 3',
+      'Discharge Plan'
+    ]);
+    expect(panels[0].text).toContain('Reduce anxiety');
+    expect(panels[1].kind).toBe('objective');
+    expect(panels[panels.length - 1].id).toBe('Discharge Plan');
+  });
+
+  it('parses treatment plan headers from raw text', () => {
+    const panels = parseTreatmentPlanPanelsFromText(
+      'Goal 1: Sleep\nObjective 1: Bedtime routine\nGoal 2: Mood\nObjective 2: Track mood\nDischarge Plan\nDone when stable.'
+    );
+    expect(buildTreatmentPlanPanels({ Output: panels.map(() => '').join('') }).length).toBeGreaterThanOrEqual(0);
+    expect(panels.filter((p) => p.kind === 'goal')).toHaveLength(2);
+    expect(panels.filter((p) => p.kind === 'objective')).toHaveLength(2);
   });
 
   it('formats a full note copy block', () => {

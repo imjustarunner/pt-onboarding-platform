@@ -18,6 +18,12 @@ export const AVAILABLE_AGENCY_FEATURE_KEYS = [
   { key: 'noteAidEnabled', label: 'Note Aid' },
   { key: 'trainingAiBuilderEnabled', label: 'Training AI Module Builder' },
   { key: 'clinicalNoteGeneratorEnabled', label: 'Clinical Note Generator' },
+  {
+    key: 'medicalBillingEnabled',
+    label: 'Medical Billing',
+    /** Opt-in: chart, signing, claims, Claim.MD — off until platform exposes + tenant enables. */
+    defaultAvailable: false
+  },
   { key: 'publicProviderFinderEnabled', label: 'Public Provider Finder' },
   { key: 'aiProviderSearchEnabled', label: 'AI Provider Search' },
   { key: 'shiftProgramsEnabled', label: 'Shift Programs' },

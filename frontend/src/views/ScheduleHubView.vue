@@ -8,13 +8,17 @@
     </div>
 
     <div class="grid" data-tour="schedule-hub-grid">
-      <router-link class="card" :to="orgTo('/dashboard?tab=my_schedule')" data-tour="schedule-hub-card-full">
+      <router-link class="card" :to="orgTo('/my-schedule')" data-tour="schedule-hub-card-full">
         <div class="card-title">My Schedule</div>
-        <div class="card-desc">Primary schedule: your grid, office/room booking, requests, school assignments, and overlays.</div>
+        <div class="card-desc">Your personal week grid — book sessions, request rooms, and overlay coworker busy times.</div>
         <div class="card-cta">Open</div>
       </router-link>
 
-      <router-link class="card" :to="orgTo('/schedule/event-staffing')">
+      <router-link
+        v-if="canOpenPrivilegedScheduleTools"
+        class="card"
+        :to="orgTo('/schedule/event-staffing')"
+      >
         <div class="card-title">Event shift requests</div>
         <div class="card-desc">Request to work upcoming program-event sessions (regular, waitlist, or on-call).</div>
         <div class="card-cta">Open</div>
@@ -22,23 +26,42 @@
 
       <router-link class="card" :to="orgTo('/schedule/staff')" data-tour="schedule-hub-card-staff">
         <div class="card-title">Staff schedules (compare)</div>
-        <div class="card-desc">Select multiple providers and compare schedules; reorder and view two+ at once.</div>
+        <div class="card-desc">
+          {{ isProviderBusyOnly
+            ? 'See coworker busy blocks across your agencies (details hidden).'
+            : 'Select multiple providers and compare schedules; reorder and view two+ at once.' }}
+        </div>
         <div class="card-cta">Open</div>
       </router-link>
 
-      <router-link class="card" :to="orgTo('/buildings/schedule')" data-tour="schedule-hub-card-buildings-schedule">
+      <router-link
+        v-if="canOpenPrivilegedScheduleTools"
+        class="card"
+        :to="orgTo('/buildings/schedule')"
+        data-tour="schedule-hub-card-buildings-schedule"
+      >
         <div class="card-title">Buildings master grid</div>
         <div class="card-desc">All rooms in a building — same data as My Schedule, building-centric view (find availability, company holds).</div>
         <div class="card-cta">Open</div>
       </router-link>
 
-      <router-link class="card" :to="orgTo('/admin/availability-intake?tab=office')" data-tour="schedule-hub-card-approvals">
+      <router-link
+        v-if="canOpenPrivilegedScheduleTools"
+        class="card"
+        :to="orgTo('/admin/availability-intake?tab=office')"
+        data-tour="schedule-hub-card-approvals"
+      >
         <div class="card-title">Approve office requests</div>
         <div class="card-desc">One inbox for CPA, Provider Plus, admin, and staff — office, booking, and school queues.</div>
         <div class="card-cta">Open</div>
       </router-link>
 
-      <router-link class="card" :to="orgTo('/buildings')" data-tour="schedule-hub-card-buildings-admin">
+      <router-link
+        v-if="canOpenPrivilegedScheduleTools"
+        class="card"
+        :to="orgTo('/buildings')"
+        data-tour="schedule-hub-card-buildings-admin"
+      >
         <div class="card-title">Buildings settings</div>
         <div class="card-desc">Building selection, review workflows, and building settings.</div>
         <div class="card-cta">Open</div>
@@ -50,9 +73,16 @@
 <script setup>
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
+import { useAuthStore } from '../store/auth';
+
 const route = useRoute();
+const authStore = useAuthStore();
 const orgSlug = computed(() => (typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : null));
 const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
+
+const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isProviderBusyOnly = computed(() => actorRole.value === 'provider');
+const canOpenPrivilegedScheduleTools = computed(() => !isProviderBusyOnly.value);
 </script>
 
 <style scoped>
@@ -78,34 +108,13 @@ const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
   border: 1px solid var(--border);
   background: var(--bg-alt);
   border-radius: 14px;
-  padding: 14px 14px;
-  color: var(--text-primary);
-  transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease;
+  padding: 16px;
+  color: inherit;
 }
-.card:hover {
-  transform: translateY(-1px);
-  border-color: rgba(0, 0, 0, 0.16);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
-}
-.card-title {
-  font-weight: 900;
-  letter-spacing: -0.01em;
-}
-.card-desc {
-  margin-top: 6px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.3;
-}
-.card-cta {
-  margin-top: 10px;
-  font-weight: 800;
-  color: var(--accent);
-}
-@media (max-width: 980px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
+.card-title { font-weight: 900; margin-bottom: 6px; }
+.card-desc { color: var(--text-secondary); font-size: 13px; min-height: 48px; }
+.card-cta { margin-top: 12px; font-weight: 800; color: var(--primary, #2563eb); }
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; }
 }
 </style>
-
