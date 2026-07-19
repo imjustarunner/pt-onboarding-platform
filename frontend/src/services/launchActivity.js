@@ -42,3 +42,13 @@ export function isEmbeddedLaunchable(activity) {
   if (!['live_current', 'current_pilot'].includes(status)) return false;
   return mode === 'embedded' || mode === 'both';
 }
+
+/** Shown in Tools → Games and Activities (standalone opens in tab; embedded runs in counseling). */
+export function isToolsCatalogActivity(activity) {
+  return isStandaloneLaunchable(activity) || isEmbeddedLaunchable(activity);
+}
+
+export function isEmbeddedSessionActivity(activity) {
+  const mode = activity?.launchMode || activity?.manifest?.launchMode || 'embedded';
+  return mode === 'embedded' || mode === 'both';
+}

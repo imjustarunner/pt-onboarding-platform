@@ -956,7 +956,7 @@
                         <template v-if="toolsFlyoutCategory === 'games'">
                           <template v-if="canSeeGamesNav">
                             <div
-                              v-for="game in standaloneGamesForNav"
+                              v-for="game in catalogGamesForNav"
                               :key="game.id"
                               class="nav-tools-item"
                             >
@@ -964,13 +964,17 @@
                                 {{ game.displayName }}
                               </button>
                               <div class="nav-tools-item-actions">
-                                <button type="button" title="Open" @click="openRegistryGame(game)">Open</button>
-                                <button type="button" title="Copy link" @click="copyToolsGameLink(game)">Share</button>
-                                <button type="button" title="Assign to client" @click="openToolsAssign('game', gameAsToolsAssignTool(game))">Assign</button>
-                                <button type="button" title="Add to appointment" @click="goToolsScheduleWithTool(game.displayName || game.id)">Appt</button>
+                                <button type="button" :title="isEmbeddedSessionActivity(game) ? 'Use in session' : 'Open'" @click="openRegistryGame(game)">
+                                  {{ isEmbeddedSessionActivity(game) ? 'Session' : 'Open' }}
+                                </button>
+                                <template v-if="isStandaloneLaunchable(game)">
+                                  <button type="button" title="Copy link" @click="copyToolsGameLink(game)">Share</button>
+                                  <button type="button" title="Assign to client" @click="openToolsAssign('game', gameAsToolsAssignTool(game))">Assign</button>
+                                  <button type="button" title="Add to appointment" @click="goToolsScheduleWithTool(game.displayName || game.id)">Appt</button>
+                                </template>
                               </div>
                             </div>
-                            <span v-if="!standaloneGamesForNav.length" class="nav-dropdown-empty">No games or activities available</span>
+                            <span v-if="!catalogGamesForNav.length" class="nav-dropdown-empty">No games or activities available</span>
                           </template>
                           <span v-else class="nav-dropdown-empty">Games and Activities not enabled for your account</span>
                         </template>
@@ -1447,12 +1451,12 @@
                 >{{ cat.label }}</button>
                 <template v-if="canSeeGamesNav">
                   <button
-                    v-for="game in standaloneGamesForNav"
+                    v-for="game in catalogGamesForNav"
                     :key="`m-game-${game.id}`"
                     type="button"
                     class="mobile-nav-link mobile-nav-sublink mobile-nav-button"
                     @click="openRegistryGame(game); closeMobileMenu()"
-                  >Game — {{ game.displayName }}</button>
+                  >{{ isEmbeddedSessionActivity(game) ? 'Activity' : 'Game' }} — {{ game.displayName }}</button>
                 </template>
                 <button
                   v-for="tool in assessmentToolsForNav"
@@ -2103,7 +2107,7 @@ import { isSupervisor } from './utils/helpers.js';
 import { buildFormUrl } from './utils/publicIntakeUrl.js';
 import api from './services/api';
 import { listActivities } from './services/counselingApi.js';
-import { launchActivity, isStandaloneLaunchable, resolveStandaloneUrl } from './services/launchActivity.js';
+import { launchActivity, isStandaloneLaunchable, isToolsCatalogActivity, isEmbeddedSessionActivity, resolveStandaloneUrl } from './services/launchActivity.js';
 import {
   TOOLS_CATEGORIES,
   ASSESSMENT_TOOLS,
@@ -2917,8 +2921,8 @@ const toolsAgencyId = computed(
 
 const registryGames = ref([]);
 
-const standaloneGamesForNav = computed(() =>
-  (registryGames.value || []).filter((a) => isStandaloneLaunchable(a))
+const catalogGamesForNav = computed(() =>
+  (registryGames.value || []).filter((a) => isToolsCatalogActivity(a))
 );
 
 const loadRegistryGames = async () => {
@@ -2931,7 +2935,7 @@ const loadRegistryGames = async () => {
     const role = String(user.value?.role || '').toLowerCase();
     const list = await listActivities({
       agencyId,
-      launchMode: 'standalone',
+      includePlanned: role === 'super_admin' ? 'true' : undefined,
       includeDisabled: role === 'super_admin' ? 'true' : undefined
     });
     registryGames.value = list;
@@ -2952,6 +2956,10 @@ const loadRegistryGames = async () => {
 
 const openRegistryGame = (game) => {
   toolsMenuOpen.value = false;
+  if (isEmbeddedSessionActivity(game)) {
+    router.push(orgTo('/counseling'));
+    return;
+  }
   launchActivity(game, { mode: 'standalone' });
 };
 

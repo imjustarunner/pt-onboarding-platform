@@ -90,13 +90,14 @@
           :description="gameDescription(game)"
           :tags="gameTags(game)"
           :meta="gameMeta(game)"
-          :image-url="game.imageUrl || game.thumbnailUrl || ''"
+          :image-url="gameImageUrl(game)"
           icon="▶"
           :favorited="isFavorite(`game:${game.id}`)"
-          :show-assign="true"
-          :show-copy="true"
+          :show-assign="isStandaloneLaunchable(game)"
+          :show-copy="isStandaloneLaunchable(game)"
           :show-edit="true"
           :show-duplicate="false"
+          :open-label="isEmbeddedSessionActivity(game) ? 'Use in session' : 'Open'"
           @open="openGame(game)"
           @copy-link="copyGameLink(game)"
           @assign="openAssign('game', gameAsAssignTool(game))"
@@ -181,7 +182,15 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { listActivities } from '../../services/counselingApi.js';
-import { launchActivity, isStandaloneLaunchable, resolveStandaloneUrl } from '../../services/launchActivity.js';
+import {
+  launchActivity,
+  isStandaloneLaunchable,
+  isEmbeddedLaunchable,
+  isToolsCatalogActivity,
+  isEmbeddedSessionActivity,
+  resolveStandaloneUrl
+} from '../../services/launchActivity.js';
+import { embeddedActivityManifests } from '../../activities/index.js';
 import {
   TOOLS_TABS,
   ASSESSMENT_TOOLS,
@@ -361,7 +370,7 @@ const filteredAssessments = computed(() => {
 
 const gamesWithOverrides = computed(() =>
   (registryGames.value || [])
-    .filter((a) => isStandaloneLaunchable(a))
+    .filter((a) => isToolsCatalogActivity(a))
     .map((g) => {
       const o = overrides.value[g.id];
       if (!o) return g;
@@ -454,15 +463,26 @@ function aiTags(tool) {
 }
 
 function gameDescription(game) {
-  return game.description || game.summary || 'Interactive activity from your games library.';
+  return game.oneLineDescription || game.description || game.summary || 'Interactive activity from your games library.';
 }
 
 function gameTags(game) {
   const tags = [];
-  if (game.activityType || game.type) tags.push(game.activityType || game.type);
+  if (isEmbeddedSessionActivity(game)) tags.push('Session activity');
+  if (game.status === 'current_pilot') tags.push('Pilot');
+  if (game.status === 'live_current') tags.push('Current');
+  if (game.activityType || game.type) tags.push(String(game.activityType || game.type).replace(/_/g, ' '));
   if (game.ageBand || game.ageRange) tags.push(game.ageBand || game.ageRange);
-  tags.push('Game');
-  return tags.slice(0, 3);
+  if (!tags.length) tags.push('Activity');
+  return tags.slice(0, 4);
+}
+
+function gameImageUrl(game) {
+  if (game.imageUrl || game.thumbnailUrl) return game.imageUrl || game.thumbnailUrl;
+  if (game.id === 'story-shelf') {
+    return '/branding/activities/story-shelf/covers/jar-of-ocean-jewels-anxiety.png';
+  }
+  return '';
 }
 
 function gameMeta(game) {
@@ -496,7 +516,13 @@ async function copyAssessmentLink(tool) {
 }
 
 function openGame(game) {
-  launchActivity(game, { mode: 'standalone' });
+  if (isEmbeddedSessionActivity(game)) {
+    router.push(orgTo('/counseling'));
+    showToast('Start or join a counseling session, then open Activities to launch this.');
+    return;
+  }
+  const result = launchActivity(game, { mode: 'standalone' });
+  if (!result?.ok) showToast('Could not open this game');
 }
 
 async function copyGameLink(game) {
@@ -622,6 +648,40 @@ function duplicateAssessment(tool) {
   openEdit('assessment', copy);
 }
 
+function manifestToRegistryRow(id, manifest) {
+  return {
+    id,
+    displayName: manifest.displayName || id,
+    status: manifest.status || 'current_pilot',
+    launchMode: manifest.launchMode || 'embedded',
+    type: manifest.type,
+    activityType: manifest.type,
+    oneLineDescription: manifest.oneLineDescription || '',
+    description: manifest.oneLineDescription || '',
+    platforms: manifest.platforms || [],
+    featureFlag: manifest.featureFlag || null,
+    manifest
+  };
+}
+
+function mergeRegistryWithLocalManifests(apiRows, { includeLocalFallback = false } = {}) {
+  const byId = new Map();
+  for (const row of apiRows || []) byId.set(row.id, row);
+  if (includeLocalFallback) {
+    for (const [id, manifest] of Object.entries(embeddedActivityManifests)) {
+      if (!byId.has(id) && isToolsCatalogActivity(manifestToRegistryRow(id, manifest))) {
+        byId.set(id, manifestToRegistryRow(id, manifest));
+      }
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => {
+    const ao = Number(a.sortOrder || a.manifest?.sortOrder || 999);
+    const bo = Number(b.sortOrder || b.manifest?.sortOrder || 999);
+    if (ao !== bo) return ao - bo;
+    return String(a.displayName || a.id).localeCompare(String(b.displayName || b.id));
+  });
+}
+
 async function loadGames() {
   if (!canSeeGames.value || !authStore.isAuthenticated) {
     registryGames.value = [];
@@ -629,22 +689,27 @@ async function loadGames() {
   }
   try {
     const role = String(authStore.user?.role || '').toLowerCase();
-    registryGames.value = await listActivities({
+    const apiRows = await listActivities({
       agencyId: agencyId.value,
-      launchMode: 'standalone',
+      includePlanned: role === 'super_admin' ? 'true' : undefined,
       includeDisabled: role === 'super_admin' ? 'true' : undefined
     });
+    registryGames.value = mergeRegistryWithLocalManifests(
+      apiRows,
+      { includeLocalFallback: role === 'super_admin' }
+    );
   } catch (err) {
     console.warn('[tools-aids] failed to load games', err);
-    registryGames.value = [
+    registryGames.value = mergeRegistryWithLocalManifests([
       {
         id: 'thought-explorer',
         displayName: 'Thought Explorer',
         status: 'live_current',
         launchMode: 'standalone',
-        entryUrl: '/games-content/thought-explorer-main/dist/index.html'
+        entryUrl: '/games-content/thought-explorer-main/dist/index.html',
+        oneLineDescription: 'Explore thoughts, beliefs, and coping skills in an interactive adventure.'
       }
-    ];
+    ]);
   }
 }
 
