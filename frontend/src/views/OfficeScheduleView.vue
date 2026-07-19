@@ -2269,8 +2269,10 @@ const bookSlot = async () => {
         ...bookingSelection
       });
       if (modalSlot.value?.eventId) {
+        const assigneeId = Number(modalSlot.value?.assignedProviderId || modalSlot.value?.providerId || 0) || 0;
         await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/book`, {
           booked: true,
+          ...(assigneeId ? { requestedProviderId: assigneeId } : {}),
           ...bookingSelection
         });
       }
@@ -2282,8 +2284,10 @@ const bookSlot = async () => {
         recurringUntilDate: addDaysYmd(modalSlot.value.date, 364),
         ...bookingSelection
       });
+      const assigneeId = Number(modalSlot.value?.assignedProviderId || modalSlot.value?.providerId || 0) || 0;
       await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/book`, {
         booked: true,
+        ...(assigneeId ? { requestedProviderId: assigneeId } : {}),
         ...bookingSelection
       });
     } else {
@@ -2433,6 +2437,10 @@ const staffBook = async (booked = true) => {
     const payload = { booked };
     if (booked) {
       Object.assign(payload, normalizeBookingSelectionPayload());
+    }
+    if (booked) {
+      const assigneeId = Number(modalSlot.value?.assignedProviderId || modalSlot.value?.providerId || 0) || 0;
+      if (assigneeId) payload.requestedProviderId = assigneeId;
     }
     await api.post(`/office-slots/${officeId.value}/events/${modalSlot.value.eventId}/book`, {
       ...payload

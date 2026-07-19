@@ -1,7 +1,7 @@
 /**
  * Schedule summary detail levels and create-for-others auth helpers.
  * busy = anonymous intervals only
- * typed = activity type + office (no client PII) — default for peer overlays
+ * typed = activity type + office + provider identity (no client PII) — default for peer overlays
  * full = current rich payload
  */
 
@@ -52,7 +52,7 @@ export function resolveScheduleDetailLevel({
   if (raw === 'full' && canFull) return 'full';
   if (raw === 'busy') return 'busy';
   if (raw === 'typed') return 'typed';
-  // Default: privileged get full, peers get typed activity (type + office, no client PII)
+  // Default: privileged get full, peers get typed activity (type + office + provider, no client PII)
   return canFull ? 'full' : 'typed';
 }
 
@@ -311,9 +311,18 @@ export function toTypedPeerScheduleSummary(payload = {}) {
     }
   }
 
-  // Safe office/schedule stubs for clients that want structured lists (no client PII)
+  // Office stubs for peers: keep provider identity (who holds/booked the room).
+  // Strip client PII only (clientId / client-identifying titles stay out).
   const officeEvents = (payload.officeEvents || []).map((row) => {
     const act = activityFromOfficeRow(row);
+    const assignedProviderId = Number(row.assignedProviderId || row.assigned_provider_id || 0) || null;
+    const bookedProviderId = Number(row.bookedProviderId || row.booked_provider_id || 0) || null;
+    const assignedProviderName = String(
+      row.assignedProviderFullName || row.assignedProviderName || row.assigned_provider_name || ''
+    ).trim() || null;
+    const bookedProviderName = String(
+      row.bookedProviderFullName || row.bookedProviderName || row.booked_provider_name || ''
+    ).trim() || null;
     return {
       id: Number(row.id || 0) || null,
       startAt: row.startAt || row.start_at || null,
@@ -326,6 +335,13 @@ export function toTypedPeerScheduleSummary(payload = {}) {
       slotState: String(row.slotState || '').toUpperCase() || null,
       appointmentType: String(row.appointmentType || '').toUpperCase() || null,
       agencyId: Number(row.agencyId || row._agencyId || agencyId || 0) || null,
+      assignedProviderId,
+      bookedProviderId,
+      providerId: bookedProviderId || assignedProviderId || Number(row.providerId || 0) || null,
+      assignedProviderName,
+      bookedProviderName,
+      assignedProviderFullName: assignedProviderName,
+      bookedProviderFullName: bookedProviderName,
       activityType: act.activityType,
       title: act.title,
       officeLabel: act.officeLabel || null

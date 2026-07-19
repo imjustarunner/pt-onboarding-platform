@@ -3079,6 +3079,15 @@ const stripSlug = () => {
   router.push(queryPart ? `${nextPath}?${queryPart}` : nextPath);
 };
 
+const isScheduleSurfacePath = (path) => {
+  const p = String(path || '');
+  return /\/(my-schedule|schedule)(\/|$)/i.test(p)
+    || /\/buildings\/schedule/i.test(p)
+    || /\/provider-mobile\/schedule/i.test(p)
+    || /\/office\/schedule/i.test(p)
+    || (/\/dashboard(\/|$)/i.test(p) && String(route.query?.tab || '') === 'my_schedule');
+};
+
 const selectAgencyBrand = async (a) => {
   try {
     closeBrandMenu();
@@ -3092,6 +3101,18 @@ const selectAgencyBrand = async (a) => {
     const slug = full.slug || full.portal_url;
     if (!slug) return;
 
+    // Stay on schedule / My Schedule when switching brand there — never bounce to admin.
+    // Appointment editors also use a local tenant field and must not hard-navigate.
+    if (isScheduleSurfacePath(route.path)) {
+      if (route.params.organizationSlug) {
+        const nextParams = { ...route.params, organizationSlug: slug };
+        router.push({ name: route.name, params: nextParams, query: route.query }).catch(() => {});
+        return;
+      }
+      // Unscoped schedule: agency context already updated; keep the current page.
+      return;
+    }
+
     // Superadmin: jump to that agency’s real app host (custom_domain) when configured, so URL/cookies/theme match.
     if (brandingStore.isSuperAdmin) {
       const jump = buildSuperadminAgencyBrandUrl(full, route);
@@ -3099,7 +3120,7 @@ const selectAgencyBrand = async (a) => {
         window.location.assign(jump);
         return;
       }
-      // Superadmin selecting a tenant navigates directly to that tenant's admin dashboard.
+      // Superadmin selecting a tenant from non-schedule surfaces goes to that tenant's admin.
       router.push(`/${slug}/admin`);
       return;
     }

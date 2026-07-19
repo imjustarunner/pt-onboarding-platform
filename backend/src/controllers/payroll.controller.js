@@ -17443,6 +17443,21 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
       if (other1 > 0) return Math.round(((mins / 60) * other1) * 100) / 100;
       return null;
     }
+    // Prefer per-code Admin Time (or other) rate from compensation schedule when present.
+    const serviceCode = String(payload?.serviceCode || '').trim();
+    if (serviceCode && claim?.agency_id && claim?.user_id) {
+      try {
+        const PayrollRate = (await import('../models/PayrollRate.model.js')).default;
+        const best = await PayrollRate.findBestRate({
+          agencyId: Number(claim.agency_id),
+          userId: Number(claim.user_id),
+          serviceCode,
+          asOf: claim.claim_date || null
+        });
+        const codeRate = Number(best?.rate_amount ?? best?.rate ?? 0);
+        if (codeRate > 0) return Math.round(((mins / 60) * codeRate) * 100) / 100;
+      } catch { /* fall through to rate-card indirect */ }
+    }
     if (indirectRate > 0) {
       return Math.round(((mins / 60) * indirectRate) * 100) / 100;
     }

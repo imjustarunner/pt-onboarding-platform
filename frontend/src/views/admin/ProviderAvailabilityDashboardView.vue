@@ -31,7 +31,7 @@
         <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'" data-tour="avail-tab-school">Organization slots</button>
         <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'" data-tour="avail-tab-office">Office availability</button>
         <button class="tab" :class="{ active: tab === 'virtual' }" @click="tab = 'virtual'" data-tour="avail-tab-virtual">Virtual availability</button>
-        <button class="tab" :class="{ active: tab === 'school_requests' }" @click="tab = 'school_requests'">School availability</button>
+        <button class="tab" :class="{ active: tab === 'school_requests' }" @click="tab = 'school_requests'">Additional school hours</button>
         <button class="tab" :class="{ active: tab === 'tracker' }" @click="tab = 'tracker'">Provider app tracker</button>
         <button class="tab" :class="{ active: tab === 'kudos' }" @click="tab = 'kudos'">Kudos</button>
         <button class="tab" :class="{ active: tab === 'hourly_direct' }" @click="tab = 'hourly_direct'">
@@ -47,6 +47,13 @@
 
       <div v-else>
         <div v-if="tab === 'school_requests'" class="school-requests-wrap">
+          <div class="school-requests-banner">
+            <strong>Additional school daytime hours</strong>
+            <p class="muted">
+              Providers submit new weekday daytime blocks here (with notes about what they hope to accomplish).
+              This queue is separate from Organization slots, where you change an existing assignment’s times or open slot counts.
+            </p>
+          </div>
           <AvailabilityIntakeManagement :show-header="false" initial-tab="school" />
         </div>
 
@@ -1562,6 +1569,20 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
 .page-description {
   margin: 8px 0 0;
   color: var(--text-secondary);
+}
+.school-requests-banner {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary, rgba(0, 0, 0, 0.03));
+}
+.school-requests-banner strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.school-requests-banner p {
+  margin: 0;
 }
 .header-actions {
   display: flex;

@@ -82,6 +82,13 @@
           <label class="mb-check"><input v-model="svcForm.tierQbha" type="checkbox" /> QBHA</label>
           <label class="mb-check"><input v-model="svcForm.tierBachelors" type="checkbox" /> Bachelor’s+</label>
           <label class="mb-check"><input v-model="svcForm.tierInternPlus" type="checkbox" /> Licensed / pre-licensed</label>
+          <div class="mb-pos-list">
+            <span class="muted">Allowed POS (where this code may be offered)</span>
+            <label v-for="p in POS_CHOICES" :key="`pos-${p.code}`" class="mb-check">
+              <input v-model="svcForm.allowedPos" type="checkbox" :value="p.code" />
+              {{ p.code }} — {{ p.label }}
+            </label>
+          </div>
           <button type="button" class="mb-btn" :disabled="svcSaving" @click="saveServiceCode">Save code</button>
         </div>
         <div class="mb-row" style="margin-top: 0.75rem;">
@@ -97,6 +104,7 @@
             <span v-if="c.min_minutes != null">min {{ c.min_minutes }}m</span>
             <span v-if="c.max_minutes != null">max {{ c.max_minutes }}m</span>
             <span v-if="c.overflow_service_code">→ {{ c.overflow_service_code }}</span>
+            <span v-if="formatAllowedPos(c)" class="muted">POS {{ formatAllowedPos(c) }}</span>
             <button type="button" class="mb-btn mb-btn--small" @click="editServiceCode(c)">Edit</button>
           </li>
         </ul>
@@ -223,6 +231,15 @@ const svcSaving = ref(false);
 const locSaving = ref(false);
 const previewMinutes = ref(53);
 const previewResult = ref('');
+const POS_CHOICES = [
+  { code: '02', label: 'Telehealth (other)' },
+  { code: '10', label: 'Telehealth (patient home)' },
+  { code: '11', label: 'Office' },
+  { code: '03', label: 'School' },
+  { code: '12', label: 'Home' },
+  { code: '22', label: 'On Campus-Outpatient Hospital' }
+];
+
 const svcForm = ref({
   serviceCode: '',
   description: '',
@@ -235,10 +252,25 @@ const svcForm = ref({
   overflowServiceCode: '',
   overflowAtMinutes: null,
   defaultPlaceOfService: '',
+  allowedPos: ['02', '10', '11', '03'],
   tierQbha: true,
   tierBachelors: true,
   tierInternPlus: true
 });
+
+const parseAllowedPos = (raw) => {
+  let arr = raw;
+  if (typeof raw === 'string') {
+    try { arr = JSON.parse(raw); } catch { arr = null; }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr.map((p) => String(p || '').trim().slice(0, 2)).filter(Boolean);
+};
+
+const formatAllowedPos = (row) => {
+  const list = parseAllowedPos(row?.allowed_place_of_service_json);
+  return list.length ? list.join(', ') : '';
+};
 
 const tiersFromForm = () => {
   const tiers = [];
@@ -303,6 +335,7 @@ const loadServiceLocations = async () => {
 };
 
 const editServiceCode = (row) => {
+  const allowed = parseAllowedPos(row.allowed_place_of_service_json);
   svcForm.value = {
     serviceCode: row.service_code || '',
     description: row.description || '',
@@ -315,6 +348,7 @@ const editServiceCode = (row) => {
     overflowServiceCode: row.overflow_service_code || '',
     overflowAtMinutes: row.overflow_at_minutes,
     defaultPlaceOfService: row.default_place_of_service || '',
+    allowedPos: allowed.length ? allowed : ['02', '10', '11', '03'],
     tierQbha: true,
     tierBachelors: true,
     tierInternPlus: true
@@ -340,6 +374,7 @@ const saveServiceCode = async () => {
       overflowServiceCode: svcForm.value.overflowServiceCode || null,
       overflowAtMinutes: svcForm.value.overflowAtMinutes,
       defaultPlaceOfService: svcForm.value.defaultPlaceOfService || null,
+      allowedPlaceOfService: Array.isArray(svcForm.value.allowedPos) ? svcForm.value.allowedPos : [],
       allowedCredentialTiers: tiersFromForm()
     });
     await loadServiceCodes();
@@ -572,6 +607,14 @@ onMounted(async () => {
 }
 .mb-input--wide { min-width: 220px; flex: 1 1 220px; }
 .mb-check { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; }
+.mb-pos-list {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  padding: 0.5rem 0;
+}
 .mb-btn {
   border: 1px solid #2f5d8c; background: #2f5d8c; color: #fff;
   border-radius: 6px; padding: 0.4rem 0.75rem; cursor: pointer;

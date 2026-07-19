@@ -49,6 +49,15 @@ async function canManageMeetingAgenda(userId, meetingType, meetingId) {
 
     if (uid === Number(event.provider_id) || uid === Number(event.created_by_user_id)) return true;
 
+    // Invited attendees can view and update the agenda during the live session.
+    const [attendeeRows] = await pool.execute(
+      `SELECT 1 FROM provider_schedule_event_attendees
+       WHERE event_id = ? AND user_id = ?
+       LIMIT 1`,
+      [mid, uid]
+    );
+    if (attendeeRows?.length) return true;
+
     const user = await User.findById(uid);
     const role = user?.role || '';
     const adminRoles = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'];

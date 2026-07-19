@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import Notification from './Notification.model.js';
+import { generateJoinToken } from '../utils/joinToken.js';
 
 class SupervisionSession {
   static async create({
@@ -12,26 +13,105 @@ class SupervisionSession {
     modality = null,
     locationText = null,
     notes = null,
-    createdByUserId = null
+    createdByUserId = null,
+    joinToken = null,
+    recurrenceSeriesId = null,
+    recurrenceFrequency = null,
+    recurrenceIndex = null
   }) {
-    const [result] = await pool.execute(
-      `INSERT INTO supervision_sessions
-        (agency_id, supervisor_user_id, supervisee_user_id, session_type, start_at, end_at, modality, location_text, notes, status, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?)`,
-      [
-        Number(agencyId),
-        Number(supervisorUserId),
-        Number(superviseeUserId),
-        String(sessionType || 'individual'),
-        startAt,
-        endAt,
-        modality,
-        locationText,
-        notes,
-        createdByUserId ? Number(createdByUserId) : null
-      ]
+    const token = String(joinToken || generateJoinToken()).slice(0, 64);
+    const baseParams = [
+      token,
+      Number(agencyId),
+      Number(supervisorUserId),
+      Number(superviseeUserId),
+      String(sessionType || 'individual'),
+      startAt,
+      endAt,
+      modality,
+      locationText,
+      notes
+    ];
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO supervision_sessions
+          (join_token, agency_id, supervisor_user_id, supervisee_user_id, session_type, start_at, end_at, modality, location_text, notes, status,
+           recurrence_series_id, recurrence_frequency, recurrence_index, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
+        [
+          ...baseParams,
+          recurrenceSeriesId ? String(recurrenceSeriesId).trim().slice(0, 64) : null,
+          recurrenceFrequency ? String(recurrenceFrequency).trim().toUpperCase().slice(0, 16) : null,
+          recurrenceIndex == null ? null : Math.max(0, parseInt(recurrenceIndex, 10) || 0),
+          createdByUserId ? Number(createdByUserId) : null
+        ]
+      );
+      return this.findById(result.insertId);
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [result] = await pool.execute(
+        `INSERT INTO supervision_sessions
+          (join_token, agency_id, supervisor_user_id, supervisee_user_id, session_type, start_at, end_at, modality, location_text, notes, status, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?)`,
+        [...baseParams, createdByUserId ? Number(createdByUserId) : null]
+      );
+      return this.findById(result.insertId);
+    }
+  }
+
+  static async listActiveSeriesFromPoint({
+    recurrenceSeriesId,
+    fromStartAt = null
+  }) {
+    const sid = String(recurrenceSeriesId || '').trim();
+    if (!sid) return [];
+    const from = String(fromStartAt || '').trim() || null;
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM supervision_sessions
+       WHERE recurrence_series_id = ?
+         AND UPPER(COALESCE(status, 'SCHEDULED')) <> 'CANCELLED'
+         AND (? IS NULL OR start_at >= ?)
+       ORDER BY start_at ASC, id ASC`,
+      [sid, from, from]
     );
-    return this.findById(result.insertId);
+    return rows || [];
+  }
+
+  static async findByJoinToken(joinToken) {
+    const token = String(joinToken || '').trim();
+    if (!token) return null;
+    const [rows] = await pool.execute(
+      `SELECT * FROM supervision_sessions WHERE join_token = ? LIMIT 1`,
+      [token]
+    );
+    return rows?.[0] || null;
+  }
+
+  /** Resolve numeric id or opaque join_token. Lazily backfills token when missing. */
+  static async resolveByJoinRef(ref) {
+    const raw = String(ref || '').trim();
+    if (!raw) return null;
+    let row = null;
+    if (/^\d+$/.test(raw)) {
+      row = await this.findById(raw);
+    } else {
+      row = await this.findByJoinToken(raw);
+    }
+    if (!row) return null;
+    if (!row.join_token) {
+      const token = generateJoinToken();
+      try {
+        await pool.execute(`UPDATE supervision_sessions SET join_token = ? WHERE id = ? AND join_token IS NULL`, [
+          token,
+          Number(row.id)
+        ]);
+        row.join_token = token;
+      } catch {
+        /* column may not exist yet pre-migration */
+      }
+    }
+    return row;
   }
 
   static async upsertAttendees(sessionId, attendees = []) {

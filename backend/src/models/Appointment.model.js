@@ -49,6 +49,7 @@ class Appointment {
       status: String(r.status || 'confirmed'),
       participantMode: String(r.participant_mode || 'individual'),
       officeEventId: r.office_event_id == null ? null : Number(r.office_event_id),
+      officeBookingRequestId: r.office_booking_request_id == null ? null : Number(r.office_booking_request_id),
       providerScheduleEventId: r.provider_schedule_event_id == null ? null : Number(r.provider_schedule_event_id),
       clinicalSessionId: r.clinical_session_id == null ? null : Number(r.clinical_session_id),
       packageEntitlementId: r.package_entitlement_id == null ? null : Number(r.package_entitlement_id),
@@ -150,10 +151,10 @@ class Appointment {
       `INSERT INTO appointments (
          agency_id, parent_agency_id, business_type, tenant_service_id, provider_user_id,
          start_at, end_at, modality, office_location_id, room_id, status, participant_mode,
-         office_event_id, provider_schedule_event_id, clinical_session_id, package_entitlement_id,
+         office_event_id, office_booking_request_id, provider_schedule_event_id, clinical_session_id, package_entitlement_id,
          cancellation_policy_id, cancel_deadline_at,
          source, title, notes, created_by_user_id, updated_by_user_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         Number(row.agencyId),
         row.parentAgencyId || null,
@@ -168,6 +169,7 @@ class Appointment {
         this.normalizeStatus(row.status),
         row.participantMode === 'multi' ? 'multi' : 'individual',
         row.officeEventId || null,
+        row.officeBookingRequestId || null,
         row.providerScheduleEventId || null,
         row.clinicalSessionId || null,
         row.packageEntitlementId || null,

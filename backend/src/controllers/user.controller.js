@@ -36,6 +36,7 @@ import {
   toBusyOnlyScheduleSummary,
   toTypedPeerScheduleSummary
 } from '../services/scheduleSummaryPrivacy.service.js';
+import { generateJoinToken, joinUrlForSupervision } from '../utils/joinToken.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -3642,9 +3643,16 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.office_location_id,
            e.standing_assignment_id,
            e.booking_plan_id,
+           e.assigned_provider_id,
+           e.booked_provider_id,
+           au.first_name AS assigned_provider_first_name,
+           au.last_name AS assigned_provider_last_name,
+           bu.first_name AS booked_provider_first_name,
+           bu.last_name AS booked_provider_last_name,
            osa.availability_mode AS assignment_availability_mode,
            osa.temporary_extension_count AS assignment_temporary_extension_count,
            osa.assigned_frequency,
+           osa.recurrence_group_id AS assignment_recurrence_group_id,
            osa.available_since_date AS assignment_available_since_date,
            osa.temporary_until_date AS assignment_temporary_until_date,
            bp.booked_frequency,
@@ -3691,6 +3699,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
          FROM office_events e
          JOIN office_rooms r ON r.id = e.room_id
          JOIN office_locations ol ON ol.id = e.office_location_id
+         LEFT JOIN users au ON au.id = e.assigned_provider_id
+         LEFT JOIN users bu ON bu.id = e.booked_provider_id
          LEFT JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
          LEFT JOIN office_booking_plans bp
            ON bp.standing_assignment_id = e.standing_assignment_id
@@ -3708,12 +3718,28 @@ export const getUserScheduleSummary = async (req, res, next) => {
           ? 'ASSIGNED_BOOKED'
           : r.slot_state;
         const freq = officeEventFrequencyMeta(r);
+        const assignedProviderName = [r.assigned_provider_first_name, r.assigned_provider_last_name]
+          .map((x) => String(x || '').trim())
+          .filter(Boolean)
+          .join(' ') || null;
+        const bookedProviderName = [r.booked_provider_first_name, r.booked_provider_last_name]
+          .map((x) => String(x || '').trim())
+          .filter(Boolean)
+          .join(' ') || null;
         return {
         displayStatus: toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
         bookingPlanId: Number(r.booking_plan_id || 0) || null,
+        recurrenceGroupId: String(r.assignment_recurrence_group_id || '').trim() || null,
+        assignedProviderId: Number(r.assigned_provider_id || 0) || null,
+        bookedProviderId: Number(r.booked_provider_id || 0) || null,
+        providerId: Number(r.booked_provider_id || r.assigned_provider_id || 0) || null,
+        assignedProviderName,
+        bookedProviderName,
+        assignedProviderFullName: assignedProviderName,
+        bookedProviderFullName: bookedProviderName,
         buildingName: r.building_name,
         roomId: r.room_id,
         roomNumber: r.room_number,
@@ -3749,6 +3775,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.id,
            e.office_location_id,
            e.standing_assignment_id,
+           e.assigned_provider_id,
+           e.booked_provider_id,
            osa.availability_mode AS assignment_availability_mode,
            osa.temporary_extension_count AS assignment_temporary_extension_count,
            osa.assigned_frequency,
@@ -3807,6 +3835,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
         buildingId: r.office_location_id,
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
         bookingPlanId: null,
+        recurrenceGroupId: null,
+        assignedProviderId: Number(r.assigned_provider_id || 0) || null,
+        bookedProviderId: Number(r.booked_provider_id || 0) || null,
+        providerId: Number(r.booked_provider_id || r.assigned_provider_id || 0) || null,
         buildingName: r.building_name,
         roomId: r.room_id,
         roomNumber: r.room_number,
@@ -3858,7 +3890,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         windowStart,
         windowEnd
       });
-      supervisionSessions = (rows || []).map((r) => {
+      supervisionSessions = await Promise.all((rows || []).map(async (r) => {
         const gid = String(r?.google_event_id || '').trim();
         if (gid) supervisionGoogleEventIds.add(gid);
         const isSupervisor = Number(r.supervisor_user_id) === Number(providerId);
@@ -3877,6 +3909,19 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const startWall = toMysqlDateTimeWall(r.start_at) || r.start_at;
         const endWall = toMysqlDateTimeWall(r.end_at) || r.end_at;
         const startDateYmd = String(r?.start_date_ymd || '').trim() || (startWall ? String(startWall).slice(0, 10) : null);
+        let joinToken = String(r.join_token || '').trim();
+        if (!joinToken && Number(r.id || 0) > 0) {
+          joinToken = generateJoinToken();
+          try {
+            await pool.execute(
+              `UPDATE supervision_sessions SET join_token = ? WHERE id = ? AND (join_token IS NULL OR join_token = '')`,
+              [joinToken, Number(r.id)]
+            );
+          } catch {
+            joinToken = '';
+          }
+        }
+        const joinKey = joinToken || String(r.id || '').trim();
         return {
           id: r.id,
           role: isSupervisor ? 'supervisor' : 'supervisee',
@@ -3893,9 +3938,16 @@ export const getUserScheduleSummary = async (req, res, next) => {
           locationText: r.location_text,
           notes: r.notes,
           googleMeetLink: r.google_meet_link || null,
-          joinUrl: supervisionJoinUrlBase && r.id ? `${supervisionJoinUrlBase}/join/supervision/${r.id}` : null
+          joinToken: joinToken || null,
+          joinUrl: joinUrlForSupervision(supervisionJoinUrlBase, joinKey),
+          superviseeUserId: Number(r.supervisee_user_id || 0) || null,
+          supervisorUserId: Number(r.supervisor_user_id || 0) || null,
+          agencyId: Number(r.agency_id || agencyId || 0) || null,
+          recurrenceSeriesId: String(r.recurrence_series_id || '').trim() || null,
+          recurrenceFrequency: String(r.recurrence_frequency || '').trim().toUpperCase() || null,
+          recurrenceIndex: r.recurrence_index == null ? null : Number(r.recurrence_index)
         };
-      });
+      }));
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       supervisionSessions = [];
@@ -3938,11 +3990,23 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const kind = String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT';
         const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured && frontendUrl
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
-          ? `${frontendUrl}/join/team-meeting/${Number(r.id || 0)}`
+          ? `${frontendUrl}/join/team-meeting/${encodeURIComponent(String(r.join_token || r.id || ''))}`
           : null;
+        const eventProviderId = Number(r.provider_id || 0) || null;
+        const createdByUserId = Number(r.created_by_user_id || 0) || null;
+        const isHost = !!eventProviderId && eventProviderId === Number(providerId);
+        // Attendee-only copies on your calendar are viewable, but edits must target the host provider.
+        const canEditThisEvent = !!canEditScheduleEvents && (
+          isHost
+          || (createdByUserId != null && createdByUserId === actorId)
+          || canCreateProviderScheduleEvent(actorRoleForEvents)
+        );
         return {
           id: Number(r.id || 0),
           agencyId: Number(r.agency_id || 0) || null,
+          providerId: eventProviderId,
+          createdByUserId,
+          isHost,
           kind,
           title,
           description: isPrivate && !canSeePrivateTitle
@@ -3964,7 +4028,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
           htmlLink: r.google_html_link || null,
           meetLink: r.google_meet_link ? String(r.google_meet_link).trim().slice(0, 1024) : null,
           appJoinUrl,
-          canEdit: canEditScheduleEvents
+          status: String(r.status || 'ACTIVE').trim().toUpperCase() || 'ACTIVE',
+          isCancelled: String(r.status || '').trim().toUpperCase() === 'CANCELLED',
+          isTrainingPayEligible: Number(r.is_training_pay_eligible || 0) === 1,
+          canEdit: canEditThisEvent && String(r.status || '').trim().toUpperCase() !== 'CANCELLED'
         };
       });
       try {
@@ -4780,6 +4847,24 @@ export const createUserScheduleEvent = async (req, res, next) => {
     if (!['TEAM_MEETING', 'HUDDLE'].includes(kind) && attendeeUserIds.length) {
       return res.status(400).json({ error: { message: 'attendeeUserIds are only supported for TEAM_MEETING and HUDDLE.' } });
     }
+    const wantsTrainingPay = req.body?.isTrainingPayEligible === true
+      || req.body?.isTrainingPayEligible === 1
+      || req.body?.isTrainingPayEligible === '1'
+      || req.body?.isTrainingPayEligible === 'true';
+    let isTrainingPayEligible = false;
+    if (wantsTrainingPay) {
+      if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+        return res.status(400).json({ error: { message: 'Training/Mentorship/Onboarding pay is only for meetings.' } });
+      }
+      const hostRole = String(provider?.role || '').trim().toLowerCase();
+      const { isTrainingPayEligibleRole } = await import('../services/scheduleEventTrainingPay.service.js');
+      if (!isTrainingPayEligibleRole(hostRole)) {
+        return res.status(403).json({
+          error: { message: 'Training/Mentorship/Onboarding pay is only available for CPA and Provider Plus hosts.' }
+        });
+      }
+      isTrainingPayEligible = true;
+    }
     let videoConfiguredForMeeting = false;
     try {
       const { isVideoConfigured: videoOk } = await import('../services/video.service.js');
@@ -4818,13 +4903,18 @@ export const createUserScheduleEvent = async (req, res, next) => {
         const row = attendeeById.get(attendeeId);
         const inAgency = Number(row?.in_agency || 0) === 1;
         if (!row || !inAgency) {
-          return res.status(400).json({ error: { message: `Attendee ${attendeeId} is not in the selected agency.` } });
+          return res.status(400).json({
+            error: { message: 'One or more participants are not in the selected tenant. Switch tenant or remove them.' }
+          });
         }
         const email = String(row?.email || '').trim().toLowerCase();
-        if (!email) {
-          return res.status(400).json({ error: { message: `Attendee ${attendeeId} is missing an email.` } });
+        // Platform video rooms do not require Google attendee emails.
+        if (email) attendeeEmails.push(email);
+        else if (createMeetLink) {
+          return res.status(400).json({
+            error: { message: 'A selected participant is missing an email address required for Google Meet invites.' }
+          });
         }
-        attendeeEmails.push(email);
       }
       attendeeEmails = Array.from(new Set(attendeeEmails));
     }
@@ -4850,10 +4940,11 @@ export const createUserScheduleEvent = async (req, res, next) => {
     const googleError = googleOk
       ? null
       : String(result?.error || result?.reason || 'Could not create calendar event');
-    // Platform video / counseling bookings must not hard-fail when Workspace calendar
+    // Platform video / counseling / team meetings must not hard-fail when Workspace calendar
     // impersonation fails (invalid_grant, missing user, revoked grant, etc.).
+    // TEAM_MEETING/HUDDLE always allow local save; Google sync is best-effort (Meet link may be absent).
     const allowLocalFallback = req.body?.allowLocalOnly === true
-      || ['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES'].includes(kind)
+      || ['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE'].includes(kind)
       || ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && createPlatformVideoLink && !createMeetLink);
     if (!googleOk && !allowLocalFallback) {
       return res.status(502).json({ error: { message: googleError || 'Could not create calendar event' } });
@@ -4897,7 +4988,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
         googleMeetLink: result?.meetLink || null,
         platformVideoLink: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? createPlatformVideoLink : null,
         createdByUserId: actorUserId,
-        clientId: Number(req.body?.clientId || 0) || null
+        clientId: Number(req.body?.clientId || 0) || null,
+        isTrainingPayEligible
       });
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && attendeeUserIds?.length) {
         const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
@@ -4906,14 +4998,28 @@ export const createUserScheduleEvent = async (req, res, next) => {
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && createPlatformVideoLink) {
         const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
         if (frontendUrl) {
-          appJoinUrl = `${frontendUrl}/join/team-meeting/${saved.id}`;
-          if (result?.eventId) {
+          const joinKey = String(saved.join_token || saved.id || '').trim();
+          appJoinUrl = joinKey ? `${frontendUrl}/join/team-meeting/${encodeURIComponent(joinKey)}` : null;
+          if (result?.eventId && appJoinUrl) {
             await GoogleCalendarService.appendToEventDescription({
               subjectEmail,
               googleEventId: result.eventId,
               appendText: `Join with app: ${appJoinUrl}`
             }).catch(() => {});
           }
+        }
+      }
+      if (saved?.id && isTrainingPayEligible) {
+        try {
+          const { syncTrainingPayClaimForEvent } = await import('../services/scheduleEventTrainingPay.service.js');
+          await syncTrainingPayClaimForEvent({
+            event: saved,
+            hostRole: String(provider?.role || '').trim().toLowerCase(),
+            actorUserId,
+            enabled: true
+          });
+        } catch (payErr) {
+          console.warn('[createUserScheduleEvent] training pay claim sync failed', payErr?.message || payErr);
         }
       }
     } catch (e) {
@@ -4939,6 +5045,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
         kind,
         title: summaryText,
         isPrivate,
+        isTrainingPayEligible,
         attendeeUserIds,
         allDay,
         startAt: allDay ? null : (result?.startAt ?? storedStartAt ?? startAt),
@@ -4975,7 +5082,23 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    const target = await ProviderScheduleEvent.findByIdForProvider({ eventId, providerId: userId });
+    let target = await ProviderScheduleEvent.findByIdForProvider({ eventId, providerId: userId });
+    // If the client posted the wrong user path (common for meetings seen as an attendee),
+    // resolve by event id and re-check manage access against the real host.
+    if (!target) {
+      const byId = await ProviderScheduleEvent.findById(eventId);
+      if (byId) {
+        const hostId = Number(byId.provider_id || 0);
+        if (hostId > 0 && (await assertCanManageTargetSchedule({
+          actorUserId,
+          actorRole,
+          targetUserId: hostId,
+          agencyId: Number(req.body?.agencyId || byId.agency_id || 0) || null
+        }))) {
+          target = byId;
+        }
+      }
+    }
     if (!target) return res.status(404).json({ error: { message: 'Schedule event not found' } });
     if (String(target.status || '').trim().toUpperCase() === 'CANCELLED') {
       return res.status(400).json({ error: { message: 'Cannot edit a cancelled schedule event' } });
@@ -4985,6 +5108,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE'].includes(kind)) {
       return res.status(400).json({ error: { message: 'This event type cannot be edited here' } });
     }
+    const hostProviderId = Number(target.provider_id || userId) || userId;
 
     const allDay = req.body?.allDay === undefined ? Number(target.all_day || 0) === 1 : req.body.allDay === true;
     let startAt = undefined;
@@ -5033,16 +5157,16 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       attendeeUserIds = Array.from(
         new Set((Array.isArray(req.body?.attendeeUserIds) ? req.body.attendeeUserIds : [])
           .map((n) => Number(n))
-          .filter((n) => Number.isInteger(n) && n > 0 && n !== Number(userId)))
+          .filter((n) => Number.isInteger(n) && n > 0 && n !== Number(hostProviderId)))
       );
       if (!attendeeUserIds.length) {
         return res.status(400).json({ error: { message: `${kind} requires at least one coworker attendee.` } });
       }
-      const eventAgencyId = req.body?.agencyId !== undefined
-        ? (Number(req.body.agencyId || 0) || null)
-        : (Number(target.agency_id || 0) || null);
+      const eventAgencyId = Number(req.body?.agencyId || 0)
+        || Number(target.agency_id || 0)
+        || null;
       if (!eventAgencyId) {
-        return res.status(400).json({ error: { message: 'agencyId is required for meeting attendees.' } });
+        return res.status(400).json({ error: { message: 'Select a tenant before saving meeting participants.' } });
       }
       const pool = (await import('../config/database.js')).default;
       const placeholders = attendeeUserIds.map(() => '?').join(',');
@@ -5062,31 +5186,151 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       for (const attendeeId of attendeeUserIds) {
         const row = attendeeById.get(attendeeId);
         if (!row || Number(row?.in_agency || 0) !== 1) {
-          return res.status(400).json({ error: { message: `Attendee ${attendeeId} is not in the selected agency.` } });
+          return res.status(400).json({
+            error: { message: 'One or more participants are not in the selected tenant. Switch tenant or remove them.' }
+          });
         }
       }
     }
 
-    const updated = await ProviderScheduleEvent.updateForProvider({
-      eventId,
-      providerId: userId,
-      title,
-      description: req.body?.description !== undefined ? req.body.description : undefined,
-      isPrivate: req.body?.isPrivate !== undefined ? req.body.isPrivate === true : undefined,
-      allDay: req.body?.allDay !== undefined ? allDay : undefined,
-      startAt,
-      endAt,
-      startDate,
-      endDate,
-      agencyId: req.body?.agencyId !== undefined ? Number(req.body.agencyId || 0) || null : undefined,
-      clientId: req.body?.clientId !== undefined ? Number(req.body.clientId || 0) || null : undefined,
-      reasonCode: req.body?.reasonCode !== undefined ? req.body.reasonCode : undefined,
-      updatedByUserId: actorUserId
-    });
+    let nextTrainingPayEligible = undefined;
+    if (req.body?.isTrainingPayEligible !== undefined) {
+      const wantsTrainingPay = req.body?.isTrainingPayEligible === true
+        || req.body?.isTrainingPayEligible === 1
+        || req.body?.isTrainingPayEligible === '1'
+        || req.body?.isTrainingPayEligible === 'true';
+      if (wantsTrainingPay && !['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+        return res.status(400).json({ error: { message: 'Training/Mentorship/Onboarding pay is only for meetings.' } });
+      }
+      if (wantsTrainingPay) {
+        const hostUser = await User.findById(hostProviderId);
+        const hostRole = String(hostUser?.role || '').trim().toLowerCase();
+        const { isTrainingPayEligibleRole } = await import('../services/scheduleEventTrainingPay.service.js');
+        if (!isTrainingPayEligibleRole(hostRole)) {
+          return res.status(403).json({
+            error: { message: 'Training/Mentorship/Onboarding pay is only available for CPA and Provider Plus hosts.' }
+          });
+        }
+      }
+      nextTrainingPayEligible = !!wantsTrainingPay;
+    }
+
+    const scope = String(req.body?.scope || 'single').trim().toLowerCase();
+    if (!['single', 'future'].includes(scope)) {
+      return res.status(400).json({ error: { message: 'scope must be single or future' } });
+    }
+
+    let rowsToUpdate = [target];
+    const seriesId = String(target.recurrence_series_id || '').trim();
+    const timingChanged = startAt !== undefined || endAt !== undefined
+      || startDate !== undefined || endDate !== undefined
+      || (req.body?.allDay !== undefined);
+    if (scope === 'future') {
+      if (!seriesId) {
+        return res.status(400).json({ error: { message: 'This event is not part of a recurring series.' } });
+      }
+      rowsToUpdate = await ProviderScheduleEvent.listActiveSeriesFromPoint({
+        recurrenceSeriesId: seriesId,
+        providerId: hostProviderId,
+        fromStartAt: target.start_at || null,
+        fromStartDate: target.start_date || null
+      });
+      if (!rowsToUpdate.length) rowsToUpdate = [target];
+    }
+
+    const { applyClockTimesToOccurrence } = await import('../utils/seriesTimeShift.js');
+    let updated = null;
+    for (const occ of rowsToUpdate) {
+      const occId = Number(occ.id || 0);
+      if (!occId) continue;
+      const isPrimary = occId === eventId;
+      let occStartAt = isPrimary ? startAt : undefined;
+      let occEndAt = isPrimary ? endAt : undefined;
+      let occStartDate = isPrimary ? startDate : undefined;
+      let occEndDate = isPrimary ? endDate : undefined;
+      let occAllDay = isPrimary && req.body?.allDay !== undefined ? allDay : undefined;
+
+      if (timingChanged && scope === 'future' && !isPrimary && !allDay && startAt && endAt) {
+        const shifted = applyClockTimesToOccurrence({
+          occurrenceStartRaw: occ.start_at || occ.start_date,
+          newStartRaw: startAt,
+          newEndRaw: endAt
+        });
+        if (!shifted) continue;
+        occStartAt = shifted.startAt;
+        occEndAt = shifted.endAt;
+        occAllDay = false;
+        occStartDate = null;
+        occEndDate = null;
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      const rowUpdated = await ProviderScheduleEvent.updateForProvider({
+        eventId: occId,
+        providerId: hostProviderId,
+        title: isPrimary ? title : undefined,
+        description: isPrimary && req.body?.description !== undefined ? req.body.description : undefined,
+        isPrivate: isPrimary && req.body?.isPrivate !== undefined ? req.body.isPrivate === true : undefined,
+        allDay: occAllDay,
+        startAt: occStartAt,
+        endAt: occEndAt,
+        startDate: occStartDate,
+        endDate: occEndDate,
+        agencyId: isPrimary && req.body?.agencyId !== undefined ? Number(req.body.agencyId || 0) || null : undefined,
+        clientId: isPrimary && req.body?.clientId !== undefined ? Number(req.body.clientId || 0) || null : undefined,
+        reasonCode: isPrimary && req.body?.reasonCode !== undefined ? req.body.reasonCode : undefined,
+        isTrainingPayEligible: isPrimary ? nextTrainingPayEligible : undefined,
+        updatedByUserId: actorUserId
+      });
+      if (isPrimary) updated = rowUpdated;
+    }
+    if (!updated) {
+      updated = await ProviderScheduleEvent.findByIdForProvider({ eventId, providerId: hostProviderId });
+    }
 
     if (wantsAttendeeUpdate && attendeeUserIds) {
       const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
       await ProviderScheduleEventAttendee.replaceForEvent(eventId, attendeeUserIds);
+    }
+
+    if (updated && ['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+      const trainingEnabled = nextTrainingPayEligible !== undefined
+        ? nextTrainingPayEligible
+        : Number(updated?.is_training_pay_eligible || 0) === 1;
+      if (trainingEnabled || nextTrainingPayEligible === false) {
+        try {
+          const hostUser = await User.findById(hostProviderId);
+          const { syncTrainingPayClaimForEvent } = await import('../services/scheduleEventTrainingPay.service.js');
+          // Sync pay claims for each updated occurrence when series-scoped.
+          for (const occ of rowsToUpdate) {
+            const occId = Number(occ.id || 0);
+            if (!occId) continue;
+            // eslint-disable-next-line no-await-in-loop
+            const fresh = await ProviderScheduleEvent.findById(occId);
+            if (!fresh || Number(fresh.is_training_pay_eligible || 0) !== 1) {
+              if (occId === eventId && nextTrainingPayEligible === false) {
+                // eslint-disable-next-line no-await-in-loop
+                await syncTrainingPayClaimForEvent({
+                  event: fresh || occ,
+                  hostRole: String(hostUser?.role || '').trim().toLowerCase(),
+                  actorUserId,
+                  enabled: false
+                });
+              }
+              continue;
+            }
+            // eslint-disable-next-line no-await-in-loop
+            await syncTrainingPayClaimForEvent({
+              event: fresh,
+              hostRole: String(hostUser?.role || '').trim().toLowerCase(),
+              actorUserId,
+              enabled: trainingEnabled
+            });
+          }
+        } catch (payErr) {
+          console.warn('[updateUserScheduleEvent] training pay claim sync failed', payErr?.message || payErr);
+        }
+      }
     }
 
     let resolvedAttendeeUserIds = attendeeUserIds;
@@ -5099,43 +5343,54 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       }
     }
 
-    // Best-effort Google sync when linked.
-    const subjectEmail = String((await User.findById(userId))?.email || '').trim().toLowerCase();
-    const googleEventId = String(updated?.google_event_id || '').trim();
-    if (subjectEmail && googleEventId) {
-      let attendeeEmails = undefined;
-      if (wantsAttendeeUpdate && Array.isArray(attendeeUserIds) && attendeeUserIds.length) {
-        try {
-          const pool = (await import('../config/database.js')).default;
-          const placeholders = attendeeUserIds.map(() => '?').join(',');
-          const [rows] = await pool.execute(
-            `SELECT email FROM users WHERE id IN (${placeholders})`,
-            attendeeUserIds
-          );
-          attendeeEmails = (rows || [])
-            .map((r) => String(r.email || '').trim().toLowerCase())
-            .filter(Boolean);
-        } catch {
-          attendeeEmails = undefined;
-        }
+    // Best-effort Google sync when linked (primary + series follow-ons).
+    const subjectEmail = String((await User.findById(hostProviderId))?.email || '').trim().toLowerCase();
+    let attendeeEmails = undefined;
+    if (wantsAttendeeUpdate && Array.isArray(attendeeUserIds) && attendeeUserIds.length) {
+      try {
+        const pool = (await import('../config/database.js')).default;
+        const placeholders = attendeeUserIds.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT email FROM users WHERE id IN (${placeholders})`,
+          attendeeUserIds
+        );
+        attendeeEmails = (rows || [])
+          .map((r) => String(r.email || '').trim().toLowerCase())
+          .filter(Boolean);
+      } catch {
+        attendeeEmails = undefined;
       }
+    }
+    const tz = String(req.body?.timeZone || Intl?.DateTimeFormat?.().resolvedOptions?.().timeZone || 'America/Denver');
+    for (const occ of rowsToUpdate) {
+      const occId = Number(occ.id || 0);
+      if (!occId || !subjectEmail) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const fresh = await ProviderScheduleEvent.findById(occId);
+      if (!fresh) continue;
+      const googleEventId = String(fresh?.google_event_id || '').trim();
+      if (!googleEventId) continue;
+      const occAllDay = Number(fresh.all_day || 0) === 1;
+      // eslint-disable-next-line no-await-in-loop
       await GoogleCalendarService.upsertProviderPrimaryCalendarEvent({
         subjectEmail,
         existingGoogleEventId: googleEventId,
-        summary: String(updated?.title || title || '').trim() || 'Schedule event',
-        description: updated?.description || null,
-        startAt: allDay ? null : (updated?.start_at || startAt),
-        endAt: allDay ? null : (updated?.end_at || endAt),
-        allDay,
-        startDate: allDay ? startDate : null,
-        endDate: allDay ? endDate : null,
-        timeZone: String(req.body?.timeZone || Intl?.DateTimeFormat?.().resolvedOptions?.().timeZone || 'America/Denver'),
-        ...(attendeeEmails ? { attendees: attendeeEmails } : {})
+        summary: String(fresh?.title || title || '').trim() || 'Schedule event',
+        description: fresh?.description || null,
+        startAt: occAllDay ? null : fresh.start_at,
+        endAt: occAllDay ? null : fresh.end_at,
+        allDay: occAllDay,
+        startDate: occAllDay && fresh.start_date ? String(fresh.start_date).slice(0, 10) : null,
+        endDate: occAllDay && fresh.end_date ? String(fresh.end_date).slice(0, 10) : null,
+        timeZone: tz,
+        ...(occId === eventId && attendeeEmails ? { attendees: attendeeEmails } : {})
       }).catch(() => {});
     }
 
     return res.json({
       ok: true,
+      scope,
+      updatedCount: rowsToUpdate.length,
       event: {
         id: Number(updated?.id || eventId),
         agencyId: Number(updated?.agency_id || 0) || null,
@@ -5149,7 +5404,9 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         endAt: updated?.end_at || null,
         startDate: updated?.start_date ? String(updated.start_date).slice(0, 10) : null,
         endDate: updated?.end_date ? String(updated.end_date).slice(0, 10) : null,
-        attendeeUserIds: Array.isArray(resolvedAttendeeUserIds) ? resolvedAttendeeUserIds : undefined
+        attendeeUserIds: Array.isArray(resolvedAttendeeUserIds) ? resolvedAttendeeUserIds : undefined,
+        isTrainingPayEligible: Number(updated?.is_training_pay_eligible || 0) === 1,
+        recurrenceSeriesId: seriesId || null
       }
     });
   } catch (e) {
@@ -5174,37 +5431,62 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    const provider = await User.findById(userId);
+    let target = await ProviderScheduleEvent.findByIdForProvider({ eventId, providerId: userId });
+    if (!target) {
+      const byId = await ProviderScheduleEvent.findById(eventId);
+      if (byId) {
+        const hostId = Number(byId.provider_id || 0);
+        if (hostId > 0 && (await assertCanManageTargetSchedule({
+          actorUserId,
+          actorRole,
+          targetUserId: hostId,
+          agencyId: Number(byId.agency_id || 0) || null
+        }))) {
+          target = byId;
+        }
+      }
+    }
+    if (!target) return res.status(404).json({ error: { message: 'Schedule event not found' } });
+    if (String(target.status || '').trim().toUpperCase() === 'CANCELLED') {
+      return res.json({ ok: true, cancelledCount: 0, alreadyCancelled: true });
+    }
+
+    const hostProviderId = Number(target.provider_id || userId) || userId;
+    const provider = await User.findById(hostProviderId);
     if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
     const subjectEmail = String(provider?.email || '').trim().toLowerCase();
 
-    const target = await ProviderScheduleEvent.findByIdForProvider({ eventId, providerId: userId });
-    if (!target) return res.status(404).json({ error: { message: 'Schedule event not found' } });
-    if (String(target.status || '').trim().toUpperCase() === 'CANCELLED') {
-      return res.json({ ok: true, deletedCount: 0, alreadyCancelled: true });
-    }
-
-    const scope = String(req.query?.scope || 'single').trim().toLowerCase();
-    if (!['single', 'future'].includes(scope)) {
-      return res.status(400).json({ error: { message: 'scope must be single or future' } });
+    const scope = String(req.query?.scope || req.body?.scope || 'single').trim().toLowerCase();
+    if (!['single', 'future', 'others'].includes(scope)) {
+      return res.status(400).json({ error: { message: 'scope must be single, future, or others' } });
     }
 
     let rowsToCancel = [target];
     const seriesId = String(target.recurrence_series_id || '').trim();
-    if (scope === 'future') {
+    if (scope === 'future' || scope === 'others') {
       if (!seriesId) {
         return res.status(400).json({ error: { message: 'This event is not part of a recurring series.' } });
       }
-      rowsToCancel = await ProviderScheduleEvent.listActiveSeriesFromPoint({
-        recurrenceSeriesId: seriesId,
-        providerId: userId,
-        fromStartAt: target.start_at || null,
-        fromStartDate: target.start_date || null
-      });
-      if (!rowsToCancel.length) rowsToCancel = [target];
+      if (scope === 'future') {
+        rowsToCancel = await ProviderScheduleEvent.listActiveSeriesFromPoint({
+          recurrenceSeriesId: seriesId,
+          providerId: hostProviderId,
+          fromStartAt: target.start_at || null,
+          fromStartDate: target.start_date || null
+        });
+        if (!rowsToCancel.length) rowsToCancel = [target];
+      } else {
+        rowsToCancel = await ProviderScheduleEvent.listActiveOthersInSeries({
+          recurrenceSeriesId: seriesId,
+          providerId: hostProviderId,
+          excludeEventId: eventId
+        });
+      }
     }
 
     const ids = rowsToCancel.map((r) => Number(r.id || 0)).filter((n) => n > 0);
+    // Soft-cancel in-app; best-effort mark Google copy cancelled via delete
+    // (keeps Google clean while app calendars retain CANCELLED rows).
     await Promise.all(rowsToCancel.map(async (row) => {
       const gid = String(row?.google_event_id || '').trim();
       if (!gid || !subjectEmail) return;
@@ -5215,15 +5497,26 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
       }).catch(() => {});
     }));
 
-    const deletedCount = await ProviderScheduleEvent.cancelByIds({
+    const cancelledCount = await ProviderScheduleEvent.cancelByIds({
       eventIds: ids,
       updatedByUserId: actorUserId
     });
 
+    try {
+      const { withdrawTrainingPayClaimsForEventIds } = await import('../services/scheduleEventTrainingPay.service.js');
+      await withdrawTrainingPayClaimsForEventIds({
+        eventIds: ids,
+        providerId: hostProviderId
+      });
+    } catch (payErr) {
+      console.warn('[deleteUserScheduleEvent] training pay withdraw failed', payErr?.message || payErr);
+    }
+
     return res.json({
       ok: true,
       scope,
-      deletedCount,
+      cancelledCount,
+      deletedCount: cancelledCount,
       seriesId: seriesId || null
     });
   } catch (e) {
@@ -5262,13 +5555,54 @@ export const listUserMeetingCandidates = async (req, res, next) => {
     const requestedAgencyId = Number(req.query?.agencyId || 0);
     let scopedAgencyIds = [];
     if (allAgencies) {
-      scopedAgencyIds = actorRole === 'super_admin' ? targetAgencyIds : accessibleAgencyIds;
+      if (actorRole === 'super_admin') {
+        // Platform operators should see coworkers across every active tenant, not only
+        // agencies the viewed user happens to belong to.
+        try {
+          const [agencyRows] = await pool.execute(
+            `SELECT id
+             FROM agencies
+             WHERE is_active = TRUE
+               AND (is_archived IS NULL OR is_archived = FALSE)
+               AND LOWER(COALESCE(organization_type, 'agency')) IN ('agency', 'life_coach', 'consultant')
+             ORDER BY id ASC`
+          );
+          scopedAgencyIds = Array.from(new Set(
+            (agencyRows || []).map((r) => Number(r?.id || 0)).filter((n) => n > 0)
+          ));
+        } catch {
+          scopedAgencyIds = [];
+        }
+        if (!scopedAgencyIds.length) scopedAgencyIds = targetAgencyIds;
+      } else {
+        scopedAgencyIds = accessibleAgencyIds;
+      }
     } else {
       const fallbackAgencyId = (actorRole === 'super_admin' ? targetAgencyIds : accessibleAgencyIds)[0] || 0;
       const agencyId = requestedAgencyId > 0 ? requestedAgencyId : fallbackAgencyId;
-      const scopeAllowed = actorRole === 'super_admin'
-        ? targetAgencyIds.includes(agencyId)
-        : accessibleAgencyIds.includes(agencyId);
+      let scopeAllowed = accessibleAgencyIds.includes(agencyId);
+      if (actorRole === 'super_admin') {
+        if (targetAgencyIds.includes(agencyId) || accessibleAgencyIds.includes(agencyId)) {
+          scopeAllowed = true;
+        } else if (agencyId > 0) {
+          // Superadmin may scope to any active tenant, not only personal memberships.
+          try {
+            const [chk] = await pool.execute(
+              `SELECT id FROM agencies
+               WHERE id = ?
+                 AND is_active = TRUE
+                 AND (is_archived IS NULL OR is_archived = FALSE)
+               LIMIT 1`,
+              [agencyId]
+            );
+            scopeAllowed = Array.isArray(chk) && chk.length > 0;
+          } catch {
+            scopeAllowed = false;
+          }
+        } else {
+          scopeAllowed = false;
+        }
+      }
       if (!agencyId || !scopeAllowed) {
         return res.status(403).json({ error: { message: 'Access denied for this agency' } });
       }
@@ -5314,13 +5648,196 @@ export const listUserMeetingCandidates = async (req, res, next) => {
         .filter((n) => n > 0)
     })).filter((u) => u.id > 0);
 
+    const candidateIdSet = new Set(users.map((u) => u.id));
+    const filterCandidateIds = (ids) => (ids || [])
+      .map((n) => Number(n || 0))
+      .filter((id) => id > 0 && candidateIdSet.has(id));
+
+    const groups = [];
+    const providerIds = filterCandidateIds(
+      users.filter((u) => ['provider', 'provider_plus', 'clinician'].includes(u.role)).map((u) => u.id)
+    );
+    const adminStaffIds = filterCandidateIds(
+      users.filter((u) => ['admin', 'assistant_admin', 'staff', 'support', 'clinical_practice_assistant'].includes(u.role)).map((u) => u.id)
+    );
+    if (providerIds.length) {
+      groups.push({ key: 'role:providers', label: 'Providers', kind: 'team', userIds: providerIds });
+    }
+    if (adminStaffIds.length) {
+      groups.push({ key: 'role:admin_staff', label: 'Admin / staff', kind: 'team', userIds: adminStaffIds });
+    }
+
+    try {
+      const [supervisorRows] = await pool.execute(
+        `SELECT DISTINCT supervisor_id AS user_id
+         FROM supervisor_assignments
+         WHERE agency_id IN (${placeholders})`,
+        scopedAgencyIds
+      );
+      const supervisorIds = filterCandidateIds((supervisorRows || []).map((r) => r.user_id));
+      if (supervisorIds.length) {
+        groups.push({ key: 'rel:supervisors', label: 'Supervisors', kind: 'team', userIds: supervisorIds });
+      }
+
+      const [superviseeRows] = await pool.execute(
+        `SELECT DISTINCT supervisee_id AS user_id
+         FROM supervisor_assignments
+         WHERE agency_id IN (${placeholders})`,
+        scopedAgencyIds
+      );
+      const superviseeIds = filterCandidateIds((superviseeRows || []).map((r) => r.user_id));
+      if (superviseeIds.length) {
+        groups.push({ key: 'rel:supervisees', label: 'Supervisees', kind: 'team', userIds: superviseeIds });
+      }
+    } catch {
+      // supervisor_assignments may be unavailable in some environments
+    }
+
+    try {
+      const [deptRows] = await pool.execute(
+        `SELECT d.id, d.name, d.agency_id, GROUP_CONCAT(uda.user_id) AS user_ids
+         FROM agency_departments d
+         INNER JOIN user_department_assignments uda
+           ON uda.department_id = d.id AND uda.agency_id = d.agency_id
+         WHERE d.agency_id IN (${placeholders}) AND d.is_active = 1
+         GROUP BY d.id, d.name, d.agency_id
+         ORDER BY d.display_order, d.name`,
+        scopedAgencyIds
+      );
+      for (const row of (deptRows || [])) {
+        const userIds = filterCandidateIds(String(row.user_ids || '').split(','));
+        if (!userIds.length) continue;
+        const agencySuffix = scopedAgencyIds.length > 1 ? ` (agency ${Number(row.agency_id || 0)})` : '';
+        groups.push({
+          key: `department:${Number(row.id || 0)}`,
+          label: `${String(row.name || 'Department').trim()}${agencySuffix}`,
+          kind: 'group',
+          userIds
+        });
+      }
+    } catch {
+      // department tables may not exist
+    }
+
+    if (users.length) {
+      groups.unshift({
+        key: 'all:available',
+        label: 'Everyone available',
+        kind: 'team',
+        userIds: users.map((u) => u.id)
+      });
+    }
+
+    try {
+      const AgencyMeetingInviteGroup = (await import('../models/AgencyMeetingInviteGroup.model.js')).default;
+      const customGroups = await AgencyMeetingInviteGroup.listByAgencyIds(scopedAgencyIds);
+      for (const g of customGroups) {
+        const userIds = filterCandidateIds(g.userIds);
+        groups.push({
+          key: `custom:${g.id}`,
+          label: g.name,
+          kind: 'custom',
+          customGroupId: g.id,
+          userIds: userIds.length ? userIds : (g.userIds || [])
+        });
+      }
+    } catch {
+      // custom invite-group tables may not exist yet
+    }
+
     return res.json({
       ok: true,
       agencyIds: scopedAgencyIds,
       allAgencies,
-      users
+      users,
+      groups
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/users/:id/meeting-invite-groups
+ * Create a named invite group for the selected agency (from current participant selection).
+ */
+export const createUserMeetingInviteGroup = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const agencyId = Number(req.body?.agencyId || req.query?.agencyId || 0);
+    const name = String(req.body?.name || '').trim().slice(0, 120);
+    const userIds = Array.from(
+      new Set((Array.isArray(req.body?.userIds) ? req.body.userIds : [])
+        .map((n) => Number(n || 0))
+        .filter((n) => n > 0))
+    );
+
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!name) return res.status(400).json({ error: { message: 'Group name is required' } });
+    if (!userIds.length) {
+      return res.status(400).json({ error: { message: 'Select at least one participant before creating a group.' } });
+    }
+
+    if (!(await assertCanManageTargetSchedule({
+      actorUserId,
+      actorRole,
+      targetUserId: userId,
+      agencyId
+    }))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const actorAgencies = await User.getAgencies(actorUserId);
+    const actorAgencyIds = new Set((actorAgencies || []).map((a) => Number(a?.id || 0)).filter((n) => n > 0));
+    if (actorRole !== 'super_admin' && !actorAgencyIds.has(agencyId)) {
+      return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+    }
+
+    const placeholders = userIds.map(() => '?').join(',');
+    const [memberRows] = await pool.execute(
+      `SELECT u.id
+       FROM users u
+       WHERE u.id IN (${placeholders})
+         AND EXISTS (
+           SELECT 1 FROM user_agencies ua
+           WHERE ua.user_id = u.id AND ua.agency_id = ?
+         )`,
+      [...userIds, agencyId]
+    );
+    const validIds = (memberRows || []).map((r) => Number(r.id || 0)).filter((n) => n > 0);
+    if (!validIds.length) {
+      return res.status(400).json({ error: { message: 'Selected participants are not in this agency.' } });
+    }
+
+    const AgencyMeetingInviteGroup = (await import('../models/AgencyMeetingInviteGroup.model.js')).default;
+    const group = await AgencyMeetingInviteGroup.create({
+      agencyId,
+      name,
+      createdByUserId: actorUserId,
+      userIds: validIds
+    });
+    if (!group) return res.status(500).json({ error: { message: 'Failed to create group' } });
+
+    return res.status(201).json({
+      ok: true,
+      group: {
+        key: `custom:${group.id}`,
+        label: group.name,
+        kind: 'custom',
+        customGroupId: group.id,
+        userIds: group.userIds
+      }
+    });
+  } catch (e) {
+    if (String(e?.code || '') === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({
+        error: { message: 'Meeting invite groups are not available yet. Run database migrations and try again.' }
+      });
+    }
     next(e);
   }
 };
@@ -5475,8 +5992,48 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
       displayName: virtualSessionClientDisplayName(r),
       clientType: String(r.client_type || '').trim().toLowerCase() || null,
       statusKey: String(r.client_status_key || '').trim().toLowerCase() || null,
-      statusLabel: String(r.client_status_label || '').trim() || null
+      statusLabel: String(r.client_status_label || '').trim() || null,
+      schools: []
     })).filter((c) => c.id > 0);
+
+    // Attach school organizations (for location picker — clinical site, not claim billing address).
+    if (clients.length) {
+      const clientIds = clients.map((c) => c.id);
+      const placeholders = clientIds.map(() => '?').join(',');
+      try {
+        const [schoolRows] = await pool.execute(
+          `SELECT
+             coa.client_id,
+             a.id AS school_organization_id,
+             a.name AS school_name,
+             coa.is_primary
+           FROM client_organization_assignments coa
+           JOIN agencies a ON a.id = coa.organization_id
+           WHERE coa.client_id IN (${placeholders})
+             AND coa.is_active = TRUE
+             AND LOWER(COALESCE(a.organization_type, '')) = 'school'
+           ORDER BY coa.is_primary DESC, a.name ASC`,
+          clientIds
+        );
+        const byClient = new Map();
+        for (const row of schoolRows || []) {
+          const cid = Number(row.client_id || 0);
+          const sid = Number(row.school_organization_id || 0);
+          if (!cid || !sid) continue;
+          if (!byClient.has(cid)) byClient.set(cid, []);
+          byClient.get(cid).push({
+            schoolOrganizationId: sid,
+            name: String(row.school_name || '').trim() || `School #${sid}`,
+            isPrimary: !!row.is_primary
+          });
+        }
+        for (const c of clients) {
+          c.schools = byClient.get(c.id) || [];
+        }
+      } catch {
+        // assignments table / organization_type may be unavailable
+      }
+    }
 
     let guardians = [];
     if (includeGuardians && clients.length) {

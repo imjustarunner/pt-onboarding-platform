@@ -31,6 +31,7 @@ import {
   previewServiceCodeUnits,
   listServiceLocations,
   createServiceLocation,
+  ensureSchoolServiceLocation,
   updateServiceLocation,
   applyEncounterBilling
 } from '../controllers/medicalBilling.controller.js';
@@ -233,6 +234,16 @@ router.post(
     body('placeOfService').isString().isLength({ min: 1, max: 2 })
   ],
   createServiceLocation
+);
+
+/** Bookers can ensure a school site location without full medical-billing admin. */
+router.post(
+  '/service-locations/ensure-school',
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('schoolOrganizationId').isInt({ min: 1 })
+  ],
+  ensureSchoolServiceLocation
 );
 
 router.patch(

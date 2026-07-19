@@ -45,7 +45,7 @@ async function bestEffortUnifiedOfficeAppointment({
     await upsertAppointmentForOfficeBook({
       agencyId,
       officeEventId: eid,
-      providerUserId: Number(event.assigned_provider_id || event.booked_provider_id || 0) || null,
+      providerUserId: Number(event.booked_provider_id || event.assigned_provider_id || 0) || null,
       clientId: clientId || Number(event.client_id || 0) || null,
       startAt: event.start_at,
       endAt: event.end_at,
@@ -1096,14 +1096,39 @@ export const staffBookEvent = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Event not found' } });
     }
 
-    const bookedProviderId = ev.assigned_provider_id || ev.booked_provider_id;
+    const assignedProviderId = Number(ev.assigned_provider_id || 0) || null;
+    const bodyBookedProviderId = Number(
+      req.body?.bookedProviderId || req.body?.requestedProviderId || req.body?.booked_provider_id || 0
+    ) || 0;
+    const currentBookedProviderId = Number(ev.booked_provider_id || 0) || null;
+    const allowBorrow = req.body?.borrow === true
+      || req.body?.allowBorrow === true
+      || String(req.body?.borrow || '').toLowerCase() === 'true';
+    // Default: always book as the standing assignee so admin actions on another
+    // person's schedule (e.g. Super Admin calendar context) cannot silently set
+    // booked_provider_id to that schedule subject. Explicit borrow=true is required
+    // for a different provider to take the day.
+    let bookedProviderId = assignedProviderId || currentBookedProviderId;
+    const isBorrow = !!(
+      allowBorrow
+      && bodyBookedProviderId > 0
+      && assignedProviderId > 0
+      && bodyBookedProviderId !== assignedProviderId
+    );
+    if (isBorrow) bookedProviderId = bodyBookedProviderId;
     if (!bookedProviderId) {
       return res.status(400).json({ error: { message: 'Event is missing assigned provider' } });
     }
 
-    const isOwner = Number(req.user?.id || 0) === Number(bookedProviderId);
-    if (!isOwner && !canManageSchedule(req.user.role)) {
-      return res.status(403).json({ error: { message: 'Only assigned provider or schedule managers can update booking status' } });
+    const actorId = Number(req.user?.id || 0);
+    const isAssignee = actorId > 0 && assignedProviderId > 0 && actorId === assignedProviderId;
+    const isBooker = actorId > 0 && actorId === Number(bookedProviderId);
+    const isManager = canManageSchedule(req.user.role);
+    if (!isAssignee && !isBooker && !isManager) {
+      return res.status(403).json({ error: { message: 'Only assigned provider, booked provider, or schedule managers can update booking status' } });
+    }
+    if (isBorrow && !isBooker && !isManager) {
+      return res.status(403).json({ error: { message: 'Only the borrowing provider or a schedule manager can book this assigned slot for someone else' } });
     }
 
     const shouldBook = req.body?.booked !== false && String(req.body?.booked || '').toLowerCase() !== 'false';
@@ -1136,7 +1161,7 @@ export const staffBookEvent = async (req, res, next) => {
         scheduledEndAt: ev.end_at || null
       });
     }
-    const updated = shouldBook
+    let updated = shouldBook
       ? await OfficeEvent.markBooked({
         eventId: eid,
         bookedProviderId,
@@ -1147,6 +1172,20 @@ export const staffBookEvent = async (req, res, next) => {
         serviceLocationId: bookingSelectionFromBody(req.body).serviceLocationId
       })
       : await OfficeEvent.markAvailable({ eventId: eid });
+    // Normal book (not day-borrow): keep assigned + booked on the same person.
+    if (shouldBook && !isBorrow && assignedProviderId && Number(bookedProviderId) === Number(assignedProviderId)) {
+      try {
+        await pool.execute(
+          `UPDATE office_events
+           SET assigned_provider_id = ?, booked_provider_id = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [assignedProviderId, assignedProviderId, updated?.id || eid]
+        );
+        updated = await OfficeEvent.findById(updated?.id || eid);
+      } catch {
+        // best-effort coherence
+      }
+    }
     if (shouldBook) {
       const clientId = Number(req.body?.clientId || ev.client_id || 0) || null;
       if (clientId) {
@@ -1172,7 +1211,8 @@ export const staffBookEvent = async (req, res, next) => {
       });
     }
     const standingId = Number(ev.standing_assignment_id || 0);
-    if (shouldBook) {
+    // Borrowed days must not create a standing booking plan (would rematerialize as the assignee booked weekly).
+    if (shouldBook && !isBorrow) {
       await promoteTemporaryAssignmentIfBooked(ev.standing_assignment_id);
       // Align booking plan so materializer keeps future weeks ASSIGNED_BOOKED
       // (event-only book previously left My Schedule / Buildings out of sync).
@@ -1212,11 +1252,19 @@ export const staffBookEvent = async (req, res, next) => {
           } catch {
             // best-effort link
           }
+          // Rebooking a previously cancelled occurrence clears its skip date.
+          try {
+            const plan = await OfficeBookingPlan.findActiveByAssignmentId(standingId);
+            const day = ymdFromDateLike(ev.start_at, null);
+            if (plan?.id && day) await OfficeBookingPlan.removeSkippedDate(plan.id, day);
+          } catch {
+            // best-effort
+          }
         } catch (planErr) {
           console.warn('[staffBookEvent] booking plan upsert failed:', planErr?.message || planErr);
         }
       }
-    } else if (standingId && canManageSchedule(req.user.role)) {
+    } else if (!shouldBook && standingId && canManageSchedule(req.user.role)) {
       // Admin downgrade booked → assigned: clear active booking plan so future weeks stay assigned-open.
       try {
         await OfficeBookingPlan.deactivateByAssignmentId(standingId);
@@ -1934,16 +1982,53 @@ export const cancelEvent = async (req, res, next) => {
     };
 
     if (scope === 'occurrence') {
-      const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
+      // Booked occurrence cancel = unbook this date only. Keep the standing assignment and
+      // future plan bookings. Skipping the date prevents rematerialize from resurrecting it.
+      let updated = null;
+      let skippedBookingDate = null;
+      if (eventLooksBooked(ev)) {
+        updated = await OfficeEvent.markAvailable({ eventId: eid });
+        try {
+          await pool.execute(
+            `UPDATE office_events
+             SET booking_plan_id = NULL, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [eid]
+          );
+          updated = await OfficeEvent.findById(eid);
+        } catch {
+          // best-effort unlink
+        }
+        const resolvedForSkip = await resolveStandingAssignmentIdsForEvent(ev, officeLocationId, { applyToSet: false });
+        let planId = Number(ev.booking_plan_id || 0) || null;
+        if (!planId && resolvedForSkip.standingAssignmentId) {
+          const plan = await OfficeBookingPlan.findActiveByAssignmentId(resolvedForSkip.standingAssignmentId);
+          planId = Number(plan?.id || 0) || null;
+        }
+        if (planId) {
+          await OfficeBookingPlan.addSkippedDate(planId, startDateYmd);
+          skippedBookingDate = startDateYmd;
+        }
+      } else {
+        updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
+      }
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
       await cancelGoogleForOfficeEventIds([eid]);
       const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap();
       const resolved = await resolveStandingAssignmentIdsForEvent(ev, officeLocationId, { applyToSet: false });
       const releasedStandingAssignmentIds = [];
-      for (const sid of resolved.targetAssignmentIds) {
-        // eslint-disable-next-line no-await-in-loop
-        const released = await deactivateStandingAssignmentIfReleased(sid, resolved.startDateYmd || startDateYmd);
-        if (released) releasedStandingAssignmentIds.push(sid);
+      // Do not release standing assignments when only unbooking one booked occurrence.
+      if (!skippedBookingDate) {
+        for (const sid of resolved.targetAssignmentIds) {
+          // eslint-disable-next-line no-await-in-loop
+          const released = await deactivateStandingAssignmentIfReleased(sid, resolved.startDateYmd || startDateYmd);
+          if (released) releasedStandingAssignmentIds.push(sid);
+        }
+      }
+      try {
+        OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+      } catch {
+        // best-effort
       }
       await logDeleteAuditAction({
         officeLocationId,
@@ -1954,7 +2039,9 @@ export const cancelEvent = async (req, res, next) => {
           officeEventId: eid,
           scope: 'occurrence',
           legacyAssignmentRowsRemoved,
-          releasedStandingAssignmentIds
+          releasedStandingAssignmentIds,
+          skippedBookingDate,
+          unbookedOccurrence: !!skippedBookingDate
         }
       });
       return res.json({
@@ -1962,7 +2049,9 @@ export const cancelEvent = async (req, res, next) => {
         scope: 'occurrence',
         event: updated,
         legacyAssignmentRowsRemoved,
-        releasedStandingAssignmentIds
+        releasedStandingAssignmentIds,
+        skippedBookingDate,
+        unbookedOccurrence: !!skippedBookingDate
       });
     }
 

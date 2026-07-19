@@ -13,6 +13,7 @@
   --nr-line: #e8eef5;
   --nr-soft: #f8fafc;
   max-width: min(920px, 100%);
+  max-height: min(92vh, 920px);
   padding: 0;
   background: #fff;
   color: var(--nr-ink);
@@ -28,14 +29,45 @@
 .modal--new-request select,
 .modal--new-request textarea {
   color-scheme: light;
+  color: var(--nr-ink) !important;
+  background: #fff !important;
+  -webkit-text-fill-color: var(--nr-ink);
 }
 .modal--new-request .input,
 .modal--new-request input.input,
 .modal--new-request select.input,
-.modal--new-request textarea.input {
-  background: var(--nr-soft) !important;
+.modal--new-request textarea.input,
+.modal--new-request .ahf-input,
+.modal--new-request .ahf-value,
+.modal--new-request .ahf-strip select,
+.modal--new-request .ahf-strip .ahf-value,
+.modal--new-request .rec-select,
+.modal--new-request .vlc-input,
+.modal--new-request .csb-input,
+.modal--new-request .tmb-input,
+.modal--new-request .supb-input,
+.modal--new-request .osorb-input,
+.modal--new-request .nr-info-select {
+  background: #fff !important;
   color: var(--nr-ink) !important;
   border-color: var(--nr-line) !important;
+  -webkit-text-fill-color: var(--nr-ink) !important;
+  color-scheme: light;
+}
+.modal--new-request .ahf-strip select.ahf-input option {
+  color: #0f172a;
+  background: #fff;
+}
+/* Scrollable body for unified editor + edit/create content */
+.modal--new-request .aes,
+.modal--new-request .nr-appt-edit-body,
+.modal--new-request [data-testid="appointment-editor-shell"] {
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: min(72vh, 680px);
+  -webkit-overflow-scrolling: touch;
 }
 .modal--new-request.modal--chooser {
   max-width: min(980px, 100%);

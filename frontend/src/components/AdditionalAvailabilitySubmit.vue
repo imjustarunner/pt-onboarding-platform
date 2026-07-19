@@ -75,18 +75,21 @@
           </div>
         </div>
 
-        <!-- School daytime availability request -->
+        <!-- School daytime availability request (additional hours — not slot edits) -->
         <div class="card">
           <div class="card-head">
             <div>
-              <div class="title">School daytime availability</div>
-              <div class="muted">Share weekday daytime availability so staff can assign you to a school day (you will not select the school).</div>
+              <div class="title">Additional school daytime hours</div>
+              <div class="muted">
+                Request new weekday daytime hours so staff can assign you to a school day (you will not pick the school).
+                This is separate from changing times or open slots on an existing school assignment.
+              </div>
             </div>
             <button class="btn btn-secondary btn-sm" @click="refresh" :disabled="saving">Refresh</button>
           </div>
 
           <div v-if="pending.schoolRequests.length" class="notice">
-            <div class="notice-head">You have a pending school availability request. Staff will review it soon.</div>
+            <div class="notice-head">You have a pending additional school hours request. Staff will review it soon.</div>
             <div class="notice-summary">
               <div class="summary-row">
                 <span class="lbl-sm">Daytime blocks:</span>
@@ -112,18 +115,24 @@
                 <select class="select" v-model="b.dayOfWeek">
                   <option v-for="d in weekdayNames" :key="d" :value="d">{{ d }}</option>
                 </select>
-                <input class="input" v-model="b.startTime" placeholder="HH:MM" />
-                <input class="input" v-model="b.endTime" placeholder="HH:MM" />
+                <input class="input" type="time" step="900" v-model="b.startTime" />
+                <input class="input" type="time" step="900" v-model="b.endTime" />
                 <button class="btn btn-secondary btn-sm" @click="removeSchoolBlock(idx)">Remove</button>
               </div>
               <button class="btn btn-secondary btn-sm" @click="addSchoolBlock">Add block</button>
             </div>
 
-            <label class="lbl" style="margin-top: 10px;">Notes (optional)</label>
-            <textarea class="textarea" v-model="schoolForm.notes" rows="3" placeholder="Any constraints or preferences…" />
+            <label class="lbl" style="margin-top: 10px;">What are you hoping to accomplish?</label>
+            <textarea
+              class="textarea"
+              v-model="schoolForm.notes"
+              rows="3"
+              maxlength="500"
+              placeholder="Tell staff what these additional hours are for (e.g. extra coverage day, expand caseload window)…"
+            />
 
             <div class="actions">
-              <button class="btn btn-primary" @click="submitSchool" :disabled="saving">Submit school availability</button>
+              <button class="btn btn-primary" @click="submitSchool" :disabled="saving">Submit additional school hours</button>
             </div>
           </div>
         </div>

@@ -46,21 +46,29 @@ async function canAccessTeamMeeting(req, event) {
 
 /**
  * Public: resolve event to org slug for join redirect.
+ * eventId may be numeric id (legacy) or opaque join_token.
  */
 export const getTeamMeetingJoinInfo = async (req, res, next) => {
   try {
-    const eventId = parseInt(req.params.eventId, 10);
-    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const ref = String(req.params.eventId || '').trim();
+    if (!ref) return res.status(400).json({ error: { message: 'Invalid event id' } });
+
+    const event = await ProviderScheduleEvent.resolveByJoinRef(ref);
+    if (!event?.id) return res.status(404).json({ error: { message: 'Event not found' } });
+    const kindNorm = String(event.kind || '').toUpperCase();
+    if (!['TEAM_MEETING', 'HUDDLE'].includes(kindNorm)) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+    if (String(event.status || 'ACTIVE').toUpperCase() === 'CANCELLED') {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
 
     const [rows] = await pool.execute(
       `SELECT a.slug, a.portal_url
-       FROM provider_schedule_events pse
-       JOIN agencies a ON a.id = pse.agency_id AND a.is_active = TRUE
-       WHERE pse.id = ?
-         AND UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
-         AND UPPER(COALESCE(pse.status, 'ACTIVE')) <> 'CANCELLED'
+       FROM agencies a
+       WHERE a.id = ? AND a.is_active = TRUE
        LIMIT 1`,
-      [eventId]
+      [Number(event.agency_id || 0)]
     );
     const row = rows?.[0];
     if (!row) return res.status(404).json({ error: { message: 'Event not found' } });
@@ -68,7 +76,13 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
     const orgSlug = String(row.slug || row.portal_url || '').trim();
     if (!orgSlug) return res.status(404).json({ error: { message: 'Event organization has no portal' } });
 
-    res.json({ orgSlug, eventId });
+    const joinKey = String(event.join_token || event.id);
+    res.json({
+      orgSlug,
+      eventId: Number(event.id),
+      joinToken: event.join_token || null,
+      joinPath: `/join/team-meeting/${encodeURIComponent(joinKey)}`
+    });
   } catch (e) {
     next(e);
   }
@@ -83,11 +97,12 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
 
-    const eventId = parseInt(req.params.eventId, 10);
-    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const ref = String(req.params.eventId || '').trim();
+    if (!ref) return res.status(400).json({ error: { message: 'Invalid event id' } });
 
-    const row = await ProviderScheduleEvent.findById(eventId);
+    const row = await ProviderScheduleEvent.resolveByJoinRef(ref);
     if (!row) return res.status(404).json({ error: { message: 'Event not found' } });
+    const eventId = Number(row.id);
 
     const kindNorm = String(row.kind || '').toUpperCase();
     if (kindNorm !== 'TEAM_MEETING' && kindNorm !== 'HUDDLE') {
@@ -129,7 +144,9 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       token,
       roomName: roomResult.uniqueName,
       roomSid: roomResult.roomSid,
-      isHost
+      isHost,
+      eventId,
+      joinToken: row.join_token || null
     });
   } catch (e) {
     next(e);

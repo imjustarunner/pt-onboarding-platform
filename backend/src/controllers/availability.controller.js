@@ -1312,10 +1312,29 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'At least one day/time slot is required.' } });
     }
 
+    // When replacing a prior request (date/time/frequency changed), cancel that pending
+    // request so soft-holds clear and the new series can be submitted.
+    const replaceRequestId = parseIntSafe(req.body?.replaceRequestId ?? req.body?.supersedeRequestId);
+    const supersedePrevious = req.body?.supersedePrevious === true || req.body?.supersede_previous === true
+      || !!replaceRequestId;
+    let supersedeId = replaceRequestId || null;
+    if (supersedePrevious && !supersedeId) {
+      const [rows] = await pool.execute(
+        `SELECT id FROM provider_office_availability_requests
+         WHERE agency_id = ? AND provider_id = ? AND status = 'PENDING'
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`,
+        [agencyId, providerId]
+      );
+      supersedeId = Number(rows?.[0]?.id || 0) || null;
+    }
+
     // Soft hold: block a second request for the same specific room+weekday+hour.
+    // Exclude the request we are about to cancel/replace.
     const conflict = await findConflictingPendingOfficeRequest({
       officeIds,
-      slots: normalizedSlots
+      slots: normalizedSlots,
+      excludeRequestId: supersedeId
     });
     if (conflict) {
       return res.status(409).json({
@@ -1333,6 +1352,36 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
+
+    const cancelledIds = [];
+    if (supersedeId) {
+      const [prevRows] = await conn.execute(
+        `SELECT id FROM provider_office_availability_requests
+         WHERE id = ? AND agency_id = ? AND provider_id = ? AND status = 'PENDING'
+         LIMIT 1`,
+        [supersedeId, agencyId, providerId]
+      );
+      for (const row of prevRows || []) {
+        const prevId = Number(row?.id || 0);
+        if (!prevId) continue;
+        await conn.execute(
+          `UPDATE provider_office_availability_requests
+           SET status = 'CANCELLED',
+               resolved_at = NOW(),
+               resolved_by_user_id = ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND status = 'PENDING'`,
+          [providerId, prevId]
+        );
+        cancelledIds.push(prevId);
+        try {
+          await Notification.markAllAsResolvedForFilter(agencyId, {
+            relatedEntityType: 'provider_office_availability_request',
+            relatedEntityId: prevId
+          });
+        } catch { /* non-blocking */ }
+      }
+    }
 
     let result;
     try {
@@ -1352,6 +1401,8 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
       );
     } catch (insertErr) {
       if (insertErr?.code === 'ER_BAD_FIELD_ERROR' || insertErr?.errno === 1054) {
+        await conn.rollback();
+        conn = null;
         return res.status(409).json({
           error: {
             message: 'Office request recurrence fields are missing in the database. Run migrations 485 and 486 before creating office requests.'
@@ -1372,6 +1423,7 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     }
 
     await conn.commit();
+    conn = null;
 
     // Notify admin/CPA/provider_plus/staff who can approve
     try {
@@ -1404,7 +1456,12 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
       /* non-blocking */
     }
 
-    res.status(201).json({ ok: true, id: requestId });
+    res.status(201).json({
+      ok: true,
+      id: requestId,
+      request: { id: requestId },
+      supersededRequestIds: cancelledIds
+    });
   } catch (e) {
     if (conn) {
       try { await conn.rollback(); } catch { /* ignore */ }

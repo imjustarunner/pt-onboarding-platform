@@ -30,6 +30,7 @@ import {
   resolveIntegrityConflict,
   cleanupInactiveProviderBookings,
   availableRoomsForSlot,
+  withdrawOfficeBookingRequest,
   rebookEvent,
   getSlotConflicts,
   resolveSlotConflict,
@@ -82,6 +83,7 @@ router.get('/admin/pending-intake-requests', listPendingIntakeOfficeRequests);
 router.get('/booking-requests/:id/context', getOfficeBookingRequestContext);
 router.post('/booking-requests/:id/approve', approveOfficeBookingRequest);
 router.post('/booking-requests/:id/deny', denyOfficeBookingRequest);
+router.post('/booking-requests/:id/withdraw', withdrawOfficeBookingRequest);
 
 // Admin utilities
 router.post('/locations', createLocation);
@@ -94,6 +96,8 @@ router.post('/admin/integrity-diagnostics/auto-resolve', autoResolveOfficeSchedu
 router.post('/admin/integrity-diagnostics/resolve', resolveIntegrityConflict);
 router.post('/admin/cleanup-inactive-providers', cleanupInactiveProviderBookings);
 router.get('/admin/available-rooms-for-slot', availableRoomsForSlot);
+// Staff-facing alias (same handler) for appointment office requests
+router.get('/available-rooms-for-slot', availableRoomsForSlot);
 router.post('/admin/rebook-event', rebookEvent);
 router.get('/admin/slot-conflicts', getSlotConflicts);
 router.post('/admin/slot-conflicts/resolve', resolveSlotConflict);

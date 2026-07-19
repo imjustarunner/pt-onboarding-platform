@@ -86,7 +86,7 @@ describe('scheduleSummaryPrivacy', () => {
     expect(JSON.stringify(busy)).not.toMatch(/"clientId"\s*:\s*55/);
   });
 
-  it('typed peer payload exposes activity type and office without client PII', () => {
+  it('typed peer payload exposes activity type, office, and provider identity without client PII', () => {
     const typed = toTypedPeerScheduleSummary({
       providerId: 9,
       agencyId: 1,
@@ -101,7 +101,11 @@ describe('scheduleSummaryPrivacy', () => {
         appointmentType: 'SESSION',
         buildingName: 'Windchime',
         roomNumber: '9',
-        roomLabel: 'Group Room'
+        roomLabel: 'Group Room',
+        assignedProviderId: 485,
+        bookedProviderId: 12,
+        assignedProviderFullName: 'Jacquelyne Fernandez',
+        bookedProviderFullName: 'Provider Two'
       }],
       scheduleEvents: [{
         id: 2,
@@ -127,6 +131,10 @@ describe('scheduleSummaryPrivacy', () => {
     expect(session?.title).toContain('#9');
     expect(typed.busyBlocks.find((b) => b.activityType === 'hold')?.title).toBe('Schedule hold');
     expect(typed.busyBlocks.find((b) => b.activityType === 'supervision')?.title).toBe('Supervision');
+    expect(typed.officeEvents[0]?.assignedProviderId).toBe(485);
+    expect(typed.officeEvents[0]?.bookedProviderId).toBe(12);
+    expect(typed.officeEvents[0]?.bookedProviderName).toBe('Provider Two');
+    expect(JSON.stringify(typed)).toContain('Jacquelyne Fernandez');
     expect(JSON.stringify(typed)).not.toContain('Client Jane');
     expect(JSON.stringify(typed)).not.toContain('Alice');
     expect(JSON.stringify(typed)).not.toMatch(/"clientId"\s*:\s*55/);

@@ -47,7 +47,25 @@
       </button>
     </nav>
 
-    <div v-if="loading && !schools.length && !providers.length" class="loading">Loading coverage…</div>
+    <!-- Additional school hours (provider requests) — independent of coverage load -->
+    <div v-if="tab === 'school-availability'" class="full-panel school-availability-tab" data-tour="school-availability-intake">
+      <div class="open-banner">
+        <div>
+          <h2>Additional school hours</h2>
+          <p>
+            Review provider requests for new weekday daytime availability.
+            Notes explain what they hope to accomplish — separate from editing existing assignment times or open slots.
+          </p>
+        </div>
+      </div>
+      <AvailabilityIntakeManagement
+        :show-header="false"
+        initial-tab="school"
+        :agency-id-override="agencyId"
+      />
+    </div>
+
+    <div v-else-if="loading && !schools.length && !providers.length" class="loading">Loading coverage…</div>
 
     <!-- By School -->
     <div v-else-if="tab === 'by-school'" class="split" :class="{ 'has-selection': !!selectedSchoolId }">
@@ -821,6 +839,7 @@ import {
 import api from '../../../services/api';
 import SchoolEventStaffingPanel from '../../../components/caseload-hub/SchoolEventStaffingPanel.vue';
 import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
+import AvailabilityIntakeManagement from '../../../components/admin/AvailabilityIntakeManagement.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -832,6 +851,7 @@ const tabs = [
   { id: 'by-person', label: 'By Person' },
   { id: 'events', label: 'Events' },
   { id: 'coverage-needs', label: 'Coverage Needs' },
+  { id: 'school-availability', label: 'Additional School Hours' },
   { id: 'open-spots', label: 'Open School Spots' }
 ];
 

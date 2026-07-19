@@ -131,6 +131,8 @@ export const listClientChart = async (req, res, next) => {
       [agencyId, clientId]
     );
     const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
+    const latestPlanId = Number(plans?.[0]?.id || 0);
+    const latestPlan = latestPlanId > 0 ? await ClinicalTreatmentPlan.findById(latestPlanId) : null;
     const [diagnoses] = await clinicalPool.execute(
       `SELECT id, icd10_code, description, is_primary, is_active, onset_date, created_at
        FROM clinical_diagnoses
@@ -152,6 +154,7 @@ export const listClientChart = async (req, res, next) => {
     return res.json({
       notes: notes || [],
       plans: plans || [],
+      latestPlan: latestPlan || null,
       diagnoses: diagnoses || [],
       sessions: sessions || []
     });
@@ -688,6 +691,12 @@ export const upsertMedicalServiceCode = async (req, res, next) => {
         ? req.body.allowedCredentialTiers.split(',').map((t) => t.trim()).filter(Boolean)
         : null);
 
+    const allowedPlaceOfService = Array.isArray(req.body.allowedPlaceOfService)
+      ? req.body.allowedPlaceOfService
+      : (typeof req.body.allowedPlaceOfService === 'string' && req.body.allowedPlaceOfService.trim()
+        ? req.body.allowedPlaceOfService.split(',').map((t) => t.trim()).filter(Boolean)
+        : null);
+
     const isActive = req.body.isActive !== false;
     const item = await AgencyMedicalServiceCode.upsert({
       agencyId,
@@ -703,6 +712,7 @@ export const upsertMedicalServiceCode = async (req, res, next) => {
       overflowServiceCode: req.body.overflowServiceCode || null,
       overflowAtMinutes: req.body.overflowAtMinutes ?? null,
       defaultPlaceOfService: req.body.defaultPlaceOfService || null,
+      allowedPlaceOfService,
       allowedCredentialTiers,
       isActive,
       createdByUserId: req.user.id
@@ -817,9 +827,62 @@ export const createServiceLocation = async (req, res, next) => {
       notes: req.body.notes || null,
       requiresCredentialing: !!req.body.requiresCredentialing,
       billingOfficeLocationId: parseIntValue(req.body.billingOfficeLocationId),
+      schoolOrganizationId: parseIntValue(req.body.schoolOrganizationId),
       createdByUserId: req.user.id
     });
     return res.status(201).json({ item });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Find-or-create a POS 03 school service location for booking.
+ * Claims still bill under the tenant billing office; school is the clinical site only.
+ */
+export const ensureSchoolServiceLocation = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.body.agencyId);
+    const schoolOrganizationId = parseIntValue(req.body.schoolOrganizationId);
+    if (!agencyId || !schoolOrganizationId) {
+      return res.status(400).json({ error: { message: 'agencyId and schoolOrganizationId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+
+    const [schoolRows] = await pool.execute(
+      `SELECT id, name FROM agencies
+       WHERE id = ?
+         AND LOWER(COALESCE(organization_type, '')) = 'school'
+       LIMIT 1`,
+      [schoolOrganizationId]
+    );
+    const school = schoolRows?.[0];
+    if (!school) {
+      return res.status(404).json({ error: { message: 'School organization not found' } });
+    }
+
+    let item = await AgencyServiceLocation.findByAgencyAndSchool(agencyId, schoolOrganizationId);
+    if (item) return res.json({ item, created: false });
+
+    let billingOfficeLocationId = parseIntValue(req.body.billingOfficeLocationId);
+    if (!billingOfficeLocationId) {
+      const offices = await OfficeLocation.findByAgencyMembership(agencyId, { includeInactive: false }).catch(() =>
+        OfficeLocation.findByAgency(agencyId, { includeInactive: false })
+      );
+      billingOfficeLocationId = Number(offices?.[0]?.id || 0) || null;
+    }
+
+    item = await AgencyServiceLocation.create({
+      agencyId,
+      name: String(school.name || '').trim() || `School #${schoolOrganizationId}`,
+      placeOfService: '03',
+      notes: 'Auto-added school site. Claims bill under the tenant billing office + POS.',
+      requiresCredentialing: false,
+      billingOfficeLocationId,
+      schoolOrganizationId,
+      createdByUserId: req.user.id
+    });
+    return res.status(201).json({ item, created: true });
   } catch (e) {
     next(e);
   }

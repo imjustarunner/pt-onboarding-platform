@@ -187,22 +187,29 @@ const navigateToTenantOrganization = (agency) => {
   const slug = getOrgSlug(agency);
   if (!slug) return;
 
+  const path = String(route.path || '');
   const nextDashboard = `/${slug}/dashboard`;
-  const onAdminSurface = String(route.path || '').includes('/admin/');
-  const onTickets = String(route.path || '').includes('/tickets');
-  if (!onAdminSurface && !onTickets) {
-    router.push(nextDashboard);
-    return;
-  }
+  const onAdminSurface = path.includes('/admin/');
+  const onTickets = path.includes('/tickets');
+  // Stay on schedule / calendar surfaces — only swap tenant context (and slug if present).
+  // Never bounce to that tenant's admin dashboard from these surfaces.
+  const onScheduleSurface = /\/(my-schedule|schedule)(\/|$)/i.test(path)
+    || /\/buildings\/schedule/i.test(path)
+    || /\/provider-mobile\/schedule/i.test(path)
+    || /\/office\/schedule/i.test(path)
+    || (/\/dashboard(\/|$)/i.test(path) && String(route.query?.tab || '') === 'my_schedule');
 
-  if (route.params.organizationSlug) {
-    const nextParams = { ...route.params, organizationSlug: slug };
-    router.push({ name: route.name, params: nextParams, query: route.query });
-    return;
-  }
-
-  if (onTickets) {
-    router.push({ path: '/tickets', query: route.query });
+  if (onScheduleSurface || onAdminSurface || onTickets) {
+    if (route.params.organizationSlug) {
+      const nextParams = { ...route.params, organizationSlug: slug };
+      router.push({ name: route.name, params: nextParams, query: route.query });
+      return;
+    }
+    if (onTickets) {
+      router.push({ path: '/tickets', query: route.query });
+      return;
+    }
+    // Platform HQ / unscoped schedule: agency context already updated; do not bounce to dashboard.
     return;
   }
 

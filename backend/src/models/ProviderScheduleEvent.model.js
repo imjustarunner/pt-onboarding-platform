@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { generateJoinToken } from '../utils/joinToken.js';
 
 class ProviderScheduleEvent {
   static async create({
@@ -26,23 +27,30 @@ class ProviderScheduleEvent {
     clientId = null,
     entitlementId = null,
     packagePaymentId = null,
-    sessionIndex = null
+    sessionIndex = null,
+    joinToken = null,
+    isTrainingPayEligible = false
   }) {
+    const kindUpper = String(kind || '').trim().toUpperCase();
+    const needsJoinToken = ['TEAM_MEETING', 'HUDDLE'].includes(kindUpper) && !!platformVideoLink;
+    const token = needsJoinToken ? String(joinToken || generateJoinToken()).slice(0, 64) : (joinToken || null);
     const [result] = await pool.execute(
       `INSERT INTO provider_schedule_events
-        (agency_id, provider_id, client_id, entitlement_id, package_payment_id, session_index,
+        (join_token, agency_id, provider_id, client_id, entitlement_id, package_payment_id, session_index,
          kind, title, description, reason_code, is_private, all_day, start_at, end_at, start_date, end_date, status,
          recurrence_series_id, recurrence_frequency, recurrence_policy, recurrence_index,
-         google_event_id, google_html_link, google_meet_link, platform_video_link, created_by_user_id, updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         google_event_id, google_html_link, google_meet_link, platform_video_link,
+         is_training_pay_eligible, created_by_user_id, updated_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
+        token,
         agencyId == null ? null : Number(agencyId),
         Number(providerId),
         clientId ? Number(clientId) : null,
         entitlementId ? Number(entitlementId) : null,
         packagePaymentId ? Number(packagePaymentId) : null,
         sessionIndex == null ? null : Math.max(1, Number(sessionIndex) || 1),
-        String(kind || '').trim().toUpperCase(),
+        kindUpper,
         String(title || '').trim(),
         description ? String(description) : null,
         reasonCode ? String(reasonCode).trim().toUpperCase() : null,
@@ -60,6 +68,7 @@ class ProviderScheduleEvent {
         googleHtmlLink ? String(googleHtmlLink) : null,
         googleMeetLink ? String(googleMeetLink).trim().slice(0, 1024) : null,
         platformVideoLink == null ? null : (platformVideoLink ? 1 : 0),
+        isTrainingPayEligible ? 1 : 0,
         createdByUserId ? Number(createdByUserId) : null,
         createdByUserId ? Number(createdByUserId) : null
       ]
@@ -78,6 +87,41 @@ class ProviderScheduleEvent {
       [eid]
     );
     return rows?.[0] || null;
+  }
+
+  static async findByJoinToken(joinToken) {
+    const token = String(joinToken || '').trim();
+    if (!token) return null;
+    const [rows] = await pool.execute(
+      `SELECT * FROM provider_schedule_events WHERE join_token = ? LIMIT 1`,
+      [token]
+    );
+    return rows?.[0] || null;
+  }
+
+  static async resolveByJoinRef(ref) {
+    const raw = String(ref || '').trim();
+    if (!raw) return null;
+    let row = null;
+    if (/^\d+$/.test(raw)) {
+      row = await this.findById(raw);
+    } else {
+      row = await this.findByJoinToken(raw);
+    }
+    if (!row) return null;
+    if (!row.join_token && ['TEAM_MEETING', 'HUDDLE'].includes(String(row.kind || '').toUpperCase())) {
+      const token = generateJoinToken();
+      try {
+        await pool.execute(
+          `UPDATE provider_schedule_events SET join_token = ? WHERE id = ? AND join_token IS NULL`,
+          [token, Number(row.id)]
+        );
+        row.join_token = token;
+      } catch {
+        /* pre-migration */
+      }
+    }
+    return row;
   }
 
   static async listForUserInWindow({ agencyId, agencyIds = null, allAgencies = false, providerId, windowStart, windowEnd }) {
@@ -107,12 +151,12 @@ class ProviderScheduleEvent {
       )
     ))`;
     const params = [...scopeParams, pId, pId, windowEnd, windowStart, windowEnd, windowStart];
+    // Include CANCELLED rows so cancelled meetings remain visible on calendars.
     const [rows] = await pool.execute(
       `SELECT *
        FROM provider_schedule_events pse
        WHERE ${scopeClause}
          AND ${userClause}
-         AND UPPER(COALESCE(pse.status, 'ACTIVE')) <> 'CANCELLED'
          AND (
            (pse.all_day = 1 AND pse.start_date < DATE(?) AND pse.end_date > DATE(?))
            OR
@@ -166,6 +210,7 @@ class ProviderScheduleEvent {
     agencyId = undefined,
     clientId = undefined,
     reasonCode = undefined,
+    isTrainingPayEligible = undefined,
     updatedByUserId = null
   }) {
     const eid = Number(eventId || 0);
@@ -217,6 +262,10 @@ class ProviderScheduleEvent {
       sets.push('reason_code = ?');
       params.push(reasonCode ? String(reasonCode).trim().toUpperCase() : null);
     }
+    if (isTrainingPayEligible !== undefined) {
+      sets.push('is_training_pay_eligible = ?');
+      params.push(isTrainingPayEligible ? 1 : 0);
+    }
     if (!sets.length) return this.findByIdForProvider({ eventId: eid, providerId: pid });
     sets.push('updated_by_user_id = ?');
     params.push(updatedByUserId ? Number(updatedByUserId) : null);
@@ -257,6 +306,30 @@ class ProviderScheduleEvent {
          CASE WHEN all_day = 1 THEN CONCAT(start_date, ' 00:00:00') ELSE start_at END ASC,
          id ASC`,
       [sid, pid, hasStartAt ? 1 : 0, fromStartAt || null, hasStartDate ? 1 : 0, fromStartDate || null]
+    );
+    return rows || [];
+  }
+
+  static async listActiveOthersInSeries({
+    recurrenceSeriesId,
+    providerId,
+    excludeEventId
+  }) {
+    const sid = String(recurrenceSeriesId || '').trim();
+    const pid = Number(providerId || 0);
+    const excludeId = Number(excludeEventId || 0);
+    if (!sid || !pid || !excludeId) return [];
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM provider_schedule_events
+       WHERE recurrence_series_id = ?
+         AND provider_id = ?
+         AND id <> ?
+         AND UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED'
+       ORDER BY
+         CASE WHEN all_day = 1 THEN CONCAT(start_date, ' 00:00:00') ELSE start_at END ASC,
+         id ASC`,
+      [sid, pid, excludeId]
     );
     return rows || [];
   }

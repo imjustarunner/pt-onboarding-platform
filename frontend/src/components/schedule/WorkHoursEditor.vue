@@ -1,5 +1,5 @@
 <template>
-  <details class="work-hours" data-tour="my-schedule-work-hours" :open="openByDefault">
+  <details class="work-hours" data-testid="my-schedule-work-hours" :open="openByDefault">
     <summary class="work-hours__summary">
       <span class="work-hours__title">Work hours</span>
       <span class="muted">{{ summaryLabel }}</span>
@@ -15,9 +15,15 @@
         <div v-if="error" class="error">{{ error }}</div>
 
         <div class="work-hours__meta">
-          <label class="field">
+          <label class="field field--tz">
             <span>Timezone</span>
-            <input v-model="timezone" class="input" type="text" placeholder="America/New_York" />
+            <select v-model="timezone" class="select timezone-select">
+              <optgroup v-for="g in TIMEZONE_GROUPS" :key="g.label" :label="g.label">
+                <option v-for="z in g.zones" :key="z.value" :value="z.value">{{ z.label }}</option>
+              </optgroup>
+              <option v-if="timezone && !knownTimezone" :value="timezone">{{ timezone }}</option>
+            </select>
+            <span v-if="timezoneHint" class="field-hint muted">{{ timezoneHint }}</span>
           </label>
           <label class="check">
             <input v-model="isActive" type="checkbox" />
@@ -49,6 +55,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import { TIMEZONE_GROUPS, ALL_TIMEZONES, detectLocalTimezone, timezoneLabelFor } from '../../utils/timezones.js';
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -58,9 +65,11 @@ const props = defineProps({
 const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
-const timezone = ref('America/New_York');
+const timezone = ref(detectLocalTimezone());
 const isActive = ref(true);
 const rows = ref([]);
+const timezoneSource = ref('');
+const homeState = ref('');
 
 const dayOptions = [
   { value: 0, label: 'Sun' },
@@ -72,12 +81,28 @@ const dayOptions = [
   { value: 6, label: 'Sat' }
 ];
 
+const knownTimezone = computed(() => ALL_TIMEZONES.some((z) => z.value === timezone.value));
+
+const timezoneHint = computed(() => {
+  if (timezoneSource.value === 'home_address' && homeState.value) {
+    return `Defaulted from home address (${homeState.value}). Change if needed.`;
+  }
+  if (timezoneSource.value === 'profile') {
+    return 'Defaulted from your profile timezone. Change if needed.';
+  }
+  if (timezoneSource.value === 'browser') {
+    return 'Defaulted from your device timezone. Change if needed.';
+  }
+  return '';
+});
+
 const summaryLabel = computed(() => {
   if (loading.value) return 'Loading…';
   if (!isActive.value) return 'Inactive · expand to edit';
   if (!rows.value.length) return 'Not set · expand to edit reachability';
   const n = rows.value.length;
-  return `${n} range${n === 1 ? '' : 's'} · ${timezone.value || 'timezone'} · expand to edit`;
+  const tzLabel = timezoneLabelFor(timezone.value);
+  return `${n} range${n === 1 ? '' : 's'} · ${tzLabel} · expand to edit`;
 });
 
 const toInputTime = (raw) => {
@@ -101,15 +126,30 @@ const load = async () => {
     loading.value = true;
     error.value = '';
     const resp = await api.get(`/users/${uid}/work-schedule`);
-    timezone.value = String(resp.data?.timezone || 'America/New_York');
-    isActive.value = resp.data?.isActive !== false;
-    rows.value = (resp.data?.blocks || []).map((b) => ({
+    const data = resp.data || {};
+    const suggested = String(data.suggestedTimezone || data.timezone || '').trim();
+    const browserTz = detectLocalTimezone();
+    timezone.value = suggested || browserTz || 'America/New_York';
+    homeState.value = String(data.homeState || '').trim();
+    if (data.hasSavedSchedule) {
+      timezoneSource.value = 'work_schedule';
+    } else if (data.timezoneSource === 'home_address' || data.timezoneSource === 'profile') {
+      timezoneSource.value = data.timezoneSource;
+    } else if (!suggested) {
+      timezoneSource.value = 'browser';
+    } else {
+      timezoneSource.value = data.timezoneSource || 'default';
+    }
+    isActive.value = data.isActive !== false;
+    rows.value = (data.blocks || []).map((b) => ({
       dayOfWeek: Number(b.dayOfWeek),
       startTime: toInputTime(b.startTime),
       endTime: toInputTime(b.endTime)
     }));
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load work hours';
+    timezone.value = detectLocalTimezone() || 'America/New_York';
+    timezoneSource.value = 'browser';
   } finally {
     loading.value = false;
   }
@@ -197,6 +237,16 @@ watch(() => props.userId, load);
   gap: 2px;
   font-size: 11px;
   font-weight: 700;
+}
+.work-hours__meta .field--tz { min-width: min(100%, 280px); flex: 1 1 240px; }
+.work-hours__meta .timezone-select {
+  min-height: 34px;
+  width: 100%;
+}
+.work-hours__meta .field-hint {
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 2px;
 }
 .work-hours__meta .check {
   display: inline-flex;

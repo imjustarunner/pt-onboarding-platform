@@ -443,13 +443,25 @@ class OfficeEvent {
       const existingIsBooked =
         String(existing.status || '').toUpperCase() === 'BOOKED'
         || String(existing.slot_state || '').toUpperCase() === 'ASSIGNED_BOOKED';
-      // Materialization should never downgrade a booked occurrence back to assigned_available/temporary.
-      // Explicit endpoints (markAvailable/forfeit/cancel) own unbooking transitions.
-      const preserveBooked = existingIsBooked && String(slotState || '').toUpperCase() !== 'ASSIGNED_BOOKED';
+      const incomingAssignedId = Number(assignedProviderId || 0) || null;
+      const existingBookedId = Number(existing.booked_provider_id || 0) || null;
+      // Materialization should never downgrade a booked occurrence back to assigned_available/temporary
+      // when the same provider still owns it. Explicit endpoints own unbooking transitions.
+      // Exception: do NOT preserve a foreign booked_provider under a different standing assignee
+      // (that creates assigned=A / booked=B ghosts, often after reassignment or rematerialize).
+      let preserveBooked = existingIsBooked && String(slotState || '').toUpperCase() !== 'ASSIGNED_BOOKED';
+      if (
+        preserveBooked
+        && incomingAssignedId
+        && existingBookedId
+        && existingBookedId !== incomingAssignedId
+      ) {
+        preserveBooked = false;
+      }
       const effectiveSlotState = preserveBooked ? 'ASSIGNED_BOOKED' : slotState;
       const effectiveStatus = preserveBooked ? 'BOOKED' : legacyStatus;
       const effectiveBookedProviderId = preserveBooked
-        ? (existing.booked_provider_id || bookedProviderId || assignedProviderId || null)
+        ? (existingBookedId || bookedProviderId || incomingAssignedId || null)
         : bookedProviderId;
       await pool.execute(
         `UPDATE office_events

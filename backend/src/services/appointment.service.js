@@ -50,7 +50,10 @@ export async function resolveBookingOptions({
     businessTypes.filter((t) => t.isEnabled).map((t) => t.businessType)
   );
   let services = await TenantService.listForAgency(aid, { includeInactive: false });
-  services = services.filter((s) => s.isStaffBookable && (!enabledTypes.size || enabledTypes.has(s.businessType)));
+  const staffBookable = services.filter((s) => s.isStaffBookable);
+  services = staffBookable.filter((s) => !enabledTypes.size || enabledTypes.has(s.businessType));
+  // Soft fallback: if business-type filter wipes the catalog, still offer staff-bookable services.
+  if (!services.length && staffBookable.length) services = staffBookable;
 
   if (providerId) {
     const allowed = new Set(await StaffServiceAssignment.listServiceIdsForUser(aid, providerId));
@@ -144,6 +147,7 @@ export async function createAppointment({
   roomId = null,
   status = 'confirmed',
   officeEventId = null,
+  officeBookingRequestId = null,
   providerScheduleEventId = null,
   clinicalSessionId = null,
   packageEntitlementId = null,
@@ -223,6 +227,7 @@ export async function createAppointment({
     status,
     participantMode: mode,
     officeEventId,
+    officeBookingRequestId: officeBookingRequestId || null,
     providerScheduleEventId,
     clinicalSessionId,
     packageEntitlementId,

@@ -114,6 +114,7 @@ const buildDefaultPreferences = (userRole) => {
     daily_digest_time: '07:00',
     work_modality: null,
     scheduling_preferences: null,
+    schedule_display_prefs: null,
     schedule_color_overrides: {
       request: '#F2C94C',
       school: '#2D9CDB',

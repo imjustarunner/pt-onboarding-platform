@@ -13,7 +13,14 @@ class AgencyServiceLocation {
        LEFT JOIN office_locations o ON o.id = l.billing_office_location_id
        WHERE l.agency_id = ?
          AND (? = 1 OR l.is_active = 1)
-       ORDER BY l.name ASC`,
+       ORDER BY
+         CASE
+           WHEN l.place_of_service = '11' THEN 0
+           WHEN l.billing_office_location_id IS NOT NULL THEN 1
+           WHEN l.place_of_service IN ('02', '10') THEN 2
+           ELSE 3
+         END,
+         l.name ASC`,
       [agencyId, includeInactive ? 1 : 0]
     );
     return rows || [];
@@ -36,6 +43,29 @@ class AgencyServiceLocation {
     return rows?.[0] || null;
   }
 
+  static async findByAgencyAndSchool(agencyId, schoolOrganizationId) {
+    const sid = Number(schoolOrganizationId || 0);
+    if (!agencyId || !sid) return null;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT l.*,
+                o.name AS billing_office_name
+         FROM agency_service_locations l
+         LEFT JOIN office_locations o ON o.id = l.billing_office_location_id
+         WHERE l.agency_id = ?
+           AND l.school_organization_id = ?
+           AND l.is_active = 1
+         ORDER BY l.id ASC
+         LIMIT 1`,
+        [agencyId, sid]
+      );
+      return rows?.[0] || null;
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') return null;
+      throw e;
+    }
+  }
+
   static async create(payload) {
     const {
       agencyId,
@@ -48,28 +78,55 @@ class AgencyServiceLocation {
       notes = null,
       requiresCredentialing = false,
       billingOfficeLocationId = null,
+      schoolOrganizationId = null,
       createdByUserId = null
     } = payload;
-    const [result] = await pool.execute(
-      `INSERT INTO agency_service_locations
-         (agency_id, name, place_of_service, street_address, city, state, postal_code, notes,
-          requires_credentialing, billing_office_location_id, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        agencyId,
-        String(name || '').trim(),
-        String(placeOfService || '').trim().slice(0, 2),
-        streetAddress,
-        city,
-        state,
-        postalCode,
-        notes,
-        requiresCredentialing ? 1 : 0,
-        billingOfficeLocationId,
-        createdByUserId
-      ]
-    );
-    return this.findById(result.insertId);
+    const schoolOrgId = Number(schoolOrganizationId || 0) || null;
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO agency_service_locations
+           (agency_id, name, place_of_service, street_address, city, state, postal_code, notes,
+            requires_credentialing, billing_office_location_id, school_organization_id, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          agencyId,
+          String(name || '').trim(),
+          String(placeOfService || '').trim().slice(0, 2),
+          streetAddress,
+          city,
+          state,
+          postalCode,
+          notes,
+          requiresCredentialing ? 1 : 0,
+          billingOfficeLocationId,
+          schoolOrgId,
+          createdByUserId
+        ]
+      );
+      return this.findById(result.insertId);
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [result] = await pool.execute(
+        `INSERT INTO agency_service_locations
+           (agency_id, name, place_of_service, street_address, city, state, postal_code, notes,
+            requires_credentialing, billing_office_location_id, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          agencyId,
+          String(name || '').trim(),
+          String(placeOfService || '').trim().slice(0, 2),
+          streetAddress,
+          city,
+          state,
+          postalCode,
+          notes,
+          requiresCredentialing ? 1 : 0,
+          billingOfficeLocationId,
+          createdByUserId
+        ]
+      );
+      return this.findById(result.insertId);
+    }
   }
 
   static async update(id, updates = {}) {

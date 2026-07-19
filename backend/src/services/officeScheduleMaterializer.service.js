@@ -126,6 +126,20 @@ function isAssignmentActiveOnDate(assignment, dateStr) {
 }
 
 /** Exported for use by isRoomOpenAt when checking if a standing assignment blocks a slot. */
+function planSkippedDates(plan) {
+  const raw = plan?.skipped_dates_json;
+  let arr = raw;
+  if (typeof raw === 'string') {
+    try { arr = JSON.parse(raw); } catch { arr = null; }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr.map((d) => normalizeYmd(d)).filter(Boolean);
+}
+
+function isPlanDateSkipped(plan, dateStr) {
+  return planSkippedDates(plan).includes(normalizeYmd(dateStr));
+}
+
 export function shouldBookOnDate(plan, assignment, dateStr) {
   if (!plan || plan.is_active === 0) return false;
   const start = normalizeYmd(plan.booking_start_date);
@@ -133,6 +147,8 @@ export function shouldBookOnDate(plan, assignment, dateStr) {
   if (dateStr < start) return false;
   const planHardLimit = addDays(start, 365);
   if (planHardLimit && dateStr > planHardLimit) return false;
+  // Single-occurrence cancels land here so rematerialize does not resurrect them.
+  if (isPlanDateSkipped(plan, dateStr)) return false;
   // Open-ended weekly on an AVAILABLE standing assignment: ignore historical
   // active_until_date values left by the old "weekly × 6" intake approval path.
   const openEndedWeekly =
@@ -295,6 +311,9 @@ export class OfficeScheduleMaterializer {
           let slotState = baseSlotState;
           if (plan && shouldBookOnDate(plan, a, date) && shouldBookByCount(plan, a, date)) {
             slotState = 'ASSIGNED_BOOKED';
+          } else if (plan && isPlanDateSkipped(plan, date)) {
+            // Occurrence was explicitly unbooked — keep assigned-available, do not rebook.
+            slotState = baseSlotState;
           } else if (plan && !shouldBookOnDate(plan, a, date)) {
             // Assignment weekly + booking biweekly: off-weeks are released for others to book.
             const hasStandingEvent = existingRows.some((ev) =>
@@ -314,11 +333,12 @@ export class OfficeScheduleMaterializer {
           }
 
           const desiredBookedProviderId = slotState === 'ASSIGNED_BOOKED' ? Number(a.provider_id || 0) : 0;
+          const desiredPlanId = slotState === 'ASSIGNED_BOOKED' ? Number(plan?.id || 0) : 0;
           const hasMatchingRow = existingRows.some((ev) =>
             String(ev?.status || '').toUpperCase() !== 'CANCELLED'
             && String(ev?.slot_state || '').toUpperCase() === String(slotState || '').toUpperCase()
             && Number(ev?.standing_assignment_id || 0) === Number(a.id || 0)
-            && Number(ev?.booking_plan_id || 0) === Number(plan?.id || 0)
+            && Number(ev?.booking_plan_id || 0) === desiredPlanId
             && Number(ev?.assigned_provider_id || 0) === Number(a.provider_id || 0)
             && Number(ev?.booked_provider_id || 0) === desiredBookedProviderId
           );
@@ -331,12 +351,14 @@ export class OfficeScheduleMaterializer {
             endAt,
             slotState,
             standingAssignmentId: a.id,
-            bookingPlanId: plan?.id || null,
+            // Skipped (unbooked) dates keep the assignment but must not re-link the booking plan.
+            bookingPlanId: slotState === 'ASSIGNED_BOOKED' ? (plan?.id || null) : null,
             recurrenceGroupId: a.recurrence_group_id || null,
             assignedProviderId: a.provider_id,
             bookedProviderId: desiredBookedProviderId || null,
             createdByUserId: uid || 1,
-            replaceCancelled: true
+            // Never resurrect explicit cancellations — occurrence cancels + forfeits must stick.
+            replaceCancelled: false
           });
           upsertedCount += 1;
         }

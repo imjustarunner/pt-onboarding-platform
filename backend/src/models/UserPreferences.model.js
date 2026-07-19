@@ -58,7 +58,8 @@ class UserPreferences {
           'school_portal_notifications_progress',
           'review_prompt_state',
           'toast_preferences',
-          'documents_category_order_json'
+          'documents_category_order_json',
+          'schedule_display_prefs'
         ];
 
         for (const field of allowedFields) {
@@ -75,7 +76,8 @@ class UserPreferences {
               field === 'school_portal_notifications_progress' ||
               field === 'review_prompt_state' ||
               field === 'toast_preferences' ||
-              field === 'documents_category_order_json'
+              field === 'documents_category_order_json' ||
+              field === 'schedule_display_prefs'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {
@@ -124,7 +126,8 @@ class UserPreferences {
           'school_portal_notifications_progress',
           'review_prompt_state',
           'toast_preferences',
-          'documents_category_order_json'
+          'documents_category_order_json',
+          'schedule_display_prefs'
         ];
 
         for (const field of allowedFields) {
@@ -142,7 +145,8 @@ class UserPreferences {
               field === 'school_portal_notifications_progress' ||
               field === 'review_prompt_state' ||
               field === 'toast_preferences' ||
-              field === 'documents_category_order_json'
+              field === 'documents_category_order_json' ||
+              field === 'schedule_display_prefs'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {

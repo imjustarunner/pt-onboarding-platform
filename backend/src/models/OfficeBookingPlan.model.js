@@ -253,6 +253,78 @@ class OfficeBookingPlan {
     return true;
   }
 
+  static parseSkippedDates(raw) {
+    let arr = raw;
+    if (typeof raw === 'string') {
+      try { arr = JSON.parse(raw); } catch { arr = null; }
+    }
+    if (!Array.isArray(arr)) return [];
+    return Array.from(new Set(
+      arr.map((d) => normalizeYmd(d)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    )).sort();
+  }
+
+  static isDateSkipped(plan, dateYmd) {
+    const day = normalizeYmd(dateYmd);
+    if (!day) return false;
+    const skipped = this.parseSkippedDates(plan?.skipped_dates_json);
+    return skipped.includes(day);
+  }
+
+  static async addSkippedDate(planId, dateYmd) {
+    const id = Number(planId || 0);
+    const day = normalizeYmd(dateYmd);
+    if (!id || !day) return null;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT id, skipped_dates_json FROM office_booking_plans WHERE id = ? LIMIT 1`,
+        [id]
+      );
+      const plan = rows?.[0];
+      if (!plan) return null;
+      const next = this.parseSkippedDates(plan.skipped_dates_json);
+      if (!next.includes(day)) next.push(day);
+      next.sort();
+      await pool.execute(
+        `UPDATE office_booking_plans
+         SET skipped_dates_json = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [JSON.stringify(next), id]
+      );
+      const [out] = await pool.execute(`SELECT * FROM office_booking_plans WHERE id = ? LIMIT 1`, [id]);
+      return out?.[0] || null;
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') return null;
+      throw e;
+    }
+  }
+
+  static async removeSkippedDate(planId, dateYmd) {
+    const id = Number(planId || 0);
+    const day = normalizeYmd(dateYmd);
+    if (!id || !day) return null;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT id, skipped_dates_json FROM office_booking_plans WHERE id = ? LIMIT 1`,
+        [id]
+      );
+      const plan = rows?.[0];
+      if (!plan) return null;
+      const next = this.parseSkippedDates(plan.skipped_dates_json).filter((d) => d !== day);
+      await pool.execute(
+        `UPDATE office_booking_plans
+         SET skipped_dates_json = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [next.length ? JSON.stringify(next) : null, id]
+      );
+      const [out] = await pool.execute(`SELECT * FROM office_booking_plans WHERE id = ? LIMIT 1`, [id]);
+      return out?.[0] || null;
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') return null;
+      throw e;
+    }
+  }
+
   static async confirm(planId) {
     await pool.execute(
       `UPDATE office_booking_plans

@@ -262,6 +262,17 @@ export const getBookingOptions = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    // Match listTenantServices: seed business types + default suites before resolving options.
+    try {
+      const agency = await Agency.findById(agencyId);
+      await getCapabilitiesForAgency(agencyId, {
+        ensureDefaults: true,
+        organizationType: agency?.organization_type || agency?.organizationType
+      });
+      await ensureTenantServiceSuitesForAgency(agencyId);
+    } catch {
+      /* best-effort suite seed */
+    }
     const options = await resolveBookingOptions({
       agencyId,
       serviceId: req.query.serviceId ? Number(req.query.serviceId) : null,

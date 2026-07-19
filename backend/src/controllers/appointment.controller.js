@@ -86,6 +86,17 @@ export const createAppointmentHandler = async (req, res, next) => {
 
     const createPse = req.body?.createProviderScheduleEvent !== false;
     const providerUserId = Number(req.body?.providerUserId || req.user?.id || 0) || null;
+    let notes = req.body?.notes || null;
+    const quickNote = String(req.body?.quickNote || req.body?.quick_note || '').trim();
+    if (quickNote) {
+      try {
+        const { maybeEncryptNotePayload } = await import('../services/clinicalNoteCrypto.service.js');
+        const enc = maybeEncryptNotePayload(quickNote);
+        notes = [notes, `Quick note (encrypted):\n${enc}`].filter(Boolean).join('\n\n');
+      } catch {
+        notes = [notes, `Quick note:\n${quickNote}`].filter(Boolean).join('\n\n');
+      }
+    }
     const appointment = await createAppointment({
       agencyId,
       parentAgencyId: req.body?.parentAgencyId || null,
@@ -98,10 +109,11 @@ export const createAppointmentHandler = async (req, res, next) => {
       roomId: req.body?.roomId || null,
       status: req.body?.status || 'confirmed',
       officeEventId: req.body?.officeEventId || null,
+      officeBookingRequestId: req.body?.officeBookingRequestId || req.body?.office_booking_request_id || null,
       packageEntitlementId: req.body?.packageEntitlementId || req.body?.package_entitlement_id || null,
       source: req.body?.source || 'staff_grid',
       title: req.body?.title || null,
-      notes: req.body?.notes || null,
+      notes,
       createdByUserId: req.user?.id || null,
       participants: Array.isArray(req.body?.participants) ? req.body.participants : [],
       billing: req.body?.billing || null

@@ -12,7 +12,7 @@
     <div v-else class="panel">
       <div class="tabs">
         <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'">Office Requests</button>
-        <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'">School Requests</button>
+        <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'">Additional school hours</button>
         <button class="tab" :class="{ active: tab === 'appointments' }" @click="tab = 'appointments'">Appointments</button>
         <button class="tab" :class="{ active: tab === 'search' }" @click="tab = 'search'">Search</button>
         <button class="tab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Skills</button>
@@ -95,14 +95,18 @@
           </div>
         </div>
 
-        <!-- School requests -->
+        <!-- Additional school daytime hours requests -->
         <div v-else-if="tab === 'school'">
-          <div v-if="schoolRequests.length === 0" class="muted">No pending school availability requests.</div>
+          <p class="muted" style="margin: 0 0 12px;">
+            Pending requests for <strong>additional</strong> weekday daytime hours (not edits to existing school assignment times/slots).
+          </p>
+          <div v-if="schoolRequests.length === 0" class="muted">No pending additional school hours requests.</div>
           <div v-else class="list">
             <div v-for="r in schoolRequests" :key="r.id" class="row">
               <div class="main">
                 <div class="title">{{ r.providerName }}</div>
-                <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
+                <div class="meta" v-if="r.notes"><strong>Hoping to accomplish:</strong> {{ r.notes }}</div>
+                <div class="meta muted" v-else>No note left with this request.</div>
                 <div class="meta">
                   Daytime blocks:
                   <span v-for="(b, idx) in r.blocks" :key="idx" class="pill">
@@ -369,12 +373,21 @@ const props = defineProps({
   showBookingQueueTabs: {
     type: Boolean,
     default: false
+  },
+  /** Optional override when embedded (e.g. School Management hub agency selector). */
+  agencyIdOverride: {
+    type: [Number, String],
+    default: null
   }
 });
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
-const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const agencyId = computed(() => {
+  const override = Number(props.agencyIdOverride || 0);
+  if (Number.isInteger(override) && override > 0) return override;
+  return agencyStore.currentAgency?.id || null;
+});
 
 const tab = ref('office'); // office | school | appointments | search | skills
 

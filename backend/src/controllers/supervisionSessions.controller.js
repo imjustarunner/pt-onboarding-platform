@@ -17,6 +17,14 @@ import PayrollRate from '../models/PayrollRate.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import pool from '../config/database.js';
 import { isAdminLikeRole, isSupervisorActor } from '../utils/supervisorSchoolAccess.js';
+import { joinUrlForSupervision } from '../utils/joinToken.js';
+
+function supervisionAppJoinUrl(sessionRow) {
+  const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+  if (!frontendUrl || !sessionRow) return null;
+  const key = String(sessionRow.join_token || sessionRow.id || '').trim();
+  return joinUrlForSupervision(frontendUrl, key);
+}
 
 function requireValid(req, res) {
   const errors = validationResult(req);
@@ -784,19 +792,25 @@ export const finalizeSupervisionSessionBySubmit = async (req, res, next) => {
 /**
  * Public endpoint: resolve session to org slug for join redirect.
  * Used when user hits /join/supervision/:sessionId without org slug.
+ * sessionId may be numeric id (legacy) or opaque join_token.
  */
 export const getSupervisionJoinInfo = async (req, res, next) => {
   try {
-    const sessionId = parseInt(req.params.sessionId, 10);
-    if (!sessionId) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const ref = String(req.params.sessionId || '').trim();
+    if (!ref) return res.status(400).json({ error: { message: 'Invalid session id' } });
+
+    const session = await SupervisionSession.resolveByJoinRef(ref);
+    if (!session?.id) return res.status(404).json({ error: { message: 'Session not found' } });
+    if (String(session.status || '').toUpperCase() === 'CANCELLED') {
+      return res.status(404).json({ error: { message: 'Session not found' } });
+    }
 
     const [rows] = await pool.execute(
       `SELECT a.slug, a.portal_url
-       FROM supervision_sessions ss
-       JOIN agencies a ON a.id = ss.agency_id AND a.is_active = TRUE
-       WHERE ss.id = ? AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
+       FROM agencies a
+       WHERE a.id = ? AND a.is_active = TRUE
        LIMIT 1`,
-      [sessionId]
+      [Number(session.agency_id || session.agencyId || 0)]
     );
     const row = rows?.[0];
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
@@ -804,7 +818,13 @@ export const getSupervisionJoinInfo = async (req, res, next) => {
     const orgSlug = String(row.slug || row.portal_url || '').trim();
     if (!orgSlug) return res.status(404).json({ error: { message: 'Session organization has no portal' } });
 
-    res.json({ orgSlug, sessionId });
+    const joinKey = String(session.join_token || session.id);
+    res.json({
+      orgSlug,
+      sessionId: Number(session.id),
+      joinToken: session.join_token || null,
+      joinPath: `/join/supervision/${encodeURIComponent(joinKey)}`
+    });
   } catch (e) {
     next(e);
   }
@@ -816,11 +836,12 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
 
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const ref = String(req.params.id || '').trim();
+    if (!ref) return res.status(400).json({ error: { message: 'Invalid session id' } });
 
-    let row = await SupervisionSession.findById(id);
+    let row = await SupervisionSession.resolveByJoinRef(ref);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+    const id = Number(row.id);
     row = await maybeReopenAutoFinalizedSessionForJoin(row);
     const status = String(row.status || '').trim().toUpperCase();
     if (['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED'].includes(status)) {
@@ -1012,11 +1033,12 @@ export const getAdmissionStatus = async (req, res, next) => {
       return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
 
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const ref = String(req.params.id || '').trim();
+    if (!ref) return res.status(400).json({ error: { message: 'Invalid session id' } });
 
-    const row = await SupervisionSession.findById(id);
+    const row = await SupervisionSession.resolveByJoinRef(ref);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+    const id = Number(row.id);
 
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
@@ -1543,6 +1565,13 @@ export const createSupervisionSession = async (req, res, next) => {
     const supervisee = await User.findById(superviseeUserId);
     if (!supervisor || !supervisee) return res.status(404).json({ error: { message: 'User not found' } });
 
+    const recurrenceSeriesIdRaw = String(req.body?.recurrenceSeriesId || '').trim();
+    const recurrenceSeriesId = recurrenceSeriesIdRaw ? recurrenceSeriesIdRaw.slice(0, 64) : null;
+    const recurrenceFrequency = String(req.body?.recurrenceFrequency || '').trim().toUpperCase() || null;
+    const recurrenceIndex = req.body?.recurrenceIndex == null
+      ? null
+      : Math.max(0, parseInt(req.body.recurrenceIndex, 10) || 0);
+
     const created = await SupervisionSession.create({
       agencyId,
       supervisorUserId,
@@ -1553,7 +1582,10 @@ export const createSupervisionSession = async (req, res, next) => {
       modality: modality ? String(modality) : null,
       locationText: locationText ? String(locationText) : null,
       notes: notes ? String(notes) : null,
-      createdByUserId: req.user.id
+      createdByUserId: req.user.id,
+      recurrenceSeriesId,
+      recurrenceFrequency,
+      recurrenceIndex
     });
 
     // Ensure newly scheduled sessions immediately appear in supervision rosters.
@@ -1609,9 +1641,7 @@ export const createSupervisionSession = async (req, res, next) => {
     const desc = notes ? String(notes) : null;
     const useVideo = isVideoConfigured();
     const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    const appJoinUrl = useVideo && frontendUrl
-      ? `${frontendUrl}/join/supervision/${created.id}`
-      : null;
+    const appJoinUrl = useVideo ? supervisionAppJoinUrl(created) : null;
     const sync = await GoogleCalendarService.upsertSupervisionSession({
       supervisionSessionId: created.id,
       hostEmail,
@@ -1694,7 +1724,60 @@ export const patchSupervisionSession = async (req, res, next) => {
     if (!nextStart || !nextEnd) return res.status(400).json({ error: { message: 'Invalid startAt/endAt' } });
     if (String(nextEnd) <= String(nextStart)) return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
 
-    const updated = await SupervisionSession.updateById(id, {
+    const scope = String(req.body?.scope || 'single').trim().toLowerCase();
+    if (!['single', 'future'].includes(scope)) {
+      return res.status(400).json({ error: { message: 'scope must be single or future' } });
+    }
+
+    let rowsToUpdate = [row];
+    const seriesId = String(row.recurrence_series_id || '').trim();
+    if (scope === 'future') {
+      if (!seriesId) {
+        return res.status(400).json({ error: { message: 'This session is not part of a recurring series.' } });
+      }
+      try {
+        rowsToUpdate = await SupervisionSession.listActiveSeriesFromPoint({
+          recurrenceSeriesId: seriesId,
+          fromStartAt: row.start_at || null
+        });
+      } catch (e) {
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+        rowsToUpdate = [row];
+      }
+      if (!rowsToUpdate.length) rowsToUpdate = [row];
+    }
+
+    const { applyClockTimesToOccurrence } = await import('../utils/seriesTimeShift.js');
+    const timingChanged = startAt !== undefined || endAt !== undefined;
+    let updated = null;
+
+    for (const occ of rowsToUpdate) {
+      const occId = Number(occ.id || 0);
+      if (!occId) continue;
+      let occStart = startAt !== undefined ? startAt : undefined;
+      let occEnd = endAt !== undefined ? endAt : undefined;
+      if (timingChanged && scope === 'future' && occId !== id) {
+        const shifted = applyClockTimesToOccurrence({
+          occurrenceStartRaw: occ.start_at,
+          newStartRaw: nextStart,
+          newEndRaw: nextEnd
+        });
+        if (!shifted) continue;
+        occStart = shifted.startAt;
+        occEnd = shifted.endAt;
+      } else if (timingChanged && occId === id) {
+        occStart = startAt !== undefined ? startAt : undefined;
+        occEnd = endAt !== undefined ? endAt : undefined;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const rowUpdated = await SupervisionSession.updateById(occId, {
+        startAt: occStart,
+        endAt: occEnd,
+        ...(occId === id ? { sessionType, notes, modality, locationText } : {})
+      });
+      if (occId === id) updated = rowUpdated;
+    }
+    if (!updated) updated = await SupervisionSession.updateById(id, {
       startAt: startAt !== undefined ? startAt : undefined,
       endAt: endAt !== undefined ? endAt : undefined,
       sessionType,
@@ -1702,6 +1785,7 @@ export const patchSupervisionSession = async (req, res, next) => {
       modality,
       locationText
     });
+
     if (presenterUserIds !== undefined) {
       const attendees = await SupervisionSession.listAttendees(id);
       const allowed = new Set((attendees || []).filter((a) => String(a?.participant_role || '') === 'supervisee').map((a) => Number(a.user_id)));
@@ -1721,44 +1805,52 @@ export const patchSupervisionSession = async (req, res, next) => {
     const attendeeEmail = String(supervisee?.email || '').trim().toLowerCase();
 
     const summary = `Supervision — ${(supervisee?.first_name || '').trim()} ${(supervisee?.last_name || '').trim()}`.trim();
-    const desc = updated?.notes ? String(updated.notes) : null;
     const useVideo = isVideoConfigured();
-    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    const appJoinUrl = useVideo && frontendUrl
-      ? `${frontendUrl}/join/supervision/${id}`
-      : null;
-    const sync = await GoogleCalendarService.upsertSupervisionSession({
-      supervisionSessionId: id,
-      hostEmail,
-      attendeeEmail,
-      startAt: nextStart,
-      endAt: nextEnd,
-      summary,
-      description: desc,
-      createMeetLink: useVideo ? false : (createMeetLink && !String(row.google_meet_link || '').trim()),
-      appJoinUrl,
-      existingGoogleEventId: row.google_event_id || null,
-      existingMeetLink: row.google_meet_link || null
-    });
 
-    if (sync?.ok) {
-      await SupervisionSession.setGoogleSync(id, {
+    for (const occ of rowsToUpdate) {
+      const occId = Number(occ.id || 0);
+      if (!occId) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const fresh = await SupervisionSession.findById(occId);
+      if (!fresh) continue;
+      const desc = fresh?.notes ? String(fresh.notes) : null;
+      const appJoinUrl = useVideo ? supervisionAppJoinUrl(fresh) : null;
+      // eslint-disable-next-line no-await-in-loop
+      const sync = await GoogleCalendarService.upsertSupervisionSession({
+        supervisionSessionId: occId,
         hostEmail,
-        calendarId: sync.calendarId,
-        eventId: sync.googleEventId,
-        meetLink: sync.meetLink || row.google_meet_link || null,
-        status: 'SYNCED',
-        errorMessage: null
+        attendeeEmail,
+        startAt: fresh.start_at,
+        endAt: fresh.end_at,
+        summary,
+        description: desc,
+        createMeetLink: useVideo ? false : (occId === id && createMeetLink && !String(fresh.google_meet_link || '').trim()),
+        appJoinUrl,
+        existingGoogleEventId: fresh.google_event_id || null,
+        existingMeetLink: fresh.google_meet_link || null
       });
-    } else {
-      await SupervisionSession.setGoogleSync(id, {
-        hostEmail,
-        calendarId: row.google_calendar_id || 'primary',
-        eventId: row.google_event_id || null,
-        meetLink: row.google_meet_link || null,
-        status: 'FAILED',
-        errorMessage: sync?.error || sync?.reason || 'Google sync failed'
-      });
+
+      if (sync?.ok) {
+        // eslint-disable-next-line no-await-in-loop
+        await SupervisionSession.setGoogleSync(occId, {
+          hostEmail,
+          calendarId: sync.calendarId,
+          eventId: sync.googleEventId,
+          meetLink: sync.meetLink || fresh.google_meet_link || null,
+          status: 'SYNCED',
+          errorMessage: null
+        });
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        await SupervisionSession.setGoogleSync(occId, {
+          hostEmail,
+          calendarId: fresh.google_calendar_id || 'primary',
+          eventId: fresh.google_event_id || null,
+          meetLink: fresh.google_meet_link || null,
+          status: 'FAILED',
+          errorMessage: sync?.error || sync?.reason || 'Google sync failed'
+        });
+      }
     }
 
     const out = await SupervisionSession.findById(id);
@@ -1866,7 +1958,7 @@ export const getMySupervisionPrompts = async (req, res, next) => {
         : false;
       return {
         ...row,
-        joinUrl: useAppJoin && row.id ? `${frontendUrl}/join/supervision/${row.id}` : null,
+        joinUrl: useAppJoin && row.id ? supervisionAppJoinUrl(row) : null,
         startsInMinutes,
         isLive: Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) ? now >= start && now <= end : false,
         inPromptWindow,
@@ -1901,10 +1993,9 @@ export const getMySupervisionSessions = async (req, res, next) => {
       return out;
     });
 
-    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
     const withJoinUrl = sanitized.map((s) => ({
       ...s,
-      joinUrl: frontendUrl ? `${frontendUrl}/join/supervision/${s.id}` : null
+      joinUrl: supervisionAppJoinUrl(s)
     }));
 
     res.json({ ok: true, sessions: withJoinUrl });
@@ -1958,10 +2049,9 @@ export const getSuperviseeSessions = async (req, res, next) => {
       return out;
     });
 
-    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
     const withJoinUrl = sanitized.map((s) => ({
       ...s,
-      joinUrl: frontendUrl ? `${frontendUrl}/join/supervision/${s.id}` : null
+      joinUrl: supervisionAppJoinUrl(s)
     }));
 
     res.json({ ok: true, sessions: withJoinUrl });

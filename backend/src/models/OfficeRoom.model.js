@@ -30,7 +30,7 @@ class OfficeRoom {
   }
 
   static async update(id, updates = {}) {
-    const allowed = ['room_number', 'label', 'name', 'svg_room_id', 'google_resource_email', 'sort_order', 'is_active'];
+    const allowed = ['room_number', 'label', 'name', 'svg_room_id', 'google_resource_email', 'sort_order', 'is_active', 'photo_url'];
     const fields = [];
     const values = [];
 

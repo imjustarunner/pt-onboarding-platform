@@ -1,18 +1,32 @@
 <template>
   <div class="join-team-meeting-view">
     <div v-if="resolving" class="join-placeholder">Resolving meeting…</div>
-    <div v-else-if="error" class="join-error">{{ error }}</div>
-    <div v-else-if="token && roomName" class="join-video">
-      <SupervisionVideoRoom
-        :token="token"
-        :room-name="roomName"
-        :event-id="eventId"
-        :is-host="isHost"
-        @disconnected="onDisconnected"
-      />
-    </div>
+    <div v-else-if="error && !token" class="join-error">{{ error }}</div>
+    <template v-else-if="token && roomName">
+      <div class="join-session-layout">
+        <div class="join-video">
+          <SupervisionVideoRoom
+            :token="token"
+            :room-name="roomName"
+            :event-id="resolvedEventId || eventId"
+            :is-host="isHost"
+            @disconnected="onDisconnected"
+          />
+        </div>
+        <aside v-if="resolvedEventId" class="join-agenda-aside">
+          <MeetingAgendaPanel
+            meeting-type="provider_schedule_event"
+            :meeting-id="resolvedEventId"
+            :can-add-item="true"
+            :embedded="true"
+            :live="true"
+          />
+        </aside>
+      </div>
+    </template>
     <div v-else class="join-placeholder">Loading…</div>
-    <div v-if="isHost && eventId && (token || error)" class="join-activity-section">
+
+    <div v-if="isHost && resolvedEventId && (token || error)" class="join-activity-section">
       <button
         type="button"
         class="btn btn-outline btn-sm"
@@ -51,6 +65,7 @@ import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
+import MeetingAgendaPanel from '../../components/meetings/MeetingAgendaPanel.vue';
 import api from '../../services/api';
 
 const router = useRouter();
@@ -65,6 +80,7 @@ const error = ref('');
 const token = ref('');
 const roomName = ref('');
 const isHost = ref(false);
+const resolvedEventId = ref(0);
 const activityExpanded = ref(false);
 const activityLoading = ref(false);
 const activityError = ref('');
@@ -82,7 +98,7 @@ function formatActivityTime(createdAt) {
 }
 
 async function toggleActivity() {
-  const eid = eventId.value;
+  const eid = resolvedEventId.value || eventId.value;
   if (!eid) return;
   const expanded = !activityExpanded.value;
   activityExpanded.value = expanded;
@@ -91,7 +107,7 @@ async function toggleActivity() {
   activityLoading.value = true;
   activityError.value = '';
   try {
-    const resp = await api.get(`/team-meetings/${eid}/activity`);
+    const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/activity`);
     activityList.value = resp?.data?.activity || [];
   } catch (err) {
     activityError.value = err?.response?.data?.error?.message || 'Failed to load chat & Q&A.';
@@ -110,11 +126,13 @@ async function resolveAndRedirect() {
   resolving.value = true;
   error.value = '';
   try {
-    const resp = await api.get(`/team-meetings/join-info/${eid}`, { skipAuthRedirect: true });
+    const resp = await api.get(`/team-meetings/join-info/${encodeURIComponent(eid)}`, { skipAuthRedirect: true });
     const data = resp?.data || {};
     const slug = data.orgSlug;
     if (slug) {
-      router.replace(`/${slug}/join/team-meeting/${eid}`);
+      const joinKey = String(data.joinToken || eid).trim();
+      if (Number(data.eventId || 0) > 0) resolvedEventId.value = Number(data.eventId);
+      router.replace(`/${slug}/join/team-meeting/${encodeURIComponent(joinKey)}`);
       return;
     }
     error.value = 'Meeting not found';
@@ -133,7 +151,7 @@ async function fetchTokenAndJoin() {
   }
   error.value = '';
   try {
-    const resp = await api.get(`/team-meetings/${eid}/video-token`);
+    const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/video-token`);
     const data = resp?.data || {};
     const tok = String(data.token || data.data?.token || data.result?.token || '').trim();
     const rn = data.roomName || data.room_name || data.data?.roomName || `team-meeting-${eid}`;
@@ -145,6 +163,8 @@ async function fetchTokenAndJoin() {
     token.value = tok;
     roomName.value = rn;
     isHost.value = !!(data.isHost ?? data.is_host);
+    if (Number(data.eventId || 0) > 0) resolvedEventId.value = Number(data.eventId);
+    else if (/^\d+$/.test(String(eid))) resolvedEventId.value = Number(eid);
   } catch (e) {
     if (Number(e?.response?.status || 0) === 401) {
       const slug = organizationSlug.value;
@@ -219,59 +239,69 @@ onMounted(async () => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 24px;
+  padding: 16px;
   background: var(--bg-primary, #0f0f0f);
+  gap: 12px;
+}
+.join-session-layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 12px;
+  min-height: 0;
+}
+.join-video {
+  min-width: 0;
+  min-height: 60vh;
+}
+.join-agenda-aside {
+  min-width: 0;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border-radius: 12px;
+  background: #fff;
 }
 .join-placeholder {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  color: #cbd5e1;
 }
 .join-error {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #b91c1c;
-  padding: 24px;
-}
-.join-video {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.35);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 10px;
+  padding: 12px 14px;
 }
 .join-activity-section {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+  padding-top: 10px;
 }
 .join-activity-content {
-  margin-top: 8px;
-  max-height: 200px;
-  overflow-y: auto;
+  margin-top: 10px;
+  max-height: 220px;
+  overflow: auto;
 }
-.join-activity-content .activity-list {
+.activity-list { display: flex; flex-direction: column; gap: 6px; }
+.activity-item {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #e2e8f0;
 }
-.join-activity-content .activity-item {
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--bg-secondary, #1a1a1a);
-  font-size: 13px;
-}
-.join-activity-content .activity-sender {
-  font-weight: 600;
-  margin-right: 6px;
-}
-.join-activity-content .activity-time {
-  display: block;
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-top: 2px;
+.activity-sender { font-weight: 700; color: #93c5fd; }
+.activity-time { color: #94a3b8; margin-left: auto; }
+.muted { color: #94a3b8; }
+.error-inline { color: #fecaca; }
+@media (max-width: 900px) {
+  .join-session-layout {
+    grid-template-columns: 1fr;
+  }
+  .join-agenda-aside {
+    max-height: 40vh;
+  }
 }
 </style>

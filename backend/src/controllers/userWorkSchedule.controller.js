@@ -4,6 +4,7 @@ import {
   canManageOthersSchedule
 } from '../services/scheduleSummaryPrivacy.service.js';
 import pool from '../config/database.js';
+import { timezoneFromUsHomeState } from '../utils/usStateTimezone.js';
 
 async function actorIsSupervisorOfTarget(actorUserId, targetUserId, agencyId = null) {
   try {
@@ -32,21 +33,57 @@ async function assertCanAccessWorkSchedule({ actorUserId, actorRole, targetUserI
   return actorIsSupervisorOfTarget(actorUserId, targetUserId, agencyId);
 }
 
-function serializeWorkSchedule(data) {
+function serializeWorkSchedule(data, extras = {}) {
   const blocks = (data?.blocks || []).map((b) => ({
     id: Number(b.id || 0) || null,
     dayOfWeek: Number(b.day_of_week),
     startTime: String(b.start_time || '').slice(0, 8),
     endTime: String(b.end_time || '').slice(0, 8)
   }));
+  const hasSavedSchedule = !!data?.schedule;
+  const suggestedTimezone = String(extras.suggestedTimezone || '').trim() || 'America/New_York';
   return {
     ok: true,
-    timezone: data?.timezone || 'America/New_York',
+    timezone: hasSavedSchedule
+      ? String(data?.timezone || suggestedTimezone)
+      : suggestedTimezone,
     isActive: !!data?.isActive,
     agencyId: data?.schedule?.agency_id != null ? Number(data.schedule.agency_id) : null,
     blocks,
+    hasSavedSchedule,
+    suggestedTimezone,
+    homeState: extras.homeState || null,
+    timezoneSource: hasSavedSchedule
+      ? 'work_schedule'
+      : (extras.timezoneSource || 'default'),
     note: 'Work hours control reachability / notifications. Virtual working hours remain booking-only.'
   };
+}
+
+async function resolveSuggestedTimezone(userId) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT timezone, home_state FROM users WHERE id = ? LIMIT 1`,
+      [userId]
+    );
+    const row = rows?.[0] || {};
+    const profileTz = String(row.timezone || '').trim();
+    const homeState = row.home_state != null ? String(row.home_state).trim() : '';
+    // Prefer home address so new work-hours editors match where the user lives.
+    if (homeState) {
+      return {
+        suggestedTimezone: timezoneFromUsHomeState(homeState),
+        homeState,
+        timezoneSource: 'home_address'
+      };
+    }
+    if (profileTz) {
+      return { suggestedTimezone: profileTz, homeState: null, timezoneSource: 'profile' };
+    }
+    return { suggestedTimezone: 'America/New_York', homeState: null, timezoneSource: 'default' };
+  } catch {
+    return { suggestedTimezone: 'America/New_York', homeState: null, timezoneSource: 'default' };
+  }
 }
 
 export const getUserWorkSchedule = async (req, res, next) => {
@@ -64,7 +101,8 @@ export const getUserWorkSchedule = async (req, res, next) => {
     }
 
     const data = await UserWorkSchedule.getForUser(userId, { agencyId });
-    return res.json(serializeWorkSchedule(data));
+    const suggested = await resolveSuggestedTimezone(userId);
+    return res.json(serializeWorkSchedule(data, suggested));
   } catch (e) {
     next(e);
   }
@@ -84,13 +122,15 @@ export const putUserWorkSchedule = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    const suggested = await resolveSuggestedTimezone(userId);
+    const timezone = String(req.body?.timezone || '').trim() || suggested.suggestedTimezone;
     const data = await UserWorkSchedule.upsertForUser(userId, {
       agencyId,
-      timezone: req.body?.timezone,
+      timezone,
       isActive: req.body?.isActive !== false,
       blocks: req.body?.blocks
     });
-    return res.json(serializeWorkSchedule(data));
+    return res.json(serializeWorkSchedule(data, suggested));
   } catch (e) {
     next(e);
   }

@@ -1,9 +1,10 @@
 <template>
   <div class="meeting-agenda-panel">
     <div class="agenda-header">
-      <h3 class="agenda-title">Agenda for {{ meeting?.title || 'Meeting' }}</h3>
-      <span v-if="meeting?.start_at" class="agenda-date">{{ formatMeetingDate(meeting.start_at) }}</span>
-      <button type="button" class="btn-close" aria-label="Close" @click="$emit('close')">×</button>
+      <h3 class="agenda-title">{{ embedded ? 'Agenda' : `Agenda for ${meeting?.title || 'Meeting'}` }}</h3>
+      <span v-if="meeting?.start_at && !embedded" class="agenda-date">{{ formatMeetingDate(meeting.start_at) }}</span>
+      <span v-if="live" class="agenda-live">Live — updates for everyone</span>
+      <button v-if="!embedded" type="button" class="btn-close" aria-label="Close" @click="$emit('close')">×</button>
     </div>
 
     <div v-if="loading" class="agenda-loading">Loading agenda…</div>
@@ -76,13 +77,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
   meetingType: { type: String, required: true },
   meetingId: { type: [Number, String], required: true },
-  canAddItem: { type: Boolean, default: true }
+  canAddItem: { type: Boolean, default: true },
+  /** Hide chrome close button; for embedding beside video */
+  embedded: { type: Boolean, default: false },
+  /** Poll for shared updates during a live session */
+  live: { type: Boolean, default: false },
+  pollMs: { type: Number, default: 8000 }
 });
 
 const emit = defineEmits(['close', 'updated']);
@@ -96,11 +102,14 @@ const newItemTitle = ref('');
 const adding = ref(false);
 const togglingId = ref(null);
 const deletingId = ref(null);
+let pollTimer = null;
 
-const fetchAgenda = async () => {
+const fetchAgenda = async ({ silent = false } = {}) => {
   if (!props.meetingType || !props.meetingId) return;
-  loading.value = true;
-  error.value = '';
+  if (!silent) {
+    loading.value = true;
+    error.value = '';
+  }
   try {
     const res = await api.get('/meeting-agendas', {
       params: { meetingType: props.meetingType, meetingId: props.meetingId }
@@ -109,12 +118,30 @@ const fetchAgenda = async () => {
     meeting.value = res.data?.meeting || null;
     items.value = Array.isArray(res.data?.items) ? res.data.items : [];
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to load agenda';
-    items.value = [];
+    if (!silent) {
+      error.value = e?.response?.data?.error?.message || 'Failed to load agenda';
+      items.value = [];
+    }
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 };
+
+function startLivePoll() {
+  stopLivePoll();
+  if (!props.live) return;
+  const ms = Math.max(3000, Number(props.pollMs || 8000));
+  pollTimer = setInterval(() => {
+    void fetchAgenda({ silent: true });
+  }, ms);
+}
+
+function stopLivePoll() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
 
 const formatMeetingDate = (d) => {
   if (!d) return '';
@@ -139,9 +166,14 @@ const updateItemStatus = async (item, status) => {
 
 const addFreeformItem = async () => {
   const title = newItemTitle.value?.trim();
-  if (!title || !agenda.value || adding.value) return;
+  if (!title || adding.value) return;
   adding.value = true;
   try {
+    if (!agenda.value) await fetchAgenda();
+    if (!agenda.value) {
+      error.value = 'Agenda is not ready yet';
+      return;
+    }
     const res = await api.post(`/meeting-agendas/${agenda.value.id}/items`, { title });
     items.value.push(res.data);
     newItemTitle.value = '';
@@ -167,10 +199,17 @@ const removeItem = async (item) => {
   }
 };
 
-onMounted(() => fetchAgenda());
+onMounted(async () => {
+  await fetchAgenda();
+  startLivePoll();
+});
+onUnmounted(() => stopLivePoll());
 watch(
-  () => [props.meetingType, props.meetingId],
-  () => fetchAgenda()
+  () => [props.meetingType, props.meetingId, props.live],
+  async () => {
+    await fetchAgenda();
+    startLivePoll();
+  }
 );
 </script>
 
@@ -183,6 +222,13 @@ watch(
   width: 100%;
   max-height: 80vh;
   overflow: auto;
+  color: #0f172a;
+}
+.meeting-agenda-panel :deep(.form-control),
+.meeting-agenda-panel :deep(input),
+.meeting-agenda-panel :deep(select) {
+  color: #0f172a;
+  background: #fff;
 }
 
 .agenda-header {
@@ -204,6 +250,18 @@ watch(
 .agenda-date {
   font-size: 13px;
   color: var(--text-secondary, #6b7280);
+  white-space: nowrap;
+}
+
+.agenda-live {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #166534;
+  background: #dcfce7;
+  border-radius: 999px;
+  padding: 3px 8px;
   white-space: nowrap;
 }
 

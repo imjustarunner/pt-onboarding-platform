@@ -62,7 +62,7 @@ async function pollAdmissionStatus() {
   const sid = sessionId.value;
   if (!sid || !isInLobby.value) return;
   try {
-    const resp = await api.get(`/supervision/sessions/${sid}/admission-status`);
+    const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/admission-status`);
     const data = resp?.data || {};
     if (data.admitted && data.token && data.roomName) {
       token.value = String(data.token).trim();
@@ -90,11 +90,12 @@ async function resolveAndRedirect() {
   resolving.value = true;
   error.value = '';
   try {
-    const resp = await api.get(`/supervision/join-info/${sid}`, { skipAuthRedirect: true });
+    const resp = await api.get(`/supervision/join-info/${encodeURIComponent(sid)}`, { skipAuthRedirect: true });
     const data = resp?.data || {};
     const slug = data.orgSlug;
     if (slug) {
-      router.replace(`/${slug}/join/supervision/${sid}`);
+      const joinKey = String(data.joinToken || sid).trim();
+      router.replace(`/${slug}/join/supervision/${encodeURIComponent(joinKey)}`);
       return;
     }
     error.value = 'Session not found';
@@ -113,7 +114,7 @@ async function fetchTokenAndJoin() {
   }
   error.value = '';
   try {
-    const resp = await api.get(`/supervision/sessions/${sid}/video-token`);
+    const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/video-token`);
     const data = resp?.data || {};
     const tok = (data.token || data.data?.token || data.result?.token || '').trim();
     const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;

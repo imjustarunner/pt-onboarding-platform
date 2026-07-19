@@ -417,6 +417,9 @@ export const updateRoom = async (req, res, next) => {
     const googleResourceEmail =
       req.body?.googleResourceEmail === undefined ? undefined : (req.body?.googleResourceEmail ? String(req.body.googleResourceEmail).trim() : null);
     const sortOrder = req.body?.sortOrder === undefined ? undefined : parseInt(req.body.sortOrder, 10);
+    const photoUrl = req.body?.photoUrl === undefined
+      ? undefined
+      : (req.body?.photoUrl ? String(req.body.photoUrl).trim().slice(0, 512) : null);
     const roomTypeIds = req.body?.roomTypeIds;
 
     const patch = {};
@@ -425,6 +428,7 @@ export const updateRoom = async (req, res, next) => {
     if (svgRoomId !== undefined) patch.svg_room_id = svgRoomId;
     if (googleResourceEmail !== undefined) patch.google_resource_email = googleResourceEmail;
     if (sortOrder !== undefined) patch.sort_order = Number.isFinite(sortOrder) ? sortOrder : 0;
+    if (photoUrl !== undefined) patch.photo_url = photoUrl;
 
     // Keep name aligned when label changes (best effort; don’t overwrite if explicitly provided)
     if (req.body?.name !== undefined) patch.name = req.body?.name;

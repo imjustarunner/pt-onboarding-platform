@@ -15,13 +15,16 @@
             <h2 class="sched-page-title">Schedule</h2>
             <p class="sched-page-sub">View and manage availability.</p>
           </template>
-          <p class="sched-week-range">Week of {{ weekStart }} · Today {{ todayMmdd }}</p>
+          <p class="sched-week-range" :class="{ 'sched-week-range--hero': compactPageChrome }">
+            <span class="sched-week-range__primary">{{ weekRangePrimaryLabel }}</span>
+            <span class="sched-week-range__today">Today {{ todayMmdd }}</span>
+          </p>
         </div>
         <div class="sched-chrome-nav" role="group" aria-label="Week navigation">
           <button
             class="sched-nav-btn"
             type="button"
-            title="Jump the grid to the week that contains today"
+            :title="isDayOrAgendaSpan ? 'Jump to today' : 'Jump the grid to the week that contains today'"
             @click="goToTodayWeek"
             :disabled="loading"
             data-tour="my-schedule-today-btn"
@@ -29,10 +32,24 @@
             Today
           </button>
           <div class="sched-nav-arrows">
-            <button class="sched-nav-icon-btn" type="button" aria-label="Previous week" title="Previous week" @click="prevWeek" :disabled="loading">
+            <button
+              class="sched-nav-icon-btn"
+              type="button"
+              :aria-label="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'"
+              :title="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'"
+              @click="prevWeek"
+              :disabled="loading"
+            >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button class="sched-nav-icon-btn" type="button" aria-label="Next week" title="Next week" @click="nextWeek" :disabled="loading">
+            <button
+              class="sched-nav-icon-btn"
+              type="button"
+              :aria-label="isDayOrAgendaSpan ? 'Next day' : 'Next week'"
+              :title="isDayOrAgendaSpan ? 'Next day' : 'Next week'"
+              @click="nextWeek"
+              :disabled="loading"
+            >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
@@ -51,14 +68,21 @@
           >
             Book session
           </button>
-          <div class="sched-span-switch" role="group" aria-label="Day or week schedule">
+          <div class="sched-span-switch" role="group" aria-label="Schedule view">
             <button
               type="button"
               class="sched-span-btn"
               :class="{ on: scheduleSpanMode === 'day' }"
-              title="Focus one day (best on phone)"
+              title="One-day timeline grid"
               @click="setScheduleSpanMode('day')"
             >Day</button>
+            <button
+              type="button"
+              class="sched-span-btn"
+              :class="{ on: scheduleSpanMode === 'agenda' }"
+              title="List of appointments for one day"
+              @click="setScheduleSpanMode('agenda')"
+            >Agenda</button>
             <button
               type="button"
               class="sched-span-btn"
@@ -295,6 +319,25 @@
           >
             {{ showAllHours ? 'Day band' : '24h' }}
           </button>
+          <label class="sched-inline compact sched-row-height" title="Change how tall each hour row is">
+            <span>Row height</span>
+            <select v-model="rowHeightMode" class="sched-select compact" :disabled="loading">
+              <option value="compact">Compact</option>
+              <option value="normal">Normal</option>
+              <option value="large">Large</option>
+              <option value="xl">XL</option>
+            </select>
+          </label>
+          <button
+            v-if="mode === 'self'"
+            type="button"
+            class="sched-pill"
+            :disabled="loading"
+            @click="toggleWeekStartsOn"
+            title="Choose whether the week grid starts on Monday or Sunday"
+          >
+            Week starts: {{ effectiveWeekStartsOn === 'sunday' ? 'Sunday' : 'Monday' }}
+          </button>
         </div>
       </div>
 
@@ -328,9 +371,10 @@
       </div>
 
       <details class="sched-more-tools" data-tour="my-schedule-more-tools">
-        <summary class="sched-more-tools__summary" title="Therapy Notes feeds, organization filters, programs, and row height">
-          More tools
-          <span class="muted">feeds · organization · programs · row height</span>
+        <summary class="sched-more-tools__summary" title="Therapy Notes feeds, organization filters, and programs">
+          <span class="sched-more-tools__title">More tools</span>
+          <span class="sched-more-tools__hint muted">feeds · organization · programs</span>
+          <span class="sched-more-tools__chev" aria-hidden="true">▾</span>
         </summary>
         <div class="sched-more-tools__body">
           <div class="sched-tool-cluster sched-tool-cluster--wrap">
@@ -356,16 +400,6 @@
               Events / Classes / Programs
             </button>
             <button
-              v-if="mode === 'self'"
-              type="button"
-              class="sched-pill"
-              :disabled="loading"
-              @click="toggleWeekStartsOn"
-              title="Choose whether the week grid starts on Monday or Sunday"
-            >
-              Week starts: {{ effectiveWeekStartsOn === 'sunday' ? 'Sunday' : 'Monday' }}
-            </button>
-            <button
               v-if="!hideOfficeAndCalendarIntegration && externalCalendarsAvailable.length"
               type="button"
               class="sched-pill"
@@ -382,18 +416,6 @@
           </div>
 
           <div class="sched-toolbar-secondary">
-            <div class="sched-zoom-controls">
-              <label class="sched-inline compact" title="Change how tall each hour row is">
-                <span>Row height</span>
-                <select v-model="rowHeightMode" class="sched-select compact">
-                  <option value="compact">Compact</option>
-                  <option value="normal">Normal</option>
-                  <option value="large">Large</option>
-                  <option value="xl">XL</option>
-                </select>
-              </label>
-            </div>
-
             <div v-if="!hideOfficeAndCalendarIntegration" class="sched-calendars" data-tour="my-schedule-ehr-calendars">
               <div class="sched-calendars-label" title="Which Therapy Notes / ICS feeds contribute busy blocks">Therapy Notes calendars</div>
               <div class="sched-calendars-actions">
@@ -429,15 +451,20 @@
             </div>
 
             <div v-if="agencyFilterOptions.length" class="sched-org-filters">
-              <div class="sched-calendars-label" title="Which tenant organizations appear on this calendar">Organization</div>
+              <div class="sched-calendars-label" title="Focus the calendar on one organization, or show all">Organization</div>
               <select
                 class="sched-select"
                 :value="scheduleOrgScopeValue"
                 :disabled="loading"
-                title="Pick which organization context to emphasize when booking"
+                title="Choose one organization to show, or All. Use Shown chips to combine several."
                 @change="onScheduleOrganizationChange($event)"
               >
                 <option :value="0">All organizations</option>
+                <option
+                  v-if="scheduleOrgPartialScope"
+                  :value="-1"
+                  disabled
+                >Custom ({{ activeScheduleAgencyIdSet.size }} shown)</option>
                 <option v-for="opt in scheduleOrgSelectOptions" :key="`org-select-${opt.id}`" :value="Number(opt.id)">
                   {{ opt.label }}
                 </option>
@@ -479,9 +506,19 @@
         Loading office availability…
       </div>
 
-      <div v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGrid && !officeGridLoading" class="office-quick-glance">
+      <details
+        v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGrid && !officeGridLoading"
+        class="office-quick-glance"
+        :open="quickGlanceOpen"
+        @toggle="onQuickGlanceToggle"
+      >
+        <summary class="office-quick-glance-summary">
+          <span class="office-quick-glance-title">Office at this time</span>
+          <span class="muted office-quick-glance-summary-hint">
+            {{ quickGlanceOpen ? 'Click a room to request or inspect' : 'Expand after picking a calendar cell — not tied to your session yet' }}
+          </span>
+        </summary>
         <div class="office-quick-glance-head">
-          <div class="office-quick-glance-title">Office at this time</div>
           <div class="office-quick-glance-controls">
             <label class="sched-inline compact">
               <span>Day</span>
@@ -527,7 +564,7 @@
             No matching rooms for this filter at the selected time.
           </div>
         </div>
-      </div>
+      </details>
     </div>
 
     <div v-if="selectedActionCount > 0" class="selection-toolbar">
@@ -609,6 +646,21 @@
             placeholder="Search coworkers…"
             data-tour="my-schedule-peers-busy-search"
           />
+          <select
+            v-if="peerBusyTenantFilterOptions.length > 1"
+            v-model.number="peerBusyTenantFilterId"
+            class="sched-select compact peer-busy-tenant-filter"
+            title="Filter peers by tenant"
+          >
+            <option :value="0">All tenants</option>
+            <option
+              v-for="opt in peerBusyTenantFilterOptions"
+              :key="`peer-tenant-${opt.id}`"
+              :value="Number(opt.id)"
+            >
+              {{ opt.label }}
+            </option>
+          </select>
           <button class="btn btn-secondary btn-sm" type="button" :disabled="peerBusyLoading" @click="loadPeerBusyCandidates">
             {{ peerBusyLoading ? 'Loading…' : 'Refresh peers' }}
           </button>
@@ -645,15 +697,86 @@
               :src="peerPrimaryAgencyIconUrl(p)"
               alt=""
             />
-            <span>{{ p.label }}</span>
+            <span class="peer-busy-label">
+              {{ p.label }}
+              <span v-if="peerBusyShowTenantSuffix && peerPrimaryAgencyLabel(p)" class="muted peer-busy-tenant-suffix">
+                · {{ peerPrimaryAgencyLabel(p) }}
+              </span>
+            </span>
           </label>
           <div v-if="!filteredPeerBusyCandidates.length" class="muted" style="font-size: 12px;">
-            {{ peerBusyLoading ? 'Loading coworkers…' : 'No coworkers found in your agencies.' }}
+            {{ peerBusyLoading
+              ? 'Loading coworkers…'
+              : (isScheduleSuperAdmin
+                ? 'No coworkers found across tenants.'
+                : 'No coworkers found in your agencies.') }}
           </div>
         </div>
       </div>
       <div v-if="overlayErrorText" class="error" style="margin-top: 10px;">
         {{ overlayErrorText }}
+      </div>
+
+      <div
+        v-else-if="summary && scheduleSpanMode === 'agenda'"
+        class="sched-agenda"
+        data-tour="my-schedule-agenda"
+      >
+        <div class="sched-agenda__nav">
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="shiftFocusedDay(-1)">
+            ← Previous day
+          </button>
+          <div class="sched-agenda__when">
+            <strong>{{ agendaDayTitle }}</strong>
+            <span class="muted">{{ agendaDaySub }}</span>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="shiftFocusedDay(1)">
+            Next day →
+          </button>
+        </div>
+        <div v-if="!agendaItems.length" class="sched-agenda__empty muted">
+          Nothing scheduled for this day.
+          <button
+            v-if="canBookFromGrid"
+            type="button"
+            class="btn btn-primary btn-sm"
+            style="margin-left: 8px;"
+            @click="openMobileDayHour(9)"
+          >Add</button>
+        </div>
+        <ul v-else class="sched-agenda__list">
+          <li
+            v-for="item in agendaItems"
+            :key="`agenda-${item.key}`"
+            class="sched-agenda__item"
+            :class="[
+              `cell-block-${item.kind}`,
+              item.isOfficeBlock ? `cell-block-office cell-block-office--${item.officeStatus || 'reserved'}` : '',
+              item.isCancelled ? 'cell-block-sevt--cancelled' : ''
+            ]"
+            :style="cellBlockStyle(item)"
+            role="button"
+            tabindex="0"
+            @click="onCellBlockClick($event, item, agendaDayName, item.hour, 0)"
+            @keydown.enter="onCellBlockClick($event, item, agendaDayName, item.hour, 0)"
+          >
+            <div class="sched-agenda__time">{{ item.timeLabel }}</div>
+            <div class="sched-agenda__body">
+              <div class="sched-agenda__title">
+                {{ item.isOfficeBlock ? (item.officeRoomLabel || item.shortLabel || item.title) : (item.shortLabel || item.title) }}
+              </div>
+              <div v-if="item.isOfficeBlock" class="sched-agenda__meta">{{ item.officeStatusLabel }}</div>
+              <div v-else-if="item.kind === 'peerbusy'" class="sched-agenda__meta muted">Peer busy</div>
+            </div>
+          </li>
+        </ul>
+        <button
+          v-if="canBookFromGrid && agendaItems.length"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          style="margin-top: 10px;"
+          @click="openMobileDayHour(9)"
+        >Add to this day</button>
       </div>
 
       <div
@@ -668,7 +791,7 @@
             type="button"
             class="sched-day-timeline__chip"
             :class="{ on: mobileTimelineDay === d, today: isTodayDay(d) }"
-            @click="focusedDays = [d]; scheduleSpanMode = 'day'"
+            @click="focusedDays = [d]; setScheduleSpanMode('day')"
           >
             <span class="sched-day-timeline__dow">{{ d.slice(0, 3) }}</span>
             <span class="sched-day-timeline__date">{{ dayDateLabel(d) }}</span>
@@ -693,7 +816,8 @@
                 :class="[
                   `cell-block-${b.kind}`,
                   b.isOfficeBlock ? `cell-block-office cell-block-office--${b.officeStatus || 'reserved'}` : '',
-                  b.peerActivityType ? `cell-block-peer-${b.peerActivityType}` : ''
+                  b.peerActivityType ? `cell-block-peer-${b.peerActivityType}` : '',
+                  b.isCancelled ? 'cell-block-sevt--cancelled' : ''
                 ]"
                 :style="cellBlockStyle(b)"
                 :title="b.title"
@@ -831,7 +955,17 @@
             v-for="d in visibleDays"
             :key="`c-${d}-${slot.key}`"
             class="sched-cell"
-            :class="{ clickable: canBookFromGrid && slot.minute === 0, 'sched-cell-quarter': slot.minute !== 0, 'sched-cell-today': isTodayDay(d), 'sched-cell-selected': isActionCellSelected(d, slot.hour) && slot.minute === 0 }"
+            :class="{
+              clickable: canBookFromGrid && slot.minute === 0,
+              'sched-cell-quarter': slot.minute !== 0,
+              'sched-cell-today': isTodayDay(d),
+              'sched-cell-selected': isActionCellSelected(d, slot.hour) && slot.minute === 0,
+              'sched-cell-drop-target': isAppointmentDropTarget(d, slot.hour, slot.minute)
+            }"
+            data-sched-cell="1"
+            :data-day="d"
+            :data-hour="slot.hour"
+            :data-minute="slot.minute"
             @mousedown.left.prevent="slot.minute === 0 && onCellMouseDown(d, slot.hour, $event)"
             @mouseenter="slot.minute === 0 && onCellMouseEnter(d, slot.hour, $event)"
             @click="slot.minute === 0 && onCellClick(d, slot.hour, $event)"
@@ -869,12 +1003,22 @@
                   b.isOfficeBlock ? `cell-block-office cell-block-office--${b.officeStatus || 'reserved'}` : '',
                   b.peerActivityType ? `cell-block-peer-${b.peerActivityType}` : '',
                   b.segmentClass ? `cell-block-segment-${b.segmentClass}` : '',
-                  { 'cell-block-hovered': isBlockHovered(d, slot.hour, b), 'cell-block-peer-interactive': b.peerInteractive }
+                  b.isCancelled ? 'cell-block-sevt--cancelled' : '',
+                  {
+                    'cell-block-hovered': isBlockHovered(d, slot.hour, b),
+                    'cell-block-peer-interactive': b.peerInteractive,
+                    'cell-block-timed': !!b.timedSlice,
+                    'cell-block-span': !!b.spanBlock && !!b.timedSlice,
+                    'cell-block-draggable': isAppointmentBlockDraggable(b),
+                    'cell-block-dragging': isAppointmentBlockDragging(b)
+                  }
                 ]"
                 :title="b.title"
                 :style="cellBlockStyle(b)"
                 @mouseenter="hoveredBlockKey = blockKey(d, slot.hour, b)"
                 @mouseleave="hoveredBlockKey = ''"
+                @mousedown.stop
+                @pointerdown="onAppointmentPointerDown($event, b, d, slot.hour, slot.minute)"
                 @click="onCellBlockClick($event, b, d, slot.hour, slot.minute)"
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
@@ -1013,7 +1157,7 @@
               </svg>
             </span>
             <div class="nr-head-copy">
-              <div id="nr-title" class="nr-title">Schedule</div>
+              <div id="nr-title" class="nr-title">{{ modalEditorTitle }}</div>
               <div class="nr-subtitle">{{ modalScheduleSubtitle }}</div>
             </div>
           </div>
@@ -1042,8 +1186,489 @@
           </div>
         </div>
 
-        <!-- Shared editable slot header (chooser + form modes + appointment edit) -->
+        <div v-if="meetingCreatedShare" class="nr-meeting-created" data-testid="meeting-created-share">
+          <div class="nr-meeting-created-copy">
+            <strong>Meeting scheduled</strong>
+            <span class="muted">{{ meetingCreatedShare.title || 'Team meeting' }}</span>
+          </div>
+          <VirtualLinkControls
+            :is-virtual="true"
+            :link="meetingCreatedShare.joinUrl || meetingCreatedShare.meetLink"
+            :meet-link="meetingCreatedShare.meetLink"
+            :platform-link="meetingCreatedShare.joinUrl"
+            hint="Share or join now — you can dismiss this when you’re done."
+            dismissible
+            @dismiss="dismissMeetingCreatedShare"
+          />
+          <button type="button" class="btn btn-primary btn-sm" @click="dismissMeetingCreatedShare">
+            Done
+          </button>
+        </div>
+
+        <!-- Unified appointment workspace: Info first, then Edit / Billing / Clinical / Notifications -->
         <div
+          v-if="showAppointmentEditorShell && !meetingCreatedShare"
+          class="appt-workspace"
+          data-testid="appointment-workspace"
+        >
+          <div class="appt-workspace-tabbar">
+            <div v-if="editorWorkspaceTabs.length > 1" class="appt-workspace-tabs" role="tablist">
+              <button
+                v-for="tab in editorWorkspaceTabs"
+                :key="`awt-${tab.id}`"
+                type="button"
+                role="tab"
+                class="appt-workspace-tab"
+                :class="{ on: editorWorkspaceTab === tab.id }"
+                :aria-selected="editorWorkspaceTab === tab.id"
+                @click="editorWorkspaceTab = tab.id"
+              >
+                <span v-if="tab.icon" class="appt-workspace-tab-ico" aria-hidden="true">{{ tab.icon }}</span>
+                {{ tab.label }}
+              </button>
+            </div>
+            <button
+              v-if="editorShowClinicalTab && editorIsClinical"
+              type="button"
+              class="appt-workspace-quicknote-btn"
+              data-testid="appointment-quick-note-btn"
+              title="Open quick note / dictate"
+              @click="openEditorQuickNote"
+            >
+              ● Quick note
+            </button>
+          </div>
+
+          <AppointmentInfoPanel
+            v-if="editorWorkspaceTab === 'info'"
+            :when-label="editorInfoWhenLabel"
+            :when-date-label="editorInfoWhenDateLabel"
+            :when-time-label="editorInfoWhenTimeLabel"
+            :type-label="editorInfoTypeLabel"
+            :status-label="editorStatus"
+            :modality-label="editorInfoModalityLabel"
+            :tenant-label="modalTenantLabel"
+            :tenant-icon-url="editorTenantIconUrl"
+            :provider-label="isAppointmentEditMode ? 'Booked for' : 'Provider'"
+            :provider-name="bookingTargetUserLabel"
+            :provider-user-id="Number(bookingTargetUserId || props.userId || 0)"
+            :can-open-provider="canOpenScheduleUserProfile"
+            :client-id="editorInfoClientId"
+            :client-name="editorInfoClientName"
+            :can-open-client="canOpenScheduleClientProfile"
+            :participant-label="editorParticipantLabel"
+            :participant-summary="editorIsMeeting || editorIsSupervision ? editorParticipantSummary : ''"
+            :service-label="editorInfoServiceLabel"
+            :location-label="editorInfoLocationLabel"
+            :room-label="editorRoomLabel"
+            :virtual-link="editorVirtualLink"
+            :notes="editorInfoNotes"
+            :show-notes="!editorIsSupervision"
+            :show-virtual-link="!editorIsSupervision"
+            :show-note-quick="editorIsSupervision"
+            :show-billing="editorShowBillingTab"
+            :show-clinical="editorShowClinicalTab"
+            :claim-id="editorClaimId"
+            :clinical-session-id="editorClinicalSessionId"
+            :clinical-note-id="editorClinicalNoteId"
+            @edit="editorWorkspaceTab = 'edit'"
+            @open-provider="openScheduleUserProfile"
+            @open-client="openScheduleClientProfile"
+            @open-billing="editorWorkspaceTab = 'billing'"
+            @open-clinical="editorWorkspaceTab = 'clinical'"
+            @open-note="editorWorkspaceTab = 'note'"
+          />
+
+        <AppointmentEditorShell
+          v-show="editorWorkspaceTab === 'edit'"
+          :title="modalEditorTitle"
+          :subtitle="modalScheduleSubtitle"
+          :hide-chrome="true"
+          :disabled="submitting || scheduleEventSaving"
+          :show-virtual="editorShowVirtual"
+          :virtual-link="editorVirtualLink"
+          :meet-link="editorMeetLink"
+          :platform-link="editorPlatformLink"
+          :virtual-hint="editorVirtualHint"
+          :show-recurrence="editorShowRecurrence"
+          :recurrence-frequency="editorRecurrenceFrequency"
+          :recurrence-end-mode="editorRecurrenceEndMode"
+          :recurrence-occurrence-count="editorRecurrenceOccurrenceCount"
+          :recurrence-until-date="editorRecurrenceUntilDate"
+          :recurrence-weekdays="editorRecurrenceWeekdays"
+          :recurrence-occurrence-label="editorRecurrenceOccurrenceLabel"
+          :date-ymd="editorDateYmd"
+          :start-time="editorStartTime"
+          :end-time="editorEndTime"
+          :timezone-label="bookingTimezoneLabel"
+          :agency-id="Number(editorAgencyId || 0)"
+          :tenant-options="headerTenantOptions"
+          :tenant-label="modalTenantLabel"
+          :tenant-icon-url="editorTenantIconUrl"
+          :can-edit-tenant="headerTenantOptions.length > 1"
+          :provider-label="isAppointmentEditMode ? 'Booked for' : 'Provider'"
+          :provider-name="bookingTargetUserLabel"
+          :appointment-type="editorAppointmentType"
+          :appointment-type-label="modalEditorTitle"
+          :type-options="editorTypeOptions"
+          :can-edit-type="!!editorTypeOptions.length"
+          :show-participant="editorShowParticipant"
+          :participant-label="editorParticipantLabel"
+          :participant-summary="editorParticipantSummary"
+          :participant-tray-open="editorIsMeeting && meetingParticipantsExpanded"
+          :status="editorStatus"
+          :status-options="APPOINTMENT_EDITOR_STATUS_OPTIONS"
+          :show-occurrence-count="editorShowOccurrenceCount"
+          :occurrence-count-label="editorOccurrenceCountLabel"
+          :show-location="editorShowLocation"
+          :location-address="editorLocationAddress"
+          :location-options="editorServiceLocationOptions"
+          :service-location-id="Number(editorServiceLocationId || bookingServiceLocationId || 0)"
+          :show-room="editorShowRoom"
+          :room-id="Number(editorRoomId || 0)"
+          :room-label="editorRoomLabel"
+          :room-options="editorRoomOptions"
+          :show-booked-until="editorShowBookedUntil"
+          :booked-until="editorLastOccurrenceYmd"
+          :booked-until-label="editorBookedUntilLabel"
+          :can-edit-booked-until="false"
+          :show-office-request-cta="editorShowOfficeRequestCta"
+          :office-request-active="editorAttachOfficeRequest"
+          :office-locations="editorOfficeLocations"
+          :office-locations-loading="editorOfficeLocationsLoading"
+          :office-location-id="Number(editorOfficeLocationId || 0)"
+          :preferred-room-id="Number(editorPreferredRoomId || 0)"
+          :preferred-room-options="editorPreferredOpenRoomOptions"
+          :preferred-rooms-hint="editorPreferredRoomsHint"
+          :show-service="editorIsClinical && !!editorPracticeCategory"
+          :tenant-service-id="Number(editorTenantServiceId || 0)"
+          :service-options="editorHeaderServiceOptions"
+          :services-loading="editorServicesLoading"
+          :show-group-clients-button="editorIsClinical"
+          :modality-pos-warning="editorModalityPosWarning"
+          @update:dateYmd="onEditorDateYmd"
+          @update:startTime="onEditorStartTime"
+          @update:endTime="onEditorEndTime"
+          @update:agencyId="onEditorAgencyId"
+          @update:appointmentType="onEditorAppointmentType"
+          @update:status="onEditorStatus"
+          @update:locationAddress="editorLocationAddress = $event"
+          @update:serviceLocationId="onEditorServiceLocationId"
+          @update:roomId="editorRoomId = $event"
+          @update:bookedUntil="onEditorBookedUntil"
+          @update:officeLocationId="onEditorOfficeLocationId"
+          @update:preferredRoomId="editorPreferredRoomId = $event"
+          @update:tenantServiceId="onEditorTenantServiceId"
+          @update:recurrenceFrequency="onEditorRecurrenceFrequency"
+          @update:recurrenceEndMode="onEditorRecurrenceEndMode"
+          @update:recurrenceOccurrenceCount="onEditorRecurrenceOccurrenceCount"
+          @update:recurrenceUntilDate="editorRecurrenceUntilDate = $event"
+          @update:recurrenceWeekdays="editorRecurrenceWeekdays = $event"
+          @request-office="onEditorRequestOffice"
+          @cancel-office-request="onEditorCancelOfficeRequest"
+          @scroll-to-group-clients="onScrollToGroupClients"
+        >
+          <template #provider>
+            <PersonSearchSelect
+              v-if="canSelectBookingProvider && !isAppointmentEditMode"
+              :model-value="bookingTargetUserId"
+              :options="bookingProviderPickerOptions"
+              placeholder="Type a name to search…"
+              :disabled="bookingProvidersLoading"
+              :show-photos="true"
+              class="nr-info-person"
+              @update:model-value="setBookingTargetUser"
+            />
+            <span v-else class="nr-info-value">{{ bookingTargetUserLabel }}</span>
+          </template>
+
+          <template #participant>
+            <select
+              v-if="editorIsClinical && isScheduleEventEditMode"
+              v-model.number="scheduleEventEditForm.clientId"
+              class="ahf-input"
+              :disabled="virtualSessionClientsLoading"
+            >
+              <option :value="0">— None —</option>
+              <option
+                v-for="c in scheduleEventEditClientOptions"
+                :key="`aes-client-${c.id}`"
+                :value="Number(c.id)"
+              >
+                {{ c.displayName || c.fullName || `Client #${c.id}` }}
+              </option>
+            </select>
+            <select
+              v-else-if="editorIsClinical && !isAppointmentEditMode"
+              class="ahf-input"
+              :value="primarySessionClientId || 0"
+              :disabled="virtualSessionClientsLoading"
+              @change="onEditorClinicalClientChange"
+            >
+              <option :value="0">Select a client…</option>
+              <option
+                v-for="c in scheduleEventEditClientOptions.length ? scheduleEventEditClientOptions : (virtualSessionClients || [])"
+                :key="`aes-create-client-${c.id}`"
+                :value="Number(c.id)"
+              >
+                {{ c.displayName || c.fullName || `Client #${c.id}` }}
+              </option>
+            </select>
+            <button
+              v-else-if="editorIsMeeting"
+              type="button"
+              class="aes-participant-trigger"
+              :class="{ open: meetingParticipantsExpanded }"
+              :title="editorParticipantSummary"
+              @click="meetingParticipantsExpanded = !meetingParticipantsExpanded"
+            >
+              <span class="aes-participant-names">
+                <template v-if="editorMeetingParticipantNames.length">
+                  <span
+                    v-for="(name, idx) in editorMeetingParticipantNames.slice(0, 4)"
+                    :key="`aes-pname-${idx}`"
+                    class="aes-participant-chip"
+                  >{{ name }}</span>
+                  <span v-if="editorMeetingParticipantNames.length > 4" class="aes-participant-more">
+                    +{{ editorMeetingParticipantNames.length - 4 }}
+                  </span>
+                </template>
+                <span v-else class="nr-info-value">Select participants…</span>
+              </span>
+              <span class="aes-participant-chevron" aria-hidden="true">{{ meetingParticipantsExpanded ? '▴' : '▾' }}</span>
+            </button>
+            <select
+              v-else-if="editorIsSupervision && !isSupervisionEditMode && availableSupervisionParticipants.length"
+              class="ahf-input"
+              :value="selectedSupervisionParticipantId || 0"
+              @change="selectedSupervisionParticipantId = Number($event.target.value || 0)"
+            >
+              <option :value="0">Select participant…</option>
+              <option
+                v-for="p in availableSupervisionParticipants"
+                :key="`aes-supv-header-${p.id}`"
+                :value="Number(p.id)"
+              >
+                {{ supervisionParticipantLabel(p) }}
+              </option>
+            </select>
+            <span v-else class="nr-info-value">{{ editorParticipantSummary }}</span>
+          </template>
+
+          <template #participant-tray>
+            <MeetingParticipantsPicker
+              v-if="editorIsMeeting && meetingParticipantsExpanded"
+              tray-mode
+              :expanded="true"
+              :loading="meetingCandidatesLoading"
+              :error="meetingCandidatesError"
+              :disabled="submitting || scheduleEventSaving"
+              :candidates="filteredMeetingCandidates"
+              :groups="meetingInviteGroups"
+              :selected-ids="selectedMeetingParticipantIds"
+              :selected-chips="selectedMeetingParticipantChips"
+              :selected-names="editorMeetingParticipantNames"
+              :search="meetingParticipantSearch"
+              :include-all-agencies="meetingIncludeAllAgencies"
+              :can-use-all-agencies="meetingCanUseAllAgencies"
+              :busy-text="meetingParticipantBusyText"
+              :person-label="supervisionParticipantLabel"
+              :photo-url="participantPhotoUrl"
+              :initials="providerInitials"
+              :create-group-busy="meetingCreateGroupBusy"
+              :create-group-error="meetingCreateGroupError"
+              @retry="loadMeetingCandidates"
+              @toggle-group="toggleMeetingInviteGroup"
+              @toggle-user="toggleMeetingParticipant"
+              @remove="removeSelectedMeetingParticipant"
+              @add-all-shown="selectAllFilteredMeetingParticipants"
+              @clear="clearMeetingParticipants"
+              @update:search="meetingParticipantSearch = $event"
+              @update:includeAllAgencies="meetingIncludeAllAgencies = $event"
+              @create-group="createMeetingInviteGroup"
+            />
+          </template>
+
+          <ClinicalSessionBody
+            v-if="editorIsClinical"
+            v-model:modality="editorModality"
+            v-model:tenant-service-id="editorTenantServiceId"
+            v-model:notes="requestNotes"
+            v-model:package-entitlement-id="editorPackageEntitlementId"
+            v-model:selected-client-ids="virtualSessionSelectedClientIds"
+            v-model:co-provider-user-id="editorCoProviderUserId"
+            v-model:primary-service-code="bookingServiceCode"
+            v-model:addon-service-codes="editorAddonServiceCodes"
+            :practice-category="editorPracticeCategory"
+            :services="editorTenantServices"
+            :loading-services="editorServicesLoading"
+            :client-options="scheduleEventEditClientOptions.length ? scheduleEventEditClientOptions : (virtualSessionClients || [])"
+            :primary-client-id="Number(primarySessionClientId || 0)"
+            :force-expand-clients="editorForceExpandGroupClients"
+            :clients-loading="virtualSessionClientsLoading"
+            :co-provider-options="editorCoProviderOptions"
+            :co-providers-loading="bookingProvidersLoading"
+            :service-code-options="bookingServiceCodeOptions"
+            :clinical-session-id="editorClinicalSessionId"
+            :clinical-note-id="editorClinicalNoteId"
+            :claim-id="editorClaimId"
+            :package-entitlements="editorPackageEntitlements"
+            :disabled="submitting"
+            @open-note="openEditorClinicalNote"
+            @open-claim="openEditorClinicalClaim"
+            @open-quick-note="openEditorQuickNote"
+          />
+
+          <TeamMeetingBody
+            v-else-if="editorIsMeeting"
+            v-model:title="editorMeetingTitle"
+            v-model:is-virtual="editorMeetingIsVirtual"
+            v-model:use-platform-video="linkMeetingPlatformVideo"
+            v-model:create-meet-link="createMeetingMeetLink"
+            v-model:agenda-items="createAgendaDraftItems"
+            v-model:notes="editorMeetingNotes"
+            v-model:is-training-pay-eligible="meetingIsTrainingPayEligible"
+            :show-training-pay-option="showMeetingTrainingPayOption"
+            :video-configured="scheduleVideoConfigured"
+            :show-agenda-draft="!isScheduleEventEditMode"
+            :show-participants="false"
+            :title-missing="isMeetingTitleMissing"
+            :disabled="submitting || scheduleEventSaving"
+          >
+            <MeetingAgendaPanel
+              v-if="isScheduleEventEditMode && Number(scheduleEventEditId || 0) > 0"
+              meeting-type="provider_schedule_event"
+              :meeting-id="Number(scheduleEventEditId)"
+              :can-add-item="true"
+              :embedded="true"
+              style="margin-top: 4px; max-width: none;"
+            />
+          </TeamMeetingBody>
+
+          <SupervisionBody
+            v-else-if="editorIsSupervision"
+            v-model:is-virtual="editorSupervisionIsVirtual"
+            :disabled="submitting || scheduleEventSaving"
+          />
+
+          <OpenSlotPlusOfficeRequestBody
+            v-if="editorIsOpenSlot"
+            v-model:open-slot-enabled="editorOpenSlotEnabled"
+            v-model:attach-office-request="editorAttachOfficeRequest"
+            v-model:office-location-id="editorOfficeLocationId"
+            v-model:preferred-room-id="editorPreferredRoomId"
+            v-model:request-notes="requestNotes"
+            :office-locations="editorOfficeLocations"
+            :room-options="editorPreferredOpenRoomOptions"
+            :disabled="submitting"
+          />
+        </AppointmentEditorShell>
+
+          <div v-show="editorWorkspaceTab === 'billing'" class="appt-workspace-panel appt-workspace-panel--flush">
+            <AppointmentBillingPanel
+              v-model:primary-service-code="bookingServiceCode"
+              v-model:addon-service-codes="editorAddonServiceCodes"
+              :service-label="editorInfoServiceLabel"
+              :location-label="editorInfoLocationLabel"
+              :modality-label="editorInfoModalityLabel"
+              :provider-name="bookingTargetUserLabel"
+              :service-date-label="editorInfoWhenDateLabel"
+              :time-range-label="editorInfoWhenTimeLabel"
+              :duration-label="modalDurationLabel"
+              :claim-id="editorClaimId"
+              :clinical-session-id="editorClinicalSessionId"
+              :service-code-options="bookingServiceCodeOptions"
+              :disabled="submitting"
+              @open-claim="openEditorClinicalClaim"
+            />
+          </div>
+
+          <div v-show="editorWorkspaceTab === 'clinical'" class="appt-workspace-panel appt-workspace-panel--flush">
+            <AppointmentClinicalPanel
+              v-if="editorIsClinical"
+              v-model:quick-note="editorQuickNote"
+              v-model:tenant-service-id="editorTenantServiceId"
+              :services="editorTenantServices"
+              :loading-services="editorServicesLoading"
+              :diagnoses="editorChartDiagnoses"
+              :latest-plan="editorChartLatestPlan"
+              :chart-loading="editorChartLoading"
+              :clinical-session-id="editorClinicalSessionId"
+              :clinical-note-id="editorClinicalNoteId"
+              :disabled="submitting"
+              @open-note="openEditorClinicalNote"
+              @open-billing="openEditorClinicalClaim"
+            />
+            <p v-else class="muted">Clinical notes are available for client sessions on this tenant.</p>
+          </div>
+
+          <div v-show="editorWorkspaceTab === 'note'" class="appt-workspace-panel appt-workspace-panel--flush">
+            <SupervisionNotePanel
+              v-if="editorIsSupervision"
+              v-model:notes="supvNotes"
+              v-model:transcript-url="supvTranscriptUrl"
+              v-model:transcript="supvTranscriptText"
+              v-model:summary="supvSummaryText"
+              :session-id="selectedSupvSessionId"
+              :join-url="editorVirtualLink"
+              :show-join="!!(selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink)"
+              :show-agenda="supervisionSessionInitiated"
+              :join-busy="supvMeetOpening || supvAppVideoLoading"
+              :saving="supvArtifactSaving"
+              :loading="supvArtifactLoading"
+              :error="supvArtifactError"
+              :disabled="submitting || scheduleEventSaving"
+              @save="saveSupvArtifact"
+              @join="startTrackedSupvMeet"
+              @open-agenda="showAgendaPanel = true"
+            />
+            <p v-else class="muted">Notes are available for supervision sessions.</p>
+          </div>
+
+          <div v-show="editorWorkspaceTab === 'supervisee'" class="appt-workspace-panel appt-workspace-panel--flush">
+            <SupervisionSuperviseePanel
+              v-if="editorIsSupervision"
+              :participant-name="editorParticipantSummary"
+              :session-type="selectedSupvSession?.sessionType || supervisionEffectiveSessionType"
+              :individual-hours="supvSuperviseeHours.individualHours"
+              :group-hours="supvSuperviseeHours.groupHours"
+              :required-individual="supvSuperviseeHours.requiredIndividual"
+              :required-group="supvSuperviseeHours.requiredGroup"
+              :enabled="supvSuperviseeHours.enabled"
+              :loading="supvSuperviseeHoursLoading"
+              :error="supvSuperviseeHoursError"
+            />
+            <p v-else class="muted">Supervisee progress is available for supervision sessions.</p>
+          </div>
+
+          <div v-show="editorWorkspaceTab === 'notifications'" class="appt-workspace-panel appt-workspace-panel--flush">
+            <AppointmentRemindersPanel
+              :appointment-id="editorAppointmentId"
+              :loading="editorRemindersLoading"
+              :error="editorRemindersError"
+              :last-sent-label="editorReminderLastSent"
+              :plan-items="editorReminderPlan"
+              :attendees="editorReminderAttendees"
+              :can-push-extra="editorCanPushExtraReminder"
+              :busy="editorReminderBusy"
+              :format-when="formatEditorDisplayDateTime"
+              @push-extra="pushEditorExtraReminder"
+            >
+              <button
+                v-if="Number(editorAppointmentId || 0) > 0"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="openPushSessionUpdateFromEditor"
+              >
+                Push session update…
+              </button>
+            </AppointmentRemindersPanel>
+          </div>
+        </div>
+
+        <!-- Legacy slot header (chooser + types not yet on unified shell) -->
+        <div
+          v-else
           class="nr-slot-header"
           :class="{ 'nr-slot-header--form': !showActionChooser }"
           data-testid="schedule-slot-editor"
@@ -1053,7 +1678,12 @@
               <span class="nr-info-label">When</span>
               <template v-if="isScheduleEventEditMode">
                 <div class="nr-when-edit nr-when-edit--datetime">
-                  <input v-model="scheduleEventEditForm.startAt" class="nr-info-select" type="datetime-local" />
+                  <input
+                    class="nr-info-select"
+                    type="datetime-local"
+                    :value="scheduleEventEditForm.startAt"
+                    @change="onScheduleEventStartAtInput($event.target.value)"
+                  />
                   <span class="nr-when-sep">–</span>
                   <input v-model="scheduleEventEditForm.endAt" class="nr-info-select" type="datetime-local" />
                 </div>
@@ -1061,10 +1691,75 @@
               </template>
               <template v-else-if="isSupervisionEditMode">
                 <div class="nr-when-edit nr-when-edit--datetime">
-                  <input v-model="supvStartIsoLocal" class="nr-info-select" type="datetime-local" />
+                  <input
+                    class="nr-info-select"
+                    type="datetime-local"
+                    :value="supvStartIsoLocal"
+                    @change="onSupvStartAtInput($event.target.value)"
+                  />
                   <span class="nr-when-sep">–</span>
                   <input v-model="supvEndIsoLocal" class="nr-info-select" type="datetime-local" />
                 </div>
+                <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
+              </template>
+              <template v-else-if="isScheduleEventAllDayUi">
+                <div class="nr-when-edit">
+                  <select
+                    v-model="modalDay"
+                    class="nr-info-select nr-info-select--day"
+                    :disabled="!canManageOffices && !canSelectBookingProvider"
+                    title="Day"
+                    @change="onChooserWhenChanged"
+                  >
+                    <option v-for="d in orderedDays" :key="`nr-day-all-${d}`" :value="d">{{ d }}</option>
+                  </select>
+                  <span class="nr-all-day-badge">All day</span>
+                </div>
+                <span class="nr-duration-under">All day</span>
+                <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
+              </template>
+              <template v-else-if="canUseQuarterHourInput">
+                <div class="nr-when-edit nr-when-edit--timed">
+                  <select
+                    v-model="modalDay"
+                    class="nr-info-select nr-info-select--day"
+                    :disabled="!canManageOffices && !canSelectBookingProvider"
+                    title="Day"
+                    @change="onChooserWhenChanged"
+                  >
+                    <option v-for="d in orderedDays" :key="`nr-day-q-${d}`" :value="d">{{ d }}</option>
+                  </select>
+                  <div class="nr-time-group">
+                    <input
+                      class="nr-info-select nr-info-select--clock"
+                      type="time"
+                      step="900"
+                      :value="modalStartTimeValue"
+                      title="Start"
+                      @change="onModalStartTimeInput($event.target.value)"
+                    />
+                    <div class="nr-time-nudge" aria-label="Adjust start by 15 minutes">
+                      <button type="button" class="nr-nudge-btn" title="Start +15 min" @click="nudgeModalStart(15)">+15</button>
+                      <button type="button" class="nr-nudge-btn" title="Start −15 min" @click="nudgeModalStart(-15)">−15</button>
+                    </div>
+                  </div>
+                  <span class="nr-when-sep">–</span>
+                  <div class="nr-time-group">
+                    <input
+                      class="nr-info-select nr-info-select--clock"
+                      type="time"
+                      step="900"
+                      :value="modalEndTimeValue"
+                      title="End"
+                      @change="onModalEndTimeInput($event.target.value)"
+                    />
+                    <div class="nr-time-nudge" aria-label="Adjust end by 15 minutes">
+                      <button type="button" class="nr-nudge-btn" title="End +15 min" @click="nudgeModalEnd(15)">+15</button>
+                      <button type="button" class="nr-nudge-btn" title="End −15 min" @click="nudgeModalEnd(-15)">−15</button>
+                    </div>
+                  </div>
+                </div>
+                <span class="nr-duration-under">{{ modalDurationLabel }}</span>
                 <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
               </template>
               <template v-else>
@@ -1188,8 +1883,20 @@
               </select>
             </div>
             <div v-else class="nr-booking-strip-cell">
-              <span class="nr-info-label">Coworkers</span>
-              <span class="nr-info-value">{{ selectedMeetingParticipantIdSet.size }} selected</span>
+              <span class="nr-info-label">Participants</span>
+              <div class="aes-participant-names" :title="editorParticipantSummary">
+                <template v-if="editorMeetingParticipantNames.length">
+                  <span
+                    v-for="(name, idx) in editorMeetingParticipantNames.slice(0, 3)"
+                    :key="`legacy-pname-${idx}`"
+                    class="aes-participant-chip"
+                  >{{ name }}</span>
+                  <span v-if="editorMeetingParticipantNames.length > 3" class="aes-participant-more">
+                    +{{ editorMeetingParticipantNames.length - 3 }}
+                  </span>
+                </template>
+                <span v-else class="nr-info-value">None selected</span>
+              </div>
             </div>
             <div class="nr-booking-strip-cell">
               <span class="nr-info-label">Booked for</span>
@@ -1310,7 +2017,7 @@
             </div>
           </div>
 
-          <template v-else-if="isScheduleEventEditMode && editingScheduleStackItem">
+          <template v-else-if="isScheduleEventEditMode && editingScheduleStackItem && !editorIsMeeting && !editorIsClinical">
             <div v-if="scheduleEventEditError" class="error" style="margin-bottom: 10px;">{{ scheduleEventEditError }}</div>
             <label class="lbl">Title</label>
             <input v-model="scheduleEventEditForm.title" class="input" type="text" maxlength="200" />
@@ -1323,82 +2030,20 @@
               placeholder="Optional notes for this event…"
             />
 
-            <template v-if="isMeetingStackItem(editingScheduleStackItem)">
-              <label class="lbl" style="margin-top: 14px;">Coworkers (agency staff)</label>
-              <div v-if="meetingCandidatesLoading" class="muted" style="margin-top: 4px;">Loading coworkers…</div>
-              <template v-else>
-                <input
-                  v-model="meetingParticipantSearch"
-                  class="input"
-                  type="text"
-                  placeholder="Search coworkers by name or email"
-                  style="margin-bottom: 8px;"
-                />
-                <div v-if="selectedMeetingParticipantChips.length" class="supervision-selected-chips">
-                  <button
-                    v-for="chip in selectedMeetingParticipantChips"
-                    :key="`nr-meeting-chip-${chip.id}`"
-                    type="button"
-                    class="supervision-chip"
-                    @click="removeSelectedMeetingParticipant(chip.id)"
-                  >
-                    <span>{{ supervisionParticipantLabel(chip.row || { id: chip.id }) }}</span>
-                    <span aria-hidden="true">x</span>
-                  </button>
-                </div>
-                <div class="participant-scroll" style="margin-top: 6px; max-height: 200px;">
-                  <div class="participant-grid">
-                    <button
-                      v-for="p in filteredMeetingCandidates"
-                      :key="`nr-meeting-p-${p.id}`"
-                      type="button"
-                      class="participant-card participant-card--rich"
-                      :class="{ on: selectedMeetingParticipantIdSet.has(Number(p.id)) }"
-                      @click="toggleMeetingParticipant(Number(p.id))"
-                    >
-                      <img
-                        v-if="participantPhotoUrl(p)"
-                        class="participant-face"
-                        :src="participantPhotoUrl(p)"
-                        alt=""
-                      />
-                      <span
-                        v-else
-                        class="participant-face participant-face--initials"
-                        aria-hidden="true"
-                      >{{ providerInitials(p) }}</span>
-                      <span class="participant-copy">
-                        <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
-                        <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </template>
-            </template>
-
             <label class="sched-toggle" style="margin-top: 12px;">
               <input type="checkbox" v-model="scheduleEventEditForm.isPrivate" />
               <span>Private on calendar</span>
             </label>
-
-            <div
-              v-if="editingScheduleStackItem.appJoinUrl || editingScheduleStackItem.meetLink"
-              style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;"
-            >
-              <a
-                v-if="editingScheduleStackItem.appJoinUrl || editingScheduleStackItem.meetLink"
-                class="btn btn-secondary btn-sm"
-                :href="editingScheduleStackItem.appJoinUrl || editingScheduleStackItem.meetLink"
-                target="_blank"
-                rel="noreferrer"
-              >
-                {{ editingScheduleStackItem.appJoinUrl ? 'Open video room' : 'Open meeting link' }}
-              </a>
-            </div>
+          </template>
+          <template v-else-if="isScheduleEventEditMode && editingScheduleStackItem && (editorIsMeeting || editorIsClinical)">
+            <div v-if="scheduleEventEditError" class="error" style="margin-bottom: 10px;">{{ scheduleEventEditError }}</div>
+            <label class="sched-toggle" style="margin-top: 4px;">
+              <input type="checkbox" v-model="scheduleEventEditForm.isPrivate" />
+              <span>Private on calendar</span>
+            </label>
           </template>
 
-          <template v-else-if="isSupervisionEditMode">
+          <template v-else-if="isSupervisionEditMode && !showAppointmentEditorShell">
             <div v-if="supvModalError" class="error" style="margin-bottom: 10px;">{{ supvModalError }}</div>
             <div v-if="supvOptions.length > 1" style="margin-bottom: 10px;">
               <label class="lbl">Session</label>
@@ -1406,60 +2051,7 @@
                 <option v-for="o in supvOptions" :key="`nr-supv-opt-${o.id}`" :value="o.id">{{ o.label }}</option>
               </select>
             </div>
-            <label class="lbl">Notes</label>
-            <textarea v-model="supvNotes" class="input" rows="4" placeholder="Optional notes for the Google Calendar description…" />
-            <div v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink" style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-              <button
-                class="btn btn-primary btn-sm"
-                type="button"
-                :disabled="supvMeetOpening || supvAppVideoLoading"
-                @click="startTrackedSupvMeet"
-              >
-                {{ (supvMeetOpening || supvAppVideoLoading) ? 'Joining…' : (selectedSupvSession?.joinUrl ? 'Join with app' : 'Join Meet (tracked)') }}
-              </button>
-              <a
-                class="btn btn-secondary btn-sm"
-                :href="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open in new tab
-              </a>
-              <button
-                class="btn btn-secondary btn-sm"
-                type="button"
-                :disabled="!selectedSupvSessionId"
-                @click="showAgendaPanel = true"
-              >
-                Agenda
-              </button>
-            </div>
-            <div style="margin-top: 14px; border: 1px solid var(--nr-line); border-radius: 12px; padding: 12px; background: var(--nr-soft);">
-              <label class="lbl">Transcript link</label>
-              <input v-model="supvTranscriptUrl" class="input" type="url" placeholder="https://... transcript link" />
-              <label class="lbl" style="margin-top: 8px;">Transcript text</label>
-              <textarea v-model="supvTranscriptText" class="input" rows="3" placeholder="Paste transcript text so Gemini can generate a summary." />
-              <label class="lbl" style="margin-top: 8px;">Summary</label>
-              <textarea v-model="supvSummaryText" class="input" rows="3" placeholder="Session summary" />
-              <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
-                <button
-                  class="btn btn-secondary btn-sm"
-                  type="button"
-                  :disabled="supvArtifactSaving || supvArtifactLoading || !selectedSupvSessionId"
-                  @click="saveSupvArtifact({ autoSummarize: false })"
-                >
-                  {{ supvArtifactSaving ? 'Saving…' : 'Save transcript + summary' }}
-                </button>
-                <button
-                  class="btn btn-primary btn-sm"
-                  type="button"
-                  :disabled="supvArtifactSaving || supvArtifactLoading || !selectedSupvSessionId || !supvTranscriptText.trim()"
-                  @click="saveSupvArtifact({ autoSummarize: true })"
-                >
-                  Generate summary with Gemini
-                </button>
-              </div>
-            </div>
+            <p class="muted">Use the Note tab for supervision notes, transcript, and summary.</p>
           </template>
         </div>
 
@@ -1571,13 +2163,14 @@
             <p class="nr-chooser-tip">
               Everything you need, in one place. Notes belong to a session — open a booked session to write or edit notes.
             </p>
-            <button type="button" class="btn nr-btn-today" @click="goToTodayWeek(); requestCloseModal();">
+            <button type="button" class="btn nr-btn-today" @click="goToTodayDaySchedule(); requestCloseModal();">
               View Today’s Schedule
             </button>
           </div>
         </div>
 
-        <div v-else class="nr-layout">
+        <!-- Legacy create form: skip when unified shell already owns the type body -->
+        <div v-else-if="!showAppointmentEditorShell" class="nr-layout">
           <aside class="nr-sidebar nr-sidebar--compact">
             <div class="nr-sidebar-title">Actions</div>
             <div class="nr-action-list">
@@ -2141,8 +2734,22 @@
             <div v-if="meetingCandidatesLoading" class="muted" style="margin-top: 6px;">
               Loading agency coworkers…
             </div>
+            <div v-else-if="meetingCandidatesError" class="error" style="margin-top: 6px;">
+              {{ meetingCandidatesError }}
+              <button type="button" class="btn btn-secondary btn-sm" style="margin-left: 8px;" @click="loadMeetingCandidates">
+                Retry
+              </button>
+            </div>
             <div v-else-if="!availableMeetingCandidates.length" class="muted" style="margin-top: 6px;">
               No coworkers are available in this scope.
+            </div>
+            <div
+              v-if="meetingUsingAllAgencies && selectedMeetingOutOfAgencyCount > 0"
+              class="error"
+              style="margin-top: 6px;"
+            >
+              {{ selectedMeetingOutOfAgencyCount }} selected coworker(s) are not in the selected tenant.
+              Switch tenant, turn off “all my agencies”, or remove them before submitting.
             </div>
             <label v-if="meetingCanUseAllAgencies" class="sched-toggle" style="margin-top: 8px; margin-bottom: 8px;">
               <input type="checkbox" v-model="meetingIncludeAllAgencies" />
@@ -2339,9 +2946,11 @@
               <option value="occurrence">Forfeit this occurrence only</option>
               <option value="future" :disabled="!hasFutureForfeitSupport">Forfeit this and all future recurring</option>
             </select>
-            <label class="sched-toggle" style="display: flex; align-items: flex-start; gap: 8px; margin-top: 8px;">
-              <input type="checkbox" v-model="ackForfeit" />
-              <span>I understand this slot's day/time/frequency is forfeit at this time and available to others.</span>
+            <label class="forfeit-ack" :class="{ 'forfeit-ack--on': ackForfeit, 'forfeit-ack--needed': !ackForfeit }">
+              <input type="checkbox" v-model="ackForfeit" class="forfeit-ack__box" />
+              <span class="forfeit-ack__text">
+                <strong>Required:</strong> I understand this slot’s day/time/frequency is forfeit and becomes available to others.
+              </span>
             </label>
           </div>
 
@@ -2374,6 +2983,23 @@
               Creates a calendar event for this provider. It appears in Google titles when enabled.
             </div>
 
+            <div v-if="requestType === 'personal_event'" style="margin-top: 10px;">
+              <label class="lbl">Type</label>
+              <select
+                class="input"
+                :value="personalEventTypeCode"
+                @change="onPersonalEventTypeChange($event.target.value)"
+              >
+                <option
+                  v-for="opt in personalEventTypeOptions"
+                  :key="`pe-type-${opt.code}`"
+                  :value="opt.code"
+                >
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+
             <label class="lbl" :class="{ 'lbl--required-missing': isScheduleEventTitleMissing }" style="margin-top: 10px;">
               Event title <span aria-hidden="true">*</span>
             </label>
@@ -2384,6 +3010,7 @@
               type="text"
               :placeholder="scheduleEventTitlePlaceholder"
               maxlength="200"
+              @input="personalEventTitleTouched = true"
             />
             <div v-if="isScheduleEventTitleMissing" class="nr-required-hint">Title is required before you can schedule.</div>
 
@@ -2405,30 +3032,86 @@
             </div>
 
             <div v-if="requestType === 'schedule_hold' || requestType === 'schedule_hold_all_day'" style="margin-top: 10px;">
-              <label class="lbl">Hold reason</label>
-              <select v-model="scheduleHoldReasonCode" class="input">
-                <option v-for="opt in scheduleHoldReasonOptions" :key="`hold-reason-${opt.code}`" :value="opt.code">
-                  {{ opt.label }}
-                </option>
-              </select>
-              <input
-                v-if="scheduleHoldReasonCode === 'CUSTOM'"
-                v-model="scheduleHoldCustomReason"
-                class="input"
-                type="text"
-                placeholder="Custom hold reason"
-                maxlength="120"
-                style="margin-top: 8px;"
-              />
+              <label class="lbl">{{ requestType === 'schedule_hold_all_day' ? 'Block reason' : 'Hold reason' }}</label>
+              <div class="hold-reason-box">
+                <div class="hold-reason-row">
+                  <input
+                    v-model="scheduleHoldReasonDraft"
+                    class="input"
+                    type="text"
+                    list="hold-reason-suggestions"
+                    :placeholder="requestType === 'schedule_hold_all_day' ? 'Why is this day blocked?…' : 'Type a reason or pick one…'"
+                    maxlength="120"
+                    @keydown.enter.prevent="commitHoldReasonDraft"
+                    @change="onHoldReasonDraftChange"
+                    @blur="onHoldReasonDraftChange"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!canSaveHoldReasonDraft"
+                    title="Save this reason for next time"
+                    @click="commitHoldReasonDraft"
+                  >
+                    Save
+                  </button>
+                </div>
+                <datalist id="hold-reason-suggestions">
+                  <option
+                    v-for="opt in scheduleHoldReasonOptions"
+                    :key="`hold-dl-${opt.code}`"
+                    :value="opt.label"
+                  />
+                </datalist>
+                <div class="hold-reason-chips">
+                  <button
+                    v-for="opt in scheduleHoldReasonOptions"
+                    :key="`hold-chip-${opt.code}`"
+                    type="button"
+                    class="hold-reason-chip"
+                    :class="{ on: isHoldReasonSelected(opt) }"
+                    @click="selectHoldReasonOption(opt)"
+                  >
+                    <span>{{ opt.label }}</span>
+                    <span
+                      v-if="opt.custom"
+                      class="hold-reason-x"
+                      title="Remove saved reason"
+                      @click.stop="removeCustomHoldReason(opt.code)"
+                    >×</span>
+                  </button>
+                </div>
+                <div class="muted nr-help" style="margin-top: 4px;">
+                  Type a new reason and hit Save to keep it. Use × to remove a saved custom reason.
+                  <template v-if="requestType === 'schedule_hold_all_day'">
+                    This is an all-day schedule block (not a hold).
+                  </template>
+                </div>
+              </div>
             </div>
 
-            <label class="sched-toggle" style="margin-top: 10px;">
+            <label
+              v-if="requestType !== 'schedule_hold_all_day'"
+              class="sched-toggle"
+              style="margin-top: 10px;"
+            >
               <input type="checkbox" v-model="scheduleEventAllDay" />
               <span>All day</span>
             </label>
+            <div v-else class="muted nr-help" style="margin-top: 10px;">
+              This blocks the full calendar day (midnight to midnight).
+            </div>
             <label class="sched-toggle" style="margin-top: 6px;">
               <input type="checkbox" v-model="scheduleEventPrivate" />
               <span>Private (others only see Busy)</span>
+            </label>
+            <label
+              v-if="(requestType === 'agency_meeting' || requestType === 'huddle') && showMeetingTrainingPayOption"
+              class="sched-toggle"
+              style="margin-top: 6px;"
+            >
+              <input type="checkbox" v-model="meetingIsTrainingPayEligible" />
+              <span>Training / Mentorship / Onboarding (Admin Time pay claim)</span>
             </label>
 
             <div v-if="requestType === 'agency_meeting' || requestType === 'huddle'" style="margin-top: 10px;">
@@ -2480,7 +3163,12 @@
             </div>
           </div>
 
-          <div v-if="canUseQuarterHourInput && !disableEndTimeInput && requestType !== 'admin_assign' && requestType !== 'cancel_booking'" class="row" style="gap: 8px; margin-top: 10px; margin-bottom: 10px;">
+          <!-- Timed WHEN lives in the header for quarter-hour / all-day types -->
+          <div
+            v-if="canUseQuarterHourInput && !disableEndTimeInput && !isScheduleEventRequestType && requestType !== 'admin_assign' && requestType !== 'cancel_booking' && requestType !== 'supervision'"
+            class="row"
+            style="gap: 8px; margin-top: 10px; margin-bottom: 10px;"
+          >
             <label class="sched-inline compact" style="flex: 1;">
               <span>Start time</span>
               <select v-model.number="modalStartHour" class="sched-select compact">
@@ -2500,7 +3188,10 @@
           </div>
 
           <template v-if="requestType !== 'admin_assign' && requestType !== 'cancel_booking'">
-            <div class="nr-field">
+            <div
+              v-if="!isScheduleEventRequestType && !canUseQuarterHourInput"
+              class="nr-field"
+            >
               <label class="lbl">End time</label>
               <div class="nr-input-wrap">
                 <span class="nr-input-icon" aria-hidden="true">
@@ -2522,7 +3213,11 @@
               <div class="muted nr-help">When this should end.</div>
             </div>
 
-            <div v-if="canUseQuarterHourInput && !disableEndTimeInput" class="row" style="gap: 8px; margin-top: 8px;">
+            <div
+              v-if="canUseQuarterHourInput && !disableEndTimeInput && !isScheduleEventRequestType && requestType !== 'supervision'"
+              class="row"
+              style="gap: 8px; margin-top: 8px;"
+            >
               <label class="sched-inline compact" style="flex: 1;">
                 <span>End min</span>
                 <select v-model.number="modalEndMinute" class="sched-select compact">
@@ -2533,8 +3228,13 @@
               </label>
             </div>
 
+            <div v-if="requestType === 'school'" class="muted nr-help" style="margin-top: 8px;">
+              This submits <strong>additional</strong> weekday daytime hours for staff to review.
+              It is separate from changing an existing school assignment’s times or open slots.
+            </div>
+
             <div class="nr-field">
-              <label class="lbl">Notes (optional)</label>
+              <label class="lbl">{{ requestType === 'school' ? 'What are you hoping to accomplish? (optional)' : 'Notes (optional)' }}</label>
               <div class="nr-notes-wrap">
                 <textarea
                   v-model="requestNotes"
@@ -2778,8 +3478,20 @@
           v-if="isScheduleEventEditMode && editingScheduleStackItem"
           class="nr-footer"
         >
+          <div v-if="scheduleEventEditError" class="error" style="flex: 1 1 100%; margin-bottom: 8px;">
+            {{ scheduleEventEditError }}
+          </div>
+          <button
+            v-if="isEditableScheduleStackItem(editingScheduleStackItem)"
+            class="btn btn-danger"
+            type="button"
+            :disabled="scheduleEventSaving || cancellingScheduleEventId === Number(editingScheduleStackItem.eventId || 0)"
+            @click="openCancelMeetingConfirm(editingScheduleStackItem)"
+          >
+            {{ isMeetingStackItem(editingScheduleStackItem) ? 'Cancel meeting' : 'Cancel event' }}
+          </button>
           <button class="btn btn-secondary nr-btn-cancel" type="button" :disabled="scheduleEventSaving" @click="requestCloseModal">
-            Cancel
+            Close
           </button>
           <button
             class="btn nr-btn-submit"
@@ -2811,7 +3523,15 @@
             {{ supvSaving ? 'Saving…' : 'Save changes' }}
           </button>
         </div>
+        <div v-else-if="meetingCreatedShare" class="nr-footer">
+          <button class="btn nr-btn-submit" type="button" @click="dismissMeetingCreatedShare">
+            Done
+          </button>
+        </div>
         <div v-else-if="!showActionChooser && !isAppointmentEditMode && !intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking' && requestType !== 'slot_details'" class="nr-footer">
+          <div v-if="requestSubmitBlockedReason && requestType" class="nr-blocked-reason" style="flex: 1 1 100%; margin-bottom: 8px;">
+            {{ requestSubmitBlockedReason }}
+          </div>
           <button class="btn btn-secondary nr-btn-cancel" type="button" @click="requestCloseModal">
             {{ virtualSessionShareUrl && isVirtualTelehealthSession ? 'Done' : 'Cancel' }}
           </button>
@@ -2876,7 +3596,12 @@
             <div class="nr-info-cell">
               <span class="nr-info-label">When</span>
               <div class="nr-when-edit nr-when-edit--stack">
-                <input v-model="supvStartIsoLocal" class="nr-info-select" type="datetime-local" />
+                <input
+                  class="nr-info-select"
+                  type="datetime-local"
+                  :value="supvStartIsoLocal"
+                  @change="onSupvStartAtInput($event.target.value)"
+                />
                 <span class="nr-when-sep">–</span>
                 <input v-model="supvEndIsoLocal" class="nr-info-select" type="datetime-local" />
               </div>
@@ -2892,16 +3617,7 @@
             </div>
           </div>
 
-          <div style="margin-top: 12px;">
-            <label class="lbl">Notes</label>
-            <textarea v-model="supvNotes" class="input nr-appt-input" rows="4" placeholder="Optional notes for the Google Calendar description…" />
-          </div>
-
           <div v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink" class="muted" style="margin-top: 8px;">
-            <div v-if="selectedSupvSession?.googleMeetLink">Meet link:</div>
-            <a v-if="selectedSupvSession?.googleMeetLink" :href="selectedSupvSession.googleMeetLink" target="_blank" rel="noreferrer">
-              {{ selectedSupvSession.googleMeetLink }}
-            </a>
             <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
               <button
                 class="btn btn-primary btn-sm"
@@ -2920,73 +3636,24 @@
               >
                 Open in new tab
               </a>
-            </div>
-            <div class="muted" style="margin-top: 6px; font-size: 12px;">
-              {{ selectedSupvSession?.joinUrl ? 'Join via in-app video.' : 'Starts in-app tracking for opened/closed meeting activity.' }}
+              <button
+                v-if="supervisionSessionInitiated"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="!selectedSupvSessionId"
+                @click="showAgendaPanel = true"
+              >
+                Agenda
+              </button>
             </div>
           </div>
           <div v-else class="muted" style="margin-top: 8px;">
             No video link yet. Join link appears when video is configured.
           </div>
 
-          <div style="margin-top: 12px;">
-            <button
-              class="btn btn-secondary btn-sm"
-              type="button"
-              :disabled="!selectedSupvSessionId"
-              @click="showAgendaPanel = true"
-            >
-              Agenda
-            </button>
-          </div>
-
-          <div style="margin-top: 10px; border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 10px; background: #fafafa;">
-            <label class="lbl">Transcript link</label>
-            <input v-model="supvTranscriptUrl" class="input" type="url" placeholder="https://... transcript link" />
-            <label class="lbl" style="margin-top: 8px;">Transcript text</label>
-            <textarea
-              v-model="supvTranscriptText"
-              class="input"
-              rows="4"
-              placeholder="Paste transcript text so Gemini can generate a summary."
-            />
-            <label class="lbl" style="margin-top: 8px;">Summary</label>
-            <textarea
-              v-model="supvSummaryText"
-              class="input"
-              rows="4"
-              placeholder="Session summary"
-            />
-            <div class="modal-actions" style="margin-top: 8px; justify-content: flex-start;">
-              <button
-                class="btn btn-secondary btn-sm"
-                type="button"
-                :disabled="supvArtifactSaving || supvArtifactLoading || !selectedSupvSessionId"
-                @click="saveSupvArtifact({ autoSummarize: false })"
-              >
-                {{ supvArtifactSaving ? 'Saving…' : 'Save transcript + summary' }}
-              </button>
-              <button
-                class="btn btn-primary btn-sm"
-                type="button"
-                :disabled="supvArtifactSaving || supvArtifactLoading || !selectedSupvSessionId || !supvTranscriptText.trim()"
-                @click="saveSupvArtifact({ autoSummarize: true })"
-              >
-                Generate summary with Gemini
-              </button>
-              <a
-                v-if="supvTranscriptUrl"
-                class="btn btn-secondary btn-sm"
-                :href="supvTranscriptUrl"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open transcript
-              </a>
-            </div>
-            <div v-if="supvArtifactLoading" class="muted" style="margin-top: 6px;">Loading transcript/summary...</div>
-            <div v-if="supvArtifactError" class="error" style="margin-top: 6px;">{{ supvArtifactError }}</div>
-          </div>
+          <p class="muted" style="margin-top: 12px;">
+            Open this session from the schedule editor for Note / Supervisee tabs (transcript, summary, and hour progress).
+          </p>
 
           <div style="margin-top: 12px;">
             <label class="lbl">Presenter tracking</label>
@@ -3173,7 +3840,12 @@
                     <div class="nr-info-cell">
                       <span class="nr-info-label">When</span>
                       <div class="nr-when-edit nr-when-edit--stack">
-                        <input v-model="scheduleEventEditForm.startAt" class="nr-info-select" type="datetime-local" />
+                        <input
+                          class="nr-info-select"
+                          type="datetime-local"
+                          :value="scheduleEventEditForm.startAt"
+                          @change="onScheduleEventStartAtInput($event.target.value)"
+                        />
                         <span class="nr-when-sep">–</span>
                         <input v-model="scheduleEventEditForm.endAt" class="nr-info-select" type="datetime-local" />
                       </div>
@@ -3377,6 +4049,13 @@
               </div>
 
               <div
+                v-if="item.isCancelled"
+                class="stack-details-cancelled-badge"
+                style="margin-top: 8px;"
+              >
+                Cancelled — still shown on everyone’s schedule
+              </div>
+              <div
                 v-if="isEditableScheduleStackItem(item) && scheduleEventEditId !== Number(item.eventId || 0)"
                 class="stack-details-actions"
                 style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;"
@@ -3396,32 +4075,152 @@
                   Edit / move
                 </button>
                 <button
-                  v-if="item.appJoinUrl || item.meetLink"
+                  v-if="!item.isCancelled && (item.appJoinUrl || item.meetLink)"
                   type="button"
                   class="btn btn-secondary btn-sm"
                   @click.stop="openStackDetailsItem(item)"
                 >
-                  {{ item.appJoinUrl ? 'Open video room' : 'Open meeting link' }}
+                  Join
                 </button>
                 <button
                   type="button"
                   class="btn btn-danger btn-sm"
-                  :disabled="deletingScheduleEventId === item.eventId"
-                  @click.stop="deleteScheduleMeetingOccurrence(item)"
+                  :disabled="cancellingScheduleEventId === item.eventId"
+                  @click.stop="openCancelMeetingConfirm(item)"
                 >
-                  {{ deletingScheduleEventId === item.eventId && deletingScheduleEventScope === 'single' ? 'Deleting…' : 'Delete' }}
-                </button>
-                <button
-                  v-if="item.recurrenceSeriesId"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="deletingScheduleEventId === item.eventId"
-                  @click.stop="deleteScheduleMeetingFuture(item)"
-                >
-                  {{ deletingScheduleEventId === item.eventId && deletingScheduleEventScope === 'future' ? 'Deleting…' : 'Delete this & future' }}
+                  {{ isMeetingStackItem(item) ? 'Cancel meeting' : 'Cancel event' }}
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showAppointmentMoveModal" class="modal-backdrop" style="z-index: 10002;" @click.self="closeAppointmentMoveModal">
+      <div class="modal cancel-meeting-modal" style="max-width: 440px;" role="dialog" aria-modal="true" aria-labelledby="appointment-move-title">
+        <div class="modal-head">
+          <div id="appointment-move-title" class="modal-title">Move appointment</div>
+          <button class="btn btn-secondary btn-sm cancel-meeting-btn-secondary" type="button" :disabled="appointmentMoveBusy" @click="closeAppointmentMoveModal">
+            Close
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="cancel-meeting-lead"><strong>{{ appointmentMoveDraft?.label || 'Appointment' }}</strong></p>
+          <p class="cancel-meeting-copy">
+            Move to <strong>{{ appointmentMoveDraft?.targetLabel || '—' }}</strong>?
+          </p>
+          <div v-if="appointmentMoveError" class="error" style="margin-bottom: 12px;">{{ appointmentMoveError }}</div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <button type="button" class="btn btn-primary" :disabled="appointmentMoveBusy" @click="confirmAppointmentMove">
+              {{ appointmentMoveBusy ? 'Saving…' : 'Confirm move' }}
+            </button>
+            <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="appointmentMoveBusy" @click="closeAppointmentMoveModal">
+              Never mind
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showSeriesEditScopeModal" class="modal-backdrop" style="z-index: 10002;" @click.self="closeSeriesEditScopeModal">
+      <div class="modal cancel-meeting-modal" style="max-width: 440px;" role="dialog" aria-modal="true" aria-labelledby="series-edit-scope-title">
+        <div class="modal-head">
+          <div id="series-edit-scope-title" class="modal-title">Update series</div>
+          <button class="btn btn-secondary btn-sm cancel-meeting-btn-secondary" type="button" :disabled="seriesEditScopeBusy" @click="closeSeriesEditScopeModal">
+            Close
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="cancel-meeting-lead"><strong>{{ seriesEditScopeTitle }}</strong></p>
+          <p class="cancel-meeting-copy">
+            This is part of a series. Apply the new time to just this session, or this and all following?
+          </p>
+          <div v-if="seriesEditScopeError" class="error" style="margin-bottom: 12px;">{{ seriesEditScopeError }}</div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <button type="button" class="btn btn-primary" :disabled="seriesEditScopeBusy" @click="confirmSeriesEditScope('single')">
+              {{ seriesEditScopeBusy && seriesEditScopeChoice === 'single' ? 'Saving…' : 'Just this session' }}
+            </button>
+            <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="seriesEditScopeBusy" @click="confirmSeriesEditScope('future')">
+              {{ seriesEditScopeBusy && seriesEditScopeChoice === 'future' ? 'Saving…' : 'This and all following' }}
+            </button>
+            <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="seriesEditScopeBusy" style="margin-top: 4px;" @click="closeSeriesEditScopeModal">
+              Never mind
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showCancelMeetingModal" class="modal-backdrop" style="z-index: 10001;" @click.self="closeCancelMeetingConfirm">
+      <div class="modal cancel-meeting-modal" style="max-width: 440px;" role="dialog" aria-modal="true" aria-labelledby="cancel-meeting-title">
+        <div class="modal-head">
+          <div id="cancel-meeting-title" class="modal-title">
+            {{ cancelMeetingIsMeeting ? 'Cancel meeting' : 'Cancel event' }}
+          </div>
+          <button class="btn btn-secondary btn-sm cancel-meeting-btn-secondary" type="button" :disabled="!!cancellingScheduleEventId" @click="closeCancelMeetingConfirm">
+            Close
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="cancel-meeting-lead">
+            <strong>{{ cancelMeetingTitle }}</strong>
+          </p>
+          <p v-if="!cancelMeetingIsSeries" class="cancel-meeting-copy">
+            Are you sure you want to cancel this {{ cancelMeetingIsMeeting ? 'meeting' : 'event' }}?
+            It will stay on everyone’s schedule as cancelled.
+          </p>
+          <p v-else class="cancel-meeting-copy">
+            This is part of a series. Choose what to cancel — cancelled items stay on everyone’s schedule.
+          </p>
+          <div v-if="cancelMeetingError" class="error" style="margin-bottom: 12px;">{{ cancelMeetingError }}</div>
+          <div v-if="!cancelMeetingIsSeries" style="display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="!!cancellingScheduleEventId" @click="closeCancelMeetingConfirm">
+              Never mind
+            </button>
+            <button
+              type="button"
+              class="btn btn-danger"
+              :disabled="!!cancellingScheduleEventId"
+              @click="confirmCancelMeeting('single')"
+            >
+              {{ cancellingScheduleEventId ? 'Cancelling…' : (cancelMeetingIsMeeting ? 'Cancel meeting' : 'Cancel event') }}
+            </button>
+          </div>
+          <div v-else style="display: flex; flex-direction: column; gap: 8px;">
+            <button
+              type="button"
+              class="btn btn-danger"
+              :disabled="!!cancellingScheduleEventId"
+              @click="confirmCancelMeeting('single')"
+            >
+              {{ cancellingScheduleEventScope === 'single' ? 'Cancelling…' : 'Just this' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary cancel-meeting-btn-secondary"
+              :disabled="!!cancellingScheduleEventId"
+              @click="confirmCancelMeeting('future')"
+            >
+              {{ cancellingScheduleEventScope === 'future' ? 'Cancelling…' : 'This and all following' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary cancel-meeting-btn-secondary"
+              :disabled="!!cancellingScheduleEventId"
+              @click="confirmCancelMeeting('others')"
+            >
+              {{ cancellingScheduleEventScope === 'others' ? 'Cancelling…' : 'Just others' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary cancel-meeting-btn-secondary"
+              :disabled="!!cancellingScheduleEventId"
+              style="margin-top: 4px;"
+              @click="closeCancelMeetingConfirm"
+            >
+              Never mind
+            </button>
           </div>
         </div>
       </div>
@@ -3601,6 +4400,15 @@
       @booked="onUnifiedBookingBooked"
     />
 
+    <PushSessionUpdatePanel
+      v-if="Number(editorAppointmentId || 0) > 0"
+      :open="showPushSessionUpdatePanel"
+      :appointment-id="Number(editorAppointmentId)"
+      :changes="pushSessionUpdateChanges"
+      @close="showPushSessionUpdatePanel = false"
+      @queued="showPushSessionUpdatePanel = false"
+    />
+
     <div
       v-if="peerActivityModal"
       class="modal-backdrop modal-backdrop--request"
@@ -3669,6 +4477,13 @@ import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import { useUserPreferencesStore } from '../../store/userPreferences';
 import { isMedicalBillingEnabled } from '../../config/medicalBillingAccess.js';
+import {
+  PRACTICE_CATEGORY_LABELS,
+  businessTypesForPracticeCategory,
+  isAddonServiceCode,
+  practiceCategoryForBusinessType,
+  practiceCategoryLabel
+} from '../../config/practiceCategories.js';
 import { isTenantOrganizationType as isTenantOrganizationTypeShared } from '../../utils/organizationTypes.js';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
@@ -3677,6 +4492,25 @@ import SupervisionVideoRoom from '../supervision/SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from '../supervision/SupervisionVideoLobbyPanel.vue';
 import UnifiedBookingPanel from './UnifiedBookingPanel.vue';
 import PersonSearchSelect from './PersonSearchSelect.vue';
+import AppointmentEditorShell from './AppointmentEditorShell.vue';
+import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
+import AppointmentBillingPanel from './AppointmentBillingPanel.vue';
+import AppointmentClinicalPanel from './AppointmentClinicalPanel.vue';
+import ClinicalSessionBody from './ClinicalSessionBody.vue';
+import MeetingParticipantsPicker from './MeetingParticipantsPicker.vue';
+import TeamMeetingBody from './TeamMeetingBody.vue';
+import VirtualLinkControls from './VirtualLinkControls.vue';
+import SupervisionBody from './SupervisionBody.vue';
+import SupervisionNotePanel from './SupervisionNotePanel.vue';
+import SupervisionSuperviseePanel from './SupervisionSuperviseePanel.vue';
+import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
+import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
+import PushSessionUpdatePanel from './PushSessionUpdatePanel.vue';
+import {
+  APPOINTMENT_EDITOR_STATUS_OPTIONS,
+  appointmentEditorTitleForKind,
+  expandRecurrenceDates
+} from './appointmentEditorShared.js';
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -3786,9 +4620,17 @@ const loadMyScheduleColors = async () => {
     const resp = await api.get(`/users/${myId}/preferences`);
     const colors = parseJsonMaybe(resp.data?.schedule_color_overrides);
     scheduleColors.value = { ...defaultScheduleColors(), ...(colors || {}) };
+    const display = parseJsonMaybe(resp.data?.schedule_display_prefs);
+    if (display && props.mode === 'self') {
+      applyDisplayPrefs(display);
+      saveDisplayPrefsLocal();
+    } else {
+      loadCustomHoldReasonsFromPrefs(null);
+    }
   } catch {
     // best effort; fall back to defaults
     scheduleColors.value = defaultScheduleColors();
+    loadCustomHoldReasonsFromPrefs(null);
   }
 };
 
@@ -3868,9 +4710,9 @@ const scheduleColorVars = computed(() => {
 const rowHeightPx = computed(() => {
   const mode = String(rowHeightMode.value || 'normal');
   if (mode === 'compact') return 28;
-  if (mode === 'large') return 46;
-  if (mode === 'xl') return 58;
-  return 32;
+  if (mode === 'large') return 68;
+  if (mode === 'xl') return 88;
+  return 48; // normal
 });
 const scheduleWrapVars = computed(() => ({
   ...(scheduleColorVars.value || {}),
@@ -3933,6 +4775,7 @@ const showQuarterDetail = ref(false);
 /** Peer busy overlay on My Schedule (anonymous intervals unless privileged Show details). */
 const showPeerBusyOverlay = ref(false);
 const peerBusySearch = ref('');
+const peerBusyTenantFilterId = ref(0); // 0 = all tenants
 const peerBusyCandidates = ref([]);
 const peerBusySelectedIds = ref([]);
 const peerBusySummariesByUserId = ref({});
@@ -3943,6 +4786,10 @@ const PEER_BUSY_EXCLUDED_ROLES = new Set([
   'client_guardian', 'guardian', 'school_staff', 'school_support',
   'client', 'parent', 'kiosk', 'super_admin', 'superadmin'
 ]);
+const actorIsSuperAdmin = () => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'super_admin' || role === 'superadmin';
+};
 const parsePeerAgencyIds = (raw) => {
   if (Array.isArray(raw)) {
     return raw.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
@@ -3962,6 +4809,8 @@ const peerMatchesScheduleAgencies = (user, agencyIds = effectiveAgencyIds.value)
 const isPeerBusyCandidate = (user) => {
   const role = String(user?.role || '').trim().toLowerCase();
   if (role && PEER_BUSY_EXCLUDED_ROLES.has(role)) return false;
+  // Superadmin peer list is cross-tenant by default; schedule org chips do not hide people.
+  if (actorIsSuperAdmin()) return true;
   return peerMatchesScheduleAgencies(user);
 };
 const peerBusyLoadGeneration = ref(0);
@@ -3979,25 +4828,30 @@ const selectedExternalCalendarIdSet = computed(
 let schedMouseUpHandler = null;
 const hideWeekend = ref(props.mode === 'self');
 const focusedDays = ref([]);
-/** day = single-day focus (+ mobile timeline); week = full multi-day grid */
+/** day | agenda | week — day/agenda focus one day; week = full multi-day grid */
 const scheduleSpanMode = ref('week');
+const isDayOrAgendaSpan = computed(() => ['day', 'agenda'].includes(String(scheduleSpanMode.value || '')));
 const isNarrowSchedule = ref(false);
 let narrowScheduleMql = null;
 let narrowScheduleHandler = null;
+let displayPrefsServerTimer = null;
 const todayDayName = () => {
   const map = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   return map[new Date().getDay()] || 'Monday';
 };
+const ensureSingleDayFocus = () => {
+  const today = todayDayName();
+  const allowed = focusableDays.value || [];
+  if (focusedDays.value?.length === 1 && allowed.includes(String(focusedDays.value[0]))) return;
+  focusedDays.value = allowed.includes(today) ? [today] : (allowed[0] ? [allowed[0]] : []);
+};
 const setScheduleSpanMode = (mode) => {
-  const next = String(mode || '').toLowerCase() === 'day' ? 'day' : 'week';
+  const raw = String(mode || '').toLowerCase();
+  const next = ['day', 'agenda', 'week'].includes(raw) ? raw : 'week';
   scheduleSpanMode.value = next;
-  if (next === 'day') {
-    const today = todayDayName();
-    const allowed = focusableDays.value || [];
-    focusedDays.value = allowed.includes(today) ? [today] : (allowed[0] ? [allowed[0]] : []);
-  } else {
-    focusedDays.value = [];
-  }
+  if (next === 'day' || next === 'agenda') ensureSingleDayFocus();
+  else focusedDays.value = [];
+  saveDisplayPrefs();
 };
 const showMobileDayTimeline = computed(() => (
   isNarrowSchedule.value
@@ -4029,16 +4883,120 @@ const openMobileDayHour = (hour) => {
 const rowHeightMode = ref('normal');
 const initializedOverlayDefaults = ref(false);
 
+const displayPrefsKey = computed(() => {
+  if (props.mode !== 'self') return '';
+  const uid = Number(authStore.user?.id || props.userId || 0);
+  if (!uid) return '';
+  return `schedule.displayPrefs.v1:${uid}`;
+});
+
+const normalizeSpanMode = (raw) => {
+  const m = String(raw || '').toLowerCase();
+  return ['day', 'agenda', 'week'].includes(m) ? m : 'week';
+};
+const normalizeRowHeightMode = (raw) => {
+  const m = String(raw || '').toLowerCase();
+  return ['compact', 'normal', 'large', 'xl'].includes(m) ? m : 'normal';
+};
+
+const applyDisplayPrefs = (prefs = {}, { focusDay = true } = {}) => {
+  if (!prefs || typeof prefs !== 'object') return;
+  if (prefs.rowHeightMode != null) rowHeightMode.value = normalizeRowHeightMode(prefs.rowHeightMode);
+  if (prefs.spanMode != null) {
+    const next = normalizeSpanMode(prefs.spanMode);
+    scheduleSpanMode.value = next;
+    if (focusDay) {
+      if (next === 'day' || next === 'agenda') ensureSingleDayFocus();
+      else focusedDays.value = [];
+    }
+  }
+  if (prefs.weekStartsOn != null && props.mode === 'self') {
+    weekStartsOnLocal.value = String(prefs.weekStartsOn).toLowerCase() === 'sunday' ? 'sunday' : 'monday';
+  }
+  if (prefs.hideWeekend != null) hideWeekend.value = !!prefs.hideWeekend;
+  if (prefs.showAllHours != null) showAllHours.value = !!prefs.showAllHours;
+};
+
+// Declared with display prefs so collectDisplayPrefs never hits a TDZ binding.
+const customHoldReasons = ref([]); // [{ code, label }]
+
+const collectDisplayPrefs = () => ({
+  rowHeightMode: normalizeRowHeightMode(rowHeightMode.value),
+  spanMode: normalizeSpanMode(scheduleSpanMode.value),
+  weekStartsOn: effectiveWeekStartsOn.value === 'sunday' ? 'sunday' : 'monday',
+  hideWeekend: !!hideWeekend.value,
+  showAllHours: !!showAllHours.value,
+  holdReasons: (customHoldReasons.value || [])
+    .map((r) => ({
+      code: String(r?.code || '').toUpperCase(),
+      label: String(r?.label || '').trim()
+    }))
+    .filter((r) => r.code && r.label)
+    .slice(0, 40)
+});
+
+const loadDisplayPrefsLocal = () => {
+  if (!displayPrefsKey.value) return null;
+  try {
+    const raw = window?.localStorage?.getItem?.(displayPrefsKey.value);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+const saveDisplayPrefsLocal = () => {
+  if (!displayPrefsKey.value) return;
+  try {
+    window?.localStorage?.setItem?.(displayPrefsKey.value, JSON.stringify(collectDisplayPrefs()));
+  } catch {
+    /* ignore */
+  }
+};
+
+const saveDisplayPrefsToServer = async () => {
+  if (props.mode !== 'self') return;
+  const uid = Number(authStore.user?.id || props.userId || 0);
+  if (!uid) return;
+  try {
+    await api.put(`/users/${uid}/preferences`, {
+      schedule_display_prefs: collectDisplayPrefs()
+    }, { skipGlobalLoading: true });
+  } catch {
+    /* best-effort — localStorage still has the choice */
+  }
+};
+
+const saveDisplayPrefs = () => {
+  if (props.mode !== 'self') return;
+  saveDisplayPrefsLocal();
+  try { window?.localStorage?.setItem?.('schedule.weekStartsOn', weekStartsOnLocal.value); } catch { /* ignore */ }
+  if (displayPrefsServerTimer) clearTimeout(displayPrefsServerTimer);
+  displayPrefsServerTimer = setTimeout(() => { void saveDisplayPrefsToServer(); }, 700);
+};
+
+// Restore display prefs immediately from localStorage (skip day focus until focusableDays exists).
+try {
+  if (props.mode === 'self') {
+    const local = (() => {
+      const uid = Number(authStore.user?.id || props.userId || 0);
+      if (!uid) return null;
+      try {
+        const raw = window?.localStorage?.getItem?.(`schedule.displayPrefs.v1:${uid}`);
+        return raw ? JSON.parse(raw) : null;
+      } catch { return null; }
+    })();
+    if (local) applyDisplayPrefs(local, { focusDay: false });
+  }
+} catch { /* ignore */ }
+
 const viewMode = ref('open_finder'); // 'open_finder' | 'office_layout' (office_layout implemented later)
 
 const toggleWeekStartsOn = () => {
   if (props.mode !== 'self') return;
   weekStartsOnLocal.value = weekStartsOnLocal.value === 'monday' ? 'sunday' : 'monday';
-  try {
-    window?.localStorage?.setItem?.('schedule.weekStartsOn', weekStartsOnLocal.value);
-  } catch {
-    // ignore best-effort persistence
-  }
+  saveDisplayPrefs();
 };
 
 const overlayPrefsKey = computed(() => {
@@ -4146,6 +5104,8 @@ const saveOverlayPrefs = () => {
       hideWeekend: !!hideWeekend.value,
       showAllHours: !!showAllHours.value,
       viewMode: String(viewMode.value || 'open_finder'),
+      rowHeightMode: normalizeRowHeightMode(rowHeightMode.value),
+      spanMode: normalizeSpanMode(scheduleSpanMode.value),
       lastCalendarPrefs: lastCalendarPrefs.value
         ? {
             showGoogleBusy: !!lastCalendarPrefs.value.showGoogleBusy,
@@ -4239,18 +5199,54 @@ const peerColorById = (uid) => {
   if (!Number.isFinite(n) || n <= 0) return '#64748b';
   return peerColorPalette[n % peerColorPalette.length];
 };
-const peerPrimaryAgencyIconUrl = (peer) => {
+const peerPrimaryAgencyId = (peer) => {
   const ids = parsePeerAgencyIds(peer?.agencyIds ?? peer?.agency_ids);
+  const filterId = Number(peerBusyTenantFilterId.value || 0);
+  if (filterId > 0 && ids.includes(filterId)) return filterId;
   const scope = (effectiveAgencyIds.value || []).map((n) => Number(n)).filter((n) => n > 0);
-  const preferred = ids.find((id) => scope.includes(id)) || ids[0] || 0;
+  return ids.find((id) => scope.includes(id)) || ids[0] || 0;
+};
+const peerPrimaryAgencyIconUrl = (peer) => {
+  const preferred = peerPrimaryAgencyId(peer);
   return preferred ? agencyIconUrlById(preferred) : null;
 };
+const peerPrimaryAgencyLabel = (peer) => {
+  const id = peerPrimaryAgencyId(peer);
+  if (!id) return '';
+  return String(agencyLabel(id) || '').trim();
+};
+const peerBusyTenantFilterOptions = computed(() => {
+  const byId = new Map();
+  for (const p of peerBusyCandidates.value || []) {
+    for (const aid of parsePeerAgencyIds(p?.agencyIds)) {
+      if (!aid || byId.has(aid)) continue;
+      byId.set(aid, {
+        id: aid,
+        label: String(agencyLabel(aid) || `Tenant ${aid}`).trim()
+      });
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => a.label.localeCompare(b.label));
+});
+const peerBusyShowTenantSuffix = computed(() => (
+  actorIsSuperAdmin() && Number(peerBusyTenantFilterId.value || 0) === 0 && peerBusyTenantFilterOptions.value.length > 1
+));
 const filteredPeerBusyCandidates = computed(() => {
   const q = String(peerBusySearch.value || '').trim().toLowerCase();
   const me = Number(authStore.user?.id || 0);
-  const rows = (peerBusyCandidates.value || []).filter((p) => Number(p?.id || 0) !== me);
-  if (!q) return rows;
-  return rows.filter((p) => String(p?.label || '').toLowerCase().includes(q) || String(p?.email || '').toLowerCase().includes(q));
+  const tenantId = Number(peerBusyTenantFilterId.value || 0);
+  let rows = (peerBusyCandidates.value || []).filter((p) => Number(p?.id || 0) !== me);
+  if (tenantId > 0) {
+    rows = rows.filter((p) => parsePeerAgencyIds(p?.agencyIds).includes(tenantId));
+  }
+  if (q) {
+    rows = rows.filter((p) => (
+      String(p?.label || '').toLowerCase().includes(q)
+      || String(p?.email || '').toLowerCase().includes(q)
+      || String(peerPrimaryAgencyLabel(p) || '').toLowerCase().includes(q)
+    ));
+  }
+  return rows.slice().sort((a, b) => String(a?.label || '').localeCompare(String(b?.label || '')));
 });
 const peerInitials = (uid) => {
   const row = (peerBusyCandidates.value || []).find((p) => Number(p.id) === Number(uid));
@@ -4421,11 +5417,18 @@ const loadPeerBusyCandidates = async () => {
   try {
     peerBusyLoading.value = true;
     peerBusyError.value = '';
+    if (actorIsSuperAdmin() && !(agencyStore.agencies || []).length) {
+      try { await agencyStore.fetchAgencies(); } catch { /* best-effort */ }
+    }
     const scopeIds = (effectiveAgencyIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
-    const params = scopeIds.length === 1
-      ? { agencyId: scopeIds[0] }
-      : { allAgencies: 'true' };
-    const r = await api.get(`/users/${me}/meeting-candidates`, { params });
+    // Superadmin defaults to every tenant; others use all memberships unless a single org is focused.
+    const params = (actorIsSuperAdmin() || scopeIds.length !== 1)
+      ? { allAgencies: 'true' }
+      : { agencyId: scopeIds[0] };
+    const r = await api.get(`/users/${me}/meeting-candidates`, {
+      params,
+      skipGlobalLoading: true
+    });
     const rows = Array.isArray(r?.data?.users) ? r.data.users : [];
     peerBusyCandidates.value = rows.map((u) => {
       const id = Number(u.id || 0);
@@ -4444,6 +5447,10 @@ const loadPeerBusyCandidates = async () => {
     }).filter((u) => u.id > 0 && isPeerBusyCandidate(u));
     const allowed = new Set(peerBusyCandidates.value.map((p) => Number(p.id)));
     peerBusySelectedIds.value = (peerBusySelectedIds.value || []).filter((id) => allowed.has(Number(id)));
+    const knownTenantIds = new Set(peerBusyTenantFilterOptions.value.map((o) => Number(o.id)));
+    if (peerBusyTenantFilterId.value > 0 && !knownTenantIds.has(Number(peerBusyTenantFilterId.value))) {
+      peerBusyTenantFilterId.value = 0;
+    }
     const agencyIdsToHydrate = new Set();
     for (const p of peerBusyCandidates.value) {
       for (const aid of (p.agencyIds || [])) agencyIdsToHydrate.add(Number(aid));
@@ -4475,58 +5482,48 @@ const loadPeerBusySummaries = async () => {
   }
   const ws = weekStart.value;
   const detailLevel = peerBusyDetailLevel.value;
+  const agencyAllow = new Set(agencyIds);
   const next = {};
+  // One cross-tenant summary per peer (not peers × agencies) — avoids hundreds of schedule-summary calls.
   await Promise.all(ids.map(async (uid) => {
     try {
-      const perAgency = await Promise.all(
-        agencyIds.map((agencyId) =>
-          api.get(`/users/${uid}/schedule-summary`, {
-            params: {
-              agencyId,
-              weekStart: ws,
-              detailLevel,
-              includeGoogleBusy: detailLevel === 'busy' ? 'true' : (showGoogleBusy.value ? 'true' : 'false'),
-              includeGoogleEvents: 'false'
-            }
-          }).then((r) => r?.data || null).catch(() => null)
-        )
-      );
-      const first = perAgency.find(Boolean);
-      if (!first) return;
-      const busyBlocks = [];
-      const seen = new Set();
-      const mergeList = (key) => {
-        const out = [];
-        const seenRow = new Set();
-        for (const data of perAgency.filter(Boolean)) {
-          for (const row of (data[key] || [])) {
-            const k = `${row?.id || ''}|${row?.startAt || row?.start_at || ''}|${row?.endAt || row?.end_at || ''}|${row?.kind || row?.slotState || ''}`;
-            if (seenRow.has(k)) continue;
-            seenRow.add(k);
-            out.push({ ...row, _agencyId: Number(row?.agencyId || row?._agencyId || data.agencyId || 0) || null });
-          }
-        }
-        return out;
+      const data = await api.get(`/users/${uid}/schedule-summary`, {
+        params: {
+          weekStart: ws,
+          includeAllAgencies: 'true',
+          detailLevel,
+          includeGoogleBusy: detailLevel === 'busy' ? 'true' : (showGoogleBusy.value ? 'true' : 'false'),
+          includeGoogleEvents: 'false'
+        },
+        skipGlobalLoading: true
+      }).then((r) => r?.data || null).catch(() => null);
+      if (!data) return;
+      const inScope = (row) => {
+        const aid = Number(row?.agencyId || row?._agencyId || 0);
+        return !aid || agencyAllow.has(aid);
       };
-      for (const data of perAgency.filter(Boolean)) {
-        for (const b of (data.busyBlocks || [])) {
-          const k = `${b.startAt}|${b.endAt}|${b.source || ''}|${b.activityType || ''}|${b.officeLabel || ''}`;
-          if (seen.has(k)) continue;
-          seen.add(k);
-          busyBlocks.push({
-            ...b,
-            agencyId: Number(b.agencyId || data.agencyId || 0) || null
-          });
-        }
-      }
+      const tagRows = (rows) => (rows || [])
+        .filter(inScope)
+        .map((row) => ({
+          ...row,
+          _agencyId: Number(row?.agencyId || row?._agencyId || 0) || null
+        }));
       next[uid] = {
-        ...first,
-        busyBlocks,
+        ...data,
+        busyBlocks: (data.busyBlocks || [])
+          .filter((b) => {
+            const aid = Number(b?.agencyId || 0);
+            return !aid || agencyAllow.has(aid);
+          })
+          .map((b) => ({
+            ...b,
+            agencyId: Number(b.agencyId || 0) || null
+          })),
         detailLevel,
-        officeEvents: mergeList('officeEvents'),
-        scheduleEvents: mergeList('scheduleEvents'),
-        supervisionSessions: mergeList('supervisionSessions'),
-        schoolAssignments: mergeList('schoolAssignments')
+        officeEvents: tagRows(data.officeEvents),
+        scheduleEvents: tagRows(data.scheduleEvents),
+        supervisionSessions: tagRows(data.supervisionSessions),
+        schoolAssignments: tagRows(data.schoolAssignments)
       };
     } catch {
       // skip failed peer
@@ -4828,6 +5825,8 @@ try {
         ? dedicatedShowAllHours
         : !!saved.showAllHours;
       viewMode.value = saved.viewMode === 'office_layout' ? 'office_layout' : 'open_finder';
+      if (saved.rowHeightMode != null) rowHeightMode.value = normalizeRowHeightMode(saved.rowHeightMode);
+      if (saved.spanMode != null) scheduleSpanMode.value = normalizeSpanMode(saved.spanMode);
       lastCalendarPrefs.value = saved.lastCalendarPrefs ? { ...saved.lastCalendarPrefs } : null;
       // If saved selection is empty, we do NOT auto-select all — user explicitly hid calendars.
       shouldDefaultSelectAllExternal.value = false;
@@ -4862,14 +5861,20 @@ onMounted(() => {
     }
   }
   void loadSelfScheduleAgencies();
+  if (props.mode === 'self' && isDayOrAgendaSpan.value) ensureSingleDayFocus();
   try {
     narrowScheduleMql = window.matchMedia('(max-width: 820px)');
+    let narrowInitialized = false;
     narrowScheduleHandler = () => {
       const narrow = !!narrowScheduleMql?.matches;
       const wasNarrow = isNarrowSchedule.value;
       isNarrowSchedule.value = narrow;
-      // Only auto day-focus when entering the narrow breakpoint (not when user chose Week).
-      if (narrow && !wasNarrow) {
+      // First paint: keep saved Day/Week/Agenda. Only auto-switch when resizing into narrow later.
+      if (!narrowInitialized) {
+        narrowInitialized = true;
+        return;
+      }
+      if (narrow && !wasNarrow && scheduleSpanMode.value === 'week') {
         setScheduleSpanMode('day');
       }
     };
@@ -5101,6 +6106,32 @@ const dayDateLabel = (dayName) => {
 
 const weekStart = ref(startOfWeekMondayYmd(props.weekStartYmd || new Date()));
 
+const formatWeekRangePart = (ymd, { includeYear = false } = {}) => {
+  const d = toLocalDateNoon(String(ymd || '').slice(0, 10));
+  if (Number.isNaN(d.getTime())) return String(ymd || '');
+  return d.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    ...(includeYear ? { year: 'numeric' } : {})
+  });
+};
+
+/** Friendly week (or focused day) label for the chrome — dominant “where am I?” cue. */
+const weekRangePrimaryLabel = computed(() => {
+  if (scheduleSpanMode.value === 'day' && focusedDays.value?.length === 1) {
+    const ymd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(focusedDays.value[0]));
+    return formatWeekRangePart(ymd, { includeYear: true });
+  }
+  const days = orderedDays.value?.length ? orderedDays.value : ALL_DAYS;
+  const startYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(days[0]));
+  const endYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(days[days.length - 1]));
+  const startYear = String(startYmd).slice(0, 4);
+  const endYear = String(endYmd).slice(0, 4);
+  const startLabel = formatWeekRangePart(startYmd, { includeYear: startYear !== endYear });
+  const endLabel = formatWeekRangePart(endYmd, { includeYear: true });
+  return `${startLabel} – ${endLabel}`;
+});
+
 const isTodayDay = (dayName) => {
   if (ALL_DAYS.indexOf(String(dayName || '')) < 0) return false;
   const ymd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
@@ -5211,7 +6242,8 @@ const officeSelectionOccupancy = (item) => {
 
 /**
  * Logical booking identity for contiguous hourly events: same room/day/provider.
- * Architecture remains one event per hour; UX treats a multi-hour span as one booking when identity matches.
+ * Architecture remains one event per hour (often one standing_assignment per hour).
+ * Do NOT key on standingAssignmentId alone — that splits multi-hour blocks into 1h pieces.
  */
 const officeLogicalBookingKey = (item) => {
   const slot = item?.slot || null;
@@ -5221,6 +6253,8 @@ const officeLogicalBookingKey = (item) => {
     || slot?.booked_provider_id
     || slot?.assignedProviderId
     || slot?.assigned_provider_id
+    || slot?.providerId
+    || slot?.provider_id
     || 0
   );
   const providerName = String(
@@ -5231,14 +6265,20 @@ const officeLogicalBookingKey = (item) => {
     || ''
   ).trim().toLowerCase();
   const roomId = Number(item?.roomId || slot?.roomId || 0);
+  const buildingId = Number(slot?.buildingId || slot?.office_location_id || item?.buildingId || 0);
   const dateYmd = String(item?.dateYmd || '').slice(0, 10);
-  if (st === 'company_hold') return `hold|${dateYmd}|${roomId}`;
-  // Same person + room + day = one logical booking (even across hourly event rows).
-  if (providerId > 0) return `p${providerId}|${dateYmd}|${roomId}`;
-  if (providerName) return `n:${providerName}|${dateYmd}|${roomId}`;
-  const standingId = Number(slot?.standingAssignmentId || 0);
-  if (standingId > 0) return `s${standingId}|${dateYmd}|${roomId}`;
-  const eventId = Number(slot?.eventId || slot?.officeEventId || 0);
+  const stateFamily = st === 'assigned_booked' || st === 'booked'
+    ? 'booked'
+    : (st === 'company_hold' ? 'hold' : 'assigned');
+  if (st === 'company_hold') return `hold|${dateYmd}|${buildingId}|${roomId}`;
+  const recurrenceGroupId = String(slot?.recurrenceGroupId || slot?.recurrence_group_id || '').trim();
+  if (recurrenceGroupId) return `rg:${recurrenceGroupId}|${dateYmd}|${roomId}`;
+  // Same person + room + day = one logical booking (even across hourly standing rows).
+  if (providerId > 0) return `p${providerId}|${dateYmd}|${buildingId}|${roomId}|${stateFamily}`;
+  if (providerName) return `n:${providerName}|${dateYmd}|${buildingId}|${roomId}|${stateFamily}`;
+  // Personal schedule summary used to omit provider ids — still group by room/day/state.
+  if (roomId > 0 && dateYmd) return `r|${dateYmd}|${buildingId}|${roomId}|${stateFamily}`;
+  const eventId = Number(slot?.eventId || slot?.officeEventId || slot?.id || 0);
   if (eventId > 0) return `e${eventId}|${dateYmd}|${roomId}`;
   return `unknown|${dateYmd}|${roomId}|${item?.hour || 0}`;
 };
@@ -5246,6 +6286,155 @@ const officeLogicalBookingKey = (item) => {
 const isSameOfficeLogicalBooking = (a, b) => {
   if (!a || !b) return false;
   return officeLogicalBookingKey(a) === officeLogicalBookingKey(b);
+};
+
+/** Normalize summary vs weekly-grid office slot shapes for logical-booking matching. */
+const normalizeOfficeSlotShape = (slot) => {
+  if (!slot) return null;
+  return {
+    ...slot,
+    state: slot.state || slot.slotState || slot.slot_state,
+    slotState: slot.slotState || slot.slot_state || slot.state,
+    standingAssignmentId: Number(slot.standingAssignmentId || slot.standing_assignment_id || 0) || 0,
+    recurrenceGroupId: String(slot.recurrenceGroupId || slot.recurrence_group_id || '').trim() || '',
+    eventId: Number(slot.eventId || slot.officeEventId || slot.id || 0) || 0,
+    officeEventId: Number(slot.officeEventId || slot.eventId || slot.id || 0) || 0,
+    bookedProviderId: Number(slot.bookedProviderId || slot.booked_provider_id || 0) || 0,
+    assignedProviderId: Number(slot.assignedProviderId || slot.assigned_provider_id || 0) || 0,
+    providerId: Number(
+      slot.providerId
+      || slot.provider_id
+      || slot.bookedProviderId
+      || slot.booked_provider_id
+      || slot.assignedProviderId
+      || slot.assigned_provider_id
+      || 0
+    ) || 0,
+    buildingId: Number(slot.buildingId || slot.office_location_id || 0) || 0,
+    roomId: Number(slot.roomId || slot.room_id || 0) || 0
+  };
+};
+
+const resolveOfficeSlotForHour = (dateYmd, hour, roomId, buildingId = 0) => {
+  const ymd = String(dateYmd || '').slice(0, 10);
+  const h = Number(hour);
+  const rid = Number(roomId || 0);
+  if (!ymd || !Number.isFinite(h)) return null;
+  if (viewMode.value === 'office_layout') {
+    return normalizeOfficeSlotShape(lookupOfficeGridSlot(ymd, h, rid));
+  }
+  const dn = dayNameForDateYmd(ymd);
+  if (!dn) return null;
+  // Prefer the clicked block's building; fall back to selected office filter.
+  const officeId = Number(buildingId || selectedOfficeLocationId.value || 0) || null;
+  return normalizeOfficeSlotShape(officeTopEvent(dn, h, officeId, rid > 0 ? rid : null));
+};
+
+/**
+ * Contiguous same-day / same-room hours that form one logical office booking or assignment.
+ * Architecture stays one event per hour; UX may treat the span as one block.
+ */
+const collectContiguousOfficeBookingRows = (focusItem) => {
+  const focusSlot = normalizeOfficeSlotShape(focusItem?.slot)
+    || resolveOfficeSlotForHour(
+      focusItem?.dateYmd,
+      focusItem?.hour,
+      focusItem?.roomId,
+      focusItem?.slot?.buildingId || focusItem?.buildingId
+    );
+  const focus = {
+    ...focusItem,
+    dateYmd: String(focusItem?.dateYmd || '').slice(0, 10),
+    dayName: String(focusItem?.dayName || dayNameForDateYmd(focusItem?.dateYmd) || ''),
+    hour: Number(focusItem?.hour || 0),
+    roomId: Number(focusItem?.roomId || focusSlot?.roomId || 0),
+    buildingId: Number(focusItem?.buildingId || focusSlot?.buildingId || 0),
+    slot: focusSlot
+  };
+  if (!focus.dateYmd || !focus.roomId || !focus.slot) return [focus];
+
+  const focusKey = officeLogicalBookingKey(focus);
+  if (!focusKey || focusKey.startsWith('unknown')) return [focus];
+
+  const occupied = new Set(['assigned_booked', 'assigned_available', 'assigned_temporary', 'company_hold', 'booked']);
+  const rowAt = (h) => {
+    const slot = resolveOfficeSlotForHour(focus.dateYmd, h, focus.roomId, focus.buildingId || focus.slot?.buildingId);
+    return {
+      key: actionSlotKey({ dateYmd: focus.dateYmd, hour: h, roomId: focus.roomId }),
+      dateYmd: focus.dateYmd,
+      dayName: focus.dayName,
+      hour: h,
+      roomId: focus.roomId,
+      buildingId: focus.buildingId,
+      slot
+    };
+  };
+  const matches = (item) => {
+    if (!item?.slot) return false;
+    const st = String(item.slot.state || item.slot.slotState || '').trim().toLowerCase();
+    if (!occupied.has(st)) return false;
+    return officeLogicalBookingKey(item) === focusKey;
+  };
+
+  let minH = focus.hour;
+  while (minH > 0 && matches(rowAt(minH - 1))) minH -= 1;
+  let maxH = focus.hour;
+  while (maxH < 23 && matches(rowAt(maxH + 1))) maxH += 1;
+
+  const rows = [];
+  for (let h = minH; h <= maxH; h += 1) {
+    rows.push(h === focus.hour ? focus : rowAt(h));
+  }
+  return rows.length ? rows : [focus];
+};
+
+/**
+ * If the clicked hour is part of a longer office booking/assignment, ask whether to select the full span.
+ * Yes → all contiguous hours; No → keep the single hour. Cancel behavior is unchanged.
+ */
+const maybeExpandOfficeBookingSelection = (focusItem) => {
+  const focus = {
+    ...focusItem,
+    slot: normalizeOfficeSlotShape(focusItem?.slot)
+      || resolveOfficeSlotForHour(focusItem?.dateYmd, focusItem?.hour, focusItem?.roomId)
+  };
+  const rows = collectContiguousOfficeBookingRows(focus);
+  if (rows.length <= 1) {
+    selectedActionSlots.value = [focus];
+    lastSelectedActionKey.value = String(focus?.key || '');
+    return { focus, rows: [focus], expanded: false };
+  }
+  const minH = Math.min(...rows.map((r) => Number(r.hour || 0)));
+  const maxH = Math.max(...rows.map((r) => Number(r.hour || 0)));
+  const clickedStart = hourLabel(focus.hour);
+  const clickedEnd = hourLabel(Number(focus.hour) + 1);
+  const blockStart = hourLabel(minH);
+  const blockEnd = hourLabel(maxH + 1);
+  const st = String(focus.slot?.state || focus.slot?.slotState || '').trim().toUpperCase();
+  const kind = st === 'ASSIGNED_BOOKED' ? 'booked' : 'assigned';
+  const ok = window.confirm(
+    `You selected ${clickedStart}–${clickedEnd}. This office block is ${kind} from ${blockStart}–${blockEnd}.\n\n`
+    + 'Select all hours in this block?\n\n'
+    + 'OK = select all hours\nCancel = keep only this hour'
+  );
+  const chosen = ok ? rows : [focus];
+  selectedActionSlots.value = chosen;
+  lastSelectedActionKey.value = String(focus?.key || chosen[0]?.key || '');
+  return { focus, rows: chosen, expanded: ok };
+};
+
+const openOfficeOccupiedHourAction = (focusItem) => {
+  const { focus, rows } = maybeExpandOfficeBookingSelection(focusItem);
+  openSlotActionModal({
+    dayName: focus.dayName,
+    hour: focus.hour,
+    roomId: focus.roomId,
+    dateYmd: focus.dateYmd,
+    slot: focus.slot,
+    preserveSelectionRange: rows.length > 1,
+    initialRequestType: '',
+    actionSource: 'office_block'
+  });
 };
 
 /** Prefer the drag/click anchor as "first selected"; fall back to chronological order. */
@@ -5521,53 +6710,32 @@ const effectiveAgencyFeatureFlags = computed(() => {
   };
 });
 
+/**
+ * Switch the appointment/booking tenant only (modal header Tenant).
+ * Never mutates calendar Shown chips, and never calls setCurrentAgency
+ * (that can bounce superadmins to /{slug}/admin).
+ */
 const applySelectedBookingAgency = (agencyId) => {
   const id = Number(agencyId || 0);
   if (!id) return;
   selectedActionAgencyId.value = id;
-  if (!activeScheduleAgencyIdSet.value.has(id)) {
-    activeScheduleAgencyIds.value = [...(activeScheduleAgencyIds.value || []), id];
-  }
-  const fromOptions = (bookingAgencyOptions.value || []).find((row) => Number(row?.id) === id);
-  const fromSelf = (selfScheduleAgencyOptions.value || []).find((row) => Number(row?.id) === id);
-  const fromStore = (agencyStore.userAgencies || []).find((row) => Number(row?.id) === id)
-    || (agencyStore.agencies || []).find((row) => Number(row?.id) === id)
-    || (Number(agencyStore.currentAgency?.id) === id ? agencyStore.currentAgency : null);
-  const agency = fromStore || (fromSelf
-    ? {
-      id: fromSelf.id,
-      name: fromSelf.name,
-      hasClinicalOrg: fromSelf.hasClinicalOrg,
-      hasLearningOrg: fromSelf.hasLearningOrg,
-      feature_flags: fromSelf.featureFlags
-    }
-    : null) || (fromOptions
-    ? {
-      id: fromOptions.id,
-      name: fromOptions.label,
-      hasClinicalOrg: fromOptions.hasClinicalOrg,
-      hasLearningOrg: fromOptions.hasLearningOrg,
-      feature_flags: fromOptions.medicalBillingEnabled ? { medicalBillingEnabled: true } : null
-    }
-    : null);
-  if (agency) agencyStore.setCurrentAgency(agency);
   if (showRequestModal.value && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
   }
-  if (showRequestModal.value && String(requestType.value || '') === 'individual_session') {
+  if (showRequestModal.value && ['individual_session', 'group_session'].includes(String(requestType.value || ''))) {
     void loadVirtualSessionClients();
   }
 };
 
+/** Calendar Organization dropdown: exclusive focus (or All). Does not change booking tenant. */
 const onScheduleOrganizationChange = (event) => {
   const raw = event?.target?.value;
   const id = Number(raw || 0);
-  if (!id) {
+  if (!id || id < 0) {
     selectAllScheduleAgencies();
     return;
   }
   activeScheduleAgencyIds.value = [id];
-  applySelectedBookingAgency(id);
 };
 
 const onBookingAgencyChange = () => {
@@ -5587,10 +6755,18 @@ const scheduleOrgScopeAll = computed(() => {
   return allIds.every((id) => activeScheduleAgencyIdSet.value.has(id));
 });
 
+const scheduleOrgPartialScope = computed(() => {
+  if (scheduleOrgScopeAll.value) return false;
+  const active = (activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0);
+  return active.length > 1;
+});
+
 const scheduleOrgScopeValue = computed(() => {
   if (scheduleOrgScopeAll.value) return 0;
   const active = (activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0);
-  return active.length === 1 ? active[0] : 0;
+  if (active.length === 1) return active[0];
+  if (active.length > 1) return -1; // Custom multi — not "All"
+  return 0;
 });
 
 const scheduleOrgSelectOptions = computed(() => {
@@ -5619,8 +6795,14 @@ const effectiveAgencyIds = computed(() => {
   return propAgencyIds.value;
 });
 
+let peerBusySummariesTimer = null;
 watch([showPeerBusyOverlay, peerBusySelectedIds, peerBusyDetailLevel, weekStart, effectiveAgencyIds], () => {
-  if (showPeerBusyOverlay.value) void loadPeerBusySummaries();
+  if (!showPeerBusyOverlay.value) return;
+  if (peerBusySummariesTimer) clearTimeout(peerBusySummariesTimer);
+  peerBusySummariesTimer = setTimeout(() => {
+    peerBusySummariesTimer = null;
+    void loadPeerBusySummaries();
+  }, 200);
 }, { deep: true });
 
 watch(effectiveAgencyIds, () => {
@@ -5684,8 +6866,13 @@ const mergeDiscoveredScheduleAgencies = (agencyIds = []) => {
     selfScheduleAgencyOptions.value = [...(selfScheduleAgencyOptions.value || []), ...additions];
   }
   // Keep All selected by default when new tenants appear on the calendar.
+  // Only rewrite the array when the set actually changes (avoids peer-busy refetch storms).
   if (scheduleOrgScopeAll.value || !activeScheduleAgencyIds.value.length) {
-    activeScheduleAgencyIds.value = Array.from(existing.values());
+    const nextIds = Array.from(existing.values());
+    const prev = (activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0);
+    const same = prev.length === nextIds.length
+      && prev.every((id) => existing.has(id));
+    if (!same) activeScheduleAgencyIds.value = nextIds;
   }
 };
 const canManageOffices = computed(() => {
@@ -5796,10 +6983,24 @@ const bookingTargetUserLabel = computed(() => {
 
 const headerTenantOptions = computed(() => (bookingAgencyOptions.value || []).slice());
 
-const requestedProviderPayload = () => {
+const requestedProviderPayload = (opts = {}) => {
   const pid = Number(scheduleActorUserId.value || 0);
   const me = Number(authStore.user?.id || 0);
   if (!pid) return {};
+  const assignedId = Number(
+    opts.assignedProviderId
+    ?? modalContext.value?.assignedProviderId
+    ?? 0
+  ) || 0;
+  // Day-borrow only when the chosen provider differs from the standing assignee.
+  // For normal books on an assigned office, omit requestedProviderId so the API books as the assignee.
+  if (assignedId > 0 && pid !== assignedId) {
+    return { requestedProviderId: pid, borrow: true };
+  }
+  if (assignedId > 0) {
+    // Explicitly book as assignee (never the calendar subject / actor by accident).
+    return { requestedProviderId: assignedId };
+  }
   if (canSelectBookingProvider.value || isAdminMode.value || pid !== me) {
     return { requestedProviderId: pid };
   }
@@ -5845,6 +7046,20 @@ const officeRequestsApproveLink = computed(() => {
 });
 const currentUserRole = computed(() => String(authStore.user?.role || '').trim().toLowerCase());
 const isProviderPlus = computed(() => currentUserRole.value === 'provider_plus');
+const TRAINING_PAY_HOST_ROLES = new Set(['clinical_practice_assistant', 'provider_plus']);
+const bookingTargetRoleKey = computed(() => {
+  const id = Number(bookingTargetUserId.value || props.userId || authStore.user?.id || 0);
+  if (id > 0 && id === Number(authStore.user?.id || 0)) {
+    return String(authStore.user?.role || '').trim().toLowerCase();
+  }
+  const raw = (bookingProvidersRaw.value || []).find((u) => Number(u?.id || 0) === id);
+  return String(raw?.role || raw?.user_role || '').trim().toLowerCase();
+});
+const canMarkMeetingTrainingPay = computed(() => TRAINING_PAY_HOST_ROLES.has(bookingTargetRoleKey.value));
+const meetingIsTrainingPayEligible = ref(false);
+const showMeetingTrainingPayOption = computed(() => (
+  canMarkMeetingTrainingPay.value || !!meetingIsTrainingPayEligible.value
+));
 const canScheduleSupervisionFromGrid = computed(() => isSupervisor(authStore.user));
 const isViewingOtherUserSchedule = computed(() => {
   if (!isAdminMode.value) return false;
@@ -5912,6 +7127,8 @@ const filterSummaryByActiveAgencies = (data) => {
   };
 };
 
+let loadInFlight = null;
+let loadInFlightKey = '';
 const load = async ({ forceRefresh = false } = {}) => {
   if (!props.userId) return;
   if (!effectiveAgencyIds.value.length) {
@@ -5940,6 +7157,13 @@ const load = async ({ forceRefresh = false } = {}) => {
     return;
   }
 
+  // Coalesce concurrent identical fetches (save/close + watchers used to stack dozens).
+  const flightKey = `${forceRefresh ? 'force|' : ''}${cacheKey}`;
+  if (loadInFlight && loadInFlightKey === flightKey) {
+    return loadInFlight;
+  }
+
+  const run = (async () => {
   try {
     if (!cached) loading.value = true;
     error.value = '';
@@ -5955,7 +7179,8 @@ const load = async ({ forceRefresh = false } = {}) => {
           ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
             ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
             : {}))
-        }
+        },
+        skipGlobalLoading: true
       });
       const data = resp.data || null;
       if (data) {
@@ -6006,7 +7231,8 @@ const load = async ({ forceRefresh = false } = {}) => {
           ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
             ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
             : {}))
-        }
+        },
+        skipGlobalLoading: true
       });
       const data = resp.data || null;
       summary.value = data;
@@ -6024,7 +7250,8 @@ const load = async ({ forceRefresh = false } = {}) => {
                   ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
                     ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
                     : {}))
-                }
+                },
+                skipGlobalLoading: true
               })
               .then((r) => ({ ok: true, agencyId, data: r.data }))
               .catch((e) => ({
@@ -6157,6 +7384,18 @@ const load = async ({ forceRefresh = false } = {}) => {
   } finally {
     loading.value = false;
   }
+  })();
+
+  loadInFlight = run;
+  loadInFlightKey = flightKey;
+  try {
+    await run;
+  } finally {
+    if (loadInFlight === run) {
+      loadInFlight = null;
+      loadInFlightKey = '';
+    }
+  }
 };
 
 // Defer + debounce load so startup/watcher bursts do not spam schedule-summary.
@@ -6237,13 +7476,18 @@ watch(
 watch(agencyFilterOptions, (rows) => {
   const availableIds = new Set((rows || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
   const currentActive = (activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => availableIds.has(n));
+  let nextActive;
   if (currentActive.length) {
-    activeScheduleAgencyIds.value = currentActive;
+    nextActive = currentActive;
   } else if (availableIds.size) {
-    activeScheduleAgencyIds.value = Array.from(availableIds.values());
+    nextActive = Array.from(availableIds.values());
   } else {
-    activeScheduleAgencyIds.value = [];
+    nextActive = [];
   }
+  const prevActive = (activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0);
+  const sameActive = prevActive.length === nextActive.length
+    && prevActive.every((id, i) => id === nextActive[i]);
+  if (!sameActive) activeScheduleAgencyIds.value = nextActive;
 
   const selected = Number(selectedActionAgencyId.value || 0);
   if (!selected || !activeScheduleAgencyIds.value.includes(selected)) {
@@ -6317,14 +7561,99 @@ watch(hideWeekend, () => {
 watch(showAllHours, () => {
   if (props.mode !== 'self') return;
   saveShowAllHoursPref();
+  saveDisplayPrefs();
 });
 
+watch(rowHeightMode, () => {
+  if (props.mode !== 'self') return;
+  saveDisplayPrefs();
+});
+
+watch(hideWeekend, () => {
+  if (props.mode !== 'self') return;
+  saveDisplayPrefs();
+});
+
+const focusedDateYmd = computed(() => {
+  if (isDayOrAgendaSpan.value && focusedDays.value?.length === 1) {
+    return addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(focusedDays.value[0]));
+  }
+  return String(todayLocalYmd.value || weekStart.value || '').slice(0, 10);
+});
+
+const agendaDayName = computed(() => {
+  if (focusedDays.value?.length === 1) return String(focusedDays.value[0]);
+  return mobileTimelineDay.value || todayDayName();
+});
+const agendaDayTitle = computed(() => {
+  const ymd = focusedDateYmd.value;
+  const d = toLocalDateNoon(ymd);
+  if (Number.isNaN(d.getTime())) return agendaDayName.value;
+  return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+});
+const agendaDaySub = computed(() => (
+  isTodayDay(agendaDayName.value) ? 'Today' : 'Agenda list'
+));
+
+const agendaItems = computed(() => {
+  const day = agendaDayName.value;
+  if (!day || !summary.value) return [];
+  const seen = new Set();
+  const items = [];
+  for (const h of (hours.value || [])) {
+    for (const b of (cellBlocks(day, h, 0) || [])) {
+      if (!b || b.kind === 'more') continue;
+      const key = String(b.key || `${b.kind}-${b.title}-${h}`);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const start = String(b.startTime || b.start || '').slice(0, 5);
+      const end = String(b.endTime || b.end || '').slice(0, 5);
+      let timeLabel = hourLabel(h);
+      if (/^\d{2}:\d{2}$/.test(start)) {
+        const fmt = (t) => {
+          const [hh, mm] = t.split(':').map(Number);
+          return hourMinuteLabel(hh, mm || 0);
+        };
+        timeLabel = /^\d{2}:\d{2}$/.test(end) ? `${fmt(start)} – ${fmt(end)}` : fmt(start);
+      }
+      items.push({ ...b, key, hour: Number(h), timeLabel, sortKey: start || `${pad2(h)}:00` });
+    }
+  }
+  items.sort((a, b) => String(a.sortKey).localeCompare(String(b.sortKey)));
+  return items;
+});
+
+/** Move focused day by ±1; only reload schedule-summary when the Monday week anchor changes. */
+const shiftFocusedDay = (deltaDays) => {
+  ensureSingleDayFocus();
+  const cur = focusedDateYmd.value || todayLocalYmd.value;
+  const nextYmd = addDaysYmd(cur, Number(deltaDays || 0));
+  if (!nextYmd) return;
+  const monday = startOfWeekMondayYmd(nextYmd);
+  const weekChanged = monday && monday !== weekStart.value;
+  if (weekChanged) {
+    weekStart.value = monday;
+    emit('update:weekStartYmd', weekStart.value);
+  }
+  const dayName = dayNameForDateYmd(nextYmd);
+  if (dayName) focusedDays.value = [dayName];
+  if (weekChanged) load();
+};
+
 const prevWeek = () => {
+  if (isDayOrAgendaSpan.value) {
+    shiftFocusedDay(-1);
+    return;
+  }
   weekStart.value = addDaysYmd(weekStart.value, -7);
   emit('update:weekStartYmd', weekStart.value);
   load();
 };
 const nextWeek = () => {
+  if (isDayOrAgendaSpan.value) {
+    shiftFocusedDay(1);
+    return;
+  }
   weekStart.value = addDaysYmd(weekStart.value, 7);
   emit('update:weekStartYmd', weekStart.value);
   load();
@@ -6332,9 +7661,25 @@ const nextWeek = () => {
 const goToTodayWeek = () => {
   const monday = startOfWeekMondayYmd(new Date());
   if (!monday) return;
+  const weekChanged = monday !== weekStart.value;
   weekStart.value = monday;
   emit('update:weekStartYmd', weekStart.value);
-  load();
+  if (isDayOrAgendaSpan.value) {
+    focusedDays.value = [todayDayName()];
+  }
+  if (weekChanged || !summary.value) load();
+};
+
+/** Chooser CTA: jump to today in day view (not the full week grid). */
+const goToTodayDaySchedule = () => {
+  const monday = startOfWeekMondayYmd(new Date());
+  if (!monday) return;
+  const weekChanged = monday !== weekStart.value;
+  weekStart.value = monday;
+  emit('update:weekStartYmd', weekStart.value);
+  setScheduleSpanMode('day');
+  focusedDays.value = [todayDayName()];
+  if (weekChanged || !summary.value) load();
 };
 
 const weekdayToIndex = (dayName) => {
@@ -6436,77 +7781,83 @@ const hasSupervision = (dayName, hour) => {
   return false;
 };
 
-const supervisionLabel = (dayName, hour) => {
-  const s = summary.value;
-  const list = s?.supervisionSessions || [];
-  const names = [];
-  for (const ev of list) {
-    const startRaw = String(ev.startAt || '').trim();
-    const endRaw = String(ev.endAt || '').trim();
-    if (!startRaw || !endRaw) continue;
-    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
-    const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
-    if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const dn = supervisionDayName(ev);
-    if (dn !== dayName) continue;
-    const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
-    const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
-    const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
-    if (!(endLocal > cellStart && startLocal < cellEnd)) continue;
-    const nm = String(ev.counterpartyName || '').trim();
-    if (nm) names.push(nm);
-  }
-  const listInCell = [];
-  for (const ev of list) {
-    const startRaw = String(ev.startAt || '').trim();
-    const endRaw = String(ev.endAt || '').trim();
-    if (!startRaw || !endRaw) continue;
-    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
-    const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
-    if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const dn = supervisionDayName(ev);
-    if (dn !== dayName) continue;
-    const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
-    const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
-    const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
-    if (endLocal > cellStart && startLocal < cellEnd) listInCell.push(ev);
-  }
-  const hasPresenter = listInCell.some((ev) => String(ev?.presenterRole || '').trim().length > 0);
-  const timing = showQuarterDetail.value && listInCell.length
-    ? quarterTimingFromRange(listInCell[0]?.startAt, listInCell[0]?.endAt)
-    : '';
-  const prefix = timing ? `${timing} ` : '';
-  if (!names.length) return `${prefix}${hasPresenter ? 'Presenting' : 'Supv'}`;
-  if (names.length === 1) return `${prefix}${names[0]}`;
-  const base = hasPresenter ? `Presenting • ${names[0]}+${names.length - 1}` : `${names[0]}+${names.length - 1}`;
-  return `${prefix}${base}`;
+const clipBlockLabel = (text, max = 28) => {
+  const s = String(text || '').trim();
+  if (!s) return '';
+  return s.length > max ? `${s.slice(0, max)}…` : s;
 };
 
-const supervisionTitle = (dayName, hour) => {
-  const s = summary.value;
-  const list = s?.supervisionSessions || [];
-  const hits = [];
-  for (const ev of list) {
-    const startRaw = String(ev.startAt || '').trim();
-    const endRaw = String(ev.endAt || '').trim();
-    if (!startRaw || !endRaw) continue;
-    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
-    const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
-    if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const dn = supervisionDayName(ev);
-    if (dn !== dayName) continue;
-    const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
-    const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
-    const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
-    if (endLocal > cellStart && startLocal < cellEnd) hits.push(ev);
+/** Running multi-hour label: time only on the start segment; later hours show type/who. */
+const runningAppointmentLabel = ({
+  segmentClass = 'single',
+  startAt = '',
+  endAt = '',
+  typeLabel = '',
+  whoLabel = '',
+  max = 28,
+  multiline = false
+} = {}) => {
+  const type = String(typeLabel || '').trim();
+  const who = String(whoLabel || '').trim();
+  const body = [type, who].filter(Boolean).join(' · ') || type || who || 'Busy';
+  const seg = String(segmentClass || 'single');
+  const range = clockRangeLabel(startAt, endAt) || quarterClockLabel(startAt) || '';
+  if (multiline && seg !== 'middle' && seg !== 'end') {
+    // Prefer compact 2-line labels for typical 1-hour blocks; tall spans get type + who.
+    const startMs = startAt ? Date.parse(String(startAt)) : NaN;
+    const endMs = endAt ? Date.parse(String(endAt)) : NaN;
+    const mins = (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs)
+      ? Math.round((endMs - startMs) / 60000)
+      : 60;
+    if (mins < 50) {
+      const line1 = range || quarterClockLabel(startAt) || '';
+      const line2 = [type, who].filter(Boolean).join(' · ') || body;
+      return [line1, line2].filter(Boolean).join('\n') || body;
+    }
+    const lines = [];
+    if (range) lines.push(range);
+    if (type) lines.push(type);
+    if (who && who !== type) lines.push(who);
+    return lines.filter(Boolean).join('\n') || body;
   }
+  if (seg === 'middle' || seg === 'end') {
+    // Continuation strip — prioritize who, then type (never repeat the full range).
+    return clipBlockLabel(who || type || body, max);
+  }
+  const startClock = quarterClockLabel(startAt) || '';
+  return clipBlockLabel(startClock ? `${startClock} · ${body}` : body, Math.max(max, 56));
+};
+
+const supervisionLabel = (dayName, hour, minute = 0, segmentClass = 'single', { multiline = false } = {}) => {
+  const hits = supervisionSessionsInCell(dayName, hour, minute);
+  const names = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
+  const hasPresenter = hits.some((ev) => String(ev?.presenterRole || '').trim().length > 0);
+  const type = hasPresenter ? 'Presenting' : 'Supervision';
+  let who = '';
+  if (names.length === 1) who = names[0];
+  else if (names.length > 1) who = `${names[0]}+${names.length - 1}`;
+  return runningAppointmentLabel({
+    segmentClass,
+    startAt: hits[0]?.startAt,
+    endAt: hits[0]?.endAt,
+    typeLabel: type,
+    whoLabel: who,
+    max: 56,
+    multiline
+  });
+};
+
+const supervisionTitle = (dayName, hour, minute = 0) => {
+  const hits = supervisionSessionsInCell(dayName, hour, minute);
   const withNames = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
   const who = withNames.length ? withNames.join(', ') : '—';
   const presenterRows = hits.filter((ev) => String(ev?.presenterRole || '').trim().length > 0);
   const presenterText = presenterRows.length
     ? ` • Presenter (${presenterRows.map((ev) => String(ev.presenterRole || 'primary')).join(', ')})`
     : '';
-  return `Supervision — ${who} — ${dayName} ${hourLabel(hour)}${presenterText}`;
+  const first = hits[0] || null;
+  const timeText = clockRangeLabel(first?.startAt, first?.endAt) || hourLabel(hour);
+  return `Supervision — ${who} — ${dayName} ${timeText}${presenterText}`;
 };
 
 const scheduleEventsInCell = (dayName, hour, minute = 0) => {
@@ -6584,17 +7935,49 @@ const quarterTimingFromRange = (startRaw, endRaw) => {
   if (s && e) return `${s}-${e}`;
   return s || e || '';
 };
+
+/** Actual start–end clock range for appointment hovers (not the hour bucket). */
+const clockRangeLabel = (startRaw, endRaw) => {
+  const s = parseLocalDateTime(startRaw);
+  const e = parseLocalDateTime(endRaw);
+  if (!s || !e) return '';
+  const sLabel = s.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const eLabel = e.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${sLabel}–${eLabel}`;
+};
+
+/**
+ * One continuous block from the start cell: top/height are % of that cell and may exceed 100%
+ * so a 2h appointment paints as a single piece across rows (middle/end cells omit the block).
+ */
+const appointmentSpanSlice = (startRaw, endRaw, dayName, hour, minute = 0) => {
+  const s = parseLocalDateTime(startRaw);
+  const e = parseLocalDateTime(endRaw);
+  if (!s || !e || !(e > s)) return null;
+  const ws = summary.value?.weekStart || weekStart.value;
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return null;
+  const stepMins = showQuarterDetail.value ? 15 : 60;
+  const cellMinute = showQuarterDetail.value ? Number(minute || 0) : 0;
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(cellMinute)}:00`);
+  if (Number.isNaN(cellStart.getTime())) return null;
+  const cellMs = stepMins * 60 * 1000;
+  const topPct = Math.max(0, ((s.getTime() - cellStart.getTime()) / cellMs) * 100);
+  const heightPct = Math.max(14, ((e.getTime() - s.getTime()) / cellMs) * 100);
+  return { topPct, heightPct };
+};
 const quarterSegmentForRange = (dayName, hour, minute, startRaw, endRaw) => {
-  if (!showQuarterDetail.value) return 'single';
   const s = parseLocalDateTime(startRaw);
   const e = parseLocalDateTime(endRaw);
   if (!s || !e) return 'single';
   if (ALL_DAYS.indexOf(String(dayName)) < 0) return 'single';
   const ws = summary.value?.weekStart || weekStart.value;
   const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
-  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
+  const stepMins = showQuarterDetail.value ? 15 : 60;
+  const cellMinute = showQuarterDetail.value ? Number(minute || 0) : 0;
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(cellMinute)}:00`);
   if (Number.isNaN(cellStart.getTime())) return 'single';
-  const stepMs = 15 * 60 * 1000;
+  const stepMs = stepMins * 60 * 1000;
   const cellEnd = new Date(cellStart.getTime() + stepMs);
   const prevStart = new Date(cellStart.getTime() - stepMs);
   const nextEnd = new Date(cellEnd.getTime() + stepMs);
@@ -6606,38 +7989,61 @@ const quarterSegmentForRange = (dayName, hour, minute, startRaw, endRaw) => {
   return 'middle';
 };
 const shouldShowQuarterBlockLabel = (segmentClass, minute = 0) => {
-  if (!showQuarterDetail.value) return true;
-  return segmentClass === 'single' || segmentClass === 'start' || Number(minute) === 0;
+  const seg = String(segmentClass || 'single');
+  if (!showQuarterDetail.value) {
+    // Hourly running display: label every hour of a multi-hour span.
+    return true;
+  }
+  // 15-min rows: label at segment edges and on the hour within a span.
+  return seg === 'single' || seg === 'start' || seg === 'end' || Number(minute) === 0;
 };
 const shouldHideQuarterAgencyDot = (segmentClass, minute = 0) => {
-  if (!showQuarterDetail.value) return false;
-  return (segmentClass === 'middle' || segmentClass === 'end') && Number(minute) !== 0;
+  const seg = String(segmentClass || 'single');
+  if (seg === 'middle' || seg === 'end') {
+    if (showQuarterDetail.value) return Number(minute) !== 0;
+    // Hourly continuation strips: keep the first hour’s badge only.
+    return seg === 'middle' || seg === 'end';
+  }
+  return false;
 };
 
-const scheduleEventShortLabel = (ev) => {
+const isScheduleEventCancelled = (ev) => (
+  !!ev?.isCancelled
+  || String(ev?.status || '').trim().toUpperCase() === 'CANCELLED'
+);
+
+const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = false } = {}) => {
   const raw = String(ev?.title || '').trim() || 'Event';
   const eventKind = String(ev?.kind || '').trim().toUpperCase();
-  let typePrefix = '';
-  if (colorBlocksByTenant.value) {
-    if (eventKind === 'TEAM_MEETING') typePrefix = 'Mtg';
-    else if (eventKind === 'HUDDLE') typePrefix = 'Huddle';
-    else if (eventKind === 'SCHEDULE_HOLD') typePrefix = 'Hold';
-    else if (eventKind === 'INDIRECT_SERVICES') typePrefix = 'Indirect';
-    else if (eventKind === 'PERSONAL_EVENT' && isClientSessionScheduleEvent(ev)) typePrefix = 'Session';
-    else if (eventKind === 'PERSONAL_EVENT') typePrefix = 'Personal';
-    else if (/virtual|session/i.test(raw)) typePrefix = 'Session';
-    else typePrefix = 'Event';
-  }
-  const labeled = typePrefix ? `${typePrefix} · ${raw}` : raw;
-  const timing = quarterTimingFromRange(ev?.startAt, ev?.endAt);
-  const withTiming = showQuarterDetail.value && timing ? `${timing} ${labeled}` : labeled;
-  return withTiming.length > 26 ? `${withTiming.slice(0, 26)}…` : withTiming;
+  let typePrefix = 'Event';
+  if (eventKind === 'TEAM_MEETING') typePrefix = 'Meeting';
+  else if (eventKind === 'HUDDLE') typePrefix = 'Huddle';
+  else if (eventKind === 'SCHEDULE_HOLD') typePrefix = ev?.allDay ? 'All-day block' : 'Hold';
+  else if (eventKind === 'INDIRECT_SERVICES') typePrefix = 'Indirect';
+  else if (eventKind === 'PERSONAL_EVENT' && isClientSessionScheduleEvent(ev)) typePrefix = 'Session';
+  else if (eventKind === 'PERSONAL_EVENT') typePrefix = 'Personal';
+  else if (/virtual|session/i.test(raw)) typePrefix = 'Session';
+  const canceledPrefix = isScheduleEventCancelled(ev) ? 'Cancelled · ' : '';
+  const typeLabel = `${canceledPrefix}${typePrefix}`.trim();
+  // Prefer a clean who/title separate from type for the running strip.
+  const whoLabel = raw;
+  return runningAppointmentLabel({
+    segmentClass,
+    startAt: ev?.startAt,
+    endAt: ev?.endAt,
+    typeLabel,
+    whoLabel: whoLabel === typePrefix ? '' : whoLabel,
+    max: 56,
+    multiline
+  });
 };
 
 const scheduleEventBlockTitle = (ev, dayName, hour) => {
   const raw = String(ev?.title || '').trim() || 'Schedule event';
   const privateTag = ev?.isPrivate ? ' • Private' : '';
-  return `${raw}${privateTag} — ${dayName} ${hourLabel(hour)}`;
+  const cancelledTag = isScheduleEventCancelled(ev) ? ' • Cancelled' : '';
+  const timeText = clockRangeLabel(ev?.startAt, ev?.endAt) || hourLabel(hour);
+  return `${raw}${privateTag}${cancelledTag} — ${dayName} ${timeText}`;
 };
 
 const hasSchool = (dayName, hour) => {
@@ -6772,15 +8178,19 @@ const googleEventsInCell = (dayName, hour, minute = 0) => {
   return hits;
 };
 
-const googleEventShortLabel = (ev) => {
-  const s = String(ev?.summary || '').trim() || 'Event';
-  const timing = quarterTimingFromRange(ev?.startAt, ev?.endAt);
-  const withTiming = showQuarterDetail.value && timing ? `${timing} ${s}` : s;
-  return withTiming.length > 22 ? `${withTiming.slice(0, 22)}…` : withTiming;
-};
+const googleEventShortLabel = (ev, segmentClass = 'single', { multiline = false } = {}) => runningAppointmentLabel({
+  segmentClass,
+  startAt: ev?.startAt,
+  endAt: ev?.endAt,
+  typeLabel: 'Google',
+  whoLabel: String(ev?.summary || '').trim() || 'Event',
+  max: 56,
+  multiline
+});
 const googleEventTitle = (ev, dayName, hour) => {
   const s = String(ev?.summary || '').trim() || 'Google event';
-  return `${s} — ${dayName} ${hourLabel(hour)}`;
+  const timeText = clockRangeLabel(ev?.startAt, ev?.endAt) || hourLabel(hour);
+  return `${s} — ${dayName} ${timeText}`;
 };
 const hasExternalBusy = (dayName, hour, minute = 0) => {
   const s = summary.value;
@@ -6992,6 +8402,25 @@ const requestsInCell = (dayName, hour) => {
   }
   return out;
 };
+const scheduleSubjectUserId = () => Number(props.userId || scheduleActorUserId.value || authStore.user?.id || 0) || 0;
+
+const officeBorrowMeta = (topEvent = null) => {
+  const top = topEvent || null;
+  if (!top) return { isBorrowedAway: false, bookerName: '', assigneeName: '' };
+  const st = String(top.slotState || '').toUpperCase();
+  const assignedId = Number(top.assignedProviderId || 0);
+  const bookedId = Number(top.bookedProviderId || 0);
+  const subjectId = scheduleSubjectUserId();
+  const bookerName = String(top.bookedProviderFullName || top.bookedProviderName || '').trim();
+  const assigneeName = String(top.assignedProviderFullName || top.assignedProviderName || '').trim();
+  const isBorrowedAway = st === 'ASSIGNED_BOOKED'
+    && subjectId > 0
+    && assignedId === subjectId
+    && bookedId > 0
+    && bookedId !== assignedId;
+  return { isBorrowedAway, bookerName, assigneeName };
+};
+
 const officeTitle = (dayName, hour, topEvent = null) => {
   const top = topEvent || officeTopEvent(dayName, hour);
   if (!top) return `Office — ${dayName} ${hourLabel(hour)}`;
@@ -7000,7 +8429,11 @@ const officeTitle = (dayName, hour, topEvent = null) => {
   const room = roomNumber ? `#${roomNumber}${roomLabel ? ` (${roomLabel})` : ''}` : (roomLabel || 'Office');
   const bld = top.buildingName || 'Office location';
   const st = String(top.slotState || '').toUpperCase();
-  const label = st === 'ASSIGNED_BOOKED' ? 'Booked' : st === 'ASSIGNED_TEMPORARY' ? 'Temporary' : 'Assigned';
+  const borrow = officeBorrowMeta(top);
+  let label = st === 'ASSIGNED_BOOKED' ? 'Booked' : st === 'ASSIGNED_TEMPORARY' ? 'Temporary' : 'Assigned';
+  if (borrow.isBorrowedAway) {
+    label = borrow.bookerName ? `Taken by ${borrow.bookerName}` : 'Taken (booked by someone else)';
+  }
   const ids = agenciesInCell('office', dayName, hour);
   return `${label}${agencySuffix(ids)} — ${bld} • ${room} — ${dayName} ${hourLabel(hour)}`;
 };
@@ -7143,22 +8576,44 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const roomShort = shortOfficeLabel(top, 'Office');
     const officeRoomLabel = `${buildingPrefix}${roomShort}${intakeSuffix}`.trim();
     if (st === 'ASSIGNED_BOOKED') {
-      const bookedLabel = colorBlocksByTenant.value
-        ? `Booked · ${roomShort}`
-        : roomShort || 'Booked';
-      blocks.push({
-        key: `office-booked-${blockKeySuffix}`,
-        kind: 'ob',
-        isOfficeBlock: true,
-        officeStatus: 'booked',
-        officeStatusLabel: 'Office reserved',
-        officeRoomLabel,
-        shortLabel: `${buildingPrefix}${bookedLabel}${intakeSuffix}`,
-        title: officeTitle(dayName, hour, top),
-        buildingId,
-        agencyId,
-        roomId
-      });
+      const borrow = officeBorrowMeta(top);
+      if (borrow.isBorrowedAway) {
+        const takenLabel = borrow.bookerName
+          ? `Taken · ${borrow.bookerName}`
+          : (colorBlocksByTenant.value ? `Taken · ${roomShort}` : 'Taken');
+        blocks.push({
+          key: `office-taken-${blockKeySuffix}`,
+          kind: 'ob',
+          isOfficeBlock: true,
+          officeStatus: 'taken',
+          officeStatusLabel: borrow.bookerName
+            ? `Booked by ${borrow.bookerName} for this day`
+            : 'Booked by someone else for this day',
+          officeRoomLabel,
+          shortLabel: `${buildingPrefix}${takenLabel}${intakeSuffix}`,
+          title: officeTitle(dayName, hour, top),
+          buildingId,
+          agencyId,
+          roomId
+        });
+      } else {
+        const bookedLabel = colorBlocksByTenant.value
+          ? `Booked · ${roomShort}`
+          : roomShort || 'Booked';
+        blocks.push({
+          key: `office-booked-${blockKeySuffix}`,
+          kind: 'ob',
+          isOfficeBlock: true,
+          officeStatus: 'booked',
+          officeStatusLabel: 'Office reserved',
+          officeRoomLabel,
+          shortLabel: `${buildingPrefix}${bookedLabel}${intakeSuffix}`,
+          title: officeTitle(dayName, hour, top),
+          buildingId,
+          agencyId,
+          roomId
+        });
+      }
     } else if (st === 'ASSIGNED_TEMPORARY') {
       const tempLabel = colorBlocksByTenant.value
         ? `Temp · ${roomShort}`
@@ -7253,7 +8708,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
   const supvHits = supervisionSessionsInCell(dayName, hour, minute);
   const supvByAgency = new Map();
   for (const ev of supvHits) {
-    const aid = Number(ev?._agencyId || 0) || null;
+    const aid = Number(ev?.agencyId || ev?._agencyId || 0) || null;
     const key = aid || 'none';
     if (!supvByAgency.has(key)) supvByAgency.set(key, []);
     supvByAgency.get(key).push(ev);
@@ -7264,15 +8719,24 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const first = sortedEvents[0] || null;
     const last = sortedEvents[sortedEvents.length - 1] || null;
     const segmentClass = quarterSegmentForRange(dayName, hour, minute, first?.startAt, last?.endAt);
-    const showLabel = shouldShowQuarterBlockLabel(segmentClass, minute);
+    // Paint once from the start cell as a continuous spanning block.
+    if (segmentClass === 'middle' || segmentClass === 'end') continue;
+    const timedSlice = appointmentSpanSlice(first?.startAt, last?.endAt || first?.endAt, dayName, hour, minute);
     blocks.push({
-      key: `supv-${agencyId || 'x'}`,
+      key: `supv-${agencyId || 'x'}-${Number(first?.id || 0) || 'x'}`,
       kind: 'supv',
-      shortLabel: showLabel ? supervisionLabel(dayName, hour) : '',
-      title: supervisionTitle(dayName, hour),
+      shortLabel: supervisionLabel(dayName, hour, minute, 'start', { multiline: true }),
+      title: supervisionTitle(dayName, hour, minute),
       agencyId,
-      segmentClass,
-      hideAgencyDot: shouldHideQuarterAgencyDot(segmentClass, minute)
+      segmentClass: 'single',
+      hideAgencyDot: false,
+      eventId: Number(first?.id || 0) || null,
+      startAt: first?.startAt || null,
+      endAt: first?.endAt || null,
+      recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim() || null,
+      timedSlice,
+      spanBlock: true,
+      draggable: !isScheduleEventCancelled(first) && Number(first?.id || 0) > 0
     });
   }
 
@@ -7280,19 +8744,29 @@ const cellBlocks = (dayName, hour, minute = 0) => {
   const scheduleHits = scheduleEventsInCell(dayName, hour, minute).slice(0, perTypeInlineLimit);
   for (const ev of scheduleHits) {
     const segmentClass = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
-    const showLabel = shouldShowQuarterBlockLabel(segmentClass, minute);
+    if (segmentClass === 'middle' || segmentClass === 'end') continue;
+    const timedSlice = appointmentSpanSlice(ev?.startAt, ev?.endAt, dayName, hour, minute);
     blocks.push({
       key: `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
       kind: 'sevt',
       eventKind: String(ev?.kind || '').trim().toUpperCase(),
-      shortLabel: showLabel ? scheduleEventShortLabel(ev) : '',
+      allDay: !!ev?.allDay,
+      shortLabel: scheduleEventShortLabel(ev, 'start', { multiline: true }),
       title: scheduleEventBlockTitle(ev, dayName, hour),
       link: String(ev?.htmlLink || '').trim() || null,
-      appJoinUrl: String(ev?.appJoinUrl || '').trim() || null,
+      appJoinUrl: isScheduleEventCancelled(ev) ? null : (String(ev?.appJoinUrl || '').trim() || null),
       eventId: Number(ev?.id || 0) || null,
       agencyId: Number(ev?._agencyId || 0) || null,
-      segmentClass,
-      hideAgencyDot: shouldHideQuarterAgencyDot(segmentClass, minute)
+      isCancelled: isScheduleEventCancelled(ev),
+      segmentClass: 'single',
+      hideAgencyDot: false,
+      startAt: ev?.startAt || null,
+      endAt: ev?.endAt || null,
+      recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || null,
+      providerId: resolveBookedProviderIdForEvent(ev),
+      timedSlice,
+      spanBlock: true,
+      draggable: !isScheduleEventCancelled(ev) && Number(ev?.id || 0) > 0
     });
   }
   const scheduleExtra = Math.max(0, scheduleEventsInCell(dayName, hour, minute).length - scheduleHits.length);
@@ -7332,14 +8806,19 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const events = googleEventsInCell(dayName, hour, minute).slice(0, perTypeInlineLimit);
     for (const ev of events) {
       const segmentClass = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
-      const showLabel = shouldShowQuarterBlockLabel(segmentClass, minute);
+      if (segmentClass === 'middle' || segmentClass === 'end') continue;
+      const timedSlice = appointmentSpanSlice(ev?.startAt, ev?.endAt, dayName, hour, minute);
       blocks.push({
         key: `gevt-${String(ev?.id || ev?.summary || 'event')}`,
         kind: 'gevt',
-        shortLabel: showLabel ? googleEventShortLabel(ev) : '',
+        shortLabel: googleEventShortLabel(ev, 'start', { multiline: true }),
         title: googleEventTitle(ev, dayName, hour),
         link: String(ev?.htmlLink || '').trim() || null,
-        segmentClass
+        segmentClass: 'single',
+        startAt: ev?.startAt || null,
+        endAt: ev?.endAt || null,
+        timedSlice,
+        spanBlock: true
       });
     }
     const extra = Math.max(0, googleEventsInCell(dayName, hour, minute).length - events.length);
@@ -7538,12 +9017,25 @@ const officeSlotStatusLabel = (rawState) => {
   if (!st) return '';
   return st.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
 };
-const SCHEDULE_HOLD_REASON_OPTIONS = [
-  { code: 'DOCUMENTATION', label: 'Documentation' },
-  { code: 'TEAM_MEETING', label: 'Team meeting' },
-  { code: 'TRAINING', label: 'Training' },
-  { code: 'ADMIN', label: 'Administrative time' },
-  { code: 'CUSTOM', label: 'Custom reason' }
+const BUILTIN_HOLD_REASON_OPTIONS = [
+  { code: 'DOCUMENTATION', label: 'Documentation', custom: false },
+  { code: 'TEAM_MEETING', label: 'Team meeting', custom: false },
+  { code: 'TRAINING', label: 'Training', custom: false },
+  { code: 'ADMIN', label: 'Administrative time', custom: false },
+  { code: 'CLINICAL_PREP', label: 'Clinical prep', custom: false },
+  { code: 'CHARTING', label: 'Charting', custom: false }
+];
+const PERSONAL_EVENT_TYPE_OPTIONS = [
+  { code: 'PERSONAL', label: 'Personal event', title: 'Personal Event' },
+  { code: 'LUNCH', label: 'Lunch', title: 'Lunch' },
+  { code: 'BREAK', label: 'Break', title: 'Break' },
+  { code: 'PTO', label: 'PTO / Time off', title: 'PTO' },
+  { code: 'DOCTOR', label: "Doctor's appointment", title: "Doctor's appointment" },
+  { code: 'PERSONAL_APPT', label: 'Personal appointment', title: 'Personal appointment' },
+  { code: 'ERRAND', label: 'Errand', title: 'Errand' },
+  { code: 'FAMILY', label: 'Family', title: 'Family' },
+  { code: 'TRAVEL', label: 'Travel', title: 'Travel' },
+  { code: 'OTHER', label: 'Other', title: 'Personal Event' }
 ];
 const scheduleEventTitle = ref('');
 /** 0 = none / all orgs (agency_id null); >0 = specific tenant */
@@ -7558,7 +9050,20 @@ const supervisionRecurrenceEndMode = ref('count'); // count | indefinite
 const supervisionOccurrenceCount = ref(6);
 const scheduleHoldReasonCode = ref('DOCUMENTATION');
 const scheduleHoldCustomReason = ref('');
-const normalizeCodeValue = (value) => String(value || '').trim().toUpperCase();
+const scheduleHoldReasonDraft = ref('Documentation');
+const personalEventTypeCode = ref('PERSONAL');
+const personalEventTitleTouched = ref(false);
+const normalizeCodeValue = (value) => String(value || '')
+  .trim()
+  .toUpperCase()
+  .replace(/[^A-Z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '')
+  .slice(0, 64);
+const holdReasonLabelToCode = (label) => {
+  const raw = String(label || '').trim();
+  if (!raw) return '';
+  return normalizeCodeValue(raw) || 'CUSTOM';
+};
 const DEFAULT_BOOKING_TYPE = 'SESSION';
 
 // Office booking request (office-schedule/booking-requests)
@@ -7622,29 +9127,255 @@ const isHourlyWorker = computed(() => {
 });
 
 const isScheduleEventRequestType = computed(() => SCHEDULE_EVENT_ACTIONS.has(String(requestType.value || '')));
+const isScheduleEventAllDayUi = computed(() => {
+  if (String(requestType.value || '') === 'schedule_hold_all_day') return true;
+  return isScheduleEventRequestType.value && !!scheduleEventAllDay.value;
+});
 const quarterMinuteOptions = [0, 15, 30, 45];
 const isQuarterHourRequestType = computed(() => {
   const t = String(requestType.value || '');
-  return ['supervision', 'agency_meeting', 'huddle', 'personal_event', 'schedule_hold', 'indirect_services'].includes(t);
+  return ['supervision', 'agency_meeting', 'huddle', 'personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'school'].includes(t);
 });
 const canUseQuarterHourInput = computed(
-  () => isQuarterHourRequestType.value && !(isScheduleEventRequestType.value && scheduleEventAllDay.value)
+  () => isQuarterHourRequestType.value && !isScheduleEventAllDayUi.value
 );
+const personalEventTypeOptions = computed(() => PERSONAL_EVENT_TYPE_OPTIONS);
+const pad2Clock = (n) => String(Math.max(0, Number(n) || 0)).padStart(2, '0');
+const snapQuarterMinute = (m) => {
+  const n = Number(m || 0);
+  if (!Number.isFinite(n)) return 0;
+  const snapped = Math.round(n / 15) * 15;
+  if (snapped >= 60) return 45;
+  if (snapped < 0) return 0;
+  return snapped;
+};
+// Must be defined before any computed/watch that reads them during setup (TDZ → remount storm).
+const effectiveModalStartHour = computed(() =>
+  canUseQuarterHourInput.value ? Number(modalStartHour.value || modalHour.value || 0) : Number(modalHour.value || 0)
+);
+const modalGridMaxEnd = computed(() => gridMaxHour.value);
+const modalStartTimeValue = computed(() => (
+  `${pad2Clock(effectiveModalStartHour.value)}:${pad2Clock(modalStartMinute.value)}`
+));
+const modalEndTimeValue = computed(() => (
+  `${pad2Clock(modalEndHour.value)}:${pad2Clock(modalEndMinute.value)}`
+));
 const endMinuteOptions = computed(
   () => (Number(modalEndHour.value || 0) >= modalGridMaxEnd.value - 1 ? [0] : quarterMinuteOptions)
 );
 const modalTimeRangeLabel = computed(() => {
+  if (isScheduleEventAllDayUi.value) return 'All day';
   if (canUseQuarterHourInput.value) {
     return `${hourMinuteLabel(effectiveModalStartHour.value, modalStartMinute.value)}-${hourMinuteLabel(modalEndHour.value, modalEndMinute.value)}`;
   }
   return `${hourLabel(modalHour.value)}-${hourLabel(modalEndHour.value)}`;
 });
-const scheduleHoldReasonOptions = computed(() => SCHEDULE_HOLD_REASON_OPTIONS);
+const scheduleHoldReasonOptions = computed(() => {
+  const seen = new Set();
+  const out = [];
+  for (const opt of BUILTIN_HOLD_REASON_OPTIONS) {
+    const code = String(opt.code || '').toUpperCase();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    out.push({ ...opt, code, custom: false });
+  }
+  for (const row of (customHoldReasons.value || [])) {
+    const code = String(row?.code || '').toUpperCase();
+    const label = String(row?.label || '').trim();
+    if (!code || !label || seen.has(code)) continue;
+    seen.add(code);
+    out.push({ code, label, custom: true });
+  }
+  return out;
+});
+const canSaveHoldReasonDraft = computed(() => {
+  const label = String(scheduleHoldReasonDraft.value || '').trim();
+  if (!label) return false;
+  const code = holdReasonLabelToCode(label);
+  return !!code && !scheduleHoldReasonOptions.value.some((o) => o.code === code || o.label.toLowerCase() === label.toLowerCase());
+});
+
+function isHoldReasonSelected(opt) {
+  const code = String(opt?.code || '').toUpperCase();
+  const selected = String(scheduleHoldReasonCode.value || '').toUpperCase();
+  if (selected === 'CUSTOM') {
+    return holdReasonLabelToCode(scheduleHoldCustomReason.value) === code
+      || String(scheduleHoldCustomReason.value || '').trim().toLowerCase() === String(opt?.label || '').trim().toLowerCase();
+  }
+  return selected === code;
+}
+
+function selectHoldReasonOption(opt) {
+  const code = String(opt?.code || '').toUpperCase();
+  const label = String(opt?.label || '').trim();
+  if (!code) return;
+  if (opt?.custom) {
+    scheduleHoldReasonCode.value = 'CUSTOM';
+    scheduleHoldCustomReason.value = label;
+  } else {
+    scheduleHoldReasonCode.value = code;
+    scheduleHoldCustomReason.value = '';
+  }
+  scheduleHoldReasonDraft.value = label;
+}
+
+function onHoldReasonDraftChange() {
+  const label = String(scheduleHoldReasonDraft.value || '').trim();
+  if (!label) return;
+  const existing = scheduleHoldReasonOptions.value.find(
+    (o) => o.code === holdReasonLabelToCode(label) || o.label.toLowerCase() === label.toLowerCase()
+  );
+  if (existing) selectHoldReasonOption(existing);
+  else {
+    scheduleHoldReasonCode.value = 'CUSTOM';
+    scheduleHoldCustomReason.value = label;
+  }
+}
+
+function commitHoldReasonDraft() {
+  const label = String(scheduleHoldReasonDraft.value || '').trim();
+  if (!label) return;
+  const code = holdReasonLabelToCode(label);
+  if (!code) return;
+  const existing = scheduleHoldReasonOptions.value.find(
+    (o) => o.code === code || o.label.toLowerCase() === label.toLowerCase()
+  );
+  if (existing) {
+    selectHoldReasonOption(existing);
+    return;
+  }
+  const next = [...(customHoldReasons.value || []), { code, label }];
+  customHoldReasons.value = next;
+  persistCustomHoldReasons();
+  scheduleHoldReasonCode.value = 'CUSTOM';
+  scheduleHoldCustomReason.value = label;
+  scheduleHoldReasonDraft.value = label;
+}
+
+function removeCustomHoldReason(codeRaw) {
+  const code = String(codeRaw || '').toUpperCase();
+  if (!code) return;
+  customHoldReasons.value = (customHoldReasons.value || []).filter((r) => String(r.code || '').toUpperCase() !== code);
+  persistCustomHoldReasons();
+  if (isHoldReasonSelected({ code, label: scheduleHoldReasonDraft.value, custom: true })) {
+    selectHoldReasonOption(BUILTIN_HOLD_REASON_OPTIONS[0]);
+  }
+}
+
+function persistCustomHoldReasons() {
+  const uid = Number(authStore.user?.id || props.userId || 0);
+  const payload = (customHoldReasons.value || [])
+    .map((r) => ({
+      code: String(r.code || '').toUpperCase(),
+      label: String(r.label || '').trim()
+    }))
+    .filter((r) => r.code && r.label)
+    .slice(0, 40);
+  try {
+    if (uid) window?.localStorage?.setItem?.(`schedule.holdReasons.v1:${uid}`, JSON.stringify(payload));
+  } catch { /* ignore */ }
+  saveDisplayPrefs();
+}
+
+function loadCustomHoldReasonsFromPrefs(prefs = null) {
+  const uid = Number(authStore.user?.id || props.userId || 0);
+  let rows = Array.isArray(prefs?.holdReasons) ? prefs.holdReasons : null;
+  if (!rows && uid) {
+    try {
+      const raw = window?.localStorage?.getItem?.(`schedule.holdReasons.v1:${uid}`);
+      rows = raw ? JSON.parse(raw) : null;
+    } catch { rows = null; }
+  }
+  customHoldReasons.value = (Array.isArray(rows) ? rows : [])
+    .map((r) => ({
+      code: holdReasonLabelToCode(r?.code || r?.label || ''),
+      label: String(r?.label || r?.code || '').trim()
+    }))
+    .filter((r) => r.code && r.label)
+    .slice(0, 40);
+}
+
+function onPersonalEventTypeChange(codeRaw) {
+  const code = String(codeRaw || 'PERSONAL').toUpperCase();
+  personalEventTypeCode.value = code;
+  const opt = PERSONAL_EVENT_TYPE_OPTIONS.find((o) => o.code === code) || PERSONAL_EVENT_TYPE_OPTIONS[0];
+  if (!personalEventTitleTouched.value || !String(scheduleEventTitle.value || '').trim()) {
+    scheduleEventTitle.value = opt.title;
+    personalEventTitleTouched.value = false;
+  }
+}
+
+function onModalStartTimeInput(hhmm) {
+  const raw = String(hhmm || '').trim();
+  const m = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return;
+  const prevStart = Number(effectiveModalStartHour.value || 0) * 60 + Number(modalStartMinute.value || 0);
+  const prevEnd = Number(modalEndHour.value || 0) * 60 + Number(modalEndMinute.value || 0);
+  const dur = Math.max(15, prevEnd - prevStart);
+  let hh = Math.max(0, Math.min(23, Number(m[1]) || 0));
+  let mm = snapQuarterMinute(Number(m[2]) || 0);
+  let startMins = hh * 60 + mm;
+  let endMins = startMins + dur;
+  if (endMins >= 24 * 60) endMins = (24 * 60) - 15;
+  modalHour.value = hh;
+  modalStartHour.value = hh;
+  modalStartMinute.value = mm;
+  modalEndHour.value = Math.floor(endMins / 60);
+  modalEndMinute.value = snapQuarterMinute(endMins % 60);
+  onChooserWhenChanged();
+}
+
+function onModalEndTimeInput(hhmm) {
+  const raw = String(hhmm || '').trim();
+  const m = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return;
+  const startMins = Number(effectiveModalStartHour.value || 0) * 60 + Number(modalStartMinute.value || 0);
+  let hh = Math.max(0, Math.min(23, Number(m[1]) || 0));
+  let mm = snapQuarterMinute(Number(m[2]) || 0);
+  let endMins = hh * 60 + mm;
+  if (endMins < startMins + 15) endMins = startMins + 15;
+  if (endMins >= 24 * 60) endMins = (24 * 60) - 15;
+  modalEndHour.value = Math.floor(endMins / 60);
+  modalEndMinute.value = snapQuarterMinute(endMins % 60);
+  onChooserWhenChanged();
+}
+
+function nudgeModalStart(deltaMin) {
+  const startMins = Number(effectiveModalStartHour.value || 0) * 60 + Number(modalStartMinute.value || 0);
+  const endMins = Number(modalEndHour.value || 0) * 60 + Number(modalEndMinute.value || 0);
+  const dur = Math.max(15, endMins - startMins);
+  let next = startMins + Number(deltaMin || 0);
+  next = ((next % (24 * 60)) + (24 * 60)) % (24 * 60);
+  let nextEnd = next + dur;
+  if (nextEnd >= 24 * 60) nextEnd = (24 * 60) - 15;
+  modalHour.value = Math.floor(next / 60);
+  modalStartHour.value = modalHour.value;
+  modalStartMinute.value = snapQuarterMinute(next % 60);
+  modalEndHour.value = Math.floor(nextEnd / 60);
+  modalEndMinute.value = snapQuarterMinute(nextEnd % 60);
+  onChooserWhenChanged();
+}
+
+function nudgeModalEnd(deltaMin) {
+  const startMins = Number(effectiveModalStartHour.value || 0) * 60 + Number(modalStartMinute.value || 0);
+  let endMins = Number(modalEndHour.value || 0) * 60 + Number(modalEndMinute.value || 0) + Number(deltaMin || 0);
+  if (endMins < startMins + 15) endMins = startMins + 15;
+  if (endMins >= 24 * 60) endMins = (24 * 60) - 15;
+  modalEndHour.value = Math.floor(endMins / 60);
+  modalEndMinute.value = snapQuarterMinute(endMins % 60);
+  onChooserWhenChanged();
+}
+
+// Restore saved custom hold reasons after helpers are defined.
+try {
+  loadCustomHoldReasonsFromPrefs(loadDisplayPrefsLocal());
+} catch { /* ignore */ }
 const scheduleEventTitlePlaceholder = computed(() => {
   const kind = String(requestType.value || '');
   if (kind === 'agency_meeting') return props.hideOfficeAndCalendarIntegration ? 'Team meeting' : 'Agency meeting';
   if (kind === 'huddle') return 'Huddle';
-  if (kind === 'schedule_hold' || kind === 'schedule_hold_all_day') return 'Schedule hold';
+  if (kind === 'schedule_hold_all_day') return 'All-day schedule block';
+  if (kind === 'schedule_hold') return 'Schedule hold';
   if (kind === 'indirect_services') return 'Indirect services';
   return 'Personal event';
 });
@@ -7654,13 +9385,24 @@ const isScheduleEventTitleMissing = computed(() => (
   && !!String(requestType.value || '').trim()
   && !scheduleEventCanSubmit.value
 ));
+const isMeetingTitleMissing = computed(() => {
+  if (!['agency_meeting', 'huddle'].includes(String(requestType.value || ''))) return false;
+  if (String(requestType.value || '') === 'edit_schedule_event') {
+    return !String(scheduleEventEditForm.value?.title || '').trim();
+  }
+  return !String(scheduleEventTitle.value || '').trim();
+});
+const meetingCreatedShare = ref(null);
 const disableEndTimeInput = computed(() => {
   if (requestType.value === 'intake_virtual_on' || requestType.value === 'intake_virtual_off' || requestType.value === 'intake_inperson_on' || requestType.value === 'intake_inperson_off') return true;
-  if (isScheduleEventRequestType.value && scheduleEventAllDay.value) return true;
+  if (isScheduleEventAllDayUi.value) return true;
   return false;
 });
 const requestNotesPlaceholder = computed(() => {
   if (isScheduleEventRequestType.value) return 'Optional event details/description...';
+  if (String(requestType.value || '') === 'school') {
+    return 'What are you hoping to accomplish with these additional school daytime hours?';
+  }
   return 'Any context for staff reviewing this request...';
 });
 
@@ -7700,10 +9442,10 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'individual_session',
-      label: 'Book Individual Session',
+      label: 'Book Session',
       description: hasOffice
-        ? 'Schedule a session for a client — Virtual or In-person'
-        : 'Schedule a virtual session now (office optional)',
+        ? 'Schedule a client session — add more than one client to make it a group session'
+        : 'Schedule a session (office optional). Add more than one client to make it a group session.',
       disabledReason: '',
       visible: !supervisionOnlyMode,
       tone: 'violet',
@@ -7712,9 +9454,9 @@ const availableQuickActions = computed(() => {
     {
       id: 'group_session',
       label: 'Group session',
-      description: hasOffice ? 'Book group session and office together' : 'Select office first',
-      disabledReason: hasOffice ? '' : 'Select office',
-      visible: !supervisionOnlyMode && hasClinicalOrLearningOrg,
+      description: 'Use Book Session and select multiple clients',
+      disabledReason: '',
+      visible: false,
       tone: 'violet',
       chooserPriority: 40
     },
@@ -7745,10 +9487,13 @@ const availableQuickActions = computed(() => {
     {
       id: 'office_request_only',
       label: 'Request office',
-      description: 'Request permission to use office space (assigned-available slots only)',
-      disabledReason: hasOffice ? '' : 'Select office',
+      description: hasOffice
+        ? 'Request a room for this time at the selected office'
+        : 'Pick an office and request a room for this time',
+      disabledReason: '',
       visible: !supervisionOnlyMode && state !== 'ASSIGNED_BOOKED',
-      tone: 'teal'
+      tone: 'teal',
+      chooserPriority: 35
     },
     {
       id: 'admin_assign',
@@ -7800,7 +9545,7 @@ const availableQuickActions = computed(() => {
     {
       id: 'school',
       label: 'School daytime availability',
-      description: 'Weekday school assignment block (not a virtual session)',
+      description: 'Request additional weekday daytime hours (not a change to existing open slots)',
       disabledReason: !isAdminMode.value && schoolWindowOk ? '' : 'Weekday 6AM-6PM only',
       visible: !supervisionOnlyMode && !isAdminMode.value,
       tone: 'indigo'
@@ -7855,7 +9600,7 @@ const availableQuickActions = computed(() => {
     {
       id: 'schedule_hold_all_day',
       label: 'All-day schedule block',
-      description: 'Create an all-day hold on this date',
+      description: 'Block the full calendar day',
       disabledReason: '',
       visible: !supervisionOnlyMode,
       tone: 'slate'
@@ -8137,6 +9882,7 @@ const appointmentEditKindLabel = computed(() => {
 });
 
 const modalDurationLabel = computed(() => {
+  if (isScheduleEventAllDayUi.value) return 'All day';
   const startH = Number(effectiveModalStartHour.value ?? modalHour.value ?? 0);
   const endH = Number(modalEndHour.value || 0);
   const startM = Number(modalStartMinute.value || 0);
@@ -8317,7 +10063,7 @@ const submitActionLabel = computed(() => {
     huddle: 'Schedule huddle',
     personal_event: 'Schedule event',
     schedule_hold: 'Schedule hold',
-    schedule_hold_all_day: 'Schedule all-day hold',
+    schedule_hold_all_day: 'Schedule all-day block',
     indirect_services: 'Schedule event',
     forfeit_slot: 'Forfeit selected slot(s)',
     extend_assignment: 'Extend assignment',
@@ -8385,11 +10131,21 @@ const modalScheduleSubtitle = computed(() => {
     return who ? `Edit supervision — ${who}` : 'Edit supervision session';
   }
   if (t === 'pick_schedule_event') return 'Choose which item to open and edit.';
-  if (!t || showActionChooser.value) return 'Manage this office time slot';
+  if (!t || showActionChooser.value) {
+    const src = String(modalActionSource.value || '');
+    const state = String(modalContext.value?.slotState || '').toUpperCase();
+    const hasOfficeSlot = src === 'office_block'
+      || viewMode.value === 'office_layout'
+      || Number(modalContext.value?.officeEventId || 0) > 0
+      || ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED', 'COMPANY_HOLD'].includes(state);
+    return hasOfficeSlot
+      ? 'Manage this office time slot'
+      : 'Choose what to schedule for this time';
+  }
   if (t === 'slot_details') return 'Selected office slot details.';
   if (['office', 'office_request_only'].includes(t)) return 'Send an office or room request for approval.';
   if (t === 'portal_intake') return 'Publish open hours for new clients on the portal.';
-  if (t === 'school') return 'Mark school daytime availability (not virtual).';
+  if (t === 'school') return 'Request additional weekday daytime hours (not a change to existing open slots).';
   if (t === 'individual_session') return 'Schedule an individual session — virtual or in-person.';
   if (t === 'group_session') return 'Schedule a group session.';
   if (t === 'admin_assign') return 'Update this booking — change duration, provider, or frequency.';
@@ -8398,8 +10154,1500 @@ const modalScheduleSubtitle = computed(() => {
   }
   return 'Confirm details, then schedule.';
 });
+
+/** Types that use the unified AppointmentEditorShell (create + edit). */
+const UNIFIED_EDITOR_KINDS = new Set([
+  'individual_session',
+  'group_session',
+  'agency_meeting',
+  'huddle',
+  'supervision',
+  'portal_intake',
+  'office_request_only',
+  'edit_schedule_event',
+  'edit_supervision'
+]);
+
+const showAppointmentEditorShell = computed(() => {
+  if (showActionChooser.value) return false;
+  if (isPickScheduleEventMode.value) return false;
+  const t = String(requestType.value || '');
+  return UNIFIED_EDITOR_KINDS.has(t);
+});
+
+const modalEditorTitle = computed(() => {
+  if (showActionChooser.value || !String(requestType.value || '').trim()) return 'Schedule';
+  if (isSupervisionEditMode.value) return 'Supervision';
+  if (isScheduleEventEditMode.value) {
+    const item = editingScheduleStackItem.value;
+    if (isMeetingStackItem(item)) return appointmentEditorTitleForKind(item?.eventKind || 'TEAM_MEETING');
+    if (isClientSessionScheduleEvent(item)) return 'Clinical Session';
+    return appointmentEditorTitleForKind(item?.eventKind || 'PERSONAL_EVENT', { kindLabel: item?.kindLabel });
+  }
+  return appointmentEditorTitleForKind(requestType.value, {
+    hideOfficeAndCalendarIntegration: props.hideOfficeAndCalendarIntegration
+  });
+});
+
+const editorIsClinical = computed(() => (
+  ['individual_session', 'group_session'].includes(String(requestType.value || ''))
+  || (isScheduleEventEditMode.value && isClientSessionScheduleEvent(editingScheduleStackItem.value))
+));
+const editorIsMeeting = computed(() => (
+  ['agency_meeting', 'huddle'].includes(String(requestType.value || ''))
+  || (isScheduleEventEditMode.value && isMeetingStackItem(editingScheduleStackItem.value))
+));
+const editorIsSupervision = computed(() => (
+  String(requestType.value || '') === 'supervision' || isSupervisionEditMode.value
+));
+const editorIsOpenSlot = computed(() => (
+  ['portal_intake', 'office_request_only'].includes(String(requestType.value || ''))
+));
+
+const editorModality = ref('TELEHEALTH');
+const editorPracticeCategory = ref('');
+const editorPracticeCategories = ref([]);
+const editorTenantServiceId = ref(0);
+const editorTenantServices = ref([]);
+const editorServicesLoading = ref(false);
+const editorForceExpandGroupClients = ref(false);
+/** When a school site is chosen (even after ensure-school resolves to a real location id). */
+const editorSchoolOrganizationId = ref(0);
+const editorCoProviderUserId = ref(0);
+const editorAddonServiceCodes = ref([]);
+const editorPackageEntitlementId = ref(0);
+const editorPackageEntitlements = ref([]);
+const editorQuickNote = ref('');
+const editorClinicalSessionId = ref(0);
+const editorClinicalNoteId = ref(0);
+const editorClaimId = ref(0);
+const editorAppointmentId = ref(0);
+const editorLocationAddress = ref('');
+const editorRoomId = ref(0);
+const editorBookedUntil = ref('');
+const editorStatus = ref('confirmed');
+const editorMeetingIsVirtual = ref(true);
+const editorSupervisionIsVirtual = ref(true);
+const editorOpenSlotEnabled = ref(true);
+const editorAttachOfficeRequest = ref(false);
+const editorOfficeLocationId = ref(0);
+const editorPreferredRoomId = ref(0);
+/** Last pending office request from this editor — cancelled when series is re-requested after a change. */
+const editorLastOfficeAvailabilityRequestId = ref(0);
+const editorLastOfficeBookingRequestId = ref(0);
+const editorOfficeSeriesRechecking = ref(false);
+const editorOfficeLocations = ref([]);
+const editorOfficeLocationsLoading = ref(false);
+const editorRecurrenceWeekdays = ref([]);
+const editorRecurrenceUntilDate = ref('');
+const editorRemindersLoading = ref(false);
+const editorRemindersError = ref('');
+const editorReminderLastSent = ref('');
+const editorReminderPlan = ref([]);
+const editorReminderAttendees = ref([]);
+const editorCanPushExtraReminder = ref(false);
+const editorReminderBusy = ref(false);
+const editorShowReminders = ref(false);
+const editorChartLoading = ref(false);
+const editorChartDiagnoses = ref([]);
+const editorChartLatestPlan = ref(null);
+const showPushSessionUpdatePanel = ref(false);
+const pushSessionUpdateChanges = ref([]);
+
+const editorShowVirtual = computed(() => {
+  if (editorIsMeeting.value) return !!editorMeetingIsVirtual.value;
+  if (editorIsSupervision.value) return !!editorSupervisionIsVirtual.value;
+  if (editorIsClinical.value) return String(editorModality.value || bookingModality.value) === 'TELEHEALTH';
+  return false;
+});
+const editorVirtualLink = computed(() => {
+  // Strict type isolation — never show another session type's join URL.
+  if (editorIsSupervision.value) {
+    return String(selectedSupvSession.value?.joinUrl || '').trim();
+  }
+  if (editorIsMeeting.value) {
+    const item = editingScheduleStackItem.value;
+    return String(item?.appJoinUrl || item?.platformVideoLink || '').trim();
+  }
+  if (editorIsClinical.value) {
+    const item = editingScheduleStackItem.value;
+    // Prefer counseling/platform share URL; never fall back to supervision.
+    return String(
+      virtualSessionShareUrl.value
+      || item?.appJoinUrl
+      || item?.platformVideoLink
+      || ''
+    ).trim();
+  }
+  return '';
+});
+const editorMeetLink = computed(() => {
+  if (editorIsSupervision.value) {
+    return String(selectedSupvSession.value?.googleMeetLink || '').trim();
+  }
+  if (editorIsMeeting.value || editorIsClinical.value) {
+    return String(editingScheduleStackItem.value?.meetLink || '').trim();
+  }
+  return '';
+});
+const editorPlatformLink = computed(() => editorVirtualLink.value);
+const editorShowRecurrence = computed(() => (
+  editorIsMeeting.value || editorIsSupervision.value || editorIsClinical.value || editorIsOpenSlot.value
+));
+const editorRecurrenceFrequency = computed({
+  get: () => String(scheduleEventRecurrence.value || 'ONCE').toUpperCase(),
+  set: (v) => { scheduleEventRecurrence.value = String(v || 'ONCE').toUpperCase(); }
+});
+const editorRecurrenceEndMode = computed({
+  get: () => String(scheduleEventRecurrenceEndMode.value || 'count'),
+  set: (v) => { scheduleEventRecurrenceEndMode.value = String(v || 'count'); }
+});
+const editorRecurrenceOccurrenceCount = computed({
+  get: () => Number(scheduleEventOccurrenceCount.value || 4),
+  set: (v) => { scheduleEventOccurrenceCount.value = Math.max(1, Number(v || 1)); }
+});
+const formatEditorDateLabel = (ymd) => {
+  const raw = String(ymd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return '';
+  try {
+    const [y, m, d] = raw.split('-').map((n) => Number(n));
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  } catch {
+    return raw;
+  }
+};
+const editorLastOccurrenceYmd = computed(() => {
+  const start = String(editorDateYmd.value || '').slice(0, 10);
+  if (!start) return '';
+  const freq = editorRecurrenceFrequency.value;
+  if (freq === 'ONCE') return start;
+  const dates = expandRecurrenceDates({
+    startYmd: start,
+    frequency: freq,
+    endMode: editorRecurrenceEndMode.value,
+    occurrenceCount: editorRecurrenceOccurrenceCount.value,
+    untilDate: editorRecurrenceUntilDate.value,
+    weekdays: editorRecurrenceWeekdays.value
+  });
+  return String(dates[dates.length - 1] || start).slice(0, 10);
+});
+const editorBookedUntilLabel = computed(() => {
+  const label = formatEditorDateLabel(editorLastOccurrenceYmd.value);
+  return label || '—';
+});
+const editorRecurrenceOccurrenceLabel = computed(() => {
+  const freq = editorRecurrenceFrequency.value;
+  const lastLabel = formatEditorDateLabel(editorLastOccurrenceYmd.value);
+  if (freq === 'ONCE') return lastLabel ? `One session on ${lastLabel}` : 'One session';
+  if (editorRecurrenceEndMode.value === 'indefinite') {
+    return lastLabel
+      ? `Repeats with no end date (prebuilds through ${lastLabel})`
+      : 'Repeats with no end date (prebuilds upcoming occurrences)';
+  }
+  if (lastLabel) return `Booked until ${lastLabel}`;
+  return `Books ${editorRecurrenceOccurrenceCount.value} time(s)`;
+});
+const editorShowOccurrenceCount = computed(() => editorRecurrenceFrequency.value !== 'ONCE');
+const editorOccurrenceCountLabel = computed(() => {
+  const lastLabel = formatEditorDateLabel(editorLastOccurrenceYmd.value);
+  if (editorRecurrenceFrequency.value === 'ONCE') return lastLabel || '1 time';
+  if (editorRecurrenceEndMode.value === 'indefinite') return lastLabel ? `Through ${lastLabel}` : 'Ongoing';
+  return lastLabel ? `Until ${lastLabel}` : `${editorRecurrenceOccurrenceCount.value} times`;
+});
+const editorVirtualHint = computed(() => {
+  if (editorVirtualLink.value || editorMeetLink.value) return '';
+  if (editorIsMeeting.value && editorShowVirtual.value) {
+    return 'Join and copy links appear here right after you schedule.';
+  }
+  return '';
+});
+
+const editorDateYmd = computed(() => {
+  if (isScheduleEventEditMode.value && scheduleEventEditForm.value.startAt) {
+    return String(scheduleEventEditForm.value.startAt).slice(0, 10);
+  }
+  if (isSupervisionEditMode.value && supvStartIsoLocal.value) {
+    return String(supvStartIsoLocal.value).slice(0, 10);
+  }
+  try {
+    return addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
+  } catch {
+    return '';
+  }
+});
+const editorStartTime = computed(() => {
+  if (isScheduleEventEditMode.value && scheduleEventEditForm.value.startAt) {
+    return String(scheduleEventEditForm.value.startAt).slice(11, 16);
+  }
+  if (isSupervisionEditMode.value && supvStartIsoLocal.value) {
+    return String(supvStartIsoLocal.value).slice(11, 16);
+  }
+  const h = Number(effectiveModalStartHour.value ?? modalHour.value ?? 0);
+  const m = Number(modalStartMinute.value || 0);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+});
+const editorEndTime = computed(() => {
+  if (isScheduleEventEditMode.value && scheduleEventEditForm.value.endAt) {
+    return String(scheduleEventEditForm.value.endAt).slice(11, 16);
+  }
+  if (isSupervisionEditMode.value && supvEndIsoLocal.value) {
+    return String(supvEndIsoLocal.value).slice(11, 16);
+  }
+  const h = Number(modalEndHour.value || 0);
+  const m = Number(modalEndMinute.value || 0);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+});
+const editorAgencyId = computed(() => {
+  if (isScheduleEventEditMode.value) return Number(scheduleEventEditForm.value.agencyId || 0);
+  return Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0);
+});
+const editorWorkspaceTab = ref('edit');
+const editorServiceLocationId = ref(0);
+const editorOpenRoomsLoading = ref(false);
+const editorOpenRooms = ref([]);
+const editorPreferredRoomsHint = ref('');
+
+const BUSINESS_TYPE_SESSION_LABELS = {
+  mental_health: 'Clinical session',
+  healthcare: 'Clinical session',
+  tutoring: 'Tutoring',
+  consulting: 'Consultation',
+  coaching: 'Coaching session',
+  learning: 'Learning session',
+  mentorship: 'Mentorship',
+  skills_development: 'Skills session',
+  other: 'Session'
+};
+
+const editorAppointmentType = computed(() => {
+  if (editorIsClinical.value) {
+    return String(editorPracticeCategory.value || '').trim();
+  }
+  if (editorIsMeeting.value) {
+    const k = String(
+      editingScheduleStackItem.value?.eventKind || requestType.value || ''
+    ).trim().toUpperCase();
+    if (k === 'HUDDLE' || String(requestType.value || '') === 'huddle') return 'huddle';
+    return 'agency_meeting';
+  }
+  if (editorIsSupervision.value) return 'supervision';
+  if (editorIsOpenSlot.value) return String(requestType.value || 'portal_intake');
+  return String(requestType.value || '');
+});
+const editorTypeOptions = computed(() => {
+  if (!showAppointmentEditorShell.value) return [];
+  if (editorIsOpenSlot.value || editorIsSupervision.value) return [];
+  if (editorIsMeeting.value) {
+    return [
+      { value: 'agency_meeting', label: 'Team Meeting' },
+      { value: 'huddle', label: 'Huddle' }
+    ];
+  }
+  if (!editorIsClinical.value) return [];
+  // Overarching practice categories (Coaching, Consulting, Mental health, Tutoring).
+  const codes = editorPracticeCategories.value || [];
+  if (codes.length) {
+    return codes.map((code) => ({
+      value: String(code),
+      label: practiceCategoryLabel(code)
+    }));
+  }
+  return Object.keys(PRACTICE_CATEGORY_LABELS).map((code) => ({
+    value: code,
+    label: PRACTICE_CATEGORY_LABELS[code]
+  }));
+});
+
+const editorShowBillingTab = computed(() => {
+  if (!editorIsClinical.value) return false;
+  if (String(editorPracticeCategory.value || '') === 'mental_health') return true;
+  const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === Number(editorTenantServiceId.value || 0));
+  const bt = String(svc?.businessType || svc?.business_type || '').toLowerCase();
+  if (bt && bt !== 'mental_health' && bt !== 'healthcare') return false;
+  return true;
+});
+
+const editorIsGroupSession = computed(
+  () => (virtualSessionSelectedClientIds.value || []).filter((n) => Number(n) > 0).length > 1
+);
+
+const editorCoProviderOptions = computed(() => {
+  const me = Number(bookingTargetUserId.value || props.userId || authStore.user?.id || 0);
+  return (bookingProviderPickerOptions.value || [])
+    .filter((p) => Number(p.id || 0) > 0 && Number(p.id) !== me)
+    .map((p) => {
+      const name = [p.first_name, p.last_name].filter(Boolean).join(' ').trim();
+      return {
+        id: Number(p.id),
+        label: name || String(p.email || '').trim() || `User #${p.id}`
+      };
+    });
+});
+const editorShowClinicalTab = computed(() => editorShowBillingTab.value || editorIsClinical.value);
+
+const editorWorkspaceTabs = computed(() => {
+  if (!showAppointmentEditorShell.value) return [];
+  if (!isAppointmentEditMode.value) {
+    return [{ id: 'edit', label: 'Schedule', icon: '✎' }];
+  }
+  const tabs = [
+    { id: 'info', label: 'Info', icon: 'ⓘ' },
+    { id: 'edit', label: 'Edit', icon: '✎' }
+  ];
+  if (editorIsSupervision.value) {
+    tabs.push({ id: 'note', label: 'Note', icon: '✎' });
+    tabs.push({ id: 'supervisee', label: 'Supervisee', icon: '◎' });
+  }
+  if (editorShowBillingTab.value) tabs.push({ id: 'billing', label: 'Billing', icon: '$' });
+  if (editorShowClinicalTab.value) tabs.push({ id: 'clinical', label: 'Clinical', icon: '☰' });
+  tabs.push({ id: 'notifications', label: 'Notifications', icon: '🔔' });
+  return tabs;
+});
+
+/** Synthetic school location ids are negative: -(schoolOrganizationId). */
+const schoolLocationSyntheticId = (schoolOrgId) => {
+  const sid = Number(schoolOrgId || 0);
+  return sid > 0 ? -sid : 0;
+};
+
+const editorClientSchoolLocationOptions = computed(() => {
+  const selected = new Set(
+    (virtualSessionSelectedClientIds.value || []).map((n) => Number(n)).filter((n) => n > 0)
+  );
+  const clients = scheduleEventEditClientOptions.value.length
+    ? scheduleEventEditClientOptions.value
+    : (virtualSessionClients.value || []);
+  const bySchool = new Map();
+  for (const c of clients) {
+    if (selected.size && !selected.has(Number(c.id))) continue;
+    for (const s of c.schools || []) {
+      const sid = Number(s.schoolOrganizationId || s.id || 0);
+      if (!sid || bySchool.has(sid)) continue;
+      bySchool.set(sid, {
+        id: schoolLocationSyntheticId(sid),
+        label: `${s.name || `School #${sid}`} · School · POS 03`,
+        name: String(s.name || '').trim() || `School #${sid}`,
+        placeOfService: '03',
+        schoolOrganizationId: sid,
+        isSchool: true,
+        billingOfficeName: ''
+      });
+    }
+  }
+  return Array.from(bySchool.values());
+});
+
+const allowedPosForSelectedServiceCode = computed(() => {
+  const code = normalizeCodeValue(bookingServiceCode.value);
+  if (!code) return null;
+  const hit = (bookingServiceCodeOptions.value || []).find((o) => o.code === code);
+  const list = Array.isArray(hit?.allowedPlaceOfService) ? hit.allowedPlaceOfService : [];
+  const cleaned = list.map((p) => String(p || '').trim()).filter(Boolean);
+  return cleaned.length ? new Set(cleaned) : null;
+});
+
+const editorServiceLocationOptions = computed(() => {
+  const allowed = allowedPosForSelectedServiceCode.value;
+  const rows = bookingServiceLocationOptions.value || [];
+  const base = rows
+    .filter((loc) => !allowed || !loc.placeOfService || allowed.has(String(loc.placeOfService)))
+    .map((loc) => {
+      const pos = loc.placeOfService ? `POS ${loc.placeOfService}` : '';
+      const office = loc.billingOfficeName ? loc.billingOfficeName : '';
+      const bits = [loc.name, office || (loc.schoolOrganizationId ? 'School site' : ''), pos].filter(Boolean);
+      return {
+        id: loc.id,
+        label: bits.join(' · '),
+        placeOfService: loc.placeOfService,
+        isSchool: Number(loc.schoolOrganizationId || 0) > 0 || loc.placeOfService === '03',
+        schoolOrganizationId: Number(loc.schoolOrganizationId || 0) || 0,
+        name: loc.name
+      };
+    });
+  const existingSchoolOrgIds = new Set(
+    base.map((b) => Number(b.schoolOrganizationId || 0)).filter((n) => n > 0)
+  );
+  const schools = (editorClientSchoolLocationOptions.value || [])
+    .filter((s) => !allowed || allowed.has('03'))
+    .filter((s) => !existingSchoolOrgIds.has(Number(s.schoolOrganizationId || 0)));
+  return [...schools, ...base];
+});
+
+const editorHeaderServiceOptions = computed(() => {
+  const cat = String(editorPracticeCategory.value || '').trim().toLowerCase();
+  if (!cat) return [];
+  const allowed = new Set(businessTypesForPracticeCategory(cat));
+  return (editorTenantServices.value || [])
+    .filter((s) => allowed.has(String(s?.businessType || s?.business_type || '').toLowerCase()))
+    .map((s) => {
+      const code = String(s.serviceCode || s.service_code || '').trim();
+      const mins = Number(s.defaultDurationMinutes || s.default_duration_minutes || 0);
+      const name = String(s.name || '').trim() || `Service #${s.id}`;
+      const label = `${name}${mins ? ` (${mins}m)` : ''}${code ? ` · ${code}` : ''}`;
+      return { id: Number(s.id), label, name };
+    })
+    .filter((s) => s.id > 0);
+});
+
+const editorModalityPosWarning = computed(() => {
+  if (!editorIsClinical.value) return '';
+  const modality = String(editorModality.value || bookingModality.value || '').toUpperCase();
+  if (modality !== 'IN_PERSON') return '';
+  const locId = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
+  const hit = (editorServiceLocationOptions.value || []).find((l) => Number(l.id) === locId)
+    || (bookingServiceLocationOptions.value || []).find((l) => Number(l.id) === locId);
+  const pos = String(hit?.placeOfService || '').trim();
+  if (pos === '02' || pos === '10') {
+    return 'In-person modality with a telehealth Place of Service (02/10). You can still save if that’s intentional.';
+  }
+  return '';
+});
+
+function onScrollToGroupClients() {
+  editorForceExpandGroupClients.value = true;
+  editorWorkspaceTab.value = 'edit';
+  requestAnimationFrame(() => {
+    const el = document.getElementById('csb-additional-clients');
+    if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => { editorForceExpandGroupClients.value = false; }, 400);
+  });
+}
+
+function onEditorTenantServiceId(id) {
+  editorTenantServiceId.value = Number(id || 0);
+}
+
+const editorPreferredOpenRoomOptions = computed(() => {
+  const open = Array.isArray(editorOpenRooms.value) ? editorOpenRooms.value : [];
+  if (open.length) {
+    return open.map((r) => ({
+      id: Number(r.id || r.roomId || 0),
+      roomId: Number(r.id || r.roomId || 0),
+      roomNumber: r.roomNumber ?? r.room_number ?? null,
+      label: String(r.label || r.name || `Room #${r.id || r.roomId}`).trim(),
+      photoUrl: String(r.photoUrl || r.photo_url || '').trim() || '',
+      stateLabel: r.stateLabel || (r.requestable === false ? 'Booked' : 'Open'),
+      requestable: r.requestable !== false
+    })).filter((r) => r.id > 0);
+  }
+  // Fallback: catalog rooms — mark as unchecked until live availability loads.
+  return (editorRoomOptions.value || []).map((r) => ({
+    ...r,
+    roomNumber: r.roomNumber ?? r.room_number ?? null,
+    photoUrl: String(r.photoUrl || r.photo_url || '').trim() || '',
+    stateLabel: 'Availability unknown',
+    requestable: true
+  }));
+});
+
+function formatEditorDisplayDate(ymd) {
+  const s = String(ymd || '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  try {
+    return toLocalDateNoon(s).toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' });
+  } catch {
+    return s;
+  }
+}
+function formatEditorDisplayTime(hhmm) {
+  const raw = String(hhmm || '').trim();
+  const m = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return raw;
+  return hourMinuteLabel(Number(m[1]), Number(m[2]));
+}
+function formatEditorDisplayDateTime(isoOrLocal) {
+  const raw = String(isoOrLocal || '').trim();
+  if (!raw) return '';
+  try {
+    const d = new Date(raw.includes('T') ? raw : `${raw}:00`);
+    if (Number.isNaN(d.getTime())) return raw;
+    const date = d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return `${date} at ${time}`;
+  } catch {
+    return raw;
+  }
+}
+const editorInfoWhenLabel = computed(() => {
+  const d = formatEditorDisplayDate(editorDateYmd.value);
+  const s = formatEditorDisplayTime(editorStartTime.value);
+  const e = formatEditorDisplayTime(editorEndTime.value);
+  const tz = String(bookingTimezoneLabel.value || '').trim();
+  const range = [s, e].filter(Boolean).join(' – ');
+  const bits = [];
+  if (d) bits.push(d);
+  if (range) bits.push(tz ? `${range} · ${tz}` : range);
+  else if (tz) bits.push(tz);
+  return bits.join(' · ') || '—';
+});
+const editorInfoWhenDateLabel = computed(() => formatEditorDisplayDate(editorDateYmd.value) || '—');
+const editorInfoWhenTimeLabel = computed(() => {
+  const s = formatEditorDisplayTime(editorStartTime.value);
+  const e = formatEditorDisplayTime(editorEndTime.value);
+  const tz = String(bookingTimezoneLabel.value || '').trim();
+  const range = [s, e].filter(Boolean).join(' – ');
+  return range ? (tz ? `${range} · ${tz}` : range) : (tz || '—');
+});
+const editorInfoTypeLabel = computed(() => {
+  if (editorIsClinical.value) {
+    const sid = Number(editorTenantServiceId.value || 0);
+    const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === sid);
+    if (svc?.name) return String(svc.name);
+    const bt = String(svc?.businessType || '').toLowerCase();
+    return BUSINESS_TYPE_SESSION_LABELS[bt] || modalEditorTitle.value || 'Session';
+  }
+  return modalEditorTitle.value || '—';
+});
+const editorInfoModalityLabel = computed(() => {
+  if (editorIsMeeting.value) return editorMeetingIsVirtual.value ? 'Virtual' : 'In-person';
+  if (editorIsSupervision.value) return editorSupervisionIsVirtual.value ? 'Virtual' : 'In-person';
+  const m = String(editorModality.value || bookingModality.value || '').toUpperCase();
+  if (m === 'TELEHEALTH') return 'Virtual';
+  if (m === 'IN_PERSON') return 'In-person';
+  return m || '—';
+});
+const editorInfoClientId = computed(() => {
+  if (isScheduleEventEditMode.value) return Number(scheduleEventEditForm.value?.clientId || 0);
+  const set = virtualSessionSelectedClientIdSet.value;
+  if (set?.size === 1) return Number([...set][0] || 0);
+  return 0;
+});
+const editorInfoClientName = computed(() => {
+  const id = editorInfoClientId.value;
+  if (!id) return '';
+  return scheduleEventClientDisplayName(id) || `Client #${id}`;
+});
+const editorInfoServiceLabel = computed(() => {
+  const sid = Number(editorTenantServiceId.value || 0);
+  const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === sid);
+  if (!svc) return '';
+  const code = String(svc.serviceCode || svc.service_code || '').trim();
+  return `${code ? `${code} · ` : ''}${svc.name || 'Service'}`;
+});
+const editorInfoLocationLabel = computed(() => {
+  const id = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
+  const hit = (editorServiceLocationOptions.value || []).find((l) => Number(l.id) === id);
+  if (hit?.label) return hit.label;
+  return String(editorLocationAddress.value || '').trim();
+});
+const editorInfoNotes = computed(() => {
+  if (editorIsSupervision.value) return '';
+  if (editorIsMeeting.value) return String(editorMeetingNotes.value || '').trim();
+  return String(requestNotes.value || '').trim();
+});
+
+const canOpenScheduleUserProfile = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'superadmin', 'admin', 'agency_admin', 'backoffice_admin', 'hr'].includes(role);
+});
+const canOpenScheduleClientProfile = computed(() => canOpenScheduleUserProfile.value);
+
+function openScheduleUserProfile(userId) {
+  const id = Number(userId || 0);
+  if (!id || !canOpenScheduleUserProfile.value) return;
+  const slug = String(route.params.organizationSlug || '').trim();
+  if (slug) router.push(`/${slug}/admin/users/${id}`).catch(() => {});
+  else router.push(`/admin/users/${id}`).catch(() => {});
+}
+function openScheduleClientProfile(clientId) {
+  const id = Number(clientId || 0);
+  if (!id || !canOpenScheduleClientProfile.value) return;
+  const slug = String(route.params.organizationSlug || '').trim();
+  if (slug) router.push(`/${slug}/admin/clients/${id}`).catch(() => {});
+  else router.push(`/admin/clients/${id}`).catch(() => {});
+}
+
+function inferModalityFromEvent(target = {}) {
+  const explicit = String(target?.modality || '').trim().toUpperCase();
+  if (explicit === 'TELEHEALTH' || explicit === 'VIRTUAL') return 'TELEHEALTH';
+  if (explicit === 'IN_PERSON' || explicit === 'IN-PERSON') return 'IN_PERSON';
+  if (target?.appJoinUrl || target?.meetLink || target?.platformJoinUrl || target?.joinUrl) {
+    return 'TELEHEALTH';
+  }
+  const title = String(target?.title || '').toLowerCase();
+  if (/\b(virtual|telehealth|zoom|google meet|teams|video)\b/.test(title)) return 'TELEHEALTH';
+  if (/\b(in[-\s]?person|on[-\s]?site|office visit)\b/.test(title)) return 'IN_PERSON';
+  return 'TELEHEALTH';
+}
+const editorShowParticipant = computed(() => editorIsClinical.value || editorIsMeeting.value || editorIsSupervision.value);
+const editorParticipantLabel = computed(() => {
+  if (editorIsMeeting.value) return 'Participants';
+  if (editorIsSupervision.value) return 'Participant';
+  return 'Client';
+});
+const editorMeetingParticipantNames = computed(() => {
+  const chips = selectedMeetingParticipantChips.value || [];
+  return chips.map((chip) => {
+    const label = supervisionParticipantLabel(chip.row || { id: chip.id });
+    return String(label || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || `User #${chip.id}`;
+  }).filter(Boolean);
+});
+const editorMeetingTitle = computed({
+  get: () => (
+    isScheduleEventEditMode.value
+      ? String(scheduleEventEditForm.value?.title || '')
+      : String(scheduleEventTitle.value || '')
+  ),
+  set: (v) => {
+    const next = String(v || '');
+    if (isScheduleEventEditMode.value) {
+      scheduleEventEditForm.value = { ...scheduleEventEditForm.value, title: next };
+    } else {
+      scheduleEventTitle.value = next;
+    }
+  }
+});
+const editorMeetingNotes = computed({
+  get: () => (
+    isScheduleEventEditMode.value
+      ? String(scheduleEventEditForm.value?.description || '')
+      : String(requestNotes.value || '')
+  ),
+  set: (v) => {
+    const next = String(v || '');
+    if (isScheduleEventEditMode.value) {
+      scheduleEventEditForm.value = { ...scheduleEventEditForm.value, description: next };
+    } else {
+      requestNotes.value = next;
+    }
+  }
+});
+const editorTenantIconUrl = computed(() => {
+  const aid = Number(
+    selectedSupvSession.value?.agencyId
+    || selectedSupvSession.value?._agencyId
+    || editorAgencyId.value
+    || selectedActionAgencyId.value
+    || effectiveAgencyId.value
+    || 0
+  );
+  return aid > 0 ? (agencyIconUrlById(aid) || '') : '';
+});
+const editorParticipantSummary = computed(() => {
+  if (editorIsMeeting.value) {
+    const names = editorMeetingParticipantNames.value;
+    if (!names.length) return 'None selected';
+    if (names.length <= 3) return names.join(', ');
+    return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
+  }
+  if (editorIsSupervision.value) {
+    const fromSession = String(selectedSupvSession.value?.counterpartyName || '').trim();
+    if (fromSession) return fromSession;
+    const pid = Number(selectedSupervisionParticipantId.value || 0);
+    if (pid > 0) {
+      const row = supervisionParticipantById.value.get(pid);
+      if (row) {
+        const label = supervisionParticipantLabel(row);
+        return String(label || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || label;
+      }
+      const chip = (selectedSupervisionParticipantChips.value || []).find((c) => Number(c.id) === pid);
+      if (chip?.row) {
+        const label = supervisionParticipantLabel(chip.row);
+        return String(label || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || label;
+      }
+    }
+    return '—';
+  }
+  if (isScheduleEventEditMode.value && scheduleEventEditForm.value.clientId) {
+    return scheduleEventClientDisplayName(scheduleEventEditForm.value.clientId) || `Client #${scheduleEventEditForm.value.clientId}`;
+  }
+  const n = virtualSessionSelectedClientIdSet.value?.size || 0;
+  if (n === 1) {
+    const id = Array.from(virtualSessionSelectedClientIdSet.value.values())[0];
+    return scheduleEventClientDisplayName(id) || `Client #${id}`;
+  }
+  if (n > 1) return `${n} clients`;
+  return '—';
+});
+const editorShowLocation = computed(() => !editorShowVirtual.value || editorIsOpenSlot.value);
+const editorShowRoom = computed(() => editorShowLocation.value || editorIsOpenSlot.value);
+const editorRoomLabel = computed(() => String(modalOccupiedSlotSummary.value?.roomDisplay || '').trim());
+const editorRoomOptions = computed(() => {
+  const rooms = Array.isArray(officeRooms.value) ? officeRooms.value : [];
+  return rooms.map((r) => ({
+    id: Number(r.id || r.roomId || 0),
+    label: String(r.name || r.label || r.roomName || `Room #${r.id || r.roomId}`)
+  })).filter((r) => r.id > 0);
+});
+const editorShowBookedUntil = computed(() => (
+  editorShowRecurrence.value && editorRecurrenceFrequency.value !== 'ONCE'
+));
+const editorShowOfficeRequestCta = computed(() => {
+  // Clinical only — open-slot flow has its own office UI. When active, header expands in place.
+  if (editorIsOpenSlot.value) return false;
+  if (!editorIsClinical.value) return false;
+  if (editorAttachOfficeRequest.value) return false;
+  const hasOffice = Number(selectedOfficeLocationId.value || editorOfficeLocationId.value || 0) > 0;
+  const hasRoom = Number(editorRoomId.value || selectedOfficeRoomId.value || editorPreferredRoomId.value || 0) > 0;
+  return !hasOffice || !hasRoom;
+});
+
+function parseWallDateTimeLocal(raw) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(String(raw || '').trim());
+  if (!m) return null;
+  return {
+    y: Number(m[1]),
+    mo: Number(m[2]),
+    d: Number(m[3]),
+    h: m[4] != null ? Number(m[4]) : 0,
+    mi: m[5] != null ? Number(m[5]) : 0,
+    s: m[6] != null ? Number(m[6]) : 0
+  };
+}
+function formatWallDateTimeLocal(parts, { withSeconds = false } = {}) {
+  if (!parts) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  const base = `${parts.y}-${pad(parts.mo)}-${pad(parts.d)}T${pad(parts.h)}:${pad(parts.mi)}`;
+  return withSeconds ? `${base}:${pad(parts.s || 0)}` : base;
+}
+function wallPartsToUtcMs(parts) {
+  if (!parts) return null;
+  return Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s || 0);
+}
+function utcMsToWallParts(ms) {
+  const d = new Date(ms);
+  return {
+    y: d.getUTCFullYear(),
+    mo: d.getUTCMonth() + 1,
+    d: d.getUTCDate(),
+    h: d.getUTCHours(),
+    mi: d.getUTCMinutes(),
+    s: d.getUTCSeconds()
+  };
+}
+function durationMinutesFromWall(startRaw, endRaw) {
+  const a = parseWallDateTimeLocal(startRaw);
+  const b = parseWallDateTimeLocal(endRaw);
+  if (!a || !b) return 60;
+  const mins = Math.round((wallPartsToUtcMs(b) - wallPartsToUtcMs(a)) / 60000);
+  return Number.isFinite(mins) && mins > 0 ? mins : 60;
+}
+/** When start moves, keep the same duration by shifting end. */
+function endIsoPreservingDuration(prevStartIso, prevEndIso, nextStartIso) {
+  const next = parseWallDateTimeLocal(nextStartIso);
+  if (!next) return prevEndIso;
+  const dur = durationMinutesFromWall(prevStartIso, prevEndIso);
+  const endParts = utcMsToWallParts(wallPartsToUtcMs(next) + dur * 60000);
+  const withSeconds = /:\d{2}:\d{2}$/.test(String(nextStartIso || ''))
+    || /:\d{2}:\d{2}$/.test(String(prevEndIso || ''));
+  return formatWallDateTimeLocal(endParts, { withSeconds });
+}
+function onEditorDateYmd(ymd) {
+  const value = String(ymd || '').slice(0, 10);
+  if (!value) return;
+  if (isScheduleEventEditMode.value) {
+    const startT = editorStartTime.value || '09:00';
+    const endT = editorEndTime.value || '10:00';
+    scheduleEventEditForm.value.startAt = `${value}T${startT}`;
+    scheduleEventEditForm.value.endAt = `${value}T${endT}`;
+    return;
+  }
+  if (isSupervisionEditMode.value) {
+    const startT = editorStartTime.value || '09:00';
+    const endT = editorEndTime.value || '10:00';
+    supvStartIsoLocal.value = `${value}T${startT}`;
+    supvEndIsoLocal.value = `${value}T${endT}`;
+    return;
+  }
+  // Map YMD back to weekday in the visible week when possible.
+  for (const d of (orderedDays.value || ALL_DAYS)) {
+    try {
+      if (addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(d)) === value) {
+        modalDay.value = d;
+        onChooserWhenChanged?.();
+        return;
+      }
+    } catch { /* ignore */ }
+  }
+}
+function onEditorStartTime(t) {
+  const [hh, mm] = String(t || '00:00').split(':').map((n) => Number(n));
+  const nextHm = `${String(hh).padStart(2, '0')}:${String(mm || 0).padStart(2, '0')}`;
+  if (isScheduleEventEditMode.value) {
+    const ymd = editorDateYmd.value;
+    const prevStart = scheduleEventEditForm.value.startAt;
+    const prevEnd = scheduleEventEditForm.value.endAt;
+    const nextStart = `${ymd}T${nextHm}`;
+    scheduleEventEditForm.value.startAt = nextStart;
+    scheduleEventEditForm.value.endAt = endIsoPreservingDuration(prevStart, prevEnd, nextStart);
+    return;
+  }
+  if (isSupervisionEditMode.value) {
+    const ymd = editorDateYmd.value;
+    const prevStart = supvStartIsoLocal.value;
+    const prevEnd = supvEndIsoLocal.value;
+    const nextStart = `${ymd}T${nextHm}`;
+    supvStartIsoLocal.value = nextStart;
+    supvEndIsoLocal.value = endIsoPreservingDuration(prevStart, prevEnd, nextStart);
+    return;
+  }
+  const prevStartMins = Number(effectiveModalStartHour.value ?? modalHour.value ?? 0) * 60
+    + Number(modalStartMinute.value || 0);
+  const prevEndMins = Number(modalEndHour.value || 0) * 60 + Number(modalEndMinute.value || 0);
+  let dur = prevEndMins - prevStartMins;
+  if (!(dur > 0)) dur = 60;
+  const nextStartMins = (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
+  const nextEndMins = nextStartMins + dur;
+  modalHour.value = hh;
+  modalStartMinute.value = mm || 0;
+  modalEndHour.value = Math.floor(nextEndMins / 60);
+  modalEndMinute.value = nextEndMins % 60;
+  onChooserWhenChanged?.();
+}
+function onEditorEndTime(t) {
+  const [hh, mm] = String(t || '00:00').split(':').map((n) => Number(n));
+  if (isScheduleEventEditMode.value) {
+    const ymd = editorDateYmd.value;
+    scheduleEventEditForm.value.endAt = `${ymd}T${String(hh).padStart(2, '0')}:${String(mm || 0).padStart(2, '0')}`;
+    return;
+  }
+  if (isSupervisionEditMode.value) {
+    const ymd = editorDateYmd.value;
+    supvEndIsoLocal.value = `${ymd}T${String(hh).padStart(2, '0')}:${String(mm || 0).padStart(2, '0')}`;
+    return;
+  }
+  modalEndHour.value = hh;
+  modalEndMinute.value = mm || 0;
+  onChooserWhenChanged?.();
+}
+
+/** datetime-local inputs that bind directly (legacy paths) */
+function onScheduleEventStartAtInput(raw) {
+  const nextStart = String(raw || '').trim();
+  if (!nextStart) return;
+  const prevStart = scheduleEventEditForm.value.startAt;
+  const prevEnd = scheduleEventEditForm.value.endAt;
+  scheduleEventEditForm.value.startAt = nextStart.length === 16 ? nextStart : nextStart.slice(0, 16);
+  scheduleEventEditForm.value.endAt = endIsoPreservingDuration(prevStart, prevEnd, scheduleEventEditForm.value.startAt);
+}
+function onSupvStartAtInput(raw) {
+  const nextStart = String(raw || '').trim();
+  if (!nextStart) return;
+  const prevStart = supvStartIsoLocal.value;
+  const prevEnd = supvEndIsoLocal.value;
+  supvStartIsoLocal.value = nextStart.length === 16 ? nextStart : nextStart.slice(0, 16);
+  supvEndIsoLocal.value = endIsoPreservingDuration(prevStart, prevEnd, supvStartIsoLocal.value);
+}
+function onEditorAgencyId(id) {
+  const aid = Number(id || 0);
+  if (isScheduleEventEditMode.value) {
+    scheduleEventEditForm.value.agencyId = aid;
+    onScheduleEventEditAgencyChange?.();
+    return;
+  }
+  selectedActionAgencyId.value = aid;
+  onBookingAgencyChange?.();
+  void loadEditorPracticeCategories();
+  void loadEditorTenantServices();
+}
+function onEditorAppointmentType(value) {
+  const v = String(value || '').trim();
+  if (!v) return;
+  // Clinical: Type = practice category (mental_health, tutoring, coaching, consulting).
+  if (editorIsClinical.value && PRACTICE_CATEGORY_LABELS[v]) {
+    editorPracticeCategory.value = v;
+    editorTenantServiceId.value = 0;
+    editorAddonServiceCodes.value = [];
+    bookingServiceCode.value = '';
+    const allowed = new Set(businessTypesForPracticeCategory(v));
+    const match = (editorTenantServices.value || []).find((s) =>
+      allowed.has(String(s?.businessType || s?.business_type || '').toLowerCase())
+    );
+    if (match) editorTenantServiceId.value = Number(match.id || 0);
+    if (v === 'mental_health') void loadBookingMetadataForProvider();
+    return;
+  }
+  // Legacy: Type was tenant service id.
+  if (editorIsClinical.value && /^\d+$/.test(v)) {
+    editorTenantServiceId.value = Number(v);
+    const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === Number(v));
+    const cat = practiceCategoryForBusinessType(svc?.businessType || svc?.business_type);
+    if (cat) editorPracticeCategory.value = cat;
+    return;
+  }
+  // Meeting kind switch (create or edit presentation).
+  if ((v === 'agency_meeting' || v === 'huddle') && !isAppointmentEditMode.value) {
+    openAppointmentEditor({
+      mode: 'create',
+      kind: v,
+      defaults: {
+        modality: editorModality.value || bookingModality.value || 'TELEHEALTH',
+        roomId: Number(editorRoomId.value || selectedOfficeRoomId.value || 0),
+        attachOfficeRequest: !!editorAttachOfficeRequest.value
+      }
+    });
+  }
+}
+function onEditorStatus(value) {
+  editorStatus.value = String(value || '');
+  if (canEditBookingStrip.value) bookingStripStatus.value = String(value || '');
+}
+function onEditorBookedUntil(value) {
+  editorBookedUntil.value = String(value || '');
+  if (canEditBookingStrip.value) bookingStripUntil.value = String(value || '');
+}
+function onEditorRecurrenceFrequency(v) {
+  scheduleEventRecurrence.value = String(v || 'ONCE').toUpperCase();
+}
+function onEditorRecurrenceEndMode(v) {
+  scheduleEventRecurrenceEndMode.value = String(v || 'count');
+}
+function onEditorRecurrenceOccurrenceCount(v) {
+  scheduleEventOccurrenceCount.value = Math.max(1, Number(v || 1));
+}
+function onEditorRequestOffice() {
+  editorAttachOfficeRequest.value = true;
+  sessionAlsoRequestOffice.value = true;
+  if (editorIsOpenSlot.value) {
+    editorOpenSlotEnabled.value = true;
+  }
+  // Do not flip modality — virtual sessions can still request a room (hybrid).
+  const selectedOffice = Number(selectedOfficeLocationId.value || 0);
+  if (!Number(editorOfficeLocationId.value || 0) && selectedOffice > 0) {
+    editorOfficeLocationId.value = selectedOffice;
+  }
+  void (async () => {
+    await loadEditorOfficeLocations();
+    const locId = Number(editorOfficeLocationId.value || 0);
+    if (locId > 0) {
+      await loadOfficeRooms(locId);
+      await loadEditorOpenRoomsForWindow();
+    }
+  })();
+}
+
+function onEditorCancelOfficeRequest() {
+  editorAttachOfficeRequest.value = false;
+  sessionAlsoRequestOffice.value = false;
+  editorPreferredRoomId.value = 0;
+  editorOpenRooms.value = [];
+  editorPreferredRoomsHint.value = '';
+  editorOfficeSeriesRechecking.value = false;
+}
+
+function editorOfficeSeriesParams() {
+  const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE').toUpperCase();
+  const recurring = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(recurrence);
+  const endMode = String(scheduleEventRecurrenceEndMode.value || 'count');
+  let occurrenceCount = null;
+  if (recurring) {
+    if (endMode === 'indefinite') {
+      occurrenceCount = null; // API validates a forward window
+    } else {
+      occurrenceCount = Math.min(
+        recurrence === 'WEEKLY' ? 52 : 104,
+        Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value || 6))
+      );
+    }
+  }
+  return { recurrence: recurring ? recurrence : 'ONCE', occurrenceCount };
+}
+
+async function withdrawEditorPriorOfficeRequests() {
+  const bookingId = Number(editorLastOfficeBookingRequestId.value || 0);
+  if (bookingId > 0) {
+    try {
+      await api.post(`/office-schedule/booking-requests/${bookingId}/withdraw`);
+    } catch { /* already decided / gone */ }
+    editorLastOfficeBookingRequestId.value = 0;
+  }
+}
+
+function onEditorOfficeLocationId(id) {
+  const next = Number(id || 0);
+  editorOfficeLocationId.value = next;
+  editorPreferredRoomId.value = 0;
+  if (next > 0) {
+    void loadOfficeRooms(next);
+    void loadEditorOpenRoomsForWindow();
+  } else {
+    officeRooms.value = [];
+    editorOpenRooms.value = [];
+  }
+}
+
+async function onEditorServiceLocationId(id) {
+  const next = Number(id || 0);
+  // Synthetic school id: ensure a real POS-03 location (bills under tenant office).
+  if (next < 0) {
+    const schoolOrgId = Math.abs(next);
+    editorSchoolOrganizationId.value = schoolOrgId;
+    const schoolOpt = (editorClientSchoolLocationOptions.value || []).find(
+      (s) => Number(s.schoolOrganizationId) === schoolOrgId
+    );
+    if (schoolOpt?.name) editorLocationAddress.value = schoolOpt.name;
+    const agencyId = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
+    if (agencyId && schoolOrgId) {
+      try {
+        const r = await api.post('/medical-billing/service-locations/ensure-school', {
+          agencyId,
+          schoolOrganizationId: schoolOrgId
+        });
+        const realId = Number(r?.data?.item?.id || 0);
+        if (realId > 0) {
+          editorServiceLocationId.value = realId;
+          bookingServiceLocationId.value = realId;
+          void loadBookingMetadataForProvider();
+          return;
+        }
+      } catch {
+        // Fall through: keep synthetic id for UI; submit validation may still pass via school option.
+      }
+    }
+  } else {
+    const schoolOpt = (editorClientSchoolLocationOptions.value || []).find((l) => Number(l.id) === next);
+    const meta = (bookingServiceLocationOptions.value || []).find((l) => Number(l.id) === next);
+    editorSchoolOrganizationId.value = Number(
+      schoolOpt?.schoolOrganizationId || meta?.schoolOrganizationId || 0
+    ) || (String(meta?.placeOfService || '') === '03' ? editorSchoolOrganizationId.value : 0);
+  }
+  editorServiceLocationId.value = next;
+  bookingServiceLocationId.value = next > 0 ? next : 0;
+  const hit = (bookingServiceLocationOptions.value || []).find((l) => Number(l.id) === next)
+    || (editorClientSchoolLocationOptions.value || []).find((l) => Number(l.id) === next);
+  if (hit?.billingOfficeName) {
+    editorLocationAddress.value = hit.billingOfficeName;
+  } else if (hit?.name) {
+    editorLocationAddress.value = hit.name;
+  }
+}
+
+function mapOpenRoomRow(r) {
+  const id = Number(r.id || r.roomId || 0);
+  const num = r.roomNumber ?? r.room_number ?? null;
+  const name = String(r.label || r.name || '').trim();
+  const label = `${num != null && num !== '' ? `#${num} ` : ''}${name || `Room ${id}`}`.trim();
+  return {
+    id,
+    roomId: id,
+    roomNumber: num,
+    label,
+    name,
+    photoUrl: String(r.photoUrl || r.photo_url || '').trim() || '',
+    stateLabel: r.stateLabel || 'Open for this window',
+    requestable: r.requestable !== false
+  };
+}
+
+async function loadEditorOpenRoomsForWindow() {
+  const locationId = Number(editorOfficeLocationId.value || 0);
+  if (!locationId) {
+    editorOpenRooms.value = [];
+    editorPreferredRoomsHint.value = 'Choose an office location to see rooms open for this series.';
+    return;
+  }
+  const dateYmd = String(editorDateYmd.value || '').trim();
+  const startTime = String(editorStartTime.value || '').trim();
+  const endTime = String(editorEndTime.value || '').trim();
+  if (!dateYmd || !startTime || !endTime) {
+    editorOpenRooms.value = [];
+    editorPreferredRoomsHint.value = 'Set date and time to check room availability.';
+    return;
+  }
+  const startAt = `${dateYmd}T${startTime.length === 5 ? `${startTime}:00` : startTime}`;
+  const endAt = `${dateYmd}T${endTime.length === 5 ? `${endTime}:00` : endTime}`;
+  const { recurrence, occurrenceCount } = editorOfficeSeriesParams();
+  const priorRoomId = Number(editorPreferredRoomId.value || 0);
+  editorOpenRoomsLoading.value = true;
+  editorOfficeSeriesRechecking.value = priorRoomId > 0;
+  editorPreferredRoomsHint.value = priorRoomId > 0
+    ? 'Checking if your selected office is still open for the new date/time/frequency…'
+    : (recurrence === 'ONCE'
+      ? 'Checking which rooms are open for this window…'
+      : `Checking rooms open for every occurrence (${recurrence.toLowerCase()}${occurrenceCount ? ` × ${occurrenceCount}` : ''})…`);
+  try {
+    const params = {
+      locationId,
+      startAt,
+      endAt,
+      recurrence,
+      ...(occurrenceCount ? { occurrenceCount } : {})
+    };
+    // Prefer staff endpoint; fall back to admin path for older servers.
+    let resp = await api.get('/office-schedule/available-rooms-for-slot', { params }).catch(() => null);
+    if (!resp) {
+      resp = await api.get('/office-schedule/admin/available-rooms-for-slot', { params }).catch(() => null);
+    }
+    const rooms = Array.isArray(resp?.data?.rooms) ? resp.data.rooms : [];
+    const checked = Number(resp?.data?.checkedOccurrences || 1) || 1;
+    if (rooms.length) {
+      editorOpenRooms.value = rooms.map(mapOpenRoomRow);
+      const stillOk = !priorRoomId || rooms.some((r) => Number(r.id || r.roomId) === priorRoomId);
+      if (priorRoomId && !stillOk) {
+        editorPreferredRoomId.value = 0;
+        editorPreferredRoomsHint.value = `Your previously selected room is not open for the full series (${checked} occurrence${checked === 1 ? '' : 's'}). Pick another open room.`;
+      } else if (priorRoomId && stillOk) {
+        editorPreferredRoomsHint.value = `Selected room is still open for all ${checked} occurrence${checked === 1 ? '' : 's'}. You can request it — the prior pending series will be replaced on submit.`;
+      } else {
+        editorPreferredRoomsHint.value = recurrence === 'ONCE'
+          ? `${rooms.length} room${rooms.length === 1 ? '' : 's'} open for ${formatEditorDisplayTime(startTime)}–${formatEditorDisplayTime(endTime)}.`
+          : `${rooms.length} room${rooms.length === 1 ? '' : 's'} open for every occurrence in this series (${checked} checked).`;
+      }
+      return;
+    }
+    if (priorRoomId) editorPreferredRoomId.value = 0;
+    // Fallback only when API returned empty: still prefer numbered labels from office catalog.
+    const catalog = (officeRooms.value || []).filter((r) => Number(r.locationId || r.location_id || r.officeLocationId || 0) === locationId
+      || !Number(r.locationId || r.location_id || r.officeLocationId || 0));
+    const fromGrid = (modalOfficeRoomOptions.value || []).filter((r) => r.requestable);
+    const fallback = fromGrid.length
+      ? fromGrid.map(mapOpenRoomRow)
+      : catalog.map(mapOpenRoomRow);
+    if (fallback.length) {
+      editorOpenRooms.value = fallback;
+      editorPreferredRoomsHint.value = fromGrid.length
+        ? `${fallback.length} requestable room${fallback.length === 1 ? '' : 's'} from the office grid for this window.`
+        : 'Could not verify live availability — showing location rooms. Confirm before requesting.';
+      return;
+    }
+    editorOpenRooms.value = [];
+    editorPreferredRoomsHint.value = recurrence === 'ONCE'
+      ? 'No rooms are open for this location and time window.'
+      : 'No rooms are open for every occurrence in this series (conflicts on one or more dates).';
+  } catch {
+    editorOpenRooms.value = [];
+    editorPreferredRoomsHint.value = 'Could not load open rooms for this window.';
+  } finally {
+    editorOpenRoomsLoading.value = false;
+    editorOfficeSeriesRechecking.value = false;
+  }
+}
+
+function onEditorClinicalClientChange(event) {
+  const id = Number(event?.target?.value || 0);
+  if (id > 0) {
+    virtualSessionSelectedClientIds.value = [id];
+  } else {
+    virtualSessionSelectedClientIds.value = [];
+  }
+}
+
+async function loadEditorPracticeCategories() {
+  const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
+  const providerId = Number(bookingTargetUserId.value || props.userId || authStore.user?.id || 0);
+  if (!aid || !providerId || !editorIsClinical.value) {
+    editorPracticeCategories.value = Object.keys(PRACTICE_CATEGORY_LABELS);
+    return;
+  }
+  try {
+    const r = await api.get(`/users/${providerId}/agencies/${aid}/practice-categories`);
+    const selected = Array.isArray(r.data?.categories) ? r.data.categories : [];
+    const allowed = Array.isArray(r.data?.allowedCategories) ? r.data.allowedCategories : [];
+    const codes = (selected.length ? selected : allowed)
+      .map((c) => String(c || '').trim().toLowerCase())
+      .filter((c) => PRACTICE_CATEGORY_LABELS[c]);
+    editorPracticeCategories.value = codes.length ? codes : Object.keys(PRACTICE_CATEGORY_LABELS);
+    if (!editorPracticeCategory.value || !editorPracticeCategories.value.includes(editorPracticeCategory.value)) {
+      editorPracticeCategory.value = editorPracticeCategories.value[0] || '';
+    }
+  } catch {
+    editorPracticeCategories.value = Object.keys(PRACTICE_CATEGORY_LABELS);
+    if (!editorPracticeCategory.value) editorPracticeCategory.value = 'mental_health';
+  }
+}
+
+async function loadEditorTenantServices() {
+  const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
+  if (!aid || !editorIsClinical.value) return;
+  editorServicesLoading.value = true;
+  try {
+    const params = {};
+    const providerId = Number(bookingTargetUserId.value || props.userId || 0);
+    if (providerId) params.providerId = providerId;
+    const r = await api.get(`/tenant-booking/agencies/${aid}/booking-options`, { params });
+    let services = Array.isArray(r.data?.services) ? r.data.services : [];
+    editorPackageEntitlements.value = r.data?.packagePreview?.entitlements || [];
+    // Fallback: booking-options can be empty before suites are seeded; services list ensures defaults.
+    if (!services.length) {
+      const r2 = await api.get(`/tenant-booking/agencies/${aid}/services`, {
+        params: { ensureSuites: 'true' }
+      }).catch(() => null);
+      const raw = Array.isArray(r2?.data?.services) ? r2.data.services : [];
+      services = raw.filter((s) => {
+        if (s?.isStaffBookable === false || Number(s?.is_staff_bookable) === 0) return false;
+        if (s?.isActive === false || Number(s?.is_active) === 0) return false;
+        return true;
+      });
+    }
+    editorTenantServices.value = services;
+    if (!editorPracticeCategory.value) {
+      const first = services[0];
+      editorPracticeCategory.value = practiceCategoryForBusinessType(first?.businessType || first?.business_type) || 'mental_health';
+    }
+  } catch {
+    editorTenantServices.value = [];
+    editorPackageEntitlements.value = [];
+  } finally {
+    editorServicesLoading.value = false;
+  }
+}
+
+async function loadEditorReminders() {
+  const apptId = Number(editorAppointmentId.value || 0);
+  if (!apptId) {
+    editorReminderPlan.value = [];
+    editorReminderAttendees.value = [];
+    editorCanPushExtraReminder.value = false;
+    return;
+  }
+  editorRemindersLoading.value = true;
+  editorRemindersError.value = '';
+  editorShowReminders.value = true;
+  try {
+    const [planRes, timelineRes] = await Promise.all([
+      api.get(`/appointments/${apptId}/notification-plan`).catch(() => null),
+      api.get(`/appointments/${apptId}/timeline`).catch(() => null)
+    ]);
+    const plan = planRes?.data?.plan || planRes?.data || {};
+    editorReminderPlan.value = Array.isArray(plan?.items)
+      ? plan.items
+      : (Array.isArray(plan?.reminders) ? plan.reminders : []);
+    editorReminderAttendees.value = Array.isArray(plan?.attendees)
+      ? plan.attendees
+      : (Array.isArray(plan?.participants) ? plan.participants : []);
+    editorCanPushExtraReminder.value = plan?.canSendAdditionalReminder !== false
+      && plan?.additionalReminderAllowed !== false;
+    const timeline = timelineRes?.data?.events || timelineRes?.data?.timeline || [];
+    const lastReminder = (Array.isArray(timeline) ? timeline : [])
+      .filter((e) => String(e?.kind || e?.type || '').toLowerCase().includes('reminder'))
+      .sort((a, b) => String(b?.at || b?.createdAt || '').localeCompare(String(a?.at || a?.createdAt || '')))[0];
+    const lastRaw = lastReminder
+      ? String(lastReminder.at || lastReminder.createdAt || lastReminder.sentAt || '')
+      : '';
+    editorReminderLastSent.value = lastRaw ? formatEditorDisplayDateTime(lastRaw) : '';
+  } catch (e) {
+    editorRemindersError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load reminders';
+  } finally {
+    editorRemindersLoading.value = false;
+  }
+}
+
+async function loadEditorClinicalChart() {
+  const clientId = Number(editorInfoClientId.value || 0);
+  const agencyId = Number(editorAgencyId.value || selectedActionAgencyId.value || 0);
+  if (!clientId || !agencyId || !editorIsClinical.value) {
+    editorChartDiagnoses.value = [];
+    editorChartLatestPlan.value = null;
+    return;
+  }
+  editorChartLoading.value = true;
+  try {
+    const res = await api.get(`/medical-billing/clients/${clientId}/chart`, {
+      params: { agencyId }
+    });
+    const data = res?.data || {};
+    editorChartDiagnoses.value = Array.isArray(data.diagnoses) ? data.diagnoses : [];
+    editorChartLatestPlan.value = data.latestPlan || null;
+  } catch {
+    editorChartDiagnoses.value = [];
+    editorChartLatestPlan.value = null;
+  } finally {
+    editorChartLoading.value = false;
+  }
+}
+
+async function pushEditorExtraReminder() {
+  const apptId = Number(editorAppointmentId.value || 0);
+  if (!apptId || !editorCanPushExtraReminder.value) return;
+  editorReminderBusy.value = true;
+  try {
+    await api.post(`/appointments/${apptId}/session-notifications/reschedule`, {
+      kind: 'additional_reminder',
+      force: true
+    });
+    await loadEditorReminders();
+  } catch (e) {
+    editorRemindersError.value = e?.response?.data?.error?.message || e?.message || 'Could not push reminder';
+  } finally {
+    editorReminderBusy.value = false;
+  }
+}
+
+function openPushSessionUpdateFromEditor() {
+  const apptId = Number(editorAppointmentId.value || 0);
+  if (!apptId) return;
+  pushSessionUpdateChanges.value = [
+    { field: 'time', label: 'Time', from: `${editorStartTime.value}`, to: `${editorStartTime.value}` },
+    { field: 'location', label: 'Location', from: editorLocationAddress.value || '—', to: editorLocationAddress.value || '—' }
+  ];
+  showPushSessionUpdatePanel.value = true;
+}
+
+function openEditorClinicalNote() {
+  const noteId = Number(editorClinicalNoteId.value || 0);
+  const sessionId = Number(editorClinicalSessionId.value || 0);
+  if (noteId) {
+    router.push({ name: 'ClinicalNoteGenerator', query: { noteId: String(noteId) } }).catch(() => {
+      router.push(`/admin/clinical-note-generator?noteId=${noteId}`).catch(() => {});
+    });
+    return;
+  }
+  if (sessionId) {
+    router.push({ name: 'ClinicalNoteGenerator', query: { clinicalSessionId: String(sessionId) } }).catch(() => {
+      router.push(`/admin/clinical-note-generator?clinicalSessionId=${sessionId}`).catch(() => {});
+    });
+  }
+}
+
+function openEditorClinicalClaim() {
+  const claimId = Number(editorClaimId.value || 0);
+  const sessionId = Number(editorClinicalSessionId.value || 0);
+  const query = claimId
+    ? { claimId: String(claimId) }
+    : (sessionId ? { clinicalSessionId: String(sessionId) } : null);
+  if (!query) return;
+  router.push({ name: 'OrganizationMedicalBilling', query }).catch(() => {
+    router.push({ path: '/admin/medical-billing', query }).catch(() => {});
+  });
+}
+
+function openEditorQuickNote() {
+  editorWorkspaceTab.value = 'clinical';
+  nextTick(() => {
+    const el = document.querySelector('[data-testid="appointment-clinical-panel"] .acp-textarea');
+    if (el && typeof el.focus === 'function') el.focus();
+  });
+}
+
+/**
+ * Normalize open/edit entry into the unified appointment editor shell.
+ * Existing openers call this so create + edit share one path.
+ */
+function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = {} } = {}) {
+  const k = String(kind || '').trim();
+  // Never treat a schedule-event / supervision id as an appointment id.
+  editorAppointmentId.value = Number(defaults.appointmentId || 0) || 0;
+  editorClinicalSessionId.value = Number(defaults.clinicalSessionId || 0) || 0;
+  editorClinicalNoteId.value = Number(defaults.clinicalNoteId || 0) || 0;
+  editorClaimId.value = Number(defaults.claimId || 0) || 0;
+  editorQuickNote.value = String(defaults.quickNote || '');
+  editorLocationAddress.value = String(defaults.locationAddress || '');
+  editorRoomId.value = Number(defaults.roomId || 0) || 0;
+  editorBookedUntil.value = String(defaults.bookedUntil || '');
+  editorStatus.value = String(defaults.status || 'confirmed');
+  const modality = String(defaults.modality || '').trim().toUpperCase()
+    || String(bookingModality.value || '').trim().toUpperCase()
+    || 'TELEHEALTH';
+  editorModality.value = modality === 'IN_PERSON' ? 'IN_PERSON' : 'TELEHEALTH';
+  bookingModality.value = editorModality.value;
+  editorTenantServiceId.value = Number(defaults.tenantServiceId || 0) || 0;
+  editorPracticeCategory.value = String(defaults.practiceCategory || editorPracticeCategory.value || '').trim();
+  editorCoProviderUserId.value = Number(defaults.coProviderUserId || 0) || 0;
+  editorAddonServiceCodes.value = Array.isArray(defaults.addonServiceCodes)
+    ? defaults.addonServiceCodes.map((c) => String(c || '').toUpperCase()).filter(Boolean)
+    : [];
+  editorServiceLocationId.value = Number(defaults.serviceLocationId || bookingServiceLocationId.value || 0) || 0;
+  editorAttachOfficeRequest.value = !!defaults.attachOfficeRequest;
+  editorOpenSlotEnabled.value = defaults.openSlotEnabled !== false;
+  editorWorkspaceTab.value = String(defaults.workspaceTab || (mode === 'edit' ? 'info' : 'edit'));
+  if (Array.isArray(defaults.weekdays) && defaults.weekdays.length) {
+    editorRecurrenceWeekdays.value = defaults.weekdays.map(String);
+  } else if (modalDay.value) {
+    const map = {
+      Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu',
+      Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun'
+    };
+    editorRecurrenceWeekdays.value = [map[String(modalDay.value)] || 'Mon'];
+  }
+  if (mode === 'edit' && k === 'supervision') {
+    requestType.value = 'edit_supervision';
+  } else if (mode === 'edit' && k) {
+    requestType.value = 'edit_schedule_event';
+  } else if (k) {
+    requestType.value = k;
+  }
+  if (editorIsClinical.value) {
+    void loadEditorPracticeCategories();
+    void loadEditorTenantServices();
+    void loadVirtualSessionClients();
+    void loadBookingMetadataForProvider();
+    void loadBookingProviderDirectory();
+  }
+  if (editorIsMeeting.value || ['agency_meeting', 'huddle', 'TEAM_MEETING', 'HUDDLE'].includes(k)) {
+    meetingParticipantsExpanded.value = selectedMeetingParticipantIdSet.value.size === 0;
+    void loadMeetingCandidates();
+  }
+  if (editorIsSupervision.value || k === 'supervision') {
+    void loadSupervisionProviders();
+  }
+  if (editorAppointmentId.value) {
+    editorShowReminders.value = true;
+    void loadEditorReminders();
+  }
+  void loadEditorOfficeLocations();
+}
+
+async function loadEditorOfficeLocations() {
+  const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
+  editorOfficeLocationsLoading.value = true;
+  try {
+    // Prefer already-loaded schedule offices; otherwise fetch the same /offices catalog.
+    let rows = Array.isArray(officeLocations.value) ? officeLocations.value.slice() : [];
+    if (!rows.length) {
+      const r = await api.get('/offices').catch(() => null);
+      rows = Array.isArray(r?.data) ? r.data : [];
+      if (rows.length && !officeLocations.value.length) {
+        officeLocations.value = rows.map((row) => ({
+          ...row,
+          agencyIds: Array.isArray(row?.agencyIds)
+            ? row.agencyIds.map((n) => Number(n || 0)).filter((n) => n > 0)
+            : []
+        }));
+        rows = officeLocations.value;
+      }
+    }
+    if (aid > 0) {
+      const filtered = rows.filter((o) => {
+        const ids = Array.isArray(o?.agencyIds) ? o.agencyIds.map(Number) : [];
+        if (!ids.length) return true;
+        return ids.includes(aid);
+      });
+      if (filtered.length) rows = filtered;
+    }
+    editorOfficeLocations.value = rows;
+    if (!Number(editorOfficeLocationId.value || 0) && rows.length === 1) {
+      editorOfficeLocationId.value = Number(rows[0]?.id || 0);
+    }
+    const locId = Number(editorOfficeLocationId.value || 0);
+    if (locId > 0) await loadOfficeRooms(locId);
+  } catch {
+    editorOfficeLocations.value = [];
+  } finally {
+    editorOfficeLocationsLoading.value = false;
+  }
+}
+
+// NOTE: watches that read editorDateYmd / editorStartTime / editorInfoClientId /
+// showAppointmentEditorShell must be registered AFTER scheduleEventEditForm
+// (those computeds touch late refs — early registration causes TDZ remount storms).
+
+watch(editorModality, (v) => {
+  if (!editorIsClinical.value) return;
+  bookingModality.value = String(v || 'TELEHEALTH');
+});
+
+watch(editorTenantServiceId, (id) => {
+  const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === Number(id));
+  if (!svc) return;
+  const mins = Number(svc.defaultDurationMinutes || svc.default_duration_minutes || 0);
+  if (mins > 0 && !isAppointmentEditMode.value) {
+    const startH = Number(effectiveModalStartHour.value ?? modalHour.value ?? 0);
+    const startM = Number(modalStartMinute.value || 0);
+    const total = startH * 60 + startM + mins;
+    modalEndHour.value = Math.floor(total / 60);
+    modalEndMinute.value = total % 60;
+  }
+  const code = normalizeCodeValue(svc.serviceCode || svc.service_code);
+  if (code && String(editorPracticeCategory.value || '') === 'mental_health') {
+    bookingServiceCode.value = code;
+  }
+});
 const requestSummaryEndTimeLabel = computed(() => {
-  if (isScheduleEventRequestType.value && scheduleEventAllDay.value) return 'All day';
+  if (isScheduleEventAllDayUi.value) return 'All day';
   if (canUseQuarterHourInput.value) {
     return hourMinuteLabel(modalEndHour.value, modalEndMinute.value);
   }
@@ -8422,7 +11670,15 @@ const requestSubmitBlockedReason = computed(() => {
     if (!modality) return 'Choose Virtual or In-person.';
     if (!effectiveAgencyId.value) return 'Select an agency for this session.';
     if (!primarySessionClientId.value) return 'Select a client for this individual session.';
-    if (modality === 'IN_PERSON' && !hasOffice) return 'In-person sessions need an office selected in the toolbar.';
+    const hasSchoolSite = Number(editorSchoolOrganizationId.value || 0) > 0
+      || !!(editorServiceLocationOptions.value || []).find((l) => {
+        const locId = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
+        return Number(l.id) === locId
+          && (l.isSchool || Number(l.schoolOrganizationId) > 0 || String(l.placeOfService) === '03');
+      });
+    if (modality === 'IN_PERSON' && !hasOffice && !hasSchoolSite) {
+      return 'In-person sessions need an office selected in the toolbar (or a school location).';
+    }
     if (modality === 'TELEHEALTH') {
       if (bookingMetadataLoading.value) return 'Loading booking options…';
       if (bookingClassificationInvalidReason.value) return String(bookingClassificationInvalidReason.value);
@@ -8449,8 +11705,17 @@ const requestSubmitBlockedReason = computed(() => {
   if (t === 'supervision' && !supervisionCanSubmit.value) {
     return 'Add the required supervision participants before submitting.';
   }
+  if ((t === 'agency_meeting' || t === 'huddle') && meetingCandidatesError.value) {
+    return meetingCandidatesError.value;
+  }
+  if ((t === 'agency_meeting' || t === 'huddle') && selectedMeetingOutOfAgencyCount.value > 0) {
+    return 'Remove participants who are not in the selected tenant, or switch tenant.';
+  }
+  if ((t === 'agency_meeting' || t === 'huddle') && isMeetingTitleMissing.value) {
+    return 'Add a title before scheduling this meeting.';
+  }
   if ((t === 'agency_meeting' || t === 'huddle') && !meetingCanSubmit.value) {
-    return 'Add at least one coworker before submitting.';
+    return 'Add at least one participant before submitting.';
   }
   if (['intake_virtual_on', 'intake_virtual_off', 'intake_inperson_on', 'intake_inperson_off'].includes(t)
     && !Number(modalContext.value?.officeEventId || 0)) {
@@ -8566,7 +11831,10 @@ const bookingServiceCodeOptions = computed(() => {
     maxUnitsPerSession: Number(row?.maxUnitsPerSession || 0) || null,
     overflowServiceCode: row?.overflowServiceCode || null,
     allowedCredentialTiers: Array.isArray(row?.allowedCredentialTiers) ? row.allowedCredentialTiers : null,
-    medical: !!row?.medical
+    allowedPlaceOfService: Array.isArray(row?.allowedPlaceOfService) ? row.allowedPlaceOfService : [],
+    defaultPlaceOfService: row?.defaultPlaceOfService || null,
+    medical: !!row?.medical,
+    isAddon: isAddonServiceCode(row?.code, row)
   })).filter((row) => row.code);
   const selected = normalizeCodeValue(bookingServiceCode.value);
   if (selected && !out.some((row) => row.code === selected)) {
@@ -8590,7 +11858,8 @@ const bookingServiceLocationOptions = computed(() => {
     id: Number(row?.id || 0),
     name: String(row?.name || '').trim() || `Location #${row?.id}`,
     placeOfService: String(row?.place_of_service || row?.placeOfService || '').trim(),
-    billingOfficeName: String(row?.billing_office_name || row?.billingOfficeName || '').trim()
+    billingOfficeName: String(row?.billing_office_name || row?.billingOfficeName || '').trim(),
+    schoolOrganizationId: Number(row?.school_organization_id || row?.schoolOrganizationId || 0) || 0
   })).filter((row) => row.id > 0);
 });
 const providerTierLabel = (tiers) => {
@@ -8633,7 +11902,10 @@ const bookingClassificationInvalidReason = computed(() => {
   if (!normalizeCodeValue(bookingServiceCode.value)) {
     return 'A service code is required for this session.';
   }
-  if (!Number(bookingServiceLocationId.value || 0)) {
+  const locId = Number(bookingServiceLocationId.value || editorServiceLocationId.value || 0);
+  const isSchoolSynthetic = locId < 0
+    || !!(editorClientSchoolLocationOptions.value || []).find((s) => Number(s.id) === locId);
+  if (!locId && !isSchoolSynthetic) {
     return 'Select a service location for this session.';
   }
   return '';
@@ -8670,7 +11942,12 @@ const normalizeBookingSelectionPayload = () => {
     modality: isSessionBookingRequestType.value
       ? (normalizeCodeValue(bookingModality.value) || null)
       : null,
-    serviceLocationId: isSession ? (Number(bookingServiceLocationId.value || 0) || null) : null,
+    serviceLocationId: isSession
+      ? (() => {
+        const id = Number(bookingServiceLocationId.value || editorServiceLocationId.value || 0);
+        return id > 0 ? id : null;
+      })()
+      : null,
     agencyId: Number(effectiveAgencyId.value || 0) || null,
     ...(clientId ? { clientId } : {})
   };
@@ -8715,8 +11992,14 @@ const refreshBookingUnitPreview = async () => {
 };
 
 const loadBookingMetadataForProvider = async () => {
-  if (!['office', 'individual_session', 'group_session'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
-  if (!showClinicalBookingFields.value) return;
+  const rt = String(requestType.value || '');
+  const allowUnifiedClinical = showAppointmentEditorShell.value && editorIsClinical.value;
+  if (!allowUnifiedClinical) {
+    if (!['office', 'individual_session', 'group_session'].includes(rt) || !showRequestModal.value) return;
+    if (!showClinicalBookingFields.value) return;
+  } else if (!showRequestModal.value) {
+    return;
+  }
   const providerId = Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0);
   if (!providerId) {
     resetBookingMetadataState();
@@ -8728,7 +12011,7 @@ const loadBookingMetadataForProvider = async () => {
     const resp = await api.get('/office-schedule/booking-metadata', {
       params: {
         providerId,
-        agencyId: Number(effectiveAgencyId.value || 0) || undefined
+        agencyId: Number(editorAgencyId.value || effectiveAgencyId.value || 0) || undefined
       }
     });
     bookingMetadata.value = {
@@ -8740,6 +12023,9 @@ const loadBookingMetadataForProvider = async () => {
     bookingAppointmentType.value = 'SESSION';
     bookingAppointmentSubtype.value = '';
     preferDefaultServiceLocation();
+    if (!Number(editorServiceLocationId.value || 0) && Number(bookingServiceLocationId.value || 0)) {
+      editorServiceLocationId.value = Number(bookingServiceLocationId.value);
+    }
   } catch (e) {
     bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [], serviceLocations: [] };
     bookingMetadataError.value = e?.response?.data?.error?.message || 'Could not load booking metadata for this provider.';
@@ -9381,8 +12667,13 @@ const supervisionParticipantLabel = (row) => {
 
 const meetingCandidatesLoading = ref(false);
 const meetingCandidates = ref([]);
+const meetingInviteGroups = ref([]);
+const meetingCandidatesError = ref('');
 const meetingParticipantSearch = ref('');
 const selectedMeetingParticipantIds = ref([]);
+const meetingParticipantsExpanded = ref(true);
+const meetingCreateGroupBusy = ref(false);
+const meetingCreateGroupError = ref('');
 const createMeetingMeetLink = ref(true);
 const linkMeetingPlatformVideo = ref(true);
 
@@ -9441,8 +12732,35 @@ const filteredMeetingCandidates = computed(() => {
 const selectedMeetingParticipantIdSet = computed(
   () => new Set((selectedMeetingParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0))
 );
+const selectedMeetingOutOfAgencyCount = computed(() => {
+  const agencyId = Number(
+    isScheduleEventEditMode.value
+      ? (scheduleEventEditForm.value?.agencyId || editorAgencyId.value || effectiveAgencyId.value || 0)
+      : (editorAgencyId.value || effectiveAgencyId.value || 0)
+  );
+  if (!agencyId || meetingCandidatesLoading.value) return 0;
+  const candidates = availableMeetingCandidates.value || [];
+  if (!candidates.length && !meetingCandidatesError.value) return 0;
+  const byId = new Map(candidates.map((r) => [Number(r.id || 0), r]));
+  let count = 0;
+  for (const id of selectedMeetingParticipantIdSet.value.values()) {
+    const row = byId.get(Number(id));
+    if (!row) {
+      // Selected person is outside the loaded candidate scope for this tenant.
+      count += 1;
+      continue;
+    }
+    const agencyIds = Array.isArray(row?.agencyIds) ? row.agencyIds.map((n) => Number(n || 0)) : [];
+    // If we have agency membership info and selected tenant is missing, count as out-of-agency.
+    if (agencyIds.length && !agencyIds.includes(agencyId)) count += 1;
+  }
+  return count;
+});
 const meetingCanSubmit = computed(
-  () => !meetingCandidatesLoading.value && selectedMeetingParticipantIdSet.value.size > 0
+  () => !meetingCandidatesLoading.value
+    && !meetingCandidatesError.value
+    && selectedMeetingParticipantIdSet.value.size > 0
+    && selectedMeetingOutOfAgencyCount.value === 0
 );
 const isMeetingParticipantsMissing = computed(() => (
   ['agency_meeting', 'huddle'].includes(String(requestType.value || ''))
@@ -9502,6 +12820,69 @@ const selectAllAvailableMeetingParticipants = () => {
 };
 const clearMeetingParticipants = () => {
   selectedMeetingParticipantIds.value = [];
+};
+const toggleMeetingInviteGroup = (group) => {
+  const allowed = new Set((availableMeetingCandidates.value || []).map((r) => Number(r?.id || 0)).filter((n) => n > 0));
+  const ids = (group?.userIds || [])
+    .map((n) => Number(n || 0))
+    .filter((id) => id > 0 && allowed.has(id));
+  if (!ids.length) return;
+  const next = new Set((selectedMeetingParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  const allSelected = ids.every((id) => next.has(id));
+  if (allSelected) {
+    for (const id of ids) next.delete(id);
+  } else {
+    for (const id of ids) next.add(id);
+  }
+  selectedMeetingParticipantIds.value = Array.from(next.values());
+  meetingParticipantsExpanded.value = true;
+};
+const createMeetingInviteGroup = async ({ name, userIds }) => {
+  const uid = Number(props.userId || authStore.user?.id || 0);
+  const agencyId = Number(
+    isScheduleEventEditMode.value
+      ? (scheduleEventEditForm.value?.agencyId || editorAgencyId.value || effectiveAgencyId.value || 0)
+      : (editorAgencyId.value || effectiveAgencyId.value || 0)
+  );
+  const ids = Array.from(new Set((userIds || []).map((n) => Number(n || 0)).filter((n) => n > 0)));
+  const label = String(name || '').trim();
+  if (!uid || !agencyId || !label || !ids.length) {
+    meetingCreateGroupError.value = !ids.length
+      ? 'Select participants before creating a group.'
+      : 'Select a tenant before creating a group.';
+    return;
+  }
+  meetingCreateGroupBusy.value = true;
+  meetingCreateGroupError.value = '';
+  try {
+    const resp = await api.post(`/users/${uid}/meeting-invite-groups`, {
+      agencyId,
+      name: label,
+      userIds: ids
+    });
+    const group = resp?.data?.group;
+    if (group?.key) {
+      const next = {
+        key: String(group.key),
+        label: String(group.label || label).trim() || label,
+        kind: 'custom',
+        customGroupId: Number(group.customGroupId || 0) || null,
+        userIds: Array.isArray(group.userIds) ? group.userIds.map((n) => Number(n || 0)).filter((n) => n > 0) : ids
+      };
+      meetingInviteGroups.value = [
+        ...(meetingInviteGroups.value || []).filter((g) => g.key !== next.key),
+        next
+      ];
+    } else {
+      await loadMeetingCandidates();
+    }
+  } catch (e) {
+    meetingCreateGroupError.value = e?.response?.data?.error?.message
+      || e?.message
+      || 'Could not create group.';
+  } finally {
+    meetingCreateGroupBusy.value = false;
+  }
 };
 const removeSelectedMeetingParticipant = (userId) => {
   const id = Number(userId || 0);
@@ -9601,16 +12982,12 @@ const showSessionOfficeBookingPanel = computed(() => {
 const toggleVirtualSessionClient = (clientId) => {
   const id = Number(clientId || 0);
   if (!id) return;
-  // Individual sessions attach exactly one client; group bookings use the Group session action.
-  if (String(requestType.value || '') === 'individual_session') {
-    const current = Number(primarySessionClientId.value || 0);
-    virtualSessionSelectedClientIds.value = current === id ? [] : [id];
-    return;
-  }
+  // Book Session: multi-select — more than one client makes it a group session.
   const next = new Set((virtualSessionSelectedClientIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
   if (next.has(id)) next.delete(id);
   else next.add(id);
   virtualSessionSelectedClientIds.value = Array.from(next.values());
+  if (next.size <= 1) editorCoProviderUserId.value = 0;
 };
 const toggleVirtualSessionGuardian = (guardian) => {
   const key = virtualSessionGuardianKey(guardian);
@@ -9818,8 +13195,16 @@ const hasBusyOverlapInSummary = (summaryPayload, ranges = []) => {
   return false;
 };
 
+let meetingBusyLoadGeneration = 0;
+let meetingBusyDebounceTimer = null;
 const loadMeetingBusyByParticipant = async () => {
-  const ids = (availableMeetingCandidates.value || []).map((r) => Number(r?.id || 0)).filter((n) => n > 0);
+  // Only check people the user can see/select — never every coworker × every keystroke.
+  const selected = Array.from(selectedMeetingParticipantIdSet.value.values());
+  const visible = (filteredMeetingCandidates.value || [])
+    .map((r) => Number(r?.id || 0))
+    .filter((n) => n > 0);
+  const idSet = new Set([...selected, ...visible.slice(0, 24)]);
+  const ids = Array.from(idSet.values());
   if (!ids.length) {
     meetingBusyByUserId.value = {};
     return;
@@ -9840,6 +13225,7 @@ const loadMeetingBusyByParticipant = async () => {
     meetingBusyByUserId.value = {};
     return;
   }
+  const generation = ++meetingBusyLoadGeneration;
   meetingBusyLoading.value = true;
   try {
     const entries = await Promise.all(
@@ -9847,12 +13233,18 @@ const loadMeetingBusyByParticipant = async () => {
         try {
           const params = {
             weekStart: weekStart.value,
+            detailLevel: 'busy',
             includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false')
           };
-          if (!meetingUsingAllAgencies.value && Number(effectiveAgencyId.value || 0) > 0) {
+          if (meetingUsingAllAgencies.value || !(Number(effectiveAgencyId.value || 0) > 0)) {
+            params.includeAllAgencies = 'true';
+          } else {
             params.agencyId = Number(effectiveAgencyId.value);
           }
-          const r = await api.get(`/users/${id}/schedule-summary`, { params });
+          const r = await api.get(`/users/${id}/schedule-summary`, {
+            params,
+            skipGlobalLoading: true
+          });
           const busy = hasBusyOverlapInSummary(r?.data || {}, ranges);
           return [id, busy];
         } catch {
@@ -9860,10 +13252,21 @@ const loadMeetingBusyByParticipant = async () => {
         }
       })
     );
-    meetingBusyByUserId.value = Object.fromEntries(entries);
+    if (generation !== meetingBusyLoadGeneration) return;
+    meetingBusyByUserId.value = {
+      ...meetingBusyByUserId.value,
+      ...Object.fromEntries(entries)
+    };
   } finally {
-    meetingBusyLoading.value = false;
+    if (generation === meetingBusyLoadGeneration) meetingBusyLoading.value = false;
   }
+};
+const scheduleMeetingBusyCheck = () => {
+  if (meetingBusyDebounceTimer) clearTimeout(meetingBusyDebounceTimer);
+  meetingBusyDebounceTimer = setTimeout(() => {
+    meetingBusyDebounceTimer = null;
+    void loadMeetingBusyByParticipant();
+  }, 250);
 };
 
 const loadMeetingCandidates = async () => {
@@ -9873,18 +13276,35 @@ const loadMeetingCandidates = async () => {
   if (!useAllAgencies && !effectiveAgencyId.value) return;
   try {
     meetingCandidatesLoading.value = true;
+    meetingCandidatesError.value = '';
     const params = {
       allAgencies: useAllAgencies ? 'true' : 'false'
     };
     if (!useAllAgencies) params.agencyId = Number(effectiveAgencyId.value || 0);
-    const r = await api.get(`/users/${uid}/meeting-candidates`, { params });
+    const r = await api.get(`/users/${uid}/meeting-candidates`, {
+      params,
+      skipGlobalLoading: true
+    });
     meetingCandidates.value = Array.isArray(r?.data?.users) ? r.data.users : [];
-  } catch {
+    meetingInviteGroups.value = Array.isArray(r?.data?.groups)
+      ? r.data.groups.map((g) => ({
+        key: String(g?.key || ''),
+        label: String(g?.label || 'Group').trim() || 'Group',
+        kind: String(g?.kind || 'group'),
+        userIds: Array.isArray(g?.userIds) ? g.userIds.map((n) => Number(n || 0)).filter((n) => n > 0) : []
+      })).filter((g) => g.key && g.userIds.length)
+      : [];
+  } catch (e) {
     meetingCandidates.value = [];
+    meetingInviteGroups.value = [];
+    meetingCandidatesError.value = e?.response?.data?.error?.message
+      || e?.message
+      || 'Could not load coworkers. Try again or switch tenant.';
   } finally {
     meetingCandidatesLoading.value = false;
   }
-  await loadMeetingBusyByParticipant();
+  // Busy checks are best-effort background work — never block the editor behind them.
+  scheduleMeetingBusyCheck();
 };
 
 const loadSupervisionProviders = async () => {
@@ -9919,10 +13339,6 @@ const loadSupervisionProviders = async () => {
   }
 };
 
-const effectiveModalStartHour = computed(() =>
-  canUseQuarterHourInput.value ? Number(modalStartHour.value || modalHour.value || 0) : Number(modalHour.value || 0)
-);
-const modalGridMaxEnd = computed(() => gridMaxHour.value);
 const startHourOptions = computed(() => {
   const clicked = Number(modalHour.value || 0);
   if (!canUseQuarterHourInput.value) return [clicked];
@@ -9984,18 +13400,28 @@ const ensureModalEndTimeValid = () => {
 const isWeekdayName = (dayName) => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(String(dayName || ''));
 /** Unwrap Vue refs if a caller accidentally passes them (Number(ref) === NaN). */
 const plainValue = (v) => (v && typeof v === 'object' && v.__v_isRef ? v.value : v);
-const canUseSchool = (dayName, startHour, endHour) => {
+const canUseSchool = (dayName, startHour, endHour, startMinute = 0, endMinute = 0) => {
   const day = String(plainValue(dayName) || '').trim();
   const sh = Number(plainValue(startHour));
   const eh = Number(plainValue(endHour));
+  const sm = Number(plainValue(startMinute) || 0);
+  const em = Number(plainValue(endMinute) || 0);
   if (!isWeekdayName(day)) return false;
   if (!Number.isFinite(sh) || !Number.isFinite(eh)) return false;
-  if (!(eh > sh)) return false;
+  const startMins = sh * 60 + (Number.isFinite(sm) ? sm : 0);
+  const endMins = eh * 60 + (Number.isFinite(em) ? em : 0);
+  if (!(endMins > startMins)) return false;
   // School daytime availability must be between 06:00 and 18:00.
-  return sh >= 6 && eh <= 18;
+  return startMins >= 6 * 60 && endMins <= 18 * 60;
 };
 const schoolWindowValid = computed(() =>
-  canUseSchool(modalDay.value, effectiveModalStartHour.value, modalEndHour.value)
+  canUseSchool(
+    modalDay.value,
+    effectiveModalStartHour.value,
+    modalEndHour.value,
+    modalStartMinute.value,
+    modalEndMinute.value
+  )
 );
 
 const actionSlotKey = ({ dateYmd, hour, roomId = 0 }) => `${String(dateYmd).slice(0, 10)}|${Number(hour)}|${Number(roomId || 0)}`;
@@ -10168,6 +13594,7 @@ const openSlotActionModal = ({
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
   scheduleEventPrivate.value = false;
+  meetingIsTrainingPayEligible.value = false;
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'count';
   scheduleEventOccurrenceCount.value = 6;
@@ -10213,7 +13640,12 @@ const openSlotActionModal = ({
   createAgendaDraftTitle.value = '';
   createAgendaDraftItems.value = [];
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
-  bookingTargetUserId.value = Number(props.userId || authStore.user?.id || 0) || 0;
+  // Prefer the standing assignee when opening an assigned office cell so admin work on
+  // another person's calendar (e.g. Super Admin) does not default the booking target to that subject.
+  const assigneeOnSlot = Number(modalContext.value?.assignedProviderId || 0) || 0;
+  bookingTargetUserId.value = assigneeOnSlot
+    || Number(props.userId || authStore.user?.id || 0)
+    || 0;
   if (canSelectBookingProvider.value) {
     void loadBookingProviderDirectory();
   }
@@ -10348,6 +13780,9 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   selectedBlockKey.value = ''; // whole-cell selection
   selectedActionSlots.value = [item];
   lastSelectedActionKey.value = item.key;
+  if (isOfficeScopeSpecific.value) {
+    syncQuickGlanceToCell(dateYmd, hour, { open: true });
+  }
   if (viewMode.value === 'office_layout' && roomId > 0 && canBookFromGrid.value) {
     // Office layout: resolve state for THIS specific room (not the whole row)
     const officeId = Number(selectedOfficeLocationId.value || 0) || null;
@@ -10362,30 +13797,16 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
     // Prefer the exact clicked room slot from weekly-grid when it has actionable context.
     // Using summary-derived top events here can mismatch room/state and break forfeit actions.
     if (slot && clickedSlotHasContext && clickedSlotState && clickedSlotState !== 'OPEN') {
-      openSlotActionModal({
-        dayName,
-        hour,
-        roomId,
-        dateYmd,
-        slot,
-        preserveSelectionRange: false,
-        initialRequestType: '',
-        actionSource: 'office_block'
-      });
+      openOfficeOccupiedHourAction({ ...item, slot });
       return;
     }
     const officeTop = officeId ? officeTopEvent(dayName, hour, officeId, roomId) : null;
     if (officeTop) {
-      // Assigned/booked room — open same schedule modal on the action chooser
-      openSlotActionModal({
-        dayName,
-        hour,
-        roomId: Number(officeTop?.roomId || 0) || 0,
-        dateYmd,
-        slot: officeTop,
-        preserveSelectionRange: false,
-        initialRequestType: '',
-        actionSource: 'office_block'
+      // Assigned/booked room — ask to expand multi-hour block when relevant
+      openOfficeOccupiedHourAction({
+        ...item,
+        roomId: Number(officeTop?.roomId || roomId || 0) || 0,
+        slot: officeTop
       });
     } else {
       // Open or someone else's – show request modal
@@ -10401,15 +13822,10 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
       const officeId = Number(officeBlock?.buildingId || selectedOfficeLocationId.value || 0) || null;
       const blockRoomId = Number(officeBlock?.roomId || 0) || null;
       const officeTop = officeTopEvent(dayName, hour, officeId, blockRoomId) || null;
-      openSlotActionModal({
-        dayName,
-        hour,
-        roomId: Number(officeTop?.roomId || 0) || 0,
-        dateYmd,
-        slot: officeTop,
-        preserveSelectionRange: false,
-        initialRequestType: '',
-        actionSource: 'office_block'
+      openOfficeOccupiedHourAction({
+        ...item,
+        roomId: Number(officeTop?.roomId || blockRoomId || 0) || 0,
+        slot: officeTop
       });
     }
   }
@@ -10726,6 +14142,23 @@ const officeOverlayStyle = computed(() => {
 const quickGlanceDateYmd = ref('');
 const quickGlanceHour = ref(0);
 const quickGlanceStateFilter = ref('all'); // all|booked|assigned|open
+const quickGlanceOpen = ref(false); // collapsed until user picks a cell or expands
+
+const onQuickGlanceToggle = (e) => {
+  quickGlanceOpen.value = !!e?.target?.open;
+};
+
+/** Sync peek panel to a concrete calendar cell (does not auto-open the appointment modal). */
+const syncQuickGlanceToCell = (dateYmd, hour, { open = true } = {}) => {
+  const ymd = String(dateYmd || '').slice(0, 10);
+  const h = Number(hour);
+  if (!ymd || !Number.isFinite(h)) return;
+  const dayValues = quickGlanceDayOptions.value.map((x) => x.value);
+  const hourValues = quickGlanceHourOptions.value;
+  if (dayValues.includes(ymd)) quickGlanceDateYmd.value = ymd;
+  if (hourValues.includes(h)) quickGlanceHour.value = h;
+  if (open) quickGlanceOpen.value = true;
+};
 
 const quickGlanceDayOptions = computed(() => {
   const days = Array.isArray(officeGrid.value?.days) ? officeGrid.value.days : [];
@@ -10863,13 +14296,21 @@ watch([officeGrid, quickGlanceDayOptions, quickGlanceHourOptions], () => {
     quickGlanceHour.value = 0;
     return;
   }
+  // Prefer today (if in this week) + current hour when defaults are empty — never force-open the panel.
   if (!dayValues.includes(String(quickGlanceDateYmd.value || ''))) {
-    quickGlanceDateYmd.value = dayValues[0];
+    const today = String(todayLocalYmd.value || '').slice(0, 10);
+    quickGlanceDateYmd.value = dayValues.includes(today) ? today : dayValues[0];
   }
   if (!hourValues.includes(Number(quickGlanceHour.value || 0))) {
-    quickGlanceHour.value = Number(hourValues[0]);
+    const nowH = new Date().getHours();
+    quickGlanceHour.value = hourValues.includes(nowH) ? nowH : Number(hourValues[0]);
   }
 }, { immediate: true });
+
+watch(selectedOfficeLocationId, () => {
+  // Picking a building loads the grid for overlays — do not pop the peek list open.
+  quickGlanceOpen.value = false;
+});
 
 const officeOverlayKey = (dateYmd, hour) => `${String(dateYmd).slice(0, 10)}|${Number(hour)}`;
 
@@ -10955,7 +14396,7 @@ const typeStyleToken = (b) => {
     const eventKind = String(b?.eventKind || '').toUpperCase();
     if (eventKind === 'TEAM_MEETING') return 'Meeting';
     if (eventKind === 'HUDDLE') return 'Huddle';
-    if (eventKind === 'SCHEDULE_HOLD') return 'Hold';
+    if (eventKind === 'SCHEDULE_HOLD') return b?.allDay ? 'All-day' : 'Hold';
     if (eventKind === 'INDIRECT_SERVICES') return 'Indirect';
     const title = String(b?.title || b?.shortLabel || '').toLowerCase();
     if (title.includes('virtual') || title.includes('session')) return 'Session';
@@ -11017,6 +14458,22 @@ const cellBlockStyle = (b) => {
         : kind === 'school' ? (dark ? 'rgba(147, 197, 253, 0.92)' : 'rgba(37, 99, 235, 0.85)')
           : kind === 'sevt' ? (dark ? 'rgba(110, 231, 183, 0.92)' : 'rgba(15, 118, 110, 0.85)')
             : (dark ? 'rgba(203, 213, 225, 0.85)' : 'rgba(100, 116, 139, 0.75)'));
+  }
+  // Continuous appointment: top/height % of the start cell (height may exceed 100%).
+  if (b?.timedSlice && Number.isFinite(b.timedSlice.topPct) && Number.isFinite(b.timedSlice.heightPct)) {
+    const hp = Number(b.timedSlice.heightPct);
+    style.position = 'absolute';
+    style.left = '3px';
+    style.right = '3px';
+    style.top = `${b.timedSlice.topPct}%`;
+    style.height = `${hp}%`;
+    style.zIndex = b?.spanBlock ? 6 : 3;
+    style.flex = 'none';
+    style.minHeight = '18px';
+    style.alignItems = 'flex-start';
+    style.paddingTop = '4px';
+    // Fewer lines on short blocks so text stays inside the colored fill.
+    style['--block-line-clamp'] = hp >= 180 ? '6' : hp >= 100 ? '4' : '2';
   }
   return style;
 };
@@ -11213,6 +14670,7 @@ const submitCancelBooking = async () => {
     const scope = cancelBookingScope.value || 'occurrence';
     const seenEvents = new Set();
     const seenStandings = new Set();
+    let pendingApproval = false;
     for (const ctx of contexts) {
       const locId = Number(ctx.officeLocationId || selectedOfficeLocationId.value || 0);
       if (!locId) continue;
@@ -11220,7 +14678,10 @@ const submitCancelBooking = async () => {
       if (eventId > 0 && !seenEvents.has(eventId)) {
         seenEvents.add(eventId);
         // eslint-disable-next-line no-await-in-loop
-        await api.post(`/office-slots/${locId}/events/${eventId}/cancel`, { scope });
+        const r = await api.post(`/office-slots/${locId}/events/${eventId}/cancel`, { scope });
+        if (Number(r?.status) === 202 || r?.data?.requiresApproval === true) {
+          pendingApproval = true;
+        }
       }
       const standingId = Number(ctx.standingAssignmentId || 0);
       if (scope === 'future' && standingId > 0 && !seenStandings.has(standingId)) {
@@ -11236,6 +14697,15 @@ const submitCancelBooking = async () => {
     invalidateScheduleSummaryCacheForUser(props.userId);
     closeModal();
     await Promise.all([load({ forceRefresh: true }), loadSelectedOfficeGrid()]);
+    if (pendingApproval) {
+      officeReminderToast.value = 'Cancel request submitted — waiting on supervisor approval. The booking stays until approved.';
+      setTimeout(() => { officeReminderToast.value = ''; }, 7000);
+    } else {
+      officeReminderToast.value = scope === 'future'
+        ? 'Cancelled this and future booked occurrences.'
+        : 'Cancelled this occurrence.';
+      setTimeout(() => { officeReminderToast.value = ''; }, 4000);
+    }
   } catch (e) {
     cancelBookingError.value = e.response?.data?.error?.message || e.message || 'Failed to cancel booking.';
   } finally {
@@ -11407,11 +14877,26 @@ const onQuickActionSelect = (act) => {
     return;
   }
   recordSlotActionUsage(id);
-  requestType.value = id;
   requestTypeChosenByUser.value = true;
   if (id === 'individual_session' && !String(bookingModality.value || '').trim()) {
     bookingModality.value = 'TELEHEALTH';
   }
+  if (UNIFIED_EDITOR_KINDS.has(id)) {
+    openAppointmentEditor({
+      mode: 'create',
+      kind: id,
+      defaults: {
+        modality: bookingModality.value || 'TELEHEALTH',
+        roomId: Number(selectedOfficeRoomId.value || modalContext.value?.roomId || 0),
+        attachOfficeRequest: id === 'office_request_only' || id === 'portal_intake' || !!sessionAlsoRequestOffice.value
+          ? (id === 'office_request_only' || !!sessionAlsoRequestOffice.value)
+          : false,
+        openSlotEnabled: id === 'portal_intake'
+      }
+    });
+    return;
+  }
+  requestType.value = id;
 };
 
 const requestCloseModal = () => {
@@ -11422,9 +14907,15 @@ const requestCloseModal = () => {
   closeModal();
 };
 
+const dismissMeetingCreatedShare = () => {
+  meetingCreatedShare.value = null;
+  closeModal();
+};
+
 const closeModal = () => {
   appointmentEditOpenGen += 1;
   showRequestModal.value = false;
+  meetingCreatedShare.value = null;
   modalActionSource.value = 'general';
   requestType.value = '';
   scheduleEventEditId.value = 0;
@@ -11443,6 +14934,7 @@ const closeModal = () => {
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
   scheduleEventPrivate.value = false;
+  meetingIsTrainingPayEligible.value = false;
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'count';
   scheduleEventOccurrenceCount.value = 6;
@@ -11593,18 +15085,27 @@ const selectedActionContexts = () => {
 const defaultScheduleEventTitleForAction = (actionId) => {
   if (actionId === 'agency_meeting') return 'Agency Meeting';
   if (actionId === 'huddle') return 'Huddle';
-  if (actionId === 'schedule_hold' || actionId === 'schedule_hold_all_day') return 'Schedule Hold';
+  if (actionId === 'schedule_hold_all_day') return 'All-day schedule block';
+  if (actionId === 'schedule_hold') return 'Schedule Hold';
   if (actionId === 'indirect_services') return 'Indirect Services';
   return 'Personal Event';
 };
 
 const effectiveScheduleHoldReason = () => {
-  if (String(scheduleHoldReasonCode.value || '').toUpperCase() !== 'CUSTOM') {
-    return String(scheduleHoldReasonCode.value || '').toUpperCase() || null;
-  }
-  const custom = String(scheduleHoldCustomReason.value || '').trim();
-  if (!custom) return 'CUSTOM';
-  return custom.slice(0, 120).replace(/\s+/g, '_').toUpperCase();
+  const selected = String(scheduleHoldReasonCode.value || '').toUpperCase();
+  if (selected && selected !== 'CUSTOM') return selected;
+  const draft = String(scheduleHoldReasonDraft.value || scheduleHoldCustomReason.value || '').trim();
+  if (!draft) return selected || 'CUSTOM';
+  const matched = scheduleHoldReasonOptions.value.find(
+    (o) => o.code === holdReasonLabelToCode(draft) || o.label.toLowerCase() === draft.toLowerCase()
+  );
+  if (matched && !matched.custom) return matched.code;
+  return holdReasonLabelToCode(draft) || 'CUSTOM';
+};
+
+const effectivePersonalEventTypeCode = () => {
+  const code = String(personalEventTypeCode.value || 'PERSONAL').toUpperCase();
+  return PERSONAL_EVENT_TYPE_OPTIONS.some((o) => o.code === code) ? code : 'PERSONAL';
 };
 
 const scheduleEventKindForAction = (actionId) => {
@@ -11656,6 +15157,19 @@ const scheduleEventOccurrenceDates = (baseDateYmd, recurrence, occurrenceCount) 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return [];
   const normalized = String(recurrence || 'ONCE').trim().toUpperCase();
   if (!['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(normalized)) return [base];
+  // Prefer shared expander when multi-day / until-date controls are active.
+  const endMode = String(scheduleEventRecurrenceEndMode.value || 'count');
+  const weekdays = Array.isArray(editorRecurrenceWeekdays.value) ? editorRecurrenceWeekdays.value : [];
+  if (weekdays.length > 1 || endMode === 'until' || editorRecurrenceUntilDate.value) {
+    return expandRecurrenceDates({
+      startYmd: base,
+      frequency: normalized,
+      endMode,
+      occurrenceCount: Math.min(520, Math.max(1, Number(occurrenceCount || 1))),
+      untilDate: editorRecurrenceUntilDate.value,
+      weekdays
+    });
+  }
   const count = Math.min(520, Math.max(1, Number(occurrenceCount || 1)));
   const dates = [];
   for (let i = 0; i < count; i += 1) {
@@ -11733,25 +15247,83 @@ const completePlatformVirtualSessionBooking = async ({
   if (!uid) throw new Error('Provider is required.');
   const agencyId = Number(effectiveAgencyId.value || 0);
   if (!agencyId) throw new Error('Select an agency for this virtual session.');
-  const clientId = Number(primarySessionClientId.value || 0);
-  if (!clientId) throw new Error('Select a client for this individual session.');
+  const clientIds = (virtualSessionSelectedClientIds.value || []).map((n) => Number(n)).filter((n) => n > 0);
+  const clientId = clientIds[0] || Number(primarySessionClientId.value || 0);
+  if (!clientId) throw new Error('Select at least one client for this session.');
+  if (String(editorPracticeCategory.value || '') === 'mental_health' && showClinicalBookingFields.value) {
+    if (!normalizeCodeValue(bookingServiceCode.value)) {
+      throw new Error('Select a primary service code for mental health billing.');
+    }
+  }
   const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const startAt = `${dateYmd}T${pad2(hour)}:${pad2(startMinute)}:00`;
   const endAt = `${dateYmd}T${pad2(endHour)}:${pad2(endMinute)}:00`;
-  const clientLabel = primarySessionClientLabel.value || `Client ${clientId}`;
-  const baseTitle = `Virtual session · ${clientLabel}`;
+  const isGroup = clientIds.length > 1;
+  const clientLabel = isGroup
+    ? `Group Participants (${clientIds.length})`
+    : (primarySessionClientLabel.value || `Client ${clientId}`);
+  const baseTitle = isGroup ? `Group session · ${clientLabel}` : `Virtual session · ${clientLabel}`;
   const attendeeNote = buildVirtualAttendeeNotes();
+  const quickNote = String(editorQuickNote.value || '').trim();
+  const addonNote = (editorAddonServiceCodes.value || []).length
+    ? `Add-on codes: ${editorAddonServiceCodes.value.join(', ')}`
+    : '';
   const descriptionParts = [
     String(requestNotes.value || '').trim() || 'Platform counseling video session.',
-    `Client id: ${clientId}`,
-    attendeeNote
+    isGroup ? 'Group Participants' : `Client id: ${clientId}`,
+    attendeeNote,
+    addonNote
   ].filter(Boolean);
   const description = descriptionParts.join('\n\n');
   const firstGuardianUserId = Array.from(virtualSessionSelectedGuardianKeySet.value.values())
     .map((key) => Number(String(key || '').split(':')[0] || 0))
     .find((n) => n > 0) || null;
+  const participants = (clientIds.length ? clientIds : [clientId]).map((cid, idx) => ({
+    role: 'client',
+    clientId: cid,
+    displayName: isGroup ? 'Group Participants' : undefined,
+    isBillingResponsible: idx === 0,
+    receivesReminders: true
+  }));
+  const coProviderId = Number(editorCoProviderUserId.value || 0);
+  if (isGroup && coProviderId > 0) {
+    participants.push({
+      role: 'co_provider',
+      userId: coProviderId,
+      displayName: 'Co-provider',
+      receivesReminders: false
+    });
+  }
 
   let appointmentId = null;
+  // Canonical appointment so reminders / service / clinical tools attach.
+  try {
+    const apptRes = await api.post('/appointments', {
+      agencyId,
+      tenantServiceId: Number(editorTenantServiceId.value || 0) || undefined,
+      providerUserId: uid,
+      startAt,
+      endAt,
+      modality: 'TELEHEALTH',
+      notes: description,
+      quickNote: quickNote || undefined,
+      source: 'staff_grid',
+      createProviderScheduleEvent: false,
+      packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
+      serviceCode: normalizeCodeValue(bookingServiceCode.value) || undefined,
+      addonServiceCodes: (editorAddonServiceCodes.value || []).map((c) => String(c).toUpperCase()).filter(Boolean),
+      participants
+    });
+    appointmentId = Number(apptRes?.data?.appointment?.id || apptRes?.data?.appointment?.appointment?.id || 0) || null;
+    if (appointmentId) {
+      editorAppointmentId.value = appointmentId;
+      editorShowReminders.value = true;
+      void loadEditorReminders();
+    }
+  } catch {
+    /* schedule-event path below still books the session */
+  }
+
   if (alsoBookOffice && officeId) {
     if (!officeBookingValid.value) throw new Error('Choose a valid office booking window.');
     if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
@@ -11761,19 +15333,24 @@ const completePlatformVirtualSessionBooking = async ({
       ? (Number(selectedOfficeRoomId.value || 0) || null)
       : null;
     const recurrence = String(officeBookingRecurrence.value || 'ONCE');
+    await withdrawEditorPriorOfficeRequests();
+    const series = editorOfficeSeriesParams();
     const r = await api.post('/office-schedule/booking-requests', {
       officeLocationId: officeId,
-      roomId,
+      roomId: Number(editorPreferredRoomId.value || roomId || 0) || roomId,
       startAt,
       endAt,
-      recurrence,
-      openToAlternativeRoom: !roomId,
+      recurrence: series.recurrence !== 'ONCE' ? series.recurrence : recurrence,
+      ...(series.occurrenceCount ? { bookedOccurrenceCount: series.occurrenceCount } : {}),
+      openToAlternativeRoom: !(Number(editorPreferredRoomId.value || roomId || 0)),
       notes: description,
       clientId,
       ...normalizeBookingSelectionPayload(),
       ...requestedProviderPayload()
     });
     appointmentId = Number(r?.data?.appointmentId || r?.data?.eventId || r?.data?.officeEventId || 0) || null;
+    const bookingReqId = Number(r?.data?.request?.id || 0);
+    if (bookingReqId) editorLastOfficeBookingRequestId.value = bookingReqId;
     if (r?.data?.kind === 'auto_booked') await loadSelectedOfficeGrid();
   }
 
@@ -11852,7 +15429,7 @@ const submitRequest = async () => {
     const endMinute = canUseQuarterHourInput.value ? Number(modalEndMinute.value || 0) : 0;
     const startTotalMinutes = (h * 60) + startMinute;
     const endTotalMinutes = (endH * 60) + endMinute;
-    if (!(isScheduleEventRequestType.value && scheduleEventAllDay.value) && !(endTotalMinutes > startTotalMinutes)) {
+    if (!(isScheduleEventAllDayUi.value) && !(endTotalMinutes > startTotalMinutes)) {
       throw new Error('End time must be after start time.');
     }
 
@@ -11950,8 +15527,14 @@ const submitRequest = async () => {
         // 0 = all/none (null agency_id); specific id ties the event to that tenant.
         eventAgencyId = Number(scheduleEventAgencyScope.value || 0) || null;
       }
+      if ((normalizedAction === 'agency_meeting' || normalizedAction === 'huddle') && !String(scheduleEventTitle.value || '').trim()) {
+        throw new Error('Add a title before scheduling this meeting.');
+      }
       const title = String(scheduleEventTitle.value || '').trim() || defaultScheduleEventTitleForAction(normalizedAction);
-      const reasonCode = eventKind === 'SCHEDULE_HOLD' ? effectiveScheduleHoldReason() : null;
+      // Persist hold reason codes; for personal events store the selected type.
+      const reasonCode = eventKind === 'SCHEDULE_HOLD'
+        ? effectiveScheduleHoldReason()
+        : (eventKind === 'PERSONAL_EVENT' ? effectivePersonalEventTypeCode() : null);
       const isPrivate = !!scheduleEventPrivate.value;
       const meetingTimeZone = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle') ? browserIanaTimeZone() : null;
       const isMeetingAction = normalizedAction === 'agency_meeting' || normalizedAction === 'huddle';
@@ -12001,6 +15584,8 @@ const submitRequest = async () => {
                   attendeeUserIds: meetingAttendeeUserIds,
                   createMeetLink,
                   createPlatformVideoLink,
+                  allowLocalOnly: true,
+                  isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                   recurrenceSeriesId,
                   recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
                   recurrencePolicy,
@@ -12012,6 +15597,9 @@ const submitRequest = async () => {
           if (isMeetingAction && recurringRecurrences.includes(recurrence)) recurrenceIndex += 1;
           const created = resp?.data?.event || null;
           if (created) createdScheduleEvents.push(created);
+          if (isMeetingAction && resp?.data?.googleCalendarWarning) {
+            virtualSessionGoogleWarning.value = String(resp.data.googleCalendarWarning).trim();
+          }
         }
       } else {
         const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
@@ -12036,6 +15624,8 @@ const submitRequest = async () => {
                     attendeeUserIds: meetingAttendeeUserIds,
                     createMeetLink,
                     createPlatformVideoLink,
+                    allowLocalOnly: true,
+                    isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                     recurrenceSeriesId,
                     recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
                     recurrencePolicy,
@@ -12047,6 +15637,9 @@ const submitRequest = async () => {
             if (isMeetingAction && recurringRecurrences.includes(recurrence)) recurrenceIndex += 1;
             const created = resp?.data?.event || null;
             if (created) createdScheduleEvents.push(created);
+            if (isMeetingAction && resp?.data?.googleCalendarWarning) {
+              virtualSessionGoogleWarning.value = String(resp.data.googleCalendarWarning).trim();
+            }
           }
         }
       }
@@ -12060,6 +15653,18 @@ const submitRequest = async () => {
             if (eid) postAgendaItemsForNewMeeting('provider_schedule_event', eid, items).catch(() => {});
           }
           createAgendaDraftItems.value = [];
+        }
+        if (requestType.value === 'agency_meeting' || requestType.value === 'huddle') {
+          const first = createdScheduleEvents[0] || {};
+          const joinUrl = String(first.appJoinUrl || '').trim();
+          const meetLink = String(first.meetLink || first.googleMeetLink || '').trim();
+          if (joinUrl || meetLink) {
+            meetingCreatedShare.value = {
+              title: String(first.title || title || 'Team meeting').trim(),
+              joinUrl,
+              meetLink
+            };
+          }
         }
       }
     } else if (requestType.value === 'office') {
@@ -12091,7 +15696,8 @@ const submitRequest = async () => {
           await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/book`, {
             booked: true,
             agencyId: effectiveAgencyId.value || undefined,
-            ...normalizeBookingSelectionPayload()
+            ...normalizeBookingSelectionPayload(),
+            ...requestedProviderPayload({ assignedProviderId: ctx.assignedProviderId })
           });
         }
         refreshInBackground = true;
@@ -12114,7 +15720,8 @@ const submitRequest = async () => {
               await api.post(`/office-slots/${ctx.officeLocationId}/events/${officeEventId}/book`, {
                 booked: true,
                 agencyId: effectiveAgencyId.value || undefined,
-                ...normalizeBookingSelectionPayload()
+                ...normalizeBookingSelectionPayload(),
+                ...requestedProviderPayload({ assignedProviderId: ctx.assignedProviderId })
               });
             }
             continue;
@@ -12132,7 +15739,8 @@ const submitRequest = async () => {
             await api.post(`/office-slots/${ctx.officeLocationId}/events/${officeEventId}/book`, {
               booked: true,
               agencyId: effectiveAgencyId.value || undefined,
-              ...normalizeBookingSelectionPayload()
+              ...normalizeBookingSelectionPayload(),
+              ...requestedProviderPayload({ assignedProviderId: ctx.assignedProviderId })
             });
             continue;
           }
@@ -12152,11 +15760,79 @@ const submitRequest = async () => {
       if (requestType.value === 'individual_session' && !primarySessionClientId.value) {
         throw new Error('Select a client for this individual session.');
       }
-      if (requestType.value === 'individual_session' && modality === 'IN_PERSON' && !officeId) {
-        throw new Error('In-person sessions need an office selected in the toolbar.');
+      const selectedLocId = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
+      const schoolLoc = (editorServiceLocationOptions.value || []).find(
+        (l) => Number(l.id) === selectedLocId
+          && (l.isSchool || Number(l.schoolOrganizationId) > 0 || String(l.placeOfService) === '03')
+      ) || (Number(editorSchoolOrganizationId.value || 0) > 0
+        ? {
+          id: selectedLocId,
+          name: String(editorLocationAddress.value || '').trim() || 'School',
+          placeOfService: '03',
+          isSchool: true,
+          schoolOrganizationId: Number(editorSchoolOrganizationId.value)
+        }
+        : null);
+      if (requestType.value === 'individual_session' && modality === 'IN_PERSON' && !officeId && !schoolLoc) {
+        throw new Error('In-person sessions need an office selected in the toolbar (or a school location).');
       }
       if (requestType.value === 'group_session' && !officeId) {
         throw new Error('Select an office first.');
+      }
+
+      // In-person at school (no office room): personal schedule event — POS 03 site, tenant billing address unchanged.
+      if (
+        requestType.value === 'individual_session'
+        && modality === 'IN_PERSON'
+        && !officeId
+        && schoolLoc
+        && !(sessionAlsoRequestOffice.value)
+      ) {
+        if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
+          throw new Error(bookingClassificationInvalidReason.value);
+        }
+        const agencyId = Number(effectiveAgencyId.value || 0);
+        if (!agencyId) throw new Error('Select an agency for this session.');
+        const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
+        const startAt = `${dateYmd}T${pad2(h)}:${pad2(startMinute)}:00`;
+        const endAt = `${dateYmd}T${pad2(endH)}:${pad2(endMinute)}:00`;
+        const bookingSelection = normalizeBookingSelectionPayload();
+        const titleParts = ['School session'];
+        if (primarySessionClientLabel.value) titleParts.push(primarySessionClientLabel.value);
+        if (bookingSelection.serviceCode) titleParts.push(bookingSelection.serviceCode);
+        const scheduleResp = await api.post(`/users/${Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0)}/schedule-events`, {
+          agencyId,
+          kind: 'PERSONAL_EVENT',
+          title: titleParts.join(' · '),
+          description: [
+            String(requestNotes.value || '').trim(),
+            bookingSelection.clientId ? `Client id: ${bookingSelection.clientId}` : '',
+            buildVirtualAttendeeNotes(),
+            schoolLoc.name ? `School: ${schoolLoc.name}` : '',
+            bookingSelection.appointmentTypeCode ? `Type: ${bookingSelection.appointmentTypeCode}` : '',
+            bookingSelection.serviceCode ? `Service: ${bookingSelection.serviceCode}` : '',
+            bookingSelection.serviceLocationId ? `Location id: ${bookingSelection.serviceLocationId}` : ''
+          ].filter(Boolean).join('\n'),
+          allDay: false,
+          startAt,
+          endAt,
+          isPrivate: false,
+          allowLocalOnly: true,
+          ...bookingSelection
+        });
+        clearSelectedActionSlots();
+        ensureScheduleAgencyVisible(agencyId);
+        patchScheduleSummaryWithBookedEvent({
+          eventId: scheduleResp?.data?.event?.providerScheduleEventId || scheduleResp?.data?.event?.id,
+          agencyId,
+          title: titleParts.join(' · '),
+          startAt,
+          endAt,
+          kind: 'PERSONAL_EVENT'
+        });
+        refreshScheduleSummaryInBackground();
+        closeModal();
+        return;
       }
 
       // Virtual sessions are not office bookings unless the user opts into a room request.
@@ -12247,25 +15923,34 @@ const submitRequest = async () => {
         dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
         hour: h
       }];
+      await withdrawEditorPriorOfficeRequests();
       for (const t of targets) {
         const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h))}:00:00`;
         const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + Math.max(1, endH - h), 22))}:00:00`;
+        const preferred = Number(editorPreferredRoomId.value || roomId || 0) || roomId;
         // eslint-disable-next-line no-await-in-loop
         const r = await api.post('/office-schedule/booking-requests', {
           officeLocationId: officeId,
-          roomId,
+          roomId: preferred,
           startAt,
           endAt,
           recurrence,
           ...(occurrenceCount ? { bookedOccurrenceCount: occurrenceCount } : {}),
-          openToAlternativeRoom: !roomId,
+          openToAlternativeRoom: !preferred,
           notes: requestNotes.value || '',
           ...normalizeBookingSelectionPayload(),
           ...requestedProviderPayload()
         });
+        const bookingReqId = Number(r?.data?.request?.id || 0);
+        if (bookingReqId) editorLastOfficeBookingRequestId.value = bookingReqId;
         if (r?.data?.kind === 'auto_booked') {
           // eslint-disable-next-line no-await-in-loop
           await loadSelectedOfficeGrid();
+          refreshInBackground = true;
+          needsOfficeRefresh = true;
+        } else if (r?.data?.kind === 'request') {
+          officeReminderToast.value = 'Office request submitted (pending approval) — the room was not booked yet.';
+          setTimeout(() => { officeReminderToast.value = ''; }, 7000);
         }
       }
       // Optional: also request office when virtual + office already selected (user opted in).
@@ -12276,38 +15961,96 @@ const submitRequest = async () => {
       const agencyId = Number(effectiveAgencyId.value || 0);
       if (!agencyId) throw new Error('Select an agency for portal availability.');
       if (!(endH > h)) throw new Error('End time must be after start time.');
-      await ensureVirtualWorkingHoursForRange({ dayName: dn, startHour: h, endHour: endH });
-      // Optionally also submit an office request for the same window when an office is selected.
-      const officeId = Number(selectedOfficeLocationId.value || 0);
-      if (sessionAlsoRequestOffice.value && officeId) {
+      if (editorOpenSlotEnabled.value !== false) {
+        await ensureVirtualWorkingHoursForRange({ dayName: dn, startHour: h, endHour: endH });
+      }
+      // Attach office request for the same series when requested from the unified editor.
+      const officeId = Number(editorOfficeLocationId.value || selectedOfficeLocationId.value || 0);
+      const attachOffice = !!(editorAttachOfficeRequest.value || sessionAlsoRequestOffice.value);
+      let linkedOfficeRequestId = null;
+      if (attachOffice) {
         const baseDateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
-        const slots = [{
-          weekday: weekdayFromYmd(baseDateYmd),
-          startHour: h,
-          endHour: endH
-        }];
-        await api.post('/availability/office-requests', {
-          agencyId,
-          notes: requestNotes.value || 'Linked to portal intake availability (optional office request).',
-          officeLocationIds: [officeId],
-          recurrence: 'ONCE',
-          requestedStartDate: baseDateYmd,
-          slots
+        const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE').toUpperCase();
+        const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+        const endMode = String(scheduleEventRecurrenceEndMode.value || 'count');
+        const occurrenceCount = recurringRecurrences.includes(recurrence)
+          ? (endMode === 'indefinite'
+            ? null
+            : Math.min(52, Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value || 6))))
+          : null;
+        const dates = expandRecurrenceDates({
+          startYmd: baseDateYmd,
+          frequency: recurrence,
+          endMode,
+          occurrenceCount: occurrenceCount || 6,
+          untilDate: editorRecurrenceUntilDate.value,
+          weekdays: editorRecurrenceWeekdays.value
         });
+        const slots = (dates.length ? dates : [baseDateYmd]).map((ymd) => ({
+          weekday: weekdayFromYmd(ymd),
+          startHour: h,
+          endHour: endH,
+          roomId: Number(editorPreferredRoomId.value || selectedOfficeRoomId.value || 0) || undefined
+        }));
+        const officeIds = officeId
+          ? [officeId]
+          : (editorOfficeLocations.value || []).map((l) => Number(l.id || 0)).filter((n) => n > 0).slice(0, 1);
+        const replaceAvailId = Number(editorLastOfficeAvailabilityRequestId.value || 0);
+        await withdrawEditorPriorOfficeRequests();
+        const reqRes = await api.post('/availability/office-requests', {
+          agencyId,
+          notes: requestNotes.value || 'Linked to open slot / portal intake (unified editor).',
+          officeLocationIds: officeIds.length ? officeIds : undefined,
+          recurrence: recurringRecurrences.includes(recurrence) ? recurrence : 'ONCE',
+          occurrenceCount,
+          requestedStartDate: baseDateYmd,
+          requestedUntilDate: endMode === 'until' ? (editorRecurrenceUntilDate.value || null) : null,
+          slots,
+          preferredRoomId: Number(editorPreferredRoomId.value || 0) || undefined,
+          ...(replaceAvailId ? { supersedePrevious: true, replaceRequestId: replaceAvailId } : {})
+        });
+        linkedOfficeRequestId = Number(reqRes?.data?.request?.id || reqRes?.data?.id || 0) || null;
+        if (linkedOfficeRequestId) editorLastOfficeAvailabilityRequestId.value = linkedOfficeRequestId;
         needsOfficeRefresh = true;
+        // Best-effort: link request onto a draft appointment row when catalog booking is available.
+        if (linkedOfficeRequestId && Number(editorTenantServiceId.value || 0) > 0) {
+          try {
+            await api.post('/appointments', {
+              agencyId,
+              tenantServiceId: Number(editorTenantServiceId.value),
+              providerUserId: Number(bookingTargetUserId.value || props.userId || 0) || undefined,
+              startAt: `${baseDateYmd}T${pad2(h)}:${pad2(startMinute)}:00`,
+              endAt: `${baseDateYmd}T${pad2(endH)}:${pad2(endMinute)}:00`,
+              modality: 'IN_PERSON',
+              source: 'staff_grid_open_slot',
+              officeBookingRequestId: linkedOfficeRequestId,
+              notes: requestNotes.value || null,
+              status: 'draft'
+            });
+          } catch {
+            /* appointment link is additive */
+          }
+        }
       }
       forceRefreshSummary = true;
-      officeReminderToast.value = sessionAlsoRequestOffice.value && officeId
-        ? 'Portal intake hours published. Office request submitted for the same window.'
+      officeReminderToast.value = attachOffice
+        ? 'Open slot published and office request attached for the same series.'
         : 'Portal intake hours published — not tied to an office. New clients can request this time online.';
       setTimeout(() => { officeReminderToast.value = ''; }, 6000);
     } else if (requestType.value === 'office_request_only') {
       // Always use modal's hour range (End time dropdown) as source of truth; shift/drag select is unreliable in office layout
-      const recurrence = String(officeBookingRecurrence.value || 'ONCE').toUpperCase();
+      // Prefer unified editor recurrence controls when present.
+      const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE').toUpperCase();
       const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const endMode = String(scheduleEventRecurrenceEndMode.value || 'count');
       const occurrenceMax = recurrence === 'WEEKLY' ? 6 : 104;
       const occurrenceCount = recurringRecurrences.includes(recurrence)
-        ? Math.min(occurrenceMax, Math.max(1, Number(officeBookingOccurrenceCount.value) || (recurrence === 'WEEKLY' ? 6 : 1)))
+        ? (endMode === 'indefinite'
+          ? null
+          : Math.min(
+            occurrenceMax,
+            Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value) || (recurrence === 'WEEKLY' ? 6 : 1))
+          ))
         : null;
       if (occurrenceCount) officeBookingOccurrenceCount.value = occurrenceCount;
       const baseRoomId = viewMode.value === 'office_layout' ? (Number(selectedOfficeRoomId.value || 0) || Number(modalContext.value?.roomId || 0) || 0) : 0;
@@ -12361,59 +16104,49 @@ const submitRequest = async () => {
           });
         }
       }
-      await api.post('/availability/office-requests', {
+      const replaceAvailId = Number(editorLastOfficeAvailabilityRequestId.value || 0);
+      await withdrawEditorPriorOfficeRequests();
+      const officeReqRes = await api.post('/availability/office-requests', {
         agencyId: effectiveAgencyId.value,
         notes: requestNotes.value || '',
-        officeLocationIds: Number(selectedOfficeLocationId.value || 0) ? [Number(selectedOfficeLocationId.value)] : [],
+        officeLocationIds: Number(selectedOfficeLocationId.value || editorOfficeLocationId.value || 0)
+          ? [Number(selectedOfficeLocationId.value || editorOfficeLocationId.value)]
+          : [],
         recurrence,
         ...(occurrenceCount ? { bookedOccurrenceCount: occurrenceCount } : {}),
         requestedStartDate: baseDateYmd,
-        slots
+        slots,
+        preferredRoomId: Number(editorPreferredRoomId.value || singleRoomId || 0) || undefined,
+        ...(replaceAvailId ? { supersedePrevious: true, replaceRequestId: replaceAvailId } : {})
       });
+      const newAvailId = Number(officeReqRes?.data?.id || officeReqRes?.data?.request?.id || 0);
+      if (newAvailId) editorLastOfficeAvailabilityRequestId.value = newAvailId;
       forceRefreshSummary = true;
       invalidateScheduleSummaryCacheForUser(props.userId);
       await loadSelectedOfficeGrid();
     } else if (requestType.value === 'school') {
       if (isAdminMode.value) throw new Error('School availability requests must be created from the provider schedule.');
-      if (!canUseSchool(dn, h, endH)) throw new Error('School daytime availability must be on weekdays and between 06:00 and 18:00.');
+      const startH = Number(effectiveModalStartHour.value ?? h);
+      const endHourVal = Number(modalEndHour.value || endH);
+      const startM = Number(modalStartMinute.value || 0);
+      const endM = Number(modalEndMinute.value || 0);
+      if (!canUseSchool(dn, startH, endHourVal, startM, endM)) {
+        throw new Error('School daytime availability must be on weekdays and between 06:00 and 18:00.');
+      }
       const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
         dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
         dayName: dn,
-        hour: h
+        hour: startH
       }];
-      const byDay = new Map();
-      for (const t of targets) {
-        const day = String(t.dayName || dayNameForDateYmd(t.dateYmd) || dn);
-        if (!byDay.has(day)) byDay.set(day, []);
-        byDay.get(day).push(Number(t.hour || h));
-      }
+      const days = Array.from(new Set(
+        targets.map((t) => String(t.dayName || dayNameForDateYmd(t.dateYmd) || dn)).filter(Boolean)
+      ));
+      const startTime = `${pad2(startH)}:${pad2(startM)}`;
+      const endTime = `${pad2(endHourVal)}:${pad2(endM)}`;
       const blocks = [];
-      for (const [day, hoursList] of byDay.entries()) {
-        const uniq = Array.from(new Set(hoursList)).sort((a, b) => a - b);
-        let start = null;
-        let prev = null;
-        for (const val of uniq) {
-          if (start === null) {
-            start = val;
-            prev = val;
-            continue;
-          }
-          if (val === prev + 1) {
-            prev = val;
-            continue;
-          }
-          const end = prev + 1;
-          if (canUseSchool(day, start, end)) {
-            blocks.push({ dayOfWeek: day, startTime: `${pad2(start)}:00`, endTime: `${pad2(end)}:00` });
-          }
-          start = val;
-          prev = val;
-        }
-        if (start !== null) {
-          const end = prev + 1;
-          if (canUseSchool(day, start, end)) {
-            blocks.push({ dayOfWeek: day, startTime: `${pad2(start)}:00`, endTime: `${pad2(end)}:00` });
-          }
+      for (const day of days) {
+        if (canUseSchool(day, startH, endHourVal, startM, endM)) {
+          blocks.push({ dayOfWeek: day, startTime, endTime });
         }
       }
       if (!blocks.length) throw new Error('No selected slots are valid for school daytime availability.');
@@ -12449,6 +16182,10 @@ const submitRequest = async () => {
         : 1;
       const dates = scheduleEventOccurrenceDates(dateYmd, recurrence, occurrenceCount);
       const createdSessionIds = [];
+      const supervisionSeriesId = recurringRecurrences.includes(recurrence)
+        ? generateRecurrenceSeriesId()
+        : null;
+      let supervisionRecurrenceIndex = 0;
       for (const occYmd of dates) {
         const startAt = `${String(occYmd).slice(0, 10)}T${pad2(h)}:${pad2(startMinute)}:00`;
         const endAt = `${String(occYmd).slice(0, 10)}T${pad2(endH)}:${pad2(endMinute)}:00`;
@@ -12462,9 +16199,17 @@ const submitRequest = async () => {
           startAt,
           endAt,
           notes: requestNotes.value || '',
-          createMeetLink: false,
-          modality: 'virtual'
+          createMeetLink: !!editorSupervisionIsVirtual.value && !!createSupervisionMeetLink.value,
+          modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
+          ...(supervisionSeriesId
+            ? {
+                recurrenceSeriesId: supervisionSeriesId,
+                recurrenceFrequency: recurrence,
+                recurrenceIndex: supervisionRecurrenceIndex
+              }
+            : {})
         });
+        if (supervisionSeriesId) supervisionRecurrenceIndex += 1;
         const sessionId = Number(supvRes?.data?.session?.id || 0);
         if (sessionId > 0) createdSessionIds.push(sessionId);
       }
@@ -12579,8 +16324,13 @@ const submitRequest = async () => {
       throw new Error('Invalid request type.');
     }
 
-    closeModal();
-    clearSelectedActionSlots();
+    const keepOpenForMeetingShare = !!meetingCreatedShare.value;
+    if (!keepOpenForMeetingShare) {
+      closeModal();
+      clearSelectedActionSlots();
+    } else {
+      clearSelectedActionSlots();
+    }
     if (needsOfficeRefresh) {
       invalidateScheduleSummaryCacheForUser(props.userId);
       const tasks = [load({ forceRefresh: true })];
@@ -12669,13 +16419,35 @@ watch(requestType, (t) => {
   } else if ((t === 'office' || t === 'group_session') && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
   } else if (SCHEDULE_EVENT_ACTIONS.has(String(t || ''))) {
-    if (!String(scheduleEventTitle.value || '').trim() || scheduleEventTitle.value === defaultScheduleEventTitleForAction('personal_event')) {
-      scheduleEventTitle.value = defaultScheduleEventTitleForAction(String(t || ''));
+    if (t === 'personal_event') {
+      personalEventTitleTouched.value = false;
+      personalEventTypeCode.value = 'PERSONAL';
+      scheduleEventTitle.value = PERSONAL_EVENT_TYPE_OPTIONS[0].title;
+    } else {
+      const currentTitle = String(scheduleEventTitle.value || '').trim();
+      const defaultTitles = new Set([
+        '',
+        defaultScheduleEventTitleForAction('personal_event'),
+        defaultScheduleEventTitleForAction('schedule_hold'),
+        defaultScheduleEventTitleForAction('schedule_hold_all_day'),
+        defaultScheduleEventTitleForAction('indirect_services'),
+        'Schedule Hold', // legacy default when all-day reused hold title
+        'All-day schedule block'
+      ]);
+      if (!currentTitle || defaultTitles.has(currentTitle)) {
+        scheduleEventTitle.value = defaultScheduleEventTitleForAction(String(t || ''));
+      }
     }
     if (t === 'schedule_hold_all_day') scheduleEventAllDay.value = true;
     if (t === 'schedule_hold') scheduleEventAllDay.value = false;
     if (t === 'personal_event' || t === 'indirect_services' || t === 'agency_meeting' || t === 'huddle') {
       scheduleEventAllDay.value = false;
+    }
+    if (t === 'schedule_hold' || t === 'schedule_hold_all_day') {
+      selectHoldReasonOption(
+        scheduleHoldReasonOptions.value.find((o) => o.code === String(scheduleHoldReasonCode.value || '').toUpperCase())
+        || BUILTIN_HOLD_REASON_OPTIONS[0]
+      );
     }
     if (['personal_event', 'schedule_hold', 'schedule_hold_all_day'].includes(String(t || ''))) {
       const opts = scheduleEventOrgOptions.value || [];
@@ -12771,14 +16543,15 @@ watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agency
   meetingBusyByUserId.value = {};
   if (!currentAgencyId) {
     meetingCandidates.value = [];
+    meetingInviteGroups.value = [];
     return;
   }
   void loadMeetingCandidates();
 });
 
-watch([requestType, modalDay, modalHour, modalEndHour, modalStartMinute, modalEndMinute], ([type]) => {
+watch([requestType, modalDay, modalHour, modalEndHour, modalStartMinute, modalEndMinute, meetingParticipantSearch, selectedMeetingParticipantIds], ([type]) => {
   if (!['agency_meeting', 'huddle'].includes(String(type || '')) || !showRequestModal.value) return;
-  void loadMeetingBusyByParticipant();
+  scheduleMeetingBusyCheck();
 });
 
 watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agencyId], [prevOpen, prevType, prevAgencyId]) => {
@@ -12816,14 +16589,6 @@ watch(availableMeetingCandidates, (rows) => {
   selectedMeetingParticipantIds.value = (selectedMeetingParticipantIds.value || [])
     .map((n) => Number(n || 0))
     .filter((n) => n > 0 && ids.has(n));
-});
-
-watch(selectedSupervisionParticipantId, (nextId) => {
-  const primaryId = Number(nextId || 0);
-  if (!primaryId) return;
-  selectedSupervisionAdditionalParticipantIds.value = (selectedSupervisionAdditionalParticipantIds.value || [])
-    .map((n) => Number(n || 0))
-    .filter((n) => n > 0 && n !== primaryId);
 });
 
 watch(() => summary.value?.supervisionSessions, (rows) => {
@@ -12919,6 +16684,15 @@ const supvArtifactError = ref('');
 const supvTranscriptUrl = ref('');
 const supvTranscriptText = ref('');
 const supvSummaryText = ref('');
+const supvSuperviseeHoursLoading = ref(false);
+const supvSuperviseeHoursError = ref('');
+const supvSuperviseeHours = ref({
+  enabled: true,
+  individualHours: 0,
+  groupHours: 0,
+  requiredIndividual: 50,
+  requiredGroup: 50
+});
 const showSupvAppVideoModal = ref(false);
 const supvAppVideoToken = ref('');
 const supvAppVideoRoomName = ref('');
@@ -13093,6 +16867,19 @@ const toDatetimeLocalValue = (raw) => {
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
 };
 
+/** Agenda surfaces once the session window has started (or join prompt window). */
+const supervisionSessionInitiated = computed(() => {
+  const s = selectedSupvSession.value;
+  if (!s || !Number(selectedSupvSessionId.value || 0)) return false;
+  const status = String(s?.status || '').trim().toUpperCase();
+  if (status === 'CANCELLED') return false;
+  const start = parseMaybeDate(s?.startAt);
+  const end = parseMaybeDate(s?.endAt);
+  if (!start || !end) return false;
+  const now = Number(joinPromptNowMs.value || Date.now());
+  return now >= (start.getTime() - (5 * 60 * 1000)) && now <= end.getTime();
+});
+
 const joinPromptSession = computed(() => {
   const sessions = Array.isArray(summary.value?.supervisionSessions) ? summary.value.supervisionSessions : [];
   const now = Number(joinPromptNowMs.value || Date.now());
@@ -13219,6 +17006,70 @@ const loadSupvArtifact = async (sessionId) => {
   }
 };
 
+const loadSupvSuperviseeHours = async () => {
+  const session = selectedSupvSession.value;
+  const superviseeId = Number(
+    session?.superviseeUserId
+    || (session?.role === 'supervisee' ? props.userId : 0)
+    || selectedSupervisionParticipantId.value
+    || 0
+  );
+  const agencyId = Number(session?.agencyId || session?._agencyId || editorAgencyId.value || effectiveAgencyId.value || 0);
+  if (!superviseeId) {
+    supvSuperviseeHoursError.value = '';
+    supvSuperviseeHours.value = {
+      enabled: true,
+      individualHours: 0,
+      groupHours: 0,
+      requiredIndividual: 50,
+      requiredGroup: 50
+    };
+    return;
+  }
+  try {
+    supvSuperviseeHoursLoading.value = true;
+    supvSuperviseeHoursError.value = '';
+    const params = agencyId > 0 ? { agencyId } : {};
+    const isMe = Number(superviseeId) === Number(authStore.user?.id || 0);
+    const resp = isMe
+      ? await api.get('/payroll/me/dashboard-summary', { params, skipGlobalLoading: true })
+      : await api.get(`/payroll/supervisee/${superviseeId}/dashboard-summary`, { params, skipGlobalLoading: true });
+    const sup = resp?.data?.supervision || null;
+    supvSuperviseeHours.value = {
+      enabled: sup == null ? true : !!sup.enabled,
+      individualHours: Number(sup?.individualHours || 0),
+      groupHours: Number(sup?.groupHours || 0),
+      requiredIndividual: Number(sup?.requiredIndividualHours || 50),
+      requiredGroup: Number(sup?.requiredGroupHours || 50)
+    };
+  } catch (e) {
+    supvSuperviseeHoursError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load supervisee hours';
+  } finally {
+    supvSuperviseeHoursLoading.value = false;
+  }
+};
+
+// Registered after selectedSupvSessionId + loaders (watch getters run during setup — TDZ remounts if earlier).
+watch(selectedSupervisionParticipantId, (nextId) => {
+  const primaryId = Number(nextId || 0);
+  if (!primaryId) return;
+  selectedSupervisionAdditionalParticipantIds.value = (selectedSupervisionAdditionalParticipantIds.value || [])
+    .map((n) => Number(n || 0))
+    .filter((n) => n > 0 && n !== primaryId);
+  if (editorIsSupervision.value) void loadSupvSuperviseeHours();
+});
+
+watch(
+  () => [selectedSupvSessionId.value, editorWorkspaceTab.value, isSupervisionEditMode.value],
+  ([sid, tab, editMode]) => {
+    if (!editMode || !Number(sid || 0)) return;
+    if (tab === 'note' || tab === 'supervisee' || tab === 'info') {
+      void loadSupvArtifact(sid);
+      void loadSupvSuperviseeHours();
+    }
+  }
+);
+
 const saveSupvArtifact = async ({ autoSummarize = false } = {}) => {
   const sid = Number(selectedSupvSessionId.value || 0);
   if (!sid) return;
@@ -13235,6 +17086,12 @@ const saveSupvArtifact = async ({ autoSummarize = false } = {}) => {
     supvTranscriptUrl.value = String(artifact?.transcript_url || '');
     supvTranscriptText.value = String(artifact?.transcript_text || '');
     supvSummaryText.value = String(artifact?.summary_text || '');
+    // Keep short session notes in sync when saving from the Note tab.
+    try {
+      await api.patch(`/supervision/sessions/${sid}`, { notes: supvNotes.value || '' });
+    } catch {
+      /* artifact save succeeded; notes can still be saved via Save changes */
+    }
   } catch (e) {
     supvArtifactError.value = e.response?.data?.error?.message || e.message || 'Failed to save transcript/summary';
   } finally {
@@ -13258,6 +17115,11 @@ const openSupvModal = (dayName, hour) => {
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
   supvNotes.value = String(first.notes || '');
   supvCreateMeetLink.value = false;
+  editTimingBaseline.value = {
+    startAt: String(supvStartIsoLocal.value || '').trim(),
+    endAt: String(supvEndIsoLocal.value || '').trim(),
+    recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim()
+  };
   void loadSupvPresenters(selectedSupvSessionId.value);
   void loadSupvArtifact(selectedSupvSessionId.value);
 };
@@ -13292,6 +17154,11 @@ watch(selectedSupvSessionId, (id) => {
   supvNotes.value = String(ev.notes || '');
   supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.startAt));
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.endAt));
+  editTimingBaseline.value = {
+    startAt: String(supvStartIsoLocal.value || '').trim(),
+    endAt: String(supvEndIsoLocal.value || '').trim(),
+    recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim()
+  };
   void loadSupvPresenters(id);
   void loadSupvArtifact(id);
 });
@@ -13315,25 +17182,128 @@ const togglePresenterPresented = async (presenter) => {
   }
 };
 
-const saveSupvSession = async ({ closeScheduleShell = false } = {}) => {
+const closeSeriesEditScopeModal = () => {
+  if (seriesEditScopeBusy.value) return;
+  const cancel = seriesEditScopePending.value?.cancel;
+  showSeriesEditScopeModal.value = false;
+  seriesEditScopePending.value = null;
+  seriesEditScopeError.value = '';
+  seriesEditScopeChoice.value = '';
+  if (typeof cancel === 'function') cancel();
+};
+
+const askSeriesEditScope = ({ title = 'Update series', run } = {}) => new Promise((resolve) => {
+  seriesEditScopeTitle.value = String(title || 'Update series');
+  seriesEditScopeError.value = '';
+  seriesEditScopeChoice.value = '';
+  seriesEditScopePending.value = {
+    run: async (scope) => {
+      try {
+        seriesEditScopeBusy.value = true;
+        seriesEditScopeChoice.value = scope;
+        seriesEditScopeError.value = '';
+        await run(scope);
+        showSeriesEditScopeModal.value = false;
+        seriesEditScopePending.value = null;
+        resolve(scope);
+      } catch (e) {
+        seriesEditScopeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to save';
+        throw e;
+      } finally {
+        seriesEditScopeBusy.value = false;
+        seriesEditScopeChoice.value = '';
+      }
+    },
+    cancel: () => {
+      showSeriesEditScopeModal.value = false;
+      seriesEditScopePending.value = null;
+      resolve(null);
+    }
+  };
+  showSeriesEditScopeModal.value = true;
+});
+
+const confirmSeriesEditScope = async (scope) => {
+  const pending = seriesEditScopePending.value;
+  if (!pending?.run) return;
+  try {
+    await pending.run(scope);
+  } catch {
+    /* error shown in modal */
+  }
+};
+
+const timingChangedFromBaseline = (startAt, endAt) => {
+  const norm = (s) => String(s || '').trim().replace(' ', 'T').slice(0, 16);
+  return norm(startAt) !== norm(editTimingBaseline.value.startAt)
+    || norm(endAt) !== norm(editTimingBaseline.value.endAt);
+};
+
+const appointmentStartHasPassed = (startAt) => {
+  const d = parseLocalDateTime(startAt) || parseMaybeDate(startAt);
+  if (!d) return false;
+  return d.getTime() < Date.now();
+};
+
+/** Warn when editing/moving an appointment that is already in the past. */
+const confirmIfUpdatingPastAppointment = ({
+  originalStart = '',
+  newStart = '',
+  label = 'appointment',
+  alreadyConfirmed = false
+} = {}) => {
+  if (alreadyConfirmed) return true;
+  const past = appointmentStartHasPassed(originalStart) || appointmentStartHasPassed(newStart);
+  if (!past) return true;
+  const kind = String(label || 'appointment').trim() || 'appointment';
+  return window.confirm(
+    `This ${kind} has already passed. Are you sure you want to update it?`
+  );
+};
+
+const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastConfirmed = false } = {}) => {
   const id = Number(selectedSupvSessionId.value || 0);
   if (!id) return;
+  const startAt = supvStartIsoLocal.value ? `${supvStartIsoLocal.value}:00` : '';
+  const endAt = supvEndIsoLocal.value ? `${supvEndIsoLocal.value}:00` : '';
+  if (!startAt || !endAt) {
+    supvModalError.value = 'Start and end are required.';
+    return;
+  }
+  if (!confirmIfUpdatingPastAppointment({
+    originalStart: editTimingBaseline.value.startAt || selectedSupvSession.value?.startAt,
+    newStart: startAt,
+    label: 'supervision session',
+    alreadyConfirmed: pastConfirmed
+  })) {
+    return;
+  }
+  const seriesId = String(editTimingBaseline.value.recurrenceSeriesId || selectedSupvSession.value?.recurrenceSeriesId || '').trim();
+  const timeChanged = timingChangedFromBaseline(supvStartIsoLocal.value, supvEndIsoLocal.value);
+  if (!scope && timeChanged && seriesId) {
+    await askSeriesEditScope({
+      title: selectedSupvSession.value?.counterpartyName || 'Supervision',
+      run: async (chosen) => {
+        await saveSupvSession({ closeScheduleShell, scope: chosen, pastConfirmed: true });
+      }
+    });
+    return;
+  }
   try {
     supvSaving.value = true;
     supvModalError.value = '';
-    const startAt = supvStartIsoLocal.value ? `${supvStartIsoLocal.value}:00` : '';
-    const endAt = supvEndIsoLocal.value ? `${supvEndIsoLocal.value}:00` : '';
-    if (!startAt || !endAt) throw new Error('Start and end are required.');
     await api.patch(`/supervision/sessions/${id}`, {
       startAt,
       endAt,
-      notes: supvNotes.value || ''
+      notes: supvNotes.value || '',
+      ...(scope ? { scope } : {})
     });
     await load();
     closeSupvModal();
     if (closeScheduleShell) requestCloseModal();
   } catch (e) {
     supvModalError.value = e.response?.data?.error?.message || e.message || 'Failed to save session';
+    throw e;
   } finally {
     supvSaving.value = false;
   }
@@ -13407,7 +17377,257 @@ const openPeerStaffSchedule = () => {
   closePeerActivityModal();
 };
 
+const showAppointmentMoveModal = ref(false);
+const appointmentMoveBusy = ref(false);
+const appointmentMoveError = ref('');
+const appointmentMoveDraft = ref(null);
+const appointmentDragState = ref(null);
+const appointmentDragTarget = ref(null);
+let suppressNextAppointmentClick = false;
+
+const isAppointmentBlockDraggable = (block) => {
+  if (!canBookFromGrid.value) return false;
+  if (block?.isCancelled || block?.draggable === false) return false;
+  const kind = String(block?.kind || '');
+  if (!['supv', 'sevt'].includes(kind)) return false;
+  return Number(block?.eventId || 0) > 0 && !!block?.startAt && !!block?.endAt;
+};
+
+const isAppointmentBlockDragging = (block) => {
+  const st = appointmentDragState.value;
+  if (!st?.active) return false;
+  return Number(st.eventId || 0) === Number(block?.eventId || 0)
+    && String(st.kind || '') === String(block?.kind || '');
+};
+
+const isAppointmentDropTarget = (dayName, hour, minute = 0) => {
+  const t = appointmentDragTarget.value;
+  if (!t || !appointmentDragState.value?.active) return false;
+  return String(t.dayName) === String(dayName)
+    && Number(t.hour) === Number(hour)
+    && Number(t.minute || 0) === Number(minute || 0);
+};
+
+const roundToQuarterMinute = (minute) => {
+  const m = Number(minute || 0);
+  if (!Number.isFinite(m)) return 0;
+  return Math.max(0, Math.min(45, Math.round(m / 15) * 15));
+};
+
+const formatLocalDateTimeValue = (date) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  return `${localYmd(date)}T${pad2(date.getHours())}:${pad2(date.getMinutes())}:00`;
+};
+
+const cleanupAppointmentDragListeners = () => {
+  window.removeEventListener('pointermove', onAppointmentPointerMove);
+  window.removeEventListener('pointerup', onAppointmentPointerUp);
+  window.removeEventListener('pointercancel', onAppointmentPointerUp);
+};
+
+const onAppointmentPointerDown = (e, block, dayName, hour, minute = 0) => {
+  if (!isAppointmentBlockDraggable(block)) return;
+  if (e?.button != null && e.button !== 0) return;
+  const start = parseLocalDateTime(block.startAt);
+  const end = parseLocalDateTime(block.endAt);
+  if (!start || !end || !(end > start)) return;
+  e?.stopPropagation?.();
+  appointmentDragState.value = {
+    active: false,
+    moved: false,
+    kind: String(block.kind || ''),
+    eventId: Number(block.eventId || 0),
+    providerId: Number(block.providerId || resolveBookedProviderIdForEvent(block) || props.userId || 0),
+    seriesId: String(block.recurrenceSeriesId || '').trim(),
+    label: String(block.shortLabel || block.title || 'Appointment').trim(),
+    startAt: block.startAt,
+    endAt: block.endAt,
+    durationMs: end.getTime() - start.getTime(),
+    fromDay: String(dayName),
+    fromHour: Number(hour),
+    fromMinute: Number(minute || 0),
+    originX: Number(e?.clientX || 0),
+    originY: Number(e?.clientY || 0),
+    pointerId: e?.pointerId
+  };
+  appointmentDragTarget.value = null;
+  try {
+    e?.currentTarget?.setPointerCapture?.(e.pointerId);
+  } catch {
+    // ignore
+  }
+  window.addEventListener('pointermove', onAppointmentPointerMove);
+  window.addEventListener('pointerup', onAppointmentPointerUp);
+  window.addEventListener('pointercancel', onAppointmentPointerUp);
+};
+
+const resolveDropFromPoint = (clientX, clientY) => {
+  const stack = typeof document.elementsFromPoint === 'function'
+    ? (document.elementsFromPoint(clientX, clientY) || [])
+    : [document.elementFromPoint(clientX, clientY)].filter(Boolean);
+  let cell = null;
+  for (const node of stack) {
+    if (node?.getAttribute?.('data-sched-cell') === '1') {
+      cell = node;
+      break;
+    }
+    const parent = node?.closest?.('[data-sched-cell="1"]');
+    if (parent) {
+      cell = parent;
+      break;
+    }
+  }
+  if (!cell) return null;
+  const dayName = String(cell.getAttribute('data-day') || '');
+  const hour = Number(cell.getAttribute('data-hour') || 0);
+  let minute = Number(cell.getAttribute('data-minute') || 0);
+  if (!dayName || !Number.isFinite(hour)) return null;
+  if (!showQuarterDetail.value && minute === 0) {
+    const rect = cell.getBoundingClientRect();
+    const yRatio = (clientY - rect.top) / Math.max(1, rect.height);
+    minute = Math.max(0, Math.min(45, Math.floor(yRatio * 4) * 15));
+  } else {
+    minute = roundToQuarterMinute(minute);
+  }
+  return { dayName, hour, minute };
+};
+
+const onAppointmentPointerMove = (e) => {
+  const st = appointmentDragState.value;
+  if (!st) return;
+  const dist = Math.hypot(
+    Number(e?.clientX || 0) - Number(st.originX || 0),
+    Number(e?.clientY || 0) - Number(st.originY || 0)
+  );
+  if (!st.active && dist >= 8) {
+    st.active = true;
+    st.moved = true;
+    appointmentDragState.value = { ...st };
+  }
+  if (!st.active) return;
+  const drop = resolveDropFromPoint(Number(e?.clientX || 0), Number(e?.clientY || 0));
+  appointmentDragTarget.value = drop;
+};
+
+const openAppointmentMoveConfirm = (st, target) => {
+  const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(target.dayName));
+  const newStart = new Date(`${dateYmd}T${pad2(target.hour)}:${pad2(target.minute)}:00`);
+  if (Number.isNaN(newStart.getTime())) return;
+  const newEnd = new Date(newStart.getTime() + Number(st.durationMs || 0));
+  const newStartAt = formatLocalDateTimeValue(newStart);
+  const newEndAt = formatLocalDateTimeValue(newEnd);
+  if (!newStartAt || !newEndAt) return;
+  const oldNorm = String(st.startAt || '').replace(' ', 'T').slice(0, 16);
+  if (oldNorm === newStartAt.slice(0, 16)) return;
+  const oldRange = clockRangeLabel(st.startAt, st.endAt);
+  const newRange = clockRangeLabel(newStartAt, newEndAt);
+  appointmentMoveError.value = '';
+  appointmentMoveDraft.value = {
+    kind: st.kind,
+    eventId: st.eventId,
+    providerId: st.providerId,
+    seriesId: st.seriesId,
+    label: st.label,
+    startAt: st.startAt,
+    endAt: st.endAt,
+    newStartAt,
+    newEndAt,
+    targetLabel: `${target.dayName} ${newRange || hourMinuteLabel(target.hour, target.minute)}`,
+    fromLabel: oldRange || ''
+  };
+  showAppointmentMoveModal.value = true;
+};
+
+const closeAppointmentMoveModal = () => {
+  if (appointmentMoveBusy.value) return;
+  showAppointmentMoveModal.value = false;
+  appointmentMoveDraft.value = null;
+  appointmentMoveError.value = '';
+};
+
+const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}) => {
+  const draft = appointmentMoveDraft.value;
+  if (!draft?.eventId) return;
+  if (!confirmIfUpdatingPastAppointment({
+    originalStart: draft.startAt,
+    newStart: draft.newStartAt,
+    label: draft.kind === 'supv' ? 'supervision session' : 'appointment',
+    alreadyConfirmed: pastConfirmed
+  })) {
+    return;
+  }
+  const seriesId = String(draft.seriesId || '').trim();
+  if (!scope && seriesId) {
+    showAppointmentMoveModal.value = false;
+    await askSeriesEditScope({
+      title: draft.label || 'Appointment',
+      run: async (chosen) => {
+        await applyAppointmentMove(chosen, { pastConfirmed: true });
+      }
+    });
+    return;
+  }
+  try {
+    appointmentMoveBusy.value = true;
+    appointmentMoveError.value = '';
+    if (draft.kind === 'supv') {
+      await api.patch(`/supervision/sessions/${draft.eventId}`, {
+        startAt: draft.newStartAt,
+        endAt: draft.newEndAt,
+        ...(scope ? { scope } : {})
+      }, { skipGlobalLoading: true });
+    } else {
+      const uid = Number(draft.providerId || props.userId || authStore.user?.id || 0);
+      if (!uid) throw new Error('Unable to resolve host for move.');
+      await api.patch(`/users/${uid}/schedule-events/${draft.eventId}`, {
+        startAt: draft.newStartAt,
+        endAt: draft.newEndAt,
+        ...(scope ? { scope } : {})
+      }, { skipGlobalLoading: true });
+    }
+    showAppointmentMoveModal.value = false;
+    appointmentMoveDraft.value = null;
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    void load({ forceRefresh: true });
+  } catch (e) {
+    appointmentMoveError.value = e?.response?.data?.error?.message || e?.message || 'Failed to move appointment';
+    if (!scope) showAppointmentMoveModal.value = true;
+    throw e;
+  } finally {
+    appointmentMoveBusy.value = false;
+  }
+};
+
+const confirmAppointmentMove = async () => {
+  try {
+    await applyAppointmentMove(null);
+  } catch {
+    /* error shown in modal */
+  }
+};
+
+const onAppointmentPointerUp = (e) => {
+  const st = appointmentDragState.value;
+  const target = appointmentDragTarget.value;
+  cleanupAppointmentDragListeners();
+  appointmentDragState.value = null;
+  appointmentDragTarget.value = null;
+  if (!st) return;
+  if (st.moved && st.active && target) {
+    suppressNextAppointmentClick = true;
+    openAppointmentMoveConfirm(st, target);
+    return;
+  }
+  // Click (no drag) — let the normal click handler run.
+};
+
 const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
+  if (suppressNextAppointmentClick) {
+    suppressNextAppointmentClick = false;
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    return;
+  }
   const kind = String(block?.kind || '');
   e?.preventDefault?.();
   e?.stopPropagation?.();
@@ -13511,16 +17731,19 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
     if (officeLocationId > 0 && Number(selectedOfficeLocationId.value || 0) !== officeLocationId) {
       selectedOfficeLocationId.value = officeLocationId;
     }
-    // Same schedule modal for every office block — chooser first; permissions filter cards.
-    openSlotActionModal({
-      dayName,
-      hour,
-      roomId: Number(officeTop?.roomId || 0) || 0,
+    // Clicking the colored block (not empty cell) — prompt to expand multi-hour blocks.
+    openOfficeOccupiedHourAction({
+      key: actionSlotKey({
+        dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName)),
+        hour: Number(hour),
+        roomId: Number(officeTop?.roomId || block?.roomId || 0) || 0
+      }),
       dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName)),
-      slot: officeTop,
-      preserveSelectionRange: false,
-      initialRequestType: '',
-      actionSource: 'office_block'
+      dayName: String(dayName),
+      hour: Number(hour),
+      roomId: Number(officeTop?.roomId || block?.roomId || 0) || 0,
+      buildingId: Number(officeTop?.buildingId || block?.buildingId || officeLocationId || 0) || 0,
+      slot: officeTop
     });
     return;
   }
@@ -13566,8 +17789,20 @@ function revealKioskPin(itemId) {
   if (!key) return;
   kioskPinRevealedByItemId.value = { ...kioskPinRevealedByItemId.value, [key]: true };
 }
-const deletingScheduleEventId = ref(0);
-const deletingScheduleEventScope = ref('');
+const cancellingScheduleEventId = ref(0);
+const cancellingScheduleEventScope = ref('');
+const showCancelMeetingModal = ref(false);
+const cancelMeetingItem = ref(null);
+const cancelMeetingError = ref('');
+const cancelMeetingTitle = computed(() => String(cancelMeetingItem.value?.label || 'this meeting').trim() || 'this meeting');
+const cancelMeetingIsSeries = computed(() => !!String(cancelMeetingItem.value?.recurrenceSeriesId || '').trim());
+const showSeriesEditScopeModal = ref(false);
+const seriesEditScopeBusy = ref(false);
+const seriesEditScopeChoice = ref('');
+const seriesEditScopeError = ref('');
+const seriesEditScopeTitle = ref('Update series');
+const seriesEditScopePending = ref(null); // { kind, run(scope) }
+const editTimingBaseline = ref({ startAt: '', endAt: '', recurrenceSeriesId: '' });
 const scheduleEventEditId = ref(0);
 const scheduleEventSaving = ref(false);
 const scheduleEventEditError = ref('');
@@ -13581,6 +17816,49 @@ const scheduleEventEditForm = ref({
   isPrivate: false
 });
 
+// Registered after scheduleEventEditForm so editor* computeds are safe to evaluate.
+watch(
+  () => [showAppointmentEditorShell.value, editorIsClinical.value, editorAgencyId.value],
+  ([show, clinical]) => {
+    if (!show) return;
+    if (clinical) {
+      void loadEditorTenantServices();
+      void loadBookingMetadataForProvider();
+    }
+    void loadEditorOfficeLocations();
+  }
+);
+
+watch(
+  () => [
+    editorAttachOfficeRequest.value,
+    editorOfficeLocationId.value,
+    editorDateYmd.value,
+    editorStartTime.value,
+    editorEndTime.value,
+    scheduleEventRecurrence.value,
+    scheduleEventOccurrenceCount.value,
+    scheduleEventRecurrenceEndMode.value,
+    officeBookingRecurrence.value,
+    officeBookingOccurrenceCount.value
+  ],
+  ([active]) => {
+    if (!active) return;
+    void loadEditorOpenRoomsForWindow();
+  },
+  { flush: 'post' }
+);
+
+watch(
+  () => [editorWorkspaceTab.value, editorInfoClientId.value, editorAgencyId.value, editorIsClinical.value],
+  ([tab, clientId, agencyId, clinical]) => {
+    if (!clinical) return;
+    if (!['info', 'clinical', 'billing'].includes(String(tab || ''))) return;
+    if (!Number(clientId || 0) || !Number(agencyId || 0)) return;
+    void loadEditorClinicalChart();
+  }
+);
+
 const EDITABLE_SCHEDULE_EVENT_KINDS = new Set([
   'PERSONAL_EVENT',
   'SCHEDULE_HOLD',
@@ -13591,6 +17869,7 @@ const EDITABLE_SCHEDULE_EVENT_KINDS = new Set([
 const MEETING_SCHEDULE_EVENT_KINDS = new Set(['TEAM_MEETING', 'HUDDLE']);
 
 const isMeetingStackItem = (item) => MEETING_SCHEDULE_EVENT_KINDS.has(String(item?.eventKind || '').trim().toUpperCase());
+const cancelMeetingIsMeeting = computed(() => isMeetingStackItem(cancelMeetingItem.value));
 
 function parseClientIdFromScheduleEvent(evOrItem) {
   const fromField = Number(evOrItem?.clientId || 0);
@@ -13644,6 +17923,8 @@ const beginEditScheduleStackItem = async (item) => {
   scheduleEventEditId.value = eid;
   const agencyId = Number(item?.agencyId || 0) || 0;
   const clientId = parseClientIdFromScheduleEvent(item);
+  const hostProviderId = resolveBookedProviderIdForEvent(item);
+  if (hostProviderId > 0) bookingTargetUserId.value = hostProviderId;
   scheduleEventEditForm.value = {
     title: String(item?.label || '').trim(),
     description: String(item?.description || '').trim(),
@@ -13653,12 +17934,19 @@ const beginEditScheduleStackItem = async (item) => {
     clientId,
     isPrivate: !!item?.isPrivate
   };
+  meetingIsTrainingPayEligible.value = !!item?.isTrainingPayEligible;
+  editTimingBaseline.value = {
+    startAt: String(scheduleEventEditForm.value.startAt || '').trim(),
+    endAt: String(scheduleEventEditForm.value.endAt || '').trim(),
+    recurrenceSeriesId: String(item?.recurrenceSeriesId || '').trim()
+  };
   // Load pickers in the background — never block the edit shell on network.
   if (isMeetingStackItem(item)) {
     selectedMeetingParticipantIds.value = Array.isArray(item?.attendeeUserIds)
       ? item.attendeeUserIds.map((n) => Number(n)).filter((n) => n > 0)
       : [];
     meetingParticipantSearch.value = '';
+    meetingParticipantsExpanded.value = true;
     if (agencyId > 0) void loadMeetingCandidates();
   } else if (agencyId > 0) {
     void loadVirtualSessionClients(agencyId);
@@ -13682,9 +17970,16 @@ const cancelEditScheduleStackItem = () => {
   scheduleEventEditError.value = '';
 };
 
-const saveScheduleStackItem = async (item) => {
-  const eid = Number(item?.eventId || 0);
-  const uid = Number(props.userId || authStore.user?.id || 0);
+const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false } = {}) => {
+  const eid = Number(item?.eventId || scheduleEventEditId.value || 0);
+  // Meetings may appear on an attendee's calendar; edits must target the host provider.
+  const uid = Number(
+    item?.providerId
+    || bookingTargetUserId.value
+    || props.userId
+    || authStore.user?.id
+    || 0
+  );
   if (!eid || !uid) return;
   let title = String(scheduleEventEditForm.value.title || '').trim();
   if (!title) {
@@ -13699,7 +17994,8 @@ const saveScheduleStackItem = async (item) => {
   }
   const isMeeting = isMeetingStackItem(item);
   if (isMeeting && selectedMeetingParticipantIdSet.value.size === 0) {
-    scheduleEventEditError.value = 'Add at least one coworker before saving.';
+    scheduleEventEditError.value = 'Add at least one participant before saving.';
+    meetingParticipantsExpanded.value = true;
     return;
   }
   const clientId = isMeeting ? null : (Number(scheduleEventEditForm.value.clientId || 0) || null);
@@ -13714,6 +18010,42 @@ const saveScheduleStackItem = async (item) => {
       title = `Virtual session · ${scheduleEventClientDisplayName(clientId)}`;
     }
   }
+  const saveAgencyId = Number(scheduleEventEditForm.value.agencyId || 0)
+    || Number(editorAgencyId.value || 0)
+    || Number(effectiveAgencyId.value || 0)
+    || null;
+  if (isMeeting && !saveAgencyId) {
+    scheduleEventEditError.value = 'Select a tenant before saving meeting participants.';
+    return;
+  }
+  if (isMeeting && selectedMeetingOutOfAgencyCount.value > 0) {
+    scheduleEventEditError.value = 'Remove participants who are not in the selected tenant, or switch tenant.';
+    meetingParticipantsExpanded.value = true;
+    return;
+  }
+  if (!confirmIfUpdatingPastAppointment({
+    originalStart: editTimingBaseline.value.startAt || item?.startAt,
+    newStart: startAt,
+    label: isMeeting ? 'meeting' : 'appointment',
+    alreadyConfirmed: pastConfirmed
+  })) {
+    return;
+  }
+  const seriesId = String(
+    editTimingBaseline.value.recurrenceSeriesId
+    || item?.recurrenceSeriesId
+    || ''
+  ).trim();
+  const timeChanged = timingChangedFromBaseline(startAt, endAt);
+  if (!scope && timeChanged && seriesId) {
+    await askSeriesEditScope({
+      title: title || item?.label || 'Appointment',
+      run: async (chosen) => {
+        await saveScheduleStackItem(item, { scope: chosen, pastConfirmed: true });
+      }
+    });
+    return;
+  }
   try {
     scheduleEventSaving.value = true;
     scheduleEventEditError.value = '';
@@ -13722,17 +18054,25 @@ const saveScheduleStackItem = async (item) => {
       description,
       startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
       endAt: endAt.length === 16 ? `${endAt}:00` : endAt,
-      agencyId: Number(scheduleEventEditForm.value.agencyId || 0) || null,
+      agencyId: saveAgencyId,
       isPrivate: !!scheduleEventEditForm.value.isPrivate,
       allDay: false,
       clientId,
-      ...(isMeeting ? { attendeeUserIds: Array.from(selectedMeetingParticipantIdSet.value) } : {})
-    });
+      ...(scope ? { scope } : {}),
+      ...(isMeeting
+        ? {
+            attendeeUserIds: Array.from(selectedMeetingParticipantIdSet.value),
+            isTrainingPayEligible: !!meetingIsTrainingPayEligible.value
+          }
+        : {})
+    }, { skipGlobalLoading: true });
     scheduleEventEditId.value = 0;
-    invalidateScheduleSummaryCacheForUser(props.userId);
-    await load({ forceRefresh: true });
-    // Keep picker open when multiple events share the slot so another can be edited.
-    if (stackDetailsItems.value.length > 1 && stackDetailsDayName.value) {
+    // Close editor immediately; refresh calendar in the background (no global Loading overlay).
+    const keepPicker = stackDetailsItems.value.length > 1 && stackDetailsDayName.value;
+    if (keepPicker) {
+      // Refresh first so the picker list can rebuild; still skip global overlay.
+      invalidateScheduleSummaryCacheForUser(props.userId);
+      await load({ forceRefresh: true });
       const refreshed = scheduleEventsInCell(
         stackDetailsDayName.value,
         Number(stackDetailsHour.value || 0),
@@ -13750,9 +18090,12 @@ const saveScheduleStackItem = async (item) => {
     } else {
       closeStackDetailsModal();
       requestCloseModal();
+      invalidateScheduleSummaryCacheForUser(props.userId);
+      void load({ forceRefresh: true });
     }
   } catch (e) {
     scheduleEventEditError.value = e?.response?.data?.error?.message || e?.message || 'Failed to save changes';
+    if (scope) throw e;
   } finally {
     scheduleEventSaving.value = false;
   }
@@ -13895,6 +18238,21 @@ const openAppointmentEditInScheduleModal = async ({
   showRequestModal.value = true;
   void loadBookingMetadataForProvider();
   await beginEditScheduleStackItem(target);
+  openAppointmentEditor({
+    mode: 'edit',
+    kind: String(target?.eventKind || 'PERSONAL_EVENT'),
+    id: Number(target?.eventId || 0),
+    defaults: {
+      appointmentId: Number(target?.appointmentId || 0),
+      clinicalSessionId: Number(target?.clinicalSessionId || 0),
+      modality: inferModalityFromEvent(target),
+      locationAddress: String(target?.locationAddress || target?.address || ''),
+      roomId: Number(target?.roomId || 0),
+      status: String(target?.status || 'confirmed'),
+      tenantServiceId: Number(target?.tenantServiceId || 0),
+      workspaceTab: 'info'
+    }
+  });
   if (gen !== appointmentEditOpenGen || !showRequestModal.value) return;
 };
 
@@ -13937,6 +18295,11 @@ const openSupervisionEditInScheduleModal = (dayName, hour) => {
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
   supvNotes.value = String(first.notes || '');
   supvCreateMeetLink.value = false;
+  editTimingBaseline.value = {
+    startAt: String(supvStartIsoLocal.value || '').trim(),
+    endAt: String(supvEndIsoLocal.value || '').trim(),
+    recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim()
+  };
 
   const providerId = Number(
     first?.providerId
@@ -13952,11 +18315,19 @@ const openSupervisionEditInScheduleModal = (dayName, hour) => {
   modalStartHour.value = Number(hour || 0);
   modalEndHour.value = Number(hour || 0) + 1;
 
-  requestType.value = 'edit_supervision';
   showRequestModal.value = true;
   void loadSupvPresenters(selectedSupvSessionId.value);
   void loadSupvArtifact(selectedSupvSessionId.value);
   void loadBookingMetadataForProvider();
+  openAppointmentEditor({
+    mode: 'edit',
+    kind: 'supervision',
+    id: Number(selectedSupvSessionId.value || 0),
+    defaults: {
+      modality: first?.joinUrl || first?.googleMeetLink ? 'TELEHEALTH' : 'IN_PERSON'
+    }
+  });
+  editorSupervisionIsVirtual.value = !!(first?.joinUrl || first?.googleMeetLink || first?.modality === 'virtual');
 };
 
 const openStackDetailsModal = ({
@@ -13994,38 +18365,60 @@ const openStackDetailsModal = ({
   showStackDetailsModal.value = true;
 };
 
-const deleteScheduleMeeting = async (item, scope = 'single') => {
+const closeCancelMeetingConfirm = () => {
+  if (cancellingScheduleEventId.value) return;
+  showCancelMeetingModal.value = false;
+  cancelMeetingItem.value = null;
+  cancelMeetingError.value = '';
+};
+
+const openCancelMeetingConfirm = (item) => {
+  const eventId = Number(item?.eventId || 0);
+  if (!eventId || item?.isCancelled) return;
+  cancelMeetingItem.value = item;
+  cancelMeetingError.value = '';
+  showCancelMeetingModal.value = true;
+};
+
+const confirmCancelMeeting = async (scope = 'single') => {
+  const item = cancelMeetingItem.value;
   const eventId = Number(item?.eventId || 0);
   if (!eventId) return;
-  const normalizedScope = scope === 'future' ? 'future' : 'single';
-  const title = String(item?.label || 'this session').trim();
-  const confirmMsg = normalizedScope === 'future'
-    ? `Delete "${title}" and all future occurrences in this series?`
-    : `Delete "${title}"?`;
-  if (!window.confirm(confirmMsg)) return;
-  const uid = Number(props.userId || authStore.user?.id || 0);
-  if (!uid) {
-    modalError.value = 'Unable to resolve provider user for delete.';
+  const normalizedScope = ['future', 'others'].includes(scope) ? scope : 'single';
+  if ((normalizedScope === 'future' || normalizedScope === 'others') && !String(item?.recurrenceSeriesId || '').trim()) {
+    cancelMeetingError.value = 'This event is not part of a recurring series.';
+    return;
+  }
+  const hostProviderId = resolveBookedProviderIdForEvent(item);
+  if (!hostProviderId) {
+    cancelMeetingError.value = 'Unable to resolve host for cancel.';
     return;
   }
   try {
-    deletingScheduleEventId.value = eventId;
-    deletingScheduleEventScope.value = normalizedScope;
-    await api.delete(`/users/${uid}/schedule-events/${eventId}`, {
-      params: { scope: normalizedScope }
+    cancellingScheduleEventId.value = eventId;
+    cancellingScheduleEventScope.value = normalizedScope;
+    cancelMeetingError.value = '';
+    await api.delete(`/users/${hostProviderId}/schedule-events/${eventId}`, {
+      params: { scope: normalizedScope },
+      skipGlobalLoading: true
     });
     invalidateScheduleSummaryCacheForUser(props.userId);
-    await load({ forceRefresh: true });
+    showCancelMeetingModal.value = false;
+    cancelMeetingItem.value = null;
     closeStackDetailsModal();
+    if (showRequestModal.value && isScheduleEventEditMode.value) {
+      requestCloseModal();
+    }
+    void load({ forceRefresh: true });
   } catch (e) {
-    modalError.value = e?.response?.data?.error?.message || e?.message || 'Failed to delete meeting';
+    const msg = e?.response?.data?.error?.message || e?.message || 'Failed to cancel meeting';
+    cancelMeetingError.value = msg;
+    modalError.value = msg;
   } finally {
-    deletingScheduleEventId.value = 0;
-    deletingScheduleEventScope.value = '';
+    cancellingScheduleEventId.value = 0;
+    cancellingScheduleEventScope.value = '';
   }
 };
-const deleteScheduleMeetingOccurrence = async (item) => deleteScheduleMeeting(item, 'single');
-const deleteScheduleMeetingFuture = async (item) => deleteScheduleMeeting(item, 'future');
 
 const showGoogleEventModal = ref(false);
 const selectedGoogleEvent = ref(null);
@@ -14218,6 +18611,7 @@ const scheduleKindLabel = (kindRaw, ev = null) => {
     if (isClientSessionScheduleEvent(ev || { kind: k })) return 'Session';
     return 'Personal';
   }
+  if (k === 'SCHEDULE_HOLD' && ev?.allDay) return 'All-day schedule block';
   if (SCHEDULE_EVENT_KIND_LABELS[k]) return SCHEDULE_EVENT_KIND_LABELS[k];
   if (!k) return 'Schedule event';
   return k
@@ -14316,25 +18710,31 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     ? ev.attendeeUserIds.map((n) => Number(n)).filter((n) => n > 0)
     : [];
   const withClient = { ...ev, kind: targetKind, clientId: clientId || ev?.clientId || null };
+  const cancelled = isScheduleEventCancelled(ev);
+  const baseKindLabel = scheduleKindLabel(targetKind, withClient);
   return {
     id: `sevt-${targetKind || 'evt'}-${String(ev?.id || ev?.googleEventId || Date.now())}`,
     label: String(ev?.title || '').trim() || 'Schedule event',
     subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt),
-    kindLabel: scheduleKindLabel(targetKind, withClient),
+    kindLabel: cancelled ? `${baseKindLabel} · Cancelled` : baseKindLabel,
     detailText: buildScheduleEventDetailText(ev),
     description: String(ev?.description || '').trim() || '',
     agencyId: Number(ev?.agencyId || ev?._agencyId || 0) || null,
     clientId: clientId || null,
     providerId: Number(ev?.providerId || ev?.provider_id || props.userId || 0) || null,
+    isHost: ev?.isHost !== undefined ? !!ev.isHost : null,
     attendeeUserIds,
-    canEdit: ev?.canEdit !== false,
+    canEdit: !cancelled && ev?.canEdit !== false,
+    isCancelled: cancelled,
+    isTrainingPayEligible: !!ev?.isTrainingPayEligible,
+    status: String(ev?.status || (cancelled ? 'CANCELLED' : 'ACTIVE')).trim().toUpperCase() || 'ACTIVE',
     isPrivate: !!ev?.isPrivate,
     allDay: !!ev?.allDay,
     startAt: ev?.startAt || null,
     endAt: ev?.endAt || null,
     link: String(ev?.htmlLink || '').trim() || '',
-    appJoinUrl: String(ev?.appJoinUrl || '').trim() || '',
-    meetLink: String(ev?.meetLink || '').trim() || '',
+    appJoinUrl: cancelled ? '' : (String(ev?.appJoinUrl || '').trim() || ''),
+    meetLink: cancelled ? '' : (String(ev?.meetLink || '').trim() || ''),
     eventId: Number(ev?.id || 0) || null,
     eventKind: targetKind,
     recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || '',
@@ -14371,9 +18771,10 @@ const buildScheduleEventDetailText = (ev) => {
     const money = `$${(amt / 100).toFixed(amt % 100 === 0 ? 0 : 2)}`;
     lines.push(`Payment: ${money} (${ev.payment.paymentMode || 'attached'})`);
   }
+  if (isScheduleEventCancelled(ev)) lines.push('Status: Cancelled (kept on schedule)');
   if (ev?.isPrivate) lines.push('Marked private on your calendar');
-  if (ev?.meetLink) lines.push(`Meet link: ${ev.meetLink}`);
-  if (ev?.appJoinUrl) lines.push(`Video room: ${ev.appJoinUrl}`);
+  if (!isScheduleEventCancelled(ev) && ev?.meetLink) lines.push(`Meet link: ${ev.meetLink}`);
+  if (!isScheduleEventCancelled(ev) && ev?.appJoinUrl) lines.push(`Video room: ${ev.appJoinUrl}`);
   const rf = String(ev?.recurrenceFrequency || '').trim();
   if (rf && rf !== 'ONCE') lines.push(`Recurrence: ${rf}`);
   if (kind === 'SKILL_BUILDERS_PROGRAM') {
@@ -14704,34 +19105,65 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   gap: 4px;
   align-items: center;
 }
+.sched-row-height {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
+}
+.sched-row-height .sched-select {
+  min-width: 96px;
+}
 .sched-more-tools {
-  margin-top: 6px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  padding: 2px 0;
+  margin-top: 8px;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 10px;
+  background: var(--bg-alt, #f1f5f9);
+  padding: 0;
 }
 .sched-more-tools[open] {
-  border-color: var(--border, #e2e8f0);
+  border-color: var(--border, #94a3b8);
   background: var(--bg-alt, #f8fafc);
-  padding: 6px 10px;
+  padding: 0 0 8px;
 }
 .sched-more-tools__summary {
   cursor: pointer;
+  list-style: none;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  align-items: baseline;
-  font-weight: 700;
-  font-size: 12px;
-  color: var(--text-secondary, #64748b);
+  align-items: center;
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--text-primary, #0f172a);
+  padding: 8px 12px;
+  border-radius: 10px;
+  user-select: none;
 }
-.sched-more-tools__summary .muted {
+.sched-more-tools__summary::-webkit-details-marker { display: none; }
+.sched-more-tools__title {
+  letter-spacing: -0.01em;
+}
+.sched-more-tools__hint {
   font-weight: 600;
   font-size: 11px;
+  color: var(--text-secondary, #64748b);
+}
+.sched-more-tools__chev {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  transition: transform 0.15s ease;
+}
+.sched-more-tools[open] .sched-more-tools__chev {
+  transform: rotate(-180deg);
 }
 .sched-more-tools__body {
-  margin-top: 8px;
+  margin-top: 2px;
+  padding: 0 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -14762,9 +19194,30 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .sched-week-range {
   margin: 6px 0 0;
-  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--sched-ink, #0f172a);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.sched-week-range--hero {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.2vw, 1.75rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.sched-week-range__primary {
+  color: inherit;
+}
+.sched-week-range__today {
+  font-size: 0.72em;
   font-weight: 650;
-  color: #94a3b8;
+  color: var(--sched-muted, #64748b);
+  letter-spacing: 0;
 }
 .sched-chrome-nav {
   display: inline-flex;
@@ -14857,6 +19310,96 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   color: #0f172a;
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
 }
+.sched-agenda {
+  margin-top: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  background: var(--bg-card, #fff);
+  padding: 12px 14px 16px;
+}
+.sched-agenda__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.sched-agenda__when {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+  min-width: 12rem;
+}
+.sched-agenda__when strong {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text, #0f172a);
+}
+.sched-agenda__empty {
+  padding: 18px 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sched-agenda__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sched-agenda__item {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 12px;
+  align-items: start;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  background: var(--bg-alt, #f8fafc);
+}
+.sched-agenda__item:hover {
+  border-color: #94a3b8;
+}
+.sched-agenda__time {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary, #64748b);
+  padding-top: 2px;
+}
+.sched-agenda__title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text, #0f172a);
+}
+.sched-agenda__meta {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+}
+.sched-wrap--dark .sched-agenda {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.72);
+}
+.sched-wrap--dark .sched-agenda__when strong,
+.sched-wrap--dark .sched-agenda__title {
+  color: #f8fafc;
+}
+.sched-wrap--dark .sched-agenda__item {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.55);
+}
+.sched-wrap--dark .sched-agenda__time,
+.sched-wrap--dark .sched-agenda__meta {
+  color: #cbd5e1;
+}
+
 .sched-day-timeline {
   position: relative;
   margin-top: 10px;
@@ -15039,6 +19582,44 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   gap: 6px;
   font-size: 13px;
   color: var(--text-secondary);
+}
+.forfeit-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #f59e0b;
+  background: #fffbeb;
+  cursor: pointer;
+  color: #78350f;
+}
+.forfeit-ack--needed {
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.35);
+}
+.forfeit-ack--on {
+  border-color: #16a34a;
+  background: #ecfdf5;
+  color: #14532d;
+  box-shadow: none;
+}
+.forfeit-ack__box {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: 0 0 auto;
+  accent-color: #15803d;
+  cursor: pointer;
+}
+.forfeit-ack__text {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: inherit;
+}
+.forfeit-ack__text strong {
+  font-weight: 800;
 }
 .sched-pill {
   border: 1px solid var(--border);
@@ -15294,7 +19875,20 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border: 1px solid var(--border);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.86);
-  padding: 10px;
+  padding: 8px 10px;
+}
+.office-quick-glance-summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  list-style: none;
+}
+.office-quick-glance-summary::-webkit-details-marker { display: none; }
+.office-quick-glance-summary-hint {
+  font-size: 12px;
+  font-weight: 600;
 }
 .office-quick-glance-head {
   display: flex;
@@ -15302,6 +19896,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+  margin-top: 8px;
 }
 .office-quick-glance-title {
   font-weight: 900;
@@ -15478,6 +20073,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   margin-top: 8px;
 }
 .peer-busy-search { min-width: 200px; max-width: 280px; }
+.peer-busy-tenant-filter { min-width: 140px; max-width: 220px; }
+.peer-busy-label { display: inline-flex; align-items: baseline; gap: 4px; flex-wrap: wrap; }
+.peer-busy-tenant-suffix { font-size: 11px; font-weight: 600; }
 .peer-busy-details {
   display: inline-flex;
   gap: 6px;
@@ -15491,7 +20089,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   flex-wrap: wrap;
   gap: 8px 14px;
   margin-top: 8px;
-  max-height: 120px;
+  max-height: 180px;
   overflow: auto;
 }
 .peer-busy-item {
@@ -15530,7 +20128,8 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   display: grid;
   border: 1px solid #e8eef5;
   border-radius: 14px;
-  overflow: hidden;
+  /* visible so multi-hour appointment spans can paint across rows as one piece */
+  overflow: visible;
   background: #fff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
@@ -15605,6 +20204,36 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   text-align: left;
   position: relative;
   overflow: hidden;
+  z-index: 1;
+}
+.sched-cell:has(.cell-block-span) {
+  overflow: visible;
+  z-index: 5;
+}
+.cell-blocks:has(.cell-block-span) {
+  overflow: visible;
+}
+.cell-block-span {
+  border-radius: 8px !important;
+  margin: 0 !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+  align-items: flex-start;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  /* Clip label to the colored fill; cell stays overflow:visible so the block can span hours. */
+  overflow: hidden;
+}
+.cell-block-span .cell-block-text {
+  white-space: pre-line;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--block-line-clamp, 3);
+  line-height: 1.25;
+  max-width: 100%;
+  text-align: left;
+  word-break: break-word;
 }
 .sched-cell-quarter {
   border-top: 1px solid rgba(15, 23, 42, 0.06);
@@ -15910,6 +20539,25 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   position: relative;
   z-index: 1;
 }
+.sched-cell-drop-target {
+  outline: 2px solid rgba(59, 130, 246, 0.85);
+  outline-offset: -2px;
+  background: rgba(59, 130, 246, 0.10);
+}
+.cell-block-draggable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.cell-block-dragging {
+  cursor: grabbing;
+  opacity: 0.45;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.65);
+}
+.cell-block-timed {
+  box-sizing: border-box;
+}
 
 .cell-avail {
   position: absolute;
@@ -16085,11 +20733,34 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   vertical-align: middle;
   box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
 }
+/* Connect multi-hour appointments across hour rows (hourly + quarter). */
+.cell-block-segment-start {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  margin-bottom: -4px;
+  padding-bottom: 6px;
+}
+.cell-block-segment-middle {
+  border-radius: 0;
+  margin-top: -4px;
+  margin-bottom: -4px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.cell-block-segment-end {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  margin-top: -4px;
+  padding-top: 6px;
+}
 .cell-block-text {
   max-width: calc(100% - 18px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.cell-block-span.cell-block {
+  justify-content: flex-start;
 }
 .cell-block:has(.cell-block-agency-icon) .cell-block-text {
   max-width: calc(100% - 24px);
@@ -16171,6 +20842,13 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border-color: var(--blockBorder, rgba(21, 128, 61, 0.55));
 }
 .cell-block-office--booked .cell-block-office-status { color: rgba(22, 101, 52, 0.95); }
+.cell-block-office--taken {
+  border-style: solid;
+  border-width: 1.5px;
+  background: var(--blockFill, rgba(254, 215, 170, 0.55));
+  border-color: var(--blockBorder, rgba(194, 65, 12, 0.65));
+}
+.cell-block-office--taken .cell-block-office-status { color: rgba(154, 52, 18, 0.95); }
 .cell-block-peer-face {
   width: 18px;
   height: 18px;
@@ -16312,6 +20990,46 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .peer-activity-body { min-width: 0; }
 .cell-block-gevt { background: rgba(191, 219, 254, 0.45); border-color: rgba(59, 130, 246, 0.2); cursor: pointer; }
 .cell-block-sevt { background: var(--blockFill, rgba(167, 243, 208, 0.55)); border-color: var(--blockBorder, rgba(16, 185, 129, 0.22)); color: rgba(6, 95, 70, 0.95); cursor: pointer; }
+.cell-block-sevt--cancelled {
+  opacity: 0.62;
+  text-decoration: line-through;
+  filter: grayscale(0.35);
+}
+.stack-details-cancelled-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(127, 29, 29, 0.95);
+  background: rgba(254, 226, 226, 0.9);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+.cancel-meeting-modal {
+  color: #0f172a;
+  --text: #0f172a;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  background: #ffffff;
+}
+.cancel-meeting-modal .modal-title {
+  color: #0f172a;
+}
+.cancel-meeting-lead {
+  margin: 0 0 12px;
+  color: #0f172a;
+}
+.cancel-meeting-copy {
+  margin: 0 0 16px;
+  color: #334155;
+  line-height: 1.45;
+}
+.cancel-meeting-btn-secondary {
+  color: #0f172a !important;
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
 .cell-block-ebusy { background: var(--sched-ebusy-bg, rgba(203, 213, 225, 0.4)); border-color: var(--sched-ebusy-border, rgba(100, 116, 139, 0.28)); color: rgba(51, 65, 85, 0.9); }
 .cell-block-intake-ip { background: rgba(187, 247, 208, 0.55); border-color: rgba(34, 197, 94, 0.25); color: rgba(21, 128, 61, 0.95); }
 .cell-block-intake-vi { background: rgba(191, 219, 254, 0.55); border-color: rgba(59, 130, 246, 0.22); color: rgba(29, 78, 216, 0.95); }
@@ -16362,6 +21080,130 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   max-height: calc(100vh - 24px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+}
+.appt-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 4px 8px;
+}
+.appt-workspace-tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.appt-workspace-tabbar .appt-workspace-tabs {
+  flex: 1 1 auto;
+}
+.appt-workspace-quicknote-btn {
+  appearance: none;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #3730a3;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.appt-workspace-quicknote-btn:hover {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+}
+.appt-workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid #e8eef5;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.appt-workspace-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 2px solid transparent;
+}
+.appt-workspace-tab-ico {
+  font-size: 0.85rem;
+  line-height: 1;
+  opacity: 0.85;
+}
+.appt-workspace-tab:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+.appt-workspace-tab.on {
+  background: #fff;
+  color: #4f46e5;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  border-bottom-color: #4f46e5;
+}
+.appt-workspace-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e8eef5;
+  border-radius: 12px;
+  background: #fff;
+}
+.appt-workspace-panel--flush {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+.appt-workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.appt-workspace-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+.appt-workspace-textarea {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  resize: vertical;
+  min-height: 100px;
+}
+.appt-workspace-meta {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+.appt-workspace-meta dt {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+.appt-workspace-meta dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+  color: #0f172a;
 }
 .modal--new-request {
   --nr-purple: #4F46E5;
@@ -16452,6 +21294,57 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   cursor: pointer;
 }
 .nr-close:hover { background: #f1f5f9; color: #334155; }
+.aes-participant-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 4px 8px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: #0f172a;
+  min-height: 34px;
+}
+.aes-participant-trigger:hover { border-color: #94a3b8; background: #f8fafc; }
+.aes-participant-trigger.open {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+}
+.aes-participant-chevron {
+  color: #64748b;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+.aes-participant-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+.aes-participant-chip {
+  display: inline-block;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f172a;
+  background: #e2e8f0;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.aes-participant-more {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+}
 .nr-layout {
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
@@ -16699,8 +21592,37 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   font-weight: 700;
   overflow-wrap: anywhere;
 }
+.nr-meeting-created {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--nr-line);
+  background: #f0fdf4;
+}
+.nr-meeting-created-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nr-meeting-created-copy strong {
+  color: #166534;
+  font-size: 1rem;
+}
+.nr-blocked-reason {
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
 .nr-footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
   padding: 14px 20px 16px;
@@ -17581,7 +22503,10 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   color: #cbd5e1;
 }
 .sched-wrap--dark .sched-week-range {
-  color: #cbd5e1;
+  color: #f8fafc;
+}
+.sched-wrap--dark .sched-week-range__today {
+  color: #94a3b8;
 }
 .sched-wrap--dark .sched-nav-btn,
 .sched-wrap--dark .sched-nav-icon-btn,
@@ -17614,11 +22539,22 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   background: rgba(15, 23, 42, 0.72);
 }
 .sched-wrap--dark .sched-tool-cluster__label,
-.sched-wrap--dark .sched-more-tools__summary,
+.sched-wrap--dark .sched-row-height,
 .sched-wrap--dark .sched-toggle,
 .sched-wrap--dark .peer-busy-details,
 .sched-wrap--dark .peer-busy-item {
   color: #cbd5e1;
+}
+.sched-wrap--dark .sched-more-tools {
+  border-color: rgba(148, 163, 184, 0.32);
+  background: rgba(15, 23, 42, 0.55);
+}
+.sched-wrap--dark .sched-more-tools__summary {
+  color: #f1f5f9;
+}
+.sched-wrap--dark .sched-more-tools__hint,
+.sched-wrap--dark .sched-more-tools__chev {
+  color: #94a3b8;
 }
 .sched-wrap--dark .sched-pill,
 .sched-wrap--dark .sched-chip {
@@ -17813,6 +22749,13 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .sched-wrap--dark .cell-block-office--booked .cell-block-office-status {
   color: #fee2e2;
 }
+.sched-wrap--dark .cell-block-office--taken {
+  background: var(--blockFill, rgba(251, 146, 60, 0.48));
+  border-color: var(--blockBorder, rgba(251, 146, 60, 0.88));
+}
+.sched-wrap--dark .cell-block-office--taken .cell-block-office-status {
+  color: #ffedd5;
+}
 .sched-wrap--dark .cell-block-request {
   background: var(--blockFill, rgba(253, 224, 71, 0.42));
   border-color: var(--blockBorder, rgba(250, 204, 21, 0.72));
@@ -17841,6 +22784,15 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border-color: var(--blockBorder, rgba(52, 211, 153, 0.75));
   color: #ecfdf5;
 }
+.sched-wrap--dark .cell-block-sevt--cancelled {
+  opacity: 0.55;
+  filter: grayscale(0.45);
+}
+.sched-wrap--dark .stack-details-cancelled-badge {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.45);
+  border-color: rgba(248, 113, 113, 0.45);
+}
 .sched-wrap--dark .cell-block-intake-ip {
   background: rgba(134, 239, 172, 0.42);
   border-color: rgba(74, 222, 128, 0.72);
@@ -17863,6 +22815,111 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .sched-wrap--dark .sched-day-card {
   color: #f8fafc;
+}
+
+.nr-when-edit--timed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.nr-time-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.nr-info-select--clock {
+  min-width: 7.5rem;
+}
+.nr-time-nudge {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1;
+}
+.nr-nudge-btn {
+  appearance: none;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 4px;
+  padding: 0 4px;
+  min-width: 28px;
+  height: 14px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 12px;
+  cursor: pointer;
+}
+.nr-nudge-btn:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+}
+.nr-all-day-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #3730a3;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+.hold-reason-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hold-reason-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.hold-reason-row .input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hold-reason-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.hold-reason-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #dbe3ef;
+  background: #f8fafc;
+  color: #0f172a;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.hold-reason-chip.on {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+.hold-reason-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  color: #475569;
+  font-size: 12px;
+  line-height: 1;
+}
+.hold-reason-x:hover {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 </style>
 

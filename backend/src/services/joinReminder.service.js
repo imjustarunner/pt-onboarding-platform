@@ -174,7 +174,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
     // Supervision sessions starting in 5-8 min
     const [supvRows] = await pool.execute(
       `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.supervisee_user_id,
-              ss.google_meet_link,
+              ss.google_meet_link, ss.join_token,
               CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name
        FROM supervision_sessions ss
        JOIN users sup ON sup.id = ss.supervisor_user_id
@@ -188,8 +188,9 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
       const sessionId = Number(r.id);
       const agencyId = Number(r.agency_id);
       const label = `Supervision with ${String(r.supervisor_name || '').trim() || 'supervisor'}`;
-      const joinUrl = useAppJoin
-        ? `${FRONTEND_URL}/join/supervision/${sessionId}`
+      const joinKey = String(r.join_token || sessionId || '').trim();
+      const joinUrl = useAppJoin && joinKey
+        ? `${FRONTEND_URL}/join/supervision/${encodeURIComponent(joinKey)}`
         : (r.google_meet_link ? String(r.google_meet_link).trim() : null);
       if (!joinUrl) continue;
 
