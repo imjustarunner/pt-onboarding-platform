@@ -983,13 +983,16 @@ export const setClientAssignedDay = async (req, res, next) => {
 
     await connection.beginTransaction();
 
+    // Unique key is (client, org, provider, service_day) and does NOT include is_active.
+    // So previously deactivated rows still block INSERT — look up any matching row.
     let existing = null;
     try {
       const [rows] = await connection.execute(
         `SELECT id, service_day, is_active
          FROM client_provider_assignments
          WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
-           AND service_day = ? AND is_active = TRUE
+           AND service_day = ?
+         ORDER BY is_active DESC, id DESC
          LIMIT 1
          FOR UPDATE`,
         [clientId, schoolId, providerUserId, serviceDay]
@@ -1000,8 +1003,31 @@ export const setClientAssignedDay = async (req, res, next) => {
       if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
     }
 
+    const existingActive = existing && (existing.is_active === true || existing.is_active === 1 || existing.is_active === '1');
+
     if (assigned) {
-      if (!existing) {
+      if (existingActive) {
+        // Idempotent: already assigned to this day.
+      } else if (existing?.id) {
+        // Reactivate a previously deactivated day row (avoids uniq_client_org_provider_day clash).
+        const take = await adjustProviderSlots(connection, {
+          providerUserId,
+          schoolId,
+          dayOfWeek: serviceDay,
+          delta: -1,
+          allowNegative: false
+        });
+        if (!take.ok) {
+          await connection.rollback();
+          return res.status(400).json({ error: { message: take.reason || 'No available slots for that day' } });
+        }
+        await connection.execute(
+          `UPDATE client_provider_assignments
+           SET is_active = TRUE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [actorUserId, existing.id]
+        );
+      } else {
         // Prefer converting a single Unknown/null-day row into this weekday.
         let nullDayRow = null;
         try {
@@ -1042,32 +1068,36 @@ export const setClientAssignedDay = async (req, res, next) => {
           await connection.execute(
             `INSERT INTO client_provider_assignments
               (client_id, organization_id, provider_user_id, service_day, is_active, created_by_user_id, updated_by_user_id)
-             VALUES (?, ?, ?, ?, TRUE, ?, ?)`,
+             VALUES (?, ?, ?, ?, TRUE, ?, ?)
+             ON DUPLICATE KEY UPDATE
+               is_active = TRUE,
+               updated_by_user_id = VALUES(updated_by_user_id),
+               updated_at = CURRENT_TIMESTAMP`,
             [clientId, schoolId, providerUserId, serviceDay, actorUserId, actorUserId]
           );
         }
-
-        // Best-effort legacy sync when this is the only active assignment for the client at this org.
-        try {
-          const [cntRows] = await connection.execute(
-            `SELECT COUNT(*) AS cnt
-             FROM client_provider_assignments
-             WHERE client_id = ? AND organization_id = ? AND is_active = TRUE`,
-            [clientId, schoolId]
-          );
-          if (Number(cntRows?.[0]?.cnt || 0) <= 1) {
-            await connection.execute(
-              `UPDATE clients
-               SET provider_id = ?, service_day = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
-               WHERE id = ?`,
-              [providerUserId, serviceDay, actorUserId, clientId]
-            );
-          }
-        } catch {
-          // ignore
-        }
       }
-    } else if (existing?.id) {
+
+      // Best-effort legacy sync when this is the only active assignment for the client at this org.
+      try {
+        const [cntRows] = await connection.execute(
+          `SELECT COUNT(*) AS cnt
+           FROM client_provider_assignments
+           WHERE client_id = ? AND organization_id = ? AND is_active = TRUE`,
+          [clientId, schoolId]
+        );
+        if (Number(cntRows?.[0]?.cnt || 0) <= 1) {
+          await connection.execute(
+            `UPDATE clients
+             SET provider_id = ?, service_day = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [providerUserId, serviceDay, actorUserId, clientId]
+          );
+        }
+      } catch {
+        // ignore
+      }
+    } else if (existingActive && existing?.id) {
       await adjustProviderSlots(connection, {
         providerUserId,
         schoolId,

@@ -607,16 +607,30 @@
       </div>
       <div v-else-if="officeGridError" class="error" style="margin-top: 10px;">{{ officeGridError }}</div>
       <div v-else-if="officeGridLoading && !officeGrid" class="loading" style="margin-top: 10px;">Loading office availability…</div>
-      <OfficeWeeklyRoomGrid
-        v-else-if="officeGrid"
-        :office-grid="officeGrid"
-        :today-ymd="todayLocalYmd"
-        :can-book="canBookFromGrid"
-        :selected-keys="selectedActionKeys"
-        @cell-click="onOfficeLayoutCellClick"
-        @cell-mousedown="onOfficeLayoutCellMouseDown"
-        @cell-mouseenter="onOfficeLayoutCellMouseEnter"
-      />
+      <template v-else-if="officeGrid">
+        <div v-if="canViewIcsCoverage" class="ics-gaps-toolbar">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :class="{ 'btn-ics-on': showIcsGaps }"
+            :title="showIcsGaps ? 'Hide ICS coverage gaps' : 'Highlight booked hours missing ICS clinical overlap (prior audit flags — no live ICS check)'"
+            @click="toggleIcsGaps"
+          >
+            {{ showIcsGaps ? 'ICS gaps: On' : 'Show ICS gaps' }}
+          </button>
+          <span v-if="showIcsGaps" class="muted" style="font-size: 12px;">Striped cells / ICS badge = no matching clinical ICS overlap</span>
+        </div>
+        <OfficeWeeklyRoomGrid
+          :office-grid="officeGrid"
+          :today-ymd="todayLocalYmd"
+          :can-book="canBookFromGrid"
+          :selected-keys="selectedActionKeys"
+          :show-ics-gaps="showIcsGaps"
+          @cell-click="onOfficeLayoutCellClick"
+          @cell-mousedown="onOfficeLayoutCellMouseDown"
+          @cell-mouseenter="onOfficeLayoutCellMouseEnter"
+        />
+      </template>
     </div>
 
     <!-- Open finder view (existing personal grid) -->
@@ -6884,6 +6898,23 @@ const canManageOffices = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
 });
+
+const canViewIcsCoverage = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support'].includes(role);
+});
+const ICS_GAPS_STORAGE_KEY = 'officeSchedule.showIcsGaps';
+const showIcsGaps = ref(
+  typeof window !== 'undefined' && window.localStorage.getItem(ICS_GAPS_STORAGE_KEY) === '1'
+);
+const toggleIcsGaps = () => {
+  showIcsGaps.value = !showIcsGaps.value;
+  try {
+    window.localStorage.setItem(ICS_GAPS_STORAGE_KEY, showIcsGaps.value ? '1' : '0');
+  } catch {
+    // ignore
+  }
+};
 
 /** Staff/admin/platform (and supervisors for supervisees) can pick who a booking is for. */
 const canSelectBookingProvider = computed(() => canManageOffices.value || isSupervisor(authStore.user));
@@ -20000,6 +20031,18 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .sched-grid-wrap {
   margin-top: 14px;
   overflow-x: auto;
+}
+.ics-gaps-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 0 10px;
+}
+.btn-ics-on {
+  background: #ffedd5 !important;
+  color: #9a3412 !important;
+  border: 1px solid #fdba74;
 }
 .sched-legend {
   display: flex;

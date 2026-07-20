@@ -10,6 +10,30 @@ import GoogleCalendarService from './googleCalendar.service.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
 
+async function alreadyNotifiedCoverageToday({ agencyId, officeLocationId, recipientUserId }) {
+  const agency = Number(agencyId || 0);
+  const locationId = Number(officeLocationId || 0);
+  const userId = Number(recipientUserId || 0);
+  if (!agency || !locationId || !userId) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM notifications
+       WHERE user_id = ?
+         AND agency_id = ?
+         AND type = 'office_schedule_coverage_flag'
+         AND related_entity_type = 'office_location'
+         AND related_entity_id = ?
+         AND created_at >= CURDATE()
+       LIMIT 1`,
+      [userId, agency, locationId]
+    );
+    return (rows || []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // Clinical session keywords — ICS SUMMARY must contain at least one to count as verified.
 const CLINICAL_KEYWORDS = [
   'therapy', 'counseling', 'session', 'consultation', 'intake',
@@ -590,6 +614,7 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
          e.assigned_provider_id,
          e.standing_assignment_id,
          e.office_location_id,
+         e.ics_flag_type,
          e.ics_flag_cleared_at,
          ol.name AS office_name,
          r.name AS room_name,
@@ -613,11 +638,20 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
     throw e;
   }
 
-  if (!rows.length) return { ok: true, flagged: 0, covered: 0, checked: 0 };
+  if (!rows.length) return { ok: true, flagged: 0, covered: 0, checked: 0, newlyFlagged: 0, clearedRecovered: 0 };
 
-  // Group rows by provider
+  // Sticky Keep: admin-cleared slots stay cleared across audits.
+  const keptIds = new Set(
+    rows.filter((row) => row.ics_flag_cleared_at).map((row) => Number(row.id)).filter(Boolean)
+  );
+  const priorFlagTypeById = new Map(
+    rows.map((row) => [Number(row.id), row.ics_flag_type || null])
+  );
+
+  // Group rows by provider (skip sticky-kept — they are not re-audited for flagging)
   const byProvider = new Map();
   for (const row of rows) {
+    if (keptIds.has(Number(row.id))) continue;
     const pid = Number(row.assigned_provider_id || 0);
     if (!pid) continue;
     if (!byProvider.has(pid)) byProvider.set(pid, []);
@@ -626,7 +660,11 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
 
   let flagged = 0;
   let covered = 0;
+  let newlyFlagged = 0;
+  let clearedRecovered = 0;
+  let flaggedDayBlocks = 0;
   const flagsByProvider = new Map();
+  const recoveredEventIds = [];
 
   for (const [providerId, providerEvents] of byProvider.entries()) {
     // eslint-disable-next-line no-await-in-loop
@@ -680,14 +718,20 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
       const blocks = groupIntoContiguousBlocks(groupEvents);
       for (const block of blocks) {
         const analysis = analyzeBlock(block, busyResult.busy, providerTimeZone);
+        let blockHasFlag = false;
         for (const item of analysis) {
           if (item.flagType) {
             flagsForProvider.push({ ...item, providerId });
             flagged += 1;
+            blockHasFlag = true;
+            if (!priorFlagTypeById.get(Number(item.eventId))) newlyFlagged += 1;
           } else {
             covered += 1;
+            const eid = Number(item.eventId);
+            if (priorFlagTypeById.get(eid)) recoveredEventIds.push(eid);
           }
         }
+        if (blockHasFlag) flaggedDayBlocks += 1;
       }
     }
 
@@ -700,7 +744,7 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
     for (const f of flags) allFlaggedIds.push(f);
   }
 
-  // Update flagged events
+  // Update flagged events (do not wipe sticky Keep — those were skipped above)
   for (const f of allFlaggedIds) {
     try {
       // eslint-disable-next-line no-await-in-loop
@@ -708,10 +752,9 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
         `UPDATE office_events
          SET ics_flag_type = ?,
              ics_flagged_at = NOW(),
-             ics_flag_cleared_by_user_id = NULL,
-             ics_flag_cleared_at = NULL,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
+         WHERE id = ?
+           AND ics_flag_cleared_at IS NULL`,
         [f.flagType, f.eventId]
       );
     } catch {
@@ -719,8 +762,28 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
     }
   }
 
-  // Send admin notifications for newly flagged providers
-  if (flagsByProvider.size > 0) {
+  // Clear flags when coverage recovers (keep sticky Keep rows untouched)
+  for (const eventId of recoveredEventIds) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const [result] = await pool.execute(
+        `UPDATE office_events
+         SET ics_flag_type = NULL,
+             ics_flagged_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND ics_flag_type IS NOT NULL
+           AND ics_flag_cleared_at IS NULL`,
+        [eventId]
+      );
+      clearedRecovered += Number(result?.affectedRows || 0);
+    } catch {
+      // Column may not exist yet
+    }
+  }
+
+  // Notify only when there are newly flagged hours, and at most once per admin/location/day.
+  if (newlyFlagged > 0 && flagsByProvider.size > 0) {
     let adminUserIds = [];
     try {
       const [adminRows] = await pool.execute(
@@ -729,7 +792,7 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
          JOIN office_location_agencies ola ON ola.agency_id = ua.agency_id
          JOIN users u ON u.id = ua.user_id
          WHERE ola.office_location_id = ?
-           AND u.role IN ('clinical_practice_assistant','admin','super_admin','superadmin','staff')
+           AND u.role IN ('clinical_practice_assistant','provider_plus','admin','super_admin','superadmin','support','staff')
            AND u.is_active = TRUE`,
         [officeId]
       );
@@ -744,16 +807,33 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
     ).catch(() => [[]]);
     const agencyId = Number(locationAgencyRows?.[0]?.agency_id || 0);
 
+    const hourCount = allFlaggedIds.length;
+    const providerCount = flagsByProvider.size;
+    const blockLabel = flaggedDayBlocks === 1 ? 'day-block' : 'day-blocks';
+    const hourLabel = hourCount === 1 ? 'hour' : 'hours';
+    const providerLabel = providerCount === 1 ? 'provider' : 'providers';
+    const message =
+      `${newlyFlagged} new flagged ${newlyFlagged === 1 ? 'hour' : 'hours'} ` +
+      `(${flaggedDayBlocks} ${blockLabel} / ${hourCount} ${hourLabel} open) ` +
+      `across ${providerCount} ${providerLabel} at ${loc?.name || 'your office'}. ` +
+      `Open Office Schedule → Coverage Flags to review, keep, or release.`;
+
     for (const adminId of adminUserIds) {
       try {
-        const count = allFlaggedIds.length;
-        const providerCount = flagsByProvider.size;
+        // eslint-disable-next-line no-await-in-loop
+        const already = await alreadyNotifiedCoverageToday({
+          agencyId,
+          officeLocationId: officeId,
+          recipientUserId: adminId
+        });
+        if (already) continue;
+
         // eslint-disable-next-line no-await-in-loop
         await createNotificationAndDispatch({
           type: 'office_schedule_coverage_flag',
           severity: 'warning',
           title: 'Office coverage flags need review',
-          message: `${count} office event${count !== 1 ? 's' : ''} across ${providerCount} provider${providerCount !== 1 ? 's' : ''} at ${loc?.name || 'your office'} have insufficient ICS session coverage. Open Office Schedule → Coverage Flags to review and keep or release each slot.`,
+          message,
           userId: adminId,
           agencyId: agencyId || undefined,
           relatedEntityType: 'office_location',
@@ -767,7 +847,17 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
     }
   }
 
-  return { ok: true, flagged, covered, checked: rows.length, flagsByProvider: flagsByProvider.size };
+  return {
+    ok: true,
+    flagged,
+    covered,
+    checked: rows.length,
+    newlyFlagged,
+    clearedRecovered,
+    flaggedDayBlocks,
+    stickyKept: keptIds.size,
+    flagsByProvider: flagsByProvider.size
+  };
 }
 
 /**

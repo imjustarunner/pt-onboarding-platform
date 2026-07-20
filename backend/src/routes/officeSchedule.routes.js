@@ -38,6 +38,7 @@ import {
   getCoverageFlags,
   keepCoverageFlag,
   releaseCoverageFlag,
+  bulkCoverageFlags,
   getEhrSyncHealthEndpoint,
   runCoverageAudit,
   runAllLocationsCoverageAudit,
@@ -107,6 +108,7 @@ router.get('/admin/schedule-audit', getScheduleAudit);
 
 // ICS coverage flags (6-week audit results)
 router.get('/admin/coverage-flags', getCoverageFlags);
+router.post('/admin/coverage-flags/bulk', bulkCoverageFlags);
 router.post('/admin/coverage-flags/:eventId/keep', keepCoverageFlag);
 router.post('/admin/coverage-flags/:eventId/release', releaseCoverageFlag);
 router.get('/admin/ehr-sync-health', getEhrSyncHealthEndpoint);

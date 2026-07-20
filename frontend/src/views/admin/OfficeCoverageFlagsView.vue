@@ -4,11 +4,11 @@
       <div>
         <h2>Office Coverage Flags</h2>
         <p class="subtitle">
-          These office slots were identified at the 6-week ICS audit as having insufficient clinical session coverage.
-          For each flagged slot, review the coverage reason and choose to keep the booking or release the hours.
+          Past booked hours where Therapy Notes / ICS did not show clinical session coverage.
+          Filter by office and date to spot-check, then Keep (sticky) or Release in one click.
         </p>
       </div>
-      <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;align-items:center;">
+      <div class="header-actions">
         <button class="btn btn-secondary" @click="runAudit" :disabled="auditing || loading">
           {{ auditing ? 'Running audit…' : 'Run audit now' }}
         </button>
@@ -18,12 +18,72 @@
     </div>
 
     <div v-if="auditResult" class="audit-result-box">
-      Audit complete — <strong>{{ auditResult.totalFlagged }} new flag{{ auditResult.totalFlagged !== 1 ? 's' : '' }}</strong>
-      across {{ auditResult.locations }} location{{ auditResult.locations !== 1 ? 's' : '' }}.
+      Audit complete —
+      <strong>{{ auditResult.totalFlagged ?? 0 }} flagged hour{{ (auditResult.totalFlagged ?? 0) !== 1 ? 's' : '' }}</strong>
+      across {{ auditResult.locations ?? 0 }} location{{ (auditResult.locations ?? 0) !== 1 ? 's' : '' }}.
       <button class="dismiss-btn" @click="auditResult = null; load()">✕ Refresh list</button>
     </div>
     <div v-if="error" class="error-box">{{ error }}</div>
-    <div v-else-if="loading" class="loading">Loading coverage flags…</div>
+    <div v-if="bulkMessage" class="audit-result-box">{{ bulkMessage }}</div>
+
+    <!-- Filters -->
+    <div class="card filters-card">
+      <div class="filters-grid">
+        <label class="filter-field">
+          <span>Office</span>
+          <select v-model="filters.officeLocationId" @change="onOfficeChange">
+            <option value="">All offices</option>
+            <option v-for="o in filterOptions.offices" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
+          </select>
+        </label>
+        <label class="filter-field">
+          <span>Provider</span>
+          <select v-model="filters.providerId">
+            <option value="">All providers</option>
+            <option v-for="p in filterOptions.providers" :key="p.id" :value="String(p.id)">{{ p.name }}</option>
+          </select>
+        </label>
+        <label class="filter-field">
+          <span>Flag type</span>
+          <select v-model="filters.flagType">
+            <option value="">All types</option>
+            <option value="no_coverage">No ICS coverage</option>
+            <option value="non_clinical_busy">Non-clinical busy</option>
+            <option value="partial_coverage">Partial coverage</option>
+          </select>
+        </label>
+        <label class="filter-field">
+          <span>From</span>
+          <input v-model="filters.dateFrom" type="date" />
+        </label>
+        <label class="filter-field">
+          <span>To</span>
+          <input v-model="filters.dateTo" type="date" />
+        </label>
+        <div class="filter-actions">
+          <button class="btn btn-secondary" type="button" @click="applyPreset(7)">Last 7 days</button>
+          <button class="btn btn-secondary" type="button" @click="applyPreset(14)">Last 14 days</button>
+          <button class="btn btn-secondary" type="button" @click="applyPreset(42)">Last 6 weeks</button>
+          <button class="btn btn-secondary" type="button" @click="clearFilters">Clear</button>
+          <button class="btn btn-primary" type="button" @click="load" :disabled="loading">Apply</button>
+        </div>
+      </div>
+      <div class="filter-summary muted">
+        Showing <strong>{{ flags.length }}</strong> flagged hour{{ flags.length !== 1 ? 's' : '' }}
+        <template v-if="grouped.length"> across {{ grouped.length }} provider{{ grouped.length !== 1 ? 's' : '' }}</template>.
+        Keep is sticky (won’t reappear on the next audit). Release frees the hour immediately.
+      </div>
+    </div>
+
+    <!-- Bulk bar -->
+    <div v-if="selectedIds.size" class="bulk-bar">
+      <span><strong>{{ selectedIds.size }}</strong> selected</span>
+      <button class="btn btn-sm btn-keep" :disabled="bulkActing" @click="bulkKeep">Keep selected</button>
+      <button class="btn btn-sm btn-release" :disabled="bulkActing" @click="bulkRelease">Release selected</button>
+      <button class="btn btn-sm btn-secondary" :disabled="bulkActing" @click="clearSelection">Clear selection</button>
+    </div>
+
+    <div v-if="loading" class="loading">Loading coverage flags…</div>
 
     <!-- EHR sync health summary -->
     <div v-if="health && health.locations && health.locations.length" class="card health-card">
@@ -48,19 +108,34 @@
     <div v-if="!loading && !error && grouped.length === 0" class="empty-state">
       <div class="empty-icon">✓</div>
       <div class="empty-title">No coverage flags</div>
-      <div class="muted">All audited office slots have sufficient ICS clinical session coverage, or no audit has run yet.</div>
+      <div class="muted">Nothing matches these filters, or all slots have sufficient ICS clinical coverage.</div>
     </div>
 
     <!-- Flag groups by provider -->
     <div v-for="group in grouped" :key="group.providerId" class="provider-group card">
       <div class="provider-header">
-        <div class="provider-name">{{ group.providerName }}</div>
-        <div class="provider-count muted">{{ group.flags.length }} flagged slot{{ group.flags.length !== 1 ? 's' : '' }}</div>
+        <div class="provider-left">
+          <label class="select-all">
+            <input
+              type="checkbox"
+              :checked="isGroupFullySelected(group)"
+              :indeterminate.prop="isGroupPartiallySelected(group)"
+              @change="toggleGroup(group, $event.target.checked)"
+            />
+            <span class="provider-name">{{ group.providerName }}</span>
+          </label>
+        </div>
+        <div class="provider-right">
+          <span class="provider-count muted">{{ group.flags.length }} flagged slot{{ group.flags.length !== 1 ? 's' : '' }}</span>
+          <button class="btn btn-sm btn-keep" :disabled="bulkActing" @click="keepGroup(group)">Keep all</button>
+          <button class="btn btn-sm btn-release" :disabled="bulkActing" @click="releaseGroup(group)">Release all</button>
+        </div>
       </div>
 
       <table class="flags-table">
         <thead>
           <tr>
+            <th class="col-check"></th>
             <th>Date &amp; Time</th>
             <th>Office / Room</th>
             <th>Flag reason</th>
@@ -71,6 +146,13 @@
         </thead>
         <tbody>
           <tr v-for="flag in group.flags" :key="flag.event_id" :class="['flag-row', flagClass(flag.ics_flag_type)]">
+            <td class="col-check">
+              <input
+                type="checkbox"
+                :checked="selectedIds.has(flag.event_id)"
+                @change="toggleOne(flag.event_id, $event.target.checked)"
+              />
+            </td>
             <td class="slot-time">
               <strong>{{ fmtDate(flag.start_at) }}</strong><br>
               <span class="muted">{{ fmtTimeRange(flag.start_at, flag.end_at) }}</span>
@@ -89,17 +171,17 @@
               <div class="action-buttons">
                 <button
                   class="btn btn-sm btn-keep"
-                  :disabled="acting[flag.event_id]"
+                  :disabled="acting[flag.event_id] || bulkActing"
                   @click="keep(flag)"
-                  title="Keep this booking — provider used the office, mark as reviewed"
+                  title="Keep this booking — sticky; will not re-flag on the next audit"
                 >
                   {{ acting[flag.event_id] === 'keep' ? '…' : 'Keep' }}
                 </button>
                 <button
                   class="btn btn-sm btn-release"
-                  :disabled="acting[flag.event_id]"
+                  :disabled="acting[flag.event_id] || bulkActing"
                   @click="release(flag)"
-                  title="Release this slot — provider did not use it, free for reassignment"
+                  title="Release this slot immediately — frees the hour for reassignment"
                 >
                   {{ acting[flag.event_id] === 'release' ? '…' : 'Release' }}
                 </button>
@@ -113,7 +195,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '@/services/api';
 
@@ -121,12 +203,24 @@ const route = useRoute();
 const orgSlug = computed(() => route.params.organizationSlug || null);
 
 const flags = ref([]);
+const filterOptions = ref({ offices: [], providers: [] });
 const health = ref(null);
 const loading = ref(false);
 const error = ref('');
 const acting = ref({});
 const auditResult = ref(null);
 const auditing = ref(false);
+const bulkActing = ref(false);
+const bulkMessage = ref('');
+const selectedIds = ref(new Set());
+
+const filters = ref({
+  officeLocationId: '',
+  providerId: '',
+  flagType: '',
+  dateFrom: '',
+  dateTo: ''
+});
 
 const grouped = computed(() => {
   const map = new Map();
@@ -140,16 +234,59 @@ const grouped = computed(() => {
   return Array.from(map.values()).sort((a, b) => a.providerName.localeCompare(b.providerName));
 });
 
+function ymdDaysAgo(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function applyPreset(days) {
+  filters.value.dateFrom = ymdDaysAgo(days);
+  filters.value.dateTo = new Date().toISOString().slice(0, 10);
+  load();
+}
+
+function clearFilters() {
+  filters.value = {
+    officeLocationId: '',
+    providerId: '',
+    flagType: '',
+    dateFrom: '',
+    dateTo: ''
+  };
+  load();
+}
+
+function onOfficeChange() {
+  filters.value.providerId = '';
+  load();
+}
+
+function buildQuery() {
+  const q = {};
+  if (filters.value.officeLocationId) q.officeLocationId = filters.value.officeLocationId;
+  if (filters.value.providerId) q.providerId = filters.value.providerId;
+  if (filters.value.flagType) q.flagType = filters.value.flagType;
+  if (filters.value.dateFrom) q.dateFrom = filters.value.dateFrom;
+  if (filters.value.dateTo) q.dateTo = filters.value.dateTo;
+  return q;
+}
+
 async function load() {
   loading.value = true;
   error.value = '';
+  bulkMessage.value = '';
   try {
     const [flagsRes, healthRes] = await Promise.all([
-      api.get('/api/office-schedule/admin/coverage-flags'),
+      api.get('/api/office-schedule/admin/coverage-flags', { params: buildQuery() }),
       api.get('/api/office-schedule/admin/ehr-sync-health').catch(() => ({ data: { locations: [] } }))
     ]);
     flags.value = flagsRes.data?.flags || [];
+    filterOptions.value = flagsRes.data?.filterOptions || { offices: [], providers: [] };
     health.value = healthRes.data || null;
+    // Drop selections that are no longer in the list
+    const valid = new Set(flags.value.map((f) => f.event_id));
+    selectedIds.value = new Set([...selectedIds.value].filter((id) => valid.has(id)));
   } catch (e) {
     error.value = e?.response?.data?.error || e?.message || 'Failed to load coverage flags.';
   } finally {
@@ -161,7 +298,6 @@ async function runAudit() {
   auditing.value = true;
   auditResult.value = null;
   try {
-    // Trigger audit for each known location (we use the all-locations watchdog endpoint)
     const res = await api.post('/api/office-schedule/watchdog/run-coverage-audit');
     auditResult.value = res.data;
   } catch (e) {
@@ -171,11 +307,17 @@ async function runAudit() {
   }
 }
 
+function removeFlags(ids) {
+  const set = new Set(ids);
+  flags.value = flags.value.filter((f) => !set.has(f.event_id));
+  selectedIds.value = new Set([...selectedIds.value].filter((id) => !set.has(id)));
+}
+
 async function keep(flag) {
   acting.value = { ...acting.value, [flag.event_id]: 'keep' };
   try {
     await api.post(`/api/office-schedule/admin/coverage-flags/${flag.event_id}/keep`);
-    flags.value = flags.value.filter((f) => f.event_id !== flag.event_id);
+    removeFlags([flag.event_id]);
   } catch (e) {
     alert(e?.response?.data?.error || 'Failed to keep slot.');
   } finally {
@@ -185,16 +327,12 @@ async function keep(flag) {
   }
 }
 
+/** One-click release — no confirm dialog. */
 async function release(flag) {
-  const confirm = window.confirm(
-    `Release this slot for ${flag.provider_name}?\n${fmtDate(flag.start_at)} ${fmtTimeRange(flag.start_at, flag.end_at)} — ${flag.office_name} ${flag.room_label || flag.room_name}\n\nThis will set the event to RELEASED so another provider can use the room.`
-  );
-  if (!confirm) return;
-
   acting.value = { ...acting.value, [flag.event_id]: 'release' };
   try {
     await api.post(`/api/office-schedule/admin/coverage-flags/${flag.event_id}/release`);
-    flags.value = flags.value.filter((f) => f.event_id !== flag.event_id);
+    removeFlags([flag.event_id]);
   } catch (e) {
     alert(e?.response?.data?.error || 'Failed to release slot.');
   } finally {
@@ -202,6 +340,78 @@ async function release(flag) {
     delete a[flag.event_id];
     acting.value = a;
   }
+}
+
+async function bulkAction(action, eventIds) {
+  const ids = [...new Set(eventIds)].filter(Boolean);
+  if (!ids.length) return;
+  bulkActing.value = true;
+  bulkMessage.value = '';
+  error.value = '';
+  try {
+    // Chunk to stay under server limit of 500
+    let processed = 0;
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      // eslint-disable-next-line no-await-in-loop
+      const res = await api.post('/api/office-schedule/admin/coverage-flags/bulk', {
+        action,
+        eventIds: chunk
+      });
+      processed += Number(res.data?.processed || 0);
+      removeFlags(chunk);
+    }
+    bulkMessage.value = `${action === 'keep' ? 'Kept' : 'Released'} ${processed} slot${processed !== 1 ? 's' : ''}.`;
+  } catch (e) {
+    error.value = e?.response?.data?.error || e?.message || `Bulk ${action} failed.`;
+  } finally {
+    bulkActing.value = false;
+  }
+}
+
+function bulkKeep() {
+  return bulkAction('keep', [...selectedIds.value]);
+}
+
+function bulkRelease() {
+  return bulkAction('release', [...selectedIds.value]);
+}
+
+function keepGroup(group) {
+  return bulkAction('keep', group.flags.map((f) => f.event_id));
+}
+
+function releaseGroup(group) {
+  return bulkAction('release', group.flags.map((f) => f.event_id));
+}
+
+function toggleOne(id, checked) {
+  const next = new Set(selectedIds.value);
+  if (checked) next.add(id);
+  else next.delete(id);
+  selectedIds.value = next;
+}
+
+function toggleGroup(group, checked) {
+  const next = new Set(selectedIds.value);
+  for (const f of group.flags) {
+    if (checked) next.add(f.event_id);
+    else next.delete(f.event_id);
+  }
+  selectedIds.value = next;
+}
+
+function isGroupFullySelected(group) {
+  return group.flags.length > 0 && group.flags.every((f) => selectedIds.value.has(f.event_id));
+}
+
+function isGroupPartiallySelected(group) {
+  const n = group.flags.filter((f) => selectedIds.value.has(f.event_id)).length;
+  return n > 0 && n < group.flags.length;
+}
+
+function clearSelection() {
+  selectedIds.value = new Set();
 }
 
 function flagLabel(type) {
@@ -254,7 +464,14 @@ function fmtDatetime(dt) {
   } catch { return String(dt).slice(0, 16); }
 }
 
-onMounted(load);
+// Default to last 6 weeks so bookers start with a manageable window
+onMounted(() => {
+  filters.value.dateFrom = ymdDaysAgo(42);
+  filters.value.dateTo = new Date().toISOString().slice(0, 10);
+  load();
+});
+
+watch(orgSlug, () => load());
 </script>
 
 <style scoped>
@@ -281,7 +498,15 @@ onMounted(load);
   color: var(--text-muted, #6b7280);
   margin: 0;
   font-size: 14px;
-  max-width: 600px;
+  max-width: 640px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .card {
@@ -290,6 +515,66 @@ onMounted(load);
   border-radius: 10px;
   padding: 20px;
   margin-bottom: 20px;
+}
+
+.filters-card {
+  padding: 16px 20px;
+}
+
+.filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px 14px;
+  align-items: end;
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted, #6b7280);
+}
+
+.filter-field select,
+.filter-field input {
+  font-weight: 500;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text-primary, #111827);
+}
+
+.filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  grid-column: 1 / -1;
+}
+
+.filter-summary {
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+  font-size: 14px;
+  position: sticky;
+  top: 8px;
+  z-index: 5;
 }
 
 .audit-result-box {
@@ -330,7 +615,6 @@ onMounted(load);
   padding: 2px 6px;
 }
 
-/* EHR health card */
 .health-card {
   padding: 16px 20px;
 }
@@ -387,7 +671,6 @@ onMounted(load);
   text-overflow: ellipsis;
 }
 
-/* Empty state */
 .empty-state {
   text-align: center;
   padding: 56px 24px;
@@ -407,7 +690,6 @@ onMounted(load);
   margin-bottom: 6px;
 }
 
-/* Provider groups */
 .provider-group {
   padding: 0;
   overflow: hidden;
@@ -417,9 +699,25 @@ onMounted(load);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 14px 20px;
   background: var(--table-header-bg, #f9fafb);
   border-bottom: 1px solid var(--border-color, #e5e7eb);
+  flex-wrap: wrap;
+}
+
+.provider-left,
+.provider-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.select-all {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
 }
 
 .provider-name {
@@ -431,7 +729,6 @@ onMounted(load);
   font-size: 13px;
 }
 
-/* Flags table */
 .flags-table {
   width: 100%;
   border-collapse: collapse;
@@ -454,6 +751,12 @@ onMounted(load);
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-light, #f3f4f6);
   vertical-align: middle;
+}
+
+.col-check {
+  width: 36px;
+  padding-left: 16px !important;
+  padding-right: 0 !important;
 }
 
 .flag-row:last-child td {
@@ -541,6 +844,15 @@ onMounted(load);
 
 .btn-secondary:hover:not(:disabled) {
   background: var(--btn-secondary-hover, #e5e7eb);
+}
+
+.btn-primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
 }
 
 .btn-sm {

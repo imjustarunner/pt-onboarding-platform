@@ -1331,6 +1331,10 @@ export const getWeeklyGrid = async (req, res, next) => {
               inPersonIntakeSlotKeys.has(
                 `${Number(effectiveProviderId)}:${slotStartAt}:${slotEndAt}`
               );
+            const unclearedIcsFlag =
+              e.ics_flag_type && !e.ics_flag_cleared_at
+                ? String(e.ics_flag_type)
+                : null;
             slots.push({
               roomId: room.id,
               date,
@@ -1362,7 +1366,10 @@ export const getWeeklyGrid = async (req, res, next) => {
               noteContextId: Number(e.note_context_id || 0) || null,
               billingContextId: Number(e.billing_context_id || 0) || null,
               virtualIntakeEnabled,
-              inPersonIntakeEnabled
+              inPersonIntakeEnabled,
+              // Precomputed audit flags only — no live ICS fetch on grid load.
+              icsFlagType: unclearedIcsFlag,
+              lastIcsOverlapAt: e.last_ics_overlap_at || null
             });
             continue;
           }
@@ -4388,9 +4395,9 @@ export const getScheduleAudit = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 /**
- * GET /api/office-schedule/coverage-flags
- * Returns all past ASSIGNED_BOOKED events with a non-null ics_flag_type,
- * grouped by provider, for admin review.
+ * GET /api/office-schedule/admin/coverage-flags
+ * Returns uncleared ICS coverage flags with optional filters for booker triage.
+ * Query: officeLocationId, providerId, flagType, dateFrom, dateTo (YYYY-MM-DD)
  */
 export const getCoverageFlags = async (req, res, next) => {
   try {
@@ -4398,9 +4405,43 @@ export const getCoverageFlags = async (req, res, next) => {
 
     const userAgencies = await User.getAgencies(req.user.id);
     const agencyIds = (userAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
-    if (!agencyIds.length) return res.json({ flags: [] });
+    if (!agencyIds.length) return res.json({ flags: [], filterOptions: { offices: [], providers: [] } });
 
     const ph = agencyIds.map(() => '?').join(',');
+    const params = [...agencyIds];
+    const filters = [];
+
+    const officeLocationId = parseInt(req.query.officeLocationId, 10);
+    if (officeLocationId) {
+      filters.push('ol.id = ?');
+      params.push(officeLocationId);
+    }
+
+    const providerId = parseInt(req.query.providerId, 10);
+    if (providerId) {
+      filters.push('e.assigned_provider_id = ?');
+      params.push(providerId);
+    }
+
+    const flagType = String(req.query.flagType || '').trim();
+    if (['no_coverage', 'non_clinical_busy', 'partial_coverage'].includes(flagType)) {
+      filters.push('e.ics_flag_type = ?');
+      params.push(flagType);
+    }
+
+    const dateFrom = String(req.query.dateFrom || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
+      filters.push('e.start_at >= ?');
+      params.push(`${dateFrom} 00:00:00`);
+    }
+
+    const dateTo = String(req.query.dateTo || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+      filters.push('e.start_at < DATE_ADD(?, INTERVAL 1 DAY)');
+      params.push(dateTo);
+    }
+
+    const filterSql = filters.length ? ` AND ${filters.join(' AND ')}` : '';
 
     const [rows] = await pool.execute(
       `SELECT
@@ -4429,19 +4470,104 @@ export const getCoverageFlags = async (req, res, next) => {
        WHERE e.ics_flag_type IS NOT NULL
          AND e.ics_flag_cleared_at IS NULL
          AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-       ORDER BY e.assigned_provider_id ASC, e.start_at ASC`,
-      agencyIds
+         ${filterSql}
+       ORDER BY ol.name ASC, e.assigned_provider_id ASC, e.start_at ASC`,
+      params
     );
 
-    res.json({ flags: rows || [] });
+    // Filter option lists (unfiltered by date/type so bookers can switch offices easily)
+    const [officeRows] = await pool.execute(
+      `SELECT DISTINCT ol.id, ol.name
+       FROM office_events e
+       JOIN office_locations ol ON ol.id = e.office_location_id
+       JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id IN (${ph})
+       WHERE e.ics_flag_type IS NOT NULL
+         AND e.ics_flag_cleared_at IS NULL
+         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+       ORDER BY ol.name ASC`,
+      agencyIds
+    ).catch(() => [[]]);
+
+    const providerParams = [...agencyIds];
+    let providerOfficeFilter = '';
+    if (officeLocationId) {
+      providerOfficeFilter = ' AND ol.id = ?';
+      providerParams.push(officeLocationId);
+    }
+    const [providerRows] = await pool.execute(
+      `SELECT DISTINCT e.assigned_provider_id AS id,
+              CONCAT(u.first_name, ' ', u.last_name) AS name
+       FROM office_events e
+       JOIN office_locations ol ON ol.id = e.office_location_id
+       JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id IN (${ph})
+       JOIN users u ON u.id = e.assigned_provider_id
+       WHERE e.ics_flag_type IS NOT NULL
+         AND e.ics_flag_cleared_at IS NULL
+         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         ${providerOfficeFilter}
+       ORDER BY name ASC`,
+      providerParams
+    ).catch(() => [[]]);
+
+    res.json({
+      flags: rows || [],
+      filterOptions: {
+        offices: officeRows || [],
+        providers: providerRows || []
+      }
+    });
   } catch (e) {
     next(e);
   }
 };
 
+async function applyKeepCoverageFlag({ eventId, userId }) {
+  const [result] = await pool.execute(
+    `UPDATE office_events
+     SET ics_flag_type = NULL,
+         ics_flag_cleared_by_user_id = ?,
+         ics_flag_cleared_at = NOW(),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?
+       AND ics_flag_type IS NOT NULL
+       AND ics_flag_cleared_at IS NULL`,
+    [userId, eventId]
+  );
+  return Number(result?.affectedRows || 0) > 0;
+}
+
+async function applyReleaseCoverageFlag({ eventId, userId }) {
+  const [[event]] = await pool.execute(
+    `SELECT id FROM office_events WHERE id = ? LIMIT 1`,
+    [eventId]
+  );
+  if (!event) return false;
+
+  await pool.execute(
+    `UPDATE office_events
+     SET status = 'RELEASED',
+         slot_state = 'ASSIGNED_AVAILABLE',
+         booked_provider_id = NULL,
+         booking_plan_id = NULL,
+         ics_flag_type = NULL,
+         ics_flag_cleared_by_user_id = ?,
+         ics_flag_cleared_at = NOW(),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [userId, eventId]
+  );
+
+  try {
+    await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: eventId });
+  } catch {
+    // best-effort
+  }
+  return true;
+}
+
 /**
- * POST /api/office-schedule/coverage-flags/:eventId/keep
- * Admin clears the coverage flag (keeps the booking as-is).
+ * POST /api/office-schedule/admin/coverage-flags/:eventId/keep
+ * Admin clears the coverage flag (keeps the booking as-is). Sticky across audits.
  */
 export const keepCoverageFlag = async (req, res, next) => {
   try {
@@ -4449,15 +4575,8 @@ export const keepCoverageFlag = async (req, res, next) => {
     const eventId = parseInt(req.params.eventId, 10);
     if (!eventId) return res.status(400).json({ error: 'Invalid event ID' });
 
-    await pool.execute(
-      `UPDATE office_events
-       SET ics_flag_type = NULL,
-           ics_flag_cleared_by_user_id = ?,
-           ics_flag_cleared_at = NOW(),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [req.user.id, eventId]
-    );
+    const ok = await applyKeepCoverageFlag({ eventId, userId: req.user.id });
+    if (!ok) return res.status(404).json({ error: 'Flag not found or already cleared' });
 
     res.json({ ok: true, eventId, action: 'kept' });
   } catch (e) {
@@ -4466,9 +4585,8 @@ export const keepCoverageFlag = async (req, res, next) => {
 };
 
 /**
- * POST /api/office-schedule/coverage-flags/:eventId/release
- * Admin releases the flagged hours — sets event to RELEASED / ASSIGNED_AVAILABLE
- * so another provider can be assigned, and clears the flag.
+ * POST /api/office-schedule/admin/coverage-flags/:eventId/release
+ * One-click release — frees the hour for reassignment and clears the flag.
  */
 export const releaseCoverageFlag = async (req, res, next) => {
   try {
@@ -4476,34 +4594,60 @@ export const releaseCoverageFlag = async (req, res, next) => {
     const eventId = parseInt(req.params.eventId, 10);
     if (!eventId) return res.status(400).json({ error: 'Invalid event ID' });
 
-    const [[event]] = await pool.execute(
-      `SELECT id, office_location_id, standing_assignment_id, assigned_provider_id, booking_plan_id
-       FROM office_events WHERE id = ? LIMIT 1`,
-      [eventId]
-    );
-    if (!event) return res.status(404).json({ error: 'Event not found' });
-
-    await pool.execute(
-      `UPDATE office_events
-       SET status = 'RELEASED',
-           slot_state = 'ASSIGNED_AVAILABLE',
-           booked_provider_id = NULL,
-           booking_plan_id = NULL,
-           ics_flag_type = NULL,
-           ics_flag_cleared_by_user_id = ?,
-           ics_flag_cleared_at = NOW(),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [req.user.id, eventId]
-    );
-
-    try {
-      await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: eventId });
-    } catch {
-      // best-effort
-    }
+    const ok = await applyReleaseCoverageFlag({ eventId, userId: req.user.id });
+    if (!ok) return res.status(404).json({ error: 'Event not found' });
 
     res.json({ ok: true, eventId, action: 'released' });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/office-schedule/admin/coverage-flags/bulk
+ * Body: { eventIds: number[], action: 'keep' | 'release' }
+ */
+export const bulkCoverageFlags = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user?.role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const action = String(req.body?.action || '').toLowerCase();
+    if (action !== 'keep' && action !== 'release') {
+      return res.status(400).json({ error: 'action must be keep or release' });
+    }
+
+    const rawIds = Array.isArray(req.body?.eventIds) ? req.body.eventIds : [];
+    const eventIds = [...new Set(rawIds.map((id) => parseInt(id, 10)).filter((n) => n > 0))];
+    if (!eventIds.length) return res.status(400).json({ error: 'eventIds required' });
+    if (eventIds.length > 500) return res.status(400).json({ error: 'Max 500 eventIds per request' });
+
+    // Scope to caller's agencies
+    const userAgencies = await User.getAgencies(req.user.id);
+    const agencyIds = (userAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
+    if (!agencyIds.length) return res.status(403).json({ error: 'Forbidden' });
+
+    const agencyPh = agencyIds.map(() => '?').join(',');
+    const idPh = eventIds.map(() => '?').join(',');
+    const [allowedRows] = await pool.execute(
+      `SELECT e.id
+       FROM office_events e
+       JOIN office_location_agencies ola ON ola.office_location_id = e.office_location_id
+       WHERE e.id IN (${idPh})
+         AND ola.agency_id IN (${agencyPh})`,
+      [...eventIds, ...agencyIds]
+    );
+    const allowedIds = (allowedRows || []).map((r) => Number(r.id)).filter(Boolean);
+
+    let processed = 0;
+    for (const eventId of allowedIds) {
+      // eslint-disable-next-line no-await-in-loop
+      const ok = action === 'keep'
+        ? await applyKeepCoverageFlag({ eventId, userId: req.user.id })
+        : await applyReleaseCoverageFlag({ eventId, userId: req.user.id });
+      if (ok) processed += 1;
+    }
+
+    res.json({ ok: true, action, requested: eventIds.length, processed, skipped: eventIds.length - processed });
   } catch (e) {
     next(e);
   }

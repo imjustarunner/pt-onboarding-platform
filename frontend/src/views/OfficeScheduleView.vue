@@ -30,6 +30,25 @@
         >
           {{ refreshingEhrBookings ? 'Refreshing…' : 'Refresh Therapy Notes' }}
         </button>
+        <button
+          v-if="canViewIcsCoverage"
+          class="btn btn-secondary btn-sm"
+          type="button"
+          :class="{ 'btn-ics-on': showIcsGaps }"
+          :title="showIcsGaps ? 'Hide ICS coverage gaps on the grid' : 'Highlight booked hours missing ICS clinical overlap (uses prior audit flags — no live ICS check)'"
+          @click="toggleIcsGaps"
+          :disabled="loading || !officeId"
+        >
+          {{ showIcsGaps ? 'ICS gaps: On' : 'Show ICS gaps' }}
+        </button>
+        <router-link
+          v-if="canViewIcsCoverage"
+          class="btn btn-secondary btn-sm"
+          to="/admin/office-coverage-flags"
+          title="Review and keep or release flagged hours"
+        >
+          Coverage flags
+        </router-link>
         <button class="btn btn-secondary btn-sm" @click="loadGrid" :disabled="loading || !officeId">Refresh</button>
       </div>
     </div>
@@ -51,6 +70,7 @@
         <div class="legend-item"><span class="dot intake-ip"></span> In-person intake</div>
         <div class="legend-item"><span class="dot intake-v"></span> Virtual intake</div>
         <div class="legend-item"><span class="dot own-slot"></span> Your schedule</div>
+        <div v-if="showIcsGaps" class="legend-item"><span class="dot ics-gap"></span> No ICS clinical overlap</div>
       </div>
       <div v-if="gridConflictCount > 0" class="schedule-conflict-banner">
         <strong>{{ gridConflictCount }} room/time conflict{{ gridConflictCount === 1 ? '' : 's' }} detected.</strong>
@@ -268,7 +288,8 @@
                 {
                   selected: isSlotSelected(room.id, d, h),
                   'own-provider': isOwnProviderSlot(room.id, d, h),
-                  today: isTodayDate(d)
+                  today: isTodayDate(d),
+                  'ics-gap': showIcsGaps && slotHasIcsGap(room.id, d, h)
                 }
               ]"
               :style="slotStyle(room.id, d, h)"
@@ -281,6 +302,11 @@
               <span v-if="slotHasLearningLink(room.id, d, h)" class="lp-pill" title="Linked learning billing session">LP</span>
               <span v-if="slotHasInPersonIntake(room.id, d, h)" class="ip-pill" title="In-person intake enabled">IP</span>
               <span v-if="slotHasVirtualIntake(room.id, d, h)" class="vi-pill" title="Virtual intake enabled">VI</span>
+              <span
+                v-if="showIcsGaps && slotHasIcsGap(room.id, d, h)"
+                class="ics-pill"
+                :title="icsGapTitle(room.id, d, h)"
+              >ICS</span>
             </div>
           </template>
         </div>
@@ -1047,7 +1073,24 @@ const slotTitle = (roomId, date, hour) => {
       s?.providerInitials,
       ''
     );
-  return `${date} ${formatHour(hour)} — ${stateLabel(state)}${state === 'company_hold' ? '' : (providerLabel ? ` • ${providerLabel}` : '')}${inPersonLabel}${virtualLabel}${ownLabel}`;
+  const icsLabel = showIcsGaps.value && slotHasIcsGap(roomId, date, hour)
+    ? ` • ${icsGapTitle(roomId, date, hour)}`
+    : '';
+  return `${date} ${formatHour(hour)} — ${stateLabel(state)}${state === 'company_hold' ? '' : (providerLabel ? ` • ${providerLabel}` : '')}${inPersonLabel}${virtualLabel}${ownLabel}${icsLabel}`;
+};
+
+const slotHasIcsGap = (roomId, date, hour) => {
+  const s = getSlot(roomId, date, hour);
+  return Boolean(s?.icsFlagType) && String(s?.state || '') === 'assigned_booked';
+};
+
+const icsGapTitle = (roomId, date, hour) => {
+  const s = getSlot(roomId, date, hour);
+  const t = String(s?.icsFlagType || '');
+  if (t === 'no_coverage') return 'No ICS clinical overlap';
+  if (t === 'non_clinical_busy') return 'ICS busy without clinical title';
+  if (t === 'partial_coverage') return 'Partial ICS clinical coverage';
+  return 'ICS coverage gap';
 };
 
 const slotHasVirtualIntake = (roomId, date, hour) => {
@@ -1301,8 +1344,25 @@ const jumpToSlot = (roomId, date, hour) => {
 
 const canManageSchedule = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return ['clinical_practice_assistant', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
+  return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
 });
+/** ICS gap overlay: schedule managers who triage coverage (not a live ICS fetch). */
+const canViewIcsCoverage = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support'].includes(role);
+});
+const ICS_GAPS_STORAGE_KEY = 'officeSchedule.showIcsGaps';
+const showIcsGaps = ref(
+  typeof window !== 'undefined' && window.localStorage.getItem(ICS_GAPS_STORAGE_KEY) === '1'
+);
+const toggleIcsGaps = () => {
+  showIcsGaps.value = !showIcsGaps.value;
+  try {
+    window.localStorage.setItem(ICS_GAPS_STORAGE_KEY, showIcsGaps.value ? '1' : '0');
+  } catch {
+    // ignore
+  }
+};
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 const currentUserId = computed(() => Number(authStore.user?.id || 0));
 
@@ -2839,6 +2899,7 @@ input[type='date'] {
 .dot.intake-ip { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.24); }
 .dot.intake-v { background: #10b981; box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2); }
 .dot.own-slot { background: #7c3aed; box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.2); }
+.dot.ics-gap { background: #b45309; box-shadow: 0 0 0 4px rgba(180, 83, 9, 0.22); }
 .schedule-conflict-banner {
   margin-bottom: 12px;
   border: 1px solid rgba(220, 38, 38, 0.35);
@@ -3177,6 +3238,44 @@ input[type='date'] {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
     0 4px 12px rgba(239, 68, 68, 0.18);
+}
+.slot.ics-gap {
+  box-shadow:
+    inset 0 0 0 2px rgba(180, 83, 9, 0.85),
+    0 0 0 1px rgba(245, 158, 11, 0.35);
+  background-image:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(245, 158, 11, 0.18),
+      rgba(245, 158, 11, 0.18) 4px,
+      rgba(255, 255, 255, 0.04) 4px,
+      rgba(255, 255, 255, 0.04) 8px
+    ),
+    linear-gradient(165deg, rgba(255, 237, 213, 0.95), rgba(253, 186, 116, 0.5));
+}
+.ics-pill {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  z-index: 2;
+  min-width: 22px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(180, 83, 9, 0.9);
+  color: #fff;
+  font-size: 8px;
+  line-height: 14px;
+  font-weight: 900;
+  text-align: center;
+  border: 1px solid rgba(146, 64, 14, 0.7);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.16);
+  letter-spacing: 0.02em;
+}
+.btn-ics-on {
+  background: #ffedd5 !important;
+  color: #9a3412 !important;
+  border: 1px solid #fdba74;
 }
 .slot.selected {
   outline: 2px solid rgba(37, 99, 235, 0.9);

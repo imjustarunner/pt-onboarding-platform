@@ -23,7 +23,7 @@
               v-for="r in rooms"
               :key="`cell-${dateYmd}-${h}-${r.id}`"
               class="cell"
-              :class="[slotClass(dateYmd, h, r.id), { today: isToday(dateYmd), clickable: canBook }]"
+              :class="[slotClass(dateYmd, h, r.id), { today: isToday(dateYmd), clickable: canBook, 'ics-gap': showIcsGaps && slotHasIcsGap(dateYmd, h, r.id) }]"
               :title="slotTitle(dateYmd, h, r.id)"
               :role="canBook ? 'button' : undefined"
               :tabindex="canBook ? 0 : undefined"
@@ -39,6 +39,11 @@
                   <span v-if="slotBadge(dateYmd, h, r.id)" class="cell-badge">{{ slotBadge(dateYmd, h, r.id) }}</span>
                   <span v-if="slotHasInPersonIntake(dateYmd, h, r.id)" class="cell-pill ip-pill" title="In-person intake enabled">IP</span>
                   <span v-if="slotHasVirtualIntake(dateYmd, h, r.id)" class="cell-pill vi-pill" title="Virtual intake enabled">VI</span>
+                  <span
+                    v-if="showIcsGaps && slotHasIcsGap(dateYmd, h, r.id)"
+                    class="cell-pill ics-pill"
+                    :title="icsGapTitle(dateYmd, h, r.id)"
+                  >ICS</span>
                 </div>
               </div>
               <div v-if="slotMeta(dateYmd, h, r.id)" class="cell-meta">{{ slotMeta(dateYmd, h, r.id) }}</div>
@@ -57,7 +62,9 @@ const props = defineProps({
   officeGrid: { type: Object, default: null },
   todayYmd: { type: String, default: null },
   canBook: { type: Boolean, default: false },
-  selectedKeys: { type: Array, default: () => [] }
+  selectedKeys: { type: Array, default: () => [] },
+  /** When true, highlight booked slots with uncleared ICS coverage flags (precomputed). */
+  showIcsGaps: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['cell-click', 'cell-mousedown', 'cell-mouseenter']);
@@ -279,7 +286,24 @@ const slotTitle = (dateYmd, hour, roomId) => {
   } else if (pending > 0) {
     parts.push('Pending request');
   }
+  if (props.showIcsGaps && slotHasIcsGap(dateYmd, hour, roomId)) {
+    parts.push(icsGapTitle(dateYmd, hour, roomId));
+  }
   return parts.join(' — ');
+};
+
+const slotHasIcsGap = (dateYmd, hour, roomId) => {
+  const s = getSlot(dateYmd, hour, roomId);
+  return Boolean(s?.icsFlagType) && String(s?.state || '') === 'assigned_booked';
+};
+
+const icsGapTitle = (dateYmd, hour, roomId) => {
+  const s = getSlot(dateYmd, hour, roomId);
+  const t = String(s?.icsFlagType || '');
+  if (t === 'no_coverage') return 'No ICS clinical overlap';
+  if (t === 'non_clinical_busy') return 'ICS busy without clinical title';
+  if (t === 'partial_coverage') return 'Partial ICS clinical coverage';
+  return 'ICS coverage gap';
 };
 
 const slotClass = (dateYmd, hour, roomId) => {
@@ -337,6 +361,18 @@ const dayGridStyle = computed(() => ({
 .cell-pill { font-size: 10px; font-weight: 900; padding: 1px 4px; border-radius: 4px; }
 .cell-pill.ip-pill { background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); color: #15803d; }
 .cell-pill.vi-pill { background: rgba(6, 182, 212, 0.2); border: 1px solid rgba(6, 182, 212, 0.4); color: #0e7490; }
+.cell-pill.ics-pill { background: rgba(180, 83, 9, 0.18); border: 1px solid rgba(180, 83, 9, 0.45); color: #9a3412; }
+.cell.ics-gap {
+  background-image:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(245, 158, 11, 0.16),
+      rgba(245, 158, 11, 0.16) 4px,
+      transparent 4px,
+      transparent 8px
+    );
+  box-shadow: inset 0 0 0 2px rgba(180, 83, 9, 0.75);
+}
 .cell-meta { font-size: 11px; color: var(--text-secondary); font-weight: 800; }
 
 .state-open { background: rgba(16, 185, 129, 0.06); }
