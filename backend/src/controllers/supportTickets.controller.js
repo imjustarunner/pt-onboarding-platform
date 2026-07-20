@@ -1020,6 +1020,25 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       return res.status(scope.accessError.status).json({ error: { message: scope.accessError.message } });
     }
 
+    // Org escalations have their own desk — keep them out of the general ticket queue
+    // unless explicitly requested via ticketKind=escalation|all.
+    const ticketKindFilter = req.query?.ticketKind ? String(req.query.ticketKind).trim().toLowerCase() : 'support';
+    try {
+      const [kindCols] = await pool.execute(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_tickets' AND COLUMN_NAME = 'ticket_kind'`
+      );
+      if (Number(kindCols?.[0]?.cnt || 0) > 0) {
+        if (ticketKindFilter === 'escalation') {
+          where.push(`COALESCE(t.ticket_kind, 'support') = 'escalation'`);
+        } else if (ticketKindFilter !== 'all') {
+          where.push(`COALESCE(t.ticket_kind, 'support') <> 'escalation'`);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
     await applyTopicAudienceVisibility({ req, where, params, topicFilter });
 
     if (schoolOrganizationId) {

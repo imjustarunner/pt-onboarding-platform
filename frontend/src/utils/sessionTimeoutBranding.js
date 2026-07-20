@@ -16,12 +16,17 @@ export const SESSION_ENDED_STORAGE = {
 /** Idle period before the branded Timedown overlay appears. */
 export const IDLE_BEFORE_TIMEDOWN_MS = 3 * 60 * 1000; // 3 minutes
 
-/** Longer idle for admin / super_admin before Timedown. */
-export const IDLE_BEFORE_TIMEDOWN_ADMIN_MS = 5 * 60 * 1000; // 5 minutes
-export const IDLE_BEFORE_TIMEDOWN_ADMIN_SECONDS = 300;
+/**
+ * Privileged roles (admin / super_admin / support / CPA):
+ * 10 min idle → Timedown countdown page, then 10 min more before Session Ended (20 min total).
+ */
+export const IDLE_BEFORE_TIMEDOWN_ADMIN_MS = 10 * 60 * 1000; // 10 minutes
+export const IDLE_BEFORE_TIMEDOWN_ADMIN_SECONDS = 600;
 
 /** Length of the Timedown countdown before Session Ended. */
 export const TIMEDOWN_SECONDS = 600; // 10 minutes
+/** Privileged Timedown length (same as default; kept explicit for the 10+10 policy). */
+export const TIMEDOWN_ADMIN_SECONDS = 600;
 
 export function markSessionEndedRedirecting() {
   try {

@@ -29,6 +29,7 @@ import {
   IDLE_BEFORE_TIMEDOWN_MS,
   IDLE_BEFORE_TIMEDOWN_ADMIN_MS,
   TIMEDOWN_SECONDS,
+  TIMEDOWN_ADMIN_SECONDS,
   resolveSessionTimeoutTenantKey,
   rememberSessionEndedContext,
   markSessionEndedRedirecting
@@ -328,6 +329,19 @@ async function handleTimeout() {
   }
 }
 
+/** Open (or re-open) the privileged status chooser above the Timedown page. */
+function openPrivilegedTimedownPrompt() {
+  try {
+    const auth = useAuthStore();
+    const presenceSession = usePresenceSessionStore();
+    if (!presenceSession.shouldUseStatusPrompt(auth.user?.role)) return;
+    if (isSessionExtendActive()) return;
+    presenceSession.openTimedownPrompt();
+  } catch {
+    /* store may not be ready */
+  }
+}
+
 /** Single entry point for opening Timedown (from setTimeout or wall-clock watchdog). */
 function fireTimedown() {
   const store = useSessionLockStore();
@@ -345,19 +359,24 @@ function fireTimedown() {
   // Phase change → force ledger tick so timedown time accrues correctly.
   sendPlatformSessionHeartbeat({ force: true });
 
-  // Privileged roles: ask for status instead of only "I'm still here"
-  try {
-    const presenceSession = usePresenceSessionStore();
-    if (presenceSession.shouldUseStatusPrompt(auth.user?.role)) {
-      presenceSession.openTimedownPrompt();
-    }
-  } catch {
-    /* store may not be ready */
-  }
-
+  // Paint Timedown first, then stack the status modal on top (privileged roles).
   store.showWarning(getTimedownSeconds(), () => {
     handleTimeout();
   });
+
+  // Immediate + next-frame reopen so the chooser wins stacking after Timedown mounts.
+  openPrivilegedTimedownPrompt();
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => {
+      openPrivilegedTimedownPrompt();
+      setTimeout(openPrivilegedTimedownPrompt, 50);
+    });
+  } else {
+    setTimeout(openPrivilegedTimedownPrompt, 50);
+  }
+
+  // Presence: Timedown counts as Idle/Away even before they pick a reason.
+  sendPresenceHeartbeat({ force: true });
 }
 
 function resetTimer() {
@@ -457,17 +476,9 @@ function onVisibilityChange() {
   // window instead of logging out before the user can see any modal.
   if (store.warningActive) {
     const grantedGrace = store.onTabBecameVisible();
-    if (grantedGrace) {
-      try {
-        const auth = useAuthStore();
-        const presenceSession = usePresenceSessionStore();
-        if (presenceSession.shouldUseStatusPrompt(auth.user?.role)) {
-          presenceSession.openTimedownPrompt();
-        }
-      } catch {
-        /* ignore */
-      }
-    }
+    // Always keep the privileged status modal above Timedown when the tab returns.
+    openPrivilegedTimedownPrompt();
+    if (grantedGrace) openPrivilegedTimedownPrompt();
     sendPresenceHeartbeat({ force: true });
     sendPlatformSessionHeartbeat({ force: true });
     return;
@@ -504,12 +515,16 @@ async function sendPresenceHeartbeat({ force = false } = {}) {
   if (!roleNorm || roleNorm === 'client_guardian' || roleNorm === 'kiosk') return;
 
   const agencyId = agencyStore.currentAgency?.id || null;
+  const phase = isSessionExtendActive()
+    ? 'away'
+    : (currentSessionPhase() === 'timedown' ? 'timedown' : 'active');
   try {
     await api.post(
       '/presence/heartbeat',
       {
         agencyId,
-        lastActivityAt: new Date(lastActivityTime).toISOString()
+        lastActivityAt: new Date(lastActivityTime).toISOString(),
+        sessionPhase: phase
       },
       { skipGlobalLoading: true, skipAuthRedirect: true }
     );
@@ -544,12 +559,16 @@ function defaultIdleBeforeTimedownMs() {
 }
 
 function applyTimeoutConfig(config) {
+  // Privileged roles: fixed 10 min idle → 10 min Timedown (agency settings do not stretch this).
+  if (isAdminRole()) {
+    idleBeforeTimedownMs = IDLE_BEFORE_TIMEDOWN_ADMIN_MS;
+    timedownSeconds = TIMEDOWN_ADMIN_SECONDS;
+    return;
+  }
   const idleSec = Number(config?.idleBeforeTimedownSeconds);
   const tdSec = Number(config?.timedownSeconds);
   if (Number.isFinite(idleSec) && idleSec >= 30) {
-    let ms = Math.min(3600, Math.floor(idleSec)) * 1000;
-    if (isAdminRole()) ms = Math.max(ms, IDLE_BEFORE_TIMEDOWN_ADMIN_MS);
-    idleBeforeTimedownMs = ms;
+    idleBeforeTimedownMs = Math.min(3600, Math.floor(idleSec)) * 1000;
   } else {
     idleBeforeTimedownMs = defaultIdleBeforeTimedownMs();
   }

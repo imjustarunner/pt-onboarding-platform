@@ -1,5 +1,8 @@
 import api from './api';
 
+/** Dashboard + hub reads must never flash the fullscreen page loader. */
+const quiet = { skipGlobalLoading: true };
+
 function withAgency(params = {}, agencyId) {
   const out = { ...params };
   if (agencyId) out.agencyId = agencyId;
@@ -8,56 +11,64 @@ function withAgency(params = {}, agencyId) {
 
 export async function fetchSchoolCoverageSummary(agencyId, params = {}) {
   const { data } = await api.get('/school-coverage/summary', {
-    params: withAgency(params, agencyId)
+    params: withAgency(params, agencyId),
+    ...quiet
   });
   return data;
 }
 
 export async function fetchProviderCoverageSummary(agencyId) {
   const { data } = await api.get('/school-coverage/providers', {
-    params: withAgency({}, agencyId)
+    params: withAgency({}, agencyId),
+    ...quiet
   });
   return data;
 }
 
 export async function fetchCoverageWarnings(agencyId, params = {}) {
   const { data } = await api.get('/school-coverage/warnings', {
-    params: withAgency(params, agencyId)
+    params: withAgency(params, agencyId),
+    ...quiet
   });
   return data;
 }
 
 export async function fetchOpenSchoolDays(agencyId, params = {}) {
   const { data } = await api.get('/school-coverage/open-days', {
-    params: withAgency(params, agencyId)
+    params: withAgency(params, agencyId),
+    ...quiet
   });
   return data;
 }
 
 export async function fetchSchoolDetail(agencyId, schoolId) {
   const { data } = await api.get(`/school-coverage/schools/${schoolId}/detail`, {
-    params: withAgency({}, agencyId)
+    params: withAgency({}, agencyId),
+    ...quiet
   });
   return data;
 }
 
 export async function fetchProviderDetail(agencyId, providerId) {
   const { data } = await api.get(`/school-coverage/providers/${providerId}/detail`, {
-    params: withAgency({}, agencyId)
+    params: withAgency({}, agencyId),
+    ...quiet
   });
   return data;
 }
 
 export async function fetchHubEvents(agencyId, params = {}) {
   const { data } = await api.get('/school-coverage/events', {
-    params: withAgency(params, agencyId)
+    params: withAgency(params, agencyId),
+    ...quiet
   });
   return data;
 }
 
 export async function fetchCoverageSuggestions(agencyId) {
   const { data } = await api.get('/school-coverage/suggestions', {
-    params: withAgency({}, agencyId)
+    params: withAgency({}, agencyId),
+    ...quiet
   });
   return data;
 }
@@ -66,25 +77,29 @@ export async function expireStaleSchoolRequests(agencyId, days = 30) {
   const { data } = await api.post(
     '/school-coverage/expire-stale-requests',
     { days },
-    { params: withAgency({}, agencyId) }
+    { params: withAgency({}, agencyId), ...quiet }
   );
   return data;
 }
 
 export async function applyForOpenSchoolDay(agencyId, { schoolId, dayOfWeek, notes = '' }) {
-  const { data } = await api.post('/availability/school-requests', {
-    agencyId,
-    preferredSchoolOrgIds: schoolId ? [schoolId] : [],
-    notes: notes || `Applying for open school day: ${dayOfWeek}`,
-    blocks: [
-      {
-        dayOfWeek,
-        blockType: 'daytime',
-        startTime: '08:00',
-        endTime: '16:00'
-      }
-    ]
-  });
+  const { data } = await api.post(
+    '/availability/school-requests',
+    {
+      agencyId,
+      preferredSchoolOrgIds: schoolId ? [schoolId] : [],
+      notes: notes || `Applying for open school day: ${dayOfWeek}`,
+      blocks: [
+        {
+          dayOfWeek,
+          blockType: 'daytime',
+          startTime: '08:00',
+          endTime: '16:00'
+        }
+      ]
+    },
+    quiet
+  );
   return data;
 }
 
@@ -92,7 +107,7 @@ export async function enableSchoolEventStaffing(agencyId, eventId, { minProvider
   const { data } = await api.post(
     `/school-coverage/events/${eventId}/enable-staffing`,
     { minProvidersPerSession },
-    { params: withAgency({}, agencyId) }
+    { params: withAgency({}, agencyId), ...quiet }
   );
   return data;
 }
@@ -113,7 +128,7 @@ export async function upsertProviderDaySlots(
       endTime,
       isActive
     },
-    { params: withAgency({}, agencyId) }
+    { params: withAgency({}, agencyId), ...quiet }
   );
   return data;
 }

@@ -436,9 +436,9 @@
             </div>
             <div class="filter-chips">
               <button type="button" class="filter-chip" :class="{ active: listFilter === 'all' }" @click="listFilter = 'all'">All</button>
-              <button type="button" class="filter-chip" :class="{ active: listFilter === 'online' }" @click="listFilter = 'online'">Active</button>
-              <button type="button" class="filter-chip" :class="{ active: listFilter === 'away' }" @click="listFilter = 'away'">Idle</button>
-              <button type="button" class="filter-chip" :class="{ active: listFilter === 'offline' }" @click="listFilter = 'offline'">Inactive</button>
+              <button type="button" class="filter-chip" :class="{ active: listFilter === 'online' }" @click="listFilter = 'online'">Available</button>
+              <button type="button" class="filter-chip" :class="{ active: listFilter === 'away' }" @click="listFilter = 'away'">Away</button>
+              <button type="button" class="filter-chip" :class="{ active: listFilter === 'offline' }" @click="listFilter = 'offline'">Unavailable</button>
             </div>
           </div>
 
@@ -1074,8 +1074,10 @@ import {
   isPrivilegedPresenceRole,
   isSchoolStaffRole,
   personOrgLabel,
+  availabilityBandForPerson,
+  presenceDetailLines,
   presenceDotClassForPerson,
-  presenceSortRank,
+  presenceSortRankForPerson,
   statusSubtitle
 } from '../../utils/presenceStatus';
 import { responsibilityFlagsLabel } from '../../utils/ticketTopics';
@@ -1661,13 +1663,13 @@ const myDisplayName = computed(() => {
 });
 
 const myStatusDisplay = computed(() => {
-  // Self may see rich Away labels (Out for Meal). Peers never do.
+  // Self may see rich Away labels (Out for Meal).
   if (myHeartbeatStatus.value === 'idle') {
-    return myStatusLabel.value || presenceSession.myStatusLabel || 'Idle';
+    return myStatusLabel.value || presenceSession.myStatusLabel || 'Away';
   }
   if (myStatusLabel.value) return myStatusLabel.value;
   if (presenceSession.myStatusLabel) return presenceSession.myStatusLabel;
-  if (myHeartbeatStatus.value === 'online') return 'Active';
+  if (myHeartbeatStatus.value === 'online') return 'Available';
   return 'Inactive';
 });
 
@@ -1676,7 +1678,8 @@ const myPresenceDotClass = computed(() =>
     status: myHeartbeatStatus.value,
     calendar_busy: myCalendarBusy.value,
     status_label: myStatusDisplay.value,
-    presence_display_label: myStatusDisplay.value
+    presence_display_label: myStatusDisplay.value,
+    presence_reason: presenceSession.myReason
   })
 );
 
@@ -1721,14 +1724,24 @@ function fromDatetimeLocalValue(s) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** DM list: Active → Idle → Inactive (includes self). */
+/** DM list: Available → Away · reachable → Unavailable (includes self). */
 const dmList = computed(() => {
   let list = [...(peopleWithUnread.value || [])];
-  if (listFilter.value === 'online') list = list.filter((u) => u.status === 'online');
-  else if (listFilter.value === 'away') list = list.filter((u) => u.status === 'idle');
-  else if (listFilter.value === 'offline') list = list.filter((u) => u.status === 'offline');
+  if (listFilter.value === 'online') {
+    list = list.filter((u) => {
+      const b = availabilityBandForPerson(u);
+      return b === 'available' || b === 'available_offline';
+    });
+  } else if (listFilter.value === 'away') {
+    list = list.filter((u) => availabilityBandForPerson(u) === 'away_reachable');
+  } else if (listFilter.value === 'offline') {
+    list = list.filter((u) => {
+      const b = availabilityBandForPerson(u);
+      return b === 'unavailable' || b === 'offline';
+    });
+  }
   list.sort((a, b) => {
-    const rank = presenceSortRank(a.status) - presenceSortRank(b.status);
+    const rank = presenceSortRankForPerson(a) - presenceSortRankForPerson(b);
     if (rank !== 0) return rank;
     const an = `${a.first_name || ''} ${a.last_name || ''}`.toLowerCase();
     const bn = `${b.first_name || ''} ${b.last_name || ''}`.toLowerCase();
@@ -1741,13 +1754,14 @@ function presencePersonForId(userId) {
   return presenceByUserId.value.get(userId) || null;
 }
 
-/** Hover: role access vs responsibility flags (billing/payroll/credentialing). */
+/** Hover: status details + role / responsibility flags. */
 function personHoverTitle(person) {
   if (!person) return '';
   const name = [person.first_name, person.last_name].filter(Boolean).join(' ').trim();
   const role = String(person.role || '').replace(/_/g, ' ');
   const flags = responsibilityFlagsLabel(person);
-  const parts = [name, role].filter(Boolean);
+  const statusBits = presenceDetailLines(person);
+  const parts = [name, ...statusBits, role].filter(Boolean);
   if (flags) parts.push(`Responsibility: ${flags}`);
   return parts.join(' · ');
 }
@@ -3853,11 +3867,23 @@ onUnmounted(() => {
   text-align: left;
 }
 .person:hover { border-color: var(--primary); }
-.dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
-.dot-online { background: #22c55e; }
-.dot-idle { background: #f59e0b; }
-.dot-busy { background: #6366f1; }
-.dot-offline { background: #9ca3af; }
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  display: inline-block;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+  flex-shrink: 0;
+}
+.dot-available,
+.dot-online { background: #16a34a; }
+.dot-away-reachable,
+.dot-idle { background: #eab308; }
+.dot-unavailable,
+.dot-busy { background: #dc2626; }
+.dot-available-offline { background: #0ea5e9; }
+.dot-offline { background: #94a3b8; }
 .mw-modal-overlay {
   position: fixed;
   inset: 0;

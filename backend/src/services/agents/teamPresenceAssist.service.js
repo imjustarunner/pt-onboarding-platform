@@ -1,12 +1,13 @@
 /**
  * Live team presence snapshot for Ask Assistant ("who is available").
  * Uses the same chat model as Messages: Active / Idle / Inactive.
- * Idle = session_extend_until only — never Team Board enums or meal labels.
+ * Idle = session_extend, Timedown phase, or soft activity idle — never Team Board enums.
  */
 import pool from '../../config/database.js';
 import { TEAM_EMPLOYEE_ROLES } from '../../utils/presenceAudience.js';
 
 const OFFLINE_AFTER_MS = 6 * 60 * 1000;
+const SOFT_IDLE_AFTER_MS = 2.5 * 60 * 1000;
 
 function peerFacingStatusLabel(status) {
   if (status === 'online') return 'Active';
@@ -17,11 +18,20 @@ function peerFacingStatusLabel(status) {
 function computeStatus(row) {
   const now = Date.now();
   const hb = row?.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : null;
+  const activityAt = row?.last_activity_at ? new Date(row.last_activity_at).getTime() : null;
   const avail = String(row?.availability_level || 'everyone').toLowerCase();
   const extendUntil = row?.session_extend_until
     ? new Date(row.session_extend_until).getTime()
     : null;
-  const idleSession = Number.isFinite(extendUntil) && extendUntil > now;
+  const phase = String(row?.session_phase || '').toLowerCase();
+  const idleSession =
+    (Number.isFinite(extendUntil) && extendUntil > now)
+    || phase === 'timedown'
+    || phase === 'away'
+    || (
+      hb && Number.isFinite(hb) && now - hb <= OFFLINE_AFTER_MS
+      && activityAt && Number.isFinite(activityAt) && now - activityAt >= SOFT_IDLE_AFTER_MS
+    );
 
   let status = 'offline';
   if (idleSession) status = 'idle';
@@ -51,6 +61,7 @@ export async function listTeamPresenceForAssist({ agencyId, viewerUserId = null,
             u.role,
             up.last_heartbeat_at,
             up.last_activity_at,
+            up.session_phase,
             up.availability_level,
             ps.session_extend_until
      FROM users u

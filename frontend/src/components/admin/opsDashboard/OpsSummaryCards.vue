@@ -1,6 +1,6 @@
 <template>
-  <section class="ops-summary" aria-label="Operations summaries">
-    <article v-if="showPrograms" class="panel">
+  <section class="ops-summary" :class="{ 'ops-summary--contents': useContents }" aria-label="Operations summaries">
+    <article v-if="showPrograms" class="panel" :style="orderStyles.programs || undefined">
       <div class="panel-header">
         <h2>Programs</h2>
         <button type="button" class="link-btn" @click="$emit('navigate', paths.programs)">View All</button>
@@ -29,7 +29,7 @@
       </div>
     </article>
 
-    <article v-if="showCommunications" class="panel">
+    <article v-if="showCommunications" class="panel" :style="orderStyles.communications || undefined">
       <div class="panel-header">
         <h2>Communications Center</h2>
         <button type="button" class="link-btn" @click="$emit('navigate', paths.communications)">Open</button>
@@ -50,7 +50,7 @@
       </div>
     </article>
 
-    <article v-if="showPeopleOps" class="panel">
+    <article v-if="showPeopleOps" class="panel" :style="orderStyles.peopleOps || undefined">
       <div class="panel-header">
         <h2>People Ops Overview</h2>
         <button type="button" class="link-btn" @click="$emit('navigate', paths.hiring)">Review</button>
@@ -71,7 +71,7 @@
       </div>
     </article>
 
-    <article v-if="showSystemAlerts" class="panel">
+    <article v-if="showSystemAlerts" class="panel" :style="orderStyles.systemAlerts || undefined">
       <div class="panel-header">
         <h2>System Alerts</h2>
         <button type="button" class="link-btn" @click="$emit('navigate', paths.notifications)">View</button>
@@ -92,7 +92,7 @@
       </div>
     </article>
 
-    <article v-if="showTodaysSchedule" class="panel schedule">
+    <article v-if="showTodaysSchedule" class="panel schedule" :style="orderStyles.todaysSchedule || undefined">
       <div class="panel-header">
         <h2>Today's Schedule</h2>
         <button type="button" class="link-btn" @click="$emit('navigate', paths.schedule)">Full Calendar</button>
@@ -130,7 +130,11 @@ defineProps({
   systemAlerts: { type: Object, default: () => ({}) },
   scheduleSlots: { type: Array, default: () => [] },
   scheduleLoading: { type: Boolean, default: false },
-  paths: { type: Object, default: () => ({}) }
+  paths: { type: Object, default: () => ({}) },
+  /** CSS order styles keyed by section id (e.g. { programs: { order: 3 } }) */
+  orderStyles: { type: Object, default: () => ({}) },
+  /** When true, section wrapper uses display:contents so cards join a parent grid */
+  useContents: { type: Boolean, default: false }
 });
 
 defineEmits(['navigate']);
@@ -142,6 +146,9 @@ defineEmits(['navigate']);
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin-top: 0;
+}
+.ops-summary--contents {
+  display: contents;
 }
 @media (max-width: 1100px) {
   .ops-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }

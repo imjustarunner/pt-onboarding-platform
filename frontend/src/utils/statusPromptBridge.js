@@ -174,7 +174,7 @@ function renderPromptDom(mode) {
     b.outReason = id;
     b.customLabel = customLabel;
     b.customOutId = id.startsWith('custom_') ? id : null;
-    if (id === 'out_day') b.reachable = null;
+    if (id === 'out_day' || id === 'available_offline') b.reachable = null;
     renderPromptDom(mode);
   };
 
@@ -246,14 +246,26 @@ function renderPromptDom(mode) {
     });
     return btn;
   });
-  section('Also reachable for (optional)', reachBtns);
+  if (b.outReason !== 'out_day' && b.outReason !== 'available_offline') {
+    section('Also reachable for (optional)', reachBtns);
+  }
 
   const dayBtn = document.createElement('button');
   dayBtn.type = 'button';
   dayBtn.textContent = 'Out for the Day';
   dayBtn.style.cssText = btnStyle(b.outReason === 'out_day', false);
   dayBtn.addEventListener('click', () => selectOut('out_day'));
-  section('Longer', [dayBtn]);
+
+  const offlineAvailBtn = document.createElement('button');
+  offlineAvailBtn.type = 'button';
+  offlineAvailBtn.textContent = 'Available · Logged out';
+  offlineAvailBtn.title = 'Log out but stay marked available (blue) for the team';
+  offlineAvailBtn.style.cssText = btnStyle(b.outReason === 'available_offline', false);
+  offlineAvailBtn.addEventListener('click', () => {
+    b.reachable = null;
+    selectOut('available_offline');
+  });
+  section('Longer', [dayBtn, offlineAvailBtn]);
 
   if (mode === 'change' && b.outReason && b.outReason !== 'out_day') {
     const continueBtn = document.createElement('button');
@@ -278,6 +290,7 @@ function renderPromptDom(mode) {
   const showDuration =
     b.outReason &&
     b.outReason !== 'out_day' &&
+    b.outReason !== 'available_offline' &&
     (mode !== 'change' || b.timerMode === 'reset');
   if (showDuration) {
     const durBtns = DURATION_CHIPS.map((d) => {
@@ -314,7 +327,9 @@ function renderPromptDom(mode) {
 
   const setStatus = document.createElement('button');
   setStatus.type = 'button';
-  if (b.outReason === 'out_day') {
+  if (b.outReason === 'available_offline') {
+    setStatus.textContent = 'Set available & log out';
+  } else if (b.outReason === 'out_day') {
     setStatus.textContent =
       mode === 'manual' || mode === 'change'
         ? 'Set Out for the Day & log out'

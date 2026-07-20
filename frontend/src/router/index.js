@@ -2722,6 +2722,74 @@ const routes = [
     component: () => import('../views/admin/SupportTicketsQueueView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'], organizationSlug: true }
   },
+  {
+    path: '/admin/escalations',
+    name: 'EscalationsDesk',
+    component: () => import('../views/admin/EscalationsDeskView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'admin',
+        'support',
+        'super_admin',
+        'staff',
+        'clinical_practice_assistant',
+        'provider_plus'
+      ]
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/escalations',
+    name: 'OrganizationEscalationsDesk',
+    component: () => import('../views/admin/EscalationsDeskView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'admin',
+        'support',
+        'super_admin',
+        'staff',
+        'clinical_practice_assistant',
+        'provider_plus'
+      ],
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/admin/planned-outs',
+    name: 'PlannedOuts',
+    component: () => import('../views/admin/PlannedOutsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'admin',
+        'support',
+        'super_admin',
+        'staff',
+        'clinical_practice_assistant',
+        'provider_plus',
+        'provider'
+      ]
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/planned-outs',
+    name: 'OrganizationPlannedOuts',
+    component: () => import('../views/admin/PlannedOutsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'admin',
+        'support',
+        'super_admin',
+        'staff',
+        'clinical_practice_assistant',
+        'provider_plus',
+        'provider'
+      ],
+      organizationSlug: true
+    }
+  },
   // Redirect double-slug (e.g. /itsco/itsco/tickets) to single slug (/itsco/tickets)
   {
     path: '/:a/:b/tickets',

@@ -537,7 +537,7 @@
             <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
               <h4 style="margin: 0; font-size: 16px;">Session Timeout (Timedown)</h4>
               <p class="section-description" style="margin-top: 6px;">
-                Controls the branded inactivity flow: idle wait → Timedown countdown video → Session Ended.
+                Controls the branded inactivity flow: idle wait → Timedown countdown video → Session Ended. Admin/support/superadmin always use a fixed 10 min idle + 10 min Timedown (20 min total).
                 These values are the source of truth for when the timeout overlay appears and how long it runs.
               </p>
             </div>

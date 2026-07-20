@@ -52,16 +52,31 @@ const saveOrderToStorage = (storageKey, order) => {
   }
 };
 
-export function useDashboardLayout({ kind = 'default', userId = null, defaultOrder = [] } = {}) {
+export function useDashboardLayout({
+  kind = 'default',
+  userId = null,
+  agencyId = null,
+  defaultOrder = []
+} = {}) {
   const fallback = Array.isArray(defaultOrder) ? [...defaultOrder] : [];
   const userIdRef = isRef(userId) ? userId : ref(userId);
+  const agencyIdRef = isRef(agencyId) ? agencyId : ref(agencyId);
+  const kindRef = isRef(kind) ? kind : ref(kind);
 
-  const storageKey = computed(() => `${STORAGE_PREFIX}:${sanitizeKey(kind)}:${sanitizeKey(unref(userIdRef))}`);
+  const storageKey = computed(() => {
+    const base = `${STORAGE_PREFIX}:${sanitizeKey(unref(kindRef))}`;
+    const agency = unref(agencyIdRef);
+    // Keep legacy `kind:userId` keys when no agency is scoped (e.g. challenge dashboards).
+    if (agency == null || agency === '') {
+      return `${base}:${sanitizeKey(unref(userIdRef))}`;
+    }
+    return `${base}:agency-${sanitizeKey(agency)}:${sanitizeKey(unref(userIdRef))}`;
+  });
 
   const order = ref(loadOrderFromStorage(storageKey.value, fallback));
   const editMode = ref(false);
 
-  watch(userIdRef, () => {
+  watch([userIdRef, agencyIdRef, kindRef], () => {
     order.value = loadOrderFromStorage(storageKey.value, fallback);
   });
 

@@ -163,35 +163,6 @@
       <button v-else class="btn btn-primary" disabled>View Checklist</button>
     </div>
     
-    <!-- Status / team widgets (snapshot metrics live in Overview pay-period card) -->
-    <div
-      v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab !== 'overview' && activeTab !== 'my_supervision' && activeTab !== 'supervision' && (canSeePresenceWidget || (currentAgencyId && canSeeKudosWidget))"
-      class="top-snapshot-row"
-    >
-      <div
-        v-if="canSeePresenceWidget || (currentAgencyId && canSeeKudosWidget)"
-        class="top-snapshot-status-team-stack"
-      >
-        <div
-          v-if="canSeePresenceWidget"
-          class="top-snapshot-wrap"
-          data-tour="dash-presence-status"
-        >
-          <PresenceStatusWidget />
-        </div>
-        <div
-          v-if="currentAgencyId && canSeeKudosWidget"
-          class="top-snapshot-wrap"
-          data-tour="dash-staff-card"
-        >
-          <StaffCard
-            :agency-id="Number(currentAgencyId)"
-            :icon-url="brandingStore.getDashboardCardIconUrl('staff', cardIconOrgOverride)"
-          />
-        </div>
-      </div>
-    </div>
-
     <!-- Pre-hire attention widget – visible to admins/staff with canManageHiring -->
     <div
       v-if="!previewMode && isOnboardingComplete && canSeePreHireWidget"
@@ -1166,9 +1137,7 @@ import ProgramHubModal from '../components/availability/ProgramHubModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import BudgetSubmitExpensesModal from '../components/budget/BudgetSubmitExpensesModal.vue';
 import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
-import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
 import PreHireAttentionWidget from '../components/dashboard/PreHireAttentionWidget.vue';
-import StaffCard from '../components/dashboard/StaffCard.vue';
 import SurveyPromptCard from '../components/dashboard/SurveyPromptCard.vue';
 import FacilitatorAvailabilityPromptCard from '../components/dashboard/FacilitatorAvailabilityPromptCard.vue';
 import ClubEmployerSharePromptCard from '../components/club/ClubEmployerSharePromptCard.vue';
@@ -1498,15 +1467,7 @@ const canSeePreHireWidget = computed(() => {
   return !!caps.canManageHiring;
 });
 
-// Presence widget: super_admin always; staff/admin when agency has presenceEnabled
-const canSeePresenceWidget = computed(() => {
-  const role = String(authStore.user?.role || '').toLowerCase();
-  if (role === 'super_admin') return true;
-  if (!['staff', 'admin'].includes(role)) return false;
-  return isTruthyFlag(agencyFlags.value?.presenceEnabled);
-});
-
-// Kudos / Staff card: when agency has kudosEnabled
+// Kudos (Overview / other panels): when agency has kudosEnabled
 const canSeeKudosWidget = computed(() => isTruthyFlag(agencyFlags.value?.kudosEnabled));
 
 // Budget Submit Expenses: when agency has budget management enabled and user can access

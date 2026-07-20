@@ -2,9 +2,14 @@
   <section
     v-if="showAny"
     class="tenant-context"
+    :class="{ 'tenant-context--contents': useContents }"
     aria-label="School updates and events"
   >
-    <article v-if="showSchoolUpdates" class="panel panel--feed">
+    <article
+      v-if="showSchoolUpdates"
+      class="panel panel--feed"
+      :style="orderStyles.schoolUpdates || undefined"
+    >
       <div class="panel-header">
         <h2>School Updates &amp; Changes</h2>
         <button type="button" class="link-btn" @click="$emit('navigate', paths.caseloadHub || paths.schoolPortalsHub)">
@@ -66,7 +71,11 @@
       </template>
     </article>
 
-    <article v-if="showEvents" class="panel panel--feed">
+    <article
+      v-if="showEvents"
+      class="panel panel--feed"
+      :style="orderStyles.events || undefined"
+    >
       <div class="panel-header">
         <h2>Events</h2>
         <button type="button" class="link-btn" @click="$emit('navigate', paths.events)">
@@ -136,7 +145,9 @@ const props = defineProps({
   showEvents: { type: Boolean, default: true },
   schoolUpdates: { type: Array, default: () => [] },
   events: { type: Array, default: () => [] },
-  paths: { type: Object, default: () => ({}) }
+  paths: { type: Object, default: () => ({}) },
+  orderStyles: { type: Object, default: () => ({}) },
+  useContents: { type: Boolean, default: false }
 });
 
 defineEmits(['navigate']);
@@ -184,10 +195,13 @@ const eventGlyph = (kind) => {
   gap: 14px;
   margin: 0 0 14px;
 }
-@media (max-width: 900px) {
-  .tenant-context { grid-template-columns: 1fr; }
+.tenant-context--contents {
+  display: contents;
 }
-.tenant-context:has(> .panel:only-child) {
+@media (max-width: 900px) {
+  .tenant-context:not(.tenant-context--contents) { grid-template-columns: 1fr; }
+}
+.tenant-context:not(.tenant-context--contents):has(> .panel:only-child) {
   grid-template-columns: 1fr;
 }
 .panel {

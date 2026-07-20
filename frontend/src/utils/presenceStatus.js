@@ -51,8 +51,22 @@ export const AWAY_REASONS = [
   { id: 'call', label: 'Available for Call', group: 'reachable' },
   { id: 'text', label: 'Available for Text', group: 'reachable' },
   { id: 'call_text', label: 'Available for Call & Text', group: 'reachable' },
-  { id: 'out_day', label: 'Out for the Day', group: 'day' }
+  { id: 'out_day', label: 'Out for the Day', group: 'day' },
+  { id: 'available_offline', label: 'Available · Logged out', group: 'offline_available' }
 ];
+
+/** Shared availability bands — Team Board + Messages use the same colors. */
+export const AVAILABILITY_BANDS = Object.freeze({
+  available: { id: 'available', label: 'Available', short: 'Available' },
+  away_reachable: { id: 'away_reachable', label: 'Away · reachable', short: 'Away' },
+  unavailable: { id: 'unavailable', label: 'Unavailable', short: 'Unavailable' },
+  available_offline: {
+    id: 'available_offline',
+    label: 'Available · logged out',
+    short: 'Available (offline)'
+  },
+  offline: { id: 'offline', label: 'Inactive', short: 'Inactive' }
+});
 
 /** Team Board enum labels (roster for admin/support/super_admin). Not for Messages peers. */
 export const TEAM_BOARD_STATUS_LABELS = {
@@ -153,36 +167,85 @@ export const DURATION_CHIPS = [
   { minutes: 120, label: '2 hours' }
 ];
 
-/** Wire status → peer-facing label (Active / Idle / Inactive). Never meal/Team Board copy. */
+/** Derive shared availability band from API person payload. */
+export function availabilityBandForPerson(person) {
+  if (!person) return 'offline';
+  const band = String(person.availability_band || '').toLowerCase();
+  if (band && AVAILABILITY_BANDS[band]) return band;
+
+  const reason = String(person.presence_reason || person.reason || '').trim();
+  if (reason === 'available_offline') return 'available_offline';
+
+  const note = String(person.presence_note || person.note || '').trim();
+  const display = String(person.presence_display_label || person.display_label || person.status_label || '').toLowerCase();
+  const rich = String(person.presence_status || '').trim();
+  const reachable =
+    ['call', 'text', 'call_text'].includes(note) ||
+    ['call', 'text', 'call_text'].includes(reason) ||
+    display.includes('available for call') ||
+    display.includes('available for text');
+
+  const wire = String(person.status || '').toLowerCase();
+  if (wire === 'online' || wire === 'active') {
+    if (rich === 'in_heads_down') return 'unavailable';
+    if (rich.startsWith('out_') || rich === 'traveling_offsite') {
+      return reachable || rich === 'in_available_for_phone' ? 'away_reachable' : 'unavailable';
+    }
+    if (
+      person.calendar_busy ||
+      display.includes('in session') ||
+      display.includes('supervision') ||
+      display.includes('in meeting')
+    ) {
+      return 'unavailable';
+    }
+    return 'available';
+  }
+  if (wire === 'idle' || wire === 'away') {
+    if (reachable || rich === 'in_available_for_phone') return 'away_reachable';
+    // Explicit Away / heads-down without reachable → red unavailable
+    if (rich.startsWith('out_') || rich === 'traveling_offsite' || rich === 'in_heads_down') {
+      return 'unavailable';
+    }
+    // Timedown / soft idle before a status is chosen → Away (yellow)
+    return 'away_reachable';
+  }
+  if (rich.startsWith('out_') || rich === 'traveling_offsite' || rich === 'in_heads_down') {
+    return reachable ? 'away_reachable' : 'unavailable';
+  }
+  return 'offline';
+}
+
+export function availabilityBandLabel(band) {
+  return AVAILABILITY_BANDS[band]?.label || AVAILABILITY_BANDS.offline.label;
+}
+
+/** Wire status → peer-facing label (legacy Active / Idle / Inactive). Prefer band labels. */
 export function peerFacingStatusLabel(status) {
   const s = String(status || '').toLowerCase();
-  if (s === 'online' || s === 'active') return 'Active';
-  if (s === 'idle' || s === 'away') return 'Idle';
+  if (s === 'online' || s === 'active') return 'Available';
+  if (s === 'idle' || s === 'away') return 'Away';
   return 'Inactive';
 }
 
 export function presenceDotClass(status) {
   const s = String(status || '').toLowerCase();
-  if (s === 'online' || s === 'active') return 'dot-online';
-  if (s === 'idle' || s === 'away') return 'dot-idle';
-  if (s === 'busy') return 'dot-busy';
+  if (s === 'online' || s === 'active' || s === 'available') return 'dot-available';
+  if (s === 'idle' || s === 'away' || s === 'away_reachable') return 'dot-away-reachable';
+  if (s === 'unavailable' || s === 'busy') return 'dot-unavailable';
+  if (s === 'available_offline') return 'dot-available-offline';
   return 'dot-offline';
 }
 
-/** Prefer calendar-busy styling when API attaches calendar_busy on Active peers. */
+/** Prefer shared availability band colors (Team Board + Messages). */
 export function presenceDotClassForPerson(person) {
   if (!person) return 'dot-offline';
-  // Idle is signed-in Away overlay — never paint as calendar-busy from legacy labels.
-  if (person.status === 'idle' || person.status === 'away') return 'dot-idle';
-  const busy = String(person.calendar_busy || '').toLowerCase();
-  const label = String(person.status_label || '').toLowerCase();
-  if (
-    person.status === 'online' &&
-    (busy || label.includes('in session') || label.includes('supervision') || label.includes('in meeting'))
-  ) {
-    return 'dot-busy';
-  }
-  return presenceDotClass(person.status);
+  const band = availabilityBandForPerson(person);
+  if (band === 'available') return 'dot-available';
+  if (band === 'away_reachable') return 'dot-away-reachable';
+  if (band === 'unavailable') return 'dot-unavailable';
+  if (band === 'available_offline') return 'dot-available-offline';
+  return 'dot-offline';
 }
 
 export function formatReturnAt(iso) {
@@ -195,35 +258,56 @@ export function formatReturnAt(iso) {
 }
 
 /**
- * Peer list subtitle. Coarse presence only — ignore meal/Team Board display_label.
- * Calendar busy labels (In Session, etc.) may still appear when status is Active.
+ * Peer list subtitle — shared availability bands (matches Team Board colors).
+ * Privileged viewers may also see rich Away labels (Out for Meal, etc.).
  */
 export function statusSubtitle(person) {
   if (!person) return '';
-  const coarse = peerFacingStatusLabel(person.status);
-  let label = coarse;
-  if (person.status === 'online') {
+  const band = availabilityBandForPerson(person);
+  let label = String(person.status_label || '').trim() || availabilityBandLabel(band);
+  // Privileged directory payloads include rich Away labels — prefer them for detail.
+  if (person.presence_display_label || person.presence_reason) {
+    const rich = teamBoardStatusLabel(person);
+    if (rich) label = rich;
+  }
+  if (person.status === 'online' && person.calendar_busy) {
     const apiLabel = String(person.status_label || '').trim();
-    const lower = apiLabel.toLowerCase();
-    if (
-      apiLabel &&
-      (person.calendar_busy ||
-        lower.includes('in session') ||
-        lower.includes('supervision') ||
-        lower.includes('in meeting') ||
-        lower === 'busy')
-    ) {
-      label = apiLabel;
-    }
+    if (apiLabel) label = apiLabel;
   }
   const school = String(person.role || '').toLowerCase() === 'school_staff' ? personOrgLabel(person) : '';
   return school ? `${label} · ${school}` : label;
 }
 
-/** Sort: online → idle → offline, then name */
-export function presenceSortRank(status) {
-  const s = String(status || '').toLowerCase();
-  if (s === 'online') return 0;
-  if (s === 'idle') return 1;
-  return 2;
+/** Hover / detail lines for Team Board + Messages. */
+export function presenceDetailLines(person) {
+  if (!person) return [];
+  const band = availabilityBandForPerson(person);
+  const lines = [availabilityBandLabel(band)];
+  const rich = teamBoardStatusLabel(person);
+  if (rich && rich !== lines[0]) lines.push(rich);
+  const back = teamBoardReturnAt(person);
+  if (back) {
+    try {
+      lines.push(
+        `Back ${new Date(back).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+  return lines;
+}
+
+/** Sort: available → away reachable → unavailable → available offline → offline */
+export function presenceSortRank(statusOrBand) {
+  const s = String(statusOrBand || '').toLowerCase();
+  if (s === 'online' || s === 'available') return 0;
+  if (s === 'idle' || s === 'away' || s === 'away_reachable') return 1;
+  if (s === 'unavailable' || s === 'busy') return 2;
+  if (s === 'available_offline') return 3;
+  return 4;
+}
+
+export function presenceSortRankForPerson(person) {
+  return presenceSortRank(availabilityBandForPerson(person));
 }

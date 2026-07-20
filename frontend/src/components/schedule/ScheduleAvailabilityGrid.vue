@@ -718,7 +718,7 @@
       </div>
 
       <div
-        v-else-if="summary && scheduleSpanMode === 'agenda'"
+        v-if="summary && scheduleSpanMode === 'agenda'"
         class="sched-agenda"
         data-tour="my-schedule-agenda"
       >
@@ -873,6 +873,15 @@
           title="Add to schedule"
           @click="openMobileDayHour(mobileTimelineHours[0] || 9)"
         >+</button>
+      </div>
+
+      <div
+        v-else-if="!summary && !loading && !error"
+        class="muted"
+        style="margin-top: 14px; padding: 18px 4px;"
+        data-testid="my-schedule-empty"
+      >
+        Schedule is not loaded yet. Try refreshing, or open My Schedule from My Dashboard.
       </div>
 
       <div v-else-if="summary" class="sched-grid-wrap" :class="{ 'sched-grid-wrap--hidden-mobile-day': false }">
@@ -3032,7 +3041,7 @@
             </div>
 
             <div v-if="requestType === 'schedule_hold' || requestType === 'schedule_hold_all_day'" style="margin-top: 10px;">
-              <label class="lbl">{{ requestType === 'schedule_hold_all_day' ? 'Block reason' : 'Hold reason' }}</label>
+              <label class="lbl">Block reason</label>
               <div class="hold-reason-box">
                 <div class="hold-reason-row">
                   <input
@@ -3040,7 +3049,7 @@
                     class="input"
                     type="text"
                     list="hold-reason-suggestions"
-                    :placeholder="requestType === 'schedule_hold_all_day' ? 'Why is this day blocked?…' : 'Type a reason or pick one…'"
+                    placeholder="Type a reason or pick one…"
                     maxlength="120"
                     @keydown.enter.prevent="commitHoldReasonDraft"
                     @change="onHoldReasonDraftChange"
@@ -3083,22 +3092,18 @@
                 </div>
                 <div class="muted nr-help" style="margin-top: 4px;">
                   Type a new reason and hit Save to keep it. Use × to remove a saved custom reason.
-                  <template v-if="requestType === 'schedule_hold_all_day'">
-                    This is an all-day schedule block (not a hold).
-                  </template>
                 </div>
               </div>
             </div>
 
             <label
-              v-if="requestType !== 'schedule_hold_all_day'"
               class="sched-toggle"
               style="margin-top: 10px;"
             >
               <input type="checkbox" v-model="scheduleEventAllDay" />
               <span>All day</span>
             </label>
-            <div v-else class="muted nr-help" style="margin-top: 10px;">
+            <div v-if="scheduleEventAllDay" class="muted nr-help" style="margin-top: 6px;">
               This blocks the full calendar day (midnight to midnight).
             </div>
             <label class="sched-toggle" style="margin-top: 6px;">
@@ -7132,12 +7137,7 @@ let loadInFlightKey = '';
 const load = async ({ forceRefresh = false } = {}) => {
   if (!props.userId) return;
   if (!effectiveAgencyIds.value.length) {
-    if (props.mode === 'self' && !selfScheduleAgenciesLoaded.value) {
-      error.value = '';
-      summary.value = null;
-      return;
-    }
-    // Self mode can still load cross-tenant bookings even with empty membership chips.
+    // Self / My Schedule uses includeAllAgencies — do not wait on org chips or the grid stays blank.
     if (props.mode !== 'self') {
       summary.value = null;
       error.value = 'Select an organization first.';
@@ -9374,7 +9374,7 @@ const scheduleEventTitlePlaceholder = computed(() => {
   const kind = String(requestType.value || '');
   if (kind === 'agency_meeting') return props.hideOfficeAndCalendarIntegration ? 'Team meeting' : 'Agency meeting';
   if (kind === 'huddle') return 'Huddle';
-  if (kind === 'schedule_hold_all_day') return 'All-day schedule block';
+  if (kind === 'schedule_hold_all_day') return 'Schedule block';
   if (kind === 'schedule_hold') return 'Schedule hold';
   if (kind === 'indirect_services') return 'Indirect services';
   return 'Personal event';
@@ -9591,18 +9591,19 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'schedule_hold',
-      label: 'Schedule hold',
-      description: 'Block this time with a hold reason',
+      label: 'Schedule block',
+      description: 'Block time or an all-day span on your calendar',
       disabledReason: '',
       visible: !supervisionOnlyMode,
       tone: 'orange'
     },
     {
       id: 'schedule_hold_all_day',
-      label: 'All-day schedule block',
+      label: 'Schedule block',
       description: 'Block the full calendar day',
       disabledReason: '',
-      visible: !supervisionOnlyMode,
+      // Merged into schedule_hold + All day toggle; keep id for legacy deep-links.
+      visible: false,
       tone: 'slate'
     },
     {
@@ -10063,7 +10064,7 @@ const submitActionLabel = computed(() => {
     huddle: 'Schedule huddle',
     personal_event: 'Schedule event',
     schedule_hold: 'Schedule hold',
-    schedule_hold_all_day: 'Schedule all-day block',
+    schedule_hold_all_day: 'Schedule block',
     indirect_services: 'Schedule event',
     forfeit_slot: 'Forfeit selected slot(s)',
     extend_assignment: 'Extend assignment',
@@ -15085,8 +15086,7 @@ const selectedActionContexts = () => {
 const defaultScheduleEventTitleForAction = (actionId) => {
   if (actionId === 'agency_meeting') return 'Agency Meeting';
   if (actionId === 'huddle') return 'Huddle';
-  if (actionId === 'schedule_hold_all_day') return 'All-day schedule block';
-  if (actionId === 'schedule_hold') return 'Schedule Hold';
+  if (actionId === 'schedule_hold' || actionId === 'schedule_hold_all_day') return 'Schedule block';
   if (actionId === 'indirect_services') return 'Indirect Services';
   return 'Personal Event';
 };
@@ -18611,7 +18611,7 @@ const scheduleKindLabel = (kindRaw, ev = null) => {
     if (isClientSessionScheduleEvent(ev || { kind: k })) return 'Session';
     return 'Personal';
   }
-  if (k === 'SCHEDULE_HOLD' && ev?.allDay) return 'All-day schedule block';
+  if (k === 'SCHEDULE_HOLD' && ev?.allDay) return 'Schedule block';
   if (SCHEDULE_EVENT_KIND_LABELS[k]) return SCHEDULE_EVENT_KIND_LABELS[k];
   if (!k) return 'Schedule event';
   return k

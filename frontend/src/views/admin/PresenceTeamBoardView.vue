@@ -126,11 +126,12 @@
               <td class="status-cell">
                 <span
                   class="status-indicator"
-                  :class="statusIndicatorClass(person.presence_status)"
-                  :title="personStatusLabel(person)"
+                  :class="bandDotClass(person)"
+                  :title="personHoverDetail(person)"
                 />
                 <div class="status-stack">
-                  <span class="status-rich">{{ personStatusLabel(person) || '—' }}</span>
+                  <span class="status-rich" :title="personHoverDetail(person)">{{ personStatusLabel(person) || '—' }}</span>
+                  <span class="status-band">{{ bandLabel(person) }}</span>
                   <select
                     v-if="isSuperAdmin"
                     :value="person.presence_status || ''"
@@ -194,6 +195,10 @@ import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
   TEAM_BOARD_STATUS_LABELS,
+  availabilityBandForPerson,
+  availabilityBandLabel,
+  presenceDetailLines,
+  presenceDotClassForPerson,
   teamBoardReturnAt,
   teamBoardStatusLabel
 } from '../../utils/presenceStatus';
@@ -291,13 +296,12 @@ const avatarInitial = (p) => {
   return `${a}${b}`.toUpperCase() || '?';
 };
 
-const statusIndicatorClass = (status) => {
-  if (!status) return 'indicator-none';
-  if (['in_available', 'in_heads_down', 'in_available_for_phone'].includes(status)) return 'indicator-in';
-  if (status === 'out_quick') return 'indicator-out-quick';
-  if (status === 'traveling_offsite') return 'indicator-traveling';
-  if (['out_am', 'out_pm', 'out_full_day'].includes(status)) return 'indicator-out';
-  return 'indicator-none';
+const bandDotClass = (person) => presenceDotClassForPerson(person);
+const bandLabel = (person) => availabilityBandLabel(availabilityBandForPerson(person));
+const personHoverDetail = (person) => {
+  const name = person?.display_name || '';
+  const lines = presenceDetailLines(person);
+  return [name, ...lines].filter(Boolean).join(' · ');
 };
 
 const personStatusLabel = (person) => teamBoardStatusLabel(person);
@@ -796,33 +800,26 @@ onBeforeUnmount(() => {
   color: var(--text-primary);
   line-height: 1.25;
 }
+.status-band {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
+}
 
 .status-indicator {
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   flex-shrink: 0;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
 }
 
-.status-indicator.indicator-in {
-  background: #22c55e;
-}
-
-.status-indicator.indicator-out-quick {
-  background: #eab308;
-}
-
-.status-indicator.indicator-traveling {
-  background: #3b82f6;
-}
-
-.status-indicator.indicator-out {
-  background: #ef4444;
-}
-
-.status-indicator.indicator-none {
-  background: var(--border);
-}
+.status-indicator.dot-available { background: #16a34a; }
+.status-indicator.dot-away-reachable { background: #eab308; }
+.status-indicator.dot-unavailable { background: #dc2626; }
+.status-indicator.dot-available-offline { background: #0ea5e9; }
+.status-indicator.dot-offline { background: #94a3b8; }
 
 .status-select {
   padding: 6px 28px 6px 10px;

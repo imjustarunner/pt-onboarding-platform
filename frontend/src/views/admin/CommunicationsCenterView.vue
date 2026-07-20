@@ -247,10 +247,11 @@
         <div class="cc-mode-intro split">
           <div>
             <h2>Support Hub</h2>
-            <p>Tickets, delivery queues, automations, and org communication management.</p>
+            <p>Tickets, escalations, delivery queues, automations, and org communication management.</p>
           </div>
           <div class="cc-intro-actions">
             <button type="button" class="cc-btn outline" @click.prevent.stop="setMode('home')">← Center Home</button>
+            <router-link class="cc-btn outline" :to="escalationsPath">Escalations</router-link>
             <router-link class="cc-btn solid" :to="ticketsPath">Ticket desk</router-link>
           </div>
         </div>
@@ -261,9 +262,40 @@
             <strong class="cc-kpi-value">{{ c.value }}</strong>
             <span class="cc-kpi-hint">{{ c.hint }}</span>
           </article>
+          <article class="cc-kpi" :class="(escalationSummary.counts?.open || 0) > 0 ? 'warn' : ''">
+            <span class="cc-kpi-label">Open escalations</span>
+            <strong class="cc-kpi-value">{{ escalationSummary.counts?.open || 0 }}</strong>
+            <span class="cc-kpi-hint">Leadership workflow</span>
+          </article>
         </div>
 
         <div class="cc-grid-main">
+          <section class="cc-panel">
+            <header class="cc-panel-h">
+              <div>
+                <h3>Escalations</h3>
+                <p class="cc-panel-sub">Issue · root cause · recommended resolution — assignable ownership</p>
+              </div>
+              <router-link class="cc-btn solid sm" :to="escalationsPath">Escalations desk</router-link>
+            </header>
+            <div v-if="escalationSummary.recent?.length" class="cc-table">
+              <div class="cc-tr head">
+                <span>ID</span><span>Subject</span><span>Status</span><span>Owner</span><span>Updated</span>
+              </div>
+              <div v-for="e in escalationSummary.recent" :key="e.id" class="cc-tr">
+                <span class="mono">#{{ e.id }}</span>
+                <span class="grow">
+                  {{ e.subject }}
+                  <i v-if="e.immediate_action_required" class="prio high">immediate</i>
+                </span>
+                <span class="status">{{ e.escalation_status_label || e.escalation_status }}</span>
+                <span>{{ e.claimed_by_name || 'Unassigned' }}</span>
+                <span class="muted">{{ formatTime(e.updated_at || e.created_at) }}</span>
+              </div>
+            </div>
+            <p v-else class="cc-empty pad">No open escalations. Submit from the admin dashboard card or Escalations desk.</p>
+          </section>
+
           <section class="cc-panel">
             <header class="cc-panel-h">
               <div>
@@ -407,6 +439,7 @@ const summary = ref({
   recentActivity: []
 });
 const personal = ref({ cards: {}, priority: [] });
+const escalationSummary = ref({ counts: { open: 0 }, recent: [] });
 
 function modeFromQuery(raw) {
   const m = String(raw || 'home').toLowerCase();
@@ -422,6 +455,7 @@ const slug = computed(() => String(route.params?.organizationSlug || '').trim())
 const prefix = computed(() => (slug.value ? `/${slug.value}` : ''));
 const smsPath = computed(() => `${prefix.value}/admin/communications/sms`);
 const ticketsPath = computed(() => `${prefix.value}/tickets`);
+const escalationsPath = computed(() => `${prefix.value}/admin/escalations`);
 const campaignsPath = computed(() => `${prefix.value}/admin/communications/campaigns`);
 const contactsPath = computed(() => `${prefix.value}/admin/contacts`);
 const textingSettingsPath = computed(() => `${prefix.value}/admin/settings?category=system&item=sms-numbers`);
@@ -511,6 +545,7 @@ const managementTools = computed(() => {
     { id: 'compliance', label: 'Compliance', desc: 'Proof and opt-in surfaces', to: `${feedPath.value}?tab=proof`, roles: null, needsFeed: true },
     { id: 'sms', label: 'SMS inbox', desc: 'Clinical care threads', to: smsPath.value, roles: null, needsSms: true },
     { id: 'tickets', label: 'Ticket desk', desc: 'Full support queue', to: ticketsPath.value, roles: null, needsSupport: true },
+    { id: 'escalations', label: 'Escalations', desc: 'Leadership issue workflow', to: escalationsPath.value, roles: null, needsSupport: true },
     { id: 'feed', label: 'Feed archive', desc: 'Deep filters & history', to: feedPath.value, roles: null, needsFeed: true }
   ];
   return all.filter((t) => {
@@ -563,9 +598,12 @@ async function load() {
   try {
     const agencyId = agencyStore.currentAgency?.id;
     const params = agencyId ? { agencyId } : {};
-    const [centerRes, personalRes] = await Promise.all([
+    const [centerRes, personalRes, escRes] = await Promise.all([
       api.get('/communications/center-summary', { params, skipGlobalLoading: true }),
-      api.get('/messages/dashboard-summary', { params, skipGlobalLoading: true }).catch(() => ({ data: {} }))
+      api.get('/messages/dashboard-summary', { params, skipGlobalLoading: true }).catch(() => ({ data: {} })),
+      agencyId
+        ? api.get('/escalations/summary', { params: { agencyId }, skipGlobalLoading: true }).catch(() => ({ data: {} }))
+        : Promise.resolve({ data: {} })
     ]);
     summary.value = {
       kpis: centerRes.data?.kpis || {},
@@ -578,6 +616,10 @@ async function load() {
     personal.value = {
       cards: personalRes.data?.cards || {},
       priority: Array.isArray(personalRes.data?.priority) ? personalRes.data.priority : []
+    };
+    escalationSummary.value = {
+      counts: escRes.data?.counts || { open: 0 },
+      recent: Array.isArray(escRes.data?.recent) ? escRes.data.recent : []
     };
     if ((summary.value.engagement?.pending?.length || 0) === 0 && (summary.value.engagement?.recentlySent?.length || 0) > 0) {
       engTab.value = 'sent';

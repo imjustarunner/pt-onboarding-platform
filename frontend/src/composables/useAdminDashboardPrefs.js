@@ -7,6 +7,8 @@ export const DEFAULT_SECTION_VISIBILITY = Object.freeze({
   atGlance: true,
   documentationAlerts: true,
   quickActions: true,
+  teamBoard: true,
+  escalations: true,
   schoolUpdates: true,
   events: true,
   programs: true,
@@ -21,6 +23,8 @@ export const OPERATIONS_SECTION_VISIBILITY = Object.freeze({
   atGlance: true,
   documentationAlerts: false,
   quickActions: true,
+  teamBoard: false,
+  escalations: false,
   schoolUpdates: true,
   events: true,
   programs: true,
@@ -31,10 +35,28 @@ export const OPERATIONS_SECTION_VISIBILITY = Object.freeze({
   momentum: true
 });
 
+export const DEFAULT_SECTION_ORDER = Object.freeze([
+  'atGlance',
+  'documentationAlerts',
+  'quickActions',
+  'teamBoard',
+  'escalations',
+  'schoolUpdates',
+  'events',
+  'programs',
+  'communications',
+  'peopleOps',
+  'systemAlerts',
+  'todaysSchedule',
+  'momentum'
+]);
+
 export const SECTION_LABELS = Object.freeze([
   { key: 'atGlance', label: 'At a Glance' },
   { key: 'documentationAlerts', label: 'Documentation Alerts' },
   { key: 'quickActions', label: 'Quick Actions' },
+  { key: 'teamBoard', label: 'Presence / Team Board' },
+  { key: 'escalations', label: 'Escalations' },
   { key: 'schoolUpdates', label: 'School Updates & Changes' },
   { key: 'events', label: 'Events' },
   { key: 'programs', label: 'Programs' },

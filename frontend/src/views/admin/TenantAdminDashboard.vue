@@ -135,6 +135,11 @@
           <div class="sidebar-section">
             <div class="section-header">PEOPLE OPS</div>
             <router-link :to="`/${slug}/admin/users`" class="nav-item">Employees</router-link>
+            <router-link
+              v-if="canAccessTeamBoardRole"
+              to="/admin/presence"
+              class="nav-item"
+            >Presence / Team Board</router-link>
             <router-link :to="`/${slug}/admin/hiring`" class="nav-item">Job Applications</router-link>
             <router-link :to="`/${slug}/admin/payroll`" class="nav-item">Payroll</router-link>
           </div>
@@ -142,6 +147,11 @@
           <div class="sidebar-section">
             <div class="section-header">OPERATIONS</div>
             <router-link :to="ticketsPath" class="nav-item">Tickets</router-link>
+            <router-link
+              v-if="canSeeEscalations"
+              :to="escalationsPath"
+              class="nav-item"
+            >Escalations</router-link>
             <router-link :to="`/${slug}/admin/communications`" class="nav-item">Communications</router-link>
             <router-link :to="`/${slug}/admin/unassigned-documents`" class="nav-item">Documentation</router-link>
             <router-link :to="`/${slug}/schedule`" class="nav-item">Scheduling</router-link>
@@ -176,7 +186,7 @@
             <p class="subtitle">{{ pageSubtitle }}</p>
           </div>
           <div class="page-header-right">
-            <span v-if="loading" class="loading-chip" aria-live="polite">Updating…</span>
+            <span v-if="showLoadingChip" class="loading-chip" aria-live="polite">Updating…</span>
             <time class="datetime">{{ formattedNow }}</time>
             <button type="button" class="customize-btn" @click="showCustomizeModal = true">
               Customize Dashboard
@@ -184,67 +194,114 @@
           </div>
         </div>
 
-        <AtAGlanceRow
-          v-if="isVisible('atGlance')"
-          :cards="glanceCards"
-          @navigate="go"
-        />
+        <div class="dashboard-stack">
+          <div
+            v-if="isVisible('atGlance')"
+            class="dash-block dash-block--full"
+            :style="sectionStyle('atGlance')"
+          >
+            <AtAGlanceRow
+              :cards="glanceCards"
+              @navigate="go"
+            />
+          </div>
 
-        <div
-          class="mid-grid"
-          :class="{ 'mid-grid--qa-full': isOperationsMode || !isVisible('documentationAlerts') }"
-        >
-          <DocumentationAlertsCard
-            v-if="isVisible('documentationAlerts')"
-            :alerts="docAlerts"
-            :view-all-to="`/${slug}/admin/unassigned-documents`"
+          <div
+            v-if="isVisible('documentationAlerts') || isVisible('quickActions')"
+            class="dash-block dash-block--full mid-grid"
+            :class="{ 'mid-grid--qa-full': isOperationsMode || !isVisible('documentationAlerts') }"
+            :style="midGridStyle"
+          >
+            <DocumentationAlertsCard
+              v-if="isVisible('documentationAlerts')"
+              :alerts="docAlerts"
+              :view-all-to="`/${slug}/admin/unassigned-documents`"
+              @navigate="go"
+            />
+
+            <div v-if="isVisible('quickActions')" class="qa-wrap panel">
+              <QuickActionsSection
+                ref="quickActionsRef"
+                title="Quick Actions"
+                :context-key="isOperationsMode ? 'operations-ops-v1' : 'tenant-ops-v5'"
+                compact
+                :actions="quickActionsCatalog"
+                :default-action-ids="defaultQuickActionIds"
+                :icon-resolver="resolveQuickActionIcon"
+                :badge-counts="quickActionBadges"
+              />
+            </div>
+          </div>
+
+          <article
+            v-if="showTeamBoardCard"
+            class="panel team-board-panel"
+            :style="sectionStyle('teamBoard')"
+          >
+            <div class="team-board-split">
+              <div class="team-board-presence">
+                <PresenceTeamPreview
+                  embedded
+                  title="Presence / Team Board"
+                  :agency-id="currentAgencyId"
+                  board-to="/admin/presence"
+                />
+                <p class="team-board-hint">
+                  Source of truth for who is logged in, idle, timed out, or available while logged out.
+                  Hover a name for details. Use Planned Outs for dated absences.
+                </p>
+              </div>
+              <PlannedOutsPanel
+                :agency-id="currentAgencyId"
+                @open-full="go(plannedOutsPath)"
+              />
+            </div>
+          </article>
+
+          <EscalationsCard
+            v-if="showEscalationsCard"
+            class="escalations-dash-card"
+            :agency-id="currentAgencyId"
+            :desk-path="escalationsPath"
+            :style="sectionStyle('escalations')"
             @navigate="go"
           />
 
-          <div v-if="isVisible('quickActions')" class="qa-wrap panel">
-            <QuickActionsSection
-              ref="quickActionsRef"
-              title="Quick Actions"
-              :context-key="isOperationsMode ? 'operations-ops-v1' : 'tenant-ops-v4'"
-              compact
-              :actions="quickActionsCatalog"
-              :default-action-ids="defaultQuickActionIds"
-              :icon-resolver="resolveQuickActionIcon"
-              :badge-counts="quickActionBadges"
-            />
-          </div>
-        </div>
+          <TenantContextCards
+            use-contents
+            :show-school-updates="isVisible('schoolUpdates') && canSeeSchoolPortals"
+            :show-events="isVisible('events')"
+            :school-updates="schoolUpdatesFeed"
+            :events="upcomingEvents"
+            :paths="contextPaths"
+            :order-styles="cardOrderStyles"
+            @navigate="go"
+          />
 
-        <TenantContextCards
-          :show-school-updates="isVisible('schoolUpdates') && canSeeSchoolPortals"
-          :show-events="isVisible('events')"
-          :school-updates="schoolUpdatesFeed"
-          :events="upcomingEvents"
-          :paths="contextPaths"
-          @navigate="go"
-        />
+          <OpsSummaryCards
+            use-contents
+            :show-programs="isVisible('programs') && hasAffiliatedPrograms"
+            :show-communications="isVisible('communications')"
+            :show-people-ops="isVisible('peopleOps')"
+            :show-system-alerts="isVisible('systemAlerts')"
+            :show-todays-schedule="isVisible('todaysSchedule')"
+            :program-stats="programStats"
+            :communications="commsSummary"
+            :people-ops="peopleOpsSummary"
+            :system-alerts="systemAlertsSummary"
+            :schedule-slots="scheduleSlots"
+            :schedule-loading="scheduleLoading"
+            :paths="{ ...summaryPaths, ...contextPaths }"
+            :order-styles="cardOrderStyles"
+            @navigate="go"
+          />
 
-        <OpsSummaryCards
-          :show-programs="isVisible('programs') && hasAffiliatedPrograms"
-          :show-communications="isVisible('communications')"
-          :show-people-ops="isVisible('peopleOps')"
-          :show-system-alerts="isVisible('systemAlerts')"
-          :show-todays-schedule="isVisible('todaysSchedule')"
-          :program-stats="programStats"
-          :communications="commsSummary"
-          :people-ops="peopleOpsSummary"
-          :system-alerts="systemAlertsSummary"
-          :schedule-slots="scheduleSlots"
-          :schedule-loading="scheduleLoading"
-          :paths="{ ...summaryPaths, ...contextPaths }"
-          @navigate="go"
-        />
-
-        <section
-          v-if="isOperationsMode && isVisible('momentum') && currentAgencyId && !isSuperadminPreview"
-          class="momentum-panel"
-          aria-label="Your focus"
-        >
+          <section
+            v-if="isOperationsMode && isVisible('momentum') && currentAgencyId && !isSuperadminPreview"
+            class="dash-block dash-block--full momentum-panel"
+            :style="sectionStyle('momentum')"
+            aria-label="Your focus"
+          >
           <h2 class="momentum-panel-title">
             {{ momentumListEnabled ? 'Your Momentum List' : 'Your Checklist' }}
           </h2>
@@ -259,34 +316,58 @@
             :program-id="route.query?.programId ? parseInt(route.query.programId, 10) : null"
             :agency-id="currentAgencyId"
           />
-        </section>
+          </section>
+        </div>
       </main>
     </div>
 
     <div v-if="showCustomizeModal" class="modal-overlay" @click.self="showCustomizeModal = false">
-      <div class="modal" role="dialog" aria-labelledby="customize-title">
+      <div class="modal modal--wide" role="dialog" aria-labelledby="customize-title">
         <div class="modal-header">
           <h3 id="customize-title">Customize Dashboard</h3>
           <button type="button" class="btn-close" aria-label="Close" @click="showCustomizeModal = false">×</button>
         </div>
         <div class="modal-body">
-          <p class="modal-intro">Choose which sections appear on your dashboard.</p>
+          <p class="modal-intro">Show or hide sections, and use ↑ ↓ to rearrange cards.</p>
           <div class="section-toggles">
-            <label
-              v-for="item in sectionLabels"
+            <div
+              v-for="item in customizeSectionLabels"
               :key="item.key"
-              class="toggle-row"
+              class="toggle-row toggle-row--reorder"
             >
-              <input
-                type="checkbox"
-                :checked="isVisible(item.key)"
-                @change="setSection(item.key, $event.target.checked)"
-              >
-              <span>{{ item.label }}</span>
-            </label>
+              <label class="toggle-label">
+                <input
+                  type="checkbox"
+                  :checked="isSectionChecked(item.key)"
+                  :disabled="item.key === 'teamBoard' && roleLower === 'super_admin'"
+                  @change="setSection(item.key, $event.target.checked)"
+                >
+                <span>{{ item.label }}</span>
+                <span
+                  v-if="item.key === 'teamBoard' && roleLower === 'super_admin'"
+                  class="toggle-note"
+                >Always on</span>
+              </label>
+              <div class="reorder-btns">
+                <button
+                  type="button"
+                  class="reorder-btn"
+                  :disabled="sectionIsFirst(item.key)"
+                  aria-label="Move up"
+                  @click="moveSectionUp(item.key)"
+                >↑</button>
+                <button
+                  type="button"
+                  class="reorder-btn"
+                  :disabled="sectionIsLast(item.key)"
+                  aria-label="Move down"
+                  @click="moveSectionDown(item.key)"
+                >↓</button>
+              </div>
+            </div>
           </div>
           <div class="modal-actions-row">
-            <button type="button" class="btn-secondary" @click="resetSections">Reset sections</button>
+            <button type="button" class="btn-secondary" @click="resetDashboardLayout">Reset layout</button>
             <button type="button" class="btn-secondary" @click="openQuickActionsCustomizer">
               Customize Quick Actions…
             </button>
@@ -301,7 +382,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -309,8 +390,10 @@ import { useNotificationStore } from '../../store/notifications';
 import { useBrandingStore } from '../../store/branding';
 import {
   useAdminDashboardPrefs,
-  OPERATIONS_SECTION_VISIBILITY
+  OPERATIONS_SECTION_VISIBILITY,
+  DEFAULT_SECTION_ORDER
 } from '../../composables/useAdminDashboardPrefs';
+import { useDashboardLayout } from '../../composables/useDashboardLayout';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
@@ -320,6 +403,9 @@ import OpsSummaryCards from '../../components/admin/opsDashboard/OpsSummaryCards
 import TenantContextCards from '../../components/admin/opsDashboard/TenantContextCards.vue';
 import MomentumListTab from '../../components/dashboard/MomentumListTab.vue';
 import UnifiedChecklistTab from '../../components/dashboard/UnifiedChecklistTab.vue';
+import PresenceTeamPreview from '../../components/dashboard/PresenceTeamPreview.vue';
+import EscalationsCard from '../../components/admin/opsDashboard/EscalationsCard.vue';
+import PlannedOutsPanel from '../../components/admin/opsDashboard/PlannedOutsPanel.vue';
 import { useMomentumListAddon } from '../../composables/useMomentumListAddon';
 import { useSuperadminPlatformPreview } from '../../composables/useSuperadminPlatformPreview';
 import { canAccessSchoolPortalsSurfaces, parseFeatureFlags, isTruthyFeatureFlag } from '../../utils/schoolPortalsAccess.js';
@@ -349,10 +435,28 @@ const searchQuery = ref('');
 const showNotificationsPanel = ref(false);
 const showCustomizeModal = ref(false);
 const loading = ref(false);
+const showLoadingChip = ref(false);
+let loadingChipTimer = null;
 const scheduleLoading = ref(false);
 const quickActionsRef = ref(null);
 const nowTick = ref(Date.now());
 let nowTimer = null;
+
+const setLoading = (on) => {
+  loading.value = !!on;
+  if (loadingChipTimer) {
+    clearTimeout(loadingChipTimer);
+    loadingChipTimer = null;
+  }
+  if (on) {
+    // Avoid teasing: shell paints first; only show chip if load is actually slow.
+    loadingChipTimer = setTimeout(() => {
+      if (loading.value) showLoadingChip.value = true;
+    }, 450);
+  } else {
+    showLoadingChip.value = false;
+  }
+};
 
 const slug = computed(() =>
   route.params.organizationSlug
@@ -379,11 +483,137 @@ const { isVisible, setSection, resetSections, sectionLabels } = useAdminDashboar
   namespace: isOperationsMode.value ? 'operations' : 'tenant',
   defaults: isOperationsMode.value ? OPERATIONS_SECTION_VISIBILITY : undefined
 });
-const { momentumListEnabled } = useMomentumListAddon(currentAgencyId);
-const agencyFlagsForKudos = computed(() =>
+
+const layoutKind = computed(() => (isOperationsMode.value ? 'tenant-ops-operations' : 'tenant-ops'));
+const defaultOrderForLayout = computed(() => {
+  const allowed = new Set(sectionLabels.map((s) => s.key));
+  return DEFAULT_SECTION_ORDER.filter((k) => allowed.has(k));
+});
+
+const dashboardLayout = useDashboardLayout({
+  kind: layoutKind,
+  userId,
+  agencyId: currentAgencyId,
+  defaultOrder: defaultOrderForLayout.value.length
+    ? [...defaultOrderForLayout.value]
+    : [...DEFAULT_SECTION_ORDER]
+});
+
+watch(defaultOrderForLayout, (next) => {
+  if (!Array.isArray(next) || !next.length) return;
+  const current = dashboardLayout.order.value || [];
+  const seen = new Set();
+  const merged = [];
+  current.forEach((id) => {
+    if (next.includes(id) && !seen.has(id)) {
+      merged.push(id);
+      seen.add(id);
+    }
+  });
+  next.forEach((id) => {
+    if (!seen.has(id)) merged.push(id);
+  });
+  if (merged.join('|') !== current.join('|')) dashboardLayout.order.value = merged;
+});
+
+const sectionStyle = (id) => dashboardLayout.orderStyle(id);
+const sectionIsFirst = (id) => dashboardLayout.isFirst(id);
+const sectionIsLast = (id) => dashboardLayout.isLast(id);
+const moveSectionUp = (id) => dashboardLayout.moveUp(id);
+const moveSectionDown = (id) => dashboardLayout.moveDown(id);
+
+/** Docs + Quick Actions share one row; use the earlier of the two section orders. */
+const midGridStyle = computed(() => {
+  const docsOn = isVisible('documentationAlerts');
+  const qaOn = isVisible('quickActions');
+  if (docsOn && qaOn) {
+    return {
+      order: Math.min(
+        dashboardLayout.orderOf('documentationAlerts'),
+        dashboardLayout.orderOf('quickActions')
+      )
+    };
+  }
+  if (docsOn) return sectionStyle('documentationAlerts');
+  return sectionStyle('quickActions');
+});
+
+const cardOrderStyles = computed(() => {
+  const keys = [
+    'teamBoard',
+    'escalations',
+    'schoolUpdates',
+    'events',
+    'programs',
+    'communications',
+    'peopleOps',
+    'systemAlerts',
+    'todaysSchedule'
+  ];
+  const map = {};
+  keys.forEach((key) => {
+    map[key] = sectionStyle(key);
+  });
+  return map;
+});
+
+const canSeeEscalations = computed(() =>
+  ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(roleLower.value)
+);
+const showEscalationsCard = computed(() =>
+  canSeeEscalations.value && isVisible('escalations') && !!currentAgencyId.value && !isOperationsMode.value
+);
+const escalationsPath = computed(() => `${prefix.value}/admin/escalations`);
+const plannedOutsPath = computed(() => `${prefix.value}/admin/planned-outs`);
+
+const agencyFlags = computed(() =>
   parseFeatureFlags(agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags)
 );
-const canSeeKudosWidget = computed(() => isTruthyFeatureFlag(agencyFlagsForKudos.value?.kudosEnabled));
+const presenceEnabled = computed(() => agencyFlags.value?.presenceEnabled === true);
+const canAccessTeamBoardRole = computed(() =>
+  ['admin', 'support', 'super_admin'].includes(roleLower.value)
+);
+/** Super admin always sees Team Board on tenant ops; admin/support need presenceEnabled. */
+const showTeamBoardCard = computed(() => {
+  if (!canAccessTeamBoardRole.value) return false;
+  if (roleLower.value === 'super_admin') return true;
+  return presenceEnabled.value && isVisible('teamBoard');
+});
+
+const customizeSectionLabels = computed(() => {
+  const byKey = new Map(
+    sectionLabels
+      .filter((item) => {
+        if (item.key === 'escalations') return canSeeEscalations.value;
+        if (item.key !== 'teamBoard') return true;
+        if (roleLower.value === 'super_admin') return true;
+        return canAccessTeamBoardRole.value && presenceEnabled.value;
+      })
+      .map((item) => [item.key, item])
+  );
+  const ordered = [];
+  (dashboardLayout.order.value || []).forEach((key) => {
+    if (byKey.has(key)) {
+      ordered.push(byKey.get(key));
+      byKey.delete(key);
+    }
+  });
+  byKey.forEach((item) => ordered.push(item));
+  return ordered;
+});
+
+const isSectionChecked = (key) => {
+  if (key === 'teamBoard' && roleLower.value === 'super_admin') return true;
+  return isVisible(key);
+};
+
+const resetDashboardLayout = () => {
+  resetSections();
+  dashboardLayout.resetOrder();
+};
+
+const { momentumListEnabled } = useMomentumListAddon(currentAgencyId);
+const canSeeKudosWidget = computed(() => isTruthyFeatureFlag(agencyFlags.value?.kudosEnabled));
 
 const pageTitle = computed(() =>
   (isOperationsMode.value ? 'Operations Dashboard' : 'Management Dashboard')
@@ -724,6 +954,9 @@ const defaultQuickActionIds = computed(() => {
     'progress_dashboard',
     'manage_clients',
     'management_team',
+    ...((canAccessTeamBoardRole.value && (roleLower.value === 'super_admin' || presenceEnabled.value))
+      ? ['presence_team_board']
+      : []),
     ...(clinicalNoteGeneratorEnabledForAgency.value ? ['tools_aids', 'clinical_note_generator'] : []),
     ...(canSeeSchoolPortals.value ? ['school_portals', 'school_marketing_campaigns'] : []),
     ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
@@ -992,6 +1225,28 @@ const quickActionsCatalog = computed(() => {
       iconKey: 'manage_users',
       category: 'Management',
       roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'presence_team_board',
+      title: 'Presence / Team Board',
+      description: 'See who is in, out, or away — including return times',
+      to: '/admin/presence',
+      emoji: '📍',
+      iconKey: 'presence',
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'escalations_desk',
+      title: 'Escalations',
+      description: 'Leadership escalations — assignable issue workflow',
+      to: `${p}/admin/escalations`,
+      emoji: '⬆️',
+      iconKey: 'tickets',
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'],
       capabilities: ['canAccessPlatform']
     },
     {
@@ -1273,7 +1528,7 @@ const applyGlanceFromPayloads = ({ center, personal, openCountRes, metrics, spec
 };
 
 const loadDashboard = async () => {
-  loading.value = true;
+  setLoading(true);
   const agencyId = agencyStore.currentAgency?.id
     || (typeof agencyStore.currentAgency === 'object' ? agencyStore.currentAgency?.value?.id : null);
   const params = agencyId ? { agencyId } : {};
@@ -1299,7 +1554,7 @@ const loadDashboard = async () => {
   notificationStore.fetchCounts?.().catch(() => {});
 
   if (!agencyId) {
-    loading.value = false;
+    setLoading(false);
     return;
   }
 
@@ -1314,7 +1569,7 @@ const loadDashboard = async () => {
     ]);
     applyGlanceFromPayloads({ center, personal, openCountRes, metrics, specs });
   } finally {
-    loading.value = false;
+    setLoading(false);
   }
 
   // Phase 2 — secondary panels (no blocking overlay)
@@ -2032,11 +2287,76 @@ const logout = () => {
 }
 .customize-btn:hover { filter: brightness(1.05); }
 
+.dashboard-stack {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.dash-block--full {
+  grid-column: 1 / -1;
+}
+.dashboard-stack :deep(.panel) {
+  grid-column: span 2;
+  min-width: 0;
+}
+.dashboard-stack :deep(.panel--feed) {
+  grid-column: span 3;
+}
+.team-board-panel,
+.escalations-dash-card {
+  grid-column: 1 / -1 !important;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, #e2e8f0);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
+}
+.escalations-dash-card {
+  /* EscalationsCard brings its own panel chrome */
+  background: transparent;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+}
+.team-board-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.95fr);
+  gap: 16px;
+  align-items: start;
+}
+.team-board-presence { min-width: 0; }
+.team-board-hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #64748b;
+}
+@media (max-width: 900px) {
+  .team-board-split { grid-template-columns: 1fr; }
+}
+@media (max-width: 1100px) {
+  .dashboard-stack :deep(.panel),
+  .dashboard-stack :deep(.panel--feed) {
+    grid-column: span 3;
+  }
+}
+@media (max-width: 700px) {
+  .dashboard-stack {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-stack :deep(.panel),
+  .dashboard-stack :deep(.panel--feed),
+  .team-board-panel {
+    grid-column: 1 / -1 !important;
+  }
+}
+
 .mid-grid {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.4fr);
   gap: 14px;
-  margin-bottom: 16px;
+  margin-bottom: 0;
   align-items: start;
 }
 .mid-grid--qa-full {
@@ -2099,6 +2419,9 @@ const logout = () => {
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
   overflow: hidden;
 }
+.modal--wide {
+  width: min(560px, 100%);
+}
 .modal-header, .modal-footer {
   display: flex;
   align-items: center;
@@ -2141,6 +2464,53 @@ const logout = () => {
   color: #0f172a;
   cursor: pointer;
 }
+.toggle-row--reorder {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: default;
+}
+.toggle-row--reorder:last-child { border-bottom: none; }
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  min-width: 0;
+  flex: 1;
+}
+.toggle-note {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ops-primary, #1f6b4a);
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 12%, #fff);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.reorder-btns {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.reorder-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+  color: #0f172a;
+}
+.reorder-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
+  border-color: color-mix(in srgb, var(--ops-primary, #1f6b4a) 30%, #e2e8f0);
+}
+.reorder-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
 .modal-actions-row {
   display: flex;
   flex-wrap: wrap;
@@ -2165,7 +2535,7 @@ const logout = () => {
 }
 
 .momentum-panel {
-  margin-top: 16px;
+  margin-top: 0;
   padding: 16px 18px 20px;
   background: #fff;
   border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, #e2e8f0);

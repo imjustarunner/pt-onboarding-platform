@@ -18,14 +18,19 @@ import {
 /**
  * Chat / Messages presence (new model):
  * - Active (`online`): fresh heartbeat, not in a signed-in Idle session
- * - Idle (`idle`): AwaySessionOverlay / session_extend_until only (timedown but not TIMED OUT)
+ * - Idle (`idle`): Timedown countdown page, Away/session_extend, or soft activity idle
  * - Inactive (`offline`): stale/no heartbeat, appear-offline, or timed out
  *
- * Do NOT use legacy Team Board enums (`out_am`, `out_full_day`, …), soft activity idle,
+ * Do NOT use legacy Team Board enums (`out_am`, `out_full_day`, …)
  * or meal/reason display labels to drive peer-facing chat presence — that path was broken.
  */
 /** Max heartbeat interval is 300s; allow buffer so slow cadence does not false-inactive. */
 const OFFLINE_AFTER_MS = 6 * 60 * 1000;
+/**
+ * Fresh heartbeat + no DOM activity for this long → Idle/Away (covers Timedown page
+ * and the quiet period before Timedown for privileged 10+10 flow).
+ */
+const SOFT_IDLE_AFTER_MS = 2.5 * 60 * 1000;
 
 function defaultAvailabilityForRole(_role) {
   // Heartbeat alone shows Active. Explicit offline / admins_only still honored.
@@ -53,12 +58,25 @@ function richStatusFields(row) {
   };
 }
 
-/** Signed-in Idle = active session extend only (Away overlay). Ignores Team Board status enums. */
+/** Signed-in Idle = Away overlay (session extend) OR Timedown / soft inactivity. */
 function hasChatIdleSession(row) {
   const until = richStatusFields(row).presence_session_extend_until;
-  if (!until) return false;
-  const ext = new Date(until).getTime();
-  return Number.isFinite(ext) && ext > Date.now();
+  if (until) {
+    const ext = new Date(until).getTime();
+    if (Number.isFinite(ext) && ext > Date.now()) return true;
+  }
+  const phase = String(row?.session_phase || row?.presence_session_phase || '').toLowerCase();
+  if (phase === 'timedown' || phase === 'away') return true;
+  return false;
+}
+
+/** Heartbeat is fresh but activity is stale → Idle (Timedown countdown / stepped away). */
+function hasSoftActivityIdle(row, now = Date.now()) {
+  const hb = row?.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : null;
+  const activityAt = row?.last_activity_at ? new Date(row.last_activity_at).getTime() : null;
+  if (!hb || !Number.isFinite(hb) || now - hb > OFFLINE_AFTER_MS) return false;
+  if (!activityAt || !Number.isFinite(activityAt)) return false;
+  return now - activityAt >= SOFT_IDLE_AFTER_MS;
 }
 
 /** Peer-facing labels only — never meal/Team Board copy. */
@@ -68,15 +86,78 @@ function peerFacingStatusLabel(status) {
   return 'Inactive';
 }
 
+/**
+ * Shared availability bands for Team Board + Messages dots.
+ * available | away_reachable | unavailable | available_offline | offline
+ */
+function computeAvailabilityBand(row, wireStatus) {
+  const reason = String(row?.presence_reason || row?.reason || '').trim();
+  const note = String(row?.presence_note || row?.note || '').trim();
+  const richStatus = String(row?.presence_status || row?.rich_status || '').trim();
+  const display = String(row?.presence_display_label || row?.display_label || '').toLowerCase();
+  const reachable =
+    UserPresenceStatus.isReachableNote(note) ||
+    ['call', 'text', 'call_text'].includes(reason) ||
+    display.includes('available for call') ||
+    display.includes('available for text');
+
+  if (reason === 'available_offline') return 'available_offline';
+
+  const wire = String(wireStatus || '').toLowerCase();
+  if (wire === 'online') {
+    if (richStatus === 'in_heads_down') return 'unavailable';
+    if (UserPresenceStatus.isAwayStatus(richStatus)) {
+      return reachable || richStatus === 'in_available_for_phone' ? 'away_reachable' : 'unavailable';
+    }
+    return 'available';
+  }
+
+  if (wire === 'idle') {
+    if (reachable || richStatus === 'in_available_for_phone') return 'away_reachable';
+    // Explicit Away reasons stay red/unavailable when not reachable.
+    if (UserPresenceStatus.isAwayStatus(richStatus) || richStatus === 'in_heads_down') {
+      return 'unavailable';
+    }
+    // Timedown / soft idle with no status chosen yet → Away (yellow).
+    return 'away_reachable';
+  }
+
+  // Offline / no heartbeat
+  if (reason === 'available_offline') return 'available_offline';
+  if (UserPresenceStatus.isAwayStatus(richStatus) || richStatus === 'in_heads_down') {
+    return reachable ? 'away_reachable' : 'unavailable';
+  }
+  return 'offline';
+}
+
+function availabilityBandLabel(band) {
+  switch (String(band || '')) {
+    case 'available':
+      return 'Available';
+    case 'away_reachable':
+      return 'Away · reachable';
+    case 'unavailable':
+      return 'Unavailable';
+    case 'available_offline':
+      return 'Available · logged out';
+    default:
+      return 'Inactive';
+  }
+}
+
 function computePresenceStatus(row, viewerRole) {
   const now = Date.now();
   const hb = row?.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : null;
   const rich = richStatusFields(row);
-  const idleSession = hasChatIdleSession(row);
+  const idleSession = hasChatIdleSession(row) || hasSoftActivityIdle(row, now);
+  const reason = String(rich?.presence_reason || '').trim();
 
   let status = 'offline';
-  if (idleSession) {
-    // Stay Idle while Away overlay is active even if the tab is briefly hidden.
+  if (reason === 'available_offline') {
+    // Logged out but marked available — never treat as online/idle from a stale heartbeat.
+    status = 'offline';
+  } else if (idleSession) {
+    // Stay Idle while Timedown / Away overlay is active even if the tab is briefly hidden.
     status = 'idle';
   } else if (hb && now - hb <= OFFLINE_AFTER_MS) {
     status = 'online';
@@ -85,16 +166,30 @@ function computePresenceStatus(row, viewerRole) {
   const availabilityLevel =
     normalizeAvailability(row?.availability_level) || defaultAvailabilityForRole(row?.role || viewerRole);
 
-  if (availabilityLevel === 'offline' && status !== 'idle') status = 'offline';
+  if (availabilityLevel === 'offline' && status !== 'idle' && reason !== 'available_offline') {
+    status = 'offline';
+  }
   if (availabilityLevel === 'admins_only' && !canViewAdminsOnly(viewerRole) && status !== 'idle') {
     status = 'offline';
+  }
+
+  const band = computeAvailabilityBand({ ...row, ...rich }, status);
+  let statusLabel = availabilityBandLabel(band);
+  if (status === 'idle') {
+    const richLabel = String(rich?.presence_display_label || '').trim();
+    if (richLabel && richLabel.toLowerCase() !== 'active') statusLabel = richLabel;
+    else {
+      const fromReason = UserPresenceStatus.labelForReason(reason);
+      statusLabel = fromReason || 'Away';
+    }
   }
 
   return {
     status,
     availability_level: availabilityLevel,
     ...rich,
-    status_label: peerFacingStatusLabel(status)
+    availability_band: band,
+    status_label: statusLabel
   };
 }
 
@@ -171,27 +266,69 @@ export const heartbeat = async (req, res, next) => {
     const rawAgencyId = req.body?.agencyId ?? req.body?.agency_id ?? null;
     const agencyId = rawAgencyId ? parseInt(rawAgencyId, 10) : null;
     const lastActivityAt = req.body?.lastActivityAt ? new Date(req.body.lastActivityAt) : null;
+    const phaseRaw = String(req.body?.sessionPhase || req.body?.session_phase || '').toLowerCase();
+    const sessionPhase = ['timedown', 'away', 'active'].includes(phaseRaw) ? phaseRaw : 'active';
 
     if (agencyId) {
       await assertAgencyAccess(req.user, agencyId);
     }
 
     const defaultAvail = defaultAvailabilityForRole(req.user.role);
-    await pool.execute(
-      `INSERT INTO user_presence (user_id, agency_id, last_heartbeat_at, last_activity_at, availability_level)
-       VALUES (?, ?, NOW(), ?, ?)
-       ON DUPLICATE KEY UPDATE
-         agency_id = VALUES(agency_id),
-         last_heartbeat_at = NOW(),
-         last_activity_at = COALESCE(VALUES(last_activity_at), last_activity_at),
-         availability_level = COALESCE(availability_level, VALUES(availability_level))`,
-      [
-        userId,
-        agencyId,
-        lastActivityAt ? lastActivityAt.toISOString().slice(0, 19).replace('T', ' ') : null,
-        defaultAvail
-      ]
-    );
+    // session_phase column added in migration 1015 — fall back if not applied yet.
+    try {
+      await pool.execute(
+        `INSERT INTO user_presence (user_id, agency_id, last_heartbeat_at, last_activity_at, availability_level, session_phase)
+         VALUES (?, ?, NOW(), ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           agency_id = VALUES(agency_id),
+           last_heartbeat_at = NOW(),
+           last_activity_at = COALESCE(VALUES(last_activity_at), last_activity_at),
+           availability_level = COALESCE(availability_level, VALUES(availability_level)),
+           session_phase = VALUES(session_phase)`,
+        [
+          userId,
+          agencyId,
+          lastActivityAt ? lastActivityAt.toISOString().slice(0, 19).replace('T', ' ') : null,
+          defaultAvail,
+          sessionPhase
+        ]
+      );
+    } catch (err) {
+      const msg = String(err?.message || '');
+      if (!msg.includes('session_phase') && err?.code !== 'ER_BAD_FIELD_ERROR') throw err;
+      await pool.execute(
+        `INSERT INTO user_presence (user_id, agency_id, last_heartbeat_at, last_activity_at, availability_level)
+         VALUES (?, ?, NOW(), ?, ?)
+         ON DUPLICATE KEY UPDATE
+           agency_id = VALUES(agency_id),
+           last_heartbeat_at = NOW(),
+           last_activity_at = COALESCE(VALUES(last_activity_at), last_activity_at),
+           availability_level = COALESCE(availability_level, VALUES(availability_level))`,
+        [
+          userId,
+          agencyId,
+          lastActivityAt ? lastActivityAt.toISOString().slice(0, 19).replace('T', ' ') : null,
+          defaultAvail
+        ]
+      );
+    }
+
+    // Signing back in clears "Available · Logged out".
+    try {
+      await pool.execute(
+        `UPDATE user_presence_status
+         SET reason = NULL,
+             display_label = 'Active',
+             status = 'in_available',
+             session_extend_until = NULL,
+             expected_return_at = NULL,
+             note = NULL
+         WHERE user_id = ? AND reason = 'available_offline'`,
+        [userId]
+      );
+    } catch {
+      /* ignore */
+    }
 
     res.json({ ok: true });
   } catch (e) {
@@ -281,7 +418,7 @@ export const getMyPresence = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const [[row]] = await pool.execute(
-      `SELECT up.user_id, up.last_heartbeat_at, up.last_activity_at, up.availability_level,
+      `SELECT up.user_id, up.last_heartbeat_at, up.last_activity_at, up.session_phase, up.availability_level,
               ${PRESENCE_STATUS_JOIN}
        FROM user_presence up
        LEFT JOIN user_presence_status ps ON ps.user_id = up.user_id
@@ -549,22 +686,28 @@ async function finalizeChatPresenceRows(rows, viewerUserId, viewerRole) {
 }
 
 function mapChatPresenceRows(rows, viewerRole) {
+  const privilegedViewer = UserPresenceStatus.isPrivilegedRole(viewerRole);
   return (rows || []).map((r) => {
     const computed = computePresenceStatus(r, viewerRole);
-    // Peer payload: Active / Idle / Inactive only. Strip legacy Team Board + reason fields.
-    // Keep responsibility flags (billing/payroll/credentialing) for hover — distinct from access.
+    // Shared availability band for dots (Team Board + chat). Meal/reason detail stays
+    // privileged-only so Messages peers see Available / Away · reachable / Unavailable.
     return {
       ...r,
       status: computed.status,
       availability_level: computed.availability_level,
-      status_label: peerFacingStatusLabel(computed.status),
-      presence_status: null,
-      presence_reason: null,
-      presence_display_label: null,
-      presence_note: null,
-      presence_expected_return_at: null,
+      availability_band: computed.availability_band,
+      status_label: computed.status_label || peerFacingStatusLabel(computed.status),
+      presence_status: privilegedViewer ? computed.presence_status : null,
+      presence_reason: privilegedViewer ? computed.presence_reason : null,
+      presence_display_label: privilegedViewer ? computed.presence_display_label : null,
+      presence_note: privilegedViewer ? computed.presence_note : null,
+      presence_expected_return_at: privilegedViewer
+        ? computed.presence_expected_return_at
+        : null,
       presence_session_extend_until:
-        computed.status === 'idle' ? computed.presence_session_extend_until : null,
+        computed.status === 'idle' || computed.availability_band === 'away_reachable'
+          ? computed.presence_session_extend_until
+          : null,
       has_billing_access: !!(r.has_billing_access === 1 || r.has_billing_access === true),
       has_payroll_access: !!(r.has_payroll_access === 1 || r.has_payroll_access === true),
       can_manage_credentialing: !!(
@@ -599,6 +742,7 @@ async function listSchoolScopedPresence(viewerUserId) {
             u.role,
             up.last_heartbeat_at,
             up.last_activity_at,
+            up.session_phase,
             up.availability_level,
             ${PRESENCE_STATUS_JOIN}
      FROM users u
@@ -622,6 +766,7 @@ async function listSchoolScopedPresence(viewerUserId) {
               u.role,
               up.last_heartbeat_at,
               up.last_activity_at,
+              up.session_phase,
               up.availability_level,
               ${PRESENCE_STATUS_JOIN}
        FROM users u
@@ -660,6 +805,7 @@ async function listAgencySchoolStaff(agencyId, roleFilter = 'school_staff') {
               u.role,
               up.last_heartbeat_at,
               up.last_activity_at,
+              up.session_phase,
               up.availability_level,
               ${PRESENCE_STATUS_JOIN}
        FROM users u
@@ -688,6 +834,7 @@ async function listAgencySchoolStaff(agencyId, roleFilter = 'school_staff') {
                 u.role,
                 up.last_heartbeat_at,
                 up.last_activity_at,
+                up.session_phase,
                 up.availability_level,
                 ${PRESENCE_STATUS_JOIN}
          FROM users u
@@ -748,6 +895,7 @@ export const listAgencyPresence = async (req, res, next) => {
                   u.role,
                   up.last_heartbeat_at,
                   up.last_activity_at,
+                  up.session_phase,
                   up.availability_level,
                   ${PRESENCE_STATUS_JOIN}
            FROM users u
@@ -784,6 +932,7 @@ export const listAgencyPresence = async (req, res, next) => {
               u.role,
               up.last_heartbeat_at,
               up.last_activity_at,
+              up.session_phase,
               up.availability_level,
               COALESCE(ua.has_billing_access, 0) AS has_billing_access,
               COALESCE(ua.has_payroll_access, 0) AS has_payroll_access,
@@ -810,6 +959,7 @@ export const listAgencyPresence = async (req, res, next) => {
                 u.role,
                 up.last_heartbeat_at,
                 up.last_activity_at,
+                up.session_phase,
                 up.availability_level,
                 ${PRESENCE_STATUS_JOIN}
          FROM users u
@@ -854,6 +1004,7 @@ export const listAdminPresence = async (req, res, next) => {
               u.role,
               up.last_heartbeat_at,
               up.last_activity_at,
+              up.session_phase,
               up.availability_level,
               ${PRESENCE_STATUS_JOIN},
               GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') AS agency_names
@@ -865,7 +1016,7 @@ export const listAdminPresence = async (req, res, next) => {
        WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
          AND u.role IN ('admin', 'support', 'super_admin')
        GROUP BY u.id, u.first_name, u.last_name, u.email, u.role,
-                up.last_heartbeat_at, up.last_activity_at, up.availability_level,
+                up.last_heartbeat_at, up.last_activity_at, up.session_phase, up.availability_level,
                 ps.status, ps.note, ps.started_at, ps.ends_at, ps.expected_return_at,
                 ps.reason, ps.display_label, ps.session_extend_until
        ORDER BY u.first_name ASC, u.last_name ASC`
@@ -922,6 +1073,7 @@ const mapPresenceRows = (rows) => {
       .split(',')
       .map((x) => parseInt(x, 10))
       .filter((x) => !isNaN(x));
+    const computed = computePresenceStatus(r, r.role);
     return {
       id: r.id,
       first_name: r.first_name,
@@ -932,6 +1084,10 @@ const mapPresenceRows = (rows) => {
       role: r.role,
       agency_ids: agencyIds,
       profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path),
+      status: computed.status,
+      availability_band: computed.availability_band,
+      status_label: computed.status_label,
+      last_heartbeat_at: r.last_heartbeat_at || null,
       presence_status: r.presence_status || null,
       presence_note: r.presence_note || null,
       presence_started_at: r.presence_started_at || null,
@@ -1168,7 +1324,9 @@ export const setAwayStatus = async (req, res, next) => {
       }
     }
 
-    if (reason === 'out_day') {
+    const isAvailableOffline = reason === 'available_offline';
+
+    if (reason === 'out_day' || isAvailableOffline) {
       durationMinutes = null;
       expectedReturnAt = null;
       sessionExtendUntil = null;
@@ -1203,22 +1361,35 @@ export const setAwayStatus = async (req, res, next) => {
       (reason === 'custom' && customLabel
         ? customLabel
         : UserPresenceStatus.labelForReason(reason)) || 'Away';
-    if (reachable) {
+    if (reachable && !isAvailableOffline) {
       const reachLabel = UserPresenceStatus.labelForReason(reachable);
       if (reachLabel) displayLabel = `${displayLabel} · ${reachLabel}`;
     }
-    const note = reachable || req.body?.note || null;
+    const note = isAvailableOffline ? null : reachable || req.body?.note || null;
 
-    // Keep chat availability visible while Away (Slack-like)
-    await pool.execute(
-      `INSERT INTO user_presence (user_id, availability_level, last_heartbeat_at, updated_at)
-       VALUES (?, 'everyone', NOW(), NOW())
-       ON DUPLICATE KEY UPDATE
-         availability_level = 'everyone',
-         last_heartbeat_at = NOW(),
-         updated_at = NOW()`,
-      [req.user.id]
-    );
+    if (isAvailableOffline) {
+      // Mark available while logged out — clear heartbeat so wire status is offline.
+      await pool.execute(
+        `INSERT INTO user_presence (user_id, availability_level, last_heartbeat_at, updated_at)
+         VALUES (?, 'everyone', NULL, NOW())
+         ON DUPLICATE KEY UPDATE
+           availability_level = 'everyone',
+           last_heartbeat_at = NULL,
+           updated_at = NOW()`,
+        [req.user.id]
+      );
+    } else {
+      // Keep chat availability visible while Away (Slack-like)
+      await pool.execute(
+        `INSERT INTO user_presence (user_id, availability_level, last_heartbeat_at, updated_at)
+         VALUES (?, 'everyone', NOW(), NOW())
+         ON DUPLICATE KEY UPDATE
+           availability_level = 'everyone',
+           last_heartbeat_at = NOW(),
+           updated_at = NOW()`,
+        [req.user.id]
+      );
+    }
 
     const result = await UserPresenceStatus.upsertForUser(req.user.id, {
       status,
@@ -1227,7 +1398,7 @@ export const setAwayStatus = async (req, res, next) => {
       reason,
       display_label: displayLabel,
       session_extend_until: sessionExtendUntil,
-      ends_at: reason === 'out_day' ? null : expectedReturnAt
+      ends_at: reason === 'out_day' || isAvailableOffline ? null : expectedReturnAt
     });
 
     res.json({

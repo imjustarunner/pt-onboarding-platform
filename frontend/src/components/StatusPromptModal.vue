@@ -4,7 +4,7 @@
 </template>
 
 <script setup>
-import { onUnmounted } from 'vue';
+import { onUnmounted, watch } from 'vue';
 import { useAuthStore } from '../store/auth';
 import { useSessionLockStore } from '../store/sessionLock';
 import { usePresenceSessionStore } from '../store/presenceSession';
@@ -32,6 +32,23 @@ const unsubPromptBridge = subscribeStatusPrompt((mode) => {
   }
 }, 'statusPromptModal');
 
+// While Timedown is up, privileged users must keep the status modal stacked on top.
+watch(
+  () => ({
+    warning: sessionLockStore.warningActive,
+    extended: presenceSession.isExtended,
+    mode: presenceSession.promptMode || getStatusPromptMode()
+  }),
+  ({ warning, extended, mode }) => {
+    if (!warning || extended) return;
+    if (!presenceSession.shouldUseStatusPrompt(authStore.user?.role)) return;
+    if (mode === 'timedown') return;
+    // Re-open if Timedown is showing and the chooser was lost (navigate/HMR/stacking).
+    presenceSession.openTimedownPrompt();
+  },
+  { immediate: true }
+);
+
 registerStatusPromptHandlers({
   async onStillHere() {
     try {
@@ -55,9 +72,14 @@ registerStatusPromptHandlers({
   }) {
     if (!reason) return {};
 
-    if (reason === 'out_day') {
-      await presenceSession.applyAway({ reason: 'out_day', extendSession: false });
+    if (reason === 'out_day' || reason === 'available_offline') {
+      await presenceSession.applyAway({
+        reason,
+        extendSession: false,
+        reachable: null
+      });
       sessionLockStore.dismissWarning();
+      clearSessionExtendPause({ reschedule: false });
       if (mode === 'logout') {
         return { proceedLogout: true };
       }

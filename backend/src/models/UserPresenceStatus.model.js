@@ -21,6 +21,7 @@ const REASON_ENUM = [
   'text',
   'call_text',
   'out_day',
+  'available_offline',
   'custom'
 ];
 
@@ -33,6 +34,7 @@ const REASON_LABELS = {
   text: 'Available for Text',
   call_text: 'Available for Call & Text',
   out_day: 'Out for the Day',
+  available_offline: 'Available · Logged out',
   custom: 'Away'
 };
 
@@ -80,9 +82,15 @@ export default class UserPresenceStatus {
   static statusForReason(reason, durationMinutes = null) {
     const r = String(reason || '').trim();
     if (r === 'out_day') return 'out_full_day';
+    if (r === 'available_offline') return 'in_available';
     if (r === 'call' || r === 'text' || r === 'call_text') return 'in_available_for_phone';
     if (durationMinutes != null && Number(durationMinutes) > 0) return 'out_quick';
     return 'out_quick';
+  }
+
+  /** Reachable facet stored on note when away (call / text / call_text). */
+  static isReachableNote(note) {
+    return ['call', 'text', 'call_text'].includes(String(note || '').trim());
   }
 
   static async findByUserId(userId) {
@@ -191,6 +199,9 @@ export default class UserPresenceStatus {
               u.last_name,
               u.email,
               u.role${profilePhotoField}${preferredNameField},
+              up.last_heartbeat_at,
+              up.last_activity_at,
+              up.availability_level,
               ps.status AS presence_status,
               ps.note AS presence_note,
               ps.started_at AS presence_started_at,
@@ -201,6 +212,7 @@ export default class UserPresenceStatus {
               ps.session_extend_until AS presence_session_extend_until,
               (SELECT GROUP_CONCAT(agency_id ORDER BY agency_id SEPARATOR ',') FROM user_agencies WHERE user_id = u.id) AS agency_ids
        FROM users u
+       LEFT JOIN user_presence up ON up.user_id = u.id
        LEFT JOIN user_presence_status ps ON ps.user_id = u.id
        WHERE u.role IN (${placeholders})
          AND (u.is_archived = FALSE OR u.is_archived IS NULL)
