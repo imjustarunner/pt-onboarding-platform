@@ -1,11 +1,12 @@
 <template>
   <div
+    v-if="showAgencySelectorChrome"
     class="agency-selector"
     :class="{ 'agency-selector--dashboard': isDashboardRoute }"
   >
     <div class="agency-bar">
       <div
-        v-if="agencies.length > 0 && !(roleNorm === 'school_staff' && agencies.length === 1)"
+        v-if="showOrgPick"
         class="org-pick"
       >
         <label class="org-pick-label" for="agency-selector-org">Org</label>
@@ -22,7 +23,7 @@
       </div>
 
       <div
-        v-if="organizationPortalCards.length > 0 || bookClubChipVisible"
+        v-if="isDashboardRoute && (organizationPortalCards.length > 0 || bookClubChipVisible)"
         class="portal-strip"
         :class="{ 'portal-strip--empty': organizationPortalCards.length === 0 && !bookClubChipVisible }"
         aria-label="Assigned portals"
@@ -65,8 +66,8 @@
       </div>
     </div>
 
-    <!-- SSTC clubs the user belongs to (any role). Always visible if they have any. -->
-    <MySstcClubsCard class="agency-sstc" />
+    <!-- SSTC clubs: dashboard only (same home as Portals). -->
+    <MySstcClubsCard v-if="isDashboardRoute" class="agency-sstc" />
   </div>
 </template>
 
@@ -155,6 +156,17 @@ const agencies = computed(() => {
   }
   return tenants;
 });
+
+/** Org dropdown for multi-tenant switch; hidden for school_staff with a single agency. */
+const showOrgPick = computed(
+  () => agencies.value.length > 0 && !(roleNorm.value === 'school_staff' && agencies.value.length === 1)
+);
+
+/**
+ * Dashboard: full chrome (org + portals + SSTC clubs).
+ * Elsewhere: only the org picker when multi-tenant switching is needed — no empty bar.
+ */
+const showAgencySelectorChrome = computed(() => isDashboardRoute.value || showOrgPick.value);
 
 const organizationPortalCards = computed(() => {
   return listNestedPortalOrgs(allMembershipOrgs.value).map((org) => ({
