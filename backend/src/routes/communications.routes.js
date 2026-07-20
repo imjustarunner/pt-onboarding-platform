@@ -7,6 +7,7 @@ import {
   getSystemTestEmailPreflight,
   sendSystemTestEmail
 } from '../controllers/communications.controller.js';
+import { getCommunicationsCenterSummary } from '../controllers/messagesDashboard.controller.js';
 import {
   getCallSettings,
   getTransferTargets,
@@ -25,6 +26,7 @@ const router = express.Router();
 router.use(authenticate);
 
 router.get('/feed', getCommunicationsFeed);
+router.get('/center-summary', getCommunicationsCenterSummary);
 router.post('/test-email', sendSystemTestEmail);
 router.post('/test-email/preflight', getSystemTestEmailPreflight);
 router.get('/calls', getCallsFeed);

@@ -5,7 +5,9 @@ import {
   getModuleTimeBreakdown,
   getAgencyActivityLog,
   exportAgencyActivityLogCsv,
-  getAgencyPlatformSessions
+  getAgencyPlatformSessions,
+  getAgencyActivityData,
+  exportAgencyActivityDataCsv
 } from '../controllers/activityLog.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
@@ -24,8 +26,10 @@ router.get('/user/:userId/summary', getActivitySummary);
 router.get('/user/:userId/modules', getModuleTimeBreakdown);
 
 // Agency audit-center activity log endpoints (read-only)
-router.get('/agency/:agencyId', getAgencyActivityLog);
-router.get('/agency/:agencyId/export.csv', exportAgencyActivityLogCsv);
+router.get('/agency/:agencyId/activity-data/export.csv', exportAgencyActivityDataCsv);
+router.get('/agency/:agencyId/activity-data', getAgencyActivityData);
 router.get('/agency/:agencyId/sessions', getAgencyPlatformSessions);
+router.get('/agency/:agencyId/export.csv', exportAgencyActivityLogCsv);
+router.get('/agency/:agencyId', getAgencyActivityLog);
 
 export default router;

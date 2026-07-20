@@ -29,6 +29,19 @@ import {
   postMyClientWaiverSectionRevoke,
   putMyClientWaiverSection
 } from '../controllers/guardianWaiver.controller.js';
+import {
+  listGuardianMessageThreads,
+  listGuardianThreadMessages,
+  sendGuardianThreadMessage,
+  openGuardianClientThread,
+  listGuardianSmsAudit
+} from '../controllers/guardianMessages.controller.js';
+import {
+  listGuardianSupportTickets,
+  createGuardianSupportTicket,
+  getGuardianSupportTicket,
+  sendGuardianSupportTicketMessage
+} from '../controllers/guardianSupportTickets.controller.js';
 
 const router = express.Router();
 
@@ -47,6 +60,15 @@ router.use((req, res, next) => {
 });
 
 router.get('/clients', listMyGuardianClients);
+router.get('/messages', listGuardianMessageThreads);
+router.post('/messages/open', openGuardianClientThread);
+router.get('/messages/:threadId', listGuardianThreadMessages);
+router.post('/messages/:threadId', sendGuardianThreadMessage);
+router.get('/sms-audit', listGuardianSmsAudit);
+router.get('/support-tickets', listGuardianSupportTickets);
+router.post('/support-tickets', createGuardianSupportTicket);
+router.get('/support-tickets/:ticketId', getGuardianSupportTicket);
+router.post('/support-tickets/:ticketId/messages', sendGuardianSupportTicketMessage);
 router.get('/clients/:clientId/intake-documents', listMyClientIntakeSignedDocuments);
 router.get('/clients/:clientId/intake-documents/:documentId/download-url', getMyClientIntakeSignedDocumentDownloadUrl);
 router.get('/overview', getGuardianPortalOverview);

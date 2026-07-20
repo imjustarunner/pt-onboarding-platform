@@ -2,13 +2,16 @@
   <div class="container comms-feed">
     <div class="header" data-tour="comms-header">
       <div>
-        <h2 data-tour="comms-title">Communications</h2>
+        <h2 data-tour="comms-title">Engagement Feed</h2>
         <p class="subtitle" data-tour="comms-subtitle">{{ commsSubtitle }}</p>
       </div>
       <div class="header-actions" data-tour="comms-actions">
         <div class="tabs">
           <button class="tab" :class="{ active: activeTab === 'all' }" @click="setTab('all')">All</button>
-          <button class="tab" :class="{ active: activeTab === 'texts' }" @click="setTab('texts')">Texting</button>
+          <button class="tab" :class="{ active: activeTab === 'texts' }" @click="setTab('texts')">
+            Texting
+            <span v-if="textingBadgeCount > 0" class="tab-badge">{{ textingBadgeCount }}</span>
+          </button>
           <button class="tab" :class="{ active: activeTab === 'calls' }" @click="setTab('calls')">Calls</button>
           <button class="tab" :class="{ active: activeTab === 'automation' }" @click="setTab('automation')">
             {{ isProviderOrSchoolStaff ? 'My messages' : 'Automation' }}
@@ -19,7 +22,10 @@
             class="tab"
             :class="{ active: activeTab === 'school' }"
             @click="setTab('school')"
-          >School alerts</button>
+          >
+            School alerts
+            <span v-if="schoolUnreadBadge > 0" class="tab-badge">{{ schoolUnreadBadge }}</span>
+          </button>
           <button
             v-if="!hideSscSchoolComplianceTabs"
             class="tab"
@@ -27,10 +33,13 @@
             @click="setTab('proof')"
           >Compliance proof</button>
         </div>
+        <router-link v-if="!isPublicProofMode && canUseCommunicationsCenter" class="btn btn-secondary" :to="communicationsCenterLink">
+          Communications Center
+        </router-link>
         <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="smsInboxLink">SMS Inbox</router-link>
         <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="preferencesLink">Preferences</router-link>
         <router-link v-if="!isPublicProofMode && canManageTexting" class="btn btn-secondary" :to="textingSettingsLink">Texting settings</router-link>
-        <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Chats</router-link>
+        <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Messages</router-link>
         <router-link v-if="!isPublicProofMode && !hideSscTicketsButton" class="btn btn-secondary" :to="ticketsLink">
           Tickets
           <span v-if="openTicketsCount > 0" class="header-badge">{{ openTicketsCount }}</span>
@@ -409,7 +418,14 @@
           {{ isProviderOrSchoolStaff ? 'Loading your messages…' : 'Loading delivery queue…' }}
         </div>
         <div v-else-if="platformRows.length === 0" class="empty">
-          {{ isProviderOrSchoolStaff ? 'No platform messages sent to you yet.' : 'No platform communications found.' }}
+          <template v-if="isProviderOrSchoolStaff">
+            No platform messages sent to you yet.
+          </template>
+          <template v-else>
+            No items for <strong>{{ platformChannel }}</strong> + <strong>{{ platformStatus }}</strong>.
+            Try switching channel (Email/Text) or status (Pending / Failed / Sent) — new-hire and automation
+            emails often appear under Email + Sent.
+          </template>
         </div>
         <div v-else class="list">
           <div v-for="c in platformRows" :key="`automation-${c.id}`" class="row">
@@ -792,7 +808,7 @@ const commsSubtitle = computed(() => {
   if (isSscSstcTenant.value && authStore.isAuthenticated) {
     return 'Texting, chat, and calls for your club.';
   }
-  return 'Workspace for texting, chat, calls, and delivery queues.';
+  return 'Delivery queues, automation, school alerts, and activity — part of Communications Center.';
 });
 
 const loading = ref(true);
@@ -900,8 +916,8 @@ const isActiveCall = (c) => {
 
 const chatsLink = computed(() => {
   const slug = route.params.organizationSlug;
-  if (typeof slug === 'string' && slug) return `/${slug}/admin/communications/messages`;
-  return '/admin/communications/messages';
+  if (typeof slug === 'string' && slug) return `/${slug}/messages`;
+  return '/messages';
 });
 const smsInboxLink = computed(() => {
   const slug = route.params.organizationSlug;
@@ -939,8 +955,23 @@ const ticketsLink = computed(() => {
   if (typeof slug === 'string' && slug) return `/${slug}/tickets`;
   return '/tickets';
 });
+const canUseCommunicationsCenter = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'support' || role === 'super_admin';
+});
+const communicationsCenterLink = computed(() => {
+  const slug = route.params.organizationSlug;
+  if (typeof slug === 'string' && slug) return `/${slug}/admin/communications?mode=support`;
+  return '/admin/communications?mode=support';
+});
 const pendingDeliveryCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
 const openTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
+const textingBadgeCount = computed(() =>
+  (rows.value || []).filter((r) => String(r?.kind || r?.channel || '').toLowerCase() === 'sms').length
+);
+const schoolUnreadBadge = computed(() =>
+  (schoolRows.value || []).filter((r) => r?.unread === true || r?.is_unread === true || Number(r?.unread_count || 0) > 0).length
+);
 const proofDeployments = [
   {
     name: 'ITSCO',
@@ -976,7 +1007,7 @@ const activeTab = computed(() => {
 
 const setTab = (tab) => {
   const slug = route.params.organizationSlug;
-  const path = typeof slug === 'string' && slug ? `/${slug}/admin/communications` : '/admin/communications';
+  const path = typeof slug === 'string' && slug ? `/${slug}/admin/communications/feed` : '/admin/communications/feed';
   router.replace({ path, query: { ...route.query, tab } });
 };
 
@@ -987,7 +1018,7 @@ watch(
     const t = String(route.query?.tab || '');
     if (t !== 'school' && t !== 'proof') return;
     const slug = route.params.organizationSlug;
-    const path = typeof slug === 'string' && slug ? `/${slug}/admin/communications` : '/admin/communications';
+    const path = typeof slug === 'string' && slug ? `/${slug}/admin/communications/feed` : '/admin/communications/feed';
     router.replace({ path, query: { ...route.query, tab: 'all' } });
   },
   { immediate: true }
@@ -1510,9 +1541,9 @@ const openItem = async (i) => {
   if (!threadId) return;
   const slug = i.organization_slug || route.params.organizationSlug;
   if (typeof slug === 'string' && slug) {
-    router.push({ path: `/${slug}/admin/communications/messages`, query: { threadId: String(threadId), agencyId: String(i.agency_id || '') } });
+    router.push({ path: `/${slug}/messages`, query: { threadId: String(threadId), agencyId: String(i.agency_id || '') } });
   } else {
-    router.push({ path: '/admin/communications/messages', query: { threadId: String(threadId), agencyId: String(i.agency_id || '') } });
+    router.push({ path: '/messages', query: { threadId: String(threadId), agencyId: String(i.agency_id || '') } });
   }
 };
 

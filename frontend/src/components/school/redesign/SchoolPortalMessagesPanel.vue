@@ -164,6 +164,10 @@
             </button>
           </div>
           <div v-if="newChatType === 'admin'" class="new-ticket-form">
+            <label>Topic</label>
+            <select v-model="newTicketTopic">
+              <option v-for="t in schoolTicketTopics" :key="t.id" :value="t.id">{{ t.label }}</option>
+            </select>
             <label>Subject (optional)</label>
             <input v-model="newTicketSubject" type="text" placeholder="e.g., Scheduling question" />
             <label>Message</label>
@@ -182,6 +186,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
+import { GUARDIAN_TICKET_TOPICS } from '../../../utils/ticketTopics';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
@@ -210,6 +215,9 @@ const showNewChat = ref(false);
 const newChatType = ref('provider');
 const newTicketSubject = ref('');
 const newTicketBody = ref('');
+const newTicketTopic = ref('general');
+/** School staff: general + billing (same as guardians) */
+const schoolTicketTopics = GUARDIAN_TICKET_TOPICS;
 const creatingTicket = ref(false);
 const staff = ref([]);
 const staffLoading = ref(false);
@@ -549,11 +557,13 @@ const createTicket = async () => {
     creatingTicket.value = true;
     const resp = await api.post('/support-tickets', {
       schoolOrganizationId: props.schoolOrganizationId,
+      topic: newTicketTopic.value || 'general',
       subject: newTicketSubject.value.trim() || null,
       question: body
     });
     newTicketSubject.value = '';
     newTicketBody.value = '';
+    newTicketTopic.value = 'general';
     closeNewChat();
     await loadTickets();
     const created = resp.data;
@@ -572,6 +582,7 @@ const closeNewChat = () => {
   newChatType.value = 'provider';
   newTicketSubject.value = '';
   newTicketBody.value = '';
+  newTicketTopic.value = 'general';
   newChatError.value = '';
 };
 

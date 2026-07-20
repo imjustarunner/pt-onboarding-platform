@@ -32,8 +32,25 @@ export const useAgencyStore = defineStore('agency', () => {
    * Prevents fetchUserAgencies from snapping currentAgency back to a default tenant.
    * Persisted in sessionStorage so it survives within-tab navigations but resets on new tab/reload
    * (which re-applies onMounted logic that resets super_admin to platform by default anyway).
+   *
+   * Invariant: never both platformMode and a selected currentAgency. A persisted tenant wins.
    */
-  const platformMode = ref(sessionStorage.getItem('__pt_platform_mode__') === '1');
+  const platformMode = ref(
+    (() => {
+      const flagged = sessionStorage.getItem('__pt_platform_mode__') === '1';
+      if (!flagged) return false;
+      // Stale Platform flag + restored tenant → clear Platform so tenant chrome/theme win.
+      if (currentAgency.value?.id) {
+        try {
+          sessionStorage.removeItem('__pt_platform_mode__');
+        } catch {
+          /* ignore */
+        }
+        return false;
+      }
+      return true;
+    })()
+  );
 
   /**
    * Bumped on every explicit tenant / Platform selection so BrandingProvider’s watch re-runs even when

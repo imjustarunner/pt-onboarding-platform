@@ -826,18 +826,28 @@ const savingPerms = ref(false);
 const permsSaveError = ref('');
 const permsDraft = ref({});
 
-const permToggles = [
-  { key: 'companyCardEnabled', label: 'Company Card' },
-  { key: 'companyCarSubmitAccess', label: 'Company Car Submit' },
-  { key: 'companyCarManageAccess', label: 'Company Car Manage' },
-  { key: 'skillBuilderEligible', label: 'Skill Development Program Eligible' },
-  { key: 'hasPayrollAccess', label: 'Payroll Access' },
-  { key: 'hasCredentialingAccess', label: 'Credentialing Access' },
-  { key: 'isHourlyWorker', label: 'Hourly Workers' },
-];
+const permToggles = computed(() => {
+  const base = [
+    { key: 'companyCardEnabled', label: 'Company Card' },
+    { key: 'companyCarSubmitAccess', label: 'Company Car Submit' },
+    { key: 'companyCarManageAccess', label: 'Company Car Manage' },
+    { key: 'skillBuilderEligible', label: 'Skill Development Program Eligible' },
+    { key: 'hasPayrollAccess', label: 'Payroll Access' },
+    { key: 'hasBillingAccess', label: 'Medical Billing Access' },
+    { key: 'hasCredentialingAccess', label: 'Credentialing Access' },
+    { key: 'isHourlyWorker', label: 'Hourly Workers' }
+  ];
+  if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') {
+    base.push({
+      key: 'hasPlatformSupport',
+      label: 'Platform support (Plot Twist HQ tickets — not full superadmin)'
+    });
+  }
+  return base;
+});
 
 const startEditPerms = () => {
-  permsDraft.value = Object.fromEntries(permToggles.map((p) => [p.key, ai.value?.[p.key] ?? false]));
+  permsDraft.value = Object.fromEntries(permToggles.value.map((p) => [p.key, ai.value?.[p.key] ?? false]));
   permsSaveError.value = '';
   editingPerms.value = true;
 };
@@ -846,7 +856,7 @@ const savePerms = async () => {
   savingPerms.value = true;
   permsSaveError.value = '';
   try {
-    await api.put(`/users/${props.userId}`, Object.fromEntries(permToggles.map((p) => [p.key, permsDraft.value[p.key]])));
+    await api.put(`/users/${props.userId}`, Object.fromEntries(permToggles.value.map((p) => [p.key, permsDraft.value[p.key]])));
     if (ai.value) ai.value = { ...ai.value, ...permsDraft.value };
     editingPerms.value = false;
     emit('perms-saved', { ...permsDraft.value });

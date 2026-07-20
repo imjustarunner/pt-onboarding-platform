@@ -10,15 +10,25 @@ import {
   normalizeAudience,
   normalizeRoleFilter
 } from '../utils/presenceAudience.js';
+import {
+  attachCalendarBusyToPresenceRows,
+  getCurrentCalendarBusyForUser
+} from '../services/calendarPresence.service.js';
 
-const IDLE_AFTER_MS = 5 * 60 * 1000; // 5 minutes since last_activity_at → idle
-/** Max heartbeat interval is 300s; allow buffer so slow/idle cadence does not false-offline. */
-const OFFLINE_AFTER_MS = 6 * 60 * 1000; // 6 minutes since last_heartbeat_at
+/**
+ * Chat / Messages presence (new model):
+ * - Active (`online`): fresh heartbeat, not in a signed-in Idle session
+ * - Idle (`idle`): AwaySessionOverlay / session_extend_until only (timedown but not TIMED OUT)
+ * - Inactive (`offline`): stale/no heartbeat, appear-offline, or timed out
+ *
+ * Do NOT use legacy Team Board enums (`out_am`, `out_full_day`, …), soft activity idle,
+ * or meal/reason display labels to drive peer-facing chat presence — that path was broken.
+ */
+/** Max heartbeat interval is 300s; allow buffer so slow cadence does not false-inactive. */
+const OFFLINE_AFTER_MS = 6 * 60 * 1000;
 
-function defaultAvailabilityForRole(role) {
-  // Privileged roles appear online when heartbeat is fresh (Slack-like).
-  // They still can explicitly set offline via availability / status menu.
-  if (UserPresenceStatus.isPrivilegedRole(role)) return 'everyone';
+function defaultAvailabilityForRole(_role) {
+  // Heartbeat alone shows Active. Explicit offline / admins_only still honored.
   return 'everyone';
 }
 
@@ -43,75 +53,64 @@ function richStatusFields(row) {
   };
 }
 
-function hasActiveAwayStatus(row) {
-  const rich = richStatusFields(row);
-  const status = rich.presence_status;
-  const reason = rich.presence_reason;
-  const now = Date.now();
-  const extendUntil = rich.presence_session_extend_until
-    ? new Date(rich.presence_session_extend_until).getTime()
-    : null;
-  const returnAt = rich.presence_expected_return_at
-    ? new Date(rich.presence_expected_return_at).getTime()
-    : null;
-  const endsAt = row?.presence_ends_at ? new Date(row.presence_ends_at).getTime() : null;
+/** Signed-in Idle = active session extend only (Away overlay). Ignores Team Board status enums. */
+function hasChatIdleSession(row) {
+  const until = richStatusFields(row).presence_session_extend_until;
+  if (!until) return false;
+  const ext = new Date(until).getTime();
+  return Number.isFinite(ext) && ext > Date.now();
+}
 
-  // Active session extension always counts as Away (includes reachable call/text reasons)
-  if (extendUntil && extendUntil > now) return true;
-
-  if (!status) return false;
-  const awayLike =
-    UserPresenceStatus.isAwayStatus(status) ||
-    (reason && UserPresenceStatus.isValidReason(reason) && reason !== 'custom' && status !== 'in_available');
-  if (!awayLike) return false;
-
-  if (returnAt && returnAt > now) return true;
-  if (endsAt && endsAt > now) return true;
-  if (status === 'out_full_day' || status === 'out_am' || status === 'out_pm' || status === 'traveling_offsite' || reason === 'out_day') {
-    if (!endsAt) return true;
-  }
-  if (status === 'out_quick' || reason) {
-    const started = row?.presence_started_at ? new Date(row.presence_started_at).getTime() : null;
-    if (started && now - started < UserPresenceStatus.MAX_SESSION_EXTEND_MS) return true;
-  }
-  return false;
+/** Peer-facing labels only — never meal/Team Board copy. */
+function peerFacingStatusLabel(status) {
+  if (status === 'online') return 'Active';
+  if (status === 'idle') return 'Idle';
+  return 'Inactive';
 }
 
 function computePresenceStatus(row, viewerRole) {
   const now = Date.now();
   const hb = row?.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : null;
-  const act = row?.last_activity_at ? new Date(row.last_activity_at).getTime() : null;
   const rich = richStatusFields(row);
-  const away = hasActiveAwayStatus(row);
+  const idleSession = hasChatIdleSession(row);
 
   let status = 'offline';
-  // Active session extension keeps Away visible even if tab is hidden briefly
-  if (away && rich.presence_session_extend_until) {
-    const ext = new Date(rich.presence_session_extend_until).getTime();
-    if (ext > now) status = 'idle';
-  }
-  if (status === 'offline' && hb && now - hb <= OFFLINE_AFTER_MS) {
-    if (away || (act && now - act >= IDLE_AFTER_MS)) status = 'idle';
-    else status = 'online';
+  if (idleSession) {
+    // Stay Idle while Away overlay is active even if the tab is briefly hidden.
+    status = 'idle';
+  } else if (hb && now - hb <= OFFLINE_AFTER_MS) {
+    status = 'online';
   }
 
   const availabilityLevel =
     normalizeAvailability(row?.availability_level) || defaultAvailabilityForRole(row?.role || viewerRole);
 
-  // Apply availability filter (rich away still shows as idle to privileged viewers when admins_only).
-  if (availabilityLevel === 'offline' && !away) status = 'offline';
-  if (availabilityLevel === 'offline' && away) status = 'idle';
-  if (availabilityLevel === 'admins_only' && !canViewAdminsOnly(viewerRole)) status = 'offline';
+  if (availabilityLevel === 'offline' && status !== 'idle') status = 'offline';
+  if (availabilityLevel === 'admins_only' && !canViewAdminsOnly(viewerRole) && status !== 'idle') {
+    status = 'offline';
+  }
 
   return {
     status,
     availability_level: availabilityLevel,
     ...rich,
-    status_label:
-      rich.presence_display_label ||
-      UserPresenceStatus.labelForReason(rich.presence_reason) ||
-      (status === 'online' ? 'Active' : status === 'idle' ? 'Away' : 'Offline')
+    status_label: peerFacingStatusLabel(status)
   };
+}
+
+/** Self UI may show meal/reason; peers never get those fields from chat directory APIs. */
+function selfFacingStatusLabel(computed) {
+  if (computed.status === 'idle') {
+    return (
+      computed.presence_display_label ||
+      UserPresenceStatus.labelForReason(computed.presence_reason) ||
+      'Idle'
+    );
+  }
+  if (computed.status === 'online') {
+    return computed.presence_display_label || 'Active';
+  }
+  return 'Inactive';
 }
 
 const PRESENCE_STATUS_JOIN = `
@@ -325,19 +324,38 @@ export const getMyPresence = async (req, res, next) => {
       sessionExtendUntil = null;
     }
 
+    // Self keeps rich Away labels (e.g. Out for Meal). Peers never see those via directory APIs.
+    let statusLabel = selfFacingStatusLabel(computed);
+    let displayLabel = computed.presence_display_label || statusLabel;
+    let calendarBusy = null;
+    // Calendar busy overlays Active only — Idle stays Idle (not Team Board / meal copy).
+    if (computed.status === 'online') {
+      try {
+        const busy = await getCurrentCalendarBusyForUser(userId);
+        if (busy?.label) {
+          statusLabel = busy.label;
+          displayLabel = busy.label;
+          calendarBusy = busy.activityType;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     res.json({
       user_id: userId,
       availability_level: computed.availability_level,
       heartbeat_status: computed.status,
       status: computed.status,
-      status_label: computed.status_label,
+      status_label: statusLabel,
       presence_status: computed.presence_status,
       presence_reason: computed.presence_reason,
-      presence_display_label: computed.presence_display_label,
+      presence_display_label: displayLabel,
       presence_note: computed.presence_note,
       presence_expected_return_at: computed.presence_expected_return_at,
       presence_session_extend_until: sessionExtendUntil,
-      session_extend_active: sessionExtendActive
+      session_extend_active: sessionExtendActive,
+      calendar_busy: calendarBusy
     });
   } catch (e) {
     next(e);
@@ -414,20 +432,144 @@ async function attachSchoolNames(rows) {
   }
 }
 
+function parseColorPalette(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Attach peer agency memberships that overlap the viewer's memberships
+ * (viewer-scoped — never expose tenants the viewer does not share).
+ * Super-admins with no memberships see peer agency-type orgs (platform view).
+ */
+async function attachSharedAgencyMemberships(rows, viewerUserId, { viewerRole } = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return list;
+  const peerIds = [...new Set(list.map((r) => Number(r.id || 0)).filter((n) => n > 0))];
+  if (!peerIds.length) return list;
+
+  let viewerAgencyIds = [];
+  try {
+    const [vRows] = await pool.execute(
+      `SELECT agency_id FROM user_agencies WHERE user_id = ?`,
+      [viewerUserId]
+    );
+    viewerAgencyIds = (vRows || []).map((r) => Number(r.agency_id)).filter((n) => n > 0);
+  } catch {
+    viewerAgencyIds = [];
+  }
+
+  const isSuperAdmin = String(viewerRole || '').toLowerCase() === 'super_admin';
+  const restrictToViewer = !(isSuperAdmin && viewerAgencyIds.length === 0);
+  if (restrictToViewer && !viewerAgencyIds.length) {
+    return list.map((r) => ({
+      ...r,
+      shared_agency_ids: [],
+      shared_agency_memberships: []
+    }));
+  }
+
+  const peerPh = peerIds.map(() => '?').join(',');
+  const params = [...peerIds];
+  let agencyFilterSql = '';
+  if (restrictToViewer) {
+    const vPh = viewerAgencyIds.map(() => '?').join(',');
+    agencyFilterSql = `AND ua.agency_id IN (${vPh})`;
+    params.push(...viewerAgencyIds);
+  } else {
+    // Platform view: agency-type tenants only (skip school/program noise)
+    agencyFilterSql = `AND LOWER(COALESCE(a.organization_type, 'agency')) IN ('agency', 'organization', '')`;
+  }
+
+  try {
+    // agencies has logo_* + icon_id; icon file path comes from icons join (not a.icon_file_path).
+    const [mRows] = await pool.execute(
+      `SELECT ua.user_id,
+              a.id,
+              a.name,
+              a.slug,
+              a.organization_type,
+              a.logo_url,
+              a.logo_path,
+              i.file_path AS icon_file_path,
+              a.color_palette
+       FROM user_agencies ua
+       INNER JOIN agencies a ON a.id = ua.agency_id
+       LEFT JOIN icons i ON i.id = a.icon_id
+       WHERE ua.user_id IN (${peerPh})
+         ${agencyFilterSql}
+       ORDER BY a.name ASC`,
+      params
+    );
+    const byUser = new Map();
+    for (const row of mRows || []) {
+      const uid = Number(row.user_id);
+      if (!uid) continue;
+      if (!byUser.has(uid)) byUser.set(uid, []);
+      const palette = parseColorPalette(row.color_palette);
+      const name = String(row.name || '').trim();
+      byUser.get(uid).push({
+        id: Number(row.id),
+        name: name || `Tenant ${row.id}`,
+        slug: row.slug || null,
+        organization_type: row.organization_type || 'agency',
+        logo_url: row.logo_url || null,
+        logo_path: row.logo_path || null,
+        icon_file_path: row.icon_file_path || null,
+        color_palette: palette,
+        primary_color: palette?.primary || palette?.primaryColor || null
+      });
+    }
+    return list.map((r) => {
+      const memberships = byUser.get(Number(r.id)) || [];
+      return {
+        ...r,
+        shared_agency_ids: memberships.map((m) => m.id),
+        shared_agency_memberships: memberships
+      };
+    });
+  } catch {
+    return list.map((r) => ({
+      ...r,
+      shared_agency_ids: r.shared_agency_ids || [],
+      shared_agency_memberships: r.shared_agency_memberships || []
+    }));
+  }
+}
+
+async function finalizeChatPresenceRows(rows, viewerUserId, viewerRole) {
+  const withSchools = await attachSchoolNames(rows);
+  const withShared = await attachSharedAgencyMemberships(withSchools, viewerUserId, { viewerRole });
+  return attachCalendarBusyToPresenceRows(mapChatPresenceRows(withShared, viewerRole));
+}
+
 function mapChatPresenceRows(rows, viewerRole) {
   return (rows || []).map((r) => {
     const computed = computePresenceStatus(r, viewerRole);
+    // Peer payload: Active / Idle / Inactive only. Strip legacy Team Board + reason fields.
+    // Keep responsibility flags (billing/payroll/credentialing) for hover — distinct from access.
     return {
       ...r,
       status: computed.status,
       availability_level: computed.availability_level,
-      status_label: computed.status_label,
-      presence_status: computed.presence_status,
-      presence_reason: computed.presence_reason,
-      presence_display_label: computed.presence_display_label,
-      presence_note: computed.presence_note,
-      presence_expected_return_at: computed.presence_expected_return_at,
-      presence_session_extend_until: computed.presence_session_extend_until
+      status_label: peerFacingStatusLabel(computed.status),
+      presence_status: null,
+      presence_reason: null,
+      presence_display_label: null,
+      presence_note: null,
+      presence_expected_return_at: null,
+      presence_session_extend_until:
+        computed.status === 'idle' ? computed.presence_session_extend_until : null,
+      has_billing_access: !!(r.has_billing_access === 1 || r.has_billing_access === true),
+      has_payroll_access: !!(r.has_payroll_access === 1 || r.has_payroll_access === true),
+      can_manage_credentialing: !!(
+        r.can_manage_credentialing === 1 || r.can_manage_credentialing === true
+      )
     };
   });
 }
@@ -582,8 +724,7 @@ export const listAgencyPresence = async (req, res, next) => {
       if (roleFilter) {
         rows = rows.filter((r) => String(r.role || '').toLowerCase() === roleFilter);
       }
-      const enriched = await attachSchoolNames(rows);
-      return res.json(mapChatPresenceRows(enriched, viewerRole));
+      return res.json(await finalizeChatPresenceRows(rows, req.user.id, viewerRole));
     }
 
     // Privileged "directory" toggle: school staff / other non-default roles by type.
@@ -630,8 +771,7 @@ export const listAgencyPresence = async (req, res, next) => {
           rows = Array.from(dedup.values());
         }
       }
-      const enriched = await attachSchoolNames(rows);
-      return res.json(mapChatPresenceRows(enriched, viewerRole));
+      return res.json(await finalizeChatPresenceRows(rows, req.user.id, viewerRole));
     }
 
     // Default: team employees only
@@ -645,6 +785,9 @@ export const listAgencyPresence = async (req, res, next) => {
               up.last_heartbeat_at,
               up.last_activity_at,
               up.availability_level,
+              COALESCE(ua.has_billing_access, 0) AS has_billing_access,
+              COALESCE(ua.has_payroll_access, 0) AS has_payroll_access,
+              COALESCE(ua.can_manage_credentialing, 0) AS can_manage_credentialing,
               ${PRESENCE_STATUS_JOIN}
        FROM users u
        INNER JOIN user_agencies ua ON ua.user_id = u.id
@@ -687,8 +830,7 @@ export const listAgencyPresence = async (req, res, next) => {
     if (roleFilter) {
       rows = rows.filter((r) => String(r.role || '').toLowerCase() === roleFilter);
     }
-    const enriched = await attachSchoolNames(rows);
-    res.json(mapChatPresenceRows(enriched, viewerRole));
+    res.json(await finalizeChatPresenceRows(rows, req.user.id, viewerRole));
   } catch (e) {
     next(e);
   }
@@ -729,28 +871,33 @@ export const listAdminPresence = async (req, res, next) => {
        ORDER BY u.first_name ASC, u.last_name ASC`
     );
 
-    const out = (rows || []).map((r) => {
-      const computed = computePresenceStatus(r, req.user.role);
-      return {
+    const mapped = mapChatPresenceRows(
+      (rows || []).map((r) => ({
         id: r.id,
         first_name: r.first_name,
         last_name: r.last_name,
         email: r.email,
         role: r.role,
         agency_names: r.agency_names || '',
-        status: computed.status,
-        availability_level: computed.availability_level,
-        status_label: computed.status_label,
-        presence_status: computed.presence_status,
-        presence_reason: computed.presence_reason,
-        presence_display_label: computed.presence_display_label,
-        presence_note: computed.presence_note,
-        presence_expected_return_at: computed.presence_expected_return_at,
-        presence_session_extend_until: computed.presence_session_extend_until
-      };
-    });
+        last_heartbeat_at: r.last_heartbeat_at,
+        last_activity_at: r.last_activity_at,
+        availability_level: r.availability_level,
+        presence_status: r.presence_status,
+        presence_note: r.presence_note,
+        presence_started_at: r.presence_started_at,
+        presence_ends_at: r.presence_ends_at,
+        presence_expected_return_at: r.presence_expected_return_at,
+        presence_reason: r.presence_reason,
+        presence_display_label: r.presence_display_label,
+        presence_session_extend_until: r.presence_session_extend_until
+      })),
+      req.user.role
+    );
 
-    res.json(out);
+    const withShared = await attachSharedAgencyMemberships(mapped, req.user.id, {
+      viewerRole: req.user.role
+    });
+    res.json(await attachCalendarBusyToPresenceRows(withShared));
   } catch (e) {
     next(e);
   }
@@ -827,8 +974,9 @@ export const listPresenceForAgency = async (req, res, next) => {
       const rows = await UserPresenceStatus.findAllWithUsersForAgency(agencyId);
       return res.json(mapPresenceRows(rows));
     }
-    if (role !== 'admin') {
-      return res.status(403).json({ error: { message: 'Admin access required' } });
+    // Admin + support need meal/day detail on Team Board (Messages peers stay Idle-only).
+    if (role !== 'admin' && role !== 'support') {
+      return res.status(403).json({ error: { message: 'Admin or support access required' } });
     }
 
     const User = (await import('../models/User.model.js')).default;

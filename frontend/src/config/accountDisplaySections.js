@@ -188,6 +188,26 @@ export const ACCOUNT_SECTIONS = [
       tagMutedColor: '#475569',
     },
   },
+  {
+    id: 'support',
+    title: 'Get help',
+    navLabel: 'Get Help',
+    description: 'Contact your organization team, or ask a product question for them to escalate.',
+    tag: 'Support',
+    tagSecondary: 'Help desk',
+    statLabel: 'Support',
+    statHint: 'Ask your team',
+    icon: 'help',
+    theme: {
+      accent: '#166534',
+      icon: '#15803d',
+      iconBg: '#dcfce7',
+      tagBg: '#ecfdf5',
+      tagColor: '#166534',
+      tagMutedBg: '#f0fdf4',
+      tagMutedColor: '#15803d',
+    },
+  },
 ];
 
 const BY_ID = Object.fromEntries(ACCOUNT_SECTIONS.map((s) => [s.id, s]));

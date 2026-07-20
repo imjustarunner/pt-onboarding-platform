@@ -26,6 +26,7 @@ class SmsThreadEscalation {
     escalatedToPhone = null,
     escalationType = 'sla_timeout',
     threadMode = 'respondable',
+    supportTicketId = null,
     metadata = null
   }) {
     if (!userId || !clientId) throw new Error('userId and clientId are required');
@@ -39,10 +40,15 @@ class SmsThreadEscalation {
     const active = await this.findActive({ userId, clientId });
     if (active) return active;
 
+    const ticketId =
+      supportTicketId ||
+      (metadata && typeof metadata === 'object' ? metadata.supportTicketId || null : null) ||
+      null;
+
     const [result] = await pool.execute(
       `INSERT INTO sms_thread_escalations
-       (agency_id, user_id, client_id, inbound_log_id, escalated_to_phone, escalation_type, thread_mode, is_active, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, ?)`,
+       (agency_id, user_id, client_id, inbound_log_id, escalated_to_phone, escalation_type, thread_mode, is_active, support_ticket_id, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?)`,
       [
         agencyId,
         userId,
@@ -51,6 +57,7 @@ class SmsThreadEscalation {
         this.normalizePhone(escalatedToPhone) || escalatedToPhone || null,
         escalationType,
         threadMode === 'read_only' ? 'read_only' : 'respondable',
+        ticketId,
         metadata ? JSON.stringify(metadata) : null
       ]
     );

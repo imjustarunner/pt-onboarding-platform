@@ -10,6 +10,12 @@
         <div class="left">
           <div class="composer">
             <label>
+              Topic
+              <select v-model="topic" class="input">
+                <option v-for="t in schoolTicketTopics" :key="t.id" :value="t.id">{{ t.label }}</option>
+              </select>
+            </label>
+            <label>
               Subject (optional)
               <input v-model="subject" type="text" class="input" placeholder="e.g., Scheduling question" />
             </label>
@@ -59,6 +65,7 @@
 <script setup>
 import { onMounted, ref } from 'vue';
 import api from '../../services/api';
+import { GUARDIAN_TICKET_TOPICS } from '../../utils/ticketTopics';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true }
@@ -70,6 +77,8 @@ const loading = ref(false);
 const submitting = ref(false);
 const error = ref('');
 
+const schoolTicketTopics = GUARDIAN_TICKET_TOPICS;
+const topic = ref('general');
 const subject = ref('');
 const question = ref('');
 
@@ -92,9 +101,11 @@ const submit = async () => {
     error.value = '';
     await api.post('/support-tickets', {
       schoolOrganizationId: props.schoolOrganizationId,
+      topic: topic.value || 'general',
       subject: subject.value.trim() || null,
       question: question.value.trim()
     });
+    topic.value = 'general';
     subject.value = '';
     question.value = '';
     await load();

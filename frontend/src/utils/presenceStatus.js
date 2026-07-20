@@ -54,6 +54,52 @@ export const AWAY_REASONS = [
   { id: 'out_day', label: 'Out for the Day', group: 'day' }
 ];
 
+/** Team Board enum labels (roster for admin/support/super_admin). Not for Messages peers. */
+export const TEAM_BOARD_STATUS_LABELS = {
+  in_available: 'In – Available',
+  in_heads_down: 'In – Heads Down',
+  in_available_for_phone: 'In – Available for Phone',
+  out_quick: 'Out – Quick',
+  out_am: 'Out – AM',
+  out_pm: 'Out – PM',
+  out_full_day: 'Out – Full Day',
+  traveling_offsite: 'Traveling / Offsite'
+};
+
+export function labelForAwayReason(reason) {
+  const key = String(reason || '').trim();
+  if (!key) return null;
+  const hit = AWAY_REASONS.find((r) => r.id === key);
+  return hit?.label || null;
+}
+
+/**
+ * Privileged Team Board label — prefers meal/day display from Timedown status prompt.
+ * Messages peers must keep using peerFacingStatusLabel / statusSubtitle (Active/Idle/Inactive).
+ */
+export function teamBoardStatusLabel(person, enumFallbackMap = TEAM_BOARD_STATUS_LABELS) {
+  if (!person) return '';
+  const rich = String(person.presence_display_label || person.display_label || '').trim();
+  if (rich && rich.toLowerCase() !== 'active') return rich;
+  const fromReason = labelForAwayReason(person.presence_reason || person.reason);
+  if (fromReason) return fromReason;
+  const status = String(person.presence_status || person.status || '').trim();
+  if (status && enumFallbackMap[status]) return enumFallbackMap[status];
+  return rich || '';
+}
+
+/** Return-at for Team Board note column (session extend or expected return). */
+export function teamBoardReturnAt(person) {
+  if (!person) return null;
+  return (
+    person.presence_expected_return_at ||
+    person.presence_session_extend_until ||
+    person.expected_return_at ||
+    person.session_extend_until ||
+    null
+  );
+}
+
 const CUSTOM_OUT_KEY = (userId) => `presence:customOutReasons:v1:${userId || 'anon'}`;
 
 /** Personal “Out for …” reasons saved locally per user. */
@@ -107,11 +153,36 @@ export const DURATION_CHIPS = [
   { minutes: 120, label: '2 hours' }
 ];
 
+/** Wire status → peer-facing label (Active / Idle / Inactive). Never meal/Team Board copy. */
+export function peerFacingStatusLabel(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'online' || s === 'active') return 'Active';
+  if (s === 'idle' || s === 'away') return 'Idle';
+  return 'Inactive';
+}
+
 export function presenceDotClass(status) {
   const s = String(status || '').toLowerCase();
-  if (s === 'online') return 'dot-online';
-  if (s === 'idle') return 'dot-idle';
+  if (s === 'online' || s === 'active') return 'dot-online';
+  if (s === 'idle' || s === 'away') return 'dot-idle';
+  if (s === 'busy') return 'dot-busy';
   return 'dot-offline';
+}
+
+/** Prefer calendar-busy styling when API attaches calendar_busy on Active peers. */
+export function presenceDotClassForPerson(person) {
+  if (!person) return 'dot-offline';
+  // Idle is signed-in Away overlay — never paint as calendar-busy from legacy labels.
+  if (person.status === 'idle' || person.status === 'away') return 'dot-idle';
+  const busy = String(person.calendar_busy || '').toLowerCase();
+  const label = String(person.status_label || '').toLowerCase();
+  if (
+    person.status === 'online' &&
+    (busy || label.includes('in session') || label.includes('supervision') || label.includes('in meeting'))
+  ) {
+    return 'dot-busy';
+  }
+  return presenceDotClass(person.status);
 }
 
 export function formatReturnAt(iso) {
@@ -123,18 +194,30 @@ export function formatReturnAt(iso) {
   }
 }
 
+/**
+ * Peer list subtitle. Coarse presence only — ignore meal/Team Board display_label.
+ * Calendar busy labels (In Session, etc.) may still appear when status is Active.
+ */
 export function statusSubtitle(person) {
   if (!person) return '';
-  const label =
-    person.presence_display_label ||
-    person.status_label ||
-    (person.status === 'online' ? 'Active' : person.status === 'idle' ? 'Away' : 'Offline');
-  const back = formatReturnAt(person.presence_expected_return_at || person.presence_session_extend_until);
+  const coarse = peerFacingStatusLabel(person.status);
+  let label = coarse;
+  if (person.status === 'online') {
+    const apiLabel = String(person.status_label || '').trim();
+    const lower = apiLabel.toLowerCase();
+    if (
+      apiLabel &&
+      (person.calendar_busy ||
+        lower.includes('in session') ||
+        lower.includes('supervision') ||
+        lower.includes('in meeting') ||
+        lower === 'busy')
+    ) {
+      label = apiLabel;
+    }
+  }
   const school = String(person.role || '').toLowerCase() === 'school_staff' ? personOrgLabel(person) : '';
-  const parts = [label];
-  if (back && person.status === 'idle') parts[0] = `${label} · back ${back}`;
-  if (school) parts.push(school);
-  return parts.join(' · ');
+  return school ? `${label} · ${school}` : label;
 }
 
 /** Sort: online → idle → offline, then name */

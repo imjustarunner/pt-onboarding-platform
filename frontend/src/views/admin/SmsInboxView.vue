@@ -148,7 +148,7 @@ const savingConsent = ref(false);
 const consentStates = ref([]);
 
 const orgSlug = computed(() => (typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : ''));
-const communicationsLink = computed(() => (orgSlug.value ? `/${orgSlug.value}/admin/communications` : '/admin/communications'));
+const communicationsLink = computed(() => (orgSlug.value ? `/${orgSlug.value}/admin/communications/feed` : '/admin/communications/feed'));
 const preferencesLink = computed(() => (orgSlug.value ? `/${orgSlug.value}/preferences` : '/preferences'));
 const textingSettingsLink = computed(() => {
   const base = orgSlug.value ? `/${orgSlug.value}/admin/settings` : '/admin/settings';

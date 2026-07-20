@@ -53,6 +53,12 @@
         @click="$emit('open')"
       >{{ openLabel }}</button>
       <button
+        v-if="showSecondaryOpen"
+        type="button"
+        class="tc-btn tc-btn--secondary"
+        @click="$emit('secondary-open')"
+      >{{ secondaryOpenLabel }}</button>
+      <button
         v-if="showCopy"
         type="button"
         class="tc-btn tc-btn--secondary"
@@ -95,15 +101,17 @@ const props = defineProps({
   favorited: { type: Boolean, default: false },
   muted: { type: Boolean, default: false },
   showOpen: { type: Boolean, default: true },
+  showSecondaryOpen: { type: Boolean, default: false },
   showCopy: { type: Boolean, default: true },
   showAssign: { type: Boolean, default: true },
   showEdit: { type: Boolean, default: false },
   showDuplicate: { type: Boolean, default: false },
   openLabel: { type: String, default: 'Open' },
+  secondaryOpenLabel: { type: String, default: 'Use in session' },
   openDisabled: { type: Boolean, default: false }
 });
 
-defineEmits(['open', 'copy-link', 'assign', 'toggle-favorite', 'edit', 'duplicate']);
+defineEmits(['open', 'secondary-open', 'copy-link', 'assign', 'toggle-favorite', 'edit', 'duplicate']);
 
 const imageBroken = ref(false);
 

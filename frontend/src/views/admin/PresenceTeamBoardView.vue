@@ -4,12 +4,13 @@
       <div>
         <h1>Presence / Team Board</h1>
         <p class="page-description">
-          See who is in, out, or traveling.
+          Privileged roster: see Out for Meal, half-day, and return times so coverage stays clear.
+          Everyone else in Messages only sees Idle.
         </p>
       </div>
       <div class="header-actions">
         <select
-          v-if="isAdmin && adminAgencies.length > 1"
+          v-if="isAgencyScopedViewer && adminAgencies.length > 1"
           v-model="adminSelectedAgencyId"
           class="filter-select"
           aria-label="Select agency"
@@ -123,33 +124,39 @@
                 <span class="role-badge">{{ person.role }}</span>
               </td>
               <td class="status-cell">
-                <span class="status-indicator" :class="statusIndicatorClass(person.presence_status)" :title="statusLabel(person.presence_status)" />
-                <select
-                  v-if="isSuperAdmin"
-                  :value="person.presence_status || ''"
-                  class="status-select"
-                  @change="onStatusChange(person, $event)"
-                  :disabled="savingId === person.id"
-                >
-                  <option value="">— No status —</option>
-                  <option
-                    v-for="opt in statusOptions"
-                    :key="opt.value"
-                    :value="opt.value"
+                <span
+                  class="status-indicator"
+                  :class="statusIndicatorClass(person.presence_status)"
+                  :title="personStatusLabel(person)"
+                />
+                <div class="status-stack">
+                  <span class="status-rich">{{ personStatusLabel(person) || '—' }}</span>
+                  <select
+                    v-if="isSuperAdmin"
+                    :value="person.presence_status || ''"
+                    class="status-select"
+                    @change="onStatusChange(person, $event)"
+                    :disabled="savingId === person.id"
                   >
-                    {{ opt.label }}
-                  </option>
-                </select>
-                <span v-else class="status-readonly">{{ statusLabel(person.presence_status) || '—' }}</span>
+                    <option value="">— No status —</option>
+                    <option
+                      v-for="opt in statusOptions"
+                      :key="opt.value"
+                      :value="opt.value"
+                    >
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                </div>
               </td>
               <td class="note-cell">
-                <template v-if="person.presence_status === 'out_quick'">
+                <template v-if="personReturnAt(person)">
                   <span v-if="person.presence_note" class="note-text">{{ person.presence_note }}</span>
-                  <span v-else-if="person.presence_expected_return_at" class="note-text" :class="{ overdue: isOverdue(person.presence_expected_return_at) }">
-                    Back {{ formatReturnTime(person.presence_expected_return_at) }}
-                    <span v-if="isOverdue(person.presence_expected_return_at)" class="overdue-badge">Overdue</span>
+                  <span class="note-text" :class="{ overdue: isOverdue(personReturnAt(person)) }">
+                    Back {{ formatReturnTime(personReturnAt(person)) }}
+                    <span v-if="isOverdue(personReturnAt(person))" class="overdue-badge">Overdue</span>
                     <button
-                      v-if="isSuperAdmin && isOverdue(person.presence_expected_return_at)"
+                      v-if="isSuperAdmin && isOverdue(personReturnAt(person))"
                       type="button"
                       class="btn-nudge"
                       :disabled="nudgingId === person.id"
@@ -158,7 +165,6 @@
                       Nudge
                     </button>
                   </span>
-                  <span v-else class="muted">—</span>
                 </template>
                 <template v-else>
                   <span v-if="person.presence_note" class="note-text">{{ person.presence_note }}</span>
@@ -186,17 +192,21 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import {
+  TEAM_BOARD_STATUS_LABELS,
+  teamBoardReturnAt,
+  teamBoardStatusLabel
+} from '../../utils/presenceStatus';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const user = computed(() => authStore.user);
-const isSuperAdmin = computed(
-  () => String(user.value?.role || '').toLowerCase() === 'super_admin'
-);
-const isAdmin = computed(
-  () => String(user.value?.role || '').toLowerCase() === 'admin'
-);
-const canAccess = computed(() => isSuperAdmin.value || isAdmin.value);
+const role = computed(() => String(user.value?.role || '').toLowerCase());
+const isSuperAdmin = computed(() => role.value === 'super_admin');
+const isAdmin = computed(() => role.value === 'admin');
+const isSupport = computed(() => role.value === 'support');
+const isAgencyScopedViewer = computed(() => isAdmin.value || isSupport.value);
+const canAccess = computed(() => isSuperAdmin.value || isAdmin.value || isSupport.value);
 
 const loading = ref(true);
 const error = ref('');
@@ -252,8 +262,8 @@ const sortedPeople = computed(() => {
       return mult * na.localeCompare(nb);
     }
     if (by === 'status') {
-      const sa = statusLabel(a.presence_status) || '~';
-      const sb = statusLabel(b.presence_status) || '~';
+      const sa = personStatusLabel(a) || '~';
+      const sb = personStatusLabel(b) || '~';
       return mult * sa.localeCompare(sb);
     }
     if (by === 'since') {
@@ -266,16 +276,10 @@ const sortedPeople = computed(() => {
   return list;
 });
 
-const statusOptions = [
-  { value: 'in_available', label: 'In – Available' },
-  { value: 'in_heads_down', label: 'In – Heads Down' },
-  { value: 'in_available_for_phone', label: 'In – Available for Phone' },
-  { value: 'out_quick', label: 'Out – Quick (Under 90 min)' },
-  { value: 'out_am', label: 'Out – AM' },
-  { value: 'out_pm', label: 'Out – PM' },
-  { value: 'out_full_day', label: 'Out – Full Day' },
-  { value: 'traveling_offsite', label: 'Traveling / Offsite' }
-];
+const statusOptions = Object.entries(TEAM_BOARD_STATUS_LABELS).map(([value, label]) => ({
+  value,
+  label: value === 'out_quick' ? 'Out – Quick (Under 90 min)' : label
+}));
 
 const avatarUrl = (rel) => toUploadsUrl(rel);
 
@@ -296,10 +300,8 @@ const statusIndicatorClass = (status) => {
   return 'indicator-none';
 };
 
-const statusLabel = (status) => {
-  const opt = statusOptions.find((o) => o.value === status);
-  return opt ? opt.label : '';
-};
+const personStatusLabel = (person) => teamBoardStatusLabel(person);
+const personReturnAt = (person) => teamBoardReturnAt(person);
 
 const formatReturnTime = (iso) => {
   if (!iso) return '';
@@ -350,9 +352,9 @@ const fetchPresence = async (showLoading = true) => {
     if (showLoading) loading.value = true;
     error.value = '';
     let agencyId = agencyStore.currentAgency?.id || agencyStore.currentAgency?.value;
-    if (isAdmin.value && adminSelectedAgencyId.value) {
+    if (isAgencyScopedViewer.value && adminSelectedAgencyId.value) {
       agencyId = parseInt(adminSelectedAgencyId.value, 10);
-    } else if (isAdmin.value && adminAgencies.value.length === 1) {
+    } else if (isAgencyScopedViewer.value && adminAgencies.value.length === 1) {
       agencyId = adminAgencies.value[0]?.id;
     }
     const url = isSuperAdmin.value
@@ -592,7 +594,7 @@ onMounted(async () => {
   if (canAccess.value) {
     if (isSuperAdmin.value) {
       await fetchAgencies();
-    } else if (isAdmin.value) {
+    } else if (isAgencyScopedViewer.value) {
       await fetchAdminAgencies();
     }
     fetchPresence(true);
@@ -781,6 +783,18 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.status-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.status-rich {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.25;
 }
 
 .status-indicator {

@@ -6,8 +6,15 @@ import {
   requireClinicalChart,
   requireClinicalNoteSigning,
   requireMedicalClaims,
-  requireClaimMd
+  requireClaimMd,
+  requireMedicalBillingActorAccess,
+  requireMedicalBillingReportAccess
 } from '../middleware/medicalBilling.middleware.js';
+
+const claimsGate = [requireMedicalClaims, requireMedicalBillingActorAccess];
+const claimMdGate = [requireClaimMd, requireMedicalBillingActorAccess];
+const masterGate = [requireMedicalBillingMaster, requireMedicalBillingActorAccess];
+const reportsGate = [...masterGate, requireMedicalBillingReportAccess];
 import {
   getMedicalBillingStatus,
   saveTreatmentPlanToChart,
@@ -33,7 +40,10 @@ import {
   createServiceLocation,
   ensureSchoolServiceLocation,
   updateServiceLocation,
-  applyEncounterBilling
+  applyEncounterBilling,
+  listMedicalBillingReportCatalog,
+  runMedicalBillingReport,
+  exportMedicalBillingReportCsv
 } from '../controllers/medicalBilling.controller.js';
 
 const router = express.Router();
@@ -42,6 +52,7 @@ router.use(authenticate, requireActiveStatus);
 
 router.get(
   '/status',
+  requireMedicalBillingActorAccess,
   [query('agencyId').isInt({ min: 1 })],
   getMedicalBillingStatus
 );
@@ -108,14 +119,14 @@ router.post(
 
 router.get(
   '/fee-schedule',
-  requireMedicalClaims,
+  ...claimsGate,
   [query('agencyId').isInt({ min: 1 })],
   listFeeSchedule
 );
 
 router.post(
   '/fee-schedule',
-  requireMedicalClaims,
+  ...claimsGate,
   [
     body('agencyId').isInt({ min: 1 }),
     body('procedureCode').isString().isLength({ min: 1, max: 16 })
@@ -125,14 +136,14 @@ router.post(
 
 router.get(
   '/claims',
-  requireMedicalClaims,
+  ...claimsGate,
   [query('agencyId').isInt({ min: 1 })],
   listMedicalClaims
 );
 
 router.post(
   '/claims',
-  requireMedicalClaims,
+  ...claimsGate,
   [
     body('agencyId').isInt({ min: 1 }),
     body('clientId').isInt({ min: 1 }),
@@ -143,7 +154,7 @@ router.post(
 
 router.post(
   '/claimmd/credentials',
-  requireClaimMd,
+  ...claimMdGate,
   [
     body('agencyId').isInt({ min: 1 }),
     body('accountKey').isString().isLength({ min: 8 })
@@ -153,7 +164,7 @@ router.post(
 
 router.post(
   '/claimmd/claims/:claimId/submit',
-  requireClaimMd,
+  ...claimMdGate,
   [
     param('claimId').isInt({ min: 1 }),
     body('agencyId').isInt({ min: 1 })
@@ -163,21 +174,21 @@ router.post(
 
 router.get(
   '/claimmd/responses',
-  requireClaimMd,
+  ...claimMdGate,
   [query('agencyId').isInt({ min: 1 })],
   refreshClaimMdResponses
 );
 
 router.get(
   '/claimmd/eras',
-  requireClaimMd,
+  ...claimMdGate,
   [query('agencyId').isInt({ min: 1 })],
   listClaimMdEras
 );
 
 router.post(
   '/claimmd/eligibility',
-  requireClaimMd,
+  ...claimMdGate,
   [body('agencyId').isInt({ min: 1 })],
   checkClaimMdEligibility
 );
@@ -185,21 +196,42 @@ router.post(
 // Convenience: master-only ping
 router.get(
   '/ping',
-  requireMedicalBillingMaster,
+  ...masterGate,
   [query('agencyId').isInt({ min: 1 })],
   (req, res) => res.json({ ok: true, flags: req.medicalBillingFlags })
 );
 
 router.get(
+  '/reports/catalog',
+  ...reportsGate,
+  [query('agencyId').isInt({ min: 1 })],
+  listMedicalBillingReportCatalog
+);
+
+router.get(
+  '/reports/export.csv',
+  ...reportsGate,
+  [query('agencyId').isInt({ min: 1 }), query('type').optional().isString().isLength({ min: 1, max: 40 })],
+  exportMedicalBillingReportCsv
+);
+
+router.get(
+  '/reports',
+  ...reportsGate,
+  [query('agencyId').isInt({ min: 1 }), query('type').optional().isString().isLength({ min: 1, max: 40 })],
+  runMedicalBillingReport
+);
+
+router.get(
   '/service-codes',
-  requireMedicalBillingMaster,
+  ...masterGate,
   [query('agencyId').isInt({ min: 1 })],
   listMedicalServiceCodes
 );
 
 router.post(
   '/service-codes',
-  requireMedicalBillingMaster,
+  ...masterGate,
   [
     body('agencyId').isInt({ min: 1 }),
     body('serviceCode').isString().isLength({ min: 1, max: 32 })
@@ -209,7 +241,7 @@ router.post(
 
 router.post(
   '/service-codes/preview-units',
-  requireMedicalBillingMaster,
+  ...masterGate,
   [
     body('agencyId').isInt({ min: 1 }),
     body('serviceCode').isString().isLength({ min: 1, max: 32 }),
@@ -220,14 +252,14 @@ router.post(
 
 router.get(
   '/service-locations',
-  requireMedicalBillingMaster,
+  ...masterGate,
   [query('agencyId').isInt({ min: 1 })],
   listServiceLocations
 );
 
 router.post(
   '/service-locations',
-  requireMedicalBillingMaster,
+  ...masterGate,
   [
     body('agencyId').isInt({ min: 1 }),
     body('name').isString().isLength({ min: 1, max: 255 }),
@@ -248,7 +280,7 @@ router.post(
 
 router.patch(
   '/service-locations/:locationId',
-  requireMedicalBillingMaster,
+  ...masterGate,
   [
     param('locationId').isInt({ min: 1 }),
     body('agencyId').isInt({ min: 1 })
@@ -258,7 +290,7 @@ router.patch(
 
 router.post(
   '/sessions/:sessionId/apply-billing',
-  requireMedicalClaims,
+  ...claimsGate,
   [
     param('sessionId').isInt({ min: 1 }),
     body('agencyId').isInt({ min: 1 })

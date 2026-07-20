@@ -2319,6 +2319,8 @@ export const updateUser = async (req, res, next) => {
       skillBuilderEligible,
       hasSkillBuilderCoordinatorAccess,
       hasPayrollAccess,
+      hasBillingAccess,
+      hasPlatformSupport,
       hasCredentialingAccess,
       isHourlyWorker,
       hasHiringAccess,
@@ -2800,6 +2802,20 @@ export const updateUser = async (req, res, next) => {
       }
       updateData.hasPayrollAccess = Boolean(hasPayrollAccess);
     }
+    // Medical billing access (profile toggle: set for all agencies for this user)
+    if (hasBillingAccess !== undefined) {
+      if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Only admins or super admins can change Medical billing access' } });
+      }
+      updateData.hasBillingAccess = Boolean(hasBillingAccess);
+    }
+    // Platform support team (super_admin only — not full platform HQ powers)
+    if (hasPlatformSupport !== undefined) {
+      if (req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Only super admins can change Platform support access' } });
+      }
+      updateData.hasPlatformSupport = Boolean(hasPlatformSupport);
+    }
     // Credentialing access (profile toggle: set for all agencies for this user)
     if (hasCredentialingAccess !== undefined) {
       // Only admins/super_admins can grant credentialing access (including for themselves).
@@ -3037,6 +3053,78 @@ export const updateUser = async (req, res, next) => {
         }
       } finally {
         if (payrollConn) payrollConn.release();
+      }
+    }
+
+    // When hasBillingAccess was provided, set it for all agencies for this user
+    if (hasBillingAccess !== undefined) {
+      let billingConn;
+      try {
+        billingConn = await pool.getConnection();
+        await billingConn.beginTransaction();
+        const targetUserId = parseInt(id, 10);
+        const actorUserId = Number(req.user?.id || 0);
+        const nextEnabled = !!hasBillingAccess;
+
+        const [rows] = await billingConn.execute(
+          'SELECT agency_id, has_billing_access FROM user_agencies WHERE user_id = ?',
+          [targetUserId]
+        );
+
+        await billingConn.execute(
+          'UPDATE user_agencies SET has_billing_access = ? WHERE user_id = ?',
+          [nextEnabled ? 1 : 0, targetUserId]
+        );
+
+        for (const row of (rows || [])) {
+          const agencyId = Number(row?.agency_id || 0);
+          if (!agencyId) continue;
+          const prevEnabled = normalizeBoolFlag(row?.has_billing_access);
+          if (prevEnabled === nextEnabled) continue;
+          await billingConn.execute(
+            `INSERT INTO admin_audit_log
+             (action_type, actor_user_id, target_user_id, module_id, track_id, agency_id, metadata)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              nextEnabled ? 'grant_billing_access' : 'revoke_billing_access',
+              actorUserId,
+              targetUserId,
+              null,
+              null,
+              agencyId,
+              JSON.stringify({
+                previous: prevEnabled,
+                next: nextEnabled,
+                source: 'user_profile_toggle',
+                scope: 'all_agencies'
+              })
+            ]
+          );
+        }
+
+        await billingConn.commit();
+      } catch (billingErr) {
+        const isSchemaGap =
+          billingErr?.code === 'ER_BAD_FIELD_ERROR' ||
+          billingErr?.code === 'ER_NO_SUCH_TABLE';
+        if (isSchemaGap) {
+          console.warn('Skipping billing access update (schema not ready):', billingErr?.message || billingErr);
+          updateWarnings.push(
+            'Medical billing access update was skipped because billing access columns are not available in this environment.'
+          );
+        } else {
+          if (billingConn) {
+            try {
+              await billingConn.rollback();
+            } catch {
+              // ignore
+            }
+          }
+          console.error('Error setting billing access for all agencies:', billingErr);
+          return res.status(500).json({ error: { message: 'Failed to update medical billing access' } });
+        }
+      } finally {
+        if (billingConn) billingConn.release();
       }
     }
 
@@ -6931,6 +7019,89 @@ export const setUserAgencyPayrollAccess = async (req, res, next) => {
   }
 };
 
+export const setUserAgencyBillingAccess = async (req, res, next) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    const { agencyId, enabled } = req.body || {};
+
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const userId = parseInt(id, 10);
+    const agencyIdNum = agencyId ? parseInt(agencyId, 10) : null;
+    if (!userId || !agencyIdNum) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: { message: 'enabled must be a boolean' } });
+    }
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [membershipRows] = await conn.execute(
+      'SELECT has_billing_access FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [userId, agencyIdNum]
+    );
+    const membership = membershipRows?.[0] || null;
+    if (!membership) {
+      await conn.rollback();
+      return res.status(400).json({ error: { message: 'User is not assigned to this agency' } });
+    }
+
+    const prevEnabled = normalizeBoolFlag(membership.has_billing_access);
+    const nextEnabled = !!enabled;
+
+    if (prevEnabled !== nextEnabled) {
+      await conn.execute(
+        'UPDATE user_agencies SET has_billing_access = ? WHERE user_id = ? AND agency_id = ?',
+        [nextEnabled ? 1 : 0, userId, agencyIdNum]
+      );
+      await conn.execute(
+        `INSERT INTO admin_audit_log
+         (action_type, actor_user_id, target_user_id, module_id, track_id, agency_id, metadata)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          nextEnabled ? 'grant_billing_access' : 'revoke_billing_access',
+          Number(req.user?.id || 0),
+          userId,
+          null,
+          null,
+          agencyIdNum,
+          JSON.stringify({
+            previous: prevEnabled,
+            next: nextEnabled,
+            source: 'user_agency_toggle'
+          })
+        ]
+      );
+    }
+
+    const [updatedRows] = await conn.execute(
+      'SELECT has_billing_access FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [userId, agencyIdNum]
+    );
+    await conn.commit();
+    res.json({
+      userId,
+      agencyId: agencyIdNum,
+      hasBillingAccess: normalizeBoolFlag(updatedRows?.[0]?.has_billing_access)
+    });
+  } catch (error) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore
+      }
+    }
+    next(error);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
 export const setUserAgencyDepartmentAccess = async (req, res, next) => {
   let conn;
   try {
@@ -8040,6 +8211,8 @@ export const getAccountInfo = async (req, res, next) => {
         ? (user.has_supervisor_privileges || false) 
         : undefined, // Only include for eligible roles
       hasPayrollAccess: (await User.listPayrollAgencyIds(userIdInt)).length > 0,
+      hasBillingAccess: (await User.listBillingAgencyIds(userIdInt)).length > 0,
+      hasPlatformSupport: !!(user.has_platform_support === 1 || user.has_platform_support === true || user.has_platform_support === '1'),
       hasCredentialingAccess: (await User.listCredentialingAgencyIds(userIdInt)).length > 0,
       isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
       hourlyDualRateEnabled: !!(user.hourly_dual_rate_enabled === 1 || user.hourly_dual_rate_enabled === true || user.hourly_dual_rate_enabled === '1'),
@@ -10065,6 +10238,7 @@ export const getProfileOverview = async (req, res, next) => {
           companyCarManageAccess: !!(user.company_car_manage_access === 1 || user.company_car_manage_access === true || user.company_car_manage_access === '1'),
           skillBuilderEligible: !!(user.skill_builder_eligible === 1 || user.skill_builder_eligible === true || user.skill_builder_eligible === '1'),
           hasPayrollAccess: (await User.listPayrollAgencyIds(targetId)).length > 0,
+          hasBillingAccess: (await User.listBillingAgencyIds(targetId)).length > 0,
           hasCredentialingAccess: (await User.listCredentialingAgencyIds(targetId)).length > 0,
           isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
       hourlyDualRateEnabled: !!(user.hourly_dual_rate_enabled === 1 || user.hourly_dual_rate_enabled === true || user.hourly_dual_rate_enabled === '1'),

@@ -330,4 +330,110 @@ export default class UserPlatformSession {
       total: Number(countRows?.[0]?.total || 0)
     };
   }
+
+  /**
+   * Aggregate the immutable session ledger into one row per user per UTC day.
+   * A session is assigned to the day on which it started. Tracked time is the
+   * server-accrued active + inactive time, not unbounded wall-clock time.
+   */
+  static async getDailyActivityForAgency({
+    agencyId,
+    userId = null,
+    startDate = null,
+    endDate = null,
+    search = null,
+    limit = 50,
+    offset = 0
+  }) {
+    const where = ['ups.agency_id = ?'];
+    const params = [Number(agencyId)];
+
+    if (userId) {
+      where.push('ups.user_id = ?');
+      params.push(Number(userId));
+    }
+    if (startDate) {
+      where.push('ups.started_at >= ?');
+      params.push(startDate);
+    }
+    if (endDate) {
+      where.push('ups.started_at < DATE_ADD(?, INTERVAL 1 DAY)');
+      params.push(endDate);
+    }
+    const searchTerm = String(search || '').trim();
+    if (searchTerm) {
+      const like = `%${searchTerm}%`;
+      where.push(`(
+        CAST(ups.user_id AS CHAR) LIKE ? OR
+        COALESCE(u.email, '') LIKE ? OR
+        COALESCE(u.username, '') LIKE ? OR
+        CONCAT_WS(' ', COALESCE(u.first_name, ''), COALESCE(u.last_name, '')) LIKE ?
+      )`);
+      params.push(like, like, like, like);
+    }
+
+    const whereSql = where.join(' AND ');
+    const lim = Math.min(10000, Math.max(1, Number(limit) || 50));
+    const off = Math.max(0, Number(offset) || 0);
+    const fromSql = `
+      FROM user_platform_sessions ups
+      LEFT JOIN users u ON u.id = ups.user_id
+      WHERE ${whereSql}`;
+
+    const [rows] = await pool.execute(
+      `SELECT
+         DATE(ups.started_at) AS activity_date,
+         ups.user_id,
+         u.email AS user_email,
+         u.username AS user_username,
+         TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS user_name,
+         COUNT(*) AS session_count,
+         SUM(CASE WHEN ups.ended_at IS NULL THEN 1 ELSE 0 END) AS open_session_count,
+         COALESCE(SUM(ups.active_seconds), 0) AS active_seconds,
+         COALESCE(SUM(ups.inactive_seconds), 0) AS inactive_seconds,
+         COALESCE(SUM(ups.active_seconds + ups.inactive_seconds), 0) AS tracked_seconds,
+         COALESCE(SUM(ups.billable_active_seconds), 0) AS billable_active_seconds,
+         COALESCE(SUM(ups.meaningful_event_count), 0) AS meaningful_event_count,
+         COALESCE(SUM(ups.passive_event_count), 0) AS passive_event_count,
+         COALESCE(SUM(ups.meaningful_event_count + ups.passive_event_count), 0) AS interaction_count,
+         COALESCE(SUM(ups.timedown_count), 0) AS timedown_count,
+         COALESCE(AVG(ups.suspicion_score), 0) AS average_suspicion_score,
+         COALESCE(MAX(ups.suspicion_score), 0) AS max_suspicion_score
+       ${fromSql}
+       GROUP BY DATE(ups.started_at), ups.user_id, u.email, u.username, u.first_name, u.last_name
+       ORDER BY activity_date DESC, user_name ASC, ups.user_id ASC
+       LIMIT ${lim} OFFSET ${off}`,
+      params
+    );
+
+    const [countRows] = await pool.execute(
+      `SELECT COUNT(*) AS total
+       FROM (
+         SELECT ups.user_id, DATE(ups.started_at) AS activity_date
+         ${fromSql}
+         GROUP BY ups.user_id, DATE(ups.started_at)
+       ) daily_activity`,
+      params
+    );
+
+    const [summaryRows] = await pool.execute(
+      `SELECT
+         COUNT(DISTINCT ups.user_id) AS user_count,
+         COUNT(DISTINCT DATE(ups.started_at)) AS day_count,
+         COUNT(*) AS session_count,
+         COALESCE(SUM(ups.active_seconds), 0) AS active_seconds,
+         COALESCE(SUM(ups.inactive_seconds), 0) AS inactive_seconds,
+         COALESCE(SUM(ups.active_seconds + ups.inactive_seconds), 0) AS tracked_seconds,
+         COALESCE(SUM(ups.billable_active_seconds), 0) AS billable_active_seconds,
+         COALESCE(SUM(ups.meaningful_event_count + ups.passive_event_count), 0) AS interaction_count
+       ${fromSql}`,
+      params
+    );
+
+    return {
+      rows: rows || [],
+      total: Number(countRows?.[0]?.total || 0),
+      summary: summaryRows?.[0] || {}
+    };
+  }
 }

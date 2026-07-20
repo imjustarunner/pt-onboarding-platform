@@ -148,7 +148,7 @@ This role does NOT exist yet. When it does, the Platform Dashboard routing shoul
 | Presence widgets | ✅ `PresenceStatusWidget` + `PresenceTeamPreview` |
 | Platform Notifications | ✅ `NotificationCards` component |
 | Top stats row (agencies, users, modules, templates) | ✅ Real queries via `/agencies`, `/users`, `/modules` |
-| Platform admin role (non-super) | 🔲 Not yet implemented — deferred |
+| Platform admin role (non-super) | ◐ Partial — `users.has_platform_support` + `support_tickets.target_scope=platform` (migration 1005). Platform support can work HQ tickets without full super_admin; tenant admins use **Ask Platform Support** on Tickets. Full HQ chrome still super_admin-only. |
 | Clickable tenant cards route to `TenantAdminDashboard` | ✅ Routes to `/:slug/admin-dashboard` |
 | No tenant branding in platform view | ✅ Fixed — header always shows "Platform Dashboard" |
 

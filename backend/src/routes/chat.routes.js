@@ -10,6 +10,16 @@ import {
   getThreadMeta,
   listMessages,
   listMyThreads,
+  listThreadsInbox,
+  listMentionsInbox,
+  listFilesInbox,
+  listBookmarksInbox,
+  listPinsInbox,
+  bookmarkMessage,
+  unbookmarkMessage,
+  pinMessage,
+  unpinMessage,
+  startMeetingFromThread,
   markRead,
   sendMessage,
   unsendMessage
@@ -18,7 +28,11 @@ import {
   listChannels,
   createChannel,
   joinChannel,
-  openChannel
+  openChannel,
+  listChannelMembers,
+  inviteChannelMembers,
+  removeChannelMember,
+  leaveChannel
 } from '../controllers/chatChannels.controller.js';
 import { uploadChatAttachment } from '../controllers/chatAttachments.controller.js';
 import {
@@ -51,6 +65,16 @@ router.get('/channels', listChannels);
 router.post('/channels', createChannel);
 router.post('/channels/:threadId/join', joinChannel);
 router.post('/channels/:threadId/open', openChannel);
+router.get('/channels/:threadId/members', listChannelMembers);
+router.post('/channels/:threadId/members', inviteChannelMembers);
+router.delete('/channels/:threadId/members/:userId', removeChannelMember);
+router.post('/channels/:threadId/leave', leaveChannel);
+
+router.get('/inbox/threads', listThreadsInbox);
+router.get('/inbox/mentions', listMentionsInbox);
+router.get('/inbox/files', listFilesInbox);
+router.get('/inbox/bookmarks', listBookmarksInbox);
+router.get('/inbox/pins', listPinsInbox);
 
 router.get('/threads', listMyThreads);
 router.post('/threads/direct', createOrGetDirectThread);
@@ -63,6 +87,7 @@ router.post('/threads/:threadId/messages/delete-for-me', bulkDeleteForMe);
 router.delete('/threads/:threadId/messages/:messageId', unsendMessage);
 router.post('/threads/:threadId/messages/:messageId/delete-for-me', deleteForMe);
 router.post('/threads/:threadId/read', markRead);
+router.post('/threads/:threadId/start-meeting', startMeetingFromThread);
 
 router.post(
   '/threads/:threadId/attachments',
@@ -73,6 +98,11 @@ router.post(
 router.get('/messages/:messageId/reactions', listReactions);
 router.post('/messages/:messageId/reactions', addReaction);
 router.delete('/messages/:messageId/reactions/:code', removeReaction);
+
+router.post('/messages/:messageId/bookmark', bookmarkMessage);
+router.delete('/messages/:messageId/bookmark', unbookmarkMessage);
+router.post('/messages/:messageId/pin', pinMessage);
+router.delete('/messages/:messageId/pin', unpinMessage);
 
 export default router;
 

@@ -34,13 +34,14 @@ export async function expandCredentialingAgencyIds(agencyIds) {
 export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
   const roleForCaps = effectiveRole ?? user?.role ?? null;
   const userForCaps = user ? { ...user, role: roleForCaps } : null;
-  const [payrollAgencyIds, departmentAgencyIds, rawCredentialingAgencyIds] = userForCaps?.id
+  const [payrollAgencyIds, departmentAgencyIds, rawCredentialingAgencyIds, billingAgencyIds] = userForCaps?.id
     ? await Promise.all([
         User.listPayrollAgencyIds(userForCaps.id),
         User.listDepartmentAgencyIds(userForCaps.id),
-        User.listCredentialingAgencyIds(userForCaps.id)
+        User.listCredentialingAgencyIds(userForCaps.id),
+        User.listBillingAgencyIds(userForCaps.id)
       ])
-    : [[], [], []];
+    : [[], [], [], []];
   const credentialingAgencyIds = await expandCredentialingAgencyIds(rawCredentialingAgencyIds);
   const baseCaps = getUserCapabilities(userForCaps);
   const canManagePayroll = roleForCaps === 'super_admin' || payrollAgencyIds.length > 0;
@@ -49,15 +50,21 @@ export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
     (roleForCaps === 'assistant_admin' && departmentAgencyIds.length > 0) ||
     (roleForCaps === 'provider_plus' && departmentAgencyIds.length > 0);
   const canManageCredentialing = roleForCaps === 'super_admin' || credentialingAgencyIds.length > 0;
+  const canManageMedicalBilling =
+    roleForCaps === 'super_admin' ||
+    roleForCaps === 'admin' ||
+    (billingAgencyIds || []).length > 0;
   return {
     payrollAgencyIds,
     departmentAgencyIds,
     credentialingAgencyIds,
+    billingAgencyIds,
     capabilities: {
       ...baseCaps,
       canManagePayroll,
       canAccessBudgetManagement,
       canManageCredentialing,
+      canManageMedicalBilling,
       canViewMyPayroll: true
     }
   };

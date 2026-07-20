@@ -16,58 +16,18 @@
           </svg>
         </button>
 
-        <div class="client-avatar" :style="avatarStyle">{{ avatarLetter }}</div>
-
         <div class="client-info">
-          <span class="client-name">{{ activeName }}</span>
+          <div class="client-name-row">
+            <span class="client-name">{{ activeName }}</span>
+            <span class="entity-badge">{{ clientId ? 'Client' : 'Contact' }}</span>
+          </div>
           <span class="client-phone">{{ formatPhone(activePhone) }}</span>
         </div>
 
         <div class="header-actions">
-          <!-- Convert Contact Actions -->
-          <template v-if="contactId && !clientId">
-            <button
-              class="header-btn convert-btn"
-              type="button"
-              title="Convert to Client"
-              @click="convertToClient"
-              :disabled="converting"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>
-              </svg>
-              To Client
-            </button>
-            <button
-              class="header-btn convert-btn"
-              type="button"
-              title="Convert to Guardian"
-              @click="convertToGuardian"
-              :disabled="converting"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-              </svg>
-              To Guardian
-            </button>
-          </template>
-
-          <button
-            v-if="clientId"
-            class="header-btn forward-btn"
-            type="button"
-            title="Forward thread to support"
-            @click="promptForward"
-            :disabled="forwarding"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="15 10 20 15 15 20"/>
-              <path d="M4 4v7a4 4 0 0 0 4 4h12"/>
-            </svg>
-            <span v-if="forwarding" class="mini-spinner"></span>
-          </button>
           <ThreadCallButton
-            :client-id="clientId"
+            ref="callBtnRef"
+            :client-id="clientId || 0"
             :contact-id="contactId"
             :client-phone="activePhone"
             :number-id="numberId"
@@ -77,15 +37,26 @@
             :href="clientProfileUrl"
             target="_blank"
             rel="noopener"
-            class="profile-link"
+            class="header-btn profile-link"
             title="Open client profile"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-              <polyline points="15 3 21 3 21 9"/>
-              <line x1="10" y1="14" x2="21" y2="3"/>
-            </svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           </a>
+          <div class="actions-menu">
+            <button type="button" class="actions-btn" @click.stop="showActions = !showActions">
+              Actions
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div v-if="showActions" class="actions-dropdown" @click.stop>
+              <button v-if="clientId" type="button" @click="showActions = false; promptForward()">Forward to support</button>
+              <button v-if="canManageCare" type="button" @click="showActions = false; setCareAction('claim')">Claim / under care</button>
+              <button v-if="canManageCare" type="button" @click="showActions = false; setCareAction('observe')">Observe</button>
+              <button v-if="canManageCare" type="button" @click="showActions = false; setCareAction('close')">Mark resolved</button>
+              <button v-if="contactId && !clientId" type="button" @click="showActions = false; convertToClient()">Convert to client</button>
+              <button v-if="contactId && !clientId" type="button" @click="showActions = false; convertToGuardian()">Convert to guardian</button>
+              <a v-if="clientId" :href="clientProfileUrl" target="_blank" rel="noopener" @click="showActions = false">View profile</a>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -114,6 +85,7 @@
               class="msg-row"
               :class="msg.direction === 'OUTBOUND' ? 'msg-row--out' : 'msg-row--in'"
             >
+              <div v-if="msg.direction === 'INBOUND'" class="msg-avatar">{{ avatarLetter }}</div>
               <div class="msg-bubble" :class="msg.direction === 'OUTBOUND' ? 'bubble--out' : 'bubble--in'">
                 <div v-if="msg.body" class="msg-text">{{ msg.body }}</div>
                 <div v-if="mediaUrls(msg).length" class="msg-media">
@@ -126,12 +98,12 @@
                     @click="openImage(url)"
                   />
                 </div>
-                <div class="msg-meta">
-                  <span class="msg-time">{{ msgTime(msg.created_at) }}</span>
-                  <span v-if="msg.direction === 'OUTBOUND'" class="msg-status" :class="`status--${msg.delivery_status}`">
-                    {{ statusLabel(msg.delivery_status) }}
-                  </span>
-                </div>
+              </div>
+              <div class="msg-meta">
+                <span class="msg-time">{{ msgTime(msg.created_at) }}</span>
+                <span v-if="msg.direction === 'OUTBOUND'" class="msg-status" :class="`status--${msg.delivery_status}`">
+                  {{ statusLabel(msg.delivery_status) }}
+                </span>
               </div>
             </div>
           </div>
@@ -227,6 +199,11 @@
             </div>
           </div>
         </div>
+        <div v-if="!optedOut" class="compose-from">
+          <span v-if="fromNumberLabel">SMS will be sent from {{ fromNumberLabel }}</span>
+          <span v-else>SMS will be sent from your agency care number</span>
+          <button type="button" class="compose-settings-link" @click="$emit('open-settings')">Manage SMS settings</button>
+        </div>
         <div v-if="sendError" class="send-error">{{ sendError }}</div>
       </div>
     </template>
@@ -235,6 +212,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import ThreadCallButton from './ThreadCallButton.vue';
 import { useAuthStore } from '../../store/auth';
@@ -247,11 +225,13 @@ const props = defineProps({
   contactName: { type: String,           default: '' },
   contactPhone:{ type: String,           default: '' },
   numberId:    { type: [Number, String], default: null },
-  agencyId:    { type: [Number, String], default: null }
+  agencyId:    { type: [Number, String], default: null },
+  careThread:  { type: Object,           default: null }
 });
 
-const emit = defineEmits(['back', 'message-sent', 'contact-converted']);
+const emit = defineEmits(['back', 'message-sent', 'contact-converted', 'care-updated', 'open-settings']);
 
+const route = useRoute();
 const auth = useAuthStore();
 const authUser = computed(() => auth.user?.value ?? auth.user ?? null);
 
@@ -262,6 +242,61 @@ const sending    = ref(false);
 const sendError  = ref('');
 const optedOut   = ref(false);
 const forwarding = ref(false);
+const careBusy = ref(false);
+const showActions = ref(false);
+const callBtnRef = ref(null);
+const myNumbers = ref([]);
+
+const canManageCare = computed(() => {
+  const r = String(authUser.value?.role || '').toLowerCase();
+  return ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff'].includes(r);
+});
+
+const fromNumberLabel = computed(() => {
+  const nid = Number(props.numberId);
+  const match = myNumbers.value.find((n) => Number(n.id || n.number_id) === nid);
+  const phone = match?.phone_number || match?.phone || match?.e164 || null;
+  if (phone) return formatPhone(phone);
+  if (myNumbers.value[0]) {
+    return formatPhone(myNumbers.value[0].phone_number || myNumbers.value[0].phone || myNumbers.value[0].e164 || '');
+  }
+  return '';
+});
+
+async function loadMyNumbers() {
+  try {
+    const res = await api.get('/messages/my-numbers', { skipGlobalLoading: true });
+    myNumbers.value = Array.isArray(res.data) ? res.data : (res.data?.numbers || []);
+  } catch {
+    myNumbers.value = [];
+  }
+}
+
+async function setCareAction(action) {
+  if (!props.clientId || careBusy.value) return;
+  careBusy.value = true;
+  try {
+    const res = await api.patch('/messages/care-thread', {
+      clientId: props.clientId,
+      numberId: props.numberId || undefined,
+      agencyId: props.agencyId || undefined,
+      action
+    });
+    emit('care-updated', res.data?.careThread || null);
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to update care state.');
+  } finally {
+    careBusy.value = false;
+  }
+}
+
+function triggerCall() {
+  callBtnRef.value?.$el?.querySelector('button')?.click?.();
+}
+
+function onDocClickCloseActions() {
+  showActions.value = false;
+}
 const messagesEl = ref(null);
 const composeEl  = ref(null);
 const fileInputEl = ref(null);
@@ -284,13 +319,6 @@ const clientProfileUrl = computed(() => {
   const slug = u?.currentAgencySlug || u?.agency_slug || '';
   if (slug) return `/${slug}/admin/clients/${props.clientId}`;
   return `/admin/clients/${props.clientId}`;
-});
-
-const palette = ['#dbeafe', '#d1fae5', '#fce7f3', '#fef3c7', '#ede9fe', '#fee2e2', '#e0f2fe'];
-const darkColors = ['#1d4ed8', '#065f46', '#9d174d', '#92400e', '#5b21b6', '#991b1b', '#0369a1'];
-const avatarStyle = computed(() => {
-  const idx = (Number(props.clientId) || Number(props.contactId) || 0) % palette.length;
-  return { background: palette[idx], color: darkColors[idx] };
 });
 
 const avatarLetter = computed(() => {
@@ -516,14 +544,16 @@ async function send() {
 async function promptForward() {
   const note = window.prompt('Add a note for support (optional):', 'This client needs assistance that I cannot provide directly.');
   if (note === null) return; // user cancelled
-  
+
   forwarding.value = true;
   try {
-    await api.post('/messages/forward-to-support', {
+    const res = await api.post('/messages/forward-to-support', {
       clientId: props.clientId,
       message: note
     });
-    alert('Thread has been forwarded to support.');
+    emit('care-updated', null);
+    const tid = res.data?.supportTicketId;
+    alert(tid ? `Escalated — support ticket #${tid} opened.` : 'Thread escalated to support.');
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to forward to support.');
   } finally {
@@ -533,9 +563,12 @@ async function promptForward() {
 
 onMounted(() => {
   initRTC();
+  loadMyNumbers();
+  document.addEventListener('click', onDocClickCloseActions);
 });
 
 onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClickCloseActions);
   if (rtcClient.value) rtcClient.value.logout();
 });
 
@@ -561,11 +594,18 @@ function handleTyping() {
   }, 3000);
 }
 
-defineExpose({ reload: loadThread });
+defineExpose({ reload: loadThread, triggerCall });
 
 watch(
-  [() => props.clientId, () => props.contactId],
-  () => { loadThread(); draft.value = ''; sendError.value = ''; attachments.value = []; aiSuggestions.value = []; },
+  [() => props.clientId, () => props.contactId, () => props.numberId],
+  () => {
+    loadThread();
+    showActions.value = false;
+    draft.value = '';
+    sendError.value = '';
+    attachments.value = [];
+    aiSuggestions.value = [];
+  },
   { immediate: true }
 );
 </script>
@@ -576,7 +616,8 @@ watch(
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--bg-primary, #f8fafc);
+  background: var(--sms-bg, var(--bg-primary, #f8fafc));
+  color: var(--sms-text, var(--text-primary, #0f172a));
   position: relative;
 }
 
@@ -588,22 +629,12 @@ watch(
   align-items: center;
   justify-content: center;
   text-align: center;
-  color: var(--text-secondary, #64748b);
+  color: var(--sms-muted, var(--text-secondary, #64748b));
   padding: 40px;
-  background: radial-gradient(circle at center, #fff 0%, #f8fafc 100%);
 }
-.conv-thread__empty .empty-icon { 
-  font-size: 4rem; 
-  margin-bottom: 20px; 
-  filter: drop-shadow(0 10px 15px rgba(0,0,0,0.05));
-  animation: float 3s ease-in-out infinite;
-}
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
-}
-.conv-thread__empty h3 { margin: 0 0 10px; font-size: 1.5rem; font-weight: 800; color: var(--text-primary, #0f172a); letter-spacing: -0.02em; }
-.conv-thread__empty p  { margin: 0; font-size: 1rem; max-width: 280px; line-height: 1.5; }
+.conv-thread__empty .empty-icon { font-size: 3rem; margin-bottom: 16px; opacity: 0.7; }
+.conv-thread__empty h3 { margin: 0 0 10px; font-size: 1.35rem; font-weight: 800; color: var(--sms-text, var(--text-primary, #0f172a)); letter-spacing: -0.02em; }
+.conv-thread__empty p  { margin: 0; font-size: 0.95rem; max-width: 280px; line-height: 1.5; }
 
 /* Header */
 .conv-thread__header {
@@ -611,12 +642,10 @@ watch(
   align-items: center;
   gap: 14px;
   padding: 14px 20px;
-  border-bottom: 1px solid var(--border, #e2e8f0);
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--sms-border, var(--border, #e2e8f0));
+  background: var(--sms-surface, var(--surface-card, #fff));
   flex-shrink: 0;
   z-index: 5;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
 
 .back-btn {
@@ -652,24 +681,91 @@ watch(
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
+}
+
+.client-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .client-name {
   font-weight: 800;
   font-size: 1.05rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--sms-text, var(--text-primary, #0f172a));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   letter-spacing: -0.01em;
 }
 
+.entity-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: var(--sms-surface-2, #e2e8f0);
+  color: var(--sms-muted, #64748b);
+}
+
 .client-phone {
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--text-secondary, #64748b);
+  color: var(--sms-muted, var(--text-secondary, #64748b));
   letter-spacing: 0.01em;
+}
+
+.actions-menu { position: relative; }
+.actions-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary, #2563eb);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.actions-btn svg { width: 14px; height: 14px; }
+.actions-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 200px;
+  background: var(--sms-surface, #fff);
+  border: 1px solid var(--sms-border, #e2e8f0);
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.18);
+  padding: 6px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+}
+.actions-dropdown button,
+.actions-dropdown a {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--sms-text, #0f172a);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.actions-dropdown button:hover,
+.actions-dropdown a:hover {
+  background: color-mix(in srgb, var(--primary, #2563eb) 12%, transparent);
+  color: var(--primary, #2563eb);
 }
 
 .header-actions {
@@ -757,7 +853,7 @@ watch(
   flex-direction: column;
   gap: 4px;
   scroll-behavior: smooth;
-  background: var(--bg-primary, #f8fafc);
+  background: var(--sms-bg, var(--bg-primary, #f8fafc));
 }
 
 .msg-loading, .msg-empty {
@@ -797,17 +893,33 @@ watch(
 /* Message row */
 .msg-row {
   display: flex;
-  margin: 2px 0;
-  transition: transform 0.2s ease;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 8px 0;
+  max-width: 100%;
 }
-.msg-row:hover { transform: translateX(2px); }
 .msg-row--out { justify-content: flex-end; }
-.msg-row--out:hover { transform: translateX(-2px); }
 .msg-row--in  { justify-content: flex-start; }
+.msg-row--out .msg-meta { width: 100%; justify-content: flex-end; }
+.msg-row--in .msg-meta { width: 100%; padding-left: 40px; }
 
-/* Bubble */
+.msg-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 800;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--primary, #2563eb) 18%, transparent);
+  color: var(--primary, #2563eb);
+}
+
 .msg-bubble {
-  max-width: 75%;
+  max-width: min(75%, 520px);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -815,58 +927,75 @@ watch(
 }
 
 .bubble--out {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  background: var(--primary, #2563eb);
   color: #fff;
-  border-radius: 20px 20px 4px 20px;
+  border-radius: 18px 18px 4px 18px;
   padding: 12px 16px;
   align-items: flex-end;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
 }
 
 .bubble--in {
-  background: #fff;
-  color: var(--text-primary, #0f172a);
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 20px 20px 20px 4px;
+  background: var(--sms-surface-2, #1e293b);
+  color: var(--sms-text, var(--text-primary, #0f172a));
+  border: 1px solid var(--sms-border, transparent);
+  border-radius: 18px 18px 18px 4px;
   padding: 12px 16px;
   align-items: flex-start;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
 }
 
 .msg-text { font-size: 0.95rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; font-weight: 500; }
 
 .msg-media { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
-.msg-image { 
-  max-width: 240px; 
-  max-height: 240px; 
-  border-radius: 12px; 
-  cursor: pointer; 
-  object-fit: cover; 
-  transition: transform 0.2s;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+.msg-image {
+  max-width: 240px;
+  max-height: 240px;
+  border-radius: 12px;
+  cursor: pointer;
+  object-fit: cover;
 }
-.msg-image:hover { transform: scale(1.02); }
 
-.msg-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
 
 .msg-time {
   font-size: 0.7rem;
   font-weight: 600;
-  opacity: 0.65;
+  color: var(--sms-muted, #94a3b8);
 }
 
-.msg-status { font-size: 0.75rem; }
-.status--sent, .status--delivered { color: rgba(255,255,255,0.8); }
-.bubble--in .status--sent { color: #64748b; }
-.status--failed { color: #fecaca; font-weight: 800; }
+.msg-status { font-size: 0.75rem; color: var(--sms-muted, #94a3b8); }
+.status--failed { color: var(--error, #ef4444); font-weight: 800; }
 
 /* Compose */
 .conv-thread__compose {
-  border-top: 1px solid var(--border, #e2e8f0);
-  background: #fff;
-  padding: 16px 24px 20px;
+  border-top: 1px solid var(--sms-border, var(--border, #e2e8f0));
+  background: var(--sms-surface, #fff);
+  padding: 14px 20px 12px;
   flex-shrink: 0;
-  box-shadow: 0 -4px 15px rgba(0,0,0,0.02);
+}
+
+.compose-from {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: var(--sms-muted, #64748b);
+}
+.compose-settings-link {
+  border: none;
+  background: none;
+  color: var(--primary, #2563eb);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
 }
 
 .opt-out-notice {
@@ -886,11 +1015,11 @@ watch(
   flex-direction: column;
   align-items: stretch;
   gap: 8px;
-  border: 2px solid var(--border, #f1f5f9);
+  border: 1px solid var(--sms-border, var(--border, #f1f5f9));
   border-radius: 16px;
   padding: 8px;
-  background: var(--bg-secondary, #f8fafc);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--sms-bg, var(--bg-secondary, #f8fafc));
+  transition: border-color 0.15s;
 }
 
 .compose-row {
@@ -935,11 +1064,8 @@ watch(
   color: var(--text-secondary);
 }
 .attach-btn:hover { color: var(--primary); background: transparent; transform: none; box-shadow: none; }
-.compose-inner:focus-within { 
-  border-color: var(--primary, #2563eb); 
-  background: #fff;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); 
-  transform: translateY(-1px);
+.compose-inner:focus-within {
+  border-color: var(--primary, #2563eb);
 }
 
 .compose-input {
@@ -951,14 +1077,14 @@ watch(
   font-family: inherit;
   line-height: 1.5;
   background: transparent;
-  color: var(--text-primary, #0f172a);
+  color: var(--sms-text, var(--text-primary, #0f172a));
   min-height: 40px;
   max-height: 150px;
   overflow-y: auto;
   padding: 8px 0;
   font-weight: 500;
 }
-.compose-input::placeholder { color: #94a3b8; font-weight: 400; }
+.compose-input::placeholder { color: var(--sms-muted, #94a3b8); font-weight: 400; }
 .compose-input:disabled { opacity: 0.5; }
 
 .compose-actions {
@@ -989,18 +1115,11 @@ watch(
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 4px 10px color-mix(in srgb, var(--primary, #2563eb) 30%, transparent);
 }
-.send-btn svg { width: 20px; height: 20px; transform: rotate(0deg); transition: transform 0.2s; }
-.send-btn:hover:not(:disabled) { 
-  background: #1d4ed8; 
-  transform: translateY(-2px) scale(1.05); 
-  box-shadow: 0 6px 15px rgba(37, 99, 235, 0.35);
-}
-.send-btn:hover:not(:disabled) svg { transform: translateX(2px) translateY(-2px); }
-.send-btn:active { transform: translateY(0) scale(0.95); }
-.send-btn:disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; box-shadow: none; }
+.send-btn svg { width: 20px; height: 20px; }
+.send-btn:hover:not(:disabled) { filter: brightness(1.06); }
+.send-btn:disabled { background: var(--sms-surface-2, #e2e8f0); color: var(--sms-muted, #94a3b8); cursor: not-allowed; box-shadow: none; }
 
 .sending-spinner {
   width: 20px;

@@ -89,7 +89,7 @@ class MessageLog {
     await pool.execute(
       `UPDATE message_logs
        SET delivery_status = 'sent',
-           provider_message_sid = COALESCE(provider_message_sid, ?),
+           twilio_message_sid = COALESCE(twilio_message_sid, ?),
            metadata = COALESCE(?, metadata)
        WHERE id = ?`,
       [sid, metadata ? JSON.stringify(metadata) : null, id]

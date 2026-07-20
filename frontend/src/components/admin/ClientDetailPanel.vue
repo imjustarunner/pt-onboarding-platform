@@ -1551,6 +1551,16 @@
                     </td>
                     <td class="right" style="white-space: nowrap;">
                       <button
+                        v-if="canMessageGuardian"
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="messagingGuardianId === g.guardian_user_id"
+                        @click="messageGuardian(g)"
+                        style="margin-right: 8px;"
+                      >
+                        Message
+                      </button>
+                      <button
                         type="button"
                         class="btn btn-secondary btn-sm"
                         :disabled="updatingGuardianId === g.guardian_user_id"
@@ -3247,6 +3257,34 @@ watch(
 const guardiansLoading = ref(false);
 const guardiansError = ref('');
 const guardians = ref([]);
+const messagingGuardianId = ref(null);
+const canMessageGuardian = computed(() =>
+  ['provider', 'provider_plus', 'admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'supervisor'].includes(
+    String(roleNorm.value || '')
+  )
+);
+
+const messageGuardian = (g) => {
+  const guardianUserId = Number(g?.guardian_user_id || 0);
+  if (!guardianUserId) return;
+  const agencyIdForChat =
+    Number(props.client?.agency_id || selectedAgencyId.value || 0) || null;
+  const name = [g.first_name, g.last_name].filter(Boolean).join(' ') || 'Guardian';
+  messagingGuardianId.value = guardianUserId;
+  try {
+    router.push({
+      path: route.path,
+      query: {
+        ...route.query,
+        openChatWith: String(guardianUserId),
+        ...(agencyIdForChat ? { agencyId: String(agencyIdForChat) } : {}),
+        openChatWithName: name
+      }
+    });
+  } finally {
+    messagingGuardianId.value = null;
+  }
+};
 const showAddGuardianModal = ref(false);
 const addingGuardian = ref(false);
 const creatingIntakeGuardian = ref(false);

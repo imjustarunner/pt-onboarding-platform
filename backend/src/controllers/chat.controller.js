@@ -3,9 +3,7 @@ import User from '../models/User.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import Notification from '../models/Notification.model.js';
 import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
-
-const ONLINE_ACTIVITY_MS = 5 * 60 * 1000;
-const ONLINE_HEARTBEAT_MS = 2 * 60 * 1000;
+import { startAdhocTeamMeeting } from '../services/teamMeetingStart.service.js';
 
 async function hasChatMessageEncryptionColumns() {
   try {
@@ -57,6 +55,137 @@ async function hasChatMessageReactionsTable() {
   } catch {
     return false;
   }
+}
+
+async function hasParentMessageColumn() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'chat_messages' AND column_name = 'parent_message_id'
+       LIMIT 1`
+    );
+    return rows?.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasChatMessageMentionsTable() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.tables
+       WHERE table_schema = DATABASE() AND table_name = 'chat_message_mentions'
+       LIMIT 1`
+    );
+    return rows?.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Resolve a parent id to the root message id (Slack-style: no nested trees). */
+async function resolveRootMessageId(threadId, parentMessageId) {
+  const pid = parseInt(parentMessageId, 10);
+  if (!Number.isFinite(pid) || pid <= 0) return null;
+  const [[msg]] = await pool.execute(
+    `SELECT id, thread_id, parent_message_id
+       FROM chat_messages
+      WHERE id = ? AND thread_id = ?
+      LIMIT 1`,
+    [pid, threadId]
+  );
+  if (!msg) {
+    const err = new Error('Parent message not found in this conversation');
+    err.status = 400;
+    throw err;
+  }
+  return msg.parent_message_id ? Number(msg.parent_message_id) : Number(msg.id);
+}
+
+/**
+ * Parse @username and @First Last mentions against thread participants.
+ * Returns unique user ids (excluding sender).
+ */
+function resolveMentionedUserIds(body, participants, senderUserId) {
+  const text = String(body || '');
+  if (!text.includes('@')) return [];
+  const lower = text.toLowerCase();
+  const hit = new Set();
+  for (const p of participants || []) {
+    const uid = Number(p.user_id || p.id);
+    if (!uid || uid === Number(senderUserId)) continue;
+    const username = String(p.username || '').trim();
+    const first = String(p.first_name || '').trim();
+    const last = String(p.last_name || '').trim();
+    const full = `${first} ${last}`.trim();
+    const candidates = [];
+    if (username) candidates.push(`@${username.toLowerCase()}`);
+    if (full) candidates.push(`@${full.toLowerCase()}`);
+    if (first && !last) candidates.push(`@${first.toLowerCase()}`);
+    for (const c of candidates) {
+      if (!c || c === '@') continue;
+      // Word-ish boundary: mention not followed by more name letters
+      const idx = lower.indexOf(c);
+      if (idx === -1) continue;
+      const after = lower[idx + c.length];
+      if (after && /[a-z0-9._-]/.test(after)) continue;
+      hit.add(uid);
+      break;
+    }
+  }
+  return [...hit];
+}
+
+async function loadMentionsForMessages(messageIds) {
+  const out = new Map();
+  if (!messageIds.length) return out;
+  if (!(await hasChatMessageMentionsTable())) return out;
+  const placeholders = messageIds.map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT message_id, mentioned_user_id
+       FROM chat_message_mentions
+      WHERE message_id IN (${placeholders})`,
+    messageIds
+  );
+  for (const r of rows || []) {
+    const mid = Number(r.message_id);
+    const arr = out.get(mid) || [];
+    arr.push(Number(r.mentioned_user_id));
+    out.set(mid, arr);
+  }
+  return out;
+}
+
+async function loadReplyCountsForRoots(rootIds) {
+  const out = new Map();
+  if (!rootIds.length) return out;
+  if (!(await hasParentMessageColumn())) return out;
+  const placeholders = rootIds.map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT parent_message_id AS root_id, COUNT(*) AS c
+       FROM chat_messages
+      WHERE parent_message_id IN (${placeholders})
+      GROUP BY parent_message_id`,
+    rootIds
+  );
+  for (const r of rows || []) {
+    out.set(Number(r.root_id), Number(r.c || 0));
+  }
+  return out;
+}
+
+async function insertMessageMentions(messageId, mentionedUserIds) {
+  if (!mentionedUserIds?.length) return;
+  if (!(await hasChatMessageMentionsTable())) return;
+  const values = mentionedUserIds.map(() => '(?, ?)').join(',');
+  const params = [];
+  for (const uid of mentionedUserIds) {
+    params.push(messageId, uid);
+  }
+  await pool.execute(
+    `INSERT IGNORE INTO chat_message_mentions (message_id, mentioned_user_id) VALUES ${values}`,
+    params
+  );
 }
 
 const ATTACHMENT_KIND_WHITELIST = new Set(['image', 'gif', 'video', 'file']);
@@ -540,24 +669,6 @@ async function resolveActiveAgencyIdForOrg(orgId) {
   }
 }
 
-async function isUserAwayForAgency(userId, agencyId) {
-  const [rows] = await pool.execute(
-    'SELECT last_heartbeat_at, last_activity_at, availability_level FROM user_presence WHERE user_id = ? LIMIT 1',
-    [userId]
-  );
-  if (!rows.length) return true;
-  const availability = String(rows[0].availability_level || '').toLowerCase();
-  if (availability === 'offline') return true;
-  const hb = rows[0].last_heartbeat_at ? new Date(rows[0].last_heartbeat_at).getTime() : null;
-  const act = rows[0].last_activity_at ? new Date(rows[0].last_activity_at).getTime() : null;
-  const now = Date.now();
-
-  // Treat as away if no fresh heartbeat or idle (>=5 min).
-  if (!hb || now - hb > ONLINE_HEARTBEAT_MS) return true;
-  if (act && now - act >= ONLINE_ACTIVITY_MS) return true;
-  return false;
-}
-
 export const listMyThreads = async (req, res, next) => {
   try {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
@@ -598,6 +709,7 @@ export const listMyThreads = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT t.id AS thread_id,
               t.agency_id,
+              a.name AS agency_name,
               t.organization_id,
               t.thread_type${teamCol}${channelCols},
               t.updated_at,
@@ -620,6 +732,7 @@ export const listMyThreads = async (req, res, next) => {
               ) AS unread_count
        FROM chat_threads t
        JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
+       LEFT JOIN agencies a ON a.id = t.agency_id
        LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
        LEFT JOIN chat_thread_deletes td ON td.thread_id = t.id AND td.user_id = ?
        LEFT JOIN chat_messages lm ON lm.id = (
@@ -712,6 +825,7 @@ export const listMyThreads = async (req, res, next) => {
       return {
         thread_id: r.thread_id,
         agency_id: r.agency_id,
+        agency_name: r.agency_name || null,
         organization_id: r.organization_id || null,
         thread_type: tType,
         team_id: hasTeamCol ? (r.team_id || null) : null,
@@ -795,7 +909,45 @@ export const createOrGetDirectThread = async (req, res, next) => {
       );
       inChildOrg = rows;
     }
-    if (inAgency.length === 0 && onManagementTeam.length === 0 && inChildOrg.length === 0) {
+    let allowed = inAgency.length > 0 || onManagementTeam.length > 0 || inChildOrg.length > 0;
+    // Provider/staff ↔ guardian: allow when the other user is a guardian linked to a client
+    // assigned to the actor (or actor is agency admin).
+    if (!allowed) {
+      try {
+        const [[otherUser]] = await pool.execute(
+          `SELECT role FROM users WHERE id = ? LIMIT 1`,
+          [otherUserId]
+        );
+        const otherRole = String(otherUser?.role || '').toLowerCase();
+        const myRole = String(req.user?.role || '').toLowerCase();
+        if (otherRole === 'client_guardian') {
+          const [linkRows] = await pool.execute(
+            `SELECT 1
+             FROM client_guardians cg
+             INNER JOIN clients c ON c.id = cg.client_id
+             WHERE cg.guardian_user_id = ?
+               AND cg.access_enabled = 1
+               AND c.agency_id = ?
+               AND (
+                 c.provider_id = ?
+                 OR EXISTS (
+                   SELECT 1 FROM client_provider_assignments cpa
+                   WHERE cpa.client_id = c.id
+                     AND cpa.provider_user_id = ?
+                     AND cpa.is_active = TRUE
+                 )
+                 OR ? IN ('admin', 'super_admin', 'support', 'clinical_practice_assistant', 'staff')
+               )
+             LIMIT 1`,
+            [otherUserId, agencyId, me, me, myRole]
+          );
+          allowed = (linkRows || []).length > 0;
+        }
+      } catch {
+        allowed = false;
+      }
+    }
+    if (!allowed) {
       return res.status(400).json({ error: { message: 'User is not in the selected agency' } });
     }
 
@@ -916,12 +1068,28 @@ export const listMessages = async (req, res, next) => {
     const limit = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 200) : 60;
     const hasEncryptionCols = await hasChatMessageEncryptionColumns();
     const hasAnnouncementCol = await hasChatMessagesAnnouncementColumn();
+    const hasParentCol = await hasParentMessageColumn();
+    const parentMessageIdQ = req.query.parentMessageId
+      ? parseInt(req.query.parentMessageId, 10)
+      : null;
     const encCols = hasEncryptionCols
       ? ', m.body_ciphertext, m.body_iv, m.body_auth_tag, m.encryption_key_id'
       : '';
     const annCol = hasAnnouncementCol ? ', m.announcement_id' : '';
+    const parentCol = hasParentCol ? ', m.parent_message_id' : '';
+    let parentClause = '';
+    const sqlParams = [req.user.id, threadId];
+    if (hasParentCol) {
+      if (Number.isFinite(parentMessageIdQ) && parentMessageIdQ > 0) {
+        parentClause = 'AND m.parent_message_id = ?';
+        sqlParams.push(parentMessageIdQ);
+      } else {
+        // Main timeline: root messages only (replies load via parentMessageId).
+        parentClause = 'AND m.parent_message_id IS NULL';
+      }
+    }
     const [rows] = await pool.execute(
-      `SELECT m.id, m.thread_id, m.sender_user_id, m.body${encCols}${annCol}, m.created_at,
+      `SELECT m.id, m.thread_id, m.sender_user_id, m.body${encCols}${annCol}${parentCol}, m.created_at,
               u.first_name AS sender_first_name, u.last_name AS sender_last_name,
               u.profile_photo_path AS sender_profile_photo_path
        FROM chat_messages m
@@ -929,17 +1097,22 @@ export const listMessages = async (req, res, next) => {
        LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
        WHERE m.thread_id = ?
          AND d.message_id IS NULL
+         ${parentClause}
        ORDER BY m.id DESC
        LIMIT ${limit}`,
-      [req.user.id, threadId]
+      sqlParams
     );
     const ordered = (rows || []).reverse();
     const me = Number(req.user.id);
     const messageIds = ordered.map((m) => Number(m.id)).filter(Boolean);
-    const [attachmentsByMessage, reactionsByMessage] = await Promise.all([
-      loadAttachmentsForMessages(messageIds),
-      loadReactionsForMessages(messageIds, me)
-    ]);
+    const [attachmentsByMessage, reactionsByMessage, mentionsByMessage, replyCounts] =
+      await Promise.all([
+        loadAttachmentsForMessages(messageIds),
+        loadReactionsForMessages(messageIds, me),
+        loadMentionsForMessages(messageIds),
+        // Reply counts only meaningful for root timeline
+        !parentMessageIdQ ? loadReplyCountsForRoots(messageIds) : Promise.resolve(new Map())
+      ]);
     const enriched = ordered.map((m) => {
       const id = m?.id ? Number(m.id) : null;
       const isMine = Number(m?.sender_user_id) === me;
@@ -959,9 +1132,13 @@ export const listMessages = async (req, res, next) => {
       }
       const attachments = attachmentsByMessage.get(Number(m?.id)) || [];
       const reactions = reactionsByMessage.get(Number(m?.id)) || [];
+      const mentioned = mentionsByMessage.get(Number(m?.id)) || [];
       return {
         ...m,
         body: body || '',
+        parent_message_id: m.parent_message_id != null ? Number(m.parent_message_id) : null,
+        reply_count: replyCounts.get(Number(m?.id)) || 0,
+        mentioned_user_ids: mentioned,
         is_read_by_other: isReadByOther,
         attachments,
         reactions
@@ -1006,12 +1183,41 @@ export const sendMessage = async (req, res, next) => {
       await assertAgencyOrOrgAccess(req.user, agencyId, t.organization_id || null);
     }
 
+    const hasParentCol = await hasParentMessageColumn();
+    let rootParentId = null;
+    if (hasParentCol && (req.body?.parentMessageId != null || req.body?.parent_message_id != null)) {
+      rootParentId = await resolveRootMessageId(
+        threadId,
+        req.body?.parentMessageId ?? req.body?.parent_message_id
+      );
+    }
+
     let bodyPlain = body;
     let bodyCipher = null;
     let bodyIv = null;
     let bodyTag = null;
     let bodyKeyId = null;
     const hasEncCols = await hasChatMessageEncryptionColumns();
+    const senderNeedsEncrypt = roleNorm === 'school_staff' || roleNorm === 'client_guardian';
+    let threadNeedsEncrypt = senderNeedsEncrypt;
+    if (!threadNeedsEncrypt) {
+      try {
+        const [ssRows] = await pool.execute(
+          `SELECT 1
+           FROM chat_thread_participants p
+           INNER JOIN users u ON u.id = p.user_id
+           WHERE p.thread_id = ?
+             AND LOWER(u.role) IN ('school_staff', 'client_guardian')
+           LIMIT 1`,
+          [threadId]
+        );
+        threadNeedsEncrypt = (ssRows || []).length > 0;
+      } catch {
+        threadNeedsEncrypt = senderNeedsEncrypt;
+      }
+    }
+    const requireEncrypt = threadNeedsEncrypt && String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
     if (hasEncCols && isChatEncryptionConfigured()) {
       try {
         const enc = encryptChatText(body);
@@ -1021,18 +1227,48 @@ export const sendMessage = async (req, res, next) => {
         bodyKeyId = enc.keyId;
         bodyPlain = null;
       } catch (e) {
+        if (requireEncrypt) {
+          return res.status(503).json({
+            error: { message: 'Message encryption required for this conversation is unavailable' }
+          });
+        }
         console.warn('[chat] Encryption failed, storing plaintext:', e?.message || e);
       }
+    } else if (requireEncrypt) {
+      return res.status(503).json({
+        error: {
+          message:
+            'Message encryption is required for school staff / guardian conversations. Configure CLIENT_CHAT_ENCRYPTION_KEY_BASE64.'
+        }
+      });
     }
-    const [ins] = await pool.execute(
-      hasEncCols && bodyCipher
-        ? `INSERT INTO chat_messages (thread_id, sender_user_id, body, body_ciphertext, body_iv, body_auth_tag, encryption_key_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        : 'INSERT INTO chat_messages (thread_id, sender_user_id, body) VALUES (?, ?, ?)',
-      hasEncCols && bodyCipher
-        ? [threadId, req.user.id, bodyPlain, bodyCipher, bodyIv, bodyTag, bodyKeyId]
-        : [threadId, req.user.id, body || '']
-    );
+
+    let ins;
+    if (hasParentCol && hasEncCols && bodyCipher) {
+      [ins] = await pool.execute(
+        `INSERT INTO chat_messages
+           (thread_id, sender_user_id, body, body_ciphertext, body_iv, body_auth_tag, encryption_key_id, parent_message_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [threadId, req.user.id, bodyPlain, bodyCipher, bodyIv, bodyTag, bodyKeyId, rootParentId]
+      );
+    } else if (hasParentCol) {
+      [ins] = await pool.execute(
+        `INSERT INTO chat_messages (thread_id, sender_user_id, body, parent_message_id)
+         VALUES (?, ?, ?, ?)`,
+        [threadId, req.user.id, body || '', rootParentId]
+      );
+    } else if (hasEncCols && bodyCipher) {
+      [ins] = await pool.execute(
+        `INSERT INTO chat_messages (thread_id, sender_user_id, body, body_ciphertext, body_iv, body_auth_tag, encryption_key_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [threadId, req.user.id, bodyPlain, bodyCipher, bodyIv, bodyTag, bodyKeyId]
+      );
+    } else {
+      [ins] = await pool.execute(
+        'INSERT INTO chat_messages (thread_id, sender_user_id, body) VALUES (?, ?, ?)',
+        [threadId, req.user.id, body || '']
+      );
+    }
     const insertedMessageId = Number(ins.insertId);
 
     if (incomingAttachments.length && (await hasChatMessageAttachmentsTable())) {
@@ -1059,9 +1295,19 @@ export const sendMessage = async (req, res, next) => {
     }
     await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
 
+    // Mentions: resolve against thread participants (exclude sender)
+    const [partRows] = await pool.execute(
+      `SELECT tp.user_id, u.username, u.first_name, u.last_name
+         FROM chat_thread_participants tp
+         JOIN users u ON u.id = tp.user_id
+        WHERE tp.thread_id = ?`,
+      [threadId]
+    );
+    const mentionedIds = resolveMentionedUserIds(body, partRows || [], req.user.id);
+    await insertMessageMentions(insertedMessageId, mentionedIds);
+
     // Notifications: notify other participant if they are away/offline
-    const [parts] = await pool.execute('SELECT user_id FROM chat_thread_participants WHERE thread_id = ?', [threadId]);
-    const recipients = (parts || []).map((p) => p.user_id).filter((id) => id !== req.user.id);
+    const recipients = (partRows || []).map((p) => p.user_id).filter((id) => id !== req.user.id);
 
     const senderUser = await User.findById(req.user.id);
     const senderName = `${senderUser?.first_name || ''} ${senderUser?.last_name || ''}`.trim() || 'Someone';
@@ -1101,8 +1347,9 @@ export const sendMessage = async (req, res, next) => {
 
     const hasAnnouncementCol = await hasChatMessagesAnnouncementColumn();
     const annCol = hasAnnouncementCol ? ', m.announcement_id' : '';
+    const parentCol = hasParentCol ? ', m.parent_message_id' : '';
     const [row] = await pool.execute(
-      `SELECT m.id, m.thread_id, m.sender_user_id, m.body${annCol}, m.created_at,
+      `SELECT m.id, m.thread_id, m.sender_user_id, m.body${annCol}${parentCol}, m.created_at,
               u.first_name AS sender_first_name, u.last_name AS sender_last_name,
               u.profile_photo_path AS sender_profile_photo_path
        FROM chat_messages m
@@ -1112,9 +1359,200 @@ export const sendMessage = async (req, res, next) => {
     );
     const out = row[0] || {};
     if (!out.body && body) out.body = body;
+    out.parent_message_id = out.parent_message_id != null ? Number(out.parent_message_id) : rootParentId;
+    out.mentioned_user_ids = mentionedIds;
+    out.reply_count = 0;
     out.attachments = (await loadAttachmentsForMessages([insertedMessageId])).get(insertedMessageId) || [];
     out.reactions = (await loadReactionsForMessages([insertedMessageId], req.user.id)).get(insertedMessageId) || [];
     res.status(201).json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/chat/inbox/threads
+ * Roots where the viewer participates in a reply thread (sent or received a reply).
+ */
+export const listThreadsInbox = async (req, res, next) => {
+  try {
+    if (!(await hasParentMessageColumn())) {
+      return res.json({ items: [] });
+    }
+    const me = req.user.id;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    const agencyClause = Number.isFinite(agencyId) && agencyId > 0 ? 'AND t.agency_id = ?' : '';
+    // Param order matches `?` placeholders in the SQL below.
+    const sqlParams = [me, me, me, me, me];
+    if (agencyClause) sqlParams.push(agencyId);
+
+    const [rows] = await pool.execute(
+      `SELECT
+          root.id AS root_message_id,
+          root.thread_id,
+          root.body AS root_body,
+          root.created_at AS root_created_at,
+          root.sender_user_id AS root_sender_user_id,
+          ru.first_name AS root_sender_first_name,
+          ru.last_name AS root_sender_last_name,
+          t.agency_id,
+          a.name AS agency_name,
+          t.thread_type,
+          t.name AS channel_name,
+          t.slug AS channel_slug,
+          latest.id AS latest_reply_id,
+          latest.body AS latest_reply_body,
+          latest.created_at AS latest_reply_at,
+          latest.sender_user_id AS latest_reply_sender_user_id,
+          lu.first_name AS latest_reply_first_name,
+          lu.last_name AS latest_reply_last_name,
+          (
+            SELECT COUNT(*)
+              FROM chat_messages r2
+              LEFT JOIN chat_thread_reads tr
+                ON tr.thread_id = r2.thread_id AND tr.user_id = ?
+             WHERE r2.parent_message_id = root.id
+               AND r2.sender_user_id <> ?
+               AND (tr.last_read_message_id IS NULL OR r2.id > tr.last_read_message_id)
+          ) AS unread_reply_count,
+          (
+            SELECT COUNT(*) FROM chat_messages r3 WHERE r3.parent_message_id = root.id
+          ) AS reply_count
+       FROM chat_messages root
+       JOIN chat_threads t ON t.id = root.thread_id
+       LEFT JOIN agencies a ON a.id = t.agency_id
+       JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
+       JOIN users ru ON ru.id = root.sender_user_id
+       JOIN (
+         SELECT parent_message_id, MAX(id) AS max_id
+           FROM chat_messages
+          WHERE parent_message_id IS NOT NULL
+          GROUP BY parent_message_id
+       ) mx ON mx.parent_message_id = root.id
+       JOIN chat_messages latest ON latest.id = mx.max_id
+       JOIN users lu ON lu.id = latest.sender_user_id
+      WHERE root.parent_message_id IS NULL
+        AND (
+          root.sender_user_id = ?
+          OR EXISTS (
+            SELECT 1 FROM chat_messages r
+             WHERE r.parent_message_id = root.id AND r.sender_user_id = ?
+          )
+        )
+        ${agencyClause}
+      ORDER BY latest.created_at DESC
+      LIMIT 80`,
+      sqlParams
+    );
+
+    const items = (rows || []).map((r) => ({
+      root_message_id: Number(r.root_message_id),
+      thread_id: Number(r.thread_id),
+      agency_id: Number(r.agency_id),
+      agency_name: r.agency_name || null,
+      thread_type: r.thread_type || null,
+      channel_name: r.channel_name || null,
+      channel_slug: r.channel_slug || null,
+      root_body: r.root_body || '',
+      root_created_at: r.root_created_at,
+      root_sender: {
+        id: Number(r.root_sender_user_id),
+        first_name: r.root_sender_first_name || '',
+        last_name: r.root_sender_last_name || ''
+      },
+      latest_reply: {
+        id: Number(r.latest_reply_id),
+        body: r.latest_reply_body || '',
+        created_at: r.latest_reply_at,
+        sender: {
+          id: Number(r.latest_reply_sender_user_id),
+          first_name: r.latest_reply_first_name || '',
+          last_name: r.latest_reply_last_name || ''
+        }
+      },
+      reply_count: Number(r.reply_count || 0),
+      unread_reply_count: Number(r.unread_reply_count || 0)
+    }));
+
+    res.json({ items });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/chat/inbox/mentions
+ * Messages that @mention the viewer.
+ */
+export const listMentionsInbox = async (req, res, next) => {
+  try {
+    if (!(await hasChatMessageMentionsTable())) {
+      return res.json({ items: [] });
+    }
+    const me = req.user.id;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    const agencyClause = Number.isFinite(agencyId) && agencyId > 0 ? 'AND t.agency_id = ?' : '';
+    const hasParentCol = await hasParentMessageColumn();
+    const parentCol = hasParentCol ? 'm.parent_message_id,' : '';
+    const sqlParams = [me, me, me];
+    if (agencyClause) sqlParams.push(agencyId);
+
+    const [rows] = await pool.execute(
+      `SELECT
+          m.id AS message_id,
+          m.thread_id,
+          m.body,
+          m.created_at,
+          ${parentCol}
+          m.sender_user_id,
+          u.first_name AS sender_first_name,
+          u.last_name AS sender_last_name,
+          t.agency_id,
+          t.thread_type,
+          t.name AS channel_name,
+          t.slug AS channel_slug,
+          mn.created_at AS mentioned_at,
+          (
+            SELECT 1
+              FROM chat_thread_reads tr
+             WHERE tr.thread_id = m.thread_id
+               AND tr.user_id = ?
+               AND tr.last_read_message_id IS NOT NULL
+               AND tr.last_read_message_id >= m.id
+             LIMIT 1
+          ) AS is_read
+       FROM chat_message_mentions mn
+       JOIN chat_messages m ON m.id = mn.message_id
+       JOIN chat_threads t ON t.id = m.thread_id
+       JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
+       JOIN users u ON u.id = m.sender_user_id
+      WHERE mn.mentioned_user_id = ?
+        ${agencyClause}
+      ORDER BY mn.created_at DESC
+      LIMIT 80`,
+      sqlParams
+    );
+
+    const items = (rows || []).map((r) => ({
+      message_id: Number(r.message_id),
+      thread_id: Number(r.thread_id),
+      agency_id: Number(r.agency_id),
+      thread_type: r.thread_type || null,
+      channel_name: r.channel_name || null,
+      channel_slug: r.channel_slug || null,
+      body: r.body || '',
+      created_at: r.created_at,
+      mentioned_at: r.mentioned_at,
+      parent_message_id: r.parent_message_id != null ? Number(r.parent_message_id) : null,
+      is_read: Boolean(r.is_read),
+      sender: {
+        id: Number(r.sender_user_id),
+        first_name: r.sender_first_name || '',
+        last_name: r.sender_last_name || ''
+      }
+    }));
+
+    res.json({ items });
   } catch (e) {
     next(e);
   }
@@ -1401,6 +1839,336 @@ export const getThreadMeta = async (req, res, next) => {
       organization_name: t.organization_name || null
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+async function tableExists(name) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.tables
+       WHERE table_schema = DATABASE() AND table_name = ?
+       LIMIT 1`,
+      [name]
+    );
+    return (rows || []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** GET /api/chat/inbox/files */
+export const listFilesInbox = async (req, res, next) => {
+  try {
+    if (!(await tableExists('chat_message_attachments'))) {
+      return res.json({ files: [] });
+    }
+    const limitRaw = parseInt(req.query?.limit, 10);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 100)) : 50;
+    const [rows] = await pool.execute(
+      `SELECT a.id, a.message_id, a.file_path, a.mime_type, a.file_kind, a.original_filename,
+              a.byte_size, a.created_at,
+              m.thread_id, m.body, m.sender_user_id, m.created_at AS message_created_at,
+              t.thread_type, t.name AS channel_name,
+              u.first_name AS sender_first_name, u.last_name AS sender_last_name
+       FROM chat_message_attachments a
+       INNER JOIN chat_messages m ON m.id = a.message_id
+       INNER JOIN chat_threads t ON t.id = m.thread_id
+       INNER JOIN chat_thread_participants p ON p.thread_id = t.id AND p.user_id = ?
+       LEFT JOIN users u ON u.id = m.sender_user_id
+       LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
+       WHERE d.message_id IS NULL
+       ORDER BY a.created_at DESC
+       LIMIT ${limit}`,
+      [req.user.id, req.user.id]
+    );
+    const files = (rows || []).map((r) => {
+      let body = r.body;
+      // best-effort: leave encrypted body blank in list preview
+      if (!body) body = '';
+      return {
+        id: r.id,
+        message_id: r.message_id,
+        thread_id: r.thread_id,
+        file_path: r.file_path,
+        mime_type: r.mime_type,
+        file_kind: r.file_kind,
+        original_filename: r.original_filename,
+        byte_size: r.byte_size,
+        created_at: r.created_at,
+        thread_type: r.thread_type,
+        channel_name: r.channel_name,
+        sender: {
+          id: r.sender_user_id,
+          first_name: r.sender_first_name,
+          last_name: r.sender_last_name
+        },
+        body_preview: String(body || '').slice(0, 80)
+      };
+    });
+    res.json({ files });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/chat/inbox/bookmarks */
+export const listBookmarksInbox = async (req, res, next) => {
+  try {
+    if (!(await tableExists('chat_message_bookmarks'))) {
+      return res.json({ bookmarks: [] });
+    }
+    const [rows] = await pool.execute(
+      `SELECT b.message_id, b.created_at AS bookmarked_at,
+              m.thread_id, m.body, m.sender_user_id, m.created_at,
+              t.thread_type, t.name AS channel_name,
+              u.first_name AS sender_first_name, u.last_name AS sender_last_name
+       FROM chat_message_bookmarks b
+       INNER JOIN chat_messages m ON m.id = b.message_id
+       INNER JOIN chat_threads t ON t.id = m.thread_id
+       INNER JOIN chat_thread_participants p ON p.thread_id = t.id AND p.user_id = ?
+       LEFT JOIN users u ON u.id = m.sender_user_id
+       WHERE b.user_id = ?
+       ORDER BY b.created_at DESC
+       LIMIT 100`,
+      [req.user.id, req.user.id]
+    );
+    res.json({
+      bookmarks: (rows || []).map((r) => ({
+        message_id: r.message_id,
+        thread_id: r.thread_id,
+        bookmarked_at: r.bookmarked_at,
+        body: r.body || '',
+        created_at: r.created_at,
+        thread_type: r.thread_type,
+        channel_name: r.channel_name,
+        sender: {
+          id: r.sender_user_id,
+          first_name: r.sender_first_name,
+          last_name: r.sender_last_name
+        }
+      }))
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST /api/chat/messages/:messageId/bookmark */
+export const bookmarkMessage = async (req, res, next) => {
+  try {
+    if (!(await tableExists('chat_message_bookmarks'))) {
+      return res.status(409).json({ error: { message: 'Bookmarks not enabled (run migration 1003)' } });
+    }
+    const messageId = parseInt(req.params.messageId, 10);
+    if (!messageId) return res.status(400).json({ error: { message: 'Invalid message id' } });
+    const [[msg]] = await pool.execute(
+      `SELECT m.id, m.thread_id FROM chat_messages m WHERE m.id = ? LIMIT 1`,
+      [messageId]
+    );
+    if (!msg) return res.status(404).json({ error: { message: 'Message not found' } });
+    await assertThreadAccess(req.user.id, msg.thread_id);
+    await pool.execute(
+      `INSERT INTO chat_message_bookmarks (user_id, message_id)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE created_at = created_at`,
+      [req.user.id, messageId]
+    );
+    res.json({ ok: true, message_id: messageId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** DELETE /api/chat/messages/:messageId/bookmark */
+export const unbookmarkMessage = async (req, res, next) => {
+  try {
+    if (!(await tableExists('chat_message_bookmarks'))) {
+      return res.status(409).json({ error: { message: 'Bookmarks not enabled' } });
+    }
+    const messageId = parseInt(req.params.messageId, 10);
+    if (!messageId) return res.status(400).json({ error: { message: 'Invalid message id' } });
+    await pool.execute(
+      `DELETE FROM chat_message_bookmarks WHERE user_id = ? AND message_id = ?`,
+      [req.user.id, messageId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/chat/inbox/pins — pins across threads the user can access */
+export const listPinsInbox = async (req, res, next) => {
+  try {
+    if (!(await tableExists('chat_thread_pins'))) {
+      return res.json({ pins: [] });
+    }
+    const [rows] = await pool.execute(
+      `SELECT pin.thread_id, pin.message_id, pin.pinned_by_user_id, pin.created_at AS pinned_at,
+              m.body, m.sender_user_id, m.created_at,
+              t.thread_type, t.name AS channel_name,
+              u.first_name AS sender_first_name, u.last_name AS sender_last_name
+       FROM chat_thread_pins pin
+       INNER JOIN chat_messages m ON m.id = pin.message_id
+       INNER JOIN chat_threads t ON t.id = pin.thread_id
+       INNER JOIN chat_thread_participants p ON p.thread_id = t.id AND p.user_id = ?
+       LEFT JOIN users u ON u.id = m.sender_user_id
+       ORDER BY pin.created_at DESC
+       LIMIT 100`,
+      [req.user.id]
+    );
+    res.json({
+      pins: (rows || []).map((r) => ({
+        thread_id: r.thread_id,
+        message_id: r.message_id,
+        pinned_at: r.pinned_at,
+        pinned_by_user_id: r.pinned_by_user_id,
+        body: r.body || '',
+        created_at: r.created_at,
+        thread_type: r.thread_type,
+        channel_name: r.channel_name,
+        sender: {
+          id: r.sender_user_id,
+          first_name: r.sender_first_name,
+          last_name: r.sender_last_name
+        }
+      }))
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST /api/chat/messages/:messageId/pin */
+export const pinMessage = async (req, res, next) => {
+  try {
+    if (!(await tableExists('chat_thread_pins'))) {
+      return res.status(409).json({ error: { message: 'Pins not enabled (run migration 1003)' } });
+    }
+    const messageId = parseInt(req.params.messageId, 10);
+    if (!messageId) return res.status(400).json({ error: { message: 'Invalid message id' } });
+    const [[msg]] = await pool.execute(
+      `SELECT m.id, m.thread_id FROM chat_messages m WHERE m.id = ? LIMIT 1`,
+      [messageId]
+    );
+    if (!msg) return res.status(404).json({ error: { message: 'Message not found' } });
+    await assertThreadAccess(req.user.id, msg.thread_id);
+    await pool.execute(
+      `INSERT INTO chat_thread_pins (thread_id, message_id, pinned_by_user_id)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE pinned_by_user_id = VALUES(pinned_by_user_id)`,
+      [msg.thread_id, messageId, req.user.id]
+    );
+    res.json({ ok: true, message_id: messageId, thread_id: msg.thread_id });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** DELETE /api/chat/messages/:messageId/pin */
+export const unpinMessage = async (req, res, next) => {
+  try {
+    if (!(await tableExists('chat_thread_pins'))) {
+      return res.status(409).json({ error: { message: 'Pins not enabled' } });
+    }
+    const messageId = parseInt(req.params.messageId, 10);
+    if (!messageId) return res.status(400).json({ error: { message: 'Invalid message id' } });
+    const [[msg]] = await pool.execute(
+      `SELECT m.id, m.thread_id FROM chat_messages m WHERE m.id = ? LIMIT 1`,
+      [messageId]
+    );
+    if (!msg) return res.status(404).json({ error: { message: 'Message not found' } });
+    await assertThreadAccess(req.user.id, msg.thread_id);
+    await pool.execute(
+      `DELETE FROM chat_thread_pins WHERE thread_id = ? AND message_id = ?`,
+      [msg.thread_id, messageId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/chat/threads/:threadId/start-meeting
+ * body: { kind?: 'TEAM_MEETING' | 'HUDDLE', title?, durationMinutes? }
+ */
+export const startMeetingFromThread = async (req, res, next) => {
+  try {
+    const threadId = parseInt(req.params.threadId, 10);
+    if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
+    await assertThreadAccess(req.user.id, threadId);
+
+    const [[t]] = await pool.execute(
+      `SELECT id, agency_id, organization_id, thread_type FROM chat_threads WHERE id = ? LIMIT 1`,
+      [threadId]
+    );
+    if (!t) return res.status(404).json({ error: { message: 'Thread not found' } });
+    if (String(t.thread_type || '').toLowerCase() !== 'direct') {
+      return res.status(400).json({ error: { message: 'Meetings can only be started from direct messages' } });
+    }
+
+    const [parts] = await pool.execute(
+      `SELECT user_id FROM chat_thread_participants WHERE thread_id = ?`,
+      [threadId]
+    );
+    const other = (parts || []).map((p) => Number(p.user_id)).find((id) => id && id !== Number(req.user.id));
+    if (!other) {
+      return res.status(400).json({ error: { message: 'Could not find the other participant' } });
+    }
+
+    const meeting = await startAdhocTeamMeeting({
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      agencyId: t.agency_id,
+      withUserId: other,
+      kind: req.body?.kind || 'TEAM_MEETING',
+      title: req.body?.title || null,
+      durationMinutes: req.body?.durationMinutes,
+      description: `Started from Messages thread #${threadId}`
+    });
+
+    // Post join link into the thread (best-effort)
+    try {
+      const linkBody = `${meeting.kind === 'HUDDLE' ? 'Huddle' : 'Video meeting'} started: ${meeting.joinUrl}`;
+      let bodyPlain = linkBody;
+      let bodyCipher = null;
+      let bodyIv = null;
+      let bodyTag = null;
+      let bodyKeyId = null;
+      const hasEncCols = await hasChatMessageEncryptionColumns();
+      if (hasEncCols && isChatEncryptionConfigured()) {
+        try {
+          const enc = encryptChatText(linkBody);
+          bodyCipher = enc.ciphertextB64;
+          bodyIv = enc.ivB64;
+          bodyTag = enc.authTagB64;
+          bodyKeyId = enc.keyId;
+          bodyPlain = null;
+        } catch {
+          bodyPlain = linkBody;
+        }
+      }
+      if (hasEncCols && bodyCipher) {
+        await pool.execute(
+          `INSERT INTO chat_messages (thread_id, sender_user_id, body, body_ciphertext, body_iv, body_auth_tag, encryption_key_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [threadId, req.user.id, bodyPlain, bodyCipher, bodyIv, bodyTag, bodyKeyId]
+        );
+      } else {
+        await pool.execute(
+          'INSERT INTO chat_messages (thread_id, sender_user_id, body) VALUES (?, ?, ?)',
+          [threadId, req.user.id, linkBody]
+        );
+      }
+    } catch {
+      // ignore link post failure
+    }
+
+    res.status(201).json(meeting);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };

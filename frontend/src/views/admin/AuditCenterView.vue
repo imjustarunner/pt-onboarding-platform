@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h1>Audit Center</h1>
-        <p class="subtitle">Agency-scoped immutable audit feed with export support. Session times are read-only.</p>
+        <p class="subtitle">Agency-scoped activity reporting and immutable audit records. Session times are read-only.</p>
       </div>
     </div>
 
@@ -20,9 +20,14 @@
       </div>
       <div class="field">
         <label>Search</label>
-        <input v-model="filters.search" type="text" placeholder="User, client initials/name, action, metadata, IP, session" @keyup.enter="reload" />
+        <input
+          v-model="filters.search"
+          type="text"
+          :placeholder="viewMode === 'activity' ? 'User name, email, username, or ID' : 'User, client, action, metadata, IP, session'"
+          @keyup.enter="reload"
+        />
       </div>
-      <div class="field">
+      <div v-if="viewMode === 'table' || viewMode === 'grouped'" class="field">
         <label>Source</label>
         <select v-model="filters.source" @change="reload">
           <option value="all">All logs</option>
@@ -35,14 +40,14 @@
           <option value="task_deletion">Task deletion</option>
         </select>
       </div>
-      <div class="field">
+      <div v-if="viewMode === 'table' || viewMode === 'grouped'" class="field">
         <label>Category</label>
         <select v-model="filters.category" @change="reload">
           <option value="">All categories</option>
           <option v-for="c in AUDIT_CATEGORIES" :key="c" :value="c">{{ c }}</option>
         </select>
       </div>
-      <div class="field">
+      <div v-if="viewMode === 'table' || viewMode === 'grouped'" class="field">
         <label>Action</label>
         <select v-model="filters.actionType" @change="reload">
           <option value="">All actions</option>
@@ -80,6 +85,12 @@
 
     <div class="view-toggle">
       <button
+        :class="['btn', 'btn-sm', viewMode === 'activity' ? 'btn-primary' : 'btn-secondary']"
+        @click="setViewMode('activity')"
+      >
+        Activity Data
+      </button>
+      <button
         :class="['btn', 'btn-sm', viewMode === 'table' ? 'btn-primary' : 'btn-secondary']"
         @click="setViewMode('table')"
       >
@@ -99,12 +110,111 @@
       </button>
     </div>
 
+    <div v-if="viewMode === 'activity'" class="sessions-banner">
+      <strong>Daily user activity report.</strong>
+      Time in app is server-tracked active plus Timedown time. Meaningful active time requires recent clicks, keys, or scrolling.
+      Sessions are assigned to the UTC day on which they started.
+    </div>
+
     <div v-if="viewMode === 'sessions'" class="sessions-banner">
       <strong>Source of truth for login session time.</strong>
       Active = visible &amp; not in Timedown. Inactive = Timedown countdown time.
       Billable active = meaningful activity only (clicks/keys/scroll — not mousemove-only keep-alive).
       Rows are never editable.
     </div>
+
+    <template v-if="viewMode === 'activity'">
+      <div v-if="error" class="error-banner">{{ error }}</div>
+      <div v-if="activityNotice" class="hint-banner">{{ activityNotice }}</div>
+      <div class="activity-summary-grid">
+        <div class="summary-card">
+          <span class="summary-card-label">Time in app</span>
+          <strong>{{ formatDuration(activitySummary.trackedSeconds) }}</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card-label">Active</span>
+          <strong>{{ formatDuration(activitySummary.activeSeconds) }}</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card-label">Meaningful active</span>
+          <strong>{{ formatDuration(activitySummary.billableActiveSeconds) }}</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card-label">Inactive (Timedown)</span>
+          <strong>{{ formatDuration(activitySummary.inactiveSeconds) }}</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card-label">Users</span>
+          <strong>{{ activitySummary.userCount }}</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card-label">Days represented</span>
+          <strong>{{ activitySummary.dayCount }}</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card-label">Sessions</span>
+          <strong>{{ activitySummary.sessionCount }}</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card-label">Interactions</span>
+          <strong>{{ formatNumber(activitySummary.interactionCount) }}</strong>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="table activity-data-table">
+          <thead>
+            <tr>
+              <th>Date (UTC)</th>
+              <th>User</th>
+              <th>Email</th>
+              <th>Sessions</th>
+              <th>Time in app</th>
+              <th>Active</th>
+              <th>Meaningful active</th>
+              <th>Inactive</th>
+              <th>Interactions</th>
+              <th>Timedowns</th>
+              <th>Suspicion</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="loading">
+              <td colspan="11" class="empty">Loading…</td>
+            </tr>
+            <tr v-else-if="activityRows.length === 0">
+              <td colspan="11" class="empty">No activity data found for current filters.</td>
+            </tr>
+            <tr v-for="row in activityRows" :key="`${row.activityDate}-${row.userId}`">
+              <td>{{ formatActivityDate(row.activityDate) }}</td>
+              <td>{{ row.userName || row.userUsername || `User #${row.userId}` }}</td>
+              <td>{{ row.userEmail || '-' }}</td>
+              <td>
+                {{ row.sessionCount }}
+                <small v-if="row.openSessionCount" class="flags">{{ row.openSessionCount }} open</small>
+              </td>
+              <td><strong>{{ formatDuration(row.trackedSeconds) }}</strong></td>
+              <td>{{ formatDuration(row.activeSeconds) }}</td>
+              <td>{{ formatDuration(row.billableActiveSeconds) }}</td>
+              <td>{{ formatDuration(row.inactiveSeconds) }}</td>
+              <td>
+                {{ formatNumber(row.interactionCount) }}
+                <small class="flags">{{ formatNumber(row.meaningfulEventCount) }} meaningful</small>
+              </td>
+              <td>{{ row.timedownCount }}</td>
+              <td>
+                <span :class="['badge', suspicionClass(row.averageSuspicionScore)]">
+                  {{ Math.round(row.averageSuspicionScore || 0) }} avg
+                </span>
+                <small v-if="row.maxSuspicionScore > row.averageSuspicionScore" class="flags">
+                  {{ Math.round(row.maxSuspicionScore) }} max
+                </small>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
 
     <div class="table-wrap" v-if="viewMode === 'table'">
       <div v-if="error" class="error-banner">{{ error }}</div>
@@ -246,8 +356,8 @@
 
     <div class="footer-bar">
       <div class="summary">
-        <span>Total: {{ pagination.total }}</span>
-        <span>Showing {{ rows.length }}</span>
+        <span>{{ viewMode === 'activity' ? 'User-days' : 'Total' }}: {{ pagination.total }}</span>
+        <span>Showing {{ visibleRowCount }}</span>
       </div>
       <div class="pager">
         <button class="btn btn-secondary" :disabled="loading || pagination.offset === 0" @click="prevPage">Previous</button>
@@ -283,11 +393,25 @@ const actionOptions = getActionOptions();
 
 const rows = ref([]);
 const sessionRows = ref([]);
+const activityRows = ref([]);
 const sessionsNotice = ref('');
+const activityNotice = ref('');
 const loading = ref(false);
 const exporting = ref(false);
 const error = ref('');
-const viewMode = ref('table');
+const viewMode = ref('activity');
+
+const emptyActivitySummary = () => ({
+  userCount: 0,
+  dayCount: 0,
+  sessionCount: 0,
+  activeSeconds: 0,
+  inactiveSeconds: 0,
+  trackedSeconds: 0,
+  billableActiveSeconds: 0,
+  interactionCount: 0
+});
+const activitySummary = ref(emptyActivitySummary());
 
 const filters = reactive({
   source: 'all',
@@ -309,6 +433,12 @@ const pagination = reactive({
   limit: 50,
   offset: 0,
   hasNextPage: false
+});
+
+const visibleRowCount = computed(() => {
+  if (viewMode.value === 'activity') return activityRows.value.length;
+  if (viewMode.value === 'sessions') return sessionRows.value.length;
+  return rows.value.length;
 });
 
 const selectableAgencies = computed(() => {
@@ -403,14 +533,36 @@ const reload = async () => {
     error.value = 'No agency context found. Select an agency and retry.';
     rows.value = [];
     sessionRows.value = [];
+    activityRows.value = [];
+    activitySummary.value = emptyActivitySummary();
     pagination.total = 0;
     return;
   }
   loading.value = true;
   error.value = '';
   sessionsNotice.value = '';
+  activityNotice.value = '';
   try {
-    if (viewMode.value === 'sessions') {
+    if (viewMode.value === 'activity') {
+      const resp = await api.get(`/activity-log/agency/${agencyId.value}/activity-data`, {
+        params: {
+          search: filters.search || undefined,
+          userId: filters.userId || undefined,
+          startDate: filters.startDate || undefined,
+          endDate: filters.endDate || undefined,
+          limit: pagination.limit,
+          offset: pagination.offset
+        }
+      });
+      activityRows.value = Array.isArray(resp.data?.rows) ? resp.data.rows : [];
+      activitySummary.value = { ...emptyActivitySummary(), ...(resp.data?.summary || {}) };
+      const pg = resp.data?.pagination || {};
+      pagination.total = Number(pg.total || 0);
+      pagination.hasNextPage = !!pg.hasNextPage;
+      if (resp.data?.notice) activityNotice.value = String(resp.data.notice);
+      rows.value = [];
+      sessionRows.value = [];
+    } else if (viewMode.value === 'sessions') {
       const resp = await api.get(`/activity-log/agency/${agencyId.value}/sessions`, {
         params: {
           userId: filters.userId || undefined,
@@ -425,6 +577,8 @@ const reload = async () => {
       pagination.hasNextPage = pagination.offset + sessionRows.value.length < pagination.total;
       if (resp.data?.notice) sessionsNotice.value = String(resp.data.notice);
       rows.value = [];
+      activityRows.value = [];
+      activitySummary.value = emptyActivitySummary();
     } else {
       const resp = await api.get(`/activity-log/agency/${agencyId.value}`, { params: currentParams() });
       rows.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
@@ -432,11 +586,15 @@ const reload = async () => {
       pagination.total = Number(pg.total || 0);
       pagination.hasNextPage = !!pg.hasNextPage;
       sessionRows.value = [];
+      activityRows.value = [];
+      activitySummary.value = emptyActivitySummary();
     }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load audit activity.';
     rows.value = [];
     sessionRows.value = [];
+    activityRows.value = [];
+    activitySummary.value = emptyActivitySummary();
     pagination.total = 0;
     pagination.hasNextPage = false;
   } finally {
@@ -487,6 +645,27 @@ const prevPage = async () => {
 
 const exportCsv = async () => {
   if (!agencyId.value) return;
+  if (viewMode.value === 'activity') {
+    exporting.value = true;
+    error.value = '';
+    try {
+      const response = await api.get(`/activity-log/agency/${agencyId.value}/activity-data/export.csv`, {
+        params: {
+          search: filters.search || undefined,
+          userId: filters.userId || undefined,
+          startDate: filters.startDate || undefined,
+          endDate: filters.endDate || undefined
+        },
+        responseType: 'blob'
+      });
+      downloadCsvBlob(response.data, `activity-data-${agencyId.value}.csv`);
+    } catch (e) {
+      error.value = e.response?.data?.error?.message || 'Failed to export activity data CSV.';
+    } finally {
+      exporting.value = false;
+    }
+    return;
+  }
   if (viewMode.value === 'sessions') {
     error.value = 'CSV export for platform sessions is not available yet — use the read-only table view.';
     return;
@@ -498,20 +677,24 @@ const exportCsv = async () => {
       params: currentParams(),
       responseType: 'blob'
     });
-    const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `audit-center-${agencyId.value}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    downloadCsvBlob(response.data, `audit-center-${agencyId.value}.csv`);
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to export CSV.';
   } finally {
     exporting.value = false;
   }
+};
+
+const downloadCsvBlob = (data, filename) => {
+  const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
 };
 
 const formatDate = (value) => {
@@ -527,6 +710,22 @@ const formatDuration = (seconds) => {
   if (h > 0) return `${h}h ${m}m ${sec}s`;
   if (m > 0) return `${m}m ${sec}s`;
   return `${sec}s`;
+};
+
+const formatNumber = (value) => Number(value || 0).toLocaleString();
+
+const formatActivityDate = (value) => {
+  if (!value) return '-';
+  const raw = String(value);
+  const ymd = raw.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  if (!ymd) return raw;
+  const [year, month, day] = ymd.split('-').map(Number);
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC'
+  }).format(new Date(Date.UTC(year, month - 1, day)));
 };
 
 const suspicionClass = (score) => {
@@ -649,6 +848,25 @@ onMounted(async () => {
 .badge-warn { border-color: #fcd34d; color: #92400e; }
 .badge-danger { border-color: #fca5a5; color: #991b1b; }
 .flags { display: block; margin-top: 2px; color: var(--text-secondary); font-size: 0.75rem; }
+.activity-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-height: 70px;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.summary-card strong { font-size: 1.05rem; }
+.summary-card-label { color: var(--text-secondary); font-size: 0.78rem; }
+.activity-data-table td:nth-child(n+4) { white-space: nowrap; }
 .grouped-list-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
 .audit-category-section { margin-bottom: 1.5rem; }
 .audit-category-section:last-child { margin-bottom: 0; }

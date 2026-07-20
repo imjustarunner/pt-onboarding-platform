@@ -11,7 +11,7 @@
         v-for="person in people"
         :key="person.id"
         class="avatar-wrap"
-        :title="`${person.display_name} – ${statusLabel(person.presence_status) || 'No status'}`"
+        :title="tooltipFor(person)"
       >
         <div class="avatar" :class="{ 'has-photo': person.profile_photo_url }">
           <img
@@ -33,20 +33,10 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { teamBoardReturnAt, teamBoardStatusLabel } from '../../utils/presenceStatus';
 
 const POLL_INTERVAL_MS = 15 * 1000;
 let pollTimer = null;
-
-const statusOptions = [
-  { value: 'in_available', label: 'In – Available' },
-  { value: 'in_heads_down', label: 'In – Heads Down' },
-  { value: 'in_available_for_phone', label: 'In – Available for Phone' },
-  { value: 'out_quick', label: 'Out – Quick' },
-  { value: 'out_am', label: 'Out – AM' },
-  { value: 'out_pm', label: 'Out – PM' },
-  { value: 'out_full_day', label: 'Out – Full Day' },
-  { value: 'traveling_offsite', label: 'Traveling / Offsite' }
-];
 
 const loading = ref(true);
 const error = ref('');
@@ -62,9 +52,18 @@ const avatarInitial = (p) => {
   return `${a}${b}`.toUpperCase() || '?';
 };
 
-const statusLabel = (status) => {
-  const opt = statusOptions.find((o) => o.value === status);
-  return opt ? opt.label : '';
+const tooltipFor = (person) => {
+  const label = teamBoardStatusLabel(person) || 'No status';
+  const back = teamBoardReturnAt(person);
+  let backTxt = '';
+  if (back) {
+    try {
+      backTxt = ` · back ${new Date(back).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    } catch {
+      backTxt = '';
+    }
+  }
+  return `${person.display_name} – ${label}${backTxt}`;
 };
 
 const statusDotClass = (status) => {

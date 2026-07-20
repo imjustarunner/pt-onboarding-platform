@@ -368,6 +368,22 @@ async function sendOneReminder(row) {
         bodyPreview: body,
         reminderId: row.id
       });
+      try {
+        const { recordSmsProfileAudit } = await import('./smsProfileAudit.service.js');
+        await recordSmsProfileAudit({
+          agencyId: appt.agencyId,
+          direction: 'OUTBOUND',
+          fromNumber: from,
+          toNumber: toPhoneNorm,
+          numberId: resolved?.number?.id || null,
+          numberPurpose: resolved?.number?.number_purpose || 'notification',
+          body,
+          clientId: recipient.clientId || null,
+          userId: recipient.userId || null
+        });
+      } catch (auditErr) {
+        console.warn('[appointmentReminder] sms profile audit failed:', auditErr?.message || auditErr);
+      }
       return { sent: true };
     } catch (e) {
       await pool.execute(

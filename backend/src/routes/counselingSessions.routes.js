@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listActivities,
+  startPracticeActivity,
   createSession,
   listSessions,
   getSession,
@@ -31,6 +32,8 @@ router.use(authenticate);
 
 // Unified activity registry
 router.get('/activities', listActivities);
+// Solo practice / Tools preview (no video, no client)
+router.post('/activities/:activityId/practice', startPracticeActivity);
 
 // Invite accept (authenticated guest)
 router.post('/invite/:token/accept', acceptInvite);

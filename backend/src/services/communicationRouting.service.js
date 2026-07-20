@@ -142,39 +142,160 @@ export async function resolveReminderNumber({ providerUserId, clientId = null })
   return resolveOutboundNumber({ userId: uid, clientId, requestedNumberId: null });
 }
 
+/**
+ * Active caregivers for a client from client_provider_assignments (+ legacy provider_id).
+ * Returns { ownerUserId, caregiverIds } with primary preferred as owner.
+ */
+export async function resolveClientCaregivers(clientId, agencyId = null) {
+  if (!clientId) return { ownerUserId: null, caregiverIds: [] };
+  const params = [clientId];
+  let orgFilter = '';
+  if (agencyId) {
+    // Prefer CPA rows tied to orgs under this agency when possible; otherwise all active CPA.
+    orgFilter = '';
+  }
+  const [rows] = await pool.execute(
+    `SELECT provider_user_id, is_primary
+     FROM client_provider_assignments
+     WHERE client_id = ?
+       AND is_active = TRUE
+       ${orgFilter}
+     ORDER BY is_primary DESC, id ASC`,
+    params
+  );
+  const caregiverIds = [];
+  let ownerUserId = null;
+  for (const r of rows || []) {
+    const id = Number(r.provider_user_id);
+    if (!Number.isFinite(id) || id < 1) continue;
+    if (!caregiverIds.includes(id)) caregiverIds.push(id);
+    if (!ownerUserId && (r.is_primary || r.is_primary === 1)) ownerUserId = id;
+  }
+  if (!ownerUserId && caregiverIds.length) ownerUserId = caregiverIds[0];
+
+  if (!ownerUserId) {
+    const client = await Client.findById(clientId, { includeSensitive: false });
+    const legacy = Number(client?.provider_id || 0);
+    if (legacy > 0) {
+      ownerUserId = legacy;
+      if (!caregiverIds.includes(legacy)) caregiverIds.push(legacy);
+    }
+  }
+
+  if (agencyId && caregiverIds.length) {
+    const filtered = [];
+    for (const id of caregiverIds) {
+      if (await userHasAgency(id, agencyId)) filtered.push(id);
+    }
+    if (filtered.length) {
+      const ownerOk = ownerUserId && filtered.includes(Number(ownerUserId));
+      return {
+        ownerUserId: ownerOk ? ownerUserId : filtered[0],
+        caregiverIds: filtered
+      };
+    }
+  }
+
+  return { ownerUserId, caregiverIds };
+}
+
 export async function resolveInboundRoute({ toNumber, fromNumber }) {
+  const { normalizeNumberPurpose, skipsClinicalInbox, resolveProfilePhoneMatch } = await import(
+    './smsProfileAudit.service.js'
+  );
   const number = await PhoneNumber.findByPhoneNumber(toNumber);
+  const purpose = normalizeNumberPurpose(number?.number_purpose || 'clinical_care');
   let ownerUser = null;
   let assignment = null;
   let ownerType = null;
-  /** Eligible user IDs for multi-recipient SMS. When set, all receive notifications. */
+  /** Eligible user IDs for notifications (care team + optional support observe). */
   let eligibleUserIds = [];
+  let careOwnerUserId = null;
+  let careState = 'under_care';
+  let supportAccess = 'observe';
+  let matchedUserId = null;
 
-  if (number) {
-    // Multi-recipient: check for users with SMS access on this number
-    eligibleUserIds = await PhoneNumberAssignment.listEligibleUserIdsForNumber(number.id);
-    if (eligibleUserIds.length > 0) {
-      ownerUser = await User.findById(eligibleUserIds[0]);
-      assignment = await findAssignedUserForNumber(number.id);
-      ownerType = 'staff';
-    } else {
+  // Non-clinical purposes (notification, tenant/platform contact, provider contact) skip care inbox.
+  if (number && skipsClinicalInbox(purpose)) {
+    const profile = await resolveProfilePhoneMatch(fromNumber, { agencyId: number.agency_id || null });
+    const client = profile.clients?.[0] || (await Client.findByContactPhone(fromNumber));
+    let supportOwner = null;
+    let supportEligible = [];
+    if (purpose === 'provider_contact' && number.id) {
       assignment = await findAssignedUserForNumber(number.id);
       if (assignment?.user_id) {
-        ownerUser = await User.findById(assignment.user_id);
-        ownerType = 'staff';
-      } else {
-        ownerType = 'agency';
+        supportOwner = await User.findById(assignment.user_id);
+        supportEligible = [assignment.user_id];
       }
     }
+    if (!supportOwner && number.agency_id) {
+      const supportIds = await findSupportStaffIdsForAgency(number.agency_id);
+      if (supportIds?.length) {
+        supportOwner = await User.findById(supportIds[0]);
+        supportEligible = supportIds;
+      }
+    }
+    return {
+      number,
+      assignment: assignment || null,
+      ownerUser: supportOwner,
+      ownerType: supportOwner ? 'agency' : null,
+      eligibleUserIds: supportEligible,
+      agencyId: number.agency_id || client?.agency_id || null,
+      client,
+      clientId: client?.id || profile.clientId || null,
+      matchedUserId: profile.userId || null,
+      numberPurpose: purpose,
+      careOwnerUserId: null,
+      careState: null,
+      supportAccess: purpose === 'tenant_contact' || purpose === 'platform_contact' ? 'respond' : 'none',
+      skipClinicalInbox: true
+    };
+  }
+
+  const poolEligible = number
+    ? await PhoneNumberAssignment.listEligibleUserIdsForNumber(number.id)
+    : [];
+  if (number) {
+    assignment = await findAssignedUserForNumber(number.id);
   } else {
-    // Legacy fallback: system phone number on users table
     ownerUser = await User.findBySystemPhoneNumber(toNumber);
     ownerType = ownerUser ? 'staff' : null;
     if (ownerUser?.id) eligibleUserIds = [ownerUser.id];
   }
 
-  const client = await Client.findByContactPhone(fromNumber);
+  const profile = await resolveProfilePhoneMatch(fromNumber, {
+    agencyId: number?.agency_id || null
+  });
+  const client =
+    profile.clients?.[0] ||
+    (profile.clientId ? await Client.findById(profile.clientId, { includeSensitive: false }) : null) ||
+    (await Client.findByContactPhone(fromNumber));
+  matchedUserId = profile.userId || null;
   const agencyId = number?.agency_id || client?.agency_id || (ownerUser ? await findAgencyIdForUser(ownerUser.id) : null);
+
+  // Prefer CPA-based ownership over "first pool member owns everything".
+  if (client?.id && agencyId) {
+    const care = await resolveClientCaregivers(client.id, agencyId);
+    if (care.ownerUserId) {
+      careOwnerUserId = care.ownerUserId;
+      ownerUser = await User.findById(care.ownerUserId);
+      ownerType = 'staff';
+      eligibleUserIds = [...care.caregiverIds];
+      careState = 'under_care';
+      supportAccess = 'observe';
+    }
+  }
+
+  if (!ownerUser && poolEligible.length > 0) {
+    ownerUser = await User.findById(poolEligible[0]);
+    ownerType = 'staff';
+    eligibleUserIds = [...poolEligible];
+  } else if (!ownerUser && assignment?.user_id) {
+    ownerUser = await User.findById(assignment.user_id);
+    ownerType = 'staff';
+    eligibleUserIds = [assignment.user_id];
+  }
 
   if (!ownerUser && number && client?.provider_id) {
     const provider = await User.findById(client.provider_id);
@@ -182,6 +303,7 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
       ownerUser = provider;
       ownerType = 'staff';
       eligibleUserIds = [provider.id];
+      careOwnerUserId = provider.id;
     }
   }
 
@@ -193,6 +315,8 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
       ownerUser = await User.findById(defaultUserId);
       ownerType = 'agency';
       eligibleUserIds = [defaultUserId];
+      careState = 'observing';
+      supportAccess = 'respond';
     }
   }
 
@@ -202,12 +326,26 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
       ownerUser = await User.findById(supportIds[0]);
       ownerType = 'agency';
       eligibleUserIds = supportIds;
+      careState = 'observing';
+      supportAccess = 'respond';
     } else {
       const adminId = await findAnyAdminForAgency(agencyId);
       if (adminId) {
         ownerUser = await User.findById(adminId);
         ownerType = 'agency';
         eligibleUserIds = [adminId];
+        careState = 'observing';
+        supportAccess = 'respond';
+      }
+    }
+  }
+
+  // Support staff may observe clinical care threads quietly (notify separately / quieter prefs).
+  if (agencyId && careState === 'under_care') {
+    const supportIds = await findSupportStaffIdsForAgency(agencyId);
+    for (const sid of supportIds) {
+      if (!eligibleUserIds.includes(sid)) {
+        // Do not add support to noisy notify list by default; keep caregiver-only notifies.
       }
     }
   }
@@ -220,6 +358,12 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
     eligibleUserIds: eligibleUserIds.length > 0 ? eligibleUserIds : (ownerUser ? [ownerUser.id] : []),
     agencyId,
     client,
-    clientId: client?.id || null
+    clientId: client?.id || null,
+    matchedUserId,
+    numberPurpose: purpose,
+    careOwnerUserId: careOwnerUserId || ownerUser?.id || null,
+    careState,
+    supportAccess,
+    skipClinicalInbox: false
   };
 }

@@ -17,6 +17,13 @@ import {
   supervisorCanAccessClientInOrg
 } from '../utils/supervisorSchoolAccess.js';
 import { supportTicketSourceLabel } from '../constants/supportTicketSources.js';
+import {
+  decryptTicketMessageRow,
+  decryptTicketRow,
+  prepareEncryptedTicketText,
+  ticketDisplayStatus
+} from '../utils/supportTicketCrypto.js';
+import { allowedTopicsForCreatorRole, normalizeTicketTopic } from '../utils/ticketTopics.js';
 
 async function hasSupportTicketMessagesTable() {
   try {
@@ -49,6 +56,260 @@ async function hasSupportTicketsCloseOnReadColumn() {
   } catch {
     return false;
   }
+}
+
+async function hasSupportTicketEncryptionColumns() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_ticket_messages' AND COLUMN_NAME = 'body_ciphertext'
+       LIMIT 1`
+    );
+    return (rows || []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasSupportTicketPriorityColumn() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_tickets' AND COLUMN_NAME = 'priority'
+       LIMIT 1`
+    );
+    return (rows || []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasSupportTicketTargetScopeColumn() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_tickets' AND COLUMN_NAME = 'target_scope'
+       LIMIT 1`
+    );
+    return (rows || []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasSupportTicketTopicColumn() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_tickets' AND COLUMN_NAME = 'topic'
+       LIMIT 1`
+    );
+    return (rows || []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasSupportTicketPlatformHelpColumn() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_tickets' AND COLUMN_NAME = 'requests_platform_help'
+       LIMIT 1`
+    );
+    return (rows || []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Specialized topics are visible to admins + users with the matching responsibility flag
+ * for that ticket's agency. General is visible to all queue collaborators in scope.
+ */
+async function applyTopicAudienceVisibility({ req, where, params, topicFilter = null }) {
+  if (!(await hasSupportTicketTopicColumn())) return;
+
+  const filter = topicFilter ? normalizeTicketTopic(topicFilter) : null;
+  if (filter) {
+    where.push(`LOWER(COALESCE(t.topic, 'general')) = ?`);
+    params.push(filter);
+  }
+
+  const role = String(req.user?.role || '').toLowerCase();
+  // Admin / super_admin see every topic in their agency/platform scope.
+  if (role === 'super_admin' || role === 'admin') return;
+
+  const uid = Number(req.user?.id || 0);
+  if (!uid) {
+    where.push(`LOWER(COALESCE(t.topic, 'general')) = 'general'`);
+    return;
+  }
+
+  const [billingIds, payrollIds, credIds] = await Promise.all([
+    User.listBillingAgencyIds(uid),
+    User.listPayrollAgencyIds(uid),
+    User.listCredentialingAgencyIds(uid)
+  ]);
+
+  // Creators/claimants always see their own tickets; specialized topics need flags.
+  const parts = [
+    `LOWER(COALESCE(t.topic, 'general')) = 'general'`,
+    `t.created_by_user_id = ?`,
+    `t.claimed_by_user_id = ?`
+  ];
+  params.push(uid, uid);
+  if ((billingIds || []).length) {
+    parts.push(
+      `(LOWER(COALESCE(t.topic, '')) = 'billing' AND t.agency_id IN (${billingIds.map(() => '?').join(',')}))`
+    );
+    params.push(...billingIds.map((n) => Number(n)));
+  }
+  if ((payrollIds || []).length) {
+    parts.push(
+      `(LOWER(COALESCE(t.topic, '')) = 'payroll' AND t.agency_id IN (${payrollIds.map(() => '?').join(',')}))`
+    );
+    params.push(...payrollIds.map((n) => Number(n)));
+  }
+  if ((credIds || []).length) {
+    parts.push(
+      `(LOWER(COALESCE(t.topic, '')) = 'credentialing' AND t.agency_id IN (${credIds.map(() => '?').join(',')}))`
+    );
+    params.push(...credIds.map((n) => Number(n)));
+  }
+  where.push(`(${parts.join(' OR ')})`);
+}
+
+/** Specialized topics: admin always; others need matching responsibility flag (or be creator/claimant). */
+async function actorCanAccessTicketTopic(req, ticket) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'admin') return true;
+  const uid = Number(req.user?.id || 0);
+  if (!uid) return false;
+  if (Number(ticket?.created_by_user_id || 0) === uid) return true;
+  if (Number(ticket?.claimed_by_user_id || 0) === uid) return true;
+  if (!(await hasSupportTicketTopicColumn())) return true;
+
+  const topic = normalizeTicketTopic(ticket?.topic);
+  if (topic === 'general') return true;
+
+  const aid = Number(ticket?.agency_id || 0);
+  if (!aid) return false;
+
+  if (topic === 'billing') {
+    const ids = await User.listBillingAgencyIds(uid);
+    return (ids || []).map(Number).includes(aid);
+  }
+  if (topic === 'payroll') {
+    const ids = await User.listPayrollAgencyIds(uid);
+    return (ids || []).map(Number).includes(aid);
+  }
+  if (topic === 'credentialing') {
+    const ids = await User.listCredentialingAgencyIds(uid);
+    return (ids || []).map(Number).includes(aid);
+  }
+  return true;
+}
+
+async function userHasPlatformSupport(userId) {
+  const uid = Number(userId || 0);
+  if (!uid) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT has_platform_support FROM users WHERE id = ? LIMIT 1`,
+      [uid]
+    );
+    const v = rows?.[0]?.has_platform_support;
+    return v === 1 || v === true || v === '1';
+  } catch {
+    return false;
+  }
+}
+
+async function actorCanAccessPlatformSupportQueue(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'super_admin') return true;
+  return userHasPlatformSupport(req.user?.id);
+}
+
+async function hasSupportTicketMessageInternalColumn() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_ticket_messages' AND COLUMN_NAME = 'is_internal'
+       LIMIT 1`
+    );
+    return (rows || []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function enrichTicketForClient(ticket) {
+  const decrypted = decryptTicketRow(ticket);
+  return {
+    ...decrypted,
+    display_status: ticketDisplayStatus(decrypted),
+    priority: decrypted.priority || 'medium'
+  };
+}
+
+async function insertTicketMessageRow({
+  ticketId,
+  parentId,
+  authorUserId,
+  authorRole,
+  body,
+  isInternal = false
+}) {
+  const hasEnc = await hasSupportTicketEncryptionColumns();
+  const hasInternal = await hasSupportTicketMessageInternalColumn();
+  const enc = hasEnc ? prepareEncryptedTicketText(body) : { plain: body, ciphertext: null, iv: null, authTag: null, keyId: null };
+
+  if (hasEnc && hasInternal) {
+    await pool.execute(
+      `INSERT INTO support_ticket_messages
+         (ticket_id, parent_message_id, author_user_id, author_role, body, is_internal,
+          body_ciphertext, body_iv, body_auth_tag, encryption_key_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        ticketId,
+        parentId,
+        authorUserId,
+        authorRole,
+        enc.plain,
+        isInternal ? 1 : 0,
+        enc.ciphertext,
+        enc.iv,
+        enc.authTag,
+        enc.keyId
+      ]
+    );
+    return;
+  }
+  if (hasEnc) {
+    await pool.execute(
+      `INSERT INTO support_ticket_messages
+         (ticket_id, parent_message_id, author_user_id, author_role, body,
+          body_ciphertext, body_iv, body_auth_tag, encryption_key_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [ticketId, parentId, authorUserId, authorRole, enc.plain, enc.ciphertext, enc.iv, enc.authTag, enc.keyId]
+    );
+    return;
+  }
+  if (hasInternal) {
+    await pool.execute(
+      `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body, is_internal)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [ticketId, parentId, authorUserId, authorRole, body, isInternal ? 1 : 0]
+    );
+    return;
+  }
+  await pool.execute(
+    `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
+     VALUES (?, ?, ?, ?, ?)`,
+    [ticketId, parentId, authorUserId, authorRole, body]
+  );
 }
 
 async function maybeGenerateGeminiSummary({ question, answer }) {
@@ -87,6 +348,10 @@ async function ensureOrgAccess(req, schoolOrganizationId) {
   if (!org) return { ok: false, status: 404, message: 'Organization not found' };
 
   if (req.user?.role !== 'super_admin') {
+    // Platform support team may work tickets filed from any tenant.
+    if (await userHasPlatformSupport(req.user?.id)) {
+      return { ok: true, org, schoolOrganizationId: sid, platformSupport: true };
+    }
     const orgs = await User.getAgencies(req.user.id);
     const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === sid);
     if (!hasDirect) {
@@ -187,17 +452,35 @@ async function listSchoolStaffRecipients({ schoolOrganizationId }) {
   return rows || [];
 }
 
-async function listAgencySupportRecipients({ agencyId }) {
+async function listAgencySupportRecipients({ agencyId, topic = 'general' }) {
   const aid = parseInt(agencyId, 10);
   if (!aid) return [];
+  const t = normalizeTicketTopic(topic);
+  // Always include admins. For specialized topics, also include flagged responsibility holders.
+  let flagSql = '';
+  if (t === 'billing') flagSql = ' OR COALESCE(ua.has_billing_access, 0) = 1';
+  else if (t === 'payroll') flagSql = ' OR COALESCE(ua.has_payroll_access, 0) = 1';
+  else if (t === 'credentialing') flagSql = ' OR COALESCE(ua.can_manage_credentialing, 0) = 1';
+
   const [rows] = await pool.execute(
-    `SELECT u.id, u.email, u.work_email, u.first_name, u.last_name, u.role
+    `SELECT u.id, u.email, u.work_email, u.first_name, u.last_name, u.role,
+            COALESCE(ua.has_billing_access, 0) AS has_billing_access,
+            COALESCE(ua.has_payroll_access, 0) AS has_payroll_access,
+            COALESCE(ua.can_manage_credentialing, 0) AS can_manage_credentialing
      FROM users u
      JOIN user_agencies ua ON ua.user_id = u.id
      WHERE ua.agency_id = ?
-      AND LOWER(COALESCE(u.role, '')) IN ('admin','support','staff','super_admin','clinical_practice_assistant','provider_plus')
        AND (u.is_archived = FALSE OR u.is_archived IS NULL)
-       AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`,
+       AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+       AND (
+         LOWER(COALESCE(u.role, '')) = 'admin'
+         OR LOWER(COALESCE(u.role, '')) = 'super_admin'
+         ${
+           t === 'general'
+             ? `OR LOWER(COALESCE(u.role, '')) IN ('support','staff','clinical_practice_assistant','provider_plus')`
+             : flagSql
+         }
+       )`,
     [aid]
   );
   return rows || [];
@@ -292,6 +575,7 @@ async function userCanAccessTicketOrgScope({ userId, role, schoolOrganizationId,
   if (!userId) return false;
   const roleNorm = String(role || '').toLowerCase().trim();
   if (roleNorm === 'super_admin') return true;
+  if (await userHasPlatformSupport(userId)) return true;
 
   const orgs = await User.getAgencies(userId);
   const orgIds = (orgs || [])
@@ -556,7 +840,7 @@ export const listMySupportTickets = async (req, res, next) => {
        ORDER BY t.created_at DESC`,
       [req.user.id]
     );
-    res.json(rows || []);
+    res.json((rows || []).map((t) => enrichTicketForClient(t)));
   } catch (e) {
     next(e);
   }
@@ -564,14 +848,15 @@ export const listMySupportTickets = async (req, res, next) => {
 
 async function getAccessibleTicketScopeForUser(userId, role, req) {
   const r = String(role || '').toLowerCase();
+  const platform = r === 'super_admin' ? true : await userHasPlatformSupport(userId);
 
   // Super admin: no filter, sees all tickets platform-wide
-  if (r === 'super_admin') return { agencyIds: null, schoolOrgIds: null };
+  if (r === 'super_admin') return { agencyIds: null, schoolOrgIds: null, platform: true };
 
   // Middleware sets tenantAgencyIds when it resolves the tenant tree.
   // This is the primary scoping mechanism — always prefer it over any fallback.
   if (req && req.tenantAgencyIds && Array.isArray(req.tenantAgencyIds) && req.tenantAgencyIds.length > 0) {
-    return { agencyIds: req.tenantAgencyIds, schoolOrgIds: [] };
+    return { agencyIds: req.tenantAgencyIds, schoolOrgIds: [], platform };
   }
 
   // tenantAgencyIds was not set — resolve from the user's own agency memberships.
@@ -579,7 +864,7 @@ async function getAccessibleTicketScopeForUser(userId, role, req) {
   // original bug causing cross-tenant ticket leakage.
   const agencies = await User.getAgencies(userId);
   const ids = (agencies || []).map((a) => parseInt(a?.id, 10)).filter((n) => Number.isFinite(n));
-  if (ids.length === 0) return { agencyIds: [], schoolOrgIds: [] };
+  if (ids.length === 0) return { agencyIds: [], schoolOrgIds: [], platform };
 
   const [orgRows] = await pool.execute(
     `SELECT id, organization_type FROM agencies WHERE id IN (${ids.map(() => '?').join(',')})`,
@@ -628,18 +913,84 @@ async function getAccessibleTicketScopeForUser(userId, role, req) {
     }
   }
 
-  return { agencyIds, schoolOrgIds };
+  return { agencyIds, schoolOrgIds, platform };
+}
+
+/**
+ * Apply tenant/platform visibility. Platform support agents see platform tickets
+ * even with no tenant memberships; tenant admins see their own platform filings.
+ */
+async function applyTicketVisibilityScope({ req, role, where, params, targetScopeFilter = null, agencyIdFilter = null }) {
+  const scope = await getAccessibleTicketScopeForUser(req.user.id, role, req);
+  const hasTargetScope = await hasSupportTicketTargetScopeColumn();
+  const wantsPlatform = String(targetScopeFilter || '').toLowerCase() === 'platform';
+
+  if (wantsPlatform) {
+    if (!hasTargetScope) {
+      where.push('1 = 0');
+      return scope;
+    }
+    const canPlatformQueue = await actorCanAccessPlatformSupportQueue(req);
+    if (canPlatformQueue) {
+      where.push(`LOWER(COALESCE(t.target_scope, 'tenant')) = 'platform'`);
+    } else if (scope.agencyIds === null) {
+      where.push(`LOWER(COALESCE(t.target_scope, 'tenant')) = 'platform'`);
+    } else if ((scope.agencyIds || []).length > 0) {
+      // Tenant staff: only platform tickets they filed from their agencies
+      where.push(`LOWER(COALESCE(t.target_scope, 'tenant')) = 'platform'`);
+      where.push(`t.agency_id IN (${scope.agencyIds.map(() => '?').join(',')})`);
+      params.push(...scope.agencyIds);
+    } else {
+      where.push('1 = 0');
+    }
+    return scope;
+  }
+
+  if (scope.agencyIds !== null) {
+    const conditions = [];
+    if (scope.agencyIds.length > 0) {
+      conditions.push(`t.agency_id IN (${scope.agencyIds.map(() => '?').join(',')})`);
+      params.push(...scope.agencyIds);
+    }
+    if (scope.schoolOrgIds.length > 0) {
+      conditions.push(`t.school_organization_id IN (${scope.schoolOrgIds.map(() => '?').join(',')})`);
+      params.push(...scope.schoolOrgIds);
+    }
+    if (scope.platform && hasTargetScope) {
+      conditions.push(`LOWER(COALESCE(t.target_scope, 'tenant')) = 'platform'`);
+    }
+    if (conditions.length > 0) where.push(`(${conditions.join(' OR ')})`);
+    else where.push('1 = 0');
+  }
+
+  if (agencyIdFilter && Number.isFinite(agencyIdFilter)) {
+    const access = await ensureAgencyAccess(req, agencyIdFilter);
+    if (!access.ok) return { ...scope, accessError: access };
+    where.push('t.agency_id = ?');
+    params.push(agencyIdFilter);
+    if (hasTargetScope) {
+      // Tenant chip: normal tenant tickets for that agency (not the platform inbox)
+      where.push(`LOWER(COALESCE(t.target_scope, 'tenant')) <> 'platform'`);
+    }
+  } else if (hasTargetScope && !wantsPlatform && String(targetScopeFilter || '').toLowerCase() === 'tenant') {
+    where.push(`LOWER(COALESCE(t.target_scope, 'tenant')) <> 'platform'`);
+  }
+
+  return scope;
 }
 
 export const listSupportTicketsQueue = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
-    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    const canPlatform = await actorCanAccessPlatformSupportQueue(req);
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || canPlatform;
     if (!canView) {
       return res.status(403).json({ error: { message: 'Only staff/admin/support can view the support ticket queue' } });
     }
 
     const agencyIdFilter = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    const targetScopeFilter = req.query?.targetScope ? String(req.query.targetScope).trim().toLowerCase() : null;
+    const topicFilter = req.query?.topic ? String(req.query.topic).trim().toLowerCase() : null;
     const schoolOrganizationId = req.query?.schoolOrganizationId ? parseInt(req.query.schoolOrganizationId, 10) : null;
     const status = req.query?.status ? String(req.query.status).trim().toLowerCase() : null;
     const sourceChannel = req.query?.sourceChannel ? String(req.query.sourceChannel).trim().toLowerCase() : null;
@@ -657,31 +1008,19 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       ? await isSchedulerForAnySchool({ userId: req.user?.id, userEmail: req.user?.email || req.user?.username || null })
       : false;
 
-    // Scope to user's agencies/schools for non-super_admin (so agency admins see all tickets from their agency's schools)
-    const scope = await getAccessibleTicketScopeForUser(req.user.id, role, req);
-    if (scope.agencyIds !== null) {
-      const conditions = [];
-      if (scope.agencyIds.length > 0) {
-        conditions.push(`t.agency_id IN (${scope.agencyIds.map(() => '?').join(',')})`);
-        params.push(...scope.agencyIds);
-      }
-      if (scope.schoolOrgIds.length > 0) {
-        conditions.push(`t.school_organization_id IN (${scope.schoolOrgIds.map(() => '?').join(',')})`);
-        params.push(...scope.schoolOrgIds);
-      }
-      if (conditions.length > 0) {
-        where.push(`(${conditions.join(' OR ')})`);
-      } else {
-        where.push('1 = 0');
-      }
+    const scope = await applyTicketVisibilityScope({
+      req,
+      role,
+      where,
+      params,
+      targetScopeFilter,
+      agencyIdFilter: Number.isFinite(agencyIdFilter) ? agencyIdFilter : null
+    });
+    if (scope?.accessError) {
+      return res.status(scope.accessError.status).json({ error: { message: scope.accessError.message } });
     }
 
-    if (agencyIdFilter && Number.isFinite(agencyIdFilter)) {
-      const access = await ensureAgencyAccess(req, agencyIdFilter);
-      if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
-      where.push('t.agency_id = ?');
-      params.push(agencyIdFilter);
-    }
+    await applyTopicAudienceVisibility({ req, where, params, topicFilter });
 
     if (schoolOrganizationId) {
       const access = await ensureOrgAccess(req, schoolOrganizationId);
@@ -725,11 +1064,35 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       params.push(req.user.id);
     }
 
-    // Basic search across subject/question + school name
+    // Search subject + school only (question may be encrypted at rest)
     if (q) {
-      where.push('(t.subject LIKE ? OR t.question LIKE ? OR s.name LIKE ?)');
+      where.push('(t.subject LIKE ? OR s.name LIKE ?)');
       const like = `%${q}%`;
-      params.push(like, like, like);
+      params.push(like, like);
+    }
+
+    const priorityFilter = req.query?.priority ? String(req.query.priority).trim().toLowerCase() : '';
+    if (priorityFilter && ['low', 'medium', 'high'].includes(priorityFilter) && (await hasSupportTicketPriorityColumn())) {
+      where.push('LOWER(COALESCE(t.priority, \'medium\')) = ?');
+      params.push(priorityFilter);
+    }
+
+    const creatorRole = req.query?.creatorRole ? String(req.query.creatorRole).trim().toLowerCase() : '';
+    if (creatorRole === 'client_guardian' || creatorRole === 'guardian') {
+      where.push("LOWER(COALESCE(cb.role, '')) = 'client_guardian'");
+    } else if (creatorRole === 'school_staff') {
+      where.push("LOWER(COALESCE(cb.role, '')) = 'school_staff'");
+    }
+
+    const displayStatus = req.query?.displayStatus ? String(req.query.displayStatus).trim().toLowerCase() : '';
+    if (displayStatus === 'open') {
+      where.push("LOWER(t.status) = 'open' AND t.claimed_by_user_id IS NULL");
+    } else if (displayStatus === 'in_progress') {
+      where.push("LOWER(t.status) = 'open' AND t.claimed_by_user_id IS NOT NULL");
+    } else if (displayStatus === 'waiting') {
+      where.push("LOWER(t.status) = 'answered'");
+    } else if (displayStatus === 'closed') {
+      where.push("LOWER(t.status) = 'closed'");
     }
 
     const sql = `
@@ -790,8 +1153,9 @@ export const listSupportTicketsQueue = async (req, res, next) => {
     );
     res.json(tickets.map((ticket) => {
       const senderRoiAccessState = createdByScope.get(Number(ticket?.id || 0)) || 'n/a';
+      const enriched = enrichTicketForClient(ticket);
       return {
-        ...ticket,
+        ...enriched,
         sender_roi_access_state: senderRoiAccessState,
         sender_is_limited: senderRoiAccessState === 'limited'
       };
@@ -852,6 +1216,8 @@ export const getSupportTicketsCount = async (req, res, next) => {
       params.push(req.user.id);
     }
 
+    await applyTopicAudienceVisibility({ req, where, params });
+
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS cnt FROM support_tickets t
        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`,
@@ -859,6 +1225,461 @@ export const getSupportTicketsCount = async (req, res, next) => {
     );
     const count = Number(rows?.[0]?.cnt || 0);
     res.json({ count });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Desk metric cards: open / in_progress / waiting / closed_today
+ * GET /api/support-tickets/metrics?agencyId=
+ */
+export const getSupportTicketsMetrics = async (req, res, next) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const canPlatform = await actorCanAccessPlatformSupportQueue(req);
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || canPlatform;
+    if (!canView) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const agencyIdFilter = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    const targetScopeFilter = req.query?.targetScope ? String(req.query.targetScope).trim().toLowerCase() : null;
+    const where = [];
+    const params = [];
+    const scope = await applyTicketVisibilityScope({
+      req,
+      role,
+      where,
+      params,
+      targetScopeFilter,
+      agencyIdFilter: Number.isFinite(agencyIdFilter) ? agencyIdFilter : null
+    });
+    if (scope?.accessError) {
+      return res.status(scope.accessError.status).json({ error: { message: scope.accessError.message } });
+    }
+
+    await applyTopicAudienceVisibility({ req, where, params });
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const [rows] = await pool.execute(
+      `SELECT
+         SUM(CASE WHEN LOWER(t.status) = 'open' AND t.claimed_by_user_id IS NULL THEN 1 ELSE 0 END) AS open_cnt,
+         SUM(CASE WHEN LOWER(t.status) = 'open' AND t.claimed_by_user_id IS NOT NULL THEN 1 ELSE 0 END) AS in_progress_cnt,
+         SUM(CASE WHEN LOWER(t.status) = 'answered' THEN 1 ELSE 0 END) AS waiting_cnt,
+         SUM(CASE WHEN LOWER(t.status) = 'closed' AND DATE(t.updated_at) = CURDATE() THEN 1 ELSE 0 END) AS closed_today_cnt
+       FROM support_tickets t
+       ${whereSql}`,
+      params
+    );
+    const r = rows?.[0] || {};
+    res.json({
+      open: Number(r.open_cnt || 0),
+      in_progress: Number(r.in_progress_cnt || 0),
+      waiting: Number(r.waiting_cnt || 0),
+      closed_today: Number(r.closed_today_cnt || 0)
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Per-tenant open + mine counts for the ticket desk tenant switcher.
+ * GET /api/support-tickets/counts-by-agency
+ * → { agencies: [{ agencyId, open, mine }], totals: { open, mine } }
+ *
+ * open = status open (queue workload)
+ * mine = claimed by current user and not closed
+ */
+export const getSupportTicketsCountsByAgency = async (req, res, next) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const canPlatform = await actorCanAccessPlatformSupportQueue(req);
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || canPlatform;
+    if (!canView) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const where = [];
+    const params = [];
+    const schedulerOwnOnly = role === 'school_staff'
+      ? await isSchedulerForAnySchool({ userId: req.user?.id, userEmail: req.user?.email || req.user?.username || null })
+      : false;
+    const hasTargetScope = await hasSupportTicketTargetScopeColumn();
+
+    const scope = await getAccessibleTicketScopeForUser(req.user.id, role, req);
+    if (scope.agencyIds !== null) {
+      const conditions = [];
+      if (scope.agencyIds.length > 0) {
+        conditions.push(`t.agency_id IN (${scope.agencyIds.map(() => '?').join(',')})`);
+        params.push(...scope.agencyIds);
+      }
+      if (scope.schoolOrgIds.length > 0) {
+        conditions.push(`t.school_organization_id IN (${scope.schoolOrgIds.map(() => '?').join(',')})`);
+        params.push(...scope.schoolOrgIds);
+      }
+      if (conditions.length > 0) where.push(`(${conditions.join(' OR ')})`);
+      else where.push('1 = 0');
+    }
+
+    if (schedulerOwnOnly) {
+      where.push('t.created_by_user_id = ?');
+      params.push(req.user.id);
+    }
+
+    // Per-tenant chips count tenant-queue tickets only (platform has its own chip).
+    if (hasTargetScope) {
+      where.push(`LOWER(COALESCE(t.target_scope, 'tenant')) <> 'platform'`);
+    }
+
+    await applyTopicAudienceVisibility({ req, where, params });
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const uid = Number(req.user.id);
+    const [rows] = await pool.execute(
+      `SELECT
+         t.agency_id AS agencyId,
+         SUM(CASE WHEN LOWER(t.status) = 'open' THEN 1 ELSE 0 END) AS open_cnt,
+         SUM(
+           CASE
+             WHEN t.claimed_by_user_id = ? AND LOWER(COALESCE(t.status, '')) <> 'closed'
+             THEN 1 ELSE 0
+           END
+         ) AS mine_cnt
+       FROM support_tickets t
+       ${whereSql}
+       GROUP BY t.agency_id`,
+      [uid, ...params]
+    );
+
+    const agencies = (rows || [])
+      .map((r) => ({
+        agencyId: Number(r.agencyId || 0),
+        open: Number(r.open_cnt || 0),
+        mine: Number(r.mine_cnt || 0)
+      }))
+      .filter((r) => r.agencyId > 0);
+
+    const totals = agencies.reduce(
+      (acc, row) => {
+        acc.open += row.open;
+        acc.mine += row.mine;
+        return acc;
+      },
+      { open: 0, mine: 0 }
+    );
+
+    let platform = { open: 0, mine: 0 };
+    if (hasTargetScope && (canPlatform || role === 'super_admin' || isAgencyAdminUser(req))) {
+      const pWhere = [`LOWER(COALESCE(t.target_scope, 'tenant')) = 'platform'`];
+      const pParams = [];
+      if (!canPlatform && role !== 'super_admin' && scope.agencyIds !== null) {
+        if ((scope.agencyIds || []).length) {
+          pWhere.push(`t.agency_id IN (${scope.agencyIds.map(() => '?').join(',')})`);
+          pParams.push(...scope.agencyIds);
+        } else {
+          pWhere.push('1 = 0');
+        }
+      }
+      const [pRows] = await pool.execute(
+        `SELECT
+           SUM(CASE WHEN LOWER(t.status) = 'open' THEN 1 ELSE 0 END) AS open_cnt,
+           SUM(
+             CASE
+               WHEN t.claimed_by_user_id = ? AND LOWER(COALESCE(t.status, '')) <> 'closed'
+               THEN 1 ELSE 0
+             END
+           ) AS mine_cnt
+         FROM support_tickets t
+         WHERE ${pWhere.join(' AND ')}`,
+        [uid, ...pParams]
+      );
+      platform = {
+        open: Number(pRows?.[0]?.open_cnt || 0),
+        mine: Number(pRows?.[0]?.mine_cnt || 0)
+      };
+    }
+
+    res.json({ agencies, totals, platform });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateSupportTicketPriority = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admin/support can update priority' } });
+    }
+    if (!(await hasSupportTicketPriorityColumn())) {
+      return res.status(409).json({ error: { message: 'Priority not enabled (run migration 1002)' } });
+    }
+    const ticketId = parseInt(req.params.id, 10);
+    const priority = String(req.body?.priority || '').trim().toLowerCase();
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+    if (!['low', 'medium', 'high'].includes(priority)) {
+      return res.status(400).json({ error: { message: 'priority must be low, medium, or high' } });
+    }
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = rows?.[0];
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    await pool.execute(`UPDATE support_tickets SET priority = ? WHERE id = ?`, [priority, ticketId]);
+    const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
+    res.json(enrichTicketForClient(out?.[0] || ticket));
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Tenant admin/support → Plot Twist HQ platform support team (direct).
+ * Providers/staff must use tenant tickets with requestsPlatformHelp; admins escalate.
+ * POST /api/support-tickets/platform
+ * Body: { agencyId, subject?, question, priority? }
+ */
+export const createPlatformSupportTicket = async (req, res, next) => {
+  try {
+    if (!(await hasSupportTicketTargetScopeColumn())) {
+      return res.status(409).json({ error: { message: 'Platform tickets require migration 1005' } });
+    }
+    const role = String(req.user?.role || '').toLowerCase();
+    // Only tenant admin/support (or superadmin) may file directly to HQ.
+    // has_platform_support works the queue; it does not grant filing from a tenant.
+    const canFile = role === 'super_admin' || role === 'admin' || role === 'support';
+    if (!canFile) {
+      return res.status(403).json({
+        error: {
+          message:
+            'Only organization admin/support can contact platform support directly. Providers: submit a product-help request to your admin team.'
+        }
+      });
+    }
+
+    const agencyId = parseInt(req.body?.agencyId ?? req.body?.agency_id, 10);
+    const subject = req.body?.subject ? String(req.body.subject).trim().slice(0, 255) : 'Platform support request';
+    const question = String(req.body?.question || '').trim();
+    if (!agencyId || !question) {
+      return res.status(400).json({ error: { message: 'agencyId and question are required' } });
+    }
+    if (role !== 'super_admin') {
+      const access = await ensureAgencyAccess(req, agencyId);
+      if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    }
+
+    const hasEnc = await hasSupportTicketEncryptionColumns();
+    const hasPriority = await hasSupportTicketPriorityColumn();
+    const qEnc = hasEnc ? prepareEncryptedTicketText(question) : { plain: question, ciphertext: null, iv: null, authTag: null, keyId: null };
+    const priorityRaw = String(req.body?.priority || 'medium').trim().toLowerCase();
+    const priority = ['low', 'medium', 'high'].includes(priorityRaw) ? priorityRaw : 'medium';
+
+    // Root tenant id doubles as school_organization_id (agencies table holds all org types).
+    let result;
+    if (hasEnc && hasPriority) {
+      [result] = await pool.execute(
+        `INSERT INTO support_tickets
+          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status, priority, target_scope,
+           question_ciphertext, question_iv, question_auth_tag, question_encryption_key_id, source_channel)
+         VALUES (?, NULL, ?, ?, ?, ?, 'open', ?, 'platform', ?, ?, ?, ?, 'portal')`,
+        [
+          agencyId,
+          req.user.id,
+          agencyId,
+          subject,
+          qEnc.plain,
+          priority,
+          qEnc.ciphertext,
+          qEnc.iv,
+          qEnc.authTag,
+          qEnc.keyId
+        ]
+      );
+    } else if (hasPriority) {
+      [result] = await pool.execute(
+        `INSERT INTO support_tickets
+          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status, priority, target_scope, source_channel)
+         VALUES (?, NULL, ?, ?, ?, ?, 'open', ?, 'platform', 'portal')`,
+        [agencyId, req.user.id, agencyId, subject, question, priority]
+      );
+    } else {
+      [result] = await pool.execute(
+        `INSERT INTO support_tickets
+          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status, target_scope, source_channel)
+         VALUES (?, NULL, ?, ?, ?, ?, 'open', 'platform', 'portal')`,
+        [agencyId, req.user.id, agencyId, subject, question]
+      );
+    }
+
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [result.insertId]);
+    const created = enrichTicketForClient(rows?.[0] || null);
+
+    try {
+      if (created?.id && (await hasSupportTicketMessagesTable())) {
+        await insertTicketMessageRow({
+          ticketId: created.id,
+          parentId: null,
+          authorUserId: req.user.id,
+          authorRole: String(req.user?.role || ''),
+          body: question,
+          isInternal: false
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Notify platform support team + super_admins (best-effort)
+    try {
+      const [recipients] = await pool.execute(
+        `SELECT id FROM users
+         WHERE (is_archived = FALSE OR is_archived IS NULL)
+           AND (
+             LOWER(role) = 'super_admin'
+             OR has_platform_support = 1
+           )`
+      );
+      for (const r of recipients || []) {
+        const uid = Number(r.id);
+        if (!uid || uid === Number(req.user.id)) continue;
+        try {
+          await Notification.create({
+            type: 'support_ticket_created',
+            severity: 'info',
+            title: 'New platform support ticket',
+            message: subject || 'Platform support request',
+            userId: uid,
+            agencyId: agencyId || null,
+            relatedEntityType: 'support_ticket',
+            relatedEntityId: created.id,
+            actorUserId: req.user.id
+          });
+        } catch {
+          /* ignore per-recipient */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    res.status(201).json(created);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Tenant admin/support escalates an existing tenant ticket to Plot Twist HQ.
+ * POST /api/support-tickets/:id/escalate-to-platform
+ * Body: { note? }
+ */
+export const escalateSupportTicketToPlatform = async (req, res, next) => {
+  try {
+    if (!(await hasSupportTicketTargetScopeColumn())) {
+      return res.status(409).json({ error: { message: 'Platform tickets require migration 1005' } });
+    }
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!['super_admin', 'admin', 'support'].includes(role)) {
+      return res.status(403).json({ error: { message: 'Only organization admin/support can escalate to platform' } });
+    }
+
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = rows?.[0];
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const currentScope = String(ticket.target_scope || 'tenant').toLowerCase();
+    if (currentScope === 'platform') {
+      return res.status(409).json({ error: { message: 'Ticket is already in the platform queue' } });
+    }
+
+    const note = req.body?.note ? String(req.body.note).trim().slice(0, 2000) : '';
+    const hasHelpCols = await hasSupportTicketPlatformHelpColumn();
+
+    if (hasHelpCols) {
+      await pool.execute(
+        `UPDATE support_tickets
+         SET target_scope = 'platform',
+             escalated_to_platform_at = CURRENT_TIMESTAMP,
+             escalated_to_platform_by_user_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [req.user.id, ticketId]
+      );
+    } else {
+      await pool.execute(
+        `UPDATE support_tickets
+         SET target_scope = 'platform',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [ticketId]
+      );
+    }
+
+    try {
+      if (await hasSupportTicketMessagesTable()) {
+        const actorName =
+          [req.user?.first_name, req.user?.last_name].filter(Boolean).join(' ').trim() ||
+          req.user?.email ||
+          'Admin';
+        const body = note
+          ? `Escalated to Plot Twist HQ platform support by ${actorName}.\n\nNote: ${note}`
+          : `Escalated to Plot Twist HQ platform support by ${actorName}.`;
+        await insertTicketMessageRow({
+          ticketId,
+          parentId: null,
+          authorUserId: req.user.id,
+          authorRole: role,
+          body,
+          isInternal: true
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+
+    try {
+      const [recipients] = await pool.execute(
+        `SELECT id FROM users
+         WHERE (is_archived = FALSE OR is_archived IS NULL)
+           AND (
+             LOWER(role) = 'super_admin'
+             OR has_platform_support = 1
+           )`
+      );
+      const title = 'Ticket escalated to platform';
+      const message = ticket.subject || `Ticket #${ticketId}`;
+      for (const r of recipients || []) {
+        const uid = Number(r.id);
+        if (!uid || uid === Number(req.user.id)) continue;
+        try {
+          await Notification.create({
+            type: 'support_ticket_created',
+            severity: 'info',
+            title,
+            message,
+            userId: uid,
+            agencyId: ticket.agency_id || null,
+            relatedEntityType: 'support_ticket',
+            relatedEntityId: ticketId,
+            actorUserId: req.user.id
+          });
+        } catch {
+          /* per-recipient */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
+    res.json(enrichTicketForClient(out?.[0] || null));
   } catch (e) {
     next(e);
   }
@@ -903,84 +1724,156 @@ export const createSupportTicket = async (req, res, next) => {
       } else {
         return res.status(403).json({ error: { message: 'Only school staff and assigned providers can submit client tickets' } });
       }
-    } else if (role !== 'school_staff' && role !== 'provider') {
-      return res.status(403).json({ error: { message: 'Only school staff and providers can submit support tickets here' } });
+    } else if (
+      !['school_staff', 'provider', 'provider_plus', 'staff', 'clinical_practice_assistant', 'admin', 'support', 'super_admin'].includes(
+        role
+      )
+    ) {
+      return res.status(403).json({
+        error: { message: 'Only school staff, providers, or agency staff can submit support tickets here' }
+      });
     }
 
     const agencyId = await resolveActiveAgencyIdForOrg(schoolOrganizationId);
+    const hasEnc = await hasSupportTicketEncryptionColumns();
+    const hasPriority = await hasSupportTicketPriorityColumn();
+    const qEnc = hasEnc ? prepareEncryptedTicketText(question) : { plain: question, ciphertext: null, iv: null, authTag: null, keyId: null };
+    const priorityRaw = String(req.body?.priority || 'medium').trim().toLowerCase();
+    const priority = ['low', 'medium', 'high'].includes(priorityRaw) ? priorityRaw : 'medium';
+    const topic = normalizeTicketTopic(req.body?.topic, {
+      allowed: allowedTopicsForCreatorRole(role)
+    });
+    // Providers/staff may request platform/product help — stays tenant-scoped until admin escalates.
+    const requestsPlatformHelp =
+      req.body?.requestsPlatformHelp === true ||
+      req.body?.requestsPlatformHelp === 1 ||
+      req.body?.requestsPlatformHelp === '1' ||
+      req.body?.requests_platform_help === true ||
+      req.body?.requests_platform_help === 1;
 
-    const [result] = await pool.execute(
-      `INSERT INTO support_tickets
-        (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'open')`,
-      [schoolOrganizationId, clientId || null, req.user.id, agencyId ? parseInt(agencyId, 10) : null, subject, question]
-    );
+    let result;
+    if (hasEnc && hasPriority) {
+      [result] = await pool.execute(
+        `INSERT INTO support_tickets
+          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status, priority,
+           question_ciphertext, question_iv, question_auth_tag, question_encryption_key_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
+        [
+          schoolOrganizationId,
+          clientId || null,
+          req.user.id,
+          agencyId ? parseInt(agencyId, 10) : null,
+          subject,
+          qEnc.plain,
+          priority,
+          qEnc.ciphertext,
+          qEnc.iv,
+          qEnc.authTag,
+          qEnc.keyId
+        ]
+      );
+    } else if (hasEnc) {
+      [result] = await pool.execute(
+        `INSERT INTO support_tickets
+          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status,
+           question_ciphertext, question_iv, question_auth_tag, question_encryption_key_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)`,
+        [
+          schoolOrganizationId,
+          clientId || null,
+          req.user.id,
+          agencyId ? parseInt(agencyId, 10) : null,
+          subject,
+          qEnc.plain,
+          qEnc.ciphertext,
+          qEnc.iv,
+          qEnc.authTag,
+          qEnc.keyId
+        ]
+      );
+    } else if (hasPriority) {
+      [result] = await pool.execute(
+        `INSERT INTO support_tickets
+          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status, priority)
+         VALUES (?, ?, ?, ?, ?, ?, 'open', ?)`,
+        [schoolOrganizationId, clientId || null, req.user.id, agencyId ? parseInt(agencyId, 10) : null, subject, question, priority]
+      );
+    } else {
+      [result] = await pool.execute(
+        `INSERT INTO support_tickets
+          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status)
+         VALUES (?, ?, ?, ?, ?, ?, 'open')`,
+        [schoolOrganizationId, clientId || null, req.user.id, agencyId ? parseInt(agencyId, 10) : null, subject, question]
+      );
+    }
+
+    if (result?.insertId && (await hasSupportTicketTopicColumn())) {
+      try {
+        await pool.execute(`UPDATE support_tickets SET topic = ? WHERE id = ?`, [topic, result.insertId]);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (result?.insertId && requestsPlatformHelp && (await hasSupportTicketPlatformHelpColumn())) {
+      try {
+        await pool.execute(`UPDATE support_tickets SET requests_platform_help = 1 WHERE id = ?`, [
+          result.insertId
+        ]);
+      } catch {
+        /* ignore */
+      }
+    }
 
     const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [result.insertId]);
-    const created = rows?.[0] || null;
+    const created = enrichTicketForClient(rows?.[0] || null);
 
     // Best-effort: persist the initial question as a message row when the table exists.
     try {
       if (created?.id && (await hasSupportTicketMessagesTable())) {
-        await pool.execute(
-          `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
-           VALUES (?, NULL, ?, ?, ?)`,
-          [created.id, req.user.id, String(req.user?.role || ''), question]
-        );
+        await insertTicketMessageRow({
+          ticketId: created.id,
+          parentId: null,
+          authorUserId: req.user.id,
+          authorRole: String(req.user?.role || ''),
+          body: question,
+          isInternal: false
+        });
       }
     } catch {
       // best-effort; do not block creation
     }
 
-    // Create an in-app notification for agency admins/staff/CPAs if configured.
-    // This powers the ticketing notifications card in the admin notifications UI.
+    // Notify admins + responsibility-flagged recipients for the ticket topic.
+    // Product-help requests always notify tenant admins (not platform) until escalated.
     try {
       const aid = agencyId ? parseInt(agencyId, 10) : null;
-      if (aid) {
-        // Determine which org-type this ticket came from (school/program/learning).
-        const orgType = String(access?.org?.organization_type || '').trim().toLowerCase();
-
-        // Resolve per-agency scope (defaults to all supported child org types if unset).
-        let allowedTypes = ['school', 'program', 'learning'];
-        try {
-          const a = await Agency.findById(aid);
-          const raw = a?.ticketing_notification_org_types_json ?? null;
-          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-          if (Array.isArray(parsed) && parsed.length) {
-            allowedTypes = parsed.map((t) => String(t || '').trim().toLowerCase()).filter(Boolean);
+      if (aid && created?.id) {
+        const schoolName = access?.org?.name || `Org #${schoolOrganizationId}`;
+        const topicLabel = topic === 'general' ? 'Support' : topic.charAt(0).toUpperCase() + topic.slice(1);
+        const title = requestsPlatformHelp
+          ? 'Product help request (for admin review)'
+          : `New ${topicLabel.toLowerCase()} ticket`;
+        const msg =
+          `${schoolName}: ${subject || 'Support ticket'}${question ? ` — ${question.slice(0, 220)}${question.length > 220 ? '…' : ''}` : ''}`;
+        const notifyTopic = requestsPlatformHelp ? 'general' : topic;
+        const recipients = await listAgencySupportRecipients({ agencyId: aid, topic: notifyTopic });
+        for (const r of recipients) {
+          if (Number(r.id) === Number(req.user?.id)) continue;
+          try {
+            await Notification.create({
+              type: 'support_ticket_created',
+              severity: 'info',
+              title,
+              message: msg,
+              userId: r.id,
+              agencyId: aid,
+              relatedEntityType: 'support_ticket',
+              relatedEntityId: created.id,
+              actorUserId: req.user.id
+            });
+          } catch {
+            /* per-recipient */
           }
-        } catch {
-          // best-effort; keep defaults
-        }
-
-        const shouldNotify =
-          orgType && allowedTypes.includes(orgType);
-
-        if (shouldNotify && created?.id) {
-          // Prefer a concise message, but keep enough context to be useful in the feed.
-          const schoolName = access?.org?.name || `Org #${schoolOrganizationId}`;
-          const title = 'New support ticket';
-          const msg =
-            `${schoolName}: ${subject || 'Support ticket'}${question ? ` — ${question.slice(0, 220)}${question.length > 220 ? '…' : ''}` : ''}`;
-
-          await Notification.create({
-            type: 'support_ticket_created',
-            severity: 'info',
-            title,
-            message: msg,
-            // Visible to admin-like roles; staff maps to 'admin' audience.
-            audienceJson: {
-              admin: true,
-              clinicalPracticeAssistant: true,
-              supervisor: false,
-              provider: false
-            },
-            userId: null,
-            agencyId: aid,
-            relatedEntityType: 'support_ticket',
-            relatedEntityId: created.id,
-            actorUserId: req.user.id
-          });
         }
       }
     } catch {
@@ -1033,6 +1926,9 @@ export const getClientSupportTicketThread = async (req, res, next) => {
       const messageParams = [ticket.id];
       const ownMessageClause = limitToOwnTickets ? ' AND m.author_user_id = ?' : '';
       if (limitToOwnTickets) messageParams.push(req.user.id);
+      const hasInternal = await hasSupportTicketMessageInternalColumn();
+      const role = String(req.user?.role || '').toLowerCase();
+      const internalClause = role === 'school_staff' && hasInternal ? ' AND COALESCE(m.is_internal, 0) = 0' : '';
       const [mRows] = await pool.execute(
         `SELECT m.*,
                 u.first_name AS author_first_name,
@@ -1041,13 +1937,14 @@ export const getClientSupportTicketThread = async (req, res, next) => {
          LEFT JOIN users u ON u.id = m.author_user_id
          WHERE m.ticket_id = ?
            ${ownMessageClause}
+           ${internalClause}
          ORDER BY m.created_at ASC, m.id ASC`,
         messageParams
       );
-      messages = Array.isArray(mRows) ? mRows : [];
+      messages = (Array.isArray(mRows) ? mRows : []).map((m) => decryptTicketMessageRow(m));
     }
 
-    res.json({ ticket, messages });
+    res.json({ ticket: ticket ? enrichTicketForClient(ticket) : null, messages });
   } catch (e) {
     next(e);
   }
@@ -1150,7 +2047,7 @@ export const listClientSupportTickets = async (req, res, next) => {
       queryParams
     );
 
-    res.json({ tickets: rows || [] });
+    res.json({ tickets: (rows || []).map((t) => enrichTicketForClient(t)) });
   } catch (e) {
     next(e);
   }
@@ -1165,10 +2062,13 @@ export const listSupportTicketMessages = async (req, res, next) => {
     const ticket = rows?.[0] || null;
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
-    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
-
     const role = String(req.user?.role || '').toLowerCase();
+    const isTicketCreatorEarly = Number(ticket?.created_by_user_id || 0) === Number(req.user?.id || 0);
+    if (!(role === 'client_guardian' && isTicketCreatorEarly)) {
+      const access = await ensureOrgAccess(req, ticket.school_organization_id);
+      if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    }
+
     const schedulerOwnOnly = role === 'school_staff'
       ? await isSchedulerForSchool({
           userId: req.user?.id,
@@ -1190,7 +2090,8 @@ export const listSupportTicketMessages = async (req, res, next) => {
     if (restrictToOwnTicket && Number(ticket?.created_by_user_id || 0) !== Number(req.user?.id || 0)) {
       return res.status(403).json({ error: { message: 'Limited ticket access only allows your own tickets' } });
     }
-    let canView = isAgencyAdminUser(req) || role === 'super_admin';
+    const isTicketCreator = Number(ticket?.created_by_user_id || 0) === Number(req.user?.id || 0);
+    let canView = isAgencyAdminUser(req) || role === 'super_admin' || (role === 'client_guardian' && isTicketCreator);
     if (!canView && role === 'school_staff' && ticket.client_id) {
       canView = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
         clientId: ticket.client_id,
@@ -1213,15 +2114,21 @@ export const listSupportTicketMessages = async (req, res, next) => {
           })));
     }
     if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await actorCanAccessTicketTopic(req, ticket))) {
+      return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
+    }
 
     if (!(await hasSupportTicketMessagesTable())) {
-      return res.json({ ticket, messages: [] });
+      return res.json({ ticket: enrichTicketForClient(ticket), messages: [] });
     }
 
     const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
+    const hasInternal = await hasSupportTicketMessageInternalColumn();
+    const hideInternal = role === 'school_staff' || role === 'client_guardian';
     const messageParams = [ticketId];
     const ownMessageClause = restrictToOwnTicket ? ' AND m.author_user_id = ?' : '';
     if (restrictToOwnTicket) messageParams.push(req.user.id);
+    const internalClause = hideInternal && hasInternal ? ' AND COALESCE(m.is_internal, 0) = 0' : '';
     const [mRows] = await pool.execute(
       `SELECT m.*,
               u.first_name AS author_first_name,
@@ -1230,23 +2137,19 @@ export const listSupportTicketMessages = async (req, res, next) => {
        LEFT JOIN users u ON u.id = m.author_user_id
        WHERE m.ticket_id = ?
          ${ownMessageClause}
+         ${internalClause}
        ORDER BY m.created_at ASC, m.id ASC`,
       messageParams
     );
     const list = Array.isArray(mRows) ? mRows : [];
-    // Normalize deleted messages when the column exists
-    const normalized = hasSoftDelete
-      ? list.map((m) => {
-        const isDeleted = m?.is_deleted === 1 || m?.is_deleted === true;
-        if (!isDeleted) return m;
-        return {
-          ...m,
-          body: '',
-          is_deleted: 1
-        };
-      })
-      : list;
-    res.json({ ticket, messages: normalized });
+    const normalized = list.map((m) => {
+      const decrypted = decryptTicketMessageRow(m);
+      if (hasSoftDelete && (m?.is_deleted === 1 || m?.is_deleted === true)) {
+        return { ...decrypted, body: '', is_deleted: 1 };
+      }
+      return decrypted;
+    });
+    res.json({ ticket: enrichTicketForClient(ticket), messages: normalized });
   } catch (e) {
     next(e);
   }
@@ -1265,18 +2168,34 @@ export const createSupportTicketMessage = async (req, res, next) => {
         : parseInt(parentMessageIdRaw, 10);
     if (!body) return res.status(400).json({ error: { message: 'body is required' } });
 
+    const wantInternal =
+      req.body?.isInternal === true || req.body?.isInternal === 1 || req.body?.isInternal === '1';
+    const role = String(req.user?.role || '').toLowerCase();
+    if (wantInternal && (role === 'school_staff' || role === 'client_guardian')) {
+      return res.status(403).json({ error: { message: 'Cannot post internal notes' } });
+    }
+
     const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
     const ticket = rows?.[0] || null;
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
-    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const isTicketCreator = Number(ticket?.created_by_user_id || 0) === Number(req.user?.id || 0);
+    if (role === 'client_guardian') {
+      if (!isTicketCreator) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    } else {
+      const access = await ensureOrgAccess(req, ticket.school_organization_id);
+      if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+      if (!(await actorCanAccessTicketTopic(req, ticket))) {
+        return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
+      }
+    }
 
     if (!(await hasSupportTicketMessagesTable())) {
       return res.status(409).json({ error: { message: 'Ticket messages are not enabled (missing migration)' } });
     }
 
-    const role = String(req.user?.role || '').toLowerCase();
     const schedulerOwnOnly = role === 'school_staff'
       ? await isSchedulerForSchool({
           userId: req.user?.id,
@@ -1286,7 +2205,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
       : false;
 
     // Client-scoped tickets: allow school_staff, agency admin/support/staff, and assigned providers to post.
-    if (ticket.client_id) {
+    if (ticket.client_id && role !== 'client_guardian') {
       const limitedStaffOwnTicketOnly =
         role === 'school_staff' &&
         (
@@ -1345,11 +2264,14 @@ export const createSupportTicketMessage = async (req, res, next) => {
       }
     }
 
-    await pool.execute(
-      `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
-       VALUES (?, ?, ?, ?, ?)`,
-      [ticketId, parentId, req.user.id, String(req.user?.role || ''), body]
-    );
+    await insertTicketMessageRow({
+      ticketId,
+      parentId,
+      authorUserId: req.user.id,
+      authorRole: String(req.user?.role || ''),
+      body,
+      isInternal: wantInternal && (isAgencyAdminUser(req) || role === 'super_admin' || role === 'staff' || role === 'clinical_practice_assistant')
+    });
 
     // If a school staff member responds on a closed ticket, reopen it.
     if (role === 'school_staff' && String(ticket.status || '').toLowerCase() === 'closed') {
@@ -1388,7 +2310,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
 
       const categoryKey = 'school_portal_client_messages';
       const recipients = role === 'school_staff'
-        ? await listAgencySupportRecipients({ agencyId })
+        ? await listAgencySupportRecipients({ agencyId, topic: ticket.topic || 'general' })
         : await listSchoolStaffRecipients({ schoolOrganizationId: ticket.school_organization_id });
 
       for (const r of recipients) {
@@ -1787,7 +2709,26 @@ export const answerSupportTicket = async (req, res, next) => {
     }
 
     const hasCloseOnRead = await hasSupportTicketsCloseOnReadColumn();
-    if (hasCloseOnRead) {
+    const hasEnc = await hasSupportTicketEncryptionColumns();
+    const aEnc = hasEnc ? prepareEncryptedTicketText(answer) : { plain: answer, ciphertext: null, iv: null, authTag: null, keyId: null };
+
+    if (hasEnc && hasCloseOnRead) {
+      await pool.execute(
+        `UPDATE support_tickets
+         SET answer = ?, status = ?, answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP, close_on_read = ?,
+             answer_ciphertext = ?, answer_iv = ?, answer_auth_tag = ?, answer_encryption_key_id = ?
+         WHERE id = ?`,
+        [aEnc.plain, status, req.user.id, closeOnRead ? 1 : 0, aEnc.ciphertext, aEnc.iv, aEnc.authTag, aEnc.keyId, ticketId]
+      );
+    } else if (hasEnc) {
+      await pool.execute(
+        `UPDATE support_tickets
+         SET answer = ?, status = ?, answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP,
+             answer_ciphertext = ?, answer_iv = ?, answer_auth_tag = ?, answer_encryption_key_id = ?
+         WHERE id = ?`,
+        [aEnc.plain, status, req.user.id, aEnc.ciphertext, aEnc.iv, aEnc.authTag, aEnc.keyId, ticketId]
+      );
+    } else if (hasCloseOnRead) {
       await pool.execute(
         `UPDATE support_tickets
          SET answer = ?, status = ?, answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP, close_on_read = ?
@@ -1827,7 +2768,8 @@ export const answerSupportTicket = async (req, res, next) => {
     // Best-effort: store an AI summary when closing.
     if (status === 'closed') {
       try {
-        const summary = await maybeGenerateGeminiSummary({ question: ticket?.question || '', answer });
+        const decryptedTicket = decryptTicketRow(ticket);
+        const summary = await maybeGenerateGeminiSummary({ question: decryptedTicket?.question || '', answer });
         if (summary) {
           await pool.execute(`UPDATE support_tickets SET ai_summary = ? WHERE id = ?`, [summary, ticketId]);
         }
@@ -1839,18 +2781,21 @@ export const answerSupportTicket = async (req, res, next) => {
     // Best-effort: also append the answer as a message in the thread (when enabled).
     try {
       if (await hasSupportTicketMessagesTable()) {
-        await pool.execute(
-          `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
-           VALUES (?, NULL, ?, ?, ?)`,
-          [ticketId, req.user.id, String(req.user?.role || ''), answer]
-        );
+        await insertTicketMessageRow({
+          ticketId,
+          parentId: null,
+          authorUserId: req.user.id,
+          authorRole: String(req.user?.role || ''),
+          body: answer,
+          isInternal: false
+        });
       }
     } catch {
       // best-effort only
     }
 
     const [rows2] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
-    res.json(rows2?.[0] || null);
+    res.json(enrichTicketForClient(rows2?.[0] || null));
   } catch (e) {
     next(e);
   }
@@ -1873,6 +2818,9 @@ export const claimSupportTicket = async (req, res, next) => {
 
     const access = await ensureOrgAccess(req, ticket.school_organization_id);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (!(await actorCanAccessTicketTopic(req, ticket))) {
+      return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
+    }
 
     const claimedBy = ticket.claimed_by_user_id ? Number(ticket.claimed_by_user_id) : null;
     if (claimedBy && claimedBy !== Number(req.user.id)) {
@@ -1975,7 +2923,10 @@ export const listSupportTicketAssignees = async (req, res, next) => {
     let rows = [];
     try {
       const [queryRows] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+        `SELECT u.id, u.first_name, u.last_name, u.role,
+                MAX(CASE WHEN ua.agency_id = ? THEN COALESCE(ua.has_billing_access, 0) ELSE 0 END) AS has_billing_access,
+                MAX(CASE WHEN ua.agency_id = ? THEN COALESCE(ua.has_payroll_access, 0) ELSE 0 END) AS has_payroll_access,
+                MAX(CASE WHEN ua.agency_id = ? THEN COALESCE(ua.can_manage_credentialing, 0) ELSE 0 END) AS can_manage_credentialing
          FROM users u
          JOIN user_agencies ua ON ua.user_id = u.id
          WHERE (
@@ -1996,13 +2947,18 @@ export const listSupportTicketAssignees = async (req, res, next) => {
          )
          AND (u.is_archived = FALSE OR u.is_archived IS NULL)
          AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+         GROUP BY u.id, u.first_name, u.last_name, u.role
          ORDER BY u.last_name ASC, u.first_name ASC`,
-        [targetAgencyId, targetAgencyId, targetAgencyId]
+        [targetAgencyId, targetAgencyId, targetAgencyId, targetAgencyId, targetAgencyId, targetAgencyId]
       );
       rows = queryRows || [];
     } catch (e) {
       const msg = String(e?.message || '');
-      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      const missing =
+        msg.includes("doesn't exist") ||
+        msg.includes('ER_NO_SUCH_TABLE') ||
+        msg.includes('Unknown column') ||
+        msg.includes('ER_BAD_FIELD_ERROR');
       if (!missing) throw e;
       const [fallbackRows] = await pool.execute(
         `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
@@ -2028,7 +2984,15 @@ export const listSupportTicketAssignees = async (req, res, next) => {
       rows = fallbackRows || [];
     }
 
-    res.json({ users: rows || [], agencyId: Number(targetAgencyId) || null });
+    res.json({
+      users: (rows || []).map((u) => ({
+        ...u,
+        has_billing_access: !!(u.has_billing_access === 1 || u.has_billing_access === true),
+        has_payroll_access: !!(u.has_payroll_access === 1 || u.has_payroll_access === true),
+        can_manage_credentialing: !!(u.can_manage_credentialing === 1 || u.can_manage_credentialing === true)
+      })),
+      agencyId: Number(targetAgencyId) || null
+    });
   } catch (e) {
     next(e);
   }

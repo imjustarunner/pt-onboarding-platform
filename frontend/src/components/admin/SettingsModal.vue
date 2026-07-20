@@ -356,6 +356,7 @@ import IntakeLinksView from '../../views/admin/IntakeLinksView.vue';
 import ChallengeManagement from './ChallengeManagement.vue';
 import ShiftProgramManagement from './ShiftProgramManagement.vue';
 import AuditCenterSettingsLink from './AuditCenterSettingsLink.vue';
+import TenantSupportSettingsPanel from './TenantSupportSettingsPanel.vue';
 
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
@@ -823,6 +824,16 @@ const allCategories = [
     label: 'SYSTEM',
     items: [
       {
+        id: 'tenant-support',
+        label: 'Support',
+        icon: '🎫',
+        component: 'TenantSupportSettingsPanel',
+        roles: ['super_admin', 'admin', 'support'],
+        excludeRoles: ['clinical_practice_assistant'],
+        excludeSupervisor: true,
+        requiresAgency: true
+      },
+      {
         id: 'audit-center',
         label: 'Audit Center',
         icon: '🛡️',
@@ -1128,7 +1139,26 @@ const tenantHubSecondaryBlocks = computed(() => {
   };
   pushWholeCategory('Theming', 'Brand look and shared creative assets.', 'theming');
   pushWholeCategory('AI tools', 'Note Aid and related AI configuration.', 'ai');
-  pushWholeCategory('System & communications', 'Email, SMS, integrations, and archive.', 'system');
+
+  const systemCat = roleFilteredCategories.value.find((x) => x.id === 'system');
+  if (systemCat?.items?.length) {
+    const supportItem = systemCat.items.find((i) => i.id === 'tenant-support');
+    const rest = systemCat.items.filter((i) => i.id !== 'tenant-support');
+    if (supportItem) {
+      blocks.unshift({
+        title: 'Support',
+        hint: 'Organization help desk and direct Plot Twist HQ platform tickets.',
+        items: mapItems([supportItem], 'system')
+      });
+    }
+    if (rest.length) {
+      blocks.push({
+        title: 'System & communications',
+        hint: 'Email, SMS, integrations, and archive.',
+        items: mapItems(rest, 'system')
+      });
+    }
+  }
   return blocks;
 });
 
@@ -1166,6 +1196,8 @@ const HUB_CARD_DESC = computed(() => ({
   'branding-templates': 'Email and document templates.',
   assets: 'Icons, fonts, and shared creative assets.',
   'note-aid-kb': `Note Aid knowledge base — ${contextNoun.value} with Note Aid enabled.`,
+  'tenant-support':
+    `Contact organization support or Plot Twist HQ platform support for this ${contextNoun.value}.`,
   communications: 'Transactional email templates.',
   'sms-numbers': `Texting numbers — ${contextNoun.value}-scoped.`,
   'email-settings': 'SMTP and platform email defaults.',
@@ -1279,7 +1311,8 @@ const componentMap = {
   IntegrationsManagement,
   IntakeLinksView,
   ChallengeManagement,
-  AuditCenterSettingsLink
+  AuditCenterSettingsLink,
+  TenantSupportSettingsPanel
 };
 
 const selectedComponent = computed(() => {

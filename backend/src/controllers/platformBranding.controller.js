@@ -119,6 +119,8 @@ function exportedToUpdatePayload(data) {
     marketing_social_icon_id: 'marketingSocialIconId',
     presence_icon_id: 'presenceIconId',
     beta_feedback_icon_id: 'betaFeedbackIconId',
+    platform_load_icon_id: 'platformLoadIconId',
+    platform_fullscreen_load_icon_id: 'platformFullscreenLoadIconId',
     company_profile_icon_id: 'companyProfileIconId',
     team_roles_icon_id: 'teamRolesIconId',
     billing_icon_id: 'billingIconId',

@@ -176,6 +176,104 @@ function initialSharedStateForActivity(activityId, activity, body = {}) {
   }
 }
 
+/**
+ * Start an activity for solo practice / Tools preview — no client invite, no video room.
+ * Creates a short-lived counseling session and activates the activity as the provider.
+ */
+export async function startPracticeActivity(req, res) {
+  try {
+    const activityId = String(req.params.activityId || req.body?.activityId || '').trim();
+    const agencyId = Number(req.body?.agencyId || req.user?.agencyId || req.headers['x-agency-id'] || 0);
+    const providerUserId = Number(req.user?.id || 0);
+    if (!activityId) return res.status(400).json({ error: { message: 'activityId is required' } });
+    if (!agencyId || !providerUserId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    await assertCanCreateCounselingSession(req, agencyId);
+
+    const activity = await ActivityRegistry.findById(activityId);
+    if (!activity) return res.status(404).json({ error: { message: 'Activity not found' } });
+    if (!['live_current', 'current_pilot'].includes(activity.status)) {
+      const isSuperAdmin = String(req.user?.role || '').toLowerCase() === 'super_admin';
+      if (!(isSuperAdmin && activity.status === 'planned')) {
+        return res.status(400).json({ error: { message: 'Activity is not available' } });
+      }
+    }
+    if (activity.launchMode === 'standalone') {
+      return res.status(400).json({
+        error: { message: 'This activity opens as a standalone game, not in the practice host' }
+      });
+    }
+
+    const featureFlags = await loadAgencyFlags(agencyId);
+    const isSuperAdmin = String(req.user?.role || '').toLowerCase() === 'super_admin';
+    if (activity.featureFlag && activity.featureFlag !== 'gamesPlatformEnabled' && !isSuperAdmin) {
+      if (featureFlags[activity.featureFlag] !== true) {
+        return res.status(403).json({ error: { message: 'Activity is not enabled for this organization' } });
+      }
+    }
+
+    // Solo practice defaults: provider holds the turn / actor seat
+    const soloSetup = {
+      whoRollsFirst: 'provider',
+      currentTurn: 'provider',
+      firstActor: 'provider',
+      actorRole: 'provider',
+      practiceMode: true,
+      ...(req.body?.setup && typeof req.body.setup === 'object' ? req.body.setup : {})
+    };
+
+    const session = await CounselingSession.create({
+      agencyId,
+      providerUserId,
+      clientUserId: null,
+      appointmentId: null,
+      title: `Practice: ${activity.displayName}`,
+      vonageSessionId: null,
+      vonageApplicationId: null,
+      roomUniqueName: `practice-${agencyId}-${providerUserId}-${Date.now()}`
+    });
+
+    const sharedState = {
+      ...initialSharedStateForActivity(activityId, activity, { setup: soloSetup }),
+      practiceMode: true,
+      whoRollsFirst: soloSetup.whoRollsFirst || 'provider',
+      currentTurn: soloSetup.currentTurn || 'provider',
+      firstActor: soloSetup.firstActor || 'provider',
+      actorRole: soloSetup.actorRole || 'provider'
+    };
+
+    const runtime = await CounselingSessionActivityRuntime.upsert({
+      sessionId: session.id,
+      activityId,
+      status: 'ACTIVE',
+      roundNumber: 0,
+      sharedState,
+      invitedByUserId: providerUserId,
+      startedAt: new Date()
+    });
+
+    return res.json({
+      ok: true,
+      practice: true,
+      session: {
+        id: session.id,
+        publicId: session.publicId || session.public_id,
+        title: session.title
+      },
+      runtime: {
+        ...runtime,
+        sharedState: stripPrivateSharedState(runtime.sharedState, 'provider')
+      }
+    });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: { message: err.message } });
+    console.error('[counseling.activity.practice]', err);
+    return res.status(500).json({ error: { message: 'Failed to start practice activity' } });
+  }
+}
+
 export async function listActivities(req, res) {
   try {
     const agencyId = Number(req.query.agencyId || req.user?.agencyId || req.headers['x-agency-id'] || 0);

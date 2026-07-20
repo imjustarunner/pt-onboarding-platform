@@ -62,6 +62,36 @@
       </span>
     </div>
 
+    <section class="sms-audit-card">
+      <div class="sms-audit-head">
+        <h4 class="sms-audit-title">SMS audit</h4>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadSmsAudit">
+          {{ auditLoading ? 'Loading…' : 'Refresh' }}
+        </button>
+      </div>
+      <p class="muted small">
+        Encrypted trail of texts tied to this client or linked guardian profile phones (all number purposes).
+      </p>
+      <div v-if="auditError" class="error-box">{{ auditError }}</div>
+      <div v-else-if="auditLoading && !auditItems.length" class="muted">Loading SMS audit…</div>
+      <div v-else-if="!auditItems.length" class="muted">No audited SMS for this profile yet.</div>
+      <ul v-else class="sms-audit-list">
+        <li v-for="row in auditItems" :key="row.id" class="sms-audit-row">
+          <div class="sms-audit-meta">
+            <span class="dir-chip" :class="row.direction === 'INBOUND' ? 'dir-in' : 'dir-out'">
+              {{ row.direction === 'INBOUND' ? 'In' : 'Out' }}
+            </span>
+            <span class="muted small">{{ formatDate(row.occurredAt) }}</span>
+            <span v-if="row.numberPurpose" class="purpose-chip">{{ row.numberPurpose }}</span>
+          </div>
+          <div class="sms-audit-body">{{ row.body || '—' }}</div>
+          <div class="muted small">
+            {{ row.fromNumber || '?' }} → {{ row.toNumber || '?' }}
+          </div>
+        </li>
+      </ul>
+    </section>
+
     <div v-if="loading" class="loading">Loading communications…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else-if="!filteredItems.length" class="empty-state">
@@ -310,6 +340,10 @@ const error = ref('');
 const channelFilter = ref('');
 const statusFilter = ref('');
 
+const auditItems = ref([]);
+const auditLoading = ref(false);
+const auditError = ref('');
+
 /** Latest intake: communication / consent fields (GET /clients/:id/demographics → intakeCommunicationPreferences). */
 const intakeCommState = ref({ fields: [], capturedAt: null });
 const intakeCommPrefsLoading = ref(false);
@@ -412,6 +446,21 @@ const loadCommunications = async () => {
     error.value = err.response?.data?.error?.message || 'Failed to load communications';
   } finally {
     loading.value = false;
+  }
+};
+
+const loadSmsAudit = async () => {
+  if (!props.clientId) return;
+  auditLoading.value = true;
+  auditError.value = '';
+  try {
+    const resp = await api.get(`/clients/${props.clientId}/sms-audit`, { params: { limit: 100 } });
+    auditItems.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
+  } catch (err) {
+    auditError.value = err.response?.data?.error?.message || 'Failed to load SMS audit';
+    auditItems.value = [];
+  } finally {
+    auditLoading.value = false;
   }
 };
 
@@ -592,6 +641,7 @@ const formatPhone = (raw) => {
 onMounted(() => {
   loadCommunications();
   loadIntakeCommPrefs();
+  loadSmsAudit();
 });
 
 watch(
@@ -599,6 +649,7 @@ watch(
   () => {
     loadCommunications();
     loadIntakeCommPrefs();
+    loadSmsAudit();
   }
 );
 
@@ -606,6 +657,7 @@ defineExpose({
   reload: () => {
     loadCommunications();
     loadIntakeCommPrefs();
+    loadSmsAudit();
   }
 });
 </script>
@@ -613,6 +665,71 @@ defineExpose({
 <style scoped>
 .client-communications-tab {
   padding: 8px 4px 24px;
+}
+.sms-audit-card {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--bg-secondary, #f8fafc);
+}
+.sms-audit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sms-audit-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+.sms-audit-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow: auto;
+}
+.sms-audit-row {
+  padding: 10px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+}
+.sms-audit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.sms-audit-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.purpose-chip {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #e0e7ff;
+  color: #3730a3;
+}
+.dir-out {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 13px;
 }
 .intake-comm-prefs {
   margin-bottom: 14px;

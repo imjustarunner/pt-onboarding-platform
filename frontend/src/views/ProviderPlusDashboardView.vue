@@ -181,19 +181,19 @@ const cards = computed(() => {
   },
   {
     id: 'communications',
-    title: 'Communications',
-    description: 'Access communications workspace and SMS inbox.',
-    to: orgTo('/admin/communications'),
+    title: 'Messages',
+    description: 'Direct messages, channels, threads, and mentions.',
+    to: orgTo('/messages'),
     iconKey: 'dashboard_communications',
     emoji: '💬'
   },
   {
     id: 'chats',
-    title: 'Messages',
-    description: 'Coordinate cases and updates through platform messages.',
-    to: orgTo('/admin/communications/messages'),
+    title: 'Engagement Feed',
+    description: 'Texting activity, calls, and delivery queue.',
+    to: orgTo('/admin/communications/feed'),
     iconKey: 'dashboard_chats',
-    emoji: '💭'
+    emoji: '📡'
   },
   {
     id: 'tools_aids',

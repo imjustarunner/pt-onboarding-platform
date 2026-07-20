@@ -40,7 +40,8 @@ export const createCustomTask = async (req, res, next) => {
       recurring_rule,
       typical_day_of_week,
       typical_time,
-      target_count
+      target_count,
+      metadata: metadataIn
     } = req.body || {};
 
     const titleStr = String(title || '').trim();
@@ -57,6 +58,11 @@ export const createCustomTask = async (req, res, next) => {
       if (match) resolvedListId = match.id;
     }
 
+    const meta =
+      metadataIn && typeof metadataIn === 'object' && !Array.isArray(metadataIn)
+        ? { ...metadataIn, createdVia: 'me_tasks' }
+        : { source: 'momentum_user_request', createdVia: 'me_tasks' };
+
     const task = await Task.create({
       taskType: 'custom',
       title: titleStr,
@@ -71,7 +77,8 @@ export const createCustomTask = async (req, res, next) => {
       recurringRule: recurring_rule || null,
       typicalDayOfWeek: typical_day_of_week ?? null,
       typicalTime: typical_time || null,
-      targetCount: target_count ?? null
+      targetCount: target_count ?? null,
+      metadata: meta
     });
 
     await TaskAuditLog.logAction({
@@ -79,7 +86,7 @@ export const createCustomTask = async (req, res, next) => {
       actionType: 'assigned',
       actorUserId: userId,
       targetUserId: userId,
-      metadata: { source: 'momentum_user_request', createdVia: 'me_tasks' }
+      metadata: meta
     });
 
     res.status(201).json(task);

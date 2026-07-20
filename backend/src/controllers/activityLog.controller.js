@@ -1441,3 +1441,135 @@ export const getAgencyPlatformSessions = async (req, res, next) => {
   }
 };
 
+const normalizeActivityDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  const match = String(value).match(/^\d{4}-\d{2}-\d{2}/);
+  return match?.[0] || String(value);
+};
+
+const mapDailyActivityRow = (row) => ({
+  activityDate: normalizeActivityDate(row.activity_date),
+  userId: Number(row.user_id),
+  userName: String(row.user_name || '').trim(),
+  userEmail: row.user_email || null,
+  userUsername: row.user_username || null,
+  sessionCount: Number(row.session_count || 0),
+  openSessionCount: Number(row.open_session_count || 0),
+  activeSeconds: Number(row.active_seconds || 0),
+  inactiveSeconds: Number(row.inactive_seconds || 0),
+  trackedSeconds: Number(row.tracked_seconds || 0),
+  billableActiveSeconds: Number(row.billable_active_seconds || 0),
+  meaningfulEventCount: Number(row.meaningful_event_count || 0),
+  passiveEventCount: Number(row.passive_event_count || 0),
+  interactionCount: Number(row.interaction_count || 0),
+  timedownCount: Number(row.timedown_count || 0),
+  averageSuspicionScore: Number(row.average_suspicion_score || 0),
+  maxSuspicionScore: Number(row.max_suspicion_score || 0)
+});
+
+const mapActivityDataSummary = (row = {}) => ({
+  userCount: Number(row.user_count || 0),
+  dayCount: Number(row.day_count || 0),
+  sessionCount: Number(row.session_count || 0),
+  activeSeconds: Number(row.active_seconds || 0),
+  inactiveSeconds: Number(row.inactive_seconds || 0),
+  trackedSeconds: Number(row.tracked_seconds || 0),
+  billableActiveSeconds: Number(row.billable_active_seconds || 0),
+  interactionCount: Number(row.interaction_count || 0)
+});
+
+const getActivityDataFilters = (req, { forExport = false } = {}) => ({
+  agencyId: parseInt(req.params.agencyId, 10),
+  userId: req.query.userId ? parseInt(req.query.userId, 10) : null,
+  startDate: String(req.query.startDate || '').trim() || null,
+  endDate: String(req.query.endDate || '').trim() || null,
+  search: String(req.query.search || '').trim() || null,
+  limit: forExport ? 10000 : clamp(req.query.limit, 1, 200, 50),
+  offset: forExport ? 0 : clamp(req.query.offset, 0, 100000, 0)
+});
+
+/**
+ * Daily per-user interaction and time report for the Audit Center.
+ * GET /activity-log/agency/:agencyId/activity-data
+ */
+export const getAgencyActivityData = async (req, res, next) => {
+  try {
+    const filters = getActivityDataFilters(req);
+    if (!Number.isFinite(filters.agencyId)) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+    const access = await assertAgencyAuditAccess(req, filters.agencyId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const UserPlatformSession = (await import('../models/UserPlatformSession.model.js')).default;
+    const result = await UserPlatformSession.getDailyActivityForAgency(filters);
+    return res.json({
+      rows: (result.rows || []).map(mapDailyActivityRow),
+      summary: mapActivityDataSummary(result.summary),
+      pagination: {
+        total: Number(result.total || 0),
+        limit: filters.limit,
+        offset: filters.offset,
+        hasNextPage: filters.offset + (result.rows || []).length < Number(result.total || 0)
+      },
+      readOnly: true,
+      sourceOfTruth: 'user_platform_sessions',
+      dayBasis: 'session_start_utc',
+      timezone: 'UTC'
+    });
+  } catch (error) {
+    if (isMissingDbArtifactError(error)) {
+      return res.json({
+        rows: [],
+        summary: mapActivityDataSummary(),
+        pagination: { total: 0, limit: 50, offset: 0, hasNextPage: false },
+        readOnly: true,
+        sourceOfTruth: 'user_platform_sessions',
+        dayBasis: 'session_start_utc',
+        timezone: 'UTC',
+        notice: 'Run migration 902_user_platform_sessions.sql to enable activity data reporting.'
+      });
+    }
+    next(error);
+  }
+};
+
+/** CSV export of the full filtered daily activity report. */
+export const exportAgencyActivityDataCsv = async (req, res, next) => {
+  try {
+    const filters = getActivityDataFilters(req, { forExport: true });
+    if (!Number.isFinite(filters.agencyId)) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+    const access = await assertAgencyAuditAccess(req, filters.agencyId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const UserPlatformSession = (await import('../models/UserPlatformSession.model.js')).default;
+    const result = await UserPlatformSession.getDailyActivityForAgency(filters);
+    const headers = [
+      'date_utc', 'user_id', 'user_name', 'user_email', 'sessions', 'open_sessions',
+      'time_in_app_seconds', 'active_seconds', 'inactive_seconds', 'meaningful_active_seconds',
+      'interactions', 'meaningful_interactions', 'passive_interactions', 'timedowns',
+      'average_suspicion_score', 'max_suspicion_score'
+    ];
+    const lines = [headers.join(',')];
+    for (const raw of result.rows || []) {
+      const row = mapDailyActivityRow(raw);
+      lines.push([
+        row.activityDate, row.userId, row.userName, row.userEmail, row.sessionCount,
+        row.openSessionCount, row.trackedSeconds, row.activeSeconds, row.inactiveSeconds,
+        row.billableActiveSeconds, row.interactionCount, row.meaningfulEventCount,
+        row.passiveEventCount, row.timedownCount, row.averageSuspicionScore,
+        row.maxSuspicionScore
+      ].map(csvEscape).join(','));
+    }
+
+    const filename = `activity-data-agency-${filters.agencyId}-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.status(200).send(lines.join('\n'));
+  } catch (error) {
+    next(error);
+  }
+};

@@ -213,6 +213,36 @@
           </div>
           <small>Alternative: Select an icon from the Icon Library if you prefer to use an icon instead of a logo URL.</small>
         </div>
+        <div class="form-group">
+          <label>Platform Load Icon</label>
+          <div class="icon-selector-wrapper">
+            <IconSelector v-model="platformForm.platformLoadIconId" />
+            <button
+              v-if="platformForm.platformLoadIconId"
+              type="button"
+              class="btn btn-sm btn-danger"
+              @click="platformForm.platformLoadIconId = null"
+            >
+              Clear
+            </button>
+          </div>
+          <small>Optional image override for the small platform loading square. Default is <code>/branding/platformload.mp4</code> (SmallLoad). Fullscreen HQ swaps use a separate video.</small>
+        </div>
+        <div class="form-group">
+          <label>Platform Fullscreen Load</label>
+          <div class="icon-selector-wrapper">
+            <IconSelector v-model="platformForm.platformFullscreenLoadIconId" />
+            <button
+              v-if="platformForm.platformFullscreenLoadIconId"
+              type="button"
+              class="btn btn-sm btn-danger"
+              @click="platformForm.platformFullscreenLoadIconId = null"
+            >
+              Clear
+            </button>
+          </div>
+          <small>Optional override. Default is the static HQ video at <code>/branding/fullscreenloadplatform.mp4</code> (Assets library is image-only).</small>
+        </div>
         <div v-if="platformOrganizationMarkPreviewUrl" class="logo-preview" style="margin-top: 8px">
           <p class="form-help">Effective mark (footer &amp; compact chrome): URL, then uploaded file, then icon.</p>
           <img :src="platformOrganizationMarkPreviewUrl" alt="Organization mark preview" @error="handleLogoError" />
@@ -2549,6 +2579,8 @@ const platformForm = ref({
       marketingSocialIconId: null,
       presenceIconId: null,
       betaFeedbackIconId: null,
+      platformLoadIconId: null,
+      platformFullscreenLoadIconId: null,
       organizationName: null,
       organizationLogoIconId: null,
       organizationLogoUrl: null,
@@ -3875,6 +3907,8 @@ const onPlatformRestoreFileSelected = async (event) => {
       platformForm.value.marketingSocialIconId = brandingStore.platformBranding.marketing_social_icon_id ?? null;
       platformForm.value.presenceIconId = brandingStore.platformBranding.presence_icon_id ?? null;
       platformForm.value.betaFeedbackIconId = brandingStore.platformBranding.beta_feedback_icon_id ?? null;
+      platformForm.value.platformLoadIconId = brandingStore.platformBranding.platform_load_icon_id ?? null;
+      platformForm.value.platformFullscreenLoadIconId = brandingStore.platformBranding.platform_fullscreen_load_icon_id ?? null;
       platformForm.value.dashboardNotificationsIconId = brandingStore.platformBranding.dashboard_notifications_icon_id ?? null;
       platformForm.value.dashboardCommunicationsIconId = brandingStore.platformBranding.dashboard_communications_icon_id ?? null;
       platformForm.value.dashboardChatsIconId = brandingStore.platformBranding.dashboard_chats_icon_id ?? null;
@@ -3899,6 +3933,8 @@ const onPlatformRestoreFileSelected = async (event) => {
       platformForm.value.marketingSocialIconId = brandingStore.platformBranding.marketing_social_icon_id ?? null;
       platformForm.value.presenceIconId = brandingStore.platformBranding.presence_icon_id ?? null;
       platformForm.value.betaFeedbackIconId = brandingStore.platformBranding.beta_feedback_icon_id ?? null;
+      platformForm.value.platformLoadIconId = brandingStore.platformBranding.platform_load_icon_id ?? null;
+      platformForm.value.platformFullscreenLoadIconId = brandingStore.platformBranding.platform_fullscreen_load_icon_id ?? null;
       platformForm.value.tagline = brandingStore.platformBranding.tagline ?? platformForm.value.tagline;
       platformForm.value.primaryColor = brandingStore.platformBranding.primary_color ?? platformForm.value.primaryColor;
       platformForm.value.secondaryColor = brandingStore.platformBranding.secondary_color ?? platformForm.value.secondaryColor;
@@ -3973,6 +4009,8 @@ const savePlatformBranding = async () => {
       marketingSocialIconId: platformForm.value.marketingSocialIconId ?? null,
       presenceIconId: platformForm.value.presenceIconId ?? null,
       betaFeedbackIconId: platformForm.value.betaFeedbackIconId ?? null,
+      platformLoadIconId: platformForm.value.platformLoadIconId ?? null,
+      platformFullscreenLoadIconId: platformForm.value.platformFullscreenLoadIconId ?? null,
       organizationName: platformForm.value.organizationName?.trim() || null,
       organizationLogoIconId: platformForm.value.organizationLogoIconId ?? null,
       // Always send URL and path from the form. Tab only controls the editor UI; gating here previously
@@ -4157,6 +4195,8 @@ const savePlatformBranding = async () => {
       platformForm.value.marketingSocialIconId = response.data.marketing_social_icon_id ?? platformForm.value.marketingSocialIconId ?? null;
       platformForm.value.presenceIconId = response.data.presence_icon_id ?? platformForm.value.presenceIconId ?? null;
       platformForm.value.betaFeedbackIconId = response.data.beta_feedback_icon_id ?? platformForm.value.betaFeedbackIconId ?? null;
+      platformForm.value.platformLoadIconId = response.data.platform_load_icon_id ?? platformForm.value.platformLoadIconId ?? null;
+      platformForm.value.platformFullscreenLoadIconId = response.data.platform_fullscreen_load_icon_id ?? platformForm.value.platformFullscreenLoadIconId ?? null;
       platformForm.value.organizationName = response.data.organization_name ?? platformForm.value.organizationName ?? null;
       platformForm.value.organizationLogoIconId = response.data.organization_logo_icon_id ?? platformForm.value.organizationLogoIconId ?? null;
       platformForm.value.organizationLogoUrl = response.data.organization_logo_url ?? platformForm.value.organizationLogoUrl ?? null;
@@ -4213,6 +4253,8 @@ const savePlatformBranding = async () => {
       platformForm.value.marketingSocialIconId = brandingStore.platformBranding.marketing_social_icon_id ?? null;
       platformForm.value.presenceIconId = brandingStore.platformBranding.presence_icon_id ?? null;
       platformForm.value.betaFeedbackIconId = brandingStore.platformBranding.beta_feedback_icon_id ?? null;
+      platformForm.value.platformLoadIconId = brandingStore.platformBranding.platform_load_icon_id ?? null;
+      platformForm.value.platformFullscreenLoadIconId = brandingStore.platformBranding.platform_fullscreen_load_icon_id ?? null;
       platformForm.value.allAgenciesNotificationsIconId = brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null;
       platformForm.value.organizationName = brandingStore.platformBranding.organization_name ?? null;
       platformForm.value.organizationLogoIconId = brandingStore.platformBranding.organization_logo_icon_id ?? null;
@@ -4370,6 +4412,8 @@ onActivated(async () => {
       platformForm.value.allAgenciesNotificationsIconId = brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null;
       platformForm.value.organizationName = brandingStore.platformBranding.organization_name ?? null;
       platformForm.value.organizationLogoIconId = brandingStore.platformBranding.organization_logo_icon_id ?? null;
+      platformForm.value.platformLoadIconId = brandingStore.platformBranding.platform_load_icon_id ?? null;
+      platformForm.value.platformFullscreenLoadIconId = brandingStore.platformBranding.platform_fullscreen_load_icon_id ?? null;
       platformForm.value.organizationLogoUrl = brandingStore.platformBranding.organization_logo_url ?? null;
       platformForm.value.organizationLogoPath = brandingStore.platformBranding.organization_logo_path ?? null;
       platformForm.value.privacyPolicyUrl = brandingStore.platformBranding.privacy_policy_url ?? null;

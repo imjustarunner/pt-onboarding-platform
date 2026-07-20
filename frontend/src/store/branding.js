@@ -879,6 +879,10 @@ export const useBrandingStore = defineStore('branding', () => {
       const v = p?.backgroundColor || p?.background || p?.background_color;
       if (v) return v;
     }
+    // Tenant selected: never inherit Platform HQ background (often near-black).
+    if (agencyStore.currentAgency?.id && !agencyStore.platformMode) {
+      return '#F3F6FA';
+    }
     return platformBranding.value?.background_color || '#F3F6FA';
   });
 
@@ -1185,6 +1189,34 @@ export const useBrandingStore = defineStore('branding', () => {
         const url = iconUrlById(platformBranding.value.organization_logo_icon_id);
         if (url) return addCacheBuster(url);
       }
+    }
+    return null;
+  });
+
+  /** Dedicated mark for the small platform-level loading overlay (Assets: platformload). */
+  const displayPlatformLoadIconUrl = computed(() => {
+    const pb = platformBranding.value;
+    if (!pb) return null;
+    if (pb.platform_load_icon_path) {
+      return addCacheBuster(toUploadsUrl(String(pb.platform_load_icon_path)));
+    }
+    if (pb.platform_load_icon_id) {
+      const url = iconUrlById(pb.platform_load_icon_id);
+      if (url) return addCacheBuster(url);
+    }
+    return null;
+  });
+
+  /** Fullscreen art for platform HQ loading / route swaps (Assets: fullscreenloadplatform). */
+  const displayPlatformFullscreenLoadIconUrl = computed(() => {
+    const pb = platformBranding.value;
+    if (!pb) return null;
+    if (pb.platform_fullscreen_load_icon_path) {
+      return addCacheBuster(toUploadsUrl(String(pb.platform_fullscreen_load_icon_path)));
+    }
+    if (pb.platform_fullscreen_load_icon_id) {
+      const url = iconUrlById(pb.platform_fullscreen_load_icon_id);
+      if (url) return addCacheBuster(url);
     }
     return null;
   });
@@ -1651,6 +1683,8 @@ export const useBrandingStore = defineStore('branding', () => {
     logoUrl,
     displayLogoUrl,
     displayChromeIconUrl,
+    displayPlatformLoadIconUrl,
+    displayPlatformFullscreenLoadIconUrl,
     plotTwistCoLogoUrl,
     agencyName,
     displayName,

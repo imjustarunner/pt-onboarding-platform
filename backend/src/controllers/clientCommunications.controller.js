@@ -302,6 +302,40 @@ export const listClientCommunications = async (req, res, next) => {
  * tagged with this client_id OR addressed to one of this client's linked
  * guardians, so a caller can't probe arbitrary `user_communications` rows.
  */
+/**
+ * GET /api/clients/:id/sms-audit
+ * Encrypted SMS profile audit (decrypt-on-authorize). Newest first.
+ */
+export const listClientSmsAudit = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(clientId)) {
+      return res.status(400).json({ error: { message: 'Invalid client id' } });
+    }
+    if (!isBackofficeRole(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const access = await ensureClientAccess({
+      userId: req.user.id,
+      role: req.user.role,
+      clientId
+    });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const limitRaw = parseInt(String(req.query?.limit || ''), 10);
+    const offsetRaw = parseInt(String(req.query?.offset || ''), 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 100;
+    const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
+
+    const SmsProfileAudit = (await import('../models/SmsProfileAudit.model.js')).default;
+    const items = await SmsProfileAudit.listForClient(clientId, { limit, offset });
+    res.json({ clientId, items });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getClientCommunicationBody = async (req, res, next) => {
   try {
     const clientId = parseInt(req.params.id, 10);

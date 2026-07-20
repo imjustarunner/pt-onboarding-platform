@@ -348,7 +348,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'provider_start_date', 'work_role')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'provider_start_date', 'work_role')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -747,6 +747,7 @@ class User {
       skillBuilderConfirmRequiredNextLogin,
       isHourlyWorker,
       hasHiringAccess,
+      hasPlatformSupport,
       hasMedicalRecordsReleaseAccess,
       hasGamesAccess,
       externalBusyIcsUrl,
@@ -1460,6 +1461,23 @@ class User {
       }
     }
 
+    // Platform support team (Plot Twist HQ tickets; not full super_admin)
+    if (hasPlatformSupport !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'has_platform_support'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('has_platform_support = ?');
+          values.push(hasPlatformSupport ? 1 : 0);
+        }
+      } catch (err) {
+        console.warn('has_platform_support column check failed:', err.message);
+      }
+    }
+
     // Medical records release access (view/download ROI submissions in Submitted Documents)
     if (hasMedicalRecordsReleaseAccess !== undefined) {
       try {
@@ -2032,6 +2050,35 @@ class User {
     } catch {
       return [];
     }
+  }
+
+  static async listBillingAgencyIds(userId) {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT agency_id FROM user_agencies WHERE user_id = ? AND has_billing_access = 1',
+        [userId]
+      );
+      return (rows || []).map((r) => r.agency_id);
+    } catch {
+      return [];
+    }
+  }
+
+  static async setAgencyBillingAccess(userId, agencyId, enabled) {
+    await pool.execute(
+      'UPDATE user_agencies SET has_billing_access = ? WHERE user_id = ? AND agency_id = ?',
+      [enabled ? 1 : 0, userId, agencyId]
+    );
+    return this.getAgencyMembership(userId, agencyId);
+  }
+
+  static async setBillingAccessForAllAgencies(userId, enabled) {
+    const val = enabled ? 1 : 0;
+    const [result] = await pool.execute(
+      'UPDATE user_agencies SET has_billing_access = ? WHERE user_id = ?',
+      [val, userId]
+    );
+    return result.affectedRows;
   }
 
   /** Agencies where user has department access (Budget Management). */

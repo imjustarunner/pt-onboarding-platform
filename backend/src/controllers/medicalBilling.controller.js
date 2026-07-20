@@ -26,6 +26,10 @@ import {
   resolveWithOverflowChain,
   ruleFromMedicalServiceCodeRow
 } from '../services/serviceCodeUnits.service.js';
+import {
+  getMedicalBillingReportCatalogWithAvailability as getBillingReportCatalog,
+  runMedicalBillingReport as executeBillingReport
+} from '../services/medicalBillingReports.service.js';
 
 function parseIntValue(v) {
   const n = Number(v);
@@ -639,6 +643,103 @@ export function panelsToTreatmentPlanGoals(panels = []) {
 
 export const encryptPayloadForChart = maybeEncryptNotePayload;
 export const decryptPayloadFromChart = maybeDecryptNotePayload;
+
+const billingReportFiltersFromRequest = (req) => ({
+  startDate: req.query.startDate || null,
+  endDate: req.query.endDate || null,
+  clientId: req.query.clientId || null,
+  providerId: req.query.providerId || null,
+  status: req.query.status || null,
+  serviceCode: req.query.serviceCode || null,
+  payer: req.query.payer || null,
+  placeOfService: req.query.placeOfService || null,
+  search: req.query.search || null
+});
+
+const numericReportSummary = (summary = {}) => Object.fromEntries(
+  Object.entries(summary).map(([key, value]) => [key, Number(value || 0)])
+);
+
+const billingCsvEscape = (value) => {
+  let output = value;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) output = value.toISOString();
+  else if (value && typeof value === 'object') output = JSON.stringify(value);
+  const str = output == null ? '' : String(output);
+  return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+};
+
+/** Report definitions used by the Medical Billing report builder. */
+export const listMedicalBillingReportCatalog = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    return res.json({ reports: await getBillingReportCatalog() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Run a filtered, read-only report over the medical billing data plane. */
+export const runMedicalBillingReport = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const result = await executeBillingReport({
+      agencyId,
+      type: req.query.type || 'claims',
+      filters: billingReportFiltersFromRequest(req),
+      limit,
+      offset
+    });
+    return res.json({
+      report: result.report,
+      rows: result.rows,
+      summary: numericReportSummary(result.summary),
+      pagination: {
+        total: result.total,
+        limit: result.limit,
+        offset: result.offset,
+        hasNextPage: result.offset + result.rows.length < result.total
+      },
+      readOnly: true,
+      notice: result.notice || null
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Export all filtered report rows (up to 10,000) as CSV. */
+export const exportMedicalBillingReportCsv = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const result = await executeBillingReport({
+      agencyId,
+      type: req.query.type || 'claims',
+      filters: billingReportFiltersFromRequest(req),
+      limit: 10000,
+      offset: 0
+    });
+    const columns = result.report.columns || [];
+    const lines = [columns.map((column) => billingCsvEscape(column.label)).join(',')];
+    for (const row of result.rows || []) {
+      lines.push(columns.map((column) => billingCsvEscape(row[column.key])).join(','));
+    }
+    const safeType = String(result.report.type || 'report').replace(/[^a-z0-9_-]/gi, '-');
+    const filename = `medical-billing-${safeType}-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.status(200).send(lines.join('\n'));
+  } catch (e) {
+    next(e);
+  }
+};
 
 export const listMedicalServiceCodes = async (req, res, next) => {
   try {

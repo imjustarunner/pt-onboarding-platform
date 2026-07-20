@@ -176,11 +176,55 @@ export const inboundSmsWebhook = async (req, res, next) => {
     }
 
     const route = await resolveInboundRoute({ toNumber: toNorm, fromNumber: fromNorm });
+    const { recordSmsProfileAudit } = await import('../services/smsProfileAudit.service.js');
+
+    if (route.skipClinicalInbox) {
+      // Notification / contact / provider numbers: no clinical inbox, but still
+      // run appointment Y/N handling when applicable and always write profile audit.
+      const agencyIdSkip = route.agencyId || null;
+      const clientIdSkip = route.clientId || null;
+      if (agencyIdSkip && clientIdSkip) {
+        try {
+          const { handleInboundSmsAppointmentReply } = await import('../services/appointmentReply.service.js');
+          const apptReply = await handleInboundSmsAppointmentReply({
+            agencyId: agencyIdSkip,
+            clientId: clientIdSkip,
+            rawBody: body,
+            channel: 'sms'
+          });
+          if (apptReply?.ackMessage) {
+            try {
+              await VonageService.sendSms({
+                to: fromNorm,
+                from: toNorm,
+                body: String(apptReply.ackMessage).slice(0, 480)
+              });
+            } catch (e) {
+              console.warn('[VonageWebhook] non-clinical appt ACK failed:', e?.message || e);
+            }
+          }
+        } catch (e) {
+          console.warn('[VonageWebhook] non-clinical appointment reply failed:', e?.message || e);
+        }
+      }
+      await recordSmsProfileAudit({
+        agencyId: agencyIdSkip,
+        direction: 'INBOUND',
+        fromNumber: fromNorm,
+        toNumber: toNorm,
+        numberId: route.number?.id || null,
+        numberPurpose: route.numberPurpose || null,
+        body: body || (mediaUrls.length > 0 ? '[MMS]' : ''),
+        clientId: clientIdSkip,
+        userId: route.matchedUserId || null
+      });
+      return res.status(200).json({ ok: true, skipped: 'non_clinical_number' });
+    }
     const ownerUser = route.ownerUser;
     const number = route.number;
     const numberId = number?.id || null;
     const ownerType = route.ownerType || null;
-    const assignedUserId = route.assignment?.user_id || ownerUser?.id || null;
+    const assignedUserId = route.careOwnerUserId || route.assignment?.user_id || ownerUser?.id || null;
     const eligibleUserIds = route.eligibleUserIds || (ownerUser ? [ownerUser.id] : []);
 
     if (!ownerUser && !number) {
@@ -244,7 +288,8 @@ export const inboundSmsWebhook = async (req, res, next) => {
         toNumber: toNorm,
         agencyId,
         clientId,
-        userId: ownerUser?.id || assignedUserId
+        userId: ownerUser?.id || assignedUserId,
+        numberId
       });
       if (handled) {
         await VonageService.sendSms({
@@ -290,6 +335,36 @@ export const inboundSmsWebhook = async (req, res, next) => {
       providerMessageSid: messageId,
       metadata
     });
+
+    await recordSmsProfileAudit({
+      agencyId,
+      direction: 'INBOUND',
+      fromNumber: fromNorm,
+      toNumber: toNorm,
+      numberId,
+      numberPurpose: route.numberPurpose || number?.number_purpose || null,
+      body: body || (mediaUrls.length > 0 ? '[MMS]' : ''),
+      messageLogId: inboundLog?.id || null,
+      clientId: clientId || null,
+      userId: route.matchedUserId || null
+    });
+
+    if (agencyId && clientId && inboundLog?.id) {
+      try {
+        const SmsCareThread = (await import('../models/SmsCareThread.model.js')).default;
+        await SmsCareThread.upsert({
+          agencyId,
+          clientId,
+          numberId,
+          ownerUserId: route.careOwnerUserId || ownerUser?.id || assignedUserId || null,
+          careState: route.careState || 'under_care',
+          supportAccess: route.supportAccess || 'observe',
+          lastInboundAt: new Date()
+        });
+      } catch (e) {
+        console.warn('[VonageWebhook] sms_care_threads upsert failed:', e?.message || e);
+      }
+    }
 
     if (agencyId && fromNorm && inboundLog?.id) {
       try {

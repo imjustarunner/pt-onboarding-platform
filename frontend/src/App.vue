@@ -1,13 +1,54 @@
 <template>
   <BrandingProvider>
     <div class="preview-root" :data-preview-viewport="effectivePreviewViewport">
-      <div id="app" :class="{ 'is-native': isNative }">
-      <div v-if="pageLoading" class="agency-loading-overlay" aria-label="Loading">
-        <div class="agency-loading-card">
-          <div class="agency-loading-logo">
-            <BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" />
-          </div>
-          <div class="agency-loading-text">{{ loadingText }}</div>
+      <div id="app" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell }">
+      <div
+        v-if="pageLoading"
+        class="agency-loading-overlay"
+        :class="{
+          'agency-loading-overlay--platform': isPlatformLevelLoader,
+          'agency-loading-overlay--platform-fullscreen': showPlatformFullscreenVideo
+        }"
+        aria-label="Loading"
+      >
+        <video
+          v-if="showPlatformFullscreenVideo"
+          class="agency-loading-fullscreen-video"
+          autoplay
+          muted
+          loop
+          playsinline
+          disablepictureinpicture
+          aria-hidden="true"
+        >
+          <source :src="platformFullscreenVideoUrl" type="video/mp4" />
+        </video>
+        <div
+          v-else
+          class="agency-loading-card"
+          :class="{
+            'agency-loading-card--platform': isPlatformLevelLoader,
+            'agency-loading-card--platform-video': showPlatformSmallLoadVideo
+          }"
+        >
+          <video
+            v-if="showPlatformSmallLoadVideo"
+            class="agency-loading-small-video"
+            autoplay
+            muted
+            loop
+            playsinline
+            disablepictureinpicture
+            aria-hidden="true"
+          >
+            <source :src="platformSmallLoadVideoUrl" type="video/mp4" />
+          </video>
+          <template v-else>
+            <div class="agency-loading-logo">
+              <BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" />
+            </div>
+            <div class="agency-loading-text">{{ loadingText }}</div>
+          </template>
         </div>
       </div>
       <nav v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" class="navbar">
@@ -791,6 +832,7 @@
                     </div>
                     <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" >Receivables</router-link>
                     <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" >Learning Billing</router-link>
+                    <router-link :to="orgTo('/admin/medical-billing')" v-if="canSeeMedicalBilling" >Medical Billing</router-link>
                     <router-link :to="orgTo('/admin/psychotherapy-compliance')" v-if="canSeePayrollManagement" >Psychotherapy Compliance</router-link>
                     <router-link :to="orgTo('/admin/compliance-corner')" v-if="isTrueAdmin && !isAffiliationContext" >Compliance Corner</router-link>
                     <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin && !isAffiliationContext" >Audit Center</router-link>
@@ -852,31 +894,28 @@
                   </button>
                   <div v-if="engagementMenuOpen" class="nav-dropdown-menu">
                     <router-link
-                      :to="{ path: orgTo('/admin/communications'), query: communicationsWorkspaceQuery }"
+                      v-if="canUseCommunicationsCenter"
+                      :to="orgTo('/admin/communications')"
                     >
-                      <span>Workspace</span>
+                      <span>Communications Center</span>
                       <span
-                        v-if="communicationsPendingCount > 0"
+                        v-if="communicationsTotalAttentionCount > 0"
                         class="nav-badge nav-badge-pulse"
-                        :title="`${communicationsPendingCount} pending to send`"
+                        :title="`${communicationsPendingCount} pending, ${communicationsOpenTicketsCount} open tickets`"
                       >
-                        {{ communicationsPendingCount }}
+                        {{ communicationsTotalAttentionCount }}
                       </span>
                     </router-link>
                     <router-link
-                      v-if="canUseEngagementFeed"
-                      :to="orgTo('/admin/communications')"
-                    >Engagement Feed</router-link>
-                    <router-link
-                      v-if="canUseChats"
-                      :to="orgTo('/admin/communications/messages')"
+                      v-if="canUseChats && !canUseCommunicationsCenter"
+                      :to="orgTo('/messages')"
                     >Messages</router-link>
                     <router-link
                       v-if="canUseAgencyCampaigns && !isSscSstcTenant"
                       :to="orgTo('/admin/communications/campaigns')"
                     >Campaigns</router-link>
                     <router-link
-                      v-if="canUseEngagementFeed && !isSscSstcTenant"
+                      v-if="canUseCommunicationsCenter && !isSscSstcTenant"
                       :to="orgTo('/admin/contacts')"
                     >Contacts</router-link>
                     <router-link :to="orgTo('/notifications')" >
@@ -889,7 +928,10 @@
                         {{ notificationsUnreadCount }}
                       </span>
                     </router-link>
-                    <router-link :to="ticketsNavLink" v-if="!isAffiliationContext">
+                    <router-link
+                      :to="ticketsNavLink"
+                      v-if="!isAffiliationContext && !canUseCommunicationsCenter && canUseStandaloneTickets"
+                    >
                       <span>Tickets</span>
                       <span
                         v-if="communicationsOpenTicketsCount > 0"
@@ -964,9 +1006,13 @@
                                 {{ game.displayName }}
                               </button>
                               <div class="nav-tools-item-actions">
-                                <button type="button" :title="isEmbeddedSessionActivity(game) ? 'Use in session' : 'Open'" @click="openRegistryGame(game)">
-                                  {{ isEmbeddedSessionActivity(game) ? 'Session' : 'Open' }}
-                                </button>
+                                <button type="button" title="Open" @click="openRegistryGame(game)">Open</button>
+                                <button
+                                  v-if="isEmbeddedSessionActivity(game)"
+                                  type="button"
+                                  title="Use in session"
+                                  @click="openRegistryGameInSession(game)"
+                                >Session</button>
                                 <template v-if="isStandaloneLaunchable(game)">
                                   <button type="button" title="Copy link" @click="copyToolsGameLink(game)">Share</button>
                                   <button type="button" title="Assign to client" @click="openToolsAssign('game', gameAsToolsAssignTool(game))">Assign</button>
@@ -1788,6 +1834,7 @@
                   </router-link>
                   <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Receivables</router-link>
                   <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Learning Billing</router-link>
+                  <router-link :to="orgTo('/admin/medical-billing')" v-if="canSeeMedicalBilling" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Medical Billing</router-link>
                   <router-link :to="orgTo('/admin/psychotherapy-compliance')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Psychotherapy Compliance</router-link>
                   <router-link :to="orgTo('/admin/compliance-corner')" v-if="isTrueAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Compliance Corner</router-link>
                   <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Audit Center</router-link>
@@ -1821,19 +1868,35 @@
                   <span class="mobile-nav-group-caret" :class="{ open: mobileCommsExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="mobileCommsExpanded">
-                  <router-link :to="{ path: orgTo('/admin/communications'), query: communicationsWorkspaceQuery }" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
-                    <span>Workspace</span>
-                    <span v-if="communicationsPendingCount > 0" class="nav-badge nav-badge-pulse" style="margin-left: 8px;">{{ communicationsPendingCount }}</span>
-                  </router-link>
-                  <router-link v-if="canUseEngagementFeed" :to="orgTo('/admin/communications')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Engagement Feed</router-link>
-                  <router-link v-if="canUseChats" :to="orgTo('/admin/communications/messages')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Messages</router-link>
+                  <router-link
+                    v-if="canUseCommunicationsCenter"
+                    :to="orgTo('/admin/communications')"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >Communications Center</router-link>
+                  <router-link
+                    v-if="canUseChats && !canUseCommunicationsCenter"
+                    :to="orgTo('/messages')"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >Messages</router-link>
                   <router-link v-if="canUseAgencyCampaigns && !isSscSstcTenant" :to="orgTo('/admin/communications/campaigns')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Campaigns</router-link>
-                  <router-link v-if="canUseEngagementFeed && !isSscSstcTenant" :to="orgTo('/admin/contacts')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Contacts</router-link>
+                  <router-link
+                    v-if="canUseCommunicationsCenter && !isSscSstcTenant"
+                    :to="orgTo('/admin/contacts')"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >Contacts</router-link>
                   <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink mobile-nav-link-obnoxious">
                     <span>Notifications</span>
                     <span class="mobile-obnoxious-badge" v-if="notificationsUnreadCount > 0">{{ notificationsUnreadCount }}</span>
                   </router-link>
-                  <router-link :to="ticketsNavLink" v-if="!isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
+                  <router-link
+                    :to="ticketsNavLink"
+                    v-if="!isAffiliationContext && !canUseCommunicationsCenter && canUseStandaloneTickets"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >
                     <span>Tickets</span>
                     <span class="mobile-obnoxious-badge" v-if="communicationsOpenTicketsCount > 0">{{ communicationsOpenTicketsCount }}</span>
                   </router-link>
@@ -2105,6 +2168,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
 import { buildFormUrl } from './utils/publicIntakeUrl.js';
+import { isMedicalBillingEnabled } from './config/medicalBillingAccess.js';
 import api from './services/api';
 import { listActivities } from './services/counselingApi.js';
 import { launchActivity, isStandaloneLaunchable, isToolsCatalogActivity, isEmbeddedSessionActivity, resolveStandaloneUrl } from './services/launchActivity.js';
@@ -2365,14 +2429,86 @@ const loadingText = getLoadingTextRef();
 let loadingStartedAt = 0;
 /** Only show overlay after continuous load — avoids flash storms from brief nav/API pulses. */
 const LOADER_SHOW_DELAY_MS = 200;
+/** Platform HQ swaps: show dark fullscreen loader immediately (no white flash). */
+const PLATFORM_LOADER_SHOW_DELAY_MS = 0;
 /** Once shown, keep visible briefly so it doesn't strobe if pending count blips. */
 const LOADER_MIN_VISIBLE_MS = 150;
 let loaderShowTimer = null;
 let loaderHideTimer = null;
 
+/** Static HQ load videos (Assets icon library is image-only; these live under /branding). */
+const PLATFORM_FULLSCREEN_LOAD_VIDEO = '/branding/fullscreenloadplatform.mp4';
+const PLATFORM_SMALL_LOAD_VIDEO = '/branding/platformload.mp4';
+
+const isVideoUrl = (url) => /\.mp4($|\?)/i.test(String(url || ''));
+
+/** True Plot Twist HQ context: no tenant selected (Platform chip). Never while a tenant is active. */
+const isPlatformContext = computed(
+  () => brandingStore.isSuperAdmin && !agencyStore.currentAgency
+);
+
+/** Platform load videos only in HQ / no-tenant context. */
+const isPlatformLevelLoader = computed(
+  () => isPlatformContext.value && !String(route.params?.organizationSlug || '').trim()
+);
+
+/** Dark HQ shell background only on unscoped HQ surfaces while in platform context. */
+const isPlatformHqShell = computed(() => {
+  if (!isPlatformContext.value) return false;
+  if (String(route.query?.classic || '') === '1') return false;
+  if (String(route.params?.organizationSlug || '').trim()) return false;
+  return isPlatformHqRoute(route) || hideGlobalNavForSchoolStaff.value;
+});
+
+/** True only while swapping between Plot Twist HQ surfaces (tickets ↔ command center, etc.). */
+const preferPlatformFullscreenLoad = ref(false);
+
+function isPlatformHqRoute(r) {
+  if (!r) return false;
+  if (String(r.params?.organizationSlug || '').trim()) return false;
+  const path = String(r.path || '');
+  if (path === '/admin' || path === '/admin-dashboard') return true;
+  if (r.meta?.platformCommandCenter === true) return true;
+  return false;
+}
+
+const platformFullscreenVideoUrl = computed(() => {
+  const fromStore = brandingStore.displayPlatformFullscreenLoadIconUrl;
+  if (fromStore && isVideoUrl(fromStore)) return fromStore;
+  return PLATFORM_FULLSCREEN_LOAD_VIDEO;
+});
+
+/** SmallLoad.mp4 for the platform loading square (non-fullscreen). */
+const platformSmallLoadVideoUrl = computed(() => {
+  if (!isPlatformLevelLoader.value) return null;
+  const fromStore = brandingStore.displayPlatformLoadIconUrl;
+  if (fromStore && isVideoUrl(fromStore)) return fromStore;
+  if (!fromStore) return PLATFORM_SMALL_LOAD_VIDEO;
+  return null;
+});
+
+const showPlatformFullscreenVideo = computed(
+  () =>
+    isPlatformLevelLoader.value &&
+    preferPlatformFullscreenLoad.value &&
+    !!platformFullscreenVideoUrl.value
+);
+
+const showPlatformSmallLoadVideo = computed(
+  () =>
+    isPlatformLevelLoader.value &&
+    !showPlatformFullscreenVideo.value &&
+    !!platformSmallLoadVideoUrl.value
+);
+
 // Prefer the selected agency icon for the loader even before authStore hydrates.
-// Falls back through: club logo → portal-agency logo (e.g. SSTC org icon) → platform branding logo.
+// At platform level, SmallLoad.mp4 is used via showPlatformSmallLoadVideo; image assets still win if wired.
+// Falls back through: chrome icon → club logo → portal-agency logo → platform branding logo.
 const loaderLogoUrl = computed(() => {
+  if (isPlatformLevelLoader.value) {
+    const platformLoad = brandingStore.displayPlatformLoadIconUrl;
+    if (platformLoad && !isVideoUrl(platformLoad)) return platformLoad;
+  }
   const chrome = brandingStore.displayChromeIconUrl;
   if (chrome) return chrome;
   const a = agencyStore.currentAgency;
@@ -2454,6 +2590,9 @@ function syncPageLoading(isOn) {
         loaderHideTimer = null;
       }
       if (pageLoading.value || loaderShowTimer) return;
+      const showDelay = preferPlatformFullscreenLoad.value
+        ? PLATFORM_LOADER_SHOW_DELAY_MS
+        : LOADER_SHOW_DELAY_MS;
       loaderShowTimer = window.setTimeout(() => {
         loaderShowTimer = null;
         try {
@@ -2463,7 +2602,7 @@ function syncPageLoading(isOn) {
         } catch {
           /* ignore — can race logout teardown */
         }
-      }, LOADER_SHOW_DELAY_MS);
+      }, showDelay);
       return;
     }
     if (loaderShowTimer) {
@@ -2476,7 +2615,10 @@ function syncPageLoading(isOn) {
     loaderHideTimer = window.setTimeout(() => {
       loaderHideTimer = null;
       try {
-        if (!globalLoading.value) pageLoading.value = false;
+        if (!globalLoading.value) {
+          pageLoading.value = false;
+          preferPlatformFullscreenLoad.value = false;
+        }
       } catch {
         /* ignore — can race logout teardown */
       }
@@ -2486,6 +2628,44 @@ function syncPageLoading(isOn) {
   }
 }
 watch(globalLoading, syncPageLoading);
+
+// HQ surface swaps (tickets ↔ command center): use fullscreenloadplatform.mp4.
+// Other platform loads keep the small SmallLoad.mp4 square.
+let hqNavLoadId = null;
+router.beforeEach((to, from) => {
+  try {
+    const atPlatform = isPlatformContext.value;
+    if (
+      atPlatform &&
+      from?.matched?.length &&
+      to.path !== from.path &&
+      isPlatformHqRoute(to) &&
+      isPlatformHqRoute(from)
+    ) {
+      preferPlatformFullscreenLoad.value = true;
+      if (hqNavLoadId) {
+        endLoading(hqNavLoadId);
+        hqNavLoadId = null;
+      }
+      hqNavLoadId = beginLoading('Loading…');
+    }
+  } catch {
+    // ignore
+  }
+});
+router.afterEach(() => {
+  if (!hqNavLoadId) return;
+  const id = hqNavLoadId;
+  hqNavLoadId = null;
+  // Keep the fullscreen clip up through the remount gap, then release.
+  window.setTimeout(() => {
+    try {
+      endLoading(id);
+    } catch {
+      // ignore
+    }
+  }, 280);
+});
 
 // ---- Superadmin viewport preview (Desktop/Tablet/Mobile) ----
 const PREVIEW_STORAGE_KEY = 'superadminPreviewViewport';
@@ -2957,10 +3137,15 @@ const loadRegistryGames = async () => {
 const openRegistryGame = (game) => {
   toolsMenuOpen.value = false;
   if (isEmbeddedSessionActivity(game)) {
-    router.push(orgTo('/counseling'));
+    router.push(orgTo(`/counseling/practice/${encodeURIComponent(game.id)}`));
     return;
   }
   launchActivity(game, { mode: 'standalone' });
+};
+
+const openRegistryGameInSession = (game) => {
+  toolsMenuOpen.value = false;
+  router.push(orgTo('/counseling'));
 };
 
 const openToolsHubTab = (tab) => {
@@ -3108,6 +3293,14 @@ const selectAgencyBrand = async (a) => {
     agencyStore.setCurrentAgency(full);
     const slug = full.slug || full.portal_url;
     if (!slug) return;
+
+    // Tenant selection must restore that org's theme (never leave Platform HQ palette/dark shell).
+    try {
+      brandingStore.setActiveRouteSlug(String(slug).toLowerCase());
+      brandingStore.syncDocumentThemeFromSelectedAgency({ skipRouteSlugGuard: true });
+    } catch {
+      // ignore
+    }
 
     // Stay on schedule / My Schedule when switching brand there — never bounce to admin.
     // Appointment editors also use a local tenant field and must not hard-navigate.
@@ -3398,16 +3591,16 @@ const hideGlobalNavForSchoolStaff = computed(() => {
       ''
   ).toLowerCase();
   if (orgType === 'life_coach' || orgType === 'consultant') return true;
-  // Plot Twist HQ platform command center owns its chrome (override tenant/custom header).
-  if (
-    (role === 'super_admin' || role === 'superadmin') &&
-    !agencyStore.currentAgency &&
-    String(route.query?.classic || '') !== '1' &&
-    (String(route.path || '') === '/admin' ||
-      String(route.path || '') === '/admin-dashboard' ||
-      route.meta?.platformCommandCenter === true)
-  ) {
-    return true;
+  // Plot Twist HQ chrome only in Platform context (no tenant selected).
+  // If a tenant is selected, keep that tenant's global nav even for superadmins.
+  if ((role === 'super_admin' || role === 'superadmin') && String(route.query?.classic || '') !== '1') {
+    const inPlatformContext = agencyStore.platformMode || !agencyStore.currentAgency;
+    if (!inPlatformContext) return false;
+    if (String(route.params?.organizationSlug || '').trim()) return false;
+    const path = String(route.path || '');
+    const onHqHome = path === '/admin' || path === '/admin-dashboard';
+    const onUnscopedHqSurface = route.meta?.platformCommandCenter === true;
+    if (onHqHome || onUnscopedHqSurface) return true;
   }
   return false;
 });
@@ -3670,13 +3863,28 @@ const canUseAgencyCampaigns = computed(() => {
     r === 'provider_plus'
   );
 });
+const canUseCommunicationsCenter = computed(() => {
+  if (isSscSstcTenant.value) return false;
+  const role = String(user.value?.role || '').toLowerCase();
+  return role === 'admin' || role === 'support' || role === 'super_admin';
+});
+const canUseStandaloneTickets = computed(() => {
+  const role = String(user.value?.role || '').toLowerCase();
+  return [
+    'clinical_practice_assistant',
+    'staff',
+    'school_staff',
+    'admin',
+    'support',
+    'super_admin'
+  ].includes(role);
+});
 const canUseEngagementFeed = computed(() => {
   if (isSscSstcTenant.value) return false;
   const role = String(user.value?.role || '').toLowerCase();
-  return (
-    role === 'admin' ||
-    role === 'support' ||
-    role === 'super_admin' ||
+  // Engagement Feed lives under Communications Center for admin/support;
+  // other roles no longer get a top-nav feed entry.
+  return canUseCommunicationsCenter.value || (
     role === 'clinical_practice_assistant' ||
     role === 'provider_plus' ||
     role === 'schedule_manager' ||
@@ -3687,7 +3895,16 @@ const canUseEngagementFeed = computed(() => {
 });
 const canUseChats = computed(() => {
   if (isSscSstcTenant.value) return false;
-  return canUseEngagementFeed.value && hasCapability('canUseChat');
+  const role = String(user.value?.role || '').toLowerCase();
+  const messagingRole =
+    canUseCommunicationsCenter.value ||
+    role === 'clinical_practice_assistant' ||
+    role === 'provider_plus' ||
+    role === 'schedule_manager' ||
+    role === 'provider' ||
+    role === 'staff' ||
+    role === 'school_staff';
+  return messagingRole && hasCapability('canUseChat');
 });
 const showSscMessagesLink = computed(() => {
   return isAuthenticated.value && isSscSstcTenant.value && hasCapability('canUseChat');
@@ -3700,7 +3917,9 @@ const canShowScheduleTopNav = computed(() => {
 const showEngagementMenu = computed(() => {
   if (isSscSstcTenant.value) return false;
   return (
-    canUseEngagementFeed.value ||
+    canUseCommunicationsCenter.value ||
+    canUseChats.value ||
+    canUseStandaloneTickets.value ||
     canUseAgencyCampaigns.value ||
     canShowScheduleTopNav.value ||
     noteAidEnabled.value ||
@@ -3842,6 +4061,22 @@ const canSeePayrollManagement = computed(() => {
   const ids = Array.isArray(user.value?.payrollAgencyIds) ? user.value.payrollAgencyIds : [];
   if (!currentAgencyId.value) return false;
   return ids.includes(currentAgencyId.value);
+});
+
+const canSeeMedicalBilling = computed(() => {
+  if (!isMedicalBillingEnabled(agencyStore.currentAgency?.feature_flags)) return false;
+  const role = String(user.value?.role || '').toLowerCase();
+  if (['admin', 'super_admin', 'provider', 'provider_plus', 'clinical_practice_assistant'].includes(role)) {
+    return true;
+  }
+  if (role === 'support' || role === 'staff') {
+    const caps = user.value?.capabilities || {};
+    if (!caps.canManageMedicalBilling) return false;
+    const ids = Array.isArray(user.value?.billingAgencyIds) ? user.value.billingAgencyIds : [];
+    if (!currentAgencyId.value) return false;
+    return ids.map(Number).includes(Number(currentAgencyId.value));
+  }
+  return false;
 });
 
 const canSeeAvailabilityIntake = computed(() => {
@@ -4753,11 +4988,6 @@ watch(sessionSettingsKey, () => {
 
 // ---- Obnoxious notifications badge (admin/support) ----
 const communicationsPendingCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
-/** SSTC/SSTC: open the comms workspace on “All” by default; other tenants jump to Automation when items are pending. */
-const communicationsWorkspaceQuery = computed(() => {
-  if (isSscSstcTenant.value) return {};
-  return communicationsPendingCount.value > 0 ? { tab: 'automation' } : {};
-});
 const communicationsOpenTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
 const communicationsTotalAttentionCount = computed(
   () =>
@@ -5368,7 +5598,29 @@ onUnmounted(() => {
   backdrop-filter: blur(4px);
 }
 
+.agency-loading-overlay--platform {
+  background: rgba(7, 11, 20, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.agency-loading-overlay--platform-fullscreen {
+  background: #070b14;
+  backdrop-filter: none;
+  overflow: hidden;
+}
+
+.agency-loading-fullscreen-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
 .agency-loading-card {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -5381,6 +5633,43 @@ onUnmounted(() => {
   min-width: min(420px, 90vw);
   /* Clip logos during 360° spin (diagonal exceeds unrotated width/height). */
   overflow: hidden;
+}
+
+.agency-loading-card--platform {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(148, 163, 184, 0.22);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  color: #e5e7eb;
+}
+
+/* SmallLoad.mp4 already includes the loading copy — fill the rounded square. */
+.agency-loading-card--platform-video {
+  padding: 0;
+  gap: 0;
+  width: clamp(12rem, 30vw, 15.5rem);
+  height: clamp(12rem, 30vw, 15.5rem);
+  min-width: 0;
+  aspect-ratio: 1;
+}
+
+.agency-loading-small-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill; /* slight stretch to fill the rounded square */
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.agency-loading-overlay--platform .agency-loading-text {
+  color: #e5e7eb;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agency-loading-fullscreen-video,
+  .agency-loading-small-video {
+    display: none;
+  }
 }
 
 .agency-loading-logo {
@@ -7529,6 +7818,14 @@ main.main-no-global-chrome {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  background: var(--bg-primary, var(--bg, #ffffff));
+  color: var(--text-primary, inherit);
+}
+
+/* Keep HQ shell dark during route remounts (tickets ↔ command center) — Platform only. */
+#app.is-platform-hq {
+  background: #070b14;
+  color: #e5e7eb;
 }
 
 /* ── Native app (Capacitor) nav layout ───────────────────────────────

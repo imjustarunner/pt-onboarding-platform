@@ -118,15 +118,17 @@ class PlatformBranding {
         hasExecutiveReportIcon = false;
       }
 
-      // Check if intake_links, audit_center, marketing_social, presence, beta_feedback icon columns exist
+      // Check if intake_links, audit_center, marketing_social, presence, beta_feedback, platform_load icon columns exist
       let hasIntakeLinksIcon = false;
       let hasAuditCenterIcon = false;
       let hasMarketingSocialIcon = false;
       let hasPresenceIcon = false;
       let hasBetaFeedbackIcon = false;
+      let hasPlatformLoadIcon = false;
+      let hasPlatformFullscreenLoadIcon = false;
       try {
         const [cols] = await pool.execute(
-          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('intake_links_icon_id','audit_center_icon_id','marketing_social_icon_id','presence_icon_id','beta_feedback_icon_id')"
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('intake_links_icon_id','audit_center_icon_id','marketing_social_icon_id','presence_icon_id','beta_feedback_icon_id','platform_load_icon_id','platform_fullscreen_load_icon_id')"
         );
         const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
         hasIntakeLinksIcon = names.has('intake_links_icon_id');
@@ -134,6 +136,8 @@ class PlatformBranding {
         hasMarketingSocialIcon = names.has('marketing_social_icon_id');
         hasPresenceIcon = names.has('presence_icon_id');
         hasBetaFeedbackIcon = names.has('beta_feedback_icon_id');
+        hasPlatformLoadIcon = names.has('platform_load_icon_id');
+        hasPlatformFullscreenLoadIcon = names.has('platform_fullscreen_load_icon_id');
       } catch (e) {
         // ignore
       }
@@ -378,6 +382,8 @@ class PlatformBranding {
         if (hasMarketingSocialIcon) extraQuickActionParts.push({ alias: 'ms_i', path: 'marketing_social_icon_path', col: 'marketing_social_icon_id' });
         if (hasPresenceIcon) extraQuickActionParts.push({ alias: 'pres_i', path: 'presence_icon_path', col: 'presence_icon_id' });
         if (hasBetaFeedbackIcon) extraQuickActionParts.push({ alias: 'bf_i', path: 'beta_feedback_icon_path', col: 'beta_feedback_icon_id' });
+        if (hasPlatformLoadIcon) extraQuickActionParts.push({ alias: 'pload_i', path: 'platform_load_icon_path', col: 'platform_load_icon_id' });
+        if (hasPlatformFullscreenLoadIcon) extraQuickActionParts.push({ alias: 'pfsload_i', path: 'platform_fullscreen_load_icon_path', col: 'platform_fullscreen_load_icon_id' });
         const extraQuickActionSelects = extraQuickActionParts.length
           ? `,\n          ${extraQuickActionParts.map((p) => {
             const namePath = p.path.replace('_icon_path', '_icon_name');
@@ -573,6 +579,58 @@ class PlatformBranding {
       } catch {
         // best-effort only
       }
+
+      // Auto-wire platform load Assets by name when branding fields are unset.
+      try {
+        const nameWire = [
+          {
+            idField: 'platform_load_icon_id',
+            pathField: 'platform_load_icon_path',
+            nameField: 'platform_load_icon_name',
+            names: ['platformload', 'platformloading', 'ptplatformload']
+          },
+          {
+            idField: 'platform_fullscreen_load_icon_id',
+            pathField: 'platform_fullscreen_load_icon_path',
+            nameField: 'platform_fullscreen_load_icon_name',
+            names: ['fullscreenloadplatform', 'platformfullscreenload', 'fullscreenplatformload']
+          }
+        ];
+        for (const wire of nameWire) {
+          if (!result || result[wire.idField]) continue;
+          const placeholders = wire.names.map(() => '?').join(', ');
+          const [loadIcons] = await pool.execute(
+            `SELECT id, file_path, name
+             FROM icons
+             WHERE agency_id IS NULL
+               AND LOWER(REPLACE(REPLACE(REPLACE(name, ' ', ''), '_', ''), '-', '')) IN (${placeholders})
+             ORDER BY id DESC
+             LIMIT 1`,
+            wire.names
+          );
+          const loadIcon = loadIcons?.[0];
+          if (!loadIcon?.id) continue;
+          result[wire.idField] = loadIcon.id;
+          result[wire.pathField] = loadIcon.file_path || null;
+          result[wire.nameField] = loadIcon.name || null;
+          try {
+            const [cols] = await pool.execute(
+              `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = ?`,
+              [wire.idField]
+            );
+            if ((cols || []).length > 0 && result.id) {
+              await pool.execute(
+                `UPDATE platform_branding SET ${wire.idField} = ? WHERE id = ? AND ${wire.idField} IS NULL`,
+                [loadIcon.id, result.id]
+              );
+            }
+          } catch {
+            // ignore persist failures
+          }
+        }
+      } catch {
+        // ignore
+      }
       
       // Log what columns we got back (only in development)
       if (process.env.NODE_ENV === 'development') {
@@ -668,6 +726,8 @@ class PlatformBranding {
       marketingSocialIconId,
       presenceIconId,
       betaFeedbackIconId,
+      platformLoadIconId,
+      platformFullscreenLoadIconId,
         myDashboardChecklistIconId,
         myDashboardTrainingIconId,
         myDashboardDocumentsIconId,
@@ -1406,13 +1466,15 @@ class PlatformBranding {
         }
       }
 
-      // Intake Links, Audit Center, Marketing Social, Presence, Beta Feedback quick-action icons (optional)
+      // Intake Links, Audit Center, Marketing Social, Presence, Beta Feedback, Platform Load icons (optional)
       for (const { col, param } of [
         { col: 'intake_links_icon_id', param: intakeLinksIconId },
         { col: 'audit_center_icon_id', param: auditCenterIconId },
         { col: 'marketing_social_icon_id', param: marketingSocialIconId },
         { col: 'presence_icon_id', param: presenceIconId },
-        { col: 'beta_feedback_icon_id', param: betaFeedbackIconId }
+        { col: 'beta_feedback_icon_id', param: betaFeedbackIconId },
+        { col: 'platform_load_icon_id', param: platformLoadIconId },
+        { col: 'platform_fullscreen_load_icon_id', param: platformFullscreenLoadIconId }
       ]) {
         if (param !== undefined) {
           try {
@@ -2002,13 +2064,15 @@ class PlatformBranding {
         }
       }
 
-      // Intake Links, Audit Center, Marketing Social, Presence, Beta Feedback - for INSERT
+      // Intake Links, Audit Center, Marketing Social, Presence, Beta Feedback, Platform Load - for INSERT
       for (const { col, param } of [
         { col: 'intake_links_icon_id', param: intakeLinksIconId },
         { col: 'audit_center_icon_id', param: auditCenterIconId },
         { col: 'marketing_social_icon_id', param: marketingSocialIconId },
         { col: 'presence_icon_id', param: presenceIconId },
-        { col: 'beta_feedback_icon_id', param: betaFeedbackIconId }
+        { col: 'beta_feedback_icon_id', param: betaFeedbackIconId },
+        { col: 'platform_load_icon_id', param: platformLoadIconId },
+        { col: 'platform_fullscreen_load_icon_id', param: platformFullscreenLoadIconId }
       ]) {
         if (param !== undefined) {
           try {

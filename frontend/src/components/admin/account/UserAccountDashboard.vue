@@ -820,6 +820,7 @@ const permissionGroups = computed(() => {
       label: 'System Access',
       items: [
         ...(unwrap(ctx.showPayrollAccessToggle) ? [{ key: 'hasPayrollAccess', label: 'Payroll access', type: 'checkbox' }] : []),
+        ...(unwrap(ctx.showBillingAccessToggle) ? [{ key: 'hasBillingAccess', label: 'Medical billing access', type: 'checkbox' }] : []),
         ...(unwrap(ctx.showCredentialingAccessToggle) ? [{ key: 'hasCredentialingAccess', label: 'Credentialing access', type: 'checkbox' }] : []),
         { key: 'hasHiringAccess', label: 'Hiring process access', type: 'checkbox' },
         { key: 'hasMedicalRecordsReleaseAccess', label: 'Medical records release', type: 'checkbox' },

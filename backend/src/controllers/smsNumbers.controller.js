@@ -235,11 +235,34 @@ export const searchAvailableNumbers = async (req, res, next) => {
   }
 };
 
+const ALLOWED_NUMBER_PURPOSES = new Set([
+  'platform_contact',
+  'tenant_contact',
+  'clinical_care',
+  'notification',
+  'provider_contact',
+  'general'
+]);
+
+function parseNumberPurpose(raw, { agencyId = null } = {}) {
+  let purpose = String(raw || 'clinical_care').toLowerCase().trim() || 'clinical_care';
+  if (purpose === 'appointment_verify') purpose = 'notification';
+  if (!ALLOWED_NUMBER_PURPOSES.has(purpose)) purpose = 'clinical_care';
+  // Platform contact numbers must not belong to a tenant agency
+  if (purpose === 'platform_contact' && agencyId) {
+    purpose = 'tenant_contact';
+  }
+  if (!agencyId && purpose !== 'platform_contact') {
+    purpose = 'platform_contact';
+  }
+  return purpose;
+}
+
 export const purchaseNumber = async (req, res, next) => {
   try {
     const agencyId = parseInt(req.params.agencyId, 10);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
-    const { phoneNumber, friendlyName } = req.body || {};
+    const { phoneNumber, friendlyName, numberPurpose } = req.body || {};
     if (!phoneNumber) return res.status(400).json({ error: { message: 'phoneNumber is required' } });
 
     const smsUrl = process.env.VONAGE_SMS_WEBHOOK_URL || null;
@@ -250,7 +273,8 @@ export const purchaseNumber = async (req, res, next) => {
       twilioSid: purchased.sid || null, // stores Vonage msisdn for API reference
       friendlyName: purchased.friendlyName || friendlyName || null,
       capabilities: purchased.capabilities || null,
-      status: 'active'
+      status: 'active',
+      numberPurpose: parseNumberPurpose(numberPurpose, { agencyId })
     });
     res.status(201).json(record);
   } catch (e) {
@@ -262,9 +286,68 @@ export const addManualNumber = async (req, res, next) => {
   try {
     const agencyId = parseInt(req.params.agencyId, 10);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+    const { phoneNumber, friendlyName, numberPurpose } = req.body || {};
+    if (!phoneNumber) return res.status(400).json({ error: { message: 'phoneNumber is required' } });
+    const record = await PhoneNumber.create({
+      agencyId,
+      phoneNumber,
+      friendlyName,
+      status: 'active',
+      numberPurpose: parseNumberPurpose(numberPurpose, { agencyId })
+    });
+    res.status(201).json(record);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateNumberPurpose = async (req, res, next) => {
+  try {
+    const numberId = parseInt(req.params.numberId, 10);
+    if (!numberId) return res.status(400).json({ error: { message: 'Invalid numberId' } });
+    const number = await assertNumberAccess(req, numberId, { requireAdmin: true });
+    if (!number.agency_id && req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only superadmin can manage platform numbers' } });
+    }
+    const purpose = parseNumberPurpose(req.body?.numberPurpose, {
+      agencyId: number.agency_id || null
+    });
+    if (purpose === 'platform_contact' && req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only superadmin can set platform_contact' } });
+    }
+    const updated = await PhoneNumber.updatePurpose(numberId, purpose);
+    res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listPlatformNumbers = async (req, res, next) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Superadmin access required' } });
+    }
+    const numbers = await PhoneNumber.listPlatformNumbers({ includeInactive: true });
+    res.json(numbers);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const addPlatformNumber = async (req, res, next) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Superadmin access required' } });
+    }
     const { phoneNumber, friendlyName } = req.body || {};
     if (!phoneNumber) return res.status(400).json({ error: { message: 'phoneNumber is required' } });
-    const record = await PhoneNumber.create({ agencyId, phoneNumber, friendlyName, status: 'active' });
+    const record = await PhoneNumber.create({
+      agencyId: null,
+      phoneNumber,
+      friendlyName,
+      status: 'active',
+      numberPurpose: 'platform_contact'
+    });
     res.status(201).json(record);
   } catch (e) {
     next(e);

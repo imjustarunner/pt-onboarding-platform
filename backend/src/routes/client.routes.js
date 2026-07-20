@@ -64,7 +64,8 @@ import { listClientGuardians, upsertClientGuardian, updateClientGuardian, remove
 import { getClientGuardianWaiverAudit } from '../controllers/guardianWaiver.controller.js';
 import {
   listClientCommunications,
-  getClientCommunicationBody
+  getClientCommunicationBody,
+  listClientSmsAudit
 } from '../controllers/clientCommunications.controller.js';
 import { authenticate, requireBackofficeAdmin, requireGuardianListAccess } from '../middleware/auth.middleware.js';
 
@@ -133,6 +134,7 @@ router.get('/:id/access-log', getClientAccessLog);
 // including messages addressed to linked guardians).
 router.get('/:id/communications', listClientCommunications);
 router.get('/:id/communications/email/:commId/body', getClientCommunicationBody);
+router.get('/:id/sms-audit', listClientSmsAudit);
 
 // Log a profile view (best-effort; called on panel mount)
 router.post('/:id/log-view', logClientProfileView);

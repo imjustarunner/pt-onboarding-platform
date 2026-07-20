@@ -5,6 +5,15 @@ export async function listActivities(params = {}) {
   return data?.activities || [];
 }
 
+/** Start an embedded activity for solo practice (no video / no client). */
+export async function startPracticeActivity(activityId, { agencyId, setup } = {}) {
+  const { data } = await api.post(`/counseling/activities/${encodeURIComponent(activityId)}/practice`, {
+    agencyId,
+    setup
+  });
+  return data;
+}
+
 export async function createCounselingSession(payload) {
   const { data } = await api.post('/counseling/sessions', payload);
   return data;

@@ -1,4 +1,6 @@
-# Twilio SMS & Voice: Current State, Texting Flow, and Enhancement Roadmap
+# SMS & Voice: Current State, Texting Flow, and Enhancement Roadmap
+
+> **Status (2026):** Transport is **Vonage** (not Twilio). Staff day-to-day surface is **Messages** (`/messages`) with a caseload-routed **SMS** tab. Clinical care uses **agency care numbers + CPA ownership** (`sms_care_threads` / `client_provider_assignments`). Per-provider personal numbers remain optional/later. See `VONAGE_SMS_IMPLEMENTATION.md`.
 
 ## Executive Summary
 
@@ -6,18 +8,15 @@
 
 ---
 
-## Provider-Only Number Model (Implemented)
+## Care Number Model (Current Phase 1)
 
-**Each provider must have their own assigned Twilio number** for texting and calling clients. Agency numbers are for company events, after-hours, and support fallback—not for 1:1 client communication.
+**Default:** Shared **agency clinical care numbers** with **assignment-based thread ownership** (primary CPA = owner; co-providers eligible; support can observe / claim / escalate to tickets).
 
-- **One number = calling + texting:** The same Twilio number is used for both.
-- **On/off toggles:** Per-user settings in Communications → Calls tab:
-  - Inbound/outbound calls
-  - Inbound/outbound texts (sms_inbound_enabled, sms_outbound_enabled)
-- **Non-providers:** Can have a number and be added to additional numbers via "Add to pool" to receive and respond.
-- **Outbound:** No agency fallback. Providers need an assigned number to text/call.
-- **Available numbers:** Only assigned numbers (including pool membership).
-- **Consent:** Only shows consent states for numbers the user is assigned to.
+- **One care number** can serve many clients; visibility is caseload/care-thread scoped, not “entire pool sees everyone.”
+- **Appointment verify** numbers use `number_purpose=appointment_verify` and stay out of the clinical SMS inbox.
+- **Optional later:** Personal Vonage number per high-volume provider.
+- **On/off toggles:** Per-user settings still control inbound/outbound SMS/voice prefs and optional cell forwarding of inbound copies.
+- Legacy sections below may still mention Twilio webhooks / 1:1 numbers — treat those as historical unless updated.
 
 ---
 

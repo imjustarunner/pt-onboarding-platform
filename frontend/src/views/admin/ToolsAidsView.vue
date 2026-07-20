@@ -97,8 +97,11 @@
           :show-copy="isStandaloneLaunchable(game)"
           :show-edit="true"
           :show-duplicate="false"
-          :open-label="isEmbeddedSessionActivity(game) ? 'Use in session' : 'Open'"
+          open-label="Open"
+          :show-secondary-open="isEmbeddedSessionActivity(game)"
+          secondary-open-label="Use in session"
           @open="openGame(game)"
+          @secondary-open="openGameInSession(game)"
           @copy-link="copyGameLink(game)"
           @assign="openAssign('game', gameAsAssignTool(game))"
           @toggle-favorite="toggleFavorite(`game:${game.id}`)"
@@ -517,12 +520,16 @@ async function copyAssessmentLink(tool) {
 
 function openGame(game) {
   if (isEmbeddedSessionActivity(game)) {
-    router.push(orgTo('/counseling'));
-    showToast('Start or join a counseling session, then open Activities to launch this.');
+    router.push(orgTo(`/counseling/practice/${encodeURIComponent(game.id)}`));
     return;
   }
   const result = launchActivity(game, { mode: 'standalone' });
   if (!result?.ok) showToast('Could not open this game');
+}
+
+function openGameInSession(game) {
+  router.push(orgTo('/counseling'));
+  showToast('Start or join a counseling session, then open Activities to launch this.');
 }
 
 async function copyGameLink(game) {

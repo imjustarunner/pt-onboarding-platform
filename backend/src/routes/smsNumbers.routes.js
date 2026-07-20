@@ -2,12 +2,14 @@ import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin } from '../middleware/auth.middleware.js';
 import {
   addManualNumber,
+  addPlatformNumber,
   assignNumber,
   setSmsAccess,
   getAgencySmsSettings,
   getAgencySmsUsage,
   getNumberRules,
   listAgencyNumbers,
+  listPlatformNumbers,
   getAgencyWebhookStatus,
   listUserAvailableNumbers,
   listUserAssignedNumbers,
@@ -21,6 +23,7 @@ import {
   updateClientConsentState,
   unassignNumber,
   updateAgencySmsSettings,
+  updateNumberPurpose,
   upsertNumberRules
 } from '../controllers/smsNumbers.controller.js';
 
@@ -41,7 +44,12 @@ router.get('/agency/:agencyId/webhooks/status', requireAgencyAdmin, getAgencyWeb
 router.post('/agency/:agencyId/webhooks/sync', requireAgencyAdmin, syncAgencyWebhooks);
 router.get('/agency/:agencyId/usage', requireAgencyAccess, getAgencySmsUsage);
 
+// Platform (Plot Twist HQ) contact numbers — superadmin only
+router.get('/platform', listPlatformNumbers);
+router.post('/platform/add', addPlatformNumber);
+
 // Number lifecycle
+router.patch('/:numberId/purpose', updateNumberPurpose);
 router.delete('/:numberId', releaseNumber);
 router.post('/assign', assignNumber);
 router.post('/set-sms-access', setSmsAccess);

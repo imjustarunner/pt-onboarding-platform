@@ -469,10 +469,11 @@ export const requireCapability = (required) => {
 
       let caps = getUserCapabilities(userForCaps, { effectiveRole: req.user?.effectiveRole });
 
-      // canManagePayroll, canAccessBudgetManagement, canManageCredentialing require async resolution from user_agencies
+      // canManagePayroll, canAccessBudgetManagement, canManageCredentialing, canManageMedicalBilling require async resolution from user_agencies
       const needsPayrollCaps = requiredList.some((k) => k === 'canManagePayroll' || k === 'canAccessBudgetManagement');
       const needsCredentialingCap = requiredList.some((k) => k === 'canManageCredentialing');
-      if ((needsPayrollCaps || needsCredentialingCap) && userForCaps?.id) {
+      const needsBillingCap = requiredList.some((k) => k === 'canManageMedicalBilling');
+      if ((needsPayrollCaps || needsCredentialingCap || needsBillingCap) && userForCaps?.id) {
         const agencyAccessCaps = await buildAgencyAccessCaps(userForCaps, {
           effectiveRole: req.user?.effectiveRole || userForCaps.role
         });
@@ -486,6 +487,9 @@ export const requireCapability = (required) => {
             : {}),
           ...(needsCredentialingCap
             ? { canManageCredentialing: agencyAccessCaps.capabilities.canManageCredentialing }
+            : {}),
+          ...(needsBillingCap
+            ? { canManageMedicalBilling: agencyAccessCaps.capabilities.canManageMedicalBilling }
             : {})
         };
       }

@@ -3631,6 +3631,7 @@ const accountForm = ref({
   hasProviderAccess: false,
   hasStaffAccess: false,
   hasPayrollAccess: false,
+  hasBillingAccess: false,
   hasCredentialingAccess: false,
   isHourlyWorker: false,
   hasHiringAccess: false,
@@ -4395,6 +4396,11 @@ const credentialTierPreviewLabel = computed(() => {
 const showPayrollAccessToggle = computed(() => {
   const role = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
   return role && role !== 'super_admin';
+});
+const showBillingAccessToggle = computed(() => {
+  const role = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
+  // Grant medical billing to a support/staff subset (payroll-style). Admins already have access.
+  return ['support', 'staff'].includes(role);
 });
 const showCredentialingAccessToggle = computed(() => {
   const role = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
@@ -5165,6 +5171,7 @@ const fetchUser = async () => {
       hasProviderAccess: user.value.has_provider_access === true || user.value.has_provider_access === 1 || user.value.has_provider_access === '1' || false,
       hasStaffAccess: user.value.has_staff_access === true || user.value.has_staff_access === 1 || user.value.has_staff_access === '1' || false,
       hasPayrollAccess: accountInfo.value?.hasPayrollAccess === true || accountForm.value?.hasPayrollAccess || false,
+      hasBillingAccess: accountInfo.value?.hasBillingAccess === true || accountForm.value?.hasBillingAccess || false,
       hasCredentialingAccess: accountInfo.value?.hasCredentialingAccess === true || accountForm.value?.hasCredentialingAccess || false,
       isHourlyWorker: user.value?.is_hourly_worker === true || user.value?.is_hourly_worker === 1 || user.value?.is_hourly_worker === '1' || accountForm.value?.isHourlyWorker || false,
       hasHiringAccess: user.value?.has_hiring_access === true || user.value?.has_hiring_access === 1 || user.value?.has_hiring_access === '1' || accountForm.value?.hasHiringAccess || false,
@@ -5267,6 +5274,9 @@ const fetchAccountInfo = async () => {
     // Contracts & flags: payroll, hourly worker, hiring access (from account-info)
     if (response.data?.hasPayrollAccess !== undefined) {
       accountForm.value.hasPayrollAccess = Boolean(response.data.hasPayrollAccess);
+    }
+    if (response.data?.hasBillingAccess !== undefined) {
+      accountForm.value.hasBillingAccess = Boolean(response.data.hasBillingAccess);
     }
     if (response.data?.hasCredentialingAccess !== undefined) {
       accountForm.value.hasCredentialingAccess = Boolean(response.data.hasCredentialingAccess);
@@ -6000,6 +6010,7 @@ const saveAccount = async (options = {}) => {
       companyCarManageAccess: Boolean(accountForm.value.companyCarManageAccess),
       skillBuilderEligible: Boolean(accountForm.value.skillBuilderEligible),
       hasPayrollAccess: Boolean(accountForm.value.hasPayrollAccess),
+      hasBillingAccess: Boolean(accountForm.value.hasBillingAccess),
       hasCredentialingAccess: Boolean(accountForm.value.hasCredentialingAccess),
       isHourlyWorker: Boolean(accountForm.value.isHourlyWorker),
       hasHiringAccess: Boolean(accountForm.value.hasHiringAccess),
@@ -6423,6 +6434,7 @@ provide(USER_ACCOUNT_CONTEXT_KEY, {
   canAssignSupport,
   canAssignAssistantAdmin,
   showPayrollAccessToggle,
+  showBillingAccessToggle,
   showCredentialingAccessToggle,
   canToggleSupervisorPrivileges,
   canEditSkillBuilderCoordinatorAccess,
@@ -6871,6 +6883,9 @@ const onOverviewPermsSaved = (perms = {}) => {
   }
   if (Object.prototype.hasOwnProperty.call(perms, 'hasPayrollAccess')) {
     accountForm.value.hasPayrollAccess = Boolean(perms.hasPayrollAccess);
+  }
+  if (Object.prototype.hasOwnProperty.call(perms, 'hasBillingAccess')) {
+    accountForm.value.hasBillingAccess = Boolean(perms.hasBillingAccess);
   }
   if (accountInfo.value) {
     accountInfo.value = { ...accountInfo.value, ...perms };

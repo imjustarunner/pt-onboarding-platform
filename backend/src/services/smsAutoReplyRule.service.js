@@ -82,22 +82,100 @@ class SmsAutoReplyRuleService {
   }
 
   /**
-   * Handle a "YES" reply from a client after they received a forward offer.
+   * Handle a "YES" reply from a client after they received a forward/OOO offer.
+   * Escalates the SMS care thread and opens an agency support ticket for the desk.
    */
-  static async handleYesReply({ fromNumber, toNumber, agencyId, clientId, userId }) {
-    // ... same code ...
+  static async handleYesReply({ fromNumber, toNumber, agencyId, clientId, userId, numberId = null }) {
+    if (!agencyId || !clientId) return false;
+
+    // Only treat YES as escalation if there was a recent auto/forward offer outbound.
+    const [offers] = await pool.execute(
+      `SELECT id, user_id, number_id, to_number, from_number, metadata
+       FROM message_logs
+       WHERE agency_id = ?
+         AND client_id = ?
+         AND direction = 'OUTBOUND'
+         AND created_at > DATE_SUB(NOW(), INTERVAL 48 HOUR)
+         AND (
+           JSON_EXTRACT(metadata, '$.forwardOffer') = true
+           OR JSON_EXTRACT(metadata, '$.autoReply') = true
+           OR JSON_EXTRACT(metadata, '$.vacationReply') = true
+           OR body LIKE '%reply YES%'
+           OR body LIKE '%respond with Y%'
+           OR body LIKE '%reply with YES%'
+         )
+       ORDER BY id DESC
+       LIMIT 1`,
+      [agencyId, clientId]
+    );
+    const offer = offers?.[0] || null;
+    if (!offer) return false;
+
+    const ownerId = Number(userId || offer.user_id || 0) || null;
+    const nid = numberId || offer.number_id || null;
+
+    let ticketId = null;
+    try {
+      const subject = 'SMS client requested support (YES reply)';
+      const question =
+        `Client replied YES to an out-of-office / support offer on SMS.\n` +
+        `From: ${fromNumber || 'unknown'}\nTo: ${toNumber || 'unknown'}\n` +
+        `Please join the SMS thread and assist.`;
+      const [ins] = await pool.execute(
+        `INSERT INTO support_tickets
+          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status, priority)
+         VALUES (?, ?, ?, ?, ?, ?, 'open', 'high')`,
+        [agencyId, clientId, ownerId, agencyId, subject, question]
+      );
+      ticketId = ins?.insertId || null;
+    } catch (e) {
+      console.warn('[SmsAutoReplyRuleService] YES ticket create failed:', e?.message || e);
+    }
+
+    try {
+      const SmsCareThread = (await import('../models/SmsCareThread.model.js')).default;
+      await SmsCareThread.setEscalated({
+        agencyId,
+        clientId,
+        numberId: nid,
+        supportTicketId: ticketId,
+        metadata: { source: 'yes_reply', fromNumber, toNumber }
+      });
+    } catch (e) {
+      console.warn('[SmsAutoReplyRuleService] YES care-thread escalate failed:', e?.message || e);
+    }
+
+    if (ownerId) {
+      try {
+        await SmsThreadEscalation.createOrKeep({
+          agencyId,
+          userId: ownerId,
+          clientId,
+          inboundLogId: null,
+          escalatedToPhone: null,
+          escalationType: 'yes_reply',
+          threadMode: 'respondable',
+          supportTicketId: ticketId,
+          metadata: { supportTicketId: ticketId, fromNumber, toNumber }
+        });
+      } catch (e) {
+        console.warn('[SmsAutoReplyRuleService] YES escalation row failed:', e?.message || e);
+      }
+    }
+
+    return true;
   }
 
   /**
    * Generate AI smart replies based on thread history.
    */
   static async generateSmartReplies({ userId, clientId, agencyContactId }) {
-    const thread = await MessageLog.listThread({ userId, clientId, agencyContactId, limit: 10 });
-    const messages = thread.messages || [];
+    const threadRows = await MessageLog.listThread({ userId, clientId, agencyContactId, limit: 10 });
+    const messages = Array.isArray(threadRows) ? threadRows : (threadRows?.messages || []);
     if (!messages.length) return [];
 
     const history = messages
-      .map(m => `${m.direction === 'INBOUND' ? 'Client' : 'Provider'}: ${m.body}`)
+      .map((m) => `${m.direction === 'INBOUND' ? 'Client' : 'Provider'}: ${m.body}`)
       .reverse()
       .join('\n');
 

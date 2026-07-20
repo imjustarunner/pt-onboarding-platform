@@ -71,18 +71,45 @@ export const getThreads = async (req, res, next) => {
     const search = req.query.search ? String(req.query.search).trim() : '';
 
     const role = String(req.user?.role || '').toLowerCase();
-    const isProviderOrSchoolStaff = role === 'provider' || role === 'school_staff';
+    const isProviderLike = ['provider', 'provider_plus', 'intern', 'intern_plus', 'school_staff'].includes(role);
+    const isSupportLike = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff'].includes(role);
 
     let userWhereClause = 'ml.user_id = ?';
     let userParams = [uid, uid]; // second uid for agency EXISTS subquery
 
-    if (isProviderOrSchoolStaff) {
-      const assignments = await PhoneNumberAssignment.listByUserId(uid);
-      const assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
-      if (assignedNumberIds.length > 0) {
-        const placeholders = assignedNumberIds.map(() => '?').join(',');
-        userWhereClause = `(ml.user_id = ? OR ml.number_id IN (${placeholders}))`;
-        userParams = [uid, ...assignedNumberIds, uid];
+    // Care-routed visibility: own logs, care-thread ownership, or active CPA — not entire number pools.
+    if (isProviderLike || isSupportLike) {
+      const SmsCareThread = (await import('../models/SmsCareThread.model.js')).default;
+
+      const careClientIds = await SmsCareThread.listClientIdsForOwner(uid, { agencyId });
+      let cpaClientIds = [];
+      try {
+        const [cpaRows] = await pool.execute(
+          `SELECT DISTINCT client_id
+           FROM client_provider_assignments
+           WHERE provider_user_id = ? AND is_active = TRUE`,
+          [uid]
+        );
+        cpaClientIds = (cpaRows || []).map((r) => Number(r.client_id)).filter(Boolean);
+      } catch {
+        cpaClientIds = [];
+      }
+
+      const clientIds = Array.from(new Set([...careClientIds, ...cpaClientIds]));
+      if (isSupportLike) {
+        // Support/admin: agency-wide for their agencies (observe), still scoped by user_agencies below.
+        userWhereClause = `(ml.user_id = ? OR ml.agency_id IN (
+          SELECT ua.agency_id FROM user_agencies ua WHERE ua.user_id = ?
+        ))`;
+        userParams = [uid, uid, uid];
+      } else if (clientIds.length > 0) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        userWhereClause = `(ml.user_id = ? OR ml.client_id IN (${placeholders}))`;
+        userParams = [uid, ...clientIds, uid];
+      } else {
+        // Providers with no caseload yet: only their own attributed rows (no shared-number dump).
+        userWhereClause = 'ml.user_id = ?';
+        userParams = [uid, uid];
       }
     }
 
@@ -142,12 +169,23 @@ export const getThreads = async (req, res, next) => {
         ac.full_name   AS contact_name,
         ac.phone       AS contact_phone,
         u.first_name   AS user_first_name,
-        u.last_name    AS user_last_name
+        u.last_name    AS user_last_name,
+        sct.care_state AS care_state,
+        sct.support_access AS support_access,
+        sct.support_ticket_id AS support_ticket_id,
+        sct.owner_user_id AS care_owner_user_id
       FROM (${innerSql}) t
       LEFT JOIN message_logs ml ON ml.id = t.last_message_id
       LEFT JOIN clients c       ON t.client_id = c.id
       LEFT JOIN agency_contacts ac ON t.agency_contact_id = ac.id
       LEFT JOIN users u         ON ml.user_id = u.id
+      LEFT JOIN sms_care_threads sct ON sct.id = (
+        SELECT s2.id FROM sms_care_threads s2
+        WHERE s2.client_id = t.client_id
+          AND (ml.agency_id IS NULL OR s2.agency_id = ml.agency_id)
+        ORDER BY (ml.number_id IS NOT NULL AND s2.number_id = ml.number_id) DESC, s2.updated_at DESC
+        LIMIT 1
+      )
       ORDER BY t.last_message_at DESC
       LIMIT ?
     `;
@@ -461,6 +499,22 @@ export const sendMessage = async (req, res, next) => {
           ownerType
         }
       });
+      try {
+        const { recordSmsProfileAudit } = await import('../services/smsProfileAudit.service.js');
+        await recordSmsProfileAudit({
+          agencyId: targetAgencyId || null,
+          direction: 'OUTBOUND',
+          fromNumber,
+          toNumber: targetPhone,
+          numberId,
+          numberPurpose: resolved?.number?.number_purpose || null,
+          body: body || (hasMedia ? '[MMS]' : ''),
+          messageLogId: updated?.id || outboundLog?.id || null,
+          clientId: cid || null
+        });
+      } catch (e) {
+        console.warn('[message] sms profile audit failed:', e?.message || e);
+      }
       if (cid) {
         await SmsThreadEscalation.resolveActive({ userId: uid, clientId: cid }).catch(() => {});
       }
@@ -560,7 +614,7 @@ export const deleteMessageLog = async (req, res, next) => {
 /**
  * POST /api/messages/forward-to-support
  * Body: { clientId, message }
- * Forwards a thread to support.
+ * Escalates care thread + opens support ticket (desk). Optional SMS notify if configured.
  */
 export const forwardToSupport = async (req, res, next) => {
   try {
@@ -575,27 +629,56 @@ export const forwardToSupport = async (req, res, next) => {
 
     const agency = client.agency_id ? await Agency.findById(client.agency_id) : null;
     const flags = parseFeatureFlags(agency?.feature_flags);
-    
-    // Find the latest inbound message to link the escalation
+
     const [latestInbound] = await pool.execute(
-      `SELECT * FROM message_logs 
-       WHERE client_id = ? AND user_id = ? AND direction = 'INBOUND'
+      `SELECT * FROM message_logs
+       WHERE client_id = ? AND direction = 'INBOUND'
        ORDER BY created_at DESC LIMIT 1`,
-      [cid, uid]
+      [cid]
     );
     const inboundLog = latestInbound?.[0] || null;
+    const numberId = inboundLog?.number_id || null;
 
-    const supportPhone = MessageLog.normalizePhone(flags.smsSupportFallbackPhone || agency?.phone_number) || 
-      flags.smsSupportFallbackPhone || agency?.phone_number || null;
-
-    if (!supportPhone) {
-      return res.status(400).json({ error: { message: 'Support phone not configured for this agency' } });
+    let ticketId = null;
+    try {
+      const subject = 'SMS thread forwarded to support';
+      const question =
+        `Forwarded by ${req.user.first_name || 'staff'}: ${message || '(No note)'}.\n` +
+        `Client ${client.full_name || client.initials || '#' + cid}.`;
+      const [ins] = await pool.execute(
+        `INSERT INTO support_tickets
+          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status, priority)
+         VALUES (?, ?, ?, ?, ?, ?, 'open', 'high')`,
+        [client.agency_id, cid, uid, client.agency_id, subject, question]
+      );
+      ticketId = ins?.insertId || null;
+    } catch (e) {
+      console.warn('[forwardToSupport] ticket create failed:', e?.message || e);
     }
 
-    const body = `Forwarded to Support by ${req.user.first_name || 'Provider'}: ${message || '(No note)'}. Client ${client.initials || '#'+cid} thread escalated.`;
-    const from = inboundLog ? (MessageLog.normalizePhone(inboundLog.to_number) || inboundLog.to_number) : supportPhone;
+    const SmsCareThread = (await import('../models/SmsCareThread.model.js')).default;
+    if (client.agency_id) {
+      await SmsCareThread.setEscalated({
+        agencyId: client.agency_id,
+        clientId: cid,
+        numberId,
+        supportTicketId: ticketId,
+        metadata: { source: 'manual_forward', forwarderUserId: uid, note: message || null }
+      });
+    }
 
-    await VonageService.sendSms({ to: supportPhone, from, body });
+    const supportPhone = MessageLog.normalizePhone(flags.smsSupportFallbackPhone || agency?.phone_number) ||
+      flags.smsSupportFallbackPhone || agency?.phone_number || null;
+
+    if (supportPhone) {
+      try {
+        const body = `Forwarded to Support by ${req.user.first_name || 'Provider'}: ${message || '(No note)'}. Client ${client.initials || '#' + cid} thread escalated. Ticket #${ticketId || 'n/a'}.`;
+        const from = inboundLog ? (MessageLog.normalizePhone(inboundLog.to_number) || inboundLog.to_number) : supportPhone;
+        await VonageService.sendSms({ to: supportPhone, from, body });
+      } catch {
+        // Ticket + care state are the primary path; SMS notify is best-effort.
+      }
+    }
 
     await SmsThreadEscalation.createOrKeep({
       agencyId: client.agency_id,
@@ -605,16 +688,118 @@ export const forwardToSupport = async (req, res, next) => {
       escalatedToPhone: supportPhone,
       escalationType: 'manual_forward',
       threadMode: 'respondable',
-      metadata: { forwarderUserId: uid, forwarderNote: message }
+      supportTicketId: ticketId,
+      metadata: { forwarderUserId: uid, forwarderNote: message, supportTicketId: ticketId }
     });
 
     await logAuditEvent(req, {
       actionType: 'sms_thread_forwarded_to_support',
       agencyId: client.agency_id || null,
-      metadata: { clientId: cid, supportPhone, message }
+      metadata: { clientId: cid, supportPhone, message, supportTicketId: ticketId }
     });
 
-    res.json({ ok: true, message: 'Thread forwarded to support' });
+    res.json({ ok: true, message: 'Thread escalated to support', supportTicketId: ticketId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/messages/care-thread?clientId=&numberId=&agencyId=
+ */
+export const getCareThread = async (req, res, next) => {
+  try {
+    const uid = parseIntOrNull(req.user?.id);
+    if (!uid) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const clientId = parseIntOrNull(req.query.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const client = await Client.findById(clientId);
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    await assertClientAgencyAccess(uid, client);
+
+    const numberId = parseIntOrNull(req.query.numberId);
+    const agencyId = parseIntOrNull(req.query.agencyId) || client.agency_id || null;
+    const SmsCareThread = (await import('../models/SmsCareThread.model.js')).default;
+    const thread = await SmsCareThread.findForClient({ agencyId, clientId, numberId });
+    res.json({ careThread: thread || null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PATCH /api/messages/care-thread
+ * Body: { clientId, numberId?, agencyId?, action: 'observe'|'under_care'|'claim'|'close', supportTicketId? }
+ */
+export const updateCareThread = async (req, res, next) => {
+  try {
+    const uid = parseIntOrNull(req.user?.id);
+    if (!uid) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const clientId = parseIntOrNull(req.body?.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const action = String(req.body?.action || '').toLowerCase();
+    if (!['observe', 'under_care', 'claim', 'close'].includes(action)) {
+      return res.status(400).json({ error: { message: 'action must be observe|under_care|claim|close' } });
+    }
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const isSupportLike = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff'].includes(role);
+
+    const client = await Client.findById(clientId);
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    await assertClientAgencyAccess(uid, client);
+
+    if ((action === 'observe' || action === 'claim') && !isSupportLike) {
+      return res.status(403).json({ error: { message: 'Only support/admin can claim or set observe mode' } });
+    }
+
+    const numberId = parseIntOrNull(req.body?.numberId);
+    const agencyId = parseIntOrNull(req.body?.agencyId) || client.agency_id || null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const SmsCareThread = (await import('../models/SmsCareThread.model.js')).default;
+    let thread = await SmsCareThread.findForClient({ agencyId, clientId, numberId });
+
+    const patch = {};
+    if (action === 'observe') {
+      patch.careState = 'observing';
+      patch.supportAccess = 'observe';
+    } else if (action === 'under_care' || action === 'claim') {
+      patch.careState = 'under_care';
+      patch.supportAccess = 'respond';
+      if (action === 'claim' || isSupportLike) patch.ownerUserId = uid;
+    } else if (action === 'close') {
+      patch.careState = 'closed';
+      patch.supportAccess = 'none';
+    }
+
+    if (req.body?.supportTicketId !== undefined) {
+      patch.supportTicketId = parseIntOrNull(req.body.supportTicketId);
+    }
+
+    if (thread?.id) {
+      thread = await SmsCareThread.updateState(thread.id, patch);
+    } else {
+      thread = await SmsCareThread.upsert({
+        agencyId,
+        clientId,
+        numberId,
+        ownerUserId: patch.ownerUserId ?? (action === 'claim' ? uid : null),
+        careState: patch.careState || 'under_care',
+        supportAccess: patch.supportAccess || 'observe',
+        supportTicketId: patch.supportTicketId ?? null
+      });
+    }
+
+    await logAuditEvent(req, {
+      actionType: 'sms_care_thread_updated',
+      agencyId,
+      metadata: { clientId, action, careThreadId: thread?.id || null }
+    });
+
+    res.json({ careThread: thread });
   } catch (e) {
     next(e);
   }

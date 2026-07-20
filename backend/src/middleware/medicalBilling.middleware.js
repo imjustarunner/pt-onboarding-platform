@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import User from '../models/User.model.js';
 import { getMedicalBillingFlags } from '../services/medicalBillingFlags.service.js';
 
 async function loadAgencyFlags(agencyId) {
@@ -52,3 +53,48 @@ export const requireClinicalChart = requireMedicalBilling('clinicalChartEnabled'
 export const requireClinicalNoteSigning = requireMedicalBilling('clinicalNoteSigningEnabled');
 export const requireMedicalClaims = requireMedicalBilling('medicalClaimsEnabled');
 export const requireClaimMd = requireMedicalBilling('claimMdEnabled');
+
+const CLINICAL_BILLING_ROLES = new Set([
+  'super_admin',
+  'admin',
+  'provider',
+  'provider_plus',
+  'clinical_practice_assistant',
+  'supervisor'
+]);
+
+/**
+ * After agency medical-billing flags: allow clinical roles always;
+ * support/staff only with user_agencies.has_billing_access for the agency.
+ */
+export async function requireMedicalBillingActorAccess(req, res, next) {
+  try {
+    const role = String(req.user?.role || req.user?.effectiveRole || '').toLowerCase();
+    if (CLINICAL_BILLING_ROLES.has(role)) return next();
+
+    if (role === 'support' || role === 'staff') {
+      const agencyId = Number(
+        req.medicalBillingAgencyId ||
+          resolveAgencyId(req) ||
+          0
+      );
+      if (!agencyId) {
+        return res.status(400).json({ error: { message: 'agencyId is required' } });
+      }
+      const ids = await User.listBillingAgencyIds(req.user.id);
+      if ((ids || []).some((id) => Number(id) === agencyId)) return next();
+      return res.status(403).json({ error: { message: 'Medical billing access required for this agency' } });
+    }
+
+    return res.status(403).json({ error: { message: 'Access denied' } });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** Agency-wide reporting is limited to administrators and delegated billing staff. */
+export function requireMedicalBillingReportAccess(req, res, next) {
+  const role = String(req.user?.role || req.user?.effectiveRole || '').toLowerCase();
+  if (['super_admin', 'admin', 'support', 'staff'].includes(role)) return next();
+  return res.status(403).json({ error: { message: 'Billing report administrator access required' } });
+}

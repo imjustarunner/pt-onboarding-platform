@@ -1247,7 +1247,7 @@ const PROGRAM_WORKSPACE_TAB = '__program_workspace__';
 const activeTab = ref('checklist');
 const previousContentTab = ref('checklist');
 const selectedRailCardId = ref('checklist');
-const myTab = ref('account'); // 'account' | 'credentials' | 'documents' | 'life-balance' | 'payroll' | 'compensation' | 'benefits' | 'kudos' | 'preferences'
+const myTab = ref('account'); // 'account' | 'credentials' | 'documents' | 'life-balance' | 'payroll' | 'compensation' | 'benefits' | 'kudos' | 'preferences' | 'support'
 
 const onboardingCompletion = ref(100);
 const trainingCount = ref(0);
@@ -3701,11 +3701,11 @@ const dashboardCards = computed(() => {
       // Chats: keep for club context (simplified to club members only)
       cards.push({
         id: 'chats',
-        label: 'Chats',
+        label: 'Messages',
         kind: 'content',
         badgeCount: 0,
         iconUrl: brandingStore.getDashboardCardIconUrl('chats', iconOrg),
-        description: isClubContext.value ? 'Club members online.' : 'Direct messages in the platform.'
+        description: isClubContext.value ? 'Club members online.' : 'Direct messages, channels, threads, and mentions.'
       });
       if (!isClubContext.value) {
         cards.push({
@@ -4258,7 +4258,7 @@ const syncFromQuery = () => {
   const qMy = route.query?.my;
   if (
     typeof qMy === 'string' &&
-    ['account', 'credentials', 'documents', 'life-balance', 'payroll', 'compensation', 'benefits', 'kudos', 'preferences'].includes(qMy)
+    ['account', 'credentials', 'documents', 'life-balance', 'payroll', 'compensation', 'benefits', 'kudos', 'preferences', 'support'].includes(qMy)
   ) {
     const hiddenInClub = ['credentials', 'payroll', 'compensation', 'benefits'];
     if (isClubContext.value && hiddenInClub.includes(qMy)) {

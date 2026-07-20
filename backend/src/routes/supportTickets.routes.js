@@ -5,6 +5,10 @@ import {
   listMySupportTickets,
   listSupportTicketsQueue,
   getSupportTicketsCount,
+  getSupportTicketsMetrics,
+  getSupportTicketsCountsByAgency,
+  createPlatformSupportTicket,
+  escalateSupportTicketToPlatform,
   createSupportTicket,
   getClientSupportTicketThread,
   markClientSupportTicketThreadRead,
@@ -20,6 +24,7 @@ import {
   unclaimSupportTicket,
   listSupportTicketAssignees,
   assignSupportTicket,
+  updateSupportTicketPriority,
   closeSupportTicket,
   listClientAssignedProvidersForSupportTicket,
   forwardSupportTicketToProviders
@@ -40,10 +45,15 @@ router.get('/client-tickets', listClientSupportTickets);
 
 // Admin/support: queue (optionally filter by schoolOrganizationId/status) - now strictly tenant-scoped
 router.get('/count', requireAgencyAccess, getSupportTicketsCount);
+router.get('/metrics', requireAgencyAccess, getSupportTicketsMetrics);
+router.get('/counts-by-agency', requireAgencyAccess, getSupportTicketsCountsByAgency);
 router.get('/', requireAgencyAccess, listSupportTicketsQueue);
 router.get('/assignees', requireAgencyAccess, listSupportTicketAssignees);
 
-// School staff: create ticket
+// Tenant admin → Plot Twist HQ platform support (direct)
+router.post('/platform', createPlatformSupportTicket);
+
+// School staff / providers / tenant team: create tenant-scoped ticket
 router.post('/', createSupportTicket);
 
 // Thread messages (client-scoped + future general ticket threading)
@@ -70,8 +80,14 @@ router.post('/:id/unclaim', unclaimSupportTicket);
 // Admin/support: assign ticket to user
 router.post('/:id/assign', assignSupportTicket);
 
+// Admin/support: update priority
+router.post('/:id/priority', updateSupportTicketPriority);
+
 // Staff/admin/support: close ticket
 router.post('/:id/close', closeSupportTicket);
+
+// Tenant admin escalates an existing ticket to platform
+router.post('/:id/escalate-to-platform', escalateSupportTicketToPlatform);
 
 export default router;
 

@@ -37,7 +37,7 @@ const agencyStore = useAgencyStore();
 const canViewTeamBoard = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   if (role === 'super_admin') return true;
-  if (role !== 'admin') return false;
+  if (role !== 'admin' && role !== 'support') return false;
   const flags = agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags || {};
   const f = typeof flags === 'object' ? flags : (() => { try { return JSON.parse(flags || '{}'); } catch { return {}; } })();
   return f?.presenceEnabled === true;

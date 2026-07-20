@@ -460,7 +460,7 @@ function buildAppEntries() {
       keywords: ['presence', 'team board', 'who is in'],
       kind: 'path',
       path: '/admin/presence',
-      rolesAny: ['admin', 'super_admin']
+      rolesAny: ['admin', 'support', 'super_admin']
     },
     {
       id: 'admin-provider-directory',

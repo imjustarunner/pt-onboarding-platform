@@ -39,6 +39,9 @@
     <div v-show="activeSection === 'preferences'" class="acct-hub__pane">
       <UserPreferencesHub v-if="userId" :user-id="userId" />
     </div>
+    <div v-show="activeSection === 'support'" class="acct-hub__pane">
+      <StaffOrgSupportPanel />
+    </div>
   </AccountHubPanel>
 </template>
 
@@ -54,6 +57,7 @@ import MyCompensationTab from './MyCompensationTab.vue';
 import MyBenefitsTab from './MyBenefitsTab.vue';
 import MyKudosTab from './MyKudosTab.vue';
 import UserPreferencesHub from '../UserPreferencesHub.vue';
+import StaffOrgSupportPanel from './StaffOrgSupportPanel.vue';
 import { ACCOUNT_SECTIONS } from '../../config/accountDisplaySections';
 import { useAuthStore } from '../../store/auth';
 

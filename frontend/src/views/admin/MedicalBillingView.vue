@@ -25,6 +25,8 @@
         </p>
       </section>
 
+      <MedicalBillingReportsPanel v-if="canRunBillingReports" :agency-id="agencyId" />
+
       <section class="mb-card">
         <h2>Client chart</h2>
         <div class="mb-row">
@@ -197,10 +199,16 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
+import MedicalBillingReportsPanel from '../../components/admin/MedicalBillingReportsPanel.vue';
 
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0));
+const canRunBillingReports = computed(() => ['admin', 'super_admin', 'support', 'staff'].includes(
+  String(authStore.user?.role || '').toLowerCase()
+));
 
 const loading = ref(true);
 const error = ref('');
@@ -582,7 +590,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.mb-page { max-width: 920px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+.mb-page { max-width: 1420px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
 .mb-header h1 { margin: 0 0 0.35rem; font-size: 1.5rem; }
 .muted { color: #5c6570; font-size: 0.92rem; }
 .mb-card {

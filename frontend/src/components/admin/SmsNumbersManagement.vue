@@ -203,11 +203,18 @@
           <div class="inline">
             <input v-model="newNumber" class="input" placeholder="+15551234567" />
             <input v-model="newFriendlyName" class="input" placeholder="Friendly name (optional)" />
+            <select v-model="newNumberPurpose" class="select" title="Number purpose">
+              <option v-for="p in tenantPurposeOptions" :key="p.value" :value="p.value">{{ p.label }}</option>
+            </select>
             <button class="btn" :disabled="addingNumber || !newNumber" @click="addNumber">
               {{ addingNumber ? 'Adding…' : 'Add number' }}
             </button>
           </div>
         </div>
+        <p class="muted purpose-help">
+          Assign each DID a role: clinical care inbox, org contact, notifications/reminders, or provider contact.
+          Notification and contact numbers never enter the clinical SMS inbox.
+        </p>
 
         <div class="toolbar">
           <div class="inline">
@@ -237,6 +244,18 @@
               <div class="title">{{ n.phone_number }}</div>
               <div class="muted">
                 Status: {{ n.status }} · {{ n.is_active ? 'Active' : 'Inactive' }}
+              </div>
+              <div class="purpose-row">
+                <label class="muted">Purpose</label>
+                <select
+                  class="select select-purpose"
+                  :value="normalizePurpose(n.number_purpose)"
+                  :disabled="updatingPurposeId === n.id"
+                  @change="onPurposeChange(n, $event)"
+                >
+                  <option v-for="p in tenantPurposeOptions" :key="p.value" :value="p.value">{{ p.label }}</option>
+                </select>
+                <span class="muted purpose-hint">{{ purposeHint(n.number_purpose) }}</span>
               </div>
               <div class="muted">
                 SMS webhook:
@@ -284,6 +303,32 @@
               <button class="btn btn-secondary" @click="selectRules(n)">
                 Rules
               </button>
+              <button class="btn btn-danger" @click="releaseNumber(n)">Release</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="isSuperAdmin" class="card">
+        <h3>Platform contact numbers (Plot Twist HQ)</h3>
+        <p class="muted">Agency-independent DIDs for contacting HQ. Purpose is always platform contact.</p>
+        <div class="toolbar">
+          <div class="inline">
+            <input v-model="platformNewNumber" class="input" placeholder="+15551234567" />
+            <input v-model="platformFriendlyName" class="input" placeholder="Friendly name (optional)" />
+            <button class="btn" :disabled="addingPlatformNumber || !platformNewNumber" @click="addPlatformNumber">
+              {{ addingPlatformNumber ? 'Adding…' : 'Add platform number' }}
+            </button>
+          </div>
+        </div>
+        <div v-if="!platformNumbers.length" class="empty-state">No platform numbers yet.</div>
+        <div v-else class="list">
+          <div v-for="n in platformNumbers" :key="`p-${n.id}`" class="row">
+            <div class="left">
+              <div class="title">{{ n.phone_number }}</div>
+              <div class="muted">{{ purposeLabel(n.number_purpose) }} · {{ n.status }}</div>
+            </div>
+            <div class="right">
               <button class="btn btn-danger" @click="releaseNumber(n)">Release</button>
             </div>
           </div>
@@ -445,12 +490,46 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   scopedAgencyId: { type: Number, default: null }
 });
 
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+
+const tenantPurposeOptions = [
+  { value: 'clinical_care', label: 'Clinical care (inbox)' },
+  { value: 'tenant_contact', label: 'Tenant contact (org public)' },
+  { value: 'notification', label: 'Notification / reminders' },
+  { value: 'provider_contact', label: 'Provider contact' }
+];
+
+const PURPOSE_HINTS = {
+  clinical_care: 'Routes into the Messages SMS care inbox (CPA ownership).',
+  tenant_contact: 'Public org call/text line — not clinical caseload.',
+  notification: 'Reminders and appointment confirms — never clinical inbox.',
+  provider_contact: 'Staff-facing provider contact — not client care inbox.',
+  platform_contact: 'Plot Twist HQ contact — platform-owned.',
+  appointment_verify: 'Legacy verify purpose (treated as notification).',
+  general: 'Legacy general purpose.'
+};
+
+function normalizePurpose(raw) {
+  const p = String(raw || 'clinical_care').toLowerCase();
+  if (p === 'appointment_verify') return 'notification';
+  return p || 'clinical_care';
+}
+function purposeLabel(raw) {
+  const p = normalizePurpose(raw);
+  return tenantPurposeOptions.find((o) => o.value === p)?.label
+    || (p === 'platform_contact' ? 'Platform contact' : p);
+}
+function purposeHint(raw) {
+  return PURPOSE_HINTS[normalizePurpose(raw)] || '';
+}
 
 const settings = ref({
   smsNumbersEnabled: false,
@@ -485,7 +564,13 @@ const numbers = ref([]);
 const agencyUsers = ref([]);
 const newNumber = ref('');
 const newFriendlyName = ref('');
+const newNumberPurpose = ref('clinical_care');
 const addingNumber = ref(false);
+const updatingPurposeId = ref(null);
+const platformNumbers = ref([]);
+const platformNewNumber = ref('');
+const platformFriendlyName = ref('');
+const addingPlatformNumber = ref(false);
 
 const searchAreaCode = ref('');
 const searchResults = ref([]);
@@ -659,13 +744,59 @@ const addNumber = async () => {
   try {
     await api.post(`/sms-numbers/agency/${agencyId.value}/add`, {
       phoneNumber: newNumber.value,
-      friendlyName: newFriendlyName.value
+      friendlyName: newFriendlyName.value,
+      numberPurpose: newNumberPurpose.value || 'clinical_care'
     });
     newNumber.value = '';
     newFriendlyName.value = '';
+    newNumberPurpose.value = 'clinical_care';
     await loadNumbers();
   } finally {
     addingNumber.value = false;
+  }
+};
+
+const onPurposeChange = async (number, evt) => {
+  const numberPurpose = evt?.target?.value;
+  if (!number?.id || !numberPurpose) return;
+  updatingPurposeId.value = number.id;
+  try {
+    const res = await api.patch(`/sms-numbers/${number.id}/purpose`, { numberPurpose });
+    const idx = numbers.value.findIndex((n) => n.id === number.id);
+    if (idx >= 0) numbers.value[idx] = { ...numbers.value[idx], ...res.data };
+  } catch {
+    await loadNumbers();
+  } finally {
+    updatingPurposeId.value = null;
+  }
+};
+
+const loadPlatformNumbers = async () => {
+  if (!isSuperAdmin.value) {
+    platformNumbers.value = [];
+    return;
+  }
+  try {
+    const res = await api.get('/sms-numbers/platform');
+    platformNumbers.value = Array.isArray(res.data) ? res.data : [];
+  } catch {
+    platformNumbers.value = [];
+  }
+};
+
+const addPlatformNumber = async () => {
+  if (!platformNewNumber.value) return;
+  addingPlatformNumber.value = true;
+  try {
+    await api.post('/sms-numbers/platform/add', {
+      phoneNumber: platformNewNumber.value,
+      friendlyName: platformFriendlyName.value || null
+    });
+    platformNewNumber.value = '';
+    platformFriendlyName.value = '';
+    await loadPlatformNumbers();
+  } finally {
+    addingPlatformNumber.value = false;
   }
 };
 
@@ -687,7 +818,10 @@ const searchNumbers = async () => {
 const buyNumber = async (phoneNumber) => {
   if (!agencyId.value || !phoneNumber) return;
   try {
-    await api.post(`/sms-numbers/agency/${agencyId.value}/buy`, { phoneNumber });
+    await api.post(`/sms-numbers/agency/${agencyId.value}/buy`, {
+      phoneNumber,
+      numberPurpose: newNumberPurpose.value || 'clinical_care'
+    });
     await loadNumbers();
   } catch {
     // ignore
@@ -897,15 +1031,25 @@ const removeExtension = async (ext) => {
 };
 
 const init = async () => {
-  await Promise.all([loadSettings(), loadNumbers(), loadUsers(), loadWebhookStatus(), loadExtensions(), loadUsage()]);
+  await Promise.all([
+    loadSettings(),
+    loadNumbers(),
+    loadUsers(),
+    loadWebhookStatus(),
+    loadExtensions(),
+    loadUsage(),
+    loadPlatformNumbers()
+  ]);
 };
 
 watch(agencyId, async (val) => {
   if (val) await init();
+  else await loadPlatformNumbers();
 });
 
 onMounted(async () => {
   if (agencyId.value) await init();
+  else await loadPlatformNumbers();
 });
 </script>
 
@@ -965,6 +1109,23 @@ onMounted(async () => {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+.purpose-help {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.purpose-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.select-purpose {
+  max-width: 240px;
+}
+.purpose-hint {
+  font-size: 12px;
 }
 .list {
   display: flex;

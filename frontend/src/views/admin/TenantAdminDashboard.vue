@@ -109,8 +109,8 @@
           <router-link :to="`/${slug}/admin/payroll`" class="nav-item">
             <span class="icon">💰</span> Payroll
           </router-link>
-          <router-link :to="`/${slug}/admin/communications`" class="nav-item">
-            <span class="icon">💬</span> Communications
+          <router-link :to="`/${slug}/messages`" class="nav-item">
+            <span class="icon">💬</span> Messages
           </router-link>
           <router-link :to="`/${slug}/admin/agency-progress`" class="nav-item">
             <span class="icon">📈</span> Progress Reports

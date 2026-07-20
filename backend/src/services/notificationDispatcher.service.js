@@ -217,12 +217,33 @@ class NotificationDispatcherService {
     });
 
     try {
+      const fromNorm = User.normalizePhone(from) || from;
       const msg = await VonageService.sendSms({
         to,
-        from: User.normalizePhone(from) || from,
+        from: fromNorm,
         body
       });
       await NotificationSmsLog.updateStatus(log.id, { status: 'sent', providerRef: msg.sid, errorMessage: null });
+      try {
+        const { recordSmsProfileAudit } = await import('./smsProfileAudit.service.js');
+        const relatedClientId =
+          notification.related_entity_type === 'client' && notification.related_entity_id
+            ? notification.related_entity_id
+            : null;
+        await recordSmsProfileAudit({
+          agencyId,
+          direction: 'OUTBOUND',
+          fromNumber: fromNorm,
+          toNumber: to,
+          numberPurpose: 'notification',
+          body,
+          notificationSmsLogId: log.id,
+          clientId: relatedClientId,
+          userId: relatedClientId ? null : userId
+        });
+      } catch (auditErr) {
+        console.warn('[NotificationDispatcher] sms profile audit failed:', auditErr?.message || auditErr);
+      }
       return { dispatched: true, channel: 'sms', providerRef: msg.sid, decision };
     } catch (e) {
       await NotificationSmsLog.updateStatus(log.id, { status: 'failed', errorMessage: e.message });

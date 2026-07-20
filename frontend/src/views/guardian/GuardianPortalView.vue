@@ -748,6 +748,11 @@
               <div v-else class="hint">Select a child from the overview above.</div>
             </template>
 
+            <template v-else-if="activePanel === 'messages'">
+              <GuardianMessagesPanel v-if="!isSuperadminPreview" />
+              <div v-else class="hint">Guardian messaging is hidden in platform preview.</div>
+            </template>
+
             <template v-else-if="activePanel === 'account'">
               <div class="panel-head">
                 <div class="panel-title">Your Account</div>
@@ -933,6 +938,7 @@ import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPayme
 import GuardianDependentsTab from '../../components/guardian/GuardianDependentsTab.vue';
 import GuardianSkillBuildersEventView from './GuardianSkillBuildersEventView.vue';
 import GuardianSessionBookingDrawer from '../../components/guardian/GuardianSessionBookingDrawer.vue';
+import GuardianMessagesPanel from '../../components/guardian/GuardianMessagesPanel.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -1125,6 +1131,7 @@ const dashboardTabs = computed(() => {
     });
   }
   tabs.push(
+    { key: 'messages', label: 'Messages', meta: pm('Provider chat', 'Messaging shell') },
     { key: 'dependents', label: 'Dependents', meta: pm('Health and emergency info', 'Health shell (preview)') },
     {
       key: 'payment_methods',

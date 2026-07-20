@@ -11,15 +11,25 @@ import {
   sendMessage, 
   uploadSmsMedia,
   getSmartReplies,
-  getRtcToken 
+  getRtcToken,
+  getCareThread,
+  updateCareThread
 } from '../controllers/message.controller.js';
+import { getMessagesDashboardSummary } from '../controllers/messagesDashboard.controller.js';
 
 const router = express.Router();
 
 router.use(authenticate);
 
+// Employee Messages Dashboard summary (personal unread / priority)
+router.get('/dashboard-summary', getMessagesDashboardSummary);
+
 // Grouped conversation threads (one row per client, last message + unread count)
 router.get('/threads', getThreads);
+
+// Clinical SMS care ownership / support observe|claim
+router.get('/care-thread', getCareThread);
+router.patch('/care-thread', updateCareThread);
 
 // Numbers assigned to the authenticated user (for compose picker)
 router.get('/my-numbers', getMyNumbers);

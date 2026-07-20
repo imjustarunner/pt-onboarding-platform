@@ -162,7 +162,7 @@
             Resume
           </button>
           <button type="button" class="ahost__btn ahost__btn--sm" @click="exit">
-            Return to counseling
+            {{ practiceMode ? 'Exit practice' : 'Return to counseling' }}
           </button>
         </div>
       </header>
@@ -224,10 +224,14 @@
             :disabled="savingReflection"
             @click="saveReflectionAndExit"
           >
-            {{ reflectionDraft.trim() ? 'Save & return' : 'Return to conversation' }}
+            {{
+              reflectionDraft.trim()
+                ? (practiceMode ? 'Save & exit' : 'Save & return')
+                : (practiceMode ? 'Exit practice' : 'Return to conversation')
+            }}
           </button>
           <button type="button" class="ahost__btn" :disabled="savingReflection" @click="exitWithoutReflection">
-            Return without saving
+            {{ practiceMode ? 'Exit without saving' : 'Return without saving' }}
           </button>
         </div>
       </div>
@@ -255,10 +259,12 @@ const props = defineProps({
   role: { type: String, required: true },
   runtime: { type: Object, default: null },
   layout: { type: String, default: 'mobile' },
-  providerLabel: { type: String, default: 'Your provider' }
+  providerLabel: { type: String, default: 'Your provider' },
+  /** Solo Tools preview — no video session; exit returns to caller */
+  practiceMode: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['runtime-updated']);
+const emit = defineEmits(['runtime-updated', 'practice-exit']);
 
 const { prefersReducedMotion } = usePrefersReducedMotion();
 
@@ -420,6 +426,7 @@ async function exit() {
   });
   reflectionPending.value = false;
   emit('runtime-updated', runtime);
+  if (props.practiceMode) emit('practice-exit');
 }
 
 async function onSharedState(sharedState) {
@@ -485,6 +492,7 @@ async function saveReflectionAndExit() {
     reflectionPending.value = false;
     reflectionDraft.value = '';
     emit('runtime-updated', { ...runtime, status: 'INACTIVE' });
+    if (props.practiceMode) emit('practice-exit');
   } finally {
     savingReflection.value = false;
   }
@@ -501,6 +509,7 @@ async function exitWithoutReflection() {
     reflectionPending.value = false;
     reflectionDraft.value = '';
     emit('runtime-updated', { ...(props.runtime || {}), status: 'INACTIVE' });
+    if (props.practiceMode) emit('practice-exit');
   } finally {
     savingReflection.value = false;
   }

@@ -20,6 +20,16 @@
         >
           Schedule
         </button>
+        <button
+          type="button"
+          class="pthq-nav-item"
+          :class="{ active: panel === 'messages' }"
+          data-tour="pthq-nav-messages"
+          @click="setPanel('messages')"
+        >
+          Messages
+          <span v-if="messagesUnread > 0" class="pthq-nav-badge">{{ messagesUnread > 99 ? '99+' : messagesUnread }}</span>
+        </button>
 
         <div class="pthq-nav-section">Tenant Management</div>
         <button type="button" class="pthq-nav-item" :class="{ active: panel === 'overview' }" @click="setPanel('overview')">Overview</button>
@@ -57,7 +67,7 @@
     </aside>
 
     <div class="pthq-main">
-      <header class="pthq-top" :class="{ 'pthq-top--schedule': panel === 'schedule' }">
+      <header class="pthq-top" :class="{ 'pthq-top--workspace': panel === 'schedule' || panel === 'messages' }">
         <div>
           <h1>{{ headerTitle }}</h1>
           <p class="pthq-top-sub">{{ headerSubtitle }}</p>
@@ -68,10 +78,26 @@
             <router-link class="pthq-top-link" to="/schedule/staff" title="Compare staff calendars">Staff schedules</router-link>
             <router-link class="pthq-top-link" to="/buildings/schedule" title="Office &amp; room booking">Buildings</router-link>
           </template>
+          <template v-else-if="panel === 'messages'">
+            <router-link class="pthq-top-link" to="/messages" title="Open full Messages page">Full page</router-link>
+          </template>
           <div v-else class="pthq-search">Search tenants, users, settings…</div>
           <span class="pthq-pill">SUPER ADMIN</span>
         </div>
       </header>
+
+      <!-- Platform messages: always mounted so unread badge stays live (rail is hidden on HQ chrome) -->
+      <section
+        v-show="panel === 'messages'"
+        class="pthq-panel pthq-panel--messages"
+        data-tour="pthq-messages-panel"
+      >
+        <MessagesWorkspace
+          layout="page"
+          theme="platform"
+          @unread-change="onMessagesUnreadChange"
+        />
+      </section>
 
       <!-- Platform schedule: available immediately (no telemetry gate) -->
       <section v-if="panel === 'schedule'" class="pthq-panel pthq-panel--schedule" data-tour="pthq-schedule-panel">
@@ -101,10 +127,10 @@
         </div>
       </section>
 
-      <div v-else-if="loading" class="pthq-loading">Loading platform telemetry…</div>
-      <div v-else-if="error" class="pthq-error">{{ error }}</div>
+      <div v-else-if="panel !== 'messages' && loading" class="pthq-loading">Loading platform telemetry…</div>
+      <div v-else-if="panel !== 'messages' && error" class="pthq-error">{{ error }}</div>
 
-      <template v-else>
+      <template v-else-if="panel !== 'messages'">
         <!-- Overview -->
         <section v-if="panel === 'overview'" class="pthq-panel">
           <div class="pthq-kpi-row">
@@ -234,6 +260,7 @@
                 <div class="pthq-card-head"><h2>Quick actions</h2></div>
                 <div class="pthq-qa-grid">
                   <button type="button" @click="setPanel('schedule')">Schedule</button>
+                  <button type="button" @click="setPanel('messages')">Messages</button>
                   <router-link to="/admin/settings?tab=agencies">Add Tenant</router-link>
                   <button type="button" @click="setPanel('testing')">Impersonate / Demo</button>
                   <router-link to="/admin/settings">Feature Flags</router-link>
@@ -323,6 +350,7 @@ import api from '../../services/api';
 import SuperadminDemoTestingLab from '../../components/admin/SuperadminDemoTestingLab.vue';
 import ScheduleAvailabilityGrid from '../../components/schedule/ScheduleAvailabilityGrid.vue';
 import WorkHoursEditor from '../../components/schedule/WorkHoursEditor.vue';
+import MessagesWorkspace from '../../components/messages/MessagesWorkspace.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -330,7 +358,11 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 
-const VALID_PANELS = new Set(['overview', 'schedule', 'tenants', 'individuals', 'sandbox', 'testing']);
+const VALID_PANELS = new Set(['overview', 'schedule', 'messages', 'tenants', 'individuals', 'sandbox', 'testing']);
+const messagesUnread = ref(0);
+const onMessagesUnreadChange = (payload) => {
+  messagesUnread.value = Number(payload?.totalUnread || 0) || 0;
+};
 const panelFromQuery = () => {
   const q = String(route.query.panel || 'overview').trim().toLowerCase();
   return VALID_PANELS.has(q) ? q : 'overview';
@@ -389,6 +421,7 @@ const userInitials = computed(() => {
 });
 const headerTitle = computed(() => {
   if (panel.value === 'schedule') return 'Schedule';
+  if (panel.value === 'messages') return 'Messages';
   if (panel.value === 'testing') return 'Testing Interface';
   if (panel.value === 'tenants') return 'Organizations';
   if (panel.value === 'individuals') return 'Individual Practitioners';
@@ -398,6 +431,9 @@ const headerTitle = computed(() => {
 const headerSubtitle = computed(() => {
   if (panel.value === 'schedule') {
     return 'Platform calendar — book across tenants, overlay peers & staff, manage office holds';
+  }
+  if (panel.value === 'messages') {
+    return 'DMs, channels, and tickets across every tenant';
   }
   return 'Platform-wide visibility across every tenant';
 });
@@ -777,6 +813,20 @@ onMounted(fetchAll);
   border-radius: 999px;
   padding: 0.12rem 0.4rem;
 }
+.pthq-nav-badge {
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #8b5cf6;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
 
 .pthq-sidebar-foot {
   border-top: 1px solid var(--line);
@@ -831,7 +881,8 @@ onMounted(fetchAll);
 }
 .pthq-top-sub { margin: 0.3rem 0 0; color: var(--muted); font-size: 0.9rem; }
 .pthq-top-right { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
-.pthq-top--schedule { margin-bottom: 0.85rem; }
+.pthq-top--schedule,
+.pthq-top--workspace { margin-bottom: 0.85rem; }
 .pthq-top-link {
   display: inline-flex;
   align-items: center;
@@ -849,8 +900,14 @@ onMounted(fetchAll);
   color: #e9d5ff;
   background: rgba(139, 92, 246, 0.16);
 }
-.pthq-panel--schedule {
+.pthq-panel--schedule,
+.pthq-panel--messages {
   min-width: 0;
+}
+.pthq-panel--messages {
+  display: flex;
+  flex-direction: column;
+  min-height: min(78vh, 860px);
 }
 .pthq-schedule-shell {
   background: rgba(17, 24, 39, 0.55);

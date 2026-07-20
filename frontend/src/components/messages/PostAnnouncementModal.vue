@@ -109,7 +109,7 @@ function openInMessages() {
   const threadId = lastResult.value?.chat?.thread_id;
   if (!threadId) return;
   const slug = route.params.organizationSlug;
-  const path = slug ? `/${slug}/messages` : '/admin/communications/messages';
+  const path = slug ? `/${slug}/messages` : '/messages';
   router.push({ path, query: { threadId: String(threadId) } });
   close();
 }
