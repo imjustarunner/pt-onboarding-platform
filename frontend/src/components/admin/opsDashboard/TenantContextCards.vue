@@ -11,30 +11,57 @@
           View All
         </button>
       </div>
-      <p class="panel-blurb">Caseload changes, new school staff, full clinician spots, and waitlist schools that need a therapist.</p>
+      <p class="panel-blurb">Waitlists needing therapists, caseload gaps, full clinician spots, and school staff changes.</p>
       <div v-if="!schoolUpdates.length" class="empty">
         <span>No school updates right now</span>
         <button type="button" class="mini-btn" @click="$emit('navigate', paths.caseloadHub || paths.schoolPortalsHub)">
           Open Caseload Hub
         </button>
       </div>
-      <ul v-else class="item-list feed-list">
-        <li v-for="u in schoolUpdates.slice(0, 8)" :key="u.id" class="item-row feed-row">
-          <div class="avatar" :class="u.kind">{{ updateGlyph(u.kind) }}</div>
-          <div class="item-meta">
-            <span class="item-name">{{ u.title }}</span>
-            <span v-if="u.body" class="item-sub">{{ u.body }}</span>
-            <span v-if="u.meta" class="item-meta-line">{{ u.meta }}</span>
-          </div>
+      <template v-else>
+        <ul class="item-list feed-list">
+          <li v-for="u in visibleSchoolUpdates" :key="u.id" class="item-row feed-row">
+            <div class="avatar" :class="u.kind">{{ updateGlyph(u.kind) }}</div>
+            <div class="item-meta">
+              <span class="item-name">{{ u.title }}</span>
+              <span v-if="u.body" class="item-sub">{{ u.body }}</span>
+              <span v-if="u.meta" class="item-meta-line">{{ u.meta }}</span>
+            </div>
+            <button
+              type="button"
+              class="mini-btn"
+              @click="$emit('navigate', u.to || paths.caseloadHub)"
+            >
+              {{ u.cta || 'Open' }}
+            </button>
+          </li>
+        </ul>
+        <div v-if="schoolUpdates.length > schoolPreviewLimit" class="more-row">
+          <button
+            v-if="!schoolExpanded"
+            type="button"
+            class="link-btn"
+            @click="schoolExpanded = true"
+          >
+            Show more ({{ schoolUpdates.length - schoolPreviewLimit }} more)
+          </button>
+          <button
+            v-else
+            type="button"
+            class="link-btn"
+            @click="schoolExpanded = false"
+          >
+            Show less
+          </button>
           <button
             type="button"
-            class="mini-btn"
-            @click="$emit('navigate', u.to || paths.caseloadHub)"
+            class="link-btn"
+            @click="$emit('navigate', paths.caseloadHub || paths.schoolPortalsHub)"
           >
-            {{ u.cta || 'Open' }}
+            View all in Caseload Hub →
           </button>
-        </li>
-      </ul>
+        </div>
+      </template>
     </article>
 
     <article v-if="showEvents" class="panel">
@@ -44,26 +71,55 @@
           View All
         </button>
       </div>
-      <p class="panel-blurb">Program and organization events, soonest first (including today).</p>
+      <p class="panel-blurb">Program, school, and company events — soonest first (including today).</p>
       <div v-if="!events.length" class="empty">
         <span>No upcoming events</span>
         <button type="button" class="mini-btn" @click="$emit('navigate', paths.events)">
-          Manage Events
+          Browse all events
         </button>
       </div>
-      <ul v-else class="item-list feed-list">
-        <li v-for="e in events.slice(0, 8)" :key="e.id" class="item-row feed-row">
-          <div class="avatar" :class="e.kind || 'event'">{{ eventGlyph(e.kind) }}</div>
-          <div class="item-meta">
-            <span class="item-name">{{ e.title }}</span>
-            <span v-if="e.subtitle" class="item-sub">{{ e.subtitle }}</span>
-            <span v-if="e.meta" class="item-meta-line">{{ e.meta }}</span>
-          </div>
-          <button type="button" class="mini-btn" @click="$emit('navigate', e.to || paths.events)">
-            {{ e.cta || 'Event Portal' }}
+      <template v-else>
+        <ul class="item-list feed-list">
+          <li v-for="e in visibleEvents" :key="e.id" class="item-row feed-row">
+            <div class="avatar" :class="e.kind || 'event'">{{ eventGlyph(e.kind) }}</div>
+            <div class="item-meta">
+              <span class="item-name">{{ e.title }}</span>
+              <span v-if="e.whenLabel" class="item-when">{{ e.whenLabel }}</span>
+              <span v-if="e.subtitle" class="item-sub">{{ e.subtitle }}</span>
+              <span v-if="e.meta" class="item-meta-line">{{ e.meta }}</span>
+            </div>
+            <button type="button" class="mini-btn" @click="$emit('navigate', e.to || paths.events)">
+              {{ e.cta || 'Event Portal' }}
+            </button>
+          </li>
+        </ul>
+        <div v-if="events.length > eventPreviewLimit" class="more-row">
+          <button
+            v-if="!eventsExpanded"
+            type="button"
+            class="link-btn"
+            @click="eventsExpanded = true"
+          >
+            Show more ({{ events.length - eventPreviewLimit }} more)
           </button>
-        </li>
-      </ul>
+          <button
+            v-else
+            type="button"
+            class="link-btn"
+            @click="eventsExpanded = false"
+          >
+            Show less
+          </button>
+          <button type="button" class="link-btn" @click="$emit('navigate', paths.events)">
+            View all events →
+          </button>
+        </div>
+        <div v-else class="more-row">
+          <button type="button" class="link-btn" @click="$emit('navigate', paths.events)">
+            View all events →
+          </button>
+        </div>
+      </template>
     </article>
 
     <article v-if="showPrograms" class="panel">
@@ -91,8 +147,8 @@
         <button type="button" class="mini-btn" @click="$emit('navigate', paths.programs)">
           Program Overview
         </button>
-        <button type="button" class="mini-btn" @click="$emit('navigate', paths.modules)">
-          Modules
+        <button type="button" class="mini-btn" @click="$emit('navigate', paths.events)">
+          Program Events
         </button>
       </div>
     </article>
@@ -100,7 +156,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps({
   showSchoolUpdates: { type: Boolean, default: false },
@@ -114,8 +170,25 @@ const props = defineProps({
 
 defineEmits(['navigate']);
 
+const schoolPreviewLimit = 6;
+const eventPreviewLimit = 6;
+const schoolExpanded = ref(false);
+const eventsExpanded = ref(false);
+
 const showAny = computed(
   () => props.showSchoolUpdates || props.showEvents || props.showPrograms
+);
+
+const visibleSchoolUpdates = computed(() =>
+  schoolExpanded.value
+    ? props.schoolUpdates
+    : props.schoolUpdates.slice(0, schoolPreviewLimit)
+);
+
+const visibleEvents = computed(() =>
+  eventsExpanded.value
+    ? props.events
+    : props.events.slice(0, eventPreviewLimit)
 );
 
 const updateGlyph = (kind) => {
@@ -210,7 +283,6 @@ const eventGlyph = (kind) => {
   align-items: flex-start;
   gap: 10px;
 }
-.feed-row { align-items: flex-start; }
 .avatar {
   width: 32px;
   height: 32px;
@@ -220,21 +292,9 @@ const eventGlyph = (kind) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
   flex-shrink: 0;
-}
-.avatar.icon,
-.avatar.event,
-.avatar.waitlist,
-.avatar.caseload,
-.avatar.staff,
-.avatar.capacity,
-.avatar.full,
-.avatar.slots,
-.avatar.program,
-.avatar.school {
-  font-size: 14px;
 }
 .avatar.waitlist {
   background: #fef2f2;
@@ -252,6 +312,14 @@ const eventGlyph = (kind) => {
   background: #fffbeb;
   color: #b45309;
 }
+.avatar.program {
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+.avatar.school {
+  background: #ecfeff;
+  color: #0e7490;
+}
 .item-meta {
   flex: 1;
   min-width: 0;
@@ -266,6 +334,11 @@ const eventGlyph = (kind) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.item-when {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ops-primary, #1f6b4a);
 }
 .item-sub {
   font-size: 12px;
@@ -294,6 +367,14 @@ const eventGlyph = (kind) => {
 }
 .mini-btn:hover {
   background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
+}
+.more-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
 }
 .stat-rows {
   display: flex;

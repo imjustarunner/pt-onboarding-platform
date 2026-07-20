@@ -237,7 +237,8 @@ import TenantContextCards from '../../components/admin/opsDashboard/TenantContex
 import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
 import {
   fetchCoverageWarnings,
-  fetchProviderCoverageSummary
+  fetchProviderCoverageSummary,
+  fetchHubEvents
 } from '../../services/schoolCoverageApi.js';
 
 const router = useRouter();
@@ -334,8 +335,10 @@ const contextPaths = computed(() => ({
   schoolPortals: `${prefix.value}/admin/school-portals`,
   schoolPortalsHub: `${prefix.value}/admin/school-portals-hub`,
   caseloadHub: `${prefix.value}/admin/caseload-hub/schools-staff`,
-  events: `${prefix.value}/admin/company-events`,
+  // Programs & events directory (Skill Builders / D11 Summer / company / school)
+  events: `${prefix.value}/admin/program-events`,
   companyEvents: `${prefix.value}/admin/company-events`,
+  schoolEvents: `${prefix.value}/admin/caseload-hub/events`,
   programs: `${prefix.value}/admin/schools/overview?orgType=program`,
   modules: `${prefix.value}/admin/modules`
 }));
@@ -808,18 +811,43 @@ const loadDashboard = async () => {
   // Phase 2 — secondary panels (no blocking overlay)
   scheduleLoading.value = true;
   try {
+    const toMs = (raw) => {
+      if (!raw) return 0;
+      const n = new Date(raw).getTime();
+      return Number.isFinite(n) ? n : 0;
+    };
+
     const formatWhen = (raw) => {
-      if (!raw) return '';
+      const ms = toMs(raw);
+      if (!ms) return '';
       try {
-        return new Date(raw).toLocaleString([], {
+        return new Date(ms).toLocaleString([], {
+          weekday: 'short',
           month: 'short',
           day: 'numeric',
-          year: 'numeric',
           hour: 'numeric',
           minute: '2-digit'
         });
       } catch {
         return '';
+      }
+    };
+
+    const formatWhenRange = (start, end) => {
+      const startLabel = formatWhen(start);
+      if (!startLabel) return '';
+      const endMs = toMs(end);
+      const startMs = toMs(start);
+      if (!endMs || endMs === startMs) return startLabel;
+      try {
+        const sameDay = new Date(startMs).toDateString() === new Date(endMs).toDateString();
+        if (sameDay) {
+          const endTime = new Date(endMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          return `${startLabel} – ${endTime}`;
+        }
+        return `${startLabel} – ${formatWhen(end)}`;
+      } catch {
+        return startLabel;
       }
     };
 
@@ -830,21 +858,24 @@ const loadDashboard = async () => {
     })();
 
     const isSchoolEventType = (eventType) => String(eventType || '').toLowerCase().startsWith('school_');
-    const isProgramEventType = (eventType) => {
+    const isProgramEventType = (eventType, orgType) => {
       const t = String(eventType || '').toLowerCase();
+      const ot = String(orgType || '').toLowerCase();
+      if (ot === 'program' || ot === 'learning') return true;
       return t.startsWith('program_')
         || t === 'guardian_program_class'
         || t === 'skills_group'
-        || t === 'skill_builders';
+        || t === 'skill_builders'
+        || t.includes('skill_builder');
     };
 
     const eventPortalPath = (e) => {
-      const id = e.id;
+      const id = e.id || e.companyEventId;
       const et = e.eventType || e.event_type;
       if (isSchoolEventType(et)) {
         return `${prefix.value}/admin/caseload-hub/events?eventId=${id}&tab=list`;
       }
-      if (isProgramEventType(et) || e.organizationId || e.programOrganizationSlug) {
+      if (isProgramEventType(et, e.organizationType) || e.programOrganizationSlug || e.programPortalSlug) {
         return `${prefix.value}/skill-builders/event/${id}`;
       }
       return `/company-events/${id}`;
@@ -853,11 +884,14 @@ const loadDashboard = async () => {
     const eventKind = (e) => {
       const et = e.eventType || e.event_type;
       if (isSchoolEventType(et)) return 'school';
-      if (isProgramEventType(et) || e.organizationType === 'program' || e.organizationType === 'learning') {
-        return 'program';
-      }
+      if (isProgramEventType(et, e.organizationType)) return 'program';
+      if (e.schoolName || e.schoolOrganizationId) return e.skillsGroupId ? 'program' : 'school';
       return 'org';
     };
+
+    // Company-events list is heavy (per-event summaries) — do not block the panel on it.
+    // Program directory + school hub events paint first; company events merge in after.
+    const companyEventsPromise = safeGet(`/agencies/${agencyId}/company-events`, {}, 25000);
 
     const [
       sched,
@@ -865,7 +899,8 @@ const loadDashboard = async () => {
       hiring,
       payrollPending,
       orgOverview,
-      companyEvents,
+      sbDirectory,
+      schoolHubEvents,
       modulesRes,
       coverageWarnings,
       providerCoverage
@@ -879,7 +914,10 @@ const loadDashboard = async () => {
       }, 8000),
       safeGet('/payroll/pending-submissions-summary', { params }, 8000),
       safeGet('/dashboard/org-overview-summary', { params }, 8000),
-      safeGet(`/agencies/${agencyId}/company-events`, {}, 8000),
+      safeGet('/skill-builders/events/directory', { params: { agencyId } }, 12000),
+      canSeeSchoolPortals.value
+        ? withTimeout(fetchHubEvents(agencyId), 10000).catch(() => null)
+        : Promise.resolve(null),
       safeGet('/modules', {}, 8000),
       canSeeSchoolPortals.value
         ? withTimeout(fetchCoverageWarnings(agencyId), 8000).catch(() => null)
@@ -924,6 +962,7 @@ const loadDashboard = async () => {
 
     const warningFeed = (Array.isArray(coverageWarnings?.items) ? coverageWarnings.items : [])
       .filter((item) => warningTypesWanted.has(String(item.type || '')))
+      .slice(0, 16)
       .map((item) => {
         const type = String(item.type || '');
         let kind = 'caseload';
@@ -959,9 +998,10 @@ const loadDashboard = async () => {
         };
       });
 
+    // Prefer waitlist + caseload warnings; keep clinician-full + staff notifs secondary.
     const fullClinicianFeed = (Array.isArray(providerCoverage?.providers) ? providerCoverage.providers : [])
       .filter((p) => Number(p.slotsTotal || 0) > 0 && Number(p.slotsAvailable || 0) === 0)
-      .slice(0, 8)
+      .slice(0, 4)
       .map((p) => ({
         id: `clinician-full-${p.providerId}`,
         kind: 'full',
@@ -975,17 +1015,6 @@ const loadDashboard = async () => {
         cta: 'View Clinician'
       }));
 
-    const schoolNotifTypes = new Set([
-      'school_provider_availability_confirmed',
-      'school_provider_availability_updated',
-      'school_provider_slot_verification_requested',
-      'school_provider_slot_verification_completed',
-      'school_availability_request_pending',
-      'school_availability_request_approved',
-      'school_availability_request_denied',
-      'client_assigned'
-    ]);
-
     const isSchoolStaffNotif = (n) => {
       const t = String(n.type || n.notification_type || '').toLowerCase();
       if (t !== 'program_reminder') return false;
@@ -993,83 +1022,148 @@ const loadDashboard = async () => {
       return hay.includes('school staff');
     };
 
+    // Keep noise down: staff adds + client_assigned only (slot spam stays in notifications hub).
     const notifFeed = (notificationStore.notifications || [])
       .filter((n) => {
         const t = String(n.type || n.notification_type || '').toLowerCase();
-        return schoolNotifTypes.has(t) || isSchoolStaffNotif(n);
+        return t === 'client_assigned' || isSchoolStaffNotif(n);
       })
-      .slice(0, 12)
+      .slice(0, 8)
       .map((n) => {
-        const t = String(n.type || n.notification_type || '').toLowerCase();
         const staff = isSchoolStaffNotif(n);
-        const kind = staff
-          ? 'staff'
-          : (t === 'client_assigned' ? 'caseload' : 'slots');
         const relatedUserId = n.related_entity_id || n.relatedEntityId || n.entity_id;
-        let to = `${caseloadBase}`;
-        if (staff && relatedUserId) to = `${prefix.value}/admin/users/${relatedUserId}`;
-        else if (t.includes('availability') || t.includes('slot')) {
-          to = `${prefix.value}/admin/availability-intake?agencyId=${agencyId}&tab=school`;
-        }
+        const to = staff && relatedUserId
+          ? `${prefix.value}/admin/users/${relatedUserId}`
+          : caseloadBase;
         return {
           id: `notif-${n.id}`,
-          kind,
-          title: n.title || (staff ? 'School staff update' : 'School caseload update'),
+          kind: staff ? 'staff' : 'caseload',
+          title: n.title || (staff ? 'School staff update' : 'Caseload update'),
           body: n.message || n.body || '',
           meta: formatWhen(n.created_at || n.createdAt) || 'Notification',
-          sortMs: new Date(n.created_at || n.createdAt || 0).getTime() || 0,
+          sortMs: toMs(n.created_at || n.createdAt),
           severityRank: staff ? 1 : 2,
           to,
           cta: staff ? 'View User' : 'Open'
         };
       });
 
+    // Keep a longer list for in-card "Show more"; UI previews 6.
     schoolUpdatesFeed.value = [...warningFeed, ...fullClinicianFeed, ...notifFeed]
       .sort((a, b) => {
         const sr = (a.severityRank ?? 9) - (b.severityRank ?? 9);
         if (sr !== 0) return sr;
         return (b.sortMs || 0) - (a.sortMs || 0);
       })
-      .slice(0, 10);
+      .slice(0, 24);
 
-    const companyEventsRaw = Array.isArray(companyEvents)
-      ? companyEvents
-      : (Array.isArray(companyEvents?.events) ? companyEvents.events : []);
+    const byEventId = new Map();
+    const upsertEvent = (raw) => {
+      const id = Number(raw?.id || raw?.companyEventId || 0);
+      if (!id) return;
+      if (raw?.isActive === false || raw?.is_active === 0 || raw?.is_active === false) return;
+      const start = raw.startsAt || raw.starts_at || raw.start_at || raw.start_date || raw.event_date;
+      const end = raw.endsAt || raw.ends_at || raw.end_at;
+      const startMs = toMs(start);
+      const endMs = toMs(end);
+      const kind = eventKind(raw);
+      const orgLabel = raw.organizationName
+        || raw.schoolName
+        || raw.skillsGroupName
+        || raw.location
+        || '';
+      const typeLabel = kind === 'program'
+        ? 'Program event'
+        : (kind === 'school' ? 'School event' : 'Company event');
+      const whenLabel = formatWhenRange(start, end);
+      const next = {
+        id: `evt-${id}`,
+        eventId: id,
+        kind,
+        title: raw.title || raw.name || `Event ${id}`,
+        whenLabel,
+        subtitle: orgLabel || typeLabel,
+        meta: [typeLabel, raw.location || raw.eventLocationName || null].filter(Boolean).join(' · '),
+        startMs,
+        endMs,
+        to: eventPortalPath({ ...raw, id }),
+        cta: 'Event Portal'
+      };
+      const prior = byEventId.get(id);
+      if (!prior) {
+        byEventId.set(id, next);
+        return;
+      }
+      // Prefer richer subtitle/kind when merging duplicate sources.
+      byEventId.set(id, {
+        ...prior,
+        ...next,
+        kind: prior.kind === 'org' ? next.kind : prior.kind,
+        subtitle: (prior.subtitle && prior.subtitle !== 'Company event' && prior.subtitle !== 'Program event' && prior.subtitle !== 'School event')
+          ? prior.subtitle
+          : next.subtitle,
+        whenLabel: prior.whenLabel || next.whenLabel,
+        meta: prior.meta || next.meta,
+        to: prior.to || next.to
+      });
+    };
 
-    upcomingEvents.value = companyEventsRaw
-      .filter((e) => e?.isActive !== false)
-      .map((e) => {
-        const start = e.startsAt || e.starts_at || e.start_at || e.start_date || e.event_date;
-        const end = e.endsAt || e.ends_at || e.end_at;
-        const startMs = start ? new Date(start).getTime() : 0;
-        const endMs = end ? new Date(end).getTime() : 0;
-        const kind = eventKind(e);
-        const orgLabel = e.organizationName || e.schoolName || e.location || '';
-        const typeLabel = kind === 'program'
-          ? 'Program event'
-          : (kind === 'school' ? 'School event' : 'Organization event');
-        const when = formatWhen(start);
-        return {
-          id: `evt-${e.id}`,
-          kind,
-          title: e.title || e.name || `Event ${e.id}`,
-          subtitle: [orgLabel, String(e.description || '').trim().slice(0, 120)].filter(Boolean).join(' — ')
-            || typeLabel,
-          meta: [typeLabel, when, e.location || e.eventLocationName || null].filter(Boolean).join(' · '),
-          startMs,
-          endMs,
-          to: eventPortalPath(e),
-          cta: 'Event Portal'
-        };
-      })
-      .filter((e) => {
-        if (!e.startMs) return true;
-        // Include today and future; still-running events whose end is today/future also count.
-        if (e.endMs && e.endMs >= startOfTodayMs) return true;
-        return e.startMs >= startOfTodayMs;
-      })
-      .sort((a, b) => (a.startMs || Number.MAX_SAFE_INTEGER) - (b.startMs || Number.MAX_SAFE_INTEGER))
-      .slice(0, 8);
+    const finalizeUpcomingEvents = () => {
+      upcomingEvents.value = Array.from(byEventId.values())
+        .filter((e) => {
+          // Ongoing multi-week programs count via end date; one-offs via start.
+          if (!e.startMs && !e.endMs) return true;
+          if (e.endMs && e.endMs >= startOfTodayMs) return true;
+          if (e.startMs && e.startMs >= startOfTodayMs) return true;
+          return false;
+        })
+        .sort((a, b) => (a.startMs || Number.MAX_SAFE_INTEGER) - (b.startMs || Number.MAX_SAFE_INTEGER))
+        .slice(0, 24);
+    };
+
+    const directoryEvents = Array.isArray(sbDirectory?.events) ? sbDirectory.events : [];
+    const hubSchoolEvents = Array.isArray(schoolHubEvents?.events) ? schoolHubEvents.events : [];
+
+    for (const e of directoryEvents) {
+      upsertEvent({
+        id: e.companyEventId || e.id,
+        companyEventId: e.companyEventId || e.id,
+        title: e.title,
+        startsAt: e.startsAt,
+        endsAt: e.endsAt,
+        eventType: e.eventType || 'program_event',
+        organizationType: 'program',
+        schoolName: e.schoolName || e.skillsGroupName,
+        skillsGroupName: e.skillsGroupName,
+        skillsGroupId: e.skillsGroupId,
+        programPortalSlug: e.programPortalSlug,
+        programOrganizationSlug: e.programPortalSlug,
+        isActive: e.isActive !== false
+      });
+    }
+    for (const e of hubSchoolEvents) {
+      upsertEvent({
+        id: e.id,
+        title: e.title,
+        startsAt: e.startsAt || e.starts_at,
+        endsAt: e.endsAt || e.ends_at,
+        eventType: e.eventType || e.event_type || 'school_other',
+        schoolName: e.schoolName || e.school_name,
+        organizationType: 'school',
+        isActive: e.isActive !== false && e.is_active !== 0
+      });
+    }
+    finalizeUpcomingEvents();
+
+    // Merge company / club events when the heavier list returns (non-blocking).
+    companyEventsPromise.then((companyEvents) => {
+      const companyEventsRaw = Array.isArray(companyEvents)
+        ? companyEvents
+        : (Array.isArray(companyEvents?.events) ? companyEvents.events : []);
+      if (!companyEventsRaw.length) return;
+      for (const e of companyEventsRaw) upsertEvent(e);
+      finalizeUpcomingEvents();
+    }).catch(() => {});
 
     const modulesList = Array.isArray(modulesRes)
       ? modulesRes
