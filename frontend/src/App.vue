@@ -2838,8 +2838,17 @@ const clearNavMenuHoverTimer = () => {
   }
 };
 
+let navMenuOpenTimer = null;
+const clearNavMenuOpenTimer = () => {
+  if (navMenuOpenTimer) {
+    clearTimeout(navMenuOpenTimer);
+    navMenuOpenTimer = null;
+  }
+};
+
 const closeAllNavMenus = () => {
   clearNavMenuHoverTimer();
+  clearNavMenuOpenTimer();
   brandMenuOpen.value = false;
   peopleOpsMenuOpen.value = false;
   directoryMenuOpen.value = false;
@@ -3058,13 +3067,6 @@ const formatNavBadgeCount = (n) => {
  * doesn't instantly steal the menu. Click still toggles immediately.
  */
 const NAV_HOVER_OPEN_DELAY_MS = 220;
-let navMenuOpenTimer = null;
-const clearNavMenuOpenTimer = () => {
-  if (navMenuOpenTimer) {
-    clearTimeout(navMenuOpenTimer);
-    navMenuOpenTimer = null;
-  }
-};
 
 const onNavMenuEnter = (key) => {
   clearNavMenuHoverTimer();
