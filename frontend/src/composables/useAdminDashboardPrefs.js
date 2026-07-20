@@ -13,7 +13,6 @@ export const DEFAULT_SECTION_VISIBILITY = Object.freeze({
   events: true,
   programs: true,
   communications: true,
-  clientQuickAccess: true,
   peopleOps: true,
   systemAlerts: true,
   todaysSchedule: true
@@ -27,7 +26,6 @@ export const SECTION_LABELS = Object.freeze([
   { key: 'events', label: 'Events' },
   { key: 'programs', label: 'Programs' },
   { key: 'communications', label: 'Communications Center' },
-  { key: 'clientQuickAccess', label: 'Client Quick Access' },
   { key: 'peopleOps', label: 'People Ops Overview' },
   { key: 'systemAlerts', label: 'System Alerts' },
   { key: 'todaysSchedule', label: "Today's Schedule" }

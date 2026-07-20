@@ -159,8 +159,7 @@
           :show-school-updates="isVisible('schoolUpdates') && canSeeSchoolPortals"
           :show-events="isVisible('events')"
           :show-programs="isVisible('programs') && hasAffiliatedPrograms"
-          :schools="schoolList"
-          :school-stats="schoolStats"
+          :school-updates="schoolUpdatesFeed"
           :events="upcomingEvents"
           :program-stats="programStats"
           :paths="contextPaths"
@@ -169,12 +168,10 @@
 
         <OpsSummaryCards
           :show-communications="isVisible('communications')"
-          :show-client-quick-access="isVisible('clientQuickAccess')"
           :show-people-ops="isVisible('peopleOps')"
           :show-system-alerts="isVisible('systemAlerts')"
           :show-todays-schedule="isVisible('todaysSchedule')"
           :communications="commsSummary"
-          :clients="recentClients"
           :people-ops="peopleOpsSummary"
           :system-alerts="systemAlertsSummary"
           :schedule-slots="scheduleSlots"
@@ -324,7 +321,6 @@ const notificationsPath = computed(() => `${prefix.value}/notifications`);
 const summaryPaths = computed(() => ({
   prefix: prefix.value,
   communications: `${prefix.value}/admin/communications`,
-  clients: `${prefix.value}/admin/clients`,
   hiring: `${prefix.value}/admin/hiring`,
   notifications: notificationsPath.value,
   schedule: `${prefix.value}/schedule`
@@ -333,8 +329,10 @@ const summaryPaths = computed(() => ({
 const contextPaths = computed(() => ({
   schoolPortals: `${prefix.value}/admin/school-portals`,
   schoolPortalsHub: `${prefix.value}/admin/school-portals-hub`,
-  schoolPortalBase: `${prefix.value}/admin/school-portals`,
-  events: `${prefix.value}/admin/company-events`,
+  events: canSeeSchoolPortals.value
+    ? `${prefix.value}/admin/schools/overview?orgType=school`
+    : `${prefix.value}/admin/company-events`,
+  companyEvents: `${prefix.value}/admin/company-events`,
   programs: `${prefix.value}/admin/schools/overview?orgType=program`,
   modules: `${prefix.value}/admin/modules`
 }));
@@ -353,9 +351,7 @@ const pendingEmployees = ref(0);
 const activeEmployees = ref(0);
 const deliveryQueue = ref(0);
 const scheduleSlots = ref([]);
-const recentClients = ref([]);
-const schoolList = ref([]);
-const schoolStats = ref({ schoolCount: 0, announcements: 0 });
+const schoolUpdatesFeed = ref([]);
 const upcomingEvents = ref([]);
 const programStats = ref({ programs: 0, learning: 0, modules: 0 });
 const orgOverviewSummary = ref({ counts: { school: 0, program: 0, learning: 0, other: 0 } });
@@ -809,15 +805,40 @@ const loadDashboard = async () => {
   // Phase 2 — secondary panels (no blocking overlay)
   scheduleLoading.value = true;
   try {
+    const formatWhen = (raw) => {
+      if (!raw) return '';
+      try {
+        return new Date(raw).toLocaleString([], {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit'
+        });
+      } catch {
+        return '';
+      }
+    };
+
+    const categoryLabel = (category) => {
+      const c = String(category || '').toLowerCase();
+      if (c === 'back_to_school') return 'Back to School';
+      if (c === 'spring') return 'Spring Event';
+      if (c === 'open_house') return 'Open House';
+      if (c === 'resource_fair') return 'Resource Fair';
+      if (c === 'family_night') return 'Family Night';
+      if (c === 'orientation') return 'Orientation';
+      return c ? c.replace(/_/g, ' ') : 'School Event';
+    };
+
     const [
       sched,
       unassigned,
       hiring,
       payrollPending,
-      clientsRes,
       orgOverview,
-      schoolOverview,
       announcements,
+      schoolEventsOverview,
       companyEvents,
       modulesRes
     ] = await Promise.all([
@@ -829,13 +850,12 @@ const loadDashboard = async () => {
         params: { agencyId, status: 'PROSPECTIVE', stageFilter: 'active' }
       }, 8000),
       safeGet('/payroll/pending-submissions-summary', { params }, 8000),
-      safeGet('/clients', { params: { agency_id: agencyId, limit: 5 } }, 8000),
       safeGet('/dashboard/org-overview-summary', { params }, 8000),
       canSeeSchoolPortals.value
-        ? safeGet('/dashboard/school-overview', { params: { agencyId, orgType: 'school' } }, 8000)
+        ? safeGet('/school-portal/bulk-announcements', { params }, 8000)
         : Promise.resolve(null),
       canSeeSchoolPortals.value
-        ? safeGet('/school-portal/bulk-announcements', { params }, 8000)
+        ? safeGet('/school-portal/school-events/overview', { params }, 8000)
         : Promise.resolve(null),
       safeGet(`/agencies/${agencyId}/company-events`, {}, 8000),
       safeGet('/modules', {}, 8000)
@@ -860,68 +880,126 @@ const loadDashboard = async () => {
     payrollSubmissions.value = Number(payrollPending?.totalCount || 0);
     scheduleSlots.value = Array.isArray(sched?.sessions) ? sched.sessions : [];
 
-    const clientList = Array.isArray(clientsRes)
-      ? clientsRes
-      : (Array.isArray(clientsRes?.clients) ? clientsRes.clients : []);
-    recentClients.value = clientList.slice(0, 5).map((c) => ({
-      id: c.id,
-      name: c.full_name
-        || c.name
-        || [c.first_name, c.last_name].filter(Boolean).join(' ')
-        || `Client ${c.id}`
-    }));
-
     orgOverviewSummary.value = orgOverview?.counts
       ? orgOverview
       : { counts: { school: 0, program: 0, learning: 0, other: 0, ...(orgOverview?.counts || {}) } };
-
-    const schoolsRaw = Array.isArray(schoolOverview?.schools) ? schoolOverview.schools : [];
-    schoolList.value = schoolsRaw.slice(0, 5).map((s) => ({
-      id: s.id || s.organization_id || s.school_organization_id,
-      name: s.school_name || s.name || s.organization_name || 'School',
-      subtitle: s.district_name || s.city || '',
-      slug: s.slug || s.portal_slug || null,
-      portalPath: s.portal_url || s.admin_path || null
-    }));
 
     const announcementList = Array.isArray(announcements)
       ? announcements
       : (Array.isArray(announcements?.groups)
         ? announcements.groups
         : (Array.isArray(announcements?.items) ? announcements.items : []));
-    schoolStats.value = {
-      schoolCount: Number(orgOverviewSummary.value?.counts?.school || schoolsRaw.length || 0),
-      announcements: announcementList.length
-    };
 
-    const eventsRaw = Array.isArray(companyEvents)
+    const schoolEventsRaw = Array.isArray(schoolEventsOverview?.events)
+      ? schoolEventsOverview.events
+      : [];
+
+    const hubPath = `${prefix.value}/admin/school-portals-hub`;
+    const schoolOverviewPath = `${prefix.value}/admin/schools/overview?orgType=school`;
+    const companyEventsPath = `${prefix.value}/admin/company-events`;
+
+    const announcementFeed = announcementList.map((a) => {
+      const kind = a.display_type === 'splash' ? 'splash' : 'announcement';
+      const title = String(a.title || '').trim() || (kind === 'splash' ? 'Splash announcement' : 'Portal announcement');
+      const body = String(a.message || '').trim();
+      const portals = Number(a.portal_count || 0);
+      const status = a.is_active
+        ? 'Active'
+        : (a.starts_at && new Date(a.starts_at) > new Date() ? 'Scheduled' : 'Ended');
+      const metaParts = [
+        status,
+        kind === 'splash' ? 'Splash' : 'Banner',
+        portals ? `${portals} portal${portals === 1 ? '' : 's'}` : null,
+        a.created_by_name ? `by ${a.created_by_name}` : null,
+        formatWhen(a.created_at || a.starts_at)
+      ].filter(Boolean);
+      return {
+        id: `ann-${a.bulk_group_id || a.id || title}`,
+        kind,
+        title,
+        body,
+        meta: metaParts.join(' · '),
+        sortMs: new Date(a.created_at || a.starts_at || 0).getTime() || 0,
+        to: hubPath
+      };
+    });
+
+    const eventUpdateFeed = schoolEventsRaw.slice(0, 12).map((ev) => {
+      const school = ev.schoolName || ev.school_name || 'School';
+      const title = String(ev.title || '').trim() || categoryLabel(ev.category);
+      const when = formatWhen(ev.startsAt || ev.starts_at);
+      const metaParts = [
+        'School event posted',
+        categoryLabel(ev.category),
+        when,
+        ev.outreachTableInvited || ev.outreach_table_invited ? 'Outreach table' : null
+      ].filter(Boolean);
+      return {
+        id: `sev-upd-${ev.id}`,
+        kind: 'event',
+        title: `${title} · ${school}`,
+        body: ev.description || ev.notes || '',
+        meta: metaParts.join(' · '),
+        sortMs: new Date(ev.createdAt || ev.created_at || ev.startsAt || ev.starts_at || 0).getTime() || 0,
+        to: schoolOverviewPath
+      };
+    });
+
+    schoolUpdatesFeed.value = [...announcementFeed, ...eventUpdateFeed]
+      .sort((a, b) => (b.sortMs || 0) - (a.sortMs || 0))
+      .slice(0, 8);
+
+    const now = Date.now();
+    const schoolEventCards = schoolEventsRaw.map((ev) => {
+      const start = ev.startsAt || ev.starts_at;
+      const end = ev.endsAt || ev.ends_at;
+      const school = ev.schoolName || ev.school_name || 'School';
+      const title = String(ev.title || '').trim() || categoryLabel(ev.category);
+      const when = formatWhen(start);
+      const endWhen = formatWhen(end);
+      const metaParts = [
+        categoryLabel(ev.category),
+        when ? (endWhen && endWhen !== when ? `${when} – ${endWhen}` : when) : null,
+        ev.outreachTableInvited || ev.outreach_table_invited ? 'Outreach table invited' : null,
+        ev.schoolEventStatus || ev.status || null
+      ].filter(Boolean);
+      return {
+        id: `sev-${ev.id}`,
+        title,
+        subtitle: school,
+        meta: metaParts.join(' · '),
+        startMs: start ? new Date(start).getTime() : 0,
+        to: schoolOverviewPath
+      };
+    });
+
+    const companyEventsRaw = Array.isArray(companyEvents)
       ? companyEvents
       : (Array.isArray(companyEvents?.events) ? companyEvents.events : []);
-    const now = Date.now();
-    upcomingEvents.value = eventsRaw
-      .map((e) => {
-        const start = e.starts_at || e.start_at || e.start_date || e.event_date || e.created_at;
-        let when = '';
-        try {
-          if (start) {
-            when = new Date(start).toLocaleString([], {
-              month: 'short',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit'
-            });
-          }
-        } catch { /* ignore */ }
-        return {
-          id: e.id,
-          title: e.title || e.name || `Event ${e.id}`,
-          when,
-          startMs: start ? new Date(start).getTime() : 0
-        };
-      })
+    const companyEventCards = companyEventsRaw.map((e) => {
+      const start = e.starts_at || e.start_at || e.start_date || e.event_date;
+      const loc = e.location || e.venue || e.address || '';
+      const desc = String(e.description || e.summary || e.notes || '').trim();
+      const when = formatWhen(start);
+      const metaParts = [
+        when,
+        loc,
+        e.event_type || e.type || null
+      ].filter(Boolean);
+      return {
+        id: `ce-${e.id}`,
+        title: e.title || e.name || `Event ${e.id}`,
+        subtitle: desc || 'Company event',
+        meta: metaParts.join(' · '),
+        startMs: start ? new Date(start).getTime() : 0,
+        to: companyEventsPath
+      };
+    });
+
+    upcomingEvents.value = [...schoolEventCards, ...companyEventCards]
       .filter((e) => !e.startMs || e.startMs >= now - 86400000)
-      .sort((a, b) => (a.startMs || 0) - (b.startMs || 0))
-      .slice(0, 5);
+      .sort((a, b) => (a.startMs || Number.MAX_SAFE_INTEGER) - (b.startMs || Number.MAX_SAFE_INTEGER))
+      .slice(0, 6);
 
     const modulesList = Array.isArray(modulesRes)
       ? modulesRes
@@ -932,7 +1010,6 @@ const loadDashboard = async () => {
       modules: modulesList.length
     };
 
-    // Refresh note-related glance counts once notifications may have arrived.
     lateNotes.value = countLateNoteNotifications();
     unsignedDocs.value = countUnsignedNotifications();
   } finally {

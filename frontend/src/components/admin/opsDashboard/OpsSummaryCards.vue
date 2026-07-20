@@ -21,27 +21,6 @@
       </div>
     </article>
 
-    <article v-if="showClientQuickAccess" class="panel">
-      <div class="panel-header">
-        <h2>Client Quick Access</h2>
-        <button type="button" class="link-btn" @click="$emit('navigate', paths.clients)">View All</button>
-      </div>
-      <div v-if="!clients.length" class="empty">No recent clients</div>
-      <ul v-else class="client-list">
-        <li v-for="c in clients" :key="c.id" class="client-row">
-          <div class="avatar">{{ initials(c.name) }}</div>
-          <span class="client-name">{{ c.name }}</span>
-          <button
-            type="button"
-            class="mini-btn"
-            @click="$emit('navigate', clientTo(c.id))"
-          >
-            View Profile
-          </button>
-        </li>
-      </ul>
-    </article>
-
     <article v-if="showPeopleOps" class="panel">
       <div class="panel-header">
         <h2>People Ops Overview</h2>
@@ -110,16 +89,12 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
-
-const props = defineProps({
+defineProps({
   showCommunications: { type: Boolean, default: true },
-  showClientQuickAccess: { type: Boolean, default: true },
   showPeopleOps: { type: Boolean, default: true },
   showSystemAlerts: { type: Boolean, default: true },
   showTodaysSchedule: { type: Boolean, default: true },
   communications: { type: Object, default: () => ({}) },
-  clients: { type: Array, default: () => [] },
   peopleOps: { type: Object, default: () => ({}) },
   systemAlerts: { type: Object, default: () => ({}) },
   scheduleSlots: { type: Array, default: () => [] },
@@ -128,30 +103,17 @@ const props = defineProps({
 });
 
 defineEmits(['navigate']);
-
-const prefix = computed(() => String(props.paths?.prefix || ''));
-
-const clientTo = (id) => {
-  const base = props.paths?.clients || `${prefix.value}/admin/clients`;
-  return `${base}${base.includes('?') ? '&' : '?'}clientId=${encodeURIComponent(id)}`;
-};
-
-const initials = (name) => {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return (parts[0] || '?').slice(0, 2).toUpperCase();
-};
 </script>
 
 <style scoped>
 .ops-summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-top: 4px;
 }
 @media (max-width: 1400px) {
-  .ops-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ops-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
   .ops-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -213,7 +175,7 @@ const initials = (name) => {
   color: #94a3b8;
   padding: 8px 0;
 }
-.client-list, .schedule-list {
+.schedule-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -221,54 +183,15 @@ const initials = (name) => {
   flex-direction: column;
   gap: 10px;
 }
-.client-row, .schedule-row {
+.schedule-row {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.schedule-row {
   cursor: pointer;
   padding: 6px 0;
   border-bottom: 1px solid #f1f5f9;
 }
 .schedule-row:last-child { border-bottom: none; }
-.avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 16%, #fff);
-  color: var(--ops-primary, #1f6b4a);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 800;
-  flex-shrink: 0;
-}
-.client-name {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: #0f172a;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mini-btn {
-  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 30%, #e2e8f0);
-  background: #fff;
-  color: var(--ops-primary, #1f6b4a);
-  border-radius: 999px;
-  padding: 5px 10px;
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.mini-btn:hover {
-  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
-}
 .slot-time {
   font-size: 12px;
   font-weight: 800;
