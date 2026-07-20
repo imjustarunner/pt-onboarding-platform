@@ -1,4 +1,10 @@
-import { getNotificationCatalogEntry, listNotificationCatalog } from './notificationCatalog.service.js';
+import {
+  getNotificationCatalogEntry,
+  isNotificationEssentialForRole,
+  isNotificationRecommendedForRole,
+  listNotificationCatalog,
+  notificationRoleProfile
+} from './notificationCatalog.service.js';
 
 function parseJson(value) {
   if (!value) return {};
@@ -8,6 +14,11 @@ function parseJson(value) {
 
 function resolveBoolean(override, fallback) {
   return override === null || override === undefined ? !!fallback : !!override;
+}
+
+function databaseBoolean(value, fallback = false) {
+  if (value === null || value === undefined) return !!fallback;
+  return value === true || value === 1 || value === '1';
 }
 
 export async function loadNotificationPreferenceContext({ userId, agencyId = null, userRole = null }) {
@@ -44,9 +55,15 @@ export function resolveNotificationTypePreference(type, context) {
   const agency = context?.agencyPreferences || null;
   const agencyDefaults = agency?.defaults || {};
   const legacyKey = entry.legacyCategoryKey;
+  const roleProfile = notificationRoleProfile(context?.userRole);
+  const recommendedForRole = isNotificationRecommendedForRole(type, context?.userRole);
+  const essentialForRole = isNotificationEssentialForRole(type, context?.userRole);
 
-  let defaultInApp = entry.defaults.inApp;
-  if (legacyKey && legacyCategories[legacyKey] !== undefined) defaultInApp = legacyCategories[legacyKey] !== false;
+  let defaultInApp = entry.defaults.inApp && essentialForRole;
+  // A legacy category opt-out still narrows delivery. A broad legacy opt-in no
+  // longer enables every newly cataloged type in that category.
+  if (legacyKey && legacyCategories[legacyKey] === false) defaultInApp = false;
+  if (!recommendedForRole) defaultInApp = false;
 
   let inApp = resolveBoolean(override.inApp, defaultInApp);
   let locked = false;
@@ -56,6 +73,10 @@ export function resolveNotificationTypePreference(type, context) {
     inApp = true;
     locked = true;
     lockReason = entry.required ? 'Required safety notification' : 'Required for support users';
+  } else if (!recommendedForRole) {
+    inApp = false;
+    locked = true;
+    lockReason = 'Not used for your role';
   } else if (agency && legacyKey && agencyDefaults[legacyKey] !== undefined && agency.enforceDefaults) {
     inApp = agencyDefaults[legacyKey] !== false;
     locked = true;
@@ -66,19 +87,29 @@ export function resolveNotificationTypePreference(type, context) {
   }
 
   const capabilities = entry.capabilities;
+  const roleDefault = (channel) => essentialForRole ? entry.defaults[channel] : false;
   const effective = {
     inApp,
-    toast: capabilities.toast && resolveBoolean(override.toast, entry.defaults.toast),
-    sound: capabilities.sound && globals.notification_sound_enabled !== false && resolveBoolean(override.sound, entry.defaults.sound),
-    digest: capabilities.digest && resolveBoolean(override.digest, entry.defaults.digest),
-    push: capabilities.push && globals.push_notifications_enabled === true && resolveBoolean(override.push, entry.defaults.push),
-    email: capabilities.email && globals.email_enabled !== false && resolveBoolean(override.email, entry.defaults.email),
-    sms: capabilities.sms && globals.sms_enabled === true && resolveBoolean(override.sms, entry.defaults.sms),
+    toast: capabilities.toast && resolveBoolean(override.toast, roleDefault('toast')),
+    sound: capabilities.sound && databaseBoolean(globals.notification_sound_enabled, true) && resolveBoolean(override.sound, roleDefault('sound')),
+    digest: capabilities.digest && resolveBoolean(override.digest, roleDefault('digest')),
+    push: capabilities.push && databaseBoolean(globals.push_notifications_enabled, false) && resolveBoolean(override.push, roleDefault('push')),
+    email: capabilities.email && databaseBoolean(globals.email_enabled, true) && resolveBoolean(override.email, roleDefault('email')),
+    sms: capabilities.sms && databaseBoolean(globals.sms_enabled, false) && resolveBoolean(override.sms, roleDefault('sms')),
     toastDurationMode: override.toastDurationMode || entry.defaults.toastDurationMode,
     toastDurationSeconds: override.toastDurationMode === 'dismissable'
       ? null
       : (override.toastDurationSeconds ?? entry.defaults.toastDurationSeconds)
   };
+  if (!recommendedForRole && !requiredForRole) {
+    effective.inApp = false;
+    effective.toast = false;
+    effective.sound = false;
+    effective.digest = false;
+    effective.push = false;
+    effective.email = false;
+    effective.sms = false;
+  }
   if (entry.digestOnly) {
     effective.inApp = false;
     effective.toast = false;
@@ -86,11 +117,25 @@ export function resolveNotificationTypePreference(type, context) {
     effective.push = false;
     effective.email = false;
     effective.sms = false;
-    effective.digest = true;
+    effective.digest = recommendedForRole;
     locked = true;
-    lockReason = 'High-volume activity is delivered in the daily activity digest';
+    lockReason = recommendedForRole
+      ? 'High-volume activity is delivered in the daily activity digest'
+      : 'Administrative activity is not delivered to this role';
   }
-  return { ...entry, override, effective, locked, lockReason };
+  return {
+    ...entry,
+    override,
+    effective,
+    locked,
+    lockReason,
+    roleProfile,
+    recommendedForRole,
+    essentialForRole,
+    relevanceReason: recommendedForRole
+      ? (essentialForRole ? 'Essential for your role' : 'Optional for your role')
+      : 'Administrative or unrelated to your normal responsibilities'
+  };
 }
 
 export async function listEffectiveNotificationPreferences(params) {

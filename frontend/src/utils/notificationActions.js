@@ -36,3 +36,9 @@ export function notificationPrimaryLabel(notification) {
   if (notificationDestination(notification)) return 'Open';
   return null;
 }
+
+export function notificationDismissPayload(notification) {
+  return notification?._requires_follow_up_for_viewer
+    ? { followUp: false, dismissed: true }
+    : { dismissed: true };
+}

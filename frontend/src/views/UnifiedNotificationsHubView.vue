@@ -113,7 +113,12 @@
                 <span v-if="notification._requires_follow_up_for_viewer" class="follow-pill">Needs follow-up</span>
               </div>
               <p>{{ formatNotificationLine(notification) }}</p>
-              <small v-if="notification.actor_display_name">By: {{ notification.actor_display_name }}</small>
+              <div class="notification-meta">
+                <small v-if="notification.actor_display_name">By: {{ notification.actor_display_name }}</small>
+                <small v-if="scope === 'managed' && Number(notification.recipient_count) > 1">
+                  Sent to {{ Number(notification.recipient_count).toLocaleString() }} recipients
+                </small>
+              </div>
             </div>
             <div class="notification-side">
               <time>{{ formatDate(notification.created_at) }}</time>
@@ -126,7 +131,9 @@
                   <div v-if="overflowId === notification.id" class="overflow-menu">
                     <button type="button" @click="snooze(notification, 1)">Snooze 1 hour</button>
                     <button type="button" @click="snooze(notification, 24)">Snooze until tomorrow</button>
-                    <button v-if="!notification.dismissed_at" type="button" @click="dismiss(notification)">Dismiss</button>
+                    <button v-if="!notification.dismissed_at" type="button" @click="dismiss(notification)">
+                      {{ notification._requires_follow_up_for_viewer ? 'Clear follow-up & dismiss' : 'Dismiss' }}
+                    </button>
                     <button v-else type="button" @click="restore(notification)">Restore</button>
                     <button type="button" @click="markTypeRead(notification.type)">Mark all {{ notification.catalog?.label || 'of this type' }} read</button>
                     <button v-if="!notification.catalog?.required" type="button" @click="muteType(notification)">Mute this type</button>
@@ -192,7 +199,7 @@ import { useNotificationStore } from '../store/notifications';
 import api from '../services/api';
 import OfficeRequestAssignModal from '../components/admin/OfficeRequestAssignModal.vue';
 import NotificationTypeSettingsDrawer from '../components/notifications/NotificationTypeSettingsDrawer.vue';
-import { notificationDestination } from '../utils/notificationActions';
+import { notificationDestination, notificationDismissPayload } from '../utils/notificationActions';
 
 const route = useRoute();
 const router = useRouter();
@@ -385,7 +392,7 @@ const updateState = async (notification, payload) => {
 };
 const toggleRead = (notification) => updateState(notification, { read: isUnread(notification) });
 const toggleFollowUp = (notification) => updateState(notification, { followUp: !notification._requires_follow_up_for_viewer });
-const dismiss = (notification) => updateState(notification, { dismissed: true });
+const dismiss = (notification) => updateState(notification, notificationDismissPayload(notification));
 const restore = (notification) => updateState(notification, { dismissed: false });
 const snooze = (notification, hours) => updateState(notification, { snoozedUntil: new Date(Date.now() + hours * 60 * 60 * 1000).toISOString() });
 
@@ -519,6 +526,7 @@ onBeforeUnmount(() => { if (undoTimer) clearTimeout(undoTimer); if (searchTimer)
 .notification-title-line { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }.notification-title { border:0; background:none; color:inherit; font-weight:800; cursor:pointer; padding:0; text-align:left; }.notification-title:hover { color:var(--primary); }
 .severity-pill,.unread-pill,.follow-pill { font-size:9px; text-transform:uppercase; border:1px solid var(--border); border-radius:999px; padding:3px 7px; font-weight:800; }.unread-pill { color:#1d4ed8; border-color:#bfdbfe; background:#eff6ff; }.follow-pill { color:#a16207; border-color:#fde68a; background:#fffbeb; }
 .notification-main p { color:var(--text-secondary); font-size:12px; margin:7px 0; overflow-wrap:anywhere; }.notification-main small { color:#059669; }
+.notification-meta { display:flex; flex-wrap:wrap; gap:6px 14px; }
 .notification-side { display:flex; flex-direction:column; align-items:flex-end; gap:9px; }.notification-side time { color:var(--text-secondary); font-size:11px; }.row-actions { display:flex; gap:6px; align-items:center; }.row-btn { border:1px solid var(--border); background:white; border-radius:7px; padding:7px 9px; font-size:11px; font-weight:700; cursor:pointer; }.row-btn.primary-action { color:#047857; border-color:#86efac; }.row-btn.follow { color:#b45309; border-color:#fbbf24; }.overflow-wrap { position:relative; }.overflow { font-size:17px; line-height:1; }
 .overflow-menu { position:absolute; z-index:20; right:0; top:calc(100% + 5px); min-width:230px; background:white; border:1px solid var(--border); border-radius:9px; box-shadow:0 14px 30px rgba(15,23,42,.16); padding:5px; }.overflow-menu button { display:block; width:100%; text-align:left; border:0; background:none; padding:9px; border-radius:6px; cursor:pointer; }.overflow-menu button:hover { background:var(--bg-alt); }
 .empty-state,.error-state { min-height:240px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--text-secondary); gap:7px; }.empty-state>span { font-size:30px; color:#16a34a; }.error-state { color:#b91c1c; }

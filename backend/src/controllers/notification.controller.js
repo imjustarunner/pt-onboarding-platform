@@ -13,6 +13,7 @@ import AgencyNotificationPreferences from '../models/AgencyNotificationPreferenc
 import {
   NOTIFICATION_CATEGORIES,
   getNotificationCatalogEntry,
+  isNotificationRecommendedForRole,
   listNotificationCatalog
 } from '../services/notificationCatalog.service.js';
 import {
@@ -1306,10 +1307,30 @@ export const syncNotifications = async (req, res, next) => {
 
 const FEED_PRIVATE_TYPES = ['chat_message', 'inbound_client_message', 'support_safety_net_alert'];
 
+function managedFanoutIdentity(candidateAlias = 'nf', notificationAlias = 'n') {
+  return `
+    ${candidateAlias}.user_id IS NOT NULL
+    AND ${candidateAlias}.fanout_fingerprint = ${notificationAlias}.fanout_fingerprint`;
+}
+
+function managedRecipientCountExpr(notificationAlias = 'n') {
+  return `CASE
+    WHEN ${notificationAlias}.user_id IS NULL THEN 1
+    ELSE GREATEST(1, (
+      SELECT COUNT(DISTINCT nf_count.user_id)
+      FROM notifications nf_count
+      WHERE ${managedFanoutIdentity('nf_count', notificationAlias)}
+    ))
+  END`;
+}
+
 async function getFeedAccess(req, requestedAgencyId = null, requestedScope = 'inbox') {
   const uid = Number(req.user.id);
   const role = String(req.user.role || '').toLowerCase();
-  if (requestedScope === 'managed' && !['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(role)) {
+  const scope = ['team', 'managed'].includes(String(requestedScope || '').toLowerCase())
+    ? String(requestedScope).toLowerCase()
+    : 'inbox';
+  if (scope === 'managed' && !['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(role)) {
     const error = new Error('Managed notification scope is not available for this role');
     error.status = 403;
     throw error;
@@ -1332,7 +1353,7 @@ async function getFeedAccess(req, requestedAgencyId = null, requestedScope = 'in
   }
 
   let superviseeIds = [];
-  if (requestedScope === 'team') {
+  if (scope === 'team') {
     if (!['supervisor', 'clinical_practice_assistant', 'provider_plus'].includes(role)) {
       const error = new Error('Team notification scope is not available for this role');
       error.status = 403;
@@ -1351,7 +1372,7 @@ async function getFeedAccess(req, requestedAgencyId = null, requestedScope = 'in
     guardianClientIds = access.clientIds;
     agencyIds = requestedAgencyId ? agencyIds : access.agencyIds;
   }
-  return { uid, role, agencyIds: uniquePositiveIds(agencyIds), superviseeIds, guardianClientIds };
+  return { uid, role, scope, agencyIds: uniquePositiveIds(agencyIds), superviseeIds, guardianClientIds };
 }
 
 function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, includeAfterId = false }) {
@@ -1397,19 +1418,36 @@ function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, in
     }
     guardianParts.push(`(n.user_id IS NULL AND n.type IN ('emergency_broadcast', 'program_reminder'))`);
     clauses.push(`(${guardianParts.join(' OR ')})`);
-  } else if (access.superviseeIds.length || String(req.query.scope || '') === 'team') {
+  } else if (access.superviseeIds.length || access.scope === 'team') {
     if (access.superviseeIds.length) {
       clauses.push(`n.user_id IN (${access.superviseeIds.map(() => '?').join(',')})`);
       params.push(...access.superviseeIds);
     } else {
       clauses.push('1 = 0');
     }
-  } else if (PERSONAL_ONLY_ROLES.has(access.role)) {
-    clauses.push('n.user_id = ?');
-    params.push(access.uid);
-  } else {
+  } else if (access.scope === 'managed') {
     clauses.push(`(n.user_id = ? OR n.type NOT IN (${FEED_PRIVATE_TYPES.map(() => '?').join(',')}))`);
     params.push(access.uid, ...FEED_PRIVATE_TYPES);
+    // Notification producers fan one database row out per recipient. Managed
+    // views are event-oriented, so retain the audit rows while showing one
+    // representative row for each exact fan-out event.
+    clauses.push(`(
+      n.user_id IS NULL
+      OR n.id = (
+        SELECT COALESCE(
+          MIN(CASE WHEN nf.user_id = ? THEN nf.id END),
+          MIN(nf.id)
+        )
+        FROM notifications nf
+        WHERE ${managedFanoutIdentity('nf', 'n')}
+      )
+    )`);
+    params.push(access.uid);
+  } else {
+    // My Inbox contains records addressed to the viewer plus true agency-wide
+    // broadcasts. It must never expose another user's personalized copy.
+    clauses.push('(n.user_id = ? OR n.user_id IS NULL)');
+    params.push(access.uid);
   }
 
   // Registration activity is relevant to clinical users only when they are
@@ -1598,6 +1636,9 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
     : sort === 'priority'
       ? "FIELD(n.severity, 'urgent', 'warning', 'info') ASC, n.created_at DESC, n.id DESC"
       : 'n.created_at DESC, n.id DESC';
+  const recipientCountExpr = access.scope === 'managed'
+    ? managedRecipientCountExpr('n')
+    : '1';
 
   const [[countRow], [rows], [facetRows], [categoryFacetRows], [typeFacetRows], [unreadCountRows]] = await Promise.all([
     pool.execute(`SELECT COUNT(*) AS total ${joins} WHERE ${current.sql}`, current.params),
@@ -1607,7 +1648,8 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
         nur.dismissed_at AS _dismissed_at_for_viewer,
         nur.snoozed_until AS _snoozed_until_for_viewer,
         a.name AS agency_name,
-        NULLIF(TRIM(CONCAT_WS(' ', au.first_name, au.last_name)), '') AS actor_display_name
+        NULLIF(TRIM(CONCAT_WS(' ', au.first_name, au.last_name)), '') AS actor_display_name,
+        ${recipientCountExpr} AS recipient_count
        ${joins}
        WHERE ${current.sql}
        ORDER BY ${orderBy}
@@ -1738,14 +1780,21 @@ export const getNotificationCatalog = async (req, res, next) => {
     res.json({
       categories: Object.entries(NOTIFICATION_CATEGORIES).map(([key, value]) => ({ key, ...value })),
       types: preferences,
+      roleProfile: preferences[0]?.roleProfile || 'employee',
+      recommendedTypeCount: preferences.filter((item) => item.recommendedForRole).length,
+      essentialTypeCount: preferences.filter((item) => item.essentialForRole).length,
       global: {
-        email: globalPreferences.email_enabled !== false,
-        sms: globalPreferences.sms_enabled === true,
-        push: globalPreferences.push_notifications_enabled === true,
-        sound: globalPreferences.notification_sound_enabled !== false,
-        digestEmail: globalPreferences.daily_digest_enabled === true,
+        inApp: true,
+        email: globalPreferences.email_enabled == null || Number(globalPreferences.email_enabled) === 1,
+        sms: Number(globalPreferences.sms_enabled) === 1,
+        push: Number(globalPreferences.push_notifications_enabled) === 1,
+        sound: globalPreferences.notification_sound_enabled == null || Number(globalPreferences.notification_sound_enabled) === 1,
+        digestEmail: Number(globalPreferences.daily_digest_enabled) === 1,
         digestTime: globalPreferences.daily_digest_time || '07:00',
-        timezone: globalPreferences.timezone || null
+        timezone: globalPreferences.timezone || null,
+        quietHoursEnabled: Number(globalPreferences.quiet_hours_enabled) === 1,
+        quietHoursStart: globalPreferences.quiet_hours_start_time || null,
+        quietHoursEnd: globalPreferences.quiet_hours_end_time || null
       },
       agencyPolicies: agencyPolicies.map((policy) => ({
         agencyId: policy.agencyId,
@@ -1777,6 +1826,10 @@ export const updateNotificationTypePreference = async (req, res, next) => {
       if (updates[channel] === true && entry.capabilities[channel] !== true) {
         return res.status(400).json({ error: { message: `${channel} is not available for this notification type` } });
       }
+    }
+    if (!isNotificationRecommendedForRole(type, req.user.role)
+      && Object.values(updates).some((value) => value === true)) {
+      return res.status(403).json({ error: { message: 'This notification type is not used for your role' } });
     }
     if (entry.required && updates.inApp === false) {
       return res.status(409).json({ error: { message: 'This safety notification is required in-app' } });

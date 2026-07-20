@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { notificationDestination } from '../notificationActions';
+import { notificationDestination, notificationDismissPayload } from '../notificationActions';
 
 describe('notificationActions', () => {
   it('routes packets to the client documents tab with organization context', () => {
@@ -19,5 +19,12 @@ describe('notificationActions', () => {
 
   it('does not expose admin profile navigation to ordinary providers', () => {
     expect(notificationDestination({ type: 'status_expired', user_id: 7, related_entity_type: 'user' }, { role: 'provider' })).toBeNull();
+  });
+
+  it('clears follow-up atomically when dismissing a protected notification', () => {
+    expect(notificationDismissPayload({ _requires_follow_up_for_viewer: true }))
+      .toEqual({ followUp: false, dismissed: true });
+    expect(notificationDismissPayload({ _requires_follow_up_for_viewer: false }))
+      .toEqual({ dismissed: true });
   });
 });
