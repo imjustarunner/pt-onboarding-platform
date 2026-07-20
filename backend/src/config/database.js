@@ -16,12 +16,21 @@ const dbHost = process.env.DB_HOST || 'localhost';
 const isUnixSocket = dbHost.startsWith('/cloudsql/') || dbHost.startsWith('/');
 
 // Build connection configuration
+// IMPORTANT: mysql2's pool.execute() caches prepared statements per connection
+// (default maxPreparedStatements=16000). Dynamic SQL (IN (...), SET col=?) creates
+// unique statement keys that never reuse, and those handles are GLOBAL on MySQL
+// (max_prepared_stmt_count ≈ 16382). Keep the client cache small so LRU closes
+// old statements, and keep connectionLimit modest across Cloud Run replicas.
 const poolConfig = {
   user: process.env.DB_USER || 'onboarding_user',
   password: process.env.DB_PASSWORD || 'onboarding_pass',
   database: process.env.DB_NAME || 'onboarding_stage',
   waitForConnections: true,
-  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 50,
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 20,
+  maxIdle: parseInt(process.env.DB_MAX_IDLE, 10) || 10,
+  idleTimeout: parseInt(process.env.DB_IDLE_TIMEOUT_MS, 10) || 60000,
+  // Cap cached prepared statements per connection; excess are closed via LRU.
+  maxPreparedStatements: parseInt(process.env.DB_MAX_PREPARED_STATEMENTS, 10) || 64,
   queueLimit: 0,
   connectTimeout: 60000, // 60 seconds connection timeout
   timezone: '+00:00', // Force UTC timezone for all connections
@@ -52,6 +61,8 @@ if (isUnixSocket) {
   console.log('  - Port:', poolConfig.port);
 }
 console.log('  - Connection limit:', poolConfig.connectionLimit);
+console.log('  - Max idle / idle timeout:', poolConfig.maxIdle, '/', poolConfig.idleTimeout, 'ms');
+console.log('  - Max prepared statements/conn:', poolConfig.maxPreparedStatements);
 console.log('  - Connection timeout:', poolConfig.connectTimeout, 'ms');
 
 const pool = mysql.createPool(poolConfig);
