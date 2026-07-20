@@ -455,7 +455,7 @@
                       class="nav-badge nav-badge-pulse"
                       :title="`${eventPortalRegistrantBadgeCount} new event registrant(s)`"
                     >
-                      {{ eventPortalRegistrantBadgeCount }}
+                      {{ formatNavBadgeCount(eventPortalRegistrantBadgeCount) }}
                     </span>
                     <span class="brand-caret">▾</span>
                   </button>
@@ -887,7 +887,7 @@
                       class="nav-badge nav-badge-pulse"
                       :title="`${communicationsPendingCount} pending to send, ${communicationsOpenTicketsCount} open tickets, ${notificationsUnreadCount} unread notifications`"
                     >
-                      {{ communicationsTotalAttentionCount }}
+                      {{ formatNavBadgeCount(communicationsTotalAttentionCount) }}
                     </span>
                     <span class="brand-caret">▾</span>
                   </button>
@@ -902,7 +902,7 @@
                         class="nav-badge nav-badge-pulse"
                         :title="`${communicationsPendingCount} pending, ${communicationsOpenTicketsCount} open tickets`"
                       >
-                        {{ communicationsTotalAttentionCount }}
+                        {{ formatNavBadgeCount(communicationsTotalAttentionCount) }}
                       </span>
                     </router-link>
                     <router-link
@@ -1847,7 +1847,7 @@
                   @click="mobileCommsExpanded = !mobileCommsExpanded"
                 >
                   <span>Communications</span>
-                  <span v-if="communicationsTotalAttentionCount > 0" class="nav-badge nav-badge-pulse" style="margin-left: 8px;">{{ communicationsTotalAttentionCount }}</span>
+                  <span v-if="communicationsTotalAttentionCount > 0" class="nav-badge nav-badge-pulse" style="margin-left: 8px;" :title="`${communicationsTotalAttentionCount} item(s) need attention`">{{ formatNavBadgeCount(communicationsTotalAttentionCount) }}</span>
                   <span class="mobile-nav-group-caret" :class="{ open: mobileCommsExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="mobileCommsExpanded">
@@ -3045,8 +3045,43 @@ const closeNavMenuByKey = (key) => {
   if (menuRef) menuRef.value = false;
 };
 
+/**
+ * When users magnify the page (poor vision / browser zoom), hover targets get huge and
+ * adjacent Directory/Tools menus steal focus. Prefer click-to-open in that case.
+ */
+const navHoverMenusEnabled = ref(true);
+const refreshNavHoverMenusEnabled = () => {
+  try {
+    const scale = Number(window.visualViewport?.scale || 1);
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    navHoverMenusEnabled.value = scale <= 1.05 && !reducedMotion;
+  } catch {
+    navHoverMenusEnabled.value = true;
+  }
+};
+onMounted(() => {
+  refreshNavHoverMenusEnabled();
+  window.visualViewport?.addEventListener?.('resize', refreshNavHoverMenusEnabled);
+  window.visualViewport?.addEventListener?.('scroll', refreshNavHoverMenusEnabled);
+  window.addEventListener('resize', refreshNavHoverMenusEnabled);
+});
+onUnmounted(() => {
+  window.visualViewport?.removeEventListener?.('resize', refreshNavHoverMenusEnabled);
+  window.visualViewport?.removeEventListener?.('scroll', refreshNavHoverMenusEnabled);
+  window.removeEventListener('resize', refreshNavHoverMenusEnabled);
+});
+
+/** Cap badge text so huge counts (e.g. 14817) don't blow the top nav when zoomed. */
+const formatNavBadgeCount = (n) => {
+  const num = Number(n) || 0;
+  if (num <= 0) return '';
+  if (num > 99) return '99+';
+  return String(num);
+};
+
 /** Desktop hover open — mirrors Tools mega-menu (short leave delay; click still toggles). */
 const onNavMenuEnter = (key) => {
+  if (!navHoverMenusEnabled.value) return;
   clearNavMenuHoverTimer();
   if (!isNavMenuOpen(key)) {
     closeAllNavMenus();
@@ -6697,6 +6732,7 @@ button.nav-dropdown-button-link:hover {
   align-items: center;
   justify-content: center;
   min-width: 18px;
+  max-width: 3.25rem;
   height: 18px;
   padding: 0 6px;
   border-radius: 999px;
@@ -6705,10 +6741,20 @@ button.nav-dropdown-button-link:hover {
   font-weight: 800;
   background: var(--danger);
   color: white;
+  overflow: hidden;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .nav-badge-pulse {
   animation: obnoxiousPulse 1.35s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-badge-pulse,
+  .nav-obnoxious-badge {
+    animation: none !important;
+  }
 }
 
 .nav-obnoxious-badge {

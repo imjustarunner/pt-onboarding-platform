@@ -23,7 +23,7 @@
       </div>
 
       <div
-        v-if="isDashboardRoute && (organizationPortalCards.length > 0 || bookClubChipVisible)"
+        v-if="showPortalStrip"
         class="portal-strip"
         :class="{ 'portal-strip--empty': organizationPortalCards.length === 0 && !bookClubChipVisible }"
         aria-label="Assigned portals"
@@ -178,6 +178,21 @@ const organizationPortalCards = computed(() => {
     initials: toInitials(org?.name),
     slug: getOrgSlug(org)
   }));
+});
+
+/**
+ * Admins/support inherit every affiliated school/program (often 50+). That chip wall
+ * also appears on school portal dashboards (`/:slug/dashboard`). Directory → Schools
+ * already covers admin access — keep chips only for staff with a small assigned set.
+ */
+const inheritsAllAffiliatedPortals = computed(() =>
+  ['admin', 'support', 'staff', 'super_admin'].includes(roleNorm.value)
+);
+
+const showPortalStrip = computed(() => {
+  if (!isDashboardRoute.value) return false;
+  if (inheritsAllAffiliatedPortals.value) return false;
+  return organizationPortalCards.value.length > 0 || bookClubChipVisible.value;
 });
 
 const hasBookClubMembershipCard = computed(() =>

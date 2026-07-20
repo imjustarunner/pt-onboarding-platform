@@ -6,7 +6,7 @@
       :class="{ 'is-open': open }"
       :aria-expanded="open"
       aria-label="Ask assistant"
-      title="Ask anything — hover or ⌘/Ctrl+Shift+A"
+      title="Ask anything — click or ⌘/Ctrl+Shift+A"
       @click="toggle"
       @focus="scheduleOpen"
     >
@@ -37,6 +37,18 @@ const OPEN_DELAY_MS = 300;
 const open = ref(false);
 let hoverOpenTimer = null;
 
+/** Hover-open fights zoomed / magnified cursors — click (and keyboard) stay available. */
+function hoverOpenAllowed() {
+  try {
+    const scale = Number(window.visualViewport?.scale || 1);
+    if (scale > 1.05) return false;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return false;
+  } catch {
+    // ignore
+  }
+  return true;
+}
+
 function clearHoverTimer() {
   if (hoverOpenTimer) {
     clearTimeout(hoverOpenTimer);
@@ -45,7 +57,7 @@ function clearHoverTimer() {
 }
 
 function scheduleOpen() {
-  if (open.value) return;
+  if (open.value || !hoverOpenAllowed()) return;
   clearHoverTimer();
   hoverOpenTimer = setTimeout(() => {
     open.value = true;
