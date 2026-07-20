@@ -2337,6 +2337,18 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/settings',
+    name: 'MySettings',
+    redirect: '/dashboard?tab=my&my=preferences',
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/:organizationSlug/settings',
+    name: 'OrganizationMySettings',
+    redirect: (to) => `/${to.params.organizationSlug}/dashboard?tab=my&my=preferences`,
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/credentials',
     name: 'Credentials',
     redirect: '/dashboard?tab=my&my=credentials',

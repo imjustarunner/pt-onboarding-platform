@@ -15,6 +15,8 @@ export const useUserPreferencesStore = defineStore('userPreferences', () => {
   const pushNotificationsEnabled = ref(false);
   const notificationSoundEnabled = ref(true);
   const defaultLandingPage = ref('dashboard');
+  /** When false, Directory/Tools/Ask Assistant open on click only (not hover). */
+  const navHoverMenusEnabled = ref(true);
 
   const defaultToastPreferences = () => ({
     login_logout: { toast_enabled: true, duration_seconds: 6, sound_enabled: true },
@@ -33,6 +35,7 @@ export const useUserPreferencesStore = defineStore('userPreferences', () => {
     if (data.notification_sound_enabled != null) notificationSoundEnabled.value = !!data.notification_sound_enabled;
     else notificationSoundEnabled.value = true;
     if (data.default_landing_page != null) defaultLandingPage.value = data.default_landing_page || 'dashboard';
+    if (data.nav_hover_menus_enabled != null) navHoverMenusEnabled.value = data.nav_hover_menus_enabled !== false;
     if (data.toast_preferences != null && typeof data.toast_preferences === 'object') {
       const defaults = defaultToastPreferences();
       toastPreferences.value = {
@@ -53,6 +56,7 @@ export const useUserPreferencesStore = defineStore('userPreferences', () => {
     pushNotificationsEnabled.value = false;
     notificationSoundEnabled.value = true;
     defaultLandingPage.value = 'dashboard';
+    navHoverMenusEnabled.value = true;
     toastPreferences.value = defaultToastPreferences();
   }
 
@@ -65,6 +69,7 @@ export const useUserPreferencesStore = defineStore('userPreferences', () => {
     pushNotificationsEnabled,
     notificationSoundEnabled,
     defaultLandingPage,
+    navHoverMenusEnabled,
     toastPreferences,
     defaultToastPreferences,
     setFromApi,

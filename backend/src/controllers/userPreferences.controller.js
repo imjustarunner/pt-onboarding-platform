@@ -144,6 +144,7 @@ const buildDefaultPreferences = (userRole) => {
     push_notifications_enabled: false,
     notification_sound_enabled: true,
     helper_enabled: true,
+    nav_hover_menus_enabled: true,
     tutorial_progress: null,
     school_portal_notifications_progress: null,
 

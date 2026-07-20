@@ -139,6 +139,7 @@
               <template v-if="showDesktopHeaderWordNav">
               <!-- SSTC Summit: primary nav order (matches mobile sidebar) -->
               <template v-if="isSummitStatsChallengeChrome && isAuthenticated && isSscClubManager">
+                <router-link :to="mySettingsNavTo" @click="closeMobileMenu">My Settings</router-link>
                 <router-link :to="myAccountNavTo" @click="closeMobileMenu">My Account</router-link>
                 <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }">
                   Manager Dashboard
@@ -253,6 +254,7 @@
                 <router-link :to="orgTo('/clubs')" @click="closeMobileMenu">Browse Clubs</router-link>
               </template>
               <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
+                <router-link :to="mySettingsNavTo" @click="closeMobileMenu">My Settings</router-link>
                 <router-link :to="myAccountNavTo" @click="closeMobileMenu">My Account</router-link>
                 <template v-if="sstcMemberMyClubNav">
                   <router-link
@@ -1142,6 +1144,15 @@
                 </router-link>
                 <router-link
                   v-if="!isSummitStatsChallengeChrome"
+                  :to="mySettingsNavTo"
+                  class="nav-icon-btn nav-my-settings-btn"
+                  title="My Settings — appearance, menus, notifications"
+                  aria-label="My Settings"
+                >
+                  <span class="nav-my-settings-label" aria-hidden="true">Me</span>
+                </router-link>
+                <router-link
+                  v-if="!isSummitStatsChallengeChrome"
                   :to="myAccountNavTo"
                   class="nav-icon-btn"
                   title="My Account"
@@ -1242,6 +1253,7 @@
             </div>
             <router-link v-if="showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
             <template v-if="isSummitStatsChallengeChrome && isAuthenticated && isSscClubManager">
+              <router-link :to="mySettingsNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Settings</router-link>
               <router-link :to="myAccountNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Account</router-link>
               <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">Manager Dashboard</router-link>
               <template v-if="myClubPublicNav">
@@ -1332,6 +1344,7 @@
               <router-link :to="orgTo('/clubs')" @click="closeMobileMenu" class="mobile-nav-link">Browse Clubs</router-link>
             </template>
             <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
+              <router-link :to="mySettingsNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Settings</router-link>
               <router-link :to="myAccountNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Account</router-link>
               <template v-if="sstcMemberMyClubNav">
                 <router-link
@@ -3069,6 +3082,8 @@ const formatNavBadgeCount = (n) => {
 const NAV_HOVER_OPEN_DELAY_MS = 220;
 
 const onNavMenuEnter = (key) => {
+  // User setting: My Settings → Open menus on hover
+  if (userPreferencesStore.navHoverMenusEnabled === false) return;
   clearNavMenuHoverTimer();
   clearNavMenuOpenTimer();
   if (isNavMenuOpen(key)) return;
@@ -4839,6 +4854,16 @@ const myAccountNavTo = computed(() => {
   const t = myDashboardTo.value;
   const path = typeof t === 'string' ? t : (t?.path || '/dashboard');
   return { path, query: { tab: 'my' } };
+});
+
+/** Personal My Settings (appearance, hover menus, notifications) inside My Account. */
+const mySettingsNavTo = computed(() => {
+  if (isSscSstcTenant.value) {
+    return { path: orgTo('/my_club_dashboard'), query: { view: 'account', my: 'preferences' } };
+  }
+  const t = myDashboardTo.value;
+  const path = typeof t === 'string' ? t : (t?.path || '/dashboard');
+  return { path, query: { tab: 'my', my: 'preferences' } };
 });
 
 const showOperationsDashboardLink = computed(() => {
@@ -7701,6 +7726,12 @@ details[open].mobile-nav-group-collapsible .mobile-nav-group-caret {
 }
 .nav-icon-btn:hover {
   background: rgba(255, 255, 255, 0.12);
+}
+.nav-my-settings-btn .nav-my-settings-label {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 .nav-icon-img {
   width: 18px;

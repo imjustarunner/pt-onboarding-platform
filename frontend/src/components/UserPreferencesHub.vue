@@ -179,7 +179,7 @@
           </div>
 
           <div class="card notification-type-settings-card">
-            <NotificationTypeSettingsPanel v-if="props.userId === authStore.user?.id" />
+            <NotificationTypeSettingsPanel v-if="props.userId === authStore.user?.id" :global-editable="false" />
             <p v-else class="field-help">Per-type delivery settings are account-wide and must be managed by the account owner.</p>
           </div>
 
@@ -718,11 +718,11 @@
       </div>
     </section>
 
-    <!-- Section 5: Accessibility & UI Preferences -->
-    <section class="preferences-section">
+    <!-- Section 5: Accessibility & UI Preferences (My Settings) -->
+    <section class="preferences-section" id="my-settings-appearance">
       <div class="section-header">
-        <h2>Accessibility & UI Preferences</h2>
-        <p class="section-description">Non-clinical, quality-of-life settings.</p>
+        <h2>Appearance & navigation</h2>
+        <p class="section-description">Dark mode, menus, helper, and accessibility — your personal My Settings.</p>
       </div>
       <div class="section-content">
         <div class="prefs-grid">
@@ -732,7 +732,7 @@
               <input v-model="prefs.dark_mode" type="checkbox" :disabled="viewOnly" />
               Dark mode
             </label>
-            <div class="field-help">Use a dark theme for the app.</div>
+            <div class="field-help">Use a dark theme across the app (including school portals).</div>
             <div class="field">
               <label>Layout density</label>
               <select v-model="prefs.layout_density" :disabled="viewOnly">
@@ -741,6 +741,18 @@
                 <option value="comfortable">Comfortable</option>
               </select>
               <div class="field-help">Controls spacing in tables and lists.</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">Top navigation</h3>
+            <label class="field checkbox">
+              <input v-model="prefs.nav_hover_menus_enabled" type="checkbox" :disabled="viewOnly" />
+              Open menus on hover
+            </label>
+            <div class="field-help">
+              When off, Directory, Tools, Communications, and Ask Assistant open only when you click
+              (helps if hover menus feel jumpy).
             </div>
           </div>
 
@@ -1171,6 +1183,7 @@ const prefs = ref({
   push_notifications_enabled: false,
   notification_sound_enabled: true,
   helper_enabled: true,
+  nav_hover_menus_enabled: true,
   default_landing_page: 'dashboard',
 
   // Session Lock (HIPAA-style)
@@ -1309,7 +1322,7 @@ watch(
   }
 );
 
-// Debounced auto-save of dark_mode + layout_density to database (so server stays in sync)
+// Debounced auto-save of quick UI toggles (so server stays in sync)
 let quickSaveTimer = null;
 const quickSave = () => {
   if (props.userId !== authStore.user?.id || props.viewOnly) return;
@@ -1319,11 +1332,13 @@ const quickSave = () => {
     try {
       await api.put(`/users/${props.userId}/preferences`, {
         dark_mode: !!prefs.value.dark_mode,
-        layout_density: prefs.value.layout_density || 'standard'
+        layout_density: prefs.value.layout_density || 'standard',
+        nav_hover_menus_enabled: prefs.value.nav_hover_menus_enabled !== false,
+        helper_enabled: prefs.value.helper_enabled !== false
       }, { skipGlobalLoading: true });
-      userPrefsStore.setFromApi({ ...prefs.value, dark_mode: prefs.value.dark_mode, layout_density: prefs.value.layout_density });
+      userPrefsStore.setFromApi({ ...prefs.value });
     } catch {
-      /* ignore – localStorage still has it */
+      /* ignore – local still applied */
     }
   }, 800);
 };
@@ -1345,6 +1360,21 @@ watch(
       applyLayoutDensity(density);
       quickSave();
     }
+  }
+);
+watch(
+  () => prefs.value.nav_hover_menus_enabled,
+  (enabled) => {
+    if (props.userId === authStore.user?.id) {
+      userPrefsStore.navHoverMenusEnabled = enabled !== false;
+      quickSave();
+    }
+  }
+);
+watch(
+  () => prefs.value.helper_enabled,
+  () => {
+    if (props.userId === authStore.user?.id) quickSave();
   }
 );
 
@@ -1456,6 +1486,7 @@ const load = async () => {
     // Prefer localStorage (dashboard toggle) over server – dashboard toggle doesn't save to server immediately
     const storedDark = getStoredDarkMode(props.userId);
     prefs.value.dark_mode = storedDark !== null ? storedDark : !!data?.dark_mode;
+    prefs.value.nav_hover_menus_enabled = data?.nav_hover_menus_enabled !== false;
 
     // Apply dark mode and sync store when loading own preferences
     if (props.userId === authStore.user?.id) {
@@ -1559,6 +1590,7 @@ const save = async () => {
       push_notifications_enabled: !!prefs.value.push_notifications_enabled,
       notification_sound_enabled: !!prefs.value.notification_sound_enabled,
       helper_enabled: !!prefs.value.helper_enabled,
+      nav_hover_menus_enabled: prefs.value.nav_hover_menus_enabled !== false,
       default_landing_page: prefs.value.default_landing_page || 'dashboard',
 
       // Session Lock

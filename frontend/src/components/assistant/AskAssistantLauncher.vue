@@ -31,9 +31,11 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import AskAssistantPanel from './AskAssistantPanel.vue';
+import { useUserPreferencesStore } from '../../store/userPreferences';
 
 const OPEN_DELAY_MS = 300;
 
+const prefsStore = useUserPreferencesStore();
 const open = ref(false);
 let hoverOpenTimer = null;
 
@@ -46,6 +48,7 @@ function clearHoverTimer() {
 
 function scheduleOpen() {
   if (open.value) return;
+  if (prefsStore.navHoverMenusEnabled === false) return;
   clearHoverTimer();
   hoverOpenTimer = setTimeout(() => {
     open.value = true;

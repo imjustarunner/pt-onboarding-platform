@@ -1,8 +1,8 @@
 <template>
   <div class="container">
     <div class="preferences-header">
-      <h1>My Preferences</h1>
-      <p class="preferences-subtitle">Manage your personal settings and preferences</p>
+      <h1>My Settings</h1>
+      <p class="preferences-subtitle">Appearance, navigation, notifications, and accessibility</p>
     </div>
 
     <UserPreferencesHub v-if="authStore.user?.id" :userId="authStore.user.id" />

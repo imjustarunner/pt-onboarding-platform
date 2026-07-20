@@ -364,13 +364,20 @@ export class OfficeScheduleMaterializer {
         }
       }
 
-      console.info('[materializeWeek]', JSON.stringify({
-        officeLocationId: officeId,
-        weekStart,
-        cacheHit,
-        upsertedCount,
-        cancelledCount
-      }));
+      // Quiet by default — this runs for many offices/weeks on boot. Set DEBUG_OFFICE_MATERIALIZE=1 to log all.
+      if (
+        upsertedCount > 0 ||
+        cancelledCount > 0 ||
+        process.env.DEBUG_OFFICE_MATERIALIZE === '1'
+      ) {
+        console.info('[materializeWeek]', JSON.stringify({
+          officeLocationId: officeId,
+          weekStart,
+          cacheHit,
+          upsertedCount,
+          cancelledCount
+        }));
+      }
 
       return { ok: true, officeLocationId: officeId, weekStart, days, upsertedCount, cancelledCount, cacheHit };
     })();

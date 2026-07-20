@@ -463,14 +463,6 @@
                 <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="btn-icon-img" />
                 <span v-else aria-hidden="true">⚙</span>
               </button>
-              <label
-                v-if="authStore.user?.id"
-                class="school-portal-dark-mode-toggle"
-                :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'"
-              >
-                <input type="checkbox" :checked="isDarkMode" @change="onDarkModeToggle" />
-                <span class="school-portal-dark-mode-text">Dark mode</span>
-              </label>
               <div class="codes-toggle" data-tour="school-codes-toggle">
                 <button
                   class="btn btn-secondary btn-sm"
@@ -1663,7 +1655,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue';
+import { computed, onMounted, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   formatSchoolEventWhen as formatSchoolEventWhenUtil,
@@ -1707,7 +1699,6 @@ import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isSupervisor } from '../../utils/helpers';
-import { setDarkMode, getStoredDarkMode } from '../../utils/darkMode';
 import { getSchoolStaffWaiverStatus as getSchoolStaffWaiverStatusForGate } from '../../utils/schoolStaffWaiverGate';
 import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
@@ -2280,17 +2271,6 @@ const waitlistSchoolCount = computed(() => {
   const n = Number(store.portalStats?.clients_waitlist ?? 0);
   return Number.isFinite(n) && n >= 0 ? n : 0;
 });
-
-const isDarkMode = ref(document.documentElement.getAttribute('data-theme') === 'dark');
-const darkModeObserver = typeof document !== 'undefined' ? new MutationObserver(() => {
-  isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark';
-}) : null;
-function onDarkModeToggle(e) {
-  const enabled = !!e.target?.checked;
-  const uid = authStore.user?.id;
-  if (uid) setDarkMode(uid, enabled);
-  isDarkMode.value = enabled;
-}
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSuperAdmin = computed(() => roleNorm.value === 'super_admin');
@@ -3807,17 +3787,6 @@ onMounted(async () => {
   }
 
   await maybeOpenWeeklyAvailabilityPrompt();
-
-  const stored = authStore.user?.id ? getStoredDarkMode(authStore.user.id) : null;
-  if (stored !== null) isDarkMode.value = stored;
-  else isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark';
-  if (darkModeObserver) {
-    darkModeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-  }
-});
-
-onBeforeUnmount(() => {
-  if (darkModeObserver) darkModeObserver.disconnect();
 });
 
 watch(organizationId, async (id) => {
@@ -4444,22 +4413,6 @@ watch(() => store.selectedWeekday, async (weekday) => {
   padding-right: 10px;
   border-right: 1px solid var(--border, #e5e7eb);
 }
-.school-portal-dark-mode-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-secondary);
-  user-select: none;
-}
-.school-portal-dark-mode-toggle input {
-  cursor: pointer;
-}
-.school-portal-dark-mode-toggle:hover .school-portal-dark-mode-text {
-  color: var(--text-primary);
-}
-
 /* Keep School Portal header/action buttons compact and stable. */
 .school-portal .btn {
   width: auto;
