@@ -111,7 +111,6 @@ import api from '../services/api';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 
 const AVATAR_SIZE_PX = 140;
-const AVATAR_SIZE_ZOOMED_PX = 72;
 const DISMISS_STORAGE_PREFIX = 'helperWidgetDismissed.v1';
 
 const props = defineProps({
@@ -261,26 +260,7 @@ const activeAgentConfig = computed(() => {
 const uiVariant = computed(() => String(helperConfig.value?.uiVariant || 'bubble'));
 const isDrawer = computed(() => uiVariant.value === 'drawer');
 const openOnHover = computed(() => helperConfig.value?.openOnHover === true);
-const pageZoomed = ref(false);
-const refreshPageZoomed = () => {
-  try {
-    pageZoomed.value = Number(window.visualViewport?.scale || 1) > 1.05;
-  } catch {
-    pageZoomed.value = false;
-  }
-};
-onMounted(() => {
-  refreshPageZoomed();
-  window.visualViewport?.addEventListener?.('resize', refreshPageZoomed);
-});
-onUnmounted(() => {
-  window.visualViewport?.removeEventListener?.('resize', refreshPageZoomed);
-});
-
-const avatarSizePx = computed(() => {
-  if (isDrawer.value) return 56;
-  return pageZoomed.value ? AVATAR_SIZE_ZOOMED_PX : AVATAR_SIZE_PX;
-});
+const avatarSizePx = computed(() => (isDrawer.value ? 56 : AVATAR_SIZE_PX));
 
 const positionClass = computed(() =>
   helperConfig.value?.position === 'bottom_left' ? 'bottom-left' : 'bottom-right'

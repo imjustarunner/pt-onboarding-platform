@@ -3045,33 +3045,7 @@ const closeNavMenuByKey = (key) => {
   if (menuRef) menuRef.value = false;
 };
 
-/**
- * When users magnify the page (poor vision / browser zoom), hover targets get huge and
- * adjacent Directory/Tools menus steal focus. Prefer click-to-open in that case.
- */
-const navHoverMenusEnabled = ref(true);
-const refreshNavHoverMenusEnabled = () => {
-  try {
-    const scale = Number(window.visualViewport?.scale || 1);
-    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-    navHoverMenusEnabled.value = scale <= 1.05 && !reducedMotion;
-  } catch {
-    navHoverMenusEnabled.value = true;
-  }
-};
-onMounted(() => {
-  refreshNavHoverMenusEnabled();
-  window.visualViewport?.addEventListener?.('resize', refreshNavHoverMenusEnabled);
-  window.visualViewport?.addEventListener?.('scroll', refreshNavHoverMenusEnabled);
-  window.addEventListener('resize', refreshNavHoverMenusEnabled);
-});
-onUnmounted(() => {
-  window.visualViewport?.removeEventListener?.('resize', refreshNavHoverMenusEnabled);
-  window.visualViewport?.removeEventListener?.('scroll', refreshNavHoverMenusEnabled);
-  window.removeEventListener('resize', refreshNavHoverMenusEnabled);
-});
-
-/** Cap badge text so huge counts (e.g. 14817) don't blow the top nav when zoomed. */
+/** Cap badge text so huge counts (e.g. 14817) don't blow the top nav layout. */
 const formatNavBadgeCount = (n) => {
   const num = Number(n) || 0;
   if (num <= 0) return '';
@@ -3079,17 +3053,34 @@ const formatNavBadgeCount = (n) => {
   return String(num);
 };
 
-/** Desktop hover open — mirrors Tools mega-menu (short leave delay; click still toggles). */
-const onNavMenuEnter = (key) => {
-  if (!navHoverMenusEnabled.value) return;
-  clearNavMenuHoverTimer();
-  if (!isNavMenuOpen(key)) {
-    closeAllNavMenus();
-    openNavMenuByKey(key);
+/**
+ * Desktop hover open with a short dwell so sliding across Directory en route to Tools
+ * doesn't instantly steal the menu. Click still toggles immediately.
+ */
+const NAV_HOVER_OPEN_DELAY_MS = 220;
+let navMenuOpenTimer = null;
+const clearNavMenuOpenTimer = () => {
+  if (navMenuOpenTimer) {
+    clearTimeout(navMenuOpenTimer);
+    navMenuOpenTimer = null;
   }
 };
 
+const onNavMenuEnter = (key) => {
+  clearNavMenuHoverTimer();
+  clearNavMenuOpenTimer();
+  if (isNavMenuOpen(key)) return;
+  navMenuOpenTimer = setTimeout(() => {
+    navMenuOpenTimer = null;
+    if (!isNavMenuOpen(key)) {
+      closeAllNavMenus();
+      openNavMenuByKey(key);
+    }
+  }, NAV_HOVER_OPEN_DELAY_MS);
+};
+
 const onNavMenuLeave = (key) => {
+  clearNavMenuOpenTimer();
   clearNavMenuHoverTimer();
   navMenuHoverTimer.value = setTimeout(() => {
     closeNavMenuByKey(key);
