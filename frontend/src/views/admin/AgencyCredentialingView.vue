@@ -5,7 +5,7 @@
         <router-link :to="orgTo('/admin')" class="back-link">← Back to Admin Dashboard</router-link>
         <h1>Agency Credentialing</h1>
         <div class="muted" style="margin-top: 6px;">
-          Provider credentialing overview — edit deliberately, upload licenses, and export CSV.
+          Agency group NPIs and provider credentialing — edit deliberately, upload licenses, and export CSV.
         </div>
       </div>
 
@@ -87,6 +87,11 @@
         Define the payers this agency credentials with (logo included). These appear when creating a credential for each provider below.
       </p>
       <InsuranceDefinitionsPanel :agency-id="selectedAgencyId" />
+    </details>
+
+    <details class="card agency-group-npis-card" :open="agencyGroupNpisOpen">
+      <summary>Agency group NPIs</summary>
+      <AgencyGroupNpisPanel v-if="selectedAgencyId" :agency-id="selectedAgencyId" />
     </details>
 
     <details class="card timeline-card">
@@ -596,6 +601,7 @@ import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isFullyLicensedCredentialText } from '../../utils/credentialNormalization.js';
 import CredentialingTimeline from '../../components/admin/CredentialingTimeline.vue';
 import InsuranceDefinitionsPanel from '../../components/admin/InsuranceDefinitionsPanel.vue';
+import AgencyGroupNpisPanel from '../../components/admin/AgencyGroupNpisPanel.vue';
 import ProviderPayerCredentialsPanel from '../../components/admin/ProviderPayerCredentialsPanel.vue';
 
 /** Read-only by default; only renders an input when the row is explicitly in edit mode. */
@@ -652,6 +658,9 @@ const byInsuranceData = ref([]);
 const byInsuranceLoading = ref(false);
 const insuranceDefinitionsDetails = ref(null);
 const insuranceDefinitionsOpen = ref(String(route.query?.panel || '') === 'insurance-definitions');
+const agencyGroupNpisOpen = ref(
+  ['agency-group-npis', 'group-npis', 'agency-npis'].includes(String(route.query?.panel || ''))
+);
 const showCsvModal = ref(false);
 const showColumnMenu = ref(false);
 const uploadingUserId = ref(null);
@@ -1348,6 +1357,7 @@ const applyRoutePanelPrefs = async () => {
   const panel = String(route.query?.panel || '').trim();
   insuranceDefinitionsOpen.value =
     panel === 'insurance-definitions' || panel === 'payer-credentialing';
+  agencyGroupNpisOpen.value = ['agency-group-npis', 'group-npis', 'agency-npis'].includes(panel);
   const queryAgencyId = parseInt(String(route.query?.agencyId || ''), 10);
   if (Number.isInteger(queryAgencyId) && queryAgencyId > 0) {
     const match = (agencies.value || []).find((a) => Number(a.id) === queryAgencyId);
@@ -1426,6 +1436,7 @@ watch(viewMode, (mode) => {
 }
 .filters-card,
 .insurance-definitions-card,
+.agency-group-npis-card,
 .timeline-card,
 .table-card {
   margin-top: 14px;

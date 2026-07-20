@@ -1419,8 +1419,8 @@ export const revealCredential = async (req, res, next) => {
     }
     await assertCredentialPrivilege(req, agencyId);
     const { type, id, insuranceDefinitionId } = req.body || {};
-    if (!type || !['insurance_login', 'user_level'].includes(type)) {
-      return res.status(400).json({ error: { message: 'type must be insurance_login or user_level' } });
+    if (!type || !['insurance_login', 'user_level', 'group_level'].includes(type)) {
+      return res.status(400).json({ error: { message: 'type must be insurance_login, user_level, or group_level' } });
     }
     let plaintext = null;
     if (type === 'insurance_login') {
@@ -1452,6 +1452,20 @@ export const revealCredential = async (req, res, next) => {
       const cipher = field === 'password'
         ? (row.user_level_password_ciphertext && { ciphertextB64: row.user_level_password_ciphertext, ivB64: row.user_level_password_iv, authTagB64: row.user_level_password_auth_tag, keyId: row.user_level_password_key_id })
         : (row.user_level_username_ciphertext && { ciphertextB64: row.user_level_username_ciphertext, ivB64: row.user_level_username_iv, authTagB64: row.user_level_username_auth_tag, keyId: row.user_level_username_key_id });
+      if (!cipher) {
+        return res.status(404).json({ error: { message: 'No stored credential' } });
+      }
+      plaintext = decryptChatText(cipher);
+    } else if (type === 'group_level') {
+      const AgencyGroupNpiPayerCredentialing = (await import('../models/AgencyGroupNpiPayerCredentialing.model.js')).default;
+      const row = await AgencyGroupNpiPayerCredentialing.findById(parseInt(id, 10));
+      if (!row || Number(row.group_npi_agency_id) !== agencyId) {
+        return res.status(404).json({ error: { message: 'Group NPI payer credentialing not found' } });
+      }
+      const field = req.body.field === 'password' ? 'password' : 'username';
+      const cipher = field === 'password'
+        ? (row.group_level_password_ciphertext && { ciphertextB64: row.group_level_password_ciphertext, ivB64: row.group_level_password_iv, authTagB64: row.group_level_password_auth_tag, keyId: row.group_level_password_key_id })
+        : (row.group_level_username_ciphertext && { ciphertextB64: row.group_level_username_ciphertext, ivB64: row.group_level_username_iv, authTagB64: row.group_level_username_auth_tag, keyId: row.group_level_username_key_id });
       if (!cipher) {
         return res.status(404).json({ error: { message: 'No stored credential' } });
       }

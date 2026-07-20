@@ -34,6 +34,18 @@ import {
   uploadUserInsuranceCredentialDocument,
   payerCredentialDocUpload
 } from '../controllers/agencyCredentialing.controller.js';
+import {
+  listAgencyGroupNpis,
+  createAgencyGroupNpi,
+  updateAgencyGroupNpi,
+  deleteAgencyGroupNpi,
+  listAgencyGroupNpiPayerCredentialing,
+  upsertAgencyGroupNpiPayerCredentialing,
+  updateAgencyGroupNpiPayerCredentialing,
+  deleteAgencyGroupNpiPayerCredentialing,
+  uploadAgencyGroupNpiPayerDocument,
+  payerCredentialDocUpload as groupNpiPayerDocUpload
+} from '../controllers/agencyGroupNpi.controller.js';
 
 const router = express.Router();
 
@@ -102,6 +114,38 @@ router.post(
 
 // Credential reveal (decrypt)
 router.post('/:agencyId/credentialing/reveal', authenticate, revealCredential);
+
+// Agency (tenant) group NPIs — Type-2 NPIs tied to locations, with per-payer credentialing
+router.get('/:agencyId/credentialing/group-npis', authenticate, listAgencyGroupNpis);
+router.post('/:agencyId/credentialing/group-npis', authenticate, createAgencyGroupNpi);
+router.patch('/:agencyId/credentialing/group-npis/:id', authenticate, updateAgencyGroupNpi);
+router.delete('/:agencyId/credentialing/group-npis/:id', authenticate, deleteAgencyGroupNpi);
+router.get(
+  '/:agencyId/credentialing/group-npis/:id/payers',
+  authenticate,
+  listAgencyGroupNpiPayerCredentialing
+);
+router.post(
+  '/:agencyId/credentialing/group-npi-insurance',
+  authenticate,
+  upsertAgencyGroupNpiPayerCredentialing
+);
+router.patch(
+  '/:agencyId/credentialing/group-npi-insurance/:credId',
+  authenticate,
+  updateAgencyGroupNpiPayerCredentialing
+);
+router.delete(
+  '/:agencyId/credentialing/group-npi-insurance',
+  authenticate,
+  deleteAgencyGroupNpiPayerCredentialing
+);
+router.post(
+  '/:agencyId/credentialing/group-npi-insurance/:credId/documents/:docType',
+  authenticate,
+  groupNpiPayerDocUpload.single('file'),
+  uploadAgencyGroupNpiPayerDocument
+);
 
 // Timeline
 router.get('/:agencyId/credentialing/timeline', authenticate, listCredentialingTimeline);
