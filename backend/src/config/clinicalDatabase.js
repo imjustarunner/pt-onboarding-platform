@@ -13,7 +13,7 @@ function resolvePoolConfig() {
     maxIdle: parseInt(process.env.CLINICAL_DB_MAX_IDLE || '5', 10),
     idleTimeout: parseInt(process.env.CLINICAL_DB_IDLE_TIMEOUT_MS || '60000', 10),
     // See database.js — prevent global prepared-statement exhaustion.
-    maxPreparedStatements: parseInt(process.env.CLINICAL_DB_MAX_PREPARED_STATEMENTS || '64', 10),
+    maxPreparedStatements: parseInt(process.env.CLINICAL_DB_MAX_PREPARED_STATEMENTS || '200', 10),
     queueLimit: 0,
     connectTimeout: 60000,
     timezone: '+00:00',

@@ -30,7 +30,8 @@ const poolConfig = {
   maxIdle: parseInt(process.env.DB_MAX_IDLE, 10) || 10,
   idleTimeout: parseInt(process.env.DB_IDLE_TIMEOUT_MS, 10) || 60000,
   // Cap cached prepared statements per connection; excess are closed via LRU.
-  maxPreparedStatements: parseInt(process.env.DB_MAX_PREPARED_STATEMENTS, 10) || 64,
+  // 200 × connectionLimit(20) = 4,000 global max — safely under MySQL's 16,382 cap.
+  maxPreparedStatements: parseInt(process.env.DB_MAX_PREPARED_STATEMENTS, 10) || 200,
   queueLimit: 0,
   connectTimeout: 60000, // 60 seconds connection timeout
   timezone: '+00:00', // Force UTC timezone for all connections
