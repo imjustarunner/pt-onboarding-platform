@@ -111,7 +111,9 @@ export async function deactivateStaleStandingAssignments() {
     );
   }
 
-  // ── Case B: AVAILABLE weekly/biweekly orphans — log + rematerialize only ──
+  // ── Case B: AVAILABLE weekly/biweekly missing future events — rematerialize ──
+  // NOTE: Missing booking_plan is normal for AVAILABLE (unbooked) standing rows.
+  // Only treat missing future office_events as an orphan that needs rematerialize.
   const [orphanRows] = await pool.execute(
     `SELECT sa.id, sa.provider_id, sa.office_location_id, sa.weekday, sa.hour,
             sa.availability_mode, sa.assigned_frequency,
@@ -131,15 +133,12 @@ export async function deactivateStaleStandingAssignments() {
        AND UPPER(COALESCE(sa.assigned_frequency, 'WEEKLY')) IN ('WEEKLY', 'BIWEEKLY')
        AND (sa.available_since_date IS NULL OR sa.available_since_date < DATE_SUB(CURDATE(), INTERVAL 2 DAY))
        AND (sa.updated_at IS NULL OR sa.updated_at < DATE_SUB(NOW(), INTERVAL 48 HOUR))
-       AND (
-         bp.id IS NULL
-         OR NOT EXISTS (
-           SELECT 1
-           FROM office_events e
-           WHERE e.standing_assignment_id = sa.id
-             AND e.start_at >= CURDATE()
-             AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-         )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM office_events e
+         WHERE e.standing_assignment_id = sa.id
+           AND e.start_at >= CURDATE()
+           AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
        )
      LIMIT 200`
   );
@@ -148,7 +147,6 @@ export async function deactivateStaleStandingAssignments() {
   for (const row of orphanRows || []) {
     orphanLogged += 1;
     const officeLocationId = Number(row.office_location_id || 0);
-    const planPresent = !!row.booking_plan_id;
     const futureEventCount = Number(row.future_event_count || 0);
     console.info('[staleStandingCleanup]', JSON.stringify({
       action: 'rematerialize_orphan_available',
@@ -157,10 +155,8 @@ export async function deactivateStaleStandingAssignments() {
       officeLocationId: officeLocationId || null,
       weekday: row.weekday,
       hour: row.hour,
-      reason: !planPresent
-        ? 'available_weekly_missing_booking_plan'
-        : 'available_weekly_missing_future_events',
-      planPresent,
+      reason: 'available_weekly_missing_future_events',
+      planPresent: !!row.booking_plan_id,
       futureEventCount,
       assignedFrequency: row.assigned_frequency || null
     }));

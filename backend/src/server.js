@@ -1544,8 +1544,14 @@ if (!isBootstrap) {
     setInterval(scheduleBackgroundCheckWatchdog, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight());
 
-  // Office scheduling watchdog (auto-forfeit + booking confirmations in future)
+  // Office scheduling watchdog (materialize horizon + EHR sync + coverage audit).
+  // OFF by default — this job has caused Cloud Run 429s / "cooling down" by
+  // monopolizing DB connections (especially when local npm run also hit stage).
+  // Opt in only: ENABLE_OFFICE_SCHEDULE_WATCHDOG=1
+  const officeScheduleWatchdogEnabled = process.env.ENABLE_OFFICE_SCHEDULE_WATCHDOG === '1';
+
   const scheduleOfficeScheduleWatchdog = async () => {
+    if (!officeScheduleWatchdogEnabled) return;
     try {
       const { OfficeScheduleWatchdogService } = await import('./services/officeScheduleWatchdog.service.js');
       await OfficeScheduleWatchdogService.run();
@@ -1590,8 +1596,13 @@ if (!isBootstrap) {
   scheduleAutoEmployeeClockOut();
   setInterval(scheduleAutoEmployeeClockOut, 5 * 60 * 1000);
 
-  // Run immediately on startup (best-effort)
-  scheduleOfficeScheduleWatchdog();
+  // Never run the heavy office watchdog on process startup — only the daily
+  // midnight schedule below, and only when explicitly enabled.
+  if (officeScheduleWatchdogEnabled) {
+    console.log('[watchdog] office schedule job enabled (midnight only; no startup run)');
+  } else {
+    console.log('[watchdog] office schedule job OFF (set ENABLE_OFFICE_SCHEDULE_WATCHDOG=1 to enable)');
+  }
   scheduleSkillBuildersSessionCloseout();
 
   // Program reminder schedules (runs every 5 minutes)

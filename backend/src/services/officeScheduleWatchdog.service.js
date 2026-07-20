@@ -42,12 +42,14 @@ export class OfficeScheduleWatchdogService {
     for (const officeLocationId of buildings) {
       for (const ws of weekStarts) {
         try {
+          // force:false — skip weeks already materialized recently in this process.
+          // Daily rolls should not rewrite every week when nothing changed.
           await OfficeScheduleMaterializer.materializeWeek({
             officeLocationId,
             weekStartRaw: ws,
             createdByUserId: 1,
             useExactWeekStart: true,
-            force: true
+            force: false
           });
           materialized++;
         } catch (e) {
@@ -299,6 +301,37 @@ export class OfficeScheduleWatchdogService {
   }
 
   static async run() {
+    // Only one process (Cloud Run instance / local) should run this heavy job.
+    // Without a lock, min-instances + local npm run against stage DB multiplies load.
+    // GET_LOCK is connection-scoped — hold one connection for the whole run.
+    const lockName = 'office_schedule_watchdog_v1';
+    let conn = null;
+    let gotLock = false;
+    try {
+      conn = await pool.getConnection();
+      const [[lockRow]] = await conn.execute('SELECT GET_LOCK(?, 0) AS got_lock', [lockName]);
+      gotLock = Number(lockRow?.got_lock) === 1;
+    } catch (e) {
+      console.warn('[watchdog] lock check failed; proceeding cautiously:', e?.message || e);
+      gotLock = true;
+    }
+    if (!gotLock) {
+      if (conn) try { conn.release(); } catch { /* ignore */ }
+      console.info('[watchdog] skipped — another process already holds the lock');
+      return { ok: true, skipped: true, reason: 'lock_not_acquired' };
+    }
+
+    try {
+      return await this._runLocked();
+    } finally {
+      if (conn) {
+        try { await conn.execute('SELECT RELEASE_LOCK(?)', [lockName]); } catch { /* ignore */ }
+        try { conn.release(); } catch { /* ignore */ }
+      }
+    }
+  }
+
+  static async _runLocked() {
     // Always roll the materialization horizon first so recurring assignments have
     // events for the next 12 weeks regardless of Google Calendar config.
     let materializationRoll = null;
