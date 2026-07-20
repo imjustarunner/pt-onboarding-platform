@@ -235,6 +235,10 @@ import DocumentationAlertsCard from '../../components/admin/opsDashboard/Documen
 import OpsSummaryCards from '../../components/admin/opsDashboard/OpsSummaryCards.vue';
 import TenantContextCards from '../../components/admin/opsDashboard/TenantContextCards.vue';
 import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
+import {
+  fetchCoverageWarnings,
+  fetchProviderCoverageSummary
+} from '../../services/schoolCoverageApi.js';
 
 const router = useRouter();
 const route = useRoute();
@@ -329,9 +333,8 @@ const summaryPaths = computed(() => ({
 const contextPaths = computed(() => ({
   schoolPortals: `${prefix.value}/admin/school-portals`,
   schoolPortalsHub: `${prefix.value}/admin/school-portals-hub`,
-  events: canSeeSchoolPortals.value
-    ? `${prefix.value}/admin/schools/overview?orgType=school`
-    : `${prefix.value}/admin/company-events`,
+  caseloadHub: `${prefix.value}/admin/caseload-hub/schools-staff`,
+  events: `${prefix.value}/admin/company-events`,
   companyEvents: `${prefix.value}/admin/company-events`,
   programs: `${prefix.value}/admin/schools/overview?orgType=program`,
   modules: `${prefix.value}/admin/modules`
@@ -820,15 +823,40 @@ const loadDashboard = async () => {
       }
     };
 
-    const categoryLabel = (category) => {
-      const c = String(category || '').toLowerCase();
-      if (c === 'back_to_school') return 'Back to School';
-      if (c === 'spring') return 'Spring Event';
-      if (c === 'open_house') return 'Open House';
-      if (c === 'resource_fair') return 'Resource Fair';
-      if (c === 'family_night') return 'Family Night';
-      if (c === 'orientation') return 'Orientation';
-      return c ? c.replace(/_/g, ' ') : 'School Event';
+    const startOfTodayMs = (() => {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    })();
+
+    const isSchoolEventType = (eventType) => String(eventType || '').toLowerCase().startsWith('school_');
+    const isProgramEventType = (eventType) => {
+      const t = String(eventType || '').toLowerCase();
+      return t.startsWith('program_')
+        || t === 'guardian_program_class'
+        || t === 'skills_group'
+        || t === 'skill_builders';
+    };
+
+    const eventPortalPath = (e) => {
+      const id = e.id;
+      const et = e.eventType || e.event_type;
+      if (isSchoolEventType(et)) {
+        return `${prefix.value}/admin/caseload-hub/events?eventId=${id}&tab=list`;
+      }
+      if (isProgramEventType(et) || e.organizationId || e.programOrganizationSlug) {
+        return `${prefix.value}/skill-builders/event/${id}`;
+      }
+      return `/company-events/${id}`;
+    };
+
+    const eventKind = (e) => {
+      const et = e.eventType || e.event_type;
+      if (isSchoolEventType(et)) return 'school';
+      if (isProgramEventType(et) || e.organizationType === 'program' || e.organizationType === 'learning') {
+        return 'program';
+      }
+      return 'org';
     };
 
     const [
@@ -837,10 +865,10 @@ const loadDashboard = async () => {
       hiring,
       payrollPending,
       orgOverview,
-      announcements,
-      schoolEventsOverview,
       companyEvents,
-      modulesRes
+      modulesRes,
+      coverageWarnings,
+      providerCoverage
     ] = await Promise.all([
       safeGet('/dashboard/schedule-snapshot', {
         params: { agencyId, date: new Date().toISOString().split('T')[0] }
@@ -851,14 +879,14 @@ const loadDashboard = async () => {
       }, 8000),
       safeGet('/payroll/pending-submissions-summary', { params }, 8000),
       safeGet('/dashboard/org-overview-summary', { params }, 8000),
-      canSeeSchoolPortals.value
-        ? safeGet('/school-portal/bulk-announcements', { params }, 8000)
-        : Promise.resolve(null),
-      canSeeSchoolPortals.value
-        ? safeGet('/school-portal/school-events/overview', { params }, 8000)
-        : Promise.resolve(null),
       safeGet(`/agencies/${agencyId}/company-events`, {}, 8000),
-      safeGet('/modules', {}, 8000)
+      safeGet('/modules', {}, 8000),
+      canSeeSchoolPortals.value
+        ? withTimeout(fetchCoverageWarnings(agencyId), 8000).catch(() => null)
+        : Promise.resolve(null),
+      canSeeSchoolPortals.value
+        ? withTimeout(fetchProviderCoverageSummary(agencyId), 8000).catch(() => null)
+        : Promise.resolve(null)
     ]);
 
     if (Array.isArray(unassigned)) {
@@ -884,122 +912,164 @@ const loadDashboard = async () => {
       ? orgOverview
       : { counts: { school: 0, program: 0, learning: 0, other: 0, ...(orgOverview?.counts || {}) } };
 
-    const announcementList = Array.isArray(announcements)
-      ? announcements
-      : (Array.isArray(announcements?.groups)
-        ? announcements.groups
-        : (Array.isArray(announcements?.items) ? announcements.items : []));
+    const caseloadBase = `${prefix.value}/admin/caseload-hub/schools-staff`;
+    const warningTypesWanted = new Set([
+      'waitlist_no_capacity',
+      'waitlist_unused_capacity',
+      'clients_without_provider',
+      'clients_without_service_day',
+      'unstaffed_school_days',
+      'school_nearing_capacity'
+    ]);
 
-    const schoolEventsRaw = Array.isArray(schoolEventsOverview?.events)
-      ? schoolEventsOverview.events
-      : [];
+    const warningFeed = (Array.isArray(coverageWarnings?.items) ? coverageWarnings.items : [])
+      .filter((item) => warningTypesWanted.has(String(item.type || '')))
+      .map((item) => {
+        const type = String(item.type || '');
+        let kind = 'caseload';
+        let cta = 'Review';
+        if (type === 'waitlist_no_capacity') {
+          kind = 'waitlist';
+          cta = 'Needs Therapist';
+        } else if (type === 'waitlist_unused_capacity') {
+          kind = 'waitlist';
+          cta = 'Review Waitlist';
+        } else if (type === 'school_nearing_capacity') {
+          kind = 'capacity';
+          cta = 'View Capacity';
+        }
+        const path = item.resolutionPath
+          ? (String(item.resolutionPath).startsWith('/')
+            ? `${prefix.value}${item.resolutionPath}`
+            : item.resolutionPath)
+          : `${caseloadBase}?schoolId=${item.schoolId || ''}`;
+        return {
+          id: item.id || `warn-${type}-${item.schoolId}`,
+          kind,
+          title: item.title || 'School update',
+          body: item.message || '',
+          meta: [item.schoolName, item.severity, item.count != null ? `${item.count}` : null]
+            .filter(Boolean)
+            .join(' · '),
+          sortMs: type === 'waitlist_no_capacity' ? Date.now() + 2
+            : (type.startsWith('waitlist') || type === 'clients_without_provider' ? Date.now() + 1 : Date.now()),
+          severityRank: item.severity === 'critical' ? 0 : 1,
+          to: path,
+          cta
+        };
+      });
 
-    const hubPath = `${prefix.value}/admin/school-portals-hub`;
-    const schoolOverviewPath = `${prefix.value}/admin/schools/overview?orgType=school`;
-    const companyEventsPath = `${prefix.value}/admin/company-events`;
+    const fullClinicianFeed = (Array.isArray(providerCoverage?.providers) ? providerCoverage.providers : [])
+      .filter((p) => Number(p.slotsTotal || 0) > 0 && Number(p.slotsAvailable || 0) === 0)
+      .slice(0, 8)
+      .map((p) => ({
+        id: `clinician-full-${p.providerId}`,
+        kind: 'full',
+        title: `${p.name || 'Clinician'} filled all spots`,
+        body: `${p.slotsUsed || p.slotsTotal || 0}/${p.slotsTotal || 0} slots used`
+          + (p.assignedSchools ? ` across ${p.assignedSchools} school(s)` : ''),
+        meta: 'Capacity full',
+        sortMs: Date.now(),
+        severityRank: 2,
+        to: `${caseloadBase}?tab=by-person&providerId=${p.providerId}`,
+        cta: 'View Clinician'
+      }));
 
-    const announcementFeed = announcementList.map((a) => {
-      const kind = a.display_type === 'splash' ? 'splash' : 'announcement';
-      const title = String(a.title || '').trim() || (kind === 'splash' ? 'Splash announcement' : 'Portal announcement');
-      const body = String(a.message || '').trim();
-      const portals = Number(a.portal_count || 0);
-      const status = a.is_active
-        ? 'Active'
-        : (a.starts_at && new Date(a.starts_at) > new Date() ? 'Scheduled' : 'Ended');
-      const metaParts = [
-        status,
-        kind === 'splash' ? 'Splash' : 'Banner',
-        portals ? `${portals} portal${portals === 1 ? '' : 's'}` : null,
-        a.created_by_name ? `by ${a.created_by_name}` : null,
-        formatWhen(a.created_at || a.starts_at)
-      ].filter(Boolean);
-      return {
-        id: `ann-${a.bulk_group_id || a.id || title}`,
-        kind,
-        title,
-        body,
-        meta: metaParts.join(' · '),
-        sortMs: new Date(a.created_at || a.starts_at || 0).getTime() || 0,
-        to: hubPath
-      };
-    });
+    const schoolNotifTypes = new Set([
+      'school_provider_availability_confirmed',
+      'school_provider_availability_updated',
+      'school_provider_slot_verification_requested',
+      'school_provider_slot_verification_completed',
+      'school_availability_request_pending',
+      'school_availability_request_approved',
+      'school_availability_request_denied',
+      'client_assigned'
+    ]);
 
-    const eventUpdateFeed = schoolEventsRaw.slice(0, 12).map((ev) => {
-      const school = ev.schoolName || ev.school_name || 'School';
-      const title = String(ev.title || '').trim() || categoryLabel(ev.category);
-      const when = formatWhen(ev.startsAt || ev.starts_at);
-      const metaParts = [
-        'School event posted',
-        categoryLabel(ev.category),
-        when,
-        ev.outreachTableInvited || ev.outreach_table_invited ? 'Outreach table' : null
-      ].filter(Boolean);
-      return {
-        id: `sev-upd-${ev.id}`,
-        kind: 'event',
-        title: `${title} · ${school}`,
-        body: ev.description || ev.notes || '',
-        meta: metaParts.join(' · '),
-        sortMs: new Date(ev.createdAt || ev.created_at || ev.startsAt || ev.starts_at || 0).getTime() || 0,
-        to: schoolOverviewPath
-      };
-    });
+    const isSchoolStaffNotif = (n) => {
+      const t = String(n.type || n.notification_type || '').toLowerCase();
+      if (t !== 'program_reminder') return false;
+      const hay = `${n.title || ''} ${n.message || ''}`.toLowerCase();
+      return hay.includes('school staff');
+    };
 
-    schoolUpdatesFeed.value = [...announcementFeed, ...eventUpdateFeed]
-      .sort((a, b) => (b.sortMs || 0) - (a.sortMs || 0))
-      .slice(0, 8);
+    const notifFeed = (notificationStore.notifications || [])
+      .filter((n) => {
+        const t = String(n.type || n.notification_type || '').toLowerCase();
+        return schoolNotifTypes.has(t) || isSchoolStaffNotif(n);
+      })
+      .slice(0, 12)
+      .map((n) => {
+        const t = String(n.type || n.notification_type || '').toLowerCase();
+        const staff = isSchoolStaffNotif(n);
+        const kind = staff
+          ? 'staff'
+          : (t === 'client_assigned' ? 'caseload' : 'slots');
+        const relatedUserId = n.related_entity_id || n.relatedEntityId || n.entity_id;
+        let to = `${caseloadBase}`;
+        if (staff && relatedUserId) to = `${prefix.value}/admin/users/${relatedUserId}`;
+        else if (t.includes('availability') || t.includes('slot')) {
+          to = `${prefix.value}/admin/availability-intake?agencyId=${agencyId}&tab=school`;
+        }
+        return {
+          id: `notif-${n.id}`,
+          kind,
+          title: n.title || (staff ? 'School staff update' : 'School caseload update'),
+          body: n.message || n.body || '',
+          meta: formatWhen(n.created_at || n.createdAt) || 'Notification',
+          sortMs: new Date(n.created_at || n.createdAt || 0).getTime() || 0,
+          severityRank: staff ? 1 : 2,
+          to,
+          cta: staff ? 'View User' : 'Open'
+        };
+      });
 
-    const now = Date.now();
-    const schoolEventCards = schoolEventsRaw.map((ev) => {
-      const start = ev.startsAt || ev.starts_at;
-      const end = ev.endsAt || ev.ends_at;
-      const school = ev.schoolName || ev.school_name || 'School';
-      const title = String(ev.title || '').trim() || categoryLabel(ev.category);
-      const when = formatWhen(start);
-      const endWhen = formatWhen(end);
-      const metaParts = [
-        categoryLabel(ev.category),
-        when ? (endWhen && endWhen !== when ? `${when} – ${endWhen}` : when) : null,
-        ev.outreachTableInvited || ev.outreach_table_invited ? 'Outreach table invited' : null,
-        ev.schoolEventStatus || ev.status || null
-      ].filter(Boolean);
-      return {
-        id: `sev-${ev.id}`,
-        title,
-        subtitle: school,
-        meta: metaParts.join(' · '),
-        startMs: start ? new Date(start).getTime() : 0,
-        to: schoolOverviewPath
-      };
-    });
+    schoolUpdatesFeed.value = [...warningFeed, ...fullClinicianFeed, ...notifFeed]
+      .sort((a, b) => {
+        const sr = (a.severityRank ?? 9) - (b.severityRank ?? 9);
+        if (sr !== 0) return sr;
+        return (b.sortMs || 0) - (a.sortMs || 0);
+      })
+      .slice(0, 10);
 
     const companyEventsRaw = Array.isArray(companyEvents)
       ? companyEvents
       : (Array.isArray(companyEvents?.events) ? companyEvents.events : []);
-    const companyEventCards = companyEventsRaw.map((e) => {
-      const start = e.starts_at || e.start_at || e.start_date || e.event_date;
-      const loc = e.location || e.venue || e.address || '';
-      const desc = String(e.description || e.summary || e.notes || '').trim();
-      const when = formatWhen(start);
-      const metaParts = [
-        when,
-        loc,
-        e.event_type || e.type || null
-      ].filter(Boolean);
-      return {
-        id: `ce-${e.id}`,
-        title: e.title || e.name || `Event ${e.id}`,
-        subtitle: desc || 'Company event',
-        meta: metaParts.join(' · '),
-        startMs: start ? new Date(start).getTime() : 0,
-        to: companyEventsPath
-      };
-    });
 
-    upcomingEvents.value = [...schoolEventCards, ...companyEventCards]
-      .filter((e) => !e.startMs || e.startMs >= now - 86400000)
+    upcomingEvents.value = companyEventsRaw
+      .filter((e) => e?.isActive !== false)
+      .map((e) => {
+        const start = e.startsAt || e.starts_at || e.start_at || e.start_date || e.event_date;
+        const end = e.endsAt || e.ends_at || e.end_at;
+        const startMs = start ? new Date(start).getTime() : 0;
+        const endMs = end ? new Date(end).getTime() : 0;
+        const kind = eventKind(e);
+        const orgLabel = e.organizationName || e.schoolName || e.location || '';
+        const typeLabel = kind === 'program'
+          ? 'Program event'
+          : (kind === 'school' ? 'School event' : 'Organization event');
+        const when = formatWhen(start);
+        return {
+          id: `evt-${e.id}`,
+          kind,
+          title: e.title || e.name || `Event ${e.id}`,
+          subtitle: [orgLabel, String(e.description || '').trim().slice(0, 120)].filter(Boolean).join(' — ')
+            || typeLabel,
+          meta: [typeLabel, when, e.location || e.eventLocationName || null].filter(Boolean).join(' · '),
+          startMs,
+          endMs,
+          to: eventPortalPath(e),
+          cta: 'Event Portal'
+        };
+      })
+      .filter((e) => {
+        if (!e.startMs) return true;
+        // Include today and future; still-running events whose end is today/future also count.
+        if (e.endMs && e.endMs >= startOfTodayMs) return true;
+        return e.startMs >= startOfTodayMs;
+      })
       .sort((a, b) => (a.startMs || Number.MAX_SAFE_INTEGER) - (b.startMs || Number.MAX_SAFE_INTEGER))
-      .slice(0, 6);
+      .slice(0, 8);
 
     const modulesList = Array.isArray(modulesRes)
       ? modulesRes

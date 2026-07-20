@@ -7,19 +7,19 @@
     <article v-if="showSchoolUpdates" class="panel">
       <div class="panel-header">
         <h2>School Updates &amp; Changes</h2>
-        <button type="button" class="link-btn" @click="$emit('navigate', paths.schoolPortalsHub || paths.schoolPortals)">
+        <button type="button" class="link-btn" @click="$emit('navigate', paths.caseloadHub || paths.schoolPortalsHub)">
           View All
         </button>
       </div>
-      <p class="panel-blurb">Running list of school portal announcements and changes as they occur.</p>
+      <p class="panel-blurb">Caseload changes, new school staff, full clinician spots, and waitlist schools that need a therapist.</p>
       <div v-if="!schoolUpdates.length" class="empty">
-        <span>No school updates yet</span>
-        <button type="button" class="mini-btn" @click="$emit('navigate', paths.schoolPortalsHub)">
-          Open School Portals
+        <span>No school updates right now</span>
+        <button type="button" class="mini-btn" @click="$emit('navigate', paths.caseloadHub || paths.schoolPortalsHub)">
+          Open Caseload Hub
         </button>
       </div>
       <ul v-else class="item-list feed-list">
-        <li v-for="u in schoolUpdates.slice(0, 6)" :key="u.id" class="item-row feed-row">
+        <li v-for="u in schoolUpdates.slice(0, 8)" :key="u.id" class="item-row feed-row">
           <div class="avatar" :class="u.kind">{{ updateGlyph(u.kind) }}</div>
           <div class="item-meta">
             <span class="item-name">{{ u.title }}</span>
@@ -29,9 +29,9 @@
           <button
             type="button"
             class="mini-btn"
-            @click="$emit('navigate', u.to || paths.schoolPortalsHub)"
+            @click="$emit('navigate', u.to || paths.caseloadHub)"
           >
-            Open
+            {{ u.cta || 'Open' }}
           </button>
         </li>
       </ul>
@@ -44,6 +44,7 @@
           View All
         </button>
       </div>
+      <p class="panel-blurb">Program and organization events, soonest first (including today).</p>
       <div v-if="!events.length" class="empty">
         <span>No upcoming events</span>
         <button type="button" class="mini-btn" @click="$emit('navigate', paths.events)">
@@ -51,15 +52,15 @@
         </button>
       </div>
       <ul v-else class="item-list feed-list">
-        <li v-for="e in events.slice(0, 6)" :key="e.id" class="item-row feed-row">
-          <div class="avatar icon">📅</div>
+        <li v-for="e in events.slice(0, 8)" :key="e.id" class="item-row feed-row">
+          <div class="avatar" :class="e.kind || 'event'">{{ eventGlyph(e.kind) }}</div>
           <div class="item-meta">
             <span class="item-name">{{ e.title }}</span>
             <span v-if="e.subtitle" class="item-sub">{{ e.subtitle }}</span>
             <span v-if="e.meta" class="item-meta-line">{{ e.meta }}</span>
           </div>
           <button type="button" class="mini-btn" @click="$emit('navigate', e.to || paths.events)">
-            Open
+            {{ e.cta || 'Event Portal' }}
           </button>
         </li>
       </ul>
@@ -118,9 +119,19 @@ const showAny = computed(
 );
 
 const updateGlyph = (kind) => {
+  if (kind === 'waitlist') return '⏳';
+  if (kind === 'caseload') return '👥';
+  if (kind === 'staff') return '🧑‍💼';
+  if (kind === 'capacity' || kind === 'full') return '🟢';
+  if (kind === 'slots') return '📆';
   if (kind === 'event') return '📅';
-  if (kind === 'splash') return '📢';
   return '📣';
+};
+
+const eventGlyph = (kind) => {
+  if (kind === 'program') return '🧩';
+  if (kind === 'school') return '🏫';
+  return '📅';
 };
 </script>
 
@@ -213,8 +224,33 @@ const updateGlyph = (kind) => {
   font-weight: 800;
   flex-shrink: 0;
 }
-.avatar.icon, .avatar.event, .avatar.splash, .avatar.announcement {
+.avatar.icon,
+.avatar.event,
+.avatar.waitlist,
+.avatar.caseload,
+.avatar.staff,
+.avatar.capacity,
+.avatar.full,
+.avatar.slots,
+.avatar.program,
+.avatar.school {
   font-size: 14px;
+}
+.avatar.waitlist {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+.avatar.capacity, .avatar.full {
+  background: #ecfdf5;
+  color: #047857;
+}
+.avatar.caseload {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.avatar.staff {
+  background: #fffbeb;
+  color: #b45309;
 }
 .item-meta {
   flex: 1;
