@@ -62,12 +62,16 @@ export const useNotificationStore = defineStore('notifications', () => {
       if (filters.isResolved !== undefined) {
         params.append('isResolved', filters.isResolved);
       }
-      if (filters.limit) {
-        params.append('limit', String(filters.limit));
+      // Default cap — unbounded lists have been ~8MB and block the UI for seconds.
+      const limitNum = filters.limit != null ? Number(filters.limit) : 250;
+      if (Number.isFinite(limitNum) && limitNum > 0) {
+        params.append('limit', String(Math.min(500, Math.floor(limitNum))));
       }
 
-      const response = await api.get(`/notifications?${params.toString()}`);
-      notifications.value = response.data;
+      const response = await api.get(`/notifications?${params.toString()}`, {
+        skipGlobalLoading: filters.skipGlobalLoading !== false
+      });
+      notifications.value = Array.isArray(response.data) ? response.data : [];
     } catch (error) {
       console.error('Error fetching notifications:', error);
       throw error;

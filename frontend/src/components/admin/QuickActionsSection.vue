@@ -126,6 +126,7 @@
 <script setup>
 import { computed, ref, watch, onMounted } from 'vue';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 
 const props = defineProps({
   title: { type: String, default: 'Quick Actions' },
@@ -138,6 +139,7 @@ const props = defineProps({
 });
 
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 
 const showCustomizer = ref(false);
 const search = ref('');
@@ -147,11 +149,30 @@ const userKey = computed(() => {
   return String(u.id || u.email || 'unknown');
 });
 
-const storageKey = computed(() => `quickActions:${props.contextKey}:${userKey.value}`);
+/** Per user + per tenant (or platform when no agency selected). */
+const agencyKey = computed(() => {
+  const id = agencyStore.currentAgency?.id;
+  return id ? `agency-${id}` : 'platform';
+});
+
+const storageKey = computed(
+  () => `quickActions:${props.contextKey}:${agencyKey.value}:${userKey.value}`
+);
+
+/** Legacy key (pre per-tenant) — used once as a fall-forward for the current tenant. */
+const legacyStorageKey = computed(() => `quickActions:${props.contextKey}:${userKey.value}`);
 
 const canCustomize = computed(() => {
-  const role = authStore.user?.role;
-  return ['admin', 'support', 'super_admin', 'staff'].includes(role);
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return [
+    'admin',
+    'support',
+    'super_admin',
+    'superadmin',
+    'staff',
+    'provider_plus',
+    'clinical_practice_assistant'
+  ].includes(role);
 });
 
 const hasCapability = (key) => {
@@ -230,6 +251,20 @@ const load = () => {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed?.selectedIds)) return parsed.selectedIds.map(String);
     }
+    // One-time fall-forward from pre-tenant keys so existing customizations aren't lost.
+    const legacyRaw = localStorage.getItem(legacyStorageKey.value);
+    if (legacyRaw) {
+      const parsed = JSON.parse(legacyRaw);
+      if (Array.isArray(parsed?.selectedIds)) {
+        const ids = parsed.selectedIds.map(String);
+        try {
+          localStorage.setItem(storageKey.value, JSON.stringify({ selectedIds: ids }));
+        } catch {
+          // ignore
+        }
+        return ids;
+      }
+    }
   } catch {
     // ignore
   }
@@ -307,6 +342,11 @@ watch(availableActions, () => {
   // If availability changes (role/caps), reconcile selection.
   hydrate();
 }, { deep: true });
+
+watch(storageKey, () => {
+  // Tenant switch — reload that tenant's saved quick actions.
+  hydrate();
+});
 
 watch(selectedIds, () => persist(), { deep: true });
 

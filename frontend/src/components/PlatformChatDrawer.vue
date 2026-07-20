@@ -36,8 +36,11 @@
         <button type="button" class="drawer-dash-btn" @click="goToMessagesDashboard">
           Messages Dashboard
         </button>
+        <button type="button" class="drawer-dash-btn drawer-dash-btn-assistant" @click="openAssistant">
+          Assistant
+        </button>
       </div>
-      <MessagesWorkspace layout="drawer" @unread-change="onUnreadChange" />
+      <MessagesWorkspace ref="workspaceRef" layout="drawer" @unread-change="onUnreadChange" />
     </div>
   </div>
 </template>
@@ -62,6 +65,7 @@ const isAuthenticated = computed(() => authStore.isAuthenticated);
 const isOpen = ref(false);
 const totalUnread = ref(0);
 const loggedInNow = ref(0);
+const workspaceRef = ref(null);
 
 const needsAgency = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -105,6 +109,11 @@ function goToMessagesDashboard() {
   const path = slug ? `/${slug}/messages` : '/messages';
   isOpen.value = false;
   router.push({ path }).catch(() => {});
+}
+
+function openAssistant() {
+  isOpen.value = true;
+  workspaceRef.value?.switchToAssistant?.();
 }
 
 const onEnter = () => {
@@ -344,9 +353,11 @@ onUnmounted(() => {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border, #e2e8f0);
   background: #f8fafc;
+  display: flex;
+  gap: 8px;
 }
 .drawer-dash-btn {
-  width: 100%;
+  flex: 1;
   border: 1px solid var(--border, #e2e8f0);
   background: #fff;
   border-radius: 8px;
@@ -358,7 +369,10 @@ onUnmounted(() => {
 }
 .drawer-dash-btn:hover {
   border-color: var(--primary, #2563eb);
-  background: #eff6ff;
+  background: color-mix(in srgb, var(--primary, #2563eb) 8%, #fff);
+}
+.drawer-dash-btn-assistant {
+  color: var(--primary, #0d9488);
 }
 .panel {
   width: 0;

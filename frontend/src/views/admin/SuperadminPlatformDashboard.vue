@@ -245,6 +245,7 @@
                       <td>{{ t.unreadNotifications ?? '—' }}</td>
                       <td>
                         <div class="pthq-open-btns">
+                          <button type="button" class="pthq-mini-btn ghost" @click="openTenantSettings(t)">Settings</button>
                           <button type="button" class="pthq-mini-btn" @click="openTenant(t)">Open Dashboard →</button>
                         </div>
                       </td>
@@ -315,6 +316,7 @@
                 Becomes an Organization when active employees &gt; 1.
               </p>
               <div class="pthq-open-btns">
+                <button type="button" class="pthq-mini-btn ghost" @click.stop="openTenantSettings(t)">Settings</button>
                 <button type="button" class="pthq-mini-btn" @click.stop="openTenant(t)">Open as Admin →</button>
               </div>
             </article>
@@ -694,6 +696,17 @@ const openTenant = (tenant) => {
   const slug = String(tenant.slug || tenant.portal_url || '').toLowerCase().trim();
   if (!slug) return;
   router.push(`/${slug}/admin`);
+};
+
+const openTenantSettings = (tenant) => {
+  if (!tenant) return;
+  agencyStore.setCurrentAgency(tenant);
+  const slug = String(tenant.slug || tenant.portal_url || '').toLowerCase().trim();
+  if (!slug) return;
+  router.push({
+    path: `/${slug}/admin/settings`,
+    query: { agencyId: String(tenant.id) }
+  });
 };
 
 const goClassic = () => {

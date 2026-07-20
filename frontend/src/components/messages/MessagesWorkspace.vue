@@ -8,7 +8,7 @@
       {
         'has-active-chat': hasActiveChat,
         'mobile-show-chat': pageMobileShowChat,
-        'tickets-mode': mainTab === 'sms' && canSeeSms
+        'tickets-mode': (mainTab === 'sms' && canSeeSms) || mainTab === 'assistant'
       }
     ]"
   >
@@ -44,6 +44,14 @@
           @click="switchToDms"
         >
           Direct Messages
+        </button>
+        <button
+          type="button"
+          class="nav-stub nav-stub-assistant"
+          :class="{ active: mainTab === 'assistant' }"
+          @click="switchToAssistant"
+        >
+          Assistant
         </button>
         <template v-if="!isSchoolStaffViewer">
           <button
@@ -113,7 +121,20 @@
         <CommunicationsHubView embedded :theme="theme" />
       </div>
 
-      <div v-else class="panel-body">
+      <template v-else>
+        <div
+          v-if="assistantMounted"
+          v-show="mainTab === 'assistant'"
+          class="mw-tickets-host mw-assistant-host"
+        >
+          <AskAssistantPanel
+            :open="mainTab === 'assistant'"
+            variant="embedded"
+            :placement-key="assistantPlacementKey"
+          />
+        </div>
+
+        <div v-show="mainTab !== 'assistant'" class="panel-body">
         <template v-if="needsAgency">
           <div class="empty">
             <p style="margin: 0;">Select an agency to view who’s online.</p>
@@ -490,8 +511,9 @@
 
         </template>
       </div>
+      </template>
 
-      <div class="self-footer">
+      <div v-if="mainTab !== 'assistant'" class="self-footer">
         <button type="button" class="self-status-btn" @click="statusMenuOpen = !statusMenuOpen">
           <span class="dot" :class="myPresenceDotClass"></span>
           <PeerTenantMark
@@ -555,7 +577,7 @@
       </div>
     </aside>
 
-    <section v-if="!(mainTab === 'sms' && canSeeSms)" class="mw-chat-col">
+    <section v-if="!(mainTab === 'sms' && canSeeSms) && mainTab !== 'assistant'" class="mw-chat-col">
       <div v-if="layout === 'page' && hasActiveChat" class="mw-chat-toolbar">
         <button type="button" class="btn btn-secondary btn-xs mw-back" @click="closeChat">← Back</button>
       </div>
@@ -1042,6 +1064,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { usePresenceSessionStore } from '../../store/presenceSession';
 import CommunicationsHubView from '../../views/admin/CommunicationsHubView.vue';
+import AskAssistantPanel from '../assistant/AskAssistantPanel.vue';
 import PeerTenantMark from './PeerTenantMark.vue';
 import { useBrandingStore } from '../../store/branding';
 import {
@@ -1253,6 +1276,10 @@ const canCreateChannel = computed(() => {
   return ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant'].includes(r);
 });
 const mainTab = ref('dms');
+const assistantMounted = ref(false);
+const assistantPlacementKey = computed(() =>
+  layout.value === 'drawer' ? 'chat_drawer_assistant' : 'messages_assistant'
+);
 const channels = ref([]);
 const channelsLoading = ref(false);
 const channelError = ref('');
@@ -1420,6 +1447,7 @@ const memberInviteCandidates = computed(() => {
 });
 
 const panelSubtitle = computed(() => {
+  if (mainTab.value === 'assistant') return 'Ask Assistant';
   if (mainTab.value === 'sms') return 'SMS conversations with clients';
   if (mainTab.value === 'files') return 'Shared files';
   if (mainTab.value === 'bookmarks') return 'Saved messages';
@@ -1889,9 +1917,26 @@ const switchToSms = async () => {
   }
 };
 
+const switchToAssistant = () => {
+  assistantMounted.value = true;
+  mainTab.value = 'assistant';
+  if (activeChatUser.value) closeChat();
+  if (activeChannel.value) closeChat();
+  closeReplyPanel();
+  try {
+    if (layout.value === 'page' && String(route.query?.tab || '') !== 'assistant') {
+      router.replace({ query: { ...route.query, view: 'workspace', tab: 'assistant' } }).catch(() => {});
+    }
+  } catch {
+    // ignore
+  }
+};
+
 watch(mainTab, (tab) => {
-  if (tab === 'sms' || layout.value !== 'page') return;
-  if (String(route.query?.tab || '') !== 'sms') return;
+  if (layout.value !== 'page') return;
+  const qTab = String(route.query?.tab || '');
+  if (tab === 'sms' || tab === 'assistant') return;
+  if (qTab !== 'sms' && qTab !== 'assistant') return;
   const q = { ...route.query };
   delete q.tab;
   delete q.clientId;
@@ -1964,6 +2009,10 @@ watch(
   async (tab) => {
     const t = String(tab || '').toLowerCase();
     if (!t || layout.value !== 'page') return;
+    if (t === 'assistant') {
+      if (mainTab.value !== 'assistant') switchToAssistant();
+      return;
+    }
     if (t === 'sms' && canSeeSms.value) {
       if (mainTab.value !== 'sms') await switchToSms();
       return;
@@ -1982,6 +2031,8 @@ watch(
   },
   { immediate: true }
 );
+
+defineExpose({ switchToAssistant, switchToDms });
 
 const filteredFilesInbox = computed(() => {
   const q = filesInboxQ.value.trim().toLowerCase();
@@ -3082,6 +3133,15 @@ onUnmounted(() => {
 
 .mw-sms-host :deep(.comms-hub) {
   height: 100%;
+}
+
+.mw-assistant-host {
+  min-height: 0;
+  background: var(--bg-primary, #f8fafc);
+}
+
+.nav-stub-assistant.active {
+  color: var(--primary, #0d9488);
 }
 
 /* Tenant Messages: keep SMS chrome on branding tokens (no forced purple). */

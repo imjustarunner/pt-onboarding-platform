@@ -1180,21 +1180,6 @@
         <img :src="sstcClubBannerImageUrl" alt="" class="sstc-club-banner-img" />
       </div>
       <SummitStatsContextBar :visible="showSummitStatsClubContextBar" />
-      <!-- Welcome tag (hangs under navbar); hide on My Dashboard — redundant with Overview greeting -->
-      <div
-        v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome && !isMyDashboardRoute"
-        class="welcome-hang-wrap"
-      >
-        <router-link
-          class="welcome-hang-link"
-          :to="myDashboardTo"
-          aria-label="Go to My Dashboard"
-          @click="onMyDashboardClick"
-        >
-          <span class="welcome-text">Welcome, {{ welcomeName }}</span>
-          <span class="dashboard-text">My Dashboard</span>
-        </router-link>
-      </div>
       <!-- Mobile Sidebar (available on all screen sizes) -->
       <div
         v-if="isAuthenticated && !hideGlobalNavForSchoolStaff"
@@ -2914,10 +2899,12 @@ const canOpenBrandMenu = computed(() => canSwitchBrand.value || canUseDemoViewSw
 const toggleBrandMenu = async () => {
   if (!canOpenBrandMenu.value) return;
 
-  // If the list is empty, refresh it (can happen after context switches).
+  // If the list is empty/suspicious, refresh it (can happen after context switches).
   try {
     if (canSwitchBrand.value && brandingStore.isSuperAdmin) {
-      if (!agencyStore.agencies || agencyStore.agencies.length === 0) {
+      const n = Array.isArray(agencyStore.agencies) ? agencyStore.agencies.length : 0;
+      // Membership overwrites used to shrink this to 0–1; heal when opening the menu.
+      if (n === 0 || n <= 1) {
         await agencyStore.fetchAgencies();
       }
     } else if (canSwitchBrand.value) {
@@ -3630,16 +3617,6 @@ const hasCapability = (key) => {
   if (keys.length === 0) return true;
   return !!caps?.[key];
 };
-const welcomeName = computed(() => {
-  const first = user.value?.firstName?.trim();
-  const preferred = String(user.value?.preferredName || '').trim();
-  if (first && preferred) return `${first} "${preferred}"`;
-  if (first) return first;
-  const email = user.value?.email?.trim();
-  if (!email) return 'there';
-  const local = email.split('@')[0];
-  return local || email;
-});
 const isAdmin = computed(() => {
   const role = user.value?.role;
   return role === 'admin' || role === 'super_admin' || role === 'support';
@@ -4598,16 +4575,18 @@ const adminDashboardNavTo = computed(() => {
   if ((role === 'club_manager' || role === 'assistant_manager') && isSscSstcTenant.value) {
     return orgTo('/club_manager_dashboard');
   }
-  // In a tenant URL (or selected tenant), always land on the tenant management dashboard —
-  // not platform HQ. Prefer /admin-dashboard so superadmin slug routes cannot fall through.
+  // In a tenant URL (or selected tenant), always land on the org-scoped management dashboard —
+  // not unscoped /admin-dashboard (that clears tenant + hides global nav for superadmin).
+  // Do not use orgTo() here: navBucketSlug is null for super_admin.
   const routeSlug = String(route.params?.organizationSlug || '').trim();
   const agencySlug = String(
     agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || ''
   ).trim();
-  if (routeSlug || agencySlug) {
-    return orgTo('/admin-dashboard');
+  const slug = routeSlug || agencySlug;
+  if (slug) {
+    return `/${slug}/admin-dashboard`;
   }
-  return orgTo('/admin');
+  return '/admin';
 });
 
 const adminDashboardIconUrl = computed(() => {
@@ -4817,7 +4796,7 @@ const myDashboardTo = computed(() => {
   return orgTo('/dashboard');
 });
 
-/** Personal My Dashboard surfaces — hide the Welcome hang tag here (redundant). */
+/** Personal My Dashboard surfaces (used by My Dashboard nav click handling). */
 const isMyDashboardRoute = computed(() => {
   const p = String(route.path || '');
   return /(^|\/)(dashboard|mydashboard)(\/|$)/i.test(p);
@@ -4840,7 +4819,16 @@ const showOperationsDashboardLink = computed(() => {
   return role === 'provider_plus' || role === 'clinical_practice_assistant' || role === 'admin' || role === 'super_admin';
 });
 
-const operationsDashboardTo = computed(() => orgTo('/operations-dashboard'));
+const operationsDashboardTo = computed(() => {
+  // Same superadmin slug pitfall as Admin Dashboard — keep tenant context.
+  const routeSlug = String(route.params?.organizationSlug || '').trim();
+  const agencySlug = String(
+    agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || ''
+  ).trim();
+  const slug = routeSlug || agencySlug;
+  if (slug) return `/${slug}/operations-dashboard`;
+  return '/operations-dashboard';
+});
 
 // When already on My Dashboard (possibly a drill-in tab), force Overview / clear tab query.
 const onMyDashboardClick = (e) => {
@@ -7176,13 +7164,6 @@ button.nav-dropdown-button-link:hover {
   padding: 8px 16px;
 }
 
-.welcome-hang-wrap {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 20px;
-  margin-top: -2px; /* visually attaches to navbar bottom border */
-}
-
 .itc-hang-wrap {
   display: flex;
   justify-content: center;
@@ -7273,53 +7254,6 @@ button.nav-dropdown-button-link:hover {
   flex-shrink: 0;
 }
 .pw-expiry-dismiss:hover { background: #fde68a; }
-
-.welcome-hang-link {
-  display: inline-flex;
-  align-items: center;
-  background: white;
-  color: var(--primary);
-  border: 2px solid var(--accent);
-  border-top: 0;
-  border-radius: 0 0 10px 10px;
-  padding: 8px 14px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  box-shadow: var(--shadow-lg);
-  max-width: 80vw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.welcome-hang-link:focus {
-  outline: 2px solid rgba(99, 102, 241, 0.45);
-  outline-offset: 2px;
-}
-
-.welcome-text,
-.dashboard-text {
-  display: inline-block;
-  min-width: 0;
-}
-
-.dashboard-text {
-  display: none;
-}
-
-.welcome-hang-link:hover .welcome-text,
-.welcome-hang-link:focus .welcome-text,
-.welcome-hang-link:focus-visible .welcome-text {
-  display: none;
-}
-
-.welcome-hang-link:hover .dashboard-text,
-.welcome-hang-link:focus .dashboard-text,
-.welcome-hang-link:focus-visible .dashboard-text {
-  display: inline-block;
-}
 
 .preferences-link {
   color: #ecf0f1;
@@ -7810,7 +7744,9 @@ main {
   flex: 1 0 auto;
   width: 100%;
   min-height: 0;
-  padding: 20px 0;
+  /* No top padding — full-bleed page headers (ops/admin dashboards) sit flush under the nav.
+     Pages that need breathing room add it in their own layout. */
+  padding: 0;
   display: flex;
   flex-direction: column;
 }

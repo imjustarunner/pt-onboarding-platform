@@ -6,7 +6,7 @@
 
 <script setup>
 import { computed, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import SuperadminPlatformDashboard from './SuperadminPlatformDashboard.vue';
@@ -15,6 +15,7 @@ import TenantAdminDashboard from './TenantAdminDashboard.vue';
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const route = useRoute();
+const router = useRouter();
 
 const isSuperAdmin = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -25,15 +26,28 @@ const showPlatformCommandCenter = computed(() => {
   // Org-scoped route always uses tenant dashboard
   if (route.params.organizationSlug) return false;
   if (!isSuperAdmin.value) return false;
+  // Explicit platform HQ request
+  if (String(route.query?.platform || '') === '1') return true;
   // Platform mode / no tenant selected
   return !agencyStore.currentAgency;
 });
 
 onMounted(() => {
-  // If a tenant slug somehow lands here without org param but currentAgency is set,
-  // keep tenant dashboard. If superadmin hits /admin-dashboard with a tenant still
-  // selected, clear tenant context so the platform command center can render.
-  if (isSuperAdmin.value && !route.params.organizationSlug && agencyStore.currentAgency && route.query.keepTenant !== '1') {
+  if (!isSuperAdmin.value || route.params.organizationSlug) return;
+
+  // Prefer keeping the selected tenant: bounce to org-scoped management dashboard.
+  // (Previously this cleared the tenant and showed a gold shell without global nav.)
+  const agency = agencyStore.currentAgency;
+  if (agency && String(route.query?.platform || '') !== '1') {
+    const slug = String(agency.slug || agency.portal_url || '').trim();
+    if (slug) {
+      router.replace(`/${slug}/admin-dashboard`).catch(() => {});
+      return;
+    }
+  }
+
+  // Explicit platform HQ only
+  if (String(route.query?.platform || '') === '1' && agency) {
     agencyStore.setPlatformMode();
   }
 });

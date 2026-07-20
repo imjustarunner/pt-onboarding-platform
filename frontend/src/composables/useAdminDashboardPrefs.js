@@ -74,23 +74,49 @@ const saveSections = (storageKey, sections) => {
 };
 
 /**
- * @param {{ userId?: import('vue').Ref|string|number|null, namespace?: string, defaults?: Record<string, boolean> }} opts
+ * @param {{
+ *   userId?: import('vue').Ref|string|number|null,
+ *   agencyId?: import('vue').Ref|string|number|null,
+ *   namespace?: string,
+ *   defaults?: Record<string, boolean>
+ * }} opts
  */
 export function useAdminDashboardPrefs({
   userId = null,
+  agencyId = null,
   namespace = 'tenant',
   defaults = DEFAULT_SECTION_VISIBILITY
 } = {}) {
   const userIdRef = isRef(userId) ? userId : ref(userId);
+  const agencyIdRef = isRef(agencyId) ? agencyId : ref(agencyId);
   const defaultsRef = { ...defaults };
-  const storageKey = computed(
+  const storageKey = computed(() => {
+    const agencyPart = unref(agencyIdRef) ? `agency-${sanitizeKey(unref(agencyIdRef))}` : 'platform';
+    return `adminDashboardSections:${namespace}:${agencyPart}:${sanitizeKey(unref(userIdRef))}`;
+  });
+  const legacyStorageKey = computed(
     () => `adminDashboardSections:${namespace}:${sanitizeKey(unref(userIdRef))}`
   );
 
-  const sections = ref(loadSections(storageKey.value, defaultsRef));
+  const loadWithLegacy = () => {
+    const key = storageKey.value;
+    if (typeof window !== 'undefined') {
+      try {
+        if (!window.localStorage.getItem(key)) {
+          const legacy = window.localStorage.getItem(legacyStorageKey.value);
+          if (legacy) window.localStorage.setItem(key, legacy);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return loadSections(key, defaultsRef);
+  };
 
-  watch(userIdRef, () => {
-    sections.value = loadSections(storageKey.value, defaultsRef);
+  const sections = ref(loadWithLegacy());
+
+  watch([userIdRef, agencyIdRef], () => {
+    sections.value = loadWithLegacy();
   });
 
   watch(

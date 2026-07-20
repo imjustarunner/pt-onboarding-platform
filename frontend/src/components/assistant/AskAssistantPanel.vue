@@ -1,6 +1,12 @@
 <template>
-  <div v-if="open" class="aap-root" role="dialog" aria-label="Ask assistant">
-    <div class="aap-backdrop" @click="close" />
+  <div
+    v-if="open"
+    class="aap-root"
+    :class="{ 'aap-embedded': isEmbedded }"
+    :role="isEmbedded ? 'region' : 'dialog'"
+    aria-label="Ask assistant"
+  >
+    <div v-if="!isEmbedded" class="aap-backdrop" @click="close" />
     <aside class="aap-drawer" @click.stop>
       <div class="aap-accent" aria-hidden="true" />
 
@@ -34,7 +40,13 @@
           >
             Clear
           </button>
-          <button type="button" class="aap-close" @click="close" aria-label="Close">
+          <button
+            v-if="showCloseButton"
+            type="button"
+            class="aap-close"
+            @click="close"
+            aria-label="Close"
+          >
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M18 6L6 18M6 6l12 12" stroke-linecap="round" />
             </svg>
@@ -370,7 +382,17 @@ import { useAgencyStore } from '../../store/agency';
 import { useSpeechToText } from '../../composables/useSpeechToText';
 
 const props = defineProps({
-  open: { type: Boolean, default: false }
+  open: { type: Boolean, default: false },
+  /** overlay = global right drawer; embedded = fill parent (Messages / Chat rail) */
+  variant: {
+    type: String,
+    default: 'overlay',
+    validator: (v) => ['overlay', 'embedded'].includes(String(v || ''))
+  },
+  /** Analytics / capability context for this surface */
+  placementKey: { type: String, default: 'ask_assistant' },
+  /** Override close button visibility (default: hide in embedded) */
+  showClose: { type: Boolean, default: undefined }
 });
 const emit = defineEmits(['close']);
 
@@ -378,6 +400,11 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+
+const isEmbedded = computed(() => props.variant === 'embedded');
+const showCloseButton = computed(() =>
+  props.showClose === undefined ? !isEmbedded.value : !!props.showClose
+);
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase().trim());
 const isSuperAdmin = computed(() => roleNorm.value === 'super_admin' || roleNorm.value === 'superadmin');
@@ -865,7 +892,7 @@ async function maybeAutoJoinFromResponse(data) {
       window.open(join, '_blank', 'noopener,noreferrer');
     } else {
       await router.push(join);
-      close();
+      if (!isEmbedded.value) close();
     }
   } catch (e) {
     console.warn('[AskAssistantPanel] auto-join failed', e?.message);
@@ -873,7 +900,9 @@ async function maybeAutoJoinFromResponse(data) {
 }
 
 function close() {
-  reportDisengage('closed_without_engagement');
+  if (!isEmbedded.value) {
+    reportDisengage('closed_without_engagement');
+  }
   pendingAutoJoinMeeting.value = false;
   if (isListening.value) stopListening();
   emit('close');
@@ -918,7 +947,7 @@ async function executeUiCommands(commands) {
       try {
         markEngaged();
         await router.push(to);
-        close();
+        if (!isEmbedded.value) close();
       } catch (e) {
         console.warn('[AskAssistantPanel] navigation failed', e?.message);
       }
@@ -933,7 +962,7 @@ async function executeUiCommands(commands) {
         window.dispatchEvent(
           new CustomEvent('pt-profile-jump', { detail: { tabId, sectionId, clinicalSubTab } })
         );
-        close();
+        if (!isEmbedded.value) close();
       } catch (e) {
         console.warn('[AskAssistantPanel] profile jump failed', e?.message);
       }
@@ -1012,7 +1041,7 @@ function buildContextPayload() {
     path,
     fullPath: path,
     profileUserId,
-    placementKey: 'ask_assistant',
+    placementKey: String(props.placementKey || 'ask_assistant').trim() || 'ask_assistant',
     agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || null
   };
 }
@@ -1180,13 +1209,20 @@ function formatIso(iso, timezone) {
 }
 
 function handleKeydown(e) {
-  if (e.key === 'Escape' && props.open) close();
+  if (e.key === 'Escape' && props.open && !isEmbedded.value) close();
 }
 
 watch(
   () => props.open,
-  (v) => {
+  (v, was) => {
     if (!v) {
+      // Embedded surfaces stay mounted while the Messages tab is hidden — keep the thread.
+      if (isEmbedded.value) {
+        if (isListening.value) stopListening();
+        return;
+      }
+      // Skip initial false on overlay mount (AskAssistantLauncher).
+      if (was === undefined) return;
       reportDisengage('closed_without_engagement');
       clearChat({ report: false });
       return;
@@ -1198,7 +1234,8 @@ watch(
       autoGrow();
       scrollTurnsToBottom();
     });
-  }
+  },
+  { immediate: true }
 );
 
 onMounted(() => {
@@ -1216,6 +1253,33 @@ onUnmounted(() => {
   inset: 0;
   z-index: 19000;
   pointer-events: none;
+}
+
+.aap-root.aap-embedded {
+  position: relative;
+  inset: auto;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.aap-root.aap-embedded .aap-drawer {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+  flex: 1;
+  min-height: 0;
 }
 
 .aap-backdrop {

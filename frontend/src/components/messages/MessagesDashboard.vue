@@ -73,6 +73,15 @@
       </section>
 
       <aside class="msg-dash-side">
+        <section class="msg-dash-panel msg-dash-assistant">
+          <h3>Assistant</h3>
+          <p class="msg-dash-muted">
+            Ask about your day, availability, meetings, handbook, and more — same assistant as the top nav.
+          </p>
+          <button type="button" class="msg-dash-link" @click="openWorkspace('assistant')">
+            Open Assistant →
+          </button>
+        </section>
         <section class="msg-dash-panel">
           <h3>Mentions</h3>
           <p class="msg-dash-muted">
@@ -441,4 +450,12 @@ defineExpose({ reload: load });
   border-color: color-mix(in srgb, var(--md-primary) 28%, #fff);
 }
 .msg-dash-banner p { margin: 0; font-size: 13px; line-height: 1.5; color: color-mix(in srgb, var(--md-primary) 20%, #334155); }
+.msg-dash-assistant {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--md-accent) 14%, #fff),
+    color-mix(in srgb, var(--md-primary) 6%, #f8fafc) 60%
+  );
+  border-color: color-mix(in srgb, var(--md-primary) 30%, #fff);
+}
 </style>

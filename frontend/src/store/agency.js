@@ -407,7 +407,10 @@ export const useAgencyStore = defineStore('agency', () => {
         
         const agencyList = (await Promise.all(agencyPromises)).filter(a => a !== null);
         userAgencies.value = agencyList;
-        agencies.value = agencyList;
+        // Super-admin brand switcher needs the full /agencies catalog — never overwrite with memberships.
+        if (roleNorm !== 'super_admin') {
+          agencies.value = agencyList;
+        }
         
         // Store agencies in localStorage for login redirect after logout
         const { storeUserAgencies } = await import('../utils/loginRedirect');
@@ -419,7 +422,10 @@ export const useAgencyStore = defineStore('agency', () => {
         // Regular users - use the API endpoint
         const response = await api.get('/users/me/agencies', { skipGlobalLoading: true });
         userAgencies.value = response.data;
-        agencies.value = response.data;
+        // Super-admin brand switcher needs the full /agencies catalog — never overwrite with memberships.
+        if (roleNorm !== 'super_admin') {
+          agencies.value = response.data;
+        }
         
         // Store agencies in localStorage for login redirect after logout
         const { storeUserAgencies } = await import('../utils/loginRedirect');

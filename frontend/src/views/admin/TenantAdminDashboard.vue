@@ -371,13 +371,14 @@ const canSeeClientsNav = computed(() =>
   ['admin', 'support', 'super_admin', 'staff', 'provider', 'provider_plus'].includes(roleLower.value)
 );
 
+const currentAgencyId = computed(() => agencyStore.currentAgency?.id ?? null);
+
 const { isVisible, setSection, resetSections, sectionLabels } = useAdminDashboardPrefs({
   userId,
+  agencyId: currentAgencyId,
   namespace: isOperationsMode.value ? 'operations' : 'tenant',
   defaults: isOperationsMode.value ? OPERATIONS_SECTION_VISIBILITY : undefined
 });
-
-const currentAgencyId = computed(() => agencyStore.currentAgency?.id ?? null);
 const { momentumListEnabled } = useMomentumListAddon(currentAgencyId);
 const agencyFlagsForKudos = computed(() =>
   parseFeatureFlags(agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags)
@@ -1287,8 +1288,14 @@ const loadDashboard = async () => {
       agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
   });
 
-  // Notifications are best-effort and must not block the first paint.
-  notificationStore.fetchNotifications?.().catch(() => {});
+  // Notifications are best-effort and must not block the first paint / global loader.
+  notificationStore
+    .fetchNotifications?.({
+      agencyId: agencyId || undefined,
+      limit: 200,
+      skipGlobalLoading: true
+    })
+    .catch(() => {});
   notificationStore.fetchCounts?.().catch(() => {});
 
   if (!agencyId) {

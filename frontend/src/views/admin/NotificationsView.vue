@@ -456,7 +456,9 @@ const loadNotifications = async () => {
     const filterParams = {
       type: filters.value.type || undefined,
       isRead: filters.value.status === 'read' ? true : filters.value.status === 'unread' ? false : undefined,
-      isResolved: filters.value.status === 'resolved' ? true : undefined
+      isResolved: filters.value.status === 'resolved' ? true : undefined,
+      // Cap payload (unbounded fetches were multi‑MB); dedicated page still uses the API max.
+      limit: 500
     };
     
     // Only add agencyId if it's set
