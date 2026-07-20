@@ -1121,7 +1121,8 @@ export const updateMyPresence = async (req, res, next) => {
 /**
  * Privileged roles: set away/idle status with optional session extension (max 2h).
  * POST /api/presence/status/away
- * Body: { reason, durationMinutes?, expected_return_at?, note?, extendSession? }
+ * Body: { reason, durationMinutes?, expected_return_at?, note?, extendSession?, timerMode? }
+ * timerMode: 'reset' (default) recomputes return time from now; 'continue' keeps existing timer.
  */
 export const setAwayStatus = async (req, res, next) => {
   try {
@@ -1144,25 +1145,50 @@ export const setAwayStatus = async (req, res, next) => {
     const customLabel = String(req.body?.customLabel || req.body?.custom_label || '').trim().slice(0, 60);
 
     const extendSession = req.body?.extendSession !== false;
+    const timerModeRaw = String(req.body?.timerMode || req.body?.timer_mode || 'reset')
+      .trim()
+      .toLowerCase();
+    const timerMode = timerModeRaw === 'continue' ? 'continue' : 'reset';
+
     let durationMinutes = Number(req.body?.durationMinutes ?? req.body?.duration_minutes);
     let expectedReturnAt = req.body?.expected_return_at || req.body?.expectedReturnAt || null;
+    let sessionExtendUntil = null;
+    let continuingTimer = false;
+
+    if (reason !== 'out_day' && timerMode === 'continue') {
+      const existing = await UserPresenceStatus.findByUserId(req.user.id);
+      const existingUntilRaw =
+        existing?.session_extend_until || existing?.expected_return_at || null;
+      const existingUntilMs = existingUntilRaw ? new Date(existingUntilRaw).getTime() : NaN;
+      if (Number.isFinite(existingUntilMs) && existingUntilMs > Date.now()) {
+        continuingTimer = true;
+        sessionExtendUntil = new Date(existingUntilMs).toISOString();
+        expectedReturnAt = sessionExtendUntil;
+        durationMinutes = Math.max(1, Math.ceil((existingUntilMs - Date.now()) / 60000));
+      }
+    }
 
     if (reason === 'out_day') {
       durationMinutes = null;
       expectedReturnAt = null;
-    } else if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
-      if (expectedReturnAt) {
-        durationMinutes = Math.round((new Date(expectedReturnAt).getTime() - Date.now()) / 60000);
-      } else {
-        durationMinutes = 60;
+      sessionExtendUntil = null;
+    } else if (!continuingTimer) {
+      if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+        if (expectedReturnAt) {
+          durationMinutes = Math.round((new Date(expectedReturnAt).getTime() - Date.now()) / 60000);
+        } else {
+          durationMinutes = 60;
+        }
       }
-    }
 
-    if (reason !== 'out_day') {
       durationMinutes = Math.min(120, Math.max(15, Math.floor(durationMinutes)));
-      if (!expectedReturnAt) {
-        expectedReturnAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString();
-      }
+      expectedReturnAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString();
+      sessionExtendUntil =
+        extendSession && durationMinutes
+          ? new Date(Date.now() + durationMinutes * 60 * 1000).toISOString()
+          : null;
+    } else if (!extendSession) {
+      sessionExtendUntil = null;
     }
 
     // Out reason drives Team Board status; reachable is display-only (not a separate status).
@@ -1182,10 +1208,6 @@ export const setAwayStatus = async (req, res, next) => {
       if (reachLabel) displayLabel = `${displayLabel} · ${reachLabel}`;
     }
     const note = reachable || req.body?.note || null;
-    const sessionExtendUntil =
-      extendSession && reason !== 'out_day' && durationMinutes
-        ? new Date(Date.now() + durationMinutes * 60 * 1000).toISOString()
-        : null;
 
     // Keep chat availability visible while Away (Slack-like)
     await pool.execute(
@@ -1212,7 +1234,8 @@ export const setAwayStatus = async (req, res, next) => {
       ok: true,
       ...result,
       session_extend_until: sessionExtendUntil,
-      status_label: displayLabel
+      status_label: displayLabel,
+      timer_mode: continuingTimer ? 'continue' : 'reset'
     });
   } catch (e) {
     next(e);
@@ -1222,9 +1245,25 @@ export const setAwayStatus = async (req, res, next) => {
 /**
  * Clear away status ("I'm back") → Active.
  * POST /api/presence/status/clear
+ * Notifies admin / support / super_admin via a 5-minute toast when the user was away.
  */
 export const clearMyPresenceStatus = async (req, res, next) => {
   try {
+    const prior = await UserPresenceStatus.findByUserId(req.user.id);
+    const priorExtendMs = prior?.session_extend_until
+      ? new Date(prior.session_extend_until).getTime()
+      : NaN;
+    const wasAway = !!(
+      prior &&
+      ((Number.isFinite(priorExtendMs) && priorExtendMs > Date.now()) ||
+        (prior.reason && String(prior.reason).trim()) ||
+        (prior.display_label &&
+          String(prior.display_label).trim() &&
+          String(prior.display_label).trim().toLowerCase() !== 'active') ||
+        (prior.status &&
+          String(prior.status).toLowerCase() !== 'in_available'))
+    );
+
     const result = await UserPresenceStatus.clearForUser(req.user.id);
     await pool.execute(
       `INSERT INTO user_presence (user_id, availability_level, last_heartbeat_at, last_activity_at, updated_at)
@@ -1236,6 +1275,45 @@ export const clearMyPresenceStatus = async (req, res, next) => {
          updated_at = NOW()`,
       [req.user.id]
     );
+
+    if (wasAway) {
+      try {
+        const user = await User.findById(req.user.id);
+        const displayName = user
+          ? `${String(user.first_name || '').trim()} ${String(user.last_name || '').trim()}`.trim() ||
+            user.email ||
+            'Someone'
+          : 'Someone';
+        const agencies = await User.getAgencies(req.user.id);
+        const agencyId = agencies?.[0]?.id || null;
+        const priorLabel =
+          (prior?.display_label && String(prior.display_label).trim()) ||
+          (prior?.reason ? UserPresenceStatus.labelForReason(prior.reason) : null) ||
+          'Away';
+        await Notification.create({
+          type: 'presence_user_returned',
+          severity: 'info',
+          title: `${displayName} is back`,
+          message: `${displayName} returned from ${priorLabel}.`,
+          audienceJson: {
+            admin: true,
+            clinicalPracticeAssistant: false,
+            provider: false,
+            supervisor: false,
+            schoolStaff: false
+          },
+          userId: req.user.id,
+          agencyId,
+          relatedEntityType: 'user',
+          relatedEntityId: req.user.id,
+          actorUserId: req.user.id,
+          actorSource: 'System'
+        });
+      } catch (notifyErr) {
+        console.warn('[presence] failed to create return notification', notifyErr?.message || notifyErr);
+      }
+    }
+
     res.json({ ok: true, presence: result });
   } catch (e) {
     next(e);

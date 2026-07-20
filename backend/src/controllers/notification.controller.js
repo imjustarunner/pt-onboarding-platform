@@ -116,7 +116,7 @@ function resolveTriggerSetting(trigger, setting) {
 // Message-related notification types must never be visible cross-user.
 const MESSAGE_PRIVATE_TYPES = new Set(['chat_message', 'inbound_client_message', 'support_safety_net_alert']);
 
-const SELF_ACTIVITY_TYPES = new Set(['user_login', 'user_logout']);
+const SELF_ACTIVITY_TYPES = new Set(['user_login', 'user_logout', 'presence_user_returned']);
 
 function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, opts = {}) {
   const uid = Number(viewerUserId);

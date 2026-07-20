@@ -11,7 +11,7 @@ export const usePresenceSessionStore = defineStore('presenceSession', () => {
   const sessionExtendUntil = ref(null);
   const myStatusLabel = ref(null);
   const myReason = ref(null);
-  const promptMode = ref(null); // null | 'timedown' | 'logout' | 'manual'
+  const promptMode = ref(null); // null | 'timedown' | 'logout' | 'manual' | 'change'
   const promptBusy = ref(false);
   let _logoutResolve = null;
   let _logoutReject = null;
@@ -95,6 +95,17 @@ export const usePresenceSessionStore = defineStore('presenceSession', () => {
     openStatusPrompt('manual', { userId: currentUserId() });
   }
 
+  /** Change Away reason/timer while already away — does not clear Active / "I'm back". */
+  function openChangeStatusPrompt() {
+    promptMode.value = 'change';
+    const reason = myReason.value || 'meal';
+    openStatusPrompt('change', {
+      userId: currentUserId(),
+      initialReason: reason,
+      timerMode: 'continue'
+    });
+  }
+
   /**
    * Open logout status prompt. Resolves true if caller should proceed with logout,
    * false if user cancelled / set extend instead.
@@ -141,13 +152,22 @@ export const usePresenceSessionStore = defineStore('presenceSession', () => {
     extendSession = true,
     note = null,
     reachable = null,
-    customLabel = null
+    customLabel = null,
+    timerMode = 'reset'
   } = {}) {
     promptBusy.value = true;
     try {
       const resp = await api.post(
         '/presence/status/away',
-        { reason, durationMinutes, extendSession, note, reachable, customLabel },
+        {
+          reason,
+          durationMinutes,
+          extendSession,
+          note,
+          reachable,
+          customLabel,
+          timerMode: timerMode === 'continue' ? 'continue' : 'reset'
+        },
         { skipGlobalLoading: true }
       );
       const until = resp.data?.session_extend_until || null;
@@ -191,6 +211,7 @@ export const usePresenceSessionStore = defineStore('presenceSession', () => {
     refreshFromServer,
     openTimedownPrompt,
     openManualTimeoutPrompt,
+    openChangeStatusPrompt,
     openLogoutPrompt,
     closePrompt,
     applyAway,

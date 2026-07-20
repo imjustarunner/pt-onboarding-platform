@@ -11,7 +11,8 @@ import { usePresenceSessionStore } from '../store/presenceSession';
 import {
   registerStatusPromptHandlers,
   closeStatusPrompt,
-  getStatusPromptMode
+  getStatusPromptMode,
+  subscribeStatusPrompt
 } from '../utils/statusPromptBridge';
 import {
   resetActivityTimer,
@@ -23,6 +24,13 @@ import {
 const authStore = useAuthStore();
 const sessionLockStore = useSessionLockStore();
 const presenceSession = usePresenceSessionStore();
+
+// Keep Pinia promptMode in sync when the imperative bridge closes (Cancel / Update).
+const unsubPromptBridge = subscribeStatusPrompt((mode) => {
+  if (!mode && presenceSession.promptMode && presenceSession.promptMode !== 'logout') {
+    presenceSession.promptMode = null;
+  }
+}, 'statusPromptModal');
 
 registerStatusPromptHandlers({
   async onStillHere() {
@@ -37,7 +45,14 @@ registerStatusPromptHandlers({
     reportTimedownDismissed();
   },
 
-  async onSetStatus({ mode, reason, durationMinutes, reachable = null, customLabel = null }) {
+  async onSetStatus({
+    mode,
+    reason,
+    durationMinutes,
+    reachable = null,
+    customLabel = null,
+    timerMode = 'reset'
+  }) {
     if (!reason) return {};
 
     if (reason === 'out_day') {
@@ -46,7 +61,7 @@ registerStatusPromptHandlers({
       if (mode === 'logout') {
         return { proceedLogout: true };
       }
-      if (mode === 'manual') {
+      if (mode === 'manual' || mode === 'change') {
         await authStore.logout('user_logout', { skipStatusPrompt: true });
         return {};
       }
@@ -59,7 +74,8 @@ registerStatusPromptHandlers({
       durationMinutes,
       extendSession: true,
       reachable: reachable || null,
-      customLabel: customLabel || null
+      customLabel: customLabel || null,
+      timerMode: mode === 'change' && timerMode === 'continue' ? 'continue' : 'reset'
     });
     sessionLockStore.dismissWarning();
     pauseIdleForSessionExtend(presenceSession.sessionExtendUntil);
@@ -73,6 +89,7 @@ registerStatusPromptHandlers({
 });
 
 onUnmounted(() => {
+  if (typeof unsubPromptBridge === 'function') unsubPromptBridge();
   // Only clear handlers if this instance still owns them and prompt is closed.
   if (!getStatusPromptMode()) {
     registerStatusPromptHandlers(null);

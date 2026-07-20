@@ -14,6 +14,9 @@
         <button type="button" class="away-btn" :disabled="busy" @click="onBack">
           I'm back
         </button>
+        <button type="button" class="away-btn away-btn-secondary" :disabled="busy" @click="onChangeStatus">
+          Change status
+        </button>
       </div>
     </div>
   </Teleport>
@@ -93,6 +96,10 @@ async function onBack() {
     busy.value = false;
   }
 }
+
+function onChangeStatus() {
+  presenceSession.openChangeStatusPrompt();
+}
 </script>
 
 <style>
@@ -171,6 +178,14 @@ async function onBack() {
   cursor: pointer;
   background: #1f5c3d;
   color: #fff;
+}
+.away-btn + .away-btn {
+  margin-top: 8px;
+}
+.away-btn-secondary {
+  background: #fff;
+  color: #1a3d2b;
+  border: 1px solid rgba(34, 80, 50, 0.28);
 }
 .away-btn:disabled {
   opacity: 0.55;

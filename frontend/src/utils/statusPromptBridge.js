@@ -29,6 +29,7 @@ function getBridge() {
       customLabel: null,
       customOutId: null,
       durationMinutes: 60,
+      timerMode: 'reset',
       userId: null
     };
   }
@@ -43,6 +44,7 @@ function getBridge() {
       customLabel: null,
       customOutId: null,
       durationMinutes: 60,
+      timerMode: 'reset',
       userId: null
     };
   }
@@ -81,6 +83,7 @@ function notifyListeners(mode) {
 function titleFor(mode) {
   if (mode === 'logout') return 'Set your status before leaving?';
   if (mode === 'manual') return 'Set your Away / timeout status';
+  if (mode === 'change') return 'Change your Away status';
   return 'Still here — or set your status?';
 }
 
@@ -90,6 +93,9 @@ function subFor(mode) {
   }
   if (mode === 'manual') {
     return 'Choosing Away keeps you signed in for up to 2 hours so you do not have to log back in.';
+  }
+  if (mode === 'change') {
+    return 'Update why you are away without coming back. Reset the timer, or keep the time you already have left.';
   }
   return 'Your session is timing out. Stay signed in, or set an away status (up to 2 hours).';
 }
@@ -120,6 +126,11 @@ function renderPromptDom(mode) {
   b.outReason = b.outReason || 'meal';
   b.durationMinutes = b.durationMinutes || 60;
   if (b.reachable === undefined) b.reachable = null;
+  if (mode === 'change') {
+    b.timerMode = b.timerMode === 'reset' ? 'reset' : 'continue';
+  } else {
+    b.timerMode = 'reset';
+  }
 
   const root = document.createElement('div');
   root.id = ROOT_ID;
@@ -244,7 +255,31 @@ function renderPromptDom(mode) {
   dayBtn.addEventListener('click', () => selectOut('out_day'));
   section('Longer', [dayBtn]);
 
-  if (b.outReason && b.outReason !== 'out_day') {
+  if (mode === 'change' && b.outReason && b.outReason !== 'out_day') {
+    const continueBtn = document.createElement('button');
+    continueBtn.type = 'button';
+    continueBtn.textContent = 'Continue current time';
+    continueBtn.style.cssText = btnStyle(b.timerMode === 'continue', false);
+    continueBtn.addEventListener('click', () => {
+      b.timerMode = 'continue';
+      renderPromptDom(mode);
+    });
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.textContent = 'Reset time';
+    resetBtn.style.cssText = btnStyle(b.timerMode === 'reset', false);
+    resetBtn.addEventListener('click', () => {
+      b.timerMode = 'reset';
+      renderPromptDom(mode);
+    });
+    section('Timer', [continueBtn, resetBtn]);
+  }
+
+  const showDuration =
+    b.outReason &&
+    b.outReason !== 'out_day' &&
+    (mode !== 'change' || b.timerMode === 'reset');
+  if (showDuration) {
     const durBtns = DURATION_CHIPS.map((d) => {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -256,7 +291,7 @@ function renderPromptDom(mode) {
       });
       return btn;
     });
-    section('How long?', durBtns);
+    section(mode === 'change' ? 'New duration' : 'How long?', durBtns);
   }
 
   const actions = document.createElement('div');
@@ -279,12 +314,17 @@ function renderPromptDom(mode) {
 
   const setStatus = document.createElement('button');
   setStatus.type = 'button';
-  setStatus.textContent =
-    b.outReason === 'out_day'
-      ? mode === 'manual'
+  if (b.outReason === 'out_day') {
+    setStatus.textContent =
+      mode === 'manual' || mode === 'change'
         ? 'Set Out for the Day & log out'
-        : 'Set Out for the Day'
-      : 'Set status & stay signed in';
+        : 'Set Out for the Day';
+  } else if (mode === 'change') {
+    setStatus.textContent =
+      b.timerMode === 'continue' ? 'Update status · keep timer' : 'Update status · reset timer';
+  } else {
+    setStatus.textContent = 'Set status & stay signed in';
+  }
   setStatus.style.cssText =
     'width:100%;padding:12px 14px;border:none;border-radius:10px;background:#3d8b65;color:#fff;font-weight:700;cursor:pointer;font-size:14px;';
   setStatus.disabled = !b.outReason;
@@ -297,7 +337,8 @@ function renderPromptDom(mode) {
         reason: b.outReason === 'out_day' ? 'out_day' : isCustom ? 'custom' : b.outReason,
         durationMinutes: b.durationMinutes,
         reachable: b.outReason === 'out_day' ? null : b.reachable,
-        customLabel: isCustom ? b.customLabel : null
+        customLabel: isCustom ? b.customLabel : null,
+        timerMode: mode === 'change' ? b.timerMode || 'continue' : 'reset'
       });
       if (result?.proceedLogout) {
         resolveLogoutStatusPrompt(true);
@@ -311,7 +352,7 @@ function renderPromptDom(mode) {
   });
   actions.appendChild(setStatus);
 
-  if (mode !== 'manual') {
+  if (mode !== 'manual' && mode !== 'change') {
     const skip = document.createElement('button');
     skip.type = 'button';
     skip.textContent = mode === 'logout' ? 'Log out without status' : 'Log out now';
@@ -327,7 +368,7 @@ function renderPromptDom(mode) {
     actions.appendChild(skip);
   }
 
-  if (mode === 'logout' || mode === 'manual') {
+  if (mode === 'logout' || mode === 'manual' || mode === 'change') {
     const cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.textContent = 'Cancel';
@@ -342,18 +383,29 @@ function renderPromptDom(mode) {
   card.appendChild(actions);
   root.appendChild(card);
   document.body.appendChild(root);
-
 }
 
-export function openStatusPrompt(mode, { userId = null } = {}) {
+export function openStatusPrompt(
+  mode,
+  {
+    userId = null,
+    initialReason = null,
+    initialReachable = null,
+    initialCustomLabel = null,
+    initialDuration = null,
+    timerMode = null
+  } = {}
+) {
   const b = getBridge();
   b.mode = mode || null;
   b.userId = userId;
-  b.outReason = 'meal';
-  b.reachable = null;
-  b.customLabel = null;
-  b.customOutId = null;
-  b.durationMinutes = 60;
+  b.outReason = initialReason || 'meal';
+  b.reachable = initialReachable || null;
+  b.customLabel = initialCustomLabel || null;
+  b.customOutId =
+    initialReason && String(initialReason).startsWith('custom_') ? initialReason : null;
+  b.durationMinutes = Number(initialDuration) > 0 ? Number(initialDuration) : 60;
+  b.timerMode = mode === 'change' ? (timerMode === 'reset' ? 'reset' : 'continue') : 'reset';
   notifyListeners(b.mode);
   if (b.mode) renderPromptDom(b.mode);
   else removePromptDom();

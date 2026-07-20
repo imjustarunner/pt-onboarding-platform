@@ -17,7 +17,7 @@ const TYPES_BY_CATEGORY = {
     'first_login', 'password_changed', 'passwordless_token_expired', 'credential_expiring',
     'credential_expired_blocking', 'emergency_broadcast', 'school_primary_password_reset_sent'
   ],
-  user_activity: ['user_login', 'user_logout', 'presence_return_overdue_nudge'],
+  user_activity: ['user_login', 'user_logout', 'presence_return_overdue_nudge', 'presence_user_returned'],
   tasks_messaging: [
     'task_overdue', 'inbound_client_message', 'support_safety_net_alert', 'client_note',
     'chat_message', 'task_comment_mention', 'support_ticket_created',
@@ -79,6 +79,7 @@ const TYPES_BY_CATEGORY = {
 const LABEL_OVERRIDES = {
   user_login: 'User logged in',
   user_logout: 'User logged out',
+  presence_user_returned: 'Teammate is back',
   user_activity_digest: 'User activity digest',
   status_expired: 'Status expired',
   new_packet_uploaded: 'New packet uploaded',
@@ -89,6 +90,15 @@ const LABEL_OVERRIDES = {
   support_safety_net_alert: 'Support safety net alert',
   sstc_club_member_application_pending: 'Club member application pending',
   sstc_club_invite_request: 'Club invite request'
+};
+
+/** Per-type default overrides (toast on + 5 min for presence return alerts). */
+const DEFAULT_OVERRIDES_BY_TYPE = {
+  presence_user_returned: {
+    toast: true,
+    toastDurationMode: 'timed',
+    toastDurationSeconds: 300
+  }
 };
 
 const LEGACY_CATEGORY_BY_TYPE = {
@@ -144,6 +154,7 @@ for (const [category, types] of Object.entries(TYPES_BY_CATEGORY)) {
   for (const type of types) {
     const digestOnly = type === 'user_login' || type === 'user_logout';
     const required = type === 'emergency_broadcast' || type === 'credential_expired_blocking';
+    const defaultOverrides = DEFAULT_OVERRIDES_BY_TYPE[type] || {};
     NOTIFICATION_CATALOG[type] = Object.freeze({
       type,
       label: LABEL_OVERRIDES[type] || humanize(type),
@@ -165,14 +176,16 @@ for (const [category, types] of Object.entries(TYPES_BY_CATEGORY)) {
       }),
       defaults: Object.freeze({
         inApp: !digestOnly,
-        toast: required,
-        sound: required,
+        toast: defaultOverrides.toast ?? required,
+        sound: defaultOverrides.sound ?? required,
         digest: true,
         push: PUSH_CAPABLE.has(type),
         email: true,
         sms: SMS_CAPABLE.has(type),
-        toastDurationMode: required ? 'dismissable' : 'timed',
-        toastDurationSeconds: required ? null : 8
+        toastDurationMode:
+          defaultOverrides.toastDurationMode ?? (required ? 'dismissable' : 'timed'),
+        toastDurationSeconds:
+          defaultOverrides.toastDurationSeconds ?? (required ? null : 8)
       })
     });
   }
