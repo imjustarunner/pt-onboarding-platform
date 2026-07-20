@@ -12,7 +12,7 @@
         >
           View
         </button>
-        <button @click.stop="clearIcon" class="btn-remove-icon" title="Remove icon">×</button>
+        <button type="button" @click.stop="clearIcon" class="btn-remove-icon" title="Remove icon">×</button>
         <div class="icon-hover-preview" aria-hidden="true">
           <img :src="getIconUrl(selectedIcon)" alt="" />
         </div>
@@ -25,17 +25,18 @@
         <div class="icon-placeholder-icon">📎</div>
         <span class="icon-placeholder-text">No icon selected</span>
       </div>
-      <button @click.stop.prevent="handleOpenModal" class="btn btn-secondary btn-sm">
+      <button type="button" @click.stop.prevent="handleOpenModal" class="btn btn-secondary btn-sm">
         {{ selectedIcon ? 'Change Icon' : 'Select Icon' }}
       </button>
     </div>
 
-    <!-- Icon Selection Modal -->
+    <!-- Teleport out of parent forms/fieldsets so Select isn't blocked by nested modals -->
+    <Teleport to="body">
     <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
       <div class="modal-content large" @click.stop>
         <div class="modal-header">
           <h3>Select Icon</h3>
-          <button @click="closeModal" class="btn-close">×</button>
+          <button type="button" @click="closeModal" class="btn-close">×</button>
         </div>
         <div class="modal-body">
           <div v-if="useSummitClubIcons" class="club-icon-upload-row">
@@ -136,13 +137,14 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button @click="closeModal" class="btn btn-secondary">Cancel</button>
-          <button @click="confirmSelection" class="btn btn-primary" :disabled="!tempSelectedIcon">
+          <button type="button" @click="closeModal" class="btn btn-secondary">Cancel</button>
+          <button type="button" @click="confirmSelection" class="btn btn-primary" :disabled="!tempSelectedIcon">
             Select
           </button>
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 

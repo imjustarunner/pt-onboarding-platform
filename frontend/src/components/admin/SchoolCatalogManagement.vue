@@ -88,7 +88,21 @@ const loadSchools = async () => {
   if (!agencyId.value) return;
   try {
     const resp = await api.get(`/agencies/${agencyId.value}/schools`);
-    schools.value = resp.data || [];
+    // API returns school_organization_id / school_name (billing-linked shape).
+    // Normalize so the dropdown and school-settings endpoints use the org id.
+    const rows = Array.isArray(resp.data) ? resp.data : [];
+    schools.value = rows
+      .map((r) => {
+        const id = r?.school_organization_id ?? r?.id ?? null;
+        if (id == null || id === '') return null;
+        return {
+          id,
+          name: r?.school_name || r?.name || `School #${id}`,
+          slug: r?.school_slug || r?.slug || null,
+          is_active: r?.school_is_active ?? r?.is_active
+        };
+      })
+      .filter(Boolean);
 
     // If embedded in a school context, preselect that school.
     const initial = props.initialSchoolId;

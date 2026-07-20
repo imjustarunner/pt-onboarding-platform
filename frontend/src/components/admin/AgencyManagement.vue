@@ -758,62 +758,7 @@
           </div>
 
           <div v-if="activeTab === 'branding'" class="tab-section">
-            <div class="form-group">
-              <label>Organization Logo</label>
-              <div class="logo-input-tabs">
-                <button 
-                  type="button"
-                  :class="['tab-button-small', { active: logoInputMethod === 'url' }]"
-                  @click="logoInputMethod = 'url'"
-                >
-                  URL
-                </button>
-                <button 
-                  type="button"
-                  :class="['tab-button-small', { active: logoInputMethod === 'upload' }]"
-                  @click="logoInputMethod = 'upload'"
-                >
-                  Upload
-                </button>
-              </div>
-              
-              <!-- URL Input -->
-              <div v-if="logoInputMethod === 'url'" class="logo-input-section">
-              <input v-model="agencyForm.logoUrl" type="url" placeholder="https://example.com/logo.png" />
-                <p class="form-help">Enter the full URL to your agency logo image (PNG, JPG, GIF, SVG, or WebP)</p>
-                <div v-if="agencyForm.logoUrl" class="logo-preview">
-                <img :src="agencyForm.logoUrl" alt="Logo preview" @error="handleLogoError" />
-                <p v-if="logoError" class="logo-error">Failed to load logo. Please check the URL.</p>
-                </div>
-              </div>
-              
-              <!-- Upload Input -->
-              <div v-if="logoInputMethod === 'upload'" class="logo-input-section">
-                <input 
-                  type="file" 
-                  ref="logoFileInput"
-                  @change="handleLogoFileSelect"
-                  accept="image/png,image/jpeg,image/jpg,image/gif,image/svg+xml,image/webp"
-                  class="file-input"
-                  style="display: none;"
-                />
-                <button 
-                  type="button"
-                  class="btn btn-primary"
-                  @click="logoFileInput?.click()"
-                  :disabled="uploadingLogo"
-                >
-                  {{ uploadingLogo ? 'Uploading...' : 'Choose Logo File' }}
-                </button>
-                <p class="form-help">Upload a logo file (PNG, JPG, GIF, SVG, or WebP - max 5MB)</p>
-                <div v-if="uploadingLogo" class="upload-status">Uploading logo...</div>
-                <div v-if="agencyForm.logoPath" class="logo-preview">
-                  <img :src="getLogoUrlFromPath(agencyForm.logoPath)" alt="Logo preview" @error="handleLogoError" />
-                  <p class="form-help">Logo uploaded successfully</p>
-                </div>
-              </div>
-            </div>
-          <!-- Brand source selector (child orgs only) — appears before colors so it gates editing -->
+          <!-- Brand source selector (child orgs only) — appears before logo/colors so it gates editing -->
           <div
             v-if="['school', 'program', 'learning'].includes(String(agencyForm.organizationType || 'agency').toLowerCase())"
             class="form-group brand-source-card"
@@ -876,7 +821,7 @@
                   :title="`${key}: ${hex}`"
                 ></div>
               </div>
-              <div class="ppp-hint">Switch to &quot;This organization's branding&quot; to set custom colors.</div>
+              <div class="ppp-hint">Switch to &quot;This organization's branding&quot; to upload a logo and set custom colors.</div>
             </div>
           </div>
 
@@ -928,8 +873,62 @@
             </div>
           </div>
 
-          <!-- Color pickers — only shown for agencies OR when child org explicitly uses own branding -->
+          <!-- Logo + colors — agencies always; child orgs only when using own branding -->
           <template v-if="!['school', 'program', 'learning'].includes(String(agencyForm.organizationType || 'agency').toLowerCase()) || agencyForm.themeSettings?.useAffiliatedAgencyBranding === false">
+
+            <div class="form-group">
+              <label>Organization Logo</label>
+              <div class="logo-input-tabs">
+                <button
+                  type="button"
+                  :class="['tab-button-small', { active: logoInputMethod === 'url' }]"
+                  @click="logoInputMethod = 'url'"
+                >
+                  URL
+                </button>
+                <button
+                  type="button"
+                  :class="['tab-button-small', { active: logoInputMethod === 'upload' }]"
+                  @click="logoInputMethod = 'upload'"
+                >
+                  Upload
+                </button>
+              </div>
+
+              <div v-if="logoInputMethod === 'url'" class="logo-input-section">
+                <input v-model="agencyForm.logoUrl" type="url" placeholder="https://example.com/logo.png" />
+                <p class="form-help">Enter the full URL to your agency logo image (PNG, JPG, GIF, SVG, or WebP)</p>
+                <div v-if="agencyForm.logoUrl" class="logo-preview">
+                  <img :src="agencyForm.logoUrl" alt="Logo preview" @error="handleLogoError" />
+                  <p v-if="logoError" class="logo-error">Failed to load logo. Please check the URL.</p>
+                </div>
+              </div>
+
+              <div v-if="logoInputMethod === 'upload'" class="logo-input-section">
+                <input
+                  type="file"
+                  ref="logoFileInput"
+                  @change="handleLogoFileSelect"
+                  accept="image/png,image/jpeg,image/jpg,image/gif,image/svg+xml,image/webp"
+                  class="file-input"
+                  style="display: none;"
+                />
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  @click="logoFileInput?.click()"
+                  :disabled="uploadingLogo"
+                >
+                  {{ uploadingLogo ? 'Uploading...' : 'Choose Logo File' }}
+                </button>
+                <p class="form-help">Upload a logo file (PNG, JPG, GIF, SVG, or WebP - max 5MB)</p>
+                <div v-if="uploadingLogo" class="upload-status">Uploading logo...</div>
+                <div v-if="agencyForm.logoPath" class="logo-preview">
+                  <img :src="getLogoUrlFromPath(agencyForm.logoPath)" alt="Logo preview" @error="handleLogoError" />
+                  <p class="form-help">Logo uploaded successfully</p>
+                </div>
+              </div>
+            </div>
 
           <!-- Warning when own-branding colors still match parent -->
           <div v-if="ownBrandingColorsMatchParent" class="own-branding-match-warning">
@@ -8500,7 +8499,13 @@ const getIconUrlFromIcon = (icon) => {
 };
 
 const getOrgIconUrl = (org) => {
-  const iconId = org?.icon_id || org?.iconId || null;
+  // While editing, prefer the in-form Organization Icon so the avatar updates immediately.
+  const editingId = editingAgency.value?.id;
+  const formIconId =
+    editingId != null && org?.id != null && Number(editingId) === Number(org.id)
+      ? agencyForm.value?.iconId
+      : null;
+  const iconId = formIconId ?? org?.icon_id ?? org?.iconId ?? null;
   if (!iconId) return null;
   const icon = iconsById.value?.[iconId];
   if (!icon) return null;
@@ -8511,6 +8516,28 @@ const getOrgIconUrl = (org) => {
 const handleIconError = (_e, orgId) => {
   iconErrorsByOrgId.value = { ...iconErrorsByOrgId.value, [orgId]: true };
 };
+
+// Keep org-list / header avatar in sync when Organization Icon changes in the form.
+watch(
+  () => agencyForm.value?.iconId,
+  async (iconId) => {
+    const orgId = editingAgency.value?.id;
+    if (orgId != null && iconErrorsByOrgId.value?.[orgId]) {
+      const next = { ...iconErrorsByOrgId.value };
+      delete next[orgId];
+      iconErrorsByOrgId.value = next;
+    }
+    if (!iconId || iconsById.value?.[iconId]) return;
+    try {
+      const res = await api.get(`/icons/${iconId}`);
+      if (res.data?.id) {
+        iconsById.value = { ...iconsById.value, [res.data.id]: res.data };
+      }
+    } catch {
+      // Preview will fall back to initials until icons index reloads.
+    }
+  }
+);
 
 const toggleAgencyStatus = () => {
   agencyForm.value.isActive = !agencyForm.value.isActive;
