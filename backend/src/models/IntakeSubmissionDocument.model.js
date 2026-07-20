@@ -71,8 +71,9 @@ class IntakeSubmissionDocument {
     if (excludeMedicalRecords) {
       sql += ` AND (il.form_type IS NULL OR il.form_type != 'medical_records_request')`;
     }
-    sql += ` ORDER BY isd.signed_at DESC, isd.id DESC LIMIT ? OFFSET ?`;
-    values.push(limit, offset);
+    const lim = Math.min(100, Math.max(1, Number(limit) || 100));
+    const off = Math.max(0, Number(offset) || 0);
+    sql += ` ORDER BY isd.signed_at DESC, isd.id DESC LIMIT ${lim} OFFSET ${off}`;
     const [rows] = await pool.execute(sql, values);
     decryptIntakeSubmissionRows(rows);
     return rows;

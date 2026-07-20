@@ -116,11 +116,12 @@ class PlannedOut {
     const params = [aid, ...statusList];
     let upcomingSql = '';
     if (upcomingOnly) {
+      // Include current/future spans — not only entries whose end time is still in the future.
+      // Timed outs for today stay visible for the rest of the calendar day after they end.
       upcomingSql = ` AND (
         (po.all_day = 1 AND po.end_date > CURDATE())
-        OR (po.all_day = 0 AND po.end_at >= NOW())
-        OR (po.all_day = 1 AND po.end_date IS NULL AND po.start_date >= CURDATE())
-        OR (po.all_day = 0 AND po.end_at IS NULL AND po.start_at >= NOW())
+        OR (po.all_day = 0 AND DATE(po.end_at) >= CURDATE())
+        OR (po.all_day = 0 AND po.end_at IS NULL AND DATE(po.start_at) >= CURDATE())
       )`;
     }
     const [rows] = await pool.execute(

@@ -124,10 +124,14 @@ const details = ref('');
 const saving = ref(false);
 const error = ref('');
 
-function toIsoLocal(local) {
+function toMysqlLocal(local) {
   if (!local) return null;
+  const m = String(local).match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  if (m) return `${m[1]} ${m[2]}:00`;
   const d = new Date(local);
-  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+  if (!Number.isFinite(d.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
 }
 
 function addOneDay(ymd) {
@@ -150,8 +154,8 @@ async function submit() {
       details: details.value.trim() || undefined
     };
     if (spanType.value === 'hours') {
-      body.startAt = toIsoLocal(startLocal.value);
-      body.endAt = toIsoLocal(endLocal.value);
+      body.startAt = toMysqlLocal(startLocal.value);
+      body.endAt = toMysqlLocal(endLocal.value);
     } else if (spanType.value === 'half_day') {
       body.startDate = dayDate.value;
       body.halfDayPart = halfDayPart.value;

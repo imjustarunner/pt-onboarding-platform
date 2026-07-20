@@ -40,9 +40,13 @@ function addDaysYmd(dateStr, days) {
 
 function asMysqlDateTime(raw) {
   if (!raw) return null;
-  const d = new Date(raw);
+  const s = String(raw).trim();
+  const naive = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2})?$/);
+  if (naive) return `${naive[1]} ${naive[2]}${naive[3] || ':00'}`;
+  const d = new Date(s);
   if (!Number.isFinite(d.getTime())) return null;
-  return d.toISOString().slice(0, 19).replace('T', ' ');
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function buildDescription(body) {
