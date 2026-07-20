@@ -1,13 +1,11 @@
 <template>
-  <div class="tenant-admin-dashboard">
-    <!-- Beta indicator bar — lets users return to the classic dashboard -->
+  <div class="tenant-admin-dashboard" :style="brandVars">
     <div class="beta-bar">
-      <span class="beta-pill">BETA</span>
-      <span class="beta-bar-text">You're using the new admin dashboard.</span>
-      <button class="beta-bar-back" @click="backToClassic">← Back to Classic Dashboard</button>
+      <span class="beta-pill">NEW</span>
+      <span class="beta-bar-text">Management dashboard — quick access to priority operations.</span>
+      <button class="beta-bar-back" type="button" @click="backToClassic">View classic dashboard</button>
     </div>
 
-    <!-- Top Bar -->
     <header class="top-bar">
       <div class="top-bar-left">
         <BrandingLogo size="medium" :logo-url="agencyStore.currentAgency?.logo_url" />
@@ -22,22 +20,21 @@
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Search patients, providers, docs..."
+            placeholder="Search clients, providers, docs..."
             @keyup.enter="performSearch"
           >
-          <button class="search-btn" @click="performSearch" aria-label="Search">
-            <span>🔍</span>
-          </button>
+          <button class="search-btn" type="button" @click="performSearch" aria-label="Search">🔍</button>
         </div>
       </div>
 
       <div class="top-bar-right">
-        <button class="quick-actions-btn" @click="toggleQuickActions">
-          Quick Actions <span class="arrow">▼</span>
-        </button>
-
-        <button class="notifications-bell" :class="{ 'has-unread': unreadCount > 0 }" @click="toggleNotifications">
-          🔔 Notifications
+        <button
+          class="notifications-bell"
+          type="button"
+          :class="{ 'has-unread': unreadCount > 0 }"
+          @click="toggleNotifications"
+        >
+          Notifications
           <span v-if="unreadCount > 0" class="badge">{{ unreadCount }}</span>
         </button>
 
@@ -50,279 +47,224 @@
         </div>
       </div>
 
-      <!-- Quick Actions Dropdown -->
-      <div v-if="showQuickActions" class="quick-actions-dropdown" @click.stop>
-        <button @click="quickAction('add-patient')">+ Add Patient</button>
-        <button @click="quickAction('schedule')">Schedule Session</button>
-        <button @click="quickAction('document')">Create Document</button>
-        <button @click="quickAction('provider')">View Providers</button>
-        <button @click="quickAction('module')">Manage Modules</button>
-      </div>
-
-      <!-- Notifications Panel -->
       <div v-if="showNotificationsPanel" class="notifications-panel" @click.stop>
         <div class="panel-header">
           <h3>Notifications</h3>
-          <button class="view-all" @click="viewAllNotifications">View All</button>
+          <button class="view-all" type="button" @click="viewAllNotifications">View All</button>
         </div>
         <div v-if="notifications.length === 0" class="empty-state-sm">No notifications</div>
-        <div v-for="notif in notifications.slice(0, 5)" :key="notif.id" class="notification-item" :class="notif.priority">
+        <div
+          v-for="notif in notifications.slice(0, 5)"
+          :key="notif.id"
+          class="notification-item"
+          :class="notif.priority"
+        >
           <div class="notif-icon">{{ getPriorityIcon(notif.priority) }}</div>
           <div>
             <div class="notif-title">{{ notif.title || notif.message }}</div>
-            <div class="notif-time">{{ notif.time || notif.created_at }}</div>
+            <div class="notif-time">{{ formatNotifTime(notif) }}</div>
           </div>
         </div>
       </div>
     </header>
 
     <div class="main-layout" @click="closeDropdowns">
-      <!-- Left Sidebar -->
       <nav class="sidebar">
         <div class="sidebar-section">
           <div class="section-header">CORE</div>
-          <router-link :to="`/${slug}/admin-dashboard`" class="nav-item">
-            <span class="icon">📊</span> Dashboard
-          </router-link>
-          <router-link :to="`/${slug}/admin/clients`" class="nav-item">
-            <span class="icon">👥</span> Patients
-          </router-link>
-          <router-link :to="`/${slug}/admin/providers`" class="nav-item">
-            <span class="icon">🩺</span> Providers
-          </router-link>
-          <router-link :to="`/${slug}/admin/company-events`" class="nav-item">
-            <span class="icon">📅</span> Scheduling
-          </router-link>
-          <router-link :to="`/${slug}/admin/documents`" class="nav-item">
-            <span class="icon">📄</span> Documentation
-          </router-link>
-          <router-link :to="`/${slug}/admin/modules`" class="nav-item">
-            <span class="icon">📚</span> Modules
-          </router-link>
-          <router-link :to="`/${slug}/classroom/class-presentation-dashboard`" class="nav-item">
-            <span class="icon">🎓</span> Class Presentations
-          </router-link>
+          <router-link :to="`/${slug}/admin-dashboard`" class="nav-item">Dashboard</router-link>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-header">CLIENTS</div>
+          <router-link :to="`/${slug}/admin/clients`" class="nav-item">Client List</router-link>
+          <router-link :to="`/${slug}/admin/guardians`" class="nav-item">Guardians</router-link>
+          <router-link :to="`/${slug}/admin/intake-links`" class="nav-item">Applications</router-link>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-header">PEOPLE OPS</div>
+          <router-link :to="`/${slug}/admin/users`" class="nav-item">Employees</router-link>
+          <router-link :to="`/${slug}/admin/hiring`" class="nav-item">Job Applications</router-link>
+          <router-link :to="`/${slug}/admin/payroll`" class="nav-item">Payroll</router-link>
         </div>
 
         <div class="sidebar-section">
           <div class="section-header">OPERATIONS</div>
-          <router-link :to="`/${slug}/admin/payroll`" class="nav-item">
-            <span class="icon">💰</span> Payroll
-          </router-link>
-          <router-link :to="`/${slug}/messages`" class="nav-item">
-            <span class="icon">💬</span> Messages
-          </router-link>
-          <router-link :to="`/${slug}/admin/agency-progress`" class="nav-item">
-            <span class="icon">📈</span> Progress Reports
-          </router-link>
-          <router-link :to="`/${slug}/admin/users`" class="nav-item">
-            <span class="icon">👤</span> Users
-          </router-link>
+          <router-link :to="ticketsPath" class="nav-item">Tickets</router-link>
+          <router-link :to="`/${slug}/admin/communications`" class="nav-item">Communications</router-link>
+          <router-link :to="`/${slug}/admin/unassigned-documents`" class="nav-item">Documentation</router-link>
+          <router-link :to="`/${slug}/schedule`" class="nav-item">Scheduling</router-link>
+          <router-link v-if="canSeeSchoolPortals" :to="`/${slug}/admin/school-portals-hub`" class="nav-item">School Portals</router-link>
+          <router-link :to="`/${slug}/admin/company-events`" class="nav-item">Events</router-link>
+          <router-link v-if="hasAffiliatedPrograms" :to="`/${slug}/admin/schools/overview?orgType=program`" class="nav-item">Programs</router-link>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-header">REPORTS</div>
+          <router-link :to="`/${slug}/admin/agency-progress`" class="nav-item">Progress Reports</router-link>
+          <router-link :to="`/${slug}/admin/payroll/reports`" class="nav-item">Payroll Reports</router-link>
         </div>
 
         <div class="sidebar-section">
           <div class="section-header">SYSTEM</div>
-          <router-link :to="`/${slug}/admin/settings`" class="nav-item">
-            <span class="icon">⚙️</span> Settings
-          </router-link>
-          <router-link :to="`/${slug}/admin/audit-center`" class="nav-item">
-            <span class="icon">🔍</span> Audit Center
-          </router-link>
-          <router-link :to="`/${slug}/admin/notifications`" class="nav-item">
-            <span class="icon">🔔</span> Notifications
-          </router-link>
+          <router-link :to="`/${slug}/admin/settings`" class="nav-item">Settings</router-link>
+          <router-link :to="`/${slug}/admin/audit-center`" class="nav-item">Audit Logs</router-link>
+          <router-link :to="notificationsPath" class="nav-item">Notifications</router-link>
         </div>
 
         <div class="sidebar-footer">
-          <button @click="logout" class="logout-btn">Logout</button>
+          <button type="button" class="logout-btn" @click="logout">Logout</button>
         </div>
       </nav>
 
-      <!-- Main Content -->
       <main class="main-content">
-        <!-- Loading state -->
         <div v-if="loading" class="loading-overlay">
           <div class="loading-spinner"></div>
-          <p>Loading dashboard data...</p>
+          <p>Loading dashboard…</p>
         </div>
 
-        <!-- KPI Metrics Row -->
-        <div class="kpi-row">
-          <div v-for="(kpi, i) in kpis" :key="i" class="kpi-card" @click="navigateToKpi(kpi)">
-            <div class="kpi-label">{{ kpi.label }}</div>
-            <div class="kpi-value">{{ kpi.value }}</div>
-            <div class="micro-chart">
-              <svg v-if="trends.length > 1" width="100%" height="32" class="trend-svg" viewBox="0 0 140 32" preserveAspectRatio="none">
-                <polyline
-                  v-for="(series, idx) in getTrendSeries(trends)"
-                  :key="idx"
-                  :points="getTrendPoints(series.values)"
-                  fill="none"
-                  :stroke="idx === 0 ? '#0ea5e9' : '#22d3ee'"
-                  stroke-width="2"
-                  stroke-linejoin="round"
-                />
-              </svg>
-              <div v-else class="sparkline"></div>
-            </div>
+        <div class="page-header">
+          <div>
+            <h1>Management Dashboard</h1>
+            <p class="subtitle">Real-time overview of priority operations and actions.</p>
+          </div>
+          <div class="page-header-right">
+            <time class="datetime">{{ formattedNow }}</time>
+            <button type="button" class="customize-btn" @click="showCustomizeModal = true">
+              Customize Dashboard
+            </button>
           </div>
         </div>
 
-        <div class="content-grid">
-          <!-- Left/Center panel -->
-          <div class="left-panel">
-            <!-- Today's Activity Feed -->
-            <div class="panel activity-feed">
-              <div class="panel-header">
-                <h2>Today's Activity</h2>
-                <button @click="viewAllNotifications" class="view-all-btn">View All</button>
-              </div>
-              <div v-if="activityFeed.length === 0" class="empty-state">
-                <span>No recent activity</span>
-              </div>
-              <div v-for="activity in activityFeed" :key="activity.id || activity.time" class="activity-item">
-                <div class="activity-time">{{ activity.time }}</div>
-                <div class="activity-content">
-                  <span :class="`status ${normalizeStatus(activity.status || activity.type)}`">{{ normalizeStatus(activity.status || activity.type) }}</span>
-                  {{ activity.description || activity.message }}
-                </div>
-              </div>
-            </div>
+        <AtAGlanceRow
+          v-if="isVisible('atGlance')"
+          :cards="glanceCards"
+          @navigate="go"
+        />
 
-            <!-- Tasks & Workflows -->
-            <div class="panel tasks-panel">
-              <div class="panel-header">
-                <h2>Tasks & Workflows <span class="count">({{ tasks.length }})</span></h2>
-              </div>
-              <div v-if="tasks.length === 0" class="empty-state">
-                <span>No pending tasks — you're all caught up!</span>
-              </div>
-              <div v-for="task in tasks" :key="task.id || task.title" class="task-item" @click="handleTaskClick(task)">
-                <div class="task-icon">{{ getTaskIcon(task.type) }}</div>
-                <div class="task-details">
-                  <div class="task-title">{{ task.title }}</div>
-                  <div class="task-meta">{{ task.count }} {{ task.meta || 'items' }}</div>
-                </div>
-                <div class="task-priority" :class="task.priority || 'medium'">{{ task.priority || 'medium' }}</div>
-              </div>
-            </div>
-          </div>
+        <div class="mid-grid">
+          <DocumentationAlertsCard
+            v-if="isVisible('documentationAlerts')"
+            :alerts="docAlerts"
+            :view-all-to="`/${slug}/admin/unassigned-documents`"
+            @navigate="go"
+          />
 
-          <!-- Schedule Snapshot -->
-          <div class="schedule-panel panel">
-            <div class="panel-header">
-              <h2>Schedule Snapshot</h2>
-              <div class="view-toggle">
-                <button :class="{ active: viewMode === 'day' }" @click="viewMode = 'day'">Day</button>
-                <button :class="{ active: viewMode === 'week' }" @click="viewMode = 'week'">Week</button>
-                <button :class="{ active: viewMode === 'month' }" @click="viewMode = 'month'">Month</button>
-              </div>
-            </div>
-            <div v-if="scheduleLoading" class="empty-state">Loading schedule...</div>
-            <div v-else-if="scheduleSlots.length === 0" class="empty-state">
-              <span>No sessions scheduled for today</span>
-            </div>
-            <div v-else class="calendar-snapshot">
-              <div v-for="(slot, i) in scheduleSlots" :key="slot.id || i" class="calendar-slot" @click="openSession(slot)">
-                <div class="slot-time">{{ slot.time }}</div>
-                <div class="slot-info">
-                  <div class="slot-provider">{{ slot.provider }}</div>
-                  <div class="slot-client">{{ slot.client }}</div>
-                </div>
-                <div class="slot-type" :class="slot.type">{{ slot.type }}</div>
-              </div>
-            </div>
-            <button @click="viewFullCalendar" class="full-calendar-btn">View Full Calendar →</button>
-          </div>
-
-          <!-- Right Panel -->
-          <div class="right-panel">
-            <!-- Notifications -->
-            <div class="panel notifications-right">
-              <div class="panel-header">
-                <h2>Notifications</h2>
-                <span class="urgent-count" v-if="urgentNotifications > 0">{{ urgentNotifications }} Urgent</span>
-              </div>
-              <div v-if="rightNotifications.length === 0" class="empty-state">No new notifications</div>
-              <div v-for="notif in rightNotifications" :key="notif.id" class="right-notif">
-                <div class="notif-dot" :class="notif.priority || 'info'"></div>
-                <div class="notif-content">
-                  <strong>{{ notif.title || notif.message }}</strong>
-                  <small>{{ notif.subtitle || '' }}</small>
-                </div>
-                <small class="notif-time">{{ notif.time || '' }}</small>
-              </div>
-            </div>
-
-            <!-- Quick Stats -->
-            <div class="panel engagement">
-              <div class="panel-header">
-                <h2>Quick Stats</h2>
-              </div>
-              <div class="quick-stats">
-                <div class="stat-row">
-                  <span class="stat-label">Active Employees</span>
-                  <span class="stat-value">{{ activeEmployees }}</span>
-                </div>
-                <div class="stat-row">
-                  <span class="stat-label">Sessions Today</span>
-                  <span class="stat-value">{{ sessionsToday }}</span>
-                </div>
-                <div class="stat-row">
-                  <span class="stat-label">Unread Notifications</span>
-                  <span class="stat-value">{{ unreadCount }}</span>
-                </div>
-                <div class="stat-row" v-if="recentPayrollPeriod">
-                  <span class="stat-label">Last Payroll Period</span>
-                  <span class="stat-value">{{ recentPayrollPeriod.label || recentPayrollPeriod.period_start }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- System Status -->
-            <div class="panel system-status">
-              <div class="panel-header">
-                <h2>System Status</h2>
-              </div>
-              <div class="status-items">
-                <div class="status-item success">
-                  <span class="dot"></span>
-                  All Systems Operational
-                </div>
-                <div class="status-meta">Last updated: {{ lastRefresh }}</div>
-              </div>
-            </div>
+          <div v-if="isVisible('quickActions')" class="qa-wrap panel">
+            <QuickActionsSection
+              ref="quickActionsRef"
+              title="Quick Actions"
+              context-key="tenant-ops-v2"
+              compact
+              :actions="quickActionsCatalog"
+              :default-action-ids="defaultQuickActionIds"
+              :icon-resolver="resolveQuickActionIcon"
+              :badge-counts="quickActionBadges"
+            />
           </div>
         </div>
+
+        <TenantContextCards
+          :show-school-updates="isVisible('schoolUpdates') && canSeeSchoolPortals"
+          :show-events="isVisible('events')"
+          :show-programs="isVisible('programs') && hasAffiliatedPrograms"
+          :schools="schoolList"
+          :school-stats="schoolStats"
+          :events="upcomingEvents"
+          :program-stats="programStats"
+          :paths="contextPaths"
+          @navigate="go"
+        />
+
+        <OpsSummaryCards
+          :show-communications="isVisible('communications')"
+          :show-client-quick-access="isVisible('clientQuickAccess')"
+          :show-people-ops="isVisible('peopleOps')"
+          :show-system-alerts="isVisible('systemAlerts')"
+          :show-todays-schedule="isVisible('todaysSchedule')"
+          :communications="commsSummary"
+          :clients="recentClients"
+          :people-ops="peopleOpsSummary"
+          :system-alerts="systemAlertsSummary"
+          :schedule-slots="scheduleSlots"
+          :schedule-loading="scheduleLoading"
+          :paths="summaryPaths"
+          @navigate="go"
+        />
       </main>
+    </div>
+
+    <div v-if="showCustomizeModal" class="modal-overlay" @click.self="showCustomizeModal = false">
+      <div class="modal" role="dialog" aria-labelledby="customize-title">
+        <div class="modal-header">
+          <h3 id="customize-title">Customize Dashboard</h3>
+          <button type="button" class="btn-close" aria-label="Close" @click="showCustomizeModal = false">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-intro">Choose which sections appear on your management dashboard.</p>
+          <div class="section-toggles">
+            <label
+              v-for="item in sectionLabels"
+              :key="item.key"
+              class="toggle-row"
+            >
+              <input
+                type="checkbox"
+                :checked="isVisible(item.key)"
+                @change="setSection(item.key, $event.target.checked)"
+              >
+              <span>{{ item.label }}</span>
+            </label>
+          </div>
+          <div class="modal-actions-row">
+            <button type="button" class="btn-secondary" @click="resetSections">Reset sections</button>
+            <button type="button" class="btn-secondary" @click="openQuickActionsCustomizer">
+              Customize Quick Actions…
+            </button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-primary" @click="showCustomizeModal = false">Done</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { useNotificationStore } from '../../store/notifications';
+import { useBrandingStore } from '../../store/branding';
+import { useAdminDashboardPrefs, SECTION_LABELS } from '../../composables/useAdminDashboardPrefs';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
+import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
+import AtAGlanceRow from '../../components/admin/opsDashboard/AtAGlanceRow.vue';
+import DocumentationAlertsCard from '../../components/admin/opsDashboard/DocumentationAlertsCard.vue';
+import OpsSummaryCards from '../../components/admin/opsDashboard/OpsSummaryCards.vue';
+import TenantContextCards from '../../components/admin/opsDashboard/TenantContextCards.vue';
+import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
 
 const router = useRouter();
 const route = useRoute();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
+const brandingStore = useBrandingStore();
 
-// UI state
 const searchQuery = ref('');
-const showQuickActions = ref(false);
 const showNotificationsPanel = ref(false);
-const viewMode = ref('day');
+const showCustomizeModal = ref(false);
 const loading = ref(false);
 const scheduleLoading = ref(false);
+const quickActionsRef = ref(null);
+const nowTick = ref(Date.now());
+let nowTimer = null;
 
-// Derive slug — no hardcoded fallback
 const slug = computed(() =>
   route.params.organizationSlug
   || agencyStore.currentAgency?.slug
@@ -330,8 +272,12 @@ const slug = computed(() =>
   || ''
 );
 
-// Current user info from auth store
 const currentUser = computed(() => authStore.user || authStore.currentUser || {});
+const userId = computed(() => currentUser.value?.id || currentUser.value?.email || null);
+
+const { isVisible, setSection, resetSections } = useAdminDashboardPrefs({ userId });
+const sectionLabels = SECTION_LABELS;
+
 const userName = computed(() => {
   const u = currentUser.value;
   if (u.first_name && u.last_name) return `${u.first_name} ${u.last_name}`;
@@ -351,147 +297,658 @@ const userRoleLabel = computed(() => {
     support: 'Support',
     club_manager: 'Club Manager',
     provider_plus: 'Provider+',
-    clinical_practice_assistant: 'Clinical Assistant',
-    school_staff: 'School Staff',
+    clinical_practice_assistant: 'Clinical Assistant'
   };
   return map[role] || 'Admin';
 });
 
-// Dashboard data refs — all empty by default, filled by onMounted
-const kpis = ref([]);
-const trends = ref([]);
-const activityFeed = ref([]);
-const tasks = ref([]);
-const scheduleSlots = ref([]);
+const brandVars = computed(() => {
+  const primary = brandingStore.primaryColor || '#1f6b4a';
+  return {
+    '--ops-primary': primary,
+    '--ops-sidebar': `color-mix(in srgb, ${primary} 78%, #041a12)`,
+    '--ops-ink': '#0f172a',
+    '--ops-muted': '#64748b'
+  };
+});
 
-// Quick stats (populated alongside KPIs)
+const formattedNow = computed(() => {
+  try {
+    return new Date(nowTick.value).toLocaleString(undefined, {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return '';
+  }
+});
+
+const prefix = computed(() => (slug.value ? `/${slug.value}` : ''));
+const ticketsPath = computed(() => `${prefix.value}/tickets`);
+const notificationsPath = computed(() => `${prefix.value}/notifications`);
+
+const summaryPaths = computed(() => ({
+  prefix: prefix.value,
+  communications: `${prefix.value}/admin/communications`,
+  clients: `${prefix.value}/admin/clients`,
+  hiring: `${prefix.value}/admin/hiring`,
+  notifications: notificationsPath.value,
+  schedule: `${prefix.value}/schedule`
+}));
+
+const contextPaths = computed(() => ({
+  schoolPortals: `${prefix.value}/admin/school-portals`,
+  schoolPortalsHub: `${prefix.value}/admin/school-portals-hub`,
+  schoolPortalBase: `${prefix.value}/admin/school-portals`,
+  events: `${prefix.value}/admin/company-events`,
+  programs: `${prefix.value}/admin/schools/overview?orgType=program`,
+  modules: `${prefix.value}/admin/modules`
+}));
+
+// Live metrics
+const newTickets = ref(0);
+const openTickets = ref(0);
+const unreadMessages = ref(0);
+const clientMessages = ref(0);
+const lateNotes = ref(0);
+const unsignedDocs = ref(0);
+const unassignedDocs = ref(0);
+const newApplications = ref(0);
+const payrollSubmissions = ref(0);
+const pendingEmployees = ref(0);
 const activeEmployees = ref(0);
-const sessionsToday = ref(0);
-const recentPayrollPeriod = ref(null);
-const lastRefresh = ref('');
+const deliveryQueue = ref(0);
+const scheduleSlots = ref([]);
+const recentClients = ref([]);
+const schoolList = ref([]);
+const schoolStats = ref({ schoolCount: 0, announcements: 0 });
+const upcomingEvents = ref([]);
+const programStats = ref({ programs: 0, learning: 0, modules: 0 });
+const orgOverviewSummary = ref({ counts: { school: 0, program: 0, learning: 0, other: 0 } });
+const canSeeSchoolPortals = ref(false);
 
-// Notifications — all from store (no hardcoded fallbacks)
+const hasAffiliatedPrograms = computed(() =>
+  Number(orgOverviewSummary.value?.counts?.program || 0)
+  + Number(orgOverviewSummary.value?.counts?.learning || 0) > 0
+);
+
 const notifications = computed(() => notificationStore.notifications || []);
 const unreadCount = computed(() => {
   const n = notificationStore.unreadNotifications;
   return typeof n === 'object' ? (n?.value ?? 0) : (n ?? 0);
 });
-const urgentNotifications = computed(() =>
-  (notificationStore.notifications || []).filter(
-    n => String(n.priority || '').toLowerCase() === 'urgent'
-  ).length
-);
-const rightNotifications = computed(() =>
-  (notificationStore.notifications || []).slice(0, 5)
+const highPriorityCount = computed(() =>
+  (notificationStore.notifications || []).filter((n) => {
+    const p = String(n.priority || '').toLowerCase();
+    return p === 'urgent' || p === 'high';
+  }).length
 );
 
-onMounted(async () => {
+const glanceCards = computed(() => [
+  {
+    key: 'new_tickets',
+    label: 'New Tickets',
+    value: newTickets.value,
+    hint: 'Requires immediate attention',
+    cta: 'View All',
+    tone: 'danger',
+    to: `${ticketsPath.value}?status=open`
+  },
+  {
+    key: 'open_tickets',
+    label: 'Open Tickets',
+    value: openTickets.value,
+    hint: 'Active support tickets',
+    cta: 'View All',
+    tone: 'warn',
+    to: ticketsPath.value
+  },
+  {
+    key: 'messages',
+    label: 'Messages',
+    value: unreadMessages.value,
+    hint: 'Unread messages',
+    cta: 'Open Inbox',
+    tone: 'info',
+    to: `${prefix.value}/messages`
+  },
+  {
+    key: 'late_notes',
+    label: 'Late Notes',
+    value: lateNotes.value,
+    hint: 'Notes past due',
+    cta: 'Review',
+    tone: 'purple',
+    to: `${prefix.value}/admin/payroll`
+  },
+  {
+    key: 'applications',
+    label: 'New Applications',
+    value: newApplications.value,
+    hint: 'New job applications',
+    cta: 'Review',
+    tone: 'success',
+    to: `${prefix.value}/admin/hiring`
+  },
+  {
+    key: 'payroll',
+    label: 'Payroll Submissions',
+    value: payrollSubmissions.value,
+    hint: 'Pending payroll items',
+    cta: 'Review',
+    tone: 'accent',
+    to: `${prefix.value}/admin/payroll/pending`
+  }
+]);
+
+const docAlerts = computed(() => {
+  const rows = [];
+  if (lateNotes.value > 0) {
+    rows.push({
+      key: 'late_notes',
+      count: lateNotes.value,
+      label: 'Late Progress Notes',
+      hint: 'Requires immediate attention',
+      tone: 'danger',
+      to: `${prefix.value}/admin/payroll`
+    });
+  }
+  if (unsignedDocs.value > 0) {
+    rows.push({
+      key: 'unsigned',
+      count: unsignedDocs.value,
+      label: 'Unsigned Documents',
+      hint: 'Pending signatures',
+      tone: 'warn',
+      to: `${prefix.value}/admin/unassigned-documents`
+    });
+  }
+  if (unassignedDocs.value > 0) {
+    rows.push({
+      key: 'unassigned',
+      count: unassignedDocs.value,
+      label: 'Unassigned Documents',
+      hint: 'Needs client assignment',
+      tone: 'info',
+      to: `${prefix.value}/admin/unassigned-documents`
+    });
+  }
+  return rows;
+});
+
+const commsSummary = computed(() => ({
+  unread: unreadMessages.value,
+  clientMessages: clientMessages.value,
+  openTickets: openTickets.value
+}));
+
+const peopleOpsSummary = computed(() => ({
+  newApplications: newApplications.value,
+  onboarding: pendingEmployees.value,
+  activeEmployees: activeEmployees.value
+}));
+
+const systemAlertsSummary = computed(() => ({
+  highPriority: highPriorityCount.value,
+  unread: unreadCount.value,
+  deliveryQueue: deliveryQueue.value
+}));
+
+const opsRoles = ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus', 'club_manager'];
+
+const defaultQuickActionIds = computed(() => {
+  const ids = [
+    'send_message',
+    'create_ticket',
+    'schedule_appointment',
+    'manage_clients',
+    'company_events'
+  ];
+  if (canSeeSchoolPortals.value) ids.push('school_portals');
+  if (hasAffiliatedPrograms.value) ids.push('program_overview');
+  ids.push('add_progress_note', 'review_applications', 'run_reports');
+  return ids;
+});
+
+const quickActionsCatalog = computed(() => {
+  const p = prefix.value;
+  const all = [
+    {
+      id: 'send_message',
+      title: 'Send Message',
+      description: 'Open messages inbox',
+      to: `${p}/messages`,
+      emoji: '💬',
+      iconKey: 'chats',
+      category: 'Communications',
+      roles: opsRoles
+    },
+    {
+      id: 'create_ticket',
+      title: 'Create New Ticket',
+      description: 'Open a support ticket',
+      to: `${p}/tickets?create=1`,
+      emoji: '🎫',
+      iconKey: 'communications',
+      category: 'Operations',
+      roles: opsRoles
+    },
+    {
+      id: 'schedule_appointment',
+      title: 'Schedule Appointment',
+      description: 'Open schedule hub',
+      to: `${p}/schedule`,
+      emoji: '📅',
+      iconKey: 'schedule',
+      category: 'Scheduling',
+      roles: opsRoles
+    },
+    {
+      id: 'manage_clients',
+      title: 'Manage Clients',
+      description: 'Client list and profiles',
+      to: `${p}/admin/clients`,
+      emoji: '🧾',
+      iconKey: 'manage_clients',
+      category: 'Clients',
+      roles: opsRoles
+    },
+    {
+      id: 'company_events',
+      title: 'Events',
+      description: 'Company events and updates',
+      to: `${p}/admin/company-events`,
+      emoji: '🗓️',
+      iconKey: 'company_events',
+      category: 'Events',
+      roles: opsRoles
+    },
+    {
+      id: 'school_portals',
+      title: 'School Portals',
+      description: 'School updates, portals, and changes',
+      to: `${p}/admin/school-portals-hub`,
+      emoji: '🏫',
+      iconKey: 'school_overview',
+      category: 'Schools',
+      roles: opsRoles
+    },
+    {
+      id: 'program_overview',
+      title: 'Program Overview',
+      description: 'Affiliated programs and learning orgs',
+      to: `${p}/admin/schools/overview?orgType=program`,
+      emoji: '🧩',
+      iconKey: 'program_overview',
+      category: 'Programs',
+      roles: opsRoles
+    },
+    {
+      id: 'add_progress_note',
+      title: 'Add Progress Note',
+      description: 'Note Aid clinical notes',
+      to: `${p}/admin/note-aid`,
+      emoji: '📝',
+      iconKey: 'clinical_note_generator',
+      category: 'Clinical',
+      roles: opsRoles
+    },
+    {
+      id: 'review_applications',
+      title: 'Review Applications',
+      description: 'Hiring candidates queue',
+      to: `${p}/admin/hiring`,
+      emoji: '📋',
+      iconKey: 'manage_users',
+      category: 'People Ops',
+      roles: ['admin', 'support', 'super_admin']
+    },
+    {
+      id: 'run_reports',
+      title: 'Run Reports',
+      description: 'Training progress reports',
+      to: `${p}/admin/agency-progress`,
+      emoji: '📊',
+      iconKey: 'progress_dashboard',
+      category: 'Reports',
+      roles: opsRoles
+    },
+    {
+      id: 'payroll_reports',
+      title: 'Payroll Reports',
+      description: 'Payroll reporting tools',
+      to: `${p}/admin/payroll/reports`,
+      emoji: '💰',
+      iconKey: 'payroll',
+      category: 'Reports',
+      roles: ['admin', 'support', 'super_admin']
+    },
+    {
+      id: 'communications',
+      title: 'Communications Center',
+      description: 'Messages, tickets, engagement',
+      to: `${p}/admin/communications`,
+      emoji: '📡',
+      iconKey: 'communications',
+      category: 'Communications',
+      roles: opsRoles
+    },
+    {
+      id: 'unassigned_documents',
+      title: 'Unassigned Documents',
+      description: 'Assign submitted paperwork',
+      to: `${p}/admin/unassigned-documents`,
+      emoji: '📄',
+      iconKey: 'manage_documents',
+      category: 'Documentation',
+      roles: opsRoles
+    },
+    {
+      id: 'manage_users',
+      title: 'Manage Users',
+      description: 'Employees and staff accounts',
+      to: `${p}/admin/users`,
+      emoji: '👤',
+      iconKey: 'manage_users',
+      category: 'People Ops',
+      roles: ['admin', 'support', 'super_admin']
+    },
+    {
+      id: 'payroll_pending',
+      title: 'Payroll Pending',
+      description: 'Review pending submissions',
+      to: `${p}/admin/payroll/pending`,
+      emoji: '⏳',
+      iconKey: 'payroll',
+      category: 'People Ops',
+      roles: ['admin', 'support', 'super_admin']
+    },
+    {
+      id: 'manage_modules',
+      title: 'Manage Modules',
+      description: 'Training modules',
+      to: `${p}/admin/modules`,
+      emoji: '📚',
+      iconKey: 'manage_modules',
+      category: 'Programs',
+      roles: opsRoles
+    },
+    {
+      id: 'notifications',
+      title: 'Notifications',
+      description: 'Unified notification inbox',
+      to: notificationsPath.value,
+      emoji: '🔔',
+      iconKey: 'notifications',
+      category: 'System',
+      roles: opsRoles
+    }
+  ];
+  return all.filter((a) => {
+    if (a.id === 'school_portals') return canSeeSchoolPortals.value;
+    if (a.id === 'program_overview') return hasAffiliatedPrograms.value;
+    return true;
+  });
+});
+
+const quickActionBadges = computed(() => ({
+  create_ticket: openTickets.value,
+  review_applications: newApplications.value,
+  payroll_pending: payrollSubmissions.value,
+  unassigned_documents: unassignedDocs.value,
+  send_message: unreadMessages.value
+}));
+
+const resolveQuickActionIcon = (action) => {
+  try {
+    return brandingStore.getAdminQuickActionIconUrl(action?.iconKey || action?.id, agencyStore.currentAgency || null);
+  } catch {
+    return null;
+  }
+};
+
+const countLateNoteNotifications = () => {
+  const types = new Set([
+    'payroll_unpaid_notes_2_periods_old',
+    'payroll_missing_notes_reminder',
+    'payroll_unsigned_draft_notes',
+    'late_progress_note',
+    'late_notes'
+  ]);
+  return (notificationStore.notifications || []).filter((n) => {
+    const t = String(n.type || n.notification_type || '').toLowerCase();
+    const title = String(n.title || n.message || '').toLowerCase();
+    return types.has(t) || title.includes('late note') || title.includes('late progress');
+  }).length;
+};
+
+const countUnsignedNotifications = () => {
+  return (notificationStore.notifications || []).filter((n) => {
+    const t = String(n.type || n.notification_type || '').toLowerCase();
+    const title = String(n.title || n.message || '').toLowerCase();
+    return t.includes('unsigned') || title.includes('unsigned');
+  }).length;
+};
+
+const loadDashboard = async () => {
   loading.value = true;
   const agencyId = agencyStore.currentAgency?.id
     || (typeof agencyStore.currentAgency === 'object' ? agencyStore.currentAgency?.value?.id : null);
+  const params = agencyId ? { agencyId } : {};
 
   try {
-    // Fetch notifications (real, from store)
-    await notificationStore.fetchNotifications();
+    await Promise.all([
+      notificationStore.fetchNotifications?.().catch(() => {}),
+      notificationStore.fetchCounts?.().catch(() => {})
+    ]);
   } catch { /* non-fatal */ }
 
-  if (agencyId) {
-    // Dashboard KPIs
-    try {
-      const { data: d } = await api.get('/dashboard/agency-specs', { params: { agencyId } });
+  const agency = agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  canSeeSchoolPortals.value = canAccessSchoolPortalsSurfaces({
+    userRole: currentUser.value?.role,
+    agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+  });
 
-      activeEmployees.value = d.activeEmployees || 0;
-      sessionsToday.value = d.sessionsToday || 0;
-      recentPayrollPeriod.value = d.recentPayrollPeriod || null;
-      lastRefresh.value = d.refreshedAt ? new Date(d.refreshedAt).toLocaleTimeString() : new Date().toLocaleTimeString();
-
-      kpis.value = [
-        { label: 'Active Patients', value: String(d.activePatients || 0), link: `/${slug.value}/admin/clients` },
-        { label: 'Active Employees', value: String(d.activeEmployees || 0), link: `/${slug.value}/admin/providers` },
-        { label: 'Sessions Today', value: String(d.sessionsToday || 0), link: `/${slug.value}/admin/company-events` },
-        { label: 'Open Tasks', value: String(d.openTasks || 0), link: `/${slug.value}/admin/audit-center` },
-        { label: 'Revenue (MTD)', value: '$' + (d.revenueMTD || 0).toLocaleString(), link: `/${slug.value}/admin/payroll` },
-      ];
-
-      trends.value = Array.isArray(d.trends) ? d.trends : [];
-
-      // Activity feed from backend notifications query
-      if (Array.isArray(d.activityFeed) && d.activityFeed.length > 0) {
-        activityFeed.value = d.activityFeed;
-      } else {
-        // Fall back to notification store items formatted as activity
-        activityFeed.value = (notificationStore.notifications || []).slice(0, 5).map(n => ({
-          id: n.id,
-          time: n.created_at ? new Date(n.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '',
-          status: n.type || 'info',
-          description: n.message || n.title || '',
-        }));
-      }
-
-      // Tasks from real task summary
-      if (Array.isArray(d.tasksSummary) && d.tasksSummary.length > 0) {
-        tasks.value = d.tasksSummary.map((t, i) => ({
-          id: i + 1,
-          title: t.title,
-          count: t.count || 0,
-          meta: 'items',
-          priority: i === 0 ? 'high' : 'medium',
-          type: 'review',
-        }));
-      }
-    } catch (e) {
-      console.error('Dashboard KPI load failed:', e);
-      // Zero state — no fake numbers
-      kpis.value = [
-        { label: 'Active Patients', value: '—', link: `/${slug.value}/admin/clients` },
-        { label: 'Active Employees', value: '—', link: `/${slug.value}/admin/providers` },
-        { label: 'Sessions Today', value: '—', link: `/${slug.value}/admin/company-events` },
-        { label: 'Open Tasks', value: '—', link: `/${slug.value}/admin/audit-center` },
-        { label: 'Revenue (MTD)', value: '—', link: `/${slug.value}/admin/payroll` },
-      ];
-    }
-
-    // Schedule snapshot
-    scheduleLoading.value = true;
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const { data: sched } = await api.get('/dashboard/schedule-snapshot', { params: { agencyId, date: today } });
-      scheduleSlots.value = Array.isArray(sched.sessions) ? sched.sessions : [];
-    } catch (e) {
-      console.error('Schedule snapshot load failed:', e);
-      scheduleSlots.value = [];
-    } finally {
-      scheduleLoading.value = false;
-    }
-  } else {
-    // No agency selected — empty KPIs
-    kpis.value = [
-      { label: 'Active Patients', value: '—', link: '' },
-      { label: 'Active Employees', value: '—', link: '' },
-      { label: 'Sessions Today', value: '—', link: '' },
-      { label: 'Open Tasks', value: '—', link: '' },
-      { label: 'Revenue (MTD)', value: '—', link: '' },
-    ];
+  if (!agencyId) {
+    loading.value = false;
+    return;
   }
 
+  const settled = await Promise.allSettled([
+    api.get('/communications/center-summary', { params, skipGlobalLoading: true }),
+    api.get('/messages/dashboard-summary', { params, skipGlobalLoading: true }),
+    api.get('/support-tickets/count', { params: { ...params, status: 'open' }, skipGlobalLoading: true }),
+    api.get('/support-tickets/metrics', { params, skipGlobalLoading: true }),
+    api.get('/dashboard/agency-specs', { params, skipGlobalLoading: true }),
+    api.get('/dashboard/schedule-snapshot', {
+      params: { agencyId, date: new Date().toISOString().split('T')[0] },
+      skipGlobalLoading: true
+    }),
+    api.get('/unassigned-documents', { params, skipGlobalLoading: true }),
+    api.get('/hiring/candidates', {
+      params: { agencyId, status: 'PROSPECTIVE', stageFilter: 'active' },
+      skipGlobalLoading: true
+    }),
+    api.get('/payroll/pending-submissions-summary', { params, skipGlobalLoading: true }),
+    api.get('/clients', { params: { agency_id: agencyId, limit: 5 }, skipGlobalLoading: true }),
+    api.get('/dashboard/org-overview-summary', { params, skipGlobalLoading: true }),
+    api.get('/dashboard/school-overview', { params: { agencyId, orgType: 'school' }, skipGlobalLoading: true }),
+    api.get('/school-portal/bulk-announcements', { params, skipGlobalLoading: true }),
+    api.get(`/agencies/${agencyId}/company-events`, { skipGlobalLoading: true }),
+    api.get('/modules', { skipGlobalLoading: true })
+  ]);
+
+  const val = (i) => (settled[i].status === 'fulfilled' ? settled[i].value?.data : null);
+
+  const center = val(0) || {};
+  const personal = val(1) || {};
+  const openCountRes = val(2) || {};
+  const metrics = val(3) || {};
+  const specs = val(4) || {};
+  const sched = val(5) || {};
+  const unassigned = val(6);
+  const hiring = val(7);
+  const payrollPending = val(8) || {};
+  const clientsRes = val(9);
+  const orgOverview = val(10) || {};
+  const schoolOverview = val(11) || {};
+  const announcements = val(12);
+  const companyEvents = val(13);
+  const modulesRes = val(14);
+
+  openTickets.value = Number(
+    center?.kpis?.openTickets
+    ?? metrics?.open
+    ?? openCountRes?.count
+    ?? 0
+  );
+  // "New" ≈ open (unclaimed/new) when metrics provide it; else open count
+  newTickets.value = Number(
+    metrics?.open
+    ?? center?.tickets?.open
+    ?? openCountRes?.count
+    ?? openTickets.value
+  );
+
+  unreadMessages.value = Number(personal?.cards?.unread || 0);
+  clientMessages.value = Number(
+    personal?.cards?.clientMessages
+    ?? center?.messagesMode?.unread
+    ?? center?.queues?.sms
+    ?? 0
+  );
+  deliveryQueue.value = Number(center?.kpis?.pendingInQueues || 0);
+
+  activeEmployees.value = Number(specs?.activeEmployees || 0);
+  pendingEmployees.value = Number(specs?.pendingEmployees || 0);
+
+  lateNotes.value = countLateNoteNotifications();
+  unsignedDocs.value = countUnsignedNotifications();
+
+  if (Array.isArray(unassigned)) {
+    unassignedDocs.value = unassigned.length;
+  } else if (Array.isArray(unassigned?.rows)) {
+    unassignedDocs.value = unassigned.rows.length;
+  } else {
+    unassignedDocs.value = Number(unassigned?.count || 0);
+  }
+
+  if (Array.isArray(hiring)) {
+    newApplications.value = hiring.length;
+  } else if (Array.isArray(hiring?.candidates)) {
+    newApplications.value = hiring.candidates.length;
+  } else {
+    newApplications.value = Number(hiring?.count || 0);
+  }
+
+  payrollSubmissions.value = Number(payrollPending?.totalCount || 0);
+
+  scheduleSlots.value = Array.isArray(sched?.sessions) ? sched.sessions : [];
+
+  const clientList = Array.isArray(clientsRes)
+    ? clientsRes
+    : (Array.isArray(clientsRes?.clients) ? clientsRes.clients : []);
+  recentClients.value = clientList.slice(0, 5).map((c) => ({
+    id: c.id,
+    name: c.full_name
+      || c.name
+      || [c.first_name, c.last_name].filter(Boolean).join(' ')
+      || `Client ${c.id}`
+  }));
+
+  orgOverviewSummary.value = orgOverview?.counts
+    ? orgOverview
+    : { counts: { school: 0, program: 0, learning: 0, other: 0, ...(orgOverview?.counts || {}) } };
+
+  const schoolsRaw = Array.isArray(schoolOverview?.schools) ? schoolOverview.schools : [];
+  schoolList.value = schoolsRaw.slice(0, 5).map((s) => ({
+    id: s.id || s.organization_id || s.school_organization_id,
+    name: s.school_name || s.name || s.organization_name || 'School',
+    subtitle: s.district_name || s.city || '',
+    slug: s.slug || s.portal_slug || null,
+    portalPath: s.portal_url || s.admin_path || null
+  }));
+
+  const announcementList = Array.isArray(announcements)
+    ? announcements
+    : (Array.isArray(announcements?.groups) ? announcements.groups : (Array.isArray(announcements?.items) ? announcements.items : []));
+  schoolStats.value = {
+    schoolCount: Number(orgOverviewSummary.value?.counts?.school || schoolsRaw.length || 0),
+    announcements: announcementList.length
+  };
+
+  const eventsRaw = Array.isArray(companyEvents)
+    ? companyEvents
+    : (Array.isArray(companyEvents?.events) ? companyEvents.events : []);
+  const now = Date.now();
+  upcomingEvents.value = eventsRaw
+    .map((e) => {
+      const start = e.starts_at || e.start_at || e.start_date || e.event_date || e.created_at;
+      let when = '';
+      try {
+        if (start) {
+          when = new Date(start).toLocaleString([], {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+          });
+        }
+      } catch { /* ignore */ }
+      return {
+        id: e.id,
+        title: e.title || e.name || `Event ${e.id}`,
+        when,
+        startMs: start ? new Date(start).getTime() : 0
+      };
+    })
+    .filter((e) => !e.startMs || e.startMs >= now - 86400000)
+    .sort((a, b) => (a.startMs || 0) - (b.startMs || 0))
+    .slice(0, 5);
+
+  const modulesList = Array.isArray(modulesRes)
+    ? modulesRes
+    : (Array.isArray(modulesRes?.modules) ? modulesRes.modules : []);
+  programStats.value = {
+    programs: Number(orgOverviewSummary.value?.counts?.program || 0),
+    learning: Number(orgOverviewSummary.value?.counts?.learning || 0),
+    modules: modulesList.length
+  };
+
   loading.value = false;
+};
+
+onMounted(async () => {
+  nowTimer = setInterval(() => { nowTick.value = Date.now(); }, 30000);
+  scheduleLoading.value = true;
+  await loadDashboard();
+  scheduleLoading.value = false;
 });
 
-// UI helpers
-const toggleQuickActions = () => {
-  showQuickActions.value = !showQuickActions.value;
-  showNotificationsPanel.value = false;
+onUnmounted(() => {
+  if (nowTimer) clearInterval(nowTimer);
+});
+
+const go = (to) => {
+  if (!to) return;
+  router.push(to);
 };
+
 const toggleNotifications = () => {
   showNotificationsPanel.value = !showNotificationsPanel.value;
-  showQuickActions.value = false;
 };
 const toggleProfileMenu = () => {
-  showQuickActions.value = false;
   showNotificationsPanel.value = false;
 };
 const closeDropdowns = () => {
-  showQuickActions.value = false;
   showNotificationsPanel.value = false;
 };
 
@@ -502,32 +959,9 @@ const performSearch = () => {
   }
 };
 
-const quickAction = (action) => {
-  showQuickActions.value = false;
-  const s = slug.value;
-  if (!s) return;
-  switch (action) {
-    case 'add-patient': router.push(`/${s}/admin/clients`); break;
-    case 'schedule': router.push(`/${s}/admin/company-events`); break;
-    case 'document': router.push(`/${s}/admin/documents`); break;
-    case 'provider': router.push(`/${s}/admin/providers`); break;
-    case 'module': router.push(`/${s}/admin/modules`); break;
-  }
-};
-
-const handleTaskClick = (task) => {
-  const s = slug.value;
-  if (!s) return;
-  if (task.type === 'review' || task.title?.toLowerCase().includes('ticket')) {
-    router.push(`/${s}/admin/audit-center`);
-  } else {
-    router.push(`/${s}/admin/audit-center`);
-  }
-};
-
-const getTaskIcon = (type) => {
-  const icons = { review: '📝', signature: '✍️', doc: '📄', insurance: '🛡️' };
-  return icons[type] || '📋';
+const viewAllNotifications = () => {
+  showNotificationsPanel.value = false;
+  go(notificationsPath.value);
 };
 
 const getPriorityIcon = (priority) => {
@@ -536,87 +970,63 @@ const getPriorityIcon = (priority) => {
   return 'ℹ️';
 };
 
-const normalizeStatus = (s) => {
-  if (!s) return 'info';
-  const lower = String(s).toLowerCase();
-  if (lower.includes('complet')) return 'completed';
-  if (lower.includes('alert') || lower.includes('urgent') || lower.includes('error')) return 'alert';
-  if (lower.includes('review') || lower.includes('pending') || lower.includes('warn')) return 'review';
-  return lower;
-};
-
-const viewAllNotifications = () => {
-  showNotificationsPanel.value = false;
-  if (slug.value) router.push(`/${slug.value}/admin/notifications`);
-};
-const viewFullCalendar = () => {
-  if (slug.value) router.push(`/${slug.value}/admin/company-events`);
-};
-const openSession = (slot) => {
-  if (slot.id && slug.value) {
-    router.push(`/${slug.value}/admin/company-events`);
+const formatNotifTime = (notif) => {
+  const raw = notif.time || notif.created_at;
+  if (!raw) return '';
+  try {
+    return new Date(raw).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return String(raw);
   }
 };
-const navigateToKpi = (kpi) => {
-  if (kpi.link) router.push(kpi.link);
+
+const openQuickActionsCustomizer = () => {
+  showCustomizeModal.value = false;
+  // Ensure Quick Actions section is visible so the customizer has a host
+  if (!isVisible('quickActions')) setSection('quickActions', true);
+  requestAnimationFrame(() => {
+    quickActionsRef.value?.openCustomizer?.();
+  });
 };
+
 const logout = () => {
   authStore.logout();
 };
 
 const backToClassic = () => {
   const s = slug.value;
-  if (s) {
-    router.push(`/${s}/admin`);
-  } else {
-    router.push('/admin');
-  }
-};
-
-// Chart helpers for real multi-series SVG trends
-const getTrendSeries = (trends) => {
-  if (!trends || trends.length === 0) return [];
-  const patients = trends.map(t => Number(t.activePatients || 0));
-  const sessions = trends.map(t => Number(t.sessions || 0));
-  const maxP = Math.max(...patients, 1);
-  const maxS = Math.max(...sessions, 1);
-  return [
-    { name: 'patients', values: patients.map(v => (v / maxP) * 28) },
-    { name: 'sessions', values: sessions.map(v => (v / maxS) * 28) },
-  ];
-};
-const getTrendPoints = (values) => {
-  if (!values || values.length === 0) return '0,28 140,28';
-  const step = 140 / Math.max(values.length - 1, 1);
-  const pts = values.map((v, i) => `${Math.round(i * step)},${Math.round(28 - v)}`).join(' ');
-  return `0,28 ${pts} 140,28`;
+  router.push({
+    path: s ? `/${s}/admin` : '/admin',
+    query: { classic: '1' }
+  });
 };
 </script>
 
 <style scoped>
 .tenant-admin-dashboard {
   min-height: 100vh;
-  background: #f8fafc;
+  background:
+    radial-gradient(1200px 500px at 10% -10%, color-mix(in srgb, var(--ops-primary, #1f6b4a) 12%, transparent), transparent),
+    radial-gradient(900px 400px at 90% 0%, color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, transparent), transparent),
+    #f4f7f5;
   font-family: system-ui, -apple-system, sans-serif;
-  --primary: #0ea5e9;
-  --primary-dark: #0369a1;
+  color: var(--ops-ink, #0f172a);
 }
 
 .beta-bar {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #0f172a;
-  color: rgba(255,255,255,0.85);
+  background: var(--ops-sidebar, color-mix(in srgb, var(--ops-primary, #1f6b4a) 78%, #041a12));
+  color: rgba(255, 255, 255, 0.9);
   padding: 7px 20px;
   font-size: 13px;
   position: sticky;
   top: 0;
   z-index: 60;
 }
-
 .beta-pill {
-  background: #0ea5e9;
+  background: var(--ops-primary, #1f6b4a);
   color: white;
   font-size: 10px;
   font-weight: 700;
@@ -624,783 +1034,384 @@ const getTrendPoints = (values) => {
   padding: 2px 7px;
   border-radius: 9999px;
 }
-
-.beta-bar-text {
-  flex: 1;
-}
-
+.beta-bar-text { flex: 1; }
 .beta-bar-back {
   background: none;
-  border: 1px solid rgba(255,255,255,0.25);
-  color: rgba(255,255,255,0.8);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.8);
   border-radius: 6px;
   padding: 4px 12px;
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
 }
-
 .beta-bar-back:hover {
-  background: rgba(255,255,255,0.1);
+  background: rgba(255, 255, 255, 0.1);
   color: white;
-  border-color: rgba(255,255,255,0.5);
 }
 
 .top-bar {
-  background: white;
-  border-bottom: 1px solid #e2e8f0;
-  padding: 12px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-}
-
-.top-bar-left, .top-bar-center, .top-bar-right {
   display: flex;
   align-items: center;
   gap: 16px;
+  padding: 14px 20px;
+  background: rgba(255, 255, 255, 0.9);
+  border-bottom: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, #e2e8f0);
+  position: relative;
+  flex-wrap: wrap;
 }
-
+.top-bar-left, .top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.top-bar-center { flex: 1; min-width: 220px; }
 .org-name h1 {
-  font-size: 18px;
-  font-weight: 600;
   margin: 0;
-  color: #0f172a;
+  font-size: 1.1rem;
+  font-weight: 800;
 }
-
 .role-badge {
-  background: #e0f2fe;
-  color: #0369a1;
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ops-primary, #1f6b4a);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
-
 .search-bar {
   display: flex;
-  background: #f1f5f9;
-  border-radius: 9999px;
-  padding: 8px 16px;
-  width: 360px;
-  border: 1px solid #cbd5e1;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 8px 12px;
+  max-width: 520px;
 }
-
 .search-bar input {
   border: none;
-  background: transparent;
-  flex: 1;
   outline: none;
+  flex: 1;
   font-size: 14px;
+  background: transparent;
 }
-
 .search-btn {
+  border: none;
   background: none;
-  border: none;
-  cursor: pointer;
-  color: #64748b;
-}
-
-.quick-actions-btn {
-  background: var(--primary);
-  color: white;
-  border: none;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: 8px;
   cursor: pointer;
 }
-
 .notifications-bell {
-  position: relative;
-  font-size: 14px;
-  cursor: pointer;
-  padding: 8px 12px;
-  border-radius: 8px;
   border: 1px solid #e2e8f0;
-  background: white;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  position: relative;
 }
-
 .notifications-bell.has-unread {
-  border-color: var(--primary);
+  border-color: color-mix(in srgb, var(--ops-primary, #1f6b4a) 40%, #e2e8f0);
 }
-
 .badge {
-  background: #ef4444;
-  color: white;
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 9999px;
-  min-width: 16px;
-  text-align: center;
+  margin-left: 6px;
+  background: #dc2626;
+  color: #fff;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 11px;
 }
-
 .user-profile {
   display: flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
 }
-
 .avatar {
-  width: 32px;
-  height: 32px;
-  background: #3b82f6;
-  color: white;
-  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 18%, #fff);
+  color: var(--ops-primary, #1f6b4a);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
+  font-weight: 800;
   font-size: 12px;
-  flex-shrink: 0;
 }
-
 .user-info {
   display: flex;
   flex-direction: column;
   line-height: 1.2;
 }
+.user-info .name { font-size: 13px; font-weight: 700; }
+.user-info .role { font-size: 11px; color: #64748b; }
 
-.user-info .name {
-  font-size: 13px;
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.user-info .role {
-  font-size: 11px;
-  color: #64748b;
-}
-
-.quick-actions-dropdown, .notifications-panel {
+.notifications-panel {
   position: absolute;
-  top: 70px;
   right: 20px;
-  background: white;
+  top: calc(100% - 4px);
+  width: min(360px, calc(100vw - 40px));
+  background: #fff;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15);
-  z-index: 100;
-  min-width: 240px;
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+  z-index: 40;
+  padding: 12px;
 }
-
-.quick-actions-dropdown button {
-  width: 100%;
-  text-align: left;
-  padding: 10px 20px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 14px;
-  color: #334155;
-}
-
-.quick-actions-dropdown button:hover {
-  background: #f1f5f9;
-}
-
 .notifications-panel .panel-header {
-  padding: 12px 16px;
-  border-bottom: 1px solid #f1f5f9;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 8px;
 }
-
-.notifications-panel h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.notifications-panel .view-all {
-  background: none;
+.notifications-panel h3 { margin: 0; font-size: 14px; }
+.view-all {
   border: none;
-  color: var(--primary);
+  background: none;
+  color: var(--ops-primary, #1f6b4a);
+  font-weight: 700;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12px;
 }
-
 .notification-item {
   display: flex;
-  gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid #f8fafc;
-  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 10px;
 }
-
-.notification-item .notif-icon {
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
-.notification-item .notif-title {
-  font-size: 13px;
-  color: #334155;
-  font-weight: 500;
-}
-
-.notification-item .notif-time {
-  font-size: 11px;
-  color: #94a3b8;
-}
+.notification-item:hover { background: #f8fafc; }
+.notif-title { font-size: 13px; font-weight: 600; }
+.notif-time { font-size: 11px; color: #94a3b8; }
+.empty-state-sm { font-size: 13px; color: #94a3b8; padding: 12px; }
 
 .main-layout {
-  display: flex;
-  height: calc(100vh - 64px);
-  position: relative;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: calc(100vh - 120px);
+}
+@media (max-width: 960px) {
+  .main-layout { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
 }
 
 .sidebar {
-  width: 240px;
-  background: #0f172a;
-  color: #e2e8f0;
-  padding: 24px 0;
+  background: var(--ops-sidebar, color-mix(in srgb, var(--ops-primary, #1f6b4a) 78%, #041a12));
+  color: rgba(255, 255, 255, 0.9);
+  padding: 18px 12px 24px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #1e2937;
-  overflow-y: auto;
-  flex-shrink: 0;
+  gap: 18px;
 }
-
-.sidebar-section {
-  margin-bottom: 16px;
-}
-
 .section-header {
-  padding: 0 24px 8px;
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 0 10px 6px;
+}
+.nav-item {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.5px;
-  color: #64748b;
-  text-transform: uppercase;
+}
+.nav-item:hover,
+.nav-item.router-link-active {
+  background: color-mix(in srgb, #fff 14%, var(--ops-primary, #1f6b4a));
+  color: #fff;
+}
+.sidebar-footer { margin-top: auto; padding: 8px 10px; }
+.logout-btn {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.logout-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+
+.main-content {
+  padding: 22px 24px 40px;
+  position: relative;
 }
 
-.nav-item {
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.page-header h1 {
+  margin: 0 0 4px;
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ops-primary, #1f6b4a);
+}
+.subtitle {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+}
+.page-header-right {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 9px 24px;
-  color: #cbd5e1;
-  text-decoration: none;
-  transition: background 0.15s;
-  font-size: 14px;
+  flex-wrap: wrap;
 }
-
-.nav-item:hover {
-  background: #1e2937;
-  color: white;
+.datetime {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 600;
 }
-
-.nav-item.router-link-active {
-  background: #1e3a5f;
-  color: white;
-  border-left: 3px solid var(--primary);
-}
-
-.nav-item .icon {
-  width: 20px;
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
-.sidebar-footer {
-  margin-top: auto;
-  padding: 20px 24px;
-}
-
-.logout-btn {
-  width: 100%;
-  padding: 10px;
-  background: #334155;
-  color: #e2e8f0;
+.customize-btn {
+  background: var(--ops-primary, #1f6b4a);
+  color: #fff;
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 800;
+  font-size: 13px;
   cursor: pointer;
-  font-size: 14px;
-  transition: background 0.15s;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--ops-primary, #1f6b4a) 28%, transparent);
 }
+.customize-btn:hover { filter: brightness(1.05); }
 
-.logout-btn:hover {
-  background: #475569;
+.mid-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.4fr);
+  gap: 14px;
+  margin-bottom: 16px;
+  align-items: start;
 }
-
-.main-content {
-  flex: 1;
-  padding: 24px;
-  overflow-y: auto;
-  background: #f8fafc;
-  position: relative;
+@media (max-width: 1100px) {
+  .mid-grid { grid-template-columns: 1fr; }
+}
+.qa-wrap.panel {
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, #e2e8f0);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
+}
+.qa-wrap :deep(.actions-grid) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 700px) {
+  .qa-wrap :deep(.actions-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .loading-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(248,250,252,0.85);
+  background: rgba(244, 247, 245, 0.72);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 10;
-  gap: 12px;
-  font-size: 14px;
-  color: #64748b;
+  z-index: 20;
+  gap: 10px;
 }
-
 .loading-spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid #e2e8f0;
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 3px solid #d1d5db;
+  border-top-color: var(--ops-primary, #1f6b4a);
+  animation: spin 0.8s linear infinite;
 }
-
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.kpi-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 16px;
-  margin-bottom: 28px;
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 80;
+  padding: 20px;
 }
-
-.kpi-card {
-  background: white;
-  border-radius: 12px;
-  padding: 18px 20px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-  cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
-  border: 1px solid #e2e8f0;
-}
-
-.kpi-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px -4px rgba(0,0,0,0.1);
-}
-
-.kpi-label {
-  font-size: 12px;
-  color: #64748b;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-.kpi-value {
-  font-size: 26px;
-  font-weight: 700;
-  color: #0f172a;
-  margin: 6px 0;
-}
-
-.micro-chart {
-  height: 32px;
-  margin-top: 10px;
-  background: #f1f5f9;
-  border-radius: 4px;
+.modal {
+  width: min(480px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
   overflow: hidden;
 }
-
-.sparkline {
-  height: 100%;
-  background: linear-gradient(90deg, #0ea5e9 0%, #bae6fd 100%);
-  opacity: 0.4;
+.modal-header, .modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid #e2e8f0;
 }
-
-.trend-svg {
-  display: block;
+.modal-footer {
+  border-bottom: none;
+  border-top: 1px solid #e2e8f0;
+  justify-content: flex-end;
 }
-
-.content-grid {
-  display: grid;
-  grid-template-columns: 1fr 360px 280px;
-  gap: 20px;
+.modal-header h3 { margin: 0; font-size: 1.05rem; }
+.btn-close {
+  border: none;
+  background: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: #64748b;
+  line-height: 1;
 }
-
-.left-panel, .right-panel {
+.modal-body { padding: 16px 18px; }
+.modal-intro {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #64748b;
+}
+.section-toggles {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 8px;
+  margin-bottom: 16px;
 }
-
-.panel {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-  border: 1px solid #e2e8f0;
-  overflow: hidden;
-}
-
-.panel-header {
-  padding: 14px 20px;
-  border-bottom: 1px solid #f1f5f9;
+.toggle-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-}
-
-.panel-header h2 {
-  margin: 0;
+  gap: 10px;
   font-size: 14px;
   font-weight: 600;
   color: #0f172a;
-}
-
-.view-all-btn {
-  background: none;
-  border: none;
-  color: var(--primary);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
 }
-
-.empty-state {
-  padding: 24px 20px;
-  text-align: center;
-  color: #94a3b8;
-  font-size: 13px;
-}
-
-.empty-state-sm {
-  padding: 12px 16px;
-  color: #94a3b8;
-  font-size: 13px;
-}
-
-.activity-item {
-  padding: 10px 20px;
-  border-bottom: 1px solid #f8fafc;
+.modal-actions-row {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.activity-time {
-  font-size: 11px;
-  color: #94a3b8;
-  width: 60px;
-  flex-shrink: 0;
-  padding-top: 2px;
-}
-
-.activity-content {
-  font-size: 13px;
-  color: #334155;
-  flex: 1;
-  line-height: 1.4;
-  display: flex;
-  gap: 6px;
   flex-wrap: wrap;
-  align-items: center;
-}
-
-.status {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 9999px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.status.completed { background: #d1fae5; color: #065f46; }
-.status.review { background: #fef3c7; color: #92400e; }
-.status.alert { background: #fee2e2; color: #991b1b; }
-.status.info { background: #e0f2fe; color: #0369a1; }
-
-.task-item {
-  padding: 12px 20px;
-  border-bottom: 1px solid #f8fafc;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.task-item:hover {
-  background: #f8fafc;
-}
-
-.task-icon {
-  font-size: 18px;
-  width: 28px;
-  flex-shrink: 0;
-}
-
-.task-details {
-  flex: 1;
-}
-
-.task-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-.task-meta {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.count {
-  font-weight: 400;
-  color: #64748b;
-}
-
-.task-priority {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  flex-shrink: 0;
-}
-
-.task-priority.high { background: #fee2e2; color: #b91c1c; }
-.task-priority.medium { background: #fef3c7; color: #b45309; }
-.task-priority.urgent { background: #ec4899; color: white; }
-.task-priority.low { background: #e2e8f0; color: #475569; }
-
-.calendar-snapshot {
-  padding: 12px 16px;
-  display: flex;
-  flex-direction: column;
   gap: 8px;
-  max-height: 340px;
-  overflow-y: auto;
 }
-
-.calendar-slot {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  padding: 10px 12px;
-  background: #f8fafc;
-  border-radius: 8px;
+.btn-secondary, .btn-primary {
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-weight: 700;
+  font-size: 13px;
   cursor: pointer;
+}
+.btn-secondary {
   border: 1px solid #e2e8f0;
-  transition: background 0.1s, border-color 0.1s;
-}
-
-.calendar-slot:hover {
-  background: #f0f9ff;
-  border-color: var(--primary);
-}
-
-.slot-time {
-  font-weight: 600;
-  font-size: 12px;
-  color: #334155;
-  white-space: nowrap;
-}
-
-.slot-info {
-  overflow: hidden;
-}
-
-.slot-provider {
-  font-size: 13px;
-  font-weight: 500;
-  color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.slot-client {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.slot-type {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  background: #e0f2fe;
-  color: #0369a1;
-  align-self: center;
-  white-space: nowrap;
-}
-
-.slot-type.group { background: #f0fdf4; color: #166534; }
-.slot-type.individual { background: #e0f2fe; color: #0369a1; }
-.slot-type.psych { background: #fdf4ff; color: #7e22ce; }
-.slot-type.couples { background: #fef3c7; color: #92400e; }
-
-.full-calendar-btn {
-  display: block;
-  width: 100%;
-  padding: 12px;
-  background: none;
-  border: none;
-  border-top: 1px solid #f1f5f9;
-  color: var(--primary);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  text-align: center;
-}
-
-.full-calendar-btn:hover {
-  background: #f0f9ff;
-}
-
-.view-toggle {
-  display: flex;
-  gap: 2px;
-}
-
-.view-toggle button {
-  padding: 4px 10px;
-  border: 1px solid #e2e8f0;
-  background: white;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.view-toggle button:first-child { border-radius: 4px 0 0 4px; }
-.view-toggle button:last-child { border-radius: 0 4px 4px 0; }
-
-.view-toggle button.active {
-  background: var(--primary);
-  color: white;
-  border-color: var(--primary);
-}
-
-.notifications-right .panel-header {
-  padding: 14px 16px;
-}
-
-.urgent-count {
-  background: #fee2e2;
-  color: #991b1b;
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 9999px;
-}
-
-.right-notif {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 10px 16px;
-  border-bottom: 1px solid #f8fafc;
-}
-
-.notif-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-top: 5px;
-  flex-shrink: 0;
-  background: #94a3b8;
-}
-
-.notif-dot.urgent { background: #ef4444; }
-.notif-dot.high { background: #f97316; }
-.notif-dot.info { background: #0ea5e9; }
-
-.notif-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.notif-content strong {
-  font-size: 13px;
-  color: #1e293b;
-}
-
-.notif-content small {
-  font-size: 11px;
-  color: #94a3b8;
-}
-
-.notif-time {
-  font-size: 11px;
-  color: #94a3b8;
-  white-space: nowrap;
-}
-
-.quick-stats {
-  padding: 12px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-}
-
-.stat-label {
-  color: #64748b;
-}
-
-.stat-value {
-  font-weight: 600;
+  background: #fff;
   color: #0f172a;
 }
-
-.status-items {
-  padding: 14px 16px;
-}
-
-.status-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #334155;
-}
-
-.dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  background: #10b981;
-  border-radius: 50%;
-}
-
-.status-meta {
-  font-size: 11px;
-  color: #94a3b8;
-  margin-top: 6px;
-}
-
-@media (max-width: 1280px) {
-  .content-grid {
-    grid-template-columns: 1fr 320px;
-  }
-  .right-panel {
-    display: none;
-  }
-}
-
-@media (max-width: 1024px) {
-  .content-grid {
-    grid-template-columns: 1fr;
-  }
+.btn-primary {
+  border: none;
+  background: var(--ops-primary, #1f6b4a);
+  color: #fff;
 }
 </style>

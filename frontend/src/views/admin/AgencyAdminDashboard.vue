@@ -1,9 +1,9 @@
 <template>
   <div class="container">
     <div v-if="!previewMode && currentAgency" class="tenant-beta-banner">
-      <span>✨ New tenant admin dashboard available for {{ currentAgency.name }}.</span>
+      <span>You're viewing the classic dashboard for {{ currentAgency.name }}.</span>
       <button type="button" class="tenant-beta-try" @click="goTenantBetaDashboard">
-        Try New Dashboard →
+        Switch to Management Dashboard →
       </button>
     </div>
     <PlatformPreviewBanner
@@ -276,8 +276,9 @@ const goTenantBetaDashboard = () => {
       a?.portalUrl ||
       ''
   ).trim();
-  if (slug) router.push(`/${slug}/admin-dashboard`);
-  else router.push('/admin-dashboard?keepTenant=1');
+  // Ops management dashboard is the default at /admin (drop classic=1).
+  if (slug) router.push(`/${slug}/admin`);
+  else router.push('/admin');
 };
 
 // Summit platform org slug (sstc / sstc / summit-stats / env) — same as club-manager dashboard route

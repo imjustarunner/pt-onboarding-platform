@@ -19,8 +19,11 @@
       <SuperAdminDashboard />
     </div>
 
-    <!-- SuperAdmin with a tenant selected → show that tenant's classic dashboard -->
+    <!-- SuperAdmin with a tenant selected → ops dashboard (classic via ?classic=1) -->
     <AgencyAdminDashboard
+      v-else-if="isSuperAdmin && currentAgency && !isSuperadminPreview && useClassicTenant"
+    />
+    <TenantAdminDashboard
       v-else-if="isSuperAdmin && currentAgency && !isSuperadminPreview"
     />
     <AgencyAdminDashboard
@@ -28,6 +31,9 @@
       :preview-mode="true"
     />
     <AgencyAdminDashboard
+      v-else-if="isTenantAdminRole && useClassicTenant"
+    />
+    <TenantAdminDashboard
       v-else-if="isTenantAdminRole"
     />
     <div v-else class="container">
@@ -48,6 +54,7 @@ import api from '../../services/api';
 import SuperAdminDashboard from './SuperAdminDashboard.vue';
 import SuperadminPlatformDashboard from './SuperadminPlatformDashboard.vue';
 import AgencyAdminDashboard from './AgencyAdminDashboard.vue';
+import TenantAdminDashboard from './TenantAdminDashboard.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -63,6 +70,7 @@ const isSuperAdmin = computed(() => {
 });
 
 const useClassicPlatform = computed(() => String(route.query.classic || '') === '1');
+const useClassicTenant = computed(() => String(route.query.classic || '') === '1');
 
 const isTenantAdminRole = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();

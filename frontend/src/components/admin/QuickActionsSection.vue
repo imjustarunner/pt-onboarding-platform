@@ -258,6 +258,12 @@ watch(availableActions, () => {
 }, { deep: true });
 
 watch(selectedIds, () => persist(), { deep: true });
+
+const openCustomizer = () => {
+  showCustomizer.value = true;
+};
+
+defineExpose({ openCustomizer });
 </script>
 
 <style scoped>

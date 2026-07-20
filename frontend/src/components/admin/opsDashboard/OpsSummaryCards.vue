@@ -1,0 +1,295 @@
+<template>
+  <section class="ops-summary" aria-label="Operations summaries">
+    <article v-if="showCommunications" class="panel">
+      <div class="panel-header">
+        <h2>Communications Center</h2>
+        <button type="button" class="link-btn" @click="$emit('navigate', paths.communications)">Open</button>
+      </div>
+      <div class="stat-rows">
+        <div class="stat-row">
+          <span>Unread Messages</span>
+          <strong>{{ communications.unread || 0 }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Client / SMS</span>
+          <strong>{{ communications.clientMessages || 0 }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Open Tickets</span>
+          <strong>{{ communications.openTickets || 0 }}</strong>
+        </div>
+      </div>
+    </article>
+
+    <article v-if="showClientQuickAccess" class="panel">
+      <div class="panel-header">
+        <h2>Client Quick Access</h2>
+        <button type="button" class="link-btn" @click="$emit('navigate', paths.clients)">View All</button>
+      </div>
+      <div v-if="!clients.length" class="empty">No recent clients</div>
+      <ul v-else class="client-list">
+        <li v-for="c in clients" :key="c.id" class="client-row">
+          <div class="avatar">{{ initials(c.name) }}</div>
+          <span class="client-name">{{ c.name }}</span>
+          <button
+            type="button"
+            class="mini-btn"
+            @click="$emit('navigate', clientTo(c.id))"
+          >
+            View Profile
+          </button>
+        </li>
+      </ul>
+    </article>
+
+    <article v-if="showPeopleOps" class="panel">
+      <div class="panel-header">
+        <h2>People Ops Overview</h2>
+        <button type="button" class="link-btn" @click="$emit('navigate', paths.hiring)">Review</button>
+      </div>
+      <div class="stat-rows">
+        <div class="stat-row">
+          <span>New Applications</span>
+          <strong>{{ peopleOps.newApplications || 0 }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Employee Onboarding</span>
+          <strong>{{ peopleOps.onboarding || 0 }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Active Employees</span>
+          <strong>{{ peopleOps.activeEmployees || 0 }}</strong>
+        </div>
+      </div>
+    </article>
+
+    <article v-if="showSystemAlerts" class="panel">
+      <div class="panel-header">
+        <h2>System Alerts</h2>
+        <button type="button" class="link-btn" @click="$emit('navigate', paths.notifications)">View</button>
+      </div>
+      <div class="stat-rows">
+        <div class="stat-row">
+          <span>High Priority</span>
+          <strong class="danger">{{ systemAlerts.highPriority || 0 }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Unread Notifications</span>
+          <strong>{{ systemAlerts.unread || 0 }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Delivery Queue</span>
+          <strong>{{ systemAlerts.deliveryQueue || 0 }}</strong>
+        </div>
+      </div>
+    </article>
+
+    <article v-if="showTodaysSchedule" class="panel schedule">
+      <div class="panel-header">
+        <h2>Today's Schedule</h2>
+        <button type="button" class="link-btn" @click="$emit('navigate', paths.schedule)">Full Calendar</button>
+      </div>
+      <div v-if="scheduleLoading" class="empty">Loading schedule…</div>
+      <div v-else-if="!scheduleSlots.length" class="empty">No sessions scheduled for today</div>
+      <ul v-else class="schedule-list">
+        <li
+          v-for="(slot, i) in scheduleSlots.slice(0, 6)"
+          :key="slot.id || i"
+          class="schedule-row"
+          @click="$emit('navigate', paths.schedule)"
+        >
+          <span class="slot-time">{{ slot.time }}</span>
+          <div class="slot-info">
+            <strong>{{ slot.provider || 'Session' }}</strong>
+            <span>{{ slot.client || slot.type || '' }}</span>
+          </div>
+        </li>
+      </ul>
+    </article>
+  </section>
+</template>
+
+<script setup>
+import { computed } from 'vue';
+
+const props = defineProps({
+  showCommunications: { type: Boolean, default: true },
+  showClientQuickAccess: { type: Boolean, default: true },
+  showPeopleOps: { type: Boolean, default: true },
+  showSystemAlerts: { type: Boolean, default: true },
+  showTodaysSchedule: { type: Boolean, default: true },
+  communications: { type: Object, default: () => ({}) },
+  clients: { type: Array, default: () => [] },
+  peopleOps: { type: Object, default: () => ({}) },
+  systemAlerts: { type: Object, default: () => ({}) },
+  scheduleSlots: { type: Array, default: () => [] },
+  scheduleLoading: { type: Boolean, default: false },
+  paths: { type: Object, default: () => ({}) }
+});
+
+defineEmits(['navigate']);
+
+const prefix = computed(() => String(props.paths?.prefix || ''));
+
+const clientTo = (id) => {
+  const base = props.paths?.clients || `${prefix.value}/admin/clients`;
+  return `${base}${base.includes('?') ? '&' : '?'}clientId=${encodeURIComponent(id)}`;
+};
+
+const initials = (name) => {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return (parts[0] || '?').slice(0, 2).toUpperCase();
+};
+</script>
+
+<style scoped>
+.ops-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 4px;
+}
+@media (max-width: 1400px) {
+  .ops-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .ops-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .ops-summary { grid-template-columns: 1fr; }
+}
+.panel {
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, #e2e8f0);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
+  min-height: 180px;
+}
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.panel-header h2 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: var(--ops-primary, #1f6b4a);
+}
+.link-btn {
+  border: none;
+  background: none;
+  color: var(--ops-primary, #1f6b4a);
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+.link-btn:hover { text-decoration: underline; }
+.stat-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #475569;
+}
+.stat-row strong {
+  font-size: 15px;
+  color: #0f172a;
+}
+.stat-row strong.danger { color: #b91c1c; }
+.empty {
+  font-size: 13px;
+  color: #94a3b8;
+  padding: 8px 0;
+}
+.client-list, .schedule-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.client-row, .schedule-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.schedule-row {
+  cursor: pointer;
+  padding: 6px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.schedule-row:last-child { border-bottom: none; }
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 16%, #fff);
+  color: var(--ops-primary, #1f6b4a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.client-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mini-btn {
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 30%, #e2e8f0);
+  background: #fff;
+  color: var(--ops-primary, #1f6b4a);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mini-btn:hover {
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
+}
+.slot-time {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ops-primary, #1f6b4a);
+  min-width: 64px;
+}
+.slot-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.slot-info strong {
+  font-size: 13px;
+  color: #0f172a;
+}
+.slot-info span {
+  font-size: 12px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>
