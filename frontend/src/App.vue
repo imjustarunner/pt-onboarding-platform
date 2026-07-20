@@ -460,7 +460,6 @@
                     <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu nav-dropdown-menu-wide">
-                    <router-link :to="orgTo('/operations-dashboard')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant')" >{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
                     <div
                       v-if="canSeeScheduleBuildingsDirectoryNav && !isSscSstcTenant"
                       class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout"
@@ -778,7 +777,7 @@
                     <span class="nav-dropdown-label">Management</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="managementMenuOpen" class="nav-dropdown-menu">
-                    <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" >Admin Dashboard</router-link>
+                    <router-link :to="adminDashboardNavTo" v-if="isTrueAdmin" >Admin Dashboard</router-link>
                     <router-link
                       :to="operationsDashboardTo"
                       v-if="showOperationsDashboardLink"
@@ -1559,7 +1558,6 @@
                   <span class="mobile-nav-group-caret" :class="{ open: mobileDirectoryExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="mobileDirectoryExpanded">
-                  <router-link :to="orgTo('/operations-dashboard')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
               <div v-if="canSeeScheduleBuildingsDirectoryNav && !isSscSstcTenant" class="mobile-nav-group mobile-nav-group-collapsible">
                 <button
                   type="button"
@@ -1812,7 +1810,7 @@
                   <span class="mobile-nav-group-caret" :class="{ open: mobileManagementExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="mobileManagementExpanded">
-                  <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Admin Dashboard</router-link>
+                  <router-link :to="adminDashboardNavTo" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Admin Dashboard</router-link>
                   <router-link
                     :to="operationsDashboardTo"
                     v-if="showOperationsDashboardLink"
@@ -4599,6 +4597,15 @@ const adminDashboardNavTo = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   if ((role === 'club_manager' || role === 'assistant_manager') && isSscSstcTenant.value) {
     return orgTo('/club_manager_dashboard');
+  }
+  // In a tenant URL (or selected tenant), always land on the tenant management dashboard —
+  // not platform HQ. Prefer /admin-dashboard so superadmin slug routes cannot fall through.
+  const routeSlug = String(route.params?.organizationSlug || '').trim();
+  const agencySlug = String(
+    agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || ''
+  ).trim();
+  if (routeSlug || agencySlug) {
+    return orgTo('/admin-dashboard');
   }
   return orgTo('/admin');
 });

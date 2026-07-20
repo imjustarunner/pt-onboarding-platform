@@ -64,48 +64,105 @@
 
     <div class="main-layout" @click="closeDropdowns">
       <nav class="sidebar">
-        <div class="sidebar-section">
-          <div class="section-header">CORE</div>
-          <router-link :to="`/${slug}/admin-dashboard`" class="nav-item">Dashboard</router-link>
-        </div>
+        <template v-if="isOperationsMode">
+          <div class="sidebar-section">
+            <div class="section-header">CORE</div>
+            <router-link :to="`/${slug}/operations-dashboard`" class="nav-item">Dashboard</router-link>
+            <router-link :to="`/${slug}/schedule`" class="nav-item">Schedule Hub</router-link>
+            <router-link :to="`/${slug}/admin/communications`" class="nav-item">Communications</router-link>
+          </div>
+          <div class="sidebar-section">
+            <div class="section-header">COVERAGE</div>
+            <router-link
+              v-if="canSeeSchoolPortals"
+              :to="`/${slug}/admin/school-portals-hub`"
+              class="nav-item"
+            >School Portals</router-link>
+            <router-link
+              v-if="canSeeSchoolPortals"
+              :to="`/${slug}/admin/caseload-hub/schools-staff`"
+              class="nav-item"
+            >Caseload Hub</router-link>
+            <router-link :to="`/${slug}/admin/provider-availability`" class="nav-item">Provider Management</router-link>
+            <router-link
+              :to="`/${slug}/admin/availability-intake?tab=office`"
+              class="nav-item"
+            >Office Requests</router-link>
+          </div>
+          <div class="sidebar-section">
+            <div class="section-header">PROGRAMS</div>
+            <router-link
+              v-if="hasAffiliatedPrograms"
+              :to="`/${slug}/admin/schools/overview?orgType=program`"
+              class="nav-item"
+            >Program Overview</router-link>
+            <router-link :to="`/${slug}/admin/program-events`" class="nav-item">Program Events</router-link>
+            <router-link :to="`/${slug}/admin/agency-progress`" class="nav-item">Training Progress</router-link>
+          </div>
+          <div class="sidebar-section">
+            <div class="section-header">PEOPLE</div>
+            <router-link
+              v-if="canSeeUsersNav"
+              :to="`/${slug}/admin/users`"
+              class="nav-item"
+            >Users</router-link>
+            <router-link
+              v-if="canSeeClientsNav"
+              :to="`/${slug}/admin/clients`"
+              class="nav-item"
+            >Clients</router-link>
+            <router-link :to="`/${slug}/admin/tools-aids`" class="nav-item">Tools &amp; Aids</router-link>
+            <router-link :to="{ path: `/${slug}/dashboard`, query: { tab: 'submit' } }" class="nav-item">Submit</router-link>
+          </div>
+          <div class="sidebar-section">
+            <div class="section-header">SYSTEM</div>
+            <router-link :to="notificationsPath" class="nav-item">Notifications</router-link>
+          </div>
+        </template>
+        <template v-else>
+          <div class="sidebar-section">
+            <div class="section-header">CORE</div>
+            <router-link :to="`/${slug}/admin-dashboard`" class="nav-item">Dashboard</router-link>
+          </div>
 
-        <div class="sidebar-section">
-          <div class="section-header">CLIENTS</div>
-          <router-link :to="`/${slug}/admin/clients`" class="nav-item">Client List</router-link>
-          <router-link :to="`/${slug}/admin/guardians`" class="nav-item">Guardians</router-link>
-          <router-link :to="`/${slug}/admin/intake-links`" class="nav-item">Applications</router-link>
-        </div>
+          <div class="sidebar-section">
+            <div class="section-header">CLIENTS</div>
+            <router-link :to="`/${slug}/admin/clients`" class="nav-item">Client List</router-link>
+            <router-link :to="`/${slug}/admin/guardians`" class="nav-item">Guardians</router-link>
+            <router-link :to="`/${slug}/admin/intake-links`" class="nav-item">Applications</router-link>
+          </div>
 
-        <div class="sidebar-section">
-          <div class="section-header">PEOPLE OPS</div>
-          <router-link :to="`/${slug}/admin/users`" class="nav-item">Employees</router-link>
-          <router-link :to="`/${slug}/admin/hiring`" class="nav-item">Job Applications</router-link>
-          <router-link :to="`/${slug}/admin/payroll`" class="nav-item">Payroll</router-link>
-        </div>
+          <div class="sidebar-section">
+            <div class="section-header">PEOPLE OPS</div>
+            <router-link :to="`/${slug}/admin/users`" class="nav-item">Employees</router-link>
+            <router-link :to="`/${slug}/admin/hiring`" class="nav-item">Job Applications</router-link>
+            <router-link :to="`/${slug}/admin/payroll`" class="nav-item">Payroll</router-link>
+          </div>
 
-        <div class="sidebar-section">
-          <div class="section-header">OPERATIONS</div>
-          <router-link :to="ticketsPath" class="nav-item">Tickets</router-link>
-          <router-link :to="`/${slug}/admin/communications`" class="nav-item">Communications</router-link>
-          <router-link :to="`/${slug}/admin/unassigned-documents`" class="nav-item">Documentation</router-link>
-          <router-link :to="`/${slug}/schedule`" class="nav-item">Scheduling</router-link>
-          <router-link v-if="canSeeSchoolPortals" :to="`/${slug}/admin/school-portals-hub`" class="nav-item">School Portals</router-link>
-          <router-link :to="`/${slug}/admin/company-events`" class="nav-item">Events</router-link>
-          <router-link v-if="hasAffiliatedPrograms" :to="`/${slug}/admin/schools/overview?orgType=program`" class="nav-item">Programs</router-link>
-        </div>
+          <div class="sidebar-section">
+            <div class="section-header">OPERATIONS</div>
+            <router-link :to="ticketsPath" class="nav-item">Tickets</router-link>
+            <router-link :to="`/${slug}/admin/communications`" class="nav-item">Communications</router-link>
+            <router-link :to="`/${slug}/admin/unassigned-documents`" class="nav-item">Documentation</router-link>
+            <router-link :to="`/${slug}/schedule`" class="nav-item">Scheduling</router-link>
+            <router-link v-if="canSeeSchoolPortals" :to="`/${slug}/admin/school-portals-hub`" class="nav-item">School Portals</router-link>
+            <router-link :to="`/${slug}/admin/company-events`" class="nav-item">Events</router-link>
+            <router-link v-if="hasAffiliatedPrograms" :to="`/${slug}/admin/schools/overview?orgType=program`" class="nav-item">Programs</router-link>
+          </div>
 
-        <div class="sidebar-section">
-          <div class="section-header">REPORTS</div>
-          <router-link :to="`/${slug}/admin/agency-progress`" class="nav-item">Progress Reports</router-link>
-          <router-link :to="`/${slug}/admin/payroll/reports`" class="nav-item">Payroll Reports</router-link>
-        </div>
+          <div class="sidebar-section">
+            <div class="section-header">REPORTS</div>
+            <router-link :to="`/${slug}/admin/agency-progress`" class="nav-item">Progress Reports</router-link>
+            <router-link :to="`/${slug}/admin/payroll/reports`" class="nav-item">Payroll Reports</router-link>
+          </div>
 
-        <div class="sidebar-section">
-          <div class="section-header">SYSTEM</div>
-          <router-link :to="`/${slug}/admin/settings`" class="nav-item">Settings</router-link>
-          <router-link :to="`/${slug}/admin/audit-center`" class="nav-item">Audit Logs</router-link>
-          <router-link :to="notificationsPath" class="nav-item">Notifications</router-link>
-        </div>
+          <div class="sidebar-section">
+            <div class="section-header">SYSTEM</div>
+            <router-link :to="`/${slug}/admin/settings`" class="nav-item">Settings</router-link>
+            <router-link :to="`/${slug}/admin/audit-center`" class="nav-item">Audit Logs</router-link>
+            <router-link :to="notificationsPath" class="nav-item">Notifications</router-link>
+          </div>
+        </template>
 
         <div class="sidebar-footer">
           <button type="button" class="logout-btn" @click="logout">Logout</button>
@@ -115,8 +172,8 @@
       <main class="main-content">
         <div class="page-header">
           <div>
-            <h1>Management Dashboard</h1>
-            <p class="subtitle">Real-time overview of priority operations and actions.</p>
+            <h1>{{ pageTitle }}</h1>
+            <p class="subtitle">{{ pageSubtitle }}</p>
           </div>
           <div class="page-header-right">
             <span v-if="loading" class="loading-chip" aria-live="polite">Updating…</span>
@@ -133,7 +190,10 @@
           @navigate="go"
         />
 
-        <div class="mid-grid">
+        <div
+          class="mid-grid"
+          :class="{ 'mid-grid--qa-full': isOperationsMode || !isVisible('documentationAlerts') }"
+        >
           <DocumentationAlertsCard
             v-if="isVisible('documentationAlerts')"
             :alerts="docAlerts"
@@ -145,7 +205,7 @@
             <QuickActionsSection
               ref="quickActionsRef"
               title="Quick Actions"
-              context-key="tenant-ops-v3"
+              :context-key="isOperationsMode ? 'operations-ops-v1' : 'tenant-ops-v4'"
               compact
               :actions="quickActionsCatalog"
               :default-action-ids="defaultQuickActionIds"
@@ -158,27 +218,48 @@
         <TenantContextCards
           :show-school-updates="isVisible('schoolUpdates') && canSeeSchoolPortals"
           :show-events="isVisible('events')"
-          :show-programs="isVisible('programs') && hasAffiliatedPrograms"
           :school-updates="schoolUpdatesFeed"
           :events="upcomingEvents"
-          :program-stats="programStats"
           :paths="contextPaths"
           @navigate="go"
         />
 
         <OpsSummaryCards
+          :show-programs="isVisible('programs') && hasAffiliatedPrograms"
           :show-communications="isVisible('communications')"
           :show-people-ops="isVisible('peopleOps')"
           :show-system-alerts="isVisible('systemAlerts')"
           :show-todays-schedule="isVisible('todaysSchedule')"
+          :program-stats="programStats"
           :communications="commsSummary"
           :people-ops="peopleOpsSummary"
           :system-alerts="systemAlertsSummary"
           :schedule-slots="scheduleSlots"
           :schedule-loading="scheduleLoading"
-          :paths="summaryPaths"
+          :paths="{ ...summaryPaths, ...contextPaths }"
           @navigate="go"
         />
+
+        <section
+          v-if="isOperationsMode && isVisible('momentum') && currentAgencyId && !isSuperadminPreview"
+          class="momentum-panel"
+          aria-label="Your focus"
+        >
+          <h2 class="momentum-panel-title">
+            {{ momentumListEnabled ? 'Your Momentum List' : 'Your Checklist' }}
+          </h2>
+          <MomentumListTab
+            v-if="momentumListEnabled"
+            :program-id="route.query?.programId ? parseInt(route.query.programId, 10) : null"
+            :agency-id="currentAgencyId"
+            :kudos-enabled="canSeeKudosWidget"
+          />
+          <UnifiedChecklistTab
+            v-else
+            :program-id="route.query?.programId ? parseInt(route.query.programId, 10) : null"
+            :agency-id="currentAgencyId"
+          />
+        </section>
       </main>
     </div>
 
@@ -189,7 +270,7 @@
           <button type="button" class="btn-close" aria-label="Close" @click="showCustomizeModal = false">×</button>
         </div>
         <div class="modal-body">
-          <p class="modal-intro">Choose which sections appear on your management dashboard.</p>
+          <p class="modal-intro">Choose which sections appear on your dashboard.</p>
           <div class="section-toggles">
             <label
               v-for="item in sectionLabels"
@@ -226,7 +307,10 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { useNotificationStore } from '../../store/notifications';
 import { useBrandingStore } from '../../store/branding';
-import { useAdminDashboardPrefs, SECTION_LABELS } from '../../composables/useAdminDashboardPrefs';
+import {
+  useAdminDashboardPrefs,
+  OPERATIONS_SECTION_VISIBILITY
+} from '../../composables/useAdminDashboardPrefs';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
@@ -234,12 +318,22 @@ import AtAGlanceRow from '../../components/admin/opsDashboard/AtAGlanceRow.vue';
 import DocumentationAlertsCard from '../../components/admin/opsDashboard/DocumentationAlertsCard.vue';
 import OpsSummaryCards from '../../components/admin/opsDashboard/OpsSummaryCards.vue';
 import TenantContextCards from '../../components/admin/opsDashboard/TenantContextCards.vue';
-import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
+import MomentumListTab from '../../components/dashboard/MomentumListTab.vue';
+import UnifiedChecklistTab from '../../components/dashboard/UnifiedChecklistTab.vue';
+import { useMomentumListAddon } from '../../composables/useMomentumListAddon';
+import { useSuperadminPlatformPreview } from '../../composables/useSuperadminPlatformPreview';
+import { canAccessSchoolPortalsSurfaces, parseFeatureFlags, isTruthyFeatureFlag } from '../../utils/schoolPortalsAccess.js';
+import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import {
   fetchCoverageWarnings,
   fetchProviderCoverageSummary,
   fetchHubEvents
 } from '../../services/schoolCoverageApi.js';
+
+const props = defineProps({
+  /** `operations` = CPA / Provider+ Operations Dashboard shell */
+  variant: { type: String, default: 'management' }
+});
 
 const router = useRouter();
 const route = useRoute();
@@ -247,6 +341,9 @@ const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
 const brandingStore = useBrandingStore();
+const { isSuperadminPreview } = useSuperadminPlatformPreview({ route, agencyStore });
+
+const isOperationsMode = computed(() => String(props.variant || '').toLowerCase() === 'operations');
 
 const searchQuery = ref('');
 const showNotificationsPanel = ref(false);
@@ -266,9 +363,35 @@ const slug = computed(() =>
 
 const currentUser = computed(() => authStore.user || authStore.currentUser || {});
 const userId = computed(() => currentUser.value?.id || currentUser.value?.email || null);
+const roleLower = computed(() => String(currentUser.value?.role || '').toLowerCase());
+const canSeeUsersNav = computed(() =>
+  ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'club_manager'].includes(roleLower.value)
+);
+const canSeeClientsNav = computed(() =>
+  ['admin', 'support', 'super_admin', 'staff', 'provider', 'provider_plus'].includes(roleLower.value)
+);
 
-const { isVisible, setSection, resetSections } = useAdminDashboardPrefs({ userId });
-const sectionLabels = SECTION_LABELS;
+const { isVisible, setSection, resetSections, sectionLabels } = useAdminDashboardPrefs({
+  userId,
+  namespace: isOperationsMode.value ? 'operations' : 'tenant',
+  defaults: isOperationsMode.value ? OPERATIONS_SECTION_VISIBILITY : undefined
+});
+
+const currentAgencyId = computed(() => agencyStore.currentAgency?.id ?? null);
+const { momentumListEnabled } = useMomentumListAddon(currentAgencyId);
+const agencyFlagsForKudos = computed(() =>
+  parseFeatureFlags(agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags)
+);
+const canSeeKudosWidget = computed(() => isTruthyFeatureFlag(agencyFlagsForKudos.value?.kudosEnabled));
+
+const pageTitle = computed(() =>
+  (isOperationsMode.value ? 'Operations Dashboard' : 'Management Dashboard')
+);
+const pageSubtitle = computed(() =>
+  (isOperationsMode.value
+    ? 'Schedule coordination, school coverage, hiring pipeline, and program support.'
+    : 'Real-time overview of priority operations and actions.')
+);
 
 const userName = computed(() => {
   const u = currentUser.value;
@@ -362,6 +485,9 @@ const upcomingEvents = ref([]);
 const programStats = ref({ programs: 0, learning: 0, modules: 0 });
 const orgOverviewSummary = ref({ counts: { school: 0, program: 0, learning: 0, other: 0 } });
 const canSeeSchoolPortals = ref(false);
+const officeRequestCount = ref(0);
+const inOnboardingCount = ref(0);
+const completedOnboardingCount = ref(0);
 
 const hasAffiliatedPrograms = computed(() =>
   Number(orgOverviewSummary.value?.counts?.program || 0)
@@ -380,62 +506,122 @@ const highPriorityCount = computed(() =>
   }).length
 );
 
-const glanceCards = computed(() => [
-  {
-    key: 'new_tickets',
-    label: 'New Tickets',
-    value: newTickets.value,
-    hint: 'Requires immediate attention',
-    cta: 'View All',
-    tone: 'danger',
-    to: `${ticketsPath.value}?status=open`
-  },
-  {
-    key: 'open_tickets',
-    label: 'Open Tickets',
-    value: openTickets.value,
-    hint: 'Active support tickets',
-    cta: 'View All',
-    tone: 'warn',
-    to: ticketsPath.value
-  },
-  {
-    key: 'messages',
-    label: 'Messages',
-    value: unreadMessages.value,
-    hint: 'Unread messages',
-    cta: 'Open Inbox',
-    tone: 'info',
-    to: `${prefix.value}/messages`
-  },
-  {
-    key: 'late_notes',
-    label: 'Late Notes',
-    value: lateNotes.value,
-    hint: 'Notes past due',
-    cta: 'Review',
-    tone: 'purple',
-    to: `${prefix.value}/admin/payroll`
-  },
-  {
-    key: 'applications',
-    label: 'New Applications',
-    value: newApplications.value,
-    hint: 'New job applications',
-    cta: 'Review',
-    tone: 'success',
-    to: `${prefix.value}/admin/hiring`
-  },
-  {
-    key: 'payroll',
-    label: 'Payroll Submissions',
-    value: payrollSubmissions.value,
-    hint: 'Pending payroll items',
-    cta: 'Review',
-    tone: 'accent',
-    to: `${prefix.value}/admin/payroll/pending`
+const glanceCards = computed(() => {
+  if (isOperationsMode.value) {
+    return [
+      {
+        key: 'office_requests',
+        label: 'Office Requests',
+        value: officeRequestCount.value,
+        hint: 'Pending office / booking approvals',
+        cta: 'Review',
+        tone: officeRequestCount.value > 0 ? 'danger' : 'accent',
+        to: `${prefix.value}/admin/availability-intake?tab=office`
+      },
+      {
+        key: 'new_hires',
+        label: 'New Applications',
+        value: newApplications.value,
+        hint: 'Prospective candidates to review',
+        cta: 'Review',
+        tone: 'success',
+        to: `${prefix.value}/admin/hiring`
+      },
+      {
+        key: 'in_onboarding',
+        label: 'In Onboarding',
+        value: inOnboardingCount.value,
+        hint: 'Hires moved into onboarding',
+        cta: 'Open',
+        tone: 'warn',
+        to: `${prefix.value}/admin/users?status=ONBOARDING`
+      },
+      {
+        key: 'completed_onboarding',
+        label: 'Completed Onboarding',
+        value: completedOnboardingCount.value,
+        hint: 'Recently active employees',
+        cta: 'View',
+        tone: 'info',
+        to: `${prefix.value}/admin/users?status=ACTIVE_EMPLOYEE`
+      },
+      {
+        key: 'messages',
+        label: 'Messages',
+        value: unreadMessages.value,
+        hint: 'Unread messages',
+        cta: 'Open Inbox',
+        tone: 'purple',
+        to: `${prefix.value}/messages`
+      },
+      {
+        key: 'training',
+        label: 'Training Modules',
+        value: programStats.value.modules || 0,
+        hint: 'Open training progress',
+        cta: 'Open',
+        tone: 'accent',
+        to: `${prefix.value}/admin/agency-progress`
+      }
+    ];
   }
-]);
+  return [
+    {
+      key: 'new_tickets',
+      label: 'New Tickets',
+      value: newTickets.value,
+      hint: 'Requires immediate attention',
+      cta: 'View All',
+      tone: 'danger',
+      to: `${ticketsPath.value}?status=open`
+    },
+    {
+      key: 'open_tickets',
+      label: 'Open Tickets',
+      value: openTickets.value,
+      hint: 'Active support tickets',
+      cta: 'View All',
+      tone: 'warn',
+      to: ticketsPath.value
+    },
+    {
+      key: 'messages',
+      label: 'Messages',
+      value: unreadMessages.value,
+      hint: 'Unread messages',
+      cta: 'Open Inbox',
+      tone: 'info',
+      to: `${prefix.value}/messages`
+    },
+    {
+      key: 'late_notes',
+      label: 'Late Notes',
+      value: lateNotes.value,
+      hint: 'Notes past due',
+      cta: 'Review',
+      tone: 'purple',
+      to: `${prefix.value}/admin/payroll`
+    },
+    {
+      key: 'applications',
+      label: 'New Applications',
+      value: newApplications.value,
+      hint: 'New job applications',
+      cta: 'Review',
+      tone: 'success',
+      to: `${prefix.value}/admin/hiring`
+    },
+    {
+      key: 'payroll',
+      label: 'Payroll Submissions',
+      value: payrollSubmissions.value,
+      hint: 'Pending payroll items',
+      cta: 'Review',
+      tone: 'accent',
+      to: `${prefix.value}/admin/payroll/pending`
+    }
+  ];
+});
 
 const docAlerts = computed(() => {
   const rows = [];
@@ -490,104 +676,488 @@ const systemAlertsSummary = computed(() => ({
   deliveryQueue: deliveryQueue.value
 }));
 
-const opsRoles = ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus', 'club_manager'];
+const agencyFeatureFlags = computed(() =>
+  parseFeatureFlags(agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags)
+);
 
+const clinicalNoteGeneratorEnabledForAgency = computed(() => {
+  const flags = agencyFeatureFlags.value;
+  if (flags?.noteAidEnabled === false && flags?.clinicalNoteGeneratorEnabled === false) return false;
+  return true;
+});
+
+const bookClubEnabledForAgency = computed(() => isTruthyFeatureFlag(agencyFeatureFlags.value?.bookClubEnabled));
+
+const canSeeSkillBuildersSchoolProgramQuickAction = computed(() => {
+  const agency = agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSkillBuildersSchoolProgramSurfaces({
+    userRole: currentUser.value?.role,
+    agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+  });
+});
+
+// Same catalog as classic AgencyAdminDashboard (no create-ticket — admins don't open tickets).
 const defaultQuickActionIds = computed(() => {
-  const ids = [
-    'send_message',
-    'create_ticket',
-    'schedule_appointment',
+  if (isOperationsMode.value) {
+    return [
+      'schedule',
+      'provider_availability_dashboard',
+      'office_approvals',
+      'communications_center',
+      'communications',
+      ...(canSeeSchoolPortals.value ? ['school_portals'] : []),
+      ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
+      'program_events',
+      'progress_dashboard',
+      ...(clinicalNoteGeneratorEnabledForAgency.value ? ['tools_aids', 'clinical_note_generator'] : []),
+      ...(canSeeUsersNav.value ? ['manage_users'] : []),
+      ...(canSeeClientsNav.value ? ['manage_clients'] : []),
+      'notifications'
+    ];
+  }
+  return [
+    'progress_dashboard',
     'manage_clients',
-    'company_events'
+    'management_team',
+    ...(clinicalNoteGeneratorEnabledForAgency.value ? ['tools_aids', 'clinical_note_generator'] : []),
+    ...(canSeeSchoolPortals.value ? ['school_portals', 'school_marketing_campaigns'] : []),
+    ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
+    ...(bookClubEnabledForAgency.value ? ['book_club'] : []),
+    'manage_modules',
+    'manage_documents',
+    'surveys',
+    'manage_users',
+    'settings',
+    'audit_center',
+    'external_calendar_audit',
+    'provider_availability_dashboard',
+    'provider_scheduling_settings',
+    ...(canSeeSkillBuildersSchoolProgramQuickAction.value ? ['skill_builders_availability'] : []),
+    'notifications',
+    'communications',
+    'chats',
+    'payroll',
+    'billing',
+    'billing_policy_rules'
   ];
-  if (canSeeSchoolPortals.value) ids.push('school_portals');
-  if (hasAffiliatedPrograms.value) ids.push('program_overview');
-  ids.push('add_progress_note', 'review_applications', 'run_reports');
-  return ids;
 });
 
 const quickActionsCatalog = computed(() => {
   const p = prefix.value;
-  const all = [
+  const base = [
     {
-      id: 'send_message',
-      title: 'Send Message',
-      description: 'Open messages inbox',
-      to: `${p}/messages`,
-      emoji: '💬',
-      iconKey: 'chats',
-      category: 'Communications',
-      roles: opsRoles
+      id: 'team_lead_dashboard',
+      title: 'Team Lead Dashboards',
+      description: 'View what team leads and captains see',
+      to: `${p}/operations-dashboard`,
+      emoji: '👥',
+      iconKey: 'provider_availability_dashboard',
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus', 'club_manager'],
+      capabilities: ['canAccessPlatform']
     },
     {
-      id: 'create_ticket',
-      title: 'Create New Ticket',
-      description: 'Open a support ticket',
-      to: `${p}/tickets?create=1`,
-      emoji: '🎫',
-      iconKey: 'communications',
-      category: 'Operations',
-      roles: opsRoles
-    },
-    {
-      id: 'schedule_appointment',
-      title: 'Schedule Appointment',
-      description: 'Open schedule hub',
+      id: 'schedule',
+      title: 'Schedule',
+      description: 'View schedule hub',
       to: `${p}/schedule`,
       emoji: '📅',
       iconKey: 'schedule',
       category: 'Scheduling',
-      roles: opsRoles
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus', 'club_manager'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'season_management',
+      title: 'Season Management',
+      description: 'Manage active and past seasons',
+      to: `${p}/admin/settings?category=workflow&item=challenge-management`,
+      emoji: '🏁',
+      iconKey: 'challenges',
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'provider_plus', 'club_manager'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'start_new_season',
+      title: 'Start New Season',
+      description: 'Create a new season (container for teams, scoring, and weekly challenges)',
+      to: `${p}/admin?openAddSeason=1`,
+      emoji: '🏁',
+      iconKey: 'challenges',
+      category: 'Seasons',
+      roles: ['admin', 'support', 'super_admin', 'club_manager'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'school_marketing_campaigns',
+      title: 'School Marketing Campaigns',
+      description: 'Promote a public page, event, or program as a slide-out toast on every school portal',
+      to: `${p}/admin/marketing-campaigns`,
+      emoji: '📣',
+      iconKey: 'communications',
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'progress_dashboard',
+      title: 'Progress Dashboard',
+      description: 'View and manage training progress, completion, and quiz scores',
+      to: `${p}/admin/agency-progress`,
+      emoji: '📊',
+      iconKey: 'progress_dashboard',
+      category: 'Training',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'supervisor'],
+      capabilities: ['canAccessPlatform']
     },
     {
       id: 'manage_clients',
       title: 'Manage Clients',
-      description: 'Client list and profiles',
+      description: 'Create and manage clients',
       to: `${p}/admin/clients`,
       emoji: '🧾',
       iconKey: 'manage_clients',
-      category: 'Clients',
-      roles: opsRoles
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canAccessPlatform']
     },
     {
-      id: 'company_events',
-      title: 'Events',
-      description: 'Company events and updates',
-      to: `${p}/admin/company-events`,
-      emoji: '🗓️',
-      iconKey: 'company_events',
-      category: 'Events',
-      roles: opsRoles
+      id: 'tools_aids',
+      title: 'Tools & Aids',
+      description: 'Note Aid and upcoming clinical tools',
+      to: `${p}/admin/tools-aids`,
+      emoji: '🩺',
+      iconKey: 'tools_aids',
+      category: 'Clinical',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'provider', 'intern', 'clinical_practice_assistant', 'supervisor'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'clinical_note_generator',
+      title: 'Note Aid',
+      description: 'Clinical Director Agent (audio + text)',
+      to: `${p}/admin/note-aid`,
+      emoji: '🩺',
+      iconKey: 'clinical_note_generator',
+      category: 'Clinical',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'provider', 'intern', 'clinical_practice_assistant', 'supervisor'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'import_school_directory',
+      title: 'Import School Directory',
+      description: 'Bulk import school contacts + ITSCO email + schedules',
+      to: `${p}/admin/schools/import`,
+      emoji: '🏫',
+      iconKey: 'school_overview',
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canAccessPlatform']
     },
     {
       id: 'school_portals',
       title: 'School Portals',
-      description: 'School updates, portals, and changes',
+      description: 'School overview, all portals, and add-school when enabled for this tenant',
       to: `${p}/admin/school-portals-hub`,
       emoji: '🏫',
       iconKey: 'school_overview',
-      category: 'Schools',
-      roles: opsRoles
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      allowSubCoordinator: true,
+      capabilities: ['canAccessPlatform']
     },
     {
       id: 'program_overview',
       title: 'Program Overview',
-      description: 'Affiliated programs and learning orgs',
+      description: 'View affiliated programs and learning orgs (staffing/slots/docs)',
       to: `${p}/admin/schools/overview?orgType=program`,
       emoji: '🧩',
       iconKey: 'program_overview',
-      category: 'Programs',
-      roles: opsRoles
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      allowSubCoordinator: true,
+      capabilities: ['canAccessPlatform']
     },
     {
-      id: 'add_progress_note',
-      title: 'Add Progress Note',
-      description: 'Note Aid clinical notes',
-      to: `${p}/admin/note-aid`,
-      emoji: '📝',
-      iconKey: 'clinical_note_generator',
-      category: 'Clinical',
-      roles: opsRoles
+      id: 'manage_modules',
+      title: 'Manage Modules',
+      description: 'Create and edit training modules',
+      to: `${p}/admin/modules`,
+      emoji: '📚',
+      iconKey: 'manage_modules',
+      category: 'Training',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canViewTraining']
+    },
+    {
+      id: 'manage_documents',
+      title: 'Manage Documents',
+      description: 'Upload templates and assign documents',
+      to: `${p}/admin/documents`,
+      emoji: '📄',
+      iconKey: 'manage_documents',
+      category: 'Documents',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canSignDocuments']
+    },
+    {
+      id: 'intake_links',
+      title: 'Digital Forms',
+      description: 'Configure digital forms, documents, and public submissions',
+      to: `${p}/admin/digital-forms`,
+      emoji: '🔗',
+      iconKey: 'intake_links',
+      category: 'Documents',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canSignDocuments']
+    },
+    {
+      id: 'company_events',
+      title: 'Club Events',
+      description: 'Create and manage club RSVP events',
+      to: `${p}/admin/company-events`,
+      emoji: '📅',
+      iconKey: 'dashboard_communications',
+      category: 'Club',
+      roles: ['admin', 'super_admin', 'provider_plus', 'club_manager'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'program_events',
+      title: 'Program Events',
+      description: 'Skill Builders, D11 Summer, school, and company events directory',
+      to: `${p}/admin/program-events`,
+      emoji: '🗓️',
+      iconKey: 'dashboard_communications',
+      category: 'Events',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus', 'club_manager'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'office_approvals',
+      title: 'Approve Office Requests',
+      description: 'Approve or deny office, booking, and availability requests',
+      to: `${p}/admin/availability-intake?tab=office`,
+      emoji: '✅',
+      iconKey: 'provider_availability_dashboard',
+      category: 'Scheduling',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'surveys',
+      title: 'Surveys',
+      description: 'Build and push staff/client surveys and review outcomes',
+      to: `${p}/admin/surveys`,
+      emoji: '📊',
+      iconKey: 'intake_links',
+      category: 'Documents',
+      roles: ['admin', 'super_admin', 'provider_plus', 'club_manager'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'book_club',
+      title: 'Book Club',
+      description: 'Manage monthly books, Book Worms voting, and meetings',
+      to: `${p}/admin/book-club`,
+      emoji: '📚',
+      iconKey: 'dashboard_communications',
+      category: 'Culture',
+      roles: ['admin', 'support', 'super_admin'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'unassigned_documents',
+      title: 'Submitted Documents',
+      description: 'Assign public form submissions to clients',
+      to: `${p}/admin/unassigned-documents`,
+      emoji: '📋',
+      iconKey: 'manage_documents',
+      category: 'Documents',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canSignDocuments']
+    },
+    {
+      id: 'management_team',
+      title: 'Management Team',
+      description: 'Your platform support team and availability',
+      to: `${p}/admin/management-team`,
+      emoji: '👥',
+      iconKey: 'manage_users',
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'manage_users',
+      title: 'Manage Users',
+      description: 'View and manage user accounts',
+      to: `${p}/admin/users`,
+      emoji: '👥',
+      iconKey: 'manage_users',
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'supervisor', 'club_manager'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'provider_directory',
+      title: 'Provider Directory',
+      description: 'Search providers by profile (specialties, ages, interests)',
+      to: `${p}/admin/providers`,
+      emoji: '🔎',
+      iconKey: 'manage_users',
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'settings',
+      title: 'Settings',
+      description: 'Configure organizations, tracks, and branding',
+      to: `${p}/admin/settings`,
+      emoji: '⚙️',
+      iconKey: 'settings',
+      category: 'System',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'club_manager'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'audit_center',
+      title: 'Audit Center',
+      description: 'Audit exports and operational reports',
+      to: `${p}/admin/audit-center`,
+      emoji: '🛡️',
+      iconKey: 'audit_center',
+      category: 'System',
+      roles: ['admin', 'super_admin'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'communications',
+      title: 'Messages',
+      description: 'Direct messages, channels, threads, and mentions',
+      to: `${p}/messages`,
+      emoji: '💬',
+      iconKey: 'dashboard_communications',
+      category: 'Communications',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'],
+      capabilities: ['canUseChat']
+    },
+    {
+      id: 'communications_center',
+      title: 'Communications Center',
+      description: 'Messages hub and communication tools you can access',
+      to: `${p}/admin/communications`,
+      emoji: '📡',
+      iconKey: 'dashboard_communications',
+      category: 'Communications',
+      roles: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'chats',
+      title: 'Engagement Feed',
+      description: 'Texting activity, calls, and delivery queue',
+      to: `${p}/admin/communications/feed`,
+      emoji: '📡',
+      iconKey: 'dashboard_chats',
+      category: 'Communications',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
+      capabilities: ['canUseChat']
+    },
+    {
+      id: 'external_calendar_audit',
+      title: 'Agency Calendar',
+      description: 'Review provider schedules with calendar busy overlays',
+      to: `${p}/admin/external-calendar-audit`,
+      emoji: '🗓️',
+      iconKey: 'external_calendar_audit',
+      category: 'Scheduling',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'provider_availability_dashboard',
+      title: 'Provider Management',
+      description: 'View availability by school slots, office, and virtual',
+      to: `${p}/admin/provider-availability`,
+      emoji: '🧭',
+      iconKey: 'provider_availability_dashboard',
+      category: 'Scheduling',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'supervisor', 'schedule_manager', 'provider_plus'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'provider_scheduling_settings',
+      title: 'Provider Scheduling',
+      description: 'Configure provider scheduling preferences and rules',
+      to: `${p}/admin/settings?category=workflow&item=provider-scheduling`,
+      emoji: '🗓️',
+      iconKey: 'schedule',
+      category: 'Scheduling',
+      roles: ['admin', 'super_admin'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'skill_builders_availability',
+      title: 'Event availability',
+      description: 'Review weekly availability submissions by day',
+      to: `${p}/admin/skill-builders-availability`,
+      emoji: '🧩',
+      iconKey: 'skill_builders_availability',
+      category: 'Scheduling',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'notifications',
+      title: 'Notifications',
+      description: 'View notifications',
+      to: `${p}/admin/notifications`,
+      emoji: '🔔',
+      iconKey: 'dashboard_notifications',
+      category: 'Management',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'payroll',
+      title: 'Payroll',
+      description: 'Manage payroll',
+      to: `${p}/admin/payroll`,
+      emoji: '💵',
+      iconKey: 'dashboard_payroll',
+      category: 'Management',
+      roles: ['admin', 'super_admin'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'billing',
+      title: 'Billing',
+      description: 'Plan usage and QuickBooks',
+      to: `${p}/admin/settings?category=general&item=billing`,
+      emoji: '💳',
+      iconKey: 'dashboard_billing',
+      category: 'System',
+      roles: ['admin', 'super_admin'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'billing_policy_rules',
+      title: 'Billing Policy Rules',
+      description: 'Upload billing manual and manage code eligibility/unit rules',
+      to: `${p}/admin/billing-policy-rules`,
+      emoji: '📘',
+      iconKey: 'dashboard_billing',
+      category: 'System',
+      roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canAccessPlatform']
     },
     {
       id: 'review_applications',
@@ -597,102 +1167,34 @@ const quickActionsCatalog = computed(() => {
       emoji: '📋',
       iconKey: 'manage_users',
       category: 'People Ops',
-      roles: ['admin', 'support', 'super_admin']
-    },
-    {
-      id: 'run_reports',
-      title: 'Run Reports',
-      description: 'Training progress reports',
-      to: `${p}/admin/agency-progress`,
-      emoji: '📊',
-      iconKey: 'progress_dashboard',
-      category: 'Reports',
-      roles: opsRoles
-    },
-    {
-      id: 'payroll_reports',
-      title: 'Payroll Reports',
-      description: 'Payroll reporting tools',
-      to: `${p}/admin/payroll/reports`,
-      emoji: '💰',
-      iconKey: 'payroll',
-      category: 'Reports',
-      roles: ['admin', 'support', 'super_admin']
-    },
-    {
-      id: 'communications',
-      title: 'Communications Center',
-      description: 'Messages, tickets, engagement',
-      to: `${p}/admin/communications`,
-      emoji: '📡',
-      iconKey: 'communications',
-      category: 'Communications',
-      roles: opsRoles
-    },
-    {
-      id: 'unassigned_documents',
-      title: 'Unassigned Documents',
-      description: 'Assign submitted paperwork',
-      to: `${p}/admin/unassigned-documents`,
-      emoji: '📄',
-      iconKey: 'manage_documents',
-      category: 'Documentation',
-      roles: opsRoles
-    },
-    {
-      id: 'manage_users',
-      title: 'Manage Users',
-      description: 'Employees and staff accounts',
-      to: `${p}/admin/users`,
-      emoji: '👤',
-      iconKey: 'manage_users',
-      category: 'People Ops',
-      roles: ['admin', 'support', 'super_admin']
-    },
-    {
-      id: 'payroll_pending',
-      title: 'Payroll Pending',
-      description: 'Review pending submissions',
-      to: `${p}/admin/payroll/pending`,
-      emoji: '⏳',
-      iconKey: 'payroll',
-      category: 'People Ops',
-      roles: ['admin', 'support', 'super_admin']
-    },
-    {
-      id: 'manage_modules',
-      title: 'Manage Modules',
-      description: 'Training modules',
-      to: `${p}/admin/modules`,
-      emoji: '📚',
-      iconKey: 'manage_modules',
-      category: 'Programs',
-      roles: opsRoles
-    },
-    {
-      id: 'notifications',
-      title: 'Notifications',
-      description: 'Unified notification inbox',
-      to: notificationsPath.value,
-      emoji: '🔔',
-      iconKey: 'notifications',
-      category: 'System',
-      roles: opsRoles
+      roles: ['admin', 'support', 'super_admin'],
+      capabilities: ['canAccessPlatform']
     }
   ];
-  return all.filter((a) => {
-    if (a.id === 'school_portals') return canSeeSchoolPortals.value;
+
+  return base.filter((a) => {
+    if (isOperationsMode.value) {
+      // No Engagement Feed on Operations; Communications Center covers messaging.
+      if (a.id === 'chats') return false;
+      if (a.id === 'payroll' || a.id === 'billing' || a.id === 'billing_policy_rules') return false;
+      if (a.id === 'audit_center' || a.id === 'settings' || a.id === 'management_team') return false;
+      if (a.id === 'school_marketing_campaigns') return false;
+    }
+    if (a.id === 'school_portals' || a.id === 'school_marketing_campaigns') return canSeeSchoolPortals.value;
+    if (a.id === 'skill_builders_availability') return canSeeSkillBuildersSchoolProgramQuickAction.value;
     if (a.id === 'program_overview') return hasAffiliatedPrograms.value;
+    if (a.id === 'book_club') return bookClubEnabledForAgency.value;
+    if (a.id === 'tools_aids' || a.id === 'clinical_note_generator') return clinicalNoteGeneratorEnabledForAgency.value;
     return true;
   });
 });
 
 const quickActionBadges = computed(() => ({
-  create_ticket: openTickets.value,
-  review_applications: newApplications.value,
-  payroll_pending: payrollSubmissions.value,
+  communications: unreadMessages.value,
   unassigned_documents: unassignedDocs.value,
-  send_message: unreadMessages.value
+  payroll: payrollSubmissions.value,
+  review_applications: newApplications.value,
+  notifications: unreadCount.value
 }));
 
 const resolveQuickActionIcon = (action) => {
@@ -903,7 +1405,9 @@ const loadDashboard = async () => {
       schoolHubEvents,
       modulesRes,
       coverageWarnings,
-      providerCoverage
+      providerCoverage,
+      officeRequestsRaw,
+      onboardingRaw
     ] = await Promise.all([
       safeGet('/dashboard/schedule-snapshot', {
         params: { agencyId, date: new Date().toISOString().split('T')[0] }
@@ -924,8 +1428,25 @@ const loadDashboard = async () => {
         : Promise.resolve(null),
       canSeeSchoolPortals.value
         ? withTimeout(fetchProviderCoverageSummary(agencyId), 8000).catch(() => null)
-        : Promise.resolve(null)
+        : Promise.resolve(null),
+      safeGet('/availability/admin/office-requests', {
+        params: { agencyId, status: 'PENDING' }
+      }, 8000),
+      safeGet('/hiring/onboarding-candidates', { params: { agencyId } }, 8000)
     ]);
+
+    const officeList = Array.isArray(officeRequestsRaw)
+      ? officeRequestsRaw
+      : (Array.isArray(officeRequestsRaw?.requests) ? officeRequestsRaw.requests : []);
+    officeRequestCount.value = officeList.length;
+
+    const onboardingList = Array.isArray(onboardingRaw)
+      ? onboardingRaw
+      : (Array.isArray(onboardingRaw?.candidates) ? onboardingRaw.candidates : []);
+    inOnboardingCount.value = onboardingList.length;
+
+    // Active employees ≈ completed onboarding (agency specs from phase 1).
+    completedOnboardingCount.value = activeEmployees.value;
 
     if (Array.isArray(unassigned)) {
       unassignedDocs.value = unassigned.length;
@@ -1511,6 +2032,9 @@ const logout = () => {
   margin-bottom: 16px;
   align-items: start;
 }
+.mid-grid--qa-full {
+  grid-template-columns: 1fr;
+}
 @media (max-width: 1100px) {
   .mid-grid { grid-template-columns: 1fr; }
 }
@@ -1525,9 +2049,29 @@ const logout = () => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
-@media (max-width: 700px) {
-  .qa-wrap :deep(.actions-grid) {
+.mid-grid--qa-full .qa-wrap :deep(.actions-grid) {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (max-width: 1200px) {
+  .mid-grid--qa-full .qa-wrap :deep(.actions-grid) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 900px) {
+  .mid-grid--qa-full .qa-wrap :deep(.actions-grid) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .qa-wrap :deep(.actions-grid),
+  .mid-grid--qa-full .qa-wrap :deep(.actions-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 480px) {
+  .mid-grid--qa-full .qa-wrap :deep(.actions-grid) {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1611,5 +2155,20 @@ const logout = () => {
   border: none;
   background: var(--ops-primary, #1f6b4a);
   color: #fff;
+}
+
+.momentum-panel {
+  margin-top: 16px;
+  padding: 16px 18px 20px;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, #e2e8f0);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
+}
+.momentum-panel-title {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--ops-primary, #1f6b4a);
 }
 </style>

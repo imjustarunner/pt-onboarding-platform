@@ -1,5 +1,34 @@
 <template>
   <section class="ops-summary" aria-label="Operations summaries">
+    <article v-if="showPrograms" class="panel">
+      <div class="panel-header">
+        <h2>Programs</h2>
+        <button type="button" class="link-btn" @click="$emit('navigate', paths.programs)">View All</button>
+      </div>
+      <div class="stat-rows">
+        <div class="stat-row">
+          <span>Affiliated Programs</span>
+          <strong>{{ programStats.programs || 0 }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Learning Orgs</span>
+          <strong>{{ programStats.learning || 0 }}</strong>
+        </div>
+        <div class="stat-row">
+          <span>Training Modules</span>
+          <strong>{{ programStats.modules || 0 }}</strong>
+        </div>
+      </div>
+      <div class="cta-row">
+        <button type="button" class="mini-btn" @click="$emit('navigate', paths.programs)">
+          Program Overview
+        </button>
+        <button type="button" class="mini-btn" @click="$emit('navigate', paths.events || paths.programs)">
+          Program Events
+        </button>
+      </div>
+    </article>
+
     <article v-if="showCommunications" class="panel">
       <div class="panel-header">
         <h2>Communications Center</h2>
@@ -90,10 +119,12 @@
 
 <script setup>
 defineProps({
+  showPrograms: { type: Boolean, default: false },
   showCommunications: { type: Boolean, default: true },
   showPeopleOps: { type: Boolean, default: true },
   showSystemAlerts: { type: Boolean, default: true },
   showTodaysSchedule: { type: Boolean, default: true },
+  programStats: { type: Object, default: () => ({}) },
   communications: { type: Object, default: () => ({}) },
   peopleOps: { type: Object, default: () => ({}) },
   systemAlerts: { type: Object, default: () => ({}) },
@@ -108,17 +139,14 @@ defineEmits(['navigate']);
 <style scoped>
 .ops-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
-  margin-top: 4px;
+  margin-top: 0;
 }
-@media (max-width: 1400px) {
+@media (max-width: 1100px) {
   .ops-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 900px) {
-  .ops-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 600px) {
+@media (max-width: 700px) {
   .ops-summary { grid-template-columns: 1fr; }
 }
 .panel {
@@ -127,7 +155,9 @@ defineEmits(['navigate']);
   border-radius: 16px;
   padding: 16px 18px;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
-  min-height: 180px;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
 }
 .panel-header {
   display: flex;
@@ -156,6 +186,7 @@ defineEmits(['navigate']);
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
 }
 .stat-row {
   display: flex;
@@ -170,6 +201,27 @@ defineEmits(['navigate']);
   color: #0f172a;
 }
 .stat-row strong.danger { color: #b91c1c; }
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+.mini-btn {
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 30%, #e2e8f0);
+  background: #fff;
+  color: var(--ops-primary, #1f6b4a);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mini-btn:hover {
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
+}
 .empty {
   font-size: 13px;
   color: #94a3b8;

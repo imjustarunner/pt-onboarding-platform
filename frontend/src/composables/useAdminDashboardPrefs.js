@@ -3,8 +3,6 @@
 
 import { ref, watch, computed, isRef, unref } from 'vue';
 
-const STORAGE_PREFIX = 'adminDashboardSections:tenant';
-
 export const DEFAULT_SECTION_VISIBILITY = Object.freeze({
   atGlance: true,
   documentationAlerts: true,
@@ -18,6 +16,21 @@ export const DEFAULT_SECTION_VISIBILITY = Object.freeze({
   todaysSchedule: true
 });
 
+/** Operations Dashboard (CPA / Provider+) — focus on coverage, hires, events, training. */
+export const OPERATIONS_SECTION_VISIBILITY = Object.freeze({
+  atGlance: true,
+  documentationAlerts: false,
+  quickActions: true,
+  schoolUpdates: true,
+  events: true,
+  programs: true,
+  communications: true,
+  peopleOps: false,
+  systemAlerts: false,
+  todaysSchedule: true,
+  momentum: true
+});
+
 export const SECTION_LABELS = Object.freeze([
   { key: 'atGlance', label: 'At a Glance' },
   { key: 'documentationAlerts', label: 'Documentation Alerts' },
@@ -28,25 +41,26 @@ export const SECTION_LABELS = Object.freeze([
   { key: 'communications', label: 'Communications Center' },
   { key: 'peopleOps', label: 'People Ops Overview' },
   { key: 'systemAlerts', label: 'System Alerts' },
-  { key: 'todaysSchedule', label: "Today's Schedule" }
+  { key: 'todaysSchedule', label: "Today's Schedule" },
+  { key: 'momentum', label: 'Momentum List / Checklist' }
 ]);
 
 const sanitizeKey = (value) => String(value || 'anon').replace(/[^a-zA-Z0-9_-]/g, '');
 
-const loadSections = (storageKey) => {
-  if (typeof window === 'undefined') return { ...DEFAULT_SECTION_VISIBILITY };
+const loadSections = (storageKey, defaults) => {
+  if (typeof window === 'undefined') return { ...defaults };
   try {
     const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return { ...DEFAULT_SECTION_VISIBILITY };
+    if (!raw) return { ...defaults };
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_SECTION_VISIBILITY };
-    const next = { ...DEFAULT_SECTION_VISIBILITY };
-    for (const key of Object.keys(DEFAULT_SECTION_VISIBILITY)) {
+    if (!parsed || typeof parsed !== 'object') return { ...defaults };
+    const next = { ...defaults };
+    for (const key of Object.keys(defaults)) {
       if (typeof parsed[key] === 'boolean') next[key] = parsed[key];
     }
     return next;
   } catch {
-    return { ...DEFAULT_SECTION_VISIBILITY };
+    return { ...defaults };
   }
 };
 
@@ -60,18 +74,23 @@ const saveSections = (storageKey, sections) => {
 };
 
 /**
- * @param {{ userId?: import('vue').Ref|string|number|null }} opts
+ * @param {{ userId?: import('vue').Ref|string|number|null, namespace?: string, defaults?: Record<string, boolean> }} opts
  */
-export function useAdminDashboardPrefs({ userId = null } = {}) {
+export function useAdminDashboardPrefs({
+  userId = null,
+  namespace = 'tenant',
+  defaults = DEFAULT_SECTION_VISIBILITY
+} = {}) {
   const userIdRef = isRef(userId) ? userId : ref(userId);
+  const defaultsRef = { ...defaults };
   const storageKey = computed(
-    () => `${STORAGE_PREFIX}:${sanitizeKey(unref(userIdRef))}`
+    () => `adminDashboardSections:${namespace}:${sanitizeKey(unref(userIdRef))}`
   );
 
-  const sections = ref(loadSections(storageKey.value));
+  const sections = ref(loadSections(storageKey.value, defaultsRef));
 
   watch(userIdRef, () => {
-    sections.value = loadSections(storageKey.value);
+    sections.value = loadSections(storageKey.value, defaultsRef);
   });
 
   watch(
@@ -85,7 +104,7 @@ export function useAdminDashboardPrefs({ userId = null } = {}) {
   const isVisible = (key) => sections.value?.[key] !== false;
 
   const setSection = (key, value) => {
-    if (!(key in DEFAULT_SECTION_VISIBILITY)) return;
+    if (!(key in defaultsRef)) return;
     sections.value = { ...sections.value, [key]: !!value };
   };
 
@@ -94,12 +113,14 @@ export function useAdminDashboardPrefs({ userId = null } = {}) {
   };
 
   const resetSections = () => {
-    sections.value = { ...DEFAULT_SECTION_VISIBILITY };
+    sections.value = { ...defaultsRef };
   };
+
+  const sectionLabels = SECTION_LABELS.filter((item) => item.key in defaultsRef);
 
   return {
     sections,
-    sectionLabels: SECTION_LABELS,
+    sectionLabels,
     isVisible,
     setSection,
     toggleSection,

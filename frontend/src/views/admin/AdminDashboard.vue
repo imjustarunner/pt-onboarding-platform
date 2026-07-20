@@ -7,11 +7,11 @@
       </div>
     </div>
 
-    <!-- Platform superadmin: dark Plot Twist HQ command center (opt into classic via ?classic=1) -->
+    <!-- Platform superadmin HQ only when not inside a tenant URL / selected tenant -->
     <SuperadminPlatformDashboard
-      v-else-if="isSuperAdmin && !currentAgency && !isSuperadminPreview && !useClassicPlatform"
+      v-else-if="isSuperAdmin && !hasTenantContext && !isSuperadminPreview && !useClassicPlatform"
     />
-    <div v-else-if="isSuperAdmin && !currentAgency && !isSuperadminPreview && useClassicPlatform">
+    <div v-else-if="isSuperAdmin && !hasTenantContext && !isSuperadminPreview && useClassicPlatform">
       <div class="beta-banner">
         <span class="beta-banner-text">Classic platform dashboard</span>
         <button class="beta-banner-try" @click="goModernPlatform">Use Plot Twist HQ dashboard →</button>
@@ -19,12 +19,12 @@
       <SuperAdminDashboard />
     </div>
 
-    <!-- SuperAdmin with a tenant selected → ops dashboard (classic via ?classic=1) -->
+    <!-- SuperAdmin inside a tenant → tenant management dashboard (classic via ?classic=1) -->
     <AgencyAdminDashboard
-      v-else-if="isSuperAdmin && currentAgency && !isSuperadminPreview && useClassicTenant"
+      v-else-if="isSuperAdmin && hasTenantContext && !isSuperadminPreview && useClassicTenant"
     />
     <TenantAdminDashboard
-      v-else-if="isSuperAdmin && currentAgency && !isSuperadminPreview"
+      v-else-if="isSuperAdmin && hasTenantContext && !isSuperadminPreview"
     />
     <AgencyAdminDashboard
       v-else-if="isSuperadminPreview"
@@ -67,6 +67,13 @@ const { isSuperadminPreview } = useSuperadminPlatformPreview({ route, authStore,
 const isSuperAdmin = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();
   return role === 'super_admin' || role === 'superadmin';
+});
+
+/** Org-scoped /:slug/admin (or a selected tenant) — never treat as platform HQ. */
+const hasTenantContext = computed(() => {
+  const slug = route.params?.organizationSlug;
+  if (typeof slug === 'string' && slug.trim()) return true;
+  return !!currentAgency.value;
 });
 
 const useClassicPlatform = computed(() => String(route.query.classic || '') === '1');

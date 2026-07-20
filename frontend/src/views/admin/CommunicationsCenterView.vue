@@ -31,6 +31,7 @@
           <em v-if="personalUnread > 0">{{ personalUnread > 99 ? '99+' : personalUnread }}</em>
         </button>
         <button
+          v-if="canUseSupportHub"
           type="button"
           role="tab"
           :aria-selected="activeMode === 'support'"
@@ -78,17 +79,32 @@
             <strong class="cc-kpi-value">{{ personal.cards?.mentions || 0 }}</strong>
             <span class="cc-kpi-hint">Need your input →</span>
           </button>
-          <button type="button" class="cc-kpi warn" @click.prevent.stop="setMode('support')">
+          <button
+            v-if="canUseSupportHub"
+            type="button"
+            class="cc-kpi warn"
+            @click.prevent.stop="setMode('support')"
+          >
             <span class="cc-kpi-label">Open tickets</span>
             <strong class="cc-kpi-value">{{ openTicketTotal }}</strong>
             <span class="cc-kpi-hint">Support Hub →</span>
           </button>
-          <button type="button" class="cc-kpi warn" @click.prevent.stop="setMode('support')">
+          <button
+            v-if="canUseSupportHub"
+            type="button"
+            class="cc-kpi warn"
+            @click.prevent.stop="setMode('support')"
+          >
             <span class="cc-kpi-label">Delivery queue</span>
             <strong class="cc-kpi-value">{{ summary.kpis?.pendingInQueues || 0 }}</strong>
             <span class="cc-kpi-hint">Pending + failed →</span>
           </button>
-          <button type="button" class="cc-kpi" @click.prevent.stop="setMode('support')">
+          <button
+            v-if="canUseSmsInbox"
+            type="button"
+            class="cc-kpi"
+            @click.prevent.stop="goSmsInbox"
+          >
             <span class="cc-kpi-label">Unassigned SMS</span>
             <strong class="cc-kpi-value">{{ summary.messagesMode?.unassigned || 0 }}</strong>
             <span class="cc-kpi-hint">Org care inbox →</span>
@@ -103,21 +119,21 @@
             </div>
             <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('messages')">Open Messages</button>
           </div>
-          <div v-if="openTicketTotal > 0" class="cc-alert danger">
+          <div v-if="canUseSupportHub && openTicketTotal > 0" class="cc-alert danger">
             <div>
               <strong>{{ openTicketTotal }} open tickets</strong>
               <span> — require attention</span>
             </div>
             <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('support')">Support Hub</button>
           </div>
-          <div v-if="(summary.engagement?.pendingCount || 0) > 0" class="cc-alert warn">
+          <div v-if="canUseSupportHub && (summary.engagement?.pendingCount || 0) > 0" class="cc-alert warn">
             <div>
               <strong>{{ summary.engagement.pendingCount }} pending</strong>
               <span> automations / deliveries</span>
             </div>
             <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('support')">Review queue</button>
           </div>
-          <div v-if="(summary.engagement?.failedCount || 0) > 0" class="cc-alert warn">
+          <div v-if="canUseSupportHub && (summary.engagement?.failedCount || 0) > 0" class="cc-alert warn">
             <div>
               <strong>{{ summary.engagement.failedCount }} failed</strong>
               <span> deliveries</span>
@@ -418,6 +434,19 @@ const agencyLabel = computed(
   () => agencyStore.currentAgency?.name || agencyStore.currentAgency?.short_name || 'Admin'
 );
 
+const roleLower = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canUseSupportHub = computed(() =>
+  ['admin', 'support', 'super_admin'].includes(roleLower.value)
+);
+const canUseSmsInbox = computed(() =>
+  ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider', 'schedule_manager']
+    .includes(roleLower.value)
+);
+const canUseEngagementFeed = computed(() =>
+  ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff']
+    .includes(roleLower.value)
+);
+
 const hubGreeting = computed(() => {
   const name = authStore.user?.first_name || 'there';
   const h = new Date().getHours();
@@ -473,21 +502,37 @@ const homeSupportRows = computed(() => {
   return rows.slice(0, 8);
 });
 
-const managementTools = computed(() => [
-  { label: 'Broadcasts', desc: 'Campaigns and one-time sends', to: campaignsPath.value },
-  { label: 'Contacts', desc: 'Agency contact directory', to: contactsPath.value },
-  { label: 'Message routing', desc: 'SMS numbers and assignments', to: textingSettingsPath.value },
-  { label: 'School alerts', desc: 'School portal notifications', to: `${feedPath.value}?tab=school` },
-  { label: 'Compliance', desc: 'Proof and opt-in surfaces', to: `${feedPath.value}?tab=proof` },
-  { label: 'SMS inbox', desc: 'Clinical care threads', to: smsPath.value },
-  { label: 'Ticket desk', desc: 'Full support queue', to: ticketsPath.value },
-  { label: 'Feed archive', desc: 'Deep filters & history', to: feedPath.value }
-]);
+const managementTools = computed(() => {
+  const all = [
+    { id: 'campaigns', label: 'Broadcasts', desc: 'Campaigns and one-time sends', to: campaignsPath.value, roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider', 'schedule_manager', 'supervisor'] },
+    { id: 'contacts', label: 'Contacts', desc: 'Agency contact directory', to: contactsPath.value, roles: ['admin', 'support', 'super_admin'] },
+    { id: 'routing', label: 'Message routing', desc: 'SMS numbers and assignments', to: textingSettingsPath.value, roles: ['admin', 'support', 'super_admin'] },
+    { id: 'school', label: 'School alerts', desc: 'School portal notifications', to: `${feedPath.value}?tab=school`, roles: null, needsFeed: true },
+    { id: 'compliance', label: 'Compliance', desc: 'Proof and opt-in surfaces', to: `${feedPath.value}?tab=proof`, roles: null, needsFeed: true },
+    { id: 'sms', label: 'SMS inbox', desc: 'Clinical care threads', to: smsPath.value, roles: null, needsSms: true },
+    { id: 'tickets', label: 'Ticket desk', desc: 'Full support queue', to: ticketsPath.value, roles: null, needsSupport: true },
+    { id: 'feed', label: 'Feed archive', desc: 'Deep filters & history', to: feedPath.value, roles: null, needsFeed: true }
+  ];
+  return all.filter((t) => {
+    if (t.needsSupport && !canUseSupportHub.value) return false;
+    if (t.needsFeed && !canUseEngagementFeed.value) return false;
+    if (t.needsSms && !canUseSmsInbox.value) return false;
+    if (Array.isArray(t.roles) && !t.roles.includes(roleLower.value) && roleLower.value !== 'super_admin') {
+      return false;
+    }
+    return true;
+  });
+});
 
 function setMode(next) {
-  const mode = modeFromQuery(next);
+  let mode = modeFromQuery(next);
+  if (mode === 'support' && !canUseSupportHub.value) mode = 'messages';
   activeMode.value = mode;
   router.replace({ path: route.path, query: { ...route.query, mode } }).catch(() => {});
+}
+
+function goSmsInbox() {
+  router.push(smsPath.value).catch(() => {});
 }
 
 function prioClass(p) {

@@ -2,9 +2,9 @@
   <section
     v-if="showAny"
     class="tenant-context"
-    aria-label="Schools, events, and programs"
+    aria-label="School updates and events"
   >
-    <article v-if="showSchoolUpdates" class="panel">
+    <article v-if="showSchoolUpdates" class="panel panel--feed">
       <div class="panel-header">
         <h2>School Updates &amp; Changes</h2>
         <button type="button" class="link-btn" @click="$emit('navigate', paths.caseloadHub || paths.schoolPortalsHub)">
@@ -19,23 +19,25 @@
         </button>
       </div>
       <template v-else>
-        <ul class="item-list feed-list">
-          <li v-for="u in visibleSchoolUpdates" :key="u.id" class="item-row feed-row">
-            <div class="avatar" :class="u.kind">{{ updateGlyph(u.kind) }}</div>
-            <div class="item-meta">
-              <span class="item-name">{{ u.title }}</span>
-              <span v-if="u.body" class="item-sub">{{ u.body }}</span>
-              <span v-if="u.meta" class="item-meta-line">{{ u.meta }}</span>
-            </div>
-            <button
-              type="button"
-              class="mini-btn"
-              @click="$emit('navigate', u.to || paths.caseloadHub)"
-            >
-              {{ u.cta || 'Open' }}
-            </button>
-          </li>
-        </ul>
+        <div class="feed-body">
+          <ul class="item-list feed-list">
+            <li v-for="u in visibleSchoolUpdates" :key="u.id" class="item-row feed-row">
+              <div class="avatar" :class="u.kind">{{ updateGlyph(u.kind) }}</div>
+              <div class="item-meta">
+                <span class="item-name">{{ u.title }}</span>
+                <span v-if="u.body" class="item-sub">{{ u.body }}</span>
+                <span v-if="u.meta" class="item-meta-line">{{ u.meta }}</span>
+              </div>
+              <button
+                type="button"
+                class="mini-btn"
+                @click="$emit('navigate', u.to || paths.caseloadHub)"
+              >
+                {{ u.cta || 'Open' }}
+              </button>
+            </li>
+          </ul>
+        </div>
         <div v-if="schoolUpdates.length > schoolPreviewLimit" class="more-row">
           <button
             v-if="!schoolExpanded"
@@ -64,7 +66,7 @@
       </template>
     </article>
 
-    <article v-if="showEvents" class="panel">
+    <article v-if="showEvents" class="panel panel--feed">
       <div class="panel-header">
         <h2>Events</h2>
         <button type="button" class="link-btn" @click="$emit('navigate', paths.events)">
@@ -79,20 +81,22 @@
         </button>
       </div>
       <template v-else>
-        <ul class="item-list feed-list">
-          <li v-for="e in visibleEvents" :key="e.id" class="item-row feed-row">
-            <div class="avatar" :class="e.kind || 'event'">{{ eventGlyph(e.kind) }}</div>
-            <div class="item-meta">
-              <span class="item-name">{{ e.title }}</span>
-              <span v-if="e.whenLabel" class="item-when">{{ e.whenLabel }}</span>
-              <span v-if="e.subtitle" class="item-sub">{{ e.subtitle }}</span>
-              <span v-if="e.meta" class="item-meta-line">{{ e.meta }}</span>
-            </div>
-            <button type="button" class="mini-btn" @click="$emit('navigate', e.to || paths.events)">
-              {{ e.cta || 'Event Portal' }}
-            </button>
-          </li>
-        </ul>
+        <div class="feed-body">
+          <ul class="item-list feed-list">
+            <li v-for="e in visibleEvents" :key="e.id" class="item-row feed-row">
+              <div class="avatar" :class="e.kind || 'event'">{{ eventGlyph(e.kind) }}</div>
+              <div class="item-meta">
+                <span class="item-name">{{ e.title }}</span>
+                <span v-if="e.whenLabel" class="item-when">{{ e.whenLabel }}</span>
+                <span v-if="e.subtitle" class="item-sub">{{ e.subtitle }}</span>
+                <span v-if="e.meta" class="item-meta-line">{{ e.meta }}</span>
+              </div>
+              <button type="button" class="mini-btn" @click="$emit('navigate', e.to || paths.events)">
+                {{ e.cta || 'Event Portal' }}
+              </button>
+            </li>
+          </ul>
+        </div>
         <div v-if="events.length > eventPreviewLimit" class="more-row">
           <button
             v-if="!eventsExpanded"
@@ -121,37 +125,6 @@
         </div>
       </template>
     </article>
-
-    <article v-if="showPrograms" class="panel">
-      <div class="panel-header">
-        <h2>Programs</h2>
-        <button type="button" class="link-btn" @click="$emit('navigate', paths.programs)">
-          View All
-        </button>
-      </div>
-      <div class="stat-rows">
-        <div class="stat-row">
-          <span>Affiliated Programs</span>
-          <strong>{{ programStats.programs || 0 }}</strong>
-        </div>
-        <div class="stat-row">
-          <span>Learning Orgs</span>
-          <strong>{{ programStats.learning || 0 }}</strong>
-        </div>
-        <div class="stat-row">
-          <span>Training Modules</span>
-          <strong>{{ programStats.modules || 0 }}</strong>
-        </div>
-      </div>
-      <div class="cta-row">
-        <button type="button" class="mini-btn" @click="$emit('navigate', paths.programs)">
-          Program Overview
-        </button>
-        <button type="button" class="mini-btn" @click="$emit('navigate', paths.events)">
-          Program Events
-        </button>
-      </div>
-    </article>
   </section>
 </template>
 
@@ -161,10 +134,8 @@ import { computed, ref } from 'vue';
 const props = defineProps({
   showSchoolUpdates: { type: Boolean, default: false },
   showEvents: { type: Boolean, default: true },
-  showPrograms: { type: Boolean, default: false },
   schoolUpdates: { type: Array, default: () => [] },
   events: { type: Array, default: () => [] },
-  programStats: { type: Object, default: () => ({}) },
   paths: { type: Object, default: () => ({}) }
 });
 
@@ -175,9 +146,7 @@ const eventPreviewLimit = 6;
 const schoolExpanded = ref(false);
 const eventsExpanded = ref(false);
 
-const showAny = computed(
-  () => props.showSchoolUpdates || props.showEvents || props.showPrograms
-);
+const showAny = computed(() => props.showSchoolUpdates || props.showEvents);
 
 const visibleSchoolUpdates = computed(() =>
   schoolExpanded.value
@@ -211,15 +180,15 @@ const eventGlyph = (kind) => {
 <style scoped>
 .tenant-context {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
-  margin: 0 0 16px;
+  margin: 0 0 14px;
 }
-@media (max-width: 1100px) {
-  .tenant-context { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 700px) {
+@media (max-width: 900px) {
   .tenant-context { grid-template-columns: 1fr; }
+}
+.tenant-context:has(> .panel:only-child) {
+  grid-template-columns: 1fr;
 }
 .panel {
   background: #fff;
@@ -227,9 +196,13 @@ const eventGlyph = (kind) => {
   border-radius: 16px;
   padding: 16px 18px;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
-  min-height: 180px;
   display: flex;
   flex-direction: column;
+}
+.panel--feed {
+  height: 300px;
+  min-height: 300px;
+  max-height: 300px;
 }
 .panel-header {
   display: flex;
@@ -237,6 +210,7 @@ const eventGlyph = (kind) => {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 .panel-header h2 {
   margin: 0;
@@ -248,6 +222,14 @@ const eventGlyph = (kind) => {
   margin: 0 0 10px;
   font-size: 12px;
   color: #64748b;
+  flex-shrink: 0;
+}
+.feed-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
 }
 .link-btn {
   border: none;
@@ -276,7 +258,6 @@ const eventGlyph = (kind) => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  flex: 1;
 }
 .item-row {
   display: flex;
@@ -372,32 +353,9 @@ const eventGlyph = (kind) => {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  margin-top: 12px;
+  margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid #f1f5f9;
-}
-.stat-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  flex: 1;
-}
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: #475569;
-}
-.stat-row strong {
-  font-size: 15px;
-  color: #0f172a;
-}
-.cta-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
+  flex-shrink: 0;
 }
 </style>

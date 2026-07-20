@@ -1751,7 +1751,7 @@ const routes = [
     component: () => import('../views/admin/CommunicationsCenterView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'support', 'super_admin'],
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'],
       organizationSlug: true
     }
   },
@@ -1952,7 +1952,11 @@ const routes = [
     path: '/:organizationSlug/admin/agency-progress',
     name: 'OrganizationAgencyProgress',
     component: () => import('../views/admin/AgencyProgressDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'],
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/admin/audit-center',
@@ -2735,7 +2739,10 @@ const routes = [
     path: '/admin/communications',
     name: 'CommunicationsHub',
     component: () => import('../views/admin/CommunicationsCenterView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'] }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus']
+    }
   },
   {
     path: '/admin/communications/feed',
@@ -2916,7 +2923,10 @@ const routes = [
     path: '/admin/agency-progress',
     name: 'AgencyProgress',
     component: () => import('../views/admin/AgencyProgressDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus']
+    }
   },
   {
     path: '/admin/audit-center',
@@ -3608,7 +3618,15 @@ router.beforeEach(async (to, from, next) => {
         // keep the parent tenant for nav/theme/data scoping.
         try {
           const org = await organizationStore.fetchBySlug(slug);
-          if (org && authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
+          const roleLower = String(authStore.user?.role || '').toLowerCase();
+          const isSuperAdminUser = roleLower === 'super_admin' || roleLower === 'superadmin';
+          if (org && authStore.isAuthenticated && isSuperAdminUser) {
+            // Superadmins touring authenticated tenant routes (Management → Admin Dashboard)
+            // must scope currentAgency to that tenant; otherwise HQ shells/APIs stay platform-mode.
+            if (to.meta.requiresAuth && isTenantOrganizationType(org)) {
+              agencyStore.setCurrentAgency(org);
+            }
+          } else if (org && authStore.isAuthenticated && !isSuperAdminUser) {
             // IMPORTANT: Do NOT overwrite the user's current agency context just because they visited a public
             // organization splash page. Only sync currentAgency when:
             // - the route requires auth (they are entering a branded portal), OR
