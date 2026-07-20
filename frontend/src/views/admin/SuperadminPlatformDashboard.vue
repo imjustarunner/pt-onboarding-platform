@@ -245,8 +245,7 @@
                       <td>{{ t.unreadNotifications ?? '—' }}</td>
                       <td>
                         <div class="pthq-open-btns">
-                          <button type="button" class="pthq-mini-btn" @click="openTenant(t, 'new')">Open New →</button>
-                          <button type="button" class="pthq-mini-btn ghost" @click="openTenant(t, 'classic')">Classic</button>
+                          <button type="button" class="pthq-mini-btn" @click="openTenant(t)">Open Dashboard →</button>
                         </div>
                       </td>
                     </tr>
@@ -316,8 +315,7 @@
                 Becomes an Organization when active employees &gt; 1.
               </p>
               <div class="pthq-open-btns">
-                <button type="button" class="pthq-mini-btn" @click.stop="openTenant(t, 'new')">Open as Admin (New) →</button>
-                <button type="button" class="pthq-mini-btn ghost" @click.stop="openTenant(t, 'classic')">Classic</button>
+                <button type="button" class="pthq-mini-btn" @click.stop="openTenant(t)">Open as Admin →</button>
               </div>
             </article>
           </div>
@@ -689,18 +687,13 @@ const fetchAll = async () => {
   }
 };
 
-const openTenant = (tenant, variant = 'new') => {
+const openTenant = (tenant) => {
   if (!tenant) return;
   // Enter that tenant's admin context with full superadmin privileges.
   agencyStore.setCurrentAgency(tenant);
   const slug = String(tenant.slug || tenant.portal_url || '').toLowerCase().trim();
   if (!slug) return;
-  // New unfinished tenant beta dashboard vs classic AgencyAdminDashboard
-  if (variant === 'classic') {
-    router.push(`/${slug}/admin`);
-    return;
-  }
-  router.push(`/${slug}/admin-dashboard`);
+  router.push(`/${slug}/admin`);
 };
 
 const goClassic = () => {

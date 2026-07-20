@@ -1,11 +1,5 @@
 <template>
   <div class="tenant-admin-dashboard" :style="brandVars">
-    <div class="beta-bar">
-      <span class="beta-pill">NEW</span>
-      <span class="beta-bar-text">Management dashboard — quick access to priority operations.</span>
-      <button class="beta-bar-back" type="button" @click="backToClassic">View classic dashboard</button>
-    </div>
-
     <header class="top-bar">
       <div class="top-bar-left">
         <BrandingLogo size="medium" :logo-url="agencyStore.currentAgency?.logo_url" />
@@ -119,17 +113,13 @@
       </nav>
 
       <main class="main-content">
-        <div v-if="loading" class="loading-overlay">
-          <div class="loading-spinner"></div>
-          <p>Loading dashboard…</p>
-        </div>
-
         <div class="page-header">
           <div>
             <h1>Management Dashboard</h1>
             <p class="subtitle">Real-time overview of priority operations and actions.</p>
           </div>
           <div class="page-header-right">
+            <span v-if="loading" class="loading-chip" aria-live="polite">Updating…</span>
             <time class="datetime">{{ formattedNow }}</time>
             <button type="button" class="customize-btn" @click="showCustomizeModal = true">
               Customize Dashboard
@@ -155,7 +145,7 @@
             <QuickActionsSection
               ref="quickActionsRef"
               title="Quick Actions"
-              context-key="tenant-ops-v2"
+              context-key="tenant-ops-v3"
               compact
               :actions="quickActionsCatalog"
               :default-action-ids="defaultQuickActionIds"
@@ -734,18 +724,54 @@ const countUnsignedNotifications = () => {
   }).length;
 };
 
+const withTimeout = (promise, ms = 7000) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      const t = setTimeout(() => {
+        clearTimeout(t);
+        reject(new Error('timeout'));
+      }, ms);
+    })
+  ]);
+
+const safeGet = (url, config = {}, ms = 7000) =>
+  withTimeout(api.get(url, { ...config, skipGlobalLoading: true }), ms)
+    .then((r) => r?.data ?? null)
+    .catch(() => null);
+
+const applyGlanceFromPayloads = ({ center, personal, openCountRes, metrics, specs }) => {
+  openTickets.value = Number(
+    center?.kpis?.openTickets
+    ?? metrics?.open
+    ?? openCountRes?.count
+    ?? 0
+  );
+  newTickets.value = Number(
+    metrics?.open
+    ?? center?.tickets?.open
+    ?? openCountRes?.count
+    ?? openTickets.value
+  );
+  unreadMessages.value = Number(personal?.cards?.unread || 0);
+  clientMessages.value = Number(
+    personal?.cards?.clientMessages
+    ?? center?.messagesMode?.unread
+    ?? center?.queues?.sms
+    ?? 0
+  );
+  deliveryQueue.value = Number(center?.kpis?.pendingInQueues || 0);
+  activeEmployees.value = Number(specs?.activeEmployees || 0);
+  pendingEmployees.value = Number(specs?.pendingEmployees || 0);
+  lateNotes.value = countLateNoteNotifications();
+  unsignedDocs.value = countUnsignedNotifications();
+};
+
 const loadDashboard = async () => {
   loading.value = true;
   const agencyId = agencyStore.currentAgency?.id
     || (typeof agencyStore.currentAgency === 'object' ? agencyStore.currentAgency?.value?.id : null);
   const params = agencyId ? { agencyId } : {};
-
-  try {
-    await Promise.all([
-      notificationStore.fetchNotifications?.().catch(() => {}),
-      notificationStore.fetchCounts?.().catch(() => {})
-    ]);
-  } catch { /* non-fatal */ }
 
   const agency = agencyStore.currentAgency || {};
   const pb = brandingStore.platformBranding || {};
@@ -757,180 +783,166 @@ const loadDashboard = async () => {
       agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
   });
 
+  // Notifications are best-effort and must not block the first paint.
+  notificationStore.fetchNotifications?.().catch(() => {});
+  notificationStore.fetchCounts?.().catch(() => {});
+
   if (!agencyId) {
     loading.value = false;
     return;
   }
 
-  const settled = await Promise.allSettled([
-    api.get('/communications/center-summary', { params, skipGlobalLoading: true }),
-    api.get('/messages/dashboard-summary', { params, skipGlobalLoading: true }),
-    api.get('/support-tickets/count', { params: { ...params, status: 'open' }, skipGlobalLoading: true }),
-    api.get('/support-tickets/metrics', { params, skipGlobalLoading: true }),
-    api.get('/dashboard/agency-specs', { params, skipGlobalLoading: true }),
-    api.get('/dashboard/schedule-snapshot', {
-      params: { agencyId, date: new Date().toISOString().split('T')[0] },
-      skipGlobalLoading: true
-    }),
-    api.get('/unassigned-documents', { params, skipGlobalLoading: true }),
-    api.get('/hiring/candidates', {
-      params: { agencyId, status: 'PROSPECTIVE', stageFilter: 'active' },
-      skipGlobalLoading: true
-    }),
-    api.get('/payroll/pending-submissions-summary', { params, skipGlobalLoading: true }),
-    api.get('/clients', { params: { agency_id: agencyId, limit: 5 }, skipGlobalLoading: true }),
-    api.get('/dashboard/org-overview-summary', { params, skipGlobalLoading: true }),
-    api.get('/dashboard/school-overview', { params: { agencyId, orgType: 'school' }, skipGlobalLoading: true }),
-    api.get('/school-portal/bulk-announcements', { params, skipGlobalLoading: true }),
-    api.get(`/agencies/${agencyId}/company-events`, { skipGlobalLoading: true }),
-    api.get('/modules', { skipGlobalLoading: true })
-  ]);
-
-  const val = (i) => (settled[i].status === 'fulfilled' ? settled[i].value?.data : null);
-
-  const center = val(0) || {};
-  const personal = val(1) || {};
-  const openCountRes = val(2) || {};
-  const metrics = val(3) || {};
-  const specs = val(4) || {};
-  const sched = val(5) || {};
-  const unassigned = val(6);
-  const hiring = val(7);
-  const payrollPending = val(8) || {};
-  const clientsRes = val(9);
-  const orgOverview = val(10) || {};
-  const schoolOverview = val(11) || {};
-  const announcements = val(12);
-  const companyEvents = val(13);
-  const modulesRes = val(14);
-
-  openTickets.value = Number(
-    center?.kpis?.openTickets
-    ?? metrics?.open
-    ?? openCountRes?.count
-    ?? 0
-  );
-  // "New" ≈ open (unclaimed/new) when metrics provide it; else open count
-  newTickets.value = Number(
-    metrics?.open
-    ?? center?.tickets?.open
-    ?? openCountRes?.count
-    ?? openTickets.value
-  );
-
-  unreadMessages.value = Number(personal?.cards?.unread || 0);
-  clientMessages.value = Number(
-    personal?.cards?.clientMessages
-    ?? center?.messagesMode?.unread
-    ?? center?.queues?.sms
-    ?? 0
-  );
-  deliveryQueue.value = Number(center?.kpis?.pendingInQueues || 0);
-
-  activeEmployees.value = Number(specs?.activeEmployees || 0);
-  pendingEmployees.value = Number(specs?.pendingEmployees || 0);
-
-  lateNotes.value = countLateNoteNotifications();
-  unsignedDocs.value = countUnsignedNotifications();
-
-  if (Array.isArray(unassigned)) {
-    unassignedDocs.value = unassigned.length;
-  } else if (Array.isArray(unassigned?.rows)) {
-    unassignedDocs.value = unassigned.rows.length;
-  } else {
-    unassignedDocs.value = Number(unassigned?.count || 0);
+  try {
+    // Phase 1 — glance metrics only (fast path)
+    const [center, personal, openCountRes, metrics, specs] = await Promise.all([
+      safeGet('/communications/center-summary', { params }, 6000),
+      safeGet('/messages/dashboard-summary', { params }, 6000),
+      safeGet('/support-tickets/count', { params: { ...params, status: 'open' } }, 6000),
+      safeGet('/support-tickets/metrics', { params }, 6000),
+      safeGet('/dashboard/agency-specs', { params }, 6000)
+    ]);
+    applyGlanceFromPayloads({ center, personal, openCountRes, metrics, specs });
+  } finally {
+    loading.value = false;
   }
 
-  if (Array.isArray(hiring)) {
-    newApplications.value = hiring.length;
-  } else if (Array.isArray(hiring?.candidates)) {
-    newApplications.value = hiring.candidates.length;
-  } else {
-    newApplications.value = Number(hiring?.count || 0);
+  // Phase 2 — secondary panels (no blocking overlay)
+  scheduleLoading.value = true;
+  try {
+    const [
+      sched,
+      unassigned,
+      hiring,
+      payrollPending,
+      clientsRes,
+      orgOverview,
+      schoolOverview,
+      announcements,
+      companyEvents,
+      modulesRes
+    ] = await Promise.all([
+      safeGet('/dashboard/schedule-snapshot', {
+        params: { agencyId, date: new Date().toISOString().split('T')[0] }
+      }, 8000),
+      safeGet('/unassigned-documents', { params }, 8000),
+      safeGet('/hiring/candidates', {
+        params: { agencyId, status: 'PROSPECTIVE', stageFilter: 'active' }
+      }, 8000),
+      safeGet('/payroll/pending-submissions-summary', { params }, 8000),
+      safeGet('/clients', { params: { agency_id: agencyId, limit: 5 } }, 8000),
+      safeGet('/dashboard/org-overview-summary', { params }, 8000),
+      canSeeSchoolPortals.value
+        ? safeGet('/dashboard/school-overview', { params: { agencyId, orgType: 'school' } }, 8000)
+        : Promise.resolve(null),
+      canSeeSchoolPortals.value
+        ? safeGet('/school-portal/bulk-announcements', { params }, 8000)
+        : Promise.resolve(null),
+      safeGet(`/agencies/${agencyId}/company-events`, {}, 8000),
+      safeGet('/modules', {}, 8000)
+    ]);
+
+    if (Array.isArray(unassigned)) {
+      unassignedDocs.value = unassigned.length;
+    } else if (Array.isArray(unassigned?.rows)) {
+      unassignedDocs.value = unassigned.rows.length;
+    } else {
+      unassignedDocs.value = Number(unassigned?.count || 0);
+    }
+
+    if (Array.isArray(hiring)) {
+      newApplications.value = hiring.length;
+    } else if (Array.isArray(hiring?.candidates)) {
+      newApplications.value = hiring.candidates.length;
+    } else {
+      newApplications.value = Number(hiring?.count || 0);
+    }
+
+    payrollSubmissions.value = Number(payrollPending?.totalCount || 0);
+    scheduleSlots.value = Array.isArray(sched?.sessions) ? sched.sessions : [];
+
+    const clientList = Array.isArray(clientsRes)
+      ? clientsRes
+      : (Array.isArray(clientsRes?.clients) ? clientsRes.clients : []);
+    recentClients.value = clientList.slice(0, 5).map((c) => ({
+      id: c.id,
+      name: c.full_name
+        || c.name
+        || [c.first_name, c.last_name].filter(Boolean).join(' ')
+        || `Client ${c.id}`
+    }));
+
+    orgOverviewSummary.value = orgOverview?.counts
+      ? orgOverview
+      : { counts: { school: 0, program: 0, learning: 0, other: 0, ...(orgOverview?.counts || {}) } };
+
+    const schoolsRaw = Array.isArray(schoolOverview?.schools) ? schoolOverview.schools : [];
+    schoolList.value = schoolsRaw.slice(0, 5).map((s) => ({
+      id: s.id || s.organization_id || s.school_organization_id,
+      name: s.school_name || s.name || s.organization_name || 'School',
+      subtitle: s.district_name || s.city || '',
+      slug: s.slug || s.portal_slug || null,
+      portalPath: s.portal_url || s.admin_path || null
+    }));
+
+    const announcementList = Array.isArray(announcements)
+      ? announcements
+      : (Array.isArray(announcements?.groups)
+        ? announcements.groups
+        : (Array.isArray(announcements?.items) ? announcements.items : []));
+    schoolStats.value = {
+      schoolCount: Number(orgOverviewSummary.value?.counts?.school || schoolsRaw.length || 0),
+      announcements: announcementList.length
+    };
+
+    const eventsRaw = Array.isArray(companyEvents)
+      ? companyEvents
+      : (Array.isArray(companyEvents?.events) ? companyEvents.events : []);
+    const now = Date.now();
+    upcomingEvents.value = eventsRaw
+      .map((e) => {
+        const start = e.starts_at || e.start_at || e.start_date || e.event_date || e.created_at;
+        let when = '';
+        try {
+          if (start) {
+            when = new Date(start).toLocaleString([], {
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit'
+            });
+          }
+        } catch { /* ignore */ }
+        return {
+          id: e.id,
+          title: e.title || e.name || `Event ${e.id}`,
+          when,
+          startMs: start ? new Date(start).getTime() : 0
+        };
+      })
+      .filter((e) => !e.startMs || e.startMs >= now - 86400000)
+      .sort((a, b) => (a.startMs || 0) - (b.startMs || 0))
+      .slice(0, 5);
+
+    const modulesList = Array.isArray(modulesRes)
+      ? modulesRes
+      : (Array.isArray(modulesRes?.modules) ? modulesRes.modules : []);
+    programStats.value = {
+      programs: Number(orgOverviewSummary.value?.counts?.program || 0),
+      learning: Number(orgOverviewSummary.value?.counts?.learning || 0),
+      modules: modulesList.length
+    };
+
+    // Refresh note-related glance counts once notifications may have arrived.
+    lateNotes.value = countLateNoteNotifications();
+    unsignedDocs.value = countUnsignedNotifications();
+  } finally {
+    scheduleLoading.value = false;
   }
-
-  payrollSubmissions.value = Number(payrollPending?.totalCount || 0);
-
-  scheduleSlots.value = Array.isArray(sched?.sessions) ? sched.sessions : [];
-
-  const clientList = Array.isArray(clientsRes)
-    ? clientsRes
-    : (Array.isArray(clientsRes?.clients) ? clientsRes.clients : []);
-  recentClients.value = clientList.slice(0, 5).map((c) => ({
-    id: c.id,
-    name: c.full_name
-      || c.name
-      || [c.first_name, c.last_name].filter(Boolean).join(' ')
-      || `Client ${c.id}`
-  }));
-
-  orgOverviewSummary.value = orgOverview?.counts
-    ? orgOverview
-    : { counts: { school: 0, program: 0, learning: 0, other: 0, ...(orgOverview?.counts || {}) } };
-
-  const schoolsRaw = Array.isArray(schoolOverview?.schools) ? schoolOverview.schools : [];
-  schoolList.value = schoolsRaw.slice(0, 5).map((s) => ({
-    id: s.id || s.organization_id || s.school_organization_id,
-    name: s.school_name || s.name || s.organization_name || 'School',
-    subtitle: s.district_name || s.city || '',
-    slug: s.slug || s.portal_slug || null,
-    portalPath: s.portal_url || s.admin_path || null
-  }));
-
-  const announcementList = Array.isArray(announcements)
-    ? announcements
-    : (Array.isArray(announcements?.groups) ? announcements.groups : (Array.isArray(announcements?.items) ? announcements.items : []));
-  schoolStats.value = {
-    schoolCount: Number(orgOverviewSummary.value?.counts?.school || schoolsRaw.length || 0),
-    announcements: announcementList.length
-  };
-
-  const eventsRaw = Array.isArray(companyEvents)
-    ? companyEvents
-    : (Array.isArray(companyEvents?.events) ? companyEvents.events : []);
-  const now = Date.now();
-  upcomingEvents.value = eventsRaw
-    .map((e) => {
-      const start = e.starts_at || e.start_at || e.start_date || e.event_date || e.created_at;
-      let when = '';
-      try {
-        if (start) {
-          when = new Date(start).toLocaleString([], {
-            month: 'short',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: '2-digit'
-          });
-        }
-      } catch { /* ignore */ }
-      return {
-        id: e.id,
-        title: e.title || e.name || `Event ${e.id}`,
-        when,
-        startMs: start ? new Date(start).getTime() : 0
-      };
-    })
-    .filter((e) => !e.startMs || e.startMs >= now - 86400000)
-    .sort((a, b) => (a.startMs || 0) - (b.startMs || 0))
-    .slice(0, 5);
-
-  const modulesList = Array.isArray(modulesRes)
-    ? modulesRes
-    : (Array.isArray(modulesRes?.modules) ? modulesRes.modules : []);
-  programStats.value = {
-    programs: Number(orgOverviewSummary.value?.counts?.program || 0),
-    learning: Number(orgOverviewSummary.value?.counts?.learning || 0),
-    modules: modulesList.length
-  };
-
-  loading.value = false;
 };
 
-onMounted(async () => {
+onMounted(() => {
   nowTimer = setInterval(() => { nowTick.value = Date.now(); }, 30000);
-  scheduleLoading.value = true;
-  await loadDashboard();
-  scheduleLoading.value = false;
+  loadDashboard();
 });
 
 onUnmounted(() => {
@@ -993,13 +1005,6 @@ const logout = () => {
   authStore.logout();
 };
 
-const backToClassic = () => {
-  const s = slug.value;
-  router.push({
-    path: s ? `/${s}/admin` : '/admin',
-    query: { classic: '1' }
-  });
-};
 </script>
 
 <style scoped>
@@ -1011,42 +1016,6 @@ const backToClassic = () => {
     #f4f7f5;
   font-family: system-ui, -apple-system, sans-serif;
   color: var(--ops-ink, #0f172a);
-}
-
-.beta-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--ops-sidebar, color-mix(in srgb, var(--ops-primary, #1f6b4a) 78%, #041a12));
-  color: rgba(255, 255, 255, 0.9);
-  padding: 7px 20px;
-  font-size: 13px;
-  position: sticky;
-  top: 0;
-  z-index: 60;
-}
-.beta-pill {
-  background: var(--ops-primary, #1f6b4a);
-  color: white;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  padding: 2px 7px;
-  border-radius: 9999px;
-}
-.beta-bar-text { flex: 1; }
-.beta-bar-back {
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  color: rgba(255, 255, 255, 0.8);
-  border-radius: 6px;
-  padding: 4px 12px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.beta-bar-back:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
 }
 
 .top-bar {
@@ -1272,6 +1241,15 @@ const backToClassic = () => {
   color: #64748b;
   font-weight: 600;
 }
+.loading-chip {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ops-primary, #1f6b4a);
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 12%, #fff);
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 28%, #e2e8f0);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
 .customize-btn {
   background: var(--ops-primary, #1f6b4a);
   color: #fff;
@@ -1311,27 +1289,6 @@ const backToClassic = () => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-
-.loading-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(244, 247, 245, 0.72);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 20;
-  gap: 10px;
-}
-.loading-spinner {
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  border: 3px solid #d1d5db;
-  border-top-color: var(--ops-primary, #1f6b4a);
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 
 .modal-overlay {
   position: fixed;

@@ -52,33 +52,71 @@
             <button class="btn-secondary" type="button" @click="resetDefaults">Reset defaults</button>
           </div>
 
+          <div class="section-label">
+            On your dashboard
+            <span class="hint">Use ↑ ↓ to reorder</span>
+          </div>
+          <div v-if="!selectedActions.length" class="empty-selected">No actions selected yet.</div>
+          <div v-else class="list selected-list">
+            <div
+              v-for="(action, index) in selectedActions"
+              :key="`sel-${action.id}`"
+              class="list-item selected-item"
+            >
+              <div class="reorder">
+                <button
+                  type="button"
+                  class="reorder-btn"
+                  :disabled="index === 0"
+                  aria-label="Move up"
+                  @click.stop="move(action.id, -1)"
+                >↑</button>
+                <button
+                  type="button"
+                  class="reorder-btn"
+                  :disabled="index === selectedActions.length - 1"
+                  aria-label="Move down"
+                  @click.stop="move(action.id, 1)"
+                >↓</button>
+              </div>
+              <span class="meta">
+                <span class="name">{{ action.title }}</span>
+                <span class="desc">{{ action.description }}</span>
+              </span>
+              <span class="tag">{{ action.category || 'General' }}</span>
+              <button
+                type="button"
+                class="remove-btn"
+                aria-label="Remove"
+                @click.stop="toggle(action.id)"
+              >Remove</button>
+            </div>
+          </div>
+
+          <div class="section-label available-label">Available actions</div>
           <div class="list">
             <button
-              v-for="action in filteredAvailableActions"
+              v-for="action in filteredUnselectedActions"
               :key="action.id"
               type="button"
               class="list-item"
               @click="toggle(action.id)"
             >
-              <span class="check">
-                <input
-                  type="checkbox"
-                  :checked="selectedIdsSet.has(action.id)"
-                  @change.prevent
-                  tabindex="-1"
-                />
-              </span>
+              <span class="check add-mark">+</span>
               <span class="meta">
                 <span class="name">{{ action.title }}</span>
                 <span class="desc">{{ action.description }}</span>
               </span>
               <span class="tag">{{ action.category || 'General' }}</span>
             </button>
+            <div v-if="!filteredUnselectedActions.length" class="empty-selected">
+              {{ search ? 'No matching actions.' : 'All available actions are already selected.' }}
+            </div>
           </div>
         </div>
 
         <div class="modal-footer">
-          <button class="btn-secondary" type="button" @click="showCustomizer = false">Done</button>
+          <button class="btn-done" type="button" @click="showCustomizer = false">Done</button>
         </div>
       </div>
     </div>
@@ -207,14 +245,11 @@ const applyDefaults = () => {
 const hydrate = () => {
   const stored = load();
   const allowedIds = new Set(availableActions.value.map((a) => String(a.id)));
-  const defaults = (props.defaultActionIds || []).map(String).filter((id) => allowedIds.has(id));
   if (stored && stored.length > 0) {
-    const cleaned = stored.filter((id) => allowedIds.has(String(id)));
+    const cleaned = stored.map(String).filter((id) => allowedIds.has(id));
     if (cleaned.length > 0) {
-      // Keep user selection but auto-append any new defaults that weren't previously present.
-      const set = new Set(cleaned);
-      for (const d of defaults) set.add(d);
-      selectedIds.value = Array.from(set);
+      // Preserve saved order/selection — do not force-append new defaults.
+      selectedIds.value = cleaned;
       return;
     }
   }
@@ -223,10 +258,24 @@ const hydrate = () => {
 
 const toggle = (id) => {
   const key = String(id);
-  const set = new Set(selectedIds.value);
-  if (set.has(key)) set.delete(key);
-  else set.add(key);
-  selectedIds.value = Array.from(set);
+  const current = [...(selectedIds.value || [])].map(String);
+  const idx = current.indexOf(key);
+  if (idx >= 0) current.splice(idx, 1);
+  else current.push(key);
+  selectedIds.value = current;
+};
+
+const move = (id, delta) => {
+  const key = String(id);
+  const list = [...(selectedIds.value || [])].map(String);
+  const idx = list.indexOf(key);
+  if (idx < 0) return;
+  const next = idx + delta;
+  if (next < 0 || next >= list.length) return;
+  const tmp = list[idx];
+  list[idx] = list[next];
+  list[next] = tmp;
+  selectedIds.value = list;
 };
 
 const resetDefaults = () => {
@@ -234,10 +283,12 @@ const resetDefaults = () => {
   persist();
 };
 
-const filteredAvailableActions = computed(() => {
+const filteredUnselectedActions = computed(() => {
+  const selected = selectedIdsSet.value;
   const q = String(search.value || '').trim().toLowerCase();
-  if (!q) return availableActions.value;
   return availableActions.value.filter((a) => {
+    if (selected.has(String(a.id))) return false;
+    if (!q) return true;
     const hay = `${String(a.title || '').toLowerCase()} ${String(a.description || '').toLowerCase()} ${String(a.category || '').toLowerCase()}`;
     return hay.includes(q);
   });
@@ -473,6 +524,31 @@ defineExpose({ openCustomizer });
   font-weight: 800;
 }
 
+.section-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.section-label .hint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  color: #94a3b8;
+}
+.available-label { margin-top: 18px; }
+.empty-selected {
+  font-size: 13px;
+  color: #94a3b8;
+  padding: 10px 4px 14px;
+}
+
 .list {
   display: flex;
   flex-direction: column;
@@ -490,6 +566,14 @@ defineExpose({ openCustomizer });
   background: white;
   cursor: pointer;
   text-align: left;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+}
+
+.list-item.selected-item {
+  grid-template-columns: 44px 1fr auto auto;
+  cursor: default;
 }
 
 .list-item:hover {
@@ -501,6 +585,55 @@ defineExpose({ openCustomizer });
   display: flex;
   align-items: center;
   justify-content: center;
+}
+.add-mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-weight: 800;
+  color: var(--primary);
+}
+.reorder {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.reorder-btn, .remove-btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+.reorder-btn {
+  width: 28px;
+  height: 22px;
+  line-height: 1;
+  padding: 0;
+}
+.reorder-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.remove-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.remove-btn:hover {
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+.btn-done {
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: none;
+  background: var(--primary, #1f6b4a);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 800;
 }
 
 .meta {
