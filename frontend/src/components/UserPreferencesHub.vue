@@ -13,50 +13,56 @@
         <div v-if="error" class="error-box">{{ error }}</div>
         <div v-else-if="loading" class="loading">Loading...</div>
 
+        <div v-else-if="notificationsLocked" class="prefs-grid" />
+
+        <div v-else-if="!isOwnAccount" class="field-help">
+          Per-type delivery settings are account-wide and must be managed by the account owner.
+        </div>
+
         <div v-else class="prefs-grid">
-          <div class="card">
-            <h3 class="card-title">Channels</h3>
-            <div class="field checkbox disabled">
-              <label>
-                <input type="checkbox" checked disabled />
-                In-App notification center <span class="required-tag">Available</span>
-              </label>
-              <div class="field-help">The center stays available; optional types can be muted below. Safety alerts remain required.</div>
-            </div>
+          <div class="card notification-type-settings-card">
+            <NotificationTypeSettingsPanel :global-editable="!notificationDisabled" @changed="onNotificationPanelChanged" />
+          </div>
 
+          <div v-if="!notificationDisabled" class="card">
+            <h3 class="card-title">Browser push</h3>
             <div class="field checkbox">
               <label>
-                <input v-model="prefs.email_enabled" type="checkbox" :disabled="notificationDisabled" />
-                Email Notifications
+                <input v-model="prefs.push_notifications_enabled" type="checkbox" :disabled="notificationDisabled" />
+                Browser push notifications
               </label>
+              <div class="field-help">Show notifications when the app tab is in the background.</div>
             </div>
+          </div>
 
+          <div v-if="!notificationDisabled && prefs.sms_enabled" class="card">
+            <h3 class="card-title">Text messaging options</h3>
             <div class="field checkbox">
-              <label>
-                <input v-model="prefs.sms_enabled" type="checkbox" :disabled="notificationDisabled" />
-                SMS Notifications
-              </label>
-              <div class="field-help">If SMS is off, messages still appear in-app.</div>
-            </div>
-            <div class="field checkbox" v-if="prefs.sms_enabled">
               <label>
                 <input v-model="prefs.sms_forwarding_enabled" type="checkbox" :disabled="notificationDisabled" />
                 Forward inbound texts to my phone
               </label>
               <div class="field-help">Used when agencies enable text forwarding rules.</div>
             </div>
-            <div class="field checkbox" v-if="prefs.sms_enabled">
+            <div class="field checkbox">
               <label>
                 <input v-model="prefs.sms_use_own_number_for_reminders" type="checkbox" :disabled="notificationDisabled" />
                 Use my assigned number for reminders when agency allows it
               </label>
               <div class="field-help">If off, reminders fall back to agency sender number.</div>
             </div>
-            <div class="field checkbox" v-if="prefs.sms_enabled">
+            <div class="field checkbox">
               <label>
                 <input v-model="prefs.sms_support_mirror_enabled" type="checkbox" :disabled="notificationDisabled" />
                 Mirror inbound client texts to support
               </label>
+            </div>
+            <div class="field" v-if="prefs.sms_support_mirror_enabled">
+              <label>Support takeover mode</label>
+              <select v-model="prefs.sms_support_thread_mode" :disabled="notificationDisabled">
+                <option value="respondable">Respondable (provider + support)</option>
+                <option value="read_only">Read-only for provider</option>
+              </select>
             </div>
             <div class="field checkbox" v-if="isWorkforceEmployeeRole">
               <label>
@@ -84,139 +90,12 @@
                 School-staff limited-access SMS for operational updates and participation reminders.
               </div>
             </div>
-            <div class="field" v-if="prefs.sms_enabled && prefs.sms_support_mirror_enabled">
-              <label>Support takeover mode</label>
-              <select v-model="prefs.sms_support_thread_mode" :disabled="notificationDisabled">
-                <option value="respondable">Respondable (provider + support)</option>
-                <option value="read_only">Read-only for provider</option>
-              </select>
-            </div>
-            <div class="field checkbox">
-              <label>
-                <input v-model="prefs.push_notifications_enabled" type="checkbox" :disabled="notificationDisabled" />
-                Browser push notifications
-              </label>
-              <div class="field-help">Show notifications when the app tab is in the background.</div>
-            </div>
-            <div class="field checkbox">
-              <label>
-                <input v-model="prefs.notification_sound_enabled" type="checkbox" :disabled="notificationDisabled" />
-                Play sound when new notification arrives
-              </label>
-              <div class="field-help">Plays a short sound in the browser when a new in-app notification appears (for notifications without per-type sound settings below).</div>
-            </div>
           </div>
 
-          <div v-if="false" class="card">
-            <h3 class="card-title">Toast Notifications</h3>
-            <div class="field-help" style="margin-bottom: 14px;">
-              Control pop-up toast alerts for specific notification types. Each type can have its own toast, duration, and sound settings.
-            </div>
-
-            <div class="toast-type-group">
-              <div class="toast-type-header">Login / Logout Activity</div>
-              <div class="field-help">Toast shown when other users log in or out of the account.</div>
-              <div class="toast-type-controls">
-                <label class="field checkbox">
-                  <input v-model="toastPrefs.login_logout.toast_enabled" type="checkbox" :disabled="viewOnly" />
-                  Show toast
-                </label>
-                <div class="field" v-if="toastPrefs.login_logout.toast_enabled">
-                  <label>Duration</label>
-                  <select v-model="toastPrefs.login_logout.duration_mode" :disabled="viewOnly">
-                    <option value="dismissable">Dismissable (stays until dismissed)</option>
-                    <option value="timed">Auto-dismiss after timeout</option>
-                  </select>
-                </div>
-                <div class="field" v-if="toastPrefs.login_logout.toast_enabled && toastPrefs.login_logout.duration_mode === 'timed'">
-                  <label>Timeout (seconds)</label>
-                  <input
-                    v-model.number="toastPrefs.login_logout.duration_seconds"
-                    type="number"
-                    min="3"
-                    max="120"
-                    :disabled="viewOnly"
-                  />
-                </div>
-                <label class="field checkbox" v-if="toastPrefs.login_logout.toast_enabled">
-                  <input v-model="toastPrefs.login_logout.sound_enabled" type="checkbox" :disabled="viewOnly" />
-                  Play sound
-                </label>
-              </div>
-            </div>
-
-            <div class="toast-type-group">
-              <div class="toast-type-header">New Packets & Intake Submissions</div>
-              <div class="field-help">Toast shown when a new packet is uploaded or an intake link submission is received.</div>
-              <div class="toast-type-controls">
-                <label class="field checkbox">
-                  <input v-model="toastPrefs.new_packet.toast_enabled" type="checkbox" :disabled="viewOnly" />
-                  Show toast
-                </label>
-                <div class="field" v-if="toastPrefs.new_packet.toast_enabled">
-                  <label>Duration</label>
-                  <select v-model="toastPrefs.new_packet.duration_mode" :disabled="viewOnly">
-                    <option value="dismissable">Dismissable (stays until dismissed)</option>
-                    <option value="timed">Auto-dismiss after timeout</option>
-                  </select>
-                </div>
-                <div class="field" v-if="toastPrefs.new_packet.toast_enabled && toastPrefs.new_packet.duration_mode === 'timed'">
-                  <label>Timeout (seconds)</label>
-                  <input
-                    v-model.number="toastPrefs.new_packet.duration_seconds"
-                    type="number"
-                    min="3"
-                    max="120"
-                    :disabled="viewOnly"
-                  />
-                </div>
-                <label class="field checkbox" v-if="toastPrefs.new_packet.toast_enabled">
-                  <input v-model="toastPrefs.new_packet.sound_enabled" type="checkbox" :disabled="viewOnly" />
-                  Play sound
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <div class="card notification-type-settings-card">
-            <NotificationTypeSettingsPanel v-if="props.userId === authStore.user?.id" :global-editable="false" />
-            <p v-else class="field-help">Per-type delivery settings are account-wide and must be managed by the account owner.</p>
-          </div>
-
-          <div class="card">
-            <h3 class="card-title">Daily Digest</h3>
-            <div class="field checkbox">
-              <label>
-                <input v-model="prefs.daily_digest_enabled" type="checkbox" :disabled="viewOnly" />
-                Send me a daily email digest
-              </label>
-              <div class="field-help">Summarizes new activity in your account.</div>
-            </div>
+          <div v-if="!notificationDisabled" class="card">
+            <h3 class="card-title">Quiet hours & delivery</h3>
             <div class="field">
-              <label>Send time</label>
-              <input
-                v-model="prefs.daily_digest_time"
-                type="time"
-                :disabled="viewOnly || !prefs.daily_digest_enabled"
-              />
-              <div class="field-help">Uses your profile timezone. Login/logout activity is summarized in-app at this time even when digest email is off.</div>
-            </div>
-          </div>
-
-          <div class="card">
-            <h3 class="card-title">Quiet Hours</h3>
-            <div class="field checkbox">
-              <label>
-                <input v-model="prefs.quiet_hours_enabled" type="checkbox" :disabled="notificationDisabled" />
-                Enable Quiet Hours
-              </label>
-              <div class="field-help">
-                Outside your selected window: in-app only (except emergency broadcasts and blocking compliance alerts).
-              </div>
-            </div>
-
-            <div class="field">
-              <label>Allowed Days</label>
+              <label>Allowed days</label>
               <div class="days">
                 <label v-for="d in dayOptions" :key="d" class="day">
                   <input
@@ -228,26 +107,16 @@
                   {{ d }}
                 </label>
               </div>
-            </div>
-
-            <div class="row">
-              <div class="field">
-                <label>Start Time</label>
-                <input v-model="quietStart" type="time" :disabled="notificationDisabled || !prefs.quiet_hours_enabled" />
-              </div>
-              <div class="field">
-                <label>End Time</label>
-                <input v-model="quietEnd" type="time" :disabled="notificationDisabled || !prefs.quiet_hours_enabled" />
-              </div>
+              <div class="field-help">Enable quiet hours in the notification matrix above first.</div>
             </div>
 
             <div class="field checkbox">
               <label>
                 <input v-model="prefs.emergency_override" type="checkbox" :disabled="notificationDisabled" />
-                Emergency Override
+                Emergency override
               </label>
               <div class="field-help">
-                If enabled, urgent notifications can bypass Quiet Hours (channel toggles still apply).
+                If enabled, urgent notifications can bypass quiet hours (channel toggles still apply).
               </div>
             </div>
 
@@ -257,25 +126,25 @@
                 Allow notifications outside work hours
               </label>
               <div class="field-help">
-                When off, email/SMS follow your Work hours on My Schedule (if set). Quiet Hours still take precedence when enabled. Edit work hours on
+                When off, email/SMS follow your Work hours on My Schedule (if set). Quiet hours still take precedence when enabled. Edit work hours on
                 <router-link :to="myScheduleLink">My Schedule</router-link>.
               </div>
             </div>
           </div>
 
-          <div class="card" v-if="prefs.sms_enabled">
-            <h3 class="card-title">After-Hours Auto-Responder</h3>
+          <div v-if="!notificationDisabled && prefs.sms_enabled" class="card">
+            <h3 class="card-title">After-hours auto-responder</h3>
             <div class="field checkbox">
               <label>
                 <input v-model="prefs.auto_reply_enabled" type="checkbox" :disabled="notificationDisabled" />
-                Enable Auto-Reply
+                Enable auto-reply
               </label>
               <div class="field-help">
                 Sends once per client every 4 hours. Messages are still logged and support still sees alerts.
               </div>
             </div>
             <div class="field">
-              <label>Auto-Reply Message</label>
+              <label>Auto-reply message</label>
               <textarea
                 v-model="prefs.auto_reply_message"
                 rows="4"
@@ -285,119 +154,9 @@
             </div>
           </div>
 
-          <div v-if="false" class="card">
-            <h3 class="card-title">Categories</h3>
-
-            <div class="category-group">
-              <div class="category-title">Messaging</div>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.messaging_new_inbound_client_text" type="checkbox" :disabled="notificationDisabled" />
-                New inbound client text
-              </label>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.messaging_client_notes" type="checkbox" :disabled="notificationDisabled" />
-                Client notes & updates
-              </label>
-              <label class="field checkbox">
-                <input
-                  v-model="prefs.notification_categories.messaging_support_safety_net_alerts"
-                  type="checkbox"
-                  :disabled="notificationDisabled || isSupportRole"
-                />
-                Support Safety Net alerts <span v-if="isSupportRole" class="required-tag">Required</span>
-              </label>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.messaging_replies_to_my_messages" type="checkbox" :disabled="notificationDisabled" />
-                Replies to my messages
-              </label>
-            </div>
-
-            <div class="category-group">
-              <div class="category-title">Clients</div>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.client_assignments" type="checkbox" :disabled="notificationDisabled" />
-                New client assignments
-              </label>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.clients_new_intakes" type="checkbox" :disabled="notificationDisabled" />
-                New intake / packet updates
-              </label>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.clients_checklist_updates" type="checkbox" :disabled="notificationDisabled" />
-                Checklist date updates
-              </label>
-            </div>
-
-            <div class="category-group">
-              <div class="category-title">Programs</div>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.program_reminders" type="checkbox" :disabled="notificationDisabled" />
-                Program reminders
-              </label>
-            </div>
-
-            <div class="category-group">
-              <div class="category-title">Scheduling</div>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.scheduling_room_booking_approved_denied" type="checkbox" :disabled="notificationDisabled" />
-                Room booking approved/denied
-              </label>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.scheduling_schedule_changes" type="checkbox" :disabled="notificationDisabled" />
-                Schedule changes
-              </label>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.scheduling_room_release_requests" type="checkbox" :disabled="notificationDisabled" />
-                Room release requests
-              </label>
-            </div>
-
-            <div class="category-group">
-              <div class="category-title">Compliance & Documents</div>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.compliance_credential_expiration_reminders" type="checkbox" :disabled="notificationDisabled" />
-                Credential expiration reminders
-              </label>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.compliance_access_restriction_warnings" type="checkbox" :disabled="notificationDisabled" />
-                Access restriction warnings
-              </label>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.compliance_payroll_document_availability" type="checkbox" :disabled="notificationDisabled" />
-                Payroll document availability
-              </label>
-              <div class="field-help">Blocking compliance alerts are required and cannot be disabled.</div>
-            </div>
-
-            <div class="category-group">
-              <div class="category-title">Surveys & Kiosk</div>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.surveys_client_checked_in" type="checkbox" :disabled="notificationDisabled" />
-                Client checked in
-              </label>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.surveys_survey_completed" type="checkbox" :disabled="notificationDisabled" />
-                Survey completed
-              </label>
-            </div>
-
-            <div class="category-group">
-              <div class="category-title">System & Broadcasts</div>
-              <label class="field checkbox disabled">
-                <input type="checkbox" checked disabled />
-                Emergency broadcasts <span class="required-tag">Required</span>
-              </label>
-              <label class="field checkbox">
-                <input v-model="prefs.notification_categories.system_org_announcements" type="checkbox" :disabled="notificationDisabled" />
-                Organization-wide announcements
-              </label>
-              <div class="field-help">Emergency broadcasts always bypass preferences.</div>
-            </div>
-          </div>
-
-          <div class="actions">
+          <div v-if="!notificationDisabled" class="actions">
             <button class="btn btn-primary" @click="save" :disabled="viewOnly || saving || sessionLockPinMismatch">
-              {{ saving ? 'Saving...' : 'Save Preferences' }}
+              {{ saving ? 'Saving...' : 'Save notification options' }}
             </button>
             <div v-if="saved" class="saved">Saved</div>
           </div>
@@ -461,7 +220,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div v-if="canEditAdminControlled" class="card">
             <h3 class="card-title">Work Modality</h3>
             <div class="field">
               <label>Work modality</label>
@@ -473,12 +232,11 @@
               </select>
               <div class="field-help">
                 Informational only. Scheduling access is not restricted by this.
-                <span v-if="!canEditAdminControlled"> Managed by an admin.</span>
               </div>
             </div>
           </div>
 
-          <div class="card">
+          <div v-if="canEditAdminControlled" class="card">
             <h3 class="card-title">Scheduling Preferences</h3>
             <div class="field">
               <label>Default booking duration</label>
@@ -524,12 +282,7 @@
       <div class="section-content">
         <div class="prefs-grid">
           <div class="card">
-            <h3 class="card-title">Messaging Behavior</h3>
-            <label class="field checkbox">
-              <input v-model="prefs.show_read_receipts" type="checkbox" :disabled="viewOnly" />
-              Show read receipts to clients (if allowed)
-            </label>
-
+            <h3 class="card-title">Messaging behavior</h3>
             <label class="field checkbox">
               <input v-model="prefs.allow_staff_step_in" type="checkbox" :disabled="viewOnly" />
               Allow support staff to step in if I don’t respond within…
@@ -540,27 +293,6 @@
               <input v-model.number="prefs.staff_step_in_after_minutes" type="number" min="1" max="240" :disabled="viewOnly" />
               <div class="field-help">Safety Net stays enabled regardless; this only tunes when support is invited to help.</div>
             </div>
-          </div>
-
-          <div class="card">
-            <h3 class="card-title">After-Hours Boundary (Display)</h3>
-            <div class="field">
-              <label>Quiet Hours window</label>
-              <div class="readonly">
-                <span v-if="prefs.quiet_hours_enabled">
-                  {{ (prefs.quiet_hours_allowed_days || []).join(', ') || 'No days selected' }} — {{ quietStart || '—' }} to {{ quietEnd || '—' }}
-                </span>
-                <span v-else>Quiet Hours are disabled</span>
-              </div>
-            </div>
-            <div class="field">
-              <label>Auto-reply message</label>
-              <div class="readonly">
-                <span v-if="prefs.auto_reply_enabled && prefs.auto_reply_message">{{ prefs.auto_reply_message }}</span>
-                <span v-else>Auto-reply is disabled</span>
-              </div>
-            </div>
-            <div class="field-help">Messages received after hours are still monitored by the support team.</div>
           </div>
         </div>
       </div>
@@ -722,7 +454,7 @@
     <section class="preferences-section" id="my-settings-appearance">
       <div class="section-header">
         <h2>Appearance & navigation</h2>
-        <p class="section-description">Dark mode, menus, helper, and accessibility — your personal My Settings.</p>
+        <p class="section-description">Dark mode, menus, and accessibility — your personal My Settings.</p>
       </div>
       <div class="section-content">
         <div class="prefs-grid">
@@ -778,7 +510,7 @@
                   <option value="Australia/Sydney">Sydney</option>
                 </optgroup>
               </select>
-              <div class="field-help">Used for dates, times, and digest send time.</div>
+              <div class="field-help">Used for dates and times across the app.</div>
             </div>
             <div class="field">
               <label>Date format</label>
@@ -823,15 +555,6 @@
               <input v-model="prefs.larger_text" type="checkbox" :disabled="viewOnly" />
               Larger text
             </label>
-          </div>
-
-          <div class="card">
-            <h3 class="card-title">Helper widget</h3>
-            <label class="field checkbox">
-              <input v-model="prefs.helper_enabled" type="checkbox" :disabled="viewOnly" />
-              Enable the in-app helper
-            </label>
-            <div class="field-help">If disabled, the helper will stay hidden unless an admin force-enables it.</div>
           </div>
 
           <div class="card">
@@ -1076,6 +799,7 @@ import api from '../services/api';
 import NotificationTypeSettingsPanel from './notifications/NotificationTypeSettingsPanel.vue';
 import { refetchSessionLockConfig } from '../utils/activityTracker';
 import { setDarkMode, getStoredDarkMode } from '../utils/darkMode';
+import { applyAccessibilityPrefs } from '../utils/accessibilityPrefs';
 import {
   isPushSupported,
   getPushPermissionState,
@@ -1223,6 +947,7 @@ const schedulingPrefs = ref({
 });
 
 const isSupportRole = computed(() => authStore.user?.role === 'support');
+const isOwnAccount = computed(() => Number(props.userId) === Number(authStore.user?.id));
 const canEditAdminControlled = computed(() => !!props.allowAdminControlledEdits);
 
 // Session Lock only for users with My Dashboard (not school_staff)
@@ -1303,15 +1028,6 @@ watch(
 );
 
 watch(
-  () => prefs.value.daily_digest_enabled,
-  (enabled) => {
-    if (enabled && !prefs.value.daily_digest_time) {
-      prefs.value.daily_digest_time = '07:00';
-    }
-  }
-);
-
-watch(
   () => prefs.value.allow_staff_step_in,
   (enabled) => {
     if (!enabled) {
@@ -1334,7 +1050,9 @@ const quickSave = () => {
         dark_mode: !!prefs.value.dark_mode,
         layout_density: prefs.value.layout_density || 'standard',
         nav_hover_menus_enabled: prefs.value.nav_hover_menus_enabled !== false,
-        helper_enabled: prefs.value.helper_enabled !== false
+        high_contrast_mode: !!prefs.value.high_contrast_mode,
+        larger_text: !!prefs.value.larger_text,
+        reduced_motion: !!prefs.value.reduced_motion
       }, { skipGlobalLoading: true });
       userPrefsStore.setFromApi({ ...prefs.value });
     } catch {
@@ -1372,11 +1090,46 @@ watch(
   }
 );
 watch(
-  () => prefs.value.helper_enabled,
-  () => {
-    if (props.userId === authStore.user?.id) quickSave();
+  () => prefs.value.high_contrast_mode,
+  (enabled) => {
+    if (props.userId === authStore.user?.id) {
+      applyAccessibilityPrefs({ highContrast: !!enabled });
+      quickSave();
+    }
   }
 );
+watch(
+  () => prefs.value.larger_text,
+  (enabled) => {
+    if (props.userId === authStore.user?.id) {
+      applyAccessibilityPrefs({ largerText: !!enabled });
+      quickSave();
+    }
+  }
+);
+watch(
+  () => prefs.value.reduced_motion,
+  (enabled) => {
+    if (props.userId === authStore.user?.id) {
+      applyAccessibilityPrefs({ reducedMotion: !!enabled });
+      quickSave();
+    }
+  }
+);
+
+const onNotificationPanelChanged = async () => {
+  if (!isOwnAccount.value) return;
+  try {
+    const resp = await api.get(`/users/${props.userId}/preferences`, { skipGlobalLoading: true });
+    const data = resp.data || {};
+    prefs.value.sms_enabled = !!data.sms_enabled;
+    prefs.value.quiet_hours_enabled = !!data.quiet_hours_enabled;
+    prefs.value.email_enabled = !!data.email_enabled;
+    prefs.value.notification_sound_enabled = data.notification_sound_enabled !== false;
+  } catch {
+    /* ignore */
+  }
+};
 
 const toggleDay = (day) => {
   const set = new Set(prefs.value.quiet_hours_allowed_days || []);
@@ -1493,6 +1246,11 @@ const load = async () => {
       setDarkMode(props.userId, prefs.value.dark_mode);
       userPrefsStore.setFromApi(prefs.value);
       applyLayoutDensity(prefs.value.layout_density);
+      applyAccessibilityPrefs({
+        highContrast: !!prefs.value.high_contrast_mode,
+        largerText: !!prefs.value.larger_text,
+        reducedMotion: !!prefs.value.reduced_motion
+      });
     }
 
     // Required toggles
@@ -1547,32 +1305,23 @@ const save = async () => {
     if (isSupportRole.value) categories.messaging_support_safety_net_alerts = true;
 
     const payload = {
-      // Notifications
-      email_enabled: !!prefs.value.email_enabled,
-      sms_enabled: !!prefs.value.sms_enabled,
+      // Notification extras (channels/quiet hours managed in NotificationTypeSettingsPanel)
       sms_forwarding_enabled: !!prefs.value.sms_forwarding_enabled,
       sms_use_own_number_for_reminders: !!prefs.value.sms_use_own_number_for_reminders,
       sms_support_mirror_enabled: !!prefs.value.sms_support_mirror_enabled,
       sms_support_thread_mode: prefs.value.sms_support_mirror_enabled
         ? (prefs.value.sms_support_thread_mode || 'respondable')
         : 'respondable',
-      daily_digest_enabled: !!prefs.value.daily_digest_enabled,
-      daily_digest_time: prefs.value.daily_digest_enabled
-        ? (prefs.value.daily_digest_time || '07:00')
-        : null,
-      quiet_hours_enabled: !!prefs.value.quiet_hours_enabled,
       quiet_hours_allowed_days: prefs.value.quiet_hours_enabled ? (prefs.value.quiet_hours_allowed_days || []) : [],
-      quiet_hours_start_time: prefs.value.quiet_hours_enabled && quietStart.value ? quietStart.value : null,
-      quiet_hours_end_time: prefs.value.quiet_hours_enabled && quietEnd.value ? quietEnd.value : null,
       allow_notifications_outside_work_schedule: !!prefs.value.allow_notifications_outside_work_schedule,
       emergency_override: !!prefs.value.emergency_override,
       auto_reply_enabled: prefs.value.sms_enabled ? !!prefs.value.auto_reply_enabled : false,
       auto_reply_message: prefs.value.sms_enabled && prefs.value.auto_reply_enabled ? (prefs.value.auto_reply_message || '') : null,
       notification_categories: categories,
       schedule_color_overrides: scheduleColors.value || null,
+      push_notifications_enabled: !!prefs.value.push_notifications_enabled,
 
       // Sections 2–5
-      show_read_receipts: !!prefs.value.show_read_receipts,
       allow_staff_step_in: !!prefs.value.allow_staff_step_in,
       staff_step_in_after_minutes: prefs.value.allow_staff_step_in ? Number(prefs.value.staff_step_in_after_minutes || 15) : null,
       show_full_name_on_schedules: !!prefs.value.show_full_name_on_schedules,
@@ -1587,9 +1336,6 @@ const save = async () => {
       layout_density: prefs.value.layout_density || 'standard',
       date_format: prefs.value.date_format || 'MM/DD',
       time_format: prefs.value.time_format || '12h',
-      push_notifications_enabled: !!prefs.value.push_notifications_enabled,
-      notification_sound_enabled: !!prefs.value.notification_sound_enabled,
-      helper_enabled: !!prefs.value.helper_enabled,
       nav_hover_menus_enabled: prefs.value.nav_hover_menus_enabled !== false,
       default_landing_page: prefs.value.default_landing_page || 'dashboard',
 
@@ -1685,6 +1431,11 @@ const save = async () => {
     if (props.userId === authStore.user?.id) {
       userPrefsStore.setFromApi({ ...prefs.value, ...payload });
       if (payload.layout_density !== undefined) applyLayoutDensity(payload.layout_density);
+      applyAccessibilityPrefs({
+        highContrast: !!payload.high_contrast_mode,
+        largerText: !!payload.larger_text,
+        reducedMotion: !!payload.reduced_motion
+      });
     }
     setTimeout(() => { saved.value = false; }, 2000);
   } catch (e) {

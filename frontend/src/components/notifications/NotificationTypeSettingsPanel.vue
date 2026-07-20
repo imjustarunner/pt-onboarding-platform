@@ -26,7 +26,7 @@
         </button>
         <button class="master-channel" type="button" :disabled="savingGlobal || !globalEditable" @click="toggleGlobal('email')">
           <span :class="['check-box', { checked: catalog.global.email }]">{{ catalog.global.email ? '✓' : '' }}</span>
-          <span><strong>Email</strong><small>{{ catalog.global.digestEmail ? 'Includes daily digest' : 'Instant only' }}</small></span>
+          <span><strong>Email</strong><small>Instant delivery</small></span>
         </button>
         <button class="master-channel" type="button" :disabled="savingGlobal || !globalEditable" @click="toggleGlobal('sms')">
           <span :class="['check-box', { checked: catalog.global.sms }]">{{ catalog.global.sms ? '✓' : '' }}</span>

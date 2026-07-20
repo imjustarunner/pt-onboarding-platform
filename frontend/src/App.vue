@@ -5578,6 +5578,7 @@ onMounted(async () => {
         try {
           const { default: api } = await import('./services/api');
           const { setDarkMode, getStoredDarkMode } = await import('./utils/darkMode');
+          const { applyAccessibilityPrefs } = await import('./utils/accessibilityPrefs');
           const { useUserPreferencesStore } = await import('./store/userPreferences');
           const res = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
           const data = res?.data || {};
@@ -5589,6 +5590,11 @@ onMounted(async () => {
           const density = data.layout_density || 'standard';
           document.documentElement.removeAttribute('data-layout-density');
           if (density !== 'standard') document.documentElement.setAttribute('data-layout-density', density);
+          applyAccessibilityPrefs({
+            highContrast: !!data.high_contrast_mode,
+            largerText: !!data.larger_text,
+            reducedMotion: !!data.reduced_motion
+          });
         } catch {
           /* ignore - use localStorage fallback */
         }

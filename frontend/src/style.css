@@ -1603,6 +1603,46 @@
 [data-layout-density="comfortable"] .field { margin-bottom: 14px; }
 [data-layout-density="comfortable"] .prefs-grid .card { padding: 18px 22px; }
 
+/* High contrast (user preference) */
+[data-high-contrast="true"] {
+  --text-primary: #000000;
+  --text-secondary: #1a1a1a;
+  --border: #000000;
+}
+[data-theme="dark"][data-high-contrast="true"] {
+  --text-primary: #ffffff;
+  --text-secondary: #e8e8e8;
+  --border: #ffffff;
+}
+[data-high-contrast="true"] .field-help,
+[data-high-contrast="true"] .section-description {
+  color: var(--text-secondary);
+}
+
+/* Larger text (user preference) */
+[data-larger-text="true"] body {
+  font-size: 18px;
+}
+[data-larger-text="true"] h1 { font-size: 2rem; }
+[data-larger-text="true"] h2 { font-size: 1.6rem; }
+[data-larger-text="true"] h3 { font-size: 1.35rem; }
+[data-larger-text="true"] .btn,
+[data-larger-text="true"] input,
+[data-larger-text="true"] select,
+[data-larger-text="true"] textarea {
+  font-size: 1.05em;
+}
+
+/* Reduced motion (user preference) */
+[data-reduced-motion="true"] *,
+[data-reduced-motion="true"] *::before,
+[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
 body {
   /* Agency branding can override fonts; fall back to platform typography */
   font-family: var(--agency-font-family, var(--font-body));
