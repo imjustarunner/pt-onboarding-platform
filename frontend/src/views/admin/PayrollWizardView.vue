@@ -92,7 +92,7 @@
         <h2 class="pw-step-title">{{ currentStep?.title }}</h2>
         <p class="pw-step-desc">{{ currentStep?.description }}</p>
 
-        <div class="pw-step-grid" :class="{ 'pw-step-grid--wide': currentStep?.key === 'upload_reports' || showRawPanel || showClaimsPanel || showStagePanel || showTodosPanel || showProcessPanel }">
+        <div class="pw-step-grid" :class="{ 'pw-step-grid--wide': currentStep?.key === 'upload_reports' || showRawPanel || showClaimsPanel || showStagePanel || showTodosPanel || showProcessPanel || showPreviewPanel }">
           <div class="pw-step-primary">
             <!-- Step 1: Upload reports (current + prior v2 + two-ago v3) -->
             <template v-if="currentStep?.key === 'upload_reports'">
@@ -349,6 +349,36 @@
                 </div>
               </template>
 
+              <!-- Inline Preview Post (provider view + notifications) -->
+              <template v-else-if="showPreviewPanel">
+                <div class="pw-inline-panel">
+                  <PayrollPreviewPostPanel
+                    :key="`preview-${selectedPeriodId}`"
+                    :period-id="selectedPeriodId"
+                    :period-label="periodRangeLabel(selectedPeriod)"
+                  />
+                  <div class="pw-inline-panel-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" @click="closePreviewPanel">Collapse</button>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="!selectedPeriodId || downloadingExport"
+                      @click="downloadAdpExportCsv"
+                    >
+                      {{ downloadingExport ? 'Downloading…' : 'Download ADP / Payroll Export CSV' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="!selectedPeriodId"
+                      @click="markCompleteAndNext"
+                    >
+                      Mark done &amp; continue
+                    </button>
+                  </div>
+                </div>
+              </template>
+
               <template v-else>
                 <ul class="pw-checklist">
                   <li v-for="(item, idx) in (currentStep?.checklist || [])" :key="idx">{{ item }}</li>
@@ -380,7 +410,7 @@
             </template>
           </div>
 
-          <div class="pw-step-side" v-if="currentStep?.key !== 'upload_reports' && !showRawPanel && !showClaimsPanel && !showStagePanel && !showTodosPanel && !showProcessPanel">
+          <div class="pw-step-side" v-if="currentStep?.key !== 'upload_reports' && !showRawPanel && !showClaimsPanel && !showStagePanel && !showTodosPanel && !showProcessPanel && !showPreviewPanel">
             <div class="pw-tip">
               <div class="pw-tip-icon" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12c.8.8 1.2 1.7 1.2 2.7V17h5.6v-.3c0-1 .4-1.9 1.2-2.7A7 7 0 0 0 12 2z"/></svg>
@@ -525,6 +555,7 @@ import PayrollClaimsPanel from '../../components/payroll/PayrollClaimsPanel.vue'
 import PayrollStagePanel from '../../components/payroll/PayrollStagePanel.vue';
 import PayrollTodosPanel from '../../components/payroll/PayrollTodosPanel.vue';
 import PayrollProcessChangesPanel from '../../components/payroll/PayrollProcessChangesPanel.vue';
+import PayrollPreviewPostPanel from '../../components/payroll/PayrollPreviewPostPanel.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -568,6 +599,8 @@ const showClaimsPanel = ref(false);
 const showStagePanel = ref(false);
 const showTodosPanel = ref(false);
 const showProcessPanel = ref(false);
+const showPreviewPanel = ref(false);
+const downloadingExport = ref(false);
 
 /** Org-relevant periods only: schedule-aligned, past/current + at most one upcoming (matches Payroll history). */
 const periodsForSelect = computed(() => {
@@ -937,10 +970,11 @@ const steps = [
     key: 'run',
     title: 'Run Payroll',
     description: 'Calculate provider totals for this pay period. Blocked if To-Dos or required submissions are pending.',
-    tip: 'Run results stay private until you post. You can re-run after staging fixes.',
-    checklist: ['Confirm stage is complete', 'Click Run Payroll', 'Review totals'],
+    tip: 'Run results stay private until you post. After a successful run, download the ADP / payroll export CSV here without leaving the wizard.',
+    checklist: ['Confirm stage is complete', 'Click Run Payroll', 'Download ADP export if needed', 'Review totals'],
     actions: [
       { id: 'open_run', label: 'Run Payroll on Payroll page', primary: true, open: 'run' },
+      { id: 'download_adp', label: 'Download ADP / Payroll Export CSV', primary: false, downloadAdp: true },
       { id: 'done', label: 'Already ran — continue', primary: false, complete: true }
     ],
     skippable: false
@@ -949,10 +983,11 @@ const steps = [
     key: 'preview',
     title: 'Preview Post',
     description: 'Preview what providers will see and which notifications will send on post.',
-    tip: 'Use Preview Post before publishing so there are no surprises.',
-    checklist: ['Open Preview Post', 'Spot-check a few providers', 'Confirm notifications look right'],
+    tip: 'Open Preview Post here in the wizard to spot-check providers, then collapse when done. Download the ADP export anytime after run.',
+    checklist: ['Open Preview Post in the wizard', 'Spot-check a few providers', 'Confirm notifications look right'],
     actions: [
-      { id: 'open_preview', label: 'Open Preview Post', primary: true, open: 'preview' },
+      { id: 'open_preview', label: 'Open Preview Post', primary: true, open: 'preview_inline' },
+      { id: 'download_adp', label: 'Download ADP / Payroll Export CSV', primary: false, downloadAdp: true },
       { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
@@ -961,9 +996,10 @@ const steps = [
     key: 'post',
     title: 'Post Payroll',
     description: 'Post payroll to make it visible to providers. This locks the period as posted.',
-    tip: 'Only post when you are confident. You can unpost later from the Payroll page if needed.',
-    checklist: ['Confirm run looks correct', 'Post Payroll', 'Verify providers can see results'],
+    tip: 'Only post when you are confident. Download the ADP export before or after posting if you still need the file.',
+    checklist: ['Confirm run looks correct', 'Download ADP export if needed', 'Post Payroll', 'Verify providers can see results'],
     actions: [
+      { id: 'download_adp', label: 'Download ADP / Payroll Export CSV', primary: false, downloadAdp: true },
       { id: 'open_post', label: 'Post Payroll on Payroll page', primary: true, open: 'post' },
       { id: 'done', label: 'Already posted — finish', primary: false, complete: true }
     ],
@@ -1013,6 +1049,7 @@ const goToStep = async (idx) => {
   showStagePanel.value = false;
   showTodosPanel.value = false;
   showProcessPanel.value = false;
+  showPreviewPanel.value = false;
   await saveProgress();
   stepIdx.value = idx;
   await saveProgress();
@@ -1172,6 +1209,7 @@ const openRawInWizard = async ({ mode = 'draft_audit', usePrior = false } = {}) 
   showStagePanel.value = false;
   showTodosPanel.value = false;
   showProcessPanel.value = false;
+  showPreviewPanel.value = false;
   showRawPanel.value = true;
 };
 
@@ -1190,6 +1228,7 @@ const openClaimsInWizard = async () => {
   showStagePanel.value = false;
   showTodosPanel.value = false;
   showProcessPanel.value = false;
+  showPreviewPanel.value = false;
   showClaimsPanel.value = true;
 };
 
@@ -1214,6 +1253,7 @@ const openStageInWizard = async () => {
   showClaimsPanel.value = false;
   showTodosPanel.value = false;
   showProcessPanel.value = false;
+  showPreviewPanel.value = false;
   showStagePanel.value = true;
 };
 
@@ -1238,6 +1278,7 @@ const openTodosInWizard = async () => {
   showClaimsPanel.value = false;
   showStagePanel.value = false;
   showProcessPanel.value = false;
+  showPreviewPanel.value = false;
   showTodosPanel.value = true;
 };
 
@@ -1256,11 +1297,65 @@ const openProcessInWizard = async () => {
   showClaimsPanel.value = false;
   showStagePanel.value = false;
   showTodosPanel.value = false;
+  showPreviewPanel.value = false;
   showProcessPanel.value = true;
 };
 
 const closeProcessPanel = () => {
   showProcessPanel.value = false;
+};
+
+const openPreviewInWizard = async () => {
+  await saveProgress();
+  if (!selectedPeriodId.value) {
+    actionError.value = true;
+    actionMessage.value = 'Select a pay period first.';
+    return;
+  }
+  showRawPanel.value = false;
+  showClaimsPanel.value = false;
+  showStagePanel.value = false;
+  showTodosPanel.value = false;
+  showProcessPanel.value = false;
+  showPreviewPanel.value = true;
+};
+
+const closePreviewPanel = () => {
+  showPreviewPanel.value = false;
+};
+
+const downloadAdpExportCsv = async () => {
+  if (!selectedPeriodId.value) {
+    actionError.value = true;
+    actionMessage.value = 'Select a pay period first.';
+    return;
+  }
+  downloadingExport.value = true;
+  actionError.value = false;
+  actionMessage.value = '';
+  try {
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/export.csv`, { responseType: 'blob' });
+    const blob = new Blob([resp.data], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const ps = String(selectedPeriod.value?.period_start || '').slice(0, 10);
+    const pe = String(selectedPeriod.value?.period_end || '').slice(0, 10);
+    a.download = (ps && pe)
+      ? `payroll-adp-export-${ps}-to-${pe}.csv`
+      : `payroll-adp-export-period-${selectedPeriodId.value}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+    actionMessage.value = 'ADP / payroll export downloaded.';
+  } catch (e) {
+    actionError.value = true;
+    actionMessage.value = e?.response?.data?.error?.message || e?.message
+      || 'Failed to download export. Run Payroll first if this period has no results yet.';
+  } finally {
+    downloadingExport.value = false;
+  }
 };
 
 const onProcessChangesApplied = async () => {
@@ -1340,6 +1435,14 @@ const runStepAction = async (action) => {
     }
     if (action.open === 'process_inline' || action.open === 'process') {
       await openProcessInWizard();
+      return;
+    }
+    if (action.open === 'preview_inline' || action.open === 'preview') {
+      await openPreviewInWizard();
+      return;
+    }
+    if (action.downloadAdp) {
+      await downloadAdpExportCsv();
       return;
     }
     if (action.open) {
@@ -1464,6 +1567,7 @@ const goNext = async () => {
   showStagePanel.value = false;
   showTodosPanel.value = false;
   showProcessPanel.value = false;
+  showPreviewPanel.value = false;
   await saveProgress();
   if (stepIdx.value >= steps.length - 1) {
     await goBackToPayroll();
@@ -1480,6 +1584,7 @@ const goBack = async () => {
   showStagePanel.value = false;
   showTodosPanel.value = false;
   showProcessPanel.value = false;
+  showPreviewPanel.value = false;
   await saveProgress();
   stepIdx.value -= 1;
   await saveProgress();
