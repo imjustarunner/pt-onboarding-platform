@@ -358,13 +358,6 @@
               >
                 Browse Clubs
               </router-link>
-              <router-link
-                v-if="showOperationsDashboardLink && (user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant') && !isSscSstcTenant"
-                :to="operationsDashboardTo"
-                @click="closeMobileMenu"
-              >
-                Operations
-              </router-link>
               <!-- Minimal top-nav for non-admin users with limited access -->
               <router-link
                 v-if="canSeeApplicantsTopNavLink"
@@ -428,7 +421,7 @@
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" >Applicants</router-link>
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" >Pre-Hire</router-link>
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/careers')" >Careers</router-link>
-                    <router-link v-if="hasPeopleOpsFeature && showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" >On-Demand Training</router-link>
+                    <router-link v-if="hasPeopleOpsFeature && showOnDemandLink && !isSscSstcTenant" :to="orgTo('/my-learning')" >My Learning</router-link>
                     <router-link
                       :to="orgTo('/admin/modules')"
                       v-if="hasPeopleOpsFeature && isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')"
@@ -782,7 +775,7 @@
                     <router-link :to="adminDashboardNavTo" v-if="isTrueAdmin" >Admin Dashboard</router-link>
                     <router-link
                       :to="operationsDashboardTo"
-                      v-if="showOperationsDashboardLink"
+                      v-if="showOperationsDashboardLink && !showOpsDashboardTopBarLink"
                     >Operations Dashboard</router-link>
                     <div class="nav-dropdown-sep" />
                     <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" >Executive Report</router-link>
@@ -1092,14 +1085,22 @@
               >
                 {{ desktopMyDashboardLabel }}
               </router-link>
+              <router-link
+                v-if="showOpsDashboardTopBarLink"
+                :to="operationsDashboardTo"
+                class="nav-my-dashboard-link"
+              >
+                Ops Dashboard
+              </router-link>
               <button
                 v-if="brandingStore.isSuperAdmin"
                 type="button"
                 class="btn btn-secondary"
                 :aria-pressed="builderStore.panelOpen ? 'true' : 'false'"
+                title="Superadmin UI overlay builder (not course content)"
                 @click="builderStore.togglePanel()"
               >
-                Builder
+                UI Builder
               </button>
               <div class="nav-right-group">
                 <AskAssistantLauncher v-if="isAuthenticated" />
@@ -1259,7 +1260,7 @@
                 </button>
               </template>
             </div>
-            <router-link v-if="showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
+            <router-link v-if="showOnDemandLink && !isSscSstcTenant" :to="orgTo('/my-learning')" @click="closeMobileMenu" class="mobile-nav-link">My Learning</router-link>
             <template v-if="isSummitStatsChallengeChrome && isAuthenticated && isSscClubManager">
               <router-link :to="mySettingsNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Settings</router-link>
               <router-link :to="myAccountNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Account</router-link>
@@ -1443,12 +1444,12 @@
               class="mobile-nav-link"
             >Browse Clubs</router-link>
             <router-link
-              v-if="showOperationsDashboardLink && (user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant') && !isSscSstcTenant"
+              v-if="showOpsDashboardTopBarLink"
               :to="operationsDashboardTo"
               @click="closeMobileMenu"
               class="mobile-nav-link"
             >
-              Operations
+              Ops Dashboard
             </router-link>
             <router-link
               v-if="canSeeApplicantsTopNavLink"
@@ -1546,8 +1547,8 @@
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Applicants</router-link>
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Pre-Hire</router-link>
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/careers')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Careers</router-link>
-                  <router-link v-if="hasPeopleOpsFeature && showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">On-Demand Training</router-link>
-                  <router-link :to="orgTo('/admin/modules')" v-if="hasPeopleOpsFeature && isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Training Modules</router-link>
+                  <router-link v-if="hasPeopleOpsFeature && showOnDemandLink && !isSscSstcTenant" :to="orgTo('/my-learning')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">My Learning</router-link>
+                  <router-link :to="orgTo('/admin/modules')" v-if="hasPeopleOpsFeature && isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Course Builder</router-link>
                   <router-link :to="orgTo('/admin/agency-progress')" v-if="hasPeopleOpsFeature && hasCapability('canViewTraining')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Progress</router-link>
                 </template>
               </div>
@@ -1819,7 +1820,7 @@
                   <router-link :to="adminDashboardNavTo" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Admin Dashboard</router-link>
                   <router-link
                     :to="operationsDashboardTo"
-                    v-if="showOperationsDashboardLink"
+                    v-if="showOperationsDashboardLink && !showOpsDashboardTopBarLink"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
                   >Operations Dashboard</router-link>
@@ -3318,6 +3319,62 @@ const isScheduleSurfacePath = (path) => {
     || (/\/dashboard(\/|$)/i.test(p) && String(route.query?.tab || '') === 'my_schedule');
 };
 
+/** Admin/work pages where tenant switch should keep you on the same screen. */
+const isPreservableWorkSurfacePath = (path) => {
+  const p = String(path || '');
+  // Any nested /admin/... page (not bare /admin or /:slug/admin)
+  if (/\/admin\/.+/i.test(p)) return true;
+  if (/\/(tickets|my-learning|on-demand-training)(\/|$)/i.test(p)) return true;
+  return false;
+};
+
+/**
+ * Keep the current deep page and only change tenant slug.
+ * Avoids pushWithSlug's host-portal "flat" stripping, which was bouncing course
+ * builder URLs from /itsco/admin/modules/... back to unscoped /admin/modules/...
+ */
+const ORGANIZATION_ROUTE_NAME_MAP = {
+  CourseBuilder: 'OrganizationCourseBuilder',
+  ModuleManager: 'OrganizationModuleManager',
+  ModuleContentEditor: 'OrganizationModuleContentEditor',
+  Module: 'OrganizationModule',
+  MyLearning: 'OrganizationMyLearning',
+  OnDemandModuleView: 'OrganizationOnDemandModuleView',
+  OnDemandTrainingLibrary: 'OrganizationOnDemandTrainingLibrary'
+};
+
+const stayOnSurfaceWithTenantSlug = (slug) => {
+  const slugNorm = String(slug || '').trim().toLowerCase();
+  if (!slugNorm) return;
+
+  const currentSlug = typeof route.params.organizationSlug === 'string'
+    ? String(route.params.organizationSlug).trim().toLowerCase()
+    : '';
+
+  // Already on this tenant's scoped URL — do not navigate.
+  if (currentSlug && currentSlug === slugNorm) return;
+
+  const routeName = route.name ? String(route.name) : '';
+  if (routeName && (currentSlug || ORGANIZATION_ROUTE_NAME_MAP[routeName])) {
+    const nextName = currentSlug
+      ? routeName
+      : (ORGANIZATION_ROUTE_NAME_MAP[routeName] || routeName);
+    router.push({
+      name: nextName,
+      params: { ...route.params, organizationSlug: slugNorm },
+      query: { ...route.query }
+    }).catch(() => {});
+    return;
+  }
+
+  // Unscoped fallback: prefix without flat-host stripping.
+  const bare = currentSlug
+    ? String(route.path || '/').replace(new RegExp(`^/${currentSlug}(?=/|$)`, 'i'), '') || '/'
+    : String(route.path || '/');
+  const nextPath = `/${slugNorm}${bare.startsWith('/') ? bare : `/${bare}`}`;
+  router.push({ path: nextPath, query: { ...route.query } }).catch(() => {});
+};
+
 const selectAgencyBrand = async (a) => {
   try {
     closeBrandMenu();
@@ -3327,27 +3384,48 @@ const selectAgencyBrand = async (a) => {
       const hydrated = await agencyStore.hydrateAgencyById(a.id);
       if (hydrated) full = hydrated;
     }
-    agencyStore.setCurrentAgency(full);
     const slug = full.slug || full.portal_url;
     if (!slug) return;
+    const slugNorm = String(slug).trim().toLowerCase();
+    const currentSlug = typeof route.params.organizationSlug === 'string'
+      ? String(route.params.organizationSlug).trim().toLowerCase()
+      : '';
+    const alreadyThisTenant =
+      Number(agencyStore.currentAgency?.id) === Number(full.id)
+      && (!currentSlug || currentSlug === slugNorm);
+
+    agencyStore.setCurrentAgency(full);
 
     // Tenant selection must restore that org's theme (never leave Platform HQ palette/dark shell).
     try {
-      brandingStore.setActiveRouteSlug(String(slug).toLowerCase());
+      brandingStore.setActiveRouteSlug(slugNorm);
       brandingStore.syncDocumentThemeFromSelectedAgency({ skipRouteSlugGuard: true });
     } catch {
       // ignore
+    }
+
+    // Re-selecting the active tenant while already on its surface: no navigation.
+    if (alreadyThisTenant && isPreservableWorkSurfacePath(route.path)) {
+      return;
     }
 
     // Stay on schedule / My Schedule when switching brand there — never bounce to admin.
     // Appointment editors also use a local tenant field and must not hard-navigate.
     if (isScheduleSurfacePath(route.path)) {
       if (route.params.organizationSlug) {
-        const nextParams = { ...route.params, organizationSlug: slug };
+        if (currentSlug === slugNorm) return;
+        const nextParams = { ...route.params, organizationSlug: slugNorm };
         router.push({ name: route.name, params: nextParams, query: route.query }).catch(() => {});
         return;
       }
       // Unscoped schedule: agency context already updated; keep the current page.
+      return;
+    }
+
+    // Deep admin/work surfaces (course builder, modules list, tickets, etc.): keep the
+    // same page and only swap tenant slug — do not bounce to tenant admin home.
+    if (isPreservableWorkSurfacePath(route.path)) {
+      stayOnSurfaceWithTenantSlug(slugNorm);
       return;
     }
 
@@ -3358,11 +3436,11 @@ const selectAgencyBrand = async (a) => {
         window.location.assign(jump);
         return;
       }
-      // Superadmin selecting a tenant from non-schedule surfaces goes to that tenant's admin.
-      router.push(`/${slug}/admin`);
+      // Superadmin selecting a tenant from shallow surfaces goes to that tenant's admin.
+      router.push(`/${slugNorm}/admin`);
       return;
     }
-    pushWithSlug(slug);
+    pushWithSlug(slugNorm);
   } catch {
     // ignore
   }
@@ -3392,7 +3470,12 @@ const selectPlatformBrand = async () => {
     } catch {
       // ignore
     }
-    // Superadmin returning to Platform always goes to the platform admin dashboard.
+    // Deep work surfaces: stay put (drop org slug). Don't yank course builder → /admin.
+    if (isPreservableWorkSurfacePath(route.path)) {
+      if (route.params.organizationSlug) stripSlug();
+      return;
+    }
+    // Shallow surfaces: platform admin home.
     router.push('/admin');
     return;
   }
@@ -4892,6 +4975,13 @@ const showOperationsDashboardLink = computed(() => {
   if (isSscSstcTenant.value) return false;
   const role = String(authStore.user?.role || '').toLowerCase();
   return role === 'provider_plus' || role === 'clinical_practice_assistant' || role === 'admin' || role === 'super_admin';
+});
+
+/** Direct Ops Dashboard link in the top bar + hamburger for CPA / Provider+ (admins use Management menu). */
+const showOpsDashboardTopBarLink = computed(() => {
+  if (!showOperationsDashboardLink.value) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'provider_plus' || role === 'clinical_practice_assistant';
 });
 
 const operationsDashboardTo = computed(() => {
