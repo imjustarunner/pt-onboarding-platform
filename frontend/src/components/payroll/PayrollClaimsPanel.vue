@@ -206,15 +206,38 @@ const providerName = (c) => {
 
 const fmtDate = (d) => (d ? String(d).slice(0, 10) : '—');
 
+const claimHoursValue = (c) => {
+  const stored = Number(c?.hours || c?.credits_hours || c?.requested_hours || 0);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  const mins = Number(c?.payload?.totalMinutes ?? c?.payload_json?.totalMinutes ?? 0);
+  if (Number.isFinite(mins) && mins > 0) return Math.round((mins / 60) * 100) / 100;
+  return 0;
+};
+
 const fmtHours = (c) => {
-  const h = Number(c.hours || c.credits_hours || c.requested_hours || 0);
+  const h = claimHoursValue(c);
   return Number.isFinite(h) && h > 0 ? h.toFixed(2) : '—';
 };
 
 const timeTypeLabel = (c) => {
-  const t = String(c.claim_type || c.type || c.time_type || '').trim();
+  const t = String(c.claim_type || c.type || c.time_type || '').trim().toLowerCase();
   if (!t) return 'Time';
+  if (t === 'indirect_time') {
+    const bucket = String(c?.payload?.bucket || c?.bucket || '').trim().toLowerCase();
+    return bucket === 'other_1' ? 'Log Time (Other 1)' : 'Log Time';
+  }
+  if (t === 'training_focus_completion') return 'Training Focus Completion';
   return t.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+};
+
+const timeClaimApproveBucket = (c) => {
+  const payloadBucket = String(c?.payload?.bucket || '').trim().toLowerCase();
+  if (payloadBucket === 'other_1' || payloadBucket === 'direct' || payloadBucket === 'indirect') {
+    return payloadBucket;
+  }
+  const stored = String(c?.bucket || '').trim().toLowerCase();
+  if (stored === 'other_1' || stored === 'direct' || stored === 'indirect') return stored;
+  return 'indirect';
 };
 
 const isEventTime = (r) => {
@@ -227,14 +250,23 @@ const reload = async () => {
   loading.value = true;
   error.value = '';
   try {
-    const params = { agencyId: props.agencyId, status: 'submitted', targetPeriodId: props.periodId };
+    const periodId = Number(props.periodId);
+    // Log Time / other employee claims land with target_payroll_period_id NULL until approve.
+    // Load agency-wide submitted rows (same as Pending Submissions), then keep those suggested
+    // for this period or with no suggestion yet.
+    const claimParams = { agencyId: props.agencyId, status: 'submitted' };
+    const periodScoped = { agencyId: props.agencyId, status: 'submitted', targetPeriodId: periodId };
     const [timeResp, mileResp, reimbResp, medResp] = await Promise.all([
-      api.get('/payroll/time-claims', { params }),
-      api.get('/payroll/mileage-claims', { params }),
-      api.get('/payroll/reimbursement-claims', { params }),
-      api.get('/payroll/medcancel-claims', { params })
+      api.get('/payroll/time-claims', { params: claimParams }),
+      api.get('/payroll/mileage-claims', { params: periodScoped }),
+      api.get('/payroll/reimbursement-claims', { params: periodScoped }),
+      api.get('/payroll/medcancel-claims', { params: periodScoped })
     ]);
-    timeClaims.value = (timeResp.data || []).filter((r) => r && !isEventTime(r));
+    timeClaims.value = (timeResp.data || []).filter((r) => {
+      if (!r || isEventTime(r)) return false;
+      const suggested = Number(r.suggested_payroll_period_id || 0);
+      return !suggested || suggested === periodId;
+    });
     mileageClaims.value = mileResp.data || [];
     reimbClaims.value = reimbResp.data || [];
     medClaims.value = medResp.data || [];
@@ -278,14 +310,16 @@ const withBusy = async (id, fn) => {
 };
 
 const approveTime = (c) =>
-  withBusy(c.id, (override) =>
-    api.patch(`/payroll/time-claims/${c.id}`, {
+  withBusy(c.id, (override) => {
+    const hours = claimHoursValue(c);
+    return api.patch(`/payroll/time-claims/${c.id}`, {
       action: 'approve',
       targetPayrollPeriodId: Number(props.periodId),
-      bucket: 'indirect',
+      bucket: timeClaimApproveBucket(c),
+      ...(hours > 0 ? { creditsHours: hours } : {}),
       ...(override ? { overrideDeadline: true } : {})
-    })
-  );
+    });
+  });
 
 const rejectTime = (c) => {
   const reason = window.prompt('Rejection reason (optional):', '') ?? null;

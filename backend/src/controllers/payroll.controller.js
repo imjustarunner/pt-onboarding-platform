@@ -17686,13 +17686,14 @@ export const patchTimeClaim = async (req, res, next) => {
       const claimTypeKeyForBucket = String(claim.claim_type || '').toLowerCase();
       const payloadBucketHint = String(claim?.payload?.bucket || '').trim().toLowerCase();
       const bucketRaw = String(body.bucket || body.category || payloadBucketHint || 'indirect').trim().toLowerCase();
-      // Prefer payload bucket for dual-rate indirect_time when admin leaves default.
+      // Prefer payload bucket for dual-rate Log Time when admin did not explicitly pick direct/other_1.
+      // Older UIs hard-coded bucket:'indirect', which would otherwise mis-post Other 1 claims.
       let bucket = normalizeTimeClaimBucket(bucketRaw);
       if (
         claimTypeKeyForBucket === 'indirect_time'
         && payloadBucketHint === 'other_1'
         && bucketRaw !== 'direct'
-        && !(body.bucket || body.category)
+        && bucketRaw !== 'other_1'
       ) {
         bucket = 'other_1';
       }

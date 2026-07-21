@@ -896,15 +896,38 @@ const fmtNum = (n) => {
 
 const fmtDate = (d) => (d ? String(d).slice(0, 10) : '—');
 
+const claimHoursValue = (c) => {
+  const stored = Number(c?.hours || c?.credits_hours || c?.requested_hours || 0);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  const mins = Number(c?.payload?.totalMinutes ?? c?.payload_json?.totalMinutes ?? 0);
+  if (Number.isFinite(mins) && mins > 0) return Math.round((mins / 60) * 100) / 100;
+  return 0;
+};
+
 const fmtHours = (c) => {
-  const h = Number(c.hours || c.credits_hours || c.requested_hours || 0);
+  const h = claimHoursValue(c);
   return Number.isFinite(h) && h > 0 ? h.toFixed(2) : '—';
 };
 
 const timeTypeLabel = (c) => {
-  const t = String(c.claim_type || c.type || c.time_type || '').trim();
+  const t = String(c.claim_type || c.type || c.time_type || '').trim().toLowerCase();
   if (!t) return 'Time';
+  if (t === 'indirect_time') {
+    const bucket = String(c?.payload?.bucket || c?.bucket || '').trim().toLowerCase();
+    return bucket === 'other_1' ? 'Log Time (Other 1)' : 'Log Time';
+  }
+  if (t === 'training_focus_completion') return 'Training Focus Completion';
   return t.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+};
+
+const timeClaimApproveBucket = (c) => {
+  const payloadBucket = String(c?.payload?.bucket || '').trim().toLowerCase();
+  if (payloadBucket === 'other_1' || payloadBucket === 'direct' || payloadBucket === 'indirect') {
+    return payloadBucket;
+  }
+  const stored = String(c?.bucket || '').trim().toLowerCase();
+  if (stored === 'other_1' || stored === 'direct' || stored === 'indirect') return stored;
+  return 'indirect';
 };
 
 const statusLabel = (st) => {
@@ -1236,13 +1259,15 @@ const returnPto = async (r) => {
 const approveTime = (c) => {
   const targetPayrollPeriodId = Number(claimTargetByKey[`time-${c.id}`] || 0);
   if (!isValidOpenPeriod(targetPayrollPeriodId)) return;
+  const hours = claimHoursValue(c);
   return withBusy(
     `time-${c.id}`,
     (override = {}) =>
       api.patch(`/payroll/time-claims/${c.id}`, {
         action: 'approve',
         targetPayrollPeriodId,
-        bucket: 'indirect',
+        bucket: timeClaimApproveBucket(c),
+        ...(hours > 0 ? { creditsHours: hours } : {}),
         ...override
       }),
     loadClaims
