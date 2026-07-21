@@ -16,7 +16,7 @@
             Review DRAFT rows and mark payable vs not payable. Changes save immediately and appear on the Payroll page too.
           </span>
           <span v-else-if="String(mode).startsWith('process_') && catchUpMode">
-            Catch-up view defaults to unpaid rows. Use Show all if you need to see already-paid sessions.
+            FINALIZED notes are Payable (not yet paid this catch-up). Sessions already included in Run 1 stay hidden. Late adds that weren’t in Run 1 still show.
           </span>
           <span v-else-if="String(mode).startsWith('process_')">
             Enter minutes and mark Done. Unpaid rows are included so values are ready when notes finalize.
@@ -66,7 +66,13 @@
         <div class="field" v-if="mode === 'draft_audit' || (catchUpMode && String(mode).startsWith('process_'))">
           <label>Rows Filter</label>
           <select v-model="rowFilter">
-            <option value="unpaid_only">Unpaid only (no note + draft unpaid)</option>
+            <option v-if="catchUpMode && String(mode).startsWith('process_')" value="catchup_focus">
+              Needs catch-up (not in Run 1 · not done)
+            </option>
+            <option v-if="catchUpMode && String(mode).startsWith('process_')" value="new_vs_run1">
+              Not in Run 1 yet (incl. Done)
+            </option>
+            <option v-if="mode === 'draft_audit'" value="unpaid_only">Unpaid notes only (no note + draft unpaid)</option>
             <option v-if="mode === 'draft_audit'" value="draft_only">Draft only</option>
             <option value="all">Show all</option>
           </select>
@@ -87,19 +93,19 @@
               <th>DOS</th>
               <th class="right">Units</th>
               <th>Note Status</th>
-              <th>Paid?</th>
+              <th title="Payable = note is finalized/draft-payable. Paid in Run 1 = already included last cycle.">Payable?</th>
               <th v-if="mode === 'draft_audit'">Draft Payable?</th>
               <th v-else>Process</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in visibleRows" :key="r.id" :class="{ unpaid: !willBePaid(r) && String(mode).startsWith('process_') }">
+            <tr v-for="r in visibleRows" :key="r.id" :class="{ unpaid: !isNotePayable(r) && String(mode).startsWith('process_') }">
               <td>{{ r.provider_name || '—' }}</td>
-              <td>{{ r.client_hint || '—' }}</td>
+              <td>{{ clientDisplay(r) }}</td>
               <td>{{ r.service_code || '—' }}</td>
               <td>{{ String(r.service_date || '').slice(0, 10) || '—' }}</td>
               <td class="right">
-                <template v-if="String(mode).startsWith('process_') && Number(r.requires_processing) === 1">
+                <template v-if="String(mode).startsWith('process_') && Number(r.requires_processing) === 1 && !isAlreadyPaidInBaseline(r)">
                   <input
                     type="number"
                     class="rip-num"
@@ -111,7 +117,9 @@
                 <template v-else>{{ fmtNum(r.unit_count) }}</template>
               </td>
               <td><span class="rip-pill">{{ statusLabel(r) }}</span></td>
-              <td><strong>{{ willBePaid(r) ? 'PAID' : 'UNPAID' }}</strong></td>
+              <td>
+                <strong :class="payableLabelClass(r)">{{ payableLabel(r) }}</strong>
+              </td>
               <td v-if="mode === 'draft_audit'">
                 <select
                   v-if="String(r.note_status || '').toUpperCase() === 'DRAFT'"
@@ -125,27 +133,43 @@
                 <span v-else class="rip-muted">—</span>
               </td>
               <td v-else>
-                <span class="rip-muted">{{ r.processed_at ? 'Done' : 'Not done' }}</span>
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  style="margin-left: 8px;"
-                  :disabled="locked || Number(r.requires_processing) !== 1"
-                  @click="toggleProcessed(r, !r.processed_at)"
-                >
-                  {{ r.processed_at ? 'Undo' : 'Mark done' }}
-                </button>
+                <template v-if="isAlreadyPaidInBaseline(r)">
+                  <span class="rip-muted">Already in Run 1</span>
+                </template>
+                <template v-else>
+                  <span class="rip-muted">{{ r.processed_at ? 'Done' : 'Not done' }}</span>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    style="margin-left: 8px;"
+                    :disabled="locked || Number(r.requires_processing) !== 1"
+                    @click="toggleProcessed(r, !r.processed_at)"
+                  >
+                    {{ r.processed_at ? 'Undo' : 'Mark done' }}
+                  </button>
+                </template>
               </td>
             </tr>
             <tr v-if="!visibleRows.length">
-              <td :colspan="mode === 'draft_audit' ? 8 : 8" class="rip-muted">No rows found.</td>
+              <td :colspan="8" class="rip-muted">
+                <template v-if="catchUpMode && hiddenAlreadyPaidCount > 0 && (rowFilter === 'catchup_focus' || rowFilter === 'new_vs_run1')">
+                  Nothing left for catch-up — {{ hiddenAlreadyPaidCount }} session{{ hiddenAlreadyPaidCount === 1 ? '' : 's' }} already in Run 1 {{ hiddenAlreadyPaidCount === 1 ? 'is' : 'are' }} hidden.
+                </template>
+                <template v-else>No rows found.</template>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <div class="rip-footer">
-        <span class="rip-muted">Showing {{ visibleRows.length }} of {{ filteredRows.length }} filtered rows ({{ rows.length }} total).</span>
+        <span class="rip-muted">
+          Showing {{ visibleRows.length }} of {{ filteredRows.length }} filtered rows ({{ rows.length }} total)
+          <template v-if="catchUpMode && hiddenAlreadyPaidCount > 0 && rowFilter !== 'all'">
+            · {{ hiddenAlreadyPaidCount }} already in Run 1 hidden
+          </template>
+          .
+        </span>
         <button v-if="filteredRows.length > rowLimit" type="button" class="btn btn-secondary btn-sm" @click="rowLimit = filteredRows.length">Show all</button>
       </div>
     </template>
@@ -164,8 +188,8 @@ const props = defineProps({
   /** When true (embedded in wizard), hides the mode-switch & close buttons from the header */
   embedded: { type: Boolean, default: false },
   /**
-   * Wizard prior catch-up only: default to unpaid rows (same Paid?/UNPAID meaning as before).
-   * Show all remains available. Does not change Payroll-page Raw Import.
+   * Wizard prior catch-up only: default hides sessions already in Run 1.
+   * FINALIZED late adds remain Payable + Not done. Show all remains available.
    */
   catchUpMode: { type: Boolean, default: false }
 });
@@ -179,9 +203,26 @@ const rows = ref([]);
 const imports = ref([]);
 const selectedImportId = ref(null);
 const search = ref('');
-const rowFilter = ref('unpaid_only');
+const rowFilter = ref(props.catchUpMode && String(props.initialMode || '').startsWith('process_')
+  ? 'catchup_focus'
+  : 'unpaid_only');
 const rowLimit = ref(200);
 const saving = ref(false);
+
+/** Already included in last cycle's Run 1 import — not the same as note FINALIZED/Payable. */
+const isAlreadyPaidInBaseline = (r) => Number(r?.already_paid_in_baseline || 0) === 1;
+const hiddenAlreadyPaidCount = computed(() =>
+  (rows.value || []).filter((r) => isAlreadyPaidInBaseline(r)).length
+);
+
+const clientDisplay = (r) => {
+  const hint = String(r?.client_hint || '').trim();
+  if (hint && hint !== '—') return hint;
+  const first = String(r?.patient_first_name || '').trim();
+  if (!first) return '—';
+  if (first.length <= 4) return first;
+  return first.length >= 2 ? `${first[0]}${first[1]}`.toUpperCase() : first.toUpperCase();
+};
 
 const periodStatusLabel = computed(() => {
   const st = String(props.periodStatus || '').toLowerCase();
@@ -197,13 +238,27 @@ const locked = computed(() => {
   return st === 'posted' || st === 'finalized';
 });
 
-const willBePaid = (r) => {
+/** Note is payable (FINALIZED / draft payable) — NOT “already paid on a payroll run.” */
+const isNotePayable = (r) => {
   const st = String(r?.note_status || '').toUpperCase();
   if (st === 'NO_NOTE' || st === 'NONE' || !st) return false;
   if (st === 'DRAFT') return Number(r?.draft_payable) === 1;
   if (st === 'FINALIZED' || st === 'FINAL' || st === 'SIGNED') return true;
   return false;
 };
+
+const payableLabel = (r) => {
+  if (isAlreadyPaidInBaseline(r)) return 'Paid in Run 1';
+  return isNotePayable(r) ? 'Payable' : 'Unpaid';
+};
+
+const payableLabelClass = (r) => {
+  if (isAlreadyPaidInBaseline(r)) return 'rip-paid-run1';
+  return isNotePayable(r) ? 'rip-payable' : 'rip-unpayable';
+};
+
+// Keep name used by draft-audit unpaid filter
+const willBePaid = isNotePayable;
 
 const statusLabel = (r) => {
   const st = String(r?.note_status || '').toUpperCase();
@@ -238,7 +293,7 @@ const filteredRows = computed(() => {
   const q = String(search.value || '').trim().toLowerCase();
   if (q) {
     list = list.filter((r) => {
-      const hay = `${r.provider_name || ''} ${r.client_hint || ''} ${r.service_code || ''} ${r.service_date || ''}`.toLowerCase();
+      const hay = `${r.provider_name || ''} ${clientDisplay(r)} ${r.patient_first_name || ''} ${r.service_code || ''} ${r.service_date || ''}`.toLowerCase();
       return hay.includes(q);
     });
   }
@@ -249,9 +304,12 @@ const filteredRows = computed(() => {
   } else if (String(mode.value).startsWith('process_')) {
     const code = codeForMode(mode.value);
     list = list.filter((r) => Number(r.requires_processing) === 1 && String(r.service_code || '').toUpperCase().includes(String(code || '').toUpperCase()));
-    // Wizard catch-up only: reuse the same unpaid filter Draft Audit already had (Show all still works).
-    if (props.catchUpMode && rowFilter.value === 'unpaid_only') {
-      list = list.filter((r) => !willBePaid(r));
+    // Catch-up: hide Run 1 sessions; keep FINALIZED late adds (Payable + often Not done).
+    if (props.catchUpMode && (rowFilter.value === 'catchup_focus' || rowFilter.value === 'new_vs_run1')) {
+      list = list.filter((r) => !isAlreadyPaidInBaseline(r));
+      if (rowFilter.value === 'catchup_focus') {
+        list = list.filter((r) => !r.processed_at);
+      }
     }
   } else if (mode.value === 'processed') {
     list = list.filter((r) => Number(r.requires_processing) === 1 && !!r.processed_at && willBePaid(r));
@@ -266,12 +324,15 @@ const visibleRows = computed(() => (filteredRows.value || []).slice(0, rowLimit.
 const setMode = (m) => {
   mode.value = m;
   rowLimit.value = 200;
-  // Catch-up wizard: keep unpaid default when switching tabs (H0031 etc.).
-  if (props.catchUpMode) rowFilter.value = 'unpaid_only';
+  if (props.catchUpMode && String(m).startsWith('process_')) {
+    rowFilter.value = 'catchup_focus';
+  } else if (m === 'draft_audit') {
+    rowFilter.value = 'unpaid_only';
+  }
 };
 
 watch(() => props.catchUpMode, (on) => {
-  if (on) rowFilter.value = 'unpaid_only';
+  if (on && String(mode.value).startsWith('process_')) rowFilter.value = 'catchup_focus';
 });
 
 const reload = async () => {
@@ -490,6 +551,9 @@ onMounted(reload);
   font-weight: 700;
 }
 .rip-muted { color: var(--text-secondary, #64748b); font-size: 13px; }
+.rip-payable { color: #15803d; }
+.rip-unpayable { color: #b45309; }
+.rip-paid-run1 { color: #64748b; }
 .rip-error {
   background: #fee;
   border: 1px solid #fcc;

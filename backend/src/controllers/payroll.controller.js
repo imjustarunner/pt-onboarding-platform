@@ -226,15 +226,98 @@ function rowStableMatchKey(row) {
   return String(row?.row_fingerprint || '').trim() || fallback;
 }
 
+function clientHintFromRow(row) {
+  const first = String(row?.patient_first_name || '').trim();
+  if (!first) return '—';
+  const initials = first.length >= 2 ? `${first[0]}${first[1]}`.toUpperCase() : first.toUpperCase();
+  return first.length <= 4 ? first : initials;
+}
+
 function mapRawRowForAudit(row) {
   const statusKey = normalizedRawStatus(row);
   const paidState = paidStateForStatus(statusKey);
   return {
     ...row,
+    client_hint: clientHintFromRow(row),
     normalized_status: statusKey,
     paid_state: paidState,
     is_paid: paidState === 'PAID' ? 1 : 0
   };
+}
+
+/** Short key without client — fallback when one import lacks patient_first_name. */
+function rowEntityKeyShort(row) {
+  const provider = normalizeName(row?.provider_name || '');
+  const serviceDate = String(row?.service_date || '').slice(0, 10);
+  const code = baseServiceCodeForSession(row?.service_code) || String(row?.service_code || '').trim().toUpperCase();
+  return `${provider}:${serviceDate}:${code}`;
+}
+
+/**
+ * 1:1 match compare rows to sessions that were payable in the baseline import (Run 1).
+ * Those are the ones already included in last payroll ("paid in Run 1").
+ * Late-added FINALIZED notes that were not in Run 1 stay unmatched (still need catch-up).
+ *
+ * Important: do NOT short-match empty-client Run 2 rows to named-client Run 1 rows —
+ * that falsely hides new sessions (e.g. Aneta late adds with blank client).
+ */
+function annotateRowsAlreadyPaidInBaseline({ baselineRows, compareRows }) {
+  const fullPool = new Map();
+  const shortPool = new Map(); // only baseline rows that also lack a client token
+  const fpPool = new Map();
+
+  const pushPool = (map, key, row) => {
+    const k = String(key || '').trim();
+    if (!k) return;
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(row);
+  };
+  const takePool = (map, key) => {
+    const k = String(key || '').trim();
+    if (!k || !map.has(k)) return null;
+    const list = map.get(k);
+    if (!list?.length) return null;
+    return list.shift() || null;
+  };
+  const scrubId = (map, id) => {
+    const mid = Number(id || 0);
+    if (!mid) return;
+    for (const [k, list] of map.entries()) {
+      const next = (list || []).filter((x) => Number(x?.id || 0) !== mid);
+      if (next.length) map.set(k, next);
+      else map.delete(k);
+    }
+  };
+
+  for (const b of baselineRows || []) {
+    // Baseline "payable" note status = was included / payable in last cycle's Run 1 file.
+    if (paidStateForStatus(normalizedRawStatus(b)) !== 'PAID') continue;
+    const fp = String(b?.row_fingerprint || '').trim();
+    if (fp) pushPool(fpPool, fp, b);
+    pushPool(fullPool, rowEntityKey(b), b);
+    if (!firstTokenForClient(b?.patient_first_name)) {
+      pushPool(shortPool, rowEntityKeyShort(b), b);
+    }
+  }
+
+  return (compareRows || []).map((r) => {
+    const mapped = mapRawRowForAudit(r);
+    let matched = null;
+    const fp = String(r?.row_fingerprint || '').trim();
+    if (fp) matched = takePool(fpPool, fp);
+    if (!matched) matched = takePool(fullPool, rowEntityKey(r));
+    // Short-key only when BOTH sides lack client (old imports) — never match blank→named.
+    if (!matched && !firstTokenForClient(r?.patient_first_name)) {
+      matched = takePool(shortPool, rowEntityKeyShort(r));
+    }
+    if (matched) {
+      scrubId(fpPool, matched.id);
+      scrubId(fullPool, matched.id);
+      scrubId(shortPool, matched.id);
+      return { ...mapped, already_paid_in_baseline: 1 };
+    }
+    return { ...mapped, already_paid_in_baseline: 0 };
+  });
 }
 
 function normalizeLocationValue(location) {
@@ -10600,7 +10683,14 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
       ? await PayrollImportRow.listForImportId({ payrollPeriodId, payrollImportId: effectiveBaselineImportId })
       : [];
 
-    const rows = selectedRowsRaw.map((r) => mapRawRowForAudit(r));
+    const comparingAgainstEarlierImport =
+      Number(effectiveBaselineImportId || 0) > 0
+      && Number(effectiveSelectedImportId || 0) > 0
+      && Number(effectiveBaselineImportId) !== Number(effectiveSelectedImportId);
+
+    const rows = comparingAgainstEarlierImport
+      ? annotateRowsAlreadyPaidInBaseline({ baselineRows: baselineRowsRaw, compareRows: selectedRowsRaw })
+      : selectedRowsRaw.map((r) => ({ ...mapRawRowForAudit(r), already_paid_in_baseline: 0 }));
     const changes = computeRawRunDiffRows({ baselineRows: baselineRowsRaw, compareRows: selectedRowsRaw });
 
     const runByImportId = new Map(
@@ -10697,10 +10787,7 @@ function pickCanonicalRawRow(rows) {
 }
 
 function clientHint(row) {
-  const first = String(row?.patient_first_name || '').trim();
-  if (!first) return '—';
-  const initials = first.length >= 2 ? `${first[0]}${first[1]}`.toUpperCase() : first.toUpperCase();
-  return first.length <= 4 ? first : initials;
+  return clientHintFromRow(row);
 }
 
 export const getPayrollPeriodRunsSideBySide = async (req, res, next) => {
