@@ -44,10 +44,10 @@
         <router-link
           v-if="canViewIcsCoverage"
           class="btn btn-secondary btn-sm"
-          to="/admin/office-coverage-flags"
+          :to="officeApprovalsConflictsTo"
           title="Review and keep or release flagged hours"
         >
-          Coverage flags
+          Reported conflicts
         </router-link>
         <button class="btn btn-secondary btn-sm" @click="loadGrid" :disabled="loading || !officeId">Refresh</button>
       </div>
@@ -1350,6 +1350,11 @@ const canManageSchedule = computed(() => {
 const canViewIcsCoverage = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support'].includes(role);
+});
+const officeApprovalsConflictsTo = computed(() => {
+  const slug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  const path = slug ? `/${slug}/admin/office-approvals` : '/admin/office-approvals';
+  return { path, query: { tab: 'conflicts' } };
 });
 const ICS_GAPS_STORAGE_KEY = 'officeSchedule.showIcsGaps';
 const showIcsGaps = ref(

@@ -2111,6 +2111,16 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/office-approvals',
+    name: 'OrganizationOfficeApprovals',
+    component: () => import('../views/admin/OfficeApprovalsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff', 'schedule_manager'],
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/notifications',
     name: 'OrganizationSupervisorNotifications',
     component: () => import('../views/NotificationsHubView.vue'),
@@ -2905,6 +2915,15 @@ const routes = [
     name: 'OfficeCoverageFlags',
     component: () => import('../views/admin/OfficeCoverageFlagsView.vue'),
     meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+  },
+  {
+    path: '/admin/office-approvals',
+    name: 'OfficeApprovals',
+    component: () => import('../views/admin/OfficeApprovalsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff', 'schedule_manager']
+    }
   },
   {
     path: '/admin/provider-availability',

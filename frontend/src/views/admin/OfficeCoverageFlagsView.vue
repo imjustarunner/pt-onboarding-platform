@@ -1,6 +1,6 @@
 <template>
-  <div class="container coverage-view">
-    <div class="page-header">
+  <div class="coverage-view" :class="{ 'coverage-view--embedded': embedded, container: !embedded }">
+    <div v-if="!embedded" class="page-header">
       <div>
         <h2>Office Coverage Flags</h2>
         <p class="subtitle">
@@ -12,7 +12,22 @@
         <button class="btn btn-secondary" @click="runAudit" :disabled="auditing || loading">
           {{ auditing ? 'Running audit…' : 'Run audit now' }}
         </button>
-        <router-link to="/admin/booking-conflict-resolver" class="btn btn-secondary">Conflict resolver</router-link>
+        <router-link :to="conflictResolverTo" class="btn btn-secondary">Conflict resolver</router-link>
+        <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
+      </div>
+    </div>
+    <div v-else class="embedded-header">
+      <div>
+        <h2>Reported conflicts</h2>
+        <p class="subtitle">
+          Booked office hours without a matching Therapy Notes / shared calendar clinical event.
+          Keep (sticky) or Release in one click.
+        </p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" @click="runAudit" :disabled="auditing || loading">
+          {{ auditing ? 'Running audit…' : 'Run audit now' }}
+        </button>
         <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
       </div>
     </div>
@@ -199,8 +214,16 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '@/services/api';
 
+defineProps({
+  embedded: { type: Boolean, default: false }
+});
+const emit = defineEmits(['count-change']);
+
 const route = useRoute();
 const orgSlug = computed(() => route.params.organizationSlug || null);
+const conflictResolverTo = computed(() =>
+  orgSlug.value ? `/${orgSlug.value}/admin/booking-conflict-resolver` : '/admin/booking-conflict-resolver'
+);
 
 const flags = ref([]);
 const filterOptions = ref({ offices: [], providers: [] });
@@ -278,8 +301,8 @@ async function load() {
   bulkMessage.value = '';
   try {
     const [flagsRes, healthRes] = await Promise.all([
-      api.get('/api/office-schedule/admin/coverage-flags', { params: buildQuery() }),
-      api.get('/api/office-schedule/admin/ehr-sync-health').catch(() => ({ data: { locations: [] } }))
+      api.get('/office-schedule/admin/coverage-flags', { params: buildQuery() }),
+      api.get('/office-schedule/admin/ehr-sync-health').catch(() => ({ data: { locations: [] } }))
     ]);
     flags.value = flagsRes.data?.flags || [];
     filterOptions.value = flagsRes.data?.filterOptions || { offices: [], providers: [] };
@@ -287,8 +310,10 @@ async function load() {
     // Drop selections that are no longer in the list
     const valid = new Set(flags.value.map((f) => f.event_id));
     selectedIds.value = new Set([...selectedIds.value].filter((id) => valid.has(id)));
+    emit('count-change', flags.value.length);
   } catch (e) {
-    error.value = e?.response?.data?.error || e?.message || 'Failed to load coverage flags.';
+    error.value = e?.response?.data?.error?.message || e?.response?.data?.error || e?.message || 'Failed to load coverage flags.';
+    emit('count-change', 0);
   } finally {
     loading.value = false;
   }
@@ -298,10 +323,10 @@ async function runAudit() {
   auditing.value = true;
   auditResult.value = null;
   try {
-    const res = await api.post('/api/office-schedule/watchdog/run-coverage-audit');
+    const res = await api.post('/office-schedule/watchdog/run-coverage-audit');
     auditResult.value = res.data;
   } catch (e) {
-    error.value = e?.response?.data?.error || e?.message || 'Audit failed.';
+    error.value = e?.response?.data?.error?.message || e?.response?.data?.error || e?.message || 'Audit failed.';
   } finally {
     auditing.value = false;
   }
@@ -316,7 +341,7 @@ function removeFlags(ids) {
 async function keep(flag) {
   acting.value = { ...acting.value, [flag.event_id]: 'keep' };
   try {
-    await api.post(`/api/office-schedule/admin/coverage-flags/${flag.event_id}/keep`);
+    await api.post(`/office-schedule/admin/coverage-flags/${flag.event_id}/keep`);
     removeFlags([flag.event_id]);
   } catch (e) {
     alert(e?.response?.data?.error || 'Failed to keep slot.');
@@ -331,7 +356,7 @@ async function keep(flag) {
 async function release(flag) {
   acting.value = { ...acting.value, [flag.event_id]: 'release' };
   try {
-    await api.post(`/api/office-schedule/admin/coverage-flags/${flag.event_id}/release`);
+    await api.post(`/office-schedule/admin/coverage-flags/${flag.event_id}/release`);
     removeFlags([flag.event_id]);
   } catch (e) {
     alert(e?.response?.data?.error || 'Failed to release slot.');
@@ -354,7 +379,7 @@ async function bulkAction(action, eventIds) {
     for (let i = 0; i < ids.length; i += 500) {
       const chunk = ids.slice(i, i + 500);
       // eslint-disable-next-line no-await-in-loop
-      const res = await api.post('/api/office-schedule/admin/coverage-flags/bulk', {
+      const res = await api.post('/office-schedule/admin/coverage-flags/bulk', {
         action,
         eventIds: chunk
       });
@@ -472,11 +497,32 @@ onMounted(() => {
 });
 
 watch(orgSlug, () => load());
+
+defineExpose({ load });
 </script>
 
 <style scoped>
 .coverage-view {
   padding: 24px 0;
+}
+
+.coverage-view--embedded {
+  padding: 0;
+}
+
+.embedded-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.embedded-header h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 700;
 }
 
 .page-header {

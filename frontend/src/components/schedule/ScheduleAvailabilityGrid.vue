@@ -208,9 +208,9 @@
             class="sched-pill sched-pill-link"
             :to="officeRequestsApproveLink"
             data-tour="my-schedule-approve-office-requests"
-            title="Open the approval inbox for pending office / room availability requests"
+            title="Approve office requests and review reported Therapy Notes coverage conflicts"
           >
-            Approvals
+            Approve office requests
           </router-link>
         </div>
 
@@ -7077,8 +7077,8 @@ const setBookingTargetUser = (userId) => {
 
 const officeRequestsApproveLink = computed(() => {
   const orgSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
-  const path = orgSlug ? `/${orgSlug}/admin/availability-intake` : '/admin/availability-intake';
-  return { path, query: { tab: 'office' } };
+  const path = orgSlug ? `/${orgSlug}/admin/office-approvals` : '/admin/office-approvals';
+  return { path, query: { tab: 'requests' } };
 });
 const currentUserRole = computed(() => String(authStore.user?.role || '').trim().toLowerCase());
 const isProviderPlus = computed(() => currentUserRole.value === 'provider_plus');

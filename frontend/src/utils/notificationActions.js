@@ -13,7 +13,7 @@ export function notificationDestination(notification, { organizationSlug = null,
     return { path: `${base}/admin/clients`, query: { clientId: String(entityId), ...(n.type === 'new_packet_uploaded' ? { tab: 'documents' } : {}) } };
   }
   if (n.type === 'company_event_registration_submitted' && entityId) return `${base}/skill-builders/event/${entityId}`;
-  if (n.type === 'office_availability_request_pending') return `${base}/admin/availability-intake?agencyId=${n.agency_id}&tab=office`;
+  if (n.type === 'office_availability_request_pending') return `${base}/admin/office-approvals?agencyId=${n.agency_id}&tab=requests`;
   if (n.type === 'school_availability_request_pending') return `${base}/admin/availability-intake?agencyId=${n.agency_id}&tab=school`;
   if (['school_provider_availability_confirmed', 'school_provider_availability_updated', 'school_provider_slot_verification_completed'].includes(n.type)) {
     return `${base}/admin/availability-intake?agencyId=${n.agency_id}&tab=school`;

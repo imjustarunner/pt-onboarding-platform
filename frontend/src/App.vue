@@ -4520,6 +4520,12 @@ const availabilityIntakeNavLink = computed(() => {
   return agencyId ? `${base}?agencyId=${agencyId}` : base;
 });
 
+const officeApprovalsNavLink = computed(() => {
+  const base = orgTo('/admin/office-approvals');
+  const agencyId = agencyStore.currentAgency?.id;
+  return agencyId ? `${base}?agencyId=${agencyId}&tab=requests` : `${base}?tab=requests`;
+});
+
 const learningBillingNavEnabled = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency || {};
   const orgType = String(a.organization_type || '').toLowerCase();
@@ -4818,7 +4824,7 @@ const ticketsNavLink = computed(() => orgTo('/tickets'));
 
 const scheduleNavLink = computed(() => {
   if (showBuildingsPendingBadge.value && buildingsPendingCount.value > 0) {
-    return availabilityIntakeNavLink.value;
+    return officeApprovalsNavLink.value;
   }
   return orgTo('/schedule');
 });

@@ -15,6 +15,15 @@
         </div>
         <div class="my-schedule-page__actions">
           <router-link
+            v-if="canApproveOfficeRequests"
+            class="btn btn-primary btn-sm"
+            :to="officeApprovalsTo"
+            title="Approve office requests and review reported Therapy Notes coverage conflicts"
+            data-tour="my-schedule-header-approve-office-requests"
+          >
+            Approve office requests
+          </router-link>
+          <router-link
             class="btn btn-secondary btn-sm"
             :to="scheduleHubTo"
             title="Schedule hub — pick My Schedule, staff compare, buildings, or approvals"
@@ -22,7 +31,7 @@
             Schedule hub
           </router-link>
           <router-link
-            class="btn btn-primary btn-sm"
+            class="btn btn-secondary btn-sm"
             :to="staffSchedulesTo"
             title="Compare coworker calendars (busy blocks for providers; full detail for admins)"
             data-tour="my-schedule-staff-schedules-link"
@@ -68,6 +77,11 @@ const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
 const scheduleHubTo = computed(() => orgTo('/schedule'));
 const staffSchedulesTo = computed(() => orgTo('/schedule/staff'));
 const dashboardTo = computed(() => orgTo('/dashboard'));
+const officeApprovalsTo = computed(() => orgTo('/admin/office-approvals'));
+const canApproveOfficeRequests = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
+});
 
 const weekStartYmd = ref('');
 const onWeekStartUpdate = (ymd) => {

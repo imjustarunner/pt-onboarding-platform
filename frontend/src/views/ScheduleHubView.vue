@@ -48,11 +48,11 @@
       <router-link
         v-if="canOpenPrivilegedScheduleTools"
         class="card"
-        :to="orgTo('/admin/availability-intake?tab=office')"
+        :to="orgTo('/admin/office-approvals')"
         data-tour="schedule-hub-card-approvals"
       >
         <div class="card-title">Approve office requests</div>
-        <div class="card-desc">One inbox for CPA, Provider Plus, admin, and staff — office, booking, and school queues.</div>
+        <div class="card-desc">Dedicated inbox for office requests and reported Therapy Notes coverage conflicts.</div>
         <div class="card-cta">Open</div>
       </router-link>
 

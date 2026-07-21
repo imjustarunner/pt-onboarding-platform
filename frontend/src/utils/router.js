@@ -120,6 +120,7 @@ export function getDashboardRoute() {
           if (isProviderPlusExperienceRole) return `/${slug}/operations-dashboard`;
           return `/${slug}/dashboard`;
         }
+        if (userRole === 'clinical_practice_assistant') return `/${slug}/operations-dashboard`;
         return `/${slug}/dashboard`;
       }
     }
@@ -232,14 +233,17 @@ export function getDashboardRoute() {
     return '/admin';
   }
 
-  // Provider Plus/CPA default to the personal My Dashboard.
-  // Operations dashboard is available as a separate destination in navigation.
-  if (isProviderPlusExperienceRole) {
+  // CPAs land on Operations Dashboard (office approvals, coverage, ops tools).
+  // Provider Plus keeps the personal My Dashboard; ops is still in nav.
+  if (userRole === 'clinical_practice_assistant' || userRole === 'provider_plus') {
     const slug =
       organizationStore.organizationContext?.slug ||
       user.agencies?.[0]?.portal_url ||
       user.agencies?.[0]?.slug ||
       null;
+    if (userRole === 'clinical_practice_assistant') {
+      return slug ? `/${slug}/operations-dashboard` : '/operations-dashboard';
+    }
     return slug ? `/${slug}/dashboard` : '/dashboard';
   }
 

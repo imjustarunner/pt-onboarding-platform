@@ -12,7 +12,7 @@ describe('notificationActions', () => {
 
   it('routes office and ticket workflows to their operational destinations', () => {
     expect(notificationDestination({ type: 'office_availability_request_pending', agency_id: 8 }, { organizationSlug: 'org', role: 'admin' }))
-      .toBe('/org/admin/availability-intake?agencyId=8&tab=office');
+      .toBe('/org/admin/office-approvals?agencyId=8&tab=requests');
     expect(notificationDestination({ type: 'support_ticket_created', related_entity_id: 3 }, { organizationSlug: 'org', role: 'admin' }))
       .toBe('/org/tickets?status=open&ticketId=3');
   });

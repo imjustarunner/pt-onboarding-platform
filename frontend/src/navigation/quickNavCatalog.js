@@ -113,6 +113,32 @@ function buildAppEntries() {
       requires: ['showSchedule']
     },
     {
+      id: 'schedule-office-approvals',
+      routeName: 'OfficeApprovals',
+      label: 'Office Approvals',
+      description: 'Approve office requests and triage Therapy Notes coverage conflicts.',
+      group: 'schedule',
+      keywords: [
+        'office approvals',
+        'approve office requests',
+        'office requests',
+        'coverage flags',
+        'reported conflicts',
+        'therapy notes'
+      ],
+      kind: 'path',
+      path: '/admin/office-approvals',
+      rolesAny: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'clinical_practice_assistant',
+        'provider_plus',
+        'schedule_manager'
+      ]
+    },
+    {
       id: 'schedule-submit',
       routeName: null,
       label: 'Submit',

@@ -608,8 +608,8 @@ const getNotificationNavigationPath = async (notification) => {
     return `${base}?agencyId=${notification.agency_id}`;
   } else if (notification.type === 'office_availability_request_pending' && notification.agency_id) {
     const agencyId = notification.agency_id;
-    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
-    return `${base}?agencyId=${agencyId}&tab=office`;
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/office-approvals` : '/admin/office-approvals';
+    return `${base}?agencyId=${agencyId}&tab=requests`;
   } else if (notification.type === 'school_availability_request_pending' && notification.agency_id) {
     const agencyId = notification.agency_id;
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
@@ -803,8 +803,8 @@ const handleNotificationClick = async (notification) => {
       openOfficeRequestModal(notification);
     } else {
       const agencyId = notification.agency_id;
-      const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
-      router.push(`${base}?agencyId=${agencyId}`);
+      const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/office-approvals` : '/admin/office-approvals';
+      router.push(`${base}?agencyId=${agencyId}&tab=requests`);
     }
     return;
   }

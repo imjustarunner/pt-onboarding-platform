@@ -85,9 +85,9 @@
             >Caseload Hub</router-link>
             <router-link :to="`/${slug}/admin/provider-availability`" class="nav-item">Provider Management</router-link>
             <router-link
-              :to="`/${slug}/admin/availability-intake?tab=office`"
+              :to="`/${slug}/admin/office-approvals`"
               class="nav-item"
-            >Office Requests</router-link>
+            >Office Approvals</router-link>
           </div>
           <div class="sidebar-section">
             <div class="section-header">PROGRAMS</div>
@@ -742,12 +742,12 @@ const glanceCards = computed(() => {
     return [
       {
         key: 'office_requests',
-        label: 'Office Requests',
+        label: 'Office Approvals',
         value: officeRequestCount.value,
-        hint: 'Pending office / booking approvals',
+        hint: 'Pending office requests & coverage conflicts',
         cta: 'Review',
         tone: officeRequestCount.value > 0 ? 'danger' : 'accent',
-        to: `${prefix.value}/admin/availability-intake?tab=office`
+        to: `${prefix.value}/admin/office-approvals`
       },
       {
         key: 'new_hires',
@@ -1174,9 +1174,9 @@ const quickActionsCatalog = computed(() => {
     },
     {
       id: 'office_approvals',
-      title: 'Approve Office Requests',
-      description: 'Approve or deny office, booking, and availability requests',
-      to: `${p}/admin/availability-intake?tab=office`,
+      title: 'Office Approvals',
+      description: 'Approve office requests and triage bookings missing Therapy Notes coverage',
+      to: `${p}/admin/office-approvals`,
       emoji: '✅',
       iconKey: 'provider_availability_dashboard',
       category: 'Scheduling',
