@@ -245,7 +245,17 @@ const storageKey = computed(() => `schoolEventsKiosk.${slug.value || 'x'}`);
 const punchAllowedOnSelectedEvent = computed(() => !!selectedMeta.value?.punchAllowedToday);
 
 function authHeaders() {
-  return token.value ? { Authorization: `Bearer ${token.value}` } : {};
+  const headers = token.value ? { Authorization: `Bearer ${token.value}` } : {};
+  // Station PIN JWT occupies Authorization; pass the logged-in user session separately
+  // so admin/super_admin agenda mode can resolve on the server.
+  try {
+    const demoToken = sessionStorage.getItem('__pt_demo_window_token__');
+    const userToken = demoToken || localStorage.getItem('authToken');
+    if (userToken) headers['X-User-Authorization'] = `Bearer ${userToken}`;
+  } catch {
+    /* cookie auth still works in browsers */
+  }
+  return headers;
 }
 
 function initials(name) {

@@ -226,53 +226,84 @@ export const authenticate = async (req, res, next) => {
   }
 };
 
-// Like authenticate(), but does not fail the request when no token is present.
-// Useful for endpoints that support alternative auth (ex: a one-time ops token).
-export const authenticateOptional = (req, res, next) => {
-  try {
-    const bearer = req.headers.authorization?.startsWith('Bearer ')
-      ? req.headers.authorization.substring(7)
-      : null;
-    const token = bearer || req.cookies?.authToken || null;
-    if (!token) return next();
+/** Station / kiosk JWTs share the app secret but are not user sessions. */
+function isNonUserStationToken(decoded) {
+  const t = String(decoded?.type || '').toLowerCase();
+  return (
+    t === 'school_events_kiosk' ||
+    t === 'event_day_kiosk' ||
+    t === 'program_event_kiosk' ||
+    t === 'skill_builders_kiosk' ||
+    t === 'kiosk'
+  );
+}
 
-    const decoded = jwt.verify(token, config.jwt.secret);
-    if (decoded.type === 'approved_employee') {
-      req.user = {
-        email: decoded.email,
-        role: 'approved_employee',
-        type: decoded.type || 'approved_employee',
-        agencyId: decoded.agencyId,
-        agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : [])
-      };
-      return next();
-    }
+function applyOptionalUserFromDecoded(req, decoded) {
+  if (!decoded || isNonUserStationToken(decoded)) return false;
 
-    if (decoded.type === 'passwordless') {
-      if (!decoded.id) return next();
-      req.user = {
-        id: decoded.id,
-        email: decoded.email,
-        role: decoded.role,
-        type: 'passwordless',
-        agencyId: decoded.agencyId,
-        sessionId: decoded.sessionId || null,
-        demoMode: decoded.demoMode === true,
-        demoRealRole: decoded.demoRealRole || null
-      };
-      return next();
-    }
+  if (decoded.type === 'approved_employee') {
+    req.user = {
+      email: decoded.email,
+      role: 'approved_employee',
+      type: decoded.type || 'approved_employee',
+      agencyId: decoded.agencyId,
+      agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : [])
+    };
+    return true;
+  }
 
+  if (decoded.type === 'passwordless') {
+    if (!decoded.id) return false;
     req.user = {
       id: decoded.id,
       email: decoded.email,
       role: decoded.role,
-      type: decoded.type || 'regular',
+      type: 'passwordless',
       agencyId: decoded.agencyId,
       sessionId: decoded.sessionId || null,
       demoMode: decoded.demoMode === true,
       demoRealRole: decoded.demoRealRole || null
     };
+    return true;
+  }
+
+  // Regular user JWTs usually omit type or use "regular".
+  if (decoded.id == null && !decoded.email) return false;
+  req.user = {
+    id: decoded.id,
+    email: decoded.email,
+    role: decoded.role,
+    type: decoded.type || 'regular',
+    agencyId: decoded.agencyId,
+    sessionId: decoded.sessionId || null,
+    demoMode: decoded.demoMode === true,
+    demoRealRole: decoded.demoRealRole || null
+  };
+  return true;
+}
+
+// Like authenticate(), but does not fail the request when no token is present.
+// Useful for endpoints that support alternative auth (ex: a one-time ops token).
+// When Authorization is a station/kiosk JWT, fall through to cookie / X-User-Authorization
+// so logged-in admins still get req.user (e.g. school-events kiosk agenda mode).
+export const authenticateOptional = (req, res, next) => {
+  try {
+    const bearer = req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.substring(7)
+      : null;
+    const xUserRaw = String(req.headers['x-user-authorization'] || '').trim();
+    const xUser = xUserRaw.startsWith('Bearer ') ? xUserRaw.substring(7).trim() : (xUserRaw || null);
+    const cookieToken = req.cookies?.authToken || null;
+
+    const candidates = [bearer, xUser, cookieToken].filter(Boolean);
+    for (const token of candidates) {
+      try {
+        const decoded = jwt.verify(token, config.jwt.secret);
+        if (applyOptionalUserFromDecoded(req, decoded)) return next();
+      } catch {
+        // try next candidate
+      }
+    }
     return next();
   } catch {
     // If token is invalid/expired, treat as unauthenticated.

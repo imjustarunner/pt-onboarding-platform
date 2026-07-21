@@ -153,7 +153,9 @@ function eventAllowsPunchToday(eventRow) {
 }
 
 async function isKioskAgendaViewer(req, agencyId) {
-  const role = String(req.user?.role || '').toLowerCase();
+  // authenticateOptional may resolve the logged-in admin from cookie / X-User-Authorization
+  // while Authorization carries the station PIN JWT.
+  const role = String(req.user?.role || req.user?.demoRealRole || '').toLowerCase();
   if (role !== 'admin' && role !== 'super_admin') return false;
   if (role === 'super_admin') return true;
   try {
