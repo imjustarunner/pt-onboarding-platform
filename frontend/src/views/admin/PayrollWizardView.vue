@@ -591,11 +591,14 @@ const loadExistingImports = async () => {
       fetchSlot(ids.prior),
       fetchSlot(ids.twoAgo),
     ]);
-    // For "current" period slot 1, for "prior" period the latest import, for "twoAgo" the latest import
+    // Match the run this wizard slot expects — not "any latest import" on that period.
+    // Prior still has Run 1 from when it was current; two-ago may have Run 1/2. Those must
+    // not look like Version 2 / Version 3 already done.
+    // slot_number 1 = current Run 1, 2 = prior Run 2, 3 = two-ago Run 3
     existingImports.value = {
-      current: (currentList || []).find((i) => Number(i.slot_number) === 1) || (currentList || [])[0] || null,
-      prior:   (priorList || []).slice(-1)[0] || null,
-      twoAgo:  (twoAgoList || []).slice(-1)[0] || null,
+      current: (currentList || []).find((i) => Number(i.slot_number) === 1) || null,
+      prior:   (priorList || []).find((i) => Number(i.slot_number) === 2) || null,
+      twoAgo:  (twoAgoList || []).find((i) => Number(i.slot_number) === 3) || null,
     };
   } finally {
     loadingExistingImports.value = false;
@@ -617,12 +620,18 @@ const clearUploadSlot = (slot) => {
   // (clearUploadSlot is called after "Clear" — banner will reappear since uploadFiles slot is null again)
 };
 
-const importFileToPeriod = async (periodId, file, label) => {
+const importFileToPeriod = async (periodId, file, label, existingImport = null) => {
   const fd = new FormData();
   fd.append('file', file);
-  const resp = await api.post(`/payroll/periods/${periodId}/import`, fd);
+  // When this wizard slot already has its expected run, replace that import.
+  // Otherwise POST /import assigns the next free slot (Run 2 / Run 3 catch-up).
+  const resp = existingImport?.id
+    ? await api.post(`/payroll/periods/${periodId}/imports/${existingImport.id}/replace`, fd)
+    : await api.post(`/payroll/periods/${periodId}/import`, fd);
   const inserted = resp.data?.inserted ?? resp.data?.rowCount ?? '?';
-  return `${label}: imported ${inserted} rows.`;
+  return existingImport?.id
+    ? `${label}: replaced with ${inserted} rows.`
+    : `${label}: imported ${inserted} rows.`;
 };
 
 const uploadAllReports = async () => {
@@ -633,19 +642,32 @@ const uploadAllReports = async () => {
     const results = { ...uploadResults.value };
 
     if (uploadFiles.value.current && selectedPeriodId.value) {
-      results.current = await importFileToPeriod(selectedPeriodId.value, uploadFiles.value.current, 'Current');
+      results.current = await importFileToPeriod(
+        selectedPeriodId.value,
+        uploadFiles.value.current,
+        'Current',
+        existingImports.value.current
+      );
       uploadFiles.value = { ...uploadFiles.value, current: null };
     }
 
     if (uploadFiles.value.prior && priorPeriod.value?.id) {
-      // Next slot on prior period (typically Run 2)
-      results.prior = await importFileToPeriod(priorPeriod.value.id, uploadFiles.value.prior, 'Prior Run 2');
+      results.prior = await importFileToPeriod(
+        priorPeriod.value.id,
+        uploadFiles.value.prior,
+        'Prior Run 2',
+        existingImports.value.prior
+      );
       uploadFiles.value = { ...uploadFiles.value, prior: null };
     }
 
     if (uploadFiles.value.twoAgo && twoAgoPeriod.value?.id) {
-      // Next slot on two-ago period (typically Run 3)
-      results.twoAgo = await importFileToPeriod(twoAgoPeriod.value.id, uploadFiles.value.twoAgo, 'Two-ago Run 3');
+      results.twoAgo = await importFileToPeriod(
+        twoAgoPeriod.value.id,
+        uploadFiles.value.twoAgo,
+        'Two-ago Run 3',
+        existingImports.value.twoAgo
+      );
       uploadFiles.value = { ...uploadFiles.value, twoAgo: null };
     }
 
