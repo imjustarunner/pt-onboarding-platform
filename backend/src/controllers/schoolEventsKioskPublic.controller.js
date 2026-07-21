@@ -19,6 +19,7 @@ import {
   saveSchoolEventStaffPhoto,
   ensureSchoolEventPhotoForCheckout
 } from '../services/schoolEventStaffPhoto.service.js';
+import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
 
 const TOKEN_TYPE = 'school_events_kiosk';
 const KIND = 'school_events';
@@ -151,6 +152,36 @@ function eventAllowsPunchToday(eventRow) {
   return { ok, todayYmd, timezone: tz, startYmd, endYmd };
 }
 
+async function isKioskAgendaViewer(req, agencyId) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role !== 'admin' && role !== 'super_admin') return false;
+  if (role === 'super_admin') return true;
+  try {
+    return await userHasAgencyOrAffiliatedOrgAccessForRequest(req, agencyId);
+  } catch {
+    return false;
+  }
+}
+
+function mapKioskEventRow(r) {
+  const day = eventAllowsPunchToday(r);
+  return {
+    id: Number(r.id),
+    title: r.title || 'School event',
+    eventType: r.event_type,
+    schoolName: r.school_name || null,
+    startsAt: r.starts_at,
+    endsAt: r.ends_at,
+    timezone: r.timezone || 'America/Denver',
+    employeeReportTime: r.employee_report_time != null && r.employee_report_time !== ''
+      ? String(r.employee_report_time).slice(0, 8)
+      : null,
+    schoolEventStatus: String(r.school_event_status || 'scheduled'),
+    punchAllowedToday: !!day.ok,
+    todayYmd: day.todayYmd
+  };
+}
+
 async function loadEventStaff(eventId) {
   const eid = parsePositiveInt(eventId);
   if (!eid) return [];
@@ -271,8 +302,16 @@ export const listSchoolEventsKioskEvents = async (req, res, next) => {
     const m = await assertTokenMatchesSlug(ctx, req.params.slug);
     if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
 
+    const agendaMode = await isKioskAgendaViewer(req, m.agencyId);
     const typeList = [...SCHOOL_PORTAL_EVENT_TYPES];
     const placeholders = typeList.map(() => '?').join(', ');
+
+    const dateWindowSql = agendaMode
+      ? `AND ce.starts_at >= (UTC_TIMESTAMP() - INTERVAL 1 DAY)
+         AND ce.starts_at <= (UTC_TIMESTAMP() + INTERVAL 180 DAY)`
+      : `AND ce.starts_at >= (UTC_TIMESTAMP() - INTERVAL 2 DAY)
+         AND ce.starts_at <= (UTC_TIMESTAMP() + INTERVAL 2 DAY)`;
+
     const [rows] = await pool.execute(
       `SELECT ce.id, ce.title, ce.event_type, ce.starts_at, ce.ends_at, ce.timezone,
               ce.school_event_status, ce.employee_report_time, ce.is_active,
@@ -283,35 +322,18 @@ export const listSchoolEventsKioskEvents = async (req, res, next) => {
          AND ce.is_active = 1
          AND ce.event_type IN (${placeholders})
          AND COALESCE(ce.school_event_status, 'scheduled') <> 'canceled'
-         AND ce.starts_at >= (UTC_TIMESTAMP() - INTERVAL 2 DAY)
-         AND ce.starts_at <= (UTC_TIMESTAMP() + INTERVAL 2 DAY)
+         ${dateWindowSql}
        ORDER BY ce.starts_at ASC
-       LIMIT 80`,
+       LIMIT ${agendaMode ? 200 : 80}`,
       [m.agencyId, ...typeList]
     );
 
-    const events = (rows || [])
-      .map((r) => {
-        const day = eventAllowsPunchToday(r);
-        return {
-          id: Number(r.id),
-          title: r.title || 'School event',
-          eventType: r.event_type,
-          schoolName: r.school_name || null,
-          startsAt: r.starts_at,
-          endsAt: r.ends_at,
-          timezone: r.timezone || 'America/Denver',
-          employeeReportTime: r.employee_report_time != null && r.employee_report_time !== ''
-            ? String(r.employee_report_time).slice(0, 8)
-            : null,
-          schoolEventStatus: String(r.school_event_status || 'scheduled'),
-          punchAllowedToday: !!day.ok,
-          todayYmd: day.todayYmd
-        };
-      })
-      .filter((e) => e.punchAllowedToday || true);
+    let events = (rows || []).map(mapKioskEventRow);
+    if (!agendaMode) {
+      events = events.filter((e) => e.punchAllowedToday);
+    }
 
-    res.json({ ok: true, agencyId: m.agencyId, events });
+    res.json({ ok: true, agencyId: m.agencyId, agendaMode, events });
   } catch (e) {
     next(e);
   }

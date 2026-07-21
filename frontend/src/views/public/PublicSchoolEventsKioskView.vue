@@ -33,10 +33,15 @@
     <!-- Event list -->
     <section v-else-if="!selectedEventId" class="card">
       <div class="row-between">
-        <h2>Today’s school events</h2>
+        <h2>{{ agendaMode ? 'Upcoming school events' : 'Today’s school events' }}</h2>
         <button type="button" class="btn-ghost" :disabled="busy" @click="loadEvents">Refresh</button>
       </div>
-      <div v-if="!events.length" class="empty">No school events in the next couple of days.</div>
+      <p v-if="agendaMode" class="agenda-note">
+        Admin agenda — future events are listed in date order. Staff can clock in only on the event date.
+      </p>
+      <div v-if="!events.length" class="empty">
+        {{ agendaMode ? 'No upcoming school events scheduled.' : 'No school events today.' }}
+      </div>
       <button
         v-for="e in events"
         :key="e.id"
@@ -51,6 +56,7 @@
         </div>
         <div class="event-meta">
           <span>{{ formatWhen(e) }}</span>
+          <span v-if="!e.punchAllowedToday && agendaMode" class="future-tag">Upcoming</span>
           <span v-if="reportLabel(e)" class="report">{{ reportLabel(e) }}</span>
         </div>
       </button>
@@ -67,6 +73,18 @@
       <p v-if="selectedMeta" class="when">{{ formatWhen(selectedMeta) }}</p>
       <p v-if="selectedMeta && reportLabel(selectedMeta)" class="report">{{ reportLabel(selectedMeta) }}</p>
 
+      <div v-if="!punchAllowedOnSelectedEvent" class="preview-only">
+        <p>
+          This event is not open for clock-in yet. Assigned staff can check in and out here on the event date.
+        </p>
+        <h3>Assigned staff</h3>
+        <div v-if="!staff.length" class="empty">No staff assigned yet.</div>
+        <ul v-else class="staff-preview">
+          <li v-for="s in staff" :key="s.id">{{ s.displayName }}</li>
+        </ul>
+      </div>
+
+      <template v-else>
       <div class="pin-row">
         <input
           v-model="staffPin"
@@ -182,6 +200,7 @@
           </button>
         </div>
       </div>
+      </template>
     </section>
   </div>
 </template>
@@ -203,6 +222,7 @@ const brandingStore = useBrandingStore();
 
 const slug = ref('');
 const token = ref('');
+const agendaMode = ref(false);
 const pin = ref('');
 const staffPin = ref('');
 const busy = ref(false);
@@ -221,6 +241,8 @@ const photoVideo = ref(null);
 const bypassAcknowledged = ref(false);
 
 const storageKey = computed(() => `schoolEventsKiosk.${slug.value || 'x'}`);
+
+const punchAllowedOnSelectedEvent = computed(() => !!selectedMeta.value?.punchAllowedToday);
 
 function authHeaders() {
   return token.value ? { Authorization: `Bearer ${token.value}` } : {};
@@ -309,6 +331,7 @@ async function loadEvents() {
       { headers: authHeaders(), skipAuthRedirect: true, skipGlobalLoading: true }
     );
     events.value = Array.isArray(res.data?.events) ? res.data.events : [];
+    agendaMode.value = !!res.data?.agendaMode;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load events';
     if (e?.response?.status === 401) lockStation();
@@ -322,6 +345,7 @@ async function selectEvent(e) {
   activeUser.value = null;
   hasPhoto.value = false;
   resetPhotoUi();
+  selectedMeta.value = { ...e };
   await loadStaff();
 }
 
@@ -336,6 +360,9 @@ async function loadStaff() {
     );
     selectedMeta.value = res.data || null;
     staff.value = Array.isArray(res.data?.staff) ? res.data.staff : [];
+    if (selectedMeta.value && res.data?.punchAllowedToday === false) {
+      selectedMeta.value = { ...selectedMeta.value, punchAllowedToday: false };
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load staff';
   } finally {
@@ -837,6 +864,42 @@ h2, h3 {
 .empty {
   color: #64748b;
   padding: 1rem 0;
+}
+.agenda-note {
+  margin: 0 0 0.85rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+.future-tag {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6366f1;
+}
+.preview-only {
+  margin-top: 1rem;
+  padding: 0.95rem;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.preview-only h3 {
+  margin: 0.85rem 0 0.45rem;
+  font-size: 0.95rem;
+}
+.staff-preview {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #334155;
+}
+.staff-preview li {
+  margin: 0.25rem 0;
 }
 @media (max-width: 560px) {
   .checkout-bar {
