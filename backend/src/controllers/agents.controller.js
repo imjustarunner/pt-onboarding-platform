@@ -6,7 +6,8 @@ import {
   matchCatalogBackedPageNavigationIntent,
   matchDeterministicCapabilityIntent,
   matchProfileSectionJumpIntent,
-  getCapabilityCatalogForTests
+  getCapabilityCatalogForTests,
+  rankCorrectionChoices
 } from '../services/agents/assistantCapabilityCatalog.service.js';
 import {
   shouldAttemptAgencyResearch,
@@ -31,18 +32,47 @@ function askAssistantAllowsVertex() {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
-function withAssistFeedbackMeta(payload, { prompt, capabilityId, runtime } = {}) {
+function withAssistFeedbackMeta(
+  payload,
+  { prompt, capabilityId, runtime, role, allowedToolNames, correctionChoices } = {}
+) {
   const p = payload && typeof payload === 'object' ? payload : {};
+  const capId = capabilityId ?? p.capabilityId ?? null;
+  const promptText = String(prompt || '').trim().slice(0, 500) || null;
+  let choices = Array.isArray(correctionChoices) ? correctionChoices : null;
+  if (!choices && promptText && allowedToolNames) {
+    choices = rankCorrectionChoices({
+      prompt: promptText,
+      role,
+      allowedToolNames,
+      excludeCapabilityId: capId,
+      limit: 6
+    });
+  }
   return {
     ...p,
-    capabilityId: capabilityId ?? p.capabilityId ?? null,
+    capabilityId: capId,
     runtime: runtime ?? p.runtime ?? null,
     feedback: {
-      prompt: String(prompt || '').trim().slice(0, 500) || null,
-      capabilityId: capabilityId ?? p.capabilityId ?? null,
-      runtime: runtime ?? p.runtime ?? null
+      prompt: promptText,
+      capabilityId: capId,
+      runtime: runtime ?? p.runtime ?? null,
+      ...(choices?.length ? { correctionChoices: choices } : {})
     }
   };
+}
+
+/** HH:mm from Date, ISO string, or MySQL datetime — never raw String(date).slice(11,16). */
+function formatHmFromDateish(value) {
+  if (value == null || value === '') return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+  }
+  const s = String(value).trim();
+  if (/^\d{2}:\d{2}$/.test(s)) return s;
+  const m = s.match(/(?:T|\s)(\d{2}:\d{2})(?::\d{2})?/);
+  if (m) return m[1];
+  return '';
 }
 
 function normalizeUiCommands(raw) {
@@ -740,6 +770,28 @@ function buildNextActionsFromToolResults({ toolResults, allowedToolNames }) {
   if (agencyAct?.ok && canNav) {
     actions.push({ type: 'tool', label: 'Open Audit Center', toolCall: { name: 'navigateTo', args: { routeName: 'AuditCenter' } } });
     actions.push({ type: 'prefill', label: 'Filter audit: password reset links (last 7 days)', prefillText: 'Who sent password reset links in the last 7 days?' });
+  }
+
+  const officeSched = lastOkToolResult(toolResults, 'getOfficeSchedule');
+  if (officeSched?.ok && allowedToolNames?.has?.('listOfficeRoster')) {
+    const dateYmd = officeSched.result?.dateYmd || new Date().toISOString().slice(0, 10);
+    const openOffices = (officeSched.result?.offices || []).filter((o) => o?.isOpen);
+    if (openOffices.length === 1 && openOffices[0]?.name) {
+      actions.push({
+        type: 'tool',
+        label: `Who is booked at ${openOffices[0].name}?`,
+        toolCall: {
+          name: 'listOfficeRoster',
+          args: { dateYmd, locationQuery: String(openOffices[0].name) }
+        }
+      });
+    } else {
+      actions.push({
+        type: 'tool',
+        label: 'Who is booked in office?',
+        toolCall: { name: 'listOfficeRoster', args: { dateYmd, locationQuery: '' } }
+      });
+    }
   }
 
   const smRes = lastOkToolResult(toolResults, 'startMeeting');
@@ -1475,13 +1527,37 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
           lines.push(`No offices have any sessions scheduled on ${dateLabel}.`);
         } else {
           const items = open.slice(0, 12).map((o) => {
-            const hours = o.firstStart && o.lastEnd
-              ? ` (${String(o.firstStart).slice(11, 16)}–${String(o.lastEnd).slice(11, 16)})`
-              : '';
+            const startHm = formatHmFromDateish(o.firstStart);
+            const endHm = formatHmFromDateish(o.lastEnd);
+            const hours = startHm && endHm ? ` (${startHm}–${endHm})` : '';
             return `• ${o.name}: ${o.bookedSlots} booked, ${o.availableSlots} open${hours}`;
           });
           lines.push(`${open.length} office(s) active on ${dateLabel}:\n${items.join('\n')}`);
         }
+      }
+    } else if (r.tool === 'listOfficeRoster') {
+      const out = r.result || {};
+      const people = out.people || [];
+      const dateLabel = out.dateYmd || 'today';
+      const loc = out.locationQuery ? ` at ${out.locationQuery}` : '';
+      if (!people.length) {
+        lines.push(out.note || `No one is booked or assigned in office${loc} on ${dateLabel}.`);
+      } else {
+        const items = people.slice(0, 40).map((p) => {
+          const startHm = formatHmFromDateish(p.firstStart);
+          const endHm = formatHmFromDateish(p.lastEnd);
+          const hours = startHm && endHm ? ` ${startHm}–${endHm}` : '';
+          const rooms = Array.isArray(p.rooms) && p.rooms.length
+            ? ` · ${p.rooms.slice(0, 4).join(', ')}`
+            : '';
+          const slots = Number(p.slotCount || 0);
+          const slotLabel = slots > 1 ? ` (${slots} slots)` : '';
+          return `• ${p.name} — ${p.officeName}${hours}${rooms}${slotLabel}`;
+        });
+        const more = people.length > 40 ? `\n…and ${people.length - 40} more` : '';
+        lines.push(
+          `${people.length} people booked/assigned in office${loc} on ${dateLabel}:\n${items.join('\n')}${more}`
+        );
       }
     } else if (r.tool === 'getMyPayrollSummary') {
       const pay = r.result;
@@ -1959,10 +2035,16 @@ export const assist = async (req, res, next) => {
 
     const started = Date.now();
     const { payload: capabilityPayload, allowedToolNames } = buildCapabilityPayloadForReq(req, agentConfig);
+    const assistFeedback = (payload, meta = {}) =>
+      withAssistFeedbackMeta(payload, {
+        role: req.user?.role,
+        allowedToolNames,
+        ...meta
+      });
 
     if (promptAsksForCapabilities(prompt)) {
       return res.json(
-        withAssistFeedbackMeta(buildCapabilityHelpResponse(capabilityPayload), {
+        assistFeedback(buildCapabilityHelpResponse(capabilityPayload), {
           prompt,
           capabilityId: null,
           runtime: 'capability_help'
@@ -2118,7 +2200,7 @@ export const assist = async (req, res, next) => {
           capabilityPayload
         });
         return res.json(
-          withAssistFeedbackMeta(payload, {
+          assistFeedback(payload, {
             prompt: explicit.researchQuery || prompt,
             capabilityId: explicit.capabilityId || 'service_code_research',
             runtime: payload.runtime || 'agency_research'
@@ -2127,7 +2209,7 @@ export const assist = async (req, res, next) => {
       } catch (e) {
         console.warn('[assist] service-code research failed', e?.message || e);
         return res.json(
-          withAssistFeedbackMeta(buildCapabilityHelpResponse(capabilityPayload), {
+          assistFeedback(buildCapabilityHelpResponse(capabilityPayload), {
             prompt,
             capabilityId: null,
             runtime: 'capability_help'
@@ -2398,7 +2480,7 @@ export const assist = async (req, res, next) => {
       }
 
       return res.json(
-        withAssistFeedbackMeta(
+        assistFeedback(
           {
             assistantText: String(assistantText || '').trim() || 'Done.',
             uiCommands,
@@ -2438,7 +2520,7 @@ export const assist = async (req, res, next) => {
         });
         if (payload.runtime !== 'capability_help') {
           return res.json(
-            withAssistFeedbackMeta(payload, {
+            assistFeedback(payload, {
               prompt,
               capabilityId: null,
               runtime: payload.runtime || 'agency_research'
@@ -2448,7 +2530,7 @@ export const assist = async (req, res, next) => {
         // Empty research with no service codes → fall through to capability help below.
         if (payload.runtime === 'agency_research_empty') {
           return res.json(
-            withAssistFeedbackMeta(payload, {
+            assistFeedback(payload, {
               prompt,
               capabilityId: null,
               runtime: 'agency_research_empty'
@@ -2479,7 +2561,13 @@ export const assist = async (req, res, next) => {
       } catch {
         /* ignore */
       }
-      return res.json(buildCapabilityHelpResponse(capabilityPayload));
+      return res.json(
+        assistFeedback(buildCapabilityHelpResponse(capabilityPayload), {
+          prompt,
+          capabilityId: null,
+          runtime: 'capability_help'
+        })
+      );
     }
 
     let rawText;
@@ -2498,7 +2586,13 @@ export const assist = async (req, res, next) => {
       runtime = ai.runtime;
     } catch (e) {
       console.warn('[assist] Vertex unavailable', e?.message || e);
-      return res.json(buildCapabilityHelpResponse(capabilityPayload));
+      return res.json(
+        assistFeedback(buildCapabilityHelpResponse(capabilityPayload), {
+          prompt,
+          capabilityId: null,
+          runtime: 'capability_help'
+        })
+      );
     }
 
     const parsed = safeParseAgentJson(rawText);
@@ -2757,15 +2851,24 @@ export const assist = async (req, res, next) => {
       // ignore
     }
 
-    res.json({
-      assistantText: String(assistantText || '').trim() || '(No response)',
-      uiCommands,
-      toolCalls,
-      toolResults,
-      nextActions,
-      nextCards,
-      runtime
-    });
+    res.json(
+      assistFeedback(
+        {
+          assistantText: String(assistantText || '').trim() || '(No response)',
+          uiCommands,
+          toolCalls,
+          toolResults,
+          nextActions,
+          nextCards,
+          runtime
+        },
+        {
+          prompt,
+          capabilityId: null,
+          runtime
+        }
+      )
+    );
   } catch (e) {
     next(e);
   }

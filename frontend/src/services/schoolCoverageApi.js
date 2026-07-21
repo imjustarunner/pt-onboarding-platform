@@ -103,12 +103,21 @@ export async function applyForOpenSchoolDay(agencyId, { schoolId, dayOfWeek, not
   return data;
 }
 
-export async function enableSchoolEventStaffing(agencyId, eventId, { minProvidersPerSession = 1 } = {}) {
+export async function enableSchoolEventStaffing(agencyId, eventId, { minProvidersPerSession = 2 } = {}) {
   const { data } = await api.post(
     `/school-coverage/events/${eventId}/enable-staffing`,
     { minProvidersPerSession },
     { params: withAgency({}, agencyId), ...quiet }
   );
+  return data;
+}
+
+/** School-year coverage for BTS / Fall / Spring check-ins (Aug 1 – Jul 31). */
+export async function fetchSchoolYearEventCoverage(agencyId, schoolYear) {
+  const { data } = await api.get('/school-portal/school-events/school-year-coverage', {
+    params: withAgency({ schoolYear: schoolYear || undefined }, agencyId),
+    ...quiet
+  });
   return data;
 }
 

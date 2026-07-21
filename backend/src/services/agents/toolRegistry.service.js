@@ -619,6 +619,7 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'getEventResponses':
         return roleAllowed(reqUser, PROGRAM_EVENTS_SEARCH_ROLES);
       case 'getOfficeSchedule':
+      case 'listOfficeRoster':
         return roleAllowed(reqUser, ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant']);
       case 'findProvidersByApproach':
         // Anyone provider+ can ask "who uses CBT" for internal-referral purposes.
@@ -1269,7 +1270,7 @@ export function getToolSchemas() {
     {
       name: 'getOfficeSchedule',
       description:
-        'List which physical office locations have any sessions scheduled on a given date, and the count of booked vs released slots per office. Use for questions like "what offices are open today", "any sessions at the Boca office tomorrow", or "is anyone using the office on Saturday".',
+        'List which physical office locations have any sessions scheduled on a given date, and the count of booked vs released slots per office. Use for "what offices are open today" or "any sessions at Boca tomorrow". Do NOT use for "who is booked" / "who has an office" — use listOfficeRoster for names.',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -1281,6 +1282,25 @@ export function getToolSchemas() {
           locationQuery: {
             type: 'string',
             description: 'Optional name fragment to filter offices.'
+          }
+        }
+      }
+    },
+    {
+      name: 'listOfficeRoster',
+      description:
+        'List the people (providers) booked or assigned in physical office locations on a given date, with office name, rooms, and time windows. Use for "who is booked in the office today", "who has an office today", or "who is in Windchime today".',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          dateYmd: {
+            type: 'string',
+            description: 'YYYY-MM-DD. Defaults to today.'
+          },
+          locationQuery: {
+            type: 'string',
+            description: 'Optional office name fragment (e.g. "Windchime").'
           }
         }
       }
@@ -2588,6 +2608,120 @@ export async function executeToolCall({ req, toolCall }) {
       ok: true,
       tool: name,
       result: { dateYmd, totalOffices: offices.length, openOffices: offices.filter((o) => o.isOpen).length, offices }
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // listOfficeRoster — who is booked / assigned in offices on a date.
+  // ---------------------------------------------------------------------
+  if (name === 'listOfficeRoster') {
+    requireAuthed(req);
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    const dateYmd = str(args.dateYmd || new Date().toISOString().slice(0, 10), 10);
+    const locationQuery = args.locationQuery ? String(args.locationQuery).slice(0, 100) : '';
+    const dayStart = `${dateYmd} 00:00:00`;
+    const dayEnd = `${dateYmd} 23:59:59`;
+
+    const where = [
+      'ola.agency_id = ?',
+      'ol.is_active = TRUE',
+      'e.start_at >= ?',
+      'e.start_at <= ?',
+      "(e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')",
+      'COALESCE(e.booked_provider_id, e.assigned_provider_id, sa.provider_id) IS NOT NULL'
+    ];
+    const params = [agencyId, dayStart, dayEnd];
+    if (locationQuery) {
+      where.push('ol.name LIKE ?');
+      params.push(`%${locationQuery}%`);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT
+         ol.id AS office_location_id,
+         ol.name AS office_name,
+         e.id AS event_id,
+         e.start_at,
+         e.end_at,
+         e.status,
+         r.name AS room_name,
+         r.room_number,
+         COALESCE(e.booked_provider_id, e.assigned_provider_id, sa.provider_id) AS provider_id,
+         COALESCE(
+           NULLIF(TRIM(CONCAT(COALESCE(bu.first_name, ''), ' ', COALESCE(bu.last_name, ''))), ''),
+           NULLIF(TRIM(CONCAT(COALESCE(au.first_name, ''), ' ', COALESCE(au.last_name, ''))), ''),
+           NULLIF(TRIM(CONCAT(COALESCE(su.first_name, ''), ' ', COALESCE(su.last_name, ''))), '')
+         ) AS provider_name
+       FROM office_events e
+       JOIN office_locations ol ON ol.id = e.office_location_id
+       JOIN office_location_agencies ola ON ola.office_location_id = ol.id
+       JOIN office_rooms r ON r.id = e.room_id
+       LEFT JOIN users bu ON e.booked_provider_id = bu.id
+       LEFT JOIN users au ON e.assigned_provider_id = au.id
+       LEFT JOIN office_standing_assignments sa ON e.standing_assignment_id = sa.id
+       LEFT JOIN users su ON sa.provider_id = su.id
+       WHERE ${where.join(' AND ')}
+       ORDER BY ol.name ASC, provider_name ASC, e.start_at ASC
+       LIMIT 250`,
+      params
+    );
+
+    const byKey = new Map();
+    for (const row of rows || []) {
+      const providerId = Number(row.provider_id || 0);
+      const officeId = Number(row.office_location_id || 0);
+      if (!providerId || !officeId) continue;
+      const key = `${officeId}:${providerId}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          providerId,
+          name: String(row.provider_name || '').trim() || `Provider #${providerId}`,
+          officeId,
+          officeName: row.office_name,
+          slotCount: 0,
+          bookedSlots: 0,
+          assignedSlots: 0,
+          firstStart: null,
+          lastEnd: null,
+          rooms: []
+        });
+      }
+      const rec = byKey.get(key);
+      rec.slotCount += 1;
+      const status = String(row.status || '').toUpperCase();
+      if (status === 'BOOKED') rec.bookedSlots += 1;
+      else rec.assignedSlots += 1;
+      if (row.start_at && (!rec.firstStart || row.start_at < rec.firstStart)) rec.firstStart = row.start_at;
+      if (row.end_at && (!rec.lastEnd || row.end_at > rec.lastEnd)) rec.lastEnd = row.end_at;
+      const roomLabel = String(row.room_number || row.room_name || '').trim();
+      if (roomLabel && !rec.rooms.includes(roomLabel)) rec.rooms.push(roomLabel);
+    }
+
+    const people = Array.from(byKey.values()).sort(
+      (a, b) =>
+        String(a.officeName || '').localeCompare(String(b.officeName || '')) ||
+        String(a.name || '').localeCompare(String(b.name || ''))
+    );
+
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        dateYmd,
+        locationQuery: locationQuery || null,
+        totalPeople: people.length,
+        people,
+        note: people.length
+          ? null
+          : locationQuery
+            ? `No one is booked or assigned at an office matching "${locationQuery}" on ${dateYmd}.`
+            : `No one is booked or assigned in office on ${dateYmd}.`
+      }
     };
   }
 

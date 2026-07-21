@@ -252,7 +252,7 @@
                     <div class="aap-feedback-correct-title">What did you mean?</div>
                     <div class="aap-feedback-choices">
                       <button
-                        v-for="c in correctionChoices"
+                        v-for="c in correctionChoicesForTurn(t)"
                         :key="c.id"
                         type="button"
                         class="aap-feedback-chip"
@@ -549,19 +549,37 @@ const capabilityActionPrompt = computed(() => {
   return 'What can you do for me right now?';
 });
 
-const correctionChoices = computed(() => {
+function normalizeCorrectionChoice(c) {
+  return {
+    id: String(c?.id || ''),
+    label: String(c?.label || c?.id || '').slice(0, 80)
+  };
+}
+
+/** Prefer per-turn ranked chips from assist; fall back to a short catalog sample. */
+function correctionChoicesForTurn(t) {
+  const fromTurn = t?.feedback?.correctionChoices;
+  if (Array.isArray(fromTurn) && fromTurn.length) {
+    return fromTurn
+      .slice(0, 8)
+      .map(normalizeCorrectionChoice)
+      .filter((c) => c.id && c.label);
+  }
+  const exclude = String(t?.feedback?.capabilityId || '');
   const list = capabilityPayload.value?.correctionChoices;
   if (Array.isArray(list) && list.length) {
-    return list.slice(0, 16).map((c) => ({
-      id: String(c.id || ''),
-      label: String(c.label || c.id || '').slice(0, 80)
-    })).filter((c) => c.id && c.label);
+    return list
+      .filter((c) => String(c?.id || '') !== exclude)
+      .slice(0, 6)
+      .map(normalizeCorrectionChoice)
+      .filter((c) => c.id && c.label);
   }
   const map = capabilityPayload.value?.promptToCapabilityId || {};
   return Object.entries(map)
-    .slice(0, 16)
+    .filter(([, id]) => String(id) !== exclude)
+    .slice(0, 6)
     .map(([label, id]) => ({ id: String(id), label: String(label).slice(0, 80) }));
-});
+}
 
 function findPriorUserPrompt(assistantIdx) {
   for (let i = assistantIdx - 1; i >= 0; i--) {
@@ -572,10 +590,17 @@ function findPriorUserPrompt(assistantIdx) {
 
 function attachFeedbackMeta(data, fallbackPrompt = '') {
   const fb = data?.feedback && typeof data.feedback === 'object' ? data.feedback : {};
+  const choices = Array.isArray(fb.correctionChoices)
+    ? fb.correctionChoices
+        .slice(0, 8)
+        .map(normalizeCorrectionChoice)
+        .filter((c) => c.id && c.label)
+    : [];
   return {
     prompt: String(fb.prompt || fallbackPrompt || '').trim().slice(0, 500),
     capabilityId: fb.capabilityId ?? data?.capabilityId ?? null,
     runtime: fb.runtime ?? data?.runtime ?? null,
+    correctionChoices: choices,
     submitted: false,
     showCorrection: false,
     busy: false,

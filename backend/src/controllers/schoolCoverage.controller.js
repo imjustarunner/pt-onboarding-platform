@@ -501,7 +501,7 @@ export const enableEventStaffing = async (req, res, next) => {
     }
     const eventId = safeInt(req.params.eventId || req.body?.eventId);
     if (!eventId) return res.status(400).json({ error: { message: 'eventId is required' } });
-    const minProviders = safeInt(req.body?.minProvidersPerSession) || 1;
+    const minProviders = safeInt(req.body?.minProvidersPerSession) || 2;
     const event = await enableSchoolEventProviderStaffing({
       eventId,
       agencyId,

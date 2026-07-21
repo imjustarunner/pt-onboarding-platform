@@ -128,7 +128,8 @@
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_resource_fair' }" @click="typeFilter = 'school_resource_fair'">Resource Fair</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_family_night' }" @click="typeFilter = 'school_family_night'">Family Night</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_orientation' }" @click="typeFilter = 'school_orientation'">Orientation</button>
-      <button type="button" class="chip" :class="{ active: typeFilter === 'school_spring_event' }" @click="typeFilter = 'school_spring_event'">Spring</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_fall_check_in' }" @click="typeFilter = 'school_fall_check_in'">Fall Check-in</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_spring_event' }" @click="typeFilter = 'school_spring_event'">Spring Check-in</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_holiday' }" @click="typeFilter = 'school_holiday'">Holiday</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_day_off' }" @click="typeFilter = 'school_day_off'">Day off</button>
       <button type="button" class="chip" :class="{ active: staffingFilter === 'needs_providers' }" @click="toggleStaffingFilter('needs_providers')">Needs providers</button>
@@ -390,7 +391,8 @@ function toggleStaffingFilter(v) {
 function labelType(t) {
   const map = {
     school_back_to_school: 'Back to School',
-    school_spring_event: 'Spring Event',
+    school_fall_check_in: 'Fall School Check-in',
+    school_spring_event: 'Spring School Check-in',
     school_open_house: 'Open House',
     school_resource_fair: 'Resource Fair',
     school_family_night: 'Family Event',
@@ -404,6 +406,7 @@ function labelType(t) {
 
 function typeClass(t) {
   if (t === 'school_back_to_school') return 'bts';
+  if (t === 'school_fall_check_in') return 'fall';
   if (t === 'school_resource_fair') return 'fair';
   if (t === 'school_open_house') return 'open';
   if (t === 'school_orientation') return 'orient';
@@ -1035,6 +1038,10 @@ watch(
 .type-pill.bts {
   background: #dbeafe;
   color: #1d4ed8;
+}
+.type-pill.fall {
+  background: #ffedd5;
+  color: #9a3412;
 }
 .type-pill.fair {
   background: #dcfce7;

@@ -32,11 +32,12 @@
         <option value="school_holiday">Holiday</option>
         <option value="school_day_off">Day off</option>
         <option value="school_back_to_school">Back to School</option>
+        <option value="school_fall_check_in">Fall School Check-in</option>
+        <option value="school_spring_event">Spring School Check-in</option>
         <option value="school_open_house">Open House</option>
         <option value="school_resource_fair">Resource Fair</option>
         <option value="school_family_night">Family Night</option>
         <option value="school_orientation">Orientation</option>
-        <option value="school_spring_event">Spring Event</option>
         <option value="school_other">Other</option>
       </select>
       <button type="button" class="btn btn-ghost btn-sm" :disabled="loading" @click="reload()">
@@ -96,10 +97,11 @@
       <div class="legend">
         <span><i class="lg holiday" /> Holiday / Day off</span>
         <span><i class="lg bts" /> Back to School</span>
+        <span><i class="lg fall" /> Fall School Check-in</span>
         <span><i class="lg open" /> Open House / Orientation</span>
         <span><i class="lg fair" /> Resource Fair</span>
         <span><i class="lg family" /> Family Night</span>
-        <span><i class="lg spring" /> Spring / Other</span>
+        <span><i class="lg spring" /> Spring School Check-in</span>
       </div>
     </template>
   </div>
@@ -174,7 +176,8 @@ function formatWhen(e) {
 function labelType(e) {
   const map = {
     school_back_to_school: 'Back to School',
-    school_spring_event: 'Spring Event',
+    school_fall_check_in: 'Fall School Check-in',
+    school_spring_event: 'Spring School Check-in',
     school_open_house: 'Open House',
     school_resource_fair: 'Resource Fair',
     school_family_night: 'Family Night',
@@ -189,11 +192,13 @@ function labelType(e) {
 function typeColor(e) {
   const t = e.eventType;
   if (t === 'school_back_to_school') return 'bts';
+  if (t === 'school_fall_check_in') return 'fall';
+  if (t === 'school_spring_event') return 'spring';
   if (t === 'school_resource_fair') return 'fair';
   if (t === 'school_open_house' || t === 'school_orientation') return 'open';
   if (t === 'school_family_night') return 'family';
   if (t === 'school_holiday' || t === 'school_day_off') return 'holiday';
-  return 'spring';
+  return 'fair';
 }
 
 const filteredEvents = computed(() => {
@@ -414,6 +419,7 @@ onMounted(() => reload());
   text-align: left;
 }
 .evt.bts { background: #2563eb; }
+.evt.fall { background: #c2410c; }
 .evt.fair { background: #16a34a; }
 .evt.open { background: #ea580c; }
 .evt.family { background: #0f766e; }
@@ -436,6 +442,7 @@ onMounted(() => reload());
   margin-right: 0.25rem;
 }
 .lg.bts { background: #2563eb; }
+.lg.fall { background: #c2410c; }
 .lg.fair { background: #16a34a; }
 .lg.open { background: #ea580c; }
 .lg.family { background: #0f766e; }
@@ -470,6 +477,7 @@ onMounted(() => reload());
   flex-shrink: 0;
 }
 .dot.bts { background: #2563eb; }
+.dot.fall { background: #c2410c; }
 .dot.fair { background: #16a34a; }
 .dot.open { background: #ea580c; }
 .dot.family { background: #0f766e; }

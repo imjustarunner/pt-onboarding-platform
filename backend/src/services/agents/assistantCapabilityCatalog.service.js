@@ -71,6 +71,27 @@ function parseDateHintFromPrompt(promptLower) {
   return null;
 }
 
+/** Extract an office location name fragment from prompts like "in the Windchime office". */
+function parseOfficeLocationQueryFromPrompt(promptLower) {
+  const s = String(promptLower || '').toLowerCase();
+  if (!s) return '';
+  const inOffice = s.match(
+    /\b(?:in|at|for|of)\s+(?:the\s+)?([a-z0-9][a-z0-9\s'-]{0,40}?)\s+office\b/
+  );
+  if (inOffice?.[1]) {
+    const name = inOffice[1].trim();
+    if (name && !/^(an|the|our|any|my|this|that|main)$/.test(name)) return name.slice(0, 100);
+  }
+  const bareOffice = s.match(/\b([a-z0-9][a-z0-9'-]{1,40})\s+office\b/);
+  if (bareOffice?.[1]) {
+    const name = bareOffice[1].trim();
+    if (name && !/^(an|the|our|any|my|this|that|main|has|have|open|using)$/.test(name)) {
+      return name.slice(0, 100);
+    }
+  }
+  return '';
+}
+
 function parseTimeOfDay(text) {
   const s = String(text || '').toLowerCase().trim();
   if (!s) return null;
@@ -1042,6 +1063,44 @@ function catalogEntries() {
       })
     },
     {
+      id: 'office_roster',
+      audience: ['admin_like', 'provider_like'],
+      group: 'Operations',
+      prompt: 'Who is booked in the office today?',
+      requiredToolsAll: ['listOfficeRoster'],
+      subtitleTag: 'office roster',
+      semanticExamples: [
+        'who has an office today',
+        'who is booked in windchime today',
+        'who is in the office today',
+        'show me who is scheduled at the office',
+        'office roster today',
+        'which providers are booked in office'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('listOfficeRoster')) return false;
+        if (/\bintake\b/.test(lower)) return false;
+        if (!/\boffice(s)?\b/.test(lower)) return false;
+        if (/\b(who|who's|whos|whom)\b/.test(lower)) return true;
+        return /\b(roster|staffed|providers?\s+booked|booked\s+providers?)\b/.test(lower);
+      },
+      buildIntent: (lower) => {
+        const dateHint = parseDateHintFromPrompt(lower);
+        const today = new Date().toISOString().slice(0, 10);
+        return {
+          intent: 'office_roster',
+          capabilityId: 'office_roster',
+          toolCalls: [{
+            name: 'listOfficeRoster',
+            args: {
+              dateYmd: dateHint || today,
+              locationQuery: parseOfficeLocationQueryFromPrompt(lower)
+            }
+          }]
+        };
+      }
+    },
+    {
       id: 'office_schedule',
       audience: ['admin_like', 'provider_like'],
       group: 'Operations',
@@ -1051,19 +1110,27 @@ function catalogEntries() {
       semanticExamples: [
         'which offices are open',
         'office hours today',
-        'is the main office open'
+        'is the main office open',
+        'any sessions at the boca office tomorrow'
       ],
       matcher: (lower, allowedTools) =>
         allowedTools.has('getOfficeSchedule') &&
         /\boffice(s)?\b/.test(lower) &&
-        /\b(open|sessions?|booked|scheduled|today|tomorrow|this|next)\b/.test(lower),
+        !/\b(who|who's|whos|whom)\b/.test(lower) &&
+        /\b(open|hours|sessions?|scheduled|active|using)\b/.test(lower),
       buildIntent: (lower) => {
         const dateHint = parseDateHintFromPrompt(lower);
         const today = new Date().toISOString().slice(0, 10);
         return {
           intent: 'office_schedule',
           capabilityId: 'office_schedule',
-          toolCalls: [{ name: 'getOfficeSchedule', args: { dateYmd: dateHint || today, locationQuery: '' } }]
+          toolCalls: [{
+            name: 'getOfficeSchedule',
+            args: {
+              dateYmd: dateHint || today,
+              locationQuery: parseOfficeLocationQueryFromPrompt(lower)
+            }
+          }]
         };
       }
     },
@@ -1165,6 +1232,52 @@ function visibleEntriesForRoleAndTools(role, allowedToolNames) {
   return entries;
 }
 
+/**
+ * Rank "What did you mean?" chips by similarity to the failed prompt.
+ * Excludes the capability that already ran; pads with catalog order if needed.
+ */
+export function rankCorrectionChoices({
+  prompt,
+  role,
+  allowedToolNames,
+  excludeCapabilityId = null,
+  limit = 6
+} = {}) {
+  const max = Math.min(Math.max(1, Number(limit) || 6), 12);
+  const exclude = excludeCapabilityId ? String(excludeCapabilityId) : '';
+  const entries = visibleEntriesForRoleAndTools(role, allowedToolNames).filter(
+    (e) => String(e.id || '') !== exclude
+  );
+  if (!entries.length) return [];
+
+  const ranked = rankCapabilitiesBySimilarity({ prompt, entries });
+  const out = [];
+  const seen = new Set();
+  for (const r of ranked) {
+    const id = String(r.entry?.id || '');
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      label: String(r.entry.prompt || id),
+      tag: String(r.entry.subtitleTag || '')
+    });
+    if (out.length >= max) return out;
+  }
+  for (const e of entries) {
+    const id = String(e.id || '');
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      label: String(e.prompt || id),
+      tag: String(e.subtitleTag || '')
+    });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 export function buildCapabilityUiPayload({ role, allowedToolNames }) {
   const entries = visibleEntriesForRoleAndTools(role, allowedToolNames);
   const audience = roleAudience(role);
@@ -1206,6 +1319,7 @@ export function buildCapabilityUiPayload({ role, allowedToolNames }) {
     inChatAction,
     promptToCapabilityId,
     capabilityIds: entries.map((e) => e.id),
+    // Static catalog fallback only — assist responses attach prompt-ranked choices.
     correctionChoices: entries.map((e) => ({
       id: e.id,
       label: e.prompt,

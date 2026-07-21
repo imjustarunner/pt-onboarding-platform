@@ -31,6 +31,8 @@
             <span class="lbl">Event type</span>
             <select v-model="form.category" class="input" :disabled="!!lockedCategory">
               <option value="back_to_school">Back to School</option>
+              <option value="fall_check_in">Fall School Check-in</option>
+              <option value="spring">Spring School Check-in</option>
               <option value="open_house">Open House</option>
               <option value="resource_fair">Resource Fair</option>
               <option value="family_night">Family Night</option>
@@ -38,7 +40,6 @@
               <option value="holiday">Holiday</option>
               <option value="day_off">Day off</option>
               <option value="other">Other school event</option>
-              <option value="spring">Spring Event</option>
             </select>
           </label>
 
@@ -99,7 +100,7 @@
               step="1"
               class="input"
             />
-            <span class="hint">How many providers to staff for this event (default 1).</span>
+            <span class="hint">How many providers to staff for this event (default 2 — raise for larger schools).</span>
           </label>
           <p v-else class="hint">Holidays and days off do not open provider staffing.</p>
 
@@ -117,15 +118,27 @@
             </span>
           </label>
 
+          <label class="field">
+            <span class="lbl">Event details link (optional)</span>
+            <input
+              v-model="form.detailsUrl"
+              type="url"
+              class="input"
+              maxlength="1000"
+              placeholder="https://… flier, webpage, or event details"
+            />
+            <span class="hint">If the school has a public flier or webpage for this event, paste the link.</span>
+          </label>
+
           <label v-if="!isDistrictCreate" class="field">
-            <span class="lbl">Flier (optional)</span>
+            <span class="lbl">Flier file (optional)</span>
             <input type="file" accept=".pdf,image/jpeg,image/png,image/jpg" @change="onFileChange" />
             <div v-if="uploading" class="hint">Uploading…</div>
             <div v-if="form.flierFileUrl || form.eventImageUrl" class="flier-preview">
               <a :href="displayFlierUrl" target="_blank" rel="noopener">View uploaded flier</a>
             </div>
           </label>
-          <p v-else class="hint">Fliers can be attached per school after the district event is created.</p>
+          <p v-else class="hint">Flier files can be attached per school after the district event is created.</p>
 
           <label class="checkbox-row">
             <input v-model="form.outreachTableInvited" type="checkbox" />
@@ -207,12 +220,13 @@ const form = reactive({
   reportTime: '',
   startTime: '17:00',
   endTime: '19:00',
-  minProvidersPerSession: 1,
+  minProvidersPerSession: 2,
   skillBuilderDirectHours: 0,
   schoolEventStatus: 'scheduled',
   outreachTableInvited: false,
   flierFileUrl: '',
   eventImageUrl: '',
+  detailsUrl: '',
   timezone: SCHOOL_EVENT_FALLBACK_TIMEZONE
 });
 
@@ -315,10 +329,11 @@ const submit = async () => {
       outreachTableInvited: form.outreachTableInvited,
       flierFileUrl: form.flierFileUrl || null,
       eventImageUrl: form.eventImageUrl || null,
+      detailsUrl: String(form.detailsUrl || '').trim() || null,
       postToken: props.postToken || undefined
     };
     if (!isCalendarOnlyCategory.value) {
-      payload.minProvidersPerSession = Math.max(1, Math.min(99, Number(form.minProvidersPerSession) || 1));
+      payload.minProvidersPerSession = Math.max(1, Math.min(99, Number(form.minProvidersPerSession) || 2));
     }
     if (canEditPayrollFields.value) {
       payload.skillBuilderDirectHours = Number(form.skillBuilderDirectHours) || 0;
@@ -380,14 +395,15 @@ const hydrateFromEdit = () => {
       : 0;
   form.minProvidersPerSession =
     e.minProvidersPerSession != null && e.minProvidersPerSession !== ''
-      ? Math.max(1, Number(e.minProvidersPerSession) || 1)
+      ? Math.max(1, Number(e.minProvidersPerSession) || 2)
       : e.providersRequested != null
-        ? Math.max(1, Number(e.providersRequested) || 1)
-        : 1;
+        ? Math.max(1, Number(e.providersRequested) || 2)
+        : 2;
   form.schoolEventStatus = e.schoolEventStatus || e.status || 'scheduled';
   form.outreachTableInvited = !!e.outreachTableInvited;
   form.flierFileUrl = e.flierFileUrl || '';
   form.eventImageUrl = e.eventImageUrl || '';
+  form.detailsUrl = e.detailsUrl || '';
   form.timezone = e.timezone || detectLocalTimezone() || SCHOOL_EVENT_FALLBACK_TIMEZONE;
 };
 

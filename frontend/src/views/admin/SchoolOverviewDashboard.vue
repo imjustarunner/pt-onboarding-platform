@@ -552,7 +552,8 @@
             <label>Event type</label>
             <select v-model="schoolEventRequestCategory" class="control-select">
               <option value="back_to_school">Back to School</option>
-              <option value="spring">Spring Event</option>
+              <option value="fall_check_in">Fall School Check-in</option>
+              <option value="spring">Spring School Check-in</option>
             </select>
           </div>
           <div class="form-group">

@@ -370,11 +370,12 @@
           <select v-model="eventsTypeFilter" aria-label="Filter by event type">
             <option value="">All event types</option>
             <option value="school_back_to_school">Back to School</option>
+            <option value="school_fall_check_in">Fall School Check-in</option>
+            <option value="school_spring_event">Spring School Check-in</option>
             <option value="school_open_house">Open House</option>
             <option value="school_resource_fair">Resource Fair</option>
             <option value="school_family_night">Family Night</option>
             <option value="school_orientation">Orientation</option>
-            <option value="school_spring_event">Spring</option>
             <option value="school_other">Other</option>
           </select>
         </div>
@@ -391,7 +392,7 @@
         (MST/MDT). This tab auto-refreshes every {{ pollSeconds }}s while open.
       </p>
 
-      <div class="events-body" :class="{ 'has-panel': !!eventsSelectedEvent }">
+      <div class="events-body has-panel">
         <!-- Calendar view -->
         <div v-if="eventsView === 'calendar'" class="evt-cal-wrap">
           <div class="evt-month-grid">
@@ -424,10 +425,11 @@
           </div>
           <div class="evt-legend">
             <span><i class="evtdot bts" />Back to School</span>
+            <span><i class="evtdot fall" />Fall School Check-in</span>
+            <span><i class="evtdot spring" />Spring School Check-in</span>
             <span><i class="evtdot fair" />Resource Fair</span>
             <span><i class="evtdot open" />Open House / Orientation</span>
             <span><i class="evtdot family" />Family Night</span>
-            <span><i class="evtdot spring" />Spring / Other</span>
             <span><i class="evtdot needs" />Needs staff</span>
           </div>
           <p v-if="!eventsInRange.length" class="empty">No school events this month.</p>
@@ -461,15 +463,107 @@
           </div>
         </div>
 
-        <!-- Staffing side-panel -->
-        <SchoolEventStaffingPanel
-          v-if="eventsSelectedEvent"
-          :event="eventsSelectedEvent"
-          :agency-id="agencyId"
-          class="evt-side-panel"
-          @close="eventsSelectedId = null"
-          @changed="reload"
-        />
+        <!-- School-year coverage + optional staffing -->
+        <aside class="evt-coverage-panel" aria-label="School year event coverage">
+          <SchoolEventStaffingPanel
+            v-if="eventsSelectedEvent"
+            :event="eventsSelectedEvent"
+            :agency-id="agencyId"
+            class="evt-side-panel evt-staffing-in-coverage"
+            @close="eventsSelectedId = null"
+            @changed="onEventsStaffingChanged"
+          />
+
+          <header class="cov-head">
+            <h3>School year coverage</h3>
+            <select v-model="coverageSchoolYear" aria-label="School year" @change="loadCoverage">
+              <option v-for="y in coverageYearOptions" :key="y" :value="y">{{ y }}</option>
+            </select>
+          </header>
+          <p v-if="coverageRangeText" class="cov-range muted">{{ coverageRangeText }}</p>
+
+          <div v-if="coverageTotals" class="cov-rollups">
+            <div class="cov-rollup">
+              <span class="cov-label">Back to School</span>
+              <strong>{{ coverageTotals.back_to_school?.have || 0 }}/{{ coverageTotals.back_to_school?.total || 0 }}</strong>
+            </div>
+            <div class="cov-rollup">
+              <span class="cov-label">Fall check-in</span>
+              <strong>{{ coverageTotals.fall_check_in?.have || 0 }}/{{ coverageTotals.fall_check_in?.total || 0 }}</strong>
+            </div>
+            <div class="cov-rollup">
+              <span class="cov-label">Spring check-in</span>
+              <strong>{{ coverageTotals.spring?.have || 0 }}/{{ coverageTotals.spring?.total || 0 }}</strong>
+            </div>
+          </div>
+
+          <div class="cov-filters">
+            <div class="events-view-toggle cov-toggle">
+              <button type="button" :class="{ active: coverageHaveMode === 'missing' }" @click="coverageHaveMode = 'missing'">Missing</button>
+              <button type="button" :class="{ active: coverageHaveMode === 'have' }" @click="coverageHaveMode = 'have'">Have</button>
+              <button type="button" :class="{ active: coverageHaveMode === 'all' }" @click="coverageHaveMode = 'all'">All</button>
+            </div>
+            <select v-model="coverageTypeFilter" aria-label="Coverage event type">
+              <option value="">All three types</option>
+              <option value="back_to_school">Back to School</option>
+              <option value="fall_check_in">Fall School Check-in</option>
+              <option value="spring">Spring School Check-in</option>
+            </select>
+          </div>
+
+          <div v-if="coverageLoading" class="muted pad">Loading coverage…</div>
+          <div v-else-if="coverageError" class="error pad">{{ coverageError }}</div>
+          <div v-else-if="!filteredCoverageSchools.length" class="muted pad">No schools match this filter.</div>
+          <ul v-else class="cov-school-list">
+            <li v-for="s in filteredCoverageSchools" :key="s.id" class="cov-school">
+              <div class="cov-school-name">
+                <strong>{{ s.name }}</strong>
+                <span v-if="s.districtName" class="muted"> · {{ s.districtName }}</span>
+              </div>
+              <div
+                v-for="cat in coverageCategories"
+                :key="`${s.id}-${cat.key}`"
+                class="cov-event-row"
+                :class="{ missing: !s.events?.[cat.key] }"
+              >
+                <div class="cov-cat">{{ cat.label }}</div>
+                <template v-if="s.events?.[cat.key]">
+                  <button
+                    type="button"
+                    class="cov-event-link"
+                    @click="selectEventsEvent(s.events[cat.key].eventId)"
+                  >
+                    {{ formatCoverageWhen(s.events[cat.key]) }}
+                    <span v-if="s.events[cat.key].title" class="muted"> — {{ s.events[cat.key].title }}</span>
+                  </button>
+                  <div v-if="s.events[cat.key].locationOrDescription" class="muted tiny cov-desc">
+                    {{ s.events[cat.key].locationOrDescription }}
+                  </div>
+                  <div v-if="s.events[cat.key].detailsUrl" class="tiny">
+                    <a :href="s.events[cat.key].detailsUrl" target="_blank" rel="noopener">Event link</a>
+                  </div>
+                  <div class="cov-people">
+                    <span class="tiny">
+                      Assigned:
+                      <template v-if="(s.events[cat.key].assigned || []).length">
+                        {{ (s.events[cat.key].assigned || []).map((p) => p.name).join(', ') }}
+                      </template>
+                      <template v-else>none</template>
+                    </span>
+                    <span class="tiny">
+                      Requested:
+                      <template v-if="(s.events[cat.key].pendingRequests || []).length">
+                        {{ (s.events[cat.key].pendingRequests || []).map((p) => p.name).join(', ') }}
+                      </template>
+                      <template v-else>none</template>
+                    </span>
+                  </div>
+                </template>
+                <div v-else class="muted tiny">Not scheduled</div>
+              </div>
+            </li>
+          </ul>
+        </aside>
       </div>
 
       <!-- Add event: one school or entire district -->
@@ -834,7 +928,8 @@ import {
   expireStaleSchoolRequests,
   applyForOpenSchoolDay,
   upsertProviderDaySlots,
-  fetchHubEvents
+  fetchHubEvents,
+  fetchSchoolYearEventCoverage
 } from '../../../services/schoolCoverageApi';
 import api from '../../../services/api';
 import SchoolEventStaffingPanel from '../../../components/caseload-hub/SchoolEventStaffingPanel.vue';
@@ -890,6 +985,89 @@ const eventsPostDistrictName = ref('');
 const eventsDistrictOptions = ref([]);
 const eventsDistrictsError = ref('');
 const eventsDistrictsLoadedForAgency = ref(null);
+
+const coverageCategories = [
+  { key: 'back_to_school', label: 'Back to School' },
+  { key: 'fall_check_in', label: 'Fall School Check-in' },
+  { key: 'spring', label: 'Spring School Check-in' }
+];
+
+function currentSchoolYearLabel(d = new Date()) {
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;
+  const start = m >= 8 ? y : y - 1;
+  return `${start}-${start + 1}`;
+}
+
+const coverageSchoolYear = ref(currentSchoolYearLabel());
+const coverageYearOptions = computed(() => {
+  const cur = currentSchoolYearLabel();
+  const start = Math.min(2026, parseInt(String(cur).split('-')[0], 10) || 2026);
+  const end = Math.max(parseInt(String(cur).split('-')[0], 10) || start, start) + 2;
+  const years = [];
+  for (let y = start; y <= end; y += 1) years.push(`${y}-${y + 1}`);
+  if (!years.includes('2026-2027')) years.unshift('2026-2027');
+  return [...new Set(years)].sort();
+});
+const coverageHaveMode = ref('missing'); // missing | have | all
+const coverageTypeFilter = ref('');
+const coverageLoading = ref(false);
+const coverageError = ref('');
+const coveragePayload = ref(null);
+
+const coverageTotals = computed(() => coveragePayload.value?.totals || null);
+const coverageRangeText = computed(() => {
+  const r = coveragePayload.value?.range;
+  if (!r?.start || !r?.end) return '';
+  return `${r.start} → ${r.end}`;
+});
+
+const filteredCoverageSchools = computed(() => {
+  const list = coveragePayload.value?.schools || [];
+  const mode = coverageHaveMode.value;
+  const type = coverageTypeFilter.value;
+  const cats = type ? [type] : coverageCategories.map((c) => c.key);
+  return list.filter((s) => {
+    if (mode === 'all') return true;
+    const missingAny = cats.some((c) => !s.events?.[c]);
+    if (mode === 'have') return type ? !!s.events?.[type] : cats.every((c) => !!s.events?.[c]);
+    return type ? !s.events?.[type] : missingAny;
+  });
+});
+
+function formatCoverageWhen(ev) {
+  if (!ev?.startsAt) return 'Scheduled';
+  try {
+    return new Date(ev.startsAt).toLocaleString('en-US', {
+      timeZone: ev.timezone || undefined,
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return String(ev.startsAt);
+  }
+}
+
+async function loadCoverage() {
+  if (!agencyId.value) return;
+  coverageLoading.value = true;
+  coverageError.value = '';
+  try {
+    coveragePayload.value = await fetchSchoolYearEventCoverage(agencyId.value, coverageSchoolYear.value);
+  } catch (e) {
+    coverageError.value = e?.response?.data?.error?.message || 'Failed to load school-year coverage';
+    coveragePayload.value = null;
+  } finally {
+    coverageLoading.value = false;
+  }
+}
+
+async function onEventsStaffingChanged() {
+  await reload();
+}
 
 const eventsPostSchoolName = computed(() => {
   const id = Number(eventsPostSchoolId.value);
@@ -1016,10 +1194,12 @@ function eventsTypeColor(e) {
   if (e.staffingStatus === 'needs_providers' || e.staffingStatus === 'partially_staffed') return 'needs';
   const t = String(e.eventType || '');
   if (t === 'school_back_to_school') return 'bts';
+  if (t === 'school_fall_check_in') return 'fall';
+  if (t === 'school_spring_event') return 'spring';
   if (t === 'school_resource_fair' || t === 'school_other') return 'fair';
   if (t === 'school_open_house' || t === 'school_orientation') return 'open';
   if (t === 'school_family_night') return 'family';
-  return 'spring';
+  return 'fair';
 }
 
 function eventsFormatDate(v, timezone) {
@@ -1041,7 +1221,8 @@ function eventsReportBy(e) {
 function eventsLabelType(t) {
   const m = {
     school_back_to_school: 'Back to School',
-    school_spring_event: 'Spring',
+    school_fall_check_in: 'Fall School Check-in',
+    school_spring_event: 'Spring School Check-in',
     school_open_house: 'Open House',
     school_resource_fair: 'Resource Fair',
     school_family_night: 'Family Night',
@@ -1143,6 +1324,7 @@ async function onEventsEventSaved() {
   closeEventsPostModal();
   eventsShowSchoolPicker.value = false;
   hubEvents.value = (await fetchHubEvents(agencyId.value).catch(() => ({ events: [] }))).events || [];
+  loadCoverage().catch(() => {});
 }
 
 function selectEventsEvent(id) {
@@ -1638,6 +1820,7 @@ async function reload() {
     openDaysSummary.value = open.summary || { total: 0, highUrgency: 0, schoolsAffected: 0 };
     suggestions.value = sug.suggestions || [];
     hubEvents.value = evts.events || [];
+    loadCoverage().catch(() => {});
 
     if (selectedSchoolId.value) await selectSchool(selectedSchoolId.value);
     if (selectedProviderId.value) await selectProvider(selectedProviderId.value);
@@ -2331,11 +2514,125 @@ watch(
   display: grid;
   grid-template-columns: 1fr;
   gap: 1rem;
+  align-items: start;
 }
 .events-body.has-panel {
-  grid-template-columns: minmax(0, 1fr) 22rem;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 24rem);
 }
 .evt-side-panel { height: fit-content; }
+.evt-coverage-panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.75rem;
+  max-height: min(80vh, 920px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.evt-staffing-in-coverage {
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+.cov-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.cov-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+.cov-head select,
+.cov-filters select {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  background: #fff;
+}
+.cov-range { margin: 0; font-size: 0.75rem; }
+.cov-rollups {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.35rem;
+}
+.cov-rollup {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.8rem;
+}
+.cov-label { color: #475569; }
+.cov-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.cov-toggle { margin-left: 0; width: 100%; }
+.cov-toggle button { flex: 1; }
+.cov-school-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.cov-school {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  background: #fff;
+}
+.cov-school-name { font-size: 0.88rem; margin-bottom: 0.35rem; }
+.cov-event-row {
+  padding: 0.35rem 0;
+  border-top: 1px dashed #e2e8f0;
+}
+.cov-event-row:first-of-type { border-top: 0; }
+.cov-event-row.missing { opacity: 0.85; }
+.cov-cat {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #64748b;
+}
+.cov-event-link {
+  display: block;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0.15rem 0;
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+.cov-event-link:hover { text-decoration: underline; }
+.cov-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cov-people {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-top: 0.2rem;
+  color: #334155;
+}
+.pad { padding: 0.35rem 0; }
 .evt-cal-wrap { min-width: 0; }
 .evt-month-grid {
   display: grid;
@@ -2388,6 +2685,7 @@ watch(
 .evt-chip.active { outline: 2px solid #0f172a; outline-offset: 1px; }
 .evt-chip-school { display: block; font-size: 0.58rem; opacity: 0.88; font-weight: 500; margin-bottom: 0.05rem; }
 .evt-chip.bts, .evtdot.bts { background: #2563eb; }
+.evt-chip.fall, .evtdot.fall { background: #c2410c; }
 .evt-chip.fair, .evtdot.fair { background: #16a34a; }
 .evt-chip.open, .evtdot.open { background: #ea580c; }
 .evt-chip.family, .evtdot.family { background: #0f766e; }

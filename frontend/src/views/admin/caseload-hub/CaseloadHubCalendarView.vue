@@ -35,7 +35,8 @@
       <select v-model="typeFilter">
         <option value="">All Event Types</option>
         <option value="school_back_to_school">Back to School</option>
-        <option value="school_spring_event">Spring Event</option>
+        <option value="school_fall_check_in">Fall School Check-in</option>
+        <option value="school_spring_event">Spring School Check-in</option>
         <option value="school_open_house">Open House</option>
         <option value="school_resource_fair">Resource Fair</option>
         <option value="school_family_night">Family Night</option>
@@ -260,6 +261,7 @@ const staffingOnlyNeeds = ref(false);
 const schoolOptions = ref([]);
 const enabledTypes = ref([
   'school_back_to_school',
+  'school_fall_check_in',
   'school_spring_event',
   'school_open_house',
   'school_resource_fair',
@@ -290,14 +292,15 @@ const addSchoolName = computed(() => {
 const dowLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const typeChecklist = [
   { value: 'school_back_to_school', label: 'Back to School', color: 'bts' },
+  { value: 'school_fall_check_in', label: 'Fall School Check-in', color: 'fall' },
+  { value: 'school_spring_event', label: 'Spring School Check-in', color: 'spring' },
   { value: 'school_resource_fair', label: 'Resource Fair', color: 'fair' },
   { value: 'school_open_house', label: 'Open House', color: 'open' },
   { value: 'school_orientation', label: 'Orientation', color: 'open' },
   { value: 'school_family_night', label: 'Family Night', color: 'family' },
-  { value: 'school_spring_event', label: 'Spring Event', color: 'spring' },
   { value: 'school_holiday', label: 'Holiday', color: 'holiday' },
   { value: 'school_day_off', label: 'Day off', color: 'holiday' },
-  { value: 'school_other', label: 'Other school event', color: 'spring' }
+  { value: 'school_other', label: 'Other school event', color: 'fair' }
 ];
 
 function orgTo(path) {
@@ -460,11 +463,13 @@ function typeColor(e) {
   if (e.staffingStatus === 'needs_providers') return 'needs';
   const t = e.eventType;
   if (t === 'school_back_to_school') return 'bts';
+  if (t === 'school_fall_check_in') return 'fall';
+  if (t === 'school_spring_event') return 'spring';
   if (t === 'school_resource_fair' || t === 'school_other') return 'fair';
   if (t === 'school_open_house' || t === 'school_orientation') return 'open';
   if (t === 'school_family_night') return 'family';
   if (t === 'school_holiday' || t === 'school_day_off') return 'holiday';
-  return 'spring';
+  return 'fair';
 }
 
 function shortSchool(name) {
@@ -856,6 +861,10 @@ onUnmounted(() => {
 .evt.bts,
 .lg.bts {
   background: #2563eb;
+}
+.evt.fall,
+.lg.fall {
+  background: #c2410c;
 }
 .evt.fair,
 .lg.fair {

@@ -39,11 +39,14 @@ const COMPANY_EVENT_TYPE_LABELS = {
   social: 'Social Event',
   holiday: 'Holiday Event',
   school_back_to_school: 'Back to School',
-  school_spring_event: 'Spring Event',
+  school_fall_check_in: 'Fall School Check-in',
+  school_spring_event: 'Spring School Check-in',
   school_open_house: 'Open House',
   school_resource_fair: 'Resource Fair',
   school_family_night: 'Family Night',
   school_orientation: 'Orientation',
+  school_holiday: 'Holiday',
+  school_day_off: 'Day Off',
   school_other: 'School Event'
 };
 
@@ -81,11 +84,14 @@ export function isSchoolPortalEventType(eventType) {
   const t = norm(eventType);
   return (
     t === 'school_back_to_school' ||
+    t === 'school_fall_check_in' ||
     t === 'school_spring_event' ||
     t === 'school_open_house' ||
     t === 'school_resource_fair' ||
     t === 'school_family_night' ||
     t === 'school_orientation' ||
+    t === 'school_holiday' ||
+    t === 'school_day_off' ||
     t === 'school_other' ||
     t.startsWith('school_')
   );

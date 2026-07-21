@@ -13,14 +13,17 @@ import {
   createDistrictSchoolEvents,
   createPostToken,
   createSchoolPortalEvent,
-  currentCalendarYear,
+  currentSchoolYearLabel,
   getMissingCategoriesForOrg,
   getSchoolEventOverviewForAgency,
+  getSchoolYearCoverageForAgency,
   listDistrictsForAgency,
   listSchoolEventsForOrg,
   markPostTokenUsed,
   parseSchoolEventWallTime,
   resolveAgencyIdForSchoolOrg,
+  schoolEventCategoryLabel,
+  schoolYearBounds,
   updateSchoolPortalEvent,
   validatePostToken
 } from '../services/schoolPortalEvents.service.js';
@@ -76,7 +79,8 @@ async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, user = null, s
   const hasDirect = (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(schoolOrganizationId, 10));
   if (hasDirect) return true;
   const hasSupervisorCapability = await isSupervisorActor({ userId, role, user });
-  if (roleNorm === 'provider') {
+  const providerLikeRoles = new Set(['provider', 'intern', 'intern_plus', 'provider_plus']);
+  if (providerLikeRoles.has(roleNorm)) {
     const hasProviderAccess = await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId });
     if (hasProviderAccess) return true;
     if (!hasSupervisorCapability) return false;
@@ -120,7 +124,7 @@ async function assertSchoolPortalReadAccess(req, organizationId) {
   return { orgId, userId, role };
 }
 
-/** Roles that may create/update school portal events (school staff + agency managers with portal access). */
+/** Roles that may create/update school portal events (school staff + assigned providers + agency managers). */
 const SCHOOL_EVENT_MANAGE_ROLES = new Set([
   'school_staff',
   'super_admin',
@@ -128,6 +132,17 @@ const SCHOOL_EVENT_MANAGE_ROLES = new Set([
   'support',
   'staff',
   'clinical_practice_assistant',
+  'provider_plus',
+  'provider',
+  'intern',
+  'intern_plus'
+]);
+
+/** Provider-like roles must be assigned to the school (or have direct school membership). */
+const SCHOOL_EVENT_PROVIDER_CREATE_ROLES = new Set([
+  'provider',
+  'intern',
+  'intern_plus',
   'provider_plus'
 ]);
 
@@ -137,6 +152,18 @@ async function assertSchoolStaffPortalAccess(req, organizationId) {
     const err = new Error('Not authorized to manage school events');
     err.status = 403;
     throw err;
+  }
+  if (SCHOOL_EVENT_PROVIDER_CREATE_ROLES.has(role) && role !== 'super_admin') {
+    const userOrgs = await User.getAgencies(userId);
+    const hasDirect = (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(orgId, 10));
+    if (!hasDirect) {
+      const assigned = await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId: orgId });
+      if (!assigned) {
+        const err = new Error('Not authorized to manage school events for this school');
+        err.status = 403;
+        throw err;
+      }
+    }
   }
   return { orgId, userId, role };
 }
@@ -170,14 +197,7 @@ function getFrontendBaseUrl() {
 }
 
 function categoryLabel(category) {
-  if (category === 'back_to_school') return 'Back to School';
-  if (category === 'spring') return 'Spring Event';
-  if (category === 'open_house') return 'Open House';
-  if (category === 'resource_fair') return 'Resource Fair';
-  if (category === 'family_night') return 'Family Night';
-  if (category === 'orientation') return 'Orientation';
-  if (category === 'other') return 'School Event';
-  return 'School Event';
+  return schoolEventCategoryLabel(category);
 }
 
 async function listSchoolStaffRecipients(schoolOrganizationId) {
@@ -249,6 +269,13 @@ function parseSchoolEventBody(body) {
     const n = Number(minRaw);
     minProvidersPerSession = Number.isFinite(n) && n >= 1 ? Math.min(99, Math.floor(n)) : undefined;
   }
+  const detailsUrlRaw = body?.detailsUrl ?? body?.details_url;
+  let detailsUrl;
+  if (detailsUrlRaw !== undefined) {
+    detailsUrl = detailsUrlRaw === null || detailsUrlRaw === ''
+      ? null
+      : String(detailsUrlRaw).trim().slice(0, 1000) || null;
+  }
   return {
     category,
     title,
@@ -258,6 +285,7 @@ function parseSchoolEventBody(body) {
     outreachTableInvited,
     eventImageUrl: eventImageUrl !== undefined ? String(eventImageUrl || '').trim() || null : undefined,
     flierFileUrl: flierFileUrl !== undefined ? String(flierFileUrl || '').trim() || null : undefined,
+    detailsUrl,
     timezone,
     schoolEventStatus: statusRaw !== undefined && statusRaw !== null && statusRaw !== ''
       ? String(statusRaw).trim().toLowerCase()
@@ -274,9 +302,16 @@ export const listSchoolPortalEvents = async (req, res, next) => {
   try {
     const { orgId } = await assertSchoolPortalReadAccess(req, req.params.organizationId);
     const events = await listSchoolEventsForOrg(orgId);
-    const year = currentCalendarYear();
-    const missingCategories = await getMissingCategoriesForOrg(orgId, year);
-    res.json({ events, missingCategories, year });
+    const schoolYear = currentSchoolYearLabel();
+    const missingCategories = await getMissingCategoriesForOrg(orgId, schoolYear);
+    const bounds = schoolYearBounds(schoolYear);
+    res.json({
+      events,
+      missingCategories,
+      year: bounds.startYear,
+      schoolYear,
+      range: { start: bounds.start, end: bounds.end }
+    });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
@@ -286,9 +321,19 @@ export const listSchoolPortalEvents = async (req, res, next) => {
 export const getSchoolPortalEventsMissing = async (req, res, next) => {
   try {
     const { orgId } = await assertSchoolStaffPortalAccess(req, req.params.organizationId);
-    const year = parseInt(String(req.query?.year || currentCalendarYear()), 10) || currentCalendarYear();
-    const missingCategories = await getMissingCategoriesForOrg(orgId, year);
-    res.json({ missingCategories, year });
+    const schoolYear =
+      String(req.query?.schoolYear || req.query?.school_year || '').trim() ||
+      (req.query?.year
+        ? `${parseInt(String(req.query.year), 10)}-${parseInt(String(req.query.year), 10) + 1}`
+        : currentSchoolYearLabel());
+    const missingCategories = await getMissingCategoriesForOrg(orgId, schoolYear);
+    const bounds = schoolYearBounds(schoolYear);
+    res.json({
+      missingCategories,
+      year: bounds.startYear,
+      schoolYear: bounds.label,
+      range: { start: bounds.start, end: bounds.end }
+    });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
@@ -332,12 +377,13 @@ export const createSchoolPortalEventHandler = async (req, res, next) => {
       outreachTableInvited: parsed.outreachTableInvited,
       eventImageUrl: parsed.eventImageUrl,
       flierFileUrl: parsed.flierFileUrl,
+      detailsUrl: parsed.detailsUrl ?? null,
       schoolEventStatus: parsed.schoolEventStatus || 'scheduled',
       employeeReportTime: parsed.employeeReportTime,
       skillBuilderDirectHours: canEditPayroll && parsed.skillBuilderDirectHours !== undefined
         ? parsed.skillBuilderDirectHours
         : 0,
-      minProvidersPerSession: parsed.minProvidersPerSession ?? 1
+      minProvidersPerSession: parsed.minProvidersPerSession ?? 2
     });
 
     const postToken = String(req.body?.postToken || req.body?.setk || '').trim();
@@ -387,6 +433,7 @@ export const updateSchoolPortalEventHandler = async (req, res, next) => {
       eventImageUrl: parsed.eventImageUrl,
       flierFileUrl: parsed.flierFileUrl,
       clearFlier: req.body?.clearFlier === true || req.body?.clear_flier === true,
+      detailsUrl: parsed.detailsUrl,
       schoolEventStatus: parsed.schoolEventStatus,
       employeeReportTime: parsed.employeeReportTime,
       skillBuilderDirectHours: canEditPayroll ? parsed.skillBuilderDirectHours : undefined,
@@ -431,9 +478,27 @@ export const uploadSchoolEventFlier = [
 export const getSchoolEventsOverview = async (req, res, next) => {
   try {
     const agencyId = await assertAgencyAdminAccess(req, req.query?.agencyId);
-    const year = parseInt(String(req.query?.year || currentCalendarYear()), 10) || currentCalendarYear();
-    const overview = await getSchoolEventOverviewForAgency(agencyId, year);
+    const schoolYear =
+      String(req.query?.schoolYear || req.query?.school_year || '').trim() ||
+      (req.query?.year
+        ? `${parseInt(String(req.query.year), 10)}-${parseInt(String(req.query.year), 10) + 1}`
+        : currentSchoolYearLabel());
+    const overview = await getSchoolEventOverviewForAgency(agencyId, schoolYear);
     res.json(overview);
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/** GET /api/school-portal/school-events/school-year-coverage?agencyId=&schoolYear=2026-2027 */
+export const getSchoolYearCoverage = async (req, res, next) => {
+  try {
+    const agencyId = await assertAgencyAdminAccess(req, req.query?.agencyId);
+    const schoolYear =
+      String(req.query?.schoolYear || req.query?.school_year || '').trim() || currentSchoolYearLabel();
+    const coverage = await getSchoolYearCoverageForAgency(agencyId, schoolYear);
+    res.json(coverage);
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
@@ -491,7 +556,8 @@ export const createDistrictSchoolEventHandler = async (req, res, next) => {
       skillBuilderDirectHours: canEditPayroll && parsed.skillBuilderDirectHours !== undefined
         ? parsed.skillBuilderDirectHours
         : 0,
-      minProvidersPerSession: parsed.minProvidersPerSession ?? 1,
+      minProvidersPerSession: parsed.minProvidersPerSession ?? 2,
+      detailsUrl: parsed.detailsUrl ?? null,
       schoolEventStatus: parsed.schoolEventStatus || 'scheduled'
     });
     res.status(201).json(result);
@@ -532,10 +598,15 @@ export const requestSchoolEventSubmissions = async (req, res, next) => {
         error: { message: `category must be one of: ${SCHOOL_EVENT_CATEGORIES.join(', ')}` }
       });
     }
-    const year = parseInt(String(req.body?.year || currentCalendarYear()), 10) || currentCalendarYear();
+    const schoolYear =
+      String(req.body?.schoolYear || req.body?.school_year || '').trim() ||
+      (req.body?.year
+        ? `${parseInt(String(req.body.year), 10)}-${parseInt(String(req.body.year), 10) + 1}`
+        : currentSchoolYearLabel());
+    const year = schoolYearBounds(schoolYear).startYear;
     const customMessage = String(req.body?.message || '').trim();
     const eventType = categoryToEventType(category);
-    const overview = await getSchoolEventOverviewForAgency(agencyId, year);
+    const overview = await getSchoolEventOverviewForAgency(agencyId, schoolYear);
     const targetSchools = overview.schools.filter((school) =>
       (overview.missingBySchool[school.id] || []).includes(category)
     );

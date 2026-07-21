@@ -1755,7 +1755,8 @@ const formatSchoolEventReportBy = (ev) => {
 const formatSchoolEventCategory = (c) => {
   const map = {
     back_to_school: 'Back to School',
-    spring: 'Spring',
+    fall_check_in: 'Fall School Check-in',
+    spring: 'Spring School Check-in',
     open_house: 'Open House',
     resource_fair: 'Resource Fair',
     family_night: 'Family Night',
@@ -2278,7 +2279,7 @@ const hasSupervisorCapability = computed(() => isSupervisor(authStore.user));
 const isProvider = computed(() => roleNorm.value === 'provider' && !hasSupervisorCapability.value);
 const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && roleNorm.value === 'provider');
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
-/** School staff and agency managers can add/edit events on this portal. */
+/** School staff, assigned providers, and agency managers can add/edit events on this portal. */
 const canManageSchoolEvents = computed(() => {
   if (props.previewMode) return false;
   if (!authStore.user?.id) return false;
@@ -2289,7 +2290,10 @@ const canManageSchoolEvents = computed(() => {
     'support',
     'staff',
     'clinical_practice_assistant',
-    'provider_plus'
+    'provider_plus',
+    'provider',
+    'intern',
+    'intern_plus'
   ].includes(roleNorm.value);
 });
 const canManageMarketingCampaigns = computed(() => {

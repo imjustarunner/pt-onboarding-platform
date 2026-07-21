@@ -7,6 +7,7 @@ import { materializeSessionsForEvent } from './companyEventSessionDates.service.
 
 export const SCHOOL_PORTAL_EVENT_TYPES = new Set([
   'school_back_to_school',
+  'school_fall_check_in',
   'school_spring_event',
   'school_open_house',
   'school_resource_fair',
@@ -17,11 +18,19 @@ export const SCHOOL_PORTAL_EVENT_TYPES = new Set([
   'school_other'
 ]);
 
-/** Categories that enforce one active event per school per calendar year. */
-export const YEARLY_UNIQUE_SCHOOL_EVENT_CATEGORIES = new Set(['back_to_school', 'spring']);
+/**
+ * Categories that enforce one active event per school per school year (Aug 1 – Jul 31).
+ * Tracked for coverage: Back to School, Fall School Check-in, Spring School Check-in.
+ */
+export const YEARLY_UNIQUE_SCHOOL_EVENT_CATEGORIES = new Set([
+  'back_to_school',
+  'fall_check_in',
+  'spring'
+]);
 
 export const SCHOOL_EVENT_CATEGORIES = [
   'back_to_school',
+  'fall_check_in',
   'spring',
   'open_house',
   'resource_fair',
@@ -45,6 +54,7 @@ export function normalizeSchoolEventStatus(raw, { fallback = 'scheduled' } = {})
 export function categoryToEventType(category) {
   const c = String(category || '').trim().toLowerCase();
   if (c === 'back_to_school') return 'school_back_to_school';
+  if (c === 'fall_check_in') return 'school_fall_check_in';
   if (c === 'spring') return 'school_spring_event';
   if (c === 'open_house') return 'school_open_house';
   if (c === 'resource_fair') return 'school_resource_fair';
@@ -59,6 +69,7 @@ export function categoryToEventType(category) {
 export function eventTypeToCategory(eventType) {
   const t = String(eventType || '').trim().toLowerCase();
   if (t === 'school_back_to_school') return 'back_to_school';
+  if (t === 'school_fall_check_in') return 'fall_check_in';
   if (t === 'school_spring_event') return 'spring';
   if (t === 'school_open_house') return 'open_house';
   if (t === 'school_resource_fair') return 'resource_fair';
@@ -68,6 +79,23 @@ export function eventTypeToCategory(eventType) {
   if (t === 'school_day_off') return 'day_off';
   if (t === 'school_other') return 'other';
   return null;
+}
+
+/** Display label for a school event category. */
+export function schoolEventCategoryLabel(category) {
+  const map = {
+    back_to_school: 'Back to School',
+    fall_check_in: 'Fall School Check-in',
+    spring: 'Spring School Check-in',
+    open_house: 'Open House',
+    resource_fair: 'Resource Fair',
+    family_night: 'Family Night',
+    orientation: 'Orientation',
+    holiday: 'Holiday',
+    day_off: 'Day Off',
+    other: 'School Event'
+  };
+  return map[String(category || '').trim().toLowerCase()] || 'School Event';
 }
 
 export function isSchoolPortalEventType(eventType) {
@@ -88,12 +116,55 @@ export function currentCalendarYear(date = new Date()) {
   return date.getFullYear();
 }
 
-export async function findExistingSchoolEventForYear({ organizationId, eventType, year, excludeEventId = null }) {
+/**
+ * School year runs Aug 1 – Jul 31.
+ * @param {Date|string|number} [input] - Date, ISO string, or label "2026-2027"
+ * @returns {{ startYear: number, endYear: number, label: string, start: string, end: string, startDate: Date, endDate: Date }}
+ */
+export function schoolYearBounds(input = new Date()) {
+  let startYear;
+  if (typeof input === 'string' && /^\d{4}-\d{4}$/.test(String(input).trim())) {
+    startYear = parseInt(String(input).trim().split('-')[0], 10);
+  } else {
+    const d = input instanceof Date ? input : new Date(input);
+    const y = Number.isFinite(d.getTime()) ? d.getFullYear() : new Date().getFullYear();
+    const m = Number.isFinite(d.getTime()) ? d.getMonth() + 1 : new Date().getMonth() + 1;
+    startYear = m >= 8 ? y : y - 1;
+  }
+  if (!Number.isFinite(startYear)) startYear = new Date().getFullYear();
+  const endYear = startYear + 1;
+  return {
+    startYear,
+    endYear,
+    label: `${startYear}-${endYear}`,
+    start: `${startYear}-08-01`,
+    end: `${endYear}-07-31`,
+    startDate: new Date(Date.UTC(startYear, 7, 1, 0, 0, 0, 0)),
+    endDate: new Date(Date.UTC(endYear, 6, 31, 23, 59, 59, 999))
+  };
+}
+
+/** @deprecated Prefer schoolYearBounds; kept for callers that still pass calendar year. */
+export function currentSchoolYearLabel(date = new Date()) {
+  return schoolYearBounds(date).label;
+}
+
+export async function findExistingSchoolEventForYear({
+  organizationId,
+  eventType,
+  year,
+  schoolYear,
+  excludeEventId = null
+}) {
   const orgId = Number(organizationId);
   const et = String(eventType || '').trim();
-  const y = Number(year);
-  if (!orgId || !et || !Number.isFinite(y)) return null;
-  const params = [orgId, et, y];
+  if (!orgId || !et) return null;
+  const bounds = schoolYear
+    ? schoolYearBounds(schoolYear)
+    : Number.isFinite(Number(year))
+      ? schoolYearBounds(`${Number(year)}-${Number(year) + 1}`)
+      : schoolYearBounds(new Date());
+  const params = [orgId, et, bounds.startDate, bounds.endDate];
   let excludeSql = '';
   if (excludeEventId) {
     excludeSql = ' AND id <> ?';
@@ -105,7 +176,8 @@ export async function findExistingSchoolEventForYear({ organizationId, eventType
      WHERE organization_id = ?
        AND event_type = ?
        AND is_active = 1
-       AND YEAR(starts_at) = ?
+       AND starts_at >= ?
+       AND starts_at <= ?
        ${excludeSql}
      LIMIT 1`,
     params
@@ -113,10 +185,10 @@ export async function findExistingSchoolEventForYear({ organizationId, eventType
   return rows?.[0] || null;
 }
 
-export function buildSchoolEventStaffingConfig({ minProvidersPerSession = 1, enabled = true } = {}) {
+export function buildSchoolEventStaffingConfig({ minProvidersPerSession = 2, enabled = true } = {}) {
   return {
     enabled: enabled !== false,
-    minProvidersPerSession: Math.max(1, Number(minProvidersPerSession) || 1),
+    minProvidersPerSession: Math.max(1, Number(minProvidersPerSession) || 2),
     clientRule: { enabled: false, confirmedStepSize: 1, additionalProvidersPerStep: 0, threshold: null },
     groupRule: { enabled: false, baseProvidersForOneGroup: 0, additionalProvidersPerGroup: 0 },
     onCall: { enabled: false, leadHours: 0 },
@@ -141,7 +213,7 @@ export async function enableSchoolEventProviderStaffing({
   eventId,
   agencyId,
   userId,
-  minProvidersPerSession = 1
+  minProvidersPerSession = 2
 }) {
   const eid = Number(eventId);
   const aid = Number(agencyId);
@@ -193,7 +265,7 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
   const eventType = String(row.event_type || '').trim();
   const reportRaw = row.employee_report_time;
   const directRaw = row.skill_builder_direct_hours;
-  let minProvidersPerSession = 1;
+  let minProvidersPerSession = 2;
   let staffingEnabled = false;
   try {
     const cfg =
@@ -232,6 +304,7 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
     outreachTableInvited: !!(row.outreach_table_invited === 1 || row.outreach_table_invited === true),
     eventImageUrl: row.event_image_url ? String(row.event_image_url).trim() : '',
     flierFileUrl: row.flier_file_url ? String(row.flier_file_url).trim() : '',
+    detailsUrl: row.details_url ? String(row.details_url).trim() : '',
     schoolEventStatus: normalizeSchoolEventStatus(row.school_event_status, {
       fallback: row.is_active ? 'scheduled' : 'canceled'
     }),
@@ -239,23 +312,22 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     schoolName: schoolMeta.name || null,
-    schoolSlug: schoolMeta.slug || null
+    schoolSlug: schoolMeta.slug || null,
+    districtName: schoolMeta.districtName || null
   };
 }
 
 function categoryLabel(category) {
-  const map = {
-    back_to_school: 'Back to School',
-    spring: 'Spring Event',
-    open_house: 'Open House',
-    resource_fair: 'Resource Fair',
-    family_night: 'Family Night',
-    orientation: 'Orientation',
-    holiday: 'Holiday',
-    day_off: 'Day Off',
-    other: 'School Event'
-  };
-  return map[String(category || '')] || 'School Event';
+  return schoolEventCategoryLabel(category);
+}
+
+function normalizeDetailsUrl(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === '') return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (s.length > 1000) return s.slice(0, 1000);
+  return s;
 }
 
 function formatEventWhenForBanner(startsAt, timezone) {
@@ -431,10 +503,11 @@ export async function createSchoolPortalEvent({
   outreachTableInvited,
   eventImageUrl,
   flierFileUrl,
+  detailsUrl = null,
   schoolEventStatus,
   employeeReportTime = null,
   skillBuilderDirectHours = 0,
-  minProvidersPerSession = 1,
+  minProvidersPerSession = 2,
   districtBroadcastId = null
 }) {
   const eventType = categoryToEventType(category);
@@ -447,16 +520,22 @@ export async function createSchoolPortalEvent({
   }
   if (end <= start) throw Object.assign(new Error('End time must be after start time'), { status: 400 });
 
-  const year = currentCalendarYear(start);
+  const sy = schoolYearBounds(start);
   if (YEARLY_UNIQUE_SCHOOL_EVENT_CATEGORIES.has(String(category || '').trim().toLowerCase())) {
-    const existing = await findExistingSchoolEventForYear({ organizationId, eventType, year });
+    const existing = await findExistingSchoolEventForYear({
+      organizationId,
+      eventType,
+      schoolYear: sy.label
+    });
     if (existing) {
       throw Object.assign(
-        new Error('This school already has an active event of this type for this year'),
+        new Error(`This school already has an active event of this type for the ${sy.label} school year`),
         { status: 409 }
       );
     }
   }
+
+  const nextDetailsUrl = normalizeDetailsUrl(detailsUrl) ?? null;
 
   let tz = String(timezone || '').trim();
   if (!tz) {
@@ -492,9 +571,9 @@ export async function createSchoolPortalEvent({
         (agency_id, organization_id, created_by_user_id, updated_by_user_id,
          title, description, event_type, starts_at, ends_at, timezone,
          recurrence_json, is_active, rsvp_mode, outreach_table_invited,
-         event_image_url, flier_file_url, staffing_config_json, school_event_status,
+         event_image_url, flier_file_url, details_url, staffing_config_json, school_event_status,
          employee_report_time, skill_builder_direct_hours, district_broadcast_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         organizationId,
@@ -510,6 +589,7 @@ export async function createSchoolPortalEvent({
         outreachTableInvited ? 1 : 0,
         eventImageUrl || null,
         flierFileUrl || null,
+        nextDetailsUrl,
         JSON.stringify(staffingConfig),
         status,
         reportTime,
@@ -526,8 +606,8 @@ export async function createSchoolPortalEvent({
            title, description, event_type, starts_at, ends_at, timezone,
            recurrence_json, is_active, rsvp_mode, outreach_table_invited,
            event_image_url, flier_file_url, staffing_config_json, school_event_status,
-           employee_report_time, skill_builder_direct_hours)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?, ?, ?, ?)`,
+           employee_report_time, skill_builder_direct_hours, district_broadcast_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           agencyId,
           organizationId,
@@ -546,36 +626,70 @@ export async function createSchoolPortalEvent({
           JSON.stringify(staffingConfig),
           status,
           reportTime,
-          directHours
+          directHours,
+          broadcastId
         ]
       );
     } catch (e2) {
       if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
-      [insertResult] = await pool.execute(
-        `INSERT INTO company_events
-          (agency_id, organization_id, created_by_user_id, updated_by_user_id,
-           title, description, event_type, starts_at, ends_at, timezone,
-           recurrence_json, is_active, rsvp_mode, outreach_table_invited,
-           event_image_url, flier_file_url, staffing_config_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?)`,
-        [
-          agencyId,
-          organizationId,
-          userId,
-          userId,
-          String(title || '').trim(),
-          String(description || '').trim() || null,
-          eventType,
-          start,
-          end,
-          tz,
-          JSON.stringify({ frequency: 'none' }),
-          outreachTableInvited ? 1 : 0,
-          eventImageUrl || null,
-          flierFileUrl || null,
-          JSON.stringify(staffingConfig)
-        ]
-      );
+      try {
+        [insertResult] = await pool.execute(
+          `INSERT INTO company_events
+            (agency_id, organization_id, created_by_user_id, updated_by_user_id,
+             title, description, event_type, starts_at, ends_at, timezone,
+             recurrence_json, is_active, rsvp_mode, outreach_table_invited,
+             event_image_url, flier_file_url, staffing_config_json, school_event_status,
+             employee_report_time, skill_builder_direct_hours)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            agencyId,
+            organizationId,
+            userId,
+            userId,
+            String(title || '').trim(),
+            String(description || '').trim() || null,
+            eventType,
+            start,
+            end,
+            tz,
+            JSON.stringify({ frequency: 'none' }),
+            outreachTableInvited ? 1 : 0,
+            eventImageUrl || null,
+            flierFileUrl || null,
+            JSON.stringify(staffingConfig),
+            status,
+            reportTime,
+            directHours
+          ]
+        );
+      } catch (e3) {
+        if (e3?.code !== 'ER_BAD_FIELD_ERROR') throw e3;
+        [insertResult] = await pool.execute(
+          `INSERT INTO company_events
+            (agency_id, organization_id, created_by_user_id, updated_by_user_id,
+             title, description, event_type, starts_at, ends_at, timezone,
+             recurrence_json, is_active, rsvp_mode, outreach_table_invited,
+             event_image_url, flier_file_url, staffing_config_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?)`,
+          [
+            agencyId,
+            organizationId,
+            userId,
+            userId,
+            String(title || '').trim(),
+            String(description || '').trim() || null,
+            eventType,
+            start,
+            end,
+            tz,
+            JSON.stringify({ frequency: 'none' }),
+            outreachTableInvited ? 1 : 0,
+            eventImageUrl || null,
+            flierFileUrl || null,
+            JSON.stringify(staffingConfig)
+          ]
+        );
+      }
     }
   }
 
@@ -612,6 +726,7 @@ export async function updateSchoolPortalEvent({
   eventImageUrl,
   flierFileUrl,
   clearFlier,
+  detailsUrl,
   schoolEventStatus,
   employeeReportTime,
   skillBuilderDirectHours,
@@ -637,18 +752,18 @@ export async function updateSchoolPortalEvent({
   }
   if (end <= start) throw Object.assign(new Error('End time must be after start time'), { status: 400 });
 
-  const year = currentCalendarYear(start);
+  const sy = schoolYearBounds(start);
   const categoryForUniqueness = eventTypeToCategory(eventType);
   if (YEARLY_UNIQUE_SCHOOL_EVENT_CATEGORIES.has(String(categoryForUniqueness || '').toLowerCase())) {
     const dup = await findExistingSchoolEventForYear({
       organizationId,
       eventType,
-      year,
+      schoolYear: sy.label,
       excludeEventId: eventId
     });
     if (dup) {
       throw Object.assign(
-        new Error('This school already has an active event of this type for this year'),
+        new Error(`This school already has an active event of this type for the ${sy.label} school year`),
         { status: 409 }
       );
     }
@@ -668,10 +783,10 @@ export async function updateSchoolPortalEvent({
   } catch {
     existingCfg = {};
   }
-  const prevMin = Number(existingCfg?.minProvidersPerSession) || 1;
+  const prevMin = Number(existingCfg?.minProvidersPerSession) || 2;
   const nextMin =
     minProvidersPerSession !== undefined && minProvidersPerSession !== null
-      ? Math.max(1, Math.min(99, Number(minProvidersPerSession) || 1))
+      ? Math.max(1, Math.min(99, Number(minProvidersPerSession) || 2))
       : prevMin;
   const calendarOnly = CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(
     String(categoryForUniqueness || '').toLowerCase()
@@ -689,6 +804,10 @@ export async function updateSchoolPortalEvent({
   let nextFlier = existing.flier_file_url;
   if (clearFlier) nextFlier = null;
   else if (flierFileUrl !== undefined) nextFlier = flierFileUrl || null;
+  let nextDetailsUrl = existing.details_url ?? null;
+  if (detailsUrl !== undefined) {
+    nextDetailsUrl = normalizeDetailsUrl(detailsUrl);
+  }
 
   const prevStatus = normalizeSchoolEventStatus(existing.school_event_status, { fallback: 'scheduled' });
   let status = schoolEventStatus !== undefined
@@ -728,7 +847,7 @@ export async function updateSchoolPortalEvent({
       `UPDATE company_events
        SET updated_by_user_id = ?, title = ?, description = ?, event_type = ?,
            starts_at = ?, ends_at = ?, timezone = ?, outreach_table_invited = ?,
-           event_image_url = ?, flier_file_url = ?, staffing_config_json = ?,
+           event_image_url = ?, flier_file_url = ?, details_url = ?, staffing_config_json = ?,
            school_event_status = ?, employee_report_time = ?, skill_builder_direct_hours = ?,
            is_active = 1
        WHERE id = ? AND agency_id = ? AND organization_id = ?`,
@@ -743,6 +862,7 @@ export async function updateSchoolPortalEvent({
         outreach ? 1 : 0,
         nextImage,
         nextFlier,
+        nextDetailsUrl,
         staffingConfig,
         status,
         nextReportTime,
@@ -754,30 +874,62 @@ export async function updateSchoolPortalEvent({
     );
   } catch (e) {
     if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-    await pool.execute(
-      `UPDATE company_events
-       SET updated_by_user_id = ?, title = ?, description = ?, event_type = ?,
-           starts_at = ?, ends_at = ?, timezone = ?, outreach_table_invited = ?,
-           event_image_url = ?, flier_file_url = ?, staffing_config_json = ?,
-           is_active = 1
-       WHERE id = ? AND agency_id = ? AND organization_id = ?`,
-      [
-        userId,
-        String(title ?? existing.title).trim(),
-        String(description ?? existing.description ?? '').trim() || null,
-        eventType,
-        start,
-        end,
-        tz,
-        outreach ? 1 : 0,
-        nextImage,
-        nextFlier,
-        staffingConfig,
-        eventId,
-        agencyId,
-        organizationId
-      ]
-    );
+    try {
+      await pool.execute(
+        `UPDATE company_events
+         SET updated_by_user_id = ?, title = ?, description = ?, event_type = ?,
+             starts_at = ?, ends_at = ?, timezone = ?, outreach_table_invited = ?,
+             event_image_url = ?, flier_file_url = ?, staffing_config_json = ?,
+             school_event_status = ?, employee_report_time = ?, skill_builder_direct_hours = ?,
+             is_active = 1
+         WHERE id = ? AND agency_id = ? AND organization_id = ?`,
+        [
+          userId,
+          String(title ?? existing.title).trim(),
+          String(description ?? existing.description ?? '').trim() || null,
+          eventType,
+          start,
+          end,
+          tz,
+          outreach ? 1 : 0,
+          nextImage,
+          nextFlier,
+          staffingConfig,
+          status,
+          nextReportTime,
+          nextDirectHours,
+          eventId,
+          agencyId,
+          organizationId
+        ]
+      );
+    } catch (e2) {
+      if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
+      await pool.execute(
+        `UPDATE company_events
+         SET updated_by_user_id = ?, title = ?, description = ?, event_type = ?,
+             starts_at = ?, ends_at = ?, timezone = ?, outreach_table_invited = ?,
+             event_image_url = ?, flier_file_url = ?, staffing_config_json = ?,
+             is_active = 1
+         WHERE id = ? AND agency_id = ? AND organization_id = ?`,
+        [
+          userId,
+          String(title ?? existing.title).trim(),
+          String(description ?? existing.description ?? '').trim() || null,
+          eventType,
+          start,
+          end,
+          tz,
+          outreach ? 1 : 0,
+          nextImage,
+          nextFlier,
+          staffingConfig,
+          eventId,
+          agencyId,
+          organizationId
+        ]
+      );
+    }
   }
 
   if (status !== 'canceled') {
@@ -815,13 +967,23 @@ export async function listSchoolEventsForOrg(organizationId) {
   return (rows || []).map((row) => mapSchoolEventRow(row, schoolMeta));
 }
 
-export async function getMissingCategoriesForOrg(organizationId, year = currentCalendarYear()) {
+export async function getMissingCategoriesForOrg(organizationId, yearOrSchoolYear = currentSchoolYearLabel()) {
+  const bounds =
+    typeof yearOrSchoolYear === 'string' && /^\d{4}-\d{4}$/.test(String(yearOrSchoolYear).trim())
+      ? schoolYearBounds(yearOrSchoolYear)
+      : Number.isFinite(Number(yearOrSchoolYear))
+        ? schoolYearBounds(`${Number(yearOrSchoolYear)}-${Number(yearOrSchoolYear) + 1}`)
+        : schoolYearBounds(new Date());
   const events = await listSchoolEventsForOrg(organizationId);
+  const startMs = bounds.startDate.getTime();
+  const endMs = bounds.endDate.getTime();
   const posted = new Set(
     events
       .filter((e) => {
         const d = e.startsAt ? new Date(e.startsAt) : null;
-        return d && Number.isFinite(d.getTime()) && d.getFullYear() === year;
+        if (!d || !Number.isFinite(d.getTime())) return false;
+        const t = d.getTime();
+        return t >= startMs && t <= endMs;
       })
       .map((e) => e.category)
       .filter(Boolean)
@@ -861,11 +1023,24 @@ export async function listAffiliatedSchoolsForAgency(agencyId) {
   }));
 }
 
-export async function getSchoolEventOverviewForAgency(agencyId, year = currentCalendarYear()) {
+export async function getSchoolEventOverviewForAgency(agencyId, yearOrSchoolYear = currentSchoolYearLabel()) {
+  const bounds =
+    typeof yearOrSchoolYear === 'string' && /^\d{4}-\d{4}$/.test(String(yearOrSchoolYear).trim())
+      ? schoolYearBounds(yearOrSchoolYear)
+      : Number.isFinite(Number(yearOrSchoolYear))
+        ? schoolYearBounds(`${Number(yearOrSchoolYear)}-${Number(yearOrSchoolYear) + 1}`)
+        : schoolYearBounds(new Date());
   const schools = await listAffiliatedSchoolsForAgency(agencyId);
   const schoolIds = schools.map((s) => s.id);
   if (!schoolIds.length) {
-    return { year, schools: [], events: [], missingBySchool: {} };
+    return {
+      year: bounds.startYear,
+      schoolYear: bounds.label,
+      range: { start: bounds.start, end: bounds.end },
+      schools: [],
+      events: [],
+      missingBySchool: {}
+    };
   }
 
   const placeholders = schoolIds.map(() => '?').join(', ');
@@ -878,9 +1053,10 @@ export async function getSchoolEventOverviewForAgency(agencyId, year = currentCa
        AND ce.organization_id IN (${placeholders})
        AND ce.event_type IN (${typePlaceholders})
        AND ce.is_active = 1
-       AND YEAR(ce.starts_at) = ?
+       AND ce.starts_at >= ?
+       AND ce.starts_at <= ?
      ORDER BY ce.starts_at ASC`,
-    [agencyId, ...schoolIds, ...SCHOOL_PORTAL_EVENT_TYPES, year]
+    [agencyId, ...schoolIds, ...SCHOOL_PORTAL_EVENT_TYPES, bounds.startDate, bounds.endDate]
   );
 
   const events = (eventRows || []).map((row) =>
@@ -889,10 +1065,177 @@ export async function getSchoolEventOverviewForAgency(agencyId, year = currentCa
 
   const missingBySchool = {};
   for (const school of schools) {
-    missingBySchool[school.id] = await getMissingCategoriesForOrg(school.id, year);
+    missingBySchool[school.id] = await getMissingCategoriesForOrg(school.id, bounds.label);
   }
 
-  return { year, schools, events, missingBySchool };
+  return {
+    year: bounds.startYear,
+    schoolYear: bounds.label,
+    range: { start: bounds.start, end: bounds.end },
+    schools,
+    events,
+    missingBySchool
+  };
+}
+
+/**
+ * School-year coverage matrix for Back to School / Fall / Spring check-ins,
+ * including assigned providers and pending assignment requests.
+ */
+export async function getSchoolYearCoverageForAgency(agencyId, schoolYear = currentSchoolYearLabel()) {
+  const bounds = schoolYearBounds(schoolYear || currentSchoolYearLabel());
+  const schools = await listAffiliatedSchoolsForAgency(agencyId);
+  const schoolIds = schools.map((s) => s.id);
+  const trackedCats = ['back_to_school', 'fall_check_in', 'spring'];
+  const trackedTypes = trackedCats.map((c) => categoryToEventType(c)).filter(Boolean);
+
+  const emptyTotals = () => {
+    const totals = { schools: schoolIds.length };
+    for (const c of trackedCats) totals[c] = { have: 0, total: schoolIds.length };
+    return totals;
+  };
+
+  if (!schoolIds.length) {
+    return {
+      schoolYear: bounds.label,
+      range: { start: bounds.start, end: bounds.end },
+      totals: emptyTotals(),
+      schools: []
+    };
+  }
+
+  // District names from school_profiles when available
+  const placeholders = schoolIds.map(() => '?').join(', ');
+  let districtBySchool = {};
+  try {
+    const [distRows] = await pool.execute(
+      `SELECT school_organization_id AS id, TRIM(district_name) AS district_name
+       FROM school_profiles
+       WHERE school_organization_id IN (${placeholders})`,
+      schoolIds
+    );
+    for (const r of distRows || []) {
+      if (r?.id != null && r.district_name) {
+        districtBySchool[Number(r.id)] = String(r.district_name).trim();
+      }
+    }
+  } catch {
+    districtBySchool = {};
+  }
+
+  const typePlaceholders = trackedTypes.map(() => '?').join(', ');
+  const [eventRows] = await pool.execute(
+    `SELECT ce.id, ce.organization_id, ce.event_type, ce.title, ce.description, ce.details_url,
+            ce.starts_at, ce.ends_at, ce.timezone, ce.school_event_status
+     FROM company_events ce
+     WHERE ce.agency_id = ?
+       AND ce.organization_id IN (${placeholders})
+       AND ce.event_type IN (${typePlaceholders})
+       AND ce.is_active = 1
+       AND COALESCE(ce.school_event_status, 'scheduled') <> 'canceled'
+       AND ce.starts_at >= ?
+       AND ce.starts_at <= ?
+     ORDER BY ce.starts_at ASC`,
+    [agencyId, ...schoolIds, ...trackedTypes, bounds.startDate, bounds.endDate]
+  );
+
+  const eventIds = (eventRows || []).map((r) => Number(r.id)).filter(Boolean);
+  const assignedByEvent = {};
+  const pendingByEvent = {};
+
+  if (eventIds.length) {
+    const eidPh = eventIds.map(() => '?').join(', ');
+    try {
+      const [assignedRows] = await pool.execute(
+        `SELECT cesd.company_event_id AS event_id, u.id AS user_id,
+                TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS name
+         FROM company_event_session_dates cesd
+         JOIN company_event_session_providers cesp ON cesp.session_date_id = cesd.id
+         JOIN users u ON u.id = cesp.provider_user_id
+         WHERE cesd.company_event_id IN (${eidPh})
+           AND LOWER(COALESCE(cesp.assignment_status, 'finalized')) IN ('finalized', 'tentative')`,
+        eventIds
+      );
+      for (const r of assignedRows || []) {
+        const eid = Number(r.event_id);
+        if (!assignedByEvent[eid]) assignedByEvent[eid] = [];
+        const name = String(r.name || '').trim() || `User ${r.user_id}`;
+        if (!assignedByEvent[eid].some((p) => p.userId === Number(r.user_id))) {
+          assignedByEvent[eid].push({ userId: Number(r.user_id), name });
+        }
+      }
+    } catch {
+      /* tables may vary */
+    }
+    try {
+      const [pendingRows] = await pool.execute(
+        `SELECT cesd.company_event_id AS event_id, u.id AS user_id,
+                TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS name,
+                r.status
+         FROM company_event_session_dates cesd
+         JOIN company_event_session_provider_requests r ON r.session_date_id = cesd.id
+         JOIN users u ON u.id = r.provider_user_id
+         WHERE cesd.company_event_id IN (${eidPh})
+           AND LOWER(COALESCE(r.status, '')) = 'pending'`,
+        eventIds
+      );
+      for (const r of pendingRows || []) {
+        const eid = Number(r.event_id);
+        if (!pendingByEvent[eid]) pendingByEvent[eid] = [];
+        const name = String(r.name || '').trim() || `User ${r.user_id}`;
+        if (!pendingByEvent[eid].some((p) => p.userId === Number(r.user_id))) {
+          pendingByEvent[eid].push({ userId: Number(r.user_id), name, status: 'pending' });
+        }
+      }
+    } catch {
+      /* tables may vary */
+    }
+  }
+
+  // First event per school+category wins (ordered by starts_at)
+  const bySchoolCat = {};
+  for (const row of eventRows || []) {
+    const sid = Number(row.organization_id);
+    const cat = eventTypeToCategory(row.event_type);
+    if (!trackedCats.includes(cat)) continue;
+    const key = `${sid}:${cat}`;
+    if (bySchoolCat[key]) continue;
+    const eid = Number(row.id);
+    bySchoolCat[key] = {
+      eventId: eid,
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
+      timezone: row.timezone || null,
+      title: row.title || '',
+      detailsUrl: row.details_url ? String(row.details_url).trim() : '',
+      locationOrDescription: row.description ? String(row.description).trim() : '',
+      assigned: assignedByEvent[eid] || [],
+      pendingRequests: pendingByEvent[eid] || []
+    };
+  }
+
+  const totals = emptyTotals();
+  const schoolOut = schools.map((s) => {
+    const events = {};
+    for (const c of trackedCats) {
+      const ev = bySchoolCat[`${s.id}:${c}`] || null;
+      events[c] = ev;
+      if (ev) totals[c].have += 1;
+    }
+    return {
+      id: s.id,
+      name: s.name,
+      districtName: districtBySchool[s.id] || null,
+      events
+    };
+  });
+
+  return {
+    schoolYear: bounds.label,
+    range: { start: bounds.start, end: bounds.end },
+    totals,
+    schools: schoolOut
+  };
 }
 
 export function makePostToken() {
@@ -1029,7 +1372,8 @@ export async function createDistrictSchoolEvents({
   timezone,
   employeeReportTime = null,
   skillBuilderDirectHours = 0,
-  minProvidersPerSession = 1,
+  minProvidersPerSession = 2,
+  detailsUrl = null,
   schoolEventStatus = 'scheduled'
 }) {
   const schoolIds = await listSchoolIdsForDistrict(agencyId, districtName);
@@ -1060,6 +1404,7 @@ export async function createDistrictSchoolEvents({
         employeeReportTime,
         skillBuilderDirectHours,
         minProvidersPerSession,
+        detailsUrl,
         districtBroadcastId: broadcastId
       });
       events.push(event);

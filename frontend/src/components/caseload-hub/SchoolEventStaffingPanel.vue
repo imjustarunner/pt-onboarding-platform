@@ -79,7 +79,7 @@
           Edit the event details above, assign providers directly below, or approve pending applications.
         </p>
         <p v-else-if="canApply" class="hint">
-          Providers can apply for open sessions below. Approvals assign them on the canonical company-event staffing tables.
+          Request to be assigned below. An administrator will approve or deny your request.
         </p>
 
         <section v-for="s in sessions" :key="s.sessionDateId" class="session-card">
@@ -134,13 +134,16 @@
           </div>
 
           <div v-if="canManage" class="requests">
-            <h4>Applications</h4>
+            <h4>Assignment requests</h4>
             <div v-if="sessionRequestsLoading[s.sessionDateId]" class="muted tiny">Loading…</div>
             <ul v-else class="req-list">
               <li v-for="r in requestsFor(s.sessionDateId)" :key="r.id" class="req-row">
                 <div>
                   <div class="primary">{{ r.providerName }}</div>
-                  <div class="muted tiny">{{ r.requestType }} · {{ r.status }}</div>
+                  <div class="muted tiny">
+                    {{ String(r.status).toLowerCase() === 'pending' ? 'Requested' : r.status }}
+                    <template v-if="r.requestType"> · {{ r.requestType }}</template>
+                  </div>
                 </div>
                 <div v-if="String(r.status).toLowerCase() === 'pending'" class="req-actions">
                   <button
@@ -161,7 +164,7 @@
                   </button>
                 </div>
               </li>
-              <li v-if="!requestsFor(s.sessionDateId).length" class="muted tiny">No applications for this session.</li>
+              <li v-if="!requestsFor(s.sessionDateId).length" class="muted tiny">No assignment requests yet.</li>
             </ul>
           </div>
 
@@ -185,7 +188,13 @@
               :disabled="savingSessionId === s.sessionDateId || isAssigned(s)"
               @click="apply(s.sessionDateId)"
             >
-              {{ isAssigned(s) ? 'Already assigned' : savingSessionId === s.sessionDateId ? 'Applying…' : 'Apply for this session' }}
+              {{
+                isAssigned(s)
+                  ? 'Already assigned'
+                  : savingSessionId === s.sessionDateId
+                    ? 'Requesting…'
+                    : 'Request to be assigned'
+              }}
             </button>
           </div>
         </section>
@@ -235,9 +244,20 @@ const role = computed(() => String(authStore.user?.role || '').toLowerCase());
 const canManage = computed(() =>
   ['super_admin', 'admin', 'support', 'staff'].includes(role.value)
 );
-/** School portal event edit (time/title/etc.) — includes CPA / provider_plus. */
+/** School portal event edit (time/title/etc.) — includes CPA / assigned provider-like roles. */
 const canEditDetails = computed(() =>
-  ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role.value)
+  [
+    'super_admin',
+    'admin',
+    'support',
+    'staff',
+    'clinical_practice_assistant',
+    'provider_plus',
+    'provider',
+    'intern',
+    'intern_plus',
+    'school_staff'
+  ].includes(role.value)
 );
 const canApply = computed(() =>
   [

@@ -104,6 +104,7 @@ import {
   updateSchoolPortalEventHandler,
   uploadSchoolEventFlier,
   getSchoolEventsOverview,
+  getSchoolYearCoverage,
   listSchoolEventDistricts,
   createDistrictSchoolEventHandler,
   validateSchoolEventPostToken,
@@ -118,6 +119,7 @@ const router = express.Router();
 // School portal routes (authenticated)
 // GET /api/school-portal/:organizationId/clients
 router.get('/school-events/overview', authenticate, getSchoolEventsOverview);
+router.get('/school-events/school-year-coverage', authenticate, getSchoolYearCoverage);
 router.get('/school-events/districts', authenticate, listSchoolEventDistricts);
 router.post('/school-events/district', authenticate, createDistrictSchoolEventHandler);
 router.get('/school-events/kiosk-settings', authenticate, getSchoolEventsKioskSettings);
