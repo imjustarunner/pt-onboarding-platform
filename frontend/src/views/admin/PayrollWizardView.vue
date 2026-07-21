@@ -312,7 +312,6 @@
                   />
                   <div class="pw-inline-panel-footer">
                     <button type="button" class="btn btn-secondary btn-sm" @click="closeProcessPanel">Collapse</button>
-                    <button type="button" class="btn btn-secondary btn-sm" @click="openProcessOnPayrollPage">Open full Process Changes on Payroll page</button>
                     <button
                       type="button"
                       class="btn btn-primary btn-sm"
@@ -788,15 +787,15 @@ const steps = [
   {
     key: 'batch_catchup',
     title: 'Compare & Add Late Notes',
-    description: 'Compare prior runs and add only the differences into the current pay period — right here in the wizard.',
-    tip: 'Compare Run 2 (and optional Run 3) against the DB baseline, select the late-note differences, then add them to this pay period. Same APIs as Process Changes on the Payroll page.',
+    description: 'Review changes from the reports already uploaded in step 1, see what is still incomplete, then add selected differences into this pay period.',
+    tip: 'No re-upload needed. This step compares the Run 2 / Run 3 files already saved, shows payable changes and anything still incomplete, then you add selected rows to the current period.',
     checklist: [
-      'Compare prior Run 2 (and optional two-ago Run 3)',
-      'Select the differences to carry over',
-      'Add selected rows into the current period'
+      'Review changes for prior Run 2 (and two-ago Run 3 if present)',
+      'Check what is still incomplete',
+      'Add selected differences into the current period'
     ],
     actions: [
-      { id: 'open_process', label: 'Compare & add late notes', primary: true, open: 'process_inline' },
+      { id: 'open_process', label: 'Review changes & add late notes', primary: true, open: 'process_inline' },
       { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: true
@@ -1212,12 +1211,6 @@ const openProcessInWizard = async () => {
 
 const closeProcessPanel = () => {
   showProcessPanel.value = false;
-};
-
-const openProcessOnPayrollPage = async () => {
-  await saveProgress();
-  showProcessPanel.value = false;
-  await openOnPayroll({ open: 'process' });
 };
 
 const onProcessChangesApplied = async () => {
