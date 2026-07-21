@@ -255,6 +255,27 @@
               <!-- Inline Raw Import panel -->
               <template v-if="showRawPanel">
                 <div class="pw-inline-panel">
+                  <div v-if="rawPanelCatchUp" class="pw-catchup-switch">
+                    <span class="pw-catchup-switch-label">Review period:</span>
+                    <button
+                      type="button"
+                      class="btn btn-sm"
+                      :class="rawPanelCatchUp === 'prior' ? 'btn-primary' : 'btn-secondary'"
+                      :disabled="!priorPeriod?.id && !wizardState?.priorPeriodId"
+                      @click="openRawInWizard({ mode: rawPanelMode || 'draft_audit', catchUp: 'prior' })"
+                    >
+                      Prior (Run 2){{ priorPeriod ? ` · ${shortRange(priorPeriod)}` : '' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm"
+                      :class="rawPanelCatchUp === 'twoAgo' ? 'btn-primary' : 'btn-secondary'"
+                      :disabled="!twoAgoPeriod?.id && !wizardState?.twoAgoPeriodId"
+                      @click="openRawInWizard({ mode: rawPanelMode || 'draft_audit', catchUp: 'twoAgo' })"
+                    >
+                      Two ago (Run 3){{ twoAgoPeriod ? ` · ${shortRange(twoAgoPeriod)}` : '' }}
+                    </button>
+                  </div>
                   <PayrollRawImportPanel
                     :key="`${rawPanelPeriodId}-${rawPanelMode}`"
                     :period-id="rawPanelPeriodId"
@@ -605,6 +626,8 @@ const rawPanelPeriodId = ref(null);
 const rawPanelPeriodLabel = ref('');
 const rawPanelPeriodStatus = ref('');
 const rawPanelMode = ref('draft_audit');
+/** When set, Raw Import is reviewing a catch-up period: 'prior' | 'twoAgo' */
+const rawPanelCatchUp = ref(null);
 const showClaimsPanel = ref(false);
 const showStagePanel = ref(false);
 const showTodosPanel = ref(false);
@@ -824,7 +847,7 @@ const iconSubmit = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" 
 
 const phases = [
   { key: 'uploads', title: 'Upload Reports', subtitle: 'Current + prior catch-up files', icon: iconCalendar, stepKeys: ['upload_reports'] },
-  { key: 'prior', title: 'Prior Catch-up', subtitle: 'Draft audit & compare', icon: iconReview, stepKeys: ['draft_audit_prior', 'batch_catchup'] },
+  { key: 'prior', title: 'Prior Catch-up', subtitle: 'Draft audit Run 2 & 3', icon: iconReview, stepKeys: ['draft_audit_prior', 'batch_catchup'] },
   { key: 'review', title: 'Review Data', subtitle: 'Drafts & process codes', icon: iconAdjust, stepKeys: ['drafts', 'h0031', 'h0032', 'h2014', '90853', 'h2032'] },
   { key: 'stage', title: 'Adjustments', subtitle: 'Claims, stage & to-dos', icon: iconPreview, stepKeys: ['claims', 'stage'] },
   { key: 'submit', title: 'Run & Post', subtitle: 'Calculate and publish', icon: iconSubmit, stepKeys: ['run', 'preview', 'post'] }
@@ -840,16 +863,18 @@ const steps = [
   },
   {
     key: 'draft_audit_prior',
-    title: 'Draft Audit Prior Period',
-    description: 'If you uploaded prior Run 2, review draft-payable decisions on the prior period before comparing.',
-    tip: 'Mark unpaid drafts on the prior period so late notes are tracked correctly.',
+    title: 'Draft Audit Prior Periods',
+    description: 'If you uploaded catch-up files, review draft-payable decisions on last period (Run 2) and two periods ago (Run 3) before comparing.',
+    tip: 'Focus on unpaid drafts (no note / draft not payable). Finalized “Payable” rows usually do not need re-editing — Run 2/3 is a fresh file, so minutes won’t match last week’s edits. H-code tabs on a posted prior period are mostly for unpaid rows awaiting finalize.',
     checklist: [
-      'Review Raw Import for the prior period (stays in this wizard)',
-      'Review draft / unpaid rows',
+      'Open Prior (Run 2) and/or Two ago (Run 3)',
+      'Stay on unpaid drafts — mark not payable if they should not carry',
+      'Skip already-finalized rows unless something actually changed',
       'Close the panel when finished'
     ],
     actions: [
-      { id: 'open_raw_prior', label: 'Review Draft Audit (Prior)', primary: true, open: 'raw', mode: 'draft_audit', usePrior: true },
+      { id: 'open_raw_prior', label: 'Review Prior (Run 2)', primary: true, open: 'raw', mode: 'draft_audit', usePrior: true },
+      { id: 'open_raw_two_ago', label: 'Review Two ago (Run 3)', primary: false, open: 'raw', mode: 'draft_audit', useTwoAgo: true },
       { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: true
@@ -1055,6 +1080,7 @@ const goToStep = async (idx) => {
   if (!Number.isFinite(idx) || idx < 0 || idx >= steps.length) return;
   if (idx === stepIdx.value) return;
   showRawPanel.value = false;
+  rawPanelCatchUp.value = null;
   showClaimsPanel.value = false;
   showStagePanel.value = false;
   showTodosPanel.value = false;
@@ -1175,34 +1201,56 @@ const goBackToPayroll = async () => {
   await router.push({ path: payrollBasePath(), query: selectedPeriodId.value ? { periodId: String(selectedPeriodId.value) } : {} });
 };
 
-const actionDisabled = () => false;
+const actionDisabled = (action) => {
+  if (action?.useTwoAgo) {
+    return !(twoAgoPeriod.value?.id || wizardState.value?.twoAgoPeriodId);
+  }
+  if (action?.usePrior) {
+    return !(priorPeriod.value?.id || wizardState.value?.priorPeriodId);
+  }
+  return false;
+};
 
-const resolveToolPeriod = (usePrior = false) => {
-  if (usePrior) {
+const resolveToolPeriod = ({ usePrior = false, useTwoAgo = false, catchUp = null } = {}) => {
+  const slot = catchUp || (useTwoAgo ? 'twoAgo' : (usePrior ? 'prior' : null));
+  if (slot === 'twoAgo') {
+    const twoAgoId = wizardState.value?.twoAgoPeriodId || twoAgoPeriod.value?.id;
+    if (twoAgoId) {
+      const p = (periods.value || []).find((x) => Number(x.id) === Number(twoAgoId));
+      return p || { id: twoAgoId, period_start: '', period_end: '', status: '' };
+    }
+    return null;
+  }
+  if (slot === 'prior') {
     const priorId = wizardState.value?.priorPeriodId || priorPeriod.value?.id;
     if (priorId) {
       const p = (periods.value || []).find((x) => Number(x.id) === Number(priorId));
       return p || { id: priorId, period_start: '', period_end: '', status: '' };
     }
+    return null;
   }
   return selectedPeriod.value || (periods.value || []).find((x) => Number(x.id) === Number(selectedPeriodId.value)) || null;
 };
 
-const openRawInWizard = async ({ mode = 'draft_audit', usePrior = false } = {}) => {
+const openRawInWizard = async ({ mode = 'draft_audit', usePrior = false, useTwoAgo = false, catchUp = null } = {}) => {
   await saveProgress();
-  const p = resolveToolPeriod(usePrior);
+  const slot = catchUp || (useTwoAgo ? 'twoAgo' : (usePrior ? 'prior' : null));
+  const p = resolveToolPeriod({ usePrior, useTwoAgo, catchUp: slot });
   if (!p?.id) {
     actionError.value = true;
-    actionMessage.value = usePrior
-      ? 'No prior pay period found. Upload reports first or pick a period with a contiguous prior.'
-      : 'Select a pay period first.';
+    actionMessage.value = slot === 'twoAgo'
+      ? 'No two-ago pay period found. Upload Run 3 in step 1, or pick a period with two contiguous priors.'
+      : slot === 'prior'
+        ? 'No prior pay period found. Upload reports first or pick a period with a contiguous prior.'
+        : 'Select a pay period first.';
     return;
   }
   rawPanelPeriodId.value = p.id;
   rawPanelPeriodLabel.value = periodRangeLabel(p);
-  rawPanelPeriodStatus.value = p.status || selectedPeriod.value?.status || '';
-  // If using prior and we only have an id, try to load status
-  if (usePrior && !p.status) {
+  rawPanelPeriodStatus.value = p.status || '';
+  rawPanelCatchUp.value = slot;
+  // If catch-up and we only have an id, try to load status/label
+  if (slot && !p.status) {
     try {
       const resp = await api.get(`/payroll/periods/${p.id}`);
       const full = resp.data?.period;
@@ -1225,6 +1273,7 @@ const openRawInWizard = async ({ mode = 'draft_audit', usePrior = false } = {}) 
 
 const closeRawPanel = () => {
   showRawPanel.value = false;
+  rawPanelCatchUp.value = null;
 };
 
 const openClaimsInWizard = async () => {
@@ -1385,17 +1434,21 @@ const openRawOnPayrollPage = async () => {
     wizardStep: currentStep.value?.key || ''
   };
   showRawPanel.value = false;
+  rawPanelCatchUp.value = null;
   await router.push({ path: payrollBasePath(), query });
 };
 
-const openOnPayroll = async ({ open, mode = null, usePrior = false }) => {
+const openOnPayroll = async ({ open, mode = null, usePrior = false, useTwoAgo = false } = {}) => {
   await saveProgress();
   const query = {
     periodId: String(selectedPeriodId.value),
     wizardOpen: open
   };
   if (mode) query.rawMode = mode;
-  if (usePrior) {
+  if (useTwoAgo) {
+    const twoAgoId = wizardState.value?.twoAgoPeriodId || twoAgoPeriod.value?.id;
+    if (twoAgoId) query.periodId = String(twoAgoId);
+  } else if (usePrior) {
     const priorId = wizardState.value?.priorPeriodId || priorPeriod.value?.id;
     if (priorId) query.periodId = String(priorId);
   }
@@ -1428,7 +1481,11 @@ const runStepAction = async (action) => {
     }
     // Raw Import / Draft Audit / H-code tools stay in the wizard (shared APIs with Payroll page)
     if (action.open === 'raw') {
-      await openRawInWizard({ mode: action.mode || 'draft_audit', usePrior: !!action.usePrior });
+      await openRawInWizard({
+        mode: action.mode || 'draft_audit',
+        usePrior: !!action.usePrior,
+        useTwoAgo: !!action.useTwoAgo
+      });
       return;
     }
     if (action.open === 'claims') {
@@ -1572,6 +1629,7 @@ const restartWizard = async () => {
   );
   if (!ok) return;
   showRawPanel.value = false;
+  rawPanelCatchUp.value = null;
   showClaimsPanel.value = false;
   showStagePanel.value = false;
   showTodosPanel.value = false;
@@ -1645,6 +1703,7 @@ const onPeriodChange = async () => {
 const goNext = async () => {
   if (!canContinue.value) return;
   showRawPanel.value = false;
+  rawPanelCatchUp.value = null;
   showClaimsPanel.value = false;
   showStagePanel.value = false;
   showTodosPanel.value = false;
@@ -1662,6 +1721,7 @@ const goNext = async () => {
 const goBack = async () => {
   if (stepIdx.value <= 0) return;
   showRawPanel.value = false;
+  rawPanelCatchUp.value = null;
   showClaimsPanel.value = false;
   showStagePanel.value = false;
   showTodosPanel.value = false;
@@ -2443,6 +2503,23 @@ onMounted(bootstrap);
   border-radius: 10px;
   overflow: hidden;
   background: #fff;
+}
+.pw-catchup-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  background: #f8fafc;
+}
+.pw-catchup-switch-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-right: 4px;
 }
 .pw-inline-panel :deep(.rip-panel) {
   padding: 16px 18px;
