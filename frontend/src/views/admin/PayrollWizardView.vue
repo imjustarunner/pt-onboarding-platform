@@ -92,7 +92,7 @@
         <h2 class="pw-step-title">{{ currentStep?.title }}</h2>
         <p class="pw-step-desc">{{ currentStep?.description }}</p>
 
-        <div class="pw-step-grid" :class="{ 'pw-step-grid--wide': currentStep?.key === 'upload_reports' || showRawPanel || showClaimsPanel || showStagePanel }">
+        <div class="pw-step-grid" :class="{ 'pw-step-grid--wide': currentStep?.key === 'upload_reports' || showRawPanel || showClaimsPanel || showStagePanel || showProcessPanel }">
           <div class="pw-step-primary">
             <!-- Step 1: Upload reports (current + prior v2 + two-ago v3) -->
             <template v-if="currentStep?.key === 'upload_reports'">
@@ -295,6 +295,36 @@
                 </div>
               </template>
 
+              <!-- Inline Process Changes (compare & add late notes) -->
+              <template v-else-if="showProcessPanel">
+                <div class="pw-inline-panel">
+                  <PayrollProcessChangesPanel
+                    :key="`process-${selectedPeriodId}-${priorPeriod?.id || ''}-${twoAgoPeriod?.id || ''}`"
+                    :agency-id="agencyId"
+                    :destination-period-id="selectedPeriodId"
+                    :destination-period-label="periodRangeLabel(selectedPeriod)"
+                    :destination-period-status="selectedPeriod?.status || ''"
+                    :prior-period-id="priorPeriod?.id || wizardState?.priorPeriodId || null"
+                    :prior-period-label="priorPeriod ? periodRangeLabel(priorPeriod) : ''"
+                    :two-ago-period-id="twoAgoPeriod?.id || wizardState?.twoAgoPeriodId || null"
+                    :two-ago-period-label="twoAgoPeriod ? periodRangeLabel(twoAgoPeriod) : ''"
+                    @applied="onProcessChangesApplied"
+                  />
+                  <div class="pw-inline-panel-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" @click="closeProcessPanel">Collapse</button>
+                    <button type="button" class="btn btn-secondary btn-sm" @click="openProcessOnPayrollPage">Open full Process Changes on Payroll page</button>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="!selectedPeriodId"
+                      @click="markCompleteAndNext"
+                    >
+                      Mark done &amp; continue
+                    </button>
+                  </div>
+                </div>
+              </template>
+
               <template v-else>
                 <ul class="pw-checklist">
                   <li v-for="(item, idx) in (currentStep?.checklist || [])" :key="idx">{{ item }}</li>
@@ -326,7 +356,7 @@
             </template>
           </div>
 
-          <div class="pw-step-side" v-if="currentStep?.key !== 'upload_reports' && !showRawPanel && !showClaimsPanel && !showStagePanel">
+          <div class="pw-step-side" v-if="currentStep?.key !== 'upload_reports' && !showRawPanel && !showClaimsPanel && !showStagePanel && !showProcessPanel">
             <div class="pw-tip">
               <div class="pw-tip-icon" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12c.8.8 1.2 1.7 1.2 2.7V17h5.6v-.3c0-1 .4-1.9 1.2-2.7A7 7 0 0 0 12 2z"/></svg>
@@ -469,6 +499,7 @@ import { useOrganizationStore } from '../../store/organization';
 import PayrollRawImportPanel from '../../components/payroll/PayrollRawImportPanel.vue';
 import PayrollClaimsPanel from '../../components/payroll/PayrollClaimsPanel.vue';
 import PayrollStagePanel from '../../components/payroll/PayrollStagePanel.vue';
+import PayrollProcessChangesPanel from '../../components/payroll/PayrollProcessChangesPanel.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -510,6 +541,7 @@ const rawPanelPeriodStatus = ref('');
 const rawPanelMode = ref('draft_audit');
 const showClaimsPanel = ref(false);
 const showStagePanel = ref(false);
+const showProcessPanel = ref(false);
 
 /** Org-relevant periods only: schedule-aligned, past/current + at most one upcoming (matches Payroll history). */
 const periodsForSelect = computed(() => {
@@ -756,15 +788,15 @@ const steps = [
   {
     key: 'batch_catchup',
     title: 'Compare & Add Late Notes',
-    description: 'Compare prior runs and add only the differences into the current pay period.',
-    tip: 'Use Process Changes on the Payroll page to compare and apply late notes to the current period.',
+    description: 'Compare prior runs and add only the differences into the current pay period — right here in the wizard.',
+    tip: 'Compare Run 2 (and optional Run 3) against the DB baseline, select the late-note differences, then add them to this pay period. Same APIs as Process Changes on the Payroll page.',
     checklist: [
-      'Open Process Changes',
-      'Select prior period(s) and compare runs',
-      'Add selected differences into the current period'
+      'Compare prior Run 2 (and optional two-ago Run 3)',
+      'Select the differences to carry over',
+      'Add selected rows into the current period'
     ],
     actions: [
-      { id: 'open_process', label: 'Open Process Changes', primary: true, open: 'process' },
+      { id: 'open_process', label: 'Compare & add late notes', primary: true, open: 'process_inline' },
       { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: true
@@ -953,6 +985,7 @@ const goToStep = async (idx) => {
   showRawPanel.value = false;
   showClaimsPanel.value = false;
   showStagePanel.value = false;
+  showProcessPanel.value = false;
   await saveProgress();
   stepIdx.value = idx;
   await saveProgress();
@@ -1110,6 +1143,7 @@ const openRawInWizard = async ({ mode = 'draft_audit', usePrior = false } = {}) 
   rawPanelMode.value = mode || 'draft_audit';
   showClaimsPanel.value = false;
   showStagePanel.value = false;
+  showProcessPanel.value = false;
   showRawPanel.value = true;
 };
 
@@ -1126,6 +1160,7 @@ const openClaimsInWizard = async () => {
   }
   showRawPanel.value = false;
   showStagePanel.value = false;
+  showProcessPanel.value = false;
   showClaimsPanel.value = true;
 };
 
@@ -1148,6 +1183,7 @@ const openStageInWizard = async () => {
   }
   showRawPanel.value = false;
   showClaimsPanel.value = false;
+  showProcessPanel.value = false;
   showStagePanel.value = true;
 };
 
@@ -1159,6 +1195,35 @@ const openStageOnPayrollPage = async () => {
   await saveProgress();
   showStagePanel.value = false;
   await openOnPayroll({ open: 'stage' });
+};
+
+const openProcessInWizard = async () => {
+  await saveProgress();
+  if (!selectedPeriodId.value) {
+    actionError.value = true;
+    actionMessage.value = 'Select a pay period first.';
+    return;
+  }
+  showRawPanel.value = false;
+  showClaimsPanel.value = false;
+  showStagePanel.value = false;
+  showProcessPanel.value = true;
+};
+
+const closeProcessPanel = () => {
+  showProcessPanel.value = false;
+};
+
+const openProcessOnPayrollPage = async () => {
+  await saveProgress();
+  showProcessPanel.value = false;
+  await openOnPayroll({ open: 'process' });
+};
+
+const onProcessChangesApplied = async () => {
+  actionError.value = false;
+  actionMessage.value = 'Late notes added to the current period. You can mark this step done and continue.';
+  await loadPeriodDetails();
 };
 
 const openRawOnPayrollPage = async () => {
@@ -1224,6 +1289,10 @@ const runStepAction = async (action) => {
     }
     if (action.open === 'stage_inline') {
       await openStageInWizard();
+      return;
+    }
+    if (action.open === 'process_inline' || action.open === 'process') {
+      await openProcessInWizard();
       return;
     }
     if (action.open) {
