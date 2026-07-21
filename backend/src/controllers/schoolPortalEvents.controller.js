@@ -24,6 +24,7 @@ import {
   resolveAgencyIdForSchoolOrg,
   schoolEventCategoryLabel,
   schoolYearBounds,
+  updateDistrictSchoolEvents,
   updateSchoolPortalEvent,
   validatePostToken
 } from '../services/schoolPortalEvents.service.js';
@@ -513,6 +514,56 @@ export const listSchoolEventDistricts = async (req, res, next) => {
     res.json({ agencyId, districts });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/** PUT /api/school-portal/school-events/district/:broadcastId — edit all schools in a district broadcast */
+export const updateDistrictSchoolEventHandler = async (req, res, next) => {
+  try {
+    const agencyId = await assertAgencyAdminAccess(req, req.body?.agencyId ?? req.query?.agencyId);
+    const broadcastId = String(req.params.broadcastId || req.body?.districtBroadcastId || '').trim();
+    if (!broadcastId) {
+      return res.status(400).json({ error: { message: 'districtBroadcastId is required' } });
+    }
+    const parsed = parseSchoolEventBody(req.body || {});
+    if (parsed.category && !SCHOOL_EVENT_CATEGORIES.includes(parsed.category)) {
+      return res.status(400).json({ error: { message: 'Invalid category' } });
+    }
+
+    const canEditPayroll = await userCanEditSchoolEventPayrollFields({
+      userId: req.user?.id,
+      role: req.user?.role,
+      agencyId
+    });
+    if (parsed.skillBuilderDirectHours !== undefined && !canEditPayroll) {
+      return res.status(403).json({
+        error: { message: 'Only payroll or admin can set direct hours for school events' }
+      });
+    }
+
+    const result = await updateDistrictSchoolEvents({
+      agencyId,
+      districtBroadcastId: broadcastId,
+      userId: req.user?.id,
+      title: parsed.title || undefined,
+      description: parsed.description,
+      category: parsed.category || undefined,
+      startsAt: parsed.startsAt || undefined,
+      endsAt: parsed.endsAt || undefined,
+      timezone: parsed.timezone,
+      outreachTableInvited: req.body?.outreachTableInvited ?? req.body?.outreach_table_invited,
+      detailsUrl: parsed.detailsUrl,
+      schoolEventStatus: parsed.schoolEventStatus,
+      employeeReportTime: parsed.employeeReportTime,
+      skillBuilderDirectHours: canEditPayroll ? parsed.skillBuilderDirectHours : undefined,
+      minProvidersPerSession: parsed.minProvidersPerSession
+    });
+    res.json(result);
+  } catch (e) {
+    if (e.status) {
+      return res.status(e.status).json({ error: { message: e.message, details: e.details } });
+    }
     next(e);
   }
 };

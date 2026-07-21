@@ -30,17 +30,24 @@
           <label class="field">
             <span class="lbl">Event type</span>
             <select v-model="form.category" class="input" :disabled="!!lockedCategory">
-              <option value="back_to_school">Back to School</option>
-              <option value="fall_check_in">Fall School Check-in</option>
-              <option value="spring">Spring School Check-in</option>
+              <option value="back_to_school">Back to School (attendable event)</option>
               <option value="open_house">Open House</option>
               <option value="resource_fair">Resource Fair</option>
               <option value="family_night">Family Night</option>
               <option value="orientation">Orientation</option>
-              <option value="holiday">Holiday</option>
-              <option value="day_off">Day off</option>
               <option value="other">Other school event</option>
+              <option value="fall_check_in">Fall School Check-in (calendar only)</option>
+              <option value="spring">Spring School Check-in (calendar only)</option>
+              <option value="first_day">First Day of School (calendar only)</option>
+              <option value="holiday">Holiday (calendar only)</option>
+              <option value="day_off">Day off (calendar only)</option>
             </select>
+            <span v-if="isCalendarOnlyCategory" class="hint">
+              Calendar date only — not an attendable event and not open for provider staffing.
+            </span>
+            <span v-else-if="form.category === 'back_to_school'" class="hint">
+              Use for open houses / nights families and providers attend (not the first day of school).
+            </span>
           </label>
 
           <label class="field">
@@ -73,7 +80,7 @@
               <span class="lbl">{{ form.schoolEventStatus === 'rescheduled' ? 'New date' : 'Date' }}</span>
               <input v-model="form.date" type="date" class="input" />
             </label>
-            <label class="field">
+            <label v-if="!isCalendarOnlyCategory" class="field">
               <span class="lbl">Report by</span>
               <input v-model="form.reportTime" type="time" class="input" />
             </label>
@@ -87,7 +94,8 @@
             </label>
           </div>
           <p class="tz-hint">
-            Report by is when staff should arrive. Times are saved in {{ timezoneLabel }} ({{ timezoneAbbrev }}).
+            <template v-if="!isCalendarOnlyCategory">Report by is when staff should arrive. </template>
+            Times are saved in {{ timezoneLabel }} ({{ timezoneAbbrev }}).
           </p>
 
           <label v-if="!isCalendarOnlyCategory" class="field">
@@ -102,7 +110,9 @@
             />
             <span class="hint">How many providers to staff for this event (default 2 — raise for larger schools).</span>
           </label>
-          <p v-else class="hint">Holidays and days off do not open provider staffing.</p>
+          <p v-else class="hint">
+            Calendar-only types (fall/spring check-in, first day, holidays, days off) are not attendable and do not open provider staffing.
+          </p>
 
           <label v-if="canEditPayrollFields" class="field">
             <span class="lbl">Direct hours cap (payroll)</span>
@@ -140,10 +150,49 @@
           </label>
           <p v-else class="hint">Flier files can be attached per school after the district event is created.</p>
 
-          <label class="checkbox-row">
+          <label v-if="!isCalendarOnlyCategory" class="checkbox-row">
             <input v-model="form.outreachTableInvited" type="checkbox" />
             <span>ITSCO is invited to attend via an outreach table</span>
           </label>
+
+          <div v-if="canAssignOnCreate" class="assign-now">
+            <div class="lbl">Assign providers now (optional)</div>
+            <p class="hint">
+              Pick people you already know should staff this event. They’ll be assigned as soon as it’s posted.
+              School staff and providers cannot use this.
+            </p>
+            <div v-if="providersLoading" class="hint">Loading providers…</div>
+            <div v-else-if="!assignProviderOptions.length" class="hint">No providers found for this agency/school.</div>
+            <template v-else>
+              <div v-if="selectedAssignProviders.length" class="assign-chips">
+                <span v-for="p in selectedAssignProviders" :key="p.id" class="assign-chip">
+                  {{ p.name }}
+                  <button type="button" class="chip-x" aria-label="Remove" @click="toggleAssignProvider(p.id)">×</button>
+                </span>
+              </div>
+              <select v-model="assignPick" class="input" @change="onAssignPick">
+                <option value="">Add a provider…</option>
+                <option
+                  v-for="p in unselectedAssignProviders"
+                  :key="p.id"
+                  :value="String(p.id)"
+                >
+                  {{ p.name }}{{ p.atSchool ? ' · assigned to this school' : '' }}
+                </option>
+              </select>
+            </template>
+          </div>
+
+          <label v-if="canEditDistrictWide" class="checkbox-row district-wide">
+            <input v-model="form.applyToDistrict" type="checkbox" />
+            <span>
+              Apply these changes to <strong>all schools</strong> in this district-wide event
+              <span v-if="districtBroadcastLabel" class="hint-inline">({{ districtBroadcastLabel }})</span>
+            </span>
+          </label>
+          <p v-if="canEditDistrictWide && form.applyToDistrict" class="hint warn">
+            Title, type, date/time, and details will update for every school copy created with this district event.
+          </p>
 
           <div v-if="error" class="error">{{ error }}</div>
           <div v-if="success" class="success">{{ success }}</div>
@@ -165,6 +214,7 @@ import { onMounted, reactive, ref, watch, computed } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { fetchProviderCoverageSummary } from '../../services/schoolCoverageApi';
 import {
   detectLocalTimezone,
   SCHOOL_EVENT_FALLBACK_TIMEZONE,
@@ -199,6 +249,25 @@ const success = ref('');
 
 const isDistrictCreate = computed(() => !!String(props.districtName || '').trim() && !props.editEvent);
 
+const districtBroadcastId = computed(() =>
+  String(props.editEvent?.districtBroadcastId || props.editEvent?.district_broadcast_id || '').trim()
+);
+const canManageDistrictBroadcast = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+});
+const canEditDistrictWide = computed(
+  () =>
+    !!props.editEvent?.id &&
+    !!districtBroadcastId.value &&
+    !!props.agencyId &&
+    canManageDistrictBroadcast.value
+);
+const districtBroadcastLabel = computed(() => {
+  const d = String(props.editEvent?.districtName || props.districtName || '').trim();
+  return d ? `${d} district` : 'district broadcast';
+});
+
 const displaySchoolName = computed(() => {
   const fromProp = String(props.schoolName || '').trim();
   if (fromProp) return fromProp;
@@ -210,6 +279,12 @@ const canEditPayrollFields = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   if (role === 'super_admin' || role === 'admin') return true;
   return !!authStore.user?.capabilities?.canManagePayroll;
+});
+
+/** Direct assign-on-create: admin / support / super_admin only (not school staff or providers). */
+const canDirectAssignRole = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support'].includes(role);
 });
 
 const form = reactive({
@@ -227,13 +302,118 @@ const form = reactive({
   flierFileUrl: '',
   eventImageUrl: '',
   detailsUrl: '',
+  applyToDistrict: true,
   timezone: SCHOOL_EVENT_FALLBACK_TIMEZONE
 });
 
 const isCalendarOnlyCategory = computed(() => {
   const c = String(form.category || '').toLowerCase();
-  return c === 'holiday' || c === 'day_off';
+  return c === 'holiday' || c === 'day_off' || c === 'first_day' || c === 'fall_check_in' || c === 'spring';
 });
+
+const canAssignOnCreate = computed(
+  () =>
+    canDirectAssignRole.value &&
+    !props.editEvent &&
+    !isDistrictCreate.value &&
+    !isCalendarOnlyCategory.value &&
+    !!props.agencyId &&
+    !!props.schoolOrganizationId
+);
+
+const assignProviderOptions = ref([]);
+const providersLoading = ref(false);
+const selectedAssignIds = ref([]);
+const assignPick = ref('');
+
+const selectedAssignProviders = computed(() =>
+  selectedAssignIds.value
+    .map((id) => assignProviderOptions.value.find((p) => Number(p.id) === Number(id)))
+    .filter(Boolean)
+);
+const unselectedAssignProviders = computed(() =>
+  assignProviderOptions.value.filter((p) => !selectedAssignIds.value.includes(Number(p.id)))
+);
+
+function toggleAssignProvider(id) {
+  const n = Number(id);
+  if (!n) return;
+  if (selectedAssignIds.value.includes(n)) {
+    selectedAssignIds.value = selectedAssignIds.value.filter((x) => x !== n);
+  } else {
+    selectedAssignIds.value = [...selectedAssignIds.value, n];
+  }
+}
+
+function onAssignPick() {
+  const id = Number(assignPick.value);
+  assignPick.value = '';
+  if (id) toggleAssignProvider(id);
+}
+
+async function loadAssignProviders() {
+  if (!canAssignOnCreate.value) {
+    assignProviderOptions.value = [];
+    selectedAssignIds.value = [];
+    return;
+  }
+  providersLoading.value = true;
+  try {
+    const data = await fetchProviderCoverageSummary(props.agencyId);
+    const schoolId = Number(props.schoolOrganizationId);
+    const list = (data.providers || []).map((p) => {
+      const id = Number(p.providerId || p.id);
+      const atSchool = schoolId
+        ? (p.schools || []).some((s) => Number(s.schoolId) === schoolId)
+        : false;
+      return {
+        id,
+        name: p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || `Provider ${id}`,
+        atSchool
+      };
+    }).filter((p) => p.id);
+    list.sort((a, b) => {
+      if (a.atSchool !== b.atSchool) return a.atSchool ? -1 : 1;
+      return String(a.name).localeCompare(String(b.name));
+    });
+    assignProviderOptions.value = list;
+  } catch {
+    assignProviderOptions.value = [];
+  } finally {
+    providersLoading.value = false;
+  }
+}
+
+async function assignProvidersAfterCreate(eventId) {
+  const ids = selectedAssignIds.value.slice();
+  const agencyId = Number(props.agencyId);
+  const eid = Number(eventId);
+  if (!ids.length || !agencyId || !eid) return { assigned: 0, failed: 0 };
+
+  const summaryRes = await api.get(`/company-events/${eid}/session-staffing-summary`, {
+    params: { agencyId },
+    skipGlobalLoading: true
+  });
+  const sessionDateId = Number(summaryRes.data?.sessions?.[0]?.sessionDateId || 0);
+  if (!sessionDateId) return { assigned: 0, failed: ids.length };
+
+  let assigned = 0;
+  let failed = 0;
+  for (const providerUserId of ids) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await api.post(
+        `/company-events/${eid}/session-providers/assign`,
+        { agencyId, sessionDateId, providerUserId },
+        { skipGlobalLoading: true }
+      );
+      assigned += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { assigned, failed };
+}
 
 const wallTimeToInput = (value) => {
   const s = String(value || '').trim();
@@ -325,8 +505,10 @@ const submit = async () => {
       endsAt: range.endsAt,
       timezone: form.timezone || detectLocalTimezone() || SCHOOL_EVENT_FALLBACK_TIMEZONE,
       schoolEventStatus: form.schoolEventStatus || 'scheduled',
-      employeeReportTime: form.reportTime ? `${form.reportTime}:00` : null,
-      outreachTableInvited: form.outreachTableInvited,
+      employeeReportTime: isCalendarOnlyCategory.value
+        ? null
+        : (form.reportTime ? `${form.reportTime}:00` : null),
+      outreachTableInvited: isCalendarOnlyCategory.value ? false : form.outreachTableInvited,
       flierFileUrl: form.flierFileUrl || null,
       eventImageUrl: form.eventImageUrl || null,
       detailsUrl: String(form.detailsUrl || '').trim() || null,
@@ -339,7 +521,16 @@ const submit = async () => {
       payload.skillBuilderDirectHours = Number(form.skillBuilderDirectHours) || 0;
     }
     let res;
-    if (props.editEvent?.id) {
+    if (props.editEvent?.id && form.applyToDistrict && canEditDistrictWide.value) {
+      res = await api.put(`/school-portal/school-events/district/${encodeURIComponent(districtBroadcastId.value)}`, {
+        ...payload,
+        agencyId: Number(props.agencyId)
+      });
+    } else if (props.editEvent?.id) {
+      if (!props.schoolOrganizationId) {
+        error.value = 'School is required';
+        return;
+      }
       res = await api.put(
         `/school-portal/${props.schoolOrganizationId}/school-events/${props.editEvent.id}`,
         payload
@@ -361,17 +552,32 @@ const submit = async () => {
       }
       res = await api.post(`/school-portal/${props.schoolOrganizationId}/school-events`, payload);
     }
+
+    let assignNote = '';
+    const createdEventId = !props.editEvent && !isDistrictCreate.value ? Number(res.data?.id || 0) : 0;
+    if (createdEventId && canAssignOnCreate.value && selectedAssignIds.value.length) {
+      const assignResult = await assignProvidersAfterCreate(createdEventId);
+      if (assignResult.assigned) {
+        assignNote = ` Assigned ${assignResult.assigned} provider${assignResult.assigned === 1 ? '' : 's'}.`;
+      }
+      if (assignResult.failed) {
+        assignNote += ` ${assignResult.failed} assignment${assignResult.failed === 1 ? '' : 's'} failed.`;
+      }
+    }
+
     success.value = props.editEvent?.id
-      ? form.schoolEventStatus === 'canceled'
-        ? 'Event marked canceled.'
-        : form.schoolEventStatus === 'rescheduled'
-          ? 'Event rescheduled. New date/time is live and the portal banner will update.'
-          : 'Event updated.'
+      ? form.applyToDistrict && canEditDistrictWide.value
+        ? `Updated ${res.data?.updatedCount || 0} school(s) in this district event.`
+        : form.schoolEventStatus === 'canceled'
+          ? 'Event marked canceled.'
+          : form.schoolEventStatus === 'rescheduled'
+            ? 'Event rescheduled. New date/time is live and the portal banner will update.'
+            : 'Event updated.'
       : isDistrictCreate.value
         ? `Created for ${res.data?.createdCount || 0} school(s) in the district.`
-        : 'Event posted. It will appear on the portal banner the week of the event.';
+        : `Event posted.${assignNote || ' It will appear on the portal banner the week of the event.'}`;
     emit('saved', res.data);
-    setTimeout(() => emit('close'), 1100);
+    setTimeout(() => emit('close'), assignNote ? 1600 : 1100);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to save event';
   } finally {
@@ -404,6 +610,7 @@ const hydrateFromEdit = () => {
   form.flierFileUrl = e.flierFileUrl || '';
   form.eventImageUrl = e.eventImageUrl || '';
   form.detailsUrl = e.detailsUrl || '';
+  form.applyToDistrict = !!String(e.districtBroadcastId || e.district_broadcast_id || '').trim();
   form.timezone = e.timezone || detectLocalTimezone() || SCHOOL_EVENT_FALLBACK_TIMEZONE;
 };
 
@@ -420,11 +627,28 @@ onMounted(() => {
   if (/^\d{2}:\d{2}$/.test(st)) form.startTime = st;
   const et = String(props.initialEndTime || '').trim();
   if (/^\d{2}:\d{2}$/.test(et)) form.endTime = et;
+  loadAssignProviders();
 });
 
 watch(
   () => props.editEvent,
   () => hydrateFromEdit()
+);
+
+watch(
+  () => [
+    canAssignOnCreate.value,
+    props.agencyId,
+    props.schoolOrganizationId,
+    form.category
+  ],
+  () => {
+    if (canAssignOnCreate.value) loadAssignProviders();
+    else {
+      assignProviderOptions.value = [];
+      selectedAssignIds.value = [];
+    }
+  }
 );
 </script>
 
@@ -540,6 +764,56 @@ watch(
   margin: 10px 0 14px;
   font-size: 0.9rem;
   color: #334155;
+}
+.checkbox-row.district-wide {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  background: #fffbeb;
+}
+.hint-inline {
+  color: #92400e;
+  font-weight: 600;
+}
+.assign-now {
+  margin: 0.35rem 0 1rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.assign-now .lbl {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.assign-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.45rem 0 0.55rem;
+}
+.assign-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1e40af;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.assign-chip .chip-x {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.1rem;
 }
 .pse-actions {
   display: flex;

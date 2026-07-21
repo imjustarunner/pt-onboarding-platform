@@ -1197,6 +1197,7 @@
       v-if="showPostSchoolEvent && organizationId"
       :school-organization-id="organizationId"
       :school-name="organizationName || organizationDisplayName || ''"
+      :agency-id="affiliatedAgencyId"
       :initial-category="postSchoolEventCategory"
       :initial-date="postSchoolEventDate"
       :locked-category="!!postSchoolEventToken"
@@ -1757,6 +1758,7 @@ const formatSchoolEventCategory = (c) => {
     back_to_school: 'Back to School',
     fall_check_in: 'Fall School Check-in',
     spring: 'Spring School Check-in',
+    first_day: 'First Day of School',
     open_house: 'Open House',
     resource_fair: 'Resource Fair',
     family_night: 'Family Night',

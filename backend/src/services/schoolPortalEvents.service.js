@@ -9,6 +9,7 @@ export const SCHOOL_PORTAL_EVENT_TYPES = new Set([
   'school_back_to_school',
   'school_fall_check_in',
   'school_spring_event',
+  'school_first_day',
   'school_open_house',
   'school_resource_fair',
   'school_family_night',
@@ -19,8 +20,9 @@ export const SCHOOL_PORTAL_EVENT_TYPES = new Set([
 ]);
 
 /**
- * Categories that enforce one active event per school per school year (Aug 1 – Jul 31).
- * Tracked for coverage: Back to School, Fall School Check-in, Spring School Check-in.
+ * Categories that enforce one active attendable event per school per school year (Aug 1 – Jul 31).
+ * First Day of School is an important date (calendar-only) and is intentionally not unique —
+ * schools may have Jump Start and a later first day.
  */
 export const YEARLY_UNIQUE_SCHOOL_EVENT_CATEGORIES = new Set([
   'back_to_school',
@@ -32,6 +34,7 @@ export const SCHOOL_EVENT_CATEGORIES = [
   'back_to_school',
   'fall_check_in',
   'spring',
+  'first_day',
   'open_house',
   'resource_fair',
   'family_night',
@@ -56,6 +59,7 @@ export function categoryToEventType(category) {
   if (c === 'back_to_school') return 'school_back_to_school';
   if (c === 'fall_check_in') return 'school_fall_check_in';
   if (c === 'spring') return 'school_spring_event';
+  if (c === 'first_day') return 'school_first_day';
   if (c === 'open_house') return 'school_open_house';
   if (c === 'resource_fair') return 'school_resource_fair';
   if (c === 'family_night') return 'school_family_night';
@@ -71,6 +75,7 @@ export function eventTypeToCategory(eventType) {
   if (t === 'school_back_to_school') return 'back_to_school';
   if (t === 'school_fall_check_in') return 'fall_check_in';
   if (t === 'school_spring_event') return 'spring';
+  if (t === 'school_first_day') return 'first_day';
   if (t === 'school_open_house') return 'open_house';
   if (t === 'school_resource_fair') return 'resource_fair';
   if (t === 'school_family_night') return 'family_night';
@@ -87,6 +92,7 @@ export function schoolEventCategoryLabel(category) {
     back_to_school: 'Back to School',
     fall_check_in: 'Fall School Check-in',
     spring: 'Spring School Check-in',
+    first_day: 'First Day of School',
     open_house: 'Open House',
     resource_fair: 'Resource Fair',
     family_night: 'Family Night',
@@ -197,8 +203,17 @@ export function buildSchoolEventStaffingConfig({ minProvidersPerSession = 2, ena
   };
 }
 
-/** Categories that are calendar-only (no provider staffing by default). */
-export const CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES = new Set(['holiday', 'day_off']);
+/**
+ * Calendar-only school dates (not attendable; no provider staffing).
+ * Back to School and other parent/family events remain staffable.
+ */
+export const CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES = new Set([
+  'holiday',
+  'day_off',
+  'first_day',
+  'fall_check_in',
+  'spring'
+]);
 
 /** @deprecated use buildSchoolEventStaffingConfig */
 function buildOutreachStaffingConfig() {
@@ -230,6 +245,15 @@ export async function enableSchoolEventProviderStaffing({
   if (!row) throw Object.assign(new Error('Event not found'), { status: 404 });
   if (!isSchoolPortalEventType(row.event_type)) {
     throw Object.assign(new Error('Not a school portal event'), { status: 400 });
+  }
+  const cat = eventTypeToCategory(row.event_type);
+  if (CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(String(cat || ''))) {
+    throw Object.assign(
+      new Error(
+        'Calendar-only dates (first day, fall/spring check-in, holidays, days off) cannot open provider staffing'
+      ),
+      { status: 400 }
+    );
   }
 
   const staffingConfig = buildSchoolEventStaffingConfig({ minProvidersPerSession });
@@ -419,12 +443,18 @@ export async function syncSchoolEventAnnouncement({
 
   let message;
   let titleOut;
+  const calendarOnly = CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(
+    String(category || '').trim().toLowerCase()
+  );
   if (status === 'canceled') {
-    titleOut = 'Event canceled';
+    titleOut = calendarOnly ? 'Date canceled' : 'Event canceled';
     message = `${title || typeLabel} has been canceled${when ? ` (was ${when})` : ''}.`;
   } else if (status === 'rescheduled') {
-    titleOut = 'Event rescheduled';
-    message = `${title || typeLabel} has been rescheduled to ${when || 'a new date/time'}.`;
+    titleOut = calendarOnly ? 'Date updated' : 'Event rescheduled';
+    message = `${title || typeLabel} has been moved to ${when || 'a new date/time'}.`;
+  } else if (calendarOnly) {
+    titleOut = typeLabel;
+    message = `${title || typeLabel} — ${when || 'upcoming'}.`;
   } else {
     titleOut = typeLabel;
     message = `${title || typeLabel} — ${when || 'upcoming'}. Providers can apply to staff this event.`;
@@ -528,8 +558,14 @@ export async function createSchoolPortalEvent({
       schoolYear: sy.label
     });
     if (existing) {
+      const existingTitle = String(existing.title || '').trim();
+      const label = schoolEventCategoryLabel(category);
       throw Object.assign(
-        new Error(`This school already has an active event of this type for the ${sy.label} school year`),
+        new Error(
+          existingTitle
+            ? `This school already has a ${label} for the ${sy.label} school year (“${existingTitle}”). Edit that entry or choose a different type.`
+            : `This school already has a ${label} for the ${sy.label} school year.`
+        ),
         { status: 409 }
       );
     }
@@ -762,8 +798,14 @@ export async function updateSchoolPortalEvent({
       excludeEventId: eventId
     });
     if (dup) {
+      const existingTitle = String(dup.title || '').trim();
+      const label = schoolEventCategoryLabel(categoryForUniqueness);
       throw Object.assign(
-        new Error(`This school already has an active event of this type for the ${sy.label} school year`),
+        new Error(
+          existingTitle
+            ? `This school already has a ${label} for the ${sy.label} school year (“${existingTitle}”). Edit that entry or choose a different type.`
+            : `This school already has a ${label} for the ${sy.label} school year.`
+        ),
         { status: 409 }
       );
     }
@@ -1427,6 +1469,100 @@ export async function createDistrictSchoolEvents({
     createdCount: events.length,
     schoolCount: schoolIds.length,
     events,
+    errors
+  };
+}
+
+/**
+ * Update every active school event that shares a district_broadcast_id.
+ * Shared fields (title, type, times, etc.) are applied to each school copy.
+ */
+export async function updateDistrictSchoolEvents({
+  agencyId,
+  districtBroadcastId,
+  userId,
+  title,
+  description,
+  category,
+  startsAt,
+  endsAt,
+  timezone,
+  outreachTableInvited,
+  detailsUrl,
+  schoolEventStatus,
+  employeeReportTime,
+  skillBuilderDirectHours,
+  minProvidersPerSession
+}) {
+  const aid = Number(agencyId);
+  const broadcastId = String(districtBroadcastId || '').trim();
+  if (!aid || !broadcastId) {
+    throw Object.assign(new Error('agencyId and districtBroadcastId are required'), { status: 400 });
+  }
+
+  const [rows] = await pool.execute(
+    `SELECT id, organization_id, title, event_type
+     FROM company_events
+     WHERE agency_id = ?
+       AND district_broadcast_id = ?
+       AND is_active = 1
+       AND event_type LIKE 'school\\_%'
+     ORDER BY organization_id ASC`,
+    [aid, broadcastId]
+  );
+  const targets = rows || [];
+  if (!targets.length) {
+    throw Object.assign(new Error('No district-wide school events found for this broadcast'), {
+      status: 404
+    });
+  }
+
+  const updated = [];
+  const errors = [];
+  for (const row of targets) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const event = await updateSchoolPortalEvent({
+        eventId: Number(row.id),
+        organizationId: Number(row.organization_id),
+        agencyId: aid,
+        userId,
+        title,
+        description,
+        category,
+        startsAt,
+        endsAt,
+        timezone,
+        outreachTableInvited,
+        detailsUrl,
+        schoolEventStatus,
+        employeeReportTime,
+        skillBuilderDirectHours,
+        minProvidersPerSession
+      });
+      updated.push(event);
+    } catch (e) {
+      errors.push({
+        eventId: Number(row.id),
+        organizationId: Number(row.organization_id),
+        title: row.title || null,
+        message: e?.message || 'Failed to update event'
+      });
+    }
+  }
+
+  if (!updated.length) {
+    throw Object.assign(new Error(errors[0]?.message || 'Failed to update district events'), {
+      status: errors[0]?.status || 500,
+      details: errors
+    });
+  }
+
+  return {
+    districtBroadcastId: broadcastId,
+    updatedCount: updated.length,
+    schoolCount: targets.length,
+    events: updated,
     errors
   };
 }

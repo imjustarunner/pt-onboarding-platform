@@ -185,6 +185,7 @@ export const listHubEvents = async (req, res, next) => {
              ce.timezone, ce.is_active, ce.organization_id, ce.outreach_table_invited,
              ce.staffing_config_json, ce.school_event_status,
              ce.employee_report_time, ce.skill_builder_direct_hours,
+             ce.district_broadcast_id, ce.flier_file_url, ce.event_image_url, ce.details_url,
              a.name AS school_name, sp.district_name
       FROM company_events ce
       LEFT JOIN agencies a ON a.id = ce.organization_id
@@ -192,7 +193,8 @@ export const listHubEvents = async (req, res, next) => {
       WHERE ce.agency_id = ?
         AND (
           ce.event_type IN (
-            'school_back_to_school', 'school_spring_event', 'school_open_house',
+            'school_back_to_school', 'school_spring_event', 'school_fall_check_in',
+            'school_first_day', 'school_open_house',
             'school_resource_fair', 'school_family_night', 'school_orientation', 'school_other'
           )
           OR ce.event_type LIKE 'school\\_%'
@@ -370,7 +372,11 @@ export const listHubEvents = async (req, res, next) => {
         lifecycleStatus,
         isBackToSchool,
         featured,
-        portalVisible: !!(r.organization_id && r.is_active)
+        portalVisible: !!(r.organization_id && r.is_active),
+        districtBroadcastId: r.district_broadcast_id || null,
+        flierFileUrl: r.flier_file_url ? String(r.flier_file_url).trim() : '',
+        eventImageUrl: r.event_image_url ? String(r.event_image_url).trim() : '',
+        detailsUrl: r.details_url ? String(r.details_url).trim() : ''
       });
     }
 

@@ -41,6 +41,7 @@
         <option value="school_resource_fair">Resource Fair</option>
         <option value="school_family_night">Family Night</option>
         <option value="school_orientation">Orientation</option>
+        <option value="school_first_day">First Day of School</option>
         <option value="school_holiday">Holiday</option>
         <option value="school_day_off">Day off</option>
         <option value="school_other">Other</option>
@@ -263,6 +264,7 @@ const enabledTypes = ref([
   'school_back_to_school',
   'school_fall_check_in',
   'school_spring_event',
+  'school_first_day',
   'school_open_house',
   'school_resource_fair',
   'school_family_night',
@@ -298,6 +300,7 @@ const typeChecklist = [
   { value: 'school_open_house', label: 'Open House', color: 'open' },
   { value: 'school_orientation', label: 'Orientation', color: 'open' },
   { value: 'school_family_night', label: 'Family Night', color: 'family' },
+  { value: 'school_first_day', label: 'First Day of School', color: 'holiday' },
   { value: 'school_holiday', label: 'Holiday', color: 'holiday' },
   { value: 'school_day_off', label: 'Day off', color: 'holiday' },
   { value: 'school_other', label: 'Other school event', color: 'fair' }
@@ -468,7 +471,7 @@ function typeColor(e) {
   if (t === 'school_resource_fair' || t === 'school_other') return 'fair';
   if (t === 'school_open_house' || t === 'school_orientation') return 'open';
   if (t === 'school_family_night') return 'family';
-  if (t === 'school_holiday' || t === 'school_day_off') return 'holiday';
+  if (t === 'school_first_day' || t === 'school_holiday' || t === 'school_day_off') return 'holiday';
   return 'fair';
 }
 

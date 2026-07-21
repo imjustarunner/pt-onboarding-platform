@@ -372,6 +372,7 @@
             <option value="school_back_to_school">Back to School</option>
             <option value="school_fall_check_in">Fall School Check-in</option>
             <option value="school_spring_event">Spring School Check-in</option>
+            <option value="school_first_day">First Day of School</option>
             <option value="school_open_house">Open House</option>
             <option value="school_resource_fair">Resource Fair</option>
             <option value="school_family_night">Family Night</option>
@@ -427,6 +428,7 @@
             <span><i class="evtdot bts" />Back to School</span>
             <span><i class="evtdot fall" />Fall School Check-in</span>
             <span><i class="evtdot spring" />Spring School Check-in</span>
+            <span><i class="evtdot holiday" />First Day / Holiday / Day off</span>
             <span><i class="evtdot fair" />Resource Fair</span>
             <span><i class="evtdot open" />Open House / Orientation</span>
             <span><i class="evtdot family" />Family Night</span>
@@ -1196,6 +1198,7 @@ function eventsTypeColor(e) {
   if (t === 'school_back_to_school') return 'bts';
   if (t === 'school_fall_check_in') return 'fall';
   if (t === 'school_spring_event') return 'spring';
+  if (t === 'school_first_day' || t === 'school_holiday' || t === 'school_day_off') return 'holiday';
   if (t === 'school_resource_fair' || t === 'school_other') return 'fair';
   if (t === 'school_open_house' || t === 'school_orientation') return 'open';
   if (t === 'school_family_night') return 'family';
@@ -1223,10 +1226,13 @@ function eventsLabelType(t) {
     school_back_to_school: 'Back to School',
     school_fall_check_in: 'Fall School Check-in',
     school_spring_event: 'Spring School Check-in',
+    school_first_day: 'First Day of School',
     school_open_house: 'Open House',
     school_resource_fair: 'Resource Fair',
     school_family_night: 'Family Night',
     school_orientation: 'Orientation',
+    school_holiday: 'Holiday',
+    school_day_off: 'Day Off',
     school_other: 'School Event'
   };
   return m[t] || t || 'Event';
@@ -2690,6 +2696,7 @@ watch(
 .evt-chip.open, .evtdot.open { background: #ea580c; }
 .evt-chip.family, .evtdot.family { background: #0f766e; }
 .evt-chip.spring, .evtdot.spring { background: #7c3aed; }
+.evt-chip.holiday, .evtdot.holiday { background: #b45309; }
 .evt-chip.needs, .evtdot.needs { background: #dc2626; }
 .evt-legend {
   display: flex;

@@ -16,7 +16,7 @@
           class="btn btn-secondary btn-sm"
           @click="openEdit"
         >
-          Edit event
+          {{ event?.districtBroadcastId ? 'Edit district event' : 'Edit event' }}
         </button>
         <button type="button" class="btn btn-secondary btn-sm" @click="$emit('close')">Close</button>
       </div>
@@ -27,14 +27,26 @@
     <div v-else-if="error" class="error pad">{{ error }}</div>
 
     <template v-else>
-      <div class="status-row">
+      <div v-if="!isCalendarOnlyEvent" class="status-row">
         <span class="sev" :class="sevClass(event.staffingStatus)">{{ labelStatus(event.staffingStatus) }}</span>
         <span class="muted">
           {{ event.providersAssigned || 0 }}/{{ providersNeededDisplay }} assigned
           <template v-if="event.pendingRequests"> · {{ event.pendingRequests }} pending</template>
         </span>
       </div>
+      <div v-else class="status-row">
+        <span class="sev informational">Calendar only</span>
+        <span class="muted">Not an attendable / staffable event</span>
+      </div>
 
+      <div v-if="isCalendarOnlyEvent" class="enable-box">
+        <p>
+          This is a calendar-only date (not an attendable event). Provider staffing and assignment requests are not
+          used for holidays, days off, first day of school, or fall/spring school check-ins.
+        </p>
+      </div>
+
+      <template v-else>
       <div v-if="canManage" class="providers-needed-row">
         <label>
           <span class="lbl">Providers needed</span>
@@ -203,6 +215,7 @@
           No session dates yet. Try opening staffing again, or edit the event dates.
         </p>
       </template>
+      </template>
 
       <p v-if="actionMsg" class="apply-msg">{{ actionMsg }}</p>
       <p v-if="actionError" class="error">{{ actionError }}</p>
@@ -211,6 +224,9 @@
     <PostSchoolEventModal
       v-if="showEditModal && editSchoolOrgId"
       :school-organization-id="editSchoolOrgId"
+      :school-name="event?.schoolName || ''"
+      :agency-id="agencyId"
+      :district-name="event?.districtName || ''"
       :edit-event="editEventPayload"
       :initial-category="editEventPayload?.category || 'back_to_school'"
       @close="showEditModal = false"
@@ -259,7 +275,18 @@ const canEditDetails = computed(() =>
     'school_staff'
   ].includes(role.value)
 );
+const CALENDAR_ONLY_EVENT_TYPES = new Set([
+  'school_holiday',
+  'school_day_off',
+  'school_first_day',
+  'school_fall_check_in',
+  'school_spring_event'
+]);
+const isCalendarOnlyEvent = computed(() =>
+  CALENDAR_ONLY_EVENT_TYPES.has(String(props.event?.eventType || '').trim().toLowerCase())
+);
 const canApply = computed(() =>
+  !isCalendarOnlyEvent.value &&
   [
     'provider',
     'provider_plus',
@@ -320,7 +347,9 @@ function eventTypeToCategory(eventType) {
   const t = String(eventType || '').trim().toLowerCase();
   const map = {
     school_back_to_school: 'back_to_school',
+    school_fall_check_in: 'fall_check_in',
     school_spring_event: 'spring',
+    school_first_day: 'first_day',
     school_open_house: 'open_house',
     school_resource_fair: 'resource_fair',
     school_family_night: 'family_night',
@@ -349,7 +378,11 @@ const editEventPayload = computed(() => {
     schoolEventStatus: e.schoolEventStatus || 'scheduled',
     outreachTableInvited: !!e.outreachTableInvited,
     flierFileUrl: e.flierFileUrl || '',
-    eventImageUrl: e.eventImageUrl || ''
+    eventImageUrl: e.eventImageUrl || '',
+    detailsUrl: e.detailsUrl || '',
+    districtBroadcastId: e.districtBroadcastId || null,
+    districtName: e.districtName || '',
+    schoolName: e.schoolName || ''
   };
 });
 

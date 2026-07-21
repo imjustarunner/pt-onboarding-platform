@@ -493,7 +493,8 @@ const EVENT_TYPE_OPTIONS = [
   { value: 'staff_event', label: 'Staff/Internal Event' },
   { value: 'school_back_to_school', label: 'School — Back to School' },
   { value: 'school_fall_check_in', label: 'School — Fall School Check-in' },
-  { value: 'school_spring_event', label: 'School — Spring School Check-in' }
+  { value: 'school_spring_event', label: 'School — Spring School Check-in' },
+  { value: 'school_first_day', label: 'School — First Day of School' }
 ];
 
 function browserTimeZone() {

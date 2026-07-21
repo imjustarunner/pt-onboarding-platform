@@ -41,6 +41,7 @@ const COMPANY_EVENT_TYPE_LABELS = {
   school_back_to_school: 'Back to School',
   school_fall_check_in: 'Fall School Check-in',
   school_spring_event: 'Spring School Check-in',
+  school_first_day: 'First Day of School',
   school_open_house: 'Open House',
   school_resource_fair: 'Resource Fair',
   school_family_night: 'Family Night',
@@ -86,6 +87,7 @@ export function isSchoolPortalEventType(eventType) {
     t === 'school_back_to_school' ||
     t === 'school_fall_check_in' ||
     t === 'school_spring_event' ||
+    t === 'school_first_day' ||
     t === 'school_open_house' ||
     t === 'school_resource_fair' ||
     t === 'school_family_night' ||
