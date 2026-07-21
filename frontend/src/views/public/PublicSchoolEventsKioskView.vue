@@ -31,35 +31,66 @@
     </section>
 
     <!-- Event list -->
-    <section v-else-if="!selectedEventId" class="card">
+    <section v-else-if="!selectedEventId" class="card events-card">
       <div class="row-between">
-        <h2>{{ agendaMode ? 'Upcoming school events' : 'Today’s school events' }}</h2>
-        <button type="button" class="btn-ghost" :disabled="busy" @click="loadEvents">Refresh</button>
+        <div>
+          <h2>{{ listHeading }}</h2>
+          <p v-if="agendaMode && !showUpcomingAgenda" class="list-sub">
+            Showing events open for clock-in today. Use the button to preview the full upcoming agenda.
+          </p>
+        </div>
+        <div class="list-actions">
+          <button
+            v-if="agendaMode"
+            type="button"
+            class="btn-toggle"
+            :class="{ active: showUpcomingAgenda }"
+            @click="showUpcomingAgenda = !showUpcomingAgenda"
+          >
+            {{ showUpcomingAgenda ? 'Today only' : 'Show upcoming agenda' }}
+          </button>
+          <button type="button" class="btn-ghost" :disabled="busy" @click="loadEvents">Refresh</button>
+        </div>
       </div>
-      <p v-if="agendaMode" class="agenda-note">
+      <p v-if="agendaMode && showUpcomingAgenda" class="agenda-note">
         Admin agenda — future events are listed in date order. Staff can clock in only on the event date.
       </p>
-      <div v-if="!events.length" class="empty">
-        {{ agendaMode ? 'No upcoming school events scheduled.' : 'No school events today.' }}
+      <div v-if="!displayedEvents.length" class="empty">
+        {{ emptyListMessage }}
       </div>
-      <button
-        v-for="e in events"
-        :key="e.id"
-        type="button"
-        class="event-row"
-        :class="{ muted: !e.punchAllowedToday }"
-        @click="selectEvent(e)"
-      >
-        <div class="event-main">
-          <strong>{{ e.title }}</strong>
-          <span class="muted">{{ e.schoolName || 'School' }}</span>
-        </div>
-        <div class="event-meta">
-          <span>{{ formatWhen(e) }}</span>
-          <span v-if="!e.punchAllowedToday && agendaMode" class="future-tag">Upcoming</span>
-          <span v-if="reportLabel(e)" class="report">{{ reportLabel(e) }}</span>
-        </div>
-      </button>
+      <div v-else class="agenda-list">
+        <article
+          v-for="e in displayedEvents"
+          :key="e.id"
+          class="agenda-item"
+          :class="{ upcoming: !e.punchAllowedToday, punchable: e.punchAllowedToday }"
+        >
+          <div class="agenda-main">
+            <div class="agenda-head">
+              <strong class="agenda-title">{{ e.title }}</strong>
+              <span v-if="e.punchAllowedToday" class="status-tag open">Open for clock-in</span>
+              <span v-else class="status-tag upcoming">Upcoming</span>
+            </div>
+            <div class="agenda-details">
+              <span><strong>School:</strong> {{ e.schoolName || 'Unassigned' }}</span>
+              <span><strong>When:</strong> {{ formatWhen(e) }}</span>
+              <span v-if="reportLabel(e)"><strong>Report:</strong> {{ reportLabel(e) }}</span>
+              <span><strong>Type:</strong> {{ eventTypeLabel(e) }}</span>
+              <span><strong>Status:</strong> {{ formatEventStatus(e) }}</span>
+            </div>
+            <div class="agenda-staff">
+              <strong>Assigned staff:</strong>
+              <span v-if="!(e.assignedStaff || []).length" class="muted">None yet</span>
+              <span v-else class="staff-names">{{ assignedStaffLabel(e) }}</span>
+            </div>
+          </div>
+          <div v-if="e.punchAllowedToday" class="agenda-action">
+            <button type="button" class="btn-primary btn-clock" @click="selectEvent(e)">
+              Clock in
+            </button>
+          </div>
+        </article>
+      </div>
     </section>
 
     <!-- Staff punch -->
@@ -223,6 +254,7 @@ const brandingStore = useBrandingStore();
 const slug = ref('');
 const token = ref('');
 const agendaMode = ref(false);
+const showUpcomingAgenda = ref(false);
 const pin = ref('');
 const staffPin = ref('');
 const busy = ref(false);
@@ -243,6 +275,22 @@ const bypassAcknowledged = ref(false);
 const storageKey = computed(() => `schoolEventsKiosk.${slug.value || 'x'}`);
 
 const punchAllowedOnSelectedEvent = computed(() => !!selectedMeta.value?.punchAllowedToday);
+
+const displayedEvents = computed(() => {
+  if (agendaMode.value && showUpcomingAgenda.value) return events.value;
+  return events.value.filter((e) => e.punchAllowedToday);
+});
+
+const listHeading = computed(() => {
+  if (agendaMode.value && showUpcomingAgenda.value) return 'Upcoming school events';
+  return 'Today’s school events';
+});
+
+const emptyListMessage = computed(() => {
+  if (agendaMode.value && showUpcomingAgenda.value) return 'No upcoming school events scheduled.';
+  if (agendaMode.value) return 'No school events open for clock-in today.';
+  return 'No school events today.';
+});
 
 function authHeaders() {
   const headers = token.value ? { Authorization: `Bearer ${token.value}` } : {};
@@ -274,6 +322,34 @@ function reportLabel(e) {
     timezoneAbbrevAt(e.startsAt || e.starts_at || new Date(), e.timezone)
   );
   return t ? `Report by ${t}` : '';
+}
+
+function eventTypeLabel(e) {
+  const map = {
+    school_back_to_school: 'Back to School',
+    school_fall_check_in: 'Fall School Check-in',
+    school_spring_event: 'Spring School Check-in',
+    school_first_day: 'First Day of School',
+    school_open_house: 'Open House',
+    school_resource_fair: 'Resource Fair',
+    school_family_night: 'Family Night',
+    school_orientation: 'Orientation',
+    school_holiday: 'Holiday',
+    school_day_off: 'Day off',
+    school_other: 'School Event'
+  };
+  return map[e.eventType] || e.eventType || 'Event';
+}
+
+function formatEventStatus(e) {
+  const s = String(e.schoolEventStatus || 'scheduled').toLowerCase();
+  if (s === 'canceled' || s === 'cancelled') return 'Canceled';
+  if (s === 'rescheduled') return 'Rescheduled';
+  return 'Scheduled';
+}
+
+function assignedStaffLabel(e) {
+  return (e.assignedStaff || []).map((s) => s.displayName).filter(Boolean).join(', ');
 }
 
 function resetPhotoUi() {
@@ -342,6 +418,7 @@ async function loadEvents() {
     );
     events.value = Array.isArray(res.data?.events) ? res.data.events : [];
     agendaMode.value = !!res.data?.agendaMode;
+    if (!agendaMode.value) showUpcomingAgenda.value = false;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load events';
     if (e?.response?.status === 401) lockStation();
@@ -634,8 +711,121 @@ h2, h3 {
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
   max-width: 720px;
 }
+.events-card {
+  max-width: none;
+  width: 100%;
+}
 .unlock-card {
   max-width: 360px;
+}
+.list-sub {
+  margin: 0.35rem 0 0;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+.list-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.btn-toggle {
+  border: 1px solid #99f6e4;
+  border-radius: 10px;
+  padding: 0.55rem 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: #fff;
+  color: #0f766e;
+  white-space: nowrap;
+}
+.btn-toggle.active {
+  background: #0f766e;
+  color: #fff;
+  border-color: #0f766e;
+}
+.agenda-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+}
+.agenda-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fafafa;
+}
+.agenda-item.punchable {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+}
+.agenda-item.upcoming {
+  background: #f8fafc;
+}
+.agenda-main {
+  flex: 1;
+  min-width: 0;
+}
+.agenda-head {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.55rem;
+}
+.agenda-title {
+  font-size: 1.05rem;
+}
+.status-tag {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+}
+.status-tag.open {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+.status-tag.upcoming {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+.agenda-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.35rem 1.25rem;
+  font-size: 0.92rem;
+  color: #334155;
+  margin-bottom: 0.55rem;
+}
+.agenda-details strong {
+  color: #64748b;
+  font-weight: 700;
+}
+.agenda-staff {
+  font-size: 0.92rem;
+  color: #334155;
+  line-height: 1.4;
+}
+.staff-names {
+  color: #0f172a;
+}
+.agenda-action {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.btn-clock {
+  width: auto;
+  min-width: 7rem;
+  white-space: nowrap;
 }
 .lbl {
   display: block;
@@ -698,34 +888,6 @@ h2, h3 {
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
-}
-.event-row {
-  width: 100%;
-  text-align: left;
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.85rem 0.7rem;
-  border: 0;
-  border-bottom: 1px solid #e2e8f0;
-  background: transparent;
-  cursor: pointer;
-}
-.event-row:hover {
-  background: #f0fdfa;
-}
-.event-main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-.event-meta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.2rem;
-  font-size: 0.85rem;
-  color: #475569;
 }
 .report {
   color: #b45309;
@@ -858,7 +1020,8 @@ h2, h3 {
   margin-top: 0.2rem;
 }
 .banner {
-  max-width: 720px;
+  max-width: none;
+  width: 100%;
   margin-bottom: 0.75rem;
   padding: 0.65rem 0.85rem;
   border-radius: 10px;
@@ -886,11 +1049,7 @@ h2, h3 {
   line-height: 1.35;
 }
 .future-tag {
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #6366f1;
+  display: none;
 }
 .preview-only {
   margin-top: 1rem;
@@ -910,6 +1069,21 @@ h2, h3 {
 }
 .staff-preview li {
   margin: 0.25rem 0;
+}
+@media (max-width: 720px) {
+  .agenda-item {
+    flex-direction: column;
+  }
+  .agenda-action {
+    width: 100%;
+  }
+  .btn-clock {
+    width: 100%;
+  }
+  .list-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 @media (max-width: 560px) {
   .checkout-bar {

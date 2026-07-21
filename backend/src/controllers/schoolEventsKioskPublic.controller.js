@@ -165,7 +165,7 @@ async function isKioskAgendaViewer(req, agencyId) {
   }
 }
 
-function mapKioskEventRow(r) {
+function mapKioskEventRow(r, assignedStaff = []) {
   const day = eventAllowsPunchToday(r);
   return {
     id: Number(r.id),
@@ -180,8 +180,48 @@ function mapKioskEventRow(r) {
       : null,
     schoolEventStatus: String(r.school_event_status || 'scheduled'),
     punchAllowedToday: !!day.ok,
-    todayYmd: day.todayYmd
+    todayYmd: day.todayYmd,
+    assignedStaff
   };
+}
+
+async function loadEventStaffByEventIds(eventIds) {
+  const ids = [...new Set((eventIds || []).map((id) => parsePositiveInt(id)).filter(Boolean))];
+  const out = new Map();
+  if (!ids.length) return out;
+  const placeholders = ids.map(() => '?').join(', ');
+  const sql = `
+    SELECT DISTINCT roster.event_id, u.id, u.first_name, u.last_name
+    FROM (
+      SELECT cepa.company_event_id AS event_id, cepa.provider_user_id AS uid
+      FROM company_event_provider_assignments cepa
+      WHERE cepa.company_event_id IN (${placeholders})
+      UNION
+      SELECT cesp.company_event_id AS event_id, cesp.provider_user_id AS uid
+      FROM company_event_session_providers cesp
+      WHERE cesp.company_event_id IN (${placeholders})
+    ) roster
+    INNER JOIN users u ON u.id = roster.uid
+    WHERE ${KIOSK_STAFF_ACTIVE_USER_SQL}
+    ORDER BY roster.event_id ASC, u.last_name ASC, u.first_name ASC, u.id ASC`;
+  try {
+    const [rows] = await pool.execute(sql, [...ids, ...ids]);
+    for (const r of rows || []) {
+      const eid = Number(r.event_id);
+      if (!out.has(eid)) out.set(eid, []);
+      const bucket = out.get(eid);
+      if (bucket.some((p) => Number(p.id) === Number(r.id))) continue;
+      const name = `${r.first_name || ''} ${r.last_name || ''}`.trim();
+      bucket.push({
+        id: Number(r.id),
+        displayName: name || `Staff ${r.id}`
+      });
+    }
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return out;
+    throw err;
+  }
+  return out;
 }
 
 async function loadEventStaff(eventId) {
@@ -330,7 +370,11 @@ export const listSchoolEventsKioskEvents = async (req, res, next) => {
       [m.agencyId, ...typeList]
     );
 
-    let events = (rows || []).map(mapKioskEventRow);
+    const assignedByEvent = await loadEventStaffByEventIds((rows || []).map((r) => r.id));
+    let events = (rows || []).map((r) => {
+      const staffByEvent = assignedByEvent.get(Number(r.id)) || [];
+      return mapKioskEventRow(r, staffByEvent);
+    });
     if (!agendaMode) {
       events = events.filter((e) => e.punchAllowedToday);
     }
