@@ -865,11 +865,11 @@ const steps = [
     key: 'draft_audit_prior',
     title: 'Draft Audit Prior Periods',
     description: 'If you uploaded catch-up files, review draft-payable decisions on last period (Run 2) and two periods ago (Run 3) before comparing.',
-    tip: 'Focus on unpaid drafts (no note / draft not payable). Finalized “Payable” rows usually do not need re-editing — Run 2/3 is a fresh file, so minutes won’t match last week’s edits. H-code tabs on a posted prior period are mostly for unpaid rows awaiting finalize.',
+    tip: 'Open Prior (Run 2) and Two ago (Run 3) separately. Use Draft Audit the same way as on the Payroll page — mark unpaid drafts so late notes are tracked correctly when you compare.',
     checklist: [
-      'Open Prior (Run 2) and/or Two ago (Run 3)',
-      'Stay on unpaid drafts — mark not payable if they should not carry',
-      'Skip already-finalized rows unless something actually changed',
+      'Review Draft Audit for Prior (Run 2)',
+      'Review Draft Audit for Two ago (Run 3) if you uploaded it',
+      'Review draft / unpaid rows on each',
       'Close the panel when finished'
     ],
     actions: [
