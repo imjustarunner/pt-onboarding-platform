@@ -132,7 +132,7 @@ function computeRequiredProviders({ staffingConfig, confirmedClientsCount, group
 async function assertSessionBelongsToEvent({ eventId, sessionDateId }) {
   const [rows] = await pool.execute(
     `SELECT id FROM company_event_session_dates WHERE id = ? AND company_event_id = ? LIMIT 1`,
-    [eventId, sessionDateId]
+    [sessionDateId, eventId]
   );
   return !!rows?.[0]?.id;
 }
