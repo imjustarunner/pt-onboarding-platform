@@ -1002,7 +1002,14 @@
           <div class="roster-header">
             <div>
               <h2>School events</h2>
-              <p class="muted">Post and edit parent events for this school. Providers can apply to staff them from Caseload Hub / My Schedule.</p>
+              <p class="muted">
+                <template v-if="canRequestSchoolEventAssignment">
+                  Open a staffable event to request assignment. An administrator will approve or deny your request.
+                </template>
+                <template v-else>
+                  Post and edit parent events for this school. Assigned providers can request to staff attendable events from here or the calendar.
+                </template>
+              </p>
             </div>
             <button
               v-if="canManageSchoolEvents"
@@ -1032,16 +1039,27 @@
                   · {{ formatSchoolEventCategory(ev.category) }}
                   · {{ ev.schoolEventStatus === 'canceled' ? 'Canceled' : (ev.isActive ? 'Published' : 'Inactive') }}
                   <template v-if="ev.outreachTableInvited"> · Outreach staffing</template>
+                  <template v-if="isStaffableSchoolEvent(ev)"> · Open for staffing</template>
                 </span>
               </div>
-              <button
-                v-if="canManageSchoolEvents"
-                type="button"
-                class="btn btn-secondary btn-sm"
-                @click="openEditSchoolEvent(ev)"
-              >
-                Edit
-              </button>
+              <div class="school-event-actions">
+                <button
+                  v-if="canRequestSchoolEventAssignment && isStaffableSchoolEvent(ev)"
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  @click="openSchoolEventStaffing(ev)"
+                >
+                  Request to be assigned
+                </button>
+                <button
+                  v-if="canManageSchoolEvents"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="openEditSchoolEvent(ev)"
+                >
+                  Edit
+                </button>
+              </div>
             </li>
           </ul>
           <div v-else class="empty-state school-events-empty">
@@ -1065,8 +1083,10 @@
               ref="schoolCalendarPanelRef"
               :school-organization-id="organizationId"
               :can-manage="canManageSchoolEvents"
+              :can-request-assignment="canRequestSchoolEventAssignment"
               @add-event="onCalendarAddEvent"
               @edit-event="onCalendarEditEvent"
+              @request-assignment="openSchoolEventStaffing"
             />
           </div>
 
@@ -1140,7 +1160,7 @@
               :client-label-mode="clientLabelMode"
               :initial-filter="notificationsFilter"
               :initial-create-open="notificationsCreateOpen"
-              @close="portalMode = 'home'"
+              @close="setPortalMode('home')"
               @updated="onNotificationsUpdated"
               @open-ticket="openTicketFromNotification"
               @open-client="openClientFromNotification"
@@ -1206,6 +1226,20 @@
       @close="closePostSchoolEvent"
       @saved="handleSchoolEventSaved"
     />
+
+    <div
+      v-if="staffingEvent && schoolEventStaffingAgencyId"
+      class="school-event-staffing-backdrop"
+      @click.self="closeSchoolEventStaffing"
+    >
+      <SchoolEventStaffingPanel
+        class="school-event-staffing-drawer"
+        :event="staffingEvent"
+        :agency-id="schoolEventStaffingAgencyId"
+        @close="closeSchoolEventStaffing"
+        @changed="onSchoolEventStaffingChanged"
+      />
+    </div>
 
     <SchoolEventPromptModal
       v-if="showSchoolEventPrompt && organizationId"
@@ -1671,6 +1705,7 @@ import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
 import PostSchoolEventModal from '../../components/school/PostSchoolEventModal.vue';
 import SchoolPortalCalendarPanel from '../../components/school/SchoolPortalCalendarPanel.vue';
+import SchoolEventStaffingPanel from '../../components/caseload-hub/SchoolEventStaffingPanel.vue';
 import AnnouncementMarquee from '../../components/common/AnnouncementMarquee.vue';
 import SchoolEventPromptModal from '../../components/school/SchoolEventPromptModal.vue';
 import ReviewPromptModal from '../../components/school/ReviewPromptModal.vue';
@@ -1792,13 +1827,13 @@ const loadSchoolPortalEvents = async () => {
   }
 };
 
-const openSchoolEventsPanel = async () => {
-  setPortalMode('events');
+const openSchoolEventsPanel = async ({ syncQuery = true } = {}) => {
+  await setPortalMode('events', { syncQuery });
   await loadSchoolPortalEvents();
 };
 
-const openSchoolCalendarPanel = async () => {
-  await setPortalMode('calendar');
+const openSchoolCalendarPanel = async ({ syncQuery = true } = {}) => {
+  await setPortalMode('calendar', { syncQuery });
   await nextTick();
   await schoolCalendarPanelRef.value?.reload?.();
 };
@@ -1831,7 +1866,13 @@ const onCalendarAddEvent = (payload) => {
 };
 
 const onCalendarEditEvent = (ev) => {
-  if (canManageSchoolEvents.value && ev?.id) {
+  if (!ev?.id) return;
+  // Providers: open staffing/request panel for attendable events; school staff stay on edit-only.
+  if (canRequestSchoolEventAssignment.value && isStaffableSchoolEvent(ev)) {
+    openSchoolEventStaffing(ev);
+    return;
+  }
+  if (canManageSchoolEvents.value) {
     openEditSchoolEvent(ev);
   }
 };
@@ -2161,13 +2202,58 @@ const requestedClientId = computed(() => {
   return Number.isFinite(n) && n > 0 ? n : null;
 });
 
+const PORTAL_MODES_WITH_SP = new Set([
+  'providers',
+  'days',
+  'roster',
+  'skills',
+  'events',
+  'calendar',
+  'school_staff',
+  'documents',
+  'faq',
+  'messages',
+  'notifications'
+]);
+
+/** Keep panel mode in the URL so browser Back returns to school home, not the school picker. */
+const syncPortalModeQuery = async (mode, { replace = false, queryExtras = null } = {}) => {
+  const next = String(mode || 'home').trim().toLowerCase() || 'home';
+  const currentSp = String(route.query?.sp || '').trim().toLowerCase();
+  const desiredSp = next === 'home' || !PORTAL_MODES_WITH_SP.has(next) ? '' : next;
+  const q = { ...(route.query || {}) };
+
+  if (desiredSp) q.sp = desiredSp;
+  else delete q.sp;
+
+  if (next !== 'notifications') {
+    delete q.notif;
+    delete q.announcementCreate;
+  }
+
+  if (queryExtras && typeof queryExtras === 'object') {
+    for (const [key, value] of Object.entries(queryExtras)) {
+      if (value === undefined || value === null || value === '') delete q[key];
+      else q[key] = value;
+    }
+  }
+
+  const sameSp = (desiredSp || '') === (currentSp || '');
+  const sameNotif = String(q.notif || '') === String(route.query?.notif || '');
+  const sameCreate = String(q.announcementCreate || '') === String(route.query?.announcementCreate || '');
+  if (sameSp && sameNotif && sameCreate) return;
+
+  try {
+    const nav = replace ? router.replace.bind(router) : router.push.bind(router);
+    await nav({ query: q });
+  } catch {
+    // ignore navigation failures (duplicate navigation, etc.)
+  }
+};
+
 const forceWaiverDocumentsMode = async () => {
   portalMode.value = 'documents';
-  try {
-    await router.replace({ query: { ...route.query, sp: 'documents' } });
-  } catch {
-    // ignore navigation failures
-  }
+  await syncPortalModeQuery('documents', { replace: true });
 };
 
 const refreshWaiverGateStatus = async ({ force = false } = {}) => {
@@ -2191,7 +2277,7 @@ const refreshWaiverGateStatus = async ({ force = false } = {}) => {
   }
 };
 
-const setPortalMode = async (mode) => {
+const setPortalMode = async (mode, { syncQuery = true, replace = false, queryExtras = null } = {}) => {
   const next = String(mode || '').trim().toLowerCase();
   if (!next) return;
   if (next === 'skills' && !canAccessSkillBuildersSchoolProgramNav.value) return;
@@ -2199,12 +2285,21 @@ const setPortalMode = async (mode) => {
     await forceWaiverDocumentsMode();
     return;
   }
+  const changed = portalMode.value !== next;
   portalMode.value = next;
+  if (syncQuery && (changed || queryExtras || replace)) {
+    await syncPortalModeQuery(next, { replace, queryExtras });
+  }
 };
 
 const applyRequestedPortalMode = async (mode) => {
   const m = String(mode || '').trim().toLowerCase();
-  if (!m) return;
+  if (!m) {
+    if (portalMode.value !== 'home' && !waiverGateLocked.value) {
+      await setPortalMode('home', { syncQuery: false });
+    }
+    return;
+  }
   if (m === 'skills' && !canAccessSkillBuildersSchoolProgramNav.value) {
     try {
       const q = { ...(route.query || {}) };
@@ -2215,7 +2310,7 @@ const applyRequestedPortalMode = async (mode) => {
     } catch {
       // ignore
     }
-    await setPortalMode('home');
+    await setPortalMode('home', { syncQuery: false });
     return;
   }
   if (waiverGateLocked.value && m !== 'documents') {
@@ -2225,28 +2320,36 @@ const applyRequestedPortalMode = async (mode) => {
   if (m === portalMode.value) return;
 
   if (m === 'providers') {
-    await openProvidersPanel();
+    await openProvidersPanel({ syncQuery: false });
     return;
   }
   if (m === 'days') {
-    await openDaysPanel();
+    await openDaysPanel({ syncQuery: false });
     return;
   }
   if (m === 'notifications') {
-    await openNotificationsPanel();
+    await openNotificationsPanel({ syncQuery: false });
     return;
   }
   if (m === 'messages') {
-    await openMessages();
+    await openMessages({ syncQuery: false });
+    return;
+  }
+  if (m === 'events') {
+    await openSchoolEventsPanel({ syncQuery: false });
+    return;
+  }
+  if (m === 'calendar') {
+    await openSchoolCalendarPanel({ syncQuery: false });
     return;
   }
   if (m === 'home') {
-    await setPortalMode('home');
+    await setPortalMode('home', { syncQuery: false });
     return;
   }
-  // fall back to direct set for other known modes
-  if (['roster', 'skills', 'school_staff', 'messages', 'documents'].includes(m)) {
-    await setPortalMode(m);
+  // fall back to direct set for other known modes (URL already matches; don't push again)
+  if (['roster', 'skills', 'school_staff', 'documents', 'faq'].includes(m)) {
+    await setPortalMode(m, { syncQuery: false });
   }
 };
 
@@ -2256,7 +2359,7 @@ const openRosterPanel = (statusKey = '') => {
     return;
   }
   rosterStatusFilterKey.value = String(statusKey || '').trim().toLowerCase();
-  portalMode.value = 'roster';
+  void setPortalMode('roster');
 };
 
 const atGlance = computed(() => {
@@ -2298,6 +2401,71 @@ const canManageSchoolEvents = computed(() => {
     'intern_plus'
   ].includes(roleNorm.value);
 });
+/** Providers (not school staff) can request assignment on attendable/staffable school events. */
+const canRequestSchoolEventAssignment = computed(() => {
+  if (props.previewMode) return false;
+  if (!authStore.user?.id) return false;
+  if (isSchoolStaff.value) return false;
+  return [
+    'provider',
+    'provider_plus',
+    'intern',
+    'intern_plus',
+    'clinical_practice_assistant',
+    'admin',
+    'support',
+    'staff',
+    'super_admin'
+  ].includes(roleNorm.value);
+});
+const CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES = new Set([
+  'holiday',
+  'day_off',
+  'first_day',
+  'fall_check_in',
+  'spring'
+]);
+const CALENDAR_ONLY_SCHOOL_EVENT_TYPES = new Set([
+  'school_holiday',
+  'school_day_off',
+  'school_first_day',
+  'school_fall_check_in',
+  'school_spring_event'
+]);
+function isStaffableSchoolEvent(ev) {
+  if (!ev?.id) return false;
+  if (String(ev.schoolEventStatus || '').toLowerCase() === 'canceled') return false;
+  const cat = String(ev.category || '').trim().toLowerCase();
+  const typ = String(ev.eventType || '').trim().toLowerCase();
+  if (CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(cat) || CALENDAR_ONLY_SCHOOL_EVENT_TYPES.has(typ)) {
+    return false;
+  }
+  // Attendable school events (Back to School, open house, etc.)
+  return typ.startsWith('school_') || !!cat;
+}
+const staffingEvent = ref(null);
+const schoolEventStaffingAgencyId = computed(() => {
+  const fromEvent = Number(staffingEvent.value?.agencyId || 0);
+  if (fromEvent) return fromEvent;
+  const fromAffil = Number(affiliatedAgencyId.value || 0);
+  return fromAffil || null;
+});
+const openSchoolEventStaffing = (ev) => {
+  if (!canRequestSchoolEventAssignment.value || !isStaffableSchoolEvent(ev)) return;
+  staffingEvent.value = {
+    ...ev,
+    schoolId: ev.schoolId || ev.organizationId || organizationId.value,
+    organizationId: ev.organizationId || organizationId.value,
+    schoolName: ev.schoolName || organizationName.value || organizationDisplayName.value || ''
+  };
+};
+const closeSchoolEventStaffing = () => {
+  staffingEvent.value = null;
+};
+const onSchoolEventStaffingChanged = async () => {
+  await loadSchoolPortalEvents();
+  await schoolCalendarPanelRef.value?.reload?.();
+};
 const canManageMarketingCampaigns = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['admin', 'super_admin', 'support'].includes(r);
@@ -2566,38 +2734,27 @@ const fetchMessagesUnread = async () => {
     // ignore
   }
 };
-const openMessages = async () => {
+const openMessages = async ({ syncQuery = true } = {}) => {
   if (waiverGateLocked.value) {
     await forceWaiverDocumentsMode();
     return;
   }
-  portalMode.value = 'messages';
-  try {
-    await router.replace({ query: { ...route.query, sp: 'messages' } });
-  } catch {
-    // ignore
-  }
+  await setPortalMode('messages', { syncQuery });
   if (!Array.isArray(store.eligibleProviders) || store.eligibleProviders.length === 0) {
     await store.fetchEligibleProviders();
   }
   await fetchMessagesUnread();
 };
 
-const openNotificationsPanel = async ({ createAnnouncement = false } = {}) => {
+const openNotificationsPanel = async ({ createAnnouncement = false, syncQuery = true } = {}) => {
   if (waiverGateLocked.value) {
     await forceWaiverDocumentsMode();
     return;
   }
-  portalMode.value = 'notifications';
-  const nextQuery = { ...(route.query || {}), sp: 'notifications' };
-  delete nextQuery.notif;
-  if (createAnnouncement) nextQuery.announcementCreate = '1';
-  else delete nextQuery.announcementCreate;
-  try {
-    await router.replace({ query: nextQuery });
-  } catch {
-    // ignore navigation failures
-  }
+  await setPortalMode('notifications', {
+    syncQuery,
+    ...(createAnnouncement ? { queryExtras: { announcementCreate: '1' } } : {})
+  });
   // Preview will be refreshed by the panel itself on open/mark seen, but keep badge responsive.
   await Promise.all([loadNotificationsPreview(), loadBannerAnnouncements()]);
 };
@@ -3248,31 +3405,31 @@ const openSchoolSettings = async () => {
   showSchoolSettings.value = true;
 };
 
-const openProvidersPanel = async () => {
+const openProvidersPanel = async ({ syncQuery = true } = {}) => {
   if (waiverGateLocked.value) {
     await forceWaiverDocumentsMode();
     return;
   }
   if (!canAccessSchedulingPanels.value) {
-    portalMode.value = 'home';
+    await setPortalMode('home', { syncQuery });
     return;
   }
-  portalMode.value = 'providers';
+  await setPortalMode('providers', { syncQuery });
   if (!Array.isArray(store.eligibleProviders) || store.eligibleProviders.length === 0) {
     await store.fetchEligibleProviders();
   }
 };
 
-const openDaysPanel = async () => {
+const openDaysPanel = async ({ syncQuery = true } = {}) => {
   if (waiverGateLocked.value) {
     await forceWaiverDocumentsMode();
     return;
   }
   if (!canAccessSchedulingPanels.value) {
-    portalMode.value = 'home';
+    await setPortalMode('home', { syncQuery });
     return;
   }
-  portalMode.value = 'days';
+  await setPortalMode('days', { syncQuery });
   if (!organizationId.value) return;
   try {
     await store.fetchDays();
@@ -3821,7 +3978,7 @@ watch(organizationId, async (id) => {
 watch(
   () => requestedPortalMode.value,
   async (mode) => {
-    if (!mode) return;
+    // Empty sp (browser Back from a panel) should restore school home, not leave the panel open.
     await applyRequestedPortalMode(mode);
   }
 );
@@ -3838,7 +3995,7 @@ watch(
 watch(canAccessSchedulingPanels, (allowed) => {
   if (allowed) return;
   if (portalMode.value === 'days' || portalMode.value === 'providers') {
-    portalMode.value = 'home';
+    void setPortalMode('home');
   }
 });
 
@@ -5042,11 +5199,34 @@ watch(() => store.selectedWeekday, async (weekday) => {
   border-radius: 10px;
   background: var(--bg-alt, #f9fafb);
 }
+.school-event-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
 .school-event-main {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+.school-event-staffing-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.75rem;
+}
+.school-event-staffing-drawer {
+  width: min(440px, 100%);
+  max-height: calc(100vh - 1.5rem);
+  overflow: auto;
+  position: relative !important;
+  top: auto !important;
 }
 .school-event-main strong {
   font-size: 0.95rem;

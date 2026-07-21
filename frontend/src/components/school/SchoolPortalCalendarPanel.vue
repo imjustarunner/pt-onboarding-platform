@@ -51,19 +51,29 @@
 
     <template v-else>
       <div v-if="view === 'list'" class="list-panel">
-        <button
+        <div
           v-for="e in filteredEvents"
           :key="e.id"
-          type="button"
           class="list-row"
-          @click="$emit('edit-event', e)"
+          role="button"
+          tabindex="0"
+          @click="onEventActivate(e)"
+          @keydown.enter.prevent="onEventActivate(e)"
         >
           <span class="dot" :class="typeColor(e)" />
-          <div>
+          <div class="list-main">
             <strong>{{ e.title }}</strong>
             <div class="muted">{{ formatWhen(e) }} · {{ labelType(e) }}</div>
           </div>
-        </button>
+          <button
+            v-if="canRequestAssignment && isStaffableEvent(e)"
+            type="button"
+            class="btn btn-primary btn-sm list-request"
+            @click.stop="$emit('request-assignment', e)"
+          >
+            Request
+          </button>
+        </div>
         <p v-if="!filteredEvents.length" class="empty-state">No events in this range.</p>
       </div>
 
@@ -86,11 +96,12 @@
             :key="e.id"
             type="button"
             class="evt"
-            :class="typeColor(e)"
-            :title="e.title"
-            @click.stop="$emit('edit-event', e)"
+            :class="[typeColor(e), { staffable: canRequestAssignment && isStaffableEvent(e) }]"
+            :title="eventTitle(e)"
+            @click.stop="onEventActivate(e)"
           >
-            {{ e.title }}
+            <span class="evt-title">{{ e.title }}</span>
+            <span v-if="canRequestAssignment && isStaffableEvent(e)" class="evt-request">Request</span>
           </button>
         </div>
       </div>
@@ -115,10 +126,45 @@ import { formatSchoolEventWhen } from '../../utils/timezones';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
-  canManage: { type: Boolean, default: false }
+  canManage: { type: Boolean, default: false },
+  /** Providers (not school staff) may request assignment on attendable events. */
+  canRequestAssignment: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['add-event', 'edit-event', 'refreshed']);
+const emit = defineEmits(['add-event', 'edit-event', 'request-assignment', 'refreshed']);
+
+const CALENDAR_ONLY_TYPES = new Set([
+  'school_holiday',
+  'school_day_off',
+  'school_first_day',
+  'school_fall_check_in',
+  'school_spring_event'
+]);
+
+function isStaffableEvent(e) {
+  if (!e?.id) return false;
+  if (String(e.schoolEventStatus || '').toLowerCase() === 'canceled') return false;
+  const typ = String(e.eventType || '').trim().toLowerCase();
+  const cat = String(e.category || '').trim().toLowerCase();
+  if (CALENDAR_ONLY_TYPES.has(typ)) return false;
+  if (['holiday', 'day_off', 'first_day', 'fall_check_in', 'spring'].includes(cat)) return false;
+  return typ.startsWith('school_') || !!cat;
+}
+
+function eventTitle(e) {
+  if (props.canRequestAssignment && isStaffableEvent(e)) {
+    return `${e.title} — click to request assignment`;
+  }
+  return e.title;
+}
+
+function onEventActivate(e) {
+  if (props.canRequestAssignment && isStaffableEvent(e)) {
+    emit('request-assignment', e);
+    return;
+  }
+  emit('edit-event', e);
+}
 
 function onDayClick(cell) {
   if (!cell || cell.outside || !props.canManage) return;
@@ -419,6 +465,28 @@ onMounted(() => reload());
   color: #fff;
   font-weight: 600;
   text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+}
+.evt-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.evt-request {
+  flex-shrink: 0;
+  font-size: 0.58rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  padding: 0.05rem 0.25rem;
+}
+.evt.staffable {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
 }
 .evt.bts { background: #2563eb; }
 .evt.fall { background: #c2410c; }
@@ -470,6 +538,14 @@ onMounted(() => reload());
 .list-row:hover {
   border-color: #93c5fd;
   background: #f8fafc;
+}
+.list-main {
+  flex: 1;
+  min-width: 0;
+}
+.list-request {
+  flex-shrink: 0;
+  align-self: center;
 }
 .dot {
   width: 10px;

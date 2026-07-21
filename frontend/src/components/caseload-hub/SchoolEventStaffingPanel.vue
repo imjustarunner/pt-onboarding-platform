@@ -286,6 +286,8 @@ const isCalendarOnlyEvent = computed(() =>
   CALENDAR_ONLY_EVENT_TYPES.has(String(props.event?.eventType || '').trim().toLowerCase())
 );
 const canApply = computed(() =>
+  // School staff can post/edit events but cannot request assignment.
+  role.value !== 'school_staff' &&
   !isCalendarOnlyEvent.value &&
   [
     'provider',
