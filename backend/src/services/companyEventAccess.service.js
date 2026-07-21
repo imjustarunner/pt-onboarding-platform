@@ -6,6 +6,62 @@ const parsePositiveInt = (raw) => {
   return Number.isFinite(value) && value > 0 ? value : null;
 };
 
+const PROVIDER_LIKE_ROLES = new Set([
+  'provider',
+  'provider_plus',
+  'intern',
+  'intern_plus',
+  'clinical_practice_assistant'
+]);
+
+async function loadCompanyEventForAgencyAccess(eventId, agencyId) {
+  const eid = parsePositiveInt(eventId);
+  const aid = parsePositiveInt(agencyId);
+  if (!eid || !aid) return null;
+  const [rows] = await pool.execute(
+    `SELECT id, agency_id, organization_id, event_type
+     FROM company_events
+     WHERE id = ? AND agency_id = ?
+     LIMIT 1`,
+    [eid, aid]
+  );
+  return rows?.[0] || null;
+}
+
+/** Active provider_school_assignments row for this school org (same rule as school portal). */
+export async function providerHasSchoolAssignment({ providerUserId, schoolOrganizationId }) {
+  const uid = parsePositiveInt(providerUserId);
+  const orgId = parsePositiveInt(schoolOrganizationId);
+  if (!uid || !orgId) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 AS ok FROM provider_school_assignments psa
+       WHERE psa.school_organization_id = ? AND psa.provider_user_id = ? AND psa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, uid]
+    );
+    return !!rows?.[0]?.ok;
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return false;
+    throw e;
+  }
+}
+
+/** Provider assigned to the event's school may view/request staffing on school portal events. */
+async function providerCanAccessSchoolPortalEventStaffing(req, agencyId, eventId) {
+  const uid = parsePositiveInt(req.user?.id);
+  const role = String(req.user?.role || '').toLowerCase();
+  if (!uid || !PROVIDER_LIKE_ROLES.has(role)) return false;
+
+  const event = await loadCompanyEventForAgencyAccess(eventId, agencyId);
+  if (!event || !isSchoolPortalEventType(event.event_type)) return false;
+
+  const orgId = parsePositiveInt(event.organization_id);
+  if (!orgId) return false;
+
+  return providerHasSchoolAssignment({ providerUserId: uid, schoolOrganizationId: orgId });
+}
+
 export async function userHasAgencyAccessForRequest(req, agencyId) {
   if (!agencyId) return false;
   if (String(req.user?.role || '').toLowerCase() === 'super_admin') return true;
@@ -176,13 +232,27 @@ export async function isSchoolOutreachEvent(eventId) {
   );
 }
 
-/** Read-only event portal access: coordinators/staff or anyone assigned to the event. */
+/** Read-only event portal access: coordinators/staff, assigned providers, or school-assigned providers. */
 export async function canViewProgramEvent(req, agencyId, eventId) {
   const uid = parsePositiveInt(req.user?.id);
   const eid = parsePositiveInt(eventId);
   const aid = parsePositiveInt(agencyId);
   if (uid && eid && (await isUserAssignedToCompanyEvent(uid, eid, aid))) return true;
+  if (uid && eid && aid && (await providerCanAccessSchoolPortalEventStaffing(req, agencyId, eventId))) {
+    return true;
+  }
   if (!(await userHasAgencyAccessForRequest(req, agencyId))) return false;
   if (await canManageProgramEvent(req, agencyId)) return true;
   return false;
+}
+
+/** May submit/withdraw session staffing requests (agency staff or school-assigned providers). */
+export async function canRequestEventShifts(req, agencyId, eventId) {
+  if (await userHasAgencyAccessForRequest(req, agencyId)) {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff') return true;
+    if (PROVIDER_LIKE_ROLES.has(role)) return true;
+    if (await getProgramCoordinatorAccess(parsePositiveInt(req.user?.id))) return true;
+  }
+  return providerCanAccessSchoolPortalEventStaffing(req, agencyId, eventId);
 }

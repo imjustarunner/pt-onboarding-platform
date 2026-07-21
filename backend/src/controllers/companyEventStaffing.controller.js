@@ -2,9 +2,9 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import {
   canManageProgramEvent,
+  canRequestEventShifts,
   canViewProgramEvent
 } from '../services/companyEventAccess.service.js';
-import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
 import {
   syncCompanySessionProviderBySlotBestEffort,
   cancelCompanySessionProvidersBeforeDelete
@@ -55,45 +55,9 @@ async function upsertSessionProviderAssignment(connOrPool, {
   );
 }
 
-async function userHasAgencyAccess(req, agencyId) {
-  if (!agencyId) return false;
-  if (String(req.user?.role || '').toLowerCase() === 'super_admin') return true;
-  return userHasAgencyOrAffiliatedOrgAccessForRequest(req, agencyId);
-}
-
-async function getProgramCoordinatorAccess(userId) {
-  try {
-    const [rows] = await pool.execute(
-      `SELECT has_skill_builder_coordinator_access FROM users WHERE id = ? LIMIT 1`,
-      [userId]
-    );
-    const v = rows?.[0]?.has_skill_builder_coordinator_access;
-    return v === true || v === 1 || v === '1';
-  } catch (e) {
-    if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.code === 'ER_NO_SUCH_TABLE') return false;
-    throw e;
-  }
-}
-
 async function canViewProgramEventStaffing(req, agencyId, eventId) {
   if (!(await canViewProgramEvent(req, agencyId, eventId))) return false;
   return true;
-}
-
-async function canRequestShifts(req, agencyId) {
-  if (!(await userHasAgencyAccess(req, agencyId))) return false;
-  const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff') return true;
-  if (
-    role === 'provider' ||
-    role === 'provider_plus' ||
-    role === 'intern' ||
-    role === 'intern_plus' ||
-    role === 'clinical_practice_assistant'
-  ) {
-    return true;
-  }
-  return getProgramCoordinatorAccess(parsePositiveInt(req.user?.id));
 }
 
 async function loadEventForAgency(eventId, agencyId) {
@@ -576,11 +540,11 @@ export const listMyCompanyEventSessionRequests = async (req, res, next) => {
     if (!eventId || !agencyId || !userId) {
       return res.status(400).json({ error: { message: 'eventId and agencyId are required' } });
     }
-    if (!(await canRequestShifts(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
-    }
     const event = await loadEventForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
+    if (!(await canRequestEventShifts(req, agencyId, eventId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
     const scopeGate = await ensureProgramEventScope(event);
     if (!scopeGate.ok) return res.status(scopeGate.status).json({ error: { message: scopeGate.message } });
 
@@ -629,11 +593,11 @@ export const createCompanyEventSessionRequest = async (req, res, next) => {
     if (!eventId || !agencyId || !sessionDateId || !userId) {
       return res.status(400).json({ error: { message: 'eventId, agencyId, and sessionDateId are required' } });
     }
-    if (!(await canRequestShifts(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Not authorized to request shifts' } });
-    }
     const event = await loadEventForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
+    if (!(await canRequestEventShifts(req, agencyId, eventId))) {
+      return res.status(403).json({ error: { message: 'Not authorized to request shifts' } });
+    }
     const scopeGate = await ensureProgramEventScope(event);
     if (!scopeGate.ok) return res.status(scopeGate.status).json({ error: { message: scopeGate.message } });
     if (!(await assertSessionBelongsToEvent({ eventId, sessionDateId }))) {
@@ -684,7 +648,9 @@ export const withdrawCompanyEventSessionRequest = async (req, res, next) => {
     if (!eventId || !requestId || !agencyId || !userId) {
       return res.status(400).json({ error: { message: 'eventId, agencyId, and requestId are required' } });
     }
-    if (!(await canRequestShifts(req, agencyId))) {
+    const event = await loadEventForAgency(eventId, agencyId);
+    if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
+    if (!(await canRequestEventShifts(req, agencyId, eventId))) {
       return res.status(403).json({ error: { message: 'Not authorized' } });
     }
     const [rows] = await pool.execute(
