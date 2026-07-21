@@ -14507,7 +14507,12 @@ const consumeWizardDeepLink = async () => {
       : `/admin/payroll/wizard/${periodPart || ''}`;
     if (returnStep) {
       try {
-        sessionStorage.setItem('payroll:wizardReturnStep', returnStep);
+        // Scope by agency so returning from NLU tools can't jump ITSCO (or vice versa) to the wrong step.
+        const aid = Number(agencyId.value || agencyStore.currentAgency?.id || 0) || null;
+        sessionStorage.setItem(
+          'payroll:wizardReturnStep',
+          JSON.stringify({ step: returnStep, agencyId: aid, periodId: periodPart || null })
+        );
       } catch {
         // ignore
       }

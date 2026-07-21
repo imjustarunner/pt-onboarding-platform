@@ -15,12 +15,22 @@
           <strong>{{ agencyStore.currentAgency?.name || '—' }}</strong>
         </div>
         <button
-          v-if="selectedPeriodId && hasSavedProgress"
+          v-if="selectedPeriodId && hasSavedProgress && stepIdx > 0"
           type="button"
           class="pw-resume-chip"
           title="Progress is saved for this pay period"
         >
           Resume ready
+        </button>
+        <button
+          v-if="selectedPeriodId && (hasSavedProgress || stepIdx > 0)"
+          type="button"
+          class="pw-restart-chip"
+          title="Clear saved wizard steps and start from Upload Reports"
+          :disabled="saving"
+          @click="restartWizard"
+        >
+          Start over
         </button>
       </div>
     </div>
@@ -1476,6 +1486,52 @@ const saveProgress = async () => {
   }
 };
 
+/** Furthest step that makes sense given period status / run results (avoids stuck "Post" with empty payroll). */
+const maxReasonableStepIdx = () => {
+  const st = String(selectedPeriod.value?.status || '').toLowerCase();
+  const hasRunResults = (summaries.value || []).length > 0 || ['ran', 'posted', 'finalized'].includes(st);
+  const runIdx = steps.findIndex((s) => s.key === 'run');
+  if (hasRunResults) return steps.length - 1;
+  // Draft / untouched — stale "step 14" progress should not win over a real fresh start.
+  if (!st || st === 'draft') return 0;
+  // Imported/staged but not run — allow through Review/Adjustments up to Run, not Preview/Post.
+  return runIdx >= 0 ? runIdx : 0;
+};
+
+const clampStepToPeriodReality = () => {
+  const maxIdx = maxReasonableStepIdx();
+  if (stepIdx.value > maxIdx) {
+    stepIdx.value = maxIdx;
+    return true;
+  }
+  return false;
+};
+
+const readWizardReturnStep = () => {
+  // Query param always wins (explicit deep-link for this navigation)
+  const fromQuery = String(route.query.wizardStep || '').trim();
+  if (fromQuery) return fromQuery;
+  try {
+    const raw = sessionStorage.getItem('payroll:wizardReturnStep');
+    if (!raw) return '';
+    sessionStorage.removeItem('payroll:wizardReturnStep');
+    // New format: { step, agencyId, periodId }
+    if (raw.startsWith('{')) {
+      const parsed = JSON.parse(raw);
+      const step = String(parsed?.step || '').trim();
+      const aid = Number(parsed?.agencyId || 0) || null;
+      const pid = Number(parsed?.periodId || 0) || null;
+      if (aid && agencyId.value && aid !== Number(agencyId.value)) return '';
+      if (pid && selectedPeriodId.value && pid !== Number(selectedPeriodId.value)) return '';
+      return step;
+    }
+    // Legacy plain string — ignore (was cross-org unsafe)
+    return '';
+  } catch {
+    return '';
+  }
+};
+
 const loadProgress = async () => {
   if (!selectedPeriodId.value) {
     stepIdx.value = 0;
@@ -1496,17 +1552,43 @@ const loadProgress = async () => {
       const byKey = steps.findIndex((s) => s.key === key);
       if (byKey >= 0) idx = byKey;
     }
-    // Optional return from payroll tool: jump to wizardStep query
-    const returnStep = String(route.query.wizardStep || '').trim();
+    const returnStep = readWizardReturnStep();
     if (returnStep) {
       const byReturn = steps.findIndex((s) => s.key === returnStep);
       if (byReturn >= 0) idx = byReturn;
     }
     stepIdx.value = Number.isFinite(idx) && idx >= 0 ? Math.min(idx, steps.length - 1) : 0;
+    clampStepToPeriodReality();
   } catch (e) {
     wizardState.value = null;
     stepIdx.value = 0;
   }
+};
+
+const restartWizard = async () => {
+  if (!selectedPeriodId.value) return;
+  const ok = window.confirm(
+    'Start this pay period over from Upload Reports?\n\nSaved wizard step progress will be cleared. Imported files and payroll data are not deleted.'
+  );
+  if (!ok) return;
+  showRawPanel.value = false;
+  showClaimsPanel.value = false;
+  showStagePanel.value = false;
+  showTodosPanel.value = false;
+  showProcessPanel.value = false;
+  showPreviewPanel.value = false;
+  stepIdx.value = 0;
+  wizardState.value = {
+    stepIdx: 0,
+    stepKey: 'upload_reports',
+    priorPeriodId: priorPeriod.value?.id || null,
+    twoAgoPeriodId: twoAgoPeriod.value?.id || null,
+    completed: {},
+    updatedAt: new Date().toISOString()
+  };
+  actionMessage.value = 'Wizard restarted at Upload Reports.';
+  actionError.value = false;
+  await saveProgress();
 };
 
 const loadPeriodDetails = async () => {
@@ -1590,6 +1672,24 @@ const goBack = async () => {
   await saveProgress();
 };
 
+const isPeriodClosed = (p) => {
+  const st = String(p?.status || '').toLowerCase();
+  return st === 'posted' || st === 'finalized';
+};
+
+/** Prefer an open (unposted) period so finishing NLU / an old ITSCO cycle doesn't reopen on Post. */
+const pickBootstrapPeriodId = (fromRoute, fromStorage) => {
+  const list = periodsForSelect.value.length ? periodsForSelect.value : periods.value;
+  const byId = (id) => (list || []).find((p) => Number(p.id) === Number(id)) || null;
+  if (fromRoute) return fromRoute;
+  const stored = fromStorage ? byId(fromStorage) : null;
+  if (stored && !isPeriodClosed(stored)) return Number(stored.id);
+  const open = (list || []).find((p) => !isPeriodClosed(p));
+  if (open) return Number(open.id);
+  if (stored) return Number(stored.id);
+  return list?.[0]?.id ?? null;
+};
+
 const bootstrap = async () => {
   loading.value = true;
   pageError.value = '';
@@ -1605,28 +1705,37 @@ const bootstrap = async () => {
         return null;
       }
     })();
-    selectedPeriodId.value = fromRoute || fromStorage || (periodsForSelect.value[0]?.id ?? periods.value[0]?.id ?? null);
+    selectedPeriodId.value = pickBootstrapPeriodId(fromRoute, fromStorage);
     if (selectedPeriodId.value) {
       await loadPeriodDetails();
       await loadProgress();
-      loadExistingImports().catch(() => {/* non-critical */});
-      // Prefer return step from payroll tool deep-link
-      try {
-        const returnStep = sessionStorage.getItem('payroll:wizardReturnStep');
-        if (returnStep) {
-          const byReturn = steps.findIndex((s) => s.key === returnStep);
-          if (byReturn >= 0) stepIdx.value = byReturn;
-          sessionStorage.removeItem('payroll:wizardReturnStep');
-          await saveProgress();
-        }
-      } catch {
-        // ignore
+      // If this period is already posted, don't park on the last step — start clean for review/next run.
+      if (isPeriodClosed(selectedPeriod.value) && stepIdx.value > 0) {
+        stepIdx.value = 0;
+        wizardState.value = {
+          stepIdx: 0,
+          stepKey: 'upload_reports',
+          priorPeriodId: priorPeriod.value?.id || null,
+          twoAgoPeriodId: twoAgoPeriod.value?.id || null,
+          completed: {},
+          updatedAt: new Date().toISOString()
+        };
       }
+      loadExistingImports().catch(() => {/* non-critical */});
       await saveProgress();
       try {
         localStorage.setItem(`payroll:lastPeriodId:${agencyId.value}`, String(selectedPeriodId.value));
       } catch {
         // ignore
+      }
+      // Keep URL period in sync when we switched away from a closed stored period
+      const path = wizardPath(selectedPeriodId.value);
+      if (!fromRoute && route.path !== path) {
+        try {
+          await router.replace({ path, query: {} });
+        } catch {
+          // ignore
+        }
       }
     }
   } finally {
@@ -1697,7 +1806,8 @@ onMounted(bootstrap);
   flex-wrap: wrap;
 }
 .pw-org-chip,
-.pw-resume-chip {
+.pw-resume-chip,
+.pw-restart-chip {
   background: #fff;
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 10px;
@@ -1723,6 +1833,23 @@ onMounted(bootstrap);
   color: var(--pw-forest);
   font-weight: 700;
   font-size: 13px;
+  cursor: default;
+}
+.pw-restart-chip {
+  background: #fff;
+  border-color: var(--border, #e2e8f0);
+  color: var(--text-primary, #1d2633);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pw-restart-chip:hover:not(:disabled) {
+  border-color: var(--pw-forest);
+  color: var(--pw-forest);
+}
+.pw-restart-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .card {
