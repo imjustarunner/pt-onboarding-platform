@@ -17059,7 +17059,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
     } else if (claimType === 'indirect_time') {
       // Hourly employee indirect time log — minutes allocated across admin-managed service types.
       const [hwRows] = await pool.execute(
-        'SELECT is_hourly_worker, hourly_dual_rate_enabled, employee_id FROM users WHERE id = ? LIMIT 1',
+        'SELECT is_hourly_worker, hourly_dual_rate_enabled FROM users WHERE id = ? LIMIT 1',
         [userId]
       );
       const hw = hwRows?.[0] || {};
