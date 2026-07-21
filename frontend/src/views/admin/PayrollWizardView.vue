@@ -283,6 +283,7 @@
                     :period-status="rawPanelPeriodStatus"
                     :initial-mode="rawPanelMode"
                     :embedded="true"
+                    :catch-up-mode="!!rawPanelCatchUp"
                     @close="closeRawPanel"
                   />
                   <div class="pw-inline-panel-footer">

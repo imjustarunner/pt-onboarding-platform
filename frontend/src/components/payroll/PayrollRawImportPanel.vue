@@ -15,6 +15,9 @@
           <span v-if="mode === 'draft_audit'">
             Review DRAFT rows and mark payable vs not payable. Changes save immediately and appear on the Payroll page too.
           </span>
+          <span v-else-if="String(mode).startsWith('process_') && catchUpMode">
+            Catch-up view defaults to unpaid rows. Use Show all if you need to see already-paid sessions.
+          </span>
           <span v-else-if="String(mode).startsWith('process_')">
             Enter minutes and mark Done. Unpaid rows are included so values are ready when notes finalize.
           </span>
@@ -60,11 +63,11 @@
           <label>Search</label>
           <input v-model="search" type="text" placeholder="Search provider / code / DOS…" />
         </div>
-        <div class="field" v-if="mode === 'draft_audit'">
+        <div class="field" v-if="mode === 'draft_audit' || (catchUpMode && String(mode).startsWith('process_'))">
           <label>Rows Filter</label>
           <select v-model="rowFilter">
             <option value="unpaid_only">Unpaid only (no note + draft unpaid)</option>
-            <option value="draft_only">Draft only</option>
+            <option v-if="mode === 'draft_audit'" value="draft_only">Draft only</option>
             <option value="all">Show all</option>
           </select>
         </div>
@@ -159,7 +162,12 @@ const props = defineProps({
   periodStatus: { type: String, default: '' },
   initialMode: { type: String, default: 'draft_audit' },
   /** When true (embedded in wizard), hides the mode-switch & close buttons from the header */
-  embedded: { type: Boolean, default: false }
+  embedded: { type: Boolean, default: false },
+  /**
+   * Wizard prior catch-up only: default to unpaid rows (same Paid?/UNPAID meaning as before).
+   * Show all remains available. Does not change Payroll-page Raw Import.
+   */
+  catchUpMode: { type: Boolean, default: false }
 });
 
 defineEmits(['close', 'changed']);
@@ -241,6 +249,10 @@ const filteredRows = computed(() => {
   } else if (String(mode.value).startsWith('process_')) {
     const code = codeForMode(mode.value);
     list = list.filter((r) => Number(r.requires_processing) === 1 && String(r.service_code || '').toUpperCase().includes(String(code || '').toUpperCase()));
+    // Wizard catch-up only: reuse the same unpaid filter Draft Audit already had (Show all still works).
+    if (props.catchUpMode && rowFilter.value === 'unpaid_only') {
+      list = list.filter((r) => !willBePaid(r));
+    }
   } else if (mode.value === 'processed') {
     list = list.filter((r) => Number(r.requires_processing) === 1 && !!r.processed_at && willBePaid(r));
   }
@@ -254,7 +266,13 @@ const visibleRows = computed(() => (filteredRows.value || []).slice(0, rowLimit.
 const setMode = (m) => {
   mode.value = m;
   rowLimit.value = 200;
+  // Catch-up wizard: keep unpaid default when switching tabs (H0031 etc.).
+  if (props.catchUpMode) rowFilter.value = 'unpaid_only';
 };
+
+watch(() => props.catchUpMode, (on) => {
+  if (on) rowFilter.value = 'unpaid_only';
+});
 
 const reload = async () => {
   if (!props.periodId) return;
