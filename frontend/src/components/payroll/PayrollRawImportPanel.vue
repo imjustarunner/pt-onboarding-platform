@@ -15,12 +15,8 @@
           <span v-if="mode === 'draft_audit'">
             Review DRAFT rows and mark payable vs not payable. Changes save immediately and appear on the Payroll page too.
           </span>
-          <span v-else-if="String(mode).startsWith('process_') && (locked || hideAlreadyPaidInBaseline)">
-            Sessions already paid in Run 1 stay hidden. Focus on unpaid / new rows for catch-up — you don’t re-edit last cycle’s paid H-codes here.
-          </span>
           <span v-else-if="String(mode).startsWith('process_')">
-            Enter minutes and mark Done for codes that need it.
-            Unpaid rows are kept so minutes are ready when notes finalize.
+            Enter minutes and mark Done. Unpaid rows are included so values are ready when notes finalize.
           </span>
           <span v-else>Review rows that have been processed (Done).</span>
         </div>
@@ -64,15 +60,12 @@
           <label>Search</label>
           <input v-model="search" type="text" placeholder="Search provider / code / DOS…" />
         </div>
-        <div class="field" v-if="mode === 'draft_audit' || String(mode).startsWith('process_')">
+        <div class="field" v-if="mode === 'draft_audit'">
           <label>Rows Filter</label>
           <select v-model="rowFilter">
             <option value="unpaid_only">Unpaid only (no note + draft unpaid)</option>
-            <option v-if="mode === 'draft_audit'" value="draft_only">Draft only</option>
-            <option v-if="String(mode).startsWith('process_')" value="not_done">Not done only</option>
-            <option value="all">
-              {{ hideAlreadyPaidInBaseline ? 'Show all (incl. already paid in Run 1)' : 'Show all' }}
-            </option>
+            <option value="draft_only">Draft only</option>
+            <option value="all">Show all</option>
           </select>
         </div>
         <div class="field">
@@ -91,7 +84,7 @@
               <th>DOS</th>
               <th class="right">Units</th>
               <th>Note Status</th>
-              <th title="Based on note status for this import — not whether last payroll already paid it">Payable?</th>
+              <th>Paid?</th>
               <th v-if="mode === 'draft_audit'">Draft Payable?</th>
               <th v-else>Process</th>
             </tr>
@@ -115,11 +108,7 @@
                 <template v-else>{{ fmtNum(r.unit_count) }}</template>
               </td>
               <td><span class="rip-pill">{{ statusLabel(r) }}</span></td>
-              <td>
-                <strong :class="willBePaid(r) ? 'rip-payable' : 'rip-unpayable'">
-                  {{ willBePaid(r) ? 'Payable' : 'Unpaid' }}
-                </strong>
-              </td>
+              <td><strong>{{ willBePaid(r) ? 'PAID' : 'UNPAID' }}</strong></td>
               <td v-if="mode === 'draft_audit'">
                 <select
                   v-if="String(r.note_status || '').toUpperCase() === 'DRAFT'"
@@ -146,25 +135,14 @@
               </td>
             </tr>
             <tr v-if="!visibleRows.length">
-              <td :colspan="8" class="rip-muted">
-                <template v-if="hiddenAlreadyPaidCount > 0 && rowFilter !== 'all'">
-                  No rows to review — {{ hiddenAlreadyPaidCount }} already paid in Run 1 {{ hiddenAlreadyPaidCount === 1 ? 'is' : 'are' }} hidden.
-                </template>
-                <template v-else>No rows found.</template>
-              </td>
+              <td :colspan="mode === 'draft_audit' ? 8 : 8" class="rip-muted">No rows found.</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <div class="rip-footer">
-        <span class="rip-muted">
-          Showing {{ visibleRows.length }} of {{ filteredRows.length }} filtered rows ({{ rows.length }} total)
-          <template v-if="hiddenAlreadyPaidCount > 0 && rowFilter !== 'all'">
-            · {{ hiddenAlreadyPaidCount }} already paid in Run 1 hidden
-          </template>
-          .
-        </span>
+        <span class="rip-muted">Showing {{ visibleRows.length }} of {{ filteredRows.length }} filtered rows ({{ rows.length }} total).</span>
         <button v-if="filteredRows.length > rowLimit" type="button" class="btn btn-secondary btn-sm" @click="rowLimit = filteredRows.length">Show all</button>
       </div>
     </template>
@@ -192,24 +170,10 @@ const error = ref('');
 const rows = ref([]);
 const imports = ref([]);
 const selectedImportId = ref(null);
-const baselineImportId = ref(null);
 const search = ref('');
 const rowFilter = ref('unpaid_only');
 const rowLimit = ref(200);
 const saving = ref(false);
-
-/** True when viewing Run 2/3 against an earlier import — already-paid Run 1 sessions should stay hidden. */
-const hideAlreadyPaidInBaseline = computed(() => {
-  const sel = Number(selectedImportId.value || 0);
-  const base = Number(baselineImportId.value || 0);
-  return !!(sel && base && sel !== base);
-});
-
-const isAlreadyPaidInBaseline = (r) => Number(r?.already_paid_in_baseline || 0) === 1;
-
-const hiddenAlreadyPaidCount = computed(() =>
-  (rows.value || []).filter((r) => isAlreadyPaidInBaseline(r)).length
-);
 
 const periodStatusLabel = computed(() => {
   const st = String(props.periodStatus || '').toLowerCase();
@@ -225,24 +189,12 @@ const locked = computed(() => {
   return st === 'posted' || st === 'finalized';
 });
 
-/** Note would be included in pay if this import were run — NOT “already paid in a prior payroll cycle.” */
 const willBePaid = (r) => {
   const st = String(r?.note_status || '').toUpperCase();
   if (st === 'NO_NOTE' || st === 'NONE' || !st) return false;
   if (st === 'DRAFT') return Number(r?.draft_payable) === 1;
   if (st === 'FINALIZED' || st === 'FINAL' || st === 'SIGNED') return true;
   return false;
-};
-
-/** Default filter: unpaid for draft audit / catch-up; not-done for open current-period process tabs. */
-const defaultRowFilterForMode = (m) => {
-  if (m === 'draft_audit') return 'unpaid_only';
-  if (String(m).startsWith('process_')) {
-    // Catch-up (Run 2/3) or posted prior: unpaid only — already-paid Run 1 sessions stay hidden.
-    if (locked.value || hideAlreadyPaidInBaseline.value) return 'unpaid_only';
-    return 'not_done';
-  }
-  return 'all';
 };
 
 const statusLabel = (r) => {
@@ -283,19 +235,12 @@ const filteredRows = computed(() => {
     });
   }
 
-  // Catch-up: keep sessions already paid in Run 1 hidden unless user explicitly chooses Show all.
-  if (hideAlreadyPaidInBaseline.value && rowFilter.value !== 'all') {
-    list = list.filter((r) => !isAlreadyPaidInBaseline(r));
-  }
-
   if (mode.value === 'draft_audit') {
     if (rowFilter.value === 'unpaid_only') list = list.filter((r) => !willBePaid(r));
     else if (rowFilter.value === 'draft_only') list = list.filter((r) => String(r.note_status || '').toUpperCase() === 'DRAFT');
   } else if (String(mode.value).startsWith('process_')) {
     const code = codeForMode(mode.value);
     list = list.filter((r) => Number(r.requires_processing) === 1 && String(r.service_code || '').toUpperCase().includes(String(code || '').toUpperCase()));
-    if (rowFilter.value === 'unpaid_only') list = list.filter((r) => !willBePaid(r));
-    else if (rowFilter.value === 'not_done') list = list.filter((r) => !r.processed_at);
   } else if (mode.value === 'processed') {
     list = list.filter((r) => Number(r.requires_processing) === 1 && !!r.processed_at && willBePaid(r));
   }
@@ -309,7 +254,6 @@ const visibleRows = computed(() => (filteredRows.value || []).slice(0, rowLimit.
 const setMode = (m) => {
   mode.value = m;
   rowLimit.value = 200;
-  rowFilter.value = defaultRowFilterForMode(m);
 };
 
 const reload = async () => {
@@ -324,12 +268,7 @@ const reload = async () => {
     });
     imports.value = resp.data?.imports || [];
     selectedImportId.value = Number(resp.data?.selectedImportId || selectedImportId.value || 0) || (imports.value[imports.value.length - 1]?.id ?? null);
-    baselineImportId.value = Number(resp.data?.baselineImportId || 0) || null;
     rows.value = resp.data?.rows || [];
-    // After load, if this is catch-up vs Run 1, keep unpaid-only (hides already-paid).
-    if (hideAlreadyPaidInBaseline.value && String(mode.value).startsWith('process_') && rowFilter.value === 'not_done') {
-      rowFilter.value = 'unpaid_only';
-    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load raw audit';
     rows.value = [];
@@ -392,26 +331,14 @@ const toggleProcessed = async (row, nextDone) => {
 
 watch(() => props.periodId, () => {
   selectedImportId.value = null;
-  rowFilter.value = defaultRowFilterForMode(mode.value);
   reload();
 });
 
 watch(() => props.initialMode, (m) => {
-  if (m) {
-    mode.value = m;
-    rowFilter.value = defaultRowFilterForMode(m);
-  }
+  if (m) mode.value = m;
 });
 
-watch(() => props.periodStatus, () => {
-  // When status loads after open (common for prior periods), re-apply catch-up default.
-  rowFilter.value = defaultRowFilterForMode(mode.value);
-});
-
-onMounted(() => {
-  rowFilter.value = defaultRowFilterForMode(mode.value);
-  reload();
-});
+onMounted(reload);
 </script>
 
 <style scoped>
@@ -545,8 +472,6 @@ onMounted(() => {
   font-weight: 700;
 }
 .rip-muted { color: var(--text-secondary, #64748b); font-size: 13px; }
-.rip-payable { color: #15803d; }
-.rip-unpayable { color: #b45309; }
 .rip-error {
   background: #fee;
   border: 1px solid #fcc;

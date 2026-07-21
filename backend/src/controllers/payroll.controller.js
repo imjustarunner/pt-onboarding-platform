@@ -10600,28 +10600,7 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
       ? await PayrollImportRow.listForImportId({ payrollPeriodId, payrollImportId: effectiveBaselineImportId })
       : [];
 
-    // Sessions already payable in the previous import (Run 1) — hide on catch-up (Run 2/3) by default.
-    const baselinePaidKeys = new Set();
-    const comparingAgainstEarlierImport =
-      Number(effectiveBaselineImportId || 0) > 0
-      && Number(effectiveSelectedImportId || 0) > 0
-      && Number(effectiveBaselineImportId) !== Number(effectiveSelectedImportId);
-    if (comparingAgainstEarlierImport) {
-      for (const b of baselineRowsRaw || []) {
-        if (paidStateForStatus(normalizedRawStatus(b)) === 'PAID') {
-          baselinePaidKeys.add(rowEntityKey(b));
-        }
-      }
-    }
-
-    const rows = selectedRowsRaw.map((r) => {
-      const mapped = mapRawRowForAudit(r);
-      const alreadyPaidInBaseline = comparingAgainstEarlierImport && baselinePaidKeys.has(rowEntityKey(r)) ? 1 : 0;
-      return {
-        ...mapped,
-        already_paid_in_baseline: alreadyPaidInBaseline
-      };
-    });
+    const rows = selectedRowsRaw.map((r) => mapRawRowForAudit(r));
     const changes = computeRawRunDiffRows({ baselineRows: baselineRowsRaw, compareRows: selectedRowsRaw });
 
     const runByImportId = new Map(
