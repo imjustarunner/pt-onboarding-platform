@@ -116,6 +116,129 @@ function parsePresencePersonQueryFromPrompt(promptLower) {
   return '';
 }
 
+/**
+ * Parse admin/payroll analytics questions into queryPayrollAnalytics args.
+ * Returns null if the prompt is not a staff payroll analytics ask.
+ */
+function parsePayrollAnalyticsArgsFromPrompt(lower) {
+  const s = String(lower || '').toLowerCase().trim();
+  if (!s) return null;
+
+  const extractPerson = () => {
+    const patterns = [
+      /\b(?:has|have|did|does)\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\s+(?:had|have|get|got|make|made|earn|earned)\b/,
+      /\b(?:for|about)\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\b/,
+      /\b([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)(?:'s|’s)\s+(?:pay|payroll|pto|rate|rates|benefits|sessions|compensation)\b/,
+      /\b(?:how\s+many|how\s+much).{0,40}?\b(?:has|have|did)\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\b/,
+      /\bwhat\s+(?:is|are)\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)(?:'s|’s)\b/
+    ];
+    for (const re of patterns) {
+      const m = s.match(re);
+      if (m?.[1]) {
+        const name = m[1].trim();
+        if (!/^(she|he|they|someone|anyone|anybody|staff|providers?|our|the|this|that|last|this|year|week)$/.test(name)) {
+          return name.slice(0, 80);
+        }
+      }
+    }
+    return null;
+  };
+
+  const codeMatch = s.match(/\b(\d{5}|H\d{4}|[A-Z]\d{4}|908\d{2}|994\d{2})\b/i);
+  const serviceCode = codeMatch ? String(codeMatch[1]).toUpperCase() : null;
+
+  let timeframe = 'last_4_periods';
+  let startDate;
+  let endDate;
+  if (/\b(ytd|year\s+to\s+date|this\s+year|calendar\s+year)\b/.test(s)) timeframe = 'ytd';
+  else if (/\b(last\s+pay\s+period|prior\s+pay\s+period|previous\s+pay\s+period)\b/.test(s)) timeframe = 'last_period';
+  else if (/\b(this\s+week|current\s+week)\b/.test(s)) timeframe = 'this_week';
+  else if (/\b(from|between|since)\b/.test(s) && /\bto\b|\band\b/.test(s)) {
+    const dates = [...s.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g)].map((m) => m[1]);
+    if (dates.length >= 2) {
+      timeframe = 'custom';
+      startDate = dates[0];
+      endDate = dates[1];
+    } else if (dates.length === 1 && /\bsince\b/.test(s)) {
+      timeframe = 'custom';
+      startDate = dates[0];
+      endDate = new Date().toISOString().slice(0, 10);
+    } else {
+      timeframe = 'custom';
+    }
+  } else if (/\bsince\b/.test(s)) {
+    const d = s.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+    if (d) {
+      timeframe = 'custom';
+      startDate = d[1];
+      endDate = new Date().toISOString().slice(0, 10);
+    } else {
+      timeframe = 'custom';
+    }
+  }
+
+  const personName = extractPerson();
+  const args = { timeframe };
+  if (personName) args.personName = personName;
+  if (serviceCode) args.serviceCode = serviceCode;
+  if (startDate) args.startDate = startDate;
+  if (endDate) args.endDate = endDate;
+
+  if (/\b(top\s+5|top\s+five|highest\s+paid|paid\s+the\s+most|top\s+compensation|who\s+gets\s+paid\s+the\s+most)\b/.test(s)) {
+    return { intent: 'top_pay', ...args, limit: /\bwho\s+gets\s+paid\s+the\s+most\b/.test(s) ? 1 : 5 };
+  }
+  if (/\b(most\s+clients|sees\s+the\s+most\s+clients|who\s+sees\s+the\s+most)\b/.test(s)) {
+    return { intent: 'top_clients', ...args, limit: 5 };
+  }
+  if (/\b(top\s+5|top\s+five).{0,40}\bsessions?\b.{0,20}\b(this\s+week|week)\b|\bsessions?\b.{0,40}\bthis\s+week\b/.test(s)) {
+    return { intent: 'top_sessions_week', ...args, limit: 5, timeframe: 'this_week' };
+  }
+  if (/\b(direct\s+and\s+indirect\s+rate|indirect\s+rate|direct\s+rate|compensation\s+rate|what\s+are\s+their\s+rates|per[- ]code\s+rate)\b/.test(s)
+    || (/\brates?\b/.test(s) && (personName || serviceCode))) {
+    return { intent: 'rates', ...args };
+  }
+  if (/\b(pto\s+hours|pto\s+balance|sick\s+hours|training\s+hours|how\s+many\s+pto)\b/.test(s)
+    && (personName || /\b(as\s+of\s+today|do\s+they\s+have|does\s+.+\s+have)\b/.test(s))) {
+    return { intent: 'pto', ...args };
+  }
+  if (/\b(what\s+benefits|benefits\s+does|benefit\s+enrollment|their\s+benefits)\b/.test(s)) {
+    return { intent: 'benefits', ...args };
+  }
+  if (/\b(year\s+to\s+date|ytd).{0,30}\b(pay|earn|made|compensation)\b|\bhow\s+much\b.{0,40}\b(made|earned|paid)\b/.test(s)) {
+    return { intent: 'ytd_pay', ...args, timeframe: timeframe === 'last_4_periods' ? 'ytd' : timeframe };
+  }
+  if (/\baverage\b.{0,20}\b(pay|earn|make)\b.{0,20}\bweek|\bavg\b.{0,20}\bpay\b.{0,20}\bweek|\bmake\s+on\s+average\s+per\s+week\b/.test(s)) {
+    return { intent: 'avg_weekly_pay', ...args };
+  }
+  if (/\baverage\b.{0,20}\bsessions?\b.{0,20}\bweek|\bavg\b.{0,20}\bsessions?\b|\bsessions?\s+averaging\s+per\s+week\b/.test(s)) {
+    return { intent: 'avg_weekly_sessions', ...args };
+  }
+  if (/\b(no[- ]?notes?|incomplete\s+notes?).{0,40}\blast\s+pay\s+period\b|\blast\s+pay\s+period.{0,40}\b(no[- ]?notes?|incomplete)\b/.test(s)) {
+    return { intent: 'no_notes_last_period', ...args, timeframe: 'last_period' };
+  }
+  if (/\b(average|avg).{0,30}\b(no[- ]?notes?|incomplete\s+notes?)\b|\bhow\s+many\s+no[- ]?notes?\b.{0,40}\bon\s+average\b/.test(s)) {
+    return { intent: 'no_notes_average', ...args };
+  }
+  if (/\b(incomplete\s+notes?|no[- ]?notes?|unpaid\s+notes?)\b/.test(s)) {
+    return { intent: 'incomplete_notes', ...args };
+  }
+  if (/\b(sessions?|how\s+many\s+\d{5})\b/.test(s) && (personName || serviceCode)) {
+    return { intent: 'sessions', ...args };
+  }
+  return null;
+}
+
+function looksLikeStaffPtoBalanceQuestion(lower) {
+  const s = String(lower || '');
+  if (!/\b(pto|sick|training)\b/.test(s)) return false;
+  if (/\b(policy|handbook|company\s+policy|accrue|eligibility\s+policy)\b/.test(s)) return false;
+  return (
+    /\bhow\s+many\b.{0,40}\b(pto|sick|training)\b.{0,20}\bhours?\b/.test(s)
+    || /\b(pto|sick|training)\s+(hours?|balance)\b/.test(s)
+    || /\b(pto\s+balance|remaining\s+pto)\b/.test(s)
+  );
+}
+
 /** Extract an office location name fragment from prompts like "in the Windchime office". */
 function parseOfficeLocationQueryFromPrompt(promptLower) {
   const s = String(promptLower || '').toLowerCase();
@@ -498,6 +621,18 @@ export async function matchDeterministicCapabilityIntent({
     }
   }
 
+  // Staff payroll analytics (sessions-by-code for a person, etc.) before service-code research.
+  if (allowedToolNames?.has?.('queryPayrollAnalytics')) {
+    const payrollArgs = parsePayrollAnalyticsArgsFromPrompt(lower);
+    if (payrollArgs) {
+      return {
+        intent: 'payroll_analytics',
+        capabilityId: 'payroll_analytics',
+        toolCalls: [{ name: 'queryPayrollAnalytics', args: payrollArgs }]
+      };
+    }
+  }
+
   // Service codes first — never let soft/fuzzy English steal "what is H2014".
   if (looksLikeServiceCodeQuery(lower) || extractServiceCodes(lower).length) {
     return {
@@ -839,6 +974,10 @@ function catalogEntries() {
       ],
       matcher: (lower, allowedTools) => {
         if (!allowedTools.has('searchTrainingKnowledgeBase')) return false;
+        // Staff PTO *balances* belong to payroll analytics when that tool is available.
+        if (allowedTools.has('queryPayrollAnalytics') && looksLikeStaffPtoBalanceQuestion(lower)) {
+          return false;
+        }
         // Manage/open/add flows belong to training_kb_open (navigate), not search.
         if (
           /\b(training\s+(knowledge\s+)?base|training\s+reference|reference\s+docs?|training\s+docs?|training\s+documents?)\b/.test(lower) ||
@@ -1137,6 +1276,50 @@ function catalogEntries() {
       }
     },
     {
+      id: 'payroll_analytics',
+      audience: ['admin_like'],
+      group: 'Payroll analytics',
+      prompt: 'How many 90837 sessions has Alex had this year?',
+      requiredToolsAll: ['queryPayrollAnalytics'],
+      subtitleTag: 'payroll analytics',
+      routeHints: [
+        'sessions',
+        '90837',
+        'no notes',
+        'incomplete notes',
+        'year to date pay',
+        'pto hours',
+        'compensation rate',
+        'top earners',
+        'most clients'
+      ],
+      semanticExamples: [
+        'how many 90837 sessions has jordan had year to date',
+        'how many incomplete notes did sam have last pay period',
+        'how much has alex made year to date',
+        'what is their direct and indirect rate',
+        'how many pto hours does taylor have as of today',
+        'show me the top five compensations',
+        'who sees the most clients',
+        'how many sessions are the top 5 people having this week',
+        'who gets paid the most',
+        'what benefits does this person have'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('queryPayrollAnalytics')) return false;
+        if (/\bmy\s+(pay|paycheck|payroll)\b/.test(lower)) return false;
+        return !!parsePayrollAnalyticsArgsFromPrompt(lower);
+      },
+      buildIntent: (lower) => {
+        const parsed = parsePayrollAnalyticsArgsFromPrompt(lower) || { intent: 'sessions', timeframe: 'last_4_periods' };
+        return {
+          intent: 'payroll_analytics',
+          capabilityId: 'payroll_analytics',
+          toolCalls: [{ name: 'queryPayrollAnalytics', args: parsed }]
+        };
+      }
+    },
+    {
       id: 'payroll_summary',
       audience: ['admin_like', 'provider_like'],
       group: 'Navigation and lookup',
@@ -1148,9 +1331,16 @@ function catalogEntries() {
         'how much was my last paycheck',
         'payroll unpaid documentation summary'
       ],
-      matcher: (lower, allowedTools) =>
-        allowedTools.has('getMyPayrollSummary') &&
-        /\bpayroll|paycheck|pay check|my pay|my payroll|pay summary\b/.test(lower),
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('getMyPayrollSummary')) return false;
+        // Self paycheck questions always route here.
+        if (/\b(my\s+pay|my\s+paycheck|my\s+payroll|last\s+paycheck|pay\s+summary|open\s+payroll\s+summary)\b/.test(lower)) {
+          return true;
+        }
+        // When payroll analytics is available, leave cross-person payroll asks to that capability.
+        if (allowedTools.has('queryPayrollAnalytics')) return false;
+        return /\bpayroll|paycheck|pay check|my pay|my payroll|pay summary\b/.test(lower);
+      },
       buildIntent: () => ({
         intent: 'my_payroll_summary',
         capabilityId: 'payroll_summary',

@@ -1621,6 +1621,89 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
           }
         }
       }
+    } else if (r.tool === 'queryPayrollAnalytics') {
+      const res = r.result;
+      if (!res || typeof res !== 'object') {
+        lines.push('No payroll analytics result.');
+      } else if (res.needsDateRange) {
+        lines.push(String(res.prompt || 'What date range should I use?'));
+      } else if (res.needsPersonDisambiguation) {
+        const matches = Array.isArray(res.matches) ? res.matches : [];
+        const items = matches.slice(0, 8).map((m) => `• ${m.name} (#${m.id}${m.role ? `, ${m.role}` : ''})`);
+        lines.push(`${res.prompt || 'Which person did you mean?'}\n${items.join('\n')}`);
+      } else if (res.ok === false) {
+        lines.push(String(res.error || 'Could not answer that payroll question.'));
+      } else {
+        const win = res.window
+          ? ` (${res.window.startDate || '?'} → ${res.window.endDate || '?'}${res.window.timeframe ? `, ${res.window.timeframe}` : ''})`
+          : '';
+        const who = res.person?.name ? `${res.person.name}: ` : '';
+        if (res.intent === 'sessions' || res.intent === 'avg_weekly_sessions') {
+          const code = res.serviceCode && res.serviceCode !== 'ALL' ? ` ${res.serviceCode}` : '';
+          lines.push(
+            `${who}${res.sessions} session(s)${code}${win}; avg ${res.avgSessionsPerWeek}/week (${res.units} units).`
+          );
+        } else if (res.intent === 'incomplete_notes' || res.intent === 'no_notes_last_period' || res.intent === 'no_notes_average') {
+          lines.push(
+            `${who}${res.noNoteNotes} NO_NOTE and ${res.draftNotes} unpaid draft note(s)${win}` +
+              (res.intent === 'no_notes_average' || res.averageNoNotesPerPeriod != null
+                ? `; avg ${res.averageNoNotesPerPeriod} NO_NOTE(s) per pay period.`
+                : '.')
+          );
+        } else if (res.intent === 'ytd_pay' || res.intent === 'avg_weekly_pay') {
+          lines.push(
+            `${who}$${Number(res.totalPay || 0).toFixed(2)} total pay${win}; avg $${Number(res.avgPayPerWeek || 0).toFixed(2)}/week.`
+          );
+        } else if (res.intent === 'pto') {
+          lines.push(
+            `${who}PTO as of ${res.asOf || 'today'}: ${Number(res.pto?.sickHours || 0).toFixed(2)} sick hours, ${Number(res.pto?.trainingHours || 0).toFixed(2)} training hours.`
+          );
+        } else if (res.intent === 'rates') {
+          const rc = res.rateCard || {};
+          const parts = [
+            `direct $${Number(rc.directRate || 0).toFixed(2)}`,
+            `indirect $${Number(rc.indirectRate || 0).toFixed(2)}`
+          ];
+          if (res.serviceCodeRate) {
+            const cr = res.serviceCodeRate;
+            if (cr.rateAmount != null) {
+              parts.push(`${cr.serviceCode} $${Number(cr.rateAmount).toFixed(2)}/${cr.rateUnit || 'unit'}`);
+            } else {
+              parts.push(`${cr.serviceCode}: ${cr.note || 'no per-code rate'}`);
+            }
+          }
+          lines.push(`${who}Compensation rates — ${parts.join('; ')}.`);
+        } else if (res.intent === 'benefits') {
+          const enr = res.benefits?.enrollment;
+          const notes = res.benefits?.notes;
+          const bits = [];
+          if (notes) bits.push(String(notes));
+          if (enr && typeof enr === 'object') {
+            const keys = Object.keys(enr).slice(0, 12);
+            if (keys.length) bits.push(`Enrollment keys: ${keys.join(', ')}`);
+            else bits.push('Enrollment record present (empty).');
+          }
+          lines.push(bits.length ? `${who}Benefits — ${bits.join(' | ')}` : `${who}No benefits enrollment notes on file.`);
+        } else if (res.intent === 'top_pay' || res.intent === 'top_clients' || res.intent === 'top_sessions_week') {
+          const top = Array.isArray(res.top) ? res.top : [];
+          if (!top.length) {
+            lines.push(`No ranking data${win}.`);
+          } else {
+            const items = top.map((t, i) => {
+              if (res.intent === 'top_pay') return `${i + 1}. ${t.name}: $${Number(t.totalPay || 0).toFixed(2)}`;
+              if (res.intent === 'top_clients') return `${i + 1}. ${t.name}: ${t.distinctClients} clients (${t.sessions} sessions)`;
+              return `${i + 1}. ${t.name}: ${t.sessions} sessions`;
+            });
+            const title = res.intent === 'top_pay'
+              ? 'Top compensation'
+              : (res.intent === 'top_clients' ? 'Most clients' : 'Top sessions this week');
+            lines.push(`${title}${win}:\n${items.join('\n')}`);
+            if (res.note) lines.push(String(res.note));
+          }
+        } else {
+          lines.push(`Payroll analytics (${res.intent || 'result'}) ready${win}.`);
+        }
+      }
     }
   }
   const out = lines.filter(Boolean).join('\n\n');
@@ -1667,7 +1750,19 @@ export function assertQuickActionToolsHaveReplies(buildReply = buildAssistantRep
   return failures;
 }
 
-function buildCapabilityPayloadForReq(req, agentConfig = null) {
+async function attachPayrollAgencyIdsForAssist(req) {
+  if (!req?.user?.id) return;
+  if (Array.isArray(req.user.payrollAgencyIds)) return;
+  try {
+    const User = (await import('../models/User.model.js')).default;
+    req.user.payrollAgencyIds = await User.listPayrollAgencyIds(req.user.id);
+  } catch {
+    req.user.payrollAgencyIds = [];
+  }
+}
+
+async function buildCapabilityPayloadForReq(req, agentConfig = null) {
+  await attachPayrollAgencyIdsForAssist(req);
   const allowedToolNames = new Set(getToolSchemasForUser(req.user, agentConfig).map((t) => t.name));
   const role = String(req.user?.role || '').toLowerCase().trim();
   const payload = buildCapabilityUiPayload({ role, allowedToolNames });
@@ -1833,7 +1928,7 @@ async function runAgencyResearchAssistResponse({
 export const getCapabilities = async (req, res, next) => {
   try {
     const agentConfig = req.body?.agentConfig && typeof req.body.agentConfig === 'object' ? req.body.agentConfig : null;
-    const { payload } = buildCapabilityPayloadForReq(req, agentConfig);
+    const { payload } = await buildCapabilityPayloadForReq(req, agentConfig);
     return res.json(payload);
   } catch (e) {
     return next(e);
@@ -2076,7 +2171,7 @@ export const assist = async (req, res, next) => {
     }
 
     const started = Date.now();
-    const { payload: capabilityPayload, allowedToolNames } = buildCapabilityPayloadForReq(req, agentConfig);
+    const { payload: capabilityPayload, allowedToolNames } = await buildCapabilityPayloadForReq(req, agentConfig);
     const assistFeedback = (payload, meta = {}) =>
       withAssistFeedbackMeta(payload, {
         role: req.user?.role,

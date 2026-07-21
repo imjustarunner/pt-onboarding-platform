@@ -1,6 +1,10 @@
 <template>
   <div>
     <div class="card" style="margin-bottom: 12px;" data-tour="payroll-reports-header">
+      <button type="button" class="pr-back" @click="goBackToPayroll">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+        Back to Payroll
+      </button>
       <h2 class="card-title" data-tour="payroll-reports-title">Payroll Reports</h2>
       <div class="hint">Build and download the exact report you need.</div>
     </div>
@@ -111,6 +115,7 @@
         <button class="btn btn-secondary" type="button" @click="activeTab = 'export'">Payroll export</button>
         <button class="btn btn-secondary" type="button" @click="activeTab = 'sessions'">Sessions / Units</button>
         <button class="btn btn-secondary" type="button" @click="activeTab = 'service_codes'">Service Code Totals</button>
+        <button class="btn btn-secondary" type="button" @click="activeTab = 'credits'">Credits</button>
         <button class="btn btn-secondary" type="button" @click="activeTab = 'late_notes'">Late notes (carryover)</button>
         <button class="btn btn-secondary" type="button" @click="activeTab = 'pay_summary'">Provider Pay Summary</button>
         <button class="btn btn-secondary" type="button" @click="activeTab = 'adjustments'">Adjustments Breakdown</button>
@@ -186,6 +191,75 @@
               </tr>
               <tr v-if="!previewRows.length">
                 <td :colspan="previewHeaders.length" class="muted">No rows found for this period/filters.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div v-else-if="activeTab === 'credits'" style="margin-top: 10px;">
+        <div class="hint">
+          Credits/Hours from the ran payroll (service codes + manual/adjustment credit hours). Run payroll first if this is empty.
+        </div>
+        <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+          <div class="field">
+            <label>Group by</label>
+            <select v-model="creditsGroupBy">
+              <option value="provider">Provider</option>
+              <option value="provider_service_code">Provider + Service code</option>
+              <option value="service_code">Service code only</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Options</label>
+            <div class="hint" style="margin-top: 6px;">
+              <label style="display: inline-flex; gap: 8px; align-items: center;">
+                <input type="checkbox" v-model="combinePeriods" :disabled="periodMode === 'single'" />
+                Combine periods (sum totals across range)
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="actions" style="margin-top: 10px; justify-content: space-between;">
+          <div class="hint muted" style="margin: 0;">Preview shows the first 50 rows.</div>
+          <div class="actions" style="margin: 0;">
+            <button class="btn btn-secondary" type="button" @click="previewCredits" :disabled="!selectedPeriodId || previewLoading || downloading">
+              {{ previewLoading ? 'Loading…' : 'Preview table' }}
+            </button>
+            <button class="btn btn-primary" type="button" @click="downloadCreditsCsv" :disabled="!selectedPeriodId || downloading">
+              {{ downloading ? 'Working…' : 'Download Credits CSV' }}
+            </button>
+          </div>
+        </div>
+        <div v-if="previewError" class="warn-box" style="margin-top: 10px;">{{ previewError }}</div>
+        <div v-else-if="previewLoading" class="muted" style="margin-top: 10px;">Loading preview…</div>
+        <div v-else-if="previewHeaders.length" class="table-wrap" style="margin-top: 10px;">
+          <div class="hint" style="margin-bottom: 8px;">
+            Showing <strong>{{ Math.min(50, previewRows.length) }}</strong> of <strong>{{ previewRows.length }}</strong>
+          </div>
+          <div class="hint" style="margin-bottom: 8px;" v-if="previewTotals">
+            Totals:
+            <strong v-if="previewTotals.credits !== null">{{ previewTotals.credits }}</strong><span v-if="previewTotals.credits !== null"> credits</span>
+            <span v-if="previewTotals.credits !== null && previewTotals.units !== null"> • </span>
+            <strong v-if="previewTotals.units !== null">{{ previewTotals.units }}</strong><span v-if="previewTotals.units !== null"> units</span>
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th v-for="h in previewHeaders" :key="`ph-cr-${h}`">{{ headerLabel(h) }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="previewTotalsRow">
+                <td v-for="h in previewHeaders" :key="`pt-cr-${h}`">
+                  <strong>{{ previewTotalsRow[h] }}</strong>
+                </td>
+              </tr>
+              <tr v-for="(r, idx) in previewRows.slice(0, 50)" :key="`pr-cr-${idx}`">
+                <td v-for="h in previewHeaders" :key="`pc-cr-${idx}-${h}`">{{ r[h] }}</td>
+              </tr>
+              <tr v-if="!previewRows.length">
+                <td :colspan="previewHeaders.length" class="muted">No credits rows found. Run payroll for this period first, or adjust filters.</td>
               </tr>
             </tbody>
           </table>
@@ -356,13 +430,31 @@ const roleFilter = ref('all'); // all | provider | staff | supervisor | cpa | ad
 const providerStatsLoading = ref(false);
 const providerStatsByUserId = ref(new Map()); // userId -> { session_count, no_note_session_count }
 
-const activeTab = ref('sessions'); // export | sessions | service_codes | late_notes | pay_summary | adjustments
+const activeTab = ref('sessions'); // export | sessions | service_codes | credits | late_notes | pay_summary | adjustments
 const sessionsGroupBy = ref('provider');
+const creditsGroupBy = ref('provider_service_code');
 const cols = ref({
   sessionCount: true,
   unitsTotal: true,
   statusBreakdown: true
 });
+
+const payrollBasePath = () => {
+  const slug = String(
+    route.params?.organizationSlug ||
+    agencyStore.currentAgency?.slug ||
+    ''
+  ).trim();
+  return slug ? `/${slug}/admin/payroll` : '/admin/payroll';
+};
+
+const goBackToPayroll = async () => {
+  const pid = Number(selectedPeriodId.value || 0);
+  await router.push({
+    path: payrollBasePath(),
+    query: pid ? { periodId: String(pid) } : {}
+  });
+};
 
 const previewLoading = ref(false);
 const previewError = ref('');
@@ -666,6 +758,8 @@ const computePreviewTotals = (rows, headers) => {
   setSumIfIncluded('no_note_units_total');
   setSumIfIncluded('draft_units_total');
   setSumIfIncluded('finalized_units_total');
+  setSumIfIncluded('units');
+  setSumIfIncluded('credits');
 
   for (const h of hs) {
     if (totalsRow[h] === undefined) totalsRow[h] = '';
@@ -673,7 +767,9 @@ const computePreviewTotals = (rows, headers) => {
 
   const totals = {
     session_count: hs.includes('session_count') ? Number(totalsRow.session_count || 0) : null,
-    units_total: hs.includes('units_total') ? Number(totalsRow.units_total || 0) : null
+    units_total: hs.includes('units_total') ? Number(totalsRow.units_total || 0) : null,
+    units: hs.includes('units') ? Number(totalsRow.units || 0) : null,
+    credits: hs.includes('credits') ? Number(totalsRow.credits || 0) : null
   };
 
   return { totals, totalsRow };
@@ -704,7 +800,11 @@ const headerLabel = (key) => {
     taxable: 'Taxable',
     bucket: 'Bucket',
     amount: 'Amount',
-    credits_hours: 'Credits hours'
+    credits_hours: 'Credits hours',
+    units: 'Units',
+    credit_value: 'Credit value',
+    credits: 'Credits',
+    source: 'Source'
   };
   return map[key] || String(key || '');
 };
@@ -947,8 +1047,8 @@ const downloadAdjustmentsCsv = async () => {
 const mergeRowsByKey = (rows, groupBy) => {
   const gb = String(groupBy || 'provider');
   const keyFor = (r) => {
-    if (gb === 'service_code') return `code|${r.service_code || ''}`;
-    if (gb === 'provider_service_code') return `provcode|${r.provider_name || ''}|${r.service_code || ''}`;
+    if (gb === 'service_code') return `code|${r.service_code || ''}|${r.bucket || ''}|${r.source || ''}`;
+    if (gb === 'provider_service_code') return `provcode|${r.provider_name || ''}|${r.service_code || ''}|${r.bucket || ''}|${r.source || ''}`;
     return `prov|${r.provider_name || ''}`;
   };
   const sumKeys = [
@@ -959,7 +1059,9 @@ const mergeRowsByKey = (rows, groupBy) => {
     'finalized_session_count',
     'no_note_units_total',
     'draft_units_total',
-    'finalized_units_total'
+    'finalized_units_total',
+    'units',
+    'credits'
   ];
   const map = new Map();
   for (const r of rows || []) {
@@ -971,6 +1073,98 @@ const mergeRowsByKey = (rows, groupBy) => {
     map.set(k, cur);
   }
   return Array.from(map.values());
+};
+
+const buildCreditsHeaders = () => {
+  const headers = [];
+  if (creditsGroupBy.value === 'service_code') {
+    headers.push('service_code', 'bucket', 'source');
+  } else if (creditsGroupBy.value === 'provider') {
+    headers.push('provider_name');
+  } else {
+    headers.push('provider_name', 'service_code', 'bucket', 'source');
+  }
+  headers.push('units', 'credit_value', 'credits');
+  return headers;
+};
+
+const normalizeCreditsRows = (rows) => {
+  return (rows || []).map((r) => ({
+    provider_name: creditsGroupBy.value === 'service_code' ? '' : (r.provider_name || '—'),
+    service_code: creditsGroupBy.value === 'provider' ? '' : (r.service_code || ''),
+    bucket: creditsGroupBy.value === 'provider' ? '' : (r.bucket || ''),
+    source: creditsGroupBy.value === 'provider' ? '' : (r.source || ''),
+    units: Number(r.units || 0),
+    credit_value: Number(r.credit_value || 0),
+    credits: Number(r.credits || 0)
+  }));
+};
+
+const previewCredits = async () => {
+  const pids = effectivePeriodIds();
+  if (!pids.length) return;
+  previewLoading.value = true;
+  previewError.value = '';
+  previewRows.value = [];
+  previewHeaders.value = buildCreditsHeaders();
+  previewTotals.value = null;
+  previewTotalsRow.value = null;
+  try {
+    const providerIds = (selectedProviderIds.value || []).slice().map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
+    const params = {
+      groupBy: creditsGroupBy.value,
+      providerIds: providerIds.length ? providerIds.join(',') : ''
+    };
+    const all = [];
+    for (const pid of pids.slice(0, 60)) {
+      const resp = await api.get(`/payroll/periods/${pid}/reports/credits`, { params });
+      const rows = Array.isArray(resp.data?.rows) ? resp.data.rows : [];
+      all.push(...normalizeCreditsRows(rows).map((r) => ({ ...r, period_id: pid })));
+    }
+    const merged = combinePeriods.value && periodMode.value === 'range'
+      ? mergeRowsByKey(all, creditsGroupBy.value)
+      : all;
+    previewRows.value = merged;
+    const computed = computePreviewTotals(merged, previewHeaders.value);
+    previewTotals.value = computed.totals;
+    previewTotalsRow.value = computed.totalsRow;
+  } catch (e) {
+    previewError.value = e.response?.data?.error?.message || e.message || 'Failed to load credits preview';
+  } finally {
+    previewLoading.value = false;
+  }
+};
+
+const downloadCreditsCsv = async () => {
+  const pids = effectivePeriodIds();
+  if (!pids.length) return;
+  downloading.value = true;
+  error.value = '';
+  try {
+    const providerIds = (selectedProviderIds.value || []).slice().map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
+    const params = {
+      groupBy: creditsGroupBy.value,
+      providerIds: providerIds.length ? providerIds.join(',') : ''
+    };
+    const all = [];
+    for (const pid of pids.slice(0, 60)) {
+      const resp = await api.get(`/payroll/periods/${pid}/reports/credits`, { params });
+      const rows = Array.isArray(resp.data?.rows) ? resp.data.rows : [];
+      all.push(...normalizeCreditsRows(rows).map((r) => ({ ...r, period_id: pid })));
+    }
+    const headers = buildCreditsHeaders();
+    const normalized = combinePeriods.value && periodMode.value === 'range'
+      ? mergeRowsByKey(all, creditsGroupBy.value)
+      : all;
+    const csv = toCsv(normalized, headers);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const fnameSuffix = periodMode.value === 'range' ? `${rangeStartYmd.value}-to-${rangeEndYmd.value}` : `period-${pids[0]}`;
+    downloadBlob(blob, `payroll-credits-${fnameSuffix}.csv`);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to download credits report';
+  } finally {
+    downloading.value = false;
+  }
 };
 
 const mergePaySummaryRows = (rows) => {
@@ -1048,10 +1242,23 @@ onMounted(async () => {
   if (qp) selectedPeriodId.value = qp;
 
   const tabQ = String(route.query?.tab || '').trim().toLowerCase();
-  if (tabQ === 'export' || tabQ === 'sessions' || tabQ === 'service_codes' || tabQ === 'pay_summary' || tabQ === 'adjustments') activeTab.value = tabQ;
+  if (
+    tabQ === 'export' ||
+    tabQ === 'sessions' ||
+    tabQ === 'service_codes' ||
+    tabQ === 'credits' ||
+    tabQ === 'late_notes' ||
+    tabQ === 'pay_summary' ||
+    tabQ === 'adjustments'
+  ) {
+    activeTab.value = tabQ;
+  }
 
   const groupQ = String(route.query?.groupBy || '').trim();
-  if (groupQ === 'provider' || groupQ === 'provider_service_code' || groupQ === 'service_code') sessionsGroupBy.value = groupQ;
+  if (groupQ === 'provider' || groupQ === 'provider_service_code' || groupQ === 'service_code') {
+    if (tabQ === 'credits') creditsGroupBy.value = groupQ;
+    else sessionsGroupBy.value = groupQ;
+  }
 
   const colsQ = String(route.query?.cols || '').trim().toLowerCase();
   if (colsQ) {
@@ -1094,14 +1301,17 @@ const serializeCols = () => {
   return out.join(',');
 };
 
-watch([selectedPeriodId, activeTab, sessionsGroupBy, selectedProviderIds, cols], () => {
+watch([selectedPeriodId, activeTab, sessionsGroupBy, creditsGroupBy, selectedProviderIds, cols], () => {
   const pid = Number(selectedPeriodId.value || 0);
   const providerIds = (selectedProviderIds.value || []).slice().map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
+  const groupBy = activeTab.value === 'credits'
+    ? String(creditsGroupBy.value || 'provider_service_code')
+    : String(sessionsGroupBy.value || (activeTab.value === 'service_codes' ? 'service_code' : 'provider'));
   const q = {
     ...route.query,
     periodId: pid ? String(pid) : undefined,
     tab: String(activeTab.value || 'sessions'),
-    groupBy: String(sessionsGroupBy.value || (activeTab.value === 'service_codes' ? 'service_code' : 'provider')),
+    groupBy,
     cols: serializeCols() || undefined,
     providerIds: providerIds.length ? providerIds.join(',') : undefined
   };
@@ -1112,15 +1322,39 @@ watch([selectedPeriodId, activeTab, sessionsGroupBy, selectedProviderIds, cols],
 
 watch([sessionsGroupBy, cols], () => {
   // Keep preview table columns aligned to current selections
+  if (activeTab.value === 'credits') return;
   if (!previewHeaders.value.length) return;
   previewHeaders.value = buildSessionsUnitsHeaders();
   const computed = computePreviewTotals(previewRows.value, previewHeaders.value);
   previewTotals.value = computed.totals;
   previewTotalsRow.value = computed.totalsRow;
 }, { deep: true });
+
+watch(creditsGroupBy, () => {
+  if (activeTab.value !== 'credits') return;
+  if (!previewHeaders.value.length) return;
+  previewHeaders.value = buildCreditsHeaders();
+  const computed = computePreviewTotals(previewRows.value, previewHeaders.value);
+  previewTotals.value = computed.totals;
+  previewTotalsRow.value = computed.totalsRow;
+});
 </script>
 
 <style scoped>
+.pr-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--pr-forest, #2d5a3d);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  margin: 0 0 8px 0;
+}
+.pr-back:hover { text-decoration: underline; }
 .pillbox {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

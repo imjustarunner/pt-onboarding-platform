@@ -3817,6 +3817,151 @@ export const getPayrollReportAdjustmentsBreakdown = async (req, res, next) => {
   }
 };
 
+/**
+ * Credits/Hours report from ran payroll summaries (service-code breakdown + manual/adjustment credit hours).
+ * Empty when payroll has not been run for the period.
+ */
+export const getPayrollReportCredits = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    if (!payrollPeriodId) return res.status(400).json({ error: { message: 'Pay period id is required' } });
+
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const groupByRaw = String(req.query?.groupBy || 'provider_service_code').toLowerCase();
+    const groupBy = (groupByRaw === 'provider' || groupByRaw === 'service_code')
+      ? groupByRaw
+      : 'provider_service_code';
+    const providerIds = String(req.query?.providerIds || '')
+      .split(',')
+      .map((x) => parseInt(String(x || '').trim(), 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const providerSet = providerIds.length ? new Set(providerIds) : null;
+
+    const summaries = await PayrollSummary.listForPeriod(payrollPeriodId);
+    const detail = [];
+
+    for (const s of (summaries || [])) {
+      const uid = Number(s.user_id || 0);
+      if (!uid) continue;
+      if (providerSet && !providerSet.has(uid)) continue;
+
+      const providerName = `${s.last_name || ''}, ${s.first_name || ''}`.trim().replace(/^, /, '').replace(/, $/, '')
+        || String(s.provider_name || '').trim()
+        || `User #${uid}`;
+      const breakdown = parseBreakdownObject(s.breakdown);
+
+      if (breakdown && typeof breakdown === 'object') {
+        for (const [code, vRaw] of Object.entries(breakdown)) {
+          if (String(code).startsWith('__')) continue;
+          const v = (vRaw && typeof vRaw === 'object') ? vRaw : {};
+          const credits = Number(v.creditsHours ?? v.hours ?? 0);
+          const units = Number(v.units ?? v.finalizedUnits ?? 0);
+          const creditValue = Number(v.creditValue ?? 0);
+          const bucket = String(v.bucket || v.category || '').trim().toLowerCase() || 'other';
+          if (!(credits > 1e-9) && !(units > 1e-9)) continue;
+          detail.push({
+            user_id: uid,
+            provider_name: providerName,
+            service_code: String(code || '').trim().toUpperCase(),
+            bucket,
+            units: Number(units.toFixed(2)),
+            credit_value: Number(creditValue.toFixed(4)),
+            credits: Number(credits.toFixed(2)),
+            source: 'service_code'
+          });
+        }
+
+        const adj = breakdown.__adjustments || {};
+        const lines = Array.isArray(adj?.lines) ? adj.lines : [];
+        for (const l of lines) {
+          const meta = (l?.meta && typeof l.meta === 'object') ? l.meta : {};
+          const credits = Number(meta.creditsHours ?? meta.hours ?? 0);
+          if (!(credits > 1e-9)) continue;
+          const label = String(l?.label || l?.type || 'MANUAL').trim() || 'MANUAL';
+          const lineBucket = String(l?.bucket || meta.category || 'manual').trim().toLowerCase() || 'manual';
+          detail.push({
+            user_id: uid,
+            provider_name: providerName,
+            service_code: label.length > 64 ? label.slice(0, 64) : label,
+            bucket: lineBucket === 'direct' || lineBucket === 'indirect' ? lineBucket : 'manual',
+            units: 0,
+            credit_value: 0,
+            credits: Number(credits.toFixed(2)),
+            source: 'manual'
+          });
+        }
+
+        const manualLines = Array.isArray(breakdown.__manualPayLines) ? breakdown.__manualPayLines : [];
+        for (const ml of manualLines) {
+          const credits = Number(ml?.creditsHours ?? ml?.credits_hours ?? 0);
+          if (!(credits > 1e-9)) continue;
+          const label = String(ml?.label || ml?.service_code || 'MANUAL').trim() || 'MANUAL';
+          const cat = String(ml?.category || 'direct').trim().toLowerCase();
+          detail.push({
+            user_id: uid,
+            provider_name: providerName,
+            service_code: label.length > 64 ? label.slice(0, 64) : label,
+            bucket: cat === 'indirect' ? 'indirect' : (cat === 'direct' ? 'direct' : 'manual'),
+            units: 0,
+            credit_value: 0,
+            credits: Number(credits.toFixed(2)),
+            source: 'manual'
+          });
+        }
+      }
+    }
+
+    const agg = new Map();
+    for (const r of detail) {
+      let key;
+      if (groupBy === 'provider') key = `u:${r.user_id}`;
+      else if (groupBy === 'service_code') key = `c:${String(r.service_code || '').toUpperCase()}|b:${r.bucket}|s:${r.source}`;
+      else key = `u:${r.user_id}|c:${String(r.service_code || '').toUpperCase()}|b:${r.bucket}|s:${r.source}`;
+
+      const cur = agg.get(key) || {
+        user_id: groupBy === 'service_code' ? null : r.user_id,
+        provider_name: groupBy === 'service_code' ? null : r.provider_name,
+        service_code: groupBy === 'provider' ? null : r.service_code,
+        bucket: groupBy === 'provider' ? null : r.bucket,
+        source: groupBy === 'provider' ? null : r.source,
+        units: 0,
+        credit_value: r.credit_value,
+        credits: 0
+      };
+      cur.units = Number((Number(cur.units || 0) + Number(r.units || 0)).toFixed(2));
+      cur.credits = Number((Number(cur.credits || 0) + Number(r.credits || 0)).toFixed(2));
+      if (Number(r.credit_value || 0) > 0) cur.credit_value = Number(r.credit_value);
+      if (groupBy === 'provider') {
+        cur.provider_name = r.provider_name;
+        cur.user_id = r.user_id;
+      }
+      agg.set(key, cur);
+    }
+
+    const rows = Array.from(agg.values())
+      .filter((r) => Number(r.credits || 0) > 1e-9 || Number(r.units || 0) > 1e-9)
+      .sort((a, b) => {
+        const pn = String(a.provider_name || '').localeCompare(String(b.provider_name || ''));
+        if (pn) return pn;
+        return String(a.service_code || '').localeCompare(String(b.service_code || ''));
+      });
+
+    res.json({
+      payrollPeriodId,
+      groupBy,
+      periodStart: String(period.period_start || '').slice(0, 10),
+      periodEnd: String(period.period_end || '').slice(0, 10),
+      status: String(period.status || ''),
+      rows
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getPayrollReportHolidayHours = async (req, res, next) => {
   try {
     const payrollPeriodId = parseInt(req.params.id, 10);

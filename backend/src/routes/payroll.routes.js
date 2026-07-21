@@ -186,6 +186,7 @@ import {
   ,getPayrollReportSessionsUnits
   ,getPayrollReportProviderPaySummary
   ,getPayrollReportAdjustmentsBreakdown
+  ,getPayrollReportCredits
   ,getPayrollReportSupervisionConflicts
   ,putPayrollSupervisionConflictResolution
   ,getPayrollReportHolidayHours
@@ -238,6 +239,7 @@ router.get('/periods/:id/reports/sessions-units', getPayrollReportSessionsUnits)
 router.get('/periods/:id/reports/late-notes', getPayrollReportLateNotesTotals);
 router.get('/periods/:id/reports/provider-pay-summary', getPayrollReportProviderPaySummary);
 router.get('/periods/:id/reports/adjustments-breakdown', getPayrollReportAdjustmentsBreakdown);
+router.get('/periods/:id/reports/credits', getPayrollReportCredits);
 router.get('/periods/:id/reports/supervision-conflicts', getPayrollReportSupervisionConflicts);
 router.put('/periods/:id/supervision-conflicts/resolution', putPayrollSupervisionConflictResolution);
 router.get('/periods/:id/reports/holiday-hours', getPayrollReportHolidayHours);

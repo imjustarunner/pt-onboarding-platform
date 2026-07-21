@@ -194,6 +194,14 @@ const PAYROLL_SUMMARY_TOOL_ROLES = [
   'supervisor'
 ];
 
+/** Admin / super_admin / users with has_payroll_access (payrollAgencyIds attached on assist). */
+function canUsePayrollAnalyticsTool(reqUser) {
+  const role = String(reqUser?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'admin') return true;
+  const ids = Array.isArray(reqUser?.payrollAgencyIds) ? reqUser.payrollAgencyIds : [];
+  return ids.some((id) => Number(id) > 0);
+}
+
 const HIRING_AGENT_TOOL_ROLES = ['admin', 'super_admin', 'support'];
 
 // Roles that may use the tutoring standards crosswalk tool. Tutors/providers need
@@ -591,6 +599,8 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
         return navigableRouteNamesForUser(reqUser).length > 0;
       case 'getMyPayrollSummary':
         return roleAllowed(reqUser, PAYROLL_SUMMARY_TOOL_ROLES);
+      case 'queryPayrollAnalytics':
+        return canUsePayrollAnalyticsTool(reqUser);
       case 'searchReferralDirectory':
         return roleAllowed(reqUser, REFERRAL_DIRECTORY_TOOL_ROLES);
       case 'listMyRecentActivity':
@@ -721,6 +731,66 @@ export function getToolSchemas() {
         type: 'object',
         additionalProperties: false,
         properties: {}
+      }
+    },
+    {
+      name: 'queryPayrollAnalytics',
+      description:
+        'Admin/payroll analytics for staff in the current agency. Use for: session counts by service code (e.g. how many 90837 sessions has X had), incomplete/no-note counts, YTD or windowed pay, avg sessions/week or pay/week, compensation rates (direct/indirect/per-code), PTO balances, benefits enrollment, top earners, who sees the most clients, top sessions this week. Default open-ended timeframes to last_4_periods. If the user implies a custom date range but gives no dates, call with timeframe=custom (no start/end) so the tool asks for dates. Never invent numbers.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          intent: {
+            type: 'string',
+            enum: [
+              'sessions',
+              'incomplete_notes',
+              'ytd_pay',
+              'avg_weekly_pay',
+              'avg_weekly_sessions',
+              'no_notes_last_period',
+              'no_notes_average',
+              'rates',
+              'pto',
+              'benefits',
+              'top_pay',
+              'top_clients',
+              'top_sessions_week'
+            ],
+            description: 'Which analytics question to answer.'
+          },
+          personName: {
+            type: 'string',
+            description: 'Staff member name when asking about a person (required for person-scoped intents unless userId is set).'
+          },
+          userId: {
+            type: 'integer',
+            description: 'Staff user id when already known (preferred over personName).'
+          },
+          serviceCode: {
+            type: 'string',
+            description: 'Optional CPT/service code filter (e.g. 90837) for sessions or rates.'
+          },
+          timeframe: {
+            type: 'string',
+            enum: ['last_4_periods', 'ytd', 'last_period', 'this_week', 'custom'],
+            description: 'Default last_4_periods when open-ended. Use ytd for year-to-date. Use custom when the user wants a specific range.'
+          },
+          startDate: {
+            type: 'string',
+            description: 'YYYY-MM-DD start (with endDate) for custom / since-date windows.'
+          },
+          endDate: {
+            type: 'string',
+            description: 'YYYY-MM-DD end for custom windows.'
+          },
+          limit: {
+            type: 'integer',
+            description: 'For rankings (top_pay, top_clients, top_sessions_week). Default 5.'
+          }
+        },
+        required: ['intent']
       }
     },
     {
@@ -1445,6 +1515,53 @@ export async function executeToolCall({ req, toolCall }) {
     requireAuthed(req);
     const { buildAssistantPayrollMeSummary } = await import('../../controllers/payroll.controller.js');
     const result = await buildAssistantPayrollMeSummary(req);
+    return { ok: true, tool: name, result };
+  }
+
+  if (name === 'queryPayrollAnalytics') {
+    requireAuthed(req);
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) noAgencyContextError();
+
+    // Attach payroll agency ids if missing (schema filter may have used a prior attach).
+    if (!Array.isArray(req.user.payrollAgencyIds)) {
+      try {
+        req.user.payrollAgencyIds = await User.listPayrollAgencyIds(req.user.id);
+      } catch {
+        req.user.payrollAgencyIds = [];
+      }
+    }
+    if (!canUsePayrollAnalyticsTool(req.user)) {
+      const err = new Error('Payroll analytics requires admin or payroll access for this organization');
+      err.status = 403;
+      throw err;
+    }
+
+    const role = String(req.user.role || '').toLowerCase();
+    if (role !== 'super_admin' && role !== 'admin') {
+      const allowed = (req.user.payrollAgencyIds || []).map((n) => Number(n));
+      if (!allowed.includes(Number(agencyId))) {
+        const err = new Error('Payroll access required for this organization');
+        err.status = 403;
+        throw err;
+      }
+    }
+
+    const { runPayrollAnalyticsQuery } = await import('./assistantPayrollAnalytics.service.js');
+    const result = await runPayrollAnalyticsQuery({
+      agencyId,
+      args: {
+        intent: args.intent,
+        personName: args.personName,
+        userId: args.userId,
+        serviceCode: args.serviceCode,
+        timeframe: args.timeframe,
+        startDate: args.startDate,
+        endDate: args.endDate,
+        limit: args.limit,
+        requireDatesIfCustom: String(args.timeframe || '').toLowerCase() === 'custom'
+      }
+    });
     return { ok: true, tool: name, result };
   }
 
