@@ -57,6 +57,33 @@
         </div>
       </header>
 
+      <div v-if="showAgencyPicker" class="aap-agency-bar">
+        <div v-if="needsAgencySelection" class="aap-agency-hint">
+          Pick a tenant so I can search your agency tools and data.
+        </div>
+        <label class="aap-agency-label" for="aap-agency-select">
+          {{ needsAgencySelection ? 'Tenant' : 'Working in' }}
+        </label>
+        <select
+          id="aap-agency-select"
+          class="aap-agency-select"
+          :value="selectedAgencyId"
+          @change="onAssistantAgencyChange"
+        >
+          <option v-if="needsAgencySelection" disabled value="">Select a tenant…</option>
+          <optgroup v-if="tenantOptions.length" label="Tenants">
+            <option v-for="opt in tenantOptions" :key="`tenant-${opt.id}`" :value="opt.id">
+              {{ opt.label }}
+            </option>
+          </optgroup>
+          <optgroup v-if="affiliationOptions.length" label="Affiliations">
+            <option v-for="opt in affiliationOptions" :key="`aff-${opt.id}`" :value="opt.id">
+              {{ opt.label }}
+            </option>
+          </optgroup>
+        </select>
+      </div>
+
       <div ref="turnsRef" class="aap-body" @scroll.passive="onBodyScroll">
         <div v-if="turns.length === 0" class="aap-empty">
           <div class="aap-empty-visual" aria-hidden="true">
@@ -384,6 +411,7 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useSpeechToText } from '../../composables/useSpeechToText';
+import { useAssistantAgencyContext } from '../../composables/useAssistantAgencyContext';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -404,6 +432,18 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+
+const {
+  tenantOptions,
+  affiliationOptions,
+  effectiveAgencyId,
+  needsAgencySelection,
+  showAgencyPicker,
+  selectedAgencyId,
+  ensureAgencyOptionsLoaded,
+  tryAutoSelectSingleTenant,
+  selectAgency
+} = useAssistantAgencyContext();
 
 const isEmbedded = computed(() => props.variant === 'embedded');
 const showCloseButton = computed(() =>
@@ -669,7 +709,7 @@ async function reportDisengage(reason = 'closed_without_engagement') {
         capabilityId: e.lastCapabilityId,
         runtime: e.lastRuntime,
         assistantExcerpt: e.lastExcerpt || null,
-        agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || null,
+        agencyId: effectiveAgencyId.value || null,
         metadata: {
           reason,
           offeredActionCount: e.offeredActionCount,
@@ -727,7 +767,7 @@ async function submitTurnFeedback(idx, helpful, correctedCapabilityId = null) {
         correctedCapabilityId: correctedCapabilityId || null,
         note: String(t.feedback.note || '').trim() || null,
         assistantExcerpt: String(t.text || '').trim().slice(0, 1500) || null,
-        agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || null
+        agencyId: effectiveAgencyId.value || null
       },
       { skipGlobalLoading: true }
     );
@@ -846,6 +886,7 @@ function applySuggestion(s) {
 async function runQuickPrompt(text) {
   const t = String(text || '').trim();
   if (!t || busy.value) return;
+  if (!guardAgencyContext()) return;
   prompt.value = t;
   await nextTick();
   await submit();
@@ -1023,6 +1064,7 @@ async function executeUiCommands(commands) {
 async function submit() {
   const q = prompt.value.trim();
   if (!q || busy.value) return;
+  if (!guardAgencyContext()) return;
   // A follow-up question counts as engagement with the prior answer.
   if (sessionEngagement.value.lastPrompt) markEngaged();
   busy.value = true;
@@ -1071,8 +1113,19 @@ function buildContextPayload() {
     fullPath: path,
     profileUserId,
     placementKey: String(props.placementKey || 'ask_assistant').trim() || 'ask_assistant',
-    agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || null
+    agencyId: effectiveAgencyId.value || null
   };
+}
+
+function onAssistantAgencyChange(e) {
+  selectAgency(e?.target?.value);
+  error.value = '';
+}
+
+function guardAgencyContext() {
+  if (!needsAgencySelection.value) return true;
+  error.value = 'Select a tenant above before asking agency-scoped questions.';
+  return false;
 }
 
 function buildHistoryPayload() {
@@ -1258,6 +1311,9 @@ watch(
     }
     resetSessionEngagement();
     loadCapabilities();
+    if (!isEmbedded.value) {
+      ensureAgencyOptionsLoaded().then(() => tryAutoSelectSingleTenant());
+    }
     nextTick(() => {
       textareaRef.value?.focus?.();
       autoGrow();
@@ -1385,6 +1441,50 @@ onUnmounted(() => {
   padding: 16px 18px 14px;
   border-bottom: 1px solid var(--aap-line);
   flex-shrink: 0;
+}
+
+.aap-agency-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--aap-line);
+  background: linear-gradient(180deg, rgba(13, 148, 136, 0.06) 0%, rgba(248, 250, 252, 0.9) 100%);
+  flex-shrink: 0;
+}
+
+.aap-agency-hint {
+  flex: 1 1 100%;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--aap-muted);
+}
+
+.aap-agency-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--aap-muted);
+  flex-shrink: 0;
+}
+
+.aap-agency-select {
+  flex: 1 1 180px;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--aap-line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--aap-slate);
+  background: #fff;
+}
+
+.aap-agency-select:focus-visible {
+  outline: 2px solid var(--aap-teal);
+  outline-offset: 1px;
 }
 
 .aap-head-actions {

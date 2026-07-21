@@ -18,7 +18,7 @@ import {
   looksLikeBillingOrServiceCodeTopic
 } from '../services/agents/assistantResearch.service.js';
 import { isUserProfileContext } from '../../../frontend/src/navigation/profileSearchCatalog.js';
-import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
+import { hasTenantAccess, resolveTenantRootAgencyId } from '../utils/meDashboardTenantScope.js';
 import {
   insertAssistantRouteFeedback,
   clearPromotedSemanticExamplesCache,
@@ -2055,9 +2055,17 @@ export const assist = async (req, res, next) => {
     if (!prompt && !clientToolCalls.length) return res.status(400).json({ error: { message: 'prompt is required' } });
 
     // Enforce strict tenant scoping for agents/assist (critical for new tenants like Burning Sage)
-    const agencyContextId = parseInt(context.agencyId || req.headers['x-agency-id'] || req.user?.agencyId || 0, 10);
+    let agencyContextId = parseInt(context.agencyId || req.headers['x-agency-id'] || req.user?.agencyId || 0, 10);
     if (agencyContextId > 0 && !(await hasTenantAccess(req, agencyContextId))) {
       return res.status(403).json({ error: { message: 'Access denied to this tenant' } });
+    }
+    if (agencyContextId > 0) {
+      const tenantRoot = await resolveTenantRootAgencyId(agencyContextId);
+      if (tenantRoot) {
+        agencyContextId = tenantRoot;
+        context.agencyId = tenantRoot;
+        req.body.context = context;
+      }
     }
 
     const grounding = String(req.body?.grounding || '').trim().toLowerCase(); // 'google_search' | ''

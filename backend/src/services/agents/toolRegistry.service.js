@@ -40,7 +40,8 @@ async function ensureAgencyAccess(reqUser, agencyId) {
     err.status = 400;
     throw err;
   }
-  if (reqUser?.role === 'super_admin') return true;
+  const role = String(reqUser?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'admin' || role === 'support') return true;
   const agencies = await User.getAgencies(reqUser.id);
   const ok = (agencies || []).some((a) => Number(a.id) === Number(agencyId));
   if (!ok) {
@@ -369,17 +370,23 @@ function roleAllowed(reqUser, allowedRoles) {
 }
 
 function currentAgencyId(req, fallbackArg) {
+  // Prefer explicit SPA context (Ask Assistant tenant picker, X-Agency-Id header), then JWT.
+  const fromContext = intOrNull(req.body?.context?.agencyId);
+  if (fromContext) return fromContext;
+  const fromHeader = intOrNull(req.headers['x-agency-id']);
+  if (fromHeader) return fromHeader;
   const fromUser = intOrNull(req?.user?.agencyId);
   if (fromUser) return fromUser;
-  // super_admin users have no fixed agencyId in their JWT.
-  // Accept it from the request context (always sent by the frontend) or an explicit fallback arg.
-  if (req?.user?.role === 'super_admin') {
-    const fromContext = intOrNull(req.body?.context?.agencyId);
-    if (fromContext) return fromContext;
-    const fromArg = intOrNull(fallbackArg);
-    if (fromArg) return fromArg;
-  }
+  const fromArg = intOrNull(fallbackArg);
+  if (fromArg) return fromArg;
   return null;
+}
+
+function noAgencyContextError() {
+  const err = new Error('Select a tenant to continue — your session has no agency context.');
+  err.status = 400;
+  err.code = 'NEEDS_AGENCY_CONTEXT';
+  throw err;
 }
 
 async function resolveSchoolPortalPath(agencyIdScope, schoolId) {
@@ -1392,11 +1399,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     const query = str(args.query, 240).trim();
     if (!query) {
       const err = new Error('query is required');
@@ -1453,11 +1456,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     const query = str(args.query, 400);
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 20), 40);
     const entries = await searchReferralDirectoryEntriesForTool(agencyId, query, limit);
@@ -1581,11 +1580,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
 
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 25), 100);
     const startDate = parseIsoOrNull(args.startDate);
@@ -1679,11 +1674,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
 
     const topN = Math.min(Math.max(1, intOrNull(args.topN) || 20), 50);
 
@@ -1769,11 +1760,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     const query = str(args.query, 200);
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
     if (!query) return { ok: true, tool: name, result: { results: [] } };
@@ -1789,11 +1776,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     const query = str(args.query, 200);
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
     if (!query) return { ok: true, tool: name, result: { query: '', results: [] } };
@@ -1821,11 +1804,7 @@ export async function executeToolCall({ req, toolCall }) {
   if (name === 'searchEvents') {
     requireAuthed(req);
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     if (!roleAllowed(req.user, PROGRAM_EVENTS_SEARCH_ROLES)) {
       const err = new Error('Program events are not available for your role');
       err.status = 403;
@@ -1889,11 +1868,7 @@ export async function executeToolCall({ req, toolCall }) {
     // Back-office admin only — mirrors the aiQueryUsers middleware policy.
     assertBackofficeAdmin(req.user);
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     const query = str(args.query, 200);
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
     if (!query) return { ok: true, tool: name, result: { results: [] } };
@@ -1984,11 +1959,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
 
     if (kind === 'school') {
       if (!roleAllowed(req.user, SCHOOL_PORTAL_SEARCH_ROLES)) {
@@ -2322,11 +2293,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     const dateYmd = str(args.dateYmd || new Date().toISOString().slice(0, 10), 10);
     const modality = String(args.modality || 'ALL').trim().toUpperCase();
 
@@ -2447,11 +2414,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     let eventId = intOrNull(args.eventId);
     const eventQuery = str(args.eventQuery, 200);
     const dateYmd = args.dateYmd ? String(args.dateYmd).slice(0, 10) : null;
@@ -2559,11 +2522,7 @@ export async function executeToolCall({ req, toolCall }) {
   if (name === 'getOfficeSchedule') {
     requireAuthed(req);
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     const dateYmd = str(args.dateYmd || new Date().toISOString().slice(0, 10), 10);
     const locationQuery = args.locationQuery ? String(args.locationQuery).slice(0, 100) : '';
 
@@ -2654,11 +2613,7 @@ export async function executeToolCall({ req, toolCall }) {
   if (name === 'listOfficeRoster') {
     requireAuthed(req);
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     const dateYmd = str(args.dateYmd || new Date().toISOString().slice(0, 10), 10);
     const locationQuery = args.locationQuery ? String(args.locationQuery).slice(0, 100) : '';
     const dayStart = `${dateYmd} 00:00:00`;
@@ -2775,11 +2730,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     const approach = str(args.approach, 80).trim();
     if (!approach) {
       const err = new Error('approach is required');
@@ -3129,11 +3080,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     const actorId = Number(req.user?.id || 0);
     const withUserId = intOrNull(args.withUserId);
     if (!withUserId) {
@@ -3341,11 +3288,7 @@ export async function executeToolCall({ req, toolCall }) {
       throw err;
     }
     const agencyId = currentAgencyId(req);
-    if (!agencyId) {
-      const err = new Error('Your session has no agency context — select an agency first');
-      err.status = 400;
-      throw err;
-    }
+    if (!agencyId) noAgencyContextError();
     await ensureAgencyAccess(req.user, agencyId);
     const includeOffline = args.includeOffline === true;
     const nameQuery = args.nameQuery ? str(args.nameQuery, 80) : '';
