@@ -297,8 +297,8 @@ function parseSchoolEventBody(body) {
 
 export const listSchoolPortalEvents = async (req, res, next) => {
   try {
-    const { orgId } = await assertSchoolPortalReadAccess(req, req.params.organizationId);
-    const events = await listSchoolEventsForOrg(orgId);
+    const { orgId, userId } = await assertSchoolPortalReadAccess(req, req.params.organizationId);
+    const events = await listSchoolEventsForOrg(orgId, { viewerUserId: userId });
     const schoolYear = currentSchoolYearLabel();
     const missingCategories = await getMissingCategoriesForOrg(orgId, schoolYear);
     const bounds = schoolYearBounds(schoolYear);

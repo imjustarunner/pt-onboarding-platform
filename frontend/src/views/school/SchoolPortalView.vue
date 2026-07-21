@@ -1039,17 +1039,27 @@
                   · {{ formatSchoolEventCategory(ev.category) }}
                   · {{ ev.schoolEventStatus === 'canceled' ? 'Canceled' : (ev.isActive ? 'Published' : 'Inactive') }}
                   <template v-if="ev.outreachTableInvited"> · Outreach staffing</template>
-                  <template v-if="isStaffableSchoolEvent(ev)"> · Open for staffing</template>
+                  <template v-if="isStaffableSchoolEvent(ev)">
+                    ·
+                    <template v-if="ev.currentUserAssigned || Number(ev.providersAssigned || 0) > 0">
+                      {{ Number(ev.providersAssigned || 0) }}/{{ Number(ev.providersRequested || ev.minProvidersPerSession || 1) }} assigned
+                    </template>
+                    <template v-else>Open for staffing</template>
+                  </template>
+                  <template v-if="(ev.assignedProviders || []).length">
+                    · {{ (ev.assignedProviders || []).map((p) => p.name).join(', ') }}
+                  </template>
                 </span>
               </div>
               <div class="school-event-actions">
                 <button
                   v-if="canRequestSchoolEventAssignment && isStaffableSchoolEvent(ev)"
                   type="button"
-                  class="btn btn-primary btn-sm"
+                  class="btn btn-sm"
+                  :class="ev.currentUserAssigned ? 'btn-secondary' : 'btn-primary'"
                   @click="openSchoolEventStaffing(ev)"
                 >
-                  Request to be assigned
+                  {{ schoolEventAssignmentButtonLabel(ev) }}
                 </button>
                 <button
                   v-if="canManageSchoolEvents"
@@ -2450,6 +2460,12 @@ const schoolEventStaffingAgencyId = computed(() => {
   const fromAffil = Number(affiliatedAgencyId.value || 0);
   return fromAffil || null;
 });
+function schoolEventAssignmentButtonLabel(ev) {
+  if (ev?.currentUserAssigned) return 'Assigned';
+  const st = String(ev?.currentUserRequestStatus || '').toLowerCase();
+  if (st === 'pending') return 'Request pending';
+  return 'Request to be assigned';
+}
 const openSchoolEventStaffing = (ev) => {
   if (!canRequestSchoolEventAssignment.value || !isStaffableSchoolEvent(ev)) return;
   staffingEvent.value = {

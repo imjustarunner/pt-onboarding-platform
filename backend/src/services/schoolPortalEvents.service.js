@@ -987,7 +987,112 @@ export async function updateSchoolPortalEvent({
   return mapSchoolEventRow(rows?.[0], schoolMeta);
 }
 
-export async function listSchoolEventsForOrg(organizationId) {
+/**
+ * Attach live staffing counts + assigned provider names so portal/calendar UIs
+ * can show Assigned vs Request and providers can see who else is staffed.
+ */
+export async function attachSchoolEventStaffingSummary(events, { viewerUserId = null } = {}) {
+  const list = (Array.isArray(events) ? events : []).filter(Boolean);
+  if (!list.length) return list;
+  const ids = [...new Set(list.map((e) => Number(e.id)).filter((id) => id > 0))];
+  if (!ids.length) return list;
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const assignedByEvent = new Map();
+  try {
+    const [rows] = await pool.execute(
+      `SELECT csp.company_event_id AS event_id, u.id, u.first_name, u.last_name
+       FROM company_event_session_providers csp
+       INNER JOIN users u ON u.id = csp.provider_user_id
+       WHERE csp.company_event_id IN (${placeholders})
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      ids
+    );
+    for (const r of rows || []) {
+      const eid = Number(r.event_id);
+      if (!assignedByEvent.has(eid)) assignedByEvent.set(eid, []);
+      const bucket = assignedByEvent.get(eid);
+      if (bucket.some((p) => Number(p.id) === Number(r.id))) continue;
+      bucket.push({
+        id: Number(r.id),
+        firstName: r.first_name || '',
+        lastName: r.last_name || '',
+        name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || `Provider ${r.id}`
+      });
+    }
+  } catch {
+    /* table may be missing in older envs */
+  }
+
+  const pendingByEvent = new Map();
+  try {
+    const [rows] = await pool.execute(
+      `SELECT company_event_id AS event_id, COUNT(*) AS cnt
+       FROM company_event_session_provider_requests
+       WHERE company_event_id IN (${placeholders})
+         AND LOWER(status) = 'pending'
+       GROUP BY company_event_id`,
+      ids
+    );
+    for (const r of rows || []) {
+      pendingByEvent.set(Number(r.event_id), Number(r.cnt || 0));
+    }
+  } catch {
+    /* optional */
+  }
+
+  const viewerStatusByEvent = new Map();
+  const uid = Number(viewerUserId || 0);
+  if (uid > 0) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT company_event_id AS event_id, status
+         FROM company_event_session_provider_requests
+         WHERE company_event_id IN (${placeholders})
+           AND provider_user_id = ?
+         ORDER BY id DESC`,
+        [...ids, uid]
+      );
+      for (const r of rows || []) {
+        const eid = Number(r.event_id);
+        if (!viewerStatusByEvent.has(eid)) {
+          viewerStatusByEvent.set(eid, String(r.status || '').toLowerCase());
+        }
+      }
+    } catch {
+      /* optional */
+    }
+  }
+
+  return list.map((ev) => {
+    const eid = Number(ev.id);
+    const assignedProviders = assignedByEvent.get(eid) || [];
+    const providersAssigned = assignedProviders.length;
+    const providersNeeded = Math.max(1, Number(ev.minProvidersPerSession || ev.providersRequested || 1));
+    const pendingRequests = pendingByEvent.get(eid) || 0;
+    const currentUserAssigned = uid > 0 && assignedProviders.some((p) => Number(p.id) === uid);
+    const currentUserRequestStatus = viewerStatusByEvent.get(eid) || null;
+    let staffingStatus = ev.staffingStatus || 'scheduled';
+    if (ev.staffingEnabled) {
+      if (providersAssigned >= providersNeeded) staffingStatus = 'fully_staffed';
+      else if (pendingRequests > 0) staffingStatus = 'requests_pending';
+      else if (providersAssigned > 0) staffingStatus = 'partially_staffed';
+      else staffingStatus = 'needs_providers';
+    }
+    return {
+      ...ev,
+      providersAssigned,
+      providersRequested: ev.staffingEnabled ? providersNeeded : Number(ev.providersRequested || 0),
+      assignedProviders,
+      pendingRequests,
+      currentUserAssigned,
+      currentUserRequestStatus,
+      staffingStatus
+    };
+  });
+}
+
+export async function listSchoolEventsForOrg(organizationId, { viewerUserId = null } = {}) {
   const orgId = Number(organizationId);
   const placeholders = [...SCHOOL_PORTAL_EVENT_TYPES].map(() => '?').join(', ');
   const [rows] = await pool.execute(
@@ -999,7 +1104,8 @@ export async function listSchoolEventsForOrg(organizationId) {
     [orgId, ...SCHOOL_PORTAL_EVENT_TYPES]
   );
   const schoolMeta = await loadSchoolMeta(orgId);
-  return (rows || []).map((row) => mapSchoolEventRow(row, schoolMeta));
+  const mapped = (rows || []).map((row) => mapSchoolEventRow(row, schoolMeta));
+  return attachSchoolEventStaffingSummary(mapped, { viewerUserId });
 }
 
 export async function getMissingCategoriesForOrg(organizationId, yearOrSchoolYear = currentSchoolYearLabel()) {

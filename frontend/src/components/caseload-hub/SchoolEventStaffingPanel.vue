@@ -28,10 +28,10 @@
 
     <template v-else>
       <div v-if="!isCalendarOnlyEvent" class="status-row">
-        <span class="sev" :class="sevClass(event.staffingStatus)">{{ labelStatus(event.staffingStatus) }}</span>
+        <span class="sev" :class="sevClass(headerStaffingStatus)">{{ labelStatus(headerStaffingStatus) }}</span>
         <span class="muted">
-          {{ event.providersAssigned || 0 }}/{{ providersNeededDisplay }} assigned
-          <template v-if="event.pendingRequests"> · {{ event.pendingRequests }} pending</template>
+          {{ liveProvidersAssigned }}/{{ providersNeededDisplay }} assigned
+          <template v-if="livePendingRequests"> · {{ livePendingRequests }} pending</template>
         </span>
       </div>
       <div v-else class="status-row">
@@ -90,6 +90,9 @@
         <p v-if="canManage" class="hint">
           Edit the event details above, assign providers directly below, or approve pending applications.
         </p>
+        <p v-else-if="canApply && viewerIsAssigned" class="hint">
+          You are assigned to this event. Assigned providers on this shift are listed below.
+        </p>
         <p v-else-if="canApply" class="hint">
           Request to be assigned below. An administrator will approve or deny your request.
         </p>
@@ -97,7 +100,7 @@
         <section v-for="s in sessions" :key="s.sessionDateId" class="session-card">
           <div class="session-head">
             <strong>{{ formatSession(s) }}</strong>
-            <span class="muted">
+            <span v-if="canManage || !isAssigned(s)" class="muted">
               {{ s.approvedProvidersCount || 0 }}/{{ s.requiredProviders || 0 }} assigned
               <template v-if="pendingCount(s)"> · {{ pendingCount(s) }} pending</template>
             </span>
@@ -181,7 +184,10 @@
           </div>
 
           <div v-if="canApply && !canManage" class="apply-row">
-            <template v-if="myRequestFor(s.sessionDateId)">
+            <template v-if="isAssigned(s)">
+              <span class="pill assigned-pill">Assigned</span>
+            </template>
+            <template v-else-if="myRequestFor(s.sessionDateId)">
               <span class="pill">Your request: {{ myRequestFor(s.sessionDateId).status }}</span>
               <button
                 v-if="String(myRequestFor(s.sessionDateId).status).toLowerCase() === 'pending'"
@@ -197,16 +203,10 @@
               v-else
               type="button"
               class="btn btn-primary btn-sm"
-              :disabled="savingSessionId === s.sessionDateId || isAssigned(s)"
+              :disabled="savingSessionId === s.sessionDateId"
               @click="apply(s.sessionDateId)"
             >
-              {{
-                isAssigned(s)
-                  ? 'Already assigned'
-                  : savingSessionId === s.sessionDateId
-                    ? 'Requesting…'
-                    : 'Request to be assigned'
-              }}
+              {{ savingSessionId === s.sessionDateId ? 'Requesting…' : 'Request to be assigned' }}
             </button>
           </div>
         </section>
@@ -333,6 +333,43 @@ const providersNeededDisplay = computed(() => {
   if (Number.isFinite(fromCfg) && fromCfg >= 1) return fromCfg;
   return Math.max(1, Number(props.event?.providersRequested || props.event?.minProvidersPerSession || 1));
 });
+
+/** Prefer live session totals so the header updates after approve/assign. */
+const liveProvidersAssigned = computed(() => {
+  const sess = sessions.value;
+  if (sess.length) {
+    const ids = new Set();
+    for (const s of sess) {
+      for (const p of s.approvedProviders || []) {
+        if (p?.id != null) ids.add(Number(p.id));
+      }
+    }
+    if (ids.size) return ids.size;
+    return sess.reduce((sum, s) => Math.max(sum, Number(s.approvedProvidersCount || 0)), 0);
+  }
+  return Number(props.event?.providersAssigned || 0);
+});
+
+const livePendingRequests = computed(() => {
+  const sess = sessions.value;
+  if (sess.length) {
+    return sess.reduce((sum, s) => sum + pendingCount(s), 0);
+  }
+  return Number(props.event?.pendingRequests || 0);
+});
+
+const headerStaffingStatus = computed(() => {
+  if (!staffingOpen.value) return props.event?.staffingStatus || 'scheduled';
+  const needed = providersNeededDisplay.value;
+  const assigned = liveProvidersAssigned.value;
+  const pending = livePendingRequests.value;
+  if (assigned >= needed) return 'fully_staffed';
+  if (pending > 0) return 'requests_pending';
+  if (assigned > 0) return 'partially_staffed';
+  return 'needs_providers';
+});
+
+const viewerIsAssigned = computed(() => sessions.value.some((s) => isAssigned(s)));
 
 const providersNeededChanged = computed(() => {
   return Math.max(1, Number(providersNeededDraft.value) || 1) !== providersNeededDisplay.value;
@@ -859,6 +896,10 @@ watch(
   color: #5b21b6;
   padding: 0.2rem 0.5rem;
   border-radius: 999px;
+}
+.pill.assigned-pill {
+  background: #d1fae5;
+  color: #065f46;
 }
 .btn {
   display: inline-flex;

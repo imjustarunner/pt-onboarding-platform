@@ -63,15 +63,19 @@
           <span class="dot" :class="typeColor(e)" />
           <div class="list-main">
             <strong>{{ e.title }}</strong>
-            <div class="muted">{{ formatWhen(e) }} · {{ labelType(e) }}</div>
+            <div class="muted">
+              {{ formatWhen(e) }} · {{ labelType(e) }}
+              <template v-if="assignedNames(e)"> · {{ assignedNames(e) }}</template>
+            </div>
           </div>
           <button
             v-if="canRequestAssignment && isStaffableEvent(e)"
             type="button"
-            class="btn btn-primary btn-sm list-request"
+            class="btn btn-sm list-request"
+            :class="e.currentUserAssigned ? 'btn-secondary' : 'btn-primary'"
             @click.stop="$emit('request-assignment', e)"
           >
-            Request
+            {{ assignmentButtonLabel(e) }}
           </button>
         </div>
         <p v-if="!filteredEvents.length" class="empty-state">No events in this range.</p>
@@ -101,7 +105,9 @@
             @click.stop="onEventActivate(e)"
           >
             <span class="evt-title">{{ e.title }}</span>
-            <span v-if="canRequestAssignment && isStaffableEvent(e)" class="evt-request">Request</span>
+            <span v-if="canRequestAssignment && isStaffableEvent(e)" class="evt-request">
+              {{ assignmentButtonLabel(e) }}
+            </span>
           </button>
         </div>
       </div>
@@ -151,11 +157,29 @@ function isStaffableEvent(e) {
   return typ.startsWith('school_') || !!cat;
 }
 
+function assignedNames(e) {
+  const names = (e?.assignedProviders || []).map((p) => p.name).filter(Boolean);
+  return names.length ? names.join(', ') : '';
+}
+
+function assignmentButtonLabel(e) {
+  if (e?.currentUserAssigned) return 'Assigned';
+  const st = String(e?.currentUserRequestStatus || '').toLowerCase();
+  if (st === 'pending') return 'Pending';
+  return 'Request';
+}
+
 function eventTitle(e) {
+  const staffed = assignedNames(e);
   if (props.canRequestAssignment && isStaffableEvent(e)) {
-    return `${e.title} — click to request assignment`;
+    if (e?.currentUserAssigned) {
+      return staffed ? `${e.title} — Assigned (${staffed})` : `${e.title} — Assigned`;
+    }
+    return staffed
+      ? `${e.title} — Staffed: ${staffed}. Click to request assignment`
+      : `${e.title} — click to request assignment`;
   }
-  return e.title;
+  return staffed ? `${e.title} — ${staffed}` : e.title;
 }
 
 function onEventActivate(e) {
