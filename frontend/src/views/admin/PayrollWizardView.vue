@@ -172,7 +172,7 @@
                       <div class="hint muted" style="margin-bottom: 6px;">
                         Today’s export of
                         <strong>{{ priorPeriod ? periodRangeLabel(priorPeriod) : 'prior period' }}</strong>
-                        (same as Process Changes → Upload Run 2). Late-note differences go to the current period.
+                        (same as Process Changes with that period selected → Upload Run 2 only). Late-note differences go to the current period in Compare.
                       </div>
                       <div v-if="existingImports.prior && !uploadFiles.prior" class="pw-existing-import">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>
@@ -180,10 +180,7 @@
                           <span class="pw-existing-import-name">{{ existingImports.prior.original_filename || 'Imported file' }}</span>
                           <span class="pw-existing-import-meta">{{ existingImports.prior.row_count ?? '?' }} rows · {{ importUploadedLabel(existingImports.prior) || 'previously uploaded' }}</span>
                         </div>
-                        <label class="btn btn-secondary btn-xs pw-replace-btn" :class="{ disabled: !priorPeriod || uploading }">
-                          Replace
-                          <input type="file" style="display:none" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onUploadPick($event, 'prior')" :disabled="!priorPeriod || uploading" />
-                        </label>
+                        <!-- No Replace here — same as Process Changes (file slot disabled once Run 2 exists). Posted prior periods block /replace. -->
                       </div>
                       <div v-else class="pw-file-row">
                         <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onUploadPick($event, 'prior')" :disabled="!priorPeriod || uploading" />
@@ -200,7 +197,7 @@
                       <div class="hint muted" style="margin-bottom: 6px;">
                         Today’s export of
                         <strong>{{ twoAgoPeriod ? periodRangeLabel(twoAgoPeriod) : 'period two back' }}</strong>
-                        (same as Process Changes → Upload Run 3). Late-note differences go to the current period.
+                        (same as Process Changes with that period selected → Upload Run 3 only). Late-note differences go to the current period.
                       </div>
                       <div v-if="existingImports.twoAgo && !uploadFiles.twoAgo" class="pw-existing-import">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>
@@ -208,10 +205,7 @@
                           <span class="pw-existing-import-name">{{ existingImports.twoAgo.original_filename || 'Imported file' }}</span>
                           <span class="pw-existing-import-meta">{{ existingImports.twoAgo.row_count ?? '?' }} rows · {{ importUploadedLabel(existingImports.twoAgo) || 'previously uploaded' }}</span>
                         </div>
-                        <label class="btn btn-secondary btn-xs pw-replace-btn" :class="{ disabled: !twoAgoPeriod || uploading }">
-                          Replace
-                          <input type="file" style="display:none" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onUploadPick($event, 'twoAgo')" :disabled="!twoAgoPeriod || uploading" />
-                        </label>
+                        <!-- No Replace here — same as Process Changes (file slot disabled once Run 3 exists). -->
                       </div>
                       <div v-else class="pw-file-row">
                         <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onUploadPick($event, 'twoAgo')" :disabled="!twoAgoPeriod || uploading" />
@@ -657,15 +651,6 @@ const persistCatchUpRun = async ({ sourcePeriodId, file, label }) => {
   return `${label}: saved Run ${slot} (${inserted} rows).`;
 };
 
-/** Replace an existing catch-up run — same as Manage Imports → Replace. */
-const replaceCatchUpRun = async ({ sourcePeriodId, importId, file, label }) => {
-  const fd = new FormData();
-  fd.append('file', file);
-  const resp = await api.post(`/payroll/periods/${sourcePeriodId}/imports/${importId}/replace`, fd);
-  const inserted = resp.data?.inserted ?? resp.data?.rowCount ?? '?';
-  return `${label}: replaced with ${inserted} rows.`;
-};
-
 const uploadAllReports = async () => {
   if (!canUploadReports.value) return;
   uploading.value = true;
@@ -678,15 +663,11 @@ const uploadAllReports = async () => {
       uploadFiles.value = { ...uploadFiles.value, current: null };
     }
 
-    // Same path as Payroll → Process Changes → Upload Run 2 only
+    // Same path as Payroll → Process Changes → Upload Run 2 only (persistOnly).
+    // Do not call /replace on posted prior periods — Process Changes also disables re-upload once Run 2 exists.
     if (uploadFiles.value.prior && priorPeriod.value?.id) {
       if (existingImports.value.prior?.id) {
-        results.prior = await replaceCatchUpRun({
-          sourcePeriodId: priorPeriod.value.id,
-          importId: existingImports.value.prior.id,
-          file: uploadFiles.value.prior,
-          label: 'Prior Run 2'
-        });
+        results.prior = 'Prior Run 2: already saved for this period.';
       } else {
         results.prior = await persistCatchUpRun({
           sourcePeriodId: priorPeriod.value.id,
@@ -697,15 +678,10 @@ const uploadAllReports = async () => {
       uploadFiles.value = { ...uploadFiles.value, prior: null };
     }
 
-    // Same path as Payroll → Process Changes → Upload Run 3 only
+    // Same path as Process Changes with two-ago selected → Upload Run 3 only (persistOnly).
     if (uploadFiles.value.twoAgo && twoAgoPeriod.value?.id) {
       if (existingImports.value.twoAgo?.id) {
-        results.twoAgo = await replaceCatchUpRun({
-          sourcePeriodId: twoAgoPeriod.value.id,
-          importId: existingImports.value.twoAgo.id,
-          file: uploadFiles.value.twoAgo,
-          label: 'Two-ago Run 3'
-        });
+        results.twoAgo = 'Two-ago Run 3: already saved for this period.';
       } else {
         results.twoAgo = await persistCatchUpRun({
           sourcePeriodId: twoAgoPeriod.value.id,
