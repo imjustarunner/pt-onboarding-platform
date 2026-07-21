@@ -71,6 +71,34 @@ function parseDateHintFromPrompt(promptLower) {
   return null;
 }
 
+/**
+ * Extract a person name from presence follow-ups like
+ * "how long has rachel been idle" / "is sarah away".
+ */
+function parsePresencePersonQueryFromPrompt(promptLower) {
+  const s = String(promptLower || '').toLowerCase().trim();
+  if (!s) return '';
+  const howLong = s.match(
+    /\bhow\s+long\s+has\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\s+been\b/
+  );
+  if (howLong?.[1]) {
+    const name = howLong[1].trim();
+    if (!/^(she|he|they|someone|anyone|anybody)$/.test(name)) return name.slice(0, 80);
+  }
+  const isStatus = s.match(
+    /\bis\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\s+(?:still\s+)?(?:idle|away|online|active|offline|inactive|working)\b/
+  );
+  if (isStatus?.[1]) {
+    const name = isStatus[1].trim();
+    if (!/^(she|he|they|someone|anyone|anybody)$/.test(name)) return name.slice(0, 80);
+  }
+  const statusOf = s.match(
+    /\b(?:status|presence)\s+(?:of|for)\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\b/
+  );
+  if (statusOf?.[1]) return statusOf[1].trim().slice(0, 80);
+  return '';
+}
+
 /** Extract an office location name fragment from prompts like "in the Windchime office". */
 function parseOfficeLocationQueryFromPrompt(promptLower) {
   const s = String(promptLower || '').toLowerCase();
@@ -802,16 +830,28 @@ function catalogEntries() {
         'anyone available right now',
         'who is around on the team',
         'show me team presence',
-        'who is free right now'
+        'who is free right now',
+        'whos working right now',
+        'how long has rachel been idle',
+        'how long has she been away',
+        'is sarah idle'
       ],
       matcher: (lower, allowedTools) => {
         if (!allowedTools.has('listTeamPresence')) return false;
         if (/\bintake\b/.test(lower)) return false;
         if (/\b(handbook|polic(?:y|ies)|document|pdf)\b/.test(lower)) return false;
         if (/\b(who'?s\s+online|who\s+is\s+online|team\s+presence)\b/.test(lower)) return true;
+        if (/\b(who'?s|whos|who\s+is)\s+working\b/.test(lower)) return true;
+        // "how long has Rachel been idle/away" / "is Rachel idle"
         if (
-          /\b(who|anyone|anybody)\b/.test(lower) &&
-          /\b(available|online|idle|away|around|free|here|reachable)\b/.test(lower)
+          /\b(idle|away)\b/.test(lower) &&
+          /\b(how\s+long|been|since|is|status)\b/.test(lower)
+        ) {
+          return true;
+        }
+        if (
+          /\b(who|who'?s|whos|anyone|anybody)\b/.test(lower) &&
+          /\b(available|online|idle|away|around|free|here|reachable|working)\b/.test(lower)
         ) {
           return true;
         }
@@ -820,11 +860,20 @@ function catalogEntries() {
           /\b(team|staff|people|colleagues|right\s+now|currently)\b/.test(lower)
         );
       },
-      buildIntent: () => ({
-        intent: 'list_team_presence',
-        capabilityId: 'team_presence',
-        toolCalls: [{ name: 'listTeamPresence', args: { includeOffline: false } }]
-      })
+      buildIntent: (lower) => {
+        const nameQuery = parsePresencePersonQueryFromPrompt(lower);
+        return {
+          intent: 'list_team_presence',
+          capabilityId: 'team_presence',
+          toolCalls: [{
+            name: 'listTeamPresence',
+            args: {
+              includeOffline: Boolean(nameQuery),
+              nameQuery: nameQuery || ''
+            }
+          }]
+        };
+      }
     },
     {
       id: 'intake_openings',

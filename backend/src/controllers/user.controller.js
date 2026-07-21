@@ -2329,6 +2329,8 @@ export const updateUser = async (req, res, next) => {
       externalBusyIcsUrl,
       providerStartDate,
       work_role: workRoleRaw,
+      department,
+      workLocation,
       employmentType,
       benefitsNotes,
       benefitsEligibilityOverrides,
@@ -2535,6 +2537,14 @@ export const updateUser = async (req, res, next) => {
     if (title !== undefined) {
       const v = String(title || '').trim();
       updateData.title = v || null;
+    }
+    if (department !== undefined) {
+      const v = String(department || '').trim();
+      updateData.department = v || null;
+    }
+    if (workLocation !== undefined) {
+      const v = String(workLocation || '').trim();
+      updateData.workLocation = v || null;
     }
     if (serviceFocus !== undefined) {
       const v = String(serviceFocus || '').trim();

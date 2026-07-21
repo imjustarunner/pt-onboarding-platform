@@ -87,6 +87,7 @@ function buildSystemPrompt({ includeSearch, agentConfig, user }) {
     '  - "who rsvp\'d / responded"     → getEventResponses({ eventId?, eventQuery?, dateYmd?, responseKey? })',
     '  - "what offices are open"      → getOfficeSchedule({ dateYmd?, locationQuery? })',
     '  - "who is booked in the office" / "who has an office today" → listOfficeRoster({ dateYmd?, locationQuery? })',
+    '  - "who\'s working" / "how long has X been idle" → listTeamPresence({ nameQuery?: "X" })',
     '  - "find providers who use X"   → searchProviders({ agencyId, filters: [{fieldKey, op, value}] })',
     '  - Refer-out / pediatrics / psychiatry → searchReferralDirectory({ query })',
     '  - Tutoring / standards lookup  → lookupStandardCrosswalk({...})',

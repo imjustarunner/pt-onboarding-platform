@@ -1240,7 +1240,7 @@ export function getToolSchemas() {
     {
       name: 'listTeamPresence',
       description:
-        'List who is online or away on the agency team right now (live chat presence). Use for "who is available", "who is online", "anyone around", "team presence". Do NOT use for intake openings or handbook questions. Returns Active and Away people with status labels.',
+        'List who is online or away on the agency team right now (live chat presence), including how long someone has been Idle. Use for "who is available", "who\'s working", "how long has Rachel been idle", "is Sarah away". Do NOT use for intake openings or handbook questions.',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -1248,6 +1248,10 @@ export function getToolSchemas() {
           includeOffline: {
             type: 'boolean',
             description: 'If true, also list offline team members. Default false (online + away only).'
+          },
+          nameQuery: {
+            type: 'string',
+            description: 'Optional person name fragment to focus on (e.g. "Rachel").'
           }
         }
       }
@@ -3311,10 +3315,12 @@ export async function executeToolCall({ req, toolCall }) {
     }
     await ensureAgencyAccess(req.user, agencyId);
     const includeOffline = args.includeOffline === true;
+    const nameQuery = args.nameQuery ? str(args.nameQuery, 80) : '';
     const snapshot = await listTeamPresenceForAssist({
       agencyId,
       viewerUserId: req.user.id,
-      includeOffline
+      includeOffline: includeOffline || Boolean(nameQuery),
+      nameQuery
     });
     return { ok: true, tool: name, result: snapshot };
   }

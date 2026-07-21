@@ -45,6 +45,7 @@ test('deterministic acceptance matrix for top prompts', async () => {
     'searchAgencyActivity',
     'getAgencyActivityStats',
     'listMyRecentActivity',
+    'listTeamPresence',
     'searchTrainingKnowledgeBase'
   );
 
@@ -77,6 +78,8 @@ test('deterministic acceptance matrix for top prompts', async () => {
     ['what offices are open today', 'getOfficeSchedule'],
     ['who has an office today', 'listOfficeRoster'],
     ['who is booked in the windchime office today', 'listOfficeRoster'],
+    ['whos working right now', 'listTeamPresence'],
+    ['how long has rachel been idle', 'listTeamPresence'],
     ['who rsvp for this friday event', 'getEventResponses'],
     ['what activity happened in my agency this week', 'searchAgencyActivity'],
     ['show me what i did today', 'listMyRecentActivity'],
@@ -250,6 +253,16 @@ test('soft routing matches training kb open from loose phrasing', async () => {
   });
   assert.ok(intent, 'Expected soft or hard route for handbook upload phrasing');
   assert.equal(intent.toolCalls?.[0]?.name, 'navigateTo');
+});
+
+test('presence follow-up extracts name query for idle duration', async () => {
+  const tools = setOf('listTeamPresence');
+  const intent = await matchDeterministicCapabilityIntent({
+    prompt: 'How long has rachel been idle',
+    allowedToolNames: tools
+  });
+  assert.equal(intent?.toolCalls?.[0]?.name, 'listTeamPresence');
+  assert.equal(String(intent?.toolCalls?.[0]?.args?.nameQuery || '').toLowerCase(), 'rachel');
 });
 
 test('office roster extracts location query and correction chips prefer office intents', async () => {

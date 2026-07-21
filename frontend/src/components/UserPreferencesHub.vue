@@ -555,6 +555,9 @@
               <input v-model="prefs.larger_text" type="checkbox" :disabled="viewOnly" />
               Larger text
             </label>
+            <div v-if="quickSaveStatus" class="field-help" :class="{ 'quick-save-err': quickSaveStatus === 'error' }">
+              {{ quickSaveStatus === 'saving' ? 'Saving…' : quickSaveStatus === 'saved' ? 'Saved' : 'Could not save — try Save Preferences' }}
+            </div>
           </div>
 
           <div class="card">
@@ -790,7 +793,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
@@ -799,7 +802,13 @@ import api from '../services/api';
 import NotificationTypeSettingsPanel from './notifications/NotificationTypeSettingsPanel.vue';
 import { refetchSessionLockConfig } from '../utils/activityTracker';
 import { setDarkMode, getStoredDarkMode } from '../utils/darkMode';
-import { applyAccessibilityPrefs } from '../utils/accessibilityPrefs';
+import {
+  applyAccessibilityPrefs,
+  getStoredAccessibilityPrefs,
+  getStoredNavHoverMenusEnabled,
+  setAccessibilityPrefs,
+  setStoredNavHoverMenusEnabled
+} from '../utils/accessibilityPrefs';
 import {
   isPushSupported,
   getPushPermissionState,
@@ -827,6 +836,11 @@ const loading = ref(true);
 const saving = ref(false);
 const saved = ref(false);
 const error = ref('');
+/** Suppress debounced autosave while hydrating from the server. */
+const hydrating = ref(false);
+/** 'saving' | 'saved' | 'error' | '' — feedback for appearance/a11y quick toggles */
+const quickSaveStatus = ref('');
+let quickSaveStatusTimer = null;
 const agencyNotificationSettings = ref({
   defaults: null,
   userEditable: true,
@@ -1040,31 +1054,58 @@ watch(
 
 // Debounced auto-save of quick UI toggles (so server stays in sync)
 let quickSaveTimer = null;
+const buildQuickSavePayload = () => ({
+  dark_mode: !!prefs.value.dark_mode,
+  layout_density: prefs.value.layout_density || 'standard',
+  nav_hover_menus_enabled: prefs.value.nav_hover_menus_enabled !== false,
+  high_contrast_mode: !!prefs.value.high_contrast_mode,
+  larger_text: !!prefs.value.larger_text,
+  reduced_motion: !!prefs.value.reduced_motion
+});
+
+const runQuickSave = async () => {
+  if (props.userId !== authStore.user?.id || props.viewOnly || hydrating.value) return;
+  const payload = buildQuickSavePayload();
+  quickSaveStatus.value = 'saving';
+  try {
+    await api.put(`/users/${props.userId}/preferences`, payload, { skipGlobalLoading: true });
+    userPrefsStore.setFromApi({ ...prefs.value, ...payload });
+    setStoredNavHoverMenusEnabled(props.userId, payload.nav_hover_menus_enabled);
+    setAccessibilityPrefs(props.userId, {
+      highContrast: payload.high_contrast_mode,
+      largerText: payload.larger_text,
+      reducedMotion: payload.reduced_motion
+    });
+    quickSaveStatus.value = 'saved';
+    if (quickSaveStatusTimer) clearTimeout(quickSaveStatusTimer);
+    quickSaveStatusTimer = setTimeout(() => { quickSaveStatus.value = ''; }, 2000);
+  } catch {
+    quickSaveStatus.value = 'error';
+  }
+};
+
 const quickSave = () => {
-  if (props.userId !== authStore.user?.id || props.viewOnly) return;
+  if (props.userId !== authStore.user?.id || props.viewOnly || hydrating.value) return;
   if (quickSaveTimer) clearTimeout(quickSaveTimer);
   quickSaveTimer = setTimeout(async () => {
     quickSaveTimer = null;
-    try {
-      await api.put(`/users/${props.userId}/preferences`, {
-        dark_mode: !!prefs.value.dark_mode,
-        layout_density: prefs.value.layout_density || 'standard',
-        nav_hover_menus_enabled: prefs.value.nav_hover_menus_enabled !== false,
-        high_contrast_mode: !!prefs.value.high_contrast_mode,
-        larger_text: !!prefs.value.larger_text,
-        reduced_motion: !!prefs.value.reduced_motion
-      }, { skipGlobalLoading: true });
-      userPrefsStore.setFromApi({ ...prefs.value });
-    } catch {
-      /* ignore – local still applied */
-    }
-  }, 800);
+    await runQuickSave();
+  }, 400);
+};
+
+const flushQuickSave = async () => {
+  if (quickSaveTimer) {
+    clearTimeout(quickSaveTimer);
+    quickSaveTimer = null;
+    await runQuickSave();
+  }
 };
 
 // Apply dark mode and layout density immediately when toggled (instant feedback + persist to DB)
 watch(
   () => prefs.value.dark_mode,
   (enabled) => {
+    if (hydrating.value) return;
     if (props.userId === authStore.user?.id) {
       setDarkMode(props.userId, !!enabled);
       quickSave();
@@ -1074,6 +1115,7 @@ watch(
 watch(
   () => prefs.value.layout_density,
   (density) => {
+    if (hydrating.value) return;
     if (props.userId === authStore.user?.id) {
       applyLayoutDensity(density);
       quickSave();
@@ -1083,8 +1125,10 @@ watch(
 watch(
   () => prefs.value.nav_hover_menus_enabled,
   (enabled) => {
+    if (hydrating.value) return;
     if (props.userId === authStore.user?.id) {
       userPrefsStore.navHoverMenusEnabled = enabled !== false;
+      setStoredNavHoverMenusEnabled(props.userId, enabled !== false);
       quickSave();
     }
   }
@@ -1092,8 +1136,9 @@ watch(
 watch(
   () => prefs.value.high_contrast_mode,
   (enabled) => {
+    if (hydrating.value) return;
     if (props.userId === authStore.user?.id) {
-      applyAccessibilityPrefs({ highContrast: !!enabled });
+      setAccessibilityPrefs(props.userId, { highContrast: !!enabled });
       quickSave();
     }
   }
@@ -1101,8 +1146,9 @@ watch(
 watch(
   () => prefs.value.larger_text,
   (enabled) => {
+    if (hydrating.value) return;
     if (props.userId === authStore.user?.id) {
-      applyAccessibilityPrefs({ largerText: !!enabled });
+      setAccessibilityPrefs(props.userId, { largerText: !!enabled });
       quickSave();
     }
   }
@@ -1110,8 +1156,9 @@ watch(
 watch(
   () => prefs.value.reduced_motion,
   (enabled) => {
+    if (hydrating.value) return;
     if (props.userId === authStore.user?.id) {
-      applyAccessibilityPrefs({ reducedMotion: !!enabled });
+      setAccessibilityPrefs(props.userId, { reducedMotion: !!enabled });
       quickSave();
     }
   }
@@ -1194,8 +1241,10 @@ const clearKioskPin = async () => {
 const load = async () => {
   try {
     loading.value = true;
+    hydrating.value = true;
     error.value = '';
     saved.value = false;
+    quickSaveStatus.value = '';
 
     const resp = await api.get(`/users/${props.userId}/preferences`);
     const data = resp.data || {};
@@ -1236,10 +1285,23 @@ const load = async () => {
     prefs.value.inactivity_timeout_minutes = data?.inactivity_timeout_minutes ?? null;
     prefs.value.session_lock_pin_set = !!data?.session_lock_pin_set;
     prefs.value.kiosk_pin_set = !!data?.kiosk_pin_set;
-    // Prefer localStorage (dashboard toggle) over server – dashboard toggle doesn't save to server immediately
+    // Prefer localStorage over server for toggles that apply instantly (avoids remount race)
     const storedDark = getStoredDarkMode(props.userId);
     prefs.value.dark_mode = storedDark !== null ? storedDark : !!data?.dark_mode;
-    prefs.value.nav_hover_menus_enabled = data?.nav_hover_menus_enabled !== false;
+    const storedNavHover = getStoredNavHoverMenusEnabled(props.userId);
+    prefs.value.nav_hover_menus_enabled = storedNavHover !== null
+      ? storedNavHover
+      : data?.nav_hover_menus_enabled !== false;
+    const storedA11y = getStoredAccessibilityPrefs(props.userId);
+    if (storedA11y) {
+      if (storedA11y.highContrast !== null) prefs.value.high_contrast_mode = storedA11y.highContrast;
+      if (storedA11y.largerText !== null) prefs.value.larger_text = storedA11y.largerText;
+      if (storedA11y.reducedMotion !== null) prefs.value.reduced_motion = storedA11y.reducedMotion;
+    } else {
+      prefs.value.high_contrast_mode = !!data?.high_contrast_mode;
+      prefs.value.larger_text = !!data?.larger_text;
+      prefs.value.reduced_motion = !!data?.reduced_motion;
+    }
 
     // Apply dark mode and sync store when loading own preferences
     if (props.userId === authStore.user?.id) {
@@ -1288,6 +1350,8 @@ const load = async () => {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load preferences';
   } finally {
     loading.value = false;
+    // Let the next tick settle before allowing watchers to autosave again
+    setTimeout(() => { hydrating.value = false; }, 0);
   }
 };
 
@@ -1431,7 +1495,10 @@ const save = async () => {
     if (props.userId === authStore.user?.id) {
       userPrefsStore.setFromApi({ ...prefs.value, ...payload });
       if (payload.layout_density !== undefined) applyLayoutDensity(payload.layout_density);
-      applyAccessibilityPrefs({
+      if (payload.nav_hover_menus_enabled !== undefined) {
+        setStoredNavHoverMenusEnabled(props.userId, payload.nav_hover_menus_enabled !== false);
+      }
+      setAccessibilityPrefs(props.userId, {
         highContrast: !!payload.high_contrast_mode,
         largerText: !!payload.larger_text,
         reducedMotion: !!payload.reduced_motion
@@ -1481,6 +1548,11 @@ const loadClubSummitContext = async () => {
 onMounted(async () => {
   await load();
   await loadClubSummitContext();
+});
+
+onBeforeUnmount(() => {
+  void flushQuickSave();
+  if (quickSaveStatusTimer) clearTimeout(quickSaveStatusTimer);
 });
 
 // --- Danger Zone: Start a New Club ---
@@ -1709,6 +1781,10 @@ const submitDeleteAccount = async () => {
 .field-help {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.field-help.quick-save-err {
+  color: #b91c1c;
 }
 
 .required-tag {

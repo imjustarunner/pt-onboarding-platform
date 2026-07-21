@@ -1438,7 +1438,25 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       const out = r.result || {};
       const online = out.online || [];
       const away = out.away || [];
-      if (!online.length && !away.length) {
+      const offline = out.offline || [];
+      const nameQuery = String(out.nameQuery || '').trim();
+      const people = out.people || [];
+      if (nameQuery) {
+        if (!people.length) {
+          lines.push(`I couldn't find anyone matching "${nameQuery}" on your team presence roster.`);
+        } else {
+          for (const p of people.slice(0, 8)) {
+            if (p.status === 'idle') {
+              const dur = p.idle_for_label ? ` for ${p.idle_for_label}` : '';
+              lines.push(`${p.name} is Idle${dur} (live Messages presence).`);
+            } else if (p.status === 'online') {
+              lines.push(`${p.name} is Active right now (live Messages presence).`);
+            } else {
+              lines.push(`${p.name} is Inactive / offline right now (live Messages presence).`);
+            }
+          }
+        }
+      } else if (!online.length && !away.length) {
         lines.push('No one on your team is online or away right now (based on live Messages presence).');
       } else {
         lines.push('Live team presence (Messages):');
@@ -1451,6 +1469,7 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         if (away.length) {
           lines.push(`\nAway (${away.length}):`);
           for (const p of away.slice(0, 20)) {
+            const dur = p.idle_for_label ? ` · ${p.idle_for_label}` : '';
             const back = p.expected_return_at
               ? (() => {
                   try {
@@ -1460,8 +1479,11 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
                   }
                 })()
               : '';
-            lines.push(`• ${p.name} — ${p.status_label || 'Away'}${back}`);
+            lines.push(`• ${p.name} — ${p.status_label || 'Away'}${dur}${back}`);
           }
+        }
+        if (offline.length && nameQuery) {
+          /* already handled above */
         }
       }
     } else if (r.tool === 'createTask') {

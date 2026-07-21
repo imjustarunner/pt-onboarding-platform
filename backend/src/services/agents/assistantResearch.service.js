@@ -133,9 +133,16 @@ export function looksLikeTeamPresenceQuery(prompt) {
   if (/\b(team\s+presence|presence\s+board|who'?s\s+online|who\s+is\s+online)\b/.test(lower)) {
     return true;
   }
+  if (/\b(who'?s|whos|who\s+is)\s+working\b/.test(lower)) return true;
   if (
-    /\b(who|anyone|anybody)\b/.test(lower) &&
-    /\b(available|online|idle|away|around|free|here|reachable)\b/.test(lower) &&
+    /\b(idle|away)\b/.test(lower) &&
+    /\b(how\s+long|been|since|is|status)\b/.test(lower)
+  ) {
+    return true;
+  }
+  if (
+    /\b(who|who'?s|whos|anyone|anybody)\b/.test(lower) &&
+    /\b(available|online|idle|away|around|free|here|reachable|working)\b/.test(lower) &&
     !/\b(intake|slot|opening|referral|cbt|dbt|emdr)\b/.test(lower)
   ) {
     return true;

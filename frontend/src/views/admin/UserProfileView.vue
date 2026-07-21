@@ -265,6 +265,7 @@
           :preloadedOverviewLoading="overviewLoading"
           @navigate="selectTab"
           @perms-saved="onOverviewPermsSaved"
+          @job-saved="onOverviewJobSaved"
         />
 
         <UserBenefitsTab
@@ -6874,6 +6875,30 @@ watch(
     }
   }
 );
+
+/** Keep Overview + Account tab in sync after Job & Employment Details save. */
+const onOverviewJobSaved = async (payload = {}) => {
+  if (!payload || typeof payload !== 'object') return;
+  if (user.value) {
+    const next = { ...user.value };
+    if ('title' in payload) next.title = payload.title;
+    if ('department' in payload) next.department = payload.department;
+    if ('employmentType' in payload) {
+      next.employment_type = payload.employmentType;
+      next.employmentType = payload.employmentType;
+    }
+    if ('workLocation' in payload) next.work_location = payload.workLocation;
+    user.value = next;
+  }
+  if (accountForm.value && 'title' in payload) {
+    accountForm.value.title = payload.title || '';
+  }
+  try {
+    await fetchUser();
+  } catch {
+    // local merge above is enough if reload fails
+  }
+};
 
 /** Keep Account tab permission checkboxes in sync after Overview quick-save. */
 const onOverviewPermsSaved = (perms = {}) => {

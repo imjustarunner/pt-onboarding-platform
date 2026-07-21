@@ -5578,22 +5578,31 @@ onMounted(async () => {
         try {
           const { default: api } = await import('./services/api');
           const { setDarkMode, getStoredDarkMode } = await import('./utils/darkMode');
-          const { applyAccessibilityPrefs } = await import('./utils/accessibilityPrefs');
+          const {
+            applyAccessibilityPrefs,
+            getStoredAccessibilityPrefs,
+            getStoredNavHoverMenusEnabled,
+            setStoredNavHoverMenusEnabled
+          } = await import('./utils/accessibilityPrefs');
           const { useUserPreferencesStore } = await import('./store/userPreferences');
           const res = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
           const data = res?.data || {};
           const stored = getStoredDarkMode(uid);
           const dark = stored !== null ? stored : !!data.dark_mode;
           setDarkMode(uid, dark);
+          const storedNavHover = getStoredNavHoverMenusEnabled(uid);
+          const navHover = storedNavHover !== null ? storedNavHover : data.nav_hover_menus_enabled !== false;
+          setStoredNavHoverMenusEnabled(uid, navHover);
           const prefsStore = useUserPreferencesStore();
-          prefsStore.setFromApi(data);
+          prefsStore.setFromApi({ ...data, nav_hover_menus_enabled: navHover });
           const density = data.layout_density || 'standard';
           document.documentElement.removeAttribute('data-layout-density');
           if (density !== 'standard') document.documentElement.setAttribute('data-layout-density', density);
+          const storedA11y = getStoredAccessibilityPrefs(uid);
           applyAccessibilityPrefs({
-            highContrast: !!data.high_contrast_mode,
-            largerText: !!data.larger_text,
-            reducedMotion: !!data.reduced_motion
+            highContrast: storedA11y?.highContrast ?? !!data.high_contrast_mode,
+            largerText: storedA11y?.largerText ?? !!data.larger_text,
+            reducedMotion: storedA11y?.reducedMotion ?? !!data.reduced_motion
           });
         } catch {
           /* ignore - use localStorage fallback */

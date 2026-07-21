@@ -657,7 +657,7 @@ const props = defineProps({
   preloadedOverviewLoading: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['navigate', 'perms-saved']);
+const emit = defineEmits(['navigate', 'perms-saved', 'job-saved']);
 
 // ─── State ───────────────────────────────────────────────────────────────────
 const loading = ref(true);
@@ -755,13 +755,15 @@ const saveJob = async () => {
   savingJob.value = true;
   jobSaveError.value = '';
   try {
-    await api.put(`/users/${props.userId}`, {
+    const payload = {
       title: jobDraft.value.title || null,
       department: jobDraft.value.department || null,
       employmentType: jobDraft.value.employmentType || null,
       workLocation: jobDraft.value.workLocation || null,
-    });
+    };
+    await api.put(`/users/${props.userId}`, payload);
     editingJob.value = false;
+    emit('job-saved', payload);
     if (refreshOverview) void refreshOverview();
   } catch (err) {
     jobSaveError.value = err.response?.data?.error?.message || 'Failed to save.';

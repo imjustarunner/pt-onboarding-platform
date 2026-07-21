@@ -348,7 +348,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'provider_start_date', 'work_role')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'department', 'work_location', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'provider_start_date', 'work_role', 'employment_type', 'benefits_notes', 'benefits_eligibility_overrides_json', 'benefits_enrollment_json')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -383,6 +383,8 @@ class User {
       if (existingColumns.includes('company_car_manage_access')) query += ', company_car_manage_access';
       if (existingColumns.includes('profile_photo_path')) query += ', profile_photo_path';
       if (existingColumns.includes('title')) query += ', title';
+      if (existingColumns.includes('department')) query += ', department';
+      if (existingColumns.includes('work_location')) query += ', work_location';
       if (existingColumns.includes('service_focus')) query += ', service_focus';
       if (existingColumns.includes('languages_spoken')) query += ', languages_spoken';
       if (existingColumns.includes('credential')) query += ', credential';
@@ -398,6 +400,10 @@ class User {
       if (existingColumns.includes('sso_password_override')) query += ', sso_password_override';
       if (existingColumns.includes('provider_start_date')) query += ', provider_start_date';
       if (existingColumns.includes('work_role')) query += ', work_role';
+      if (existingColumns.includes('employment_type')) query += ', employment_type';
+      if (existingColumns.includes('benefits_notes')) query += ', benefits_notes';
+      if (existingColumns.includes('benefits_eligibility_overrides_json')) query += ', benefits_eligibility_overrides_json';
+      if (existingColumns.includes('benefits_enrollment_json')) query += ', benefits_enrollment_json';
     } catch (err) {
       // If we can't check columns, just use the base query
       console.warn('Could not check for pending columns:', err.message);
@@ -754,6 +760,8 @@ class User {
       providerStartDate,
       username,
       work_role,
+      department,
+      workLocation,
       employmentType,
       benefitsNotes,
       benefitsEligibilityOverrides,
@@ -873,6 +881,40 @@ class User {
         }
       } catch {
         // ignore (older DBs)
+      }
+    }
+
+    // Department (job details)
+    if (department !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'department'"
+        );
+        if (columns.length > 0) {
+          updates.push('department = ?');
+          values.push(department ? String(department).trim() : null);
+        } else {
+          throw new Error('Database is missing users.department. Run migrations (see database/migrations/1021_users_department_and_work_location.sql).');
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // Work location (job details)
+    if (workLocation !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'work_location'"
+        );
+        if (columns.length > 0) {
+          updates.push('work_location = ?');
+          values.push(workLocation ? String(workLocation).trim() : null);
+        } else {
+          throw new Error('Database is missing users.work_location. Run migrations (see database/migrations/1021_users_department_and_work_location.sql).');
+        }
+      } catch (err) {
+        throw err;
       }
     }
 
