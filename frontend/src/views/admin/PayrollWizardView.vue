@@ -92,7 +92,7 @@
         <h2 class="pw-step-title">{{ currentStep?.title }}</h2>
         <p class="pw-step-desc">{{ currentStep?.description }}</p>
 
-        <div class="pw-step-grid" :class="{ 'pw-step-grid--wide': currentStep?.key === 'upload_reports' || showRawPanel || showClaimsPanel || showStagePanel || showProcessPanel }">
+        <div class="pw-step-grid" :class="{ 'pw-step-grid--wide': currentStep?.key === 'upload_reports' || showRawPanel || showClaimsPanel || showStagePanel || showTodosPanel || showProcessPanel }">
           <div class="pw-step-primary">
             <!-- Step 1: Upload reports (current + prior v2 + two-ago v3) -->
             <template v-if="currentStep?.key === 'upload_reports'">
@@ -295,6 +295,31 @@
                 </div>
               </template>
 
+              <!-- Inline To-Dos (check off / add / manage without leaving wizard) -->
+              <template v-else-if="showTodosPanel">
+                <div class="pw-inline-panel">
+                  <PayrollTodosPanel
+                    :key="`todos-${selectedPeriodId}`"
+                    :agency-id="agencyId"
+                    :period-id="selectedPeriodId"
+                    :period-label="periodRangeLabel(selectedPeriod)"
+                    :period-status="selectedPeriod?.status || ''"
+                    :periods="periodsForSelect"
+                  />
+                  <div class="pw-inline-panel-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" @click="closeTodosPanel">Collapse</button>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="!selectedPeriodId"
+                      @click="markCompleteAndNext"
+                    >
+                      Mark done &amp; continue
+                    </button>
+                  </div>
+                </div>
+              </template>
+
               <!-- Inline Process Changes (compare & add late notes) -->
               <template v-else-if="showProcessPanel">
                 <div class="pw-inline-panel">
@@ -355,7 +380,7 @@
             </template>
           </div>
 
-          <div class="pw-step-side" v-if="currentStep?.key !== 'upload_reports' && !showRawPanel && !showClaimsPanel && !showStagePanel && !showProcessPanel">
+          <div class="pw-step-side" v-if="currentStep?.key !== 'upload_reports' && !showRawPanel && !showClaimsPanel && !showStagePanel && !showTodosPanel && !showProcessPanel">
             <div class="pw-tip">
               <div class="pw-tip-icon" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12c.8.8 1.2 1.7 1.2 2.7V17h5.6v-.3c0-1 .4-1.9 1.2-2.7A7 7 0 0 0 12 2z"/></svg>
@@ -498,6 +523,7 @@ import { useOrganizationStore } from '../../store/organization';
 import PayrollRawImportPanel from '../../components/payroll/PayrollRawImportPanel.vue';
 import PayrollClaimsPanel from '../../components/payroll/PayrollClaimsPanel.vue';
 import PayrollStagePanel from '../../components/payroll/PayrollStagePanel.vue';
+import PayrollTodosPanel from '../../components/payroll/PayrollTodosPanel.vue';
 import PayrollProcessChangesPanel from '../../components/payroll/PayrollProcessChangesPanel.vue';
 
 const route = useRoute();
@@ -540,6 +566,7 @@ const rawPanelPeriodStatus = ref('');
 const rawPanelMode = ref('draft_audit');
 const showClaimsPanel = ref(false);
 const showStagePanel = ref(false);
+const showTodosPanel = ref(false);
 const showProcessPanel = ref(false);
 
 /** Org-relevant periods only: schedule-aligned, past/current + at most one upcoming (matches Payroll history). */
@@ -892,16 +919,16 @@ const steps = [
     key: 'stage',
     title: 'Payroll Stage',
     description: 'Add manual pay (individual or bulk), edit per-provider adjustments, and clear blocking To-Dos before you run.',
-    tip: 'Use Manual Add for one-offs, Manual Bulk for meeting attendees, and Provider Adjustments for mileage/bonus/PTO per person.',
+    tip: 'Use Manual Add for one-offs, Manual Bulk for meeting attendees, and Manage To-Dos to check off or add blocking items without leaving the wizard.',
     checklist: [
       'Add manual pay lines (individual or bulk)',
       'Edit provider adjustments as needed',
-      'Complete blocking To-Dos on the full Stage if any remain'
+      'Check off or add blocking To-Dos here before you run'
     ],
     actions: [
       { id: 'open_stage_inline', label: 'Edit Manual Pay & Adjustments', primary: true, open: 'stage_inline' },
+      { id: 'open_todos', label: 'Manage To-Dos', primary: false, open: 'todos_inline' },
       { id: 'open_stage', label: 'Open full Stage on Payroll page', primary: false, open: 'stage' },
-      { id: 'open_todos', label: 'Manage To-Dos', primary: false, open: 'todos' },
       { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
@@ -984,6 +1011,7 @@ const goToStep = async (idx) => {
   showRawPanel.value = false;
   showClaimsPanel.value = false;
   showStagePanel.value = false;
+  showTodosPanel.value = false;
   showProcessPanel.value = false;
   await saveProgress();
   stepIdx.value = idx;
@@ -1142,6 +1170,7 @@ const openRawInWizard = async ({ mode = 'draft_audit', usePrior = false } = {}) 
   rawPanelMode.value = mode || 'draft_audit';
   showClaimsPanel.value = false;
   showStagePanel.value = false;
+  showTodosPanel.value = false;
   showProcessPanel.value = false;
   showRawPanel.value = true;
 };
@@ -1159,6 +1188,7 @@ const openClaimsInWizard = async () => {
   }
   showRawPanel.value = false;
   showStagePanel.value = false;
+  showTodosPanel.value = false;
   showProcessPanel.value = false;
   showClaimsPanel.value = true;
 };
@@ -1182,6 +1212,7 @@ const openStageInWizard = async () => {
   }
   showRawPanel.value = false;
   showClaimsPanel.value = false;
+  showTodosPanel.value = false;
   showProcessPanel.value = false;
   showStagePanel.value = true;
 };
@@ -1196,6 +1227,24 @@ const openStageOnPayrollPage = async () => {
   await openOnPayroll({ open: 'stage' });
 };
 
+const openTodosInWizard = async () => {
+  await saveProgress();
+  if (!selectedPeriodId.value) {
+    actionError.value = true;
+    actionMessage.value = 'Select a pay period first.';
+    return;
+  }
+  showRawPanel.value = false;
+  showClaimsPanel.value = false;
+  showStagePanel.value = false;
+  showProcessPanel.value = false;
+  showTodosPanel.value = true;
+};
+
+const closeTodosPanel = () => {
+  showTodosPanel.value = false;
+};
+
 const openProcessInWizard = async () => {
   await saveProgress();
   if (!selectedPeriodId.value) {
@@ -1206,6 +1255,7 @@ const openProcessInWizard = async () => {
   showRawPanel.value = false;
   showClaimsPanel.value = false;
   showStagePanel.value = false;
+  showTodosPanel.value = false;
   showProcessPanel.value = true;
 };
 
@@ -1282,6 +1332,10 @@ const runStepAction = async (action) => {
     }
     if (action.open === 'stage_inline') {
       await openStageInWizard();
+      return;
+    }
+    if (action.open === 'todos_inline' || action.open === 'todos') {
+      await openTodosInWizard();
       return;
     }
     if (action.open === 'process_inline' || action.open === 'process') {
@@ -1408,6 +1462,8 @@ const goNext = async () => {
   showRawPanel.value = false;
   showClaimsPanel.value = false;
   showStagePanel.value = false;
+  showTodosPanel.value = false;
+  showProcessPanel.value = false;
   await saveProgress();
   if (stepIdx.value >= steps.length - 1) {
     await goBackToPayroll();
@@ -1422,6 +1478,8 @@ const goBack = async () => {
   showRawPanel.value = false;
   showClaimsPanel.value = false;
   showStagePanel.value = false;
+  showTodosPanel.value = false;
+  showProcessPanel.value = false;
   await saveProgress();
   stepIdx.value -= 1;
   await saveProgress();
