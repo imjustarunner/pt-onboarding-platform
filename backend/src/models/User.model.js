@@ -2106,6 +2106,28 @@ class User {
     }
   }
 
+  static async listMarketingAgencyIds(userId) {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT agency_id FROM user_agencies WHERE user_id = ? AND is_marketing_contact = 1',
+        [userId]
+      );
+      return (rows || []).map((r) => r.agency_id);
+    } catch {
+      return [];
+    }
+  }
+
+  /** Set is_marketing_contact for all agencies this user belongs to (profile toggle). */
+  static async setMarketingContactForAllAgencies(userId, enabled) {
+    const val = enabled ? 1 : 0;
+    const [result] = await pool.execute(
+      'UPDATE user_agencies SET is_marketing_contact = ? WHERE user_id = ?',
+      [val, userId]
+    );
+    return result.affectedRows;
+  }
+
   static async setAgencyBillingAccess(userId, agencyId, enabled) {
     await pool.execute(
       'UPDATE user_agencies SET has_billing_access = ? WHERE user_id = ? AND agency_id = ?',

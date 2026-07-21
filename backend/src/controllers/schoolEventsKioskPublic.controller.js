@@ -14,6 +14,11 @@ import {
 import { isSchoolPortalEventType } from '../services/companyEventAccess.service.js';
 import { SCHOOL_PORTAL_EVENT_TYPES } from '../services/schoolPortalEvents.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import {
+  getSchoolEventPhotoStatus,
+  saveSchoolEventStaffPhoto,
+  ensureSchoolEventPhotoForCheckout
+} from '../services/schoolEventStaffPhoto.service.js';
 
 const TOKEN_TYPE = 'school_events_kiosk';
 const KIND = 'school_events';
@@ -476,6 +481,88 @@ export const schoolEventsKioskEmployeeCheckinByPin = async (req, res, next) => {
   }
 };
 
+async function loadStaffDisplayName(userId) {
+  const uid = parsePositiveInt(userId);
+  if (!uid) return 'Staff';
+  const [rows] = await pool.execute(
+    `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`,
+    [uid]
+  );
+  const name = `${rows?.[0]?.first_name || ''} ${rows?.[0]?.last_name || ''}`.trim();
+  return name || 'Staff';
+}
+
+/** GET …/events/:eventId/staff/:userId/photo-status */
+export const schoolEventsKioskPhotoStatus = async (req, res, next) => {
+  try {
+    const ctx = verifySchoolEventsKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlug(ctx, req.params.slug);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const ev = await loadSchoolEventForAgency(m.agencyId, req.params.eventId);
+    if (!ev) return res.status(404).json({ error: { message: 'School event not found' } });
+
+    const userId = parsePositiveInt(req.params.userId);
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+
+    const status = await getSchoolEventPhotoStatus({
+      companyEventId: Number(ev.id),
+      providerUserId: userId
+    });
+    res.json({
+      ok: true,
+      hasPhoto: !!status.hasPhoto,
+      photoUrl: status.photoUrl || null,
+      bypassed: !!status.bypassed
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST …/events/:eventId/photo — mid-shift upload (does not clock out) */
+export const schoolEventsKioskUploadPhoto = async (req, res, next) => {
+  try {
+    const ctx = verifySchoolEventsKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlug(ctx, req.params.slug);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const ev = await loadSchoolEventForAgency(m.agencyId, req.params.eventId);
+    if (!ev) return res.status(404).json({ error: { message: 'School event not found' } });
+
+    const userId = parsePositiveInt(req.body?.userId);
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+    if (!(await providerOnEventStaffRoster(userId, ev.id, m.agencyId))) {
+      return res.status(403).json({ error: { message: 'Employee is not assigned to this event' } });
+    }
+
+    const displayName = await loadStaffDisplayName(userId);
+    const saved = await saveSchoolEventStaffPhoto({
+      agencyId: m.agencyId,
+      companyEventId: Number(ev.id),
+      providerUserId: userId,
+      photoBase64: req.body?.photoBase64,
+      uploadedVia: 'mid_shift',
+      eventTitle: ev.title,
+      staffDisplayName: displayName
+    });
+    if (saved.error) {
+      return res.status(saved.error.status).json({ error: { message: saved.error.message } });
+    }
+
+    res.status(201).json({
+      ok: true,
+      hasPhoto: true,
+      photoId: saved.photoId,
+      photoUrl: saved.photoUrl
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** POST …/events/:eventId/checkout/employee */
 export const schoolEventsKioskEmployeeCheckout = async (req, res, next) => {
   try {
@@ -490,6 +577,23 @@ export const schoolEventsKioskEmployeeCheckout = async (req, res, next) => {
 
     const userId = parsePositiveInt(req.body?.userId);
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+
+    const displayName = await loadStaffDisplayName(userId);
+    const photoGate = await ensureSchoolEventPhotoForCheckout({
+      agencyId: m.agencyId,
+      companyEventId: Number(ev.id),
+      providerUserId: userId,
+      photoBase64: req.body?.photoBase64,
+      bypassPhoto: req.body?.bypassPhoto,
+      bypassAcknowledged: req.body?.bypassAcknowledged,
+      eventTitle: ev.title,
+      staffDisplayName: displayName
+    });
+    if (photoGate.error) {
+      return res.status(photoGate.error.status).json({
+        error: { message: photoGate.error.message, code: photoGate.error.code || null }
+      });
+    }
 
     const result = await syncEmployeeCheckout({
       agencyId: m.agencyId,
@@ -509,7 +613,10 @@ export const schoolEventsKioskEmployeeCheckout = async (req, res, next) => {
       indirectHours: result.indirectHours,
       workedHours: result.workedHours,
       directClaimId: result.directClaimId,
-      indirectClaimId: result.indirectClaimId
+      indirectClaimId: result.indirectClaimId,
+      photoProvided: !!photoGate.hasPhoto || !!photoGate.alreadyHadPhoto,
+      photoBypassed: !!photoGate.bypassed,
+      photoUrl: photoGate.photoUrl || null
     });
   } catch (e) {
     next(e);

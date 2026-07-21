@@ -8,7 +8,8 @@ const CATEGORY_DEFINITIONS = {
   payroll_billing: { label: 'Payroll & Billing', description: 'Claims, notes, payroll, expenses, and billing.', icon: '💳', color: '#0f766e' },
   onboarding_hiring: { label: 'Onboarding & Hiring', description: 'Hiring, pre-hire, and onboarding workflows.', icon: '🤝', color: '#9333ea' },
   supervision_programs: { label: 'Supervision & Programs', description: 'Supervision milestones, programs, and clubs.', icon: '🎯', color: '#4f46e5' },
-  recognition_announcements: { label: 'Recognition & Announcements', description: 'Kudos, surveys, milestones, and company news.', icon: '📣', color: '#ca8a04' }
+  recognition_announcements: { label: 'Recognition & Announcements', description: 'Kudos, surveys, milestones, and company news.', icon: '📣', color: '#ca8a04' },
+  marketing: { label: 'Marketing', description: 'Event photos and other marketing assets from the field.', icon: '📷', color: '#db2777' }
 };
 
 const TYPES_BY_CATEGORY = {
@@ -75,6 +76,10 @@ const TYPES_BY_CATEGORY = {
   recognition_announcements: [
     'birthday_announcement', 'anniversary_announcement', 'kudos_received',
     'kudos_earned_admin_digest', 'survey_completed', 'agency_campaign_opt_out'
+  ],
+  marketing: [
+    'school_event_marketing_photo',
+    'school_event_marketing_photo_missing'
   ]
 };
 
@@ -97,6 +102,8 @@ const LABEL_OVERRIDES = {
   first_login: 'User first login',
   credential_expired_blocking: 'Credential expired — access blocked',
   school_primary_password_reset_sent: 'School password reset sent',
+  school_event_marketing_photo: 'School event photo',
+  school_event_marketing_photo_missing: 'School event photo not provided',
   presence_return_overdue_nudge: 'Return status overdue',
   task_comment_mention: 'Mentioned in a task comment',
   support_ticket_forwarded_to_provider: 'Support ticket forwarded to you',
@@ -199,7 +206,8 @@ const MANAGER_RELEVANT = new Set([
 const OPERATIONS_RELEVANT = new Set([
   ...MANAGER_RELEVANT,
   'paperwork_received', 'client_school_roi_link_generated',
-  'client_school_roi_link_copied', 'company_event_registration_submitted'
+  'client_school_roi_link_copied', 'company_event_registration_submitted',
+  'school_event_marketing_photo', 'school_event_marketing_photo_missing'
 ]);
 
 const GUARDIAN_RELEVANT = new Set([
@@ -262,7 +270,8 @@ const OPERATIONS_ESSENTIAL = new Set([
 
 const ADMINISTRATIVE_ESSENTIAL = new Set([
   ...OPERATIONS_ESSENTIAL,
-  'status_expired', 'first_login_pending', 'user_activity_digest'
+  'status_expired', 'first_login_pending', 'user_activity_digest',
+  'school_event_marketing_photo', 'school_event_marketing_photo_missing'
 ]);
 
 export function notificationRoleProfile(role) {
@@ -350,7 +359,8 @@ const SMS_CAPABLE = new Set([
 const PUSH_CAPABLE = new Set([
   ...SMS_CAPABLE,
   'new_packet_uploaded', 'hiring_task_assigned', 'task_comment_mention',
-  'sstc_club_member_application_pending', 'sstc_club_invite_request'
+  'sstc_club_member_application_pending', 'sstc_club_invite_request',
+  'school_event_marketing_photo', 'school_event_marketing_photo_missing'
 ]);
 
 function humanize(value) {

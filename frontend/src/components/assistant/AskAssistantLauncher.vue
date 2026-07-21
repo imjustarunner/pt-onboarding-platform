@@ -7,7 +7,7 @@
       :aria-expanded="open"
       aria-label="Ask assistant"
       title="Ask anything — hover or ⌘/Ctrl+Shift+A"
-      @click="toggle"
+      @click="onLauncherClick"
       @focus="scheduleOpen"
     >
       <span class="aal-btn-glow" aria-hidden="true" />
@@ -24,19 +24,20 @@
       </span>
     </button>
 
-    <AskAssistantPanel :open="open" @close="close" />
+    <AskAssistantPanel :open="open" @close="closeAssistant" />
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted } from 'vue';
 import AskAssistantPanel from './AskAssistantPanel.vue';
 import { useUserPreferencesStore } from '../../store/userPreferences';
+import { useAskAssistant } from '../../composables/useAskAssistant';
 
 const OPEN_DELAY_MS = 300;
 
 const prefsStore = useUserPreferencesStore();
-const open = ref(false);
+const { open, close: closeAssistant, toggle: toggleAssistant, show: showAssistant } = useAskAssistant();
 let hoverOpenTimer = null;
 
 function clearHoverTimer() {
@@ -51,8 +52,13 @@ function scheduleOpen() {
   if (prefsStore.navHoverMenusEnabled === false) return;
   clearHoverTimer();
   hoverOpenTimer = setTimeout(() => {
-    open.value = true;
+    showAssistant();
   }, OPEN_DELAY_MS);
+}
+
+function onLauncherClick() {
+  clearHoverTimer();
+  toggleAssistant();
 }
 
 function handleEnter() {
@@ -63,20 +69,11 @@ function handleLeave() {
   if (!open.value) clearHoverTimer();
 }
 
-function toggle() {
-  clearHoverTimer();
-  open.value = !open.value;
-}
-
-function close() {
-  open.value = false;
-}
-
 function handleKeydown(e) {
   const key = String(e.key || '').toLowerCase();
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && key === 'a') {
     e.preventDefault();
-    toggle();
+    toggleAssistant();
   }
 }
 

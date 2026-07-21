@@ -1184,11 +1184,23 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       }
     } else if (r.tool === 'searchUsers') {
       const list = r.result?.results || [];
-      if (!list.length) lines.push('No users matched that search in your agency.');
-      else if (list.length === 1 && openedUser) {
-        /* openEntity covers it */
+      const lookupId = r.result?.lookupByUserId;
+      if (!list.length) {
+        lines.push(
+          lookupId
+            ? `No user #${lookupId} found in your agency.`
+            : 'No users matched that search in your agency.'
+        );
+      } else if (list.length === 1 && openedUser) {
+        const u = list[0];
+        const role = u.role ? ` · ${u.role}` : '';
+        const email = u.email ? ` · ${u.email}` : '';
+        lines.push(`User #${u.id}: ${u.name || u.email || 'Unknown'}${role}${email}`);
       } else if (list.length === 1) {
-        lines.push(`Found: ${list[0].name || list[0].email || 'user'}. Want to open their profile?`);
+        const u = list[0];
+        const role = u.role ? ` · ${u.role}` : '';
+        const email = u.email ? ` · ${u.email}` : '';
+        lines.push(`User #${u.id}: ${u.name || u.email || 'Unknown'}${role}${email}`);
       } else {
         const names = list.map((x) => x.name || x.email).join(', ');
         lines.push(`Found ${list.length} people — ${names}. Which profile did you want?`);
@@ -2287,7 +2299,7 @@ export const assist = async (req, res, next) => {
       // For "start meeting with X" we DON'T auto-open a user profile;
       // instead the controller below converts a single match into a
       // startMeeting confirmation card.
-      if (!explicit.followUpStartMeeting) {
+      if (!explicit.followUpStartMeeting && !explicit.suppressUserAutoOpen) {
         await trySingleOpen('searchUsers', 'user');
       }
 

@@ -404,11 +404,16 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
   }
 
   const [evRows] = await poolConn.execute(
-    `SELECT skill_builder_direct_hours FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
+    `SELECT skill_builder_direct_hours, event_type FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
     [eventId, agencyId]
   );
+  const eventType = String(evRows?.[0]?.event_type || '').toLowerCase();
+  const schoolPortalEvent = eventType.startsWith('school_') || source === 'school_events_kiosk';
   const directConfigured = Number(evRows?.[0]?.skill_builder_direct_hours);
-  const directHoursCap = Number.isFinite(directConfigured) && directConfigured > 0 ? directConfigured : 0;
+  // School events are always indirect (no direct-pay split).
+  const directHoursCap = schoolPortalEvent
+    ? 0
+    : (Number.isFinite(directConfigured) && directConfigured > 0 ? directConfigured : 0);
 
   const tIn = new Date(lastIn.punched_at);
   const tOut = clockOutAt || new Date();
@@ -532,11 +537,16 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
   let directHoursCap = 0;
   if (agencyId) {
     const [evRows] = await pool.execute(
-      `SELECT skill_builder_direct_hours FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
+      `SELECT skill_builder_direct_hours, event_type FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
       [eid, agencyId]
     );
-    const configured = Number(evRows?.[0]?.skill_builder_direct_hours);
-    directHoursCap = Number.isFinite(configured) && configured > 0 ? configured : 0;
+    const eventType = String(evRows?.[0]?.event_type || '').toLowerCase();
+    if (eventType.startsWith('school_')) {
+      directHoursCap = 0;
+    } else {
+      const configured = Number(evRows?.[0]?.skill_builder_direct_hours);
+      directHoursCap = Number.isFinite(configured) && configured > 0 ? configured : 0;
+    }
   }
 
   const openByUser = new Map();

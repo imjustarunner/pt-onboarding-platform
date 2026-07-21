@@ -872,7 +872,8 @@ export function getToolSchemas() {
     },
     {
       name: 'searchUsers',
-      description: 'Search users in the current agency by name or email. Admin-only: providers cannot enumerate users.',
+      description:
+        'Search users in the current agency by name, email, or numeric user id (e.g. "516" or "who is user 516"). Admin-only: providers cannot enumerate users.',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -1896,6 +1897,38 @@ export async function executeToolCall({ req, toolCall }) {
     const query = str(args.query, 200);
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
     if (!query) return { ok: true, tool: name, result: { results: [] } };
+
+    const numericId = /^\d{1,10}$/.test(query.trim()) ? parseInt(query.trim(), 10) : null;
+    if (numericId) {
+      const [idRows] = await pool.execute(
+        `SELECT u.id,
+                u.first_name AS firstName,
+                u.last_name  AS lastName,
+                u.email,
+                u.role,
+                u.profile_photo_path AS profilePhotoPath
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+         WHERE u.id = ?
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
+         LIMIT 1`,
+        [agencyId, numericId]
+      );
+      const row = idRows?.[0];
+      if (row) {
+        const results = [{
+          id: row.id,
+          name: [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email,
+          role: row.role,
+          email: row.email,
+          profilePath: `/admin/users/${row.id}`
+        }];
+        return { ok: true, tool: name, result: { results, lookupByUserId: numericId } };
+      }
+      return { ok: true, tool: name, result: { results: [], lookupByUserId: numericId, note: `No user #${numericId} found in your agency.` } };
+    }
 
     const runQuery = async (likeArg) => {
       const [rs] = await pool.execute(

@@ -590,11 +590,9 @@ export async function createSchoolPortalEvent({
     enabled: staffingEnabled
   });
   const reportTime = parseSchoolEventWallTime(employeeReportTime);
-  // Default all-indirect for school-event kiosk payroll (cap 0 → only indirect claim).
-  const directHours =
-    skillBuilderDirectHours != null && Number.isFinite(Number(skillBuilderDirectHours))
-      ? Math.max(0, Number(skillBuilderDirectHours))
-      : 0;
+  // School events are always all-indirect (no direct-pay option).
+  const directHours = 0;
+  void skillBuilderDirectHours;
 
   const broadcastId = districtBroadcastId
     ? String(districtBroadcastId).trim().slice(0, 36) || null
@@ -875,14 +873,9 @@ export async function updateSchoolPortalEvent({
       : parseSchoolEventWallTime(employeeReportTime);
   }
 
-  let nextDirectHours =
-    existing.skill_builder_direct_hours != null && existing.skill_builder_direct_hours !== ''
-      ? Number(existing.skill_builder_direct_hours)
-      : 0;
-  if (skillBuilderDirectHours !== undefined && skillBuilderDirectHours !== null) {
-    const n = Number(skillBuilderDirectHours);
-    if (Number.isFinite(n) && n >= 0) nextDirectHours = n;
-  }
+  // School events are always all-indirect (no direct-pay option).
+  const nextDirectHours = 0;
+  void skillBuilderDirectHours;
 
   try {
     await pool.execute(

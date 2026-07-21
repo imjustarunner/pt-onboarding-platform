@@ -71,6 +71,23 @@ function parseDateHintFromPrompt(promptLower) {
   return null;
 }
 
+/** Extract numeric user id from "who is user 516", "user id 516", etc. */
+function parseUserIdFromPrompt(promptLower) {
+  const s = String(promptLower || '').toLowerCase().trim();
+  if (!s) return null;
+  const patterns = [
+    /\bwho\s+is\s+user\s*(?:id|#)?\s*(\d{1,10})\b/,
+    /\b(?:lookup|find|show|open)\s+user\s*(?:id|#)?\s*(\d{1,10})\b/,
+    /\buser\s*(?:id|#)\s*(\d{1,10})\b/,
+    /^user\s+(\d{1,10})\s*$/
+  ];
+  for (const re of patterns) {
+    const m = s.match(re);
+    if (m?.[1]) return String(m[1]);
+  }
+  return null;
+}
+
 /**
  * Extract a person name from presence follow-ups like
  * "how long has rachel been idle" / "is sarah away".
@@ -554,6 +571,35 @@ function catalogEntries() {
           intent: 'todays_workspace',
           capabilityId: 'workspace_open',
           toolCalls: [{ name: 'openTodaysWorkspace', args: { dateYmd: dateHint || today, activeOnly } }]
+        };
+      }
+    },
+    {
+      id: 'user_lookup',
+      audience: ['admin_like'],
+      group: 'Navigation and lookup',
+      prompt: 'Who is user 516?',
+      requiredToolsAll: ['searchUsers'],
+      subtitleTag: 'user lookup',
+      semanticExamples: [
+        'lookup user id 516',
+        'find user 516',
+        'show me user number 516',
+        'who is user id 516'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('searchUsers')) return false;
+        if (/\b(online|idle|away|available|working|team\s+presence)\b/.test(lower)) return false;
+        return Boolean(parseUserIdFromPrompt(lower));
+      },
+      buildIntent: (lower) => {
+        const userId = parseUserIdFromPrompt(lower);
+        if (!userId) return null;
+        return {
+          intent: 'user_lookup',
+          capabilityId: 'user_lookup',
+          suppressUserAutoOpen: true,
+          toolCalls: [{ name: 'searchUsers', args: { query: userId, limit: 5 } }]
         };
       }
     },

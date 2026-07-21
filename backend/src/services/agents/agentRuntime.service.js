@@ -79,7 +79,7 @@ function buildSystemPrompt({ includeSearch, agentConfig, user }) {
     '  - Wants to navigate to a page  → navigateTo({ routeName })',
     '  - Names a school / portal      → searchSchools({ query })',
     '  - Names an event / program     → searchEvents({ query })',
-    '  - Names a person to look up    → searchUsers({ query })  (if allowed)',
+    '  - Names a person to look up    → searchUsers({ query })  (if allowed; numeric id ok)',
     '  - Asks about own payroll / pay → getMyPayrollSummary({})',
     '  - Asks about own activity log  → listMyRecentActivity({ limit?, since?, actionType? })',
     '  - Asks about agency audit log  → searchAgencyActivity({...}) or getAgencyActivityStats({...})',

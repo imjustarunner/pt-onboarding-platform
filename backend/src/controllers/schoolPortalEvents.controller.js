@@ -258,12 +258,8 @@ function parseSchoolEventBody(body) {
   const timezone = body?.timezone;
   const statusRaw = body?.schoolEventStatus ?? body?.school_event_status ?? body?.status;
   const reportRaw = body?.employeeReportTime ?? body?.employee_report_time;
-  const directRaw = body?.skillBuilderDirectHours ?? body?.skill_builder_direct_hours;
-  let skillBuilderDirectHours;
-  if (directRaw !== undefined && directRaw !== null && directRaw !== '') {
-    const n = Number(directRaw);
-    skillBuilderDirectHours = Number.isFinite(n) && n >= 0 ? n : undefined;
-  }
+  // School portal events are always paid as indirect — never accept a direct hours cap.
+  const skillBuilderDirectHours = 0;
   const minRaw = body?.minProvidersPerSession ?? body?.min_providers_per_session;
   let minProvidersPerSession;
   if (minRaw !== undefined && minRaw !== null && minRaw !== '') {

@@ -114,20 +114,6 @@
             Calendar-only types (fall/spring check-in, first day, holidays, days off) are not attendable and do not open provider staffing.
           </p>
 
-          <label v-if="canEditPayrollFields" class="field">
-            <span class="lbl">Direct hours cap (payroll)</span>
-            <input
-              v-model.number="form.skillBuilderDirectHours"
-              type="number"
-              min="0"
-              step="0.25"
-              class="input"
-            />
-            <span class="hint">
-              Defaults to 0 (all time posts as indirect). Only payroll and admin can change this.
-            </span>
-          </label>
-
           <label class="field">
             <span class="lbl">Event details link (optional)</span>
             <input
@@ -275,12 +261,6 @@ const displaySchoolName = computed(() => {
   return fromEdit || '';
 });
 
-const canEditPayrollFields = computed(() => {
-  const role = String(authStore.user?.role || '').toLowerCase();
-  if (role === 'super_admin' || role === 'admin') return true;
-  return !!authStore.user?.capabilities?.canManagePayroll;
-});
-
 /** Direct assign-on-create: admin / support / super_admin only (not school staff or providers). */
 const canDirectAssignRole = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -296,7 +276,6 @@ const form = reactive({
   startTime: '17:00',
   endTime: '19:00',
   minProvidersPerSession: 2,
-  skillBuilderDirectHours: 0,
   schoolEventStatus: 'scheduled',
   outreachTableInvited: false,
   flierFileUrl: '',
@@ -517,9 +496,6 @@ const submit = async () => {
     if (!isCalendarOnlyCategory.value) {
       payload.minProvidersPerSession = Math.max(1, Math.min(99, Number(form.minProvidersPerSession) || 2));
     }
-    if (canEditPayrollFields.value) {
-      payload.skillBuilderDirectHours = Number(form.skillBuilderDirectHours) || 0;
-    }
     let res;
     if (props.editEvent?.id && form.applyToDistrict && canEditDistrictWide.value) {
       res = await api.put(`/school-portal/school-events/district/${encodeURIComponent(districtBroadcastId.value)}`, {
@@ -595,10 +571,6 @@ const hydrateFromEdit = () => {
   form.reportTime = wallTimeToInput(e.employeeReportTime);
   form.startTime = toLocalTimeInput(e.startsAt) || '17:00';
   form.endTime = toLocalTimeInput(e.endsAt) || '19:00';
-  form.skillBuilderDirectHours =
-    e.skillBuilderDirectHours != null && e.skillBuilderDirectHours !== ''
-      ? Number(e.skillBuilderDirectHours)
-      : 0;
   form.minProvidersPerSession =
     e.minProvidersPerSession != null && e.minProvidersPerSession !== ''
       ? Math.max(1, Number(e.minProvidersPerSession) || 2)

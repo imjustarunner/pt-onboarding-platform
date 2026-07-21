@@ -2320,6 +2320,7 @@ export const updateUser = async (req, res, next) => {
       hasSkillBuilderCoordinatorAccess,
       hasPayrollAccess,
       hasBillingAccess,
+      isMarketingContact,
       hasPlatformSupport,
       hasCredentialingAccess,
       isHourlyWorker,
@@ -2819,6 +2820,13 @@ export const updateUser = async (req, res, next) => {
       }
       updateData.hasBillingAccess = Boolean(hasBillingAccess);
     }
+    // Marketing contact (receives school-event / field marketing photo notifications)
+    if (isMarketingContact !== undefined) {
+      if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Only admins or super admins can change Marketing contact' } });
+      }
+      updateData.isMarketingContact = Boolean(isMarketingContact);
+    }
     // Platform support team (super_admin only — not full platform HQ powers)
     if (hasPlatformSupport !== undefined) {
       if (req.user.role !== 'super_admin') {
@@ -3135,6 +3143,78 @@ export const updateUser = async (req, res, next) => {
         }
       } finally {
         if (billingConn) billingConn.release();
+      }
+    }
+
+    // When isMarketingContact was provided, set it for all agencies for this user
+    if (isMarketingContact !== undefined) {
+      let marketingConn;
+      try {
+        marketingConn = await pool.getConnection();
+        await marketingConn.beginTransaction();
+        const targetUserId = parseInt(id, 10);
+        const actorUserId = Number(req.user?.id || 0);
+        const nextEnabled = !!isMarketingContact;
+
+        const [rows] = await marketingConn.execute(
+          'SELECT agency_id, is_marketing_contact FROM user_agencies WHERE user_id = ?',
+          [targetUserId]
+        );
+
+        await marketingConn.execute(
+          'UPDATE user_agencies SET is_marketing_contact = ? WHERE user_id = ?',
+          [nextEnabled ? 1 : 0, targetUserId]
+        );
+
+        for (const row of (rows || [])) {
+          const agencyId = Number(row?.agency_id || 0);
+          if (!agencyId) continue;
+          const prevEnabled = normalizeBoolFlag(row?.is_marketing_contact);
+          if (prevEnabled === nextEnabled) continue;
+          await marketingConn.execute(
+            `INSERT INTO admin_audit_log
+             (action_type, actor_user_id, target_user_id, module_id, track_id, agency_id, metadata)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              nextEnabled ? 'grant_marketing_contact' : 'revoke_marketing_contact',
+              actorUserId,
+              targetUserId,
+              null,
+              null,
+              agencyId,
+              JSON.stringify({
+                previous: prevEnabled,
+                next: nextEnabled,
+                source: 'user_profile_toggle',
+                scope: 'all_agencies'
+              })
+            ]
+          );
+        }
+
+        await marketingConn.commit();
+      } catch (marketingErr) {
+        const isSchemaGap =
+          marketingErr?.code === 'ER_BAD_FIELD_ERROR' ||
+          marketingErr?.code === 'ER_NO_SUCH_TABLE';
+        if (isSchemaGap) {
+          console.warn('Skipping marketing contact update (schema not ready):', marketingErr?.message || marketingErr);
+          updateWarnings.push(
+            'Marketing contact update was skipped because the marketing contact column is not available in this environment.'
+          );
+        } else {
+          if (marketingConn) {
+            try {
+              await marketingConn.rollback();
+            } catch {
+              // ignore
+            }
+          }
+          console.error('Error setting marketing contact for all agencies:', marketingErr);
+          return res.status(500).json({ error: { message: 'Failed to update marketing contact' } });
+        }
+      } finally {
+        if (marketingConn) marketingConn.release();
       }
     }
 
@@ -8222,6 +8302,7 @@ export const getAccountInfo = async (req, res, next) => {
         : undefined, // Only include for eligible roles
       hasPayrollAccess: (await User.listPayrollAgencyIds(userIdInt)).length > 0,
       hasBillingAccess: (await User.listBillingAgencyIds(userIdInt)).length > 0,
+      isMarketingContact: (await User.listMarketingAgencyIds(userIdInt)).length > 0,
       hasPlatformSupport: !!(user.has_platform_support === 1 || user.has_platform_support === true || user.has_platform_support === '1'),
       hasCredentialingAccess: (await User.listCredentialingAgencyIds(userIdInt)).length > 0,
       isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
@@ -10249,6 +10330,7 @@ export const getProfileOverview = async (req, res, next) => {
           skillBuilderEligible: !!(user.skill_builder_eligible === 1 || user.skill_builder_eligible === true || user.skill_builder_eligible === '1'),
           hasPayrollAccess: (await User.listPayrollAgencyIds(targetId)).length > 0,
           hasBillingAccess: (await User.listBillingAgencyIds(targetId)).length > 0,
+          isMarketingContact: (await User.listMarketingAgencyIds(targetId)).length > 0,
           hasCredentialingAccess: (await User.listCredentialingAgencyIds(targetId)).length > 0,
           isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
       hourlyDualRateEnabled: !!(user.hourly_dual_rate_enabled === 1 || user.hourly_dual_rate_enabled === true || user.hourly_dual_rate_enabled === '1'),

@@ -1,9 +1,12 @@
 <template>
+  <!-- Overlay mode teleports to body so navbar overflow/transform cannot clip the drawer on tablet/mobile. -->
+  <Teleport to="body" :disabled="isEmbedded">
   <div
     v-if="open"
     class="aap-root"
-    :class="{ 'aap-embedded': isEmbedded }"
+    :class="{ 'aap-embedded': isEmbedded, 'aap-overlay': !isEmbedded }"
     :role="isEmbedded ? 'region' : 'dialog'"
+    aria-modal="true"
     aria-label="Ask assistant"
   >
     <div v-if="!isEmbedded" class="aap-backdrop" @click="close" />
@@ -371,6 +374,7 @@
       </footer>
     </aside>
   </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -2313,5 +2317,30 @@ onUnmounted(() => {
   border-radius: 4px;
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
+}
+
+/* Phone / tablet: full-screen drawer with safe areas (overlay is teleported to body). */
+@media (max-width: 900px) {
+  .aap-root.aap-overlay .aap-drawer {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    box-sizing: border-box;
+  }
+
+  .aap-root.aap-overlay .aap-foot-hint {
+    padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
+  }
 }
 </style>

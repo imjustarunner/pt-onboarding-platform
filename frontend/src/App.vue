@@ -1214,6 +1214,14 @@
             <strong>{{ indirectTimeSessionStore.formattedElapsed }}</strong>
             <span>Log Time →</span>
           </button>
+          <button
+            v-if="isAuthenticated"
+            type="button"
+            class="mobile-nav-link mobile-nav-link-assistant"
+            @click="openAssistantFromMobile"
+          >
+            Assistant
+          </button>
           <div class="mobile-nav-links">
             <div v-if="showSstcSurfaceSwitcher" class="mobile-surface-switcher">
               <label class="mobile-surface-switcher-label" for="sstc-surface-select-mobile">View</label>
@@ -2195,6 +2203,7 @@ import { useReminderSnooze, isLoginNotificationDismissed, markLoginNotificationD
 import WeatherChip from './components/WeatherChip.vue';
 import IndirectTimeClockChip from './components/IndirectTimeClockChip.vue';
 import AskAssistantLauncher from './components/assistant/AskAssistantLauncher.vue';
+import { useAskAssistant } from './composables/useAskAssistant';
 import { useIndirectTimeSessionStore } from './store/indirectTimeSession';
 import SessionLockScreen from './components/SessionLockScreen.vue';
 import InactivityWarningModal from './components/InactivityWarningModal.vue';
@@ -3431,6 +3440,13 @@ const closeMobileMenu = () => {
   mobileMyClubsExpanded.value = false;
   mobileActiveSeasonsExpanded.value = false;
   affiliationsNavExpanded.value = false;
+};
+
+const { show: showAskAssistant } = useAskAssistant();
+
+const openAssistantFromMobile = () => {
+  closeMobileMenu();
+  showAskAssistant();
 };
 
 const affiliationMembershipOrgs = computed(() => {
@@ -7559,6 +7575,21 @@ button.nav-dropdown-button-link:hover {
   border: none;
   font: inherit;
   cursor: pointer;
+}
+
+.mobile-nav-link-assistant {
+  width: calc(100% - 40px);
+  margin: 0 20px 12px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  font-weight: 600;
+  border-left: 3px solid rgba(45, 212, 191, 0.85);
+}
+
+.mobile-nav-link-assistant:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 /* ── Active-season quick-access link (mobile sidebar) ─────────── */

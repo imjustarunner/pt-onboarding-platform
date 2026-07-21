@@ -1290,6 +1290,29 @@ class StorageService {
    * by the school marketing campaign feature; mirrors the school-public-doc
    * pipeline so we get GCS persistence + signed-URL serving via /uploads/*.
    */
+  static async saveSchoolEventStaffPhoto({ agencyId, eventId, userId, fileBuffer, filename, contentType }) {
+    const aid = parseInt(agencyId, 10);
+    const eid = parseInt(eventId, 10);
+    const uid = parseInt(userId, 10);
+    const sanitizedFilename = this.sanitizeFilename(filename || `school-event-photo-${Date.now()}.jpg`);
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const key = `uploads/school_event_staff_photos/agency_${aid || 'unknown'}/event_${eid || 'unknown'}/user_${uid || 'unknown'}/${unique}-${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    await file.save(fileBuffer, {
+      contentType: contentType || 'image/jpeg',
+      metadata: {
+        agencyId: String(aid || ''),
+        companyEventId: String(eid || ''),
+        providerUserId: String(uid || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
   static async saveAgencyMarketingFlier({ agencyId, splashId, uploadedByUserId, fileBuffer, filename, contentType }) {
     const aid = parseInt(agencyId, 10);
     const sid = parseInt(splashId, 10) || 'pending';

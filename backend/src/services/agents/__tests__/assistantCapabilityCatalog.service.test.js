@@ -80,6 +80,7 @@ test('deterministic acceptance matrix for top prompts', async () => {
     ['who is booked in the windchime office today', 'listOfficeRoster'],
     ['whos working right now', 'listTeamPresence'],
     ['how long has rachel been idle', 'listTeamPresence'],
+    ['who is user 516', 'searchUsers'],
     ['who rsvp for this friday event', 'getEventResponses'],
     ['what activity happened in my agency this week', 'searchAgencyActivity'],
     ['show me what i did today', 'listMyRecentActivity'],
@@ -253,6 +254,17 @@ test('soft routing matches training kb open from loose phrasing', async () => {
   });
   assert.ok(intent, 'Expected soft or hard route for handbook upload phrasing');
   assert.equal(intent.toolCalls?.[0]?.name, 'navigateTo');
+});
+
+test('user lookup by id extracts numeric id and skips profile auto-open', async () => {
+  const tools = setOf('searchUsers', 'openEntity');
+  const intent = await matchDeterministicCapabilityIntent({
+    prompt: 'Who is user 516',
+    allowedToolNames: tools
+  });
+  assert.equal(intent?.toolCalls?.[0]?.name, 'searchUsers');
+  assert.equal(intent?.toolCalls?.[0]?.args?.query, '516');
+  assert.equal(intent?.suppressUserAutoOpen, true);
 });
 
 test('presence follow-up extracts name query for idle duration', async () => {
