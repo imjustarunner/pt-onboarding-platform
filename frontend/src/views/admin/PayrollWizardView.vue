@@ -166,12 +166,13 @@
                       <div v-if="uploadResults.current" class="hint pw-ok">{{ uploadResults.current }}</div>
                     </div>
 
-                    <!-- Prior period slot (Run 2) -->
+                    <!-- Prior period slot (Run 2) — same as Payroll Process Changes “Upload Run 2 only” -->
                     <div class="field">
                       <label>Last pay period — today’s report (Run 2)</label>
                       <div class="hint muted" style="margin-bottom: 6px;">
-                        Version 2 for
+                        Today’s export of
                         <strong>{{ priorPeriod ? periodRangeLabel(priorPeriod) : 'prior period' }}</strong>
+                        (same as Process Changes → Upload Run 2). Late-note differences go to the current period.
                       </div>
                       <div v-if="existingImports.prior && !uploadFiles.prior" class="pw-existing-import">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>
@@ -197,8 +198,9 @@
                     <div class="field">
                       <label>Two pay periods ago — today’s report (Run 3)</label>
                       <div class="hint muted" style="margin-bottom: 6px;">
-                        Version 3 for
+                        Today’s export of
                         <strong>{{ twoAgoPeriod ? periodRangeLabel(twoAgoPeriod) : 'period two back' }}</strong>
+                        (same as Process Changes → Upload Run 3). Late-note differences go to the current period.
                       </div>
                       <div v-if="existingImports.twoAgo && !uploadFiles.twoAgo" class="pw-existing-import">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>
@@ -620,18 +622,48 @@ const clearUploadSlot = (slot) => {
   // (clearUploadSlot is called after "Clear" — banner will reappear since uploadFiles slot is null again)
 };
 
-const importFileToPeriod = async (periodId, file, label, existingImport = null) => {
+/** Current period import — same endpoint as Payroll page raw import. */
+const importCurrentFile = async (file, existingImport = null) => {
   const fd = new FormData();
   fd.append('file', file);
-  // When this wizard slot already has its expected run, replace that import.
-  // Otherwise POST /import assigns the next free slot (Run 2 / Run 3 catch-up).
+  const periodId = selectedPeriodId.value;
   const resp = existingImport?.id
     ? await api.post(`/payroll/periods/${periodId}/imports/${existingImport.id}/replace`, fd)
     : await api.post(`/payroll/periods/${periodId}/import`, fd);
   const inserted = resp.data?.inserted ?? resp.data?.rowCount ?? '?';
   return existingImport?.id
-    ? `${label}: replaced with ${inserted} rows.`
-    : `${label}: imported ${inserted} rows.`;
+    ? `Current: replaced with ${inserted} rows.`
+    : `Current: imported ${inserted} rows.`;
+};
+
+/**
+ * Run 2 / Run 3 catch-up persist — identical to PayrollView uploadRun2Only / uploadRun3Only.
+ * Saves the run on the source (prior) period for compare; late notes are applied to the
+ * current period later via Process Changes / batch catch-up (destinationPeriodId).
+ */
+const persistCatchUpRun = async ({ sourcePeriodId, file, label }) => {
+  const fd = new FormData();
+  fd.append('file2', file);
+  fd.append('agencyId', String(agencyId.value));
+  fd.append('priorPeriodId', String(sourcePeriodId));
+  fd.append('useDbBaseline', 'true');
+  fd.append('persistOnly', 'true');
+  const resp = await api.post('/payroll/periods/batch-catch-up', fd);
+  if (resp.data?.persisted === false) {
+    return `${label}: already saved for this period.`;
+  }
+  const slot = resp.data?.slotNumber ?? '?';
+  const inserted = resp.data?.inserted ?? '?';
+  return `${label}: saved Run ${slot} (${inserted} rows).`;
+};
+
+/** Replace an existing catch-up run — same as Manage Imports → Replace. */
+const replaceCatchUpRun = async ({ sourcePeriodId, importId, file, label }) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  const resp = await api.post(`/payroll/periods/${sourcePeriodId}/imports/${importId}/replace`, fd);
+  const inserted = resp.data?.inserted ?? resp.data?.rowCount ?? '?';
+  return `${label}: replaced with ${inserted} rows.`;
 };
 
 const uploadAllReports = async () => {
@@ -642,32 +674,45 @@ const uploadAllReports = async () => {
     const results = { ...uploadResults.value };
 
     if (uploadFiles.value.current && selectedPeriodId.value) {
-      results.current = await importFileToPeriod(
-        selectedPeriodId.value,
-        uploadFiles.value.current,
-        'Current',
-        existingImports.value.current
-      );
+      results.current = await importCurrentFile(uploadFiles.value.current, existingImports.value.current);
       uploadFiles.value = { ...uploadFiles.value, current: null };
     }
 
+    // Same path as Payroll → Process Changes → Upload Run 2 only
     if (uploadFiles.value.prior && priorPeriod.value?.id) {
-      results.prior = await importFileToPeriod(
-        priorPeriod.value.id,
-        uploadFiles.value.prior,
-        'Prior Run 2',
-        existingImports.value.prior
-      );
+      if (existingImports.value.prior?.id) {
+        results.prior = await replaceCatchUpRun({
+          sourcePeriodId: priorPeriod.value.id,
+          importId: existingImports.value.prior.id,
+          file: uploadFiles.value.prior,
+          label: 'Prior Run 2'
+        });
+      } else {
+        results.prior = await persistCatchUpRun({
+          sourcePeriodId: priorPeriod.value.id,
+          file: uploadFiles.value.prior,
+          label: 'Prior Run 2'
+        });
+      }
       uploadFiles.value = { ...uploadFiles.value, prior: null };
     }
 
+    // Same path as Payroll → Process Changes → Upload Run 3 only
     if (uploadFiles.value.twoAgo && twoAgoPeriod.value?.id) {
-      results.twoAgo = await importFileToPeriod(
-        twoAgoPeriod.value.id,
-        uploadFiles.value.twoAgo,
-        'Two-ago Run 3',
-        existingImports.value.twoAgo
-      );
+      if (existingImports.value.twoAgo?.id) {
+        results.twoAgo = await replaceCatchUpRun({
+          sourcePeriodId: twoAgoPeriod.value.id,
+          importId: existingImports.value.twoAgo.id,
+          file: uploadFiles.value.twoAgo,
+          label: 'Two-ago Run 3'
+        });
+      } else {
+        results.twoAgo = await persistCatchUpRun({
+          sourcePeriodId: twoAgoPeriod.value.id,
+          file: uploadFiles.value.twoAgo,
+          label: 'Two-ago Run 3'
+        });
+      }
       uploadFiles.value = { ...uploadFiles.value, twoAgo: null };
     }
 
