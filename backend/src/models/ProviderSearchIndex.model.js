@@ -103,6 +103,52 @@ class ProviderSearchIndex {
       }
     }
 
+    // Add slot availability metadata so searchProviders can filter on it.
+    // If fieldKeys is set, we only do this when updating 'has_open_slots' to avoid redundancy.
+    if (!keys.length || keys.includes('has_open_slots')) {
+      // Find if this provider has any open slots at any school
+      const [slotRows] = await pool.execute(
+        `SELECT 1
+         FROM provider_school_assignments psa
+         JOIN agencies a ON a.id = psa.school_organization_id
+         WHERE psa.provider_user_id = ?
+           AND a.affiliated_agency_id = ?
+           AND psa.slots_available > 0
+           AND psa.is_active = TRUE
+         LIMIT 1`,
+        [uid, aid]
+      );
+      
+      await pool.execute(
+        `INSERT INTO provider_search_index
+         (agency_id, user_id, field_key, field_type, value_text, value_option)
+         VALUES (?, ?, 'has_open_slots', 'boolean', ?, NULL)`,
+        [aid, uid, slotRows.length > 0 ? 'true' : 'false']
+      );
+      
+      // Also index which schools they specifically have slots at
+      const [schoolRows] = await pool.execute(
+        `SELECT DISTINCT a.name
+         FROM provider_school_assignments psa
+         JOIN agencies a ON a.id = psa.school_organization_id
+         WHERE psa.provider_user_id = ?
+           AND a.affiliated_agency_id = ?
+           AND psa.slots_available > 0
+           AND psa.is_active = TRUE`,
+        [uid, aid]
+      );
+      
+      for (const row of schoolRows) {
+        if (!row.name) continue;
+        await pool.execute(
+          `INSERT INTO provider_search_index
+           (agency_id, user_id, field_key, field_type, value_text, value_option)
+           VALUES (?, ?, 'open_slot_location', 'text', ?, NULL)`,
+          [aid, uid, String(row.name).trim()]
+        );
+      }
+    }
+
     return { ok: true };
   }
 

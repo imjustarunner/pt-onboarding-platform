@@ -1118,9 +1118,11 @@ function catalogEntries() {
           toolCalls: [{
             name: 'searchProviders',
             args: {
-              query: locationQuery || '',
               limit: 5,
-              filters: [{ fieldKey: 'accepting_clients', op: 'eq', value: true }]
+              filters: [
+                { fieldKey: 'has_open_slots', op: 'equals', value: 'true' },
+                locationQuery ? { fieldKey: 'open_slot_location', op: 'textContains', value: locationQuery } : null
+              ].filter(Boolean)
             }
           }]
         };
