@@ -3366,11 +3366,13 @@ const portalsNestCard = computed(() => {
   if (isClubContext.value) return null;
   const children = [...providerPortalCards.value, ...portalsNestHubChildren.value];
   if (!children.length) return null;
+  const totalBadgeCount = children.reduce((sum, child) => sum + (Number(child.badgeCount) || 0), 0);
+
   return {
     id: 'portals_nest',
     label: portalsNestLabel.value || 'Portals',
     kind: 'nest',
-    badgeCount: children.length,
+    badgeCount: totalBadgeCount,
     children,
     iconUrl:
       brandingStore.getAdminQuickActionIconUrl('school_overview', cardIconOrgOverride.value) ||
@@ -3499,68 +3501,7 @@ const dashboardCards = computed(() => {
       // Top-nav Tools mega-menu is reserved for full portal roles; everyone else uses this nest.
       if (canAccessToolsAids.value) {
         const iconUrl = brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg);
-        cards.push({
-          id: 'tools_nest',
-          label: 'Tools',
-          kind: 'nest',
-          badgeCount: 3,
-          iconUrl,
-          description: 'Assessments & evaluations, games and activities, and AI tools.',
-          children: [
-            {
-              id: 'tools_assessments',
-              label: 'Assessments & Evaluations',
-              kind: 'content',
-              toolsTab: 'assessments',
-              badgeCount: 0,
-              iconUrl,
-              description: 'Guest and assigned assessments for discovery and progress.'
-            },
-            {
-              id: 'tools_games',
-              label: 'Games and Activities',
-              kind: 'content',
-              toolsTab: 'games',
-              badgeCount: 0,
-              iconUrl,
-              description: 'Interactive games and session activities for practice and counseling.'
-            },
-            {
-              id: 'tools_ai',
-              label: 'AI Tools',
-              kind: 'content',
-              toolsTab: 'ai',
-              badgeCount: 0,
-              iconUrl,
-              description: 'Note Aid and other AI documentation aids.'
-            }
-          ]
-        });
-      }
-      // My Shifts: also show for staff/facilitator/intern (shift program participants) when agency has flag
-      if (shiftProgramsEnabledForAgency.value && ['staff', 'facilitator', 'intern'].includes(role)) {
-        if (!cards.some((c) => c?.id === 'program_shifts')) {
-          cards.push({
-            id: 'program_shifts',
-            label: 'My Shifts',
-            kind: 'content',
-            badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
-            description: 'Program shift schedule, sign up, and call-off.'
-          });
-        }
-      }
-    } else if (canAccessToolsAids.value) {
-      // School staff and other employees still get the Tools hub when payroll surfaces are hidden.
-      const iconUrl = brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg);
-      cards.push({
-        id: 'tools_nest',
-        label: 'Tools',
-        kind: 'nest',
-        badgeCount: 3,
-        iconUrl,
-        description: 'Assessments & evaluations, games and activities, and AI tools.',
-        children: [
+        const children = [
           {
             id: 'tools_assessments',
             label: 'Assessments & Evaluations',
@@ -3588,7 +3529,70 @@ const dashboardCards = computed(() => {
             iconUrl,
             description: 'Note Aid and other AI documentation aids.'
           }
-        ]
+        ];
+        cards.push({
+          id: 'tools_nest',
+          label: 'Tools',
+          kind: 'nest',
+          badgeCount: children.reduce((acc, c) => acc + (Number(c.badgeCount) || 0), 0),
+          iconUrl,
+          description: 'Assessments & evaluations, games and activities, and AI tools.',
+          children
+        });
+      }
+      // My Shifts: also show for staff/facilitator/intern (shift program participants) when agency has flag
+      if (shiftProgramsEnabledForAgency.value && ['staff', 'facilitator', 'intern'].includes(role)) {
+        if (!cards.some((c) => c?.id === 'program_shifts')) {
+          cards.push({
+            id: 'program_shifts',
+            label: 'My Shifts',
+            kind: 'content',
+            badgeCount: 0,
+            iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
+            description: 'Program shift schedule, sign up, and call-off.'
+          });
+        }
+      }
+    } else if (canAccessToolsAids.value) {
+      // School staff and other employees still get the Tools hub when payroll surfaces are hidden.
+      const iconUrl = brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg);
+      const children = [
+        {
+          id: 'tools_assessments',
+          label: 'Assessments & Evaluations',
+          kind: 'content',
+          toolsTab: 'assessments',
+          badgeCount: 0,
+          iconUrl,
+          description: 'Guest and assigned assessments for discovery and progress.'
+        },
+        {
+          id: 'tools_games',
+          label: 'Games and Activities',
+          kind: 'content',
+          toolsTab: 'games',
+          badgeCount: 0,
+          iconUrl,
+          description: 'Interactive games and session activities for practice and counseling.'
+        },
+        {
+          id: 'tools_ai',
+          label: 'AI Tools',
+          kind: 'content',
+          toolsTab: 'ai',
+          badgeCount: 0,
+          iconUrl,
+          description: 'Note Aid and other AI documentation aids.'
+        }
+      ];
+      cards.push({
+        id: 'tools_nest',
+        label: 'Tools',
+        kind: 'nest',
+        badgeCount: children.reduce((acc, c) => acc + (Number(c.badgeCount) || 0), 0),
+        iconUrl,
+        description: 'Assessments & evaluations, games and activities, and AI tools.',
+        children
       });
     }
     cards.push({
