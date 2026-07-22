@@ -511,12 +511,21 @@ function withPromotedExamples(entries, examplesById) {
  *
  * @param {{ prompt: string, allowedToolNames: Set<string>, callGemini?: Function }} args
  */
-export async function matchSemanticCapabilityIntent({ prompt, allowedToolNames, callGemini } = {}) {
+export async function matchSemanticCapabilityIntent({
+  prompt,
+  allowedToolNames,
+  callGemini,
+  placementKey,
+  routeName
+} = {}) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower) return null;
   if (looksLikeServiceCodeQuery(lower) || extractServiceCodes(lower).length) return null;
 
-  let candidates = catalogEntries().filter((entry) => isSemanticRoutableEntry(entry, allowedToolNames));
+  let candidates = placementSortEntries(
+    catalogEntries().filter((entry) => isSemanticRoutableEntry(entry, allowedToolNames)),
+    { placementKey, routeName }
+  );
   if (!candidates.length) return null;
 
   try {
@@ -610,11 +619,43 @@ export function rankSemanticCapabilityMatches({ prompt, allowedToolNames }) {
  * Hard matchers first, then TF–IDF + Gemini catalog router.
  * Async because Gemini verify may run after hard matchers miss.
  */
+const USER_MANAGER_DEMOTED_IDS = new Set([
+  'office_roster',
+  'office_schedule',
+  'agency_activity',
+  'event_rsvps',
+  'my_activity'
+]);
+
+function isUserManagerPlacement({ placementKey, routeName } = {}) {
+  const p = String(placementKey || '').trim().toLowerCase();
+  const r = String(routeName || '').trim().toLowerCase();
+  return (
+    p === 'user_manager' ||
+    r === 'usermanager' ||
+    r === 'organizationusermanager'
+  );
+}
+
+function placementSortEntries(entries, { placementKey, routeName } = {}) {
+  if (!isUserManagerPlacement({ placementKey, routeName })) return entries;
+  return [...entries].sort((a, b) => {
+    const rank = (e) => {
+      if (e?.peopleBucket || e?.group === 'People / directory') return 0;
+      if (USER_MANAGER_DEMOTED_IDS.has(String(e?.id || ''))) return 2;
+      return 1;
+    };
+    return rank(a) - rank(b);
+  });
+}
+
 export async function matchDeterministicCapabilityIntent({
   prompt,
   allowedToolNames,
   callGemini,
-  forceCapabilityId
+  forceCapabilityId,
+  placementKey,
+  routeName
 } = {}) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower) return null;
@@ -657,7 +698,8 @@ export async function matchDeterministicCapabilityIntent({
     };
   }
 
-  for (const entry of catalogEntries()) {
+  const ordered = placementSortEntries(catalogEntries(), { placementKey, routeName });
+  for (const entry of ordered) {
     if (Array.isArray(entry.requiredToolsAll) && !canUseAll(entry.requiredToolsAll, allowedToolNames)) continue;
     if (Array.isArray(entry.requiredToolsAny) && !canUseAny(entry.requiredToolsAny, allowedToolNames)) continue;
     if (typeof entry.matcher !== 'function') continue;
@@ -667,7 +709,13 @@ export async function matchDeterministicCapabilityIntent({
     if (intent) return intent;
   }
   // Semantic catalog routing for read/nav capabilities only.
-  return matchSemanticCapabilityIntent({ prompt: lower, allowedToolNames, callGemini });
+  return matchSemanticCapabilityIntent({
+    prompt: lower,
+    allowedToolNames,
+    callGemini,
+    placementKey,
+    routeName
+  });
 }
 
 function catalogEntries() {
@@ -725,10 +773,11 @@ function catalogEntries() {
     {
       id: 'user_lookup',
       audience: ['admin_like'],
-      group: 'Navigation and lookup',
+      group: 'People / directory',
       prompt: 'Who is user 516?',
       requiredToolsAll: ['searchUsers'],
       subtitleTag: 'user lookup',
+      peopleBucket: true,
       semanticExamples: [
         'lookup user id 516',
         'find user 516',
@@ -748,6 +797,131 @@ function catalogEntries() {
           capabilityId: 'user_lookup',
           suppressUserAutoOpen: true,
           toolCalls: [{ name: 'searchUsers', args: { query: userId, limit: 5 } }]
+        };
+      }
+    },
+    {
+      // Directory / people asks — prefer this bucket for User Manager placement.
+      // Add new people-question matchers and semanticExamples here (additive).
+      id: 'people_directory_lookup',
+      audience: ['admin_like'],
+      group: 'People / directory',
+      prompt: 'Find counselors in Colorado Springs',
+      requiredToolsAny: ['searchUsers', 'searchProviders'],
+      subtitleTag: 'people directory',
+      peopleBucket: true,
+      semanticExamples: [
+        'find counselors in colorado springs',
+        'show me active school staff',
+        'who has lpcc credentials',
+        'find providers with lpc',
+        'list school staff in my agency',
+        'search for clinicians named jordan',
+        'find employees by credential',
+        'who are the guardians',
+        'find a therapist in denver',
+        'show me staff with lcsw'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('searchUsers') && !allowedTools.has('searchProviders')) return false;
+        if (/\b(online|idle|away|working|team\s+presence|office roster|booked in)\b/.test(lower)) return false;
+        if (/\b(start|schedule|cancel|reschedule)\b/.test(lower) && /\b(meeting|call|huddle)\b/.test(lower)) return false;
+        if (parseUserIdFromPrompt(lower)) return false;
+        if (/\b(intake|openings?|availab|open slots?)\b/.test(lower)) return false;
+        if (/\b(who|find|show|list|search|lookup|look up)\b/.test(lower) === false) return false;
+
+        const peopleNoun =
+          /\b(counselor|counselors|therapist|therapists|clinician|clinicians|provider|providers|employee|employees|staff|school\s+staff|guardian|guardians|people|users?)\b/.test(
+            lower
+          );
+        const credentialAsk =
+          /\b(lpcc|lpc|lcsw|lmft|phd|psy\.?d|credential|credentials|license|licensed)\b/.test(lower);
+        // "clinicians at Twain" belongs to providers_at_location; city asks use "in …".
+        if (/\bat\b/.test(lower) && !credentialAsk && !/\bschool\s+staff\b/.test(lower)) return false;
+        const directoryAsk =
+          /\b(directory|find someone|look\s+someone\s+up|who\s+has)\b/.test(lower) ||
+          (/\bin\b/.test(lower) && peopleNoun);
+
+        return peopleNoun || credentialAsk || directoryAsk;
+      },
+      buildIntent: (lower, allowedTools) => {
+        const schoolStaff = /\bschool\s+staff\b/.test(lower);
+        const credentialAsk =
+          /\b(lpcc|lpc|lcsw|lmft|phd|psy\.?d|credential|credentials|license|licensed)\b/.test(lower);
+        const locationAsk = /\b(in|near|around)\s+[a-z]/.test(lower);
+
+        if (schoolStaff && allowedTools.has('searchUsers')) {
+          return {
+            intent: 'people_directory_lookup',
+            capabilityId: 'people_directory_lookup',
+            suppressUserAutoOpen: true,
+            toolCalls: [{ name: 'searchUsers', args: { query: 'school staff', role: 'school_staff', limit: 20 } }]
+          };
+        }
+
+        if ((credentialAsk || locationAsk) && allowedTools.has('searchProviders')) {
+          const textQuery =
+            guessEntityQueryFromPrompt(lower, [
+              'counselor',
+              'counselors',
+              'therapist',
+              'therapists',
+              'clinician',
+              'clinicians',
+              'provider',
+              'providers',
+              'credential',
+              'credentials',
+              'license',
+              'licensed',
+              'who',
+              'has',
+              'have',
+              'active',
+              'employees',
+              'employee',
+              'staff',
+              'people'
+            ]) || lower;
+          return {
+            intent: 'people_directory_lookup',
+            capabilityId: 'people_directory_lookup',
+            suppressUserAutoOpen: true,
+            toolCalls: [{ name: 'searchProviders', args: { textQuery: textQuery || lower, limit: 20 } }]
+          };
+        }
+
+        if (!allowedTools.has('searchUsers')) return null;
+        const query =
+          guessEntityQueryFromPrompt(lower, [
+            'counselor',
+            'counselors',
+            'therapist',
+            'therapists',
+            'clinician',
+            'clinicians',
+            'provider',
+            'providers',
+            'employee',
+            'employees',
+            'staff',
+            'people',
+            'users',
+            'user',
+            'guardian',
+            'guardians',
+            'who',
+            'has',
+            'have',
+            'active',
+            'directory'
+          ]) || lower;
+        if (!query || query.length < 2) return null;
+        return {
+          intent: 'people_directory_lookup',
+          capabilityId: 'people_directory_lookup',
+          suppressUserAutoOpen: true,
+          toolCalls: [{ name: 'searchUsers', args: { query, limit: 20 } }]
         };
       }
     },
@@ -1112,16 +1286,18 @@ function catalogEntries() {
     {
       id: 'providers_at_location',
       audience: ['admin_like', 'provider_like'],
-      group: 'Navigation and lookup',
+      group: 'People / directory',
       prompt: 'What clinicians are at Twain?',
       requiredToolsAll: ['searchProviders'],
       subtitleTag: 'providers',
+      peopleBucket: true,
       semanticExamples: [
         'what clinicians or providers are at twain',
         'who works at the main office',
         'find therapists assigned to roosevelt',
         'list providers in green valley',
-        'what provider is at fremont elementary'
+        'what provider is at fremont elementary',
+        'find counselors in colorado springs'
       ],
       matcher: (lower, allowedTools) => {
         if (!allowedTools.has('searchProviders')) return false;
@@ -1684,13 +1860,19 @@ export function rankCorrectionChoices({
   role,
   allowedToolNames,
   excludeCapabilityId = null,
-  limit = 6
+  limit = 6,
+  placementKey,
+  routeName
 } = {}) {
   const max = Math.min(Math.max(1, Number(limit) || 6), 12);
   const exclude = excludeCapabilityId ? String(excludeCapabilityId) : '';
-  const entries = visibleEntriesForRoleAndTools(role, allowedToolNames).filter(
+  let entries = visibleEntriesForRoleAndTools(role, allowedToolNames).filter(
     (e) => String(e.id || '') !== exclude
   );
+  if (isUserManagerPlacement({ placementKey, routeName })) {
+    entries = entries.filter((e) => !USER_MANAGER_DEMOTED_IDS.has(String(e.id || '')));
+    entries = placementSortEntries(entries, { placementKey, routeName });
+  }
   if (!entries.length) return [];
 
   const ranked = rankCapabilitiesBySimilarity({ prompt, entries });
@@ -1721,8 +1903,16 @@ export function rankCorrectionChoices({
   return out;
 }
 
-export function buildCapabilityUiPayload({ role, allowedToolNames }) {
-  const entries = visibleEntriesForRoleAndTools(role, allowedToolNames);
+export function buildCapabilityUiPayload({ role, allowedToolNames, placementKey, routeName } = {}) {
+  let entries = visibleEntriesForRoleAndTools(role, allowedToolNames);
+  const onUserManager = isUserManagerPlacement({ placementKey, routeName });
+  if (onUserManager) {
+    // Soft-demote unrelated ops in help groups / suggestions for this placement.
+    entries = placementSortEntries(
+      entries.filter((e) => !USER_MANAGER_DEMOTED_IDS.has(String(e.id || ''))),
+      { placementKey, routeName }
+    );
+  }
   const audience = roleAudience(role);
 
   const subtitleParts = Array.from(
@@ -1732,8 +1922,9 @@ export function buildCapabilityUiPayload({ role, allowedToolNames }) {
         .filter(Boolean)
     )
   );
-  const subtitle =
-    subtitleParts.length > 0
+  const subtitle = onUserManager
+    ? 'I can help find people in your directory — by name, role, credential, or location.'
+    : subtitleParts.length > 0
       ? `I can help with ${subtitleParts.slice(0, 5).join(', ')}.`
       : 'I look up agency tools and documents — not free-form AI chat.';
 
@@ -1743,7 +1934,17 @@ export function buildCapabilityUiPayload({ role, allowedToolNames }) {
     groupedMap.get(e.group).push(e.prompt);
   }
 
-  const groups = Array.from(groupedMap.entries()).map(([title, prompts]) => ({
+  // Prefer People / directory first on User Manager.
+  let groupEntries = Array.from(groupedMap.entries());
+  if (onUserManager) {
+    groupEntries = groupEntries.sort((a, b) => {
+      const ar = a[0] === 'People / directory' ? 0 : 1;
+      const br = b[0] === 'People / directory' ? 0 : 1;
+      return ar - br;
+    });
+  }
+
+  const groups = groupEntries.map(([title, prompts]) => ({
     title,
     prompts: Array.from(new Set(prompts)).slice(0, 3)
   })).slice(0, 4);

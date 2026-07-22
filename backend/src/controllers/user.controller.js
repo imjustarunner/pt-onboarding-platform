@@ -819,11 +819,24 @@ export const getGuardianUsers = async (req, res, next) => {
           u.created_at,
           GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') AS agencies,
           GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') AS agency_ids,
-          COUNT(DISTINCT CASE WHEN cg.access_enabled = 1 THEN cg.client_id ELSE NULL END) AS linked_clients_count
+          COUNT(DISTINCT CASE WHEN cg.access_enabled = 1 THEN cg.client_id ELSE NULL END) AS linked_clients_count,
+          GROUP_CONCAT(
+            DISTINCT CASE
+              WHEN cg.access_enabled = 1
+              THEN CONCAT(
+                COALESCE(NULLIF(TRIM(c.full_name), ''), NULLIF(TRIM(c.initials), ''), CONCAT('#', c.id)),
+                '::',
+                c.id
+              )
+              ELSE NULL
+            END
+            ORDER BY c.full_name SEPARATOR '||'
+          ) AS linked_clients_raw
         FROM users u
         LEFT JOIN user_agencies ua ON ua.user_id = u.id
         LEFT JOIN agencies a ON a.id = ua.agency_id
         LEFT JOIN client_guardians cg ON cg.guardian_user_id = u.id
+        LEFT JOIN clients c ON c.id = cg.client_id
         WHERE LOWER(COALESCE(u.role, '')) = 'client_guardian'
         ${archiveSql}
         ${scopeSql}
@@ -835,7 +848,23 @@ export const getGuardianUsers = async (req, res, next) => {
       params
     );
 
-    res.json(rows || []);
+    const shaped = (rows || []).map((r) => {
+      const linkedClients = String(r.linked_clients_raw || '')
+        .split('||')
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => {
+          const idx = part.lastIndexOf('::');
+          if (idx < 0) return { id: null, name: part };
+          const name = part.slice(0, idx).trim();
+          const id = parseInt(part.slice(idx + 2), 10);
+          return { id: Number.isFinite(id) ? id : null, name: name || `#${id}` };
+        });
+      const { linked_clients_raw: _raw, ...rest } = r;
+      return { ...rest, linked_clients: linkedClients };
+    });
+
+    res.json(shaped);
   } catch (error) {
     next(error);
   }

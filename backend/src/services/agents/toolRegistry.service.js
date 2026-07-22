@@ -973,12 +973,14 @@ export function getToolSchemas() {
     {
       name: 'searchUsers',
       description:
-        'Search users in the current agency by name, email, or numeric user id (e.g. "516" or "who is user 516"). Admin-only: providers cannot enumerate users.',
+        'Search users in the current agency by name, email, credential, role, or numeric user id (e.g. "516", "LPCC", "school staff"). Admin-only: providers cannot enumerate users. Returns name, role, email, credential for directory display.',
       parameters: {
         type: 'object',
         additionalProperties: false,
         properties: {
           query: { type: 'string' },
+          role: { type: 'string', description: 'Optional exact role filter (e.g. school_staff, provider)' },
+          credential: { type: 'string', description: 'Optional credential fragment filter (e.g. LPCC)' },
           limit: { type: 'integer' }
         },
         required: ['query']
@@ -2038,10 +2040,32 @@ export async function executeToolCall({ req, toolCall }) {
     const agencyId = currentAgencyId(req);
     if (!agencyId) noAgencyContextError();
     const query = str(args.query, 200);
+    const roleFilter = args.role == null ? '' : str(args.role, 64).toLowerCase();
+    const credentialFilter = args.credential == null ? '' : str(args.credential, 64);
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
-    if (!query) return { ok: true, tool: name, result: { results: [] } };
+    if (!query && !roleFilter && !credentialFilter) return { ok: true, tool: name, result: { results: [] } };
 
-    const numericId = /^\d{1,10}$/.test(query.trim()) ? parseInt(query.trim(), 10) : null;
+    // Credential lives in user_info_values (and optionally users.credential on newer DBs).
+    const credJoin = `
+      LEFT JOIN (
+        SELECT uiv.user_id,
+               MAX(uiv.value) AS cred_value
+        FROM user_info_values uiv
+        JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+        WHERE uifd.field_key IN ('provider_credential', 'provider_credential_license_type_number')
+        GROUP BY uiv.user_id
+      ) cred ON cred.user_id = u.id`;
+
+    const mapRow = (r) => ({
+      id: r.id,
+      name: [r.firstName, r.lastName].filter(Boolean).join(' ').trim() || r.email,
+      role: r.role,
+      email: r.email,
+      credential: r.credential || null,
+      profilePath: `/admin/users/${r.id}`
+    });
+
+    const numericId = /^\d{1,10}$/.test(String(query || '').trim()) ? parseInt(String(query).trim(), 10) : null;
     if (numericId) {
       const [idRows] = await pool.execute(
         `SELECT u.id,
@@ -2049,9 +2073,11 @@ export async function executeToolCall({ req, toolCall }) {
                 u.last_name  AS lastName,
                 u.email,
                 u.role,
+                cred.cred_value AS credential,
                 u.profile_photo_path AS profilePhotoPath
          FROM users u
          JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+         ${credJoin}
          WHERE u.id = ?
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.is_active IS NULL OR u.is_active = TRUE)
@@ -2061,41 +2087,55 @@ export async function executeToolCall({ req, toolCall }) {
       );
       const row = idRows?.[0];
       if (row) {
-        const results = [{
-          id: row.id,
-          name: [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email,
-          role: row.role,
-          email: row.email,
-          profilePath: `/admin/users/${row.id}`
-        }];
-        return { ok: true, tool: name, result: { results, lookupByUserId: numericId } };
+        return { ok: true, tool: name, result: { results: [mapRow(row)], lookupByUserId: numericId } };
       }
       return { ok: true, tool: name, result: { results: [], lookupByUserId: numericId, note: `No user #${numericId} found in your agency.` } };
     }
 
     const runQuery = async (likeArg) => {
+      const params = [agencyId];
+      let where =
+        `(u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))`;
+      if (roleFilter) {
+        where += ' AND LOWER(COALESCE(u.role, \'\')) = ?';
+        params.push(roleFilter);
+      }
+      if (credentialFilter) {
+        where += ' AND COALESCE(cred.cred_value, \'\') LIKE ?';
+        params.push(`%${credentialFilter}%`);
+      }
+      if (likeArg) {
+        where += ` AND (
+          u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?
+          OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?
+          OR COALESCE(cred.cred_value, '') LIKE ?
+          OR LOWER(COALESCE(u.role, '')) LIKE ?
+        )`;
+        params.push(likeArg, likeArg, likeArg, likeArg, likeArg, likeArg.toLowerCase());
+      }
       const [rs] = await pool.execute(
         `SELECT u.id,
                 u.first_name AS firstName,
                 u.last_name  AS lastName,
                 u.email,
                 u.role,
+                cred.cred_value AS credential,
                 u.profile_photo_path AS profilePhotoPath
          FROM users u
          JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-         WHERE (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?
-                OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)
-           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.is_active IS NULL OR u.is_active = TRUE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
+         ${credJoin}
+         WHERE ${where}
          ORDER BY u.last_name, u.first_name
          LIMIT ${limit}`,
-        [agencyId, likeArg, likeArg, likeArg, likeArg]
+        params
       );
       return rs || [];
     };
 
-    let rows = await runQuery(`%${query}%`);
+    const like = query ? `%${query}%` : '';
+    let rows = await runQuery(like || null);
 
     // Multi-word fallback: try just the most distinctive token (e.g. last name).
     if (!rows.length && query.includes(' ')) {
@@ -2107,13 +2147,7 @@ export async function executeToolCall({ req, toolCall }) {
       }
     }
 
-    const results = rows.map((r) => ({
-      id: r.id,
-      name: [r.firstName, r.lastName].filter(Boolean).join(' ').trim() || r.email,
-      role: r.role,
-      email: r.email,
-      profilePath: `/admin/users/${r.id}`
-    }));
+    const results = rows.map(mapRow);
     return { ok: true, tool: name, result: { results } };
   }
 

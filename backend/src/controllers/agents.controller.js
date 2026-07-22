@@ -34,7 +34,16 @@ function askAssistantAllowsVertex() {
 
 function withAssistFeedbackMeta(
   payload,
-  { prompt, capabilityId, runtime, role, allowedToolNames, correctionChoices } = {}
+  {
+    prompt,
+    capabilityId,
+    runtime,
+    role,
+    allowedToolNames,
+    correctionChoices,
+    placementKey,
+    routeName
+  } = {}
 ) {
   const p = payload && typeof payload === 'object' ? payload : {};
   const capId = capabilityId ?? p.capabilityId ?? null;
@@ -46,7 +55,9 @@ function withAssistFeedbackMeta(
       role,
       allowedToolNames,
       excludeCapabilityId: capId,
-      limit: 6
+      limit: 6,
+      placementKey,
+      routeName
     });
   }
   return {
@@ -348,7 +359,9 @@ async function detectExplicitIntent({ prompt, allowedToolNames, context, forceCa
   const capabilityIntent = await matchDeterministicCapabilityIntent({
     prompt: lower,
     allowedToolNames,
-    forceCapabilityId
+    forceCapabilityId,
+    placementKey: context?.placementKey,
+    routeName: context?.routeName
   });
   if (capabilityIntent) return capabilityIntent;
 
@@ -899,13 +912,16 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
       const id = u?.id == null ? null : Number(u.id);
       if (!id) continue;
       const name = safeTitle(u.name || u.email, 'User');
+      const cred = u.credential || u.provider_credential || null;
+      const roleBits = [u.role, cred].filter(Boolean).join(' · ');
       pushCard({
         kind: 'user',
         title: name,
-        subtitle: 'User profile',
+        subtitle: roleBits || 'User profile',
         details: {
           email: u.email || null,
-          role: u.role || null
+          role: u.role || null,
+          credential: cred
         },
         actions: [
           { type: 'tool', label: 'Open profile', toolCall: { name: 'openEntity', args: { kind: 'user', id } } },
@@ -1194,15 +1210,22 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       } else if (list.length === 1 && openedUser) {
         const u = list[0];
         const role = u.role ? ` · ${u.role}` : '';
+        const cred = u.credential ? ` · ${u.credential}` : '';
         const email = u.email ? ` · ${u.email}` : '';
-        lines.push(`User #${u.id}: ${u.name || u.email || 'Unknown'}${role}${email}`);
+        lines.push(`User #${u.id}: ${u.name || u.email || 'Unknown'}${role}${cred}${email}`);
       } else if (list.length === 1) {
         const u = list[0];
         const role = u.role ? ` · ${u.role}` : '';
+        const cred = u.credential ? ` · ${u.credential}` : '';
         const email = u.email ? ` · ${u.email}` : '';
-        lines.push(`User #${u.id}: ${u.name || u.email || 'Unknown'}${role}${email}`);
+        lines.push(`User #${u.id}: ${u.name || u.email || 'Unknown'}${role}${cred}${email}`);
       } else {
-        const names = list.map((x) => x.name || x.email).join(', ');
+        const names = list
+          .map((x) => {
+            const bits = [x.name || x.email, x.role, x.credential].filter(Boolean).join(' · ');
+            return bits || x.email;
+          })
+          .join(', ');
         lines.push(`Found ${list.length} people — ${names}. Which profile did you want?`);
       }
     } else if (r.tool === 'openEntity') {
@@ -1808,7 +1831,12 @@ async function buildCapabilityPayloadForReq(req, agentConfig = null) {
   await attachPayrollAgencyIdsForAssist(req);
   const allowedToolNames = new Set(getToolSchemasForUser(req.user, agentConfig).map((t) => t.name));
   const role = String(req.user?.role || '').toLowerCase().trim();
-  const payload = buildCapabilityUiPayload({ role, allowedToolNames });
+  const context = req.body?.context && typeof req.body.context === 'object' ? req.body.context : {};
+  const placementKey = String(
+    req.query?.placementKey || req.query?.placement_key || context.placementKey || ''
+  ).trim();
+  const routeName = String(req.query?.routeName || req.query?.route_name || context.routeName || '').trim();
+  const payload = buildCapabilityUiPayload({ role, allowedToolNames, placementKey, routeName });
   return { payload, allowedToolNames };
 }
 
@@ -2219,6 +2247,8 @@ export const assist = async (req, res, next) => {
       withAssistFeedbackMeta(payload, {
         role: req.user?.role,
         allowedToolNames,
+        placementKey: context.placementKey,
+        routeName: context.routeName,
         ...meta
       });
 

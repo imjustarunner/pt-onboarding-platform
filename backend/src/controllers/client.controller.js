@@ -675,7 +675,53 @@ export const getClients = async (req, res, next) => {
         ? providerScopedClients
         : providerScopedClients.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
     // PII gating: strip full/first/last names for school_staff regardless of agency scope.
-    const out = redactClientNamesForRole(filtered, userRole);
+    let out = redactClientNamesForRole(filtered, userRole);
+
+    // Optional: attach linked guardian summaries for directory UIs (User Manager Clients persona).
+    const includeGuardians =
+      String(req.query.includeGuardians || req.query.include_guardians || '').toLowerCase() === 'true' ||
+      String(req.query.includeGuardians || req.query.include_guardians || '') === '1';
+    if (includeGuardians && Array.isArray(out) && out.length) {
+      try {
+        const ids = out.map((c) => Number(c?.id)).filter((n) => Number.isFinite(n) && n > 0);
+        if (ids.length) {
+          const placeholders = ids.map(() => '?').join(',');
+          const [gRows] = await pool.execute(
+            `SELECT
+               cg.client_id,
+               cg.guardian_user_id,
+               u.first_name,
+               u.last_name,
+               u.email
+             FROM client_guardians cg
+             JOIN users u ON u.id = cg.guardian_user_id
+             WHERE cg.client_id IN (${placeholders})
+               AND (cg.access_enabled = 1 OR cg.access_enabled IS NULL)
+             ORDER BY u.last_name ASC, u.first_name ASC`,
+            ids
+          );
+          const byClient = new Map();
+          for (const row of gRows || []) {
+            const cid = Number(row.client_id);
+            if (!byClient.has(cid)) byClient.set(cid, []);
+            const name = `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email || `User ${row.guardian_user_id}`;
+            byClient.get(cid).push({
+              id: Number(row.guardian_user_id),
+              name,
+              email: row.email || null
+            });
+          }
+          out = out.map((c) => ({
+            ...c,
+            linked_guardians: byClient.get(Number(c.id)) || [],
+            linked_guardians_count: (byClient.get(Number(c.id)) || []).length
+          }));
+        }
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') console.warn('[getClients] includeGuardians failed', e?.message || e);
+      }
+    }
+
     const shouldPaginate = userRole === 'super_admin' && paginateRequested;
     if (!shouldPaginate) {
       return res.json(out);

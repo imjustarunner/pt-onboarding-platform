@@ -4,11 +4,18 @@
       Showing dormant members — those who have not logged in within the last 30 days.
       <button class="dormant-filter-clear" @click="dormantFilterActive = false">✕ Clear filter</button>
     </div>
-    <div class="page-header" data-tour="users-header">
-      <h1 data-tour="users-title">{{ isSscSstcTenant ? 'Member Management' : 'User Management' }}</h1>
+    <div class="page-header um-page-header" data-tour="users-header">
+      <div class="um-greeting-block">
+        <h1 data-tour="users-title">
+          {{ isSscSstcTenant ? 'Member Management' : directoryGreeting }}
+        </h1>
+        <p v-if="!isSscSstcTenant" class="um-greeting-sub muted">
+          {{ directoryPersonaLabel }} directory · {{ directoryResultCount }} found
+        </p>
+      </div>
       <div class="header-actions" data-tour="users-header-actions">
-        <button v-if="!isSscSstcTenant && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'))" @click="showBulkAssignModal = true" class="btn btn-primary">Assign Documents</button>
-        <button v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant')" @click="showCreateModal = true" class="btn btn-primary">{{ isSscSstcTenant ? 'Create New Member' : 'Create New User' }}</button>
+        <button v-if="!isSscSstcTenant && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'))" @click="showBulkAssignModal = true" class="btn btn-secondary">Assign Documents</button>
+        <button v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant')" @click="showCreateModal = true" class="btn btn-primary um-add-user-btn">{{ isSscSstcTenant ? '+ Create member' : '+ Add user' }}</button>
         <button v-if="isSscSstcTenant" @click="openTempAddMembersModal" class="btn btn-secondary">Add Existing Members</button>
         <button v-if="isSscSstcTenant" @click="openTempMergeModal" class="btn btn-secondary">Merge Members</button>
         <button v-if="isSscSstcTenant" @click="toggleAssistantManagersView" class="btn btn-secondary">{{ assistantManagersOnly ? 'All Members' : 'Assistant Managers' }}</button>
@@ -20,13 +27,10 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     
     <div v-else>
-      <div
-        v-if="canUseQuickAnnouncements"
-        style="border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 14px; margin-bottom: 14px;"
-      >
-        <div style="display:flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px;">
-          <h3 style="margin: 0; font-size: 16px;">Quick Announcement / Splash</h3>
-          <div style="display:flex; gap: 8px; align-items:center;">
+      <div v-if="canUseQuickAnnouncements" class="um-quick-announce">
+        <div class="um-quick-announce-head">
+          <h3 class="um-quick-announce-title">Quick Announcement / Splash</h3>
+          <div class="um-quick-announce-actions">
             <button type="button" class="btn btn-secondary btn-sm" @click="quickAnnouncementCollapsed = !quickAnnouncementCollapsed">
               {{ quickAnnouncementCollapsed ? 'Expand' : 'Collapse' }}
             </button>
@@ -41,86 +45,77 @@
             </button>
           </div>
         </div>
-        <div v-if="!quickAnnouncementCollapsed">
-          <p class="muted" style="margin: 0 0 12px 0;">
-            Post from the directory without opening a user profile. Choose one user or everyone in {{ isSscSstcTenant ? 'the club' : 'an agency' }}.
-          </p>
-          <div v-if="quickAnnouncementError" class="error" style="margin-bottom: 10px;">{{ quickAnnouncementError }}</div>
-          <div
-            v-if="quickAnnouncementSuccess"
-            style="margin-bottom: 10px; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px;"
-          >
-            {{ quickAnnouncementSuccess }}
-          </div>
-          <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
-            <div v-if="!isSscSstcTenant">
-              <label class="muted" style="display:block; margin-bottom: 6px;">Agency</label>
+        <div v-if="!quickAnnouncementCollapsed" class="um-quick-announce-body">
+          <div v-if="quickAnnouncementError" class="error" style="margin-bottom: 8px;">{{ quickAnnouncementError }}</div>
+          <div v-if="quickAnnouncementSuccess" class="um-quick-announce-success">{{ quickAnnouncementSuccess }}</div>
+          <div class="um-quick-announce-fields">
+            <label v-if="!isSscSstcTenant" class="um-qa-field">
+              <span>Agency</span>
               <select v-model="quickAnnouncementDraft.agencyId" class="filter-select" :disabled="quickAnnouncementSubmitting">
                 <option value="" disabled>Select agency</option>
                 <option v-for="a in agencyOptions" :key="`qa-agency-${a.id}`" :value="String(a.id)">{{ a.name }}</option>
               </select>
-            </div>
-            <div v-else>
-              <label class="muted" style="display:block; margin-bottom: 6px;">Club</label>
-              <div class="filter-input" style="display:flex; align-items:center; min-height: 38px;">
-                {{ agencyStore.currentAgency?.name || 'Current club' }}
-              </div>
-            </div>
-            <div>
-              <label class="muted" style="display:block; margin-bottom: 6px;">Type</label>
+            </label>
+            <label v-else class="um-qa-field um-qa-field--club">
+              <span>Club</span>
+              <div class="filter-input um-qa-club">{{ agencyStore.currentAgency?.name || 'Current club' }}</div>
+            </label>
+            <label class="um-qa-field um-qa-field--sm">
+              <span>Type</span>
               <select v-model="quickAnnouncementDraft.displayType" class="filter-select" :disabled="quickAnnouncementSubmitting">
                 <option value="announcement">Announcement</option>
                 <option value="splash">Splash</option>
               </select>
-            </div>
-            <div>
-              <label class="muted" style="display:block; margin-bottom: 6px;">Audience</label>
+            </label>
+            <label class="um-qa-field um-qa-field--sm">
+              <span>Audience</span>
               <select v-model="quickAnnouncementDraft.scope" class="filter-select" :disabled="quickAnnouncementSubmitting">
                 <option value="single">One user</option>
                 <option value="everyone">{{ isSscSstcTenant ? 'Everyone in club' : 'Everyone in agency' }}</option>
               </select>
-            </div>
-            <div v-if="quickAnnouncementDraft.scope === 'single'">
-              <label class="muted" style="display:block; margin-bottom: 6px;">User</label>
+            </label>
+            <label v-if="quickAnnouncementDraft.scope === 'single'" class="um-qa-field um-qa-field--user">
+              <span>User</span>
               <select v-model="quickAnnouncementDraft.userId" class="filter-select" :disabled="quickAnnouncementSubmitting">
                 <option value="" disabled>Select user</option>
                 <option v-for="u in quickAnnouncementUserOptions" :key="`qa-user-${u.id}`" :value="String(u.id)">
                   {{ u.label }}
                 </option>
               </select>
-            </div>
-            <div>
-              <label class="muted" style="display:block; margin-bottom: 6px;">Starts</label>
+            </label>
+            <label class="um-qa-field um-qa-field--dt">
+              <span>Starts</span>
               <input v-model="quickAnnouncementDraft.startsAt" class="filter-input" type="datetime-local" :disabled="quickAnnouncementSubmitting" />
-            </div>
-            <div>
-              <label class="muted" style="display:block; margin-bottom: 6px;">Ends</label>
+            </label>
+            <label class="um-qa-field um-qa-field--dt">
+              <span>Ends</span>
               <input v-model="quickAnnouncementDraft.endsAt" class="filter-input" type="datetime-local" :disabled="quickAnnouncementSubmitting" />
-            </div>
+            </label>
           </div>
-          <div style="margin-top: 10px;">
-            <label class="muted" style="display:block; margin-bottom: 6px;">Title (optional)</label>
-            <input v-model="quickAnnouncementDraft.title" class="filter-input" type="text" maxlength="255" :disabled="quickAnnouncementSubmitting" />
-          </div>
-          <div style="margin-top: 10px;">
-            <label class="muted" style="display:block; margin-bottom: 6px;">Message</label>
-            <textarea
-              v-model="quickAnnouncementDraft.message"
-              class="filter-input"
-              rows="2"
-              maxlength="1200"
-              placeholder="Type announcement message..."
+          <div class="um-quick-announce-message-row">
+            <input
+              v-model="quickAnnouncementDraft.title"
+              class="filter-input um-qa-title"
+              type="text"
+              maxlength="255"
+              placeholder="Title (optional)"
               :disabled="quickAnnouncementSubmitting"
             />
-          </div>
-          <div style="margin-top: 10px;">
+            <input
+              v-model="quickAnnouncementDraft.message"
+              class="filter-input um-qa-message"
+              type="text"
+              maxlength="1200"
+              placeholder="Message…"
+              :disabled="quickAnnouncementSubmitting"
+            />
             <button
               type="button"
               class="btn btn-primary btn-sm"
               @click="postQuickAnnouncement"
               :disabled="quickAnnouncementSubmitting || !canSubmitQuickAnnouncement"
             >
-              {{ quickAnnouncementSubmitting ? 'Posting…' : 'Post announcement' }}
+              {{ quickAnnouncementSubmitting ? 'Posting…' : 'Post' }}
             </button>
           </div>
         </div>
@@ -128,6 +123,23 @@
 
       <div class="users-layout">
         <aside class="filters-sidebar" data-tour="users-filters-sidebar">
+          <div class="filter-section um-filters-title">Filters</div>
+
+          <div v-if="!isSscSstcTenant" class="filter-section">
+            <div class="filter-label">Directory</div>
+            <div class="type-filter-row um-persona-row">
+              <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'employees' }" @click="setDirectoryPersona('employees')">Employees</button>
+              <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'school_staff' }" @click="setDirectoryPersona('school_staff')">School staff</button>
+              <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'guardians' }" @click="setDirectoryPersona('guardians')">Guardians</button>
+              <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'clients' }" @click="setDirectoryPersona('clients')">Clients</button>
+            </div>
+            <div class="um-persona-links muted">
+              <router-link to="/admin/guardians">Open full Guardians</router-link>
+              <span>·</span>
+              <router-link to="/admin/clients">Open Client Management</router-link>
+            </div>
+          </div>
+
           <div class="filter-section">
             <label for="userSearch" class="filter-label">Search</label>
             <input
@@ -147,9 +159,10 @@
               <option value="">All agencies</option>
               <option v-for="a in agencyOptions" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
             </select>
+            <div class="filter-help muted">Scopes directory results.</div>
           </div>
 
-          <div v-if="!isSscSstcTenant" class="filter-section">
+          <div v-if="!isSscSstcTenant && directoryPersona !== 'clients'" class="filter-section">
             <label for="organizationSort" class="filter-label">Organization</label>
             <input
               v-model="organizationSearch"
@@ -168,10 +181,9 @@
               <option value="">All organizations</option>
               <option v-for="o in organizationOptions" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
             </select>
-            <div class="filter-help muted">Organizations are scoped by the selected agency.</div>
           </div>
 
-          <div v-if="!isAffiliationContext && !isSscSstcTenant" class="filter-section">
+          <div v-if="!isAffiliationContext && !isSscSstcTenant && directoryPersona !== 'clients'" class="filter-section">
             <label for="statusSort" class="filter-label">Status</label>
             <select id="statusSort" v-model="statusSort" class="filter-select">
               <option value="">All</option>
@@ -186,49 +198,19 @@
             </select>
           </div>
 
-          <div v-if="!isAffiliationContext && !isSscSstcTenant" class="filter-section">
-            <div class="filter-label">Quick user type</div>
+          <div v-if="!isAffiliationContext && !isSscSstcTenant && directoryPersona === 'employees'" class="filter-section">
+            <div class="filter-label">Quick views</div>
             <div class="type-filter-row">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm type-filter-btn"
-                :class="{ active: userTypeFilter === 'supervisors' }"
-                @click="toggleUserType('supervisors')"
-              >
-                Show supervisors
-              </button>
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm type-filter-btn"
-                :class="{ active: userTypeFilter === 'staff' }"
-                @click="toggleUserType('staff')"
-              >
-                Show staff
-              </button>
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm type-filter-btn"
-                :class="{ active: userTypeFilter === 'providers' }"
-                @click="toggleUserType('providers')"
-              >
-                Show providers
-              </button>
-              <button
-                v-if="isSuperAdmin"
-                type="button"
-                class="btn btn-secondary btn-sm type-filter-btn"
-                :class="{ active: userTypeFilter === 'super_admins' }"
-                @click="toggleUserType('super_admins')"
-              >
-                Show super admins
-              </button>
+              <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: userTypeFilter === 'supervisors' }" @click="toggleUserType('supervisors')">Supervisors</button>
+              <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: userTypeFilter === 'staff' }" @click="toggleUserType('staff')">Staff</button>
+              <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: userTypeFilter === 'providers' }" @click="toggleUserType('providers')">Providers</button>
+              <button v-if="isSuperAdmin" type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: userTypeFilter === 'super_admins' }" @click="toggleUserType('super_admins')">Super admins</button>
             </div>
           </div>
 
-          <div class="filter-section advanced-filters">
-            <div class="filter-label">More filters</div>
+          <div v-if="directoryPersona === 'employees' || isSscSstcTenant" class="filter-section advanced-filters">
+            <div class="filter-label">Role</div>
             <div v-if="isSscSstcTenant" class="filter-subsection">
-              <label for="roleSort" class="filter-label">Role</label>
               <select id="roleSort" v-model="roleSort" class="filter-select">
                 <option value="">All</option>
                 <option value="member">Members</option>
@@ -237,12 +219,10 @@
               </select>
             </div>
             <div v-else class="filter-subsection">
-              <label for="roleSort" class="filter-label">Role</label>
               <select id="roleSort" v-model="roleSort" class="filter-select">
                 <option value="">All roles</option>
                 <option value="provider">Provider</option>
                 <option value="kiosk">Kiosk</option>
-                <option value="school_staff">School Staff</option>
                 <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
                 <option value="provider_plus">Provider Plus</option>
                 <option value="staff">Staff</option>
@@ -260,114 +240,172 @@
         </aside>
 
         <div class="users-main" data-tour="users-main">
-          <div v-if="!isAffiliationContext" class="ai-query-card" data-tour="users-ai-search">
-            <div class="ai-query-banner">
-              <img :src="aiBannerSrc" alt="AI status" class="ai-query-banner-img" />
-            </div>
-
-            <div class="ai-query-body">
-              <div class="ai-query-header">
-                <div class="ai-query-title">
-                  <img :src="aiIconSrc" alt="AI" class="ai-query-icon" />
-                  <div>
-                    <div class="ai-query-title-text">AI Search (Gemini-ready)</div>
-                    <div class="ai-query-subtitle">Ask questions across all user info fields and get a copyable email list.</div>
-                  </div>
-                </div>
-
-                <div class="ai-query-actions">
-                  <button class="btn btn-secondary btn-sm" type="button" @click="clearAiQuery" :disabled="aiState === 'thinking'">
-                    Clear
-                  </button>
-                  <button class="btn btn-primary btn-sm" type="button" @click="runAiQuery" :disabled="aiState === 'thinking' || !String(aiQueryText || '').trim()">
-                    {{ aiState === 'thinking' ? 'Searching…' : 'Search' }}
-                  </button>
-                </div>
+          <div
+            v-if="!isAffiliationContext && !isSscSstcTenant"
+            class="um-assistant-card"
+            :class="{ 'um-assistant-card--open': peopleAssistantExpanded }"
+            data-tour="users-ask-assistant"
+          >
+            <div class="um-assistant-hero">
+              <div class="um-assistant-hero-row">
+                <div class="um-assistant-title">How can I help you find someone?</div>
+                <button
+                  v-if="peopleAssistantExpanded"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="collapsePeopleAssistant"
+                >
+                  Collapse
+                </button>
               </div>
-
-              <div class="ai-query-input-row">
+              <form class="um-assistant-search-row" @submit.prevent="runPeopleAssistantDraft">
                 <input
-                  v-model="aiQueryText"
+                  v-model="peopleAssistantDraft"
                   type="text"
-                  class="ai-query-input"
-                  placeholder="Type your query here… e.g. list all the people who mentioned that they are interested in hiking"
-                  @keydown.enter.prevent="runAiQuery"
+                  class="um-assistant-search-input"
+                  placeholder="Ask by name, role, credential, school, or city…"
+                  autocomplete="off"
                 />
+                <button type="submit" class="btn btn-primary btn-sm" :disabled="!String(peopleAssistantDraft || '').trim()">
+                  Ask
+                </button>
+              </form>
+              <div class="um-example-chips">
+                <button
+                  v-for="chip in peopleAssistantChips"
+                  :key="chip"
+                  type="button"
+                  class="um-chip"
+                  @click="runPeopleAssistantChip(chip)"
+                >
+                  {{ chip }}
+                </button>
               </div>
-
-              <div class="ai-query-toggles">
-                <label class="ai-query-toggle">
-                  <input type="checkbox" v-model="aiActiveOnly" :disabled="aiState === 'thinking'" />
-                  <span>Active only</span>
-                </label>
-                <label class="ai-query-toggle">
-                  <input type="checkbox" v-model="aiProvidersOnly" :disabled="aiState === 'thinking'" />
-                  <span>Providers only</span>
-                </label>
-              </div>
-
-              <div v-if="aiState === 'thinking'" class="ai-query-status muted">Thinking… searching user info fields.</div>
-              <div v-else-if="aiState === 'error'" class="ai-query-status error">{{ aiError || 'No results found.' }}</div>
-              <div v-else-if="aiState === 'success'" class="ai-query-status success">
-                Found {{ aiResults.length }} user{{ aiResults.length === 1 ? '' : 's' }}.
-              </div>
-
-              <div v-if="aiState === 'success' && aiMeta?.dayFilteredToEmptyFallback" class="ai-query-status muted" style="margin-top: 6px;">
-                No availability on the requested day; showing providers who match your criteria with their next available slot.
-              </div>
-
-              <div v-if="aiState === 'success' && aiResults.length" class="ai-query-results">
-                <div class="ai-query-results-header">
-                  <div class="ai-query-results-title">Results</div>
-                  <div class="ai-query-results-meta muted">Showing up to 50 here. Use copy for the full list.</div>
-                </div>
-
-                <ul class="ai-query-results-list">
-                  <li v-for="u in aiResults.slice(0, 50)" :key="u.id">
-                    <router-link :to="userProfilePath(u.id)">
-                      {{ u.first_name }} {{ u.last_name }}
-                    </router-link>
-                    <span class="muted"> — {{ u.email }}</span>
-                    <div
-                      v-if="u.availability_nextVirtualStartAt || u.availability_nextInPersonStartAt"
-                      class="muted"
-                      style="margin-top: 4px; font-size: 12px;"
-                    >
-                      <span v-if="u.availability_nextVirtualStartAt">
-                        Next virtual: {{ formatIsoShort(u.availability_nextVirtualStartAt) }}
-                      </span>
-                      <span v-if="u.availability_nextVirtualStartAt && u.availability_nextInPersonStartAt"> · </span>
-                      <span v-if="u.availability_nextInPersonStartAt">
-                        Next in-person: {{ formatIsoShort(u.availability_nextInPersonStartAt) }}
-                      </span>
-                      <span v-if="u.availability_timeZone"> ({{ u.availability_timeZone }})</span>
-                    </div>
-                  </li>
-                </ul>
-
-                <div class="ai-query-copy">
-                  <label class="ai-query-copy-label">Semicolon-separated</label>
-                  <textarea class="ai-query-copy-text" readonly :value="aiEmailsSemicolon" rows="3"></textarea>
-                  <div class="ai-query-copy-actions">
-                    <button class="btn btn-secondary btn-sm" type="button" @click="copyAiEmails" :disabled="!aiEmailsSemicolon">
-                      Copy
-                    </button>
-                  </div>
-                </div>
-              </div>
+            </div>
+            <div v-show="peopleAssistantExpanded" class="um-assistant-panel-host">
+              <AskAssistantPanel
+                ref="peopleAssistantRef"
+                variant="embedded"
+                placement-key="user_manager"
+                :open="peopleAssistantExpanded"
+                :show-close="true"
+                :seed-prompt="peopleAssistantSeed"
+                @close="collapsePeopleAssistant"
+              />
             </div>
           </div>
 
           <div class="users-table" :class="{ 'users-table--expanded': userTableExpanded }" data-tour="users-table">
             <div class="users-table-toolbar" data-tour="users-table-toolbar">
+              <span class="um-found-count">{{ directoryResultCount }} found</span>
               <button type="button" class="btn btn-secondary btn-sm" @click="userTableExpanded = !userTableExpanded">
-                {{ userTableExpanded ? 'Collapse columns' : 'Expand columns' }}
+                {{ userTableExpanded ? 'Collapse columns' : 'Columns' }}
               </button>
               <span class="muted users-table-toolbar-hint">
                 When expanded, scroll horizontally to see all columns.
               </span>
             </div>
-            <table>
+
+            <!-- Guardians directory -->
+            <table v-if="!isSscSstcTenant && directoryPersona === 'guardians'">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th class="col-email">Email</th>
+                  <th>Agency</th>
+                  <th>Linked clients</th>
+                  <th class="col-status">Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="g in filteredGuardians" :key="`g-${g.id}`">
+                  <td>
+                    <div class="user-name-cell">
+                      <div class="um-avatar">
+                        <span class="um-avatar-initials">{{ ((g.first_name || '')[0] || '') + ((g.last_name || '')[0] || '') }}</span>
+                      </div>
+                      <div class="um-name-info">
+                        <router-link :to="userProfilePath(g.id)" class="user-name-link">{{ g.first_name }} {{ g.last_name }}</router-link>
+                        <div class="um-badges"><span class="badge badge-guardian">Guardian</span></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="col-email"><span class="table-truncate" :title="String(g.email || '')">{{ g.email }}</span></td>
+                  <td><span class="um-pill um-pill-agency">{{ g.agencies || '—' }}</span></td>
+                  <td>
+                    <div class="um-linked-chips">
+                      <router-link
+                        v-for="c in (g.linked_clients || []).slice(0, 4)"
+                        :key="`gc-${g.id}-${c.id}`"
+                        :to="clientProfilePath(c.id)"
+                        class="um-linked-chip"
+                      >{{ c.name }}</router-link>
+                      <span v-if="!(g.linked_clients || []).length" class="muted">None</span>
+                      <span v-else-if="(g.linked_clients || []).length > 4" class="muted um-linked-more">+{{ (g.linked_clients || []).length - 4 }}</span>
+                    </div>
+                  </td>
+                  <td class="col-status">
+                    <span class="um-status-dot" :class="statusDotClass(g.status, g.is_active)"></span>
+                    {{ getStatusLabelWrapper(g.status, g.is_active) }}
+                  </td>
+                  <td class="actions-cell">
+                    <router-link :to="userProfilePath(g.id)" class="btn btn-primary btn-sm">View</router-link>
+                  </td>
+                </tr>
+                <tr v-if="!filteredGuardians.length">
+                  <td colspan="6" class="muted" style="padding: 20px;">No guardians match these filters.</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- Clients directory -->
+            <table v-else-if="!isSscSstcTenant && directoryPersona === 'clients'">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Organization</th>
+                  <th>Linked guardians</th>
+                  <th class="col-status">Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in filteredClients" :key="`c-${c.id}`">
+                  <td>
+                    <router-link :to="clientProfilePath(c.id)" class="user-name-link">
+                      {{ c.full_name || c.initials || `Client #${c.id}` }}
+                    </router-link>
+                  </td>
+                  <td>{{ c.organization_name || c.agency_name || '—' }}</td>
+                  <td>
+                    <div class="um-linked-chips">
+                      <router-link
+                        v-for="g in (c.linked_guardians || []).slice(0, 4)"
+                        :key="`cg-${c.id}-${g.id}`"
+                        :to="userProfilePath(g.id)"
+                        class="um-linked-chip"
+                      >{{ g.name }}</router-link>
+                      <span v-if="!(c.linked_guardians || []).length" class="muted">None</span>
+                      <span v-else-if="(c.linked_guardians || []).length > 4" class="muted um-linked-more">+{{ (c.linked_guardians || []).length - 4 }}</span>
+                    </div>
+                  </td>
+                  <td class="col-status">
+                    <span class="um-status-dot" :class="clientStatusDotClass(c)"></span>
+                    {{ c.client_status_label || c.status || '—' }}
+                  </td>
+                  <td class="actions-cell">
+                    <router-link :to="clientProfilePath(c.id)" class="btn btn-primary btn-sm">View</router-link>
+                  </td>
+                </tr>
+                <tr v-if="!filteredClients.length">
+                  <td colspan="5" class="muted" style="padding: 20px;">No clients match these filters.</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- Employees / School staff / SSTC members -->
+            <table v-else>
               <thead>
                 <tr>
                   <th class="sortable" @click="toggleTableSort('name')">
@@ -390,9 +428,6 @@
                   </th>
                   <th class="sortable col-status" @click="toggleTableSort('status')">
                     Status <span class="sort-indicator">{{ sortIndicator('status') }}</span>
-                  </th>
-                  <th class="sortable col-created" @click="toggleTableSort('created')">
-                    Created <span class="sort-indicator">{{ sortIndicator('created') }}</span>
                   </th>
                   <th>Actions</th>
                 </tr>
@@ -452,7 +487,7 @@
             <td v-if="!isSscSstcTenant" class="user-affiliations-cell">
               <div class="user-affiliations-inline">
                 <span
-                  class="user-affiliations-agencies table-truncate"
+                  class="um-pill um-pill-agency table-truncate"
                   :title="userAgencyNames(user).length ? userAgencyNames(user).join(', ') : String(user.agencies || 'No Agency')"
                 >
                   {{ userAgencySummary(user) }}
@@ -511,12 +546,10 @@
             </td>
             <td>
               <template v-if="isSscSstcTenant">
-                <span class="badge badge-info">{{ formatSscClubRole(user) }}</span>
+                <span class="um-pill um-pill-role">{{ formatSscClubRole(user) }}</span>
               </template>
               <template v-else>
-                <span :class="['badge', user.role === 'admin' ? 'badge-success' : 'badge-info']">
-                  {{ formatRole(user.role) }}
-                </span>
+                <span class="um-pill um-pill-role">{{ formatRole(user.role) }}</span>
                 <span
                   v-if="(String(user.role || '').toLowerCase() === 'provider')"
                   :class="['badge', availabilityBadgeClass(user)]"
@@ -548,20 +581,21 @@
               {{ user.provider_credential || '—' }}
             </td>
             <td class="col-status">
-              <span
-                v-if="isSscSstcTenant && user.applicationPending"
-                class="badge badge-warning"
-              >Pending review</span>
-              <span
-                v-else
-                :class="['badge', isSscSstcTenant ? ((user.club_member_active === 1 || user.club_member_active === true) ? 'badge-success' : 'badge-secondary') : getStatusBadgeClassWrapper(user.status, user.is_active)]"
-              >
-                {{ isSscSstcTenant ? ((user.club_member_active === 1 || user.club_member_active === true) ? 'Active' : 'Inactive') : getStatusLabelWrapper(user.status, user.is_active) }}
-              </span>
+              <template v-if="isSscSstcTenant && user.applicationPending">
+                <span class="um-status-dot um-status-amber"></span>
+                Pending review
+              </template>
+              <template v-else-if="isSscSstcTenant">
+                <span class="um-status-dot" :class="(user.club_member_active === 1 || user.club_member_active === true) ? 'um-status-green' : 'um-status-gray'"></span>
+                {{ (user.club_member_active === 1 || user.club_member_active === true) ? 'Active' : 'Inactive' }}
+              </template>
+              <template v-else>
+                <span class="um-status-dot" :class="statusDotClass(user.status, user.is_active)"></span>
+                {{ getStatusLabelWrapper(user.status, user.is_active) }}
+              </template>
             </td>
-            <td class="col-created">{{ formatDate(user.created_at) }}</td>
             <td class="actions-cell">
-              <div class="action-buttons">
+              <div class="action-buttons um-actions">
                 <!-- Inline edit controls for unclaimed placeholder members -->
                 <template v-if="isSscSstcTenant && user.isPlaceholder && inlineEditingId === user.id">
                   <button class="btn btn-primary btn-sm" :disabled="inlineSaving" @click="saveInlineEdit(user)">
@@ -575,48 +609,55 @@
                     class="btn btn-secondary btn-sm"
                     @click="startInlineEdit(user)"
                   >Edit</button>
-                  <router-link v-if="!user.isOrphaned && !user.isGuardian" :to="userProfilePath(user.id)" class="btn btn-primary btn-sm">View Profile</router-link>
-                  <router-link v-if="!user.isOrphaned && !user.isGuardian" :to="userProfileTabPath(user.id, 'communications')" class="btn btn-secondary btn-sm">
-                    Announce / Splash
-                  </router-link>
+                  <router-link v-if="!user.isOrphaned && !user.isGuardian" :to="userProfilePath(user.id)" class="btn btn-primary btn-sm">View</router-link>
+                  <div v-if="rowHasMoreActions(user)" class="um-more-wrap">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm um-more-btn"
+                      :aria-expanded="openActionsMenuId === Number(user.id) ? 'true' : 'false'"
+                      @click.stop="toggleActionsMenu(user.id)"
+                    >⋮</button>
+                    <div v-if="openActionsMenuId === Number(user.id)" class="um-more-menu" @click.stop>
+                      <router-link
+                        v-if="!user.isOrphaned && !user.isGuardian"
+                        :to="userProfileTabPath(user.id, 'communications')"
+                        class="um-more-item"
+                        @click="openActionsMenuId = null"
+                      >Announce / Splash</router-link>
+                      <button
+                        v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'pending') && !user.pending_access_locked && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))"
+                        type="button"
+                        class="um-more-item"
+                        @click="openActionsMenuId = null; showPendingCompleteModal(user)"
+                      >Mark hiring complete</button>
+                      <button
+                        v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
+                        type="button"
+                        class="um-more-item"
+                        @click="openActionsMenuId = null; moveToActive(user)"
+                      >Activate</button>
+                      <button
+                        v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'ready_for_review') && (canArchiveDelete || user.role === 'admin' || user.role === 'super_admin') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))"
+                        type="button"
+                        class="um-more-item um-more-danger"
+                        @click="openActionsMenuId = null; downloadAndWipeUserData(user)"
+                      >Download &amp; wipe</button>
+                      <button
+                        v-if="canArchiveDelete && (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant')"
+                        type="button"
+                        class="um-more-item um-more-danger"
+                        @click="openActionsMenuId = null; archiveUser(user)"
+                      >Archive</button>
+                      <button
+                        v-if="isSscSstcTenant && Number(user.id) !== Number(authStore.user?.id) && !user.applicationPending && inlineEditingId !== user.id"
+                        type="button"
+                        class="um-more-item um-more-danger"
+                        :disabled="memberStatusSavingId === Number(user.id)"
+                        @click="openActionsMenuId = null; removeMemberFromClub(user)"
+                      >{{ memberStatusSavingId === Number(user.id) ? 'Removing…' : (user.isOrphaned || user.isGuardian ? 'Clean Up' : 'Remove from Club') }}</button>
+                    </div>
+                  </div>
                 </template>
-                <button 
-                  v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'pending') && !user.pending_access_locked && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))" 
-                  @click="showPendingCompleteModal(user)" 
-                  class="btn btn-success btn-sm"
-                >
-                  Mark Hiring Process Complete
-                </button>
-                <button 
-                  v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'" 
-                  @click="moveToActive(user)" 
-                  class="btn btn-primary btn-sm"
-                >
-                  Mark as Reviewed and Activate
-                </button>
-                <button 
-                  v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'ready_for_review') && (canArchiveDelete || user.role === 'admin' || user.role === 'super_admin') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))" 
-                  @click="downloadAndWipeUserData(user)" 
-                  class="btn btn-sm btn-danger"
-                  title="Download completion summary and wipe training/document data"
-                >
-                  Download & Wipe Training/Docs
-                </button>
-                <button
-                  v-if="canArchiveDelete && (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant')"
-                  @click="archiveUser(user)"
-                  class="btn btn-warning btn-sm"
-                >
-                  Archive
-                </button>
-                <button
-                  v-if="isSscSstcTenant && Number(user.id) !== Number(authStore.user?.id) && !user.applicationPending && inlineEditingId !== user.id"
-                  class="btn btn-danger btn-sm"
-                  :disabled="memberStatusSavingId === Number(user.id)"
-                  @click="removeMemberFromClub(user)"
-                >
-                  {{ memberStatusSavingId === Number(user.id) ? 'Removing…' : (user.isOrphaned || user.isGuardian ? 'Clean Up' : 'Remove from Club') }}
-                </button>
               </div>
             </td>
           </tr>
@@ -1667,7 +1708,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -1676,11 +1717,7 @@ import { isSupervisor } from '../../utils/helpers.js';
 import { getStatusLabel, getStatusBadgeClass } from '../../utils/statusUtils.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumentAssignmentDialog.vue';
-import aiIconAsset from '../../assets/ai/ai-icon.svg';
-import aiReadyAsset from '../../assets/ai/ready.svg';
-import aiThinkingAsset from '../../assets/ai/thinking.svg';
-import aiSuccessAsset from '../../assets/ai/success.svg';
-import aiErrorAsset from '../../assets/ai/error.svg';
+import AskAssistantPanel from '../../components/assistant/AskAssistantPanel.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -1707,6 +1744,13 @@ const userProfileTabPath = (userId, tabId) => {
   const base = basePath.split('?')[0];
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
+};
+
+const clientProfilePath = (clientId) => {
+  const slug = String(route.params.organizationSlug || '').trim();
+  const id = Number(clientId);
+  if (!Number.isFinite(id) || id <= 0) return slug ? `/${slug}/admin/clients` : '/admin/clients';
+  return slug ? `/${slug}/admin/clients/${id}` : `/admin/clients/${id}`;
 };
 
 const memberDisplayName = (member) => {
@@ -1791,6 +1835,10 @@ const newSuperviseeAssignment = ref({
 });
 
 const users = ref([]);
+const guardians = ref([]);
+const directoryClients = ref([]);
+const guardiansLoading = ref(false);
+const clientsLoading = ref(false);
 const agencies = ref([]);
 // Map orgId -> parent agencyId (best-effort; populated from /affiliated-organizations).
 const orgAffiliationById = ref({});
@@ -1800,6 +1848,8 @@ const showCreateModal = ref(false);
 const showBulkAssignModal = ref(false);
 const editingUser = ref(null);
 const saving = ref(false);
+/** Directory personas: employees (default) | school_staff | guardians | clients */
+const directoryPersona = ref('employees');
 // Default to Active Employee per admin workflow.
 const statusSort = ref('ACTIVE_EMPLOYEE');
 const agencySort = ref('');
@@ -1809,6 +1859,16 @@ const userSearch = ref('');
 const userTypeFilter = ref('');
 const organizationSearch = ref('');
 const dormantFilterActive = ref(false);
+const openActionsMenuId = ref(null);
+const peopleAssistantRef = ref(null);
+const peopleAssistantSeed = ref('');
+const peopleAssistantDraft = ref('');
+const peopleAssistantExpanded = ref(false);
+const peopleAssistantChips = [
+  'Find counselors in Colorado Springs',
+  'Show me active school staff',
+  'Who has LPCC credentials?'
+];
 
 const tableSortKey = ref('name');
 const tableSortDir = ref('asc'); // 'asc' | 'desc'
@@ -1850,6 +1910,9 @@ const loadUserFilters = () => {
     if (stored?.statusSort !== undefined) statusSort.value = stored.statusSort;
     if (stored?.userTypeFilter !== undefined) userTypeFilter.value = stored.userTypeFilter;
     if (stored?.organizationSearch !== undefined) organizationSearch.value = stored.organizationSearch;
+    if (stored?.directoryPersona && ['employees', 'school_staff', 'guardians', 'clients'].includes(stored.directoryPersona)) {
+      directoryPersona.value = stored.directoryPersona;
+    }
   } catch {
     // ignore storage errors
   }
@@ -1866,7 +1929,8 @@ const persistUserFilters = () => {
         roleSort: roleSort.value,
         statusSort: statusSort.value,
         userTypeFilter: userTypeFilter.value,
-        organizationSearch: organizationSearch.value
+        organizationSearch: organizationSearch.value,
+        directoryPersona: directoryPersona.value
       })
     );
   } catch {
@@ -1882,6 +1946,7 @@ const resetUserFilters = () => {
   statusSort.value = isSscSstcTenant.value ? '' : 'ACTIVE_EMPLOYEE';
   userTypeFilter.value = '';
   organizationSearch.value = '';
+  directoryPersona.value = 'employees';
 };
 
 const agencyOptions = computed(() => {
@@ -1907,14 +1972,18 @@ const quickAnnouncementSubmitting = ref(false);
 const quickAnnouncementError = ref('');
 const quickAnnouncementSuccess = ref('');
 const quickAnnouncementCollapsed = ref(true);
-const quickAnnouncementCollapsedStorageKey = 'user-manager-quick-announcement-collapsed';
+// Bump key so the compact redesign starts collapsed (ignore prior expanded preference).
+const quickAnnouncementCollapsedStorageKey = 'user-manager-quick-announcement-collapsed-v2';
 const loadQuickAnnouncementCollapsed = () => {
   try {
     const raw = localStorage.getItem(quickAnnouncementCollapsedStorageKey);
-    if (raw === null) return;
+    if (raw === null) {
+      quickAnnouncementCollapsed.value = true;
+      return;
+    }
     quickAnnouncementCollapsed.value = raw === 'true';
   } catch {
-    // ignore storage errors
+    quickAnnouncementCollapsed.value = true;
   }
 };
 const persistQuickAnnouncementCollapsed = () => {
@@ -2146,104 +2215,179 @@ const affiliationsPopoverStyle = computed(() => {
   return { top: `${p.top}px`, left: `${p.left}px` };
 });
 
-// AI Search (Gemini-ready)
-const aiQueryText = ref('');
-const aiState = ref('ready'); // 'ready' | 'thinking' | 'success' | 'error'
-const aiResults = ref([]);
-const aiEmailsSemicolon = ref('');
-const aiError = ref('');
-const aiMeta = ref(null);
-const aiActiveOnly = ref(true);
-const aiProvidersOnly = ref(false);
-
-const aiIconSrc = aiIconAsset;
-const aiBannerSrc = computed(() => {
-  if (aiState.value === 'thinking') return aiThinkingAsset;
-  if (aiState.value === 'success') return aiSuccessAsset;
-  if (aiState.value === 'error') return aiErrorAsset;
-  return aiReadyAsset;
+const directoryPersonaLabel = computed(() => {
+  if (isSscSstcTenant.value) return 'Members';
+  if (directoryPersona.value === 'school_staff') return 'School staff';
+  if (directoryPersona.value === 'guardians') return 'Guardians';
+  if (directoryPersona.value === 'clients') return 'Clients';
+  return 'Employees';
 });
 
-const clearAiQuery = () => {
-  aiQueryText.value = '';
-  aiState.value = 'ready';
-  aiResults.value = [];
-  aiEmailsSemicolon.value = '';
-  aiError.value = '';
-  aiMeta.value = null;
-  aiActiveOnly.value = true;
-  aiProvidersOnly.value = false;
+const directoryGreeting = computed(() => {
+  const first = String(authStore.user?.first_name || authStore.user?.firstName || '').trim();
+  const h = new Date().getHours();
+  const hello = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  return first ? `${hello}, ${first}` : hello;
+});
+
+const setDirectoryPersona = (persona) => {
+  const next = String(persona || 'employees');
+  if (!['employees', 'school_staff', 'guardians', 'clients'].includes(next)) return;
+  directoryPersona.value = next;
+  if (next === 'school_staff') {
+    roleSort.value = '';
+    userTypeFilter.value = '';
+  }
+  if (next === 'employees' && !statusSort.value) {
+    statusSort.value = 'ACTIVE_EMPLOYEE';
+  }
+  persistUserFilters();
+  if (next === 'guardians') void fetchGuardiansDirectory();
+  if (next === 'clients') void fetchClientsDirectory();
 };
 
-const runAiQuery = async () => {
-  const q = String(aiQueryText.value || '').trim();
-  if (!q) {
-    clearAiQuery();
-    return;
-  }
+const collapsePeopleAssistant = () => {
+  peopleAssistantExpanded.value = false;
+};
 
+const runPeopleAssistantPrompt = async (text, { submitNow = true } = {}) => {
+  const q = String(text || '').trim();
+  if (!q) return;
+  peopleAssistantDraft.value = q;
+  peopleAssistantSeed.value = q;
+  peopleAssistantExpanded.value = true;
+  await nextTick();
   try {
-    aiState.value = 'thinking';
-    aiError.value = '';
-    aiResults.value = [];
-    aiEmailsSemicolon.value = '';
-    aiMeta.value = null;
+    await peopleAssistantRef.value?.setPromptAndSubmit?.(q, { submitNow });
+  } catch {
+    /* panel may still be mounting */
+  }
+};
 
-    const response = await api.get('/users/ai-query', {
-      params: {
-        query: q,
-        limit: 500,
-        activeOnly: aiActiveOnly.value,
-        providersOnly: aiProvidersOnly.value,
-        // Provider matching is agency-scoped when using the provider index.
-        agencyId: agencySort.value ? parseInt(String(agencySort.value), 10) : undefined
-      }
-    });
-    const data = response.data || {};
-    aiResults.value = Array.isArray(data.results) ? data.results : [];
-    aiEmailsSemicolon.value = String(data.emailsSemicolon || '');
-    aiMeta.value = data.meta || null;
+const runPeopleAssistantChip = (chip) => runPeopleAssistantPrompt(chip, { submitNow: true });
 
-    if (!aiResults.value.length) {
-      aiState.value = 'error';
-      aiError.value = 'No matching users found.';
-      return;
-    }
-    aiState.value = 'success';
+const runPeopleAssistantDraft = () => runPeopleAssistantPrompt(peopleAssistantDraft.value, { submitNow: true });
+
+const toggleActionsMenu = (userId) => {
+  const id = Number(userId);
+  openActionsMenuId.value = openActionsMenuId.value === id ? null : id;
+};
+
+const rowHasMoreActions = (u) => {
+  if (!u) return false;
+  if (!u.isOrphaned && !u.isGuardian) return true;
+  if (canArchiveDelete.value) return true;
+  if (isSscSstcTenant.value && Number(u.id) !== Number(authStore.user?.id) && !u.applicationPending) return true;
+  const st = String(u.status || '');
+  if (['PREHIRE_OPEN', 'pending', 'PREHIRE_REVIEW', 'ready_for_review'].includes(st)) return true;
+  return false;
+};
+
+const statusDotClass = (status, isActive = true) => {
+  const st = String(status || '').toUpperCase();
+  if (st === 'ACTIVE_EMPLOYEE' || st === 'ACTIVE' || isActive === true || isActive === 1) return 'um-status-green';
+  if (st === 'ONBOARDING' || st === 'PREHIRE_OPEN' || st === 'PREHIRE_REVIEW' || st === 'PENDING_SETUP' || st === 'PROSPECTIVE') {
+    return 'um-status-amber';
+  }
+  return 'um-status-gray';
+};
+
+const clientStatusDotClass = (c) => {
+  const key = String(c?.client_status_key || c?.status || '').toLowerCase();
+  if (key.includes('active') || key === 'enrolled' || key === 'current') return 'um-status-green';
+  if (key.includes('prospective') || key.includes('pending') || key.includes('intake')) return 'um-status-amber';
+  return 'um-status-gray';
+};
+
+const fetchGuardiansDirectory = async () => {
+  if (isSscSstcTenant.value) return;
+  try {
+    guardiansLoading.value = true;
+    const params = {};
+    if (agencySort.value) params.agencyId = agencySort.value;
+    const r = await api.get('/users/guardians', { params });
+    guardians.value = Array.isArray(r.data) ? r.data : [];
   } catch (e) {
-    aiState.value = 'error';
-    aiError.value = e?.response?.data?.error?.message || 'AI search failed. Please try again.';
+    console.warn('[UserManager] guardians fetch failed', e?.message || e);
+    guardians.value = [];
+  } finally {
+    guardiansLoading.value = false;
   }
 };
 
-const copyAiEmails = async () => {
-  const text = String(aiEmailsSemicolon.value || '').trim();
-  if (!text) return;
+const fetchClientsDirectory = async () => {
+  if (isSscSstcTenant.value) return;
   try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    // Fallback for older browsers / blocked clipboard API
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.setAttribute('readonly', 'readonly');
-    ta.style.position = 'absolute';
-    ta.style.left = '-9999px';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
+    clientsLoading.value = true;
+    const params = new URLSearchParams();
+    params.set('includeArchived', 'false');
+    params.set('includeGuardians', 'true');
+    if (agencySort.value) params.set('agency_id', String(agencySort.value));
+    if (organizationSort.value) params.set('organization_id', String(organizationSort.value));
+    const r = await api.get(`/clients?${params.toString()}`);
+    const payload = r.data || [];
+    const raw = Array.isArray(payload) ? payload : (payload.items || []);
+    directoryClients.value = (Array.isArray(raw) ? raw : []).filter(
+      (c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED'
+    );
+  } catch (e) {
+    console.warn('[UserManager] clients fetch failed', e?.message || e);
+    directoryClients.value = [];
+  } finally {
+    clientsLoading.value = false;
   }
 };
 
-const formatIsoShort = (iso) => {
-  try {
-    const d = new Date(String(iso || ''));
-    if (Number.isNaN(d.getTime())) return String(iso || '');
-    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  } catch {
-    return String(iso || '');
+const filteredGuardians = computed(() => {
+  let list = [...(guardians.value || [])];
+  if (agencySort.value) {
+    const aid = String(agencySort.value);
+    list = list.filter((g) => {
+      const ids = String(g.agency_ids || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return ids.includes(aid) || String(g.agencies || '').length > 0;
+    });
+    // Prefer exact agency_ids match when present
+    const withIds = list.filter((g) =>
+      String(g.agency_ids || '')
+        .split(',')
+        .map((s) => s.trim())
+        .includes(aid)
+    );
+    if (withIds.length || list.some((g) => g.agency_ids)) list = withIds.length ? withIds : list;
   }
-};
+  if (statusSort.value && statusSort.value !== 'ACTIVE_EMPLOYEE') {
+    list = list.filter((g) => String(g.status || '') === statusSort.value);
+  } else if (statusSort.value === 'ACTIVE_EMPLOYEE') {
+    list = list.filter((g) => g.status === 'ACTIVE_EMPLOYEE' || g.status === 'active' || g.is_active);
+  }
+  const q = String(userSearch.value || '').trim().toLowerCase();
+  if (q) {
+    list = list.filter((g) => {
+      const name = `${g.first_name || ''} ${g.last_name || ''}`.toLowerCase();
+      const email = String(g.email || '').toLowerCase();
+      const linked = (g.linked_clients || []).map((c) => String(c.name || '').toLowerCase()).join(' ');
+      return name.includes(q) || email.includes(q) || linked.includes(q);
+    });
+  }
+  return list;
+});
+
+const filteredClients = computed(() => {
+  let list = [...(directoryClients.value || [])];
+  const q = String(userSearch.value || '').trim().toLowerCase();
+  if (q) {
+    list = list.filter((c) => {
+      const name = String(c.full_name || c.initials || '').toLowerCase();
+      const org = String(c.organization_name || c.agency_name || '').toLowerCase();
+      const linked = (c.linked_guardians || []).map((g) => String(g.name || '').toLowerCase()).join(' ');
+      return name.includes(q) || org.includes(q) || linked.includes(q) || String(c.id).includes(q);
+    });
+  }
+  return list;
+});
 
 // Provider uploads (User Management)
 const providerListFile = ref(null);
@@ -3697,11 +3841,20 @@ watch(showSupervisorsModal, (isOpen) => {
 });
 
 watch(
-  [userSearch, agencySort, organizationSort, roleSort, statusSort, userTypeFilter, organizationSearch],
+  [userSearch, agencySort, organizationSort, roleSort, statusSort, userTypeFilter, organizationSearch, directoryPersona],
   () => {
     persistUserFilters();
   }
 );
+
+watch(agencySort, () => {
+  if (directoryPersona.value === 'guardians') void fetchGuardiansDirectory();
+  if (directoryPersona.value === 'clients') void fetchClientsDirectory();
+});
+
+watch(organizationSort, () => {
+  if (directoryPersona.value === 'clients') void fetchClientsDirectory();
+});
 watch(quickAnnouncementCollapsed, () => {
   persistQuickAnnouncementCollapsed();
 });
@@ -3762,6 +3915,23 @@ const sortedUsers = computed(() => {
   let filtered = isSscSstcTenant.value
     ? [...(users.value || [])]
     : (users.value || []).filter((u) => String(u?.role || '').toLowerCase() !== 'client_guardian');
+
+  // Directory personas (User Manager revamp): Employees exclude school_staff / kiosk;
+  // School staff shows only school_staff role.
+  if (!isSscSstcTenant.value) {
+    if (directoryPersona.value === 'school_staff') {
+      filtered = filtered.filter((u) => String(u?.role || '').toLowerCase() === 'school_staff');
+    } else if (directoryPersona.value === 'employees') {
+      filtered = filtered.filter((u) => {
+        const r = String(u?.role || '').toLowerCase();
+        return r !== 'school_staff' && r !== 'kiosk' && r !== 'client_guardian';
+      });
+    } else {
+      // Guardians / Clients use their own tables — keep employees empty here.
+      return [];
+    }
+  }
+
   const hasSearch = !!(userSearch.value && String(userSearch.value).trim());
 
   const parseOrgIds = (u) => {
@@ -3957,6 +4127,12 @@ const sortedUsers = computed(() => {
   }
 
   return sorted;
+});
+
+const directoryResultCount = computed(() => {
+  if (!isSscSstcTenant.value && directoryPersona.value === 'guardians') return filteredGuardians.value.length;
+  if (!isSscSstcTenant.value && directoryPersona.value === 'clients') return filteredClients.value.length;
+  return sortedUsers.value.length;
 });
 
 const applySorting = () => {
@@ -4217,12 +4393,18 @@ onMounted(async () => {
   }
   await Promise.all([fetchUsers(), fetchAgencies(), fetchPackages()]);
   resolveDefaultAgencyAndOrg();
+  if (!isSscSstcTenant.value && directoryPersona.value === 'guardians') await fetchGuardiansDirectory();
+  if (!isSscSstcTenant.value && directoryPersona.value === 'clients') await fetchClientsDirectory();
   if (isSscSstcTenant.value && selectedClubId.value) {
     quickAnnouncementDraft.value.agencyId = String(selectedClubId.value);
     userForm.value.primaryAgencyId = String(selectedClubId.value);
     userForm.value.organizationIds = [];
   }
 });
+
+const closeActionsMenus = () => { openActionsMenuId.value = null; };
+onMounted(() => window.addEventListener('click', closeActionsMenus));
+onUnmounted(() => window.removeEventListener('click', closeActionsMenus));
 </script>
 
 <style scoped>
@@ -4313,9 +4495,144 @@ onMounted(async () => {
   margin-bottom: 30px;
 }
 
+.um-quick-announce {
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 10px;
+  background: var(--bg, #fff);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.um-quick-announce-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.um-quick-announce-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.um-quick-announce-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.um-quick-announce-body {
+  margin-top: 8px;
+}
+
+.um-quick-announce-success {
+  margin-bottom: 8px;
+  color: #166534;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.um-quick-announce-fields {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: flex-end;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.um-qa-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.um-qa-field > span {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-secondary, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.um-qa-field .filter-select,
+.um-qa-field .filter-input {
+  min-width: 120px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.um-qa-field--sm .filter-select {
+  min-width: 110px;
+}
+
+.um-qa-field--user .filter-select {
+  min-width: 160px;
+}
+
+.um-qa-field--dt .filter-input {
+  min-width: 168px;
+}
+
+.um-qa-club {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  white-space: nowrap;
+}
+
+.um-quick-announce-message-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.um-qa-title {
+  flex: 0 1 180px;
+  min-width: 120px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.um-qa-message {
+  flex: 1 1 auto;
+  min-width: 160px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.um-page-header {
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.um-greeting-block h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.75rem;
+}
+
+.um-greeting-sub {
+  margin: 6px 0 0;
+  font-size: 0.92rem;
+}
+
+.um-add-user-btn {
+  font-weight: 700;
+}
+
 .header-actions {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .page-header h1 {
@@ -4338,6 +4655,266 @@ onMounted(async () => {
   border-radius: 12px;
   background: #fff;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
+}
+
+.um-filters-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+  margin-bottom: 4px;
+}
+
+.um-persona-row .type-filter-btn {
+  flex: 1 1 calc(50% - 8px);
+  justify-content: center;
+}
+
+.um-persona-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.um-persona-links a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.um-persona-links a:hover {
+  text-decoration: underline;
+}
+
+.um-assistant-card {
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.um-assistant-card--open {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+}
+
+.um-assistant-panel-host {
+  border-top: 1px solid var(--border, #dee2e6);
+  max-height: 320px;
+  overflow: hidden;
+}
+
+.um-assistant-card :deep(.aap-root.aap-embedded) {
+  min-height: 220px;
+  max-height: 320px;
+}
+
+.um-assistant-card :deep(.aap-empty-visual),
+.um-assistant-card :deep(.aap-empty-title),
+.um-assistant-card :deep(.aap-empty-desc),
+.um-assistant-card :deep(.aap-capabilities),
+.um-assistant-card :deep(.aap-suggestions-label),
+.um-assistant-card :deep(.aap-suggestions) {
+  display: none;
+}
+
+.um-assistant-card :deep(.aap-empty) {
+  padding: 8px 12px;
+  min-height: 0;
+}
+
+.um-assistant-card :deep(.aap-head) {
+  padding: 8px 12px;
+}
+
+.um-assistant-card :deep(.aap-sub) {
+  font-size: 12px;
+}
+
+.um-assistant-card :deep(.aap-agency-bar) {
+  padding: 6px 12px;
+}
+
+.um-assistant-hero {
+  padding: 12px 14px 10px;
+}
+
+.um-assistant-hero-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.um-assistant-title {
+  font-size: 1rem;
+  font-weight: 750;
+  color: var(--text-primary, #1f2937);
+}
+
+.um-assistant-search-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.um-assistant-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 10px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.um-example-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.um-chip {
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, #fff);
+  background: #fff;
+  color: var(--primary);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.um-chip:hover {
+  background: color-mix(in srgb, var(--primary) 10%, #fff);
+}
+
+.um-found-count {
+  font-weight: 700;
+  font-size: 0.92rem;
+  margin-right: auto;
+}
+
+.um-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.um-pill-agency {
+  background: color-mix(in srgb, var(--primary) 14%, #fff);
+  color: var(--text-primary, #1f2937);
+}
+
+.um-pill-role {
+  background: color-mix(in srgb, var(--secondary, #64748b) 16%, #fff);
+  color: var(--text-primary, #1f2937);
+}
+
+.um-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.um-status-green { background: #22c55e; }
+.um-status-amber { background: #f59e0b; }
+.um-status-gray { background: #9ca3af; }
+
+.um-linked-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.um-linked-chip {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--text-primary, #1f2937);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.um-linked-chip:hover {
+  background: color-mix(in srgb, var(--primary) 14%, #fff);
+  color: var(--primary);
+}
+
+.um-linked-more {
+  font-size: 12px;
+}
+
+.um-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.um-more-wrap {
+  position: relative;
+}
+
+.um-more-btn {
+  min-width: 32px;
+  padding-left: 8px;
+  padding-right: 8px;
+  font-weight: 800;
+}
+
+.um-more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.um-more-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-primary, #1f2937);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.um-more-item:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.um-more-danger {
+  color: #b91c1c;
 }
 
 .filter-section {
@@ -4644,7 +5221,7 @@ onMounted(async () => {
 }
 
 .users-table-toolbar {
-  display: none;
+  display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;

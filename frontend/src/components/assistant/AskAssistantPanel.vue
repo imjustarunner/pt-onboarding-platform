@@ -424,7 +424,9 @@ const props = defineProps({
   /** Analytics / capability context for this surface */
   placementKey: { type: String, default: 'ask_assistant' },
   /** Override close button visibility (default: hide in embedded) */
-  showClose: { type: Boolean, default: undefined }
+  showClose: { type: Boolean, default: undefined },
+  /** Optional prompt seeded from a parent surface (e.g. User Manager chips). */
+  seedPrompt: { type: String, default: '' }
 });
 const emit = defineEmits(['close']);
 
@@ -1261,7 +1263,13 @@ async function loadCapabilities() {
   if (capabilityLoading.value) return;
   capabilityLoading.value = true;
   try {
-    const resp = await api.get('/agents/capabilities', { skipGlobalLoading: true });
+    const resp = await api.get('/agents/capabilities', {
+      skipGlobalLoading: true,
+      params: {
+        placementKey: String(props.placementKey || '').trim() || undefined,
+        routeName: route?.name ? String(route.name) : undefined
+      }
+    });
     const data = resp?.data || null;
     if (data && typeof data === 'object') capabilityPayload.value = data;
   } catch {
@@ -1322,6 +1330,36 @@ watch(
   },
   { immediate: true }
 );
+
+watch(
+  () => props.seedPrompt,
+  (v) => {
+    const t = String(v || '').trim();
+    if (!t) return;
+    prompt.value = t;
+    nextTick(() => {
+      textareaRef.value?.focus?.();
+      autoGrow();
+    });
+  }
+);
+
+async function setPromptAndSubmit(text, { submitNow = true } = {}) {
+  const t = String(text || '').trim();
+  if (!t) return;
+  prompt.value = t;
+  await nextTick();
+  autoGrow();
+  textareaRef.value?.focus?.();
+  if (submitNow) await submit();
+}
+
+defineExpose({
+  setPromptAndSubmit,
+  focusPrompt: () => {
+    nextTick(() => textareaRef.value?.focus?.());
+  }
+});
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown);
