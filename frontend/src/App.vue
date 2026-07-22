@@ -446,11 +446,11 @@
                   >
                     <span class="nav-dropdown-label">Directory</span>
                     <span
-                      v-if="eventPortalRegistrantBadgeCount > 0"
+                      v-if="directoryBadgeCount > 0"
                       class="nav-badge nav-badge-pulse"
-                      :title="`${eventPortalRegistrantBadgeCount} new event registrant(s)`"
+                      :title="`${directoryBadgeCount} new item(s)`"
                     >
-                      {{ formatNavBadgeCount(eventPortalRegistrantBadgeCount) }}
+                      {{ formatNavBadgeCount(directoryBadgeCount) }}
                     </span>
                     <span class="brand-caret">▾</span>
                   </button>
@@ -1562,6 +1562,13 @@
                   @click="mobileDirectoryExpanded = !mobileDirectoryExpanded"
                 >
                   <span>Directory</span>
+                  <span
+                    v-if="directoryBadgeCount > 0"
+                    class="nav-badge nav-badge-pulse"
+                    :title="`${directoryBadgeCount} new item(s)`"
+                  >
+                    {{ formatNavBadgeCount(directoryBadgeCount) }}
+                  </span>
                   <span class="mobile-nav-group-caret" :class="{ open: mobileDirectoryExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="mobileDirectoryExpanded">
@@ -4555,6 +4562,17 @@ const eventPortalRegistrantBadgeCount = computed(() =>
   eventPortalsForNav.value.reduce((sum, ev) => sum + eventPortalRegistrantCount(ev), 0)
 );
 
+const directoryBadgeCount = computed(() => {
+  let count = 0;
+  if (canSeeEventsProgramsNavGroup.value && !isAffiliationContext.value && canSeeEventPortalsTopNav.value) {
+    count += eventPortalRegistrantBadgeCount.value;
+  }
+  if (canSeeSchoolPortalsNav.value || canSeeSchoolClientsNav.value) {
+    count += schoolClientsPendingCount.value;
+  }
+  return count;
+});
+
 /** Build the href for an event portal link, using the program org slug when available. */
 const eventPortalHref = (ev) => {
   const id = Number(ev?.id || ev || 0);
@@ -4585,7 +4603,8 @@ const canSeeEventsProgramsNavGroup = computed(
     hasProgramCoordinatorAccess.value ||
     canOpenSkillBuildersProgramsFromNav.value ||
     canSeeSkillBuildersMyAvailabilityNav.value ||
-    (showBookClubPortalLink.value && isAdmin.value)
+    (showBookClubPortalLink.value && isAdmin.value) ||
+    (canSeeEventPortalsTopNav.value && eventPortalsForNav.value.length > 0)
 );
 
 const skillBuildersProgramsDashboardTo = computed(() => orgTo('/admin/program-events'));
