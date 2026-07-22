@@ -14,7 +14,13 @@ import User from '../models/User.model.js';
 import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
 import OfficeScheduleMaterializer, { shouldBookOnDate } from '../services/officeScheduleMaterializer.service.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
-import { refreshLocationBookingsFromEhr, getEhrSyncHealth, auditIcsCoverageForLocation, auditIcsCoverageAllLocations } from '../services/officeScheduleEhrSync.service.js';
+import {
+  refreshLocationBookingsFromEhr,
+  getEhrSyncHealth,
+  auditIcsCoverageForLocation,
+  auditIcsCoverageAllLocations,
+  ICS_COVERAGE_WINDOW_DAYS
+} from '../services/officeScheduleEhrSync.service.js';
 import { getSchedulingBookingMetadata, validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
 import AgencyMedicalServiceCode from '../models/AgencyMedicalServiceCode.model.js';
@@ -4405,7 +4411,29 @@ export const getCoverageFlags = async (req, res, next) => {
 
     const userAgencies = await User.getAgencies(req.user.id);
     const agencyIds = (userAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
-    if (!agencyIds.length) return res.json({ flags: [], filterOptions: { offices: [], providers: [] } });
+    if (!agencyIds.length) {
+      return res.json({ flags: [], patterns: [], count: 0, filterOptions: { offices: [], providers: [] } });
+    }
+
+    // Drop one-time / non-recurring flags only. Past occurrences stay on the series
+    // until audit clears them; the UI collapses by standing assignment and lists dates.
+    try {
+      await pool.execute(
+        `UPDATE office_events e
+         LEFT JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
+         SET e.ics_flag_type = NULL,
+             e.ics_flagged_at = NULL,
+             e.updated_at = CURRENT_TIMESTAMP
+         WHERE e.ics_flag_type IS NOT NULL
+           AND e.ics_flag_cleared_at IS NULL
+           AND (
+             e.standing_assignment_id IS NULL
+             OR UPPER(COALESCE(osa.assigned_frequency, 'ONCE')) NOT IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY')
+           )`
+      );
+    } catch {
+      // columns / tables may not exist yet
+    }
 
     const ph = agencyIds.map(() => '?').join(',');
     const params = [...agencyIds];
@@ -4429,91 +4457,294 @@ export const getCoverageFlags = async (req, res, next) => {
       params.push(flagType);
     }
 
-    const dateFrom = String(req.query.dateFrom || '').slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
-      filters.push('e.start_at >= ?');
-      params.push(`${dateFrom} 00:00:00`);
+    const reqWeekdays = String(req.query.weekdays || '').split(',').map((n) => parseInt(n, 10)).filter((n) => !isNaN(n));
+    if (reqWeekdays.length) {
+      filters.push(`osa.weekday IN (${reqWeekdays.map(() => '?').join(',')})`);
+      params.push(...reqWeekdays);
     }
 
-    const dateTo = String(req.query.dateTo || '').slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
-      filters.push('e.start_at < DATE_ADD(?, INTERVAL 1 DAY)');
-      params.push(dateTo);
+    const reqHours = String(req.query.hours || '').split(',').map((n) => parseInt(n, 10)).filter((n) => !isNaN(n));
+    if (reqHours.length) {
+      filters.push(`osa.hour IN (${reqHours.map(() => '?').join(',')})`);
+      params.push(...reqHours);
     }
+
+    // Recurring series only, today → +4 weeks (same window as the audit).
+    const windowDays = Number(ICS_COVERAGE_WINDOW_DAYS) || 28;
+    filters.push(`UPPER(COALESCE(osa.assigned_frequency, '')) IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY')`);
+    filters.push('osa.is_active = TRUE');
+    filters.push('e.start_at >= CURDATE()');
+    filters.push(`e.start_at < DATE_ADD(CURDATE(), INTERVAL ${windowDays} DAY)`);
+    filters.push('(osa.ics_coverage_keep_until IS NULL OR osa.ics_coverage_keep_until < CURDATE())');
+    // Weekly + only one conflict date in the window = one-off cancellation — hide.
+    filters.push(`e.standing_assignment_id NOT IN (
+      SELECT weekly_single.standing_assignment_id FROM (
+        SELECT e2.standing_assignment_id
+        FROM office_events e2
+        JOIN office_standing_assignments osa2 ON osa2.id = e2.standing_assignment_id
+        WHERE e2.ics_flag_type IS NOT NULL
+          AND e2.ics_flag_cleared_at IS NULL
+          AND (e2.status IS NULL OR UPPER(e2.status) <> 'CANCELLED')
+          AND UPPER(COALESCE(osa2.assigned_frequency, '')) = 'WEEKLY'
+          AND e2.start_at >= CURDATE()
+          AND e2.start_at < DATE_ADD(CURDATE(), INTERVAL ${windowDays} DAY)
+        GROUP BY e2.standing_assignment_id
+        HAVING COUNT(DISTINCT DATE(e2.start_at)) <= 1
+      ) weekly_single
+    )`);
 
     const filterSql = filters.length ? ` AND ${filters.join(' AND ')}` : '';
+    const countOnly = String(req.query.countOnly || '').trim() === '1';
 
-    const [rows] = await pool.execute(
-      `SELECT
-         e.id                AS event_id,
-         e.start_at,
-         e.end_at,
-         e.slot_state,
-         e.ics_flag_type,
-         e.ics_flagged_at,
-         e.ics_flag_cleared_at,
-         e.ics_flag_cleared_by_user_id,
-         e.last_ics_overlap_at,
-         e.standing_assignment_id,
-         e.assigned_provider_id,
-         CONCAT(u.first_name, ' ', u.last_name) AS provider_name,
-         ol.id               AS office_location_id,
-         ol.name             AS office_name,
-         r.id                AS room_id,
-         r.name              AS room_name,
-         r.label             AS room_label
+    const baseFrom = `
        FROM office_events e
-       JOIN office_rooms r    ON r.id  = e.room_id
+       JOIN office_rooms r ON r.id = e.room_id
        JOIN office_locations ol ON ol.id = e.office_location_id
        JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id IN (${ph})
        JOIN users u ON u.id = e.assigned_provider_id
+       JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
        WHERE e.ics_flag_type IS NOT NULL
          AND e.ics_flag_cleared_at IS NULL
          AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-         ${filterSql}
-       ORDER BY ol.name ASC, e.assigned_provider_id ASC, e.start_at ASC`,
-      params
+         ${filterSql}`;
+
+    const runCoverageQuery = async (fromSql, selectList) => {
+      try {
+        return await pool.execute(
+          `SELECT ${selectList} ${fromSql} ORDER BY ol.name ASC, e.assigned_provider_id ASC, e.start_at ASC`,
+          params
+        );
+      } catch (e) {
+        if (!String(e?.sqlMessage || e?.message || '').includes('ics_coverage_keep_until')) throw e;
+        const filtersLegacy = filters.filter((f) => !String(f).includes('ics_coverage_keep_until'));
+        const filterSqlLegacy = filtersLegacy.length ? ` AND ${filtersLegacy.join(' AND ')}` : '';
+        const fromLegacy = `
+       FROM office_events e
+       JOIN office_rooms r ON r.id = e.room_id
+       JOIN office_locations ol ON ol.id = e.office_location_id
+       JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id IN (${ph})
+       JOIN users u ON u.id = e.assigned_provider_id
+       JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
+       WHERE e.ics_flag_type IS NOT NULL
+         AND e.ics_flag_cleared_at IS NULL
+         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         ${filterSqlLegacy}`;
+        return pool.execute(
+          `SELECT ${selectList} ${fromLegacy} ORDER BY ol.name ASC, e.assigned_provider_id ASC, e.start_at ASC`,
+          params
+        );
+      }
+    };
+
+    // Series count: standing assignments with actionable conflicts in the 4-week window.
+    // Weekly series with only one conflict date are ignored (one-off cancellation).
+    const countSqlFrom = (fromSql) => `
+      SELECT COUNT(*) AS cnt FROM (
+        SELECT e.standing_assignment_id
+        ${fromSql}
+        GROUP BY e.standing_assignment_id, osa.assigned_frequency
+        HAVING UPPER(COALESCE(osa.assigned_frequency, '')) <> 'WEEKLY'
+            OR COUNT(DISTINCT DATE(e.start_at)) > 1
+      ) coverage_series`;
+
+    if (countOnly) {
+      try {
+        const [[countRow]] = await pool.execute(countSqlFrom(baseFrom), params);
+        return res.json({ count: Number(countRow?.cnt || 0) });
+      } catch (e) {
+        if (!String(e?.sqlMessage || e?.message || '').includes('ics_coverage_keep_until')) throw e;
+        const filtersLegacy = filters.filter((f) => !String(f).includes('ics_coverage_keep_until'));
+        const filterSqlLegacy = filtersLegacy.length ? ` AND ${filtersLegacy.join(' AND ')}` : '';
+        const fromLegacy = `
+           FROM office_events e
+           JOIN office_rooms r ON r.id = e.room_id
+           JOIN office_locations ol ON ol.id = e.office_location_id
+           JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id IN (${ph})
+           JOIN users u ON u.id = e.assigned_provider_id
+           JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
+           WHERE e.ics_flag_type IS NOT NULL
+             AND e.ics_flag_cleared_at IS NULL
+             AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+             ${filterSqlLegacy}`;
+        const [[countRow]] = await pool.execute(countSqlFrom(fromLegacy), params);
+        return res.json({ count: Number(countRow?.cnt || 0) });
+      }
+    }
+
+    const [rows] = await runCoverageQuery(
+      baseFrom,
+      `e.id AS event_id,
+       e.start_at,
+       e.end_at,
+       e.slot_state,
+       e.ics_flag_type,
+       e.ics_flagged_at,
+       e.last_ics_overlap_at,
+       e.standing_assignment_id,
+       e.assigned_provider_id,
+       CONCAT(u.first_name, ' ', u.last_name) AS provider_name,
+       ol.id AS office_location_id,
+       ol.name AS office_name,
+       r.id AS room_id,
+       r.name AS room_name,
+       r.label AS room_label,
+       r.room_number AS room_number,
+       osa.weekday,
+       osa.hour AS start_hour,
+       osa.assigned_frequency,
+       osa.available_since_date AS series_start_date`
     );
 
-    // Filter option lists (unfiltered by date/type so bookers can switch offices easily)
-    const [officeRows] = await pool.execute(
-      `SELECT DISTINCT ol.id, ol.name
-       FROM office_events e
-       JOIN office_locations ol ON ol.id = e.office_location_id
-       JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id IN (${ph})
-       WHERE e.ics_flag_type IS NOT NULL
-         AND e.ics_flag_cleared_at IS NULL
-         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-       ORDER BY ol.name ASC`,
-      agencyIds
-    ).catch(() => [[]]);
+    // mysql2 returns DATETIME as Date-in-UTC; keep wall clock digits (no Z) for the client.
+    const toWallDt = (value) => {
+      if (value == null) return null;
+      const pad2 = (n) => String(n).padStart(2, '0');
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return `${value.getUTCFullYear()}-${pad2(value.getUTCMonth() + 1)}-${pad2(value.getUTCDate())} ${pad2(value.getUTCHours())}:${pad2(value.getUTCMinutes())}:${pad2(value.getUTCSeconds())}`;
+      }
+      const raw = String(value).trim();
+      if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(raw)) {
+        return raw.slice(0, 19).replace('T', ' ');
+      }
+      return raw || null;
+    };
+    const wallHour = (value) => {
+      const wall = toWallDt(value);
+      if (!wall) return null;
+      const h = parseInt(wall.slice(11, 13), 10);
+      return Number.isFinite(h) ? h : null;
+    };
 
-    const providerParams = [...agencyIds];
-    let providerOfficeFilter = '';
-    if (officeLocationId) {
-      providerOfficeFilter = ' AND ol.id = ?';
-      providerParams.push(officeLocationId);
+    const weekdayLabel = (n) =>
+      ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][Number(n)] || String(n);
+    const freqLabel = (f) => {
+      const v = String(f || '').toUpperCase();
+      if (v === 'WEEKLY') return 'Weekly';
+      if (v === 'BIWEEKLY') return 'Biweekly';
+      if (v === 'MONTHLY') return 'Monthly';
+      return v || 'Recurring';
+    };
+
+    const nowMs = Date.now();
+    const isUpcoming = (startAt) => {
+      const t = new Date(String(startAt).replace(' ', 'T')).getTime();
+      return Number.isFinite(t) ? t >= nowMs : String(startAt) >= new Date().toISOString().slice(0, 19).replace('T', ' ');
+    };
+
+    // Collapse many weekly occurrences → one pattern per standing assignment.
+    const byStanding = new Map();
+    for (const row of rows || []) {
+      const sid = Number(row.standing_assignment_id || 0);
+      if (!sid) continue;
+      if (!byStanding.has(sid)) {
+        const startHour = Number(row.start_hour);
+        const endFromWall = wallHour(row.end_at);
+        const endHour = Number.isFinite(endFromWall) && endFromWall > startHour
+          ? endFromWall
+          : startHour + 1;
+        const startWall = toWallDt(row.start_at);
+        const endWall = toWallDt(row.end_at);
+        byStanding.set(sid, {
+          id: sid,
+          standing_assignment_id: sid,
+          event_id: Number(row.event_id), // representative id for single keep/release
+          event_ids: [],
+          occurrences: [],
+          assigned_provider_id: row.assigned_provider_id,
+          provider_name: row.provider_name,
+          office_location_id: row.office_location_id,
+          office_name: row.office_name,
+          room_id: row.room_id,
+          room_name: row.room_name,
+          room_label: row.room_label,
+          room_number: row.room_number != null ? Number(row.room_number) : null,
+          weekday: Number(row.weekday),
+          weekday_label: weekdayLabel(row.weekday),
+          start_hour: startHour,
+          end_hour: endHour,
+          frequency: String(row.assigned_frequency || '').toUpperCase(),
+          frequency_label: freqLabel(row.assigned_frequency),
+          series_start_date: row.series_start_date,
+          ics_flag_type: row.ics_flag_type,
+          ics_flagged_at: row.ics_flagged_at,
+          last_ics_overlap_at: row.last_ics_overlap_at,
+          first_conflict_at: startWall,
+          next_occurrence_at: null,
+          upcoming_count: 0,
+          flagged_occurrence_count: 0,
+          // Compatibility fields used by existing UI formatters (wall clock, no Z)
+          start_at: startWall,
+          end_at: endWall
+        });
+      }
+      const pat = byStanding.get(sid);
+      const startWall = toWallDt(row.start_at);
+      const endWall = toWallDt(row.end_at);
+      const occ = {
+        event_id: Number(row.event_id),
+        start_at: startWall,
+        end_at: endWall,
+        ics_flag_type: row.ics_flag_type,
+        is_past: !isUpcoming(startWall)
+      };
+      pat.occurrences.push(occ);
+      pat.event_ids.push(Number(row.event_id));
+      pat.flagged_occurrence_count += 1;
+      if (String(startWall) < String(pat.first_conflict_at)) {
+        pat.first_conflict_at = startWall;
+      }
+      if (isUpcoming(startWall)) {
+        pat.upcoming_count += 1;
+        if (!pat.next_occurrence_at || String(startWall) < String(pat.next_occurrence_at)) {
+          pat.next_occurrence_at = startWall;
+          pat.start_at = startWall;
+          pat.end_at = endWall;
+          pat.event_id = Number(row.event_id);
+          pat.ics_flag_type = row.ics_flag_type;
+        }
+      }
+      if (!pat.last_ics_overlap_at && row.last_ics_overlap_at) {
+        pat.last_ics_overlap_at = row.last_ics_overlap_at;
+      }
+      if (row.ics_flagged_at && (!pat.ics_flagged_at || String(row.ics_flagged_at) > String(pat.ics_flagged_at))) {
+        pat.ics_flagged_at = row.ics_flagged_at;
+      }
     }
-    const [providerRows] = await pool.execute(
-      `SELECT DISTINCT e.assigned_provider_id AS id,
-              CONCAT(u.first_name, ' ', u.last_name) AS name
-       FROM office_events e
-       JOIN office_locations ol ON ol.id = e.office_location_id
-       JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id IN (${ph})
-       JOIN users u ON u.id = e.assigned_provider_id
-       WHERE e.ics_flag_type IS NOT NULL
-         AND e.ics_flag_cleared_at IS NULL
-         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-         ${providerOfficeFilter}
-       ORDER BY name ASC`,
-      providerParams
-    ).catch(() => [[]]);
+
+    // Only show series that still have at least one upcoming conflict.
+    // Weekly + a single conflict date in the window = one-off cancellation — hide.
+    const patterns = [...byStanding.values()]
+      .filter((p) => {
+        if (p.upcoming_count <= 0) return false;
+        if (String(p.frequency || '').toUpperCase() !== 'WEEKLY') return true;
+        const conflictDays = new Set(
+          (p.occurrences || [])
+            .map((o) => String(o.start_at || '').slice(0, 10))
+            .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+        );
+        return conflictDays.size > 1;
+      })
+      .sort((a, b) =>
+        String(a.provider_name).localeCompare(String(b.provider_name)) ||
+        String(a.office_name).localeCompare(String(b.office_name))
+      );
+
+    // Filter option lists from patterns
+    const officeMap = new Map();
+    const providerMap = new Map();
+    for (const p of patterns) {
+      officeMap.set(Number(p.office_location_id), { id: p.office_location_id, name: p.office_name });
+      providerMap.set(Number(p.assigned_provider_id), { id: p.assigned_provider_id, name: p.provider_name });
+    }
 
     res.json({
-      flags: rows || [],
+      // `flags` kept as patterns for backward-compatible frontend consumers
+      flags: patterns,
+      patterns,
+      count: patterns.length,
       filterOptions: {
-        offices: officeRows || [],
-        providers: providerRows || []
+        offices: [...officeMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name))),
+        providers: [...providerMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)))
       }
     });
   } catch (e) {
@@ -4521,7 +4752,66 @@ export const getCoverageFlags = async (req, res, next) => {
   }
 };
 
+/** Resolve standing assignment + representative event for a coverage-flag action. */
+async function resolveCoverageActionTarget(eventId) {
+  const eid = parseInt(eventId, 10);
+  if (!eid) return null;
+  const [[row]] = await pool.execute(
+    `SELECT id, standing_assignment_id, office_location_id
+     FROM office_events
+     WHERE id = ?
+     LIMIT 1`,
+    [eid]
+  );
+  if (!row) return null;
+  return {
+    eventId: Number(row.id),
+    standingAssignmentId: Number(row.standing_assignment_id || 0) || null,
+    officeLocationId: Number(row.office_location_id || 0) || null
+  };
+}
+
+/**
+ * Keep: clear flags for the series in the current window and suppress re-flagging
+ * for 4 weeks (standing.ics_coverage_keep_until). Booking stays as-is.
+ */
 async function applyKeepCoverageFlag({ eventId, userId }) {
+  const target = await resolveCoverageActionTarget(eventId);
+  if (!target) return false;
+
+  const keepDays = Number(ICS_COVERAGE_WINDOW_DAYS) || 28;
+  const standingId = target.standingAssignmentId;
+
+  if (standingId) {
+    try {
+      await pool.execute(
+        `UPDATE office_standing_assignments
+         SET ics_coverage_keep_until = DATE_ADD(CURDATE(), INTERVAL ? DAY),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [keepDays, standingId]
+      );
+    } catch (e) {
+      if (!String(e?.sqlMessage || e?.message || '').includes('ics_coverage_keep_until')) throw e;
+      // migration not applied — fall through to event-level keep markers
+    }
+
+    const [result] = await pool.execute(
+      `UPDATE office_events
+       SET ics_flag_type = NULL,
+           ics_flag_cleared_by_user_id = ?,
+           ics_flag_cleared_at = NOW(),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE standing_assignment_id = ?
+         AND ics_flag_type IS NOT NULL
+         AND ics_flag_cleared_at IS NULL
+         AND start_at >= CURDATE()
+         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+      [userId, standingId]
+    );
+    return true;
+  }
+
   const [result] = await pool.execute(
     `UPDATE office_events
      SET ics_flag_type = NULL,
@@ -4531,43 +4821,103 @@ async function applyKeepCoverageFlag({ eventId, userId }) {
      WHERE id = ?
        AND ics_flag_type IS NOT NULL
        AND ics_flag_cleared_at IS NULL`,
-    [userId, eventId]
+    [userId, target.eventId]
   );
   return Number(result?.affectedRows || 0) > 0;
 }
 
+/**
+ * Release: free this recurring series forever from today —
+ * deactivate booking plan and unbook all future booked occurrences.
+ */
 async function applyReleaseCoverageFlag({ eventId, userId }) {
-  const [[event]] = await pool.execute(
-    `SELECT id FROM office_events WHERE id = ? LIMIT 1`,
-    [eventId]
-  );
-  if (!event) return false;
+  const target = await resolveCoverageActionTarget(eventId);
+  if (!target) return false;
 
-  await pool.execute(
-    `UPDATE office_events
-     SET status = 'RELEASED',
-         slot_state = 'ASSIGNED_AVAILABLE',
-         booked_provider_id = NULL,
-         booking_plan_id = NULL,
-         ics_flag_type = NULL,
-         ics_flag_cleared_by_user_id = ?,
-         ics_flag_cleared_at = NOW(),
-         updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    [userId, eventId]
-  );
+  const standingId = target.standingAssignmentId;
 
-  try {
-    await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: eventId });
-  } catch {
-    // best-effort
+  if (standingId) {
+    try {
+      await OfficeBookingPlan.deactivateByAssignmentId(standingId);
+    } catch {
+      // best-effort
+    }
+    try {
+      await pool.execute(
+        `UPDATE office_standing_assignments
+         SET ics_coverage_keep_until = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [standingId]
+      );
+    } catch {
+      // column may not exist yet
+    }
+  }
+
+  const [booked] = standingId
+    ? await pool.execute(
+      `SELECT id
+       FROM office_events
+       WHERE standing_assignment_id = ?
+         AND slot_state = 'ASSIGNED_BOOKED'
+         AND start_at >= CURDATE()
+         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+      [standingId]
+    )
+    : await pool.execute(
+      `SELECT id
+       FROM office_events
+       WHERE id = ?
+         AND slot_state = 'ASSIGNED_BOOKED'
+         AND start_at >= CURDATE()
+         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+      [target.eventId]
+    );
+
+  const ids = (booked || []).map((r) => Number(r.id)).filter(Boolean);
+  if (!ids.length) {
+    // Still clear any lingering flags on the representative event.
+    await pool.execute(
+      `UPDATE office_events
+       SET ics_flag_type = NULL,
+           ics_flag_cleared_by_user_id = ?,
+           ics_flag_cleared_at = NOW(),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [userId, target.eventId]
+    );
+    return true;
+  }
+
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    await pool.execute(
+      `UPDATE office_events
+       SET status = 'RELEASED',
+           slot_state = 'ASSIGNED_AVAILABLE',
+           booked_provider_id = NULL,
+           booking_plan_id = NULL,
+           ics_flag_type = NULL,
+           ics_flag_cleared_by_user_id = ?,
+           ics_flag_cleared_at = NOW(),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [userId, id]
+    );
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: id });
+    } catch {
+      // best-effort
+    }
   }
   return true;
 }
 
 /**
  * POST /api/office-schedule/admin/coverage-flags/:eventId/keep
- * Admin clears the coverage flag (keeps the booking as-is). Sticky across audits.
+ * Keep the booking; suppress re-flagging this series for 4 weeks.
  */
 export const keepCoverageFlag = async (req, res, next) => {
   try {
@@ -4578,7 +4928,12 @@ export const keepCoverageFlag = async (req, res, next) => {
     const ok = await applyKeepCoverageFlag({ eventId, userId: req.user.id });
     if (!ok) return res.status(404).json({ error: 'Flag not found or already cleared' });
 
-    res.json({ ok: true, eventId, action: 'kept' });
+    res.json({
+      ok: true,
+      eventId,
+      action: 'kept',
+      keepDays: Number(ICS_COVERAGE_WINDOW_DAYS) || 28
+    });
   } catch (e) {
     next(e);
   }
@@ -4586,7 +4941,7 @@ export const keepCoverageFlag = async (req, res, next) => {
 
 /**
  * POST /api/office-schedule/admin/coverage-flags/:eventId/release
- * One-click release — frees the hour for reassignment and clears the flag.
+ * Release the recurring series forever from today (all future booked occurrences).
  */
 export const releaseCoverageFlag = async (req, res, next) => {
   try {

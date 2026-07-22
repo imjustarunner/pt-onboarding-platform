@@ -35,7 +35,7 @@
           class="btn btn-secondary btn-sm"
           type="button"
           :class="{ 'btn-ics-on': showIcsGaps }"
-          :title="showIcsGaps ? 'Hide ICS coverage gaps on the grid' : 'Highlight booked hours missing ICS clinical overlap (uses prior audit flags — no live ICS check)'"
+          :title="showIcsGaps ? 'Hide Therapy Notes coverage gaps on the grid' : 'Highlight booked hours missing a Therapy Notes session (uses prior audit flags)'"
           @click="toggleIcsGaps"
           :disabled="loading || !officeId"
         >
@@ -70,7 +70,7 @@
         <div class="legend-item"><span class="dot intake-ip"></span> In-person intake</div>
         <div class="legend-item"><span class="dot intake-v"></span> Virtual intake</div>
         <div class="legend-item"><span class="dot own-slot"></span> Your schedule</div>
-        <div v-if="showIcsGaps" class="legend-item"><span class="dot ics-gap"></span> No ICS clinical overlap</div>
+        <div v-if="showIcsGaps" class="legend-item"><span class="dot ics-gap"></span> No Therapy Notes session during booking</div>
       </div>
       <div v-if="gridConflictCount > 0" class="schedule-conflict-banner">
         <strong>{{ gridConflictCount }} room/time conflict{{ gridConflictCount === 1 ? '' : 's' }} detected.</strong>
@@ -1087,10 +1087,10 @@ const slotHasIcsGap = (roomId, date, hour) => {
 const icsGapTitle = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   const t = String(s?.icsFlagType || '');
-  if (t === 'no_coverage') return 'No ICS clinical overlap';
-  if (t === 'non_clinical_busy') return 'ICS busy without clinical title';
-  if (t === 'partial_coverage') return 'Partial ICS clinical coverage';
-  return 'ICS coverage gap';
+  if (t === 'no_coverage') return 'No Therapy Notes session during booking';
+  if (t === 'non_clinical_busy') return 'Busy without therapy session';
+  if (t === 'partial_coverage') return 'Partial Therapy Notes coverage';
+  return 'No Therapy Notes session during booking';
 };
 
 const slotHasVirtualIntake = (roomId, date, hour) => {

@@ -4,8 +4,8 @@
       <div>
         <h2>Office Coverage Flags</h2>
         <p class="subtitle">
-          Past booked hours where Therapy Notes / ICS did not show clinical session coverage.
-          Filter by office and date to spot-check, then Keep (sticky) or Release in one click.
+          Conflicts scanned from today through the next 4 weeks.
+          Keep silences a series for 4 weeks; Release frees all future booked occurrences from today.
         </p>
       </div>
       <div class="header-actions">
@@ -20,8 +20,8 @@
       <div>
         <h2>Reported conflicts</h2>
         <p class="subtitle">
-          Booked office hours without a matching Therapy Notes / shared calendar clinical event.
-          Keep (sticky) or Release in one click.
+          Recurring office bookings without a matching Therapy Notes / shared calendar clinical event (today → 4 weeks).
+          Keep silences a series for 4 weeks; Release frees all future booked hours from today.
         </p>
       </div>
       <div class="header-actions">
@@ -36,6 +36,7 @@
       Audit complete —
       <strong>{{ auditResult.totalFlagged ?? 0 }} flagged hour{{ (auditResult.totalFlagged ?? 0) !== 1 ? 's' : '' }}</strong>
       across {{ auditResult.locations ?? 0 }} location{{ (auditResult.locations ?? 0) !== 1 ? 's' : '' }}.
+      List shows recurring series only.
       <button class="dismiss-btn" @click="auditResult = null; load()">✕ Refresh list</button>
     </div>
     <div v-if="error" class="error-box">{{ error }}</div>
@@ -62,31 +63,38 @@
           <span>Flag type</span>
           <select v-model="filters.flagType">
             <option value="">All types</option>
-            <option value="no_coverage">No ICS coverage</option>
-            <option value="non_clinical_busy">Non-clinical busy</option>
-            <option value="partial_coverage">Partial coverage</option>
+            <option value="no_coverage">No Therapy Notes session during booking</option>
+            <option value="non_clinical_busy">Busy without therapy session</option>
+            <option value="partial_coverage">Partial Therapy Notes coverage</option>
           </select>
         </label>
-        <label class="filter-field">
-          <span>From</span>
-          <input v-model="filters.dateFrom" type="date" />
+        <label class="filter-field filter-field--wide">
+          <span>Days</span>
+          <div class="pill-group">
+            <label v-for="d in weekdays" :key="d.val" class="pill" :class="{ active: filters.weekdays.includes(d.val) }">
+              <input type="checkbox" v-model="filters.weekdays" :value="d.val" @change="load">
+              {{ d.label }}
+            </label>
+          </div>
         </label>
-        <label class="filter-field">
-          <span>To</span>
-          <input v-model="filters.dateTo" type="date" />
+        <label class="filter-field filter-field--wide">
+          <span>Start Times</span>
+          <div class="pill-group">
+            <label v-for="h in officeHours" :key="h.val" class="pill" :class="{ active: filters.hours.includes(h.val) }">
+              <input type="checkbox" v-model="filters.hours" :value="h.val" @change="load">
+              {{ h.label }}
+            </label>
+          </div>
         </label>
         <div class="filter-actions">
-          <button class="btn btn-secondary" type="button" @click="applyPreset(7)">Last 7 days</button>
-          <button class="btn btn-secondary" type="button" @click="applyPreset(14)">Last 14 days</button>
-          <button class="btn btn-secondary" type="button" @click="applyPreset(42)">Last 6 weeks</button>
           <button class="btn btn-secondary" type="button" @click="clearFilters">Clear</button>
           <button class="btn btn-primary" type="button" @click="load" :disabled="loading">Apply</button>
         </div>
       </div>
       <div class="filter-summary muted">
-        Showing <strong>{{ flags.length }}</strong> flagged hour{{ flags.length !== 1 ? 's' : '' }}
+        Showing <strong>{{ flags.length }}</strong> recurring series
         <template v-if="grouped.length"> across {{ grouped.length }} provider{{ grouped.length !== 1 ? 's' : '' }}</template>.
-        Keep is sticky (won’t reappear on the next audit). Release frees the hour immediately.
+        One-time bookings are excluded. Window is today → 4 weeks. Keep = mute 4 weeks; Release = free forever from today.
       </div>
     </div>
 
@@ -104,7 +112,7 @@
     <div v-if="health && health.locations && health.locations.length" class="card health-card">
       <div class="health-header">
         <strong>EHR sync health</strong>
-        <span class="muted" style="font-size:12px;">Last 7 days</span>
+        <span class="muted" style="font-size:12px;">Latest daily run (once per day)</span>
       </div>
       <div class="health-grid">
         <div v-for="loc in health.locations" :key="loc.office_location_id" class="health-row">
@@ -141,7 +149,7 @@
           </label>
         </div>
         <div class="provider-right">
-          <span class="provider-count muted">{{ group.flags.length }} flagged slot{{ group.flags.length !== 1 ? 's' : '' }}</span>
+          <span class="provider-count muted">{{ group.flags.length }} flagged series</span>
           <button class="btn btn-sm btn-keep" :disabled="bulkActing" @click="keepGroup(group)">Keep all</button>
           <button class="btn btn-sm btn-release" :disabled="bulkActing" @click="releaseGroup(group)">Release all</button>
         </div>
@@ -151,7 +159,7 @@
         <thead>
           <tr>
             <th class="col-check"></th>
-            <th>Date &amp; Time</th>
+            <th>Recurring pattern</th>
             <th>Office / Room</th>
             <th>Flag reason</th>
             <th>Flagged</th>
@@ -160,49 +168,73 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="flag in group.flags" :key="flag.event_id" :class="['flag-row', flagClass(flag.ics_flag_type)]">
-            <td class="col-check">
-              <input
-                type="checkbox"
-                :checked="selectedIds.has(flag.event_id)"
-                @change="toggleOne(flag.event_id, $event.target.checked)"
-              />
-            </td>
-            <td class="slot-time">
-              <strong>{{ fmtDate(flag.start_at) }}</strong><br>
-              <span class="muted">{{ fmtTimeRange(flag.start_at, flag.end_at) }}</span>
-            </td>
-            <td>
-              <div>{{ flag.office_name }}</div>
-              <div class="muted">{{ flag.room_label || flag.room_name }}</div>
-            </td>
-            <td>
-              <span class="flag-badge" :class="flagClass(flag.ics_flag_type)">{{ flagLabel(flag.ics_flag_type) }}</span>
-              <div class="flag-desc muted">{{ flagDescription(flag.ics_flag_type) }}</div>
-            </td>
-            <td class="muted">{{ fmtDatetime(flag.ics_flagged_at) }}</td>
-            <td class="muted">{{ flag.last_ics_overlap_at ? fmtDatetime(flag.last_ics_overlap_at) : '—' }}</td>
-            <td>
-              <div class="action-buttons">
+          <template v-for="flag in group.flags" :key="flag.standing_assignment_id || flag.event_id">
+            <tr :class="['flag-row', flagClass(flag.ics_flag_type)]">
+              <td class="col-check">
+                <input
+                  type="checkbox"
+                  :checked="selectedIds.has(flag.event_id)"
+                  @change="toggleOne(flag.event_id, $event.target.checked)"
+                />
+              </td>
+              <td class="slot-time">
+                <strong>{{ patternHeadline(flag) }}</strong><br>
+                <span class="muted">{{ patternSubline(flag) }}</span>
                 <button
-                  class="btn btn-sm btn-keep"
-                  :disabled="acting[flag.event_id] || bulkActing"
-                  @click="keep(flag)"
-                  title="Keep this booking — sticky; will not re-flag on the next audit"
+                  v-if="(flag.occurrences || []).length"
+                  type="button"
+                  class="dates-toggle"
+                  @click="toggleDates(flag)"
                 >
-                  {{ acting[flag.event_id] === 'keep' ? '…' : 'Keep' }}
+                  {{ isDatesOpen(flag) ? 'Hide' : 'Show' }}
+                  {{ (flag.occurrences || []).length }} conflicting date{{ (flag.occurrences || []).length !== 1 ? 's' : '' }}
                 </button>
-                <button
-                  class="btn btn-sm btn-release"
-                  :disabled="acting[flag.event_id] || bulkActing"
-                  @click="release(flag)"
-                  title="Release this slot immediately — frees the hour for reassignment"
-                >
-                  {{ acting[flag.event_id] === 'release' ? '…' : 'Release' }}
-                </button>
-              </div>
-            </td>
-          </tr>
+              </td>
+              <td>
+                <div>{{ flag.office_name }}</div>
+                <div class="muted">{{ roomDisplay(flag) }}</div>
+              </td>
+              <td>
+                <span class="flag-badge" :class="flagClass(flag.ics_flag_type)">{{ flagLabel(flag.ics_flag_type) }}</span>
+                <div class="flag-desc muted">{{ flagDescription(flag.ics_flag_type) }}</div>
+              </td>
+              <td class="muted">{{ fmtDatetime(flag.ics_flagged_at) }}</td>
+              <td class="muted">{{ flag.last_ics_overlap_at ? fmtDatetime(flag.last_ics_overlap_at) : '—' }}</td>
+              <td>
+                <div class="action-buttons">
+                  <button
+                    class="btn btn-sm btn-keep"
+                    :disabled="acting[flag.event_id] || bulkActing"
+                    @click="keep(flag)"
+                    title="Keep this series for 4 weeks — will not re-flag until that window passes"
+                  >
+                    {{ acting[flag.event_id] === 'keep' ? '…' : 'Keep' }}
+                  </button>
+                  <button
+                    class="btn btn-sm btn-release"
+                    :disabled="acting[flag.event_id] || bulkActing"
+                    @click="release(flag)"
+                    title="Release this series forever from today — frees all future booked occurrences"
+                  >
+                    {{ acting[flag.event_id] === 'release' ? '…' : 'Release' }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="isDatesOpen(flag)" class="dates-detail-row">
+              <td></td>
+              <td colspan="6">
+                <ul class="dates-list">
+                  <li v-for="occ in flag.occurrences" :key="occ.event_id">
+                    <span :class="{ 'is-past': occ.is_past }">
+                      {{ fmtDate(occ.start_at) }} · {{ fmtTimeRange(occ.start_at, occ.end_at) }}
+                    </span>
+                    <span v-if="occ.is_past" class="past-tag">past</span>
+                  </li>
+                </ul>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -236,14 +268,48 @@ const auditing = ref(false);
 const bulkActing = ref(false);
 const bulkMessage = ref('');
 const selectedIds = ref(new Set());
+const openDateKeys = ref(new Set());
 
 const filters = ref({
   officeLocationId: '',
   providerId: '',
   flagType: '',
-  dateFrom: '',
-  dateTo: ''
+  weekdays: [],
+  hours: []
 });
+
+const weekdays = [
+  { val: 1, label: 'Mon' },
+  { val: 2, label: 'Tue' },
+  { val: 3, label: 'Wed' },
+  { val: 4, label: 'Thu' },
+  { val: 5, label: 'Fri' },
+  { val: 6, label: 'Sat' },
+  { val: 0, label: 'Sun' }
+];
+
+const officeHours = Array.from({ length: 12 }, (_, i) => {
+  const h = i + 7; // 7 AM to 6 PM
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const displayH = h > 12 ? h - 12 : h;
+  return { val: h, label: `${displayH}:00 ${ampm}` };
+});
+
+function patternKey(flag) {
+  return String(flag.standing_assignment_id || flag.event_id || '');
+}
+
+function isDatesOpen(flag) {
+  return openDateKeys.value.has(patternKey(flag));
+}
+
+function toggleDates(flag) {
+  const key = patternKey(flag);
+  const next = new Set(openDateKeys.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  openDateKeys.value = next;
+}
 
 const grouped = computed(() => {
   const map = new Map();
@@ -257,25 +323,13 @@ const grouped = computed(() => {
   return Array.from(map.values()).sort((a, b) => a.providerName.localeCompare(b.providerName));
 });
 
-function ymdDaysAgo(days) {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
-}
-
-function applyPreset(days) {
-  filters.value.dateFrom = ymdDaysAgo(days);
-  filters.value.dateTo = new Date().toISOString().slice(0, 10);
-  load();
-}
-
 function clearFilters() {
   filters.value = {
     officeLocationId: '',
     providerId: '',
     flagType: '',
-    dateFrom: '',
-    dateTo: ''
+    weekdays: [],
+    hours: []
   };
   load();
 }
@@ -290,8 +344,8 @@ function buildQuery() {
   if (filters.value.officeLocationId) q.officeLocationId = filters.value.officeLocationId;
   if (filters.value.providerId) q.providerId = filters.value.providerId;
   if (filters.value.flagType) q.flagType = filters.value.flagType;
-  if (filters.value.dateFrom) q.dateFrom = filters.value.dateFrom;
-  if (filters.value.dateTo) q.dateTo = filters.value.dateTo;
+  if (filters.value.weekdays?.length) q.weekdays = filters.value.weekdays.join(',');
+  if (filters.value.hours?.length) q.hours = filters.value.hours.join(',');
   return q;
 }
 
@@ -304,7 +358,9 @@ async function load() {
       api.get('/office-schedule/admin/coverage-flags', { params: buildQuery() }),
       api.get('/office-schedule/admin/ehr-sync-health').catch(() => ({ data: { locations: [] } }))
     ]);
-    flags.value = flagsRes.data?.flags || [];
+    const rawFlags = flagsRes.data?.flags || [];
+    // Client backstop: weekly series with only one upcoming conflict day are cancellations.
+    flags.value = rawFlags.filter((f) => isActionableConflictSeries(f));
     filterOptions.value = flagsRes.data?.filterOptions || { offices: [], providers: [] };
     health.value = healthRes.data || null;
     // Drop selections that are no longer in the list
@@ -334,8 +390,55 @@ async function runAudit() {
 
 function removeFlags(ids) {
   const set = new Set(ids);
-  flags.value = flags.value.filter((f) => !set.has(f.event_id));
+  flags.value = flags.value.filter((f) => {
+    const eventIds = Array.isArray(f.event_ids) && f.event_ids.length ? f.event_ids : [f.event_id];
+    return !eventIds.some((id) => set.has(id)) && !set.has(f.event_id);
+  });
   selectedIds.value = new Set([...selectedIds.value].filter((id) => !set.has(id)));
+}
+
+function hourLabel(h) {
+  const hour = Number(h);
+  if (!Number.isFinite(hour)) return '';
+  const d = new Date(2000, 0, 1, hour, 0, 0, 0);
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+function roomDisplay(flag) {
+  const num = flag.room_number != null && flag.room_number !== '' ? `#${flag.room_number}` : '';
+  const label = String(flag.room_label || flag.room_name || '').trim();
+  return [num, label].filter(Boolean).join(' ') || '—';
+}
+
+function patternHeadline(flag) {
+  const freq = flag.frequency_label || 'Recurring';
+  const day = String(flag.weekday_label || '').trim();
+  const dayPhrase = day
+    ? (day.endsWith('s') ? day : `${day}s`)
+    : '';
+  // Prefer standing-assignment wall hours — avoids UTC skew from DATETIME→ISO Z.
+  const time = (Number.isFinite(Number(flag.start_hour)) && Number.isFinite(Number(flag.end_hour)))
+    ? `${hourLabel(flag.start_hour)}–${hourLabel(flag.end_hour)}`
+    : fmtTimeRange(flag.start_at, flag.end_at);
+  if (dayPhrase && time) return `${freq} ${dayPhrase} ${time}`;
+  if (time) return `${freq} ${time}`;
+  return freq;
+}
+
+function patternSubline(flag) {
+  const parts = [];
+  if (flag.series_start_date) {
+    parts.push(`Series since ${fmtDate(flag.series_start_date)}`);
+  }
+  if (flag.first_conflict_at) {
+    parts.push(`First conflict ${fmtDate(flag.first_conflict_at)}`);
+  }
+  if (flag.next_occurrence_at) {
+    parts.push(`Next ${fmtDate(flag.next_occurrence_at)}`);
+  }
+  const upcoming = Number(flag.upcoming_count || 0);
+  if (upcoming > 0) parts.push(`${upcoming} upcoming`);
+  return parts.join(' · ') || 'Recurring series';
 }
 
 async function keep(flag) {
@@ -439,17 +542,32 @@ function clearSelection() {
   selectedIds.value = new Set();
 }
 
+/** Weekly + ≤1 distinct upcoming conflict day = one-off cancellation — do not show. */
+function isActionableConflictSeries(flag) {
+  const freq = String(flag?.frequency || flag?.frequency_label || '').toUpperCase();
+  const isWeekly = freq === 'WEEKLY' || freq.startsWith('WEEKLY');
+  if (!isWeekly) return true;
+  const days = new Set();
+  for (const o of flag?.occurrences || []) {
+    if (o?.is_past) continue;
+    const d = String(o?.start_at || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) days.add(d);
+  }
+  if (days.size > 0) return days.size > 1;
+  return Number(flag?.upcoming_count || 0) > 1;
+}
+
 function flagLabel(type) {
-  if (type === 'no_coverage') return 'No ICS coverage';
-  if (type === 'non_clinical_busy') return 'Non-clinical busy';
-  if (type === 'partial_coverage') return 'Partial coverage';
+  if (type === 'no_coverage') return 'No Therapy Notes session during booking';
+  if (type === 'non_clinical_busy') return 'Busy without therapy session';
+  if (type === 'partial_coverage') return 'Partial Therapy Notes coverage';
   return type || 'Unknown';
 }
 
 function flagDescription(type) {
-  if (type === 'no_coverage') return 'No ICS busy blocks found overlapping this slot.';
-  if (type === 'non_clinical_busy') return 'ICS shows busy but event title has no clinical keyword (therapy, session, intake, etc.).';
-  if (type === 'partial_coverage') return 'ICS covers the beginning of the block but not the end — uncovered tail hours.';
+  if (type === 'no_coverage') return 'No Therapy Notes session found during this booked office hour.';
+  if (type === 'non_clinical_busy') return 'Calendar shows busy time, but not a Therapy Notes therapy session.';
+  if (type === 'partial_coverage') return 'Therapy Notes covers part of the booked block, but not the full hour.';
   return '';
 }
 
@@ -460,39 +578,58 @@ function flagClass(type) {
   return '';
 }
 
+/** Parse MySQL DATETIME as wall clock (ignore trailing Z — office slots are not UTC instants). */
+function parseWallDt(dt) {
+  if (!dt) return null;
+  if (dt instanceof Date) {
+    // Prefer UTC digit parts when the Date came from mysql2 DATETIME serialization.
+    return new Date(
+      dt.getUTCFullYear(),
+      dt.getUTCMonth(),
+      dt.getUTCDate(),
+      dt.getUTCHours(),
+      dt.getUTCMinutes(),
+      dt.getUTCSeconds()
+    );
+  }
+  const s = String(dt).trim().replace(/\.000Z$/i, '').replace(/Z$/i, '');
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const normalized = s.includes('T') ? s : s.replace(' ', 'T');
+    const d = new Date(normalized.length === 10 ? `${normalized}T12:00:00` : normalized);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function fmtDate(dt) {
-  if (!dt) return '—';
-  try {
-    return new Date(String(dt).replace(' ', 'T') + 'Z').toLocaleDateString('en-US', {
-      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
-    });
-  } catch { return String(dt).slice(0, 10); }
+  const d = parseWallDt(dt);
+  if (!d) return '—';
+  return d.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+  });
 }
 
 function fmtTimeRange(start, end) {
   const fmt = (dt) => {
-    try {
-      return new Date(String(dt).replace(' ', 'T') + 'Z').toLocaleTimeString('en-US', {
-        hour: 'numeric', minute: '2-digit', hour12: true
-      });
-    } catch { return ''; }
+    const d = parseWallDt(dt);
+    if (!d) return '';
+    return d.toLocaleTimeString('en-US', {
+      hour: 'numeric', minute: '2-digit', hour12: true
+    });
   };
   return `${fmt(start)}–${fmt(end)}`;
 }
 
 function fmtDatetime(dt) {
-  if (!dt) return '—';
-  try {
-    return new Date(String(dt).replace(' ', 'T') + (String(dt).includes('T') ? '' : 'Z')).toLocaleString('en-US', {
-      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
-    });
-  } catch { return String(dt).slice(0, 16); }
+  const d = parseWallDt(dt);
+  if (!d) return '—';
+  return d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+  });
 }
 
-// Default to last 6 weeks so bookers start with a manageable window
 onMounted(() => {
-  filters.value.dateFrom = ymdDaysAgo(42);
-  filters.value.dateTo = new Date().toISOString().slice(0, 10);
   load();
 });
 
@@ -571,7 +708,7 @@ defineExpose({ load });
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 12px 14px;
-  align-items: end;
+  align-items: start;
 }
 
 .filter-field {
@@ -581,6 +718,46 @@ defineExpose({ load });
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted, #6b7280);
+}
+
+.filter-field--wide {
+  grid-column: 1 / -1;
+}
+
+.pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  background: var(--bg-shade, #f1f5f9);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--text-secondary, #475569);
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.pill input {
+  display: none;
+}
+
+.pill:hover {
+  background: #e2e8f0;
+}
+
+.pill.active {
+  background: #0f172a;
+  color: #fff;
+  border-color: #0f172a;
 }
 
 .filter-field select,
@@ -823,6 +1000,60 @@ defineExpose({ load });
 
 .slot-time strong {
   font-size: 13px;
+}
+
+.dates-toggle {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dates-toggle:hover {
+  color: #1d4ed8;
+}
+
+.dates-detail-row td {
+  padding-top: 0;
+  background: #f9fafb;
+}
+
+.dates-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.dates-list li {
+  font-size: 12px;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dates-list .is-past {
+  color: #9ca3af;
+}
+
+.past-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9ca3af;
 }
 
 .flag-badge {

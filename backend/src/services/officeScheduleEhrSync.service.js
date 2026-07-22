@@ -34,15 +34,31 @@ async function alreadyNotifiedCoverageToday({ agencyId, officeLocationId, recipi
   }
 }
 
-// Clinical session keywords — ICS SUMMARY must contain at least one to count as verified.
+// Clinical session keywords — used as a strong signal when present.
+// Therapy Notes titles are often "3pm TaRo - 437 Windchime Place" (no keyword).
 const CLINICAL_KEYWORDS = [
   'therapy', 'counseling', 'session', 'consultation', 'intake',
-  'tutoring', 'evaluation', 'assessment', 'treatment', 'supervision'
+  'tutoring', 'evaluation', 'assessment', 'treatment', 'supervision',
+  'telehealth', 'windchime', 'appt', 'appointment', 'client'
 ];
 
 function hasClinicalKeyword(summary) {
   const s = String(summary || '').toLowerCase();
-  return CLINICAL_KEYWORDS.some((kw) => s.includes(kw));
+  if (!s) return false;
+  if (CLINICAL_KEYWORDS.some((kw) => s.includes(kw))) return true;
+  // Therapy Notes client-code style: "3pm TaRo - 437 Windchime Place" / "11:30am IND - …"
+  if (/\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i.test(s) && /\b[A-Z]{2,4}\b/.test(String(summary || ''))) {
+    return true;
+  }
+  return false;
+}
+
+/** ICS coverage audit only loads Therapy Notes / external busy feeds — any overlap counts. */
+function busyCountsAsCoverage(busyItem) {
+  if (!busyItem) return false;
+  if (hasClinicalKeyword(busyItem.summary)) return true;
+  // Untitled busy still proves the EHR/calendar marks them occupied during the office hour.
+  return true;
 }
 
 function isValidTimeZone(tz) {
@@ -67,8 +83,22 @@ function localYmdInTz(dateLike, timeZone) {
 }
 
 function parseMySqlDateTimeParts(value) {
-  const raw = String(value || '').trim();
-  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  // mysql2 returns DATETIME as Date with wall digits stored in the UTC fields.
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return {
+      year: value.getUTCFullYear(),
+      month: value.getUTCMonth() + 1,
+      day: value.getUTCDate(),
+      hour: value.getUTCHours(),
+      minute: value.getUTCMinutes(),
+      second: value.getUTCSeconds()
+    };
+  }
+  const raw = String(value || '').trim()
+    .replace(/\.000Z$/i, '')
+    .replace(/Z$/i, '')
+    .replace('T', ' ');
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
   if (!m) return null;
   return {
     year: Number(m[1]),
@@ -216,7 +246,7 @@ async function loadBusyWithSummaryForProvider({ providerId, weekStartYmd, timeMi
       timeMaxIso
     });
     if (r?.ok) {
-      busy.push(...(r.busy || []));
+      busy.push(...(r.events || r.busy || []));
       feedsOk += 1;
     } else {
       feedsFailed += 1;
@@ -224,7 +254,14 @@ async function loadBusyWithSummaryForProvider({ providerId, weekStartYmd, timeMi
     }
   }
 
-  return { ok: feedsFailed === 0 || busy.length > 0, busy, feedsOk, feedsFailed, errors };
+  return {
+    ok: feedsFailed === 0 || busy.length > 0,
+    busy,
+    events: busy,
+    feedsOk,
+    feedsFailed,
+    errors
+  };
 }
 
 async function writeSyncLog({ officeLocationId, eventsScanned, eventsBooked, eventsOverlapUpdated, feedsOk, feedsFailed, errorSummary }) {
@@ -551,28 +588,44 @@ function groupIntoContiguousBlocks(events) {
 /**
  * For one contiguous block, determine per-event coverage status.
  * Returns array of { eventId, flagType: null|'no_coverage'|'non_clinical_busy'|'partial_coverage', hasClinicalOverlap }
+ *
+ * Tries primary office TZ first, then optional fallback (provider TZ) so a mis-set
+ * office timezone does not false-flag when ICS times are correct.
  */
-function analyzeBlock(block, busyItems, providerTimeZone) {
+function analyzeBlock(block, busyItems, eventTimeZone, fallbackTimeZone = null) {
+  const zones = [...new Set(
+    [eventTimeZone, fallbackTimeZone]
+      .map((z) => (isValidTimeZone(z) ? String(z) : ''))
+      .filter(Boolean)
+  )];
+  if (!zones.length) zones.push('America/Denver');
+
   const results = block.map((ev) => {
-    const eventStartMs = utcMsForWallMySqlDateTime(ev.start_at, providerTimeZone);
-    const eventEndMs = utcMsForWallMySqlDateTime(ev.end_at, providerTimeZone);
-    let hasClinicalOverlap = false;
+    let hasCoverageOverlap = false;
     let hasNonClinicalOverlap = false;
 
-    for (const b of busyItems) {
-      const bs = new Date(b.startAt).getTime();
-      const be = new Date(b.endAt).getTime();
-      if (!intervalsOverlap(eventStartMs, eventEndMs, bs, be)) continue;
-      if (hasClinicalKeyword(b.summary)) {
-        hasClinicalOverlap = true;
-      } else {
-        hasNonClinicalOverlap = true;
+    for (const tz of zones) {
+      const eventStartMs = utcMsForWallMySqlDateTime(ev.start_at, tz);
+      const eventEndMs = utcMsForWallMySqlDateTime(ev.end_at, tz);
+      if (!Number.isFinite(eventStartMs) || !Number.isFinite(eventEndMs)) continue;
+
+      for (const b of busyItems) {
+        const bs = new Date(b.startAt || b.start).getTime();
+        const be = new Date(b.endAt || b.end).getTime();
+        if (!intervalsOverlap(eventStartMs, eventEndMs, bs, be)) continue;
+        // Audit busy feed is Therapy Notes / external ICS only — any overlap = covered.
+        if (busyCountsAsCoverage(b)) {
+          hasCoverageOverlap = true;
+        } else {
+          hasNonClinicalOverlap = true;
+        }
       }
+      if (hasCoverageOverlap) break;
     }
-    return { eventId: Number(ev.id), hasClinicalOverlap, hasNonClinicalOverlap };
+    return { eventId: Number(ev.id), hasClinicalOverlap: hasCoverageOverlap, hasNonClinicalOverlap };
   });
 
-  // Bookend rule: if the first and last event in the block are clinically covered,
+  // Bookend rule: if the first and last event in the block are covered,
   // treat all middle events as covered too (provider is present the whole block).
   const firstCovered = results[0]?.hasClinicalOverlap;
   const lastCovered = results[results.length - 1]?.hasClinicalOverlap;
@@ -589,11 +642,20 @@ function analyzeBlock(block, busyItems, providerTimeZone) {
   });
 }
 
+/** Forward audit / Keep window: today through +4 weeks. */
+export const ICS_COVERAGE_WINDOW_DAYS = 28;
+
 /**
- * Run the 6-week ICS coverage audit for one office location.
- * Flags events with insufficient clinical coverage; never auto-cancels anything.
+ * Run the ICS coverage audit for one office location.
+ * Only recurring (weekly/biweekly/monthly) booked slots from today through +4 weeks.
+ * Keep windows suppress re-flagging until ics_coverage_keep_until. Never auto-cancels.
  */
-export async function auditIcsCoverageForLocation({ officeLocationId, actorUserId = 1, windowDays = 42 } = {}) {
+
+export async function auditIcsCoverageForLocation({
+  officeLocationId,
+  actorUserId = 1,
+  windowDays = ICS_COVERAGE_WINDOW_DAYS
+} = {}) {
   const officeId = parseInt(officeLocationId, 10);
   if (!officeId) return { ok: false, reason: 'invalid_location' };
 
@@ -602,7 +664,80 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
 
   const officeTimeZone = isValidTimeZone(loc?.timezone) ? String(loc.timezone) : 'America/New_York';
   const todayYmd = localYmdInTz(new Date(), officeTimeZone) || new Date().toISOString().slice(0, 10);
-  const windowStartYmd = OfficeScheduleMaterializer.addDays(todayYmd, -Number(windowDays || 42));
+  // Exclusive end: today + N days inclusive ⇒ cutoff at start of (today + N + 1).
+  // Also extend by 1 day so UTC CURDATE vs office-local midnight skew cannot leave
+  // a "1 upcoming" weekly miss stranded outside the audit window but inside the list.
+  const windowDaysN = Number(windowDays || ICS_COVERAGE_WINDOW_DAYS) || ICS_COVERAGE_WINDOW_DAYS;
+  const windowEndYmd = OfficeScheduleMaterializer.addDays(todayYmd, windowDaysN + 1);
+
+  // Expire series-level Keep windows that have passed.
+  try {
+    await pool.execute(
+      `UPDATE office_standing_assignments
+       SET ics_coverage_keep_until = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE office_location_id = ?
+         AND ics_coverage_keep_until IS NOT NULL
+         AND ics_coverage_keep_until < ?`,
+      [officeId, todayYmd]
+    );
+  } catch {
+    // column may not exist yet
+  }
+
+  // Expire old event-level Keep markers (legacy sticky keep → 4-week window).
+  try {
+    await pool.execute(
+      `UPDATE office_events
+       SET ics_flag_cleared_at = NULL,
+           ics_flag_cleared_by_user_id = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE office_location_id = ?
+         AND ics_flag_cleared_at IS NOT NULL
+         AND ics_flag_cleared_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
+      [officeId, ICS_COVERAGE_WINDOW_DAYS]
+    );
+  } catch {
+    // columns may not exist yet
+  }
+
+  // Drop past coverage flags outside the actionable window.
+  try {
+    await pool.execute(
+      `UPDATE office_events
+       SET ics_flag_type = NULL,
+           ics_flagged_at = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE office_location_id = ?
+         AND ics_flag_type IS NOT NULL
+         AND ics_flag_cleared_at IS NULL
+         AND start_at < ?`,
+      [officeId, `${todayYmd} 00:00:00`]
+    );
+  } catch {
+    // columns may not exist yet
+  }
+
+  // Also clear flags on one-time / non-recurring bookings (standing freq ONCE or no standing).
+  try {
+    await pool.execute(
+      `UPDATE office_events e
+       LEFT JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
+       SET e.ics_flag_type = NULL,
+           e.ics_flagged_at = NULL,
+           e.updated_at = CURRENT_TIMESTAMP
+       WHERE e.office_location_id = ?
+         AND e.ics_flag_type IS NOT NULL
+         AND e.ics_flag_cleared_at IS NULL
+         AND (
+           e.standing_assignment_id IS NULL
+           OR UPPER(COALESCE(osa.assigned_frequency, 'ONCE')) NOT IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY')
+         )`,
+      [officeId]
+    );
+  } catch {
+    // best-effort
+  }
 
   let rows = [];
   try {
@@ -616,33 +751,75 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
          e.office_location_id,
          e.ics_flag_type,
          e.ics_flag_cleared_at,
+         osa.ics_coverage_keep_until,
+         osa.assigned_frequency,
          ol.name AS office_name,
          r.name AS room_name,
          r.label AS room_label
        FROM office_events e
        JOIN office_locations ol ON ol.id = e.office_location_id
        JOIN office_rooms r ON r.id = e.room_id
+       JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
        WHERE e.office_location_id = ?
          AND e.slot_state = 'ASSIGNED_BOOKED'
          AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         AND osa.is_active = TRUE
+         AND UPPER(COALESCE(osa.assigned_frequency, '')) IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY')
          AND e.start_at >= ?
-         AND e.start_at < NOW()
+         AND e.start_at < ?
+         AND (osa.ics_coverage_keep_until IS NULL OR osa.ics_coverage_keep_until < ?)
        ORDER BY e.assigned_provider_id ASC, e.standing_assignment_id ASC, e.start_at ASC`,
-      [officeId, `${windowStartYmd} 00:00:00`]
+      [officeId, `${todayYmd} 00:00:00`, `${windowEndYmd} 00:00:00`, todayYmd]
     );
     rows = r || [];
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
-      return { ok: false, reason: 'tables_or_columns_missing' };
+      // Retry without keep_until column if migration not applied yet.
+      if (String(e?.sqlMessage || e?.message || '').includes('ics_coverage_keep_until')) {
+        const [r2] = await pool.execute(
+          `SELECT
+             e.id, e.start_at, e.end_at, e.assigned_provider_id, e.standing_assignment_id,
+             e.office_location_id, e.ics_flag_type, e.ics_flag_cleared_at,
+             NULL AS ics_coverage_keep_until,
+             osa.assigned_frequency,
+             ol.name AS office_name, r.name AS room_name, r.label AS room_label
+           FROM office_events e
+           JOIN office_locations ol ON ol.id = e.office_location_id
+           JOIN office_rooms r ON r.id = e.room_id
+           JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
+           WHERE e.office_location_id = ?
+             AND e.slot_state = 'ASSIGNED_BOOKED'
+             AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+             AND osa.is_active = TRUE
+             AND UPPER(COALESCE(osa.assigned_frequency, '')) IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY')
+             AND e.start_at >= ?
+             AND e.start_at < ?
+           ORDER BY e.assigned_provider_id ASC, e.standing_assignment_id ASC, e.start_at ASC`,
+          [officeId, `${todayYmd} 00:00:00`, `${windowEndYmd} 00:00:00`]
+        );
+        rows = r2 || [];
+      } else {
+        return { ok: false, reason: 'tables_or_columns_missing' };
+      }
+    } else {
+      throw e;
     }
-    throw e;
   }
 
   if (!rows.length) return { ok: true, flagged: 0, covered: 0, checked: 0, newlyFlagged: 0, clearedRecovered: 0 };
 
-  // Sticky Keep: admin-cleared slots stay cleared across audits.
+  // Keep window: series keep_until still active, or event cleared within last 4 weeks.
+  const keepMs = ICS_COVERAGE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
   const keptIds = new Set(
-    rows.filter((row) => row.ics_flag_cleared_at).map((row) => Number(row.id)).filter(Boolean)
+    rows.filter((row) => {
+      const keepUntil = row.ics_coverage_keep_until
+        ? String(row.ics_coverage_keep_until).slice(0, 10)
+        : '';
+      if (keepUntil && keepUntil >= todayYmd) return true;
+      if (!row.ics_flag_cleared_at) return false;
+      const cleared = new Date(row.ics_flag_cleared_at);
+      return Number.isFinite(cleared.getTime()) && (Date.now() - cleared.getTime()) < keepMs;
+    }).map((row) => Number(row.id)).filter(Boolean)
   );
   const priorFlagTypeById = new Map(
     rows.map((row) => [Number(row.id), row.ics_flag_type || null])
@@ -671,20 +848,33 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
     const feedCheck = await providerHasExternalBusyFeeds(providerId);
     if (!feedCheck.hasFeeds) continue;
 
+    // Office event DATETIMEs are wall-clock in the office timezone (not the provider profile TZ).
+    const eventTimeZone = officeTimeZone;
     // eslint-disable-next-line no-await-in-loop
-    const providerTimeZone = await resolveProviderTimeZone({ providerId, fallbackTimeZone: officeTimeZone });
+    const providerTimeZone = await resolveProviderTimeZone({
+      providerId,
+      fallbackTimeZone: officeTimeZone
+    });
 
-    const windowStartWall = `${windowStartYmd} 00:00:00`;
+    // Expand ICS fetch a bit wider than the office window so RRULE occurrences that
+    // start just before today still clamp into the audit range.
+    const fetchStartYmd = OfficeScheduleMaterializer.addDays(todayYmd, -1);
+    const fetchEndYmd = OfficeScheduleMaterializer.addDays(windowEndYmd, 1);
+    const windowStartWall = `${fetchStartYmd} 00:00:00`;
+    const windowEndWall = `${fetchEndYmd} 00:00:00`;
     const startParts = parseMySqlDateTimeParts(windowStartWall);
+    const endParts = parseMySqlDateTimeParts(windowEndWall);
     const timeMinIso = startParts
-      ? zonedWallTimeToUtc({ ...startParts, timeZone: providerTimeZone }).toISOString()
-      : `${windowStartYmd}T00:00:00Z`;
-    const timeMaxIso = new Date().toISOString();
+      ? zonedWallTimeToUtc({ ...startParts, timeZone: eventTimeZone }).toISOString()
+      : `${fetchStartYmd}T00:00:00Z`;
+    const timeMaxIso = endParts
+      ? zonedWallTimeToUtc({ ...endParts, timeZone: eventTimeZone }).toISOString()
+      : `${fetchEndYmd}T00:00:00Z`;
 
     // eslint-disable-next-line no-await-in-loop
     const busyResult = await loadBusyWithSummaryForProvider({
       providerId,
-      weekStartYmd: windowStartYmd,
+      weekStartYmd: todayYmd,
       timeMinIso,
       timeMaxIso
     });
@@ -694,17 +884,22 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
       continue;
     }
 
-    // Guard: if no past-completed ICS events exist in the feed, the feed likely
-    // only exports upcoming events. Skip to avoid false flags.
-    const now = Date.now();
-    const hasPastBusy = busyResult.busy.some((b) => new Date(b.endAt).getTime() < now);
-    if (!hasPastBusy) {
-      console.info(`[ehr-audit] provider=${providerId} no past ICS events found — skipping audit`);
-      continue;
-    }
+    console.info(
+      `[ehr-audit] provider=${providerId} ics_busy=${(busyResult.busy || []).length} ` +
+      `office_hours=${providerEvents.length} tz=${eventTimeZone}`
+    );
+
+    // Empty busy in the upcoming window is NOT a skip — that is the no_coverage case.
+    // (Feeds that fail entirely are skipped above so we don't mass-flag on outages.)
 
     // Group events by (standing_assignment_id, calendar_date) → find contiguous blocks
-    const groupKey = (row) => `${row.standing_assignment_id || 'X'}:${calendarDateYmd(row.start_at)}`;
+    const groupKey = (row) => {
+      const wall = parseMySqlDateTimeParts(row.start_at);
+      const ymd = wall
+        ? `${wall.year}-${String(wall.month).padStart(2, '0')}-${String(wall.day).padStart(2, '0')}`
+        : calendarDateYmd(row.start_at);
+      return `${row.standing_assignment_id || 'X'}:${ymd}`;
+    };
     const groups = new Map();
     for (const row of providerEvents) {
       const k = groupKey(row);
@@ -717,7 +912,11 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
       groupEvents.sort((a, b) => String(a.start_at).localeCompare(String(b.start_at)));
       const blocks = groupIntoContiguousBlocks(groupEvents);
       for (const block of blocks) {
-        const analysis = analyzeBlock(block, busyResult.busy, providerTimeZone);
+        // Prefer unmerged events (keep SUMMARY); fall back to merged busy intervals.
+        const busyItems = (busyResult.events && busyResult.events.length)
+          ? busyResult.events
+          : (busyResult.busy || []);
+        const analysis = analyzeBlock(block, busyItems, eventTimeZone, providerTimeZone);
         let blockHasFlag = false;
         for (const item of analysis) {
           if (item.flagType) {
@@ -739,9 +938,56 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
   }
 
   // Write flags to database and clear flags on covered events
-  const allFlaggedIds = [];
+  let allFlaggedIds = [];
   for (const [, flags] of flagsByProvider.entries()) {
     for (const f of flags) allFlaggedIds.push(f);
+  }
+
+  // Weekly series: a single missed date in the 4-week window = one-off cancellation.
+  // Drop those from the write set up front (final SQL cleanup below is the backstop).
+  const rowByEventId = new Map(rows.map((row) => [Number(row.id), row]));
+  const eventYmd = (row) => {
+    const wall = parseMySqlDateTimeParts(row?.start_at);
+    if (wall) {
+      return `${wall.year}-${String(wall.month).padStart(2, '0')}-${String(wall.day).padStart(2, '0')}`;
+    }
+    const m = String(row?.start_at || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : '';
+  };
+  const pendingDaysByStanding = new Map();
+  for (const f of allFlaggedIds) {
+    const row = rowByEventId.get(Number(f.eventId));
+    const sid = Number(row?.standing_assignment_id || 0);
+    if (!sid) continue;
+    if (!pendingDaysByStanding.has(sid)) {
+      pendingDaysByStanding.set(sid, {
+        freq: String(row?.assigned_frequency || '').toUpperCase(),
+        days: new Set(),
+        eventIds: new Set()
+      });
+    }
+    const bucket = pendingDaysByStanding.get(sid);
+    const ymd = eventYmd(row);
+    if (ymd) bucket.days.add(ymd);
+    bucket.eventIds.add(Number(f.eventId));
+  }
+  const suppressedEventIds = new Set();
+  for (const [, bucket] of pendingDaysByStanding.entries()) {
+    if (bucket.freq !== 'WEEKLY' || bucket.days.size > 1) continue;
+    for (const eid of bucket.eventIds) {
+      suppressedEventIds.add(eid);
+      recoveredEventIds.push(eid);
+    }
+  }
+  if (suppressedEventIds.size) {
+    allFlaggedIds = allFlaggedIds.filter((f) => !suppressedEventIds.has(Number(f.eventId)));
+    flagged = Math.max(0, flagged - suppressedEventIds.size);
+    newlyFlagged = Math.max(0, newlyFlagged - suppressedEventIds.size);
+    for (const [pid, flags] of [...flagsByProvider.entries()]) {
+      const next = flags.filter((f) => !suppressedEventIds.has(Number(f.eventId)));
+      if (next.length) flagsByProvider.set(pid, next);
+      else flagsByProvider.delete(pid);
+    }
   }
 
   // Update flagged events (do not wipe sticky Keep — those were skipped above)
@@ -780,6 +1026,48 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
     } catch {
       // Column may not exist yet
     }
+  }
+
+  // Backstop: weekly series with only one conflict date in the list window
+  // (MySQL CURDATE → +4 weeks, same as the coverage-flags API) are one-off
+  // cancellations — clear them even when office-local today disagrees with UTC.
+  try {
+    const [clearResult] = await pool.execute(
+      `UPDATE office_events e
+       JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
+       JOIN (
+         SELECT e2.standing_assignment_id
+         FROM office_events e2
+         JOIN office_standing_assignments osa2 ON osa2.id = e2.standing_assignment_id
+         WHERE e2.office_location_id = ?
+           AND e2.ics_flag_type IS NOT NULL
+           AND e2.ics_flag_cleared_at IS NULL
+           AND (e2.status IS NULL OR UPPER(e2.status) <> 'CANCELLED')
+           AND UPPER(COALESCE(osa2.assigned_frequency, '')) = 'WEEKLY'
+           AND e2.start_at >= CURDATE()
+           AND e2.start_at < DATE_ADD(CURDATE(), INTERVAL ? DAY)
+         GROUP BY e2.standing_assignment_id
+         HAVING COUNT(DISTINCT DATE(e2.start_at)) <= 1
+       ) single_miss ON single_miss.standing_assignment_id = e.standing_assignment_id
+       SET e.ics_flag_type = NULL,
+           e.ics_flagged_at = NULL,
+           e.updated_at = CURRENT_TIMESTAMP
+       WHERE e.office_location_id = ?
+         AND e.ics_flag_type IS NOT NULL
+         AND e.ics_flag_cleared_at IS NULL
+         AND e.start_at >= CURDATE()
+         AND e.start_at < DATE_ADD(CURDATE(), INTERVAL ? DAY)`,
+      [officeId, windowDaysN, officeId, windowDaysN]
+    );
+    const weeklySingleMissCleared = Number(clearResult?.affectedRows || 0);
+    if (weeklySingleMissCleared > 0) {
+      clearedRecovered += weeklySingleMissCleared;
+      console.info(
+        `[ehr-audit] location=${officeId} weekly_single_miss_cleared=${weeklySingleMissCleared}`
+      );
+    }
+  } catch (e) {
+    console.warn('[ehr-audit] weekly single-miss cleanup failed:', e?.message || e);
   }
 
   // Notify only when there are newly flagged hours, and at most once per admin/location/day.
@@ -861,7 +1149,7 @@ export async function auditIcsCoverageForLocation({ officeLocationId, actorUserI
 }
 
 /**
- * Run the ICS coverage audit for every active office location (6-week watchdog cadence).
+ * Run the ICS coverage audit for every active office location (4-week forward window).
  */
 export async function auditIcsCoverageAllLocations({ actorUserId = 1 } = {}) {
   let locations = [];
@@ -895,29 +1183,69 @@ export async function auditIcsCoverageAllLocations({ actorUserId = 1 } = {}) {
 export async function getEhrSyncHealth({ officeLocationId } = {}) {
   const officeId = parseInt(officeLocationId, 10) || null;
   try {
+    // Show the latest run per office (not a 7-day SUM). Summing inflated "scanned"
+    // when the job was accidentally re-triggered many times in a day.
     const locationFilter = officeId ? 'AND osl.office_location_id = ?' : '';
     const params = officeId ? [officeId] : [];
     const [logs] = await pool.execute(
       `SELECT
          osl.office_location_id,
          ol.name AS office_name,
-         MAX(osl.run_at) AS last_run_at,
-         SUM(osl.events_scanned) AS total_scanned,
-         SUM(osl.events_booked) AS total_booked,
-         SUM(osl.feeds_failed) AS total_feeds_failed,
-         MAX(osl.error_summary) AS last_error
+         osl.run_at AS last_run_at,
+         osl.events_scanned AS total_scanned,
+         osl.events_booked AS total_booked,
+         osl.feeds_failed AS total_feeds_failed,
+         osl.error_summary AS last_error
        FROM office_ehr_sync_log osl
        JOIN office_locations ol ON ol.id = osl.office_location_id
-       WHERE osl.run_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+       INNER JOIN (
+         SELECT office_location_id, MAX(id) AS max_id
+         FROM office_ehr_sync_log
+         GROUP BY office_location_id
+       ) latest ON latest.max_id = osl.id
+       WHERE 1=1
          ${locationFilter}
-       GROUP BY osl.office_location_id, ol.name
-       ORDER BY osl.office_location_id`,
+       ORDER BY ol.name ASC, osl.office_location_id ASC`,
       params
     );
-    return { ok: true, locations: logs || [] };
+
+    // Soft-dedupe identical office names (e.g. two "Denver" location rows) —
+    // keep the newest log so the health card doesn't show duplicate rows.
+    const byName = new Map();
+    for (const row of logs || []) {
+      const key = String(row.office_name || '').trim().toLowerCase() || `id:${row.office_location_id}`;
+      const prev = byName.get(key);
+      if (!prev || String(row.last_run_at || '') >= String(prev.last_run_at || '')) {
+        byName.set(key, row);
+      }
+    }
+    return { ok: true, cadence: 'once_daily', locations: [...byName.values()] };
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') return { ok: false, reason: 'sync_log_table_missing', locations: [] };
     return { ok: false, reason: String(e?.message || e), locations: [] };
+  }
+}
+
+/**
+ * Returns true if EHR sync already completed a full (or near-full) pass today (UTC).
+ * A single manual office refresh must not block the daily job; we require that
+ * today's logs cover all active office locations.
+ */
+export async function ehrSyncAlreadyRanToday() {
+  try {
+    const [[active]] = await pool.execute(
+      `SELECT COUNT(*) AS n FROM office_locations WHERE is_active = TRUE`
+    );
+    const activeCount = Number(active?.n || 0);
+    if (activeCount <= 0) return false;
+    const [[row]] = await pool.execute(
+      `SELECT COUNT(DISTINCT office_location_id) AS locs
+       FROM office_ehr_sync_log
+       WHERE run_at >= UTC_DATE()`
+    );
+    return Number(row?.locs || 0) >= activeCount;
+  } catch {
+    return false;
   }
 }
 
@@ -939,5 +1267,6 @@ export default {
   auditIcsCoverageForLocation,
   auditIcsCoverageAllLocations,
   getEhrSyncHealth,
+  ehrSyncAlreadyRanToday,
   downgradeBookedWithoutExternalOverlap
 };

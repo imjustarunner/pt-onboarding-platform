@@ -14,14 +14,6 @@
       </div>
     </header>
 
-    <div v-if="shouldShowAgencySelector" class="oa-agency">
-      <label for="oa-agency">Agency</label>
-      <select id="oa-agency" v-model="selectedAgencyId" @change="onAgencyChange">
-        <option :value="null">Select an agency…</option>
-        <option v-for="a in agencies" :key="a.id" :value="a.id">{{ a.name }}</option>
-      </select>
-    </div>
-
     <div class="oa-tabs" role="tablist">
       <button
         type="button"
@@ -47,9 +39,7 @@
       </button>
     </div>
 
-    <div v-if="!agencyId" class="oa-empty">Select an agency to continue.</div>
-
-    <template v-else-if="tab === 'requests'">
+    <template v-if="tab === 'requests'">
       <div v-if="error" class="oa-error">{{ error }}</div>
       <div v-else-if="loading && !officeRequests.length" class="oa-empty">Loading office requests…</div>
       <div v-else-if="!officeRequests.length" class="oa-empty">
@@ -65,12 +55,26 @@
               <h2>Pending Office Requests</h2>
               <span class="oa-badge danger">{{ filteredRequests.length }}</span>
             </div>
+            <p class="oa-scope-note">
+              Showing requests across all tenants you can access
+              <template v-if="agencyCountLabel"> ({{ agencyCountLabel }})</template>.
+            </p>
             <div class="oa-queue-tools">
+              <select v-model="filterOfficeId" class="oa-filter" aria-label="Filter by office">
+                <option value="">All offices</option>
+                <option
+                  v-for="o in officeFilterOptions"
+                  :key="o.id"
+                  :value="String(o.id)"
+                >
+                  {{ o.name }} ({{ o.count }})
+                </option>
+              </select>
               <input
                 v-model="searchQuery"
                 type="search"
                 class="oa-search"
-                placeholder="Search by name…"
+                placeholder="Search by name or tenant…"
                 aria-label="Search pending requests"
               />
               <select v-model="filterRecurrence" class="oa-filter" aria-label="Filter by recurrence">
@@ -84,27 +88,39 @@
           </div>
 
           <div class="oa-queue-list">
-            <button
-              v-for="r in pagedRequests"
-              :key="r.id"
-              type="button"
-              class="oa-request-card"
-              :class="{ selected: selectedId === r.id }"
-              @click="selectRequest(r.id)"
-            >
-              <div class="oa-avatar" :style="{ background: avatarColor(r.providerName) }">
-                {{ initials(r.providerName) }}
+            <template v-for="group in pagedGroupedRequests" :key="group.key">
+              <div class="oa-office-group-label">
+                <span>{{ group.label }}</span>
+                <span class="oa-badge">{{ group.requests.length }}</span>
               </div>
-              <div class="oa-request-main">
-                <div class="oa-request-name">{{ r.providerName || 'Provider' }}</div>
-                <div class="oa-request-meta">REQ-{{ r.id }}</div>
-                <div class="oa-request-meta">
-                  {{ requestDateLabel(r) }} · {{ slotTimeOnly(r) }}
+              <button
+                v-for="r in group.requests"
+                :key="r.id"
+                type="button"
+                class="oa-request-card"
+                :class="{ selected: selectedId === r.id }"
+                @click="selectRequest(r.id)"
+              >
+                <div class="oa-avatar" :style="{ background: avatarColor(r.providerName) }">
+                  {{ initials(r.providerName) }}
                 </div>
-                <div class="oa-request-meta">{{ requestedRecurrenceLabel(r) }}</div>
-              </div>
-              <span class="oa-status-pill">Pending</span>
-            </button>
+                <div class="oa-request-main">
+                  <div class="oa-request-name">{{ r.providerName || 'Provider' }}</div>
+                  <div class="oa-request-meta">
+                    REQ-{{ r.id }}
+                    <template v-if="r.agencyName"> · {{ r.agencyName }}</template>
+                  </div>
+                  <div class="oa-request-meta">
+                    {{ requestDateLabel(r) }} · {{ slotTimeOnly(r) }}
+                  </div>
+                  <div class="oa-request-meta">
+                    {{ requestedRecurrenceLabel(r)
+                    }}<template v-if="requestRoomLabel(r)"> · {{ requestRoomLabel(r) }}</template>
+                  </div>
+                </div>
+                <span class="oa-status-pill">Pending</span>
+              </button>
+            </template>
           </div>
 
           <div class="oa-queue-footer">
@@ -165,7 +181,14 @@
               <div><dt>Requested on</dt><dd>{{ fmtDateTime(selected.createdAt) || '—' }}</dd></div>
               <div><dt>Date</dt><dd>{{ requestDateLabel(selected) }}</dd></div>
               <div><dt>Time slot</dt><dd>{{ slotTimeOnly(selected) }}</dd></div>
-              <div><dt>Requested office</dt><dd>{{ preferredOfficesLabel(selected) }}</dd></div>
+              <div>
+                <dt>Requested office</dt>
+                <dd>
+                  <strong>{{ requestOfficeLabel(selected) }}</strong>
+                  <template v-if="requestRoomLabel(selected)"> · {{ requestRoomLabel(selected) }}</template>
+                </dd>
+              </div>
+              <div v-if="selected.agencyName"><dt>Tenant</dt><dd>{{ selected.agencyName }}</dd></div>
               <div><dt>Approve as</dt><dd>{{ assignDisplay.office }} · {{ assignDisplay.room }}</dd></div>
               <div v-if="selected.notes"><dt>Notes</dt><dd>{{ selected.notes }}</dd></div>
             </dl>
@@ -179,9 +202,28 @@
             <div class="oa-schedule-head">
               <div>
                 <h3>{{ scheduleOfficeTitle }}</h3>
-                <p class="muted">Employee, time, and recurrence only — no appointment details.</p>
+                <p class="muted">
+                  Showing
+                  <strong>{{ scheduleRoomFilterLabel }}</strong>
+                  — employee, time, and recurrence only.
+                </p>
               </div>
               <div class="oa-date-nav">
+                <select
+                  v-if="scheduleRooms.length"
+                  v-model="scheduleRoomFilter"
+                  class="oa-filter"
+                  aria-label="Filter schedule by room"
+                >
+                  <option value="">All rooms (stacked lanes)</option>
+                  <option
+                    v-for="room in scheduleRooms"
+                    :key="room.id"
+                    :value="String(room.id)"
+                  >
+                    {{ roomDisplay(room) }}
+                  </option>
+                </select>
                 <button type="button" class="oa-page-btn" @click="shiftScheduleDate(-1)" aria-label="Previous day">‹</button>
                 <input v-model="scheduleDate" type="date" class="oa-date-input" @change="onScheduleDateChange" />
                 <button type="button" class="oa-page-btn" @click="shiftScheduleDate(1)" aria-label="Next day">›</button>
@@ -241,47 +283,66 @@
 
         <div v-else class="oa-col oa-center oa-empty">Select a request to review.</div>
 
-        <!-- Right: alternatives -->
+        <!-- Right: requested + alternatives -->
         <aside class="oa-col oa-alts">
           <div class="oa-avail-banner" :class="{ empty: availableOfficeCount === 0 }">
             <strong>
-              {{ availableOfficeCount }} of {{ totalOfficeCount }} offices available
+              {{ availableOfficeCount }} of {{ totalOfficeCount }}
+              {{ totalOfficeCount === 1 ? 'office' : 'offices' }} with open rooms
             </strong>
             <span v-if="totalOfficeCount > 0">
-              ({{ availabilityPct }}% availability for this time slot)
+              ({{ availabilityPct }}% · {{ availableRoomCount }} open room{{ availableRoomCount === 1 ? '' : 's' }})
             </span>
+          </div>
+
+          <div v-if="requestedAssignment" class="oa-requested-card">
+            <div class="oa-alt-top">
+              <div class="oa-alt-name">{{ requestedAssignment.officeName || 'Requested office' }}</div>
+              <span class="oa-alt-tag" :class="requestedAssignment.isAvailableNow ? 'available' : 'selected'">
+                {{ requestedAssignment.isAvailableNow ? 'Open' : 'Requested' }}
+              </span>
+            </div>
+            <div class="oa-alt-room">{{ requestedAssignment.roomLabel || 'Room' }}</div>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :class="{ active: isRequestedSelected }"
+              @click="pickRequested"
+            >
+              {{ isRequestedSelected ? 'Selected for approval' : 'Use requested room' }}
+            </button>
           </div>
 
           <p v-if="assignOptionsLoading" class="muted">Checking availability…</p>
           <p v-else-if="assignOptionsError" class="oa-hint warn">{{ assignOptionsError }}</p>
-          <p v-else-if="providerSpecifiedRoom && !availableOffices.length" class="muted">
-            Provider specified an office and room. Alternatives are limited for this request.
+          <p v-else-if="!assignOptions.length && !unavailableOffices.length" class="muted">
+            {{ assignOptionsEmptyMessage }}
           </p>
-          <p v-else-if="!availableOffices.length" class="muted">{{ assignOptionsEmptyMessage }}</p>
+          <p v-else class="oa-alts-heading">Other available rooms</p>
 
           <div class="oa-alt-list">
             <button
-              v-for="office in visibleAvailableOffices"
-              :key="`avail-${office.officeId}`"
+              v-for="opt in visibleAvailableRooms"
+              :key="`avail-${opt.officeId}-${opt.roomId}`"
               type="button"
               class="oa-alt-card available"
-              :class="{ selected: String(assignForm.officeId) === String(office.officeId) }"
-              @click="pickOffice(office)"
+              :class="{ selected: isSelectedOption(opt) }"
+              @click="pickOption(opt)"
             >
               <div class="oa-alt-top">
-                <div class="oa-alt-name">{{ office.officeName }}</div>
+                <div class="oa-alt-name">{{ opt.officeName }}</div>
                 <span class="oa-alt-tag available">Available</span>
               </div>
-              <div class="oa-alt-room">{{ office.roomLabel }}</div>
+              <div class="oa-alt-room">{{ opt.roomLabel }}</div>
             </button>
 
             <div
               v-for="office in visibleUnavailableOffices"
-              :key="`unavail-${office.id}`"
+              :key="`unavail-${office.officeId}`"
               class="oa-alt-card unavailable"
             >
               <div class="oa-alt-top">
-                <div class="oa-alt-name">{{ office.name }}</div>
+                <div class="oa-alt-name">{{ office.officeName }}</div>
                 <span class="oa-alt-tag unavailable">Unavailable</span>
               </div>
               <div class="oa-alt-room">No open room for this slot</div>
@@ -294,13 +355,13 @@
             class="btn btn-secondary btn-sm oa-view-all"
             @click="altsExpanded = !altsExpanded"
           >
-            {{ altsExpanded ? 'Show fewer offices' : `View all ${totalOfficeCount} offices` }}
+            {{ altsExpanded ? 'Show fewer' : `View all alternatives (${altTotalCount})` }}
           </button>
         </aside>
       </div>
     </template>
 
-    <div v-else class="oa-conflicts-wrap">
+    <div v-if="tab === 'conflicts'" class="oa-conflicts-wrap">
       <OfficeCoverageFlagsView ref="conflictsViewRef" embedded @count-change="onConflictCount" />
     </div>
   </div>
@@ -337,6 +398,7 @@ const conflictsViewRef = ref(null);
 
 const searchQuery = ref('');
 const filterRecurrence = ref('');
+const filterOfficeId = ref('');
 const page = ref(1);
 const altsExpanded = ref(false);
 
@@ -346,12 +408,15 @@ const assignSummary = ref(null);
 const assignOptionsLoading = ref(false);
 const assignOptionsError = ref('');
 const providerSpecifiedRoom = ref(false);
+const requestedAssignment = ref(null);
+const unavailableFromApi = ref([]);
 
 const scheduleDate = ref('');
 const scheduleLoading = ref(false);
 const scheduleError = ref('');
 const scheduleGrid = ref(null);
 const scheduleRooms = ref([]);
+const scheduleRoomFilter = ref('');
 
 const orgSlug = computed(() =>
   typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : ''
@@ -453,11 +518,33 @@ const officeName = (id) => {
   return o?.name || (id ? `Office #${id}` : 'Any');
 };
 
-const preferredOfficesLabel = (r) => {
+const firstSlot = (r) => (Array.isArray(r?.slots) && r.slots.length ? r.slots[0] : null);
+
+const requestOfficeId = (r) => {
+  if (r?.officeLocationId) return Number(r.officeLocationId) || null;
+  const slot = firstSlot(r);
+  if (slot?.officeLocationId) return Number(slot.officeLocationId) || null;
   const ids = Array.isArray(r?.preferredOfficeIds) ? r.preferredOfficeIds : [];
-  if (!ids.length) return 'Any office';
-  return ids.map((id) => officeName(id)).join(', ');
+  if (ids.length) return Number(ids[0]) || null;
+  return null;
 };
+const requestOfficeLabel = (r) => {
+  if (r?.officeName) return r.officeName;
+  const slot = firstSlot(r);
+  if (slot?.officeName) return slot.officeName;
+  const id = requestOfficeId(r);
+  if (id) return officeName(id);
+  return 'Unspecified office';
+};
+const requestAgencyId = (r) => Number(r?.agencyId || agencyId.value || 0) || null;
+const requestRoomLabel = (r) => {
+  const slot = firstSlot(r);
+  if (slot?.roomLabel) return slot.roomLabel;
+  if (slot?.roomId) return `Room ${slot.roomId}`;
+  return '';
+};
+const roomDisplay = (room) =>
+  room?.label || room?.name || (room?.roomNumber ? `#${room.roomNumber}` : `Room ${room?.id}`);
 
 const requestedRecurrenceLabel = (r) => {
   const f = String(r?.requestedFrequency || 'ONCE').toUpperCase();
@@ -466,8 +553,6 @@ const requestedRecurrenceLabel = (r) => {
   if (f === 'MONTHLY') return 'Monthly';
   return 'One-time';
 };
-
-const firstSlot = (r) => (Array.isArray(r?.slots) && r.slots.length ? r.slots[0] : null);
 
 const requestTargetDate = computed(() => {
   const r = selected.value;
@@ -508,21 +593,53 @@ const avatarColor = (name) => {
   return colors[h % colors.length];
 };
 
+const officeFilterOptions = computed(() => {
+  const counts = new Map();
+  for (const r of officeRequests.value || []) {
+    const id = requestOfficeId(r);
+    const key = id ? String(id) : 'none';
+    const name = requestOfficeLabel(r);
+    const prev = counts.get(key) || { id: key, name, count: 0 };
+    prev.count += 1;
+    counts.set(key, prev);
+  }
+  return [...counts.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+});
+
+const agencyCountLabel = computed(() => {
+  const names = new Set(
+    (officeRequests.value || []).map((r) => r.agencyName || `Agency ${r.agencyId}`).filter(Boolean)
+  );
+  if (names.size <= 1) return names.size === 1 ? [...names][0] : '';
+  return `${names.size} tenants`;
+});
+
 const filteredRequests = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
   const freq = String(filterRecurrence.value || '').toUpperCase();
+  const officeKey = String(filterOfficeId.value || '');
   return (officeRequests.value || []).filter((r) => {
     if (freq && String(r.requestedFrequency || 'ONCE').toUpperCase() !== freq) return false;
+    if (officeKey) {
+      const id = requestOfficeId(r);
+      const key = id ? String(id) : 'none';
+      if (key !== officeKey) return false;
+    }
     if (!q) return true;
-    return String(r.providerName || '').toLowerCase().includes(q) || String(r.id).includes(q);
+    const hay = [
+      r.providerName,
+      r.agencyName,
+      requestOfficeLabel(r),
+      requestRoomLabel(r),
+      String(r.id)
+    ]
+      .join(' ')
+      .toLowerCase();
+    return hay.includes(q);
   });
 });
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredRequests.value.length / PAGE_SIZE)));
-const pagedRequests = computed(() => {
-  const start = (page.value - 1) * PAGE_SIZE;
-  return filteredRequests.value.slice(start, start + PAGE_SIZE);
-});
 const pageRange = computed(() => {
   if (!filteredRequests.value.length) return { start: 0, end: 0 };
   const start = (page.value - 1) * PAGE_SIZE + 1;
@@ -537,7 +654,23 @@ const pageNumbers = computed(() => {
   return nums;
 });
 
-watch([searchQuery, filterRecurrence], () => {
+/** Flatten grouped list into page-sized slices while keeping group headers. */
+const pagedGroupedRequests = computed(() => {
+  const start = (page.value - 1) * PAGE_SIZE;
+  const slice = filteredRequests.value.slice(start, start + PAGE_SIZE);
+  const groups = new Map();
+  for (const r of slice) {
+    const id = requestOfficeId(r);
+    const key = id ? String(id) : 'none';
+    if (!groups.has(key)) {
+      groups.set(key, { key, label: requestOfficeLabel(r), requests: [] });
+    }
+    groups.get(key).requests.push(r);
+  }
+  return [...groups.values()];
+});
+
+watch([searchQuery, filterRecurrence, filterOfficeId], () => {
   page.value = 1;
 });
 watch(filteredRequests, () => {
@@ -567,8 +700,17 @@ const assignDisplay = computed(() => {
     Number.isFinite(parts[0]) && Number.isFinite(parts[1])
       ? `${weekdayLabel(parts[0])} ${hourLabel(parts[1])}–${hourLabel(parts[2] > parts[1] ? parts[2] : parts[1] + 1)}`
       : '—';
+  const fromOpt = assignOptions.value.find(
+    (o) => String(o.officeId) === String(f.officeId) && String(o.roomId) === String(f.roomId)
+  );
+  const office =
+    (requestedAssignment.value &&
+      String(requestedAssignment.value.officeId) === String(f.officeId) &&
+      requestedAssignment.value.officeName) ||
+    fromOpt?.officeName ||
+    (f.officeId ? officeName(f.officeId) : '—');
   return {
-    office: f.officeId ? officeName(f.officeId) : '—',
+    office,
     room: f.roomId ? roomLabelFor(f.roomId) : '—',
     time
   };
@@ -577,68 +719,82 @@ const assignDisplay = computed(() => {
 const assignOptionsEmptyMessage = computed(() => {
   const summary = assignSummary.value || {};
   const earliest = Number(summary.earliestAvailableInWeeks || 0);
-  if (summary.providerSpecifiedRoom) return 'Provider already specified office and room.';
+  if (summary.providerSpecifiedRoom && requestedAssignment.value) {
+    return 'No other open rooms in this office for the requested slot.';
+  }
   if (!summary.hasAnyFuture) return 'No offices are available for this slot/frequency.';
   if (earliest >= 6) return 'No offices are available until 6 or more weeks away for this slot/frequency.';
   if (earliest > 0) {
     return `No offices are available now. Earliest availability is in ${earliest} week${earliest === 1 ? '' : 's'}.`;
   }
-  return 'No offices are available for this slot/frequency.';
+  return 'No other rooms are available for this slot/frequency.';
 });
 
-const availableOffices = computed(() => {
-  const byOffice = new Map();
-  for (const opt of assignOptions.value) {
-    const key = String(opt.officeId);
-    if (!byOffice.has(key)) {
-      byOffice.set(key, {
-        officeId: opt.officeId,
-        officeName: opt.officeName,
-        roomId: opt.roomId,
-        roomLabel: opt.roomLabel,
-        rooms: [opt]
-      });
-    } else {
-      byOffice.get(key).rooms.push(opt);
-    }
-  }
-  return [...byOffice.values()];
-});
-
-const availableOfficeIds = computed(() => new Set(availableOffices.value.map((o) => String(o.officeId))));
 const unavailableOffices = computed(() =>
-  (offices.value || []).filter((o) => !availableOfficeIds.value.has(String(o.id)))
+  (unavailableFromApi.value || []).filter(
+    (o) => String(o.officeId) !== String(requestedAssignment.value?.officeId || '')
+  )
 );
 
 const availableOfficeCount = computed(() => {
+  const n = Number(assignSummary.value?.availableOfficeCount);
+  if (Number.isFinite(n)) return n;
+  return new Set(assignOptions.value.map((o) => String(o.officeId))).size;
+});
+const availableRoomCount = computed(() => {
   const n = Number(assignSummary.value?.availableNowCount);
   if (Number.isFinite(n)) return n;
-  return availableOffices.value.length;
+  return assignOptions.value.length;
 });
-const totalOfficeCount = computed(() => (offices.value || []).length);
+const totalOfficeCount = computed(() => {
+  const n = Number(assignSummary.value?.totalOffices);
+  if (Number.isFinite(n) && n > 0) return n;
+  const ids = new Set([
+    ...assignOptions.value.map((o) => String(o.officeId)),
+    ...unavailableOffices.value.map((o) => String(o.officeId)),
+    ...(requestedAssignment.value?.officeId ? [String(requestedAssignment.value.officeId)] : [])
+  ]);
+  return ids.size || 1;
+});
 const availabilityPct = computed(() => {
   if (!totalOfficeCount.value) return 0;
   return Math.round((availableOfficeCount.value / totalOfficeCount.value) * 100);
 });
 
-const visibleAvailableOffices = computed(() =>
-  altsExpanded.value ? availableOffices.value : availableOffices.value.slice(0, ALT_PREVIEW)
+const visibleAvailableRooms = computed(() =>
+  altsExpanded.value ? assignOptions.value : assignOptions.value.slice(0, ALT_PREVIEW)
 );
 const visibleUnavailableOffices = computed(() => {
   if (!altsExpanded.value) {
-    const remaining = Math.max(0, ALT_PREVIEW - visibleAvailableOffices.value.length);
+    const remaining = Math.max(0, ALT_PREVIEW - visibleAvailableRooms.value.length);
     return unavailableOffices.value.slice(0, remaining);
   }
   return unavailableOffices.value;
 });
-const hiddenAltCount = computed(
-  () => Math.max(0, totalOfficeCount.value - ALT_PREVIEW)
-);
+const altTotalCount = computed(() => assignOptions.value.length + unavailableOffices.value.length);
+const hiddenAltCount = computed(() => Math.max(0, altTotalCount.value - ALT_PREVIEW));
+
+const isRequestedSelected = computed(() => {
+  const req = requestedAssignment.value;
+  if (!req) return false;
+  return (
+    String(assignForm.value.officeId) === String(req.officeId) &&
+    String(assignForm.value.roomId) === String(req.roomId)
+  );
+});
 
 const scheduleOfficeId = computed(() => Number(assignForm.value.officeId || 0) || null);
 const scheduleOfficeTitle = computed(() => {
   if (!scheduleOfficeId.value) return 'Daily Schedule';
-  return `${officeName(scheduleOfficeId.value)} — Daily Schedule`;
+  const office = assignForm.value.officeId
+    ? (requestedAssignment.value?.officeName || officeName(assignForm.value.officeId))
+    : requestOfficeLabel(selected.value);
+  return `${office} — Daily Schedule`;
+});
+const scheduleRoomFilterLabel = computed(() => {
+  if (!scheduleRoomFilter.value) return 'all rooms (use room filter to avoid overlays)';
+  const room = scheduleRooms.value.find((r) => String(r.id) === String(scheduleRoomFilter.value));
+  return room ? roomDisplay(room) : roomLabelFor(scheduleRoomFilter.value);
 });
 
 const pendingHours = computed(() => {
@@ -656,20 +812,29 @@ const pendingHours = computed(() => {
 const dayBlocks = computed(() => {
   const date = String(scheduleDate.value || '').slice(0, 10);
   const slots = Array.isArray(scheduleGrid.value?.slots) ? scheduleGrid.value.slots : [];
-  const daySlots = slots.filter((s) => String(s.date || '').slice(0, 10) === date && s.state !== 'open');
+  const roomFilter = scheduleRoomFilter.value ? String(scheduleRoomFilter.value) : '';
+  const daySlots = slots.filter((s) => {
+    if (String(s.date || '').slice(0, 10) !== date) return false;
+    if (s.state === 'open') return false;
+    if (roomFilter && String(s.roomId) !== roomFilter) return false;
+    return true;
+  });
 
   // Merge contiguous hours per room + provider (privacy: name + recurrence only)
   const sorted = [...daySlots].sort(
     (a, b) => Number(a.roomId) - Number(b.roomId) || Number(a.hour) - Number(b.hour)
   );
   const blocks = [];
+  const showRoomInLabel = !roomFilter;
   for (const s of sorted) {
-    const name =
+    const providerName =
       s.bookedProviderFullName ||
       s.assignedProviderFullName ||
       s.bookedProviderName ||
       s.assignedProviderName ||
       'Booked';
+    const roomName = roomLabelFor(s.roomId);
+    const name = showRoomInLabel ? `${providerName} · ${roomName}` : providerName;
     const recurrence = s.frequencyLabel || s.frequencyBadge || null;
     const hour = Number(s.hour);
     const last = blocks[blocks.length - 1];
@@ -677,7 +842,7 @@ const dayBlocks = computed(() => {
       last &&
       !last.pending &&
       Number(last.roomId) === Number(s.roomId) &&
-      last.name === name &&
+      last.providerName === providerName &&
       last.recurrence === recurrence &&
       last.endHour === hour;
     if (same) {
@@ -685,41 +850,50 @@ const dayBlocks = computed(() => {
       last.span += 1;
     } else {
       blocks.push({
-        key: `b-${s.roomId}-${hour}-${name}`,
+        key: `b-${s.roomId}-${hour}-${providerName}`,
         roomId: s.roomId,
+        providerName,
         name,
         recurrence,
         startHour: hour,
         endHour: hour + 1,
         span: 1,
         pending: false,
-        tone: toneForName(name),
+        tone: toneForName(providerName),
         title: `${name}${recurrence ? ` (${recurrence})` : ''}`
       });
     }
   }
 
-  // Overlay pending request on the request day
-  if (
-    pendingHours.value &&
+  // Pending request only on the filtered/selected room
+  const pendingRoomId = String(assignForm.value.roomId || '');
+  const pendingVisible =
+    !!pendingHours.value &&
     date === requestTargetDate.value &&
+    (!roomFilter || roomFilter === pendingRoomId);
+  if (
+    pendingVisible &&
     Number.isFinite(pendingHours.value.startHour) &&
     Number.isFinite(pendingHours.value.endHour) &&
     pendingHours.value.endHour > pendingHours.value.startHour
   ) {
     const start = pendingHours.value.startHour;
     const end = pendingHours.value.endHour;
+    const pendingName = showRoomInLabel
+      ? `${pendingHours.value.name} · ${roomLabelFor(pendingRoomId)}`
+      : pendingHours.value.name;
     blocks.push({
       key: `pending-${selectedId.value}-${start}`,
       roomId: assignForm.value.roomId || null,
-      name: pendingHours.value.name,
+      providerName: pendingHours.value.name,
+      name: pendingName,
       recurrence: pendingHours.value.recurrence,
       startHour: start,
       endHour: end,
       span: Math.max(1, end - start),
       pending: true,
       tone: 'pending',
-      title: `${pendingHours.value.name} (pending)`
+      title: `${pendingName} (pending)`
     });
   }
 
@@ -738,18 +912,24 @@ const timelineHours = computed(() => {
   return hours;
 });
 
-const blockStyle = (block, idx) => {
+const blockStyle = (block) => {
   const hours = timelineHours.value;
   const startIdx = Math.max(0, hours.indexOf(block.startHour));
   const top = startIdx * HOUR_PX + 4;
   const height = Math.max(36, block.span * HOUR_PX - 8);
-  // Offset overlapping blocks slightly so concurrent room bookings remain readable
-  const lane = idx % 2;
+  // When viewing all rooms, lane by room so concurrent rooms don't fully cover each other
+  const roomIds = [...new Set(dayBlocks.value.map((b) => String(b.roomId || 'x')))];
+  const lane = Math.max(0, roomIds.indexOf(String(block.roomId || 'x')));
+  const laneCount = Math.max(1, roomIds.length);
+  const widthPct = Math.max(30, 100 / laneCount);
+  const leftPct = (lane * widthPct * 0.85);
   return {
     top: `${top}px`,
     height: `${height}px`,
-    left: lane === 0 ? '8px' : '18px',
-    right: lane === 0 ? '18px' : '8px'
+    left: `calc(8px + ${leftPct}%)`,
+    width: `calc(${widthPct}% - 12px)`,
+    right: 'auto',
+    zIndex: block.pending ? 5 : 2 + lane
   };
 };
 
@@ -771,23 +951,34 @@ const pickOption = (opt) => {
     roomId: String(opt.roomId),
     roomLabel: String(opt.roomLabel || '')
   };
+  if (opt.roomId) scheduleRoomFilter.value = String(opt.roomId);
 };
 
-const pickOffice = (office) => {
-  const preferred =
-    office.rooms?.find((r) => isSelectedOption(r)) ||
-    office.rooms?.[0] ||
-    office;
+const pickRequested = () => {
+  const req = requestedAssignment.value;
+  if (!req) return;
   pickOption({
-    officeId: office.officeId,
-    roomId: preferred.roomId || office.roomId,
-    roomLabel: preferred.roomLabel || office.roomLabel,
-    officeName: office.officeName
+    officeId: req.officeId,
+    roomId: req.roomId,
+    roomLabel: req.roomLabel,
+    officeName: req.officeName
   });
+  if (req.roomId) scheduleRoomFilter.value = String(req.roomId);
 };
 
 const onConflictCount = (n) => {
   conflictCount.value = Number(n) || 0;
+};
+
+const loadConflictCount = async () => {
+  try {
+    const resp = await api.get('/office-schedule/admin/coverage-flags', {
+      params: { countOnly: 1 }
+    });
+    conflictCount.value = Number(resp.data?.count || 0);
+  } catch {
+    // Badge stays at current value; conflicts tab will refresh on open.
+  }
 };
 
 const syncTabQuery = () => {
@@ -809,15 +1000,11 @@ const hydrateFormFromRequest = (r) => {
   const slots = Array.isArray(r?.slots) ? r.slots : [];
   const first = slots[0];
   const pref = Array.isArray(r?.preferredOfficeIds) ? r.preferredOfficeIds : [];
-  const officeIdsAvailable = (offices.value || []).map((o) => String(o.id));
   let officeId = first?.officeLocationId
     ? String(first.officeLocationId)
     : pref.length
       ? String(pref[0])
       : '';
-  if (officeId && !officeIdsAvailable.includes(officeId)) {
-    officeId = pref.map(String).find((id) => officeIdsAvailable.includes(id)) || '';
-  }
   const roomId = first?.roomId ? String(first.roomId) : '';
   const slotKey =
     first != null &&
@@ -827,7 +1014,13 @@ const hydrateFormFromRequest = (r) => {
     first.endHour > first.startHour
       ? `${first.weekday}:${first.startHour}:${first.endHour}`
       : '';
-  assignForm.value = { officeId, roomId, slotKey, roomLabel: '' };
+  assignForm.value = {
+    officeId,
+    roomId,
+    slotKey,
+    roomLabel: first?.roomLabel || ''
+  };
+  scheduleRoomFilter.value = roomId || '';
 };
 
 const loadAssignOptions = async (r) => {
@@ -835,11 +1028,14 @@ const loadAssignOptions = async (r) => {
   assignSummary.value = null;
   assignOptionsError.value = '';
   providerSpecifiedRoom.value = false;
-  if (!r?.id || !agencyId.value) return;
+  requestedAssignment.value = null;
+  unavailableFromApi.value = [];
+  const aid = requestAgencyId(r);
+  if (!r?.id || !aid) return;
   assignOptionsLoading.value = true;
   try {
     const resp = await api.get(`/availability/admin/office-requests/${r.id}/assign-options`, {
-      params: { agencyId: agencyId.value }
+      params: { agencyId: aid }
     });
     assignOptions.value = (Array.isArray(resp.data?.options) ? resp.data.options : []).map((o) => ({
       officeId: String(o.officeId),
@@ -849,8 +1045,32 @@ const loadAssignOptions = async (r) => {
     }));
     assignSummary.value = resp.data?.summary || null;
     providerSpecifiedRoom.value = !!resp.data?.summary?.providerSpecifiedRoom;
-    if (assignOptions.value.length && (!assignForm.value.officeId || !assignForm.value.roomId)) {
+    unavailableFromApi.value = (Array.isArray(resp.data?.unavailableOffices)
+      ? resp.data.unavailableOffices
+      : []
+    ).map((o) => ({
+      officeId: String(o.officeId),
+      officeName: String(o.officeName || officeName(o.officeId))
+    }));
+
+    const requested = resp.data?.requested || null;
+    const slot = firstSlot(r);
+    if (requested?.roomId || slot?.roomId) {
+      requestedAssignment.value = {
+        officeId: String(requested?.officeId || slot?.officeLocationId || ''),
+        officeName: String(
+          requested?.officeName || slot?.officeName || officeName(requested?.officeId || slot?.officeLocationId) || requestOfficeLabel(r)
+        ),
+        roomId: String(requested?.roomId || slot?.roomId),
+        roomLabel: String(requested?.roomLabel || slot?.roomLabel || requestRoomLabel(r) || `Room ${requested?.roomId || slot?.roomId}`),
+        isAvailableNow: !!requested?.isAvailableNow
+      };
+      // Keep approval target on the provider-requested room by default.
+      pickOption(requestedAssignment.value);
+      scheduleRoomFilter.value = String(requestedAssignment.value.roomId);
+    } else if (assignOptions.value.length && (!assignForm.value.officeId || !assignForm.value.roomId)) {
       pickOption(assignOptions.value[0]);
+      scheduleRoomFilter.value = String(assignOptions.value[0].roomId || '');
     } else if (assignForm.value.roomId) {
       const match = assignOptions.value.find(
         (o) =>
@@ -858,6 +1078,7 @@ const loadAssignOptions = async (r) => {
           String(o.roomId) === String(assignForm.value.roomId)
       );
       if (match) assignForm.value.roomLabel = match.roomLabel;
+      scheduleRoomFilter.value = String(assignForm.value.roomId);
     }
   } catch (e) {
     assignOptionsError.value =
@@ -923,7 +1144,6 @@ const selectRequest = async (id) => {
 };
 
 const loadRequests = async () => {
-  if (!agencyId.value) return;
   loading.value = true;
   error.value = '';
   actionError.value = '';
@@ -931,13 +1151,14 @@ const loadRequests = async () => {
     const [officesResp, reqResp] = await Promise.all([
       api.get('/offices'),
       api.get('/availability/admin/office-requests', {
-        params: { agencyId: agencyId.value, status: 'PENDING' }
+        params: { allAgencies: 1, status: 'PENDING' }
       })
     ]);
     offices.value = officesResp.data || [];
     officeRequests.value = reqResp.data || [];
+    // Prefer keeping current selection; otherwise first request in filtered/grouped order.
     if (!officeRequests.value.some((r) => r.id === selectedId.value)) {
-      selectedId.value = officeRequests.value[0]?.id || null;
+      selectedId.value = filteredRequests.value[0]?.id || officeRequests.value[0]?.id || null;
     }
     if (selectedId.value) await selectRequest(selectedId.value);
   } catch (e) {
@@ -960,7 +1181,8 @@ const refresh = async () => {
 
 const approveSelected = async () => {
   const r = selected.value;
-  if (!r || !agencyId.value || assignIncomplete.value) return;
+  const aid = requestAgencyId(r);
+  if (!r || !aid || assignIncomplete.value) return;
   const requestedFrequency = String(r.requestedFrequency || 'ONCE').toUpperCase();
   const requestedOccurrenceCount = Math.max(1, Number(r.requestedOccurrenceCount || 1));
   let assignedFrequency = 'WEEKLY';
@@ -986,7 +1208,7 @@ const approveSelected = async () => {
   actionError.value = '';
   try {
     await api.post(`/availability/admin/office-requests/${r.id}/assign-temporary`, {
-      agencyId: agencyId.value,
+      agencyId: aid,
       officeId: Number(assignForm.value.officeId),
       roomId: Number(assignForm.value.roomId),
       weekday,
@@ -1007,12 +1229,13 @@ const approveSelected = async () => {
 
 const denySelected = async () => {
   const r = selected.value;
-  if (!r || !agencyId.value) return;
+  const aid = requestAgencyId(r);
+  if (!r || !aid) return;
   if (!window.confirm(`Deny office request from ${r.providerName || 'this provider'}?`)) return;
   saving.value = true;
   actionError.value = '';
   try {
-    await api.post(`/availability/admin/office-requests/${r.id}/deny`, { agencyId: agencyId.value });
+    await api.post(`/availability/admin/office-requests/${r.id}/deny`, { agencyId: aid });
     await loadRequests();
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || 'Failed to deny request.';
@@ -1047,7 +1270,7 @@ watch(
 
 onMounted(async () => {
   await ensureAgency();
-  await loadRequests();
+  await Promise.all([loadRequests(), loadConflictCount()]);
 });
 
 watch(
@@ -1250,10 +1473,30 @@ watch(
   font-size: 1.05rem;
   font-weight: 800;
 }
+.oa-scope-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--oa-muted);
+  line-height: 1.35;
+}
 .oa-queue-tools {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.oa-office-group-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 2px;
+  padding: 6px 4px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--oa-muted);
+  border-bottom: 1px solid var(--oa-line);
 }
 .oa-search,
 .oa-filter {
@@ -1502,6 +1745,32 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.oa-requested-card {
+  border: 1px solid var(--oa-accent);
+  background: #eff6ff;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.oa-alts-heading {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--oa-muted);
+}
+.oa-alt-tag.selected {
+  background: var(--oa-accent-soft);
+  color: var(--oa-accent);
+}
+.oa-requested-card .btn.active {
+  border-color: var(--oa-accent);
+  background: var(--oa-accent);
+  color: #fff;
 }
 .oa-avail-banner {
   background: #ecfdf5;

@@ -8,6 +8,7 @@ import GoogleCalendarService from './googleCalendar.service.js';
 import {
   refreshAllLocationsFromEhr,
   auditIcsCoverageAllLocations,
+  ehrSyncAlreadyRanToday,
   downgradeBookedWithoutExternalOverlap
 } from './officeScheduleEhrSync.service.js';
 import { retryFailedProviderAssignmentGoogleSync } from './providerAssignmentGoogleSync.service.js';
@@ -350,12 +351,22 @@ export class OfficeScheduleWatchdogService {
       staleAssignmentCleanup = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
+    // Therapy Notes / ICS calendar matching is hard-capped to once per UTC day.
+    // Multiple Cloud Run instances (or a local + stage process) previously
+    // re-ran this and produced million-scale scanned totals / timeouts.
+    const alreadySyncedToday = await ehrSyncAlreadyRanToday().catch(() => false);
+
     let ehrRefresh = null;
-    try {
-      // Match Therapy Notes / ICS busy blocks to assigned office slots → mark booked (same as admin refresh).
-      ehrRefresh = await refreshAllLocationsFromEhr({ actorUserId: 1 });
-    } catch (e) {
-      ehrRefresh = { ok: false, reason: 'exception', error: String(e?.message || e) };
+    if (alreadySyncedToday) {
+      ehrRefresh = { ok: true, skipped: true, reason: 'already_ran_today' };
+      console.info('[watchdog] EHR/ICS refresh skipped — already ran today');
+    } else {
+      try {
+        // Match Therapy Notes / ICS busy blocks to assigned office slots → mark booked.
+        ehrRefresh = await refreshAllLocationsFromEhr({ actorUserId: 1 });
+      } catch (e) {
+        ehrRefresh = { ok: false, reason: 'exception', error: String(e?.message || e) };
+      }
     }
 
     // Phase A: auto-book slots that overlap provider_schedule_events (internal sessions).
@@ -383,14 +394,16 @@ export class OfficeScheduleWatchdogService {
       googleSync = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
-    // ICS coverage audit runs at the same 6-week cadence as booking confirm reminders.
-    // It flags (but never auto-cancels) slots with insufficient clinical session coverage.
-    // downgradeBookedWithoutExternalOverlap is now a no-op; audit replaces it.
+    // ICS coverage audit: once daily with EHR refresh (never auto-cancels).
     let icsCoverageAudit = null;
-    try {
-      icsCoverageAudit = await auditIcsCoverageAllLocations({ actorUserId: 1 });
-    } catch (e) {
-      icsCoverageAudit = { ok: false, reason: 'exception', error: String(e?.message || e) };
+    if (alreadySyncedToday) {
+      icsCoverageAudit = { ok: true, skipped: true, reason: 'already_ran_today' };
+    } else {
+      try {
+        icsCoverageAudit = await auditIcsCoverageAllLocations({ actorUserId: 1 });
+      } catch (e) {
+        icsCoverageAudit = { ok: false, reason: 'exception', error: String(e?.message || e) };
+      }
     }
 
     console.info('[watchdog]', JSON.stringify({

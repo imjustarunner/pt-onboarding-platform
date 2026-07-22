@@ -53,9 +53,31 @@
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
-          <button class="sched-nav-icon-btn" type="button" aria-label="Refresh schedule" title="Reload this week’s schedule from the server" @click="load" :disabled="loading">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <label class="sched-nav-date-wrap" title="Jump to a week (pick any date)">
+            <span class="sr-only">Jump to date</span>
+            <svg class="sched-nav-date-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18" stroke-linecap="round"/>
+            </svg>
+            <input
+              class="sched-nav-date-input"
+              type="date"
+              :value="weekJumpDateValue"
+              :disabled="loading"
+              aria-label="Jump to week"
+              data-tour="my-schedule-week-jump"
+              @change="onWeekJumpDateChange"
+            />
+          </label>
+          <button
+            class="sched-nav-icon-btn"
+            type="button"
+            aria-label="Refresh schedule"
+            title="Reload this week’s schedule from the server"
+            @click="load({ forceRefresh: true })"
+            :disabled="loading"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke-linecap="round"/><path d="M21 3v6h-6" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
           <button
@@ -214,8 +236,12 @@
           </router-link>
         </div>
 
-        <div v-if="!hideOfficeAndCalendarIntegration" class="sched-tool-cluster" title="External calendar overlays on your grid">
-          <span class="sched-tool-cluster__label">Calendars</span>
+        <div
+          v-if="!hideOfficeAndCalendarIntegration"
+          class="sched-tool-cluster"
+          title="Google / Therapy Notes for this calendar only. Peer ICS overlays come with Peers (busy)."
+        >
+          <span class="sched-tool-cluster__label">My calendars</span>
           <button
             type="button"
             class="sched-pill"
@@ -224,7 +250,7 @@
             :aria-checked="String(!!showGoogleBusy)"
             :disabled="loading"
             @click="toggleGoogleBusy"
-            title="Show grey busy blocks from your Google Calendar (times only, no titles)."
+            title="Show grey busy blocks from this calendar's Google Calendar (times only, no titles). Peer Google busy is included when Peers (busy) is on."
             data-tour="my-schedule-google-busy-toggle"
           >
             Google busy
@@ -237,7 +263,7 @@
             :aria-checked="String(!!showGoogleEvents)"
             :disabled="loading"
             @click="toggleGoogleEvents"
-            title="Show Google event titles on the grid (sensitive — may include personal meeting names)."
+            title="Show Google event titles on this calendar (sensitive — may include personal meeting names)."
             data-tour="my-schedule-google-titles-toggle"
           >
             Google titles
@@ -250,7 +276,7 @@
             :aria-checked="String(!!showExternalBusy)"
             :disabled="loading || !externalCalendarsAvailable.length"
             @click="toggleExternalBusy"
-            title="Show busy times imported from Therapy Notes / ICS feeds. Choose which feeds under More tools."
+            title="Show Therapy Notes / ICS busy for this calendar. Peer Therapy Notes overlays are included when Peers (busy) is on — no need to enable this for peers."
           >
             Therapy Notes
           </button>
@@ -613,7 +639,7 @@
             type="button"
             class="btn btn-secondary btn-sm"
             :class="{ 'btn-ics-on': showIcsGaps }"
-            :title="showIcsGaps ? 'Hide ICS coverage gaps' : 'Highlight booked hours missing ICS clinical overlap (prior audit flags — no live ICS check)'"
+            :title="showIcsGaps ? 'Hide Therapy Notes coverage gaps' : 'Highlight booked hours missing a Therapy Notes session (prior audit flags)'"
             @click="toggleIcsGaps"
           >
             {{ showIcsGaps ? 'ICS gaps: On' : 'Show ICS gaps' }}
@@ -648,7 +674,7 @@
         <div class="peer-busy-panel__head">
           <strong>Peers</strong>
           <span class="muted" style="font-size: 12px;">
-            {{ peerBusySelectedIds.length }} selected · overlays activity type (session / hold / open) and office on your grid.
+            {{ peerBusySelectedIds.length }} selected · overlays their sessions, office, Google busy, and Therapy Notes ICS on your grid.
             {{ canManagePeerCalendar ? 'Click a peer block to inspect or manage their calendar.' : 'For side-by-side compare, use Staff schedules.' }}
           </span>
         </div>
@@ -4464,9 +4490,9 @@
             <span
               class="peer-activity-type"
               :class="`peer-activity-type--${String(act.activityType || 'busy').toLowerCase()}`"
-            >{{ peerActivityShortLabel(act.activityType) }}</span>
+            >{{ peerActivityShortLabel(act.activityType, act.title) }}</span>
             <div class="peer-activity-body">
-              <div class="peer-activity-title">{{ act.title || peerActivityShortLabel(act.activityType) }}</div>
+              <div class="peer-activity-title">{{ act.title || peerActivityShortLabel(act.activityType, act.title) }}</div>
               <div v-if="act.officeLabel" class="muted" style="font-size: 12px;">{{ act.officeLabel }}</div>
             </div>
           </div>
@@ -5279,7 +5305,7 @@ const peerLabelById = (uid) => {
   const row = (peerBusyCandidates.value || []).find((p) => Number(p.id) === Number(uid));
   return String(row?.label || '').trim() || `User ${uid}`;
 };
-const peerActivityShortLabel = (activityType) => {
+const peerActivityShortLabel = (activityType, title = '') => {
   const t = String(activityType || '').toLowerCase();
   if (t === 'session') return 'Session';
   if (t === 'hold') return 'Hold';
@@ -5290,15 +5316,22 @@ const peerActivityShortLabel = (activityType) => {
   if (t === 'huddle') return 'Huddle';
   if (t === 'indirect') return 'Indirect';
   if (t === 'personal') return 'Personal';
-  if (t === 'external') return 'Ext';
+  if (t === 'external') {
+    const titleLc = String(title || '').toLowerCase();
+    // Therapy Notes ICS busy = clinical session coverage, not a generic "EXT" chip.
+    if (titleLc.includes('therapy') || titleLc.includes('notes') || titleLc.includes('session')) {
+      return 'Session';
+    }
+    return 'Session';
+  }
   if (t === 'office') return 'Office';
   return 'Busy';
 };
 const peerActivityShortFromBlock = (b) => {
   if (!b) return '';
   const raw = String(b.shortLabel || '').trim();
-  if (raw) return raw;
-  return peerActivityShortLabel(b.peerActivityType);
+  if (raw && raw.toLowerCase() !== 'ext') return raw;
+  return peerActivityShortLabel(b.peerActivityType || b.activityType, b.title);
 };
 const peerTypedBlocksInCell = (uid, dayName, hour, ws, minute = 0) => {
   const peerSummary = peerBusySummariesByUserId.value?.[uid];
@@ -5358,7 +5391,7 @@ const peerTypedBlocksInCell = (uid, dayName, hour, ws, minute = 0) => {
       else if (kind === 'TEAM_MEETING') { activityType = 'team_meeting'; title = title || 'Team meeting'; }
       else if (kind === 'HUDDLE') { activityType = 'huddle'; title = title || 'Huddle'; }
       else if (kind === 'PERSONAL_EVENT') {
-        if (isClientSessionScheduleEvent(ev)) {
+        if (isClientSessionScheduleEvent(row)) {
           activityType = 'session';
           title = title || 'Session';
         } else {
@@ -5398,6 +5431,35 @@ const peerTypedBlocksInCell = (uid, dayName, hour, ws, minute = 0) => {
       }
     }
   }
+  // Always merge peer Google / Therapy Notes busy (even when office sessions already fill the cell).
+  const pushExternal = (row, title = 'Therapy session', activityType = 'session') => {
+    pushIfOverlap(
+      {
+        startAt: row?.startAt || row?.start_at || row?.start,
+        endAt: row?.endAt || row?.end_at || row?.end
+      },
+      {
+        activityType,
+        title,
+        shortLabel: activityType === 'session' ? 'Session' : peerActivityShortLabel(activityType, title),
+        agencyId: Number(row?.agencyId || peerSummary.agencyId || 0) || null,
+        source: 'external'
+      }
+    );
+  };
+  for (const row of peerSummary.googleBusy || []) pushExternal(row, 'Google busy', 'external');
+  for (const row of peerSummary.externalBusy || []) pushExternal(row, 'Therapy session', 'session');
+  for (const cal of peerSummary.externalCalendars || []) {
+    const calLabel = String(cal?.label || 'Therapy Notes').trim() || 'Therapy Notes';
+    const isTherapyNotes = /therapy|notes|ehr|ics/i.test(calLabel);
+    for (const row of cal?.busy || []) {
+      pushExternal(
+        row,
+        isTherapyNotes ? 'Therapy session' : calLabel,
+        isTherapyNotes ? 'session' : 'external'
+      );
+    }
+  }
   if (!out.length) {
     for (const row of peerSummary.busyBlocks || []) {
       pushIfOverlap(row, {
@@ -5406,10 +5468,22 @@ const peerTypedBlocksInCell = (uid, dayName, hour, ws, minute = 0) => {
         agencyId: Number(row?.agencyId || peerSummary.agencyId || 0) || null
       });
     }
+  } else {
+    // Typed/busy privacy may only expose external intervals inside busyBlocks.
+    for (const row of peerSummary.busyBlocks || []) {
+      const src = String(row?.source || row?.activityType || '').toLowerCase();
+      if (src !== 'external') continue;
+      pushIfOverlap(row, {
+        activityType: 'external',
+        title: row?.title || 'External busy',
+        agencyId: Number(row?.agencyId || peerSummary.agencyId || 0) || null,
+        source: 'external'
+      });
+    }
   }
   // Prefer more specific activity first for the primary chip
   const rank = (t) => ({
-    session: 6, supervision: 5, team_meeting: 4, huddle: 4, school: 3, hold: 2, opening: 2, indirect: 1, personal: 1
+    session: 6, supervision: 5, team_meeting: 4, huddle: 4, school: 3, hold: 2, opening: 2, indirect: 1, personal: 1, external: 0
   }[String(t || '').toLowerCase()] || 0);
   out.sort((a, b) => rank(b.activityType) - rank(a.activityType));
   return out;
@@ -5506,13 +5580,17 @@ const loadPeerBusySummaries = async () => {
   // One cross-tenant summary per peer (not peers × agencies) — avoids hundreds of schedule-summary calls.
   await Promise.all(ids.map(async (uid) => {
     try {
+      // Peers (busy) always loads that peer's Google + Therapy Notes ICS — not gated on
+      // the viewer's own Google/TN toolbar toggles (those apply to this calendar only).
       const data = await api.get(`/users/${uid}/schedule-summary`, {
         params: {
           weekStart: ws,
           includeAllAgencies: 'true',
           detailLevel,
-          includeGoogleBusy: detailLevel === 'busy' ? 'true' : (showGoogleBusy.value ? 'true' : 'false'),
-          includeGoogleEvents: 'false'
+          includeGoogleBusy: 'true',
+          includeGoogleEvents: 'false',
+          includeAllExternalCalendars: 'true',
+          includeExternalBusy: 'true'
         },
         skipGlobalLoading: true
       }).then((r) => r?.data || null).catch(() => null);
@@ -5538,6 +5616,9 @@ const loadPeerBusySummaries = async () => {
             ...b,
             agencyId: Number(b.agencyId || 0) || null
           })),
+        googleBusy: Array.isArray(data.googleBusy) ? data.googleBusy : [],
+        externalBusy: Array.isArray(data.externalBusy) ? data.externalBusy : [],
+        externalCalendars: Array.isArray(data.externalCalendars) ? data.externalCalendars : [],
         detailLevel,
         officeEvents: tagRows(data.officeEvents),
         scheduleEvents: tagRows(data.scheduleEvents),
@@ -7017,7 +7098,101 @@ const bookingTargetUserLabel = computed(() => {
   return id ? `User ${id}` : '—';
 });
 
-const headerTenantOptions = computed(() => (bookingAgencyOptions.value || []).slice());
+/**
+ * Tenants shown in the slot modal header.
+ * For office slots: only agencies affiliated with that building (and the provider, when known).
+ * Prevents superadmin from defaulting/saving a booking under an unrelated tenant (e.g. Burning Sage).
+ */
+const officeAffiliatedAgencyIds = (officeLocationId) => {
+  const officeId = Number(officeLocationId || 0);
+  if (!officeId) return [];
+  const office = (officeLocations.value || []).find((o) => Number(o?.id || 0) === officeId);
+  return Array.isArray(office?.agencyIds)
+    ? office.agencyIds.map((n) => Number(n || 0)).filter((n) => n > 0)
+    : [];
+};
+
+const providerMembershipAgencyIds = (providerId) => {
+  const pid = Number(providerId || 0);
+  if (!pid) return [];
+  const fromPicker = (bookingProviderPickerOptions.value || []).find((u) => Number(u?.id) === pid);
+  const fromPeers = (peerBusyCandidates.value || []).find((u) => Number(u?.id) === pid);
+  const ids = parsePeerAgencyIds(
+    fromPicker?.agencyIds
+    ?? fromPicker?.agency_ids
+    ?? fromPeers?.agencyIds
+    ?? fromPeers?.agency_ids
+  );
+  return ids;
+};
+
+const headerTenantOptions = computed(() => {
+  let rows = (bookingAgencyOptions.value || []).slice();
+  const officeId = Number(
+    modalContext.value?.officeLocationId
+    || selectedOfficeLocationId.value
+    || 0
+  );
+  const officeContext = showRequestModal.value && (
+    String(modalActionSource.value || '') === 'office_block'
+    || viewMode.value === 'office_layout'
+    || Number(modalContext.value?.officeEventId || 0) > 0
+    || ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED', 'COMPANY_HOLD']
+      .includes(String(modalContext.value?.slotState || '').toUpperCase())
+  );
+  if (officeContext && officeId > 0) {
+    const affiliated = officeAffiliatedAgencyIds(officeId);
+    if (affiliated.length) {
+      const allowed = new Set(affiliated);
+      const filtered = rows.filter((r) => allowed.has(Number(r.id)));
+      if (filtered.length) rows = filtered;
+    }
+    const providerId = Number(
+      bookingTargetUserId.value
+      || modalContext.value?.assignedProviderId
+      || modalContext.value?.bookedProviderId
+      || 0
+    );
+    const memberships = providerMembershipAgencyIds(providerId);
+    if (memberships.length) {
+      const pset = new Set(memberships);
+      const filtered = rows.filter((r) => pset.has(Number(r.id)));
+      if (filtered.length) rows = filtered;
+    }
+  }
+  return rows;
+});
+
+const pickDefaultOfficeTenantId = ({ officeLocationId, slotAgencyId, providerId, preferredAgencyId } = {}) => {
+  const scoped = (() => {
+    // Mirror headerTenantOptions filtering without depending on modal open state.
+    let rows = (bookingAgencyOptions.value || []).slice();
+    const affiliated = officeAffiliatedAgencyIds(officeLocationId);
+    if (affiliated.length) {
+      const allowed = new Set(affiliated);
+      const filtered = rows.filter((r) => allowed.has(Number(r.id)));
+      if (filtered.length) rows = filtered;
+    }
+    const memberships = providerMembershipAgencyIds(providerId);
+    if (memberships.length) {
+      const pset = new Set(memberships);
+      const filtered = rows.filter((r) => pset.has(Number(r.id)));
+      if (filtered.length) rows = filtered;
+    }
+    return rows.map((r) => Number(r.id)).filter((n) => n > 0);
+  })();
+  const allowed = new Set(scoped.length ? scoped : (bookingAgencyOptions.value || []).map((r) => Number(r.id)).filter((n) => n > 0));
+  const candidates = [
+    Number(slotAgencyId || 0),
+    Number(preferredAgencyId || 0),
+    Number(agencyStore.currentAgency?.id || 0),
+    ...scoped
+  ].filter((n) => n > 0);
+  for (const id of candidates) {
+    if (allowed.has(id)) return id;
+  }
+  return scoped[0] || 0;
+};
 
 const requestedProviderPayload = (opts = {}) => {
   const pid = Number(scheduleActorUserId.value || 0);
@@ -7304,18 +7479,21 @@ const load = async ({ forceRefresh = false } = {}) => {
         return;
       }
 
-      const tag = (row, agencyId) => {
-        const hasRowAgency = row && Object.prototype.hasOwnProperty.call(row, 'agencyId');
-        const taggedAgencyId = hasRowAgency
-          ? (Number(row?.agencyId || 0) || null)
-          : (Number(agencyId || 0) || null);
-        return { ...row, _agencyId: taggedAgencyId };
+      const tag = (row, agencyId, { allowFetchAgencyFallback = true } = {}) => {
+        const explicit = Number(row?.agencyId || 0) || null;
+        if (explicit) return { ...row, _agencyId: explicit };
+        if (!allowFetchAgencyFallback) return { ...row, _agencyId: null };
+        return { ...row, _agencyId: Number(agencyId || 0) || null };
       };
       const merged = {
         ...first,
         // Preserve one “current” agencyId for legacy consumers, but include the full list too.
         agencyId: first.agencyId || ids[0],
         agencyIds: [...ids],
+        scheduleAgencyIds: [...new Set([
+          ...(first.scheduleAgencyIds || []),
+          ...ids
+        ].map((n) => Number(n)).filter((n) => n > 0))],
         officeRequests: [],
         schoolRequests: [],
         schoolAssignments: [],
@@ -7349,26 +7527,52 @@ const load = async ({ forceRefresh = false } = {}) => {
         return `sig:${kind}|${String(e?.startAt || e?.startDate || '')}|${String(e?.endAt || e?.endDate || '')}|${String(e?.title || '')}`;
       };
       const seenScheduleEventKeys = new Set();
+      // Provider's real memberships — never badge a block with a co-tenant on a shared
+      // building (e.g. Burning Sage on Windchime) when the person isn't on that tenant.
+      const providerAgencyAllow = new Set(
+        (merged.scheduleAgencyIds || [])
+          .map((n) => Number(n))
+          .filter((n) => n > 0)
+      );
+      for (const r of okOnes) {
+        for (const aid of (r.data?.scheduleAgencyIds || [])) {
+          const n = Number(aid || 0);
+          if (n > 0) {
+            providerAgencyAllow.add(n);
+            if (!merged.scheduleAgencyIds.includes(n)) merged.scheduleAgencyIds.push(n);
+          }
+        }
+      }
+      const tagIfMember = (row, agencyId, opts) => {
+        const tagged = tag(row, agencyId, opts);
+        const aid = Number(tagged._agencyId || 0);
+        if (aid && providerAgencyAllow.size && !providerAgencyAllow.has(aid)) {
+          return { ...tagged, _agencyId: null, agencyId: tagged.agencyId || null };
+        }
+        return tagged;
+      };
       for (const r of okOnes) {
         const aId = r.agencyId;
-        merged.officeRequests.push(...(r.data?.officeRequests || []).map((x) => tag(x, aId)));
-        merged.schoolRequests.push(...(r.data?.schoolRequests || []).map((x) => tag(x, aId)));
-        merged.schoolAssignments.push(...(r.data?.schoolAssignments || []).map((x) => tag(x, aId)));
-        for (const e of (r.data?.officeEvents || []).map((x) => tag(x, aId))) {
+        merged.officeRequests.push(...(r.data?.officeRequests || []).map((x) => tagIfMember(x, aId)));
+        merged.schoolRequests.push(...(r.data?.schoolRequests || []).map((x) => tagIfMember(x, aId)));
+        merged.schoolAssignments.push(...(r.data?.schoolAssignments || []).map((x) => tagIfMember(x, aId)));
+        // Office events are building-scoped; do NOT stamp the fetch agencyId (shared buildings
+        // return the same event for every co-tenant — first alphabetically was Burning Sage).
+        for (const e of (r.data?.officeEvents || []).map((x) => tagIfMember(x, aId, { allowFetchAgencyFallback: false }))) {
           const k = officeEventKey(e);
           if (!seenOfficeKeys.has(k)) {
             seenOfficeKeys.add(k);
             merged.officeEvents.push(e);
           }
         }
-        merged.supervisionSessions.push(...(r.data?.supervisionSessions || []).map((x) => tag(x, aId)));
-        for (const e of (r.data?.scheduleEvents || []).map((x) => tag(x, aId))) {
+        merged.supervisionSessions.push(...(r.data?.supervisionSessions || []).map((x) => tagIfMember(x, aId)));
+        for (const e of (r.data?.scheduleEvents || []).map((x) => tagIfMember(x, aId))) {
           const k = scheduleEventKey(e);
           if (seenScheduleEventKeys.has(k)) continue;
           seenScheduleEventKeys.add(k);
           merged.scheduleEvents.push(e);
         }
-        for (const row of (r.data?.virtualWorkingHours || []).map((x) => tag(x, aId))) {
+        for (const row of (r.data?.virtualWorkingHours || []).map((x) => tagIfMember(x, aId))) {
           const k = `vwh|${Number(row?.agencyId || aId || 0)}|${row?.dayOfWeek}|${row?.startTime}|${row?.endTime}|${row?.sessionType}`;
           if (seenScheduleEventKeys.has(k)) continue;
           seenScheduleEventKeys.add(k);
@@ -7697,6 +7901,30 @@ const goToTodayWeek = () => {
   emit('update:weekStartYmd', weekStart.value);
   if (isDayOrAgendaSpan.value) {
     focusedDays.value = [todayDayName()];
+  }
+  if (weekChanged || !summary.value) load();
+};
+
+/** Value for the week-jump date input (any day in the visible week). */
+const weekJumpDateValue = computed(() => {
+  if (isDayOrAgendaSpan.value && focusedDays.value?.length === 1) {
+    const ymd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(focusedDays.value[0]));
+    if (ymd) return ymd;
+  }
+  return String(weekStart.value || '').slice(0, 10);
+});
+
+const onWeekJumpDateChange = (event) => {
+  const raw = String(event?.target?.value || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return;
+  const monday = startOfWeekMondayYmd(raw);
+  if (!monday) return;
+  const weekChanged = monday !== weekStart.value;
+  weekStart.value = monday;
+  emit('update:weekStartYmd', weekStart.value);
+  if (isDayOrAgendaSpan.value) {
+    const dayName = dayNameForDateYmd(raw);
+    if (dayName) focusedDays.value = [dayName];
   }
   if (weekChanged || !summary.value) load();
 };
@@ -8883,7 +9111,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       if (!typedHits.length) continue;
       const top = typedHits[0];
       const activityType = String(top?.activityType || 'busy').toLowerCase();
-      const typeShort = peerActivityShortLabel(activityType);
+      const typeShort = peerActivityShortLabel(activityType, top?.title);
       const officeBit = String(top?.officeLabel || '').trim();
       const range = busyRangeForCell(typedHits, dayName, hour, ws, minute);
       const segmentClass = range ? quarterSegmentForRange(dayName, hour, minute, range.startAt, range.endAt) : 'single';
@@ -13577,7 +13805,7 @@ const maybeAutoOpenSelectionActions = (opts = {}) => {
   openSlotActionModal({ ...rows[0], actionSource: 'plus_or_blank' });
 };
 
-const openSlotActionModal = ({
+const openSlotActionModal = async ({
   dayName,
   hour,
   roomId = 0,
@@ -13694,17 +13922,48 @@ const openSlotActionModal = ({
     selectedOfficeRoomId.value = Number(modalContext.value?.roomId || 0) || 0;
     officeBookingRecurrence.value = 'ONCE';
   }
-  const bookingIds = new Set((bookingAgencyOptions.value || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
+  // Load office↔tenant affiliations BEFORE picking the modal tenant. Otherwise superadmin
+  // falls through to the alphabetically-first agency (e.g. Burning Sage) which may be
+  // unrelated to this building / provider.
+  const officeLocIdForTenant = Number(
+    modalContext.value?.officeLocationId || selectedOfficeLocationId.value || 0
+  );
+  try {
+    // eslint-disable-next-line no-await-in-loop
+    await ensureOfficeAgencyIds(officeLocIdForTenant);
+  } catch {
+    /* best-effort */
+  }
   const contextAgencyId = Number(modalContext.value?.agencyId || 0);
-  const currentId = Number(agencyStore.currentAgency?.id || 0);
-  if (currentId && bookingIds.has(currentId)) {
-    selectedActionAgencyId.value = currentId;
-  } else if (contextAgencyId && bookingIds.has(contextAgencyId)) {
-    selectedActionAgencyId.value = contextAgencyId;
-  } else if (selectedActionAgencyId.value && bookingIds.has(Number(selectedActionAgencyId.value))) {
-    // keep
+  const providerForTenant = Number(
+    bookingTargetUserId.value
+    || modalContext.value?.assignedProviderId
+    || modalContext.value?.bookedProviderId
+    || 0
+  );
+  const isOfficeModal = String(modalActionSource.value || '') === 'office_block'
+    || String(modalActionSource.value || '') === 'plus_or_blank'
+    || viewMode.value === 'office_layout'
+    || officeLocIdForTenant > 0;
+  if (isOfficeModal) {
+    selectedActionAgencyId.value = pickDefaultOfficeTenantId({
+      officeLocationId: officeLocIdForTenant,
+      slotAgencyId: contextAgencyId,
+      providerId: providerForTenant,
+      preferredAgencyId: Number(selectedActionAgencyId.value || 0)
+    }) || Number(effectiveAgencyIds.value[0] || 0) || 0;
   } else {
-    selectedActionAgencyId.value = Number([...bookingIds][0] || effectiveAgencyIds.value[0] || 0) || 0;
+    const bookingIds = new Set((bookingAgencyOptions.value || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
+    const currentId = Number(agencyStore.currentAgency?.id || 0);
+    if (contextAgencyId && bookingIds.has(contextAgencyId)) {
+      selectedActionAgencyId.value = contextAgencyId;
+    } else if (currentId && bookingIds.has(currentId)) {
+      selectedActionAgencyId.value = currentId;
+    } else if (selectedActionAgencyId.value && bookingIds.has(Number(selectedActionAgencyId.value))) {
+      // keep
+    } else {
+      selectedActionAgencyId.value = Number([...bookingIds][0] || effectiveAgencyIds.value[0] || 0) || 0;
+    }
   }
   // Office / layout opens always land on the chooser unless a real deep-link action was passed
   // (e.g. portal_intake, school, individual_session from dashboard CTA).
@@ -13737,7 +13996,6 @@ const openSlotActionModal = ({
   showRequestModal.value = true;
   void loadBookingMetadataForProvider();
   void loadSupervisionProviders();
-  void ensureOfficeAgencyIds(Number(modalContext.value?.officeLocationId || selectedOfficeLocationId.value || 0));
 };
 
 const applyShiftSelection = (current) => {
@@ -14091,10 +14349,15 @@ const actionAgencyFilteredToOffice = computed(() => {
 });
 
 // Keep selected agency inside the (possibly office-filtered) option list.
-watch(actionAgencyOptions, (opts) => {
-  const ids = (opts || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0);
+// Prefer headerTenantOptions (office/provider scoped) when the slot modal is open.
+watch([actionAgencyOptions, headerTenantOptions, showRequestModal], () => {
+  if (!showRequestModal.value) return;
+  const headerIds = (headerTenantOptions.value || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0);
+  const actionIds = (actionAgencyOptions.value || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0);
+  const ids = headerIds.length ? headerIds : actionIds;
   if (!ids.length) return;
-  if (!ids.includes(Number(selectedActionAgencyId.value || 0))) {
+  const selected = Number(selectedActionAgencyId.value || 0);
+  if (!ids.includes(selected)) {
     selectedActionAgencyId.value = ids[0];
   }
 });
@@ -14510,7 +14773,22 @@ const cellBlockStyle = (b) => {
   return style;
 };
 
-const hasAgencyBadge = (block) => Number(block?.agencyId || 0) > 0;
+/** Agencies the schedule subject actually belongs to (never co-tenants on a shared building). */
+const scheduleSubjectAgencyIdSet = computed(() => {
+  const ids = (summary.value?.scheduleAgencyIds || [])
+    .map((n) => Number(n || 0))
+    .filter((n) => n > 0);
+  return new Set(ids);
+});
+
+const hasAgencyBadge = (block) => {
+  const aid = Number(block?.agencyId || 0);
+  if (!aid) return false;
+  const allowed = scheduleSubjectAgencyIdSet.value;
+  // When we know the subject's memberships, hide logos for unrelated tenants.
+  if (allowed.size > 0 && !allowed.has(aid)) return false;
+  return true;
+};
 
 const agencyBadgeStyle = (block) => {
   const color = agencyBadgeColorById(block?.agencyId);
@@ -18959,16 +19237,16 @@ const buildStackDetailsForBlock = (block, dayName, hour, minute = 0) => {
       const events = externalIcsEventsInCell(dayName, hour, minute);
       if (events.length >= 1) {
         return {
-          title: `External calendar busy — ${dayName} ${timeSuffix}`,
+          title: `Therapy session — ${dayName} ${timeSuffix}`,
           items: events.map((ev, idx) => ({
             id: `eics-${idx}`,
-            label: String(ev.summary || '').trim() || ev.calendarLabel || 'Busy',
+            label: String(ev.summary || '').trim() || ev.calendarLabel || 'Therapy session',
             subLabel: formatRangeFromRaw(ev.startAt, ev.endAt),
             therapyNoteAid: true,
             therapyStartAt: ev.startAt,
             therapyEndAt: ev.endAt,
             therapySummary: String(ev.summary || '').trim(),
-            therapyCalendarLabel: String(ev.calendarLabel || '').trim()
+            therapyCalendarLabel: String(ev.calendarLabel || '').trim() || 'Therapy Notes'
           }))
         };
       }
@@ -19297,6 +19575,52 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .sched-nav-icon-btn:hover:not(:disabled) {
   background: var(--sched-soft);
   border-color: #cbd5e1;
+}
+.sched-nav-date-wrap {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+}
+.sched-nav-date-wrap:hover {
+  background: var(--sched-soft);
+  border-color: #cbd5e1;
+}
+.sched-nav-date-icon {
+  pointer-events: none;
+}
+.sched-nav-date-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+.sched-nav-date-input:disabled {
+  cursor: not-allowed;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .sched-nav-view-pill {
   display: inline-flex;

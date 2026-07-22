@@ -1,7 +1,10 @@
 import axios from 'axios';
 import crypto from 'crypto';
 
-// Simple in-memory cache: key -> { exp: msEpoch, busy: [{startAt,endAt}] }
+// Cache raw ICS text by URL (not expanded occurrences) so RRULE expansion always
+// uses the caller's time window. key -> { exp, text }
+const icsTextCache = new Map();
+// Legacy busy-array cache (kept for getCached/setCached callers during transition)
 const cache = new Map();
 
 function nowMs() {
@@ -78,6 +81,80 @@ function mergeBusyIntervals(busy) {
   return merged;
 }
 
+/** Collect EXDATE timestamps from a node-ical VEVENT. */
+function exdateTimeSet(ev) {
+  const out = new Set();
+  const raw = ev?.exdate;
+  if (!raw) return out;
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+    out.add(raw.getTime());
+    return out;
+  }
+  if (typeof raw === 'object') {
+    for (const v of Object.values(raw)) {
+      const d = v instanceof Date ? v : (v ? new Date(v) : null);
+      if (d && !Number.isNaN(d.getTime())) out.add(d.getTime());
+    }
+  }
+  return out;
+}
+
+/**
+ * Expand a parsed VEVENT into busy intervals.
+ * Therapy Notes weekly appointments are RRULE masters (DTSTART = first occurrence only).
+ * Without expansion, upcoming office audits see zero ICS overlap and false-flag everything.
+ */
+function veventToBusyRows(ev, timeMinIso, timeMaxIso) {
+  const start = ev.start instanceof Date ? ev.start : (ev.start ? new Date(ev.start) : null);
+  const end = ev.end instanceof Date ? ev.end : (ev.end ? new Date(ev.end) : null);
+  if (!start || !end) return [];
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+  if (end <= start) return [];
+
+  const durationMs = end.getTime() - start.getTime();
+  const summ = sanitizeIcsSummary(ev.summary ?? ev.SUMMARY);
+  const rows = [];
+  const pushOcc = (occStart) => {
+    if (!(occStart instanceof Date) || Number.isNaN(occStart.getTime())) return;
+    const occEnd = new Date(occStart.getTime() + durationMs);
+    const row = { startAt: occStart.toISOString(), endAt: occEnd.toISOString() };
+    if (summ) row.summary = summ;
+    rows.push(row);
+  };
+
+  const rangeMin = timeMinIso ? new Date(timeMinIso) : null;
+  const rangeMax = timeMaxIso ? new Date(timeMaxIso) : null;
+  const canExpand = ev.rrule
+    && typeof ev.rrule.between === 'function'
+    && rangeMin
+    && rangeMax
+    && !Number.isNaN(rangeMin.getTime())
+    && !Number.isNaN(rangeMax.getTime());
+
+  if (canExpand) {
+    // Include occurrences that start before the window but still overlap it.
+    const betweenStart = new Date(rangeMin.getTime() - durationMs);
+    let occurrences = [];
+    try {
+      occurrences = ev.rrule.between(betweenStart, rangeMax, true) || [];
+    } catch {
+      occurrences = [];
+    }
+    const excluded = exdateTimeSet(ev);
+    for (const occ of occurrences) {
+      const t = occ instanceof Date ? occ.getTime() : NaN;
+      if (!Number.isFinite(t) || excluded.has(t)) continue;
+      pushOcc(occ instanceof Date ? occ : new Date(occ));
+    }
+    // If RRULE expansion yielded nothing, still keep the DTSTART instance when in range.
+    if (!rows.length) pushOcc(start);
+    return rows;
+  }
+
+  pushOcc(start);
+  return rows;
+}
+
 export class ExternalBusyCalendarService {
   static normalizeIcsFetchUrl(icsUrl) {
     const raw = String(icsUrl || '').trim();
@@ -90,11 +167,15 @@ export class ExternalBusyCalendarService {
   }
 
   static cacheKey({ userId, weekStart }) {
-    return `${userId}:${String(weekStart || '')}`;
+    return `busy:${userId}:${String(weekStart || '')}`;
   }
 
   static cacheKeyForFeed({ userId, weekStart, icsUrl }) {
-    return `${userId}:${String(weekStart || '')}:feed:${sha1HexShort(icsUrl)}`;
+    return `busy:${userId}:${String(weekStart || '')}:feed:${sha1HexShort(icsUrl)}`;
+  }
+
+  static icsTextCacheKey(icsUrl) {
+    return `ics-text:${sha1HexShort(this.normalizeIcsFetchUrl(icsUrl))}`;
   }
 
   static getCached(key) {
@@ -111,7 +192,38 @@ export class ExternalBusyCalendarService {
     cache.set(key, { exp: nowMs() + ttlMs, busy: busy || [] });
   }
 
-  static async fetchAndParseIcsBusy({ icsUrl }) {
+  static getCachedIcsText(key) {
+    const v = icsTextCache.get(key);
+    if (!v) return null;
+    if (v.exp <= nowMs()) {
+      icsTextCache.delete(key);
+      return null;
+    }
+    return v.text || '';
+  }
+
+  static setCachedIcsText(key, text, ttlMs) {
+    icsTextCache.set(key, { exp: nowMs() + ttlMs, text: String(text || '') });
+  }
+
+  static async fetchIcsText({ icsUrl, ttlMs = 10 * 60 * 1000 }) {
+    const url = this.normalizeIcsFetchUrl(icsUrl);
+    if (!url) return '';
+    const key = this.icsTextCacheKey(url);
+    const cached = this.getCachedIcsText(key);
+    if (cached != null && cached !== '') return cached;
+
+    const resp = await axios.get(url, { responseType: 'text', timeout: 12000, maxContentLength: 2_000_000 });
+    const text = String(resp?.data || '');
+    if (text) this.setCachedIcsText(key, text, ttlMs);
+    return text;
+  }
+
+  /**
+   * Parse ICS into busy intervals, expanding RRULE weekly/monthly masters into the
+   * requested window. Critical for Therapy Notes coverage audits.
+   */
+  static async fetchAndParseIcsBusy({ icsUrl, timeMinIso = null, timeMaxIso = null, ttlMs = 10 * 60 * 1000 }) {
     const url = this.normalizeIcsFetchUrl(icsUrl);
     if (!url) return [];
 
@@ -119,8 +231,7 @@ export class ExternalBusyCalendarService {
     const icalMod = await import('node-ical');
     const ical = icalMod?.default || icalMod;
 
-    const resp = await axios.get(url, { responseType: 'text', timeout: 12000, maxContentLength: 2_000_000 });
-    const text = String(resp?.data || '');
+    const text = await this.fetchIcsText({ icsUrl: url, ttlMs });
     if (!text) return [];
 
     let parsed = null;
@@ -133,23 +244,20 @@ export class ExternalBusyCalendarService {
     }
     if (!parsed || typeof parsed !== 'object') return [];
 
+    // Default expansion window when callers omit bounds (schedule overlays often pass them).
+    const minIso = timeMinIso || new Date(Date.now() - 7 * 86400000).toISOString();
+    const maxIso = timeMaxIso || new Date(Date.now() + 70 * 86400000).toISOString();
+
     const busy = [];
     for (const k of Object.keys(parsed)) {
       const ev = parsed[k];
       if (!ev || ev.type !== 'VEVENT') continue;
-      // node-ical uses JS Date objects for start/end.
-      const start = ev.start instanceof Date ? ev.start : (ev.start ? new Date(ev.start) : null);
-      const end = ev.end instanceof Date ? ev.end : (ev.end ? new Date(ev.end) : null);
-      if (!start || !end) continue;
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
-      if (end <= start) continue;
-      const summ = sanitizeIcsSummary(ev.summary ?? ev.SUMMARY);
-      const row = { startAt: start.toISOString(), endAt: end.toISOString() };
-      if (summ) row.summary = summ;
-      busy.push(row);
+      // Skip cancelled instances when marked.
+      const status = String(ev.status || '').toUpperCase();
+      if (status === 'CANCELLED') continue;
+      busy.push(...veventToBusyRows(ev, minIso, maxIso));
     }
 
-    // Sort for stability
     busy.sort((a, b) => String(a.startAt).localeCompare(String(b.startAt)));
     return busy;
   }
@@ -160,16 +268,14 @@ export class ExternalBusyCalendarService {
     const url = String(icsUrl || '').trim();
     if (!url) return { ok: true, busy: [], events: [] };
 
-    const key = this.cacheKey({ userId: uid, weekStart });
-    const cached = this.getCached(key);
-    if (cached) {
-      const clamped = clampBusyToWindow(cached, timeMinIso, timeMaxIso);
-      return { ok: true, busy: clamped, events: clamped };
-    }
-
     try {
-      const rawBusy = await this.fetchAndParseIcsBusy({ icsUrl: url });
-      this.setCached(key, rawBusy, ttlMs);
+      // Expand RRULEs for the requested window, then clamp (idempotent).
+      const rawBusy = await this.fetchAndParseIcsBusy({
+        icsUrl: url,
+        timeMinIso,
+        timeMaxIso,
+        ttlMs
+      });
       const clamped = clampBusyToWindow(rawBusy, timeMinIso, timeMaxIso);
       return { ok: true, busy: clamped, events: clamped };
     } catch (e) {
@@ -190,15 +296,14 @@ export class ExternalBusyCalendarService {
     const all = [];
     const errors = [];
     for (const url of urls) {
-      const key = this.cacheKeyForFeed({ userId: uid, weekStart, icsUrl: url });
-      const cached = this.getCached(key);
-      if (cached) {
-        all.push(...cached);
-        continue;
-      }
       try {
-        const rawBusy = await this.fetchAndParseIcsBusy({ icsUrl: url });
-        this.setCached(key, rawBusy, ttlMs);
+        // eslint-disable-next-line no-await-in-loop
+        const rawBusy = await this.fetchAndParseIcsBusy({
+          icsUrl: url,
+          timeMinIso,
+          timeMaxIso,
+          ttlMs
+        });
         all.push(...rawBusy);
       } catch (e) {
         errors.push(String(e?.message || e));
@@ -222,4 +327,3 @@ export class ExternalBusyCalendarService {
 }
 
 export default ExternalBusyCalendarService;
-

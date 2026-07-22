@@ -300,10 +300,10 @@ const slotHasIcsGap = (dateYmd, hour, roomId) => {
 const icsGapTitle = (dateYmd, hour, roomId) => {
   const s = getSlot(dateYmd, hour, roomId);
   const t = String(s?.icsFlagType || '');
-  if (t === 'no_coverage') return 'No ICS clinical overlap';
-  if (t === 'non_clinical_busy') return 'ICS busy without clinical title';
-  if (t === 'partial_coverage') return 'Partial ICS clinical coverage';
-  return 'ICS coverage gap';
+  if (t === 'no_coverage') return 'No Therapy Notes session during booking';
+  if (t === 'non_clinical_busy') return 'Busy without therapy session';
+  if (t === 'partial_coverage') return 'Partial Therapy Notes coverage';
+  return 'No Therapy Notes session during booking';
 };
 
 const slotClass = (dateYmd, hour, roomId) => {
