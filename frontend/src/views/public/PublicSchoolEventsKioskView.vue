@@ -49,6 +49,15 @@
           >
             {{ showUpcomingAgenda ? 'Today only' : 'Show upcoming agenda' }}
           </button>
+          <button
+            v-if="agendaMode && showUpcomingAgenda"
+            type="button"
+            class="btn-toggle"
+            :class="{ active: showCalendarOnlyEvents }"
+            @click="showCalendarOnlyEvents = !showCalendarOnlyEvents"
+          >
+            {{ showCalendarOnlyEvents ? 'Staffable only' : 'Show calendar-only dates' }}
+          </button>
           <button type="button" class="btn-ghost" :disabled="busy" @click="loadEvents">Refresh</button>
         </div>
       </div>
@@ -68,7 +77,8 @@
           <div class="agenda-main">
             <div class="agenda-head">
               <strong class="agenda-title">{{ e.title }}</strong>
-              <span v-if="e.punchAllowedToday" class="status-tag open">Open for clock-in</span>
+              <span v-if="e.punchAllowedToday && isStaffableKioskEvent(e)" class="status-tag open">Open for clock-in</span>
+              <span v-else-if="!isStaffableKioskEvent(e)" class="status-tag calendar">Calendar only</span>
               <span v-else class="status-tag upcoming">Upcoming</span>
             </div>
             <div class="agenda-details">
@@ -79,12 +89,13 @@
               <span><strong>Status:</strong> {{ formatEventStatus(e) }}</span>
             </div>
             <div class="agenda-staff">
-              <strong>Assigned staff:</strong>
-              <span v-if="!(e.assignedStaff || []).length" class="muted">None yet</span>
+              <strong>{{ isStaffableKioskEvent(e) ? 'Assigned staff:' : 'Staffing:' }}</strong>
+              <span v-if="!isStaffableKioskEvent(e)" class="muted">Not staffable — calendar date only</span>
+              <span v-else-if="!(e.assignedStaff || []).length" class="muted">None yet</span>
               <span v-else class="staff-names">{{ assignedStaffLabel(e) }}</span>
             </div>
           </div>
-          <div v-if="e.punchAllowedToday" class="agenda-action">
+          <div v-if="e.punchAllowedToday && isStaffableKioskEvent(e)" class="agenda-action">
             <button type="button" class="btn-primary btn-clock" @click="selectEvent(e)">
               Clock in
             </button>
@@ -255,6 +266,21 @@ const slug = ref('');
 const token = ref('');
 const agendaMode = ref(false);
 const showUpcomingAgenda = ref(false);
+const showCalendarOnlyEvents = ref(false);
+
+/** Holidays, days off, first day, fall/spring check-ins — no provider staffing. */
+const KIOSK_CALENDAR_ONLY_EVENT_TYPES = new Set([
+  'school_holiday',
+  'school_day_off',
+  'school_first_day',
+  'school_fall_check_in',
+  'school_spring_event'
+]);
+
+function isStaffableKioskEvent(e) {
+  const typ = String(e?.eventType || '').trim().toLowerCase();
+  return !KIOSK_CALENDAR_ONLY_EVENT_TYPES.has(typ);
+}
 const pin = ref('');
 const staffPin = ref('');
 const busy = ref(false);
@@ -277,8 +303,16 @@ const storageKey = computed(() => `schoolEventsKiosk.${slug.value || 'x'}`);
 const punchAllowedOnSelectedEvent = computed(() => !!selectedMeta.value?.punchAllowedToday);
 
 const displayedEvents = computed(() => {
-  if (agendaMode.value && showUpcomingAgenda.value) return events.value;
-  return events.value.filter((e) => e.punchAllowedToday);
+  let list = events.value;
+  if (agendaMode.value && showUpcomingAgenda.value) {
+    // Upcoming agenda: all events in window
+  } else {
+    list = list.filter((e) => e.punchAllowedToday);
+  }
+  if (!showCalendarOnlyEvents.value) {
+    list = list.filter((e) => isStaffableKioskEvent(e));
+  }
+  return list;
 });
 
 const listHeading = computed(() => {
@@ -287,8 +321,13 @@ const listHeading = computed(() => {
 });
 
 const emptyListMessage = computed(() => {
-  if (agendaMode.value && showUpcomingAgenda.value) return 'No upcoming school events scheduled.';
-  if (agendaMode.value) return 'No school events open for clock-in today.';
+  if (agendaMode.value && showUpcomingAgenda.value && showCalendarOnlyEvents.value) {
+    return 'No upcoming school events scheduled.';
+  }
+  if (agendaMode.value && showUpcomingAgenda.value) {
+    return 'No upcoming staffable school events scheduled.';
+  }
+  if (agendaMode.value) return 'No staffable school events open for clock-in today.';
   return 'No school events today.';
 });
 
@@ -418,7 +457,10 @@ async function loadEvents() {
     );
     events.value = Array.isArray(res.data?.events) ? res.data.events : [];
     agendaMode.value = !!res.data?.agendaMode;
-    if (!agendaMode.value) showUpcomingAgenda.value = false;
+    if (!agendaMode.value) {
+      showUpcomingAgenda.value = false;
+      showCalendarOnlyEvents.value = false;
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load events';
     if (e?.response?.status === 401) lockStation();
@@ -796,6 +838,10 @@ h2, h3 {
 .status-tag.upcoming {
   background: #e0e7ff;
   color: #4338ca;
+}
+.status-tag.calendar {
+  background: #f1f5f9;
+  color: #475569;
 }
 .agenda-details {
   display: grid;
