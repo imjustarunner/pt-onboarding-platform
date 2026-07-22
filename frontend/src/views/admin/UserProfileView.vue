@@ -8243,6 +8243,16 @@ onUnmounted(() => {
   align-items: center;
 }
 
+.affiliations-details-wrap::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: 10px; /* covers the gap so mouseleave isn't triggered early */
+  background: transparent;
+}
+
 .affiliations-details-trigger {
   padding: 3px 8px;
 }
@@ -8260,6 +8270,8 @@ onUnmounted(() => {
   padding: 10px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.15);
   z-index: 50;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 .affiliations-popover--below {

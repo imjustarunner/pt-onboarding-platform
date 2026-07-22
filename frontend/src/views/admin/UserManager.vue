@@ -4704,6 +4704,16 @@ th, td {
   flex-shrink: 0;
 }
 
+.user-affiliations-details-wrap::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: 10px;
+  background: transparent;
+}
+
 .user-affiliations-details-btn {
   padding: 3px 8px;
   font-size: 12px;
