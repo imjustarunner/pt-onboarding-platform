@@ -324,6 +324,61 @@ async function assertThreadAccess(reqUserId, threadId) {
   return true;
 }
 
+async function otherUserAllowedInAgency(otherUserId, agencyId, organizationId = null) {
+  const [inAgency] = await pool.execute(
+    'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+    [otherUserId, agencyId]
+  );
+  if (inAgency.length > 0) return true;
+  const [onManagementTeam] = await pool.execute(
+    'SELECT 1 FROM agency_management_team WHERE user_id = ? AND agency_id = ? AND is_active = TRUE LIMIT 1',
+    [otherUserId, agencyId]
+  );
+  if (onManagementTeam.length > 0) return true;
+  if (organizationId) {
+    const [inChildOrg] = await pool.execute(
+      'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [otherUserId, organizationId]
+    );
+    if (inChildOrg.length > 0) return true;
+  }
+  return false;
+}
+
+/** Pick an agency both users can use for a direct thread (shared membership preferred). */
+async function resolveDirectThreadAgencyId(meUserId, otherUserId, requestedAgencyId, organizationId = null) {
+  const reqAgency = Number(requestedAgencyId || 0);
+  if (!reqAgency || !otherUserId || !meUserId) return null;
+  if (await otherUserAllowedInAgency(otherUserId, reqAgency, organizationId)) return reqAgency;
+
+  const [shared] = await pool.execute(
+    `SELECT ua1.agency_id AS id
+     FROM user_agencies ua1
+     INNER JOIN user_agencies ua2 ON ua2.agency_id = ua1.agency_id
+     INNER JOIN agencies a ON a.id = ua1.agency_id
+     WHERE ua1.user_id = ? AND ua2.user_id = ?
+       AND LOWER(COALESCE(a.organization_type, 'agency')) IN ('agency', 'organization', '')
+     ORDER BY CASE WHEN ua1.agency_id = ? THEN 0 ELSE 1 END, a.name ASC
+     LIMIT 1`,
+    [meUserId, otherUserId, reqAgency]
+  );
+  if (shared.length) return Number(shared[0].id);
+
+  const [otherAgency] = await pool.execute(
+    `SELECT ua.agency_id AS id
+     FROM user_agencies ua
+     INNER JOIN agencies a ON a.id = ua.agency_id
+     WHERE ua.user_id = ?
+       AND LOWER(COALESCE(a.organization_type, 'agency')) IN ('agency', 'organization', '')
+     ORDER BY CASE WHEN ua.agency_id = ? THEN 0 ELSE 1 END, a.name ASC
+     LIMIT 1`,
+    [otherUserId, reqAgency]
+  );
+  if (otherAgency.length) return Number(otherAgency[0].id);
+
+  return null;
+}
+
 async function guardianCanPostSkillBuilderEventChat(userId, companyEventId) {
   const uid = Number(userId);
   const eid = Number(companyEventId);
@@ -891,25 +946,9 @@ export const createOrGetDirectThread = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Cannot create a chat with yourself' } });
     }
 
-    // Ensure the other user is in the agency or on the agency's management team.
-    // For org-scoped threads, also allow users assigned only to the child organization (school/program row in `agencies`).
-    const [inAgency] = await pool.execute(
-      'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-      [otherUserId, agencyId]
-    );
-    const [onManagementTeam] = await pool.execute(
-      'SELECT 1 FROM agency_management_team WHERE user_id = ? AND agency_id = ? AND is_active = TRUE LIMIT 1',
-      [otherUserId, agencyId]
-    );
-    let inChildOrg = { length: 0 };
-    if (organizationId) {
-      const [rows] = await pool.execute(
-        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-        [otherUserId, organizationId]
-      );
-      inChildOrg = rows;
-    }
-    let allowed = inAgency.length > 0 || onManagementTeam.length > 0 || inChildOrg.length > 0;
+    let resolvedAgencyId = await resolveDirectThreadAgencyId(me, otherUserId, agencyId, organizationId);
+    let allowed = !!resolvedAgencyId;
+
     // Provider/staff ↔ guardian: allow when the other user is a guardian linked to a client
     // assigned to the actor (or actor is agency admin).
     if (!allowed) {
@@ -942,23 +981,26 @@ export const createOrGetDirectThread = async (req, res, next) => {
             [otherUserId, agencyId, me, me, myRole]
           );
           allowed = (linkRows || []).length > 0;
+          if (allowed) resolvedAgencyId = agencyId;
         }
       } catch {
         allowed = false;
       }
     }
-    if (!allowed) {
+    if (!allowed || !resolvedAgencyId) {
       return res.status(400).json({ error: { message: 'User is not in the selected agency' } });
     }
 
-    const threadId = await findOrCreateDirectThread(agencyId, organizationId, me, otherUserId);
+    await assertAgencyOrOrgAccess(req.user, resolvedAgencyId, organizationId);
+
+    const threadId = await findOrCreateDirectThread(resolvedAgencyId, organizationId, me, otherUserId);
     // If the user previously deleted/hid this thread, reopen it.
     try {
       await pool.execute('DELETE FROM chat_thread_deletes WHERE thread_id = ? AND user_id = ?', [threadId, me]);
     } catch {
       // ignore (table may not exist yet in some envs)
     }
-    res.status(201).json({ threadId });
+    res.status(201).json({ threadId, agencyId: resolvedAgencyId });
   } catch (e) {
     next(e);
   }

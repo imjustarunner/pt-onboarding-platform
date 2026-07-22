@@ -42,23 +42,32 @@ class UserLifecycleChecklistItem {
    * Toggle an item. HR can always manually check/uncheck.
    * Setting manually_overridden prevents auto-sync from re-checking.
    */
-  static async toggle(userId, definitionId, completed, completedByUserId) {
-    const now = completed ? new Date() : null;
+  static async toggle(userId, definitionId, completed, completedByUserId, completedAtStr = null) {
+    let now = null;
+    if (completed) {
+      if (completedAtStr) {
+        now = new Date(completedAtStr);
+        if (isNaN(now.getTime())) now = new Date();
+      } else {
+        now = new Date();
+      }
+    }
+    
     await pool.execute(
       `INSERT INTO user_lifecycle_checklist_items
          (user_id, definition_id, is_completed, completed_at, completed_by_user_id, completion_method, manually_overridden,
           is_not_applicable, not_applicable_at, not_applicable_by_user_id)
-       VALUES (?, ?, ?, ?, ?, 'manual', ?, 0, NULL, NULL)
+       VALUES (?, ?, ?, ?, ?, 'manual', 1, 0, NULL, NULL)
        ON DUPLICATE KEY UPDATE
          is_completed = VALUES(is_completed),
          completed_at = VALUES(completed_at),
          completed_by_user_id = VALUES(completed_by_user_id),
          completion_method = 'manual',
-         manually_overridden = VALUES(manually_overridden),
+         manually_overridden = 1,
          is_not_applicable = 0,
          not_applicable_at = NULL,
          not_applicable_by_user_id = NULL`,
-      [userId, definitionId, completed ? 1 : 0, now, completedByUserId, completed ? 0 : 1]
+      [userId, definitionId, completed ? 1 : 0, now, completedByUserId]
     );
     return this.findByUserAndDefinition(userId, definitionId);
   }

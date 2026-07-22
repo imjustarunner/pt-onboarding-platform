@@ -130,6 +130,7 @@ const onLeave = () => {
   if (isDragging.value) return;
   if (closeTimer) clearTimeout(closeTimer);
   closeTimer = setTimeout(() => {
+    workspaceRef.value?.closeChat?.();
     isOpen.value = false;
     closeTimer = null;
   }, 180);
@@ -144,6 +145,7 @@ function clearHoldTimer() {
 
 function beginDrag(clientX, clientY) {
   clearHoldTimer();
+  workspaceRef.value?.closeChat?.();
   isDragging.value = true;
   isOpen.value = false;
   dragPoint.value = { x: clientX, y: clientY };

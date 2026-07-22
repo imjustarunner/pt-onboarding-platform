@@ -1791,6 +1791,74 @@ const activeChatPresencePerson = computed(() => {
   return presencePersonForId(activeChatUser.value.id) || activeChatUser.value;
 });
 
+function resolveChatAgencyForPerson(person, agencyIdOverride = null) {
+  const override = Number(agencyIdOverride || 0);
+  if (override) return override;
+
+  const personAgencyIds = new Set();
+  for (const id of person?.shared_agency_ids || []) {
+    const n = Number(id);
+    if (n) personAgencyIds.add(n);
+  }
+  for (const m of person?.shared_agency_memberships || []) {
+    const n = Number(m?.id);
+    if (n) personAgencyIds.add(n);
+  }
+
+  const membershipIds = membershipAgencies.value.map((a) => Number(a.id)).filter((n) => n > 0);
+
+  // Prefer a tenant both people share.
+  for (const id of membershipIds) {
+    if (personAgencyIds.has(id)) return id;
+  }
+
+  // Fall back to the peer's tenant when the viewer can access it (e.g. super_admin).
+  const firstPeer = [...personAgencyIds][0];
+  if (firstPeer) return firstPeer;
+
+  return effectiveComposeAgencyId.value || agencyId.value || null;
+}
+
+function mergePresencePeople(lists) {
+  const byId = new Map();
+  const statusRank = { online: 4, idle: 3, busy: 2, offline: 1 };
+
+  for (const list of lists) {
+    for (const u of list || []) {
+      const id = Number(u?.id);
+      if (!id) continue;
+      const existing = byId.get(id);
+      if (!existing) {
+        byId.set(id, { ...u });
+        continue;
+      }
+      const curRank = statusRank[String(existing.status || '').toLowerCase()] || 0;
+      const nextRank = statusRank[String(u.status || '').toLowerCase()] || 0;
+      if (nextRank > curRank) {
+        existing.status = u.status;
+        existing.heartbeat_status = u.heartbeat_status;
+        existing.availability_level = u.availability_level;
+        existing.availability_band = u.availability_band;
+        existing.status_label = u.status_label;
+        existing.presence_display_label = u.presence_display_label;
+        existing.calendar_busy = u.calendar_busy;
+      }
+      const sharedIds = new Set([...(existing.shared_agency_ids || []), ...(u.shared_agency_ids || [])]);
+      existing.shared_agency_ids = [...sharedIds];
+      const memById = new Map();
+      for (const m of [...(existing.shared_agency_memberships || []), ...(u.shared_agency_memberships || [])]) {
+        const mid = Number(m?.id);
+        if (mid) memById.set(mid, m);
+      }
+      existing.shared_agency_memberships = [...memById.values()];
+    }
+  }
+
+  return [...byId.values()].sort((a, b) =>
+    `${a.first_name || ''} ${a.last_name || ''}`.localeCompare(`${b.first_name || ''} ${b.last_name || ''}`)
+  );
+}
+
 const loadPresence = async () => {
   try {
     loading.value = true;
@@ -1798,27 +1866,37 @@ const loadPresence = async () => {
     if (adminsAllMode.value) {
       const resp = await api.get('/presence/admins', { skipGlobalLoading: true });
       people.value = resp.data || [];
-    } else {
-      const presenceAgencyId = effectiveComposeAgencyId.value;
-      if (!presenceAgencyId) {
-        people.value = [];
-        return;
-      }
-      const params = {};
-      if (isSchoolStaffViewer.value) {
-        params.audience = 'school';
-      } else if (canToggleAudience.value && audienceMode.value === 'directory') {
-        params.audience = 'directory';
-        params.role = directoryRole.value || 'school_staff';
-      } else {
-        params.audience = 'team';
-      }
-      const resp = await api.get(`/presence/agency/${presenceAgencyId}`, {
-        params,
-        skipGlobalLoading: true
-      });
-      people.value = resp.data || [];
+      return;
     }
+
+    const agencyIds = shouldUnifyInboxes.value
+      ? membershipAgencies.value.map((a) => Number(a.id)).filter((n) => n > 0)
+      : [Number(effectiveComposeAgencyId.value || 0)].filter((n) => n > 0);
+
+    if (!agencyIds.length) {
+      people.value = [];
+      return;
+    }
+
+    const params = {};
+    if (isSchoolStaffViewer.value) {
+      params.audience = 'school';
+    } else if (canToggleAudience.value && audienceMode.value === 'directory') {
+      params.audience = 'directory';
+      params.role = directoryRole.value || 'school_staff';
+    } else {
+      params.audience = 'team';
+    }
+
+    const lists = await Promise.all(
+      agencyIds.map((id) =>
+        api
+          .get(`/presence/agency/${id}`, { params, skipGlobalLoading: true })
+          .then((r) => r.data || [])
+          .catch(() => [])
+      )
+    );
+    people.value = agencyIds.length > 1 ? mergePresencePeople(lists) : lists[0] || [];
   } catch {
     error.value = 'Failed to load presence';
     people.value = [];
@@ -2046,7 +2124,7 @@ watch(
   { immediate: true }
 );
 
-defineExpose({ switchToAssistant, switchToDms });
+defineExpose({ switchToAssistant, switchToDms, closeChat });
 
 const filteredFilesInbox = computed(() => {
   const q = filesInboxQ.value.trim().toLowerCase();
@@ -2640,7 +2718,7 @@ const openChat = async (u, agencyIdOverride = null, organizationIdOverride = nul
 
   try {
     chatLoading.value = true;
-    const useAgencyId = agencyIdOverride || effectiveComposeAgencyId.value || agencyId.value;
+    const useAgencyId = resolveChatAgencyForPerson(u, agencyIdOverride);
     if (!useAgencyId) {
       // In super-admin "admins-only" mode there may be no agency context.
       // Don't open the full chat box in that case (it creates a large empty panel).
@@ -2662,6 +2740,7 @@ const openChat = async (u, agencyIdOverride = null, organizationIdOverride = nul
     if (oid) body.organizationId = oid;
     const resp = await api.post('/chat/threads/direct', body, { skipGlobalLoading: true });
     activeThreadId.value = resp.data.threadId;
+    if (resp.data?.agencyId) activeThreadAgencyId.value = Number(resp.data.agencyId);
     await loadMessages({ markRead: true, scrollToBottom: true });
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || 'Failed to open chat';
@@ -2688,7 +2767,8 @@ const openThread = async (t) => {
 
 /** Open a direct thread by user id (e.g. from URL openChatWith=userId&agencyId=...). Used when supervisor clicks "Chat with supervisee". */
 const openChatByUserId = async (otherUserId, agencyIdOverride, displayName = '', organizationIdOverride = null) => {
-  const useAgencyId = agencyIdOverride ? parseInt(agencyIdOverride, 10) : agencyId.value;
+  const peer = presencePersonForId(parseInt(otherUserId, 10));
+  const useAgencyId = resolveChatAgencyForPerson(peer, agencyIdOverride ? parseInt(agencyIdOverride, 10) : null);
   if (!useAgencyId || !otherUserId) return;
   chatError.value = '';
   chatMessages.value = [];
@@ -2706,7 +2786,7 @@ const openChatByUserId = async (otherUserId, agencyIdOverride, displayName = '',
     if (oid) body.organizationId = oid;
     const resp = await api.post('/chat/threads/direct', body, { skipGlobalLoading: true });
     activeThreadId.value = resp.data?.threadId ?? null;
-    activeThreadAgencyId.value = useAgencyId;
+    activeThreadAgencyId.value = Number(resp.data?.agencyId || useAgencyId);
     const name = (displayName || '').trim() || 'User';
     const parts = name.split(/\s+/);
     activeChatUser.value = {
@@ -3975,6 +4055,17 @@ onUnmounted(() => {
 .muted { color: var(--text-secondary); font-size: 13px; padding: 6px 2px; }
 /* Let the main `.lists` container handle scrolling; don't cap Offline at 240px. */
 .scroll { max-height: none; overflow: visible; padding-right: 0; }
+
+.messages-workspace.layout-drawer .mw-chat-col .chat-box {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  top: auto;
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+}
 
 .mw-chat-col .chat-box {
   flex: 1;

@@ -306,7 +306,17 @@
                     />
                     <span v-if="item.completionMethod === 'auto'" class="lc-auto-badge" title="Auto-completed from app data">auto</span>
                   </span>
-                  <span class="lc-item-date">{{ fmtDate(item.completedAt) || (item.isCompleted ? '✓' : '—') }}</span>
+                  <span class="lc-item-date">
+                    <input
+                      v-if="item.isCompleted && !viewOnly"
+                      type="date"
+                      class="lc-item-date-input"
+                      :value="toYmd(item.completedAt)"
+                      @change="updateItemDate(item, $event.target.value)"
+                      title="Override completion date"
+                    />
+                    <span v-else>{{ fmtDate(item.completedAt) || (item.isCompleted ? '✓' : '—') }}</span>
+                  </span>
                   <span v-if="group.category === 'compliance_documents'" class="lc-item-doc">
                     <!-- Signed document from onboarding flow -->
                     <a
@@ -519,7 +529,17 @@
                       @change="toggleItem(item, $event.target.checked)"
                     />
                   </span>
-                  <span class="lc-item-date">{{ fmtDate(item.completedAt) || (item.isCompleted ? '✓' : '—') }}</span>
+                  <span class="lc-item-date">
+                    <input
+                      v-if="item.isCompleted && !viewOnly"
+                      type="date"
+                      class="lc-item-date-input"
+                      :value="toYmd(item.completedAt)"
+                      @change="updateItemDate(item, $event.target.value)"
+                      title="Override completion date"
+                    />
+                    <span v-else>{{ fmtDate(item.completedAt) || (item.isCompleted ? '✓' : '—') }}</span>
+                  </span>
                   <span v-if="!viewOnly && data.offboarding.enabled" class="lc-item-action">
                     <button
                       type="button"
@@ -828,6 +848,22 @@ async function toggleItem(item, checked) {
   }
 }
 
+async function updateItemDate(item, dateStr) {
+  if (props.viewOnly || !item.isCompleted) return;
+  if (!dateStr) return;
+  const prevDate = item.completedAt;
+  item.completedAt = new Date(`${dateStr}T12:00:00Z`).toISOString();
+  try {
+    await api.post(`/users/${props.userId}/lifecycle/checklist/${item.definitionId}/toggle`, {
+      completed: true,
+      completedAt: item.completedAt,
+    });
+    await fetchLifecycle();
+  } catch {
+    item.completedAt = prevDate;
+  }
+}
+
 function activeGroupItems(group) {
   return (group?.items || []).filter((item) => !item.isNotApplicable);
 }
@@ -1112,7 +1148,7 @@ watch(() => props.userId, () => {
 .lc-checklist-table { border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
 .lc-checklist-head {
   display: grid;
-  grid-template-columns: 1fr 52px 90px;
+  grid-template-columns: 1fr 52px 135px;
   padding: 6px 12px;
   background: #f9fafb;
   border-bottom: 1px solid #e5e7eb;
@@ -1124,7 +1160,7 @@ watch(() => props.userId, () => {
 }
 .lc-checklist-row {
   display: grid;
-  grid-template-columns: 1fr 52px 90px;
+  grid-template-columns: 1fr 52px 135px;
   padding: 7px 12px;
   align-items: center;
   border-bottom: 1px solid #f3f4f6;
@@ -1133,11 +1169,11 @@ watch(() => props.userId, () => {
 .lc-checklist-row:last-child { border-bottom: none; }
 .lc-checklist-row:nth-child(even) { background: #fafafa; }
 .lc-checklist-head-actions,
-.lc-checklist-row-actions { grid-template-columns: 1fr 52px 90px 64px; }
-.lc-checklist-head-docs { grid-template-columns: 1fr 52px 90px 56px !important; }
-.lc-checklist-row-docs { grid-template-columns: 1fr 52px 90px 56px !important; }
+.lc-checklist-row-actions { grid-template-columns: 1fr 52px 135px 64px; }
+.lc-checklist-head-docs { grid-template-columns: 1fr 52px 135px 56px !important; }
+.lc-checklist-row-docs { grid-template-columns: 1fr 52px 135px 56px !important; }
 .lc-checklist-head-docs.lc-checklist-head-actions,
-.lc-checklist-row-docs.lc-checklist-row-actions { grid-template-columns: 1fr 52px 90px 56px 64px !important; }
+.lc-checklist-row-docs.lc-checklist-row-actions { grid-template-columns: 1fr 52px 135px 56px 64px !important; }
 .lc-item-label { color: #111827; }
 .lc-item-check { display: flex; align-items: center; gap: 4px; }
 .lc-item-check input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
@@ -1228,6 +1264,22 @@ watch(() => props.userId, () => {
   line-height: 1.2;
 }
 .lc-item-date { font-size: 0.78rem; color: #6b7280; }
+.lc-item-date-input {
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #111827;
+  background: transparent;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.lc-item-date-input:hover, .lc-item-date-input:focus {
+  border-color: #d1d5db;
+  background: #fff;
+  cursor: text;
+}
 .lc-item-doc { display: flex; align-items: center; justify-content: center; gap: 2px; }
 .lc-doc-download {
   color: #1a5c38;

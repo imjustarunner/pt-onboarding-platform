@@ -195,7 +195,7 @@ export const toggleLifecycleChecklistItem = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Invalid user id or definition id' } });
     }
 
-    const { completed } = req.body || {};
+    const { completed, completedAt } = req.body || {};
     if (typeof completed !== 'boolean') {
       return res.status(400).json({ error: { message: 'completed (boolean) is required' } });
     }
@@ -203,7 +203,7 @@ export const toggleLifecycleChecklistItem = async (req, res, next) => {
     const def = await LifecycleChecklistDefinition.findById(definitionId);
     if (!def) return res.status(404).json({ error: { message: 'Checklist item not found' } });
 
-    const item = await UserLifecycleChecklistItem.toggle(userId, definitionId, completed, req.user?.id);
+    const item = await UserLifecycleChecklistItem.toggle(userId, definitionId, completed, req.user?.id, completedAt);
     await scopeLifecycleItem(userId, def.item_key, 'manual', definitionId);
     res.json({ ok: true, item });
   } catch (err) {
