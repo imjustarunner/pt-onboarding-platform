@@ -1090,6 +1090,43 @@ function catalogEntries() {
       }
     },
     {
+      id: 'provider_availability_at_location',
+      audience: ['admin_like', 'provider_like'],
+      group: 'Coverage and referrals',
+      prompt: 'What provider has availability at Green Valley?',
+      requiredToolsAll: ['searchProviders'],
+      subtitleTag: 'availability',
+      semanticExamples: [
+        'what provider has availability at Green Valley',
+        'who has openings at twain',
+        'find me a clinician at the main office',
+        'which therapist is free at roosevelt'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('searchProviders')) return false;
+        if (!/\b(provider|therapist|clinician)s?\b/.test(lower)) return false;
+        if (!/\b(availab|openings?|free|open slots?)\b/.test(lower)) return false;
+        if (!/\b(at|in|near)\b/.test(lower)) return false;
+        return true;
+      },
+      buildIntent: (lower) => {
+        const atMatch = lower.match(/\b(?:at|in|near)\s+(?:the\s+)?([a-z0-9][a-z0-9\s'-]{2,60}?)(?:\s+office|\s+school|\s*\?|$)/i);
+        const locationQuery = atMatch ? atMatch[1].trim() : null;
+        return {
+          intent: 'provider_availability_at_location',
+          capabilityId: 'provider_availability_at_location',
+          toolCalls: [{
+            name: 'searchProviders',
+            args: {
+              query: locationQuery || '',
+              limit: 5,
+              filters: [{ fieldKey: 'accepting_clients', op: 'eq', value: true }]
+            }
+          }]
+        };
+      }
+    },
+    {
       id: 'providers_by_approach',
       audience: ['provider_like', 'admin_like'],
       group: 'Coverage and referrals',
