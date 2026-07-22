@@ -400,11 +400,11 @@ function noAgencyContextError() {
 async function resolveSchoolPortalPath(agencyIdScope, schoolId) {
   const [rows] = await pool.execute(
     `SELECT a.id, a.name, a.slug
-     FROM agency_schools asx
-     JOIN agencies a ON a.id = asx.school_organization_id
-     WHERE asx.agency_id = ?
-       AND asx.is_active = TRUE
-       AND asx.school_organization_id = ?
+     FROM organization_affiliations oa
+     JOIN agencies a ON a.id = oa.organization_id
+     WHERE oa.agency_id = ?
+       AND (oa.is_active = TRUE OR oa.is_active IS NULL)
+       AND oa.organization_id = ?
      LIMIT 1`,
     [agencyIdScope, schoolId]
   );
@@ -419,7 +419,7 @@ const SCHOOL_NAME_GENERIC_TOKENS = new Set([
   'portals', 'hub', 'program', 'programs', 'learning'
 ]);
 
-/** Search affiliated school orgs by name (agency_schools). */
+/** Search affiliated school orgs by name (organization_affiliations). */
 async function searchAffiliatedSchoolsByName(agencyId, query, limit = 10) {
   const q = String(query || '').trim();
   const lim = Math.min(Math.max(1, Number(limit) || 10), 25);
@@ -428,10 +428,10 @@ async function searchAffiliatedSchoolsByName(agencyId, query, limit = 10) {
   const runQuery = async (likeArg) => {
     const [rs] = await pool.execute(
       `SELECT a.id, a.name, a.slug, a.organization_type
-       FROM agency_schools asx
-       JOIN agencies a ON a.id = asx.school_organization_id
-       WHERE asx.agency_id = ?
-         AND asx.is_active = TRUE
+       FROM organization_affiliations oa
+       JOIN agencies a ON a.id = oa.organization_id
+       WHERE oa.agency_id = ?
+         AND (oa.is_active = TRUE OR oa.is_active IS NULL)
          AND a.is_active = TRUE
          AND a.name LIKE ?
        ORDER BY a.name ASC
