@@ -159,7 +159,7 @@
               <button type="button" class="cc-linkish" @click.prevent.stop="setMode('messages')">View all →</button>
             </header>
             <ul v-if="personal.priority?.length" class="cc-tickets">
-              <li v-for="item in personal.priority.slice(0, 6)" :key="item.id">
+              <li v-for="item in personal.priority.slice(0, 6)" :key="item.id" class="cc-msg-row" @click="openPriorityItem(item)">
                 <span class="prio prio-medium">{{ kindLabel(item.kind) }}</span>
                 <div>
                   <strong>{{ item.label }}</strong>
@@ -592,6 +592,19 @@ function formatTime(v) {
   }
 }
 
+function openPriorityItem(item) {
+  const tab = item.kind === 'secure' ? 'dms' : 'sms';
+  router.push({
+    path: myMessagesPath.value,
+    query: {
+      ...route.query,
+      view: 'workspace',
+      tab,
+      threadId: String(item.id)
+    }
+  }).catch(() => {});
+}
+
 async function load() {
   loading.value = true;
   error.value = '';
@@ -1018,6 +1031,18 @@ button.cc-kpi:hover {
   align-items: flex-start;
   padding: 10px 0;
   border-bottom: 1px solid color-mix(in srgb, var(--cc-primary) 6%, #f1f5f9);
+}
+.cc-msg-row {
+  cursor: pointer;
+  transition: background 0.15s ease;
+  border-radius: 6px;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  margin-left: -8px;
+  margin-right: -8px;
+}
+.cc-msg-row:hover {
+  background: color-mix(in srgb, var(--cc-primary) 6%, #f8fafc);
 }
 .cc-tickets strong, .cc-eng-body strong, .cc-activity strong {
   display: block;
