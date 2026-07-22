@@ -1517,18 +1517,28 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       const out = r.result || {};
       const list = out.results || [];
       const dateLabel = out.dateYmd || 'today';
+      const isMultiDay = out.daysAhead > 1;
+      
       if (!list.length) {
         const modLabel = out.modality && out.modality !== 'ALL' ? ` ${out.modality.toLowerCase().replace('_', '-')}` : '';
-        lines.push(`No providers have${modLabel} intake openings on ${dateLabel}.`);
+        const whenLabel = isMultiDay ? `over the next ${out.daysAhead} days` : `on ${dateLabel}`;
+        lines.push(`No providers have${modLabel} intake openings ${whenLabel}.`);
       } else {
         const items = list.slice(0, 12).map((p) => {
           const mods = [];
           if (p.virtualSlotCount) mods.push(`${p.virtualSlotCount} virtual`);
           if (p.inPersonSlotCount) mods.push(`${p.inPersonSlotCount} in-person`);
-          const earliest = p.earliestStartIso ? ` — earliest ${String(p.earliestStartIso).slice(11, 16)}` : '';
+          
+          let earliest = '';
+          if (p.earliestStartIso) {
+            const dateStr = String(p.earliestStartIso).slice(0, 10);
+            const timeStr = String(p.earliestStartIso).slice(11, 16);
+            earliest = isMultiDay ? ` — earliest ${dateStr} at ${timeStr}` : ` — earliest ${timeStr}`;
+          }
           return `• ${p.name}: ${mods.join(' + ')}${earliest}`;
         });
-        lines.push(`${list.length} provider(s) with intake openings on ${dateLabel}:\n${items.join('\n')}`);
+        const whenLabel = isMultiDay ? `over the next ${out.daysAhead} days` : `on ${dateLabel}`;
+        lines.push(`${list.length} provider(s) with intake openings ${whenLabel}:\n${items.join('\n')}`);
       }
     } else if (r.tool === 'getEventResponses') {
       const out = r.result || {};

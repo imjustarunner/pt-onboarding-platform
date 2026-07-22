@@ -1153,6 +1153,10 @@ export function getToolSchemas() {
             type: 'string',
             description: 'YYYY-MM-DD. Defaults to today in the agency timezone.'
           },
+          daysAhead: {
+            type: 'integer',
+            description: 'Number of days to search forward from dateYmd. Defaults to 1.'
+          },
           modality: {
             type: 'string',
             enum: ['VIRTUAL', 'IN_PERSON', 'ALL'],
@@ -2435,18 +2439,24 @@ export async function executeToolCall({ req, toolCall }) {
     if (!agencyId) noAgencyContextError();
     const dateYmd = str(args.dateYmd || new Date().toISOString().slice(0, 10), 10);
     const modality = String(args.modality || 'ALL').trim().toUpperCase();
+    const daysAhead = Math.min(14, Math.max(1, parseInt(args.daysAhead || 1, 10)));
 
-    // Use Monday of the requested week so we can lean on existing service.
-    const d = new Date(`${dateYmd}T12:00:00`);
-    if (Number.isNaN(d.getTime())) {
-      const err = new Error('Invalid dateYmd');
-      err.status = 400;
-      throw err;
+    const targetDates = Array.from({ length: daysAhead }).map((_, i) => {
+      const d = new Date(`${dateYmd}T12:00:00`);
+      d.setDate(d.getDate() + i);
+      return d.toISOString().slice(0, 10);
+    });
+
+    const weeksNeeded = new Set();
+    for (const ymd of targetDates) {
+      const d = new Date(`${ymd}T12:00:00`);
+      if (Number.isNaN(d.getTime())) continue;
+      const dayOfWeek = d.getDay();
+      const daysToMonday = ((dayOfWeek + 6) % 7);
+      d.setDate(d.getDate() - daysToMonday);
+      weeksNeeded.add(d.toISOString().slice(0, 10));
     }
-    const dayOfWeek = d.getDay(); // 0 Sun .. 6 Sat
-    const daysToMonday = ((dayOfWeek + 6) % 7); // Mon=0
-    d.setDate(d.getDate() - daysToMonday);
-    const weekStartYmd = d.toISOString().slice(0, 10);
+    const weekStartYmds = Array.from(weeksNeeded);
 
     const [providerRows] = await pool.execute(
       `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
@@ -2474,9 +2484,10 @@ export async function executeToolCall({ req, toolCall }) {
     const queue = [...providers];
     const results = [];
     const concurrency = 6;
+    const targetDatesSet = new Set(targetDates);
     const slotMatchesDay = (slot) => {
-      const startStr = String(slot?.startAt || '');
-      return startStr.startsWith(dateYmd);
+      const startStr = String(slot?.startAt || '').slice(0, 10);
+      return targetDatesSet.has(startStr);
     };
 
     const workers = Array.from({ length: concurrency }).map(async () => {
@@ -2484,23 +2495,32 @@ export async function executeToolCall({ req, toolCall }) {
         const p = queue.shift();
         if (!p) break;
         try {
-          // eslint-disable-next-line no-await-in-loop
-          const avail = await ProviderAvailabilityService.computeWeekAvailability({
-            agencyId,
-            providerId: p.id,
-            weekStartYmd,
-            includeGoogleBusy: false,
-            includeExternalBusy: false,
-            externalCalendarIds: [],
-            slotMinutes: 60,
-            intakeOnly: true,
-            materializeOfficeEvents: false
-          });
-          let inPerson = (avail?.inPersonSlots || []).filter(slotMatchesDay);
-          let virtual = (avail?.virtualSlots || []).filter(slotMatchesDay);
+          let inPerson = [];
+          let virtual = [];
+          
+          for (const weekStartYmd of weekStartYmds) {
+            const avail = await ProviderAvailabilityService.computeWeekAvailability({
+              agencyId,
+              providerId: p.id,
+              weekStartYmd,
+              includeGoogleBusy: false,
+              includeExternalBusy: false,
+              externalCalendarIds: [],
+              slotMinutes: 60,
+              intakeOnly: true,
+              materializeOfficeEvents: false
+            });
+            inPerson.push(...(avail?.inPersonSlots || []).filter(slotMatchesDay));
+            virtual.push(...(avail?.virtualSlots || []).filter(slotMatchesDay));
+          }
+
           if (modality === 'VIRTUAL') inPerson = [];
           if (modality === 'IN_PERSON') virtual = [];
           if (!inPerson.length && !virtual.length) continue;
+
+          // Sort slots so earliest across the whole window is picked
+          virtual.sort((a, b) => String(a.startAt).localeCompare(String(b.startAt)));
+          inPerson.sort((a, b) => String(a.startAt).localeCompare(String(b.startAt)));
 
           const earliestVirtual = virtual[0]?.startAt || null;
           const earliestInPerson = inPerson[0]?.startAt || null;
@@ -2534,6 +2554,7 @@ export async function executeToolCall({ req, toolCall }) {
       tool: name,
       result: {
         dateYmd,
+        daysAhead,
         modality,
         totalCandidates: providers.length,
         providersWithOpenings: results.length,

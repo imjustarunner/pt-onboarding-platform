@@ -1082,10 +1082,15 @@ function catalogEntries() {
         let modality = 'ALL';
         if (/\bvirtual\b|\bonline\b|\btelehealth\b/.test(lower)) modality = 'VIRTUAL';
         else if (/\bin[- ]?person\b|\boffice\b/.test(lower)) modality = 'IN_PERSON';
+        
+        // If they specify a date like "today" or "tomorrow", search 1 day. 
+        // If they don't specify any date hint, search 14 days ahead so they see ANY upcoming openings.
+        const daysAhead = dateHint ? 1 : 14; 
+
         return {
           intent: 'find_intake_openings',
           capabilityId: 'intake_openings',
-          toolCalls: [{ name: 'findIntakeOpenings', args: { dateYmd: dateHint || today, modality } }]
+          toolCalls: [{ name: 'findIntakeOpenings', args: { dateYmd: dateHint || today, daysAhead, modality } }]
         };
       }
     },
