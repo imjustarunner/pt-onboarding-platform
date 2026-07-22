@@ -1,6 +1,6 @@
 <template>
   <div class="rich-text-editor">
-    <div class="editor-toolbar">
+    <div v-if="editor" class="editor-toolbar">
       <button
         type="button"
         @click="editor.chain().focus().toggleBold().run()"
@@ -39,10 +39,13 @@
         :class="{ 'is-active': editor.isActive('link') }"
         class="toolbar-btn"
       >
-        🔗
+        Link
       </button>
     </div>
-    <EditorContent :editor="editor" class="editor-content" />
+    <div v-else class="editor-toolbar editor-toolbar--loading">
+      <span class="loading-label">Loading editor…</span>
+    </div>
+    <EditorContent v-if="editor" :editor="editor" class="editor-content" />
   </div>
 </template>
 
@@ -72,12 +75,13 @@ const editor = useEditor({
     })
   ],
   content: props.content?.content || '',
-  onUpdate: ({ editor }) => {
-    emit('update', { content: editor.getHTML() });
+  onUpdate: ({ editor: ed }) => {
+    emit('update', { content: ed.getHTML() });
   }
 });
 
 const setLink = () => {
+  if (!editor.value) return;
   const previousUrl = editor.value.getAttributes('link').href;
   const url = window.prompt('URL', previousUrl);
 
@@ -95,7 +99,7 @@ const setLink = () => {
 
 watch(() => props.content?.content, (newContent) => {
   if (editor.value && newContent !== editor.value.getHTML()) {
-    editor.value.commands.setContent(newContent || '');
+    editor.value.commands.setContent(newContent || '', false);
   }
 });
 
@@ -106,37 +110,49 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .rich-text-editor {
-  border: 1px solid #ddd;
+  border: 1px solid var(--border, #ddd);
   border-radius: 8px;
   overflow: hidden;
+  background: var(--bg, #fff);
 }
 
 .editor-toolbar {
   display: flex;
   gap: 4px;
   padding: 8px;
-  background: #f8f9fa;
-  border-bottom: 1px solid #ddd;
+  background: var(--bg-alt, #f8f9fa);
+  border-bottom: 1px solid var(--border, #ddd);
+}
+
+.editor-toolbar--loading {
+  min-height: 40px;
+  align-items: center;
+}
+
+.loading-label {
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
 }
 
 .toolbar-btn {
   padding: 6px 12px;
-  border: 1px solid #ddd;
-  background: white;
+  border: 1px solid var(--border, #ddd);
+  background: var(--bg, white);
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
+  color: var(--text-primary, inherit);
   transition: all 0.2s;
 }
 
 .toolbar-btn:hover {
-  background: #e9ecef;
+  background: var(--border, #e9ecef);
 }
 
 .toolbar-btn.is-active {
-  background: #2196f3;
-  color: white;
-  border-color: #2196f3;
+  background: var(--primary, #C69A2B);
+  color: #fff;
+  border-color: var(--primary, #C69A2B);
 }
 
 .editor-content {
@@ -161,7 +177,7 @@ onBeforeUnmount(() => {
 }
 
 .editor-content :deep(.ProseMirror a) {
-  color: #2196f3;
+  color: var(--accent, #3A4C6B);
   text-decoration: underline;
 }
 
@@ -173,4 +189,3 @@ onBeforeUnmount(() => {
   font-style: italic;
 }
 </style>
-

@@ -10,12 +10,24 @@
         {{ passed ? '✓ Passed' : '✗ Failed' }}
       </div>
       <p class="score">Your Score: {{ lastScore }}%</p>
-      <p v-if="content.minimumScore" class="minimum-score">
-        Minimum Required: {{ content.minimumScore }}%
+      <p v-if="content.minimumScore != null || minimumScore != null" class="minimum-score">
+        Minimum Required: {{ minimumScore ?? content.minimumScore }}%
       </p>
-      <button v-if="!passed && content.allowRetake" @click="resetQuiz" class="btn btn-primary">
+      <p v-if="attemptCount != null" class="attempt-meta">
+        Attempt {{ attemptCount }}<span v-if="maxAttempts"> of {{ maxAttempts }}</span>
+      </p>
+      <div v-if="!passed && remediation.length" class="remediation-panel">
+        <h4>Review these topics before retrying</h4>
+        <div v-for="item in remediation" :key="item.questionIndex" class="remediation-item">
+          <p class="remediation-q">{{ item.question }}</p>
+          <p v-if="item.explanation" class="remediation-explain">{{ item.explanation }}</p>
+          <div v-if="item.remediationHtml" class="remediation-html" v-html="item.remediationHtml" />
+        </div>
+      </div>
+      <button v-if="!passed && canRetake" @click="resetQuiz" class="btn btn-primary">
         Retake Quiz
       </button>
+      <p v-else-if="!passed && !canRetake" class="muted">No retakes remaining for this quiz.</p>
     </div>
     
     <div v-else-if="disabled" class="quiz-disabled">
@@ -117,6 +129,11 @@ const submitted = ref(false);
 const submitting = ref(false);
 const lastScore = ref(null);
 const passed = ref(false);
+const remediation = ref([]);
+const canRetake = ref(true);
+const attemptCount = ref(null);
+const maxAttempts = ref(null);
+const minimumScore = ref(null);
 const shuffledQuestions = ref([]);
 const questionMappings = ref([]); // Maps shuffled indices to original indices
 
@@ -180,66 +197,37 @@ const getQuestionTypeLabel = (type) => {
 const submitQuiz = async () => {
   try {
     submitting.value = true;
-    
-    // Calculate score client-side
-    let correctCount = 0;
+
     const totalQuestions = props.content.questions?.length || 0;
-    
+    // Map display-order answers back to original question order for the server
+    const answersInOrder = new Array(totalQuestions).fill('');
     displayQuestions.value.forEach((question, displayIndex) => {
       const originalIndex = question.originalIndex !== undefined ? question.originalIndex : displayIndex;
-      const userAnswer = answers.value[displayIndex];
-      
-      if (question.type === 'multiple_choice') {
-        const correctText = optionDisplayText(
-          typeof question.correctAnswer === 'number'
-            ? question.options?.[question.correctAnswer]
-            : question.correctAnswer
-        );
-        if (userAnswer && correctText && String(userAnswer).trim() === String(correctText).trim()) {
-          correctCount++;
-        }
-      } else if (question.type === 'true_false') {
-        const correctAnswer = question.correctAnswer === 'true' || question.correctAnswer === true;
-        const userAnswerBool = userAnswer === 'true' || userAnswer === true;
-        if (correctAnswer === userAnswerBool) {
-          correctCount++;
-        }
-      } else if (question.type === 'text') {
-        // Case-insensitive comparison for text answers
-        const correct = (question.correctAnswer || '').toLowerCase().trim();
-        const user = (userAnswer || '').toLowerCase().trim();
-        if (correct && user && correct === user) {
-          correctCount++;
-        }
-      }
+      answersInOrder[originalIndex] = answers.value[displayIndex];
     });
-    
-    const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
-    const minimumScore = props.content.minimumScore || 70;
-    const passedValue = score >= minimumScore;
-    
-    // Save quiz attempt to backend
-    try {
-      await api.post(`/quizzes/${props.moduleId}/submit`, {
-        answers: answers.value,
-        score: score,
-        passed: passedValue
-      });
-    } catch (err) {
-      console.error('Failed to save quiz attempt:', err);
-      // Continue even if save fails
-    }
-    
+
+    const res = await api.post(`/quizzes/${props.moduleId}/submit`, {
+      answers: answersInOrder
+    });
+    const data = res.data || {};
+    const score = data.attempt?.score ?? data.score ?? 0;
+    const passedValue = Boolean(data.passed);
+
     lastScore.value = score;
     passed.value = passedValue;
+    remediation.value = Array.isArray(data.remediation) ? data.remediation : [];
+    canRetake.value = data.allowRetake !== false && (props.content.allowRetake !== false);
+    attemptCount.value = data.attemptCount ?? null;
+    maxAttempts.value = data.maxAttempts ?? props.content.maxAttempts ?? null;
+    minimumScore.value = data.minimumScore ?? props.content.minimumScore ?? null;
     submitted.value = true;
-    
+
     emit('quiz-completed', {
-      score: score,
+      score,
       passed: passedValue,
-      correctCount: correctCount,
-      totalQuestions: totalQuestions,
-      minimumScore: minimumScore
+      totalQuestions,
+      minimumScore: minimumScore.value,
+      remediation: remediation.value
     });
   } catch (error) {
     alert(error.response?.data?.error?.message || 'Failed to submit quiz');
@@ -252,8 +240,9 @@ const resetQuiz = () => {
   submitted.value = false;
   lastScore.value = null;
   passed.value = false;
+  remediation.value = [];
   initializeAnswers();
-  initializeShuffledQuestions(); // Re-shuffle if needed
+  initializeShuffledQuestions();
 };
 
 onMounted(() => {
@@ -278,6 +267,55 @@ onMounted(() => {
 
 .quiz-header p {
   color: #7f8c8d;
+}
+
+.remediation-panel {
+  margin: 16px 0;
+  padding: 16px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning, #f0ad4e) 12%, white);
+  border: 1px solid color-mix(in srgb, var(--warning, #f0ad4e) 35%, var(--border));
+  text-align: left;
+}
+
+.remediation-panel h4 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+.remediation-item {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.remediation-item:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.remediation-q {
+  margin: 0 0 6px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.remediation-explain,
+.remediation-html {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.attempt-meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.muted {
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .quiz-form {

@@ -126,6 +126,12 @@ class TrainingFocusProgressService {
           Number(t.assigned_to_agency_id) === Number(agencyId)
       );
       if (task?.id) await Task.markComplete(task.id, userId);
+      // Sync lifecycle after each training module step completes (idempotent)
+      setImmediate(() => {
+        import('./lifecycleSync.service.js')
+          .then(({ syncLifecycleItems }) => syncLifecycleItems(userId))
+          .catch((err) => console.warn('[trainingFocusProgress] lifecycle sync failed:', err?.message));
+      });
     } else if (step.stepType === 'checklist_item') {
       await UserChecklistAssignment.markComplete(userId, step.referenceId);
     }
@@ -146,6 +152,12 @@ class TrainingFocusProgressService {
       } catch (certErr) {
         console.error('Certificate generation after focus complete:', certErr);
       }
+      // Phase 2 lifecycle hook: auto-complete matching training_task checklist items
+      setImmediate(() => {
+        import('./lifecycleSync.service.js')
+          .then(({ syncLifecycleItems }) => syncLifecycleItems(userId))
+          .catch((err) => console.warn('[trainingFocusProgress] lifecycle sync failed:', err?.message));
+      });
       return this.getPath(userId, trainingFocusId, agencyId);
     }
 

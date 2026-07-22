@@ -73,18 +73,71 @@ async function resolveDocumentTask(userId, integrationRef, itemKey) {
 }
 
 async function resolveTrainingTask(userId, integrationRef) {
-  const ref = String(integrationRef || '').toLowerCase();
+  const raw = String(integrationRef || '').trim();
+  const ref = raw.toLowerCase();
+  if (!ref) return { completed: false, completedAt: null };
+
+  // Prefer exact ID / lifecycle key matches before fuzzy LIKE.
+  const numericId = /^\d+$/.test(raw) ? Number(raw) : null;
+  if (numericId) {
+    const [byId] = await pool.execute(
+      `SELECT t.id, t.status, t.completed_at
+       FROM tasks t
+       WHERE t.assigned_to_user_id = ?
+         AND t.task_type = 'training'
+         AND t.status = 'completed'
+         AND (
+           t.reference_id = ?
+           OR CAST(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.trackId')) AS UNSIGNED) = ?
+           OR CAST(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.moduleId')) AS UNSIGNED) = ?
+         )
+       ORDER BY t.completed_at DESC
+       LIMIT 1`,
+      [userId, numericId, numericId, numericId]
+    );
+    if (byId?.[0]) {
+      return { completed: true, completedAt: byId[0].completed_at || null };
+    }
+  }
+
+  const [byKey] = await pool.execute(
+    `SELECT t.id, t.status, t.completed_at
+     FROM tasks t
+     WHERE t.assigned_to_user_id = ?
+       AND t.task_type = 'training'
+       AND t.status = 'completed'
+       AND (
+         LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.lifecycleItemKey')), '')) = ?
+         OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.trackSlug')), '')) = ?
+       )
+     ORDER BY t.completed_at DESC
+     LIMIT 1`,
+    [userId, ref, ref]
+  );
+  if (byKey?.[0]) {
+    return { completed: true, completedAt: byKey[0].completed_at || null };
+  }
+
+  // Fallback: match completed training tasks by track name/slug OR module title OR task title.
   const [rows] = await pool.execute(
     `SELECT t.id, t.status, t.completed_at
      FROM tasks t
-     LEFT JOIN training_tracks tt ON tt.id = t.reference_id AND t.task_type = 'training'
-     WHERE t.user_id = ?
+     LEFT JOIN training_tracks tt ON tt.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.trackId')) AS UNSIGNED)
+     LEFT JOIN modules m ON m.id = t.reference_id AND t.task_type = 'training'
+     WHERE t.assigned_to_user_id = ?
        AND t.task_type = 'training'
        AND t.status = 'completed'
-       AND (LOWER(tt.name) LIKE ? OR LOWER(tt.slug) LIKE ?)
+       AND (
+         LOWER(COALESCE(tt.name, '')) LIKE ?
+         OR LOWER(COALESCE(tt.slug, '')) LIKE ?
+         OR LOWER(COALESCE(m.title, '')) LIKE ?
+         OR LOWER(COALESCE(t.title, '')) LIKE ?
+         OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.trackName')), '')) LIKE ?
+         OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.lifecycleItemKey')), '')) LIKE ?
+       )
      ORDER BY t.completed_at DESC
      LIMIT 1`,
-    [userId, `%${ref}%`, `%${ref}%`]
+    [userId, `%${ref}%`, `%${ref}%`, `%${ref}%`, `%${ref}%`, `%${ref}%`, `%${ref}%`]
   );
   const row = rows?.[0];
   return { completed: !!row, completedAt: row?.completed_at || null };

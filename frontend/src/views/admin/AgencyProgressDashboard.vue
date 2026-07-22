@@ -28,7 +28,34 @@
       <p>No users found in this agency.</p>
     </div>
 
-    <div v-else class="users-list">
+    <template v-else>
+    <div v-if="overdueTraining.length" class="overdue-panel">
+      <div class="overdue-header">
+        <h2>Overdue training</h2>
+        <span class="overdue-count">{{ overdueTraining.length }}</span>
+      </div>
+      <div
+        v-for="task in overdueTraining"
+        :key="task.id"
+        class="overdue-row"
+      >
+        <div class="overdue-info">
+          <strong>{{ task.assigneeName || 'Learner' }}</strong>
+          <span>{{ task.title }}</span>
+          <span class="due-badge overdue">Was due {{ formatDate(task.due_date) }}</span>
+        </div>
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          :disabled="nudgingTaskId === task.id"
+          @click="nudgeTask(task)"
+        >
+          {{ nudgingTaskId === task.id ? 'Sending…' : 'Nudge' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="users-list">
       <div
         v-for="user in users"
         :key="user.id"
@@ -90,6 +117,13 @@
                     <span class="module-title">{{ module.moduleTitle }}</span>
                   </div>
                   <div class="module-stats">
+                    <span
+                      v-if="module.dueDate"
+                      class="due-badge"
+                      :class="{ overdue: module.isOverdue }"
+                    >
+                      {{ module.isOverdue ? 'Overdue' : 'Due' }}: {{ formatDate(module.dueDate) }}
+                    </span>
                     <span v-if="module.quizScore !== null" class="quiz-score">
                       Quiz: {{ module.quizScore }}% ({{ module.quizAttemptCount }} attempts)
                     </span>
@@ -99,6 +133,15 @@
                     </span>
                   </div>
                   <div class="module-actions">
+                    <button
+                      v-if="module.taskId && module.status !== 'completed'"
+                      type="button"
+                      class="btn btn-sm btn-primary"
+                      :disabled="nudgingTaskId === module.taskId"
+                      @click="nudgeTask({ id: module.taskId, title: module.moduleTitle })"
+                    >
+                      Nudge
+                    </button>
                     <button 
                       @click="showActionDialog('reset-module', user, track, module)"
                       class="btn btn-sm btn-danger"
@@ -163,6 +206,7 @@
         :agencyId="selectedAgencyId"
       />
     </div>
+    </template>
   </div>
 </template>
 
@@ -197,6 +241,8 @@ const currentUser = ref(null);
 const currentTrack = ref(null);
 const currentModule = ref(null);
 const showAuditLog = ref(false);
+const overdueTraining = ref([]);
+const nudgingTaskId = ref(null);
 
 const route = useRoute();
 const router = useRouter();
@@ -285,10 +331,67 @@ const loadDashboard = async () => {
     error.value = '';
     const response = await api.get(`/agencies/${selectedAgencyId.value}/users`);
     users.value = response.data;
+    await loadOverdueTraining();
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load dashboard';
   } finally {
     loading.value = false;
+  }
+};
+
+const loadOverdueTraining = async () => {
+  if (!selectedAgencyId.value) {
+    overdueTraining.value = [];
+    return;
+  }
+  try {
+    const response = await api.get('/tasks/all', {
+      params: {
+        taskType: 'training',
+        assignedToAgencyId: selectedAgencyId.value
+      }
+    });
+    const tasks = Array.isArray(response.data) ? response.data : [];
+    const now = Date.now();
+    const userById = new Map(
+      (users.value || []).map((u) => [Number(u.id), `${u.firstName || ''} ${u.lastName || ''}`.trim()])
+    );
+    overdueTraining.value = tasks
+      .filter((t) => {
+        if (!t.due_date) return false;
+        if (['completed', 'overridden'].includes(t.status)) return false;
+        return new Date(t.due_date).getTime() < now;
+      })
+      .map((t) => ({
+        ...t,
+        assigneeName: userById.get(Number(t.assigned_to_user_id)) || t.assigned_user_name || null
+      }))
+      .sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+  } catch (err) {
+    console.error('Failed to load overdue training:', err);
+    overdueTraining.value = [];
+  }
+};
+
+const nudgeTask = async (task) => {
+  if (!task?.id) return;
+  try {
+    nudgingTaskId.value = task.id;
+    await api.post(`/tasks/${task.id}/reminder`);
+    alert(`Reminder sent for "${task.title || 'training'}"`);
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to send reminder');
+  } finally {
+    nudgingTaskId.value = null;
+  }
+};
+
+const formatDate = (value) => {
+  if (!value) return '';
+  try {
+    return new Date(value).toLocaleDateString();
+  } catch {
+    return String(value);
   }
 };
 
@@ -436,6 +539,66 @@ watch(() => route.params.agencyId, async (newAgencyId) => {
 
 .current-agency {
   font-size: 16px;
+}
+
+.overdue-panel {
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  border: 2px solid color-mix(in srgb, var(--danger, #c0392b) 35%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger, #c0392b) 6%, white);
+}
+
+.overdue-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.overdue-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.overdue-count {
+  background: var(--danger, #c0392b);
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.overdue-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.overdue-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.due-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+}
+
+.due-badge.overdue {
+  background: color-mix(in srgb, var(--danger, #c0392b) 18%, white);
+  color: var(--danger, #c0392b);
+  font-weight: 600;
 }
 
 .users-list {

@@ -2,6 +2,7 @@ import UserProgress from '../models/UserProgress.model.js';
 import QuizAttempt from '../models/QuizAttempt.model.js';
 import TrainingTrack from '../models/TrainingTrack.model.js';
 import UserTrack from '../models/UserTrack.model.js';
+import Task from '../models/Task.model.js';
 
 class ProgressCalculationService {
   /**
@@ -293,9 +294,32 @@ class ProgressCalculationService {
       const modules = await TrainingTrack.getModules(userTrack.track_id);
       const moduleDetails = [];
 
+      const trainingTasks = await Task.findByUser(userId, { taskType: 'training' });
+      const taskByModule = new Map();
+      for (const t of trainingTasks || []) {
+        if (Number(t.assigned_to_agency_id) !== Number(agencyId)) continue;
+        let meta = t.metadata;
+        if (typeof meta === 'string') {
+          try { meta = JSON.parse(meta); } catch { meta = {}; }
+        }
+        const matchesTrack = Number(meta?.trackId) === Number(userTrack.track_id);
+        if (matchesTrack || !meta?.trackId) {
+          taskByModule.set(Number(t.reference_id), t);
+        }
+      }
+
       for (const module of modules) {
         const moduleProgress = await this.calculateModuleProgress(userId, module.id);
         const quizStats = await this.getQuizStats(userId, module.id);
+        const task = taskByModule.get(Number(module.id));
+        const dueDate = task?.due_date || null;
+        const isOverdue = !!(
+          dueDate &&
+          moduleProgress.status !== 'completed' &&
+          new Date(dueDate).getTime() < Date.now() &&
+          task?.status !== 'completed' &&
+          task?.status !== 'overridden'
+        );
 
         moduleDetails.push({
           moduleId: module.id,
@@ -307,7 +331,10 @@ class ProgressCalculationService {
           quizScore: quizStats.latestScore,
           quizAttemptCount: quizStats.attemptCount,
           isOverridden: moduleProgress.isOverridden,
-          overriddenAt: moduleProgress.overriddenAt
+          overriddenAt: moduleProgress.overriddenAt,
+          taskId: task?.id || null,
+          dueDate,
+          isOverdue
         });
       }
 

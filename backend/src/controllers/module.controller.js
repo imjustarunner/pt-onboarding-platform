@@ -287,7 +287,8 @@ export const updateModule = async (req, res, next) => {
       isStandalone,
       standaloneCategory,
       estimatedTimeMinutes,
-      iconId
+      iconId,
+      publishStatus
     } = req.body;
 
     // If changing agency assignment, enforce permissions (and don't allow null for admin/support).
@@ -302,12 +303,26 @@ export const updateModule = async (req, res, next) => {
         return res.status(403).json({ error: { message: 'You can only assign modules to your agencies' } });
       }
     }
+
+    // Publish workflow: published lessons are active; draft lessons stay inactive for learners
+    let nextIsActive = isActive;
+    let nextPublish = publishStatus;
+    const wasPublished = existingModule.publish_status === 'published';
+    let bumpVersion = false;
+    if (publishStatus === 'published') {
+      nextIsActive = true;
+      nextPublish = 'published';
+      // Bump on draft→published, or when client explicitly re-publishes
+      bumpVersion = !wasPublished || req.body.bumpVersion === true || req.body.forceVersionBump === true;
+    } else if (publishStatus === 'draft') {
+      nextPublish = 'draft';
+    }
     
     const module = await Module.update(id, { 
       title, 
       description, 
       orderIndex, 
-      isActive,
+      isActive: nextIsActive,
       agencyId,
       trackId,
       isAlwaysAccessible,
@@ -315,7 +330,9 @@ export const updateModule = async (req, res, next) => {
       isStandalone,
       standaloneCategory,
       estimatedTimeMinutes: estimatedTimeMinutes === '' ? null : estimatedTimeMinutes,
-      iconId
+      iconId,
+      publishStatus: nextPublish,
+      bumpVersion
     });
     
     if (!module) {

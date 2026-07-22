@@ -825,7 +825,7 @@
 
           <!-- On-Demand Training (right panel) -->
           <div v-if="!previewMode && isOnboardingComplete && activeTab === 'on_demand_training'" class="my-panel">
-            <OnDemandTrainingLibraryView />
+            <MyLearningView />
           </div>
 
           <div v-if="!previewMode && isOnboardingComplete && activeTab === 'challenges'" class="my-panel">
@@ -1125,7 +1125,7 @@ import MyAccountTab from '../components/dashboard/MyAccountTab.vue';
 import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
 import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';
 import ProgramShiftsTab from '../components/dashboard/ProgramShiftsTab.vue';
-import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
+import MyLearningView from './MyLearningView.vue';
 import ChallengesTab from '../components/dashboard/ChallengesTab.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
 import ClubAddSeasonModal from '../components/club/ClubAddSeasonModal.vue';
@@ -3602,11 +3602,11 @@ const dashboardCards = computed(() => {
     if (!isClubContext.value) {
       cards.push({
         id: 'on_demand_training',
-        label: 'On-Demand Training',
+        label: 'My Learning',
         kind: 'content',
         badgeCount: 0,
         iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training', iconOrg),
-        description: 'Always available after onboarding is complete.'
+        description: 'Continuing education and on-demand courses.'
       });
     }
     // Summit Stats Team Challenge only — never on Book Club affiliations
@@ -4031,6 +4031,12 @@ const handleCardClick = (card) => {
   }
   if (card.id === 'on_demand_training') {
     closeInlineProgramHub();
+    // Prefer dedicated My Learning route; keep tab as fallback for embed
+    const org = route.params.organizationSlug;
+    if (!props.previewMode) {
+      router.push(org ? `/${org}/my-learning` : { name: 'MyLearning' });
+      return;
+    }
     activeTab.value = 'on_demand_training';
     previousContentTab.value = 'on_demand_training';
     navFn({ query: { ...route.query, tab: 'on_demand_training' } });

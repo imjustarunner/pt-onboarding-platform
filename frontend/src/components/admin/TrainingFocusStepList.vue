@@ -2,7 +2,7 @@
   <div class="focus-step-list">
     <div v-if="loading" class="loading-steps">Loading steps…</div>
     <div v-else-if="!steps.length" class="no-steps">
-      <p>No steps in this training focus yet.</p>
+      <p>No lessons in this course yet.</p>
     </div>
     <div v-else class="steps-list">
       <div
@@ -15,6 +15,20 @@
         <div class="step-info">
           <strong>{{ step.title }}</strong>
           <span v-if="step.documentActionType" class="step-meta">{{ step.documentActionType }}</span>
+          <label v-if="canEdit" class="due-days">
+            Due in
+            <input
+              type="number"
+              min="0"
+              :value="step.dueDateDays ?? ''"
+              placeholder="—"
+              @change="onDueDaysChange(step, $event)"
+            />
+            days
+          </label>
+          <span v-else-if="step.dueDateDays != null" class="step-meta">
+            Due in {{ step.dueDateDays }} days
+          </span>
         </div>
         <div v-if="canEdit" class="step-actions">
           <button
@@ -39,7 +53,7 @@
             class="btn btn-primary btn-sm"
             @click="$emit('edit-module', step.referenceId)"
           >
-            Edit
+            Open Builder
           </button>
           <button
             type="button"
@@ -61,13 +75,19 @@ defineProps({
   canEdit: { type: Boolean, default: false }
 });
 
-defineEmits(['move', 'remove', 'edit-module']);
+const emit = defineEmits(['move', 'remove', 'edit-module', 'update-due-days']);
 
 const stepTypeLabel = (type) => {
-  if (type === 'module') return 'Module';
+  if (type === 'module') return 'Lesson';
   if (type === 'checklist_item') return 'Checklist';
   if (type === 'document') return 'Document';
   return type;
+};
+
+const onDueDaysChange = (step, event) => {
+  const raw = event.target.value;
+  const dueDateDays = raw === '' ? null : Math.max(0, parseInt(raw, 10) || 0);
+  emit('update-due-days', step.id, dueDateDays);
 };
 </script>
 
@@ -110,6 +130,10 @@ const stepTypeLabel = (type) => {
 .step-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .step-meta {
@@ -119,17 +143,24 @@ const stepTypeLabel = (type) => {
   text-transform: capitalize;
 }
 
-.step-actions {
-  display: flex;
-  flex-wrap: wrap;
+.due-days {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
-.no-steps,
-.loading-steps {
-  padding: 20px;
-  text-align: center;
-  color: var(--text-secondary);
+.due-days input {
+  width: 64px;
+  padding: 4px 6px;
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 4px;
+}
+
+.step-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
 }
 </style>

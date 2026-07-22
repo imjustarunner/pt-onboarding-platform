@@ -227,14 +227,36 @@ const navigateToTenantOrganization = (agency) => {
     || (/\/dashboard(\/|$)/i.test(path) && String(route.query?.tab || '') === 'my_schedule');
 
   if (onScheduleSurface || onAdminSurface || onTickets) {
-    if (route.params.organizationSlug) {
-      const nextParams = { ...route.params, organizationSlug: slug };
+    const slugNorm = String(slug || '').trim().toLowerCase();
+    const currentSlug = typeof route.params.organizationSlug === 'string'
+      ? String(route.params.organizationSlug).trim().toLowerCase()
+      : '';
+
+    // Already on this tenant — keep the page.
+    if (currentSlug && currentSlug === slugNorm) return;
+
+    if (route.params.organizationSlug && route.name) {
+      const nextParams = { ...route.params, organizationSlug: slugNorm };
       router.push({ name: route.name, params: nextParams, query: route.query });
       return;
     }
     if (onTickets) {
       router.push({ path: '/tickets', query: route.query });
       return;
+    }
+    // Unscoped deep admin (e.g. /admin/modules/10/builder): move to org-scoped twin route.
+    if (onAdminSurface && /\/admin\/.+/i.test(path) && route.name) {
+      const orgName = `Organization${String(route.name)}`;
+      if (router.hasRoute?.(orgName) || true) {
+        router.push({
+          name: orgName,
+          params: { ...route.params, organizationSlug: slugNorm },
+          query: route.query
+        }).catch(() => {
+          router.push({ path: `/${slugNorm}${path}`, query: route.query });
+        });
+        return;
+      }
     }
     // Platform HQ / unscoped schedule: agency context already updated; do not bounce to dashboard.
     return;

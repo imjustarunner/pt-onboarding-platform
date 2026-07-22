@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <router-link to="/admin" class="back-link">← Back to Dashboard</router-link>
-        <h1>{{ viewMode === 'hierarchy' ? 'Training Focus Management' : 'Module Management' }}</h1>
+        <h1>{{ viewMode === 'hierarchy' ? 'Courses & Learning Paths' : 'Lessons' }}</h1>
       </div>
       <div class="header-actions">
         <router-link to="/admin/checklist-items" class="btn btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center;">
@@ -40,14 +40,14 @@
           @click="viewMode = viewMode === 'table' ? 'hierarchy' : 'table'" 
           class="btn btn-secondary"
         >
-          {{ viewMode === 'table' ? '📋 Training Focus View' : '📊 Module View' }}
+          {{ viewMode === 'table' ? 'Course View' : 'Lesson View' }}
         </button>
         <button 
           v-if="canCreateEdit" 
           @click="showCreateTrainingFocusModal = true" 
           class="btn btn-secondary"
         >
-          Create Training Focus
+          Create Course
         </button>
         <button
           v-if="canCreateEdit && trainingAiEnabledForSelectedAgency"
@@ -67,15 +67,31 @@
         >
           Build with AI
         </button>
+        <button
+          v-if="canCreateEdit"
+          type="button"
+          class="btn btn-primary"
+          @click="showTemplatePicker = true"
+          title="Start from a proven lesson format with editable sample content"
+        >
+          From Template
+        </button>
         <button 
           v-if="canCreateEdit" 
           @click="showCreateModal = true" 
           class="btn btn-secondary"
         >
-          Create New Module
+          Create Lesson
         </button>
       </div>
     </div>
+
+    <CourseTemplatePickerModal
+      v-if="showTemplatePicker"
+      :agency-id="selectedAgencyIdForTrainingAi || null"
+      @close="showTemplatePicker = false"
+      @created="onTemplateCreated"
+    />
 
     <div v-if="syncFormSpecError" class="error-message" style="margin-top: 10px;">
       {{ syncFormSpecError }}
@@ -345,6 +361,7 @@
                 @move="(stepId, dir) => moveFocusStep(focus, stepId, dir)"
                 @remove="(stepId) => removeFocusStep(focus, stepId)"
                 @edit-module="editModuleFromStep"
+                @update-due-days="(stepId, days) => updateFocusStepDueDays(focus, stepId, days)"
               />
             </template>
           </div>
@@ -456,7 +473,7 @@
                     :class="{ 'dropdown-up': dropdownPosition[row.module.id] === 'up' }"
                   >
                     <button @click.stop="manageContent(row.module)" class="dropdown-item">
-                      ✏️ Edit Content
+                      Open Course Builder
                     </button>
                     <button @click.stop="previewModule(row.module)" class="dropdown-item">
                       👁️ Preview
@@ -895,6 +912,7 @@ import TrainingKnowledgeBaseSettings from '../../components/admin/TrainingKnowle
 import TrainingModuleAiWizard from '../../components/admin/TrainingModuleAiWizard.vue';
 import TrainingFocusStepList from '../../components/admin/TrainingFocusStepList.vue';
 import TrainingFocusAddStepMenu from '../../components/admin/TrainingFocusAddStepMenu.vue';
+import CourseTemplatePickerModal from '../../components/admin/CourseTemplatePickerModal.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -997,6 +1015,7 @@ const trainingFocuses = ref([]);
 const loading = ref(true);
 const error = ref('');
 const showCreateModal = ref(false);
+const showTemplatePicker = ref(false);
 const showCreateSharedModal = ref(false);
 const editingModule = ref(null);
 const showContentModal = ref(false);
@@ -1381,6 +1400,15 @@ const removeFocusStep = async (focus, stepId) => {
   }
 };
 
+const updateFocusStepDueDays = async (focus, stepId, dueDateDays) => {
+  try {
+    await api.put(`/training-focuses/${focus.id}/steps/${stepId}`, { dueDateDays });
+    await loadStepsForFocus(focus.id);
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to update due days');
+  }
+};
+
 const moveFocusStep = async (focus, stepId, direction) => {
   const steps = [...(focusSteps.value[focus.id] || [])];
   const idx = steps.findIndex((s) => s.id === stepId);
@@ -1399,9 +1427,25 @@ const moveFocusStep = async (focus, stepId, direction) => {
   }
 };
 
+const orgModulesPath = (suffix = '') => {
+  const org = route.params.organizationSlug;
+  const base = org ? `/${org}/admin/modules` : '/admin/modules';
+  return suffix ? `${base}${suffix}` : base;
+};
+
+const onTemplateCreated = async (result) => {
+  showTemplatePicker.value = false;
+  const moduleId = result?.primaryModuleId || result?.modules?.[0]?.id;
+  if (!moduleId) {
+    alert('Template created, but no lesson id was returned.');
+    return;
+  }
+  router.push(orgModulesPath(`/${moduleId}/builder`));
+};
+
 const editModuleFromStep = (moduleId) => {
-  const mod = (modules.value || []).find((m) => m.id === moduleId);
-  if (mod) editModule(mod);
+  if (!moduleId) return;
+  router.push(orgModulesPath(`/${moduleId}/builder`));
 };
 
 const fetchChecklistItemsForFocus = async (focusId) => {
@@ -2121,13 +2165,14 @@ const toggleContentMenu = (moduleId, event) => {
 
 const manageContent = (module) => {
   showContentMenu.value = null; // Close dropdown
-  router.push(`/admin/modules/${module.id}/content-editor`);
+  router.push(orgModulesPath(`/${module.id}/builder`));
 };
 
 const previewModule = (module) => {
   showContentMenu.value = null; // Close dropdown
-  // Open in new tab for preview
-  window.open(`/module/${module.id}?preview=true`, '_blank');
+  const org = route.params.organizationSlug;
+  const path = org ? `/${org}/module/${module.id}` : `/module/${module.id}`;
+  window.open(`${path}?preview=1`, '_blank');
 };
 
 const toggleModuleStatus = () => {
@@ -2211,7 +2256,7 @@ const saveModule = async (openContentEditor = false) => {
       closeModal();
       // Use nextTick to ensure navigation happens after modal closes
       try {
-        await router.push(`/admin/modules/${savedModule.id}/content-editor`);
+        await router.push(orgModulesPath(`/${savedModule.id}/builder`));
       } catch (err) {
         // Ignore navigation duplicate errors
         if (err.name !== 'NavigationDuplicated') {

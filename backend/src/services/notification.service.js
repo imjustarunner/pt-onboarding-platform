@@ -263,6 +263,58 @@ class NotificationService {
   }
 
   /**
+   * Reminder for training tasks due within the next N days (default 3).
+   */
+  static async checkTrainingDueSoon(agencyId, daysAhead = 3) {
+    const notifications = [];
+    const [dueSoonTasks] = await pool.execute(
+      `SELECT DISTINCT t.id, t.title, t.due_date, t.task_type, t.assigned_to_user_id,
+              u.first_name, u.last_name
+       FROM tasks t
+       INNER JOIN users u ON t.assigned_to_user_id = u.id
+       INNER JOIN user_agencies ua ON u.id = ua.user_id
+       WHERE ua.agency_id = ?
+       AND t.task_type = 'training'
+       AND t.due_date IS NOT NULL
+       AND t.due_date >= NOW()
+       AND t.due_date <= DATE_ADD(NOW(), INTERVAL ? DAY)
+       AND t.status NOT IN ('completed', 'overridden')`,
+      [agencyId, daysAhead]
+    );
+
+    const checkedTaskIds = new Set();
+    for (const task of dueSoonTasks) {
+      if (checkedTaskIds.has(task.id)) continue;
+      checkedTaskIds.add(task.id);
+
+      const existing = await Notification.findByAgency(agencyId, {
+        type: 'training_due_soon',
+        isResolved: false
+      });
+      const alreadyNotified = existing.some(
+        (n) => n.related_entity_type === 'task' && n.related_entity_id === task.id
+      );
+      if (alreadyNotified) continue;
+
+      const dueDate = new Date(task.due_date);
+      const notification = await Notification.create({
+        type: 'training_due_soon',
+        severity: 'info',
+        title: 'Training due soon',
+        message: `"${task.title}" is due ${dueDate.toLocaleDateString()}.`,
+        userId: task.assigned_to_user_id,
+        agencyId,
+        relatedEntityType: 'task',
+        relatedEntityId: task.id,
+        actorSource: 'System'
+      });
+      notifications.push(notification);
+    }
+
+    return notifications;
+  }
+
+  /**
    * Create notification when onboarding is marked as completed
    */
   static async createOnboardingCompletedNotification(userId, agencyId) {
@@ -503,11 +555,13 @@ class NotificationService {
     const tempPasswordNotifications = await this.checkTempPasswordExpirations(agencyId);
     const expiredTokenNotifications = await this.checkExpiredPasswordlessTokens(agencyId);
     const taskNotifications = await this.checkOverdueTasks(agencyId);
+    const dueSoonNotifications = await this.checkTrainingDueSoon(agencyId);
     
     allNotifications.push(...statusNotifications);
     allNotifications.push(...tempPasswordNotifications);
     allNotifications.push(...expiredTokenNotifications);
     allNotifications.push(...taskNotifications);
+    allNotifications.push(...dueSoonNotifications);
     
     return allNotifications;
   }

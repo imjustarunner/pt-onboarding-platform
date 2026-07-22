@@ -19,7 +19,7 @@ class TaskAssignmentService {
       metadata
     } = assignmentData;
 
-    return await Task.create({
+    const task = await Task.create({
       taskType: 'training',
       title,
       description,
@@ -31,6 +31,32 @@ class TaskAssignmentService {
       referenceId,
       metadata
     });
+
+    // In-app notification for the assignee
+    if (assignedToUserId) {
+      try {
+        const Notification = (await import('../models/Notification.model.js')).default;
+        const dueLabel = dueDate
+          ? ` Due ${new Date(dueDate).toLocaleDateString()}.`
+          : '';
+        await Notification.create({
+          type: 'training_assigned',
+          severity: 'info',
+          title: 'Training assigned',
+          message: `${title || 'A training task'} has been assigned to you.${dueLabel}`,
+          userId: assignedToUserId,
+          agencyId: assignedToAgencyId || null,
+          relatedEntityType: 'task',
+          relatedEntityId: task.id,
+          actorUserId: assignedByUserId || null,
+          actorSource: 'System'
+        });
+      } catch (notifyErr) {
+        console.warn('[assignTrainingTask] notification failed:', notifyErr?.message);
+      }
+    }
+
+    return task;
   }
 
   /**
@@ -268,20 +294,48 @@ class TaskAssignmentService {
   }
 
   /**
-   * Send reminder for overdue tasks (placeholder for future email integration)
+   * Send reminder for a task (in-app notification + audit log)
    */
   static async sendReminder(taskId, userId) {
-    // TODO: Implement email notification
-    // For now, just log the reminder action
+    const task = await Task.findById(taskId);
+    if (!task) {
+      throw Object.assign(new Error('Task not found'), { statusCode: 404 });
+    }
+
     const TaskAuditLog = (await import('../models/TaskAuditLog.model.js')).default;
     await TaskAuditLog.logAction({
       taskId,
       actionType: 'reminder_sent',
       actorUserId: userId,
-      targetUserId: null,
+      targetUserId: task.assigned_to_user_id || null,
       metadata: { reminderSentAt: new Date().toISOString() }
     });
-    return { success: true, message: 'Reminder logged (email integration pending)' };
+
+    if (task.assigned_to_user_id) {
+      try {
+        const Notification = (await import('../models/Notification.model.js')).default;
+        const due = task.due_date ? new Date(task.due_date) : null;
+        const overdue = due && due.getTime() < Date.now() && task.status !== 'completed';
+        await Notification.create({
+          type: overdue ? 'task_overdue' : 'training_due_soon',
+          severity: overdue ? 'warning' : 'info',
+          title: overdue ? 'Training overdue' : 'Training reminder',
+          message: overdue
+            ? `"${task.title}" is overdue${due ? ` (was due ${due.toLocaleDateString()})` : ''}. Please complete it soon.`
+            : `Reminder: please complete "${task.title}"${due ? ` by ${due.toLocaleDateString()}` : ''}.`,
+          userId: task.assigned_to_user_id,
+          agencyId: task.assigned_to_agency_id || null,
+          relatedEntityType: 'task',
+          relatedEntityId: task.id,
+          actorUserId: userId || null,
+          actorSource: 'System'
+        });
+      } catch (notifyErr) {
+        console.warn('[sendReminder] notification failed:', notifyErr?.message);
+      }
+    }
+
+    return { success: true, message: 'Reminder sent' };
   }
 }
 

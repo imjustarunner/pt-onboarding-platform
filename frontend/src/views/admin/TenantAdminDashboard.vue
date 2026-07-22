@@ -1119,8 +1119,8 @@ const quickActionsCatalog = computed(() => {
     },
     {
       id: 'manage_modules',
-      title: 'Manage Modules',
-      description: 'Create and edit training modules',
+      title: 'Course Builder',
+      description: 'Create and edit courses, lessons, and content blocks',
       to: `${p}/admin/modules`,
       emoji: '📚',
       iconKey: 'manage_modules',

@@ -3617,8 +3617,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
     // Google overlays are mutually exclusive: titles mode wins when both are requested.
     const includeGoogleBusy = includeGoogleBusyRequested && !includeGoogleEvents;
     const includeExternalBusy = String(req.query.includeExternalBusy || '').toLowerCase() === 'true';
+    const includeAllExternalCalendars =
+      String(req.query.includeAllExternalCalendars || '').toLowerCase() === 'true';
     const externalCalendarIdsRaw = String(req.query.externalCalendarIds || '').trim();
-    const externalCalendarIds = externalCalendarIdsRaw
+    let externalCalendarIds = externalCalendarIdsRaw
       ? externalCalendarIdsRaw
         .split(',')
         .map((x) => parseInt(String(x).trim(), 10))
@@ -3908,6 +3910,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         displayStatus: toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
+        // Scope badge to the agency used for the office_location_agencies join (provider context).
+        agencyId: Number(agencyId || 0) || null,
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
         bookingPlanId: Number(r.booking_plan_id || 0) || null,
         recurrenceGroupId: String(r.assignment_recurrence_group_id || '').trim() || null,
@@ -4011,6 +4015,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         displayStatus: toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
+        agencyId: Number(agencyId || 0) || null,
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
         bookingPlanId: null,
         recurrenceGroupId: null,
@@ -4674,6 +4679,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
       externalCalendarsAvailable = await UserExternalCalendar.listAvailableCalendars({ userId: providerId });
     } catch {
       externalCalendarsAvailable = [];
+    }
+
+    // Peer busy / “show all ICS feeds” — load every active Therapy Notes calendar for this provider.
+    if (includeAllExternalCalendars && !externalCalendarIds.length) {
+      externalCalendarIds = (externalCalendarsAvailable || [])
+        .map((c) => Number(c?.id || 0))
+        .filter((n) => Number.isInteger(n) && n > 0);
     }
 
     if (includeGoogleBusy) {

@@ -704,6 +704,9 @@ export const assignTrainingFocus = async (req, res, next) => {
                 metadata: {
                   trackId: parseInt(id),
                   trackName: trainingFocus.name,
+                  trackSlug: trainingFocus.slug || null,
+                  lifecycleItemKey: trainingFocus.slug || String(id),
+                  moduleId: step.referenceId,
                   stepId: step.id,
                   stepOrder
                 }
@@ -729,6 +732,9 @@ export const assignTrainingFocus = async (req, res, next) => {
                 metadata: {
                   trackId: parseInt(id),
                   trackName: trainingFocus.name,
+                  trackSlug: trainingFocus.slug || null,
+                  lifecycleItemKey: trainingFocus.slug || String(id),
+                  documentTemplateId: step.referenceId,
                   stepId: step.id,
                   stepOrder
                 }
@@ -1010,6 +1016,27 @@ export const removeTrainingFocusStep = async (req, res, next) => {
     const stepId = parseInt(req.params.stepId, 10);
     await TrainingFocusStepsService.removeStep(focusId, stepId);
     res.json({ ok: true });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: { message: error.message } });
+    }
+    next(error);
+  }
+};
+
+export const updateTrainingFocusStep = async (req, res, next) => {
+  try {
+    const focusId = parseInt(req.params.id, 10);
+    const stepId = parseInt(req.params.stepId, 10);
+    const step = await TrainingFocusStepsService.updateStep(focusId, stepId, {
+      dueDateDays: req.body.dueDateDays === '' || req.body.dueDateDays === null
+        ? null
+        : req.body.dueDateDays,
+      titleOverride: req.body.titleOverride,
+      documentActionType: req.body.documentActionType,
+      orderIndex: req.body.orderIndex
+    });
+    res.json({ step });
   } catch (error) {
     if (error.statusCode) {
       return res.status(error.statusCode).json({ error: { message: error.message } });

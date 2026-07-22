@@ -2098,25 +2098,62 @@ export const putSkillBuilderSettings = async (req, res, next) => {
 
 export const listOfficeAvailabilityRequests = async (req, res, next) => {
   try {
-    const agencyId = await resolveAgencyId(req);
-    if (!(await requireAgencyMembership(req, res, agencyId))) return;
     if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const status = String(req.query.status || 'PENDING').toUpperCase();
     const allowedStatus = new Set(['PENDING', 'ASSIGNED', 'CANCELLED']);
     const st = allowedStatus.has(status) ? status : 'PENDING';
 
+    // allAgencies=1 (default for multi-tenant CPAs): every agency the actor can access.
+    // Otherwise fall back to a single agencyId (legacy / explicit filter).
+    const wantAll =
+      String(req.query.allAgencies || '').trim() === '1' ||
+      String(req.query.scope || '').trim().toLowerCase() === 'mine';
+    let agencyIds = [];
+    if (wantAll) {
+      if (req.user?.role === 'super_admin') {
+        // Platform admins see every agency with matching requests (CPA multi-tenant parity while testing).
+        const [agencyRows] = await pool.execute(
+          `SELECT DISTINCT agency_id AS id
+           FROM provider_office_availability_requests
+           WHERE status = ?
+           ORDER BY agency_id ASC
+           LIMIT 200`,
+          [st]
+        );
+        agencyIds = (agencyRows || []).map((a) => Number(a.id)).filter((n) => Number.isInteger(n) && n > 0);
+        if (!agencyIds.length) {
+          const fallback = await resolveAgencyId(req);
+          if (fallback) agencyIds = [fallback];
+        }
+      } else {
+        const memberships = await User.getAgencies(req.user.id).catch(() => []);
+        agencyIds = (memberships || []).map((a) => Number(a.id)).filter((n) => Number.isInteger(n) && n > 0);
+      }
+    } else {
+      const agencyId = await resolveAgencyId(req);
+      if (!(await requireAgencyMembership(req, res, agencyId))) return;
+      agencyIds = [agencyId];
+    }
+
+    if (!agencyIds.length) {
+      return res.status(400).json({ error: { message: 'No accessible agencies for office approvals' } });
+    }
+
+    const placeholders = agencyIds.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT r.*,
               u.first_name AS provider_first_name,
-              u.last_name AS provider_last_name
+              u.last_name AS provider_last_name,
+              a.name AS agency_name
        FROM provider_office_availability_requests r
        JOIN users u ON u.id = r.provider_id
-       WHERE r.agency_id = ?
+       LEFT JOIN agencies a ON a.id = r.agency_id
+       WHERE r.agency_id IN (${placeholders})
          AND r.status = ?
        ORDER BY r.created_at DESC
        LIMIT 500`,
-      [agencyId, st]
+      [...agencyIds, st]
     );
 
     const out = [];
@@ -2125,9 +2162,12 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
       try {
         [slotRows] = await pool.execute(
           `SELECT s.weekday, s.start_hour, s.end_hour, s.room_id,
-                  rm.location_id AS room_office_location_id
+                  rm.location_id AS room_office_location_id,
+                  rm.room_number, rm.label AS room_label,
+                  ol.name AS office_name
            FROM provider_office_availability_request_slots s
            LEFT JOIN office_rooms rm ON rm.id = s.room_id
+           LEFT JOIN office_locations ol ON ol.id = rm.location_id
            WHERE s.request_id = ?
            ORDER BY s.weekday ASC, s.start_hour ASC`,
           [r.id]
@@ -2162,26 +2202,60 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
         recurrenceRaw: r.requested_frequency,
         occurrenceCountRaw: r.requested_occurrence_count
       });
+      const slots = (slotRows || []).map((s) => ({
+        weekday: s.weekday,
+        startHour: s.start_hour,
+        endHour: s.end_hour,
+        roomId: s.room_id ? Number(s.room_id) : null,
+        officeLocationId: s.room_office_location_id ? Number(s.room_office_location_id) : null,
+        officeName: s.office_name || null,
+        roomLabel: s.room_id
+          ? `${s.room_number ? `#${s.room_number} ` : ''}${s.room_label || `Room ${s.room_id}`}`.trim()
+          : null
+      }));
+      const primaryOfficeId =
+        slots.find((s) => s.officeLocationId)?.officeLocationId ||
+        (Array.isArray(prefIds) && prefIds[0] ? Number(prefIds[0]) : null) ||
+        null;
+      const primaryOfficeName =
+        slots.find((s) => s.officeName)?.officeName || null;
       out.push({
         id: r.id,
         agencyId: r.agency_id,
+        agencyName: r.agency_name || null,
         providerId: r.provider_id,
         providerName: `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim(),
         preferredOfficeIds: prefIds,
+        officeLocationId: primaryOfficeId,
+        officeName: primaryOfficeName,
         notes: r.notes || '',
         status: r.status,
         createdAt: r.created_at,
         requestedFrequency: requestedRecurrence.recurrence,
         requestedOccurrenceCount: requestedRecurrence.occurrenceCount,
         requestedStartDate: normalizeYmd(r.requested_start_date || r.created_at) || null,
-        slots: (slotRows || []).map((s) => ({
-          weekday: s.weekday,
-          startHour: s.start_hour,
-          endHour: s.end_hour,
-          roomId: s.room_id ? Number(s.room_id) : null,
-          officeLocationId: s.room_office_location_id ? Number(s.room_office_location_id) : null
-        }))
+        slots
       });
+    }
+
+    // Resolve office names for preferred-only requests (no room yet).
+    const missingOfficeIds = [...new Set(
+      out
+        .filter((r) => !r.officeName && r.officeLocationId)
+        .map((r) => Number(r.officeLocationId))
+        .filter((n) => Number.isInteger(n) && n > 0)
+    )];
+    if (missingOfficeIds.length) {
+      const [olRows] = await pool.execute(
+        `SELECT id, name FROM office_locations WHERE id IN (${missingOfficeIds.map(() => '?').join(',')})`,
+        missingOfficeIds
+      );
+      const nameById = new Map((olRows || []).map((o) => [Number(o.id), String(o.name || '')]));
+      for (const r of out) {
+        if (!r.officeName && r.officeLocationId) {
+          r.officeName = nameById.get(Number(r.officeLocationId)) || null;
+        }
+      }
     }
 
     res.json(out);
@@ -2235,17 +2309,13 @@ export const getOfficeRequestAssignmentOptions = async (req, res, next) => {
       startHour: Number(firstSlot.start_hour),
       endHour: Number(firstSlot.end_hour)
     };
-    const providerSpecifiedRoom = slotRows.some((s) => Number(s.room_id || 0) > 0);
-    if (providerSpecifiedRoom) {
-      return res.json({
-        requestId,
-        requestedRecurrence: String(reqRow.requested_frequency || 'ONCE').toUpperCase(),
-        requestedOccurrenceCount: Math.max(1, Number(reqRow.requested_occurrence_count || 1)),
-        slot,
-        options: [],
-        summary: { availableNowCount: 0, hasAnyFuture: false, earliestAvailableInWeeks: null, providerSpecifiedRoom: true }
-      });
-    }
+    const providerSpecifiedRoomId = Number(
+      slotRows.find((s) => Number(s.room_id || 0) > 0)?.room_id || 0
+    ) || null;
+    const providerSpecifiedOfficeId = Number(
+      slotRows.find((s) => Number(s.room_office_location_id || 0) > 0)?.room_office_location_id || 0
+    ) || null;
+    const providerSpecifiedRoom = !!providerSpecifiedRoomId;
 
     const preferredOfficeIds = (() => {
       const raw = reqRow.preferred_office_ids_json;
@@ -2258,17 +2328,36 @@ export const getOfficeRequestAssignmentOptions = async (req, res, next) => {
         return [];
       }
     })();
-    const officeIds = preferredOfficeIds.length
-      ? preferredOfficeIds
-      : await OfficeLocationAgency.listOfficeIdsForAgencies([agencyId]);
+    // Scope alternatives:
+    // - preferred offices when the provider listed them
+    // - otherwise, if a specific room/office was requested, stay in that office (don't surface unrelated buildings)
+    // - otherwise scan all agency offices
+    const agencyOfficeIds = await OfficeLocationAgency.listOfficeIdsForAgencies([agencyId]);
+    const officeIds = (() => {
+      if (preferredOfficeIds.length) {
+        const set = new Set(preferredOfficeIds.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0));
+        if (providerSpecifiedOfficeId) set.add(providerSpecifiedOfficeId);
+        return [...set];
+      }
+      if (providerSpecifiedOfficeId) return [providerSpecifiedOfficeId];
+      return agencyOfficeIds;
+    })();
     if (!officeIds.length) {
       return res.json({
         requestId,
         requestedRecurrence: String(reqRow.requested_frequency || 'ONCE').toUpperCase(),
         requestedOccurrenceCount: Math.max(1, Number(reqRow.requested_occurrence_count || 1)),
         slot,
+        requested: null,
         options: [],
-        summary: { availableNowCount: 0, hasAnyFuture: false, earliestAvailableInWeeks: null }
+        summary: {
+          availableNowCount: 0,
+          availableOfficeCount: 0,
+          totalOffices: 0,
+          hasAnyFuture: false,
+          earliestAvailableInWeeks: null,
+          providerSpecifiedRoom
+        }
       });
     }
 
@@ -2300,8 +2389,16 @@ export const getOfficeRequestAssignmentOptions = async (req, res, next) => {
         requestedRecurrence: recurrence.recurrence,
         requestedOccurrenceCount: recurrence.occurrenceCount,
         slot,
+        requested: null,
         options: [],
-        summary: { availableNowCount: 0, hasAnyFuture: false, earliestAvailableInWeeks: null }
+        summary: {
+          availableNowCount: 0,
+          availableOfficeCount: 0,
+          totalOffices: officeIds.length,
+          hasAnyFuture: false,
+          earliestAvailableInWeeks: null,
+          providerSpecifiedRoom
+        }
       });
     }
 
@@ -2396,16 +2493,59 @@ export const getOfficeRequestAssignmentOptions = async (req, res, next) => {
     const availableNow = optionsAll.filter((o) => o.isAvailableNow);
     const future = optionsAll.filter((o) => Number.isInteger(o.firstAvailableInWeeks) && o.firstAvailableInWeeks > 0);
     const earliest = future.length ? Math.min(...future.map((o) => o.firstAvailableInWeeks)) : null;
+    const availableOfficeIds = new Set(availableNow.map((o) => Number(o.officeId)));
+    const totalOffices = new Set(optionsAll.map((o) => Number(o.officeId))).size;
+    const requestedRoom = providerSpecifiedRoomId
+      ? (optionsAll.find((o) => Number(o.roomId) === providerSpecifiedRoomId) || null)
+      : null;
+    const requested = requestedRoom
+      ? {
+          officeId: requestedRoom.officeId,
+          officeName: requestedRoom.officeName,
+          roomId: requestedRoom.roomId,
+          roomLabel: requestedRoom.roomLabel,
+          isAvailableNow: !!requestedRoom.isAvailableNow
+        }
+      : providerSpecifiedRoomId
+        ? {
+            officeId: providerSpecifiedOfficeId,
+            officeName: '',
+            roomId: providerSpecifiedRoomId,
+            roomLabel: `Room ${providerSpecifiedRoomId}`,
+            isAvailableNow: false
+          }
+        : null;
+
+    // Alternatives for reassignment: available rooms now, excluding the already-requested room.
+    const options = availableNow.filter((o) => Number(o.roomId) !== Number(providerSpecifiedRoomId || 0));
+
     return res.json({
       requestId,
       requestedRecurrence: recurrence.recurrence,
       requestedOccurrenceCount: recurrence.occurrenceCount,
       slot,
-      options: availableNow,
+      requested,
+      options,
+      unavailableOffices: (roomRows || [])
+        .reduce((acc, room) => {
+          const officeId = Number(room.location_id);
+          if (!officeId || availableOfficeIds.has(officeId)) return acc;
+          if (acc.some((x) => Number(x.officeId) === officeId)) return acc;
+          // Only list as unavailable when it was in preferred scope or is the requested office.
+          // Avoid dumping every random agency office when preferences are set.
+          if (preferredOfficeIds.length && !preferredOfficeIds.includes(officeId) && officeId !== providerSpecifiedOfficeId) {
+            return acc;
+          }
+          acc.push({ officeId, officeName: String(room.office_name || '') });
+          return acc;
+        }, []),
       summary: {
         availableNowCount: availableNow.length,
+        availableOfficeCount: availableOfficeIds.size,
+        totalOffices,
         hasAnyFuture: future.length > 0,
-        earliestAvailableInWeeks: earliest
+        earliestAvailableInWeeks: earliest,
+        providerSpecifiedRoom
       }
     });
   } catch (e) {

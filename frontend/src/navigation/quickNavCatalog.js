@@ -196,12 +196,22 @@ function buildAppEntries() {
     {
       id: 'learning-training',
       routeName: null,
-      label: 'Training',
-      description: 'Assigned modules and training focus.',
+      label: 'Assigned Training',
+      description: 'Assigned onboarding modules and learning paths.',
       group: 'learning',
-      keywords: ['training', 'modules', 'learning', 'courses'],
+      keywords: ['training', 'modules', 'learning', 'courses', 'onboarding'],
       kind: 'dashboard',
       tab: 'training',
+      requires: ['showLearning']
+    },
+    {
+      id: 'learning-my-learning',
+      routeName: 'MyLearning',
+      label: 'My Learning',
+      description: 'Catalog, progress, and continuing education courses.',
+      group: 'learning',
+      keywords: ['my learning', 'catalog', 'courses', 'certificates', 'continuing education'],
+      kind: 'route',
       requires: ['showLearning']
     },
     {
@@ -217,13 +227,12 @@ function buildAppEntries() {
     },
     {
       id: 'learning-on-demand',
-      routeName: null,
+      routeName: 'MyLearning',
       label: 'On-Demand Training',
-      description: 'Browse optional on-demand training content.',
+      description: 'Browse optional on-demand training in My Learning.',
       group: 'learning',
       keywords: ['on demand', 'on-demand', 'library', 'training'],
-      kind: 'dashboard',
-      tab: 'on_demand_training',
+      kind: 'route',
       requires: ['showLearning']
     },
     {

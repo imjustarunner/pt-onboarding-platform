@@ -1558,6 +1558,8 @@ if (!isBootstrap) {
   // OFF by default — this job has caused Cloud Run 429s / "cooling down" by
   // monopolizing DB connections (especially when local npm run also hit stage).
   // Opt in only: ENABLE_OFFICE_SCHEDULE_WATCHDOG=1
+  // When enabled: scheduled once daily at midnight. EHR/ICS calendar matching is
+  // also hard-capped to one run per UTC day inside the watchdog (multi-instance safe).
   const officeScheduleWatchdogEnabled = process.env.ENABLE_OFFICE_SCHEDULE_WATCHDOG === '1';
 
   const scheduleOfficeScheduleWatchdog = async () => {

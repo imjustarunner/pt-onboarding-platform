@@ -116,6 +116,13 @@ export const completeModule = async (req, res, next) => {
       console.error('Failed to sync training focus step on module complete:', stepSyncErr);
     }
 
+    // Keep lifecycle checklist in sync when training completes outside the focus path
+    setImmediate(() => {
+      import('../services/lifecycleSync.service.js')
+        .then(({ syncLifecycleItems }) => syncLifecycleItems(userId))
+        .catch((err) => console.warn('[completeModule] lifecycle sync failed:', err?.message));
+    });
+
     // Auto-generate certificates
     try {
       const CertificateService = (await import('../services/certificate.service.js')).default;

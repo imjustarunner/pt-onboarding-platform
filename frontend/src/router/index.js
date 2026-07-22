@@ -1399,8 +1399,21 @@ const routes = [
   {
     path: '/:organizationSlug/tracks',
     name: 'OrganizationTracks',
-    component: () => import('../views/TracksView.vue'),
-    meta: { requiresAuth: true, blockPendingUsers: true, organizationSlug: true }
+    redirect: (to) => `/${to.params.organizationSlug}/my-learning`
+  },
+  {
+    path: '/:organizationSlug/my-learning',
+    name: 'OrganizationMyLearning',
+    component: () => import('../views/MyLearningView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canViewTraining', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/training-focuses/:id',
+    name: 'OrganizationTrainingFocusLaunch',
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/my-learning`,
+      query: { focusId: to.params.id }
+    })
   },
   {
     path: '/:organizationSlug/tasks',
@@ -1441,8 +1454,7 @@ const routes = [
   {
     path: '/:organizationSlug/on-demand-training',
     name: 'OrganizationOnDemandTrainingLibrary',
-    component: () => import('../views/OnDemandTrainingLibraryView.vue'),
-    meta: { requiresAuth: true, requiresApprovedEmployee: true, requiresCapability: 'canViewTraining', organizationSlug: true }
+    redirect: (to) => `/${to.params.organizationSlug}/my-learning`
   },
   {
     path: '/:organizationSlug/on-demand-training/modules/:id',
@@ -1496,10 +1508,18 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/modules/:id/builder',
+    name: 'OrganizationCourseBuilder',
+    component: () => import('../views/admin/CourseBuilderView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canViewTraining', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/modules/:id/content-editor',
     name: 'OrganizationModuleContentEditor',
-    component: () => import('../views/admin/ModuleContentEditor.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+    redirect: (to) => ({
+      name: 'OrganizationCourseBuilder',
+      params: { organizationSlug: to.params.organizationSlug, id: to.params.id }
+    })
   },
   {
     path: '/:organizationSlug/admin/digital-forms',
@@ -2471,10 +2491,15 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
+    path: '/admin/modules/:id/builder',
+    name: 'CourseBuilder',
+    component: () => import('../views/admin/CourseBuilderView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canViewTraining' }
+  },
+  {
     path: '/admin/modules/:id/content-editor',
     name: 'ModuleContentEditor',
-    component: () => import('../views/admin/ModuleContentEditor.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+    redirect: (to) => ({ name: 'CourseBuilder', params: { id: to.params.id } })
   },
   {
     path: '/admin/digital-forms',
@@ -3185,8 +3210,18 @@ const routes = [
   {
     path: '/tracks',
     name: 'Tracks',
-    component: () => import('../views/TracksView.vue'),
-    meta: { requiresAuth: true, blockPendingUsers: true }
+    redirect: '/my-learning'
+  },
+  {
+    path: '/my-learning',
+    name: 'MyLearning',
+    component: () => import('../views/MyLearningView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canViewTraining' }
+  },
+  {
+    path: '/training-focuses/:id',
+    name: 'TrainingFocusLaunch',
+    redirect: (to) => ({ path: '/my-learning', query: { focusId: to.params.id } })
   },
   {
     path: '/tasks',
@@ -3269,8 +3304,7 @@ const routes = [
   {
     path: '/on-demand-training',
     name: 'OnDemandTrainingLibrary',
-    component: () => import('../views/OnDemandTrainingLibraryView.vue'),
-    meta: { requiresAuth: true, requiresApprovedEmployee: true, requiresCapability: 'canViewTraining' }
+    redirect: '/my-learning'
   },
   {
     path: '/on-demand-training/modules/:id',
@@ -3486,6 +3520,7 @@ router.beforeEach(async (to, from, next) => {
         rawPath.startsWith('/challenges/') ||
         rawPath.startsWith('/admin') ||
         rawPath.startsWith('/on-demand-training') ||
+        rawPath.startsWith('/my-learning') ||
         rawPath.startsWith('/club-store'));
 
     if (shouldScopeToTenant) {
@@ -4370,7 +4405,7 @@ router.beforeEach(async (to, from, next) => {
     }
     // Block approved employees from accessing regular user routes
     if (authStore.user?.type === 'approved_employee') {
-      next('/on-demand-training');
+      next('/my-learning');
     } else {
       next();
     }
@@ -4397,10 +4432,14 @@ router.beforeEach(async (to, from, next) => {
       }
     }
 
-    // Block regular routes for approved employees - they should only access on-demand training
-    const isOnDemandRoute = to.path.includes('/on-demand-training');
-    if (authStore.user?.type === 'approved_employee' && !isOnDemandRoute) {
-      next('/on-demand-training');
+    // Approved employees: My Learning + on-demand module player only
+    const isLearningRoute =
+      to.path.includes('/on-demand-training')
+      || to.path.includes('/my-learning')
+      || to.name === 'MyLearning'
+      || to.name === 'OrganizationMyLearning';
+    if (authStore.user?.type === 'approved_employee' && !isLearningRoute) {
+      next('/my-learning');
     } else {
       next();
     }

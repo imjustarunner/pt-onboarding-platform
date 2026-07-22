@@ -310,20 +310,27 @@ class Module {
       isStandalone,
       standaloneCategory,
       estimatedTimeMinutes,
-      iconId
+      iconId,
+      publishStatus
     } = moduleData;
+
+    const resolvedPublish =
+      publishStatus === 'draft' || publishStatus === 'published'
+        ? publishStatus
+        : (isActive === false ? 'draft' : 'published');
     
     const [result] = await pool.execute(
       `INSERT INTO modules (
-        title, description, order_index, is_active, 
+        title, description, order_index, is_active, publish_status,
         agency_id, track_id, is_shared, source_module_id, created_by_user_id,
         is_always_accessible, is_public, is_standalone, standalone_category, estimated_time_minutes, icon_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title, 
         description || null, 
         orderIndex || 0, 
         isActive !== undefined ? isActive : true,
+        resolvedPublish,
         agencyId || null,
         trackId || null,
         isShared !== undefined ? isShared : false,
@@ -355,7 +362,9 @@ class Module {
       isStandalone,
       standaloneCategory,
       estimatedTimeMinutes,
-      iconId
+      iconId,
+      publishStatus,
+      bumpVersion
     } = moduleData;
     const updates = [];
     const values = [];
@@ -375,6 +384,14 @@ class Module {
     if (isActive !== undefined) {
       updates.push('is_active = ?');
       values.push(isActive);
+    }
+    if (publishStatus !== undefined) {
+      updates.push('publish_status = ?');
+      values.push(publishStatus === 'draft' ? 'draft' : 'published');
+    }
+    if (bumpVersion) {
+      updates.push('version = COALESCE(version, 1) + 1');
+      updates.push('published_at = NOW()');
     }
     if (agencyId !== undefined) {
       updates.push('agency_id = ?');

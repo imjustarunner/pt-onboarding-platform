@@ -1760,6 +1760,36 @@ class StorageService {
       throw new Error(`Failed to generate signed URL: ${error.message}`);
     }
   }
+
+  /**
+   * LMS media library uploads (video / pdf / image) under uploads/training_media/
+   */
+  static async saveTrainingMedia({
+    agencyId,
+    fileBuffer,
+    filename,
+    contentType,
+    mediaKind = 'video'
+  }) {
+    const aid = agencyId != null ? parseInt(agencyId, 10) : 0;
+    const sanitizedFilename = this.sanitizeFilename(filename || `media-${Date.now()}`);
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const kind = String(mediaKind || 'file').toLowerCase();
+    const key = `uploads/training_media/agency_${aid || 'platform'}/${kind}/${unique}-${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: contentType || 'application/octet-stream',
+      metadata: {
+        agencyId: String(aid || ''),
+        mediaKind: kind,
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
 }
 
 export default StorageService;

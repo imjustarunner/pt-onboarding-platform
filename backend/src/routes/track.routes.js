@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { getAllTracks, getTrackById, createTrack, updateTrack, addModuleToTrack, removeModuleFromTrack, archiveTrack, restoreTrack, deleteTrack, getArchivedTracks, duplicateTrack, copyTrackToAgency, getTrackTemplates, createTrackTemplate, getTrackCopyPreview, getTrainingFocusModules, assignTrainingFocus, unassignTrainingFocusFromUser, getTrainingFocusCompletion, getTrainingFocusSteps, addTrainingFocusStep, reorderTrainingFocusSteps, removeTrainingFocusStep, startTrainingFocusStep, completeTrainingFocusStep, logTrainingFocusStepTime, getTrainingFocusPath } from '../controllers/track.controller.js';
+import { getAllTracks, getTrackById, createTrack, updateTrack, addModuleToTrack, removeModuleFromTrack, archiveTrack, restoreTrack, deleteTrack, getArchivedTracks, duplicateTrack, copyTrackToAgency, getTrackTemplates, createTrackTemplate, getTrackCopyPreview, getTrainingFocusModules, assignTrainingFocus, unassignTrainingFocusFromUser, getTrainingFocusCompletion, getTrainingFocusSteps, addTrainingFocusStep, reorderTrainingFocusSteps, removeTrainingFocusStep, updateTrainingFocusStep, startTrainingFocusStep, completeTrainingFocusStep, logTrainingFocusStepTime, getTrainingFocusPath } from '../controllers/track.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -36,6 +36,12 @@ router.post('/:id/steps', authenticate, requireBackofficeAdmin, [
   body('titleOverride').optional().trim()
 ], addTrainingFocusStep);
 router.put('/:id/steps/reorder', authenticate, requireBackofficeAdmin, reorderTrainingFocusSteps);
+router.put('/:id/steps/:stepId', authenticate, requireBackofficeAdmin, [
+  body('dueDateDays').optional({ nullable: true }).isInt({ min: 0 }),
+  body('titleOverride').optional({ nullable: true }).trim(),
+  body('documentActionType').optional().isIn(['signature', 'review']),
+  body('orderIndex').optional().isInt({ min: 0 })
+], updateTrainingFocusStep);
 router.delete('/:id/steps/:stepId', authenticate, requireBackofficeAdmin, removeTrainingFocusStep);
 router.post('/:id/steps/:stepId/start', authenticate, startTrainingFocusStep);
 router.post('/:id/steps/:stepId/complete', authenticate, completeTrainingFocusStep);

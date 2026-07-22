@@ -1,5 +1,6 @@
 import ModuleContent from '../models/ModuleContent.model.js';
 import { validationResult } from 'express-validator';
+import { normalizeContentType } from '../constants/trainingContentTypes.js';
 
 /** Map legacy / alternate roles onto the roles stored in form visibleToRoles. */
 function rolesEquivalentTo(userRole) {
@@ -22,7 +23,7 @@ export const getModuleContent = async (req, res, next) => {
     const { id } = req.params;
     const content = await ModuleContent.findByModuleId(id);
     
-    // Parse JSON content_data
+    // Parse JSON content_data / settings and normalize legacy content types
     const parsedContent = content.map(item => {
       let data = item.content_data;
       if (typeof data === 'string') {
@@ -32,7 +33,16 @@ export const getModuleContent = async (req, res, next) => {
           data = null;
         }
       }
-      return { ...item, content_data: data };
+      let settings = item.settings;
+      if (typeof settings === 'string') {
+        try {
+          settings = JSON.parse(settings);
+        } catch {
+          settings = null;
+        }
+      }
+      const content_type = normalizeContentType(item.content_type, data || {});
+      return { ...item, content_type, content_data: data, settings };
     });
 
     // Role-gate spec-generated form pages.
@@ -72,20 +82,29 @@ export const addModuleContent = async (req, res, next) => {
     }
 
     const { id } = req.params;
-    const { contentType, contentData, orderIndex } = req.body;
+    const { contentType, contentData, orderIndex, title, settings } = req.body;
 
     const content = await ModuleContent.create({
       moduleId: id,
-      contentType,
+      contentType: normalizeContentType(contentType, contentData),
       contentData,
-      orderIndex
+      orderIndex,
+      title,
+      settings
     });
 
     const parsedContent = {
       ...content,
+      content_type: normalizeContentType(
+        content.content_type,
+        typeof content.content_data === 'string' ? JSON.parse(content.content_data) : content.content_data
+      ),
       content_data: typeof content.content_data === 'string' 
         ? JSON.parse(content.content_data) 
-        : content.content_data
+        : content.content_data,
+      settings: typeof content.settings === 'string'
+        ? JSON.parse(content.settings)
+        : content.settings
     };
 
     res.status(201).json(parsedContent);
@@ -102,23 +121,30 @@ export const updateModuleContent = async (req, res, next) => {
     }
 
     const { contentId } = req.params;
-    const { contentType, contentData, orderIndex } = req.body;
+    const { contentType, contentData, orderIndex, title, settings } = req.body;
 
     const content = await ModuleContent.update(contentId, {
-      contentType,
+      contentType: contentType != null ? normalizeContentType(contentType, contentData) : undefined,
       contentData,
-      orderIndex
+      orderIndex,
+      title,
+      settings
     });
 
     if (!content) {
       return res.status(404).json({ error: { message: 'Content not found' } });
     }
 
+    const parsedData = typeof content.content_data === 'string' 
+      ? JSON.parse(content.content_data) 
+      : content.content_data;
     const parsedContent = {
       ...content,
-      content_data: typeof content.content_data === 'string' 
-        ? JSON.parse(content.content_data) 
-        : content.content_data
+      content_type: normalizeContentType(content.content_type, parsedData || {}),
+      content_data: parsedData,
+      settings: typeof content.settings === 'string'
+        ? JSON.parse(content.settings)
+        : content.settings
     };
 
     res.json(parsedContent);

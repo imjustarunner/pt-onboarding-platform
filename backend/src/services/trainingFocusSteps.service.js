@@ -61,6 +61,19 @@ class TrainingFocusStepsService {
     return TrainingFocusStep.reorder(trainingFocusId, stepIdsInOrder);
   }
 
+  static async updateStep(trainingFocusId, stepId, payload) {
+    const step = await TrainingFocusStep.findById(stepId);
+    if (!step || step.trainingFocusId !== Number(trainingFocusId)) {
+      throw Object.assign(new Error('Step not found'), { statusCode: 404 });
+    }
+    return TrainingFocusStep.update(stepId, {
+      dueDateDays: payload.dueDateDays,
+      titleOverride: payload.titleOverride,
+      documentActionType: payload.documentActionType,
+      orderIndex: payload.orderIndex
+    });
+  }
+
   static async _validateReference(stepType, referenceId, trainingFocusId) {
     if (stepType === 'module') {
       const Module = (await import('../models/Module.model.js')).default;

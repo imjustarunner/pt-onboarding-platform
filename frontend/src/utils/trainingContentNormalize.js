@@ -1,6 +1,17 @@
 /**
  * Normalize AI-generated or API quiz/page shapes for QuizBuilder and ModuleView.
+ * Block-type helpers live in trainingBlockTypes.js — re-exported here for convenience.
  */
+export {
+  normalizeContentType,
+  apiRowToBlock,
+  blockToApiPayload,
+  PHASE1_BLOCK_LIBRARY,
+  blockTypeLabel,
+  defaultBlockData,
+  defaultBlockSettings
+} from './trainingBlockTypes.js';
+
 export function normalizeQuizDataForEditor(quizData = {}) {
   const data = {
     title: quizData.title || '',

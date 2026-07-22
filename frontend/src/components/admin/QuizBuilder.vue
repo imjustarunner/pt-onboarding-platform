@@ -43,6 +43,36 @@
       </label>
     </div>
 
+    <div v-if="localContent.allowRetake" class="form-group">
+      <label>Max Attempts (optional)</label>
+      <input
+        v-model.number="localContent.maxAttempts"
+        type="number"
+        min="1"
+        placeholder="Unlimited"
+        @input="emitUpdate"
+      />
+    </div>
+
+    <div class="form-group bank-import">
+      <label>Import from question bank</label>
+      <div class="bank-row">
+        <select v-model="selectedBankId">
+          <option value="">Select a bank…</option>
+          <option v-for="bank in questionBanks" :key="bank.id" :value="bank.id">
+            {{ bank.title }} ({{ bank.questionCount ?? 0 }})
+          </option>
+        </select>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="!selectedBankId || importingBank" @click="importFromBank">
+          {{ importingBank ? 'Importing…' : 'Import' }}
+        </button>
+      </div>
+      <div class="bank-actions">
+        <button type="button" class="btn-link" @click="loadBanks">Refresh banks</button>
+        <button type="button" class="btn-link" @click="saveAsBank">Save current questions as bank</button>
+      </div>
+    </div>
+
     <div class="questions-section">
       <div class="section-header">
         <h4>Questions</h4>
@@ -139,6 +169,25 @@
                 required
               />
             </div>
+
+            <div class="form-group">
+              <label>Explanation (shown after miss)</label>
+              <textarea
+                v-model="question.explanation"
+                rows="2"
+                placeholder="Why this answer is correct"
+                @input="emitUpdate"
+              />
+            </div>
+            <div class="form-group">
+              <label>Remediation (HTML optional)</label>
+              <textarea
+                v-model="question.remediationHtml"
+                rows="2"
+                placeholder="Extra study tip or link for learners who miss this"
+                @input="emitUpdate"
+              />
+            </div>
           </div>
         </template>
       </draggable>
@@ -151,8 +200,9 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { VueDraggableNext as draggable } from 'vue-draggable-next';
+import api from '../../services/api';
 
 const props = defineProps({
   content: {
@@ -168,12 +218,94 @@ const localContent = ref({
   description: '',
   minimumScore: 70,
   allowRetake: true,
+  maxAttempts: null,
   questions: [],
   ...props.content
 });
 
+const questionBanks = ref([]);
+const selectedBankId = ref('');
+const importingBank = ref(false);
+
 let questionIdCounter = 0;
 let optionIdCounter = 0;
+
+const loadBanks = async () => {
+  try {
+    const res = await api.get('/quiz-question-banks');
+    questionBanks.value = Array.isArray(res.data) ? res.data : [];
+  } catch {
+    questionBanks.value = [];
+  }
+};
+
+const importFromBank = async () => {
+  if (!selectedBankId.value) return;
+  try {
+    importingBank.value = true;
+    const res = await api.get(`/quiz-question-banks/${selectedBankId.value}/export`);
+    const imported = res.data?.questions || [];
+    if (!localContent.value.questions) localContent.value.questions = [];
+    for (const q of imported) {
+      localContent.value.questions.push({
+        id: `q-${questionIdCounter++}`,
+        question: q.question || '',
+        type: q.type || 'multiple_choice',
+        options: (q.options || []).map((opt) => ({
+          id: `opt-${optionIdCounter++}`,
+          text: typeof opt === 'string' ? opt : opt.text || ''
+        })),
+        correctAnswer: q.correctAnswer || '',
+        explanation: q.explanation || '',
+        remediationHtml: q.remediationHtml || ''
+      });
+    }
+    emitUpdate();
+  } catch (err) {
+    alert(err?.response?.data?.error?.message || 'Failed to import question bank');
+  } finally {
+    importingBank.value = false;
+  }
+};
+
+const saveAsBank = async () => {
+  const questions = localContent.value.questions || [];
+  if (!questions.length) {
+    alert('Add questions before saving a bank');
+    return;
+  }
+  const title = window.prompt('Question bank name', localContent.value.title || 'Question bank');
+  if (!title) return;
+  try {
+    const bankRes = await api.post('/quiz-question-banks', {
+      title,
+      description: localContent.value.description || null
+    });
+    const bankId = bankRes.data?.id;
+    for (const q of questions) {
+      const options = q.type === 'multiple_choice'
+        ? (q.options || []).map((o) => (typeof o === 'string' ? o : o.text || ''))
+        : null;
+      await api.post(`/quiz-question-banks/${bankId}/questions`, {
+        questionText: q.question,
+        questionType: q.type,
+        options,
+        correctAnswer: q.type === 'multiple_choice'
+          ? (options?.[0] || q.correctAnswer)
+          : q.correctAnswer,
+        explanation: q.explanation || null,
+        remediationHtml: q.remediationHtml || null
+      });
+    }
+    await loadBanks();
+    selectedBankId.value = bankId;
+    alert('Question bank saved');
+  } catch (err) {
+    alert(err?.response?.data?.error?.message || 'Failed to save question bank');
+  }
+};
+
+onMounted(loadBanks);
 
 const emitUpdate = () => {
   // Process questions for API format
@@ -202,7 +334,9 @@ const addQuestion = () => {
     question: '',
     type: 'multiple_choice',
     options: [{ id: `opt-${optionIdCounter++}`, text: '' }],
-    correctAnswer: ''
+    correctAnswer: '',
+    explanation: '',
+    remediationHtml: ''
   });
   emitUpdate();
 };
@@ -263,6 +397,32 @@ watch(() => props.content, (newContent) => {
 
 .form-group {
   margin-bottom: 20px;
+}
+
+.bank-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.bank-row select {
+  flex: 1;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent, #007bff);
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.bank-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
 }
 
 .form-group label {

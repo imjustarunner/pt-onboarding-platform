@@ -139,7 +139,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import QuizBuilder from './QuizBuilder.vue';
 import { normalizeQuizDataForEditor } from '../../utils/trainingContentNormalize.js';
@@ -160,6 +160,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'open-kb-settings', 'applied', 'append-draft']);
 
 const router = useRouter();
+const route = useRoute();
 
 const step = ref(1);
 const error = ref('');
@@ -310,7 +311,12 @@ const applyDraft = async () => {
     emit('applied', { moduleId });
     handleClose();
     if (moduleId) {
-      await router.push(`/admin/modules/${moduleId}/content-editor`);
+      const org = route.params.organizationSlug;
+      await router.push(
+        org
+          ? `/${org}/admin/modules/${moduleId}/builder`
+          : `/admin/modules/${moduleId}/builder`
+      );
     }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to create module';
