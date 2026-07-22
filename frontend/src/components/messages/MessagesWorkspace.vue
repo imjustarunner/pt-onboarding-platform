@@ -3023,9 +3023,45 @@ watch(
 );
 
 // When URL has openChatWith + agencyId (e.g. supervisor clicked "Chat with supervisee"), open that thread in the drawer and clear those params.
+// When URL has threadId (e.g. from Communications Center or Notifications), open that thread and clear the param.
 watch(
   () => ({ query: route.query, path: route.path }),
   async (newVal) => {
+    const threadIdStr = newVal.query?.threadId;
+    if (threadIdStr) {
+      const tid = Number(threadIdStr);
+      if (tid) {
+        try {
+          const metaRes = await api.get(`/chat/threads/${tid}/meta`, { skipGlobalLoading: true });
+          const meta = metaRes.data;
+          
+          let cName = 'Channel';
+          if (meta.thread_type === 'channel') {
+            if (!channels.value.length) await loadChannels();
+            const found = channels.value.find(c => c.thread_id === tid);
+            if (found) cName = found.name || 'Channel';
+            mainTab.value = 'channels';
+          } else {
+            mainTab.value = 'dms';
+          }
+          
+          await openConversationByThreadId({
+            threadId: tid,
+            agencyId: meta.agency_id,
+            threadType: meta.thread_type,
+            channelName: cName
+          });
+        } catch (e) {
+          // ignore
+        }
+      }
+      
+      const q = { ...newVal.query };
+      delete q.threadId;
+      router.replace({ path: newVal.path, query: q }).catch(() => {});
+      return;
+    }
+
     const openChatWith = newVal.query?.openChatWith;
     const agencyIdFromQuery = newVal.query?.agencyId;
     const openChatWithName = newVal.query?.openChatWithName;

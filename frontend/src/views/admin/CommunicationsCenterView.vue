@@ -593,7 +593,10 @@ function formatTime(v) {
 }
 
 function openPriorityItem(item) {
-  const tab = item.kind === 'secure' ? 'dms' : 'sms';
+  let tab = 'dms';
+  if (item.kind === 'sms') tab = 'sms';
+  else if (item.kind === 'team') tab = 'channels';
+
   router.push({
     path: myMessagesPath.value,
     query: {
