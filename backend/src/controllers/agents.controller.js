@@ -1540,6 +1540,38 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         const whenLabel = isMultiDay ? `over the next ${out.daysAhead} days` : `on ${dateLabel}`;
         lines.push(`${list.length} provider(s) with intake openings ${whenLabel}:\n${items.join('\n')}`);
       }
+    } else if (r.tool === 'findSchoolSlotAvailability') {
+      const out = r.result || {};
+      const location = out.locationQuery || 'that school';
+      if (Array.isArray(out.ambiguousSchools) && out.ambiguousSchools.length) {
+        const opts = out.ambiguousSchools.map((s) => `• ${s.name}`).join('\n');
+        lines.push(`Multiple schools match "${location}". Which one did you mean?\n${opts}`);
+      } else if (!out.schools?.length) {
+        lines.push(out.note || `No schools matched "${location}".`);
+      } else {
+        const schoolNames = out.schools.map((s) => s.name).join(', ');
+        const list = out.providers || [];
+        if (!list.length) {
+          lines.push(`No assigned providers have open slots at ${schoolNames}.`);
+        } else {
+          const items = list.slice(0, 15).map((p) => {
+            const dayBits = [];
+            for (const sch of p.schools || []) {
+              for (const d of sch.days || []) {
+                if (!d.slotsAvailable) continue;
+                const when = d.startTime && d.endTime ? ` ${d.startTime}–${d.endTime}` : '';
+                dayBits.push(`${d.dayLabel || '?'}${when} (${d.slotsAvailable} open)`);
+              }
+            }
+            const days = dayBits.length ? ` — ${dayBits.slice(0, 6).join('; ')}` : '';
+            const accepting = p.acceptingNewClients === false ? ' · not accepting new clients' : '';
+            return `• ${p.name}: ${p.openSlots} open slot${p.openSlots === 1 ? '' : 's'}${days}${accepting}`;
+          });
+          lines.push(
+            `${list.length} provider(s) with open school slots at ${schoolNames}:\n${items.join('\n')}`
+          );
+        }
+      }
     } else if (r.tool === 'getEventResponses') {
       const out = r.result || {};
       if (out.ambiguousEvents) {

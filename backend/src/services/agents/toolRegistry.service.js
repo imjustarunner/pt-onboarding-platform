@@ -654,6 +654,7 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'getProviderProfileFields':
       case 'getProviderIntakeAvailability':
       case 'findIntakeOpenings':
+      case 'findSchoolSlotAvailability':
         return roleAllowed(reqUser, PROVIDER_DIRECTORY_TOOL_ROLES);
       case 'getEventResponses':
         return roleAllowed(reqUser, PROGRAM_EVENTS_SEARCH_ROLES);
@@ -1163,6 +1164,30 @@ export function getToolSchemas() {
             description: 'Filter slots by modality. Default ALL.'
           }
         }
+      }
+    },
+    {
+      name: 'findSchoolSlotAvailability',
+      description:
+        'Find providers assigned to a school/org who have open caseload slots (slots_available) there. Use for "who has availability at Ashley", "who has open slots at Twain", "who is open for new clients at Green Valley". This is school assignment capacity — NOT office booking roster and NOT intake calendar openings.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          locationQuery: {
+            type: 'string',
+            description: 'School / org name fragment (e.g. "Ashley", "Twain Elementary").'
+          },
+          openSlotsOnly: {
+            type: 'boolean',
+            description: 'If true (default), only return providers with slots_available > 0.'
+          },
+          limit: {
+            type: 'integer',
+            description: 'Max providers to return (default 25).'
+          }
+        },
+        required: ['locationQuery']
       }
     },
     {
@@ -2559,6 +2584,186 @@ export async function executeToolCall({ req, toolCall }) {
         totalCandidates: providers.length,
         providersWithOpenings: results.length,
         results
+      }
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // findSchoolSlotAvailability — open caseload slots at a school/org.
+  // ---------------------------------------------------------------------
+  if (name === 'findSchoolSlotAvailability') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, PROVIDER_DIRECTORY_TOOL_ROLES)) {
+      const err = new Error('School slot availability is not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) noAgencyContextError();
+
+    const locationQuery = str(args.locationQuery, 120);
+    if (!locationQuery) {
+      const err = new Error('locationQuery is required (e.g. school name)');
+      err.status = 400;
+      throw err;
+    }
+    const openSlotsOnly = args.openSlotsOnly !== false;
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 25), 50);
+    const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    const schools = await searchAffiliatedSchoolsByName(agencyId, locationQuery, 8);
+    if (!schools.length) {
+      return {
+        ok: true,
+        tool: name,
+        result: {
+          locationQuery,
+          schools: [],
+          providers: [],
+          note: `No schools in your agency matched "${locationQuery}".`
+        }
+      };
+    }
+
+    // Prefer exact/starts-with matches when several schools match the fragment.
+    const qLower = locationQuery.toLowerCase();
+    const rankedSchools = [...schools].sort((a, b) => {
+      const an = String(a.name || '').toLowerCase();
+      const bn = String(b.name || '').toLowerCase();
+      const aScore = an === qLower ? 0 : an.startsWith(qLower) ? 1 : an.includes(qLower) ? 2 : 3;
+      const bScore = bn === qLower ? 0 : bn.startsWith(qLower) ? 1 : bn.includes(qLower) ? 2 : 3;
+      return aScore - bScore || an.localeCompare(bn);
+    });
+    const topScore = (() => {
+      const n = String(rankedSchools[0].name || '').toLowerCase();
+      return n === qLower ? 0 : n.startsWith(qLower) ? 1 : 2;
+    })();
+    const chosenSchools = rankedSchools.filter((s) => {
+      const n = String(s.name || '').toLowerCase();
+      const score = n === qLower ? 0 : n.startsWith(qLower) ? 1 : n.includes(qLower) ? 2 : 3;
+      return score <= topScore;
+    }).slice(0, 3);
+
+    if (chosenSchools.length > 1 && topScore > 0) {
+      return {
+        ok: true,
+        tool: name,
+        result: {
+          locationQuery,
+          ambiguousSchools: chosenSchools.map((s) => ({ id: s.id, name: s.name, slug: s.slug })),
+          providers: [],
+          note: `Multiple schools match "${locationQuery}". Which one did you mean?`
+        }
+      };
+    }
+
+    const schoolIds = chosenSchools.map((s) => Number(s.id)).filter(Boolean);
+    const placeholders = schoolIds.map(() => '?').join(',');
+    const openFilter = openSlotsOnly ? 'AND psa.slots_available > 0' : '';
+
+    const [rows] = await pool.execute(
+      `SELECT psa.provider_user_id,
+              psa.school_organization_id,
+              psa.day_of_week,
+              psa.slots_total,
+              psa.slots_available,
+              psa.start_time,
+              psa.end_time,
+              psa.accepting_new_clients_override,
+              u.first_name,
+              u.last_name,
+              u.email,
+              u.provider_accepting_new_clients,
+              a.name AS school_name
+       FROM provider_school_assignments psa
+       JOIN users u ON u.id = psa.provider_user_id
+       JOIN agencies a ON a.id = psa.school_organization_id
+       WHERE psa.school_organization_id IN (${placeholders})
+         AND psa.is_active = TRUE
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         ${openFilter}
+       ORDER BY a.name ASC, u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
+      schoolIds
+    );
+
+    const byProvider = new Map();
+    for (const r of rows || []) {
+      const pid = Number(r.provider_user_id);
+      if (!byProvider.has(pid)) {
+        const accepting =
+          r.accepting_new_clients_override != null
+            ? Boolean(r.accepting_new_clients_override)
+            : r.provider_accepting_new_clients == null
+              ? true
+              : Boolean(r.provider_accepting_new_clients);
+        byProvider.set(pid, {
+          providerId: pid,
+          name: [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || r.email || `User ${pid}`,
+          email: r.email || null,
+          acceptingNewClients: accepting,
+          schools: new Map()
+        });
+      }
+      const prov = byProvider.get(pid);
+      const sid = Number(r.school_organization_id);
+      if (!prov.schools.has(sid)) {
+        prov.schools.set(sid, {
+          schoolId: sid,
+          schoolName: r.school_name,
+          openSlots: 0,
+          totalSlots: 0,
+          days: []
+        });
+      }
+      const school = prov.schools.get(sid);
+      const avail = Number(r.slots_available || 0);
+      const total = Number(r.slots_total || 0);
+      school.openSlots += avail;
+      school.totalSlots += total;
+      const dow = Number(r.day_of_week);
+      const startHm = r.start_time != null ? String(r.start_time).slice(0, 5) : null;
+      const endHm = r.end_time != null ? String(r.end_time).slice(0, 5) : null;
+      school.days.push({
+        dayOfWeek: Number.isFinite(dow) ? dow : null,
+        dayLabel: Number.isFinite(dow) ? (DAY_LABELS[dow] || String(dow)) : null,
+        slotsAvailable: avail,
+        slotsTotal: total,
+        startTime: startHm,
+        endTime: endHm
+      });
+    }
+
+    let providers = Array.from(byProvider.values()).map((p) => {
+      const schoolSummaries = Array.from(p.schools.values());
+      const openSlots = schoolSummaries.reduce((n, s) => n + s.openSlots, 0);
+      return {
+        providerId: p.providerId,
+        name: p.name,
+        email: p.email,
+        acceptingNewClients: p.acceptingNewClients,
+        openSlots,
+        schools: schoolSummaries
+      };
+    });
+
+    // Prefer providers who are accepting new clients when asking about availability.
+    providers.sort((a, b) => {
+      const aAcc = a.acceptingNewClients ? 0 : 1;
+      const bAcc = b.acceptingNewClients ? 0 : 1;
+      return aAcc - bAcc || b.openSlots - a.openSlots || a.name.localeCompare(b.name);
+    });
+    providers = providers.slice(0, limit);
+
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        locationQuery,
+        schools: chosenSchools.map((s) => ({ id: s.id, name: s.name, slug: s.slug })),
+        openSlotsOnly,
+        providersWithOpenings: providers.length,
+        providers
       }
     };
   }

@@ -257,6 +257,19 @@ function parseOfficeLocationQueryFromPrompt(promptLower) {
       return name.slice(0, 100);
     }
   }
+  // "who is booked in windchime" / "who is in windchime today" / "staffed at boca"
+  const bookedAt = s.match(
+    /\b(?:booked|staffed|scheduled|roster)\s+(?:in|at)\s+(?:the\s+)?([a-z0-9][a-z0-9'-]{1,40})\b/
+  );
+  if (bookedAt?.[1] && !/^(an|the|our|any|my|this|that|office|offices)$/.test(bookedAt[1])) {
+    return bookedAt[1].slice(0, 100);
+  }
+  const whoIsIn = s.match(
+    /\b(?:who'?s|whos|who\s+is)\s+in\s+(?:the\s+)?([a-z0-9][a-z0-9'-]{1,40})\b/
+  );
+  if (whoIsIn?.[1] && !/^(an|the|our|any|my|this|that|office|offices)$/.test(whoIsIn[1])) {
+    return whoIsIn[1].slice(0, 100);
+  }
   return '';
 }
 
@@ -1140,24 +1153,46 @@ function catalogEntries() {
       audience: ['admin_like', 'provider_like'],
       group: 'Coverage and referrals',
       prompt: 'What provider has availability at Green Valley?',
-      requiredToolsAll: ['searchProviders'],
+      requiredToolsAny: ['findSchoolSlotAvailability', 'searchProviders'],
       subtitleTag: 'availability',
       semanticExamples: [
         'what provider has availability at Green Valley',
         'who has openings at twain',
         'find me a clinician at the main office',
-        'which therapist is free at roosevelt'
+        'which therapist is free at roosevelt',
+        'who has availability at Ashley',
+        'who has availability at ashley',
+        'who has open slots at Ashley',
+        'who is open for new clients at Ashley',
+        'availability at Ashley elementary'
       ],
       matcher: (lower, allowedTools) => {
-        if (!allowedTools.has('searchProviders')) return false;
-        if (!/\b(provider|therapist|clinician)s?\b/.test(lower)) return false;
-        if (!/\b(availab|openings?|free|open slots?)\b/.test(lower)) return false;
+        if (!allowedTools.has('findSchoolSlotAvailability') && !allowedTools.has('searchProviders')) return false;
+        // School / location open-slot asks — do not require "provider/therapist" wording.
+        if (!/\b(availab|openings?|open slots?|free|accepting|new clients?)\b/.test(lower)) return false;
         if (!/\b(at|in|near)\b/.test(lower)) return false;
-        return true;
+        // Leave intake calendar openings to intake_openings.
+        if (/\bintake\b/.test(lower)) return false;
+        // Leave physical office roster / schedule alone.
+        if (/\boffice(s)?\b/.test(lower) && !/\b(school|elementary|middle|high|academy)\b/.test(lower)) return false;
+        return /\b(who|what|which|find|show|list|anyone|any)\b/.test(lower)
+          || /\b(provider|therapist|clinician)s?\b/.test(lower);
       },
-      buildIntent: (lower) => {
-        const atMatch = lower.match(/\b(?:at|in|near)\s+(?:the\s+)?([a-z0-9][a-z0-9\s'-]{2,60}?)(?:\s+office|\s+school|\s*\?|$)/i);
-        const locationQuery = atMatch ? atMatch[1].trim() : null;
+      buildIntent: (lower, allowedTools) => {
+        const atMatch = lower.match(
+          /\b(?:at|in|near)\s+(?:the\s+)?([a-z0-9][a-z0-9\s'-]{1,60}?)(?:\s+elementary|\s+middle|\s+high|\s+school|\s+academy|\s+office|\s*\?|$)/i
+        );
+        const locationQuery = (atMatch?.[1] || '').trim();
+        if (allowedTools.has('findSchoolSlotAvailability')) {
+          return {
+            intent: 'provider_availability_at_location',
+            capabilityId: 'provider_availability_at_location',
+            toolCalls: [{
+              name: 'findSchoolSlotAvailability',
+              args: { locationQuery: locationQuery || '', openSlotsOnly: true, limit: 25 }
+            }]
+          };
+        }
         return {
           intent: 'provider_availability_at_location',
           capabilityId: 'provider_availability_at_location',
@@ -1453,21 +1488,31 @@ function catalogEntries() {
       matcher: (lower, allowedTools) => {
         if (!allowedTools.has('listOfficeRoster')) return false;
         if (/\bintake\b/.test(lower)) return false;
-        
-        // If it specifically asks for "who is in <location>" or "who is booked",
-        // we shouldn't strictly require the word "office".
+        // School open-slot / availability asks belong to provider_availability_at_location.
+        if (/\b(availab|openings?|open slots?|accepting|new clients?)\b/.test(lower)) return false;
+
         const asksForWho = /\b(who|who's|whos|whom)\b/.test(lower);
-        const asksForBooked = /\b(roster|staffed|providers?\s+booked|booked\s+providers?|booked\s+in|in\s+(?:the\s+)?[a-z0-9'-]+|at\s+(?:the\s+)?[a-z0-9'-]+)\b/.test(lower);
         const mentionsOffice = /\boffice(s)?\b/.test(lower);
-        
+
         if (mentionsOffice) {
           if (asksForWho) return true;
           if (/\b(roster|staffed|providers?\s+booked|booked\s+providers?)\b/.test(lower)) return true;
-        } else {
-          // If no "office" keyword, they must be very clear they are asking for a location roster.
-          if (asksForWho && /\b(staffed|booked\s+in|in\s+(?:the\s+)?[a-z0-9'-]+\s+today|at\s+(?:the\s+)?[a-z0-9'-]+)\b/.test(lower)) return true;
+          return false;
         }
-        
+
+        // Without "office": only clear roster phrasing (booked/staffed/who is in …).
+        // Do not match bare "at <name>" — that steals school availability asks.
+        if (
+          asksForWho &&
+          (
+            /\b(staffed|booked)\b/.test(lower) ||
+            /\b(who'?s|whos|who\s+is)\s+in\b/.test(lower) ||
+            /\broster\b/.test(lower)
+          )
+        ) {
+          return true;
+        }
+
         return false;
       },
       buildIntent: (lower) => {
