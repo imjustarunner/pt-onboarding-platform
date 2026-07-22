@@ -14,6 +14,11 @@ import moduleRoutes from './routes/module.routes.js';
 import progressRoutes from './routes/progress.routes.js';
 import contentRoutes from './routes/content.routes.js';
 import quizRoutes from './routes/quiz.routes.js';
+import trainingContentLibraryRoutes from './routes/trainingContentLibrary.routes.js';
+import quizQuestionBankRoutes from './routes/quizQuestionBank.routes.js';
+import courseTemplateRoutes from './routes/courseTemplate.routes.js';
+import trainingMediaLibraryRoutes from './routes/trainingMediaLibrary.routes.js';
+import trainingSavedRoutes from './routes/trainingSaved.routes.js';
 import signatureRoutes from './routes/signature.routes.js';
 import agencyRoutes from './routes/agency.routes.js';
 import trackRoutes from './routes/track.routes.js';
@@ -251,7 +256,7 @@ app.use(cors({
   origin: corsOriginFn,
   credentials: true,
   // Explicitly set allowed headers for mobile browser compatibility
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Agency-Id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-User-Authorization', 'X-Requested-With', 'X-Agency-Id'],
   // Explicitly set exposed headers (cookies are automatically exposed)
   exposedHeaders: ['Set-Cookie'],
   // Ensure preflight requests work correctly on mobile
@@ -675,6 +680,11 @@ app.use('/api/modules', moduleRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/modules', contentRoutes);
 app.use('/api/quizzes', quizRoutes);
+app.use('/api/training-content-library', trainingContentLibraryRoutes);
+app.use('/api/quiz-question-banks', quizQuestionBankRoutes);
+app.use('/api/course-templates', courseTemplateRoutes);
+app.use('/api/training-media', trainingMediaLibraryRoutes);
+app.use('/api/training-saved', trainingSavedRoutes);
 app.use('/api/signatures', signatureRoutes);
 // Mount agency public routes (resolve, slug, portal, login-theme) FIRST so unauthenticated
 // login-page branding requests succeed. agencySchools/agencyDepartments use router.use(authenticate)
