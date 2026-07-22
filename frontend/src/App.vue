@@ -458,8 +458,8 @@
                     <div
                       v-if="canSeeScheduleBuildingsDirectoryNav && !isSscSstcTenant"
                       class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout"
-                      @mouseenter="setDirectoryFlyout('schedules')"
-                      @mouseleave="setDirectoryFlyout(null)"
+                      @mouseenter="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout('schedules')"
+                      @mouseleave="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout(null)"
                     >
                       <button
                         type="button"
@@ -479,8 +479,8 @@
                     <div
                       v-if="canSeeEventsProgramsNavGroup && !isAffiliationContext"
                       class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout"
-                      @mouseenter="setDirectoryFlyout('events')"
-                      @mouseleave="setDirectoryFlyout(null)"
+                      @mouseenter="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout('events')"
+                      @mouseleave="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout(null)"
                     >
                       <button
                         type="button"
@@ -544,8 +544,8 @@
                     <div
                       v-if="!isSscSstcTenant"
                       class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout"
-                      @mouseenter="setDirectoryFlyout('public')"
-                      @mouseleave="setDirectoryFlyout(null)"
+                      @mouseenter="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout('public')"
+                      @mouseleave="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout(null)"
                     >
                       <button
                         type="button"
@@ -641,8 +641,8 @@
                     <div
                       v-if="showAffiliationsNav"
                       class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout affiliations-nav"
-                      @mouseenter="directoryAffiliationsNavExpanded = true"
-                      @mouseleave="directoryAffiliationsNavExpanded = false"
+                      @mouseenter="userPreferencesStore.navHoverMenusEnabled !== false && (directoryAffiliationsNavExpanded = true)"
+                      @mouseleave="userPreferencesStore.navHoverMenusEnabled !== false && (directoryAffiliationsNavExpanded = false)"
                     >
                       <div
                         class="nav-dropdown-group-trigger"
@@ -674,8 +674,8 @@
                     <div
                       v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav"
                       class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout school-mgmt-nav"
-                      @mouseenter="setDirectoryFlyout('schools')"
-                      @mouseleave="setDirectoryFlyout(null)"
+                      @mouseenter="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout('schools')"
+                      @mouseleave="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout(null)"
                     >
                       <div
                         class="nav-dropdown-group-trigger school-mgmt-trigger"
@@ -711,7 +711,7 @@
                         <div
                           v-if="canSeeSchoolPortalsNav"
                           class="nav-dropdown-group nav-dropdown-group-collapsible school-portals-nav"
-                          @mouseenter="directorySchoolPortalsNavExpanded = true"
+                          @mouseenter="userPreferencesStore.navHoverMenusEnabled !== false && (directorySchoolPortalsNavExpanded = true)"
                         >
                           <div
                             class="nav-dropdown-group-trigger"
@@ -895,7 +895,7 @@
                       <span
                         v-if="communicationsCenterAttentionCount > 0"
                         class="nav-badge nav-badge-pulse"
-                        :title="`${communicationsPendingCount} pending, ${communicationsOpenTicketsCount} open tickets`"
+                        :title="`${communicationsUnreadMessagesCount} unread messages, ${communicationsSupportAttentionCount} items need support`"
                       >
                         {{ formatNavBadgeCount(communicationsCenterAttentionCount) }}
                       </span>
@@ -3117,6 +3117,7 @@ const onNavMenuEnter = (key) => {
 };
 
 const onNavMenuLeave = (key) => {
+  if (userPreferencesStore.navHoverMenusEnabled === false) return;
   clearNavMenuOpenTimer();
   clearNavMenuHoverTimer();
   navMenuHoverTimer.value = setTimeout(() => {
@@ -5168,7 +5169,9 @@ watch(sessionSettingsKey, () => {
 // ---- Obnoxious notifications badge (admin/support) ----
 const communicationsPendingCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
 const communicationsOpenTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
-const communicationsCenterAttentionCount = computed(() => communicationsPendingCount.value + communicationsOpenTicketsCount.value);
+const communicationsUnreadMessagesCount = computed(() => Number(communicationsCountsStore.unreadMessagesCount || 0));
+const communicationsSupportAttentionCount = computed(() => Number(communicationsCountsStore.supportAttentionCount || 0));
+const communicationsCenterAttentionCount = computed(() => communicationsUnreadMessagesCount.value + communicationsSupportAttentionCount.value);
 
 const communicationsTotalAttentionCount = computed(() => {
   let count = 0;
