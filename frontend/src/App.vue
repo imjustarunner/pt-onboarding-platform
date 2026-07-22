@@ -880,7 +880,7 @@
                     <span
                       v-if="communicationsTotalAttentionCount > 0"
                       class="nav-badge nav-badge-pulse"
-                      :title="`${communicationsPendingCount} pending to send, ${communicationsOpenTicketsCount} open tickets, ${notificationsUnreadCount} unread notifications`"
+                      :title="`${communicationsTotalAttentionCount} item(s) need attention`"
                     >
                       {{ formatNavBadgeCount(communicationsTotalAttentionCount) }}
                     </span>
@@ -893,11 +893,11 @@
                     >
                       <span>Communications Center</span>
                       <span
-                        v-if="communicationsTotalAttentionCount > 0"
+                        v-if="communicationsCenterAttentionCount > 0"
                         class="nav-badge nav-badge-pulse"
                         :title="`${communicationsPendingCount} pending, ${communicationsOpenTicketsCount} open tickets`"
                       >
-                        {{ formatNavBadgeCount(communicationsTotalAttentionCount) }}
+                        {{ formatNavBadgeCount(communicationsCenterAttentionCount) }}
                       </span>
                     </router-link>
                     <router-link
@@ -1885,7 +1885,10 @@
                     :to="orgTo('/admin/communications')"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
-                  >Communications Center</router-link>
+                  >
+                    <span>Communications Center</span>
+                    <span class="mobile-obnoxious-badge" v-if="communicationsCenterAttentionCount > 0">{{ communicationsCenterAttentionCount }}</span>
+                  </router-link>
                   <router-link
                     v-if="canUseChats && !canUseCommunicationsCenter"
                     :to="orgTo('/messages')"
@@ -5168,12 +5171,25 @@ watch(sessionSettingsKey, () => {
 // ---- Obnoxious notifications badge (admin/support) ----
 const communicationsPendingCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
 const communicationsOpenTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
-const communicationsTotalAttentionCount = computed(
-  () =>
-    Number(communicationsCountsStore.pendingDeliveryCount || 0) +
-    Number(communicationsCountsStore.openTicketsCount || 0) +
-    Number(notificationStore.unreadCount || 0)
-);
+const communicationsCenterAttentionCount = computed(() => communicationsPendingCount.value + communicationsOpenTicketsCount.value);
+
+const communicationsTotalAttentionCount = computed(() => {
+  let count = 0;
+
+  if (canUseCommunicationsCenter.value) {
+    count += communicationsCenterAttentionCount.value;
+  } else if (!isAffiliationContext.value && canUseStandaloneTickets.value) {
+    count += communicationsOpenTicketsCount.value;
+  }
+
+  count += notificationsUnreadCount.value;
+
+  if (canShowScheduleTopNav.value && !isSscSstcTenant.value && showBuildingsPendingBadge.value) {
+    count += buildingsPendingCount.value;
+  }
+
+  return count;
+});
 const showNotificationsObnoxiousBadge = computed(() => {
   if (!isAuthenticated.value) return false;
   if (!isAdminLike.value) return false;
