@@ -1206,7 +1206,15 @@ export async function getSchoolEventOverviewForAgency(agencyId, yearOrSchoolYear
 
   const missingBySchool = {};
   for (const school of schools) {
-    missingBySchool[school.id] = await getMissingCategoriesForOrg(school.id, bounds.label);
+    missingBySchool[school.id] = [...YEARLY_UNIQUE_SCHOOL_EVENT_CATEGORIES];
+  }
+
+  for (const ev of events) {
+    if (ev.organizationId && ev.category && missingBySchool[ev.organizationId]) {
+      missingBySchool[ev.organizationId] = missingBySchool[ev.organizationId].filter(
+        (c) => c !== ev.category
+      );
+    }
   }
 
   return {
