@@ -16,7 +16,7 @@
             Review DRAFT rows and mark payable vs not payable. Changes save immediately and appear on the Payroll page too.
           </span>
           <span v-else-if="String(mode).startsWith('process_') && catchUpMode">
-            FINALIZED notes are Payable (not yet paid this catch-up). Sessions already included in Run 1 stay hidden. Late adds that weren’t in Run 1 still show.
+            Enter accurate minutes (billing units are often wrong), then mark Done. FINALIZED notes are Payable for this catch-up. Sessions already in Run 1 stay hidden.
           </span>
           <span v-else-if="String(mode).startsWith('process_')">
             Enter minutes and mark Done. Unpaid rows are included so values are ready when notes finalize.
@@ -109,8 +109,10 @@
                   <input
                     type="number"
                     class="rip-num"
+                    step="1"
+                    min="1"
                     :value="r.unit_count"
-                    :disabled="locked"
+                    :disabled="!canEditProcessing"
                     @change="updateMinutes(r, $event.target.value)"
                   />
                 </template>
@@ -142,7 +144,7 @@
                     type="button"
                     class="btn btn-secondary btn-sm"
                     style="margin-left: 8px;"
-                    :disabled="locked || Number(r.requires_processing) !== 1"
+                    :disabled="!canEditProcessing || Number(r.requires_processing) !== 1"
                     @click="toggleProcessed(r, !r.processed_at)"
                   >
                     {{ r.processed_at ? 'Undo' : 'Mark done' }}
@@ -224,19 +226,32 @@ const clientDisplay = (r) => {
   return first.length >= 2 ? `${first[0]}${first[1]}`.toUpperCase() : first.toUpperCase();
 };
 
-const periodStatusLabel = computed(() => {
+const isPeriodPosted = computed(() => {
   const st = String(props.periodStatus || '').toLowerCase();
-  if (st === 'posted' || st === 'finalized') return 'Posted (locked)';
+  return st === 'posted' || st === 'finalized';
+});
+
+/** Catch-up on a prior posted period still needs minutes + Done edits. */
+const canEditProcessing = computed(() => {
+  if (!isPeriodPosted.value) return true;
+  return !!props.catchUpMode && String(mode.value).startsWith('process_');
+});
+
+const periodStatusLabel = computed(() => {
+  if (isPeriodPosted.value) {
+    return canEditProcessing.value
+      ? 'Posted (catch-up editing unlocked)'
+      : 'Posted (locked)';
+  }
+  const st = String(props.periodStatus || '').toLowerCase();
   if (st === 'ran') return 'Ran';
   if (st === 'staged') return 'Staged';
   if (st === 'raw_imported') return 'Imported';
   return st || '—';
 });
 
-const locked = computed(() => {
-  const st = String(props.periodStatus || '').toLowerCase();
-  return st === 'posted' || st === 'finalized';
-});
+/** Draft payable / non-process edits stay locked on posted periods. */
+const locked = computed(() => isPeriodPosted.value);
 
 /** Note is payable (FINALIZED / draft payable) — NOT “already paid on a payroll run.” */
 const isNotePayable = (r) => {
@@ -371,14 +386,19 @@ const toggleDraftPayable = async (row, nextVal) => {
   }
 };
 
+const postedProcessingQs = () => (
+  isPeriodPosted.value && canEditProcessing.value ? '?allowPostedProcessing=true' : ''
+);
+
 const updateMinutes = async (row, nextValRaw) => {
-  if (!row?.id || locked.value) return;
+  if (!row?.id || !canEditProcessing.value) return;
+  if (Number(row.requires_processing) !== 1) return;
   const nextMinutes = Math.round(Number(nextValRaw));
   if (!Number.isFinite(nextMinutes) || nextMinutes <= 0) return;
   try {
     saving.value = true;
     error.value = '';
-    await api.patch(`/payroll/import-rows/${row.id}`, { unitCount: nextMinutes });
+    await api.patch(`/payroll/import-rows/${row.id}${postedProcessingQs()}`, { unitCount: nextMinutes });
     const idx = rows.value.findIndex((r) => Number(r.id) === Number(row.id));
     if (idx >= 0) rows.value[idx] = { ...rows.value[idx], unit_count: nextMinutes };
   } catch (e) {
@@ -389,11 +409,12 @@ const updateMinutes = async (row, nextValRaw) => {
 };
 
 const toggleProcessed = async (row, nextDone) => {
-  if (!row?.id || locked.value) return;
+  if (!row?.id || !canEditProcessing.value) return;
+  if (Number(row.requires_processing) !== 1) return;
   try {
     saving.value = true;
     error.value = '';
-    await api.patch(`/payroll/import-rows/${row.id}`, { processed: !!nextDone });
+    await api.patch(`/payroll/import-rows/${row.id}${postedProcessingQs()}`, { processed: !!nextDone });
     const idx = rows.value.findIndex((r) => Number(r.id) === Number(row.id));
     if (idx >= 0) {
       rows.value[idx] = {
