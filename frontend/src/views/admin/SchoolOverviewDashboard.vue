@@ -1,38 +1,93 @@
 <template>
-  <div class="container">
+  <div class="dashboard-layout" :class="{ 'sidebar-collapsed': isSidebarCollapsed }">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-menu">
+        <div class="sidebar-item" :title="isSidebarCollapsed ? 'Overview' : ''">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+          <span v-if="!isSidebarCollapsed">Overview</span>
+        </div>
+        <div class="sidebar-item active" :title="isSidebarCollapsed ? 'Schools' : ''">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+          <span v-if="!isSidebarCollapsed">Schools</span>
+        </div>
+        <div class="sidebar-item" :title="isSidebarCollapsed ? 'Events' : ''">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          <span v-if="!isSidebarCollapsed">Events</span>
+        </div>
+        <div class="sidebar-item" :title="isSidebarCollapsed ? 'Announcements' : ''">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path></svg>
+          <span v-if="!isSidebarCollapsed">Announcements</span>
+        </div>
+        <div class="sidebar-item" :title="isSidebarCollapsed ? 'Reports' : ''">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+          <span v-if="!isSidebarCollapsed">Reports</span>
+        </div>
+        <div class="sidebar-item" :title="isSidebarCollapsed ? 'Settings' : ''">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          <span v-if="!isSidebarCollapsed">Settings</span>
+        </div>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="sidebar-item" @click="isSidebarCollapsed = !isSidebarCollapsed" :title="isSidebarCollapsed ? 'Expand' : 'Collapse'">
+          <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path v-if="isSidebarCollapsed" d="M13 5l7 7-7 7M4 5l7 7-7 7"></path>
+            <path v-else d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>
+          </svg>
+          <span v-if="!isSidebarCollapsed">Collapse</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <div class="container">
     <div class="page-header" data-tour="schools-overview-header">
       <div class="header-left">
         <h1 data-tour="schools-overview-title">{{ pageTitle }}</h1>
         <span class="badge badge-info">Admin</span>
       </div>
       <div class="header-actions" data-tour="schools-overview-actions">
-        <router-link class="btn btn-secondary" to="/admin/clients">Back to Client Management</router-link>
-        <router-link class="btn btn-secondary" :to="hubTo">School Portals hub</router-link>
+        <router-link class="btn btn-secondary" to="/admin/clients">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+          Back to Client Management
+        </router-link>
+        <router-link class="btn btn-secondary" :to="hubTo">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+          School Portals Hub
+        </router-link>
         <router-link
           v-if="!isAllPortalsPage && orgType === 'school'"
           class="btn btn-secondary"
           :to="showAllPortalsTo"
         >All school portals</router-link>
-        <router-link v-if="isAllPortalsPage" class="btn btn-secondary" :to="schoolOverviewTo">School overview</router-link>
+        <router-link v-if="isAllPortalsPage" class="btn btn-secondary" :to="schoolOverviewTo">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+          School overview
+        </router-link>
         <button
           v-if="canManageSchoolsHere"
-          class="btn btn-secondary"
+          class="btn btn-primary"
           type="button"
           @click="showAddSchoolModal = true"
         >
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v16m8-8H4"></path></svg>
           Add school
         </button>
         <router-link
           v-if="canManageMarketingCampaigns"
           to="/admin/marketing-campaigns"
           class="btn btn-secondary"
-        >📣 School Marketing Campaign</router-link>
+        >
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
+          School Marketing Campaign
+        </router-link>
         <button
-          class="btn btn-primary"
+          class="btn btn-secondary"
           type="button"
           :disabled="loading || schools.length === 0"
           @click="openBulkAnnouncementModal"
         >
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path></svg>
           Post announcement
         </button>
         <button
@@ -41,9 +96,11 @@
           :disabled="loading || !selectedAgencyId"
           @click="openSchoolEventRequestModal"
         >
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
           Request school events
         </button>
         <button class="btn btn-secondary" type="button" :disabled="loading" @click="refresh">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
           {{ loading ? 'Refreshing…' : 'Refresh' }}
         </button>
       </div>
@@ -59,16 +116,17 @@
         </select>
       </div>
 
-      <div class="control control-search" style="flex: 1;">
+      <div class="control control-search">
         <label class="control-label">Search</label>
         <div class="search-row">
           <input
             v-model="searchQuery"
-            class="control-input control-input-search"
+            class="control-input-search"
             type="text"
             :placeholder="searchPlaceholder"
             data-tour="schools-overview-search"
           />
+          <svg style="width:16px;height:16px;color:#9ca3af;margin-right:8px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
           <div v-if="districtOptions.length > 1" class="district-buttons" role="group" aria-label="District filter">
             <button
               v-for="d in districtOptions"
@@ -87,10 +145,10 @@
       <div class="control">
         <label class="control-label">Sort</label>
         <select v-model="sortBy" class="control-select">
-          <option value="school_name-asc">Name (A–Z)</option>
-          <option value="school_name-desc">Name (Z–A)</option>
-          <option value="district_name-asc">District (A–Z)</option>
-          <option value="district_name-desc">District (Z–A)</option>
+          <option value="school_name-asc">Name (A - Z)</option>
+          <option value="school_name-desc">Name (Z - A)</option>
+          <option value="district_name-asc">District (A - Z)</option>
+          <option value="district_name-desc">District (Z - A)</option>
         </select>
       </div>
     </div>
@@ -161,20 +219,23 @@
     <div v-else-if="loading" class="loading">Loading school overview…</div>
 
     <div v-else class="cards-wrap">
+      <div class="total-schools-count">
+        Total schools: {{ filteredSchools.length }}
+      </div>
+
       <div v-if="filteredSchools.length === 0" class="empty-state">
         {{ emptyStateText }}
       </div>
 
-      <!-- Show All School Portals: small cards (school name + icon) like My Dashboard -->
+      <!-- Show All School Portals: small cards -->
       <div
         v-else-if="isAllPortalsPage"
         class="portal-cards-grid"
         data-tour="schools-overview-cards"
       >
-        <button
+        <div
           v-for="s in filteredSchools"
           :key="s.school_id"
-          type="button"
           class="portal-card"
           data-tour="schools-overview-card"
           @click="openSchool(s)"
@@ -193,13 +254,12 @@
           </div>
           <div class="portal-card-body">
             <div class="portal-card-name">{{ s.school_name }}</div>
-            <div class="portal-card-type">{{ formatOrgType(s.organization_type) }}</div>
           </div>
           <div class="portal-card-actions">
             <div class="portal-card-cta">Open portal</div>
             <div
               v-if="canOpenSchoolInternalNotes"
-              class="portal-card-cta portal-card-cta-secondary"
+              class="portal-card-cta-secondary"
               role="link"
               tabindex="0"
               @click.stop="openSchoolNotes(s)"
@@ -209,7 +269,7 @@
               Open notes
             </div>
           </div>
-        </button>
+        </div>
       </div>
 
       <!-- School Overview: full stats cards -->
@@ -681,7 +741,16 @@
           </div>
         </div>
       </div>
-    </div>
+      
+      <div class="dashboard-footer">
+        <div class="footer-links">
+          <a href="#">Privacy Policy</a> | <a href="#">Terms</a> | <a href="#">Public Proof</a>
+        </div>
+        <div class="footer-copy">
+          © {{ new Date().getFullYear() }} ITSCO. All rights reserved.
+        </div>
+      </div>
+    </main>
   </div>
 </template>
 
@@ -703,6 +772,7 @@ const route = useRoute();
 const router = useRouter();
 const brandingStore = useBrandingStore();
 
+const isSidebarCollapsed = ref(false);
 const loading = ref(false);
 const error = ref('');
 const schools = ref([]);
@@ -1443,44 +1513,147 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.dashboard-layout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-body, #f8fafc);
+  margin: -24px; /* override default container padding if any */
+}
+
+.sidebar {
+  width: 240px;
+  background: #115e59;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: width 0.2s ease;
+}
+.sidebar-collapsed .sidebar {
+  width: 68px;
+}
+.sidebar-collapsed .sidebar-item {
+  justify-content: center;
+  padding: 12px;
+}
+.sidebar-collapsed .sidebar-icon {
+  margin: 0;
+}
+
+.sidebar-menu {
+  flex: 1;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sidebar-bottom {
+  padding: 16px;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.sidebar-item.active {
+  background: #064e3b;
+  color: white;
+}
+
+.sidebar-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.main-content {
+  flex: 1;
+  min-width: 0;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.btn-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  vertical-align: text-bottom;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 18px;
-  padding-bottom: 12px;
-  border-bottom: 2px solid var(--border);
+  margin-bottom: 24px;
+  padding-bottom: 0;
+  border-bottom: none;
   gap: 12px;
 }
-@media (max-width: 820px) {
+@media (max-width: 1024px) {
   .page-header {
     flex-direction: column;
     align-items: flex-start;
-  }
-  .header-actions {
-    flex-wrap: wrap;
-    justify-content: flex-start;
   }
 }
 .header-left {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 0;
 }
 .header-left h1 {
   margin: 0;
+  font-size: 20px;
+  font-weight: 700;
 }
 .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.header-actions .btn {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.header-actions .btn-secondary {
+  background: white;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+.header-actions .btn-primary {
+  background: #065f46;
+  border-color: #065f46;
+  color: white;
 }
 
 .controls {
   display: flex;
-  gap: 12px;
+  gap: 16px;
   flex-wrap: wrap;
   align-items: end;
   margin-bottom: 16px;
@@ -1488,101 +1661,132 @@ onMounted(async () => {
 .control {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 220px;
+  gap: 8px;
 }
 .control-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 .control-input,
 .control-select {
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 8px;
+  padding: 8px 12px;
   background: white;
+  font-size: 13px;
 }
 .control-search {
+  flex: 1;
   min-width: 320px;
 }
 .search-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
 }
 .control-input-search {
-  flex: 1 1 320px;
-  max-width: 420px;
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  box-shadow: none;
+  outline: none;
 }
 .district-buttons {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 6px;
+  padding-right: 4px;
 }
 .district-btn {
-  border: 1px solid rgba(16, 185, 129, 0.35);
-  background: rgba(16, 185, 129, 0.12);
-  color: #065f46;
-  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 6px;
   padding: 6px 12px;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   cursor: pointer;
-  line-height: 1;
-  white-space: nowrap;
+  transition: all 0.2s;
 }
 .district-btn:hover {
-  border-color: rgba(16, 185, 129, 0.55);
-  background: rgba(16, 185, 129, 0.2);
+  background: var(--bg-alt);
 }
 .district-btn.active {
-  border-color: rgba(16, 185, 129, 0.8);
-  background: rgba(16, 185, 129, 0.28);
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.total-schools-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
 }
 
 .cards-wrap {
-  margin-top: 10px;
+  margin-top: 24px;
 }
 
-/* Small portal cards (Show All School Portals) - matches My Dashboard / AgencySelector */
+/* Small portal cards (Show All School Portals) */
 .portal-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
 }
+@media (max-width: 1200px) {
+  .portal-cards-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .portal-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .portal-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .portal-card {
   border: 1px solid var(--border);
   background: #fff;
-  border-radius: 10px;
-  padding: 12px;
+  border-radius: 12px;
+  padding: 16px;
   display: grid;
-  grid-template-columns: 40px 1fr auto;
-  gap: 10px;
-  align-items: center;
+  grid-template-columns: 48px 1fr;
+  gap: 12px;
+  align-items: start;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
 .portal-card:hover {
-  border-color: var(--primary);
-  box-shadow: var(--shadow);
-  transform: translateY(-1px);
+  border-color: #10b981;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+  transform: translateY(-2px);
 }
 .portal-card-logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
   background: var(--bg-alt);
   border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  grid-row: span 2;
 }
 .portal-card-logo-img {
   width: 100%;
@@ -1595,48 +1799,77 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-secondary);
-  text-transform: uppercase;
 }
 .portal-card-body {
   min-width: 0;
 }
 .portal-card-name {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
   font-size: 14px;
-  line-height: 1.25;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
+  margin-bottom: 4px;
 }
 .portal-card-type {
-  margin-top: 2px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  display: none; /* Hidden in mockup */
 }
 .portal-card-actions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
+  gap: 12px;
+  grid-column: 2;
+}
+.portal-card-cta, .portal-card-cta-secondary {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
-}
-.portal-card-cta {
-  color: var(--primary);
-  font-size: 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
   font-weight: 600;
-  white-space: nowrap;
+  text-decoration: none;
 }
-.portal-card-cta-secondary {
-  line-height: 1.2;
+.portal-card-cta::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'%3E%3C/path%3E%3Cpolyline points='15 3 21 3 21 9'%3E%3C/polyline%3E%3Cline x1='10' y1='14' x2='21' y2='3'%3E%3C/line%3E%3C/svg%3E");
+  background-size: cover;
 }
-.portal-card-cta-secondary:hover {
+.portal-card-cta-secondary::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'%3E%3C/path%3E%3Cpolyline points='14 2 14 8 20 8'%3E%3C/polyline%3E%3Cline x1='16' y1='13' x2='8' y2='13'%3E%3C/line%3E%3Cline x1='16' y1='17' x2='8' y2='17'%3E%3C/line%3E%3Cpolyline points='10 9 9 9 8 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-size: cover;
+}
+.portal-card-cta:hover, .portal-card-cta-secondary:hover {
+  color: var(--primary);
+}
+
+.dashboard-footer {
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.footer-links a {
+  color: inherit;
+  text-decoration: none;
+  margin: 0 4px;
+}
+.footer-links a:hover {
   text-decoration: underline;
 }
+
 .school-notes-modal {
   max-width: 560px;
   width: min(560px, 94vw);
