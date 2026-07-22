@@ -173,7 +173,9 @@ const props = defineProps({
   agencyId: { type: [Number, String], required: true },
   periodId: { type: [Number, String], required: true },
   periodLabel: { type: String, default: '' },
-  periodStatus: { type: String, default: '' }
+  periodStatus: { type: String, default: '' },
+  /** Embedded in wizard — uses full-width layout tweaks from parent. */
+  embedded: { type: Boolean, default: false }
 });
 
 defineEmits(['changed']);
@@ -187,6 +189,7 @@ const timeClaims = ref([]);
 const mileageClaims = ref([]);
 const reimbClaims = ref([]);
 const medClaims = ref([]);
+const agencyUsers = ref([]);
 
 const locked = computed(() => {
   const st = String(props.periodStatus || '').toLowerCase();
@@ -197,11 +200,20 @@ const totalPending = computed(
   () => timeClaims.value.length + mileageClaims.value.length + reimbClaims.value.length + medClaims.value.length
 );
 
+const nameForUserId = (uid) => {
+  const id = Number(uid || 0);
+  if (!id) return '—';
+  const u = (agencyUsers.value || []).find((x) => Number(x.id) === id);
+  if (!u) return `User #${id}`;
+  const n = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+  return n || `User #${id}`;
+};
+
 const providerName = (c) => {
   const n = [c.first_name || c.provider_first_name, c.last_name || c.provider_last_name].filter(Boolean).join(' ').trim();
   if (n) return n;
   if (c.provider_name) return c.provider_name;
-  return c.user_id ? `User #${c.user_id}` : '—';
+  return nameForUserId(c.user_id);
 };
 
 const fmtDate = (d) => (d ? String(d).slice(0, 10) : '—');
@@ -256,12 +268,17 @@ const reload = async () => {
     // for this period or with no suggestion yet.
     const claimParams = { agencyId: props.agencyId, status: 'submitted' };
     const periodScoped = { agencyId: props.agencyId, status: 'submitted', targetPeriodId: periodId };
-    const [timeResp, mileResp, reimbResp, medResp] = await Promise.all([
+    const usersPromise = agencyUsers.value.length
+      ? Promise.resolve({ data: agencyUsers.value })
+      : api.get('/payroll/agency-users', { params: { agencyId: props.agencyId } }).catch(() => ({ data: [] }));
+    const [timeResp, mileResp, reimbResp, medResp, usersResp] = await Promise.all([
       api.get('/payroll/time-claims', { params: claimParams }),
       api.get('/payroll/mileage-claims', { params: periodScoped }),
       api.get('/payroll/reimbursement-claims', { params: periodScoped }),
-      api.get('/payroll/medcancel-claims', { params: periodScoped })
+      api.get('/payroll/medcancel-claims', { params: periodScoped }),
+      usersPromise
     ]);
+    if (!agencyUsers.value.length) agencyUsers.value = usersResp.data || [];
     timeClaims.value = (timeResp.data || []).filter((r) => {
       if (!r || isEventTime(r)) return false;
       const suggested = Number(r.suggested_payroll_period_id || 0);
@@ -380,7 +397,10 @@ const rejectMed = (c) => {
   );
 };
 
-watch(() => [props.agencyId, props.periodId], reload);
+watch(() => [props.agencyId, props.periodId], () => {
+  agencyUsers.value = [];
+  reload();
+});
 onMounted(reload);
 </script>
 

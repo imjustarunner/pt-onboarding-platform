@@ -102,7 +102,13 @@
         <h2 class="pw-step-title">{{ currentStep?.title }}</h2>
         <p class="pw-step-desc">{{ currentStep?.description }}</p>
 
-        <div class="pw-step-grid" :class="{ 'pw-step-grid--wide': currentStep?.key === 'upload_reports' || showRawPanel || showClaimsPanel || showStagePanel || showTodosPanel || showProcessPanel || showPreviewPanel }">
+        <div
+          class="pw-step-grid"
+          :class="{
+            'pw-step-grid--wide': currentStep?.key === 'upload_reports',
+            'pw-step-grid--full': showInlinePanel
+          }"
+        >
           <div class="pw-step-primary">
             <!-- Step 1: Upload reports (current + prior v2 + two-ago v3) -->
             <template v-if="currentStep?.key === 'upload_reports'">
@@ -302,10 +308,11 @@
                     :period-id="selectedPeriodId"
                     :period-label="periodRangeLabel(selectedPeriod)"
                     :period-status="selectedPeriod?.status || ''"
+                    :embedded="true"
                   />
                   <div class="pw-inline-panel-footer">
                     <button type="button" class="btn btn-secondary btn-sm" @click="closeClaimsPanel">Collapse</button>
-                    <button type="button" class="btn btn-secondary btn-sm" @click="openClaimsOnPayrollPage">Open full Stage on Payroll page</button>
+                    <button type="button" class="btn btn-secondary btn-sm" @click="openClaimsOnPayrollPage">Open full Pending Submissions on Payroll page</button>
                   </div>
                 </div>
               </template>
@@ -425,7 +432,7 @@
                     :disabled="!selectedPeriodId || actionDisabled(action)"
                     @click="runStepAction(action)"
                   >
-                    {{ action.label }}
+                    {{ actionButtonLabel(action) }}
                   </button>
                   <button
                     v-if="currentStep?.skippable"
@@ -442,7 +449,7 @@
             </template>
           </div>
 
-          <div class="pw-step-side" v-if="currentStep?.key !== 'upload_reports' && !showRawPanel && !showClaimsPanel && !showStagePanel && !showTodosPanel && !showProcessPanel && !showPreviewPanel">
+          <div class="pw-step-side" v-if="currentStep?.key !== 'upload_reports' && !showInlinePanel">
             <div class="pw-tip">
               <div class="pw-tip-icon" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12c.8.8 1.2 1.7 1.2 2.7V17h5.6v-.3c0-1 .4-1.9 1.2-2.7A7 7 0 0 0 12 2z"/></svg>
@@ -461,7 +468,7 @@
             </div>
           </div>
 
-          <div class="pw-step-side" v-else>
+          <div class="pw-step-side" v-else-if="currentStep?.key === 'upload_reports'">
             <div class="pw-tip">
               <div class="pw-tip-icon" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12c.8.8 1.2 1.7 1.2 2.7V17h5.6v-.3c0-1 .4-1.9 1.2-2.7A7 7 0 0 0 12 2z"/></svg>
@@ -635,6 +642,17 @@ const showTodosPanel = ref(false);
 const showProcessPanel = ref(false);
 const showPreviewPanel = ref(false);
 const downloadingExport = ref(false);
+const runningPayroll = ref(false);
+const postingPayroll = ref(false);
+
+const showInlinePanel = computed(() =>
+  showRawPanel.value ||
+  showClaimsPanel.value ||
+  showStagePanel.value ||
+  showTodosPanel.value ||
+  showProcessPanel.value ||
+  showPreviewPanel.value
+);
 
 /** Org-relevant periods only: schedule-aligned, past/current + at most one upcoming (matches Payroll history). */
 const periodsForSelect = computed(() => {
@@ -1009,7 +1027,7 @@ const steps = [
     tip: 'Run results stay private until you post. After a successful run, download the ADP / payroll export CSV here without leaving the wizard.',
     checklist: ['Confirm stage is complete', 'Click Run Payroll', 'Download ADP export if needed', 'Review totals'],
     actions: [
-      { id: 'open_run', label: 'Run Payroll on Payroll page', primary: true, open: 'run' },
+      { id: 'run_payroll', label: 'Run Payroll', primary: true, runPayroll: true },
       { id: 'download_adp', label: 'Download ADP / Payroll Export CSV', primary: false, downloadAdp: true },
       { id: 'done', label: 'Already ran — continue', primary: false, complete: true }
     ],
@@ -1036,7 +1054,7 @@ const steps = [
     checklist: ['Confirm run looks correct', 'Download ADP export if needed', 'Post Payroll', 'Verify providers can see results'],
     actions: [
       { id: 'download_adp', label: 'Download ADP / Payroll Export CSV', primary: false, downloadAdp: true },
-      { id: 'open_post', label: 'Post Payroll on Payroll page', primary: true, open: 'post' },
+      { id: 'post_payroll', label: 'Post Payroll', primary: true, postPayroll: true },
       { id: 'done', label: 'Already posted — finish', primary: false, complete: true }
     ],
     skippable: false
@@ -1209,7 +1227,23 @@ const actionDisabled = (action) => {
   if (action?.usePrior) {
     return !(priorPeriod.value?.id || wizardState.value?.priorPeriodId);
   }
-  return false;
+  if (action?.runPayroll) {
+    const st = periodStatus.value;
+    return runningPayroll.value || postingPayroll.value || st === 'posted' || st === 'finalized';
+  }
+  if (action?.postPayroll) {
+    const st = periodStatus.value;
+    return postingPayroll.value || runningPayroll.value || st === 'posted' || st === 'finalized';
+  }
+  if (action?.downloadAdp) return downloadingExport.value || runningPayroll.value || postingPayroll.value;
+  return runningPayroll.value || postingPayroll.value;
+};
+
+const actionButtonLabel = (action) => {
+  if (action?.runPayroll && runningPayroll.value) return 'Running…';
+  if (action?.postPayroll && postingPayroll.value) return 'Posting…';
+  if (action?.downloadAdp && downloadingExport.value) return 'Downloading…';
+  return action?.label || 'Continue';
 };
 
 const resolveToolPeriod = ({ usePrior = false, useTwoAgo = false, catchUp = null } = {}) => {
@@ -1418,6 +1452,104 @@ const downloadAdpExportCsv = async () => {
   }
 };
 
+const runPayrollInWizard = async () => {
+  if (!selectedPeriodId.value) {
+    actionError.value = true;
+    actionMessage.value = 'Select a pay period first.';
+    return;
+  }
+  const st = periodStatus.value;
+  if (st === 'posted' || st === 'finalized') {
+    actionError.value = true;
+    actionMessage.value = 'This pay period is already posted.';
+    return;
+  }
+  runningPayroll.value = true;
+  actionError.value = false;
+  actionMessage.value = '';
+  try {
+    await api.post(`/payroll/periods/${selectedPeriodId.value}/run`);
+    await loadPeriods();
+    await loadPeriodDetails();
+    actionMessage.value = 'Payroll ran successfully. You can download the ADP export or continue to Preview Post.';
+    await markStepComplete('run');
+  } catch (e) {
+    // Historical re-run bypass for H0031/H0032 processing gate (same as Payroll page).
+    if (e?.response?.status === 409 && e?.response?.data?.pendingProcessing && selectedPeriod.value?.period_end) {
+      const endYmd = String(selectedPeriod.value.period_end || '').slice(0, 10);
+      const now = new Date();
+      const todayYmd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      if (endYmd && endYmd < todayYmd) {
+        const ok = window.confirm(
+          'This looks like an older pay period. Run payroll anyway (skip H0031/H0032 minutes gate)?\n\nDo not use if you are paying this period.'
+        );
+        if (ok) {
+          try {
+            await api.post(`/payroll/periods/${selectedPeriodId.value}/run`, {}, { params: { skipProcessingGate: 'true' } });
+            await loadPeriods();
+            await loadPeriodDetails();
+            actionMessage.value = 'Payroll ran successfully (processing gate skipped).';
+            await markStepComplete('run');
+            return;
+          } catch (e2) {
+            actionError.value = true;
+            actionMessage.value = e2?.response?.data?.error?.message || e2?.message || 'Failed to run payroll';
+            return;
+          }
+        }
+      }
+    }
+    actionError.value = true;
+    const data = e?.response?.data || {};
+    const msg = data?.error?.message || e?.message || 'Failed to run payroll';
+    if (e?.response?.status === 409 && (data.pendingMileage || data.pendingMedcancel || data.pendingTodos || data.pendingTimeClaims)) {
+      actionMessage.value = `${msg} Open Pending Submissions or Manage To-Dos in Adjustments, then try Run again.`;
+    } else {
+      actionMessage.value = msg;
+    }
+  } finally {
+    runningPayroll.value = false;
+  }
+};
+
+const postPayrollInWizard = async () => {
+  if (!selectedPeriodId.value) {
+    actionError.value = true;
+    actionMessage.value = 'Select a pay period first.';
+    return;
+  }
+  const st = periodStatus.value;
+  if (st === 'posted' || st === 'finalized') {
+    actionError.value = true;
+    actionMessage.value = 'This pay period is already posted.';
+    return;
+  }
+  if (st !== 'ran' && !(summaries.value || []).length) {
+    actionError.value = true;
+    actionMessage.value = 'Run Payroll first before posting.';
+    return;
+  }
+  const ok = window.confirm(
+    'Post payroll for this period?\n\nProviders will be able to see results, and the period will lock as posted.'
+  );
+  if (!ok) return;
+  postingPayroll.value = true;
+  actionError.value = false;
+  actionMessage.value = '';
+  try {
+    await api.post(`/payroll/periods/${selectedPeriodId.value}/post`);
+    await loadPeriods();
+    await loadPeriodDetails();
+    actionMessage.value = 'Payroll posted successfully.';
+    await markStepComplete('post');
+  } catch (e) {
+    actionError.value = true;
+    actionMessage.value = e?.response?.data?.error?.message || e?.message || 'Failed to post payroll';
+  } finally {
+    postingPayroll.value = false;
+  }
+};
+
 const onProcessChangesApplied = async () => {
   actionError.value = false;
   actionMessage.value = 'Late notes added to the current period. You can mark this step done and continue.';
@@ -1511,6 +1643,14 @@ const runStepAction = async (action) => {
     }
     if (action.downloadAdp) {
       await downloadAdpExportCsv();
+      return;
+    }
+    if (action.runPayroll) {
+      await runPayrollInWizard();
+      return;
+    }
+    if (action.postPayroll) {
+      await postPayrollInWizard();
       return;
     }
     if (action.open) {
@@ -2104,6 +2244,9 @@ onMounted(bootstrap);
 .pw-step-grid--wide {
   grid-template-columns: 1.7fr 0.9fr;
 }
+.pw-step-grid--full {
+  grid-template-columns: 1fr;
+}
 
 .pw-upload-layout {
   display: flex;
@@ -2526,6 +2669,12 @@ onMounted(bootstrap);
   padding: 16px 18px;
   max-height: 540px;
   overflow-y: auto;
+}
+.pw-inline-panel :deep(.pcp) {
+  padding: 16px 18px;
+}
+.pw-inline-panel :deep(.pcp-table-wrap) {
+  max-height: none;
 }
 .pw-inline-panel-footer {
   display: flex;
