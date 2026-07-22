@@ -1070,7 +1070,9 @@ function catalogEntries() {
       semanticExamples: [
         'any intake slots available today',
         'who is free for a new intake',
-        'intake availability this week'
+        'intake availability this week',
+        'who has an intake opening',
+        'who has an intake opening today'
       ],
       matcher: (lower, allowedTools) =>
         allowedTools.has('findIntakeOpenings') &&
@@ -1443,7 +1445,10 @@ function catalogEntries() {
         'who is in the office today',
         'show me who is scheduled at the office',
         'office roster today',
-        'which providers are booked in office'
+        'which providers are booked in office',
+        'who is in windchime',
+        'who is booked in the windchime office today',
+        'who is staffed at boca'
       ],
       matcher: (lower, allowedTools) => {
         if (!allowedTools.has('listOfficeRoster')) return false;
