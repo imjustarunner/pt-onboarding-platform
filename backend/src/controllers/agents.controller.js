@@ -1260,8 +1260,9 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       } else {
         const range = [r.result?.startDate, r.result?.endDate].filter(Boolean).join(' → ');
         const rangeSuffix = range ? ` (${range})` : '';
-        const header = `Found ${total} matching row(s)${rangeSuffix}${total > rows.length ? `, showing ${rows.length}` : ''}:`;
-        const items = rows.slice(0, 20).map((row) => {
+        const limitRendered = Math.min(25, rows.length);
+        const header = `Found ${total} matching row(s)${rangeSuffix}${total > rows.length ? `, showing ${limitRendered}` : ''}:`;
+        const items = rows.slice(0, 25).map((row) => {
           const when = row.createdAt ? String(row.createdAt).replace('T', ' ').slice(0, 16) : '—';
           const who = row.userEmail || row.userName || (row.userId ? `user #${row.userId}` : 'unknown user');
           const what = row.actionLabel || row.actionType || 'Activity';

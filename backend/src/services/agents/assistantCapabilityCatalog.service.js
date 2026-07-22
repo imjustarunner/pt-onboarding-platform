@@ -1090,6 +1090,45 @@ function catalogEntries() {
       }
     },
     {
+      id: 'providers_at_location',
+      audience: ['admin_like', 'provider_like'],
+      group: 'Navigation and lookup',
+      prompt: 'What clinicians are at Twain?',
+      requiredToolsAll: ['searchProviders'],
+      subtitleTag: 'providers',
+      semanticExamples: [
+        'what clinicians or providers are at twain',
+        'who works at the main office',
+        'find therapists assigned to roosevelt',
+        'list providers in green valley',
+        'what provider is at fremont elementary'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('searchProviders')) return false;
+        if (!/\b(provider|therapist|clinician|staff)s?\b/.test(lower)) return false;
+        if (!/\b(at|in|near|assigned to|is)\b/.test(lower)) return false;
+        // Don't intercept availability queries
+        if (/\b(availab|openings?|free|open slots?)\b/.test(lower)) return false;
+        // Require who/what/find
+        return /\b(what|who|which|find|list)\b/.test(lower);
+      },
+      buildIntent: (lower) => {
+        const atMatch = lower.match(/\b(?:is\s+)?(?:at|in|near|assigned to|is)\s+(?:the\s+)?([a-z0-9][a-z0-9\s'-]{2,60}?)(?:\s+office|\s+school|\s*\?|$)/i);
+        const locationQuery = atMatch ? atMatch[1].trim() : null;
+        return {
+          intent: 'providers_at_location',
+          capabilityId: 'providers_at_location',
+          toolCalls: [{
+            name: 'searchProviders',
+            args: {
+              textQuery: locationQuery || '',
+              limit: 20
+            }
+          }]
+        };
+      }
+    },
+    {
       id: 'provider_availability_at_location',
       audience: ['admin_like', 'provider_like'],
       group: 'Coverage and referrals',
@@ -1404,9 +1443,22 @@ function catalogEntries() {
       matcher: (lower, allowedTools) => {
         if (!allowedTools.has('listOfficeRoster')) return false;
         if (/\bintake\b/.test(lower)) return false;
-        if (!/\boffice(s)?\b/.test(lower)) return false;
-        if (/\b(who|who's|whos|whom)\b/.test(lower)) return true;
-        return /\b(roster|staffed|providers?\s+booked|booked\s+providers?)\b/.test(lower);
+        
+        // If it specifically asks for "who is in <location>" or "who is booked",
+        // we shouldn't strictly require the word "office".
+        const asksForWho = /\b(who|who's|whos|whom)\b/.test(lower);
+        const asksForBooked = /\b(roster|staffed|providers?\s+booked|booked\s+providers?|booked\s+in|in\s+(?:the\s+)?[a-z0-9'-]+|at\s+(?:the\s+)?[a-z0-9'-]+)\b/.test(lower);
+        const mentionsOffice = /\boffice(s)?\b/.test(lower);
+        
+        if (mentionsOffice) {
+          if (asksForWho) return true;
+          if (/\b(roster|staffed|providers?\s+booked|booked\s+providers?)\b/.test(lower)) return true;
+        } else {
+          // If no "office" keyword, they must be very clear they are asking for a location roster.
+          if (asksForWho && /\b(staffed|booked\s+in|in\s+(?:the\s+)?[a-z0-9'-]+\s+today|at\s+(?:the\s+)?[a-z0-9'-]+)\b/.test(lower)) return true;
+        }
+        
+        return false;
       },
       buildIntent: (lower) => {
         const dateHint = parseDateHintFromPrompt(lower);
@@ -1506,17 +1558,29 @@ function catalogEntries() {
         start.setDate(start.getDate() - 7);
         const startDate = start.toISOString().slice(0, 10);
         const endDate = end.toISOString().slice(0, 10);
-        if (allowedTools.has('searchAgencyActivity')) {
+        
+        // If they explicitly ask for a raw log, list, or a specific user's log, use search
+        const wantsRawLogs = /\b(log|list|details|raw)\b/.test(lower) || /\b(who|user)\b/.test(lower);
+
+        if (wantsRawLogs && allowedTools.has('searchAgencyActivity')) {
           return {
             intent: 'agency_activity',
             capabilityId: 'agency_activity',
             toolCalls: [{ name: 'searchAgencyActivity', args: { startDate, endDate, limit: 25 } }]
           };
         }
+        if (allowedTools.has('getAgencyActivityStats')) {
+          return {
+            intent: 'agency_activity_stats',
+            capabilityId: 'agency_activity',
+            toolCalls: [{ name: 'getAgencyActivityStats', args: { startDate, endDate, limit: 10 } }]
+          };
+        }
+        // Fallback if they only have search
         return {
-          intent: 'agency_activity_stats',
+          intent: 'agency_activity',
           capabilityId: 'agency_activity',
-          toolCalls: [{ name: 'getAgencyActivityStats', args: { startDate, endDate, limit: 10 } }]
+          toolCalls: [{ name: 'searchAgencyActivity', args: { startDate, endDate, limit: 25 } }]
         };
       }
     },
