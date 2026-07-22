@@ -4,8 +4,8 @@
       <div>
         <div class="pcp-title">Pending Submissions</div>
         <div class="pcp-hint">
-          Approve employee-submitted time claims, mileage, reimbursements, and MedCancel for this pay period.
-          Changes save immediately and appear on the Payroll page too.
+          Approve what belongs in this pay period. You can leave the rest — Run Payroll will offer to carry
+          skipped claims to the next period so they stay available to approve later.
         </div>
         <div v-if="periodLabel" class="pcp-period">Period: <strong>{{ periodLabel }}</strong></div>
       </div>
@@ -266,27 +266,32 @@ const reload = async () => {
     // Log Time / other employee claims land with target_payroll_period_id NULL until approve.
     // Load agency-wide submitted rows (same as Pending Submissions), then keep those suggested
     // for this period or with no suggestion yet.
+    // Agency-wide submitted claims; keep anything not already targeted to another period
+    // so skipped/left-behind claims remain easy to approve on a later period.
     const claimParams = { agencyId: props.agencyId, status: 'submitted' };
-    const periodScoped = { agencyId: props.agencyId, status: 'submitted', targetPeriodId: periodId };
     const usersPromise = agencyUsers.value.length
       ? Promise.resolve({ data: agencyUsers.value })
       : api.get('/payroll/agency-users', { params: { agencyId: props.agencyId } }).catch(() => ({ data: [] }));
     const [timeResp, mileResp, reimbResp, medResp, usersResp] = await Promise.all([
       api.get('/payroll/time-claims', { params: claimParams }),
-      api.get('/payroll/mileage-claims', { params: periodScoped }),
-      api.get('/payroll/reimbursement-claims', { params: periodScoped }),
-      api.get('/payroll/medcancel-claims', { params: periodScoped }),
+      api.get('/payroll/mileage-claims', { params: claimParams }),
+      api.get('/payroll/reimbursement-claims', { params: claimParams }),
+      api.get('/payroll/medcancel-claims', { params: claimParams }),
       usersPromise
     ]);
     if (!agencyUsers.value.length) agencyUsers.value = usersResp.data || [];
-    timeClaims.value = (timeResp.data || []).filter((r) => {
-      if (!r || isEventTime(r)) return false;
+    const actionableForPeriod = (r) => {
+      if (!r) return false;
+      const target = Number(r.target_payroll_period_id || 0);
+      if (target && target !== periodId) return false;
       const suggested = Number(r.suggested_payroll_period_id || 0);
+      // Prefer this period’s suggestions, but also keep unassigned / rolled-forward leftovers.
       return !suggested || suggested === periodId;
-    });
-    mileageClaims.value = mileResp.data || [];
-    reimbClaims.value = reimbResp.data || [];
-    medClaims.value = medResp.data || [];
+    };
+    timeClaims.value = (timeResp.data || []).filter((r) => !isEventTime(r) && actionableForPeriod(r));
+    mileageClaims.value = (mileResp.data || []).filter(actionableForPeriod);
+    reimbClaims.value = (reimbResp.data || []).filter(actionableForPeriod);
+    medClaims.value = (medResp.data || []).filter(actionableForPeriod);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load pending submissions';
   } finally {

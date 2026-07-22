@@ -990,7 +990,7 @@ const steps = [
     key: 'claims',
     title: 'Approve Submitted Claims',
     description: 'Review and approve time claims, mileage, reimbursements, and MedCancel that employees submitted for this pay period.',
-    tip: 'Pending claims block a clean run. Approve what belongs in this period, or reject / leave the rest.',
+    tip: 'Approve what belongs in this period. You can leave the rest — Run Payroll will ask to carry skipped claims to the next period.',
     checklist: [
       'Review Time Claims, Mileage, Reimbursements, and MedCancel',
       'Approve items that belong in this pay period',
@@ -1023,8 +1023,8 @@ const steps = [
   {
     key: 'run',
     title: 'Run Payroll',
-    description: 'Calculate provider totals for this pay period. Blocked if To-Dos or required submissions are pending.',
-    tip: 'Run results stay private until you post. After a successful run, download the ADP / payroll export CSV here without leaving the wizard.',
+    description: 'Calculate provider totals for this pay period. Blocked if To-Dos are still open. Pending claims can be left for the next period.',
+    tip: 'Run results stay private until you post. Skipped claims stay submitted and move to the next period so you can approve them later.',
     checklist: ['Confirm stage is complete', 'Click Run Payroll', 'Download ADP export if needed', 'Review totals'],
     actions: [
       { id: 'run_payroll', label: 'Run Payroll', primary: true, runPayroll: true },
@@ -1452,6 +1452,41 @@ const downloadAdpExportCsv = async () => {
   }
 };
 
+const pendingClaimsConfirmMessage = (data) => {
+  const parts = [];
+  const t = Number(data?.pendingTime?.count || 0);
+  const m = Number(data?.pendingMileage?.count || 0);
+  const mc = Number(data?.pendingMedcancel?.count || 0);
+  const r = Number(data?.pendingReimbursement?.count || 0);
+  if (t) parts.push(`${t} time claim(s)`);
+  if (m) parts.push(`${m} mileage`);
+  if (mc) parts.push(`${mc} MedCancel`);
+  if (r) parts.push(`${r} reimbursement(s)`);
+  const list = parts.length ? parts.join(', ') : 'pending submissions';
+  return (
+    `${data?.error?.message || 'Pending submissions are still awaiting approval.'}\n\n` +
+    `Leave ${list} for the next pay period and run anyway?\n\n` +
+    'Skipped claims stay submitted and will be available to approve on the next period.'
+  );
+};
+
+const runPayrollRequest = async (params = {}) => {
+  const resp = await api.post(`/payroll/periods/${selectedPeriodId.value}/run`, {}, { params });
+  await loadPeriods();
+  await loadPeriodDetails();
+  const deferred = resp.data?.deferredClaims;
+  const left = deferred?.leftBehind || {};
+  const leftCount =
+    Number(left.time || 0) + Number(left.mileage || 0) + Number(left.medcancel || 0) + Number(left.reimbursement || 0);
+  if (leftCount > 0) {
+    actionMessage.value =
+      `Payroll ran successfully. ${leftCount} skipped claim(s) were left for the next period — approve them there when ready.`;
+  } else {
+    actionMessage.value = 'Payroll ran successfully. You can download the ADP export or continue to Preview Post.';
+  }
+  await markStepComplete('run');
+};
+
 const runPayrollInWizard = async () => {
   if (!selectedPeriodId.value) {
     actionError.value = true;
@@ -1468,14 +1503,32 @@ const runPayrollInWizard = async () => {
   actionError.value = false;
   actionMessage.value = '';
   try {
-    await api.post(`/payroll/periods/${selectedPeriodId.value}/run`);
-    await loadPeriods();
-    await loadPeriodDetails();
-    actionMessage.value = 'Payroll ran successfully. You can download the ADP export or continue to Preview Post.';
-    await markStepComplete('run');
+    await runPayrollRequest();
   } catch (e) {
+    const data = e?.response?.data || {};
+    // Leave pending claims for next period (same as Payroll page).
+    if (
+      e?.response?.status === 409 &&
+      data.allowPendingClaims &&
+      (data.pendingTime || data.pendingMileage || data.pendingMedcancel || data.pendingReimbursement)
+    ) {
+      const ok = window.confirm(pendingClaimsConfirmMessage(data));
+      if (ok) {
+        try {
+          await runPayrollRequest({ allowPendingClaims: 'true' });
+          return;
+        } catch (e2) {
+          actionError.value = true;
+          actionMessage.value = e2?.response?.data?.error?.message || e2?.message || 'Failed to run payroll';
+          return;
+        }
+      }
+      actionError.value = true;
+      actionMessage.value = 'Run cancelled. Approve or reject claims in Adjustments, or confirm leaving them for next period.';
+      return;
+    }
     // Historical re-run bypass for H0031/H0032 processing gate (same as Payroll page).
-    if (e?.response?.status === 409 && e?.response?.data?.pendingProcessing && selectedPeriod.value?.period_end) {
+    if (e?.response?.status === 409 && data.pendingProcessing && selectedPeriod.value?.period_end) {
       const endYmd = String(selectedPeriod.value.period_end || '').slice(0, 10);
       const now = new Date();
       const todayYmd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -1485,11 +1538,8 @@ const runPayrollInWizard = async () => {
         );
         if (ok) {
           try {
-            await api.post(`/payroll/periods/${selectedPeriodId.value}/run`, {}, { params: { skipProcessingGate: 'true' } });
-            await loadPeriods();
-            await loadPeriodDetails();
+            await runPayrollRequest({ skipProcessingGate: 'true' });
             actionMessage.value = 'Payroll ran successfully (processing gate skipped).';
-            await markStepComplete('run');
             return;
           } catch (e2) {
             actionError.value = true;
@@ -1500,10 +1550,9 @@ const runPayrollInWizard = async () => {
       }
     }
     actionError.value = true;
-    const data = e?.response?.data || {};
     const msg = data?.error?.message || e?.message || 'Failed to run payroll';
-    if (e?.response?.status === 409 && (data.pendingMileage || data.pendingMedcancel || data.pendingTodos || data.pendingTimeClaims)) {
-      actionMessage.value = `${msg} Open Pending Submissions or Manage To-Dos in Adjustments, then try Run again.`;
+    if (e?.response?.status === 409 && data.pendingTodos) {
+      actionMessage.value = `${msg} Open Manage To-Dos in Adjustments, mark them Done, then try Run again.`;
     } else {
       actionMessage.value = msg;
     }

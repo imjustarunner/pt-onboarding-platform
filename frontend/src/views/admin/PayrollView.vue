@@ -8831,10 +8831,18 @@ const loadPendingTimeClaims = async () => {
   try {
     pendingTimeLoading.value = true;
     pendingTimeError.value = '';
+    // Submitted claims usually have null target until approve — use agency-wide + suggested/period filter.
     const resp = await api.get('/payroll/time-claims', {
-      params: { agencyId: agencyId.value, status: 'submitted', targetPeriodId: selectedPeriodId.value }
+      params: { agencyId: agencyId.value, status: 'submitted' }
     });
-    pendingTimeClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object' && !isSkillBuilderEventTimeClaim(r));
+    const periodId = Number(selectedPeriodId.value);
+    pendingTimeClaims.value = (resp.data || []).filter((r) => {
+      if (!r || typeof r !== 'object' || isSkillBuilderEventTimeClaim(r)) return false;
+      const target = Number(r.target_payroll_period_id || 0);
+      if (target && target !== periodId) return false;
+      const suggested = Number(r.suggested_payroll_period_id || 0);
+      return !suggested || suggested === periodId;
+    });
     const next = { ...(timeTargetPeriodByClaimId.value || {}) };
     const bNext = { ...(timeBucketByClaimId.value || {}) };
     const hNext = { ...(timeCreditsHoursByClaimId.value || {}) };
@@ -14086,9 +14094,53 @@ const runPayroll = async () => {
     await loadPeriods();
     await loadPeriodDetails();
   } catch (e) {
+    const data = e.response?.data || {};
+    // Leave pending employee submissions for the next period and run anyway.
+    if (
+      e.response?.status === 409 &&
+      data.allowPendingClaims &&
+      (data.pendingTime || data.pendingMileage || data.pendingMedcancel || data.pendingReimbursement)
+    ) {
+      const parts = [];
+      if (data.pendingTime?.count) parts.push(`${data.pendingTime.count} time claim(s)`);
+      if (data.pendingMileage?.count) parts.push(`${data.pendingMileage.count} mileage`);
+      if (data.pendingMedcancel?.count) parts.push(`${data.pendingMedcancel.count} MedCancel`);
+      if (data.pendingReimbursement?.count) parts.push(`${data.pendingReimbursement.count} reimbursement(s)`);
+      const ok = window.confirm(
+        `${data?.error?.message || 'Pending submissions are still awaiting approval.'}\n\n` +
+          `Leave ${parts.join(', ') || 'pending submissions'} for the next pay period and run anyway?\n\n` +
+          'Skipped claims stay submitted and will be available to approve on the next period.'
+      );
+      if (ok) {
+        try {
+          await api.post(
+            `/payroll/periods/${selectedPeriodId.value}/run`,
+            {},
+            { params: { allowPendingClaims: 'true' } }
+          );
+          await loadPeriods();
+          await loadPeriodDetails();
+          return;
+        } catch (e2) {
+          error.value = e2.response?.data?.error?.message || e2.message || 'Failed to run payroll';
+          return;
+        }
+      }
+      error.value = 'Run cancelled. Approve/reject claims, or confirm leaving them for the next period.';
+      if (data.pendingTime || data.pendingMileage || data.pendingMedcancel || data.pendingReimbursement) {
+        showStageModal.value = true;
+        try {
+          if (data.pendingTime) await loadPendingTimeClaims();
+          if (data.pendingMileage) await loadPendingMileageClaims();
+          if (data.pendingMedcancel) await loadPendingMedcancelClaims();
+        } catch { /* ignore */ }
+      }
+      return;
+    }
+
     // If trying to re-run a historical pay period just to compare unpaid/no-note changes,
     // allow bypassing the H0031/H0032 processing gate.
-    if (e.response?.status === 409 && e.response?.data?.pendingProcessing && selectedPeriod.value?.period_end) {
+    if (e.response?.status === 409 && data.pendingProcessing && selectedPeriod.value?.period_end) {
       const endYmd = String(selectedPeriod.value.period_end || '').slice(0, 10);
       const now = new Date();
       const todayYmd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -14111,21 +14163,13 @@ const runPayroll = async () => {
       }
     }
 
-    const msg = e.response?.data?.error?.message || e.message || 'Failed to run payroll';
+    const msg = data?.error?.message || e.message || 'Failed to run payroll';
     error.value = msg;
-    // If blocked due to pending mileage approvals, open Payroll Stage and show the list.
-    if (e.response?.status === 409 && e.response?.data?.pendingMileage) {
+    // If blocked due to pending todos, open Payroll Stage.
+    if (e.response?.status === 409 && data.pendingTodos) {
       showStageModal.value = true;
-      await loadPendingMileageClaims();
+      try { await loadPayrollTodos(); } catch { /* ignore */ }
     }
-    if (e.response?.status === 409 && e.response?.data?.pendingMedcancel) {
-      showStageModal.value = true;
-      await loadPendingMedcancelClaims();
-    }
-      if (e.response?.status === 409 && e.response?.data?.pendingTodos) {
-        showStageModal.value = true;
-        try { await loadPayrollTodos(); } catch { /* ignore */ }
-      }
   } finally {
     runningPayroll.value = false;
   }

@@ -12721,6 +12721,45 @@ export const submitPayrollPeriod = async (req, res, next) => {
   }
 };
 
+/**
+ * Move leftover submitted claims off this period so they no longer block re-runs
+ * and surface on the next open period for approval.
+ */
+async function rolloverUnresolvedClaimsAfterRun({ agencyId, fromPeriodId, fromPeriodEndYmd }) {
+  const next = await PayrollPeriod.findNextForAgencyAfter({
+    agencyId,
+    afterDateYmd: String(fromPeriodEndYmd || '').slice(0, 10)
+  });
+  const nextId = next?.id ? Number(next.id) : null;
+  const tables = [
+    'payroll_time_claims',
+    'payroll_mileage_claims',
+    'payroll_medcancel_claims',
+    'payroll_reimbursement_claims'
+  ];
+  let rolled = 0;
+  for (const table of tables) {
+    try {
+      const [result] = await pool.execute(
+        `UPDATE ${table}
+         SET suggested_payroll_period_id = ?,
+             target_payroll_period_id = NULL
+         WHERE agency_id = ?
+           AND status = 'submitted'
+           AND (
+             target_payroll_period_id = ?
+             OR (target_payroll_period_id IS NULL AND suggested_payroll_period_id = ?)
+           )`,
+        [nextId, agencyId, fromPeriodId, fromPeriodId]
+      );
+      rolled += Number(result?.affectedRows || 0);
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
+  }
+  return { nextPeriodId: nextId, rolledCount: rolled };
+}
+
 export const runPayrollPeriod = async (req, res, next) => {
   try {
     const payrollPeriodId = parseInt(req.params.id);
@@ -12733,6 +12772,10 @@ export const runPayrollPeriod = async (req, res, next) => {
     const skipProcessingGate =
       String(req.query?.skipProcessingGate || '').toLowerCase() === 'true' ||
       String(req.query?.skipProcessingGate || '') === '1';
+    // Allow leaving pending employee submissions for a later period (still block To-Dos).
+    const allowPendingClaims =
+      String(req.query?.allowPendingClaims || req.body?.allowPendingClaims || '').toLowerCase() === 'true' ||
+      String(req.query?.allowPendingClaims || req.body?.allowPendingClaims || '') === '1';
 
     const st = String(period.status || '').toLowerCase();
     if (st === 'posted' || st === 'finalized') {
@@ -12755,91 +12798,57 @@ export const runPayrollPeriod = async (req, res, next) => {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
-    // Block running payroll if there are unresolved mileage submissions for this pay period.
+    // Pending employee submissions can be left for a later period when allowPendingClaims=true.
     const pendingMileageCount = await PayrollMileageClaim.countUnresolvedForPeriod({
       payrollPeriodId,
       agencyId: period.agency_id
     });
-    if (pendingMileageCount > 0) {
-      const sample = await PayrollMileageClaim.listUnresolvedForPeriod({
-        payrollPeriodId,
-        agencyId: period.agency_id,
-        limit: 20
-      });
-      return res.status(409).json({
-        error: {
-          message: `Cannot run payroll: ${pendingMileageCount} mileage submission(s) pending approval for this pay period.`
-        },
-        pendingMileage: {
-          count: pendingMileageCount,
-          claims: sample
-        }
-      });
-    }
-
-    // Block running payroll if there are unresolved MedCancel submissions for this pay period.
     const pendingMedcancelCount = await PayrollMedcancelClaim.countUnresolvedForPeriod({
       payrollPeriodId,
       agencyId: period.agency_id
     });
-    if (pendingMedcancelCount > 0) {
-      const sample = await PayrollMedcancelClaim.listUnresolvedForPeriod({
-        payrollPeriodId,
-        agencyId: period.agency_id,
-        limit: 20
-      });
-      return res.status(409).json({
-        error: {
-          message: `Cannot run payroll: ${pendingMedcancelCount} MedCancel submission(s) pending approval for this pay period.`
-        },
-        pendingMedcancel: {
-          count: pendingMedcancelCount,
-          claims: sample
-        }
-      });
-    }
-
-    // Block running payroll if there are unresolved reimbursement submissions for this pay period.
     const pendingReimbursementCount = await PayrollReimbursementClaim.countUnresolvedForPeriod({
       payrollPeriodId,
       agencyId: period.agency_id
     });
-    if (pendingReimbursementCount > 0) {
-      const sample = await PayrollReimbursementClaim.listUnresolvedForPeriod({
-        payrollPeriodId,
-        agencyId: period.agency_id,
-        limit: 20
-      });
-      return res.status(409).json({
-        error: {
-          message: `Cannot run payroll: ${pendingReimbursementCount} reimbursement submission(s) pending approval for this pay period.`
-        },
-        pendingReimbursement: {
-          count: pendingReimbursementCount,
-          claims: sample
-        }
-      });
-    }
-
-    // Block running payroll if there are unresolved time submissions for this pay period.
     const pendingTimeCount = await PayrollTimeClaim.countUnresolvedForPeriod({
       payrollPeriodId,
       agencyId: period.agency_id
     });
-    if (pendingTimeCount > 0) {
-      const sample = await PayrollTimeClaim.listUnresolvedForPeriod({
-        payrollPeriodId,
-        agencyId: period.agency_id,
-        limit: 20
-      });
+    const pendingClaimsTotal =
+      pendingMileageCount + pendingMedcancelCount + pendingReimbursementCount + pendingTimeCount;
+
+    if (pendingClaimsTotal > 0 && !allowPendingClaims) {
+      const [mileageSample, medSample, reimbSample, timeSample] = await Promise.all([
+        pendingMileageCount
+          ? PayrollMileageClaim.listUnresolvedForPeriod({ payrollPeriodId, agencyId: period.agency_id, limit: 20 })
+          : Promise.resolve([]),
+        pendingMedcancelCount
+          ? PayrollMedcancelClaim.listUnresolvedForPeriod({ payrollPeriodId, agencyId: period.agency_id, limit: 20 })
+          : Promise.resolve([]),
+        pendingReimbursementCount
+          ? PayrollReimbursementClaim.listUnresolvedForPeriod({ payrollPeriodId, agencyId: period.agency_id, limit: 20 })
+          : Promise.resolve([]),
+        pendingTimeCount
+          ? PayrollTimeClaim.listUnresolvedForPeriod({ payrollPeriodId, agencyId: period.agency_id, limit: 20 })
+          : Promise.resolve([])
+      ]);
+      const parts = [];
+      if (pendingTimeCount) parts.push(`${pendingTimeCount} time claim(s)`);
+      if (pendingMileageCount) parts.push(`${pendingMileageCount} mileage submission(s)`);
+      if (pendingMedcancelCount) parts.push(`${pendingMedcancelCount} MedCancel submission(s)`);
+      if (pendingReimbursementCount) parts.push(`${pendingReimbursementCount} reimbursement submission(s)`);
       return res.status(409).json({
         error: {
-          message: `Cannot run payroll: ${pendingTimeCount} time claim(s) pending approval for this pay period.`
+          message: `Cannot run payroll: ${parts.join(', ')} pending approval for this pay period. Approve what belongs here, or leave the rest for the next period.`
         },
-        pendingTime: {
-          count: pendingTimeCount,
-          claims: sample
-        }
+        allowPendingClaims: true,
+        pendingMileage: pendingMileageCount ? { count: pendingMileageCount, claims: mileageSample } : undefined,
+        pendingMedcancel: pendingMedcancelCount ? { count: pendingMedcancelCount, claims: medSample } : undefined,
+        pendingReimbursement: pendingReimbursementCount
+          ? { count: pendingReimbursementCount, claims: reimbSample }
+          : undefined,
+        pendingTime: pendingTimeCount ? { count: pendingTimeCount, claims: timeSample } : undefined
       });
     }
 
@@ -13110,9 +13119,41 @@ export const runPayrollPeriod = async (req, res, next) => {
       [req.user.id, payrollPeriodId]
     );
 
+    let deferredClaims = null;
+    if (pendingClaimsTotal > 0 && allowPendingClaims) {
+      try {
+        deferredClaims = await rolloverUnresolvedClaimsAfterRun({
+          agencyId: period.agency_id,
+          fromPeriodId: payrollPeriodId,
+          fromPeriodEndYmd: period.period_end
+        });
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') {
+          // Non-fatal: run already succeeded; claims remain submitted for manual targeting.
+          console.warn('Failed to rollover unresolved claims after run', e?.message || e);
+        }
+      }
+    }
+
     const updated = await PayrollPeriod.findById(payrollPeriodId);
     const summaries = await PayrollSummary.listForPeriod(payrollPeriodId);
-    res.json({ period: updated, summaries });
+    res.json({
+      period: updated,
+      summaries,
+      ...(deferredClaims
+        ? {
+            deferredClaims: {
+              ...deferredClaims,
+              leftBehind: {
+                time: pendingTimeCount,
+                mileage: pendingMileageCount,
+                medcancel: pendingMedcancelCount,
+                reimbursement: pendingReimbursementCount
+              }
+            }
+          }
+        : {})
+    });
   } catch (e) {
     next(e);
   }
