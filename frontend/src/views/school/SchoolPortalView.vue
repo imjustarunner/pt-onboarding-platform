@@ -486,8 +486,48 @@
               </div>
             </div>
             <div class="top-actions-primary">
+              <div
+                v-if="showAdminSchoolSwitcher"
+                class="admin-school-switcher"
+                v-click-outside="() => adminSchoolSwitcherOpen = false"
+              >
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="adminSchoolSwitcherOpen = !adminSchoolSwitcherOpen"
+                >
+                  <span class="switcher-title">Switch school</span>
+                  <span class="caret" :class="{ open: adminSchoolSwitcherOpen }"></span>
+                </button>
+                <div v-if="adminSchoolSwitcherOpen" class="switcher-dropdown">
+                  <div class="switcher-search-box">
+                    <input type="text" v-model="adminSchoolSwitcherSearch" placeholder="Search schools..." class="form-control form-control-sm" />
+                  </div>
+                  <div class="switcher-list">
+                    <button
+                      v-for="school in adminSchoolsFiltered"
+                      :key="school.slug"
+                      type="button"
+                      class="switcher-item"
+                      @click="goToAdminSchool(school.slug)"
+                    >
+                      <img v-if="school.logo" :src="school.logo" class="switcher-item-logo" alt="" />
+                      <span v-else class="switcher-item-logo-fallback">{{ school.initials }}</span>
+                      <span class="switcher-item-name">{{ school.name }}</span>
+                    </button>
+                    <div v-if="!adminSchoolsFiltered.length" class="switcher-empty">
+                      No schools found.
+                    </div>
+                  </div>
+                  <div class="switcher-footer">
+                    <router-link :to="backToSchoolsPath" class="switcher-footer-link" @click="adminSchoolSwitcherOpen = false">
+                      View all schools overview
+                    </router-link>
+                  </div>
+                </div>
+              </div>
               <router-link
-                v-if="canBackToSchools"
+                v-else-if="canBackToSchools"
                 :to="backToSchoolsPath"
                 class="btn btn-secondary btn-sm"
               >
@@ -1767,6 +1807,21 @@ const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const tutorialStore = useTutorialStore();
 
+const vClickOutside = {
+  mounted(el, binding) {
+    el.__clickOutside__ = (e) => {
+      if (!el.contains(e.target)) binding.value(e);
+    };
+    document.addEventListener('mousedown', el.__clickOutside__, true);
+  },
+  unmounted(el) {
+    if (el.__clickOutside__) {
+      document.removeEventListener('mousedown', el.__clickOutside__, true);
+      el.__clickOutside__ = null;
+    }
+  }
+};
+
 const showHelpDesk = ref(false);
 const showPostSchoolEvent = ref(false);
 const editingSchoolEvent = ref(null);
@@ -2516,7 +2571,41 @@ const onSchoolSelect = () => {
   if (!slug || slug === organizationSlug.value) return;
   router.push(`/${slug}/dashboard`);
 };
-const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff'].includes(roleNorm.value));
+const showAdminSchoolSwitcher = computed(() => ['super_admin', 'admin', 'support'].includes(roleNorm.value));
+const adminSchoolSwitcherOpen = ref(false);
+const adminSchoolSwitcherSearch = ref('');
+const adminSchoolsList = computed(() => {
+  if (!showAdminSchoolSwitcher.value) return [];
+  const fromStore = roleNorm.value === 'super_admin' 
+    ? (agencyStore.agencies?.value ?? agencyStore.agencies ?? [])
+    : (agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? []);
+  const agencies = Array.isArray(fromStore) ? fromStore : [];
+  return agencies
+    .filter(a => {
+      const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+      return t === 'school';
+    })
+    .map(a => {
+      const slug = String(a?.portal_url || a?.portalUrl || a?.slug || '').trim() || null;
+      const name = String(a?.name || a?.official_name || slug || 'School').trim() || 'School';
+      const logo = a?.logo_url || a?.logoUrl || null;
+      return { slug, name, logo, initials: name.substring(0, 2).toUpperCase() };
+    })
+    .filter(s => s.slug)
+    .sort((a, b) => a.name.localeCompare(b.name));
+});
+const adminSchoolsFiltered = computed(() => {
+  const query = adminSchoolSwitcherSearch.value.toLowerCase().trim();
+  if (!query) return adminSchoolsList.value;
+  return adminSchoolsList.value.filter(s => s.name.toLowerCase().includes(query));
+});
+const goToAdminSchool = (slug) => {
+  adminSchoolSwitcherOpen.value = false;
+  if (!slug || slug === organizationSlug.value) return;
+  router.push(`/${slug}/dashboard`);
+};
+
+const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff', 'support'].includes(roleNorm.value));
 const backToSchoolsPath = computed(() => {
   const orgType = String(organizationStore.organizationContext?.organizationType || organizationStore.currentOrganization?.organization_type || 'school').toLowerCase();
   const orgTypeParam = ['school', 'program', 'learning'].includes(orgType) ? orgType : 'school';
@@ -5453,5 +5542,116 @@ watch(() => store.selectedWeekday, async (weekday) => {
   margin-top: 16px;
   display: flex;
   gap: 12px;
+}
+
+.admin-school-switcher {
+  position: relative;
+  display: inline-block;
+}
+.switcher-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #dee2e6);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  width: 260px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+}
+.switcher-search-box {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-color, #dee2e6);
+}
+.switcher-list {
+  max-height: 250px;
+  overflow-y: auto;
+}
+.switcher-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-light, #f8f9fa);
+  transition: background 0.15s;
+}
+.switcher-item:last-child {
+  border-bottom: none;
+}
+.switcher-item:hover {
+  background: var(--hover-bg, #f8f9fa);
+}
+.switcher-item-logo,
+.switcher-item-logo-fallback {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  margin-right: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.switcher-item-logo-fallback {
+  background: var(--border-color, #e9ecef);
+  color: var(--text-secondary, #495057);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: bold;
+}
+.switcher-item-name {
+  font-size: 13px;
+  color: var(--text-primary, #212529);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.switcher-empty {
+  padding: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.switcher-footer {
+  padding: 8px;
+  border-top: 1px solid var(--border-color, #dee2e6);
+  text-align: center;
+  background: var(--card-bg, #fff);
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+.switcher-footer-link {
+  font-size: 12px;
+  color: var(--primary, #0d6efd);
+  text-decoration: none;
+  font-weight: 500;
+}
+.switcher-footer-link:hover {
+  text-decoration: underline;
+}
+.switcher-title {
+  display: inline-flex;
+  align-items: center;
+}
+.admin-school-switcher .caret {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 6px;
+  vertical-align: middle;
+  border-top: 4px solid;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  transition: transform 0.2s;
+}
+.admin-school-switcher .caret.open {
+  transform: rotate(180deg);
 }
 </style>
