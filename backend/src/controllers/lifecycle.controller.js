@@ -22,6 +22,12 @@ import LifecycleChecklistDefinition from '../models/LifecycleChecklistDefinition
 import { scopeLifecycleItem } from '../services/lifecycleScope.service.js';
 import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
+import { compressPdfBuffer } from '../services/pdfCompression.service.js';
+
+const LIFECYCLE_PDF_MAX_STORED_BYTES = 15 * 1024 * 1024;
+const LIFECYCLE_PDF_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+/** Compress scans that are close to or over the stored-size cap. */
+const LIFECYCLE_PDF_COMPRESS_THRESHOLD_BYTES = 12 * 1024 * 1024;
 
 const attachmentUpload = multer({
   storage: multer.memoryStorage(),
@@ -29,8 +35,39 @@ const attachmentUpload = multer({
     if (file.mimetype === 'application/pdf') cb(null, true);
     else cb(new Error('Only PDF files are allowed'), false);
   },
-  limits: { fileSize: 15 * 1024 * 1024 },
+  limits: { fileSize: LIFECYCLE_PDF_MAX_UPLOAD_BYTES },
 });
+
+async function prepareLifecyclePdfBuffer(inputBuffer, { userId, definitionId }) {
+  const originalSize = inputBuffer?.length || 0;
+  if (!Buffer.isBuffer(inputBuffer) || originalSize === 0) {
+    return { buffer: inputBuffer, compressed: false, originalSize, finalSize: originalSize };
+  }
+
+  let fileBuffer = inputBuffer;
+  let compressed = false;
+
+  if (originalSize >= LIFECYCLE_PDF_COMPRESS_THRESHOLD_BYTES) {
+    const result = await compressPdfBuffer(fileBuffer, {
+      label: `lifecycle-${userId}-${definitionId}`,
+      preset: '/ebook',
+    });
+    if (result.compressed) {
+      fileBuffer = result.buffer;
+      compressed = true;
+    }
+  }
+
+  if (fileBuffer.length > LIFECYCLE_PDF_MAX_STORED_BYTES) {
+    const err = new Error(
+      `This PDF is still too large after compression (${Math.round(fileBuffer.length / (1024 * 1024))}MB). Please use a lower-resolution scan or split the document.`
+    );
+    err.status = 413;
+    throw err;
+  }
+
+  return { buffer: fileBuffer, compressed, originalSize, finalSize: fileBuffer.length };
+}
 
 const ATTACHMENT_INTEGRATION_TYPES = new Set(['document_task', 'manual']);
 
@@ -255,7 +292,19 @@ export const syncLifecycle = async (req, res, next) => {
 };
 
 export const uploadLifecycleChecklistAttachment = [
-  attachmentUpload.single('file'),
+  (req, res, next) => {
+    attachmentUpload.single('file')(req, res, (err) => {
+      if (err?.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          error: {
+            message: `PDF file is too large. Maximum upload size is ${Math.round(LIFECYCLE_PDF_MAX_UPLOAD_BYTES / (1024 * 1024))}MB.`,
+          },
+        });
+      }
+      if (err) return next(err);
+      return next();
+    });
+  },
   async (req, res, next) => {
     try {
       const ctx = await loadAttachmentContext(req);
@@ -277,7 +326,8 @@ export const uploadLifecycleChecklistAttachment = [
         uploadType: 'lifecycle_checklist_attachment',
       });
 
-      let fileBuffer = req.file.buffer;
+      const prepared = await prepareLifecyclePdfBuffer(req.file.buffer, { userId, definitionId });
+      let fileBuffer = prepared.buffer;
       let isEncrypted = false;
       let encryptionMeta = {
         encryptionKeyId: null,
