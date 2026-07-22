@@ -209,12 +209,26 @@ export const useAgencyStore = defineStore('agency', () => {
       if (userId) {
         const url = `/users/${userId}/agencies`;
         const response = await api.get(url, { skipGlobalLoading: true });
-        agencies.value = response.data;
-        userAgencies.value = response.data;
+        
+        try {
+          const { useAuthStore } = await import('./auth');
+          const authStore = useAuthStore();
+          const roleNorm = String(authStore.user?.role || '').toLowerCase();
+          
+          userAgencies.value = response.data;
+          // Super-admin brand switcher needs the full /agencies catalog — never overwrite with memberships.
+          if (roleNorm !== 'super_admin') {
+            agencies.value = response.data;
+          }
+        } catch {
+          // Fallback if auth store is unavailable
+          agencies.value = response.data;
+          userAgencies.value = response.data;
+        }
         
         // Set default agency if none selected and user has agencies
-        if (!currentAgency.value && agencies.value.length > 0) {
-          setCurrentAgency(agencies.value[0]);
+        if (!currentAgency.value && userAgencies.value.length > 0) {
+          setCurrentAgency(userAgencies.value[0]);
         }
       } else {
         if (!agenciesAllInFlight) {
