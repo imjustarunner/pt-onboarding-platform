@@ -4928,9 +4928,6 @@ const sstcMemberShowClubEvents = computed(() => {
 const ticketsNavLink = computed(() => orgTo('/tickets'));
 
 const scheduleNavLink = computed(() => {
-  if (showBuildingsPendingBadge.value && buildingsPendingCount.value > 0) {
-    return officeApprovalsNavLink.value;
-  }
   return orgTo('/schedule');
 });
 
