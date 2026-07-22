@@ -755,19 +755,18 @@
           </div>
         </div>
       </div>
-      </div>
-      
-      </div> <!-- end container -->
+    </div>
 
-      <div class="dashboard-footer">
-        <div class="footer-links">
-          <a href="#">Privacy Policy</a> | <a href="#">Terms</a> | <a href="#">Public Proof</a>
-        </div>
-        <div class="footer-copy">
-          © {{ new Date().getFullYear() }} ITSCO. All rights reserved.
-        </div>
+    </div> <!-- end container -->
+
+    <div class="dashboard-footer">
+      <div class="footer-links">
+        <a href="#">Privacy Policy</a> | <a href="#">Terms</a> | <a href="#">Public Proof</a>
       </div>
+      <div class="footer-copy">
+        © {{ new Date().getFullYear() }} ITSCO. All rights reserved.
       </div>
+    </div>
     </main>
   </div>
 </template>
