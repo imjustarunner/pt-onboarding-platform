@@ -682,9 +682,7 @@ onMounted(() => {
     radial-gradient(700px 320px at 55% 18%, color-mix(in srgb, var(--cc-secondary) 14%, transparent), transparent 55%),
     linear-gradient(
       180deg,
-      var(--cc-header-deep) 0%,
-      var(--cc-header-mid) 168px,
-      var(--cc-wash) 168px,
+      var(--cc-wash) 0%,
       color-mix(in srgb, var(--cc-secondary) 4%, #f7faf8) 100%
     );
 }
