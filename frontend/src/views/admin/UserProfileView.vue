@@ -94,7 +94,7 @@
               v-model="profileSearchQuery"
               type="search"
               class="ph-search-input"
-              placeholder="Search profile sections…"
+              placeholder="Search tabs, settings, and sections..."
               autocomplete="off"
               @focus="profileSearchOpen = true"
               @keydown.down.prevent="profileSearchMove(1)"
@@ -187,46 +187,6 @@
     <div v-if="loading" class="loading">Loading user profile...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="profile-content">
-      <div
-        v-if="!isViewingGuardian && !isSscMemberProfileMode && !isViewingSchoolStaff"
-        class="ph-search-wrap ph-search-wrap--tabs"
-        data-tour="user-profile-search-tabs"
-      >
-        <input
-          v-model="profileSearchQuery"
-          type="search"
-          class="ph-search-input"
-          placeholder="Search profile sections (equipment, licenses, payroll…)"
-          autocomplete="off"
-          @focus="profileSearchOpen = true"
-          @keydown.down.prevent="profileSearchMove(1)"
-          @keydown.up.prevent="profileSearchMove(-1)"
-          @keydown.enter.prevent="profileSearchSelectHighlighted"
-          @keydown.esc="closeProfileSearch"
-        />
-        <div
-          v-if="profileSearchOpen && profileSearchResults.length"
-          class="ph-search-dropdown"
-          role="listbox"
-        >
-          <button
-            v-for="(hit, idx) in profileSearchResults"
-            :key="hit.id"
-            type="button"
-            class="ph-search-option"
-            :class="{ on: idx === profileSearchHighlight }"
-            role="option"
-            @mousedown.prevent="jumpToProfileSection(hit)"
-          >
-            <span class="ph-search-option-label">{{ hit.label }}</span>
-            <span class="ph-search-option-tab">{{ hit.tabLabel }}</span>
-          </button>
-        </div>
-        <p v-else-if="profileSearchOpen && profileSearchQuery.trim() && !profileSearchResults.length" class="ph-search-empty">
-          No matching sections
-        </p>
-      </div>
-
       <div class="profile-tabs" data-tour="user-profile-tabs">
         <button
           v-for="tab in tabs"
@@ -7020,7 +6980,7 @@ watch(
 );
 
 const onProfileSearchDocClick = (e) => {
-  const wraps = document.querySelectorAll('[data-tour="user-profile-search"], [data-tour="user-profile-search-tabs"]');
+  const wraps = document.querySelectorAll('[data-tour="user-profile-search"]');
   for (const wrap of wraps) {
     if (wrap.contains(e.target)) return;
   }
@@ -7258,10 +7218,6 @@ onUnmounted(() => {
   position: relative;
   margin-top: 12px;
   max-width: 420px;
-}
-.ph-search-wrap--tabs {
-  margin: 0 0 12px;
-  max-width: 520px;
 }
 .ph-search-input {
   width: 100%;
