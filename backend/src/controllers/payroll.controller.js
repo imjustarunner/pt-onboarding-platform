@@ -74,6 +74,7 @@ import {
   resolvePercentOfChargePay
 } from '../services/payrollPercentagePayPolicy.service.js';
 import { syncHolidayBonusClaimsForPeriod } from '../services/payrollHolidayBonus.service.js';
+import TrainingFocusPayrollService from '../services/trainingFocusPayroll.service.js';
 import {
   listAgencyHolidays as listAgencyHolidaysSvc,
   createAgencyHoliday as createAgencyHolidaySvc,
@@ -676,7 +677,7 @@ function buildRawAuditReductionKey({ sourcePayrollPeriodId, rowMatchKey, baselin
   return `${source}:${rowKey}:${baseline}:${compare}:${code}`;
 }
 
-async function computeRawAuditReductionAmount({
+async function computeRawAuditReductionDetails({
   agencyId,
   userId,
   serviceCode,
@@ -686,7 +687,9 @@ async function computeRawAuditReductionAmount({
 }) {
   const codeKey = String(serviceCode || '').trim().toUpperCase();
   const qty = Number(units || 0);
-  if (!agencyId || !userId || !codeKey || !(qty > 1e-9)) return 0;
+  if (!agencyId || !userId || !codeKey || !(qty > 1e-9)) {
+    return { amount: 0, category: 'direct', creditsHours: 0 };
+  }
 
   const rulesCacheKey = `rules:${agencyId}`;
   if (!cache.rulesByAgency.has(rulesCacheKey)) {
@@ -743,15 +746,23 @@ async function computeRawAuditReductionAmount({
   );
   const safeDivisor = (!Number.isFinite(payDivisor) || payDivisor <= 0) ? 1 : Number(payDivisor);
   const payHours = qty / safeDivisor;
+  const creditValue = Number(
+    (rule?.credit_value === null || rule?.credit_value === undefined)
+      ? (defaults?.creditValue ?? 0)
+      : rule.credit_value
+  );
+  const creditsAbs = Number.isFinite(creditValue) && Math.abs(creditValue) > 1e-9
+    ? Number((qty * creditValue).toFixed(2))
+    : Number(payHours.toFixed(2));
 
   const baseBucket =
     (category === 'indirect' || category === 'admin' || category === 'meeting') ? 'indirect'
       : (category === 'other' || category === 'tutoring') ? 'other'
         : (category === 'mileage' || category === 'bonus' || category === 'reimbursement' || category === 'other_pay') ? 'flat'
           : 'direct';
+  const lineCategory = baseBucket === 'indirect' ? 'indirect' : 'direct';
 
   let rateAmount = 0;
-  let rateSource = 'none';
   const rulePayUnitRaw = String(rule?.pay_rate_unit || '').trim().toLowerCase();
   const rulePayUnit = rulePayUnitRaw === 'per_hour' ? 'per_hour' : 'per_unit';
   const legacyPerCodeUnit = perCode ? String(perCode.rate_unit || 'per_unit').trim().toLowerCase() : null;
@@ -759,10 +770,8 @@ async function computeRawAuditReductionAmount({
   if (isSupervisionMeetingCode(codeKey)) perCodePayUnit = 'per_hour';
 
   if (perCode) {
-    rateSource = 'per_code_rate';
     rateAmount = Number(perCode.rate_amount || 0);
   } else if (rateCard && baseBucket !== 'flat') {
-    rateSource = 'rate_card';
     if (baseBucket === 'indirect') rateAmount = Number(rateCard.indirect_rate || 0);
     else if (baseBucket === 'other') {
       if (otherSlot === 2) rateAmount = Number(rateCard.other_rate_2 || 0);
@@ -774,10 +783,10 @@ async function computeRawAuditReductionAmount({
   }
 
   if ((codeKey === '99414' || codeKey === '99415' || codeKey === '99416') && String(user?.role || '').trim().toLowerCase() === 'intern') {
-    return 0;
+    return { amount: 0, category: lineCategory, creditsHours: 0 };
   }
   if ((codeKey === '99414' || codeKey === '99416') && isPrelicensed === false) {
-    return 0;
+    return { amount: 0, category: lineCategory, creditsHours: 0 };
   }
 
   let amount = 0;
@@ -789,7 +798,17 @@ async function computeRawAuditReductionAmount({
   } else {
     amount = qty * rateAmount;
   }
-  return Number((Math.round(amount * 100) / 100).toFixed(2));
+
+  return {
+    amount: Number((Math.round(amount * 100) / 100).toFixed(2)),
+    category: lineCategory,
+    creditsHours: Number((-Math.abs(creditsAbs)).toFixed(2))
+  };
+}
+
+async function computeRawAuditReductionAmount(args) {
+  const details = await computeRawAuditReductionDetails(args);
+  return Number(details?.amount || 0);
 }
 
 function importSlotByDate({ periodEnd, importedAt }) {
@@ -1091,7 +1110,7 @@ function resolveManualPayCreditsHours({ category, creditsHours, amount, rateCard
   const hrsProvided = (creditsHours === null || creditsHours === undefined || creditsHours === '')
     ? null
     : Number(creditsHours);
-  if (Number.isFinite(hrsProvided) && hrsProvided > 1e-9) {
+  if (Number.isFinite(hrsProvided) && Math.abs(hrsProvided) > 1e-9) {
     return Math.round(hrsProvided * 100) / 100;
   }
   const amt = Number(amount || 0);
@@ -9486,6 +9505,7 @@ export const updatePayrollManualPayLine = async (req, res, next) => {
 
     const creditsHours = req.body?.creditsHours ?? req.body?.credits_hours;
     const amount = req.body?.amount;
+    const category = req.body?.category;
 
     const [existingRows] = await pool.execute(
       `SELECT user_id, category, credits_hours, amount, line_type, label
@@ -9497,6 +9517,9 @@ export const updatePayrollManualPayLine = async (req, res, next) => {
     const existing = existingRows?.[0] || null;
     if (!existing) return res.status(404).json({ error: { message: 'Manual pay line not found' } });
 
+    const nextCategory = (category !== undefined && category !== null && category !== '')
+      ? (String(category).trim().toLowerCase() === 'indirect' ? 'indirect' : 'direct')
+      : String(existing?.category || 'direct');
     const nextAmount = (amount !== undefined && amount !== null && amount !== '')
       ? Number(amount)
       : Number(existing?.amount || 0);
@@ -9510,7 +9533,7 @@ export const updatePayrollManualPayLine = async (req, res, next) => {
         const inferred = await inferManualPayCreditsHoursForUser({
           agencyId: period.agency_id,
           userId: Number(existing?.user_id || 0),
-          category: String(existing?.category || 'indirect'),
+          category: nextCategory,
           creditsHours: existing?.credits_hours,
           amount: nextAmount
         });
@@ -9522,6 +9545,7 @@ export const updatePayrollManualPayLine = async (req, res, next) => {
       id: lineId,
       payrollPeriodId,
       agencyId: period.agency_id,
+      category: (category !== undefined && category !== null && category !== '') ? nextCategory : undefined,
       creditsHours: resolvedCreditsHours,
       amount: (amount !== undefined && amount !== null && amount !== '') ? nextAmount : undefined
     });
@@ -9541,7 +9565,7 @@ export const updatePayrollManualPayLine = async (req, res, next) => {
           userId: Number(existing?.user_id || 0),
           manualPayLineId: lineId,
           lineType: 'pay',
-          category: String(existing?.category || 'indirect'),
+          category: nextCategory,
           creditsHours: nextHrs,
           label: existing?.label,
           payrollPeriodId,
@@ -12354,7 +12378,10 @@ export const applyPayrollRawAuditActions = async (req, res, next) => {
           fromStatus: String(row?.fromStatus || '').trim().toUpperCase() || null,
           location: String(row?.location || '').trim() || null,
           baselineRowId: Number(row?.baselineRowId || 0) || null,
-          compareRowId: Number(row?.compareRowId || 0) || null
+          compareRowId: Number(row?.compareRowId || 0) || null,
+          fromServiceCode: String(row?.fromServiceCode || row?.from_service_code || '').trim().toUpperCase() || null,
+          toServiceCode: String(row?.toServiceCode || row?.to_service_code || '').trim().toUpperCase() || null,
+          reason: String(row?.reason || '').trim() || null
         });
       } else {
         const units = Number(row?.carryoverFinalizedUnits ?? row?.units ?? 0);
@@ -12480,7 +12507,7 @@ export const applyPayrollRawAuditActions = async (req, res, next) => {
           continue;
         }
 
-        const amount = await computeRawAuditReductionAmount({
+        const details = await computeRawAuditReductionDetails({
           agencyId: period.agency_id,
           userId: row.userId,
           serviceCode: row.serviceCode,
@@ -12488,7 +12515,8 @@ export const applyPayrollRawAuditActions = async (req, res, next) => {
           serviceDate: row.serviceDate,
           cache
         });
-        if (!(Math.abs(Number(amount || 0)) > 1e-9)) {
+        const amount = Number(details?.amount || 0);
+        if (!(Math.abs(amount) > 1e-9)) {
           warnings.push({
             code: 'zero_reduction_amount',
             message: `Skipped reduction for ${row.serviceCode} because no payable amount could be calculated.`,
@@ -12499,28 +12527,44 @@ export const applyPayrollRawAuditActions = async (req, res, next) => {
 
         const clientLabel = String(row.patientFirstName || '').trim() || 'Unknown client';
         const dosLabel = ymdFromDbDate(row.serviceDate) || 'Unknown DOS';
-        const label = `Deleted note reduction • ${row.serviceCode} • ${clientLabel} • ${dosLabel}`;
+        const isCodeChange = String(row.reason || '').toLowerCase() === 'service_code_changed' || !!row.fromServiceCode;
+        const label = isCodeChange
+          ? `Service code change reduction • ${row.fromServiceCode || row.serviceCode} • ${clientLabel} • ${dosLabel}`
+          : `Deleted note reduction • ${row.serviceCode} • ${clientLabel} • ${dosLabel}`;
+        const lineCategory = String(details?.category || 'direct').toLowerCase() === 'indirect' ? 'indirect' : 'direct';
+        const creditsHours = Number.isFinite(Number(details?.creditsHours))
+          ? Number(details.creditsHours)
+          : null;
         await PayrollManualPayLine.create({
           payrollPeriodId,
           agencyId: period.agency_id,
           userId: row.userId,
           label,
-          category: 'indirect',
+          category: lineCategory,
+          creditsHours,
           amount: Number((-Math.abs(amount)).toFixed(2)),
           metadataJson: {
             kind: 'raw_audit_reduction',
             reductionKey,
             sourcePayrollPeriodId: Number(sourcePayrollPeriodId || 0) || null,
-            reason: 'overpaid_deleted',
+            reason: isCodeChange ? 'service_code_changed' : (row.reason || 'overpaid_deleted'),
             rowMatchKey: row.rowMatchKey,
             details: [
               { label: 'Service code', value: row.serviceCode },
+              ...(row.fromServiceCode ? [{ label: 'Related to code', value: row.toServiceCode || '—' }] : []),
+              { label: 'Category', value: lineCategory },
+              { label: 'Credits hours', value: creditsHours },
               { label: 'Client', value: clientLabel },
               { label: 'Date of service', value: dosLabel },
               { label: 'Units', value: Number(row.units || 0) },
               { label: 'Prior status', value: row.fromStatus || 'PAID' },
               { label: 'Location', value: row.location || '—' },
-              { label: 'Reason', value: 'Deleted after being paid from a prior pay period' }
+              {
+                label: 'Reason',
+                value: isCodeChange
+                  ? 'Prior code was paid; claw back old code credits/pay after service code change'
+                  : 'Deleted after being paid from a prior pay period'
+              }
             ],
             baselineRowId: row.baselineRowId,
             compareRowId: row.compareRowId
@@ -17023,20 +17067,28 @@ async function hydrateTimeClaimListTranscripts(rows) {
   let attempts = 0;
   const out = [];
   for (const row of claims) {
+    let next = row;
+    try {
+      if (String(row?.claim_type || '').toLowerCase() === 'training_focus_completion') {
+        next = await TrainingFocusPayrollService.enrichClaimMinutesIfEmpty(row);
+      }
+    } catch {
+      next = row;
+    }
     if (attempts >= 10) {
-      out.push(row);
+      out.push(next);
       continue;
     }
-    const canAttempt = isTimeClaimMeetingType(row?.claim_type)
-      && !String(row?.payload?.transcriptText || '').trim()
-      && !String(row?.payload?.transcriptUrl || '').trim()
-      && (String(row?.payload?.googleMeetLink || '').trim() || String(row?.payload?.googleEventId || '').trim());
+    const canAttempt = isTimeClaimMeetingType(next?.claim_type)
+      && !String(next?.payload?.transcriptText || '').trim()
+      && !String(next?.payload?.transcriptUrl || '').trim()
+      && (String(next?.payload?.googleMeetLink || '').trim() || String(next?.payload?.googleEventId || '').trim());
     if (!canAttempt) {
-      out.push(row);
+      out.push(next);
       continue;
     }
     attempts += 1;
-    out.push(await maybeHydrateTimeClaimTranscript(row, hostEmailCache));
+    out.push(await maybeHydrateTimeClaimTranscript(next, hostEmailCache));
   }
   return out;
 }

@@ -207,7 +207,21 @@
                 <td>{{ claimName(c) }}</td>
                 <td>{{ fmtDate(c.claim_date) }}</td>
                 <td>{{ timeTypeLabel(c) }}</td>
-                <td class="right">{{ fmtHours(c) }}</td>
+                <td class="right">
+                  <input
+                    v-if="claimHoursValue(c) <= 0"
+                    class="input"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    style="width: 80px; text-align: right;"
+                    :value="timeHoursOverrideById[c.id] ?? ''"
+                    placeholder="hrs"
+                    :disabled="busyId === `time-${c.id}`"
+                    @input="timeHoursOverrideById[c.id] = $event.target.value"
+                  />
+                  <template v-else>{{ fmtHours(c) }}</template>
+                </td>
                 <td>
                   <select v-model="claimTargetByKey[`time-${c.id}`]" :disabled="busyId === `time-${c.id}`">
                     <option v-for="p in periodsForSelect" :key="p.id" :value="p.id" :disabled="isPeriodLocked(p)">
@@ -216,6 +230,7 @@
                   </select>
                 </td>
                 <td class="right">
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === `time-${c.id}`" @click="openTimeClaimView(c)">View</button>
                   <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === `time-${c.id}` || !isValidOpenPeriod(claimTargetByKey[`time-${c.id}`])" @click="approveTime(c)">
                     {{ busyId === `time-${c.id}` ? '…' : 'Approve' }}
                   </button>
@@ -511,6 +526,80 @@
 
     <!-- Event time edit modal -->
     <teleport to="body">
+      <div v-if="timeClaimViewOpen" class="pps-modal-backdrop" @click.self="closeTimeClaimView">
+        <div class="pps-modal" style="width: min(720px, 100%);">
+          <div class="pps-modal-header">
+            <div>
+              <div class="pps-modal-title">Time Claim Details</div>
+              <div class="hint" v-if="reviewedTimeClaim">
+                {{ claimName(reviewedTimeClaim) }} — {{ timeTypeLabel(reviewedTimeClaim) }} — {{ fmtDate(reviewedTimeClaim.claim_date) }}
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" @click="closeTimeClaimView">Close</button>
+          </div>
+          <div v-if="reviewedTimeClaim" class="pps-modal-body">
+            <div class="pps-detail-grid">
+              <div class="field"><label>Claim ID</label><div>{{ reviewedTimeClaim.id || '—' }}</div></div>
+              <div class="field"><label>Status</label><div>{{ String(reviewedTimeClaim.status || '—').toUpperCase() }}</div></div>
+              <div class="field"><label>Claim date</label><div>{{ fmtDate(reviewedTimeClaim.claim_date) }}</div></div>
+              <div class="field"><label>Requested time</label><div>{{ fmtHours(reviewedTimeClaim) }}</div></div>
+              <div class="field"><label>Suggested pay period</label><div>{{ periodLabelForId(reviewedTimeClaim.suggested_payroll_period_id) }}</div></div>
+              <div class="field"><label>Submitted by</label><div>{{ submitterLabel(reviewedTimeClaim) }}</div></div>
+            </div>
+
+            <template v-if="reviewedTimeClaim.claim_type === 'training_focus_completion'">
+              <div class="field"><label>Training Focus</label><div>{{ reviewedTimeClaim.payload?.trainingFocusName || '—' }}</div></div>
+              <div class="pps-detail-grid">
+                <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
+                <div class="field"><label>Minutes source</label><div>{{ reviewedTimeClaim.payload?.minutesSource || 'tracked' }}</div></div>
+                <div class="field"><label>Completed</label><div>{{ reviewedTimeClaim.payload?.completedAt ? String(reviewedTimeClaim.payload.completedAt).slice(0, 10) : '—' }}</div></div>
+              </div>
+              <div v-if="Array.isArray(reviewedTimeClaim.payload?.stepBreakdown) && reviewedTimeClaim.payload.stepBreakdown.length" class="card" style="padding: 10px;">
+                <strong style="display:block; margin-bottom: 8px;">Step breakdown</strong>
+                <div v-for="step in reviewedTimeClaim.payload.stepBreakdown" :key="step.stepId" style="font-size: 13px; margin-bottom: 6px;">
+                  {{ step.title }} ({{ step.stepType }}) —
+                  {{ Math.floor((step.effectiveSeconds || step.timeSpentSeconds || 0) / 60) }} min
+                  <span v-if="step.estimatedMinutes" class="muted">(est. {{ step.estimatedMinutes }})</span>
+                </div>
+              </div>
+              <div v-if="!(Number(reviewedTimeClaim.payload?.totalMinutes || 0) > 0)" class="pps-edit-notice">
+                No tracked minutes were stored on this automated Training Focus claim. Enter hours in the table before approving, or reopen after refresh if module estimates were backfilled.
+              </div>
+            </template>
+
+            <template v-else-if="reviewedTimeClaim.claim_type === 'indirect_time'">
+              <div class="pps-detail-grid">
+                <div class="field"><label>Entry method</label><div>{{ reviewedTimeClaim.payload?.entryMethod || '—' }}</div></div>
+                <div class="field"><label>Start</label><div>{{ reviewedTimeClaim.payload?.startTime || '—' }}</div></div>
+                <div class="field"><label>End</label><div>{{ reviewedTimeClaim.payload?.endTime || '—' }}</div></div>
+                <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
+              </div>
+            </template>
+
+            <template v-else-if="reviewedTimeClaim.claim_type === 'service_correction'">
+              <div class="pps-detail-grid">
+                <div class="field"><label>Client Initials</label><div>{{ reviewedTimeClaim.payload?.clientInitials || '—' }}</div></div>
+                <div class="field"><label>Duration</label><div>{{ reviewedTimeClaim.payload?.duration || '—' }}</div></div>
+                <div class="field"><label>Original Service</label><div>{{ reviewedTimeClaim.payload?.originalService || '—' }}</div></div>
+                <div class="field"><label>Corrected Service</label><div>{{ reviewedTimeClaim.payload?.correctedService || '—' }}</div></div>
+              </div>
+              <div class="field"><label>Reason</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.reason || '—' }}</div></div>
+            </template>
+
+            <template v-else>
+              <div class="field" v-for="(val, key) in (reviewedTimeClaim.payload || {})" :key="key">
+                <label>{{ key }}</label>
+                <div style="white-space: pre-wrap;">{{ typeof val === 'object' ? JSON.stringify(val, null, 2) : val }}</div>
+              </div>
+            </template>
+
+            <div style="display:flex; justify-content:flex-end;">
+              <button type="button" class="btn btn-secondary" @click="closeTimeClaimView">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="eventTimeEditOpen" class="pps-modal-backdrop" @click.self="closeEventTimeEdit">
         <div class="pps-modal">
           <div class="pps-modal-header">
@@ -620,6 +709,9 @@ const mileageClaims = ref([]);
 const reimbClaims = ref([]);
 const medClaims = ref([]);
 const claimTargetByKey = reactive({});
+const timeHoursOverrideById = reactive({});
+const timeClaimViewOpen = ref(false);
+const reviewedTimeClaim = ref(null);
 
 const eventTimeSubmissions = ref([]);
 const eventTimeLoading = ref(false);
@@ -1256,10 +1348,28 @@ const returnPto = async (r) => {
   );
 };
 
+const periodLabelForId = (id) => {
+  const pid = Number(id || 0);
+  if (!pid) return '—';
+  const p = (periods.value || []).find((x) => Number(x.id) === pid);
+  return p ? periodRangeLabel(p) : `Period #${pid}`;
+};
+
+const openTimeClaimView = (c) => {
+  reviewedTimeClaim.value = c;
+  timeClaimViewOpen.value = true;
+};
+
+const closeTimeClaimView = () => {
+  timeClaimViewOpen.value = false;
+  reviewedTimeClaim.value = null;
+};
+
 const approveTime = (c) => {
   const targetPayrollPeriodId = Number(claimTargetByKey[`time-${c.id}`] || 0);
   if (!isValidOpenPeriod(targetPayrollPeriodId)) return;
-  const hours = claimHoursValue(c);
+  const overrideHrs = Number(timeHoursOverrideById[c.id]);
+  const hours = (Number.isFinite(overrideHrs) && overrideHrs > 0) ? overrideHrs : claimHoursValue(c);
   return withBusy(
     `time-${c.id}`,
     (override = {}) =>
@@ -1747,6 +1857,13 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  max-height: min(80vh, 720px);
+  overflow: auto;
+}
+.pps-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
 }
 .pps-edit-notice {
   background: #fff7ed;

@@ -121,14 +121,21 @@ class PayrollManualPayLine {
     return res?.insertId || null;
   }
 
-  static async updateById({ id, payrollPeriodId, agencyId, creditsHours, amount }) {
+  static async updateById({ id, payrollPeriodId, agencyId, creditsHours, amount, category }) {
     if (!id || !payrollPeriodId || !agencyId) return false;
     const hasCredits = await this._hasCreditsHoursColumn();
     const updates = [];
     const params = [];
+    if (category !== undefined && category !== null && category !== '') {
+      const cat = String(category || '').trim().toLowerCase();
+      const safeCat = cat === 'indirect' ? 'indirect' : 'direct';
+      updates.push('category = ?');
+      params.push(safeCat);
+    }
     if (creditsHours !== undefined && creditsHours !== null) {
       const hrs = Number(creditsHours);
-      if (Number.isFinite(hrs) && hrs >= 0) {
+      // Allow negative hours for reductions / clawbacks.
+      if (Number.isFinite(hrs)) {
         if (hasCredits) {
           updates.push('credits_hours = ?');
           params.push(Math.round(hrs * 100) / 100);

@@ -3812,7 +3812,15 @@
                   <tbody>
                     <tr v-for="l in manualPayLines" :key="l.id">
                       <td>{{ nameForUserId(l.user_id) }}</td>
-                      <td class="muted">{{ String(l.category || 'direct').toUpperCase() }}</td>
+                      <td>
+                        <template v-if="editingManualPayLineId === l.id">
+                          <select v-model="editingManualPayLineDraft.category" style="min-width: 100px;">
+                            <option value="direct">Direct</option>
+                            <option value="indirect">Indirect</option>
+                          </select>
+                        </template>
+                        <span v-else class="muted">{{ String(l.category || 'direct').toUpperCase() }}</span>
+                      </td>
                       <td>{{ l.label }}</td>
                       <td class="right">
                         <template v-if="editingManualPayLineId === l.id">
@@ -3820,8 +3828,8 @@
                             v-model.number="editingManualPayLineDraft.creditsHours"
                             type="number"
                             step="0.01"
-                            min="0"
                             style="width: 70px; text-align: right;"
+                            title="Credits/hours (negative allowed for reductions)"
                           />
                         </template>
                         <template v-else>{{ fmtNum(Number(l.credits_hours ?? l.creditsHours ?? 0)) }} h</template>
@@ -7409,7 +7417,7 @@ const manualPayLines = ref([]);
 const savingManualPayLines = ref(false);
 const deletingManualPayLineId = ref(null);
 const editingManualPayLineId = ref(null);
-const editingManualPayLineDraft = ref({ creditsHours: null, amount: null });
+const editingManualPayLineDraft = ref({ category: 'direct', creditsHours: null, amount: null });
 const updatingManualPayLineId = ref(null);
 const manualPayLineDraftRowSeq = ref(1);
 const manualPayLineDraftRows = ref([
@@ -8168,22 +8176,24 @@ const saveManualPayLines = async () => {
 const beginEditManualPayLine = (line) => {
   editingManualPayLineId.value = line.id;
   editingManualPayLineDraft.value = {
-    creditsHours: Number(line.credits_hours ?? line.creditsHours ?? 0) || null,
-    amount: Number(line.amount ?? 0) || null
+    category: String(line.category || 'direct').toLowerCase() === 'indirect' ? 'indirect' : 'direct',
+    creditsHours: Number(line.credits_hours ?? line.creditsHours ?? 0),
+    amount: Number(line.amount ?? 0)
   };
 };
 
 const cancelEditManualPayLine = () => {
   editingManualPayLineId.value = null;
-  editingManualPayLineDraft.value = { creditsHours: null, amount: null };
+  editingManualPayLineDraft.value = { category: 'direct', creditsHours: null, amount: null };
 };
 
 const saveEditManualPayLine = async (line) => {
   if (!selectedPeriodId.value || !line?.id) return;
   const creditsHours = editingManualPayLineDraft.value?.creditsHours;
   const amount = editingManualPayLineDraft.value?.amount;
-  if (creditsHours === null || creditsHours === undefined || creditsHours === '' || !Number.isFinite(Number(creditsHours)) || Number(creditsHours) < 0) {
-    manualPayLinesError.value = 'Hours must be a non-negative number';
+  const category = editingManualPayLineDraft.value?.category;
+  if (creditsHours === null || creditsHours === undefined || creditsHours === '' || !Number.isFinite(Number(creditsHours))) {
+    manualPayLinesError.value = 'Hours/credits must be a number (negative allowed for reductions)';
     return;
   }
   if (amount === null || amount === undefined || amount === '' || !Number.isFinite(Number(amount))) {
@@ -8194,6 +8204,7 @@ const saveEditManualPayLine = async (line) => {
     updatingManualPayLineId.value = line.id;
     manualPayLinesError.value = '';
     await api.patch(`/payroll/periods/${selectedPeriodId.value}/manual-pay-lines/${line.id}`, {
+      category: String(category || 'direct'),
       creditsHours: Number(creditsHours),
       amount: Number(amount)
     });
@@ -11878,6 +11889,33 @@ const applyRawAddToCurrentPeriod = async () => {
         carryoverFinalizedRowCount: 1,
         carryoverMeta: rawAddToCurrentPeriodCarryoverMeta(c, units)
       });
+      const changeType = String(c?.changeType || '').trim().toLowerCase();
+      const fromCode = String(c?.from_service_code || '').trim().toUpperCase();
+      const fromUnits = Number(c?.from_units || 0);
+      if (
+        (changeType === 'service_code_changed' || changeType === 'code_change') &&
+        fromCode &&
+        fromCode !== String(serviceCode || '').trim().toUpperCase() &&
+        fromUnits > 1e-9
+      ) {
+        rowsToApply.push({
+          actionType: 'reduction',
+          userId,
+          serviceCode: fromCode,
+          units: Number(fromUnits.toFixed(2)),
+          rowMatchKey: c?.rowMatchKey ? `${c.rowMatchKey}:from-code-reduction` : null,
+          providerName: c?.provider_name || null,
+          patientFirstName: c?.patient_first_name || null,
+          serviceDate: c?.service_date || null,
+          fromStatus: c?.from_status || null,
+          location: c?.metadata_json?.fromLocation || c?.metadata_json?.toLocation || null,
+          baselineRowId: c?.metadata_json?.baselineRowId || null,
+          compareRowId: c?.metadata_json?.compareRowId || null,
+          fromServiceCode: fromCode,
+          toServiceCode: String(serviceCode || '').trim().toUpperCase(),
+          reason: 'service_code_changed'
+        });
+      }
     }
   }
   if (!rowsToApply.length) return;

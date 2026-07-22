@@ -582,6 +582,34 @@ const applySection = async (sec) => {
         carryoverFinalizedRowCount: 1,
         carryoverMeta: carryoverMeta(c, units)
       });
+      // Service code change: also claw back the previously paid from-code (direct/indirect from that code).
+      const changeType = String(c?.changeType || '').trim().toLowerCase();
+      const fromCode = String(c?.from_service_code || '').trim().toUpperCase();
+      const fromUnits = Number(c?.from_units || 0);
+      if (
+        (changeType === 'service_code_changed' || changeType === 'code_change') &&
+        fromCode &&
+        fromCode !== String(serviceCode || '').trim().toUpperCase() &&
+        fromUnits > 1e-9
+      ) {
+        rowsToApply.push({
+          actionType: 'reduction',
+          userId,
+          serviceCode: fromCode,
+          units: Number(fromUnits.toFixed(2)),
+          rowMatchKey: c?.rowMatchKey ? `${c.rowMatchKey}:from-code-reduction` : null,
+          providerName: c?.provider_name || null,
+          patientFirstName: c?.patient_first_name || null,
+          serviceDate: c?.service_date || null,
+          fromStatus: c?.from_status || null,
+          location: c?.metadata_json?.fromLocation || c?.metadata_json?.toLocation || null,
+          baselineRowId: c?.metadata_json?.baselineRowId || null,
+          compareRowId: c?.metadata_json?.compareRowId || null,
+          fromServiceCode: fromCode,
+          toServiceCode: String(serviceCode || '').trim().toUpperCase(),
+          reason: 'service_code_changed'
+        });
+      }
     }
   }
   if (!rowsToApply.length) return;

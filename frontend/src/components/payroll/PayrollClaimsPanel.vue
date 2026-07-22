@@ -52,6 +52,7 @@
                 <td>{{ timeTypeLabel(c) }}</td>
                 <td class="right">{{ fmtHours(c) }}</td>
                 <td class="right">
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === c.id" @click="openTimeClaimView(c)">View</button>
                   <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === c.id || locked" @click="approveTime(c)">
                     {{ busyId === c.id ? '…' : 'Approve' }}
                   </button>
@@ -162,6 +163,42 @@
         </span>
       </div>
     </template>
+
+    <div v-if="timeClaimViewOpen" class="pcp-modal-backdrop" @click.self="closeTimeClaimView">
+      <div class="pcp-modal">
+        <div class="pcp-modal-head">
+          <div>
+            <div class="pcp-modal-title">Time Claim Details</div>
+            <div class="pcp-muted" v-if="reviewedTimeClaim">
+              {{ providerName(reviewedTimeClaim) }} — {{ timeTypeLabel(reviewedTimeClaim) }} — {{ fmtDate(reviewedTimeClaim.claim_date) }}
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" @click="closeTimeClaimView">Close</button>
+        </div>
+        <div v-if="reviewedTimeClaim" class="pcp-modal-body">
+          <div class="pcp-detail-grid">
+            <div><strong>Claim ID</strong><div>{{ reviewedTimeClaim.id }}</div></div>
+            <div><strong>Status</strong><div>{{ String(reviewedTimeClaim.status || '').toUpperCase() }}</div></div>
+            <div><strong>Hours</strong><div>{{ fmtHours(reviewedTimeClaim) }}</div></div>
+            <div><strong>Type</strong><div>{{ timeTypeLabel(reviewedTimeClaim) }}</div></div>
+          </div>
+          <template v-if="reviewedTimeClaim.claim_type === 'training_focus_completion'">
+            <div><strong>Training Focus</strong><div>{{ reviewedTimeClaim.payload?.trainingFocusName || '—' }}</div></div>
+            <div><strong>Total Minutes</strong><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}
+              <span class="pcp-muted" v-if="reviewedTimeClaim.payload?.minutesSource">({{ reviewedTimeClaim.payload.minutesSource }})</span>
+            </div></div>
+            <div v-if="Array.isArray(reviewedTimeClaim.payload?.stepBreakdown)" class="pcp-steps">
+              <div v-for="step in reviewedTimeClaim.payload.stepBreakdown" :key="step.stepId">
+                {{ step.title }} — {{ Math.floor((step.effectiveSeconds || step.timeSpentSeconds || 0) / 60) }} min
+              </div>
+            </div>
+          </template>
+          <template v-else-if="reviewedTimeClaim.payload">
+            <pre class="pcp-payload">{{ JSON.stringify(reviewedTimeClaim.payload, null, 2) }}</pre>
+          </template>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -184,6 +221,17 @@ const tab = ref('time');
 const loading = ref(false);
 const error = ref('');
 const busyId = ref(null);
+const timeClaimViewOpen = ref(false);
+const reviewedTimeClaim = ref(null);
+
+const openTimeClaimView = (c) => {
+  reviewedTimeClaim.value = c;
+  timeClaimViewOpen.value = true;
+};
+const closeTimeClaimView = () => {
+  timeClaimViewOpen.value = false;
+  reviewedTimeClaim.value = null;
+};
 
 const timeClaims = ref([]);
 const mileageClaims = ref([]);
@@ -511,5 +559,48 @@ onMounted(reload);
 .pcp-footer {
   padding-top: 4px;
   border-top: 1px solid var(--border, #e2e8f0);
+}
+.pcp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1300;
+  padding: 16px;
+}
+.pcp-modal {
+  width: min(640px, 100%);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.18);
+  max-height: min(80vh, 720px);
+  overflow: auto;
+}
+.pcp-modal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.pcp-modal-title { font-weight: 800; }
+.pcp-modal-body { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.pcp-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  font-size: 13px;
+}
+.pcp-steps { font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.pcp-payload {
+  margin: 0;
+  font-size: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 10px;
+  overflow: auto;
+  max-height: 280px;
 }
 </style>
