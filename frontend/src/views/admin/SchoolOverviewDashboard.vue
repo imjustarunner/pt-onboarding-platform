@@ -287,35 +287,49 @@
           @keydown.space.prevent="openSchool(s)"
         >
           <div class="card-head">
-            <div class="card-title">
-              <div class="school-name">{{ s.school_name }}</div>
-              <div class="school-meta">
-                <span class="pill">{{ formatOrgType(s.organization_type) }}</span>
-                <span v-if="s.district_name" class="pill pill-muted">{{ s.district_name }}</span>
-                <button
-                  v-if="canSeeSkillBuildersSchoolOverviewUi && Number(s.skills_groups_count || 0) > 0"
-                  type="button"
-                  class="sg-icon-btn"
-                  title="Open Skills Groups in School Portal"
-                  @click.stop="goToSchoolSkillsGroups(s)"
-                >
-                  <img v-if="skillBuildersIconUrl" :src="skillBuildersIconUrl" alt="" class="sg-icon-img" />
-                  <span v-else aria-hidden="true" class="sg-icon-fallback">SB</span>
-                </button>
-                <template v-if="canSeeSkillBuildersSchoolOverviewUi">
-                  <span
-                    v-for="g in (Array.isArray(s.active_skills_groups) ? s.active_skills_groups : [])"
-                    :key="`asg-${s.school_id}-${g.skills_group_id}`"
-                    class="pill pill-sg-badge"
-                    title="Active Skills Group participants"
+            <div class="card-head-left">
+              <div class="card-logo">
+                <img
+                  v-if="schoolLogoUrl(s) && !failedCardLogoIds.has(String(s.school_id))"
+                  :src="schoolLogoUrl(s)"
+                  :alt="`${s.school_name} logo`"
+                  class="card-logo-img"
+                  @error="onCardLogoError(s.school_id)"
+                />
+                <div v-else class="card-logo-fallback" aria-hidden="true">
+                  {{ schoolInitials(s) }}
+                </div>
+              </div>
+              <div class="card-title">
+                <div class="school-name">{{ s.school_name }}</div>
+                <div class="school-meta">
+                  <span class="pill">{{ formatOrgType(s.organization_type) }}</span>
+                  <span v-if="s.district_name" class="pill pill-muted">{{ s.district_name }}</span>
+                  <button
+                    v-if="canSeeSkillBuildersSchoolOverviewUi && Number(s.skills_groups_count || 0) > 0"
+                    type="button"
+                    class="sg-icon-btn"
+                    title="Open Skills Groups in School Portal"
+                    @click.stop="goToSchoolSkillsGroups(s)"
                   >
-                    SG
-                    <span class="sg-count">{{ Number(g.participants_count || 0) }}</span>
-                  </span>
-                </template>
-                <span v-if="!s.is_active" class="pill pill-warn">Inactive</span>
-                <span v-if="s.is_archived" class="pill pill-warn">Archived</span>
-                <span v-if="canSeeSkillBuildersSchoolOverviewUi && s.skills_group_occurring_now" class="pill pill-accent">Skills Group Live</span>
+                    <img v-if="skillBuildersIconUrl" :src="skillBuildersIconUrl" alt="" class="sg-icon-img" />
+                    <span v-else aria-hidden="true" class="sg-icon-fallback">SB</span>
+                  </button>
+                  <template v-if="canSeeSkillBuildersSchoolOverviewUi">
+                    <span
+                      v-for="g in (Array.isArray(s.active_skills_groups) ? s.active_skills_groups : [])"
+                      :key="`asg-${s.school_id}-${g.skills_group_id}`"
+                      class="pill pill-sg-badge"
+                      title="Active Skills Group participants"
+                    >
+                      SG
+                      <span class="sg-count">{{ Number(g.participants_count || 0) }}</span>
+                    </span>
+                  </template>
+                  <span v-if="!s.is_active" class="pill pill-warn">Inactive</span>
+                  <span v-if="s.is_archived" class="pill pill-warn">Archived</span>
+                  <span v-if="canSeeSkillBuildersSchoolOverviewUi && s.skills_group_occurring_now" class="pill pill-accent">Skills Group Live</span>
+                </div>
               </div>
             </div>
             <div class="card-cta">Open</div>
@@ -1957,8 +1971,36 @@ onMounted(async () => {
   gap: 10px;
   margin-bottom: 12px;
 }
+.card-head-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.card-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.card-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.card-logo-fallback {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
 .school-name {
   font-weight: 900;
+  font-size: 14px;
   color: var(--text-primary);
   line-height: 1.2;
 }
@@ -1972,8 +2014,8 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  padding: 3px 10px;
-  font-size: 12px;
+  padding: 2px 8px;
+  font-size: 11px;
   font-weight: 700;
   border: 1px solid var(--border);
   background: var(--bg-alt);
@@ -2084,7 +2126,7 @@ onMounted(async () => {
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 @media (max-width: 980px) {
   .stats-grid {
@@ -2099,13 +2141,13 @@ onMounted(async () => {
 .stat {
   background: var(--bg-alt);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: 8px;
+  padding: 8px;
 }
 .stat-notifications {
   cursor: pointer;
-  border-color: rgba(14, 165, 233, 0.35);
-  background: rgba(14, 165, 233, 0.08);
+  border-color: #bae6fd;
+  background: #e0f2fe;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 .stat-clickable {
@@ -2119,65 +2161,66 @@ onMounted(async () => {
 }
 .stat-comments {
   cursor: pointer;
-  border-color: rgba(16, 185, 129, 0.35);
-  background: rgba(16, 185, 129, 0.1);
+  border-color: #99f6e4;
+  background: #ccfbf1;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 .stat-comments:hover {
-  border-color: rgba(16, 185, 129, 0.6);
+  border-color: #5eead4;
   box-shadow: var(--shadow);
   transform: translateY(-1px);
 }
 .stat-comments .stat-label {
-  color: #065f46;
+  color: #0f766e;
 }
 .stat-comments .stat-value {
-  color: #065f46;
+  color: #115e59;
 }
 .stat-messages {
   cursor: pointer;
-  border-color: rgba(99, 102, 241, 0.35);
-  background: rgba(99, 102, 241, 0.1);
+  border-color: #e9d5ff;
+  background: #f3e8ff;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 .stat-messages:hover {
-  border-color: rgba(99, 102, 241, 0.6);
+  border-color: #d8b4fe;
   box-shadow: var(--shadow);
   transform: translateY(-1px);
 }
 .stat-messages .stat-label {
-  color: #3730a3;
+  color: #6b21a8;
 }
 .stat-messages .stat-value {
-  color: #3730a3;
+  color: #581c87;
 }
 .stat-notifications:hover {
-  border-color: rgba(14, 165, 233, 0.65);
+  border-color: #7dd3fc;
   box-shadow: var(--shadow);
   transform: translateY(-1px);
 }
 .stat-notifications.active {
-  border-color: rgba(14, 165, 233, 0.75);
-  background: rgba(14, 165, 233, 0.16);
+  border-color: #38bdf8;
+  background: #bae6fd;
 }
 .stat-notifications .stat-label {
-  color: #0369a1;
+  color: #0284c7;
 }
 .stat-notifications .stat-value {
-  color: #0c4a6e;
+  color: #0369a1;
 }
 .stat-value.attention {
-  color: #0c4a6e;
+  color: inherit;
 }
 .stat-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.1;
+  margin-bottom: 2px;
 }
 .stat-value {
-  margin-top: 6px;
-  font-size: 18px;
+  margin-top: 2px;
+  font-size: 16px;
   font-weight: 900;
   color: var(--text-primary);
 }
