@@ -80,6 +80,8 @@ import directoryRoutes from './routes/directory.routes.js';
 import intakeFieldTemplatesRoutes from './routes/intakeFieldTemplates.routes.js';
 import unassignedDocumentsRoutes from './routes/unassignedDocuments.routes.js';
 import schoolPortalRoutes from './routes/schoolPortal.routes.js';
+import schoolReinitRoutes from './routes/schoolReinit.routes.js';
+import publicSchoolReinitRoutes from './routes/publicSchoolReinit.routes.js';
 import {
   managerRouter as agencyMarketingSplashManagerRoutes,
   portalRouter as agencyMarketingSplashPortalRoutes,
@@ -640,6 +642,7 @@ app.use('/api/public/schools', publicSchoolsRoutes);
 app.use('/api/public/skill-builders', publicSkillBuildersRoutes);
 app.use('/api/public/program-event', publicProgramEventKioskRoutes);
 app.use('/api/public/school-events', publicSchoolEventsKioskRoutes);
+app.use('/api/public/school-reinit', publicSchoolReinitRoutes);
 app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
 app.use('/api/public/translations', publicTranslationsRoutes);
 app.use('/api/public/hiring/reference', publicHiringReferenceRoutes);
@@ -763,6 +766,7 @@ app.use('/api/directory', directoryRoutes);
 app.use('/api/intake-field-templates', intakeFieldTemplatesRoutes);
 app.use('/api/unassigned-documents', unassignedDocumentsRoutes);
 app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
+app.use('/api/school-reinit', schoolReinitRoutes);
 app.use('/api/school-portal', agencyMarketingSplashPortalRoutes); // School portal — marketing splash fetch + dismiss
 app.use('/api/marketing-splashes', agencyMarketingSplashDashboardRoutes); // Regular dashboard — marketing splash fetch + dismiss
 app.use('/api/agency-marketing-splashes', agencyMarketingSplashManagerRoutes);

@@ -171,6 +171,82 @@ export default class UserPresenceStatus {
   }
 
   /**
+   * Earliest "back by" / end timestamp for a timed Away row (null = no timer).
+   * Prefers expected_return_at, then ends_at, then session_extend_until.
+   */
+  static getTimedAwayExpiryMs(row) {
+    if (!row) return null;
+    const candidates = [
+      row.presence_expected_return_at ?? row.expected_return_at,
+      row.presence_ends_at ?? row.ends_at,
+      row.presence_session_extend_until ?? row.session_extend_until
+    ];
+    for (const raw of candidates) {
+      if (!raw) continue;
+      const ms = new Date(raw).getTime();
+      if (Number.isFinite(ms)) return ms;
+    }
+    return null;
+  }
+
+  /**
+   * Timed Away (Out – Quick / meal / personal with a return time) whose timer has passed.
+   * Day-level outs without an end/return time are left alone (manual clear / Planned Outs).
+   */
+  static isTimedAwayExpired(row, now = Date.now()) {
+    if (!row) return false;
+    const status = String(row.presence_status || row.rich_status || row.status || '').trim();
+    if (!this.isAwayStatus(status)) return false;
+    const expiryMs = this.getTimedAwayExpiryMs(row);
+    if (expiryMs == null) return false;
+    return expiryMs <= now;
+  }
+
+  /** Persist clear for one user when their timed Away return/end time has passed. */
+  static async clearIfTimedAwayExpired(userId) {
+    const id = parseInt(userId, 10);
+    if (!id) return null;
+    const row = await this.findByUserId(id);
+    if (!this.isTimedAwayExpired(row)) return row;
+    return this.clearForUser(id);
+  }
+
+  /**
+   * Bulk-clear timed Away rows whose return/end/extend time is in the past.
+   * Keeps day-level outs that have no timer timestamps.
+   */
+  static async clearExpiredTimedAwayStatuses() {
+    try {
+      const [result] = await pool.execute(
+        `UPDATE user_presence_status
+         SET status = 'in_available',
+             note = NULL,
+             expected_return_at = NULL,
+             ends_at = NULL,
+             reason = NULL,
+             display_label = 'Active',
+             session_extend_until = NULL,
+             started_at = NOW()
+         WHERE status IN ('out_quick', 'out_am', 'out_pm', 'out_full_day', 'traveling_offsite')
+           AND (
+             (expected_return_at IS NOT NULL AND expected_return_at < NOW())
+             OR (ends_at IS NOT NULL AND ends_at < NOW())
+             OR (
+               session_extend_until IS NOT NULL
+               AND session_extend_until < NOW()
+               AND expected_return_at IS NULL
+               AND ends_at IS NULL
+               AND status = 'out_quick'
+             )
+           )`
+      );
+      return result?.affectedRows || 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
    * Fetch all users with staff-like roles and their presence status.
    * Used for SuperAdmin Team Board.
    */

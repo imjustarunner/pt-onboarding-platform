@@ -1,92 +1,86 @@
 <template>
-  <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal company-events-calendar-modal" @click.stop>
-      <div class="modal-header">
-        <div>
-          <h2 id="cec-title">Company events</h2>
-          <p class="muted sub">Agency-wide events and school outreach opportunities.</p>
+  <Teleport to="body">
+    <div class="cec-overlay" role="dialog" aria-modal="true" aria-labelledby="cec-title" @click.self="$emit('close')">
+      <div class="modal company-events-calendar-modal" @click.stop>
+        <div class="modal-header">
+          <div>
+            <h2 id="cec-title">Company events</h2>
+            <p class="muted sub">Agency-wide events and school outreach opportunities.</p>
+          </div>
+          <button class="close" type="button" aria-label="Close" @click="$emit('close')">×</button>
         </div>
-        <button class="close" type="button" aria-label="Close" @click="$emit('close')">×</button>
-      </div>
 
-      <div class="body">
-        <div v-if="loading" class="muted">Loading events…</div>
-        <div v-else-if="error" class="error">{{ error }}</div>
-        <div v-else-if="!events.length" class="muted">No upcoming company events.</div>
-        <div v-else class="sections">
-          <section v-if="schoolOutreachEvents.length" class="section">
-            <h3>School outreach events</h3>
-            <div class="cards">
-              <article v-for="event in schoolOutreachEvents" :key="`out-${event.id}`" class="card">
-                <div class="card-title">{{ event.title }}</div>
-                <div class="card-meta">{{ event.schoolName || 'School event' }}</div>
-                <div class="card-meta">{{ formatRange(event.startsAt, event.endsAt) }}</div>
-                <div v-if="event.description" class="card-desc">{{ event.description }}</div>
-                <div class="card-actions">
-                  <a
-                    v-if="flierHref(event)"
-                    :href="flierHref(event)"
-                    target="_blank"
-                    rel="noopener"
-                    class="btn btn-secondary btn-sm"
-                  >
-                    View flier
-                  </a>
-                  <button
-                    v-if="canRequestForEvent(event)"
-                    type="button"
-                    class="btn btn-primary btn-sm"
-                    :disabled="requestingKey === requestKey(event)"
-                    @click="requestShift(event)"
-                  >
-                    {{ requestingKey === requestKey(event) ? 'Requesting…' : 'Request shift' }}
-                  </button>
-                  <span v-else-if="statusLabel(event)" class="status-pill">{{ statusLabel(event) }}</span>
-                </div>
-              </article>
-            </div>
-          </section>
-
-          <section v-if="otherEvents.length" class="section">
-            <h3>Other company events</h3>
-            <div class="cards">
-              <article v-for="event in otherEvents" :key="`co-${event.id}`" class="card card-muted">
-                <div class="card-title">{{ event.title }}</div>
-                <div class="card-meta">{{ formatRange(event.startsAt, event.endsAt) }}</div>
-                <div v-if="event.description" class="card-desc">{{ event.description }}</div>
-              </article>
-            </div>
-          </section>
+        <div class="body">
+          <div v-if="loading" class="muted">Loading events…</div>
+          <div v-else-if="error" class="error">{{ error }}</div>
+          <div v-else-if="!sortedEvents.length" class="muted">No upcoming company events.</div>
+          <div v-else class="cards">
+            <article
+              v-for="event in sortedEvents"
+              :key="`ev-${event.id}`"
+              class="card"
+              :class="{ 'card-muted': !isRequestableCompanyEvent(event) }"
+            >
+              <div class="card-title">{{ event.title }}</div>
+              <div v-if="event.schoolName" class="card-meta">{{ event.schoolName }}</div>
+              <div class="card-meta">{{ formatRange(event.startsAt, event.endsAt) }}</div>
+              <div v-if="event.description" class="card-desc">{{ event.description }}</div>
+              <div class="card-actions">
+                <a
+                  v-if="flierHref(event)"
+                  :href="flierHref(event)"
+                  target="_blank"
+                  rel="noopener"
+                  class="btn btn-secondary btn-sm"
+                >
+                  View flier
+                </a>
+                <button
+                  v-if="canRequestCompanyEventShift(event)"
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  :disabled="requestingKey === requestKey(event)"
+                  @click="requestShift(event)"
+                >
+                  {{ requestingKey === requestKey(event) ? 'Requesting…' : 'Request shift' }}
+                </button>
+                <span v-else-if="statusLabel(event)" class="status-pill" :class="statusPillClass(event)">
+                  {{ statusLabel(event) }}
+                </span>
+              </div>
+            </article>
+          </div>
         </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import {
+  canRequestCompanyEventShift,
+  companyEventRequestKey,
+  companyEventRequestStatusLabel,
+  isRequestableCompanyEvent,
+  primaryCompanyEventSession
+} from '../../utils/companyEventStaffing';
 
-defineEmits(['close']);
+const emit = defineEmits(['close', 'changed']);
 
 const loading = ref(false);
 const error = ref('');
 const events = ref([]);
 const requestingKey = ref('');
 
-const schoolOutreachEvents = computed(() =>
-  (events.value || []).filter(
-    (e) =>
-      e.canRequestOutreachShift ||
-      (e.isSchoolPortalEvent &&
-        (e.outreachTableInvited ||
-          (e.staffingConfig?.enabled && e.staffingConfig?.providerSignup?.enabled !== false)))
-  )
-);
-
-const otherEvents = computed(() =>
-  (events.value || []).filter((e) => !schoolOutreachEvents.value.some((o) => o.id === e.id))
+const sortedEvents = computed(() =>
+  [...(events.value || [])].sort((a, b) => {
+    const at = new Date(a?.startsAt || 0).getTime();
+    const bt = new Date(b?.startsAt || 0).getTime();
+    return (Number.isFinite(at) ? at : 0) - (Number.isFinite(bt) ? bt : 0);
+  })
 );
 
 const flierHref = (event) => {
@@ -106,33 +100,18 @@ const formatRange = (startsAt, endsAt) => {
   return endTime ? `${datePart} · ${startTime}–${endTime}` : `${datePart} · ${startTime}`;
 };
 
-const primarySession = (event) => (Array.isArray(event.sessions) && event.sessions[0]) || null;
+const requestKey = (event) => companyEventRequestKey(event);
 
-const requestKey = (event) => {
-  const sess = primarySession(event);
-  return sess ? `${event.id}:${sess.sessionDateId}` : String(event.id);
-};
+const statusLabel = (event) => companyEventRequestStatusLabel(event);
 
-const statusLabel = (event) => {
-  const sess = primarySession(event);
-  if (!sess) return '';
-  if (sess.myAssignment) {
-    const s = String(sess.myAssignment.assignmentStatus || 'draft');
-    return s === 'finalized' ? 'Confirmed assignment' : `Assigned (${s})`;
-  }
-  if (sess.myRequest) {
-    return `Request ${sess.myRequest.status}`;
-  }
+const statusPillClass = (event) => {
+  const label = statusLabel(event);
+  if (label === 'Staffing full') return 'is-full';
+  const sess = primaryCompanyEventSession(event);
+  const st = String(sess?.myRequest?.status || '').toLowerCase();
+  if (st === 'pending') return 'is-pending';
+  if (st === 'approved' || sess?.myAssignment) return 'is-confirmed';
   return '';
-};
-
-const canRequestForEvent = (event) => {
-  if (!event.canRequestOutreachShift) return false;
-  const sess = primarySession(event);
-  if (!sess) return false;
-  if (sess.myAssignment) return false;
-  const st = String(sess.myRequest?.status || '').toLowerCase();
-  return !st || st === 'denied' || st === 'withdrawn';
 };
 
 const load = async () => {
@@ -150,17 +129,19 @@ const load = async () => {
 };
 
 const requestShift = async (event) => {
-  const sess = primarySession(event);
+  const sess = primaryCompanyEventSession(event);
   if (!sess || !event.agencyId) return;
   const key = requestKey(event);
   try {
     requestingKey.value = key;
+    error.value = '';
     await api.post(`/company-events/${event.id}/session-requests`, {
       agencyId: event.agencyId,
       sessionDateId: sess.sessionDateId,
       requestType: 'regular'
     });
     await load();
+    emit('changed');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to request shift';
   } finally {
@@ -172,10 +153,23 @@ onMounted(load);
 </script>
 
 <style scoped>
+.cec-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
 .company-events-calendar-modal {
   width: min(760px, 96vw);
   max-height: 90vh;
   overflow: auto;
+  background: var(--surface-elevated, #fff);
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
 }
 .modal-header {
   display: flex;
@@ -197,16 +191,10 @@ onMounted(load);
   background: transparent;
   font-size: 1.5rem;
   cursor: pointer;
+  line-height: 1;
 }
 .body {
   padding: 16px 18px 20px;
-}
-.section + .section {
-  margin-top: 20px;
-}
-.section h3 {
-  margin: 0 0 10px;
-  font-size: 0.95rem;
 }
 .cards {
   display: grid;
@@ -219,7 +207,7 @@ onMounted(load);
   background: var(--surface-elevated, #fff);
 }
 .card-muted {
-  opacity: 0.95;
+  opacity: 0.98;
 }
 .card-title {
   font-weight: 600;
@@ -247,6 +235,18 @@ onMounted(load);
   border-radius: 999px;
   background: #eef2ff;
   color: #3730a3;
+}
+.status-pill.is-full {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+.status-pill.is-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+.status-pill.is-confirmed {
+  background: #dcfce7;
+  color: #166534;
 }
 .error {
   color: #b91c1c;

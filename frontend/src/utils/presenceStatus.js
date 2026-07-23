@@ -93,6 +93,7 @@ export function labelForAwayReason(reason) {
  */
 export function teamBoardStatusLabel(person, enumFallbackMap = TEAM_BOARD_STATUS_LABELS) {
   if (!person) return '';
+  if (isTimedAwayExpired(person)) return '';
   const rich = String(person.presence_display_label || person.display_label || '').trim();
   if (rich && rich.toLowerCase() !== 'active') return rich;
   const fromReason = labelForAwayReason(person.presence_reason || person.reason);
@@ -105,13 +106,40 @@ export function teamBoardStatusLabel(person, enumFallbackMap = TEAM_BOARD_STATUS
 /** Return-at for Team Board note column (session extend or expected return). */
 export function teamBoardReturnAt(person) {
   if (!person) return null;
-  return (
+  const raw =
     person.presence_expected_return_at ||
     person.presence_session_extend_until ||
     person.expected_return_at ||
     person.session_extend_until ||
-    null
-  );
+    null;
+  if (!raw) return null;
+  const ms = new Date(raw).getTime();
+  // Hide stale "Back …" times from a previous day/session.
+  if (!Number.isFinite(ms) || ms <= Date.now()) return null;
+  return raw;
+}
+
+/** Timed Away overlay whose return/end time has already passed. */
+export function isTimedAwayExpired(person, now = Date.now()) {
+  if (!person) return false;
+  // Use rich Team Board status only — never wire status (online/idle/offline).
+  const rich = String(person.presence_status || '').trim();
+  const isAway = rich.startsWith('out_') || rich === 'traveling_offsite';
+  if (!isAway) return false;
+  const candidates = [
+    person.presence_expected_return_at,
+    person.expected_return_at,
+    person.presence_ends_at,
+    person.ends_at,
+    person.presence_session_extend_until,
+    person.session_extend_until
+  ];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const ms = new Date(raw).getTime();
+    if (Number.isFinite(ms)) return ms <= now;
+  }
+  return false;
 }
 
 const CUSTOM_OUT_KEY = (userId) => `presence:customOutReasons:v1:${userId || 'anon'}`;
@@ -170,15 +198,19 @@ export const DURATION_CHIPS = [
 /** Derive shared availability band from API person payload. */
 export function availabilityBandForPerson(person) {
   if (!person) return 'offline';
+  const expiredAway = isTimedAwayExpired(person);
   const band = String(person.availability_band || '').toLowerCase();
-  if (band && AVAILABILITY_BANDS[band]) return band;
+  // Trust API band unless a timed Away timer has already expired client-side.
+  if (band && AVAILABILITY_BANDS[band] && !expiredAway) return band;
 
-  const reason = String(person.presence_reason || person.reason || '').trim();
+  const reason = expiredAway ? '' : String(person.presence_reason || person.reason || '').trim();
   if (reason === 'available_offline') return 'available_offline';
 
-  const note = String(person.presence_note || person.note || '').trim();
-  const display = String(person.presence_display_label || person.display_label || person.status_label || '').toLowerCase();
-  const rich = String(person.presence_status || '').trim();
+  const note = expiredAway ? '' : String(person.presence_note || person.note || '').trim();
+  const display = expiredAway
+    ? ''
+    : String(person.presence_display_label || person.display_label || person.status_label || '').toLowerCase();
+  const rich = expiredAway ? 'in_available' : String(person.presence_status || '').trim();
   const reachable =
     ['call', 'text', 'call_text'].includes(note) ||
     ['call', 'text', 'call_text'].includes(reason) ||

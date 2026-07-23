@@ -135,7 +135,7 @@ const props = defineProps({
   currentUserId: { type: Number, default: null },
 });
 
-
+const emit = defineEmits(['submitted']);
 const loading = ref(true);
 const trips = ref([]);
 const cars = ref([]);
@@ -263,6 +263,7 @@ function onTripSubmitted() {
   showLogModal.value = false;
   editingTrip.value = null;
   loadTrips();
+  emit('submitted');
 }
 
 function closeLogModal() {

@@ -111,6 +111,7 @@
         @navigate="navigate"
         @view-all="$emit('open-company-events')"
         @join="onJoinEvent"
+        @request-changed="onEventsRequestChanged"
       />
     </div>
 
@@ -208,7 +209,8 @@ const {
   featuredEvent,
   recentActivityItems,
   unreadCount,
-  notesToSignCount
+  notesToSignCount,
+  refresh
 } = useDashboardOverview({
   userId,
   agencyId: agencyIdRef,
@@ -216,6 +218,10 @@ const {
   companyEvents: companyEventsRef,
   supervisionPrompts: supervisionPromptsRef
 });
+
+const onEventsRequestChanged = () => {
+  void refresh();
+};
 
 const greeting = computed(() => {
   const h = new Date().getHours();

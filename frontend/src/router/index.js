@@ -582,6 +582,18 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/school-reinit/:token',
+    name: 'SchoolReinitPublic',
+    component: () => import('../views/public/SchoolReinitPublicView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/school-reinit/:token',
+    name: 'OrganizationSchoolReinitPublic',
+    component: () => import('../views/public/SchoolReinitPublicView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
     path: '/event-rsvp/:token',
     name: 'CompanyEventRsvp',
     component: () => import('../views/public/CompanyEventRsvpView.vue'),
@@ -1643,6 +1655,17 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/school-reinit/:schoolOrganizationId',
+    name: 'OrganizationSchoolReinitAdmin',
+    component: () => import('../views/admin/SchoolReinitAdminView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/school-portals',
     name: 'OrganizationSchoolPortals',
     component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
@@ -2649,6 +2672,16 @@ const routes = [
     path: '/admin/schools/overview',
     name: 'SchoolOverviewDashboard',
     component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/school-reinit/:schoolOrganizationId',
+    name: 'SchoolReinitAdmin',
+    component: () => import('../views/admin/SchoolReinitAdminView.vue'),
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
@@ -3948,11 +3981,13 @@ router.beforeEach(async (to, from, next) => {
       'OrganizationSplash',
       'OrganizationDocumentSigning',
       'OrganizationDocumentReview',
-      'OrganizationDocumentPrint'
+      'OrganizationDocumentPrint',
+      'OrganizationSchoolReinitPublic'
     ]);
     const allowedUnscopedRouteNames = new Set([
       'DocumentSigning',
-      'DocumentReview'
+      'DocumentReview',
+      'SchoolReinitPublic'
     ]);
 
     const allowed =

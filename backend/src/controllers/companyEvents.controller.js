@@ -3539,16 +3539,31 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
       const eid = Number(row.id);
       const eventType = String(row.event_type || '').toLowerCase();
       const isSchoolEvent = isSchoolPortalEventType(eventType);
+      const staffingRequestable =
+        eventType !== 'skills_group' &&
+        !!(base.staffingConfig?.enabled && base.staffingConfig?.providerSignup?.enabled !== false);
+      const sessions = (sessionsByEvent.get(eid) || []).map((sess) => {
+        const minProviders = Number.isFinite(Number(base.staffingConfig?.minProvidersPerSession))
+          ? Math.max(0, Number(base.staffingConfig.minProvidersPerSession))
+          : staffingRequestable || isSchoolEvent
+            ? 1
+            : 0;
+        return {
+          ...sess,
+          requiredProviders: minProviders
+        };
+      });
       return {
         ...base,
         isSchoolPortalEvent: isSchoolEvent,
         schoolName: row.school_name ? String(row.school_name).trim() : null,
         schoolSlug: String(row.school_portal_url || row.school_slug || '').trim() || null,
-        sessions: sessionsByEvent.get(eid) || [],
+        sessions,
         canRequestOutreachShift:
-          isSchoolEvent &&
-          (!!(row.outreach_table_invited === 1 || row.outreach_table_invited === true) ||
-            !!(base.staffingConfig?.enabled && base.staffingConfig?.providerSignup?.enabled !== false))
+          (isSchoolEvent &&
+            (!!(row.outreach_table_invited === 1 || row.outreach_table_invited === true) ||
+              !!(base.staffingConfig?.enabled && base.staffingConfig?.providerSignup?.enabled !== false))) ||
+          staffingRequestable
       };
     });
 

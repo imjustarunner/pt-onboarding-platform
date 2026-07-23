@@ -68,6 +68,7 @@ export function useDashboardOverview(opts = {}) {
   const tier = ref(null);
   const scheduleSummary = ref(null);
   const localCompanyEvents = ref([]);
+  const calendarEventsById = ref(new Map());
   const notifications = ref([]);
   const unreadCount = ref(0);
   const taskCount = ref(0);
@@ -249,11 +250,13 @@ export function useDashboardOverview(opts = {}) {
     });
 
     const fromCompany = (effectiveCompanyEvents.value || []).map((e) => {
-      const startMs = parseAt(e.nextOccurrenceStart || e.startsAt);
-      const endMs = parseAt(e.endsAt);
-      const title = String(e.title || e.name || 'Company event').trim();
-      const schoolName = String(e.schoolName || e.organizationName || '').trim();
+      const enriched = calendarEventsById.value.get(Number(e.id)) || e;
+      const startMs = parseAt(enriched.nextOccurrenceStart || enriched.startsAt || e.nextOccurrenceStart || e.startsAt);
+      const endMs = parseAt(enriched.endsAt || e.endsAt);
+      const title = String(enriched.title || enriched.name || e.title || e.name || 'Company event').trim();
+      const schoolName = String(enriched.schoolName || enriched.organizationName || e.schoolName || e.organizationName || '').trim();
       const location = String(
+        enriched.location || enriched.eventLocationName || enriched.eventLocationAddress || enriched.publicLocationAddress ||
         e.location || e.eventLocationName || e.eventLocationAddress || e.publicLocationAddress || ''
       ).trim();
       const whereParts = [];
@@ -278,9 +281,9 @@ export function useDashboardOverview(opts = {}) {
         startMs,
         endMs,
         isLive: statusForWindow(startMs, endMs, now) === 'in_progress',
-        joinUrl: e.joinUrl || e.meetingUrl || null,
+        joinUrl: enriched.joinUrl || enriched.meetingUrl || e.joinUrl || e.meetingUrl || null,
         kind: 'company',
-        raw: e
+        raw: enriched
       };
     }).filter((e) => {
       if (e.startMs == null) return true;
@@ -449,6 +452,20 @@ export function useDashboardOverview(opts = {}) {
             .catch(() => { localCompanyEvents.value = []; })
         );
       }
+
+      requests.push(
+        api.get('/me/company-events/calendar', { skipGlobalLoading: true })
+          .then((r) => {
+            const rows = Array.isArray(r.data) ? r.data : [];
+            const map = new Map();
+            for (const row of rows) {
+              const id = Number(row?.id);
+              if (id) map.set(id, row);
+            }
+            calendarEventsById.value = map;
+          })
+          .catch(() => { calendarEventsById.value = new Map(); })
+      );
 
       await Promise.all(requests);
     } catch (e) {

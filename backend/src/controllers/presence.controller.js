@@ -87,14 +87,40 @@ function peerFacingStatusLabel(status) {
 }
 
 /**
+ * Drop timed Away overlays whose return/end time has already passed so board/chat
+ * do not keep showing "Out for Personal · Back 2:27 PM" from a prior day.
+ */
+function applyExpiredTimedAway(row) {
+  if (!row || !UserPresenceStatus.isTimedAwayExpired(row)) return row;
+  return {
+    ...row,
+    presence_status: 'in_available',
+    rich_status: 'in_available',
+    presence_reason: null,
+    reason: null,
+    presence_note: null,
+    note: null,
+    presence_display_label: 'Active',
+    display_label: 'Active',
+    presence_expected_return_at: null,
+    expected_return_at: null,
+    presence_ends_at: null,
+    ends_at: null,
+    presence_session_extend_until: null,
+    session_extend_until: null
+  };
+}
+
+/**
  * Shared availability bands for Team Board + Messages dots.
  * available | away_reachable | unavailable | available_offline | offline
  */
 function computeAvailabilityBand(row, wireStatus) {
-  const reason = String(row?.presence_reason || row?.reason || '').trim();
-  const note = String(row?.presence_note || row?.note || '').trim();
-  const richStatus = String(row?.presence_status || row?.rich_status || '').trim();
-  const display = String(row?.presence_display_label || row?.display_label || '').toLowerCase();
+  const effective = applyExpiredTimedAway(row);
+  const reason = String(effective?.presence_reason || effective?.reason || '').trim();
+  const note = String(effective?.presence_note || effective?.note || '').trim();
+  const richStatus = String(effective?.presence_status || effective?.rich_status || '').trim();
+  const display = String(effective?.presence_display_label || effective?.display_label || '').toLowerCase();
   const reachable =
     UserPresenceStatus.isReachableNote(note) ||
     ['call', 'text', 'call_text'].includes(reason) ||
@@ -147,9 +173,10 @@ function availabilityBandLabel(band) {
 
 function computePresenceStatus(row, viewerRole) {
   const now = Date.now();
-  const hb = row?.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : null;
-  const rich = richStatusFields(row);
-  const idleSession = hasChatIdleSession(row) || hasSoftActivityIdle(row, now);
+  const effectiveRow = applyExpiredTimedAway(row);
+  const hb = effectiveRow?.last_heartbeat_at ? new Date(effectiveRow.last_heartbeat_at).getTime() : null;
+  const rich = richStatusFields(effectiveRow);
+  const idleSession = hasChatIdleSession(effectiveRow) || hasSoftActivityIdle(effectiveRow, now);
   const reason = String(rich?.presence_reason || '').trim();
 
   let status = 'offline';
@@ -164,7 +191,8 @@ function computePresenceStatus(row, viewerRole) {
   }
 
   const availabilityLevel =
-    normalizeAvailability(row?.availability_level) || defaultAvailabilityForRole(row?.role || viewerRole);
+    normalizeAvailability(effectiveRow?.availability_level) ||
+    defaultAvailabilityForRole(effectiveRow?.role || viewerRole);
 
   if (availabilityLevel === 'offline' && status !== 'idle' && reason !== 'available_offline') {
     status = 'offline';
@@ -173,7 +201,7 @@ function computePresenceStatus(row, viewerRole) {
     status = 'offline';
   }
 
-  const band = computeAvailabilityBand({ ...row, ...rich }, status);
+  const band = computeAvailabilityBand({ ...effectiveRow, ...rich }, status);
   let statusLabel = availabilityBandLabel(band);
   if (status === 'idle') {
     const richLabel = String(rich?.presence_display_label || '').trim();
@@ -330,6 +358,13 @@ export const heartbeat = async (req, res, next) => {
       /* ignore */
     }
 
+    // Timed Away whose "Back by …" time already passed → Available again.
+    try {
+      await UserPresenceStatus.clearIfTimedAwayExpired(userId);
+    } catch {
+      /* ignore */
+    }
+
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -440,6 +475,28 @@ export const getMyPresence = async (req, res, next) => {
             presence_session_extend_until: rich.session_extend_until
           }
         : {};
+    }
+
+    // Persist clear when timed Away return time has passed (stale "Back by …" from prior days).
+    if (UserPresenceStatus.isTimedAwayExpired(merged)) {
+      try {
+        const cleared = await UserPresenceStatus.clearForUser(userId);
+        if (cleared) {
+          merged = {
+            ...(merged || {}),
+            presence_status: cleared.status,
+            presence_note: cleared.note,
+            presence_started_at: cleared.started_at,
+            presence_ends_at: cleared.ends_at,
+            presence_expected_return_at: cleared.expected_return_at,
+            presence_reason: cleared.reason,
+            presence_display_label: cleared.display_label,
+            presence_session_extend_until: cleared.session_extend_until
+          };
+        }
+      } catch {
+        /* ignore */
+      }
     }
 
     const computed = computePresenceStatus({ ...(merged || {}), role: req.user.role }, req.user.role);
@@ -680,6 +737,12 @@ async function attachSharedAgencyMemberships(rows, viewerUserId, { viewerRole } 
 }
 
 async function finalizeChatPresenceRows(rows, viewerUserId, viewerRole) {
+  // Best-effort: drop stale timed Away before mapping so directory/board stay current.
+  try {
+    await UserPresenceStatus.clearExpiredTimedAwayStatuses();
+  } catch {
+    /* ignore */
+  }
   const withSchools = await attachSchoolNames(rows);
   const withShared = await attachSharedAgencyMemberships(withSchools, viewerUserId, { viewerRole });
   return attachCalendarBusyToPresenceRows(mapChatPresenceRows(withShared, viewerRole));
@@ -996,6 +1059,8 @@ export const listAdminPresence = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Super admin access required' } });
     }
 
+    await UserPresenceStatus.clearExpiredTimedAwayStatuses();
+
     const [rows] = await pool.execute(
       `SELECT u.id,
               u.first_name,
@@ -1088,14 +1153,15 @@ const mapPresenceRows = (rows) => {
       availability_band: computed.availability_band,
       status_label: computed.status_label,
       last_heartbeat_at: r.last_heartbeat_at || null,
-      presence_status: r.presence_status || null,
-      presence_note: r.presence_note || null,
+      // Prefer computed (may have cleared expired timed Away) over raw DB fields.
+      presence_status: computed.presence_status || null,
+      presence_note: computed.presence_note || null,
       presence_started_at: r.presence_started_at || null,
-      presence_ends_at: r.presence_ends_at || null,
-      presence_expected_return_at: r.presence_expected_return_at || null,
-      presence_reason: r.presence_reason || null,
-      presence_display_label: r.presence_display_label || null,
-      presence_session_extend_until: r.presence_session_extend_until || null
+      presence_ends_at: computed.presence_ends_at || null,
+      presence_expected_return_at: computed.presence_expected_return_at || null,
+      presence_reason: computed.presence_reason || null,
+      presence_display_label: computed.presence_display_label || null,
+      presence_session_extend_until: computed.presence_session_extend_until || null
     };
   });
 };
@@ -1106,6 +1172,7 @@ export const listPresence = async (req, res, next) => {
     let rows;
 
     if (role === 'super_admin') {
+      await UserPresenceStatus.clearExpiredTimedAwayStatuses();
       rows = await UserPresenceStatus.findAllWithUsers();
     } else {
       return res.status(403).json({ error: { message: 'Super admin access required' } });
@@ -1126,6 +1193,7 @@ export const listPresenceForAgency = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
 
     const role = String(req.user?.role || '').toLowerCase();
+    await UserPresenceStatus.clearExpiredTimedAwayStatuses();
     if (role === 'super_admin') {
       const rows = await UserPresenceStatus.findAllWithUsersForAgency(agencyId);
       return res.json(mapPresenceRows(rows));
@@ -1174,7 +1242,10 @@ export const listPresenceForAgency = async (req, res, next) => {
  */
 export const getMyPresenceStatus = async (req, res, next) => {
   try {
-    const row = await UserPresenceStatus.findByUserId(req.user.id);
+    let row = await UserPresenceStatus.findByUserId(req.user.id);
+    if (UserPresenceStatus.isTimedAwayExpired(row)) {
+      row = await UserPresenceStatus.clearForUser(req.user.id);
+    }
     if (!row) {
       return res.json({
         presence_status: null,

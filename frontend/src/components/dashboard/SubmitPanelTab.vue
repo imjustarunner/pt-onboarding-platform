@@ -27,59 +27,95 @@
         :key="group.id"
         :group-id="group.id"
       >
-        <div class="submit-hub__grid">
-          <button
-            v-for="action in group.visibleActions"
-            :key="action.id"
-            type="button"
-            class="submit-hub__action"
-            :class="{ 'submit-hub__action--featured-inline': action.featured }"
-            @click="onAction(action.event)"
-          >
-            <span class="submit-hub__action-icon" v-html="actionIcon(action.icon)" />
-            <span class="submit-hub__action-title">{{ actionTitle(action) }}</span>
-            <span class="submit-hub__action-desc">{{ actionDescription(action) }}</span>
-            <span class="submit-hub__action-cta">Open →</span>
-          </button>
+        <div class="submit-hub__section-split">
+          <div class="submit-hub__section-actions">
+            <div class="submit-hub__grid submit-hub__grid--compact">
+              <button
+                v-for="action in group.visibleActions"
+                :key="action.id"
+                type="button"
+                class="submit-hub__action submit-hub__action--compact"
+                :class="{ 'submit-hub__action--featured-inline': action.featured }"
+                @click="onAction(action.event)"
+              >
+                <span class="submit-hub__action-icon" v-html="actionIcon(action.icon)" />
+                <span class="submit-hub__action-title">{{ actionTitle(action) }}</span>
+                <span class="submit-hub__action-desc">{{ actionDescription(action) }}</span>
+                <span class="submit-hub__action-cta">Open →</span>
+              </button>
+            </div>
+          </div>
+          <SubmitSubmissionHistoryColumn
+            :group-id="group.id"
+            :blocks="historyBlocksForGroup(group.id)"
+            :loading="historyLoading"
+            :error="historyError"
+            @refresh="refreshHistory"
+            @view-payroll="$emit('view-payroll')"
+          />
         </div>
       </SubmitHubSection>
     </div>
 
     <!-- Time claims sub-menu -->
     <div v-else-if="view === 'time'" class="submit-hub__sub">
-      <p class="submit-hub__sub-hint">Choose a time claim type. Payroll will review before it is added to a pay period.</p>
-      <div class="submit-hub__grid">
-        <button
-          v-for="action in visibleTimeActions"
-          :key="action.id"
-          type="button"
-          class="submit-hub__action"
-          @click="onAction(action.event)"
-        >
-          <span class="submit-hub__action-icon" v-html="actionIcon(action.icon)" />
-          <span class="submit-hub__action-title">{{ actionTitle(action) }}</span>
-          <span class="submit-hub__action-desc">{{ actionDescription(action) }}</span>
-          <span class="submit-hub__action-cta">Open →</span>
-        </button>
+      <div class="submit-hub__sub-split">
+        <div>
+          <p class="submit-hub__sub-hint">Choose a time claim type. Payroll will review before it is added to a pay period.</p>
+          <div class="submit-hub__grid submit-hub__grid--compact">
+            <button
+              v-for="action in visibleTimeActions"
+              :key="action.id"
+              type="button"
+              class="submit-hub__action submit-hub__action--compact"
+              @click="onAction(action.event)"
+            >
+              <span class="submit-hub__action-icon" v-html="actionIcon(action.icon)" />
+              <span class="submit-hub__action-title">{{ actionTitle(action) }}</span>
+              <span class="submit-hub__action-desc">{{ actionDescription(action) }}</span>
+              <span class="submit-hub__action-cta">Open →</span>
+            </button>
+          </div>
+        </div>
+        <SubmitSubmissionHistoryColumn
+          group-id="time"
+          :blocks="historyBlocksForGroup('time')"
+          :loading="historyLoading"
+          :error="historyError"
+          @refresh="refreshHistory"
+          @view-payroll="$emit('view-payroll')"
+        />
       </div>
     </div>
 
     <!-- In-school sub-menu -->
     <div v-else-if="view === 'in_school'" class="submit-hub__sub">
-      <p class="submit-hub__sub-hint">In-school mileage and Med Cancel submissions.</p>
-      <div class="submit-hub__grid">
-        <button
-          v-for="action in visibleInSchoolActions"
-          :key="action.id"
-          type="button"
-          class="submit-hub__action"
-          @click="onAction(action.event)"
-        >
-          <span class="submit-hub__action-icon" v-html="actionIcon(action.icon)" />
-          <span class="submit-hub__action-title">{{ action.title }}</span>
-          <span class="submit-hub__action-desc">{{ action.description }}</span>
-          <span class="submit-hub__action-cta">Open →</span>
-        </button>
+      <div class="submit-hub__sub-split">
+        <div>
+          <p class="submit-hub__sub-hint">In-school mileage and Med Cancel submissions.</p>
+          <div class="submit-hub__grid submit-hub__grid--compact">
+            <button
+              v-for="action in visibleInSchoolActions"
+              :key="action.id"
+              type="button"
+              class="submit-hub__action submit-hub__action--compact"
+              @click="onAction(action.event)"
+            >
+              <span class="submit-hub__action-icon" v-html="actionIcon(action.icon)" />
+              <span class="submit-hub__action-title">{{ action.title }}</span>
+              <span class="submit-hub__action-desc">{{ action.description }}</span>
+              <span class="submit-hub__action-cta">Open →</span>
+            </button>
+          </div>
+        </div>
+        <SubmitSubmissionHistoryColumn
+          group-id="in_school"
+          :blocks="historyBlocksForGroup('in_school')"
+          :loading="historyLoading"
+          :error="historyError"
+          @refresh="refreshHistory"
+          @view-payroll="$emit('view-payroll')"
+        />
       </div>
     </div>
 
@@ -101,18 +137,21 @@
         :agency-id="Number(agencyId)"
         :manage-access="companyCarManageAccess"
         :current-user-id="currentUserId"
+        @submitted="refreshHistory"
       />
     </div>
   </SubmitHubPanel>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, toRef } from 'vue';
 import SubmitHubPanel from './SubmitHubPanel.vue';
 import SubmitHubSection from './SubmitHubSection.vue';
+import SubmitSubmissionHistoryColumn from './SubmitSubmissionHistoryColumn.vue';
 import AdditionalAvailabilitySubmit from '../AdditionalAvailabilitySubmit.vue';
 import VirtualWorkingHoursEditor from '../availability/VirtualWorkingHoursEditor.vue';
 import CompanyCarTripsView from '../companyCar/CompanyCarTripsView.vue';
+import { useSubmitSubmissionHistory } from '../../composables/useSubmitSubmissionHistory';
 import {
   SUBMIT_ROOT_GROUPS,
   SUBMIT_TIME_ACTIONS,
@@ -124,15 +163,28 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   currentUserId: { type: [Number, String], default: null },
   companyCarManageAccess: { type: Boolean, default: false },
+  enabled: { type: Boolean, default: true },
   flags: {
     type: Object,
     default: () => ({}),
   },
 });
 
-const emit = defineEmits(['update:view', 'action']);
+const emit = defineEmits(['update:view', 'action', 'view-payroll']);
 
 const flags = computed(() => props.flags || {});
+
+const {
+  loading: historyLoading,
+  error: historyError,
+  historyBlocksForGroup,
+  refresh: refreshHistory,
+} = useSubmitSubmissionHistory({
+  agencyId: toRef(props, 'agencyId'),
+  userId: toRef(props, 'currentUserId'),
+  flags,
+  enabled: toRef(props, 'enabled'),
+});
 
 const isVisible = (action) => {
   const key = action.visibleKey;
@@ -204,6 +256,8 @@ const onAction = (event) => {
   }
   emit('action', event);
 };
+
+defineExpose({ refreshHistory });
 </script>
 
 <style scoped>
@@ -284,6 +338,45 @@ const onAction = (event) => {
   gap: 12px;
 }
 
+.submit-hub__section-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.85fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.submit-hub__section-actions {
+  min-width: 0;
+}
+
+.submit-hub__grid--compact {
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 960px) {
+  .submit-hub__section-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.submit-hub__action--compact {
+  padding: 12px;
+}
+
+.submit-hub__action--compact .submit-hub__action-icon {
+  width: 34px;
+  height: 34px;
+}
+
+.submit-hub__action--compact .submit-hub__action-title {
+  font-size: 14px;
+}
+
+.submit-hub__action--compact .submit-hub__action-desc {
+  font-size: 12px;
+}
+
 .submit-hub__action {
   display: flex;
   flex-direction: column;
@@ -344,6 +437,19 @@ const onAction = (event) => {
   font-size: 14px;
   color: #6b7280;
   line-height: 1.5;
+}
+
+.submit-hub__sub-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.85fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .submit-hub__sub-split {
+    grid-template-columns: 1fr;
+  }
 }
 
 .submit-hub__warn {

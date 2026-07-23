@@ -405,6 +405,24 @@
             School Marketing Campaign
           </router-link>
           <button
+            v-if="isSchoolStaff && (showFallReinitSummaryButton || fallReinitStatus?.splashEnabled || fallReinitStatus?.campaign?.isPushed)"
+            type="button"
+            class="btn btn-primary btn-sm"
+            title="Open collaborative update"
+            @click="openFallReinitModal"
+          >
+            {{ showFallReinitSummaryButton ? 'View fall summary' : 'Collaborative update' }}
+          </button>
+          <button
+            v-if="isSchoolStaff && (fallReinitStatus?.splashEnabled || fallReinitStatus?.campaign?.isPushed)"
+            type="button"
+            class="btn btn-secondary btn-sm sp-copy-token-btn"
+            title="Copy shareable collaborative update link"
+            @click="copyFallReinitToken"
+          >
+            {{ fallReinitTokenCopied ? 'Copied!' : 'Copy Token' }}
+          </button>
+          <button
             v-if="isSchoolStaff"
             type="button"
             class="btn btn-secondary btn-sm tutorial-toggle"
@@ -1361,8 +1379,34 @@
       </div>
     </div>
 
+    <!-- Fall re-initiation collaborative workflow splash -->
     <div
-      v-if="currentSplashAnnouncement"
+      v-if="showFallReinitSplash"
+      class="blocking-splash fall-reinit-splash"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Fall school re-initiation"
+    >
+      <div class="blocking-splash-card fall-reinit-splash-card">
+        <div class="blocking-splash-head">
+          <div class="blocking-splash-brand">Fall re-initiation · {{ schoolName || 'School Portal' }}</div>
+          <button type="button" class="btn btn-secondary btn-sm" @click="dismissFallReinitSplash">
+            Complete later
+          </button>
+        </div>
+        <SchoolReinitDashboard
+          v-if="organizationId"
+          mode="staff"
+          embedded
+          :school-organization-id="organizationId"
+          :agency-id="affiliatedAgencyId || undefined"
+          @finalized="onFallReinitFinalized"
+        />
+      </div>
+    </div>
+
+    <div
+      v-if="currentSplashAnnouncement && !showFallReinitSplash"
       class="blocking-splash"
       role="dialog"
       aria-modal="true"
@@ -1779,6 +1823,7 @@ import QuickChecklistModal from '../../components/school/QuickChecklistModal.vue
 import SurveyPromptCard from '../../components/dashboard/SurveyPromptCard.vue';
 import SchoolMarketingSplash from '../../components/marketing/SchoolMarketingSplash.vue';
 import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
+import SchoolReinitDashboard from '../../components/school/reinit/SchoolReinitDashboard.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -1823,6 +1868,10 @@ const vClickOutside = {
 };
 
 const showHelpDesk = ref(false);
+const fallReinitStatus = ref(null); // payload from /school-reinit/me
+const showFallReinitModal = ref(false);
+const fallReinitSessionDismissed = ref(false);
+const fallReinitTokenCopied = ref(false);
 const showPostSchoolEvent = ref(false);
 const editingSchoolEvent = ref(null);
 const postSchoolEventCategory = ref('back_to_school');
@@ -2034,6 +2083,92 @@ const showUploadModal = ref(false);
 const comingSoonKey = ref(''); // 'parent_qr' | 'parent_sign' | 'packet_upload'
 const showSchoolSettings = ref(false);
 const affiliatedAgencyId = ref(null);
+
+const showFallReinitSummaryButton = computed(() => {
+  const c = fallReinitStatus.value?.cycle;
+  return Boolean(fallReinitStatus.value?.showReceiptButton && c?.status === 'finalized');
+});
+const showFallReinitSplash = computed(() => {
+  if (!isSchoolStaff.value || props.previewMode || fallReinitSessionDismissed.value) return false;
+  if (showFallReinitModal.value) return true;
+  const data = fallReinitStatus.value;
+  if (!data) return false;
+  // Only after tenant Push to Schools
+  if (!data.splashEnabled && !data.campaign?.isPushed) return false;
+  if (data.dismissed) return false;
+  const status = data.cycle?.status;
+  if (status === 'finalized') return false;
+  return true;
+});
+const loadFallReinitStatus = async () => {
+  if (!isSchoolStaff.value || props.previewMode || !organizationId.value) {
+    fallReinitStatus.value = null;
+    return;
+  }
+  try {
+    const res = await api.get('/school-reinit/me', {
+      params: {
+        schoolOrganizationId: organizationId.value,
+        agencyId: affiliatedAgencyId.value || undefined,
+        skipGlobalLoading: true,
+      },
+    });
+    fallReinitStatus.value = res.data;
+  } catch {
+    fallReinitStatus.value = null;
+  }
+};
+const openFallReinitModal = () => {
+  fallReinitSessionDismissed.value = false;
+  showFallReinitModal.value = true;
+};
+const dismissFallReinitSplash = async () => {
+  fallReinitSessionDismissed.value = true;
+  showFallReinitModal.value = false;
+  const cycleId = fallReinitStatus.value?.cycle?.id;
+  if (cycleId) {
+    try {
+      await api.post('/school-reinit/me/dismiss', { cycleId, skipGlobalLoading: true });
+    } catch {
+      // ignore
+    }
+  }
+};
+const onFallReinitFinalized = async () => {
+  showFallReinitModal.value = false;
+  await loadFallReinitStatus();
+};
+const copyFallReinitToken = async () => {
+  if (!organizationId.value) return;
+  try {
+    let token = fallReinitStatus.value?.shareToken?.token;
+    if (!token) {
+      const res = await api.post('/school-reinit/me/ensure-token', {
+        schoolOrganizationId: organizationId.value,
+        agencyId: affiliatedAgencyId.value || undefined,
+        skipGlobalLoading: true,
+      });
+      token = res.data?.token;
+      if (fallReinitStatus.value) {
+        fallReinitStatus.value = { ...fallReinitStatus.value, shareToken: res.data };
+      }
+    }
+    if (!token) throw new Error('No token available');
+    const url = `${window.location.origin}/school-reinit/${token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      window.prompt('Copy this collaborative update link:', url);
+    }
+    fallReinitTokenCopied.value = true;
+    setTimeout(() => {
+      fallReinitTokenCopied.value = false;
+    }, 2000);
+  } catch (e) {
+    window.alert(e?.response?.data?.error?.message || e?.message || 'Failed to copy token');
+  }
+};
+
 const showIntakeModal = ref(false);
 const intakeModalMode = ref('qr'); // 'qr' | 'sign'
 const intakeLinkLoading = ref(false);
@@ -4052,6 +4187,7 @@ onMounted(async () => {
     if (!showPostSchoolEvent.value) maybeShowSchoolEventPrompt();
     if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
     await openClientFromQuery();
+    await loadFallReinitStatus();
   }
 
   await maybeOpenWeeklyAvailabilityPrompt();
@@ -4076,6 +4212,7 @@ watch(organizationId, async (id) => {
   await refreshWaiverGateStatus({ force: true });
   if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
   await openClientFromQuery();
+  await loadFallReinitStatus();
 
   await maybeOpenWeeklyAvailabilityPrompt();
 });
@@ -5497,6 +5634,22 @@ watch(() => store.selectedWeekday, async (weekday) => {
   background: var(--card-bg, #fff);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
   padding: 40px 36px 32px;
+}
+
+.fall-reinit-splash-card {
+  width: min(1100px, 98vw);
+  max-height: 92vh;
+  overflow: auto;
+  padding: 0;
+}
+.fall-reinit-splash-card .blocking-splash-head {
+  justify-content: space-between;
+  padding: 12px 16px 0;
+}
+.sp-copy-token-btn {
+  border-color: #0c4a6e !important;
+  color: #0c4a6e !important;
+  font-weight: 800;
 }
 
 .blocking-splash-head {

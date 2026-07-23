@@ -156,6 +156,11 @@
     <div v-if="announcementFlash" class="success-banner">{{ announcementFlash }}</div>
     <div v-if="schoolEventRequestFlash" class="success-banner">{{ schoolEventRequestFlash }}</div>
 
+    <SchoolReinitAdminPanel
+      v-if="!isAllPortalsPage && selectedAgencyId"
+      :agency-id="selectedAgencyId"
+    />
+
     <div v-if="!isAllPortalsPage && schoolEventsOverview.events?.length" class="school-events-section">
       <div class="school-events-header">
         <strong>School events ({{ schoolEventsOverview.year }})</strong>
@@ -267,6 +272,26 @@
               @keydown.space.prevent.stop="openSchoolNotes(s)"
             >
               Open notes
+            </div>
+            <div
+              class="portal-card-cta-secondary portal-card-cta-reinit"
+              role="link"
+              tabindex="0"
+              @click.stop="openSchoolReinit(s)"
+              @keydown.enter.prevent.stop="openSchoolReinit(s)"
+              @keydown.space.prevent.stop="openSchoolReinit(s)"
+            >
+              Collaborative update
+            </div>
+            <div
+              class="portal-card-cta-secondary portal-card-cta-token"
+              role="button"
+              tabindex="0"
+              @click.stop="copySchoolReinitToken(s)"
+              @keydown.enter.prevent.stop="copySchoolReinitToken(s)"
+              @keydown.space.prevent.stop="copySchoolReinitToken(s)"
+            >
+              {{ tokenCopyFlashId === String(s.school_id) ? 'Copied!' : 'Copy token' }}
             </div>
           </div>
         </div>
@@ -417,6 +442,15 @@
               <div class="stat-label">Skills Groups</div>
               <div class="stat-value">{{ Number(s.skills_clients_unassigned_count || 0) }}</div>
             </div>
+          </div>
+
+          <div class="school-card-reinit-actions" @click.stop>
+            <button type="button" class="btn btn-primary btn-sm" @click="openSchoolReinit(s)">
+              Collaborative update
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm school-card-token-btn" @click="copySchoolReinitToken(s)">
+              {{ tokenCopyFlashId === String(s.school_id) ? 'Copied!' : 'Copy token' }}
+            </button>
           </div>
         </div>
       </div>
@@ -782,6 +816,7 @@ import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import AddSchoolScopedModal from '../../components/admin/AddSchoolScopedModal.vue';
+import SchoolReinitAdminPanel from '../../components/admin/SchoolReinitAdminPanel.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -1388,6 +1423,59 @@ const openSchool = (school) => {
   router.push(`/${slug}/dashboard`);
 };
 
+const tokenCopyFlashId = ref('');
+const tokenCopyBusy = ref(false);
+
+const openSchoolReinit = (school) => {
+  const schoolId = parseInt(String(school?.school_id || ''), 10);
+  const agencyId = selectedAgencyId.value ? parseInt(String(selectedAgencyId.value), 10) : null;
+  if (!Number.isFinite(schoolId) || schoolId < 1 || !Number.isFinite(agencyId) || agencyId < 1) return;
+  const orgSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  if (orgSlug) {
+    router.push({
+      name: 'OrganizationSchoolReinitAdmin',
+      params: { organizationSlug: orgSlug, schoolOrganizationId: String(schoolId) },
+      query: { agencyId: String(agencyId) },
+    });
+  } else {
+    router.push({
+      name: 'SchoolReinitAdmin',
+      params: { schoolOrganizationId: String(schoolId) },
+      query: { agencyId: String(agencyId) },
+    });
+  }
+};
+
+const copySchoolReinitToken = async (school) => {
+  const schoolId = parseInt(String(school?.school_id || ''), 10);
+  const agencyId = selectedAgencyId.value ? parseInt(String(selectedAgencyId.value), 10) : null;
+  if (!Number.isFinite(schoolId) || schoolId < 1 || !Number.isFinite(agencyId) || agencyId < 1) return;
+  if (tokenCopyBusy.value) return;
+  tokenCopyBusy.value = true;
+  try {
+    const res = await api.post('/school-reinit/tokens', {
+      agencyId,
+      schoolOrganizationId: schoolId,
+      ensure: true,
+    });
+    const path = res.data?.path || `/school-reinit/${res.data?.token}`;
+    const url = `${window.location.origin}${path}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      window.prompt('Copy this collaborative update link:', url);
+    }
+    tokenCopyFlashId.value = String(schoolId);
+    setTimeout(() => {
+      if (tokenCopyFlashId.value === String(schoolId)) tokenCopyFlashId.value = '';
+    }, 2000);
+  } catch (e) {
+    window.alert(e?.response?.data?.error?.message || e?.message || 'Failed to create share token');
+  } finally {
+    tokenCopyBusy.value = false;
+  }
+};
+
 const schoolNoteAuthorLabel = (note) => {
   const first = String(note?.author_first_name || '').trim();
   const last = String(note?.author_last_name || '').trim();
@@ -1863,6 +1951,32 @@ onMounted(async () => {
   height: 12px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'%3E%3C/path%3E%3Cpolyline points='14 2 14 8 20 8'%3E%3C/polyline%3E%3Cline x1='16' y1='13' x2='8' y2='13'%3E%3C/line%3E%3Cline x1='16' y1='17' x2='8' y2='17'%3E%3C/line%3E%3Cpolyline points='10 9 9 9 8 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-size: cover;
+}
+.portal-card-cta-reinit {
+  color: #15803d !important;
+  font-weight: 800;
+}
+.portal-card-cta-token {
+  color: #0c4a6e !important;
+  font-weight: 800;
+  border: 1px solid #0c4a6e;
+  border-radius: 6px;
+  padding: 4px 8px !important;
+  margin-top: 4px;
+  display: inline-block;
+}
+.school-card-reinit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.school-card-token-btn {
+  border-color: #0c4a6e !important;
+  color: #0c4a6e !important;
+  font-weight: 800;
 }
 .portal-card-cta:hover, .portal-card-cta-secondary:hover {
   color: var(--primary);

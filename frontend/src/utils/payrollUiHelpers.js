@@ -12,15 +12,16 @@ export function getClaimStatusLabel(status) {
   if (s === 'approved' || s === 'paid' || s === 'applied') return 'Approved';
   if (s === 'deferred') return 'Needs changes';
   if (s === 'rejected') return 'Rejected';
-  if (s === 'submitted') return 'Pending';
+  if (s === 'submitted' || s === 'pending' || s === 'pending_approval') return 'Pending';
   if (s === 'withdrawn') return 'Needs resubmit';
+  if (s === 'logged') return 'Logged';
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—';
 }
 
 export function getClaimStatusBadgeClass(status) {
   const s = String(status || '').toLowerCase();
   if (s === 'approved' || s === 'paid' || s === 'applied') return 'hub-pill--success';
-  if (s === 'deferred' || s === 'submitted' || s === 'withdrawn') return 'hub-pill--warning';
+  if (s === 'deferred' || s === 'submitted' || s === 'withdrawn' || s === 'pending' || s === 'pending_approval') return 'hub-pill--warning';
   if (s === 'rejected') return 'hub-pill--danger';
   return 'hub-pill--muted';
 }

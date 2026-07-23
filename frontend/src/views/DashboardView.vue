@@ -246,10 +246,6 @@
           :key="card.id"
           class="rail-card-row"
           :class="{ 'rail-card-row--nested': !!card.nestedUnder }"
-          @mouseenter="onSubmitRailRowEnter(card)"
-          @mouseleave="onSubmitRailRowLeave(card)"
-          @focusin="onSubmitRailRowEnter(card)"
-          @focusout="onSubmitRailRowLeave(card)"
         >
           <button
             type="button"
@@ -262,13 +258,12 @@
               'rail-card-submit': card.id === 'submit',
               'rail-card-pending-alert': card.id === 'clients' && providerPendingClientsCount > 0,
               'rail-card--nest': card.kind === 'nest',
-              'rail-card--nested': !!card.nestedUnder,
-              'rail-card--has-flyout': card.id === 'submit' && isHourlyWorkerUser
+              'rail-card--nested': !!card.nestedUnder
             }"
             :aria-current="isRailCardActive(card) ? 'page' : undefined"
-            :aria-expanded="card.kind === 'nest' ? (isNestExpanded(card.id) ? 'true' : 'false') : (card.id === 'submit' && isHourlyWorkerUser ? showSubmitLogTimeChild : undefined)"
+            :aria-expanded="card.kind === 'nest' ? (isNestExpanded(card.id) ? 'true' : 'false') : undefined"
             :disabled="previewMode"
-            :title="card.id === 'submit' && isHourlyWorkerUser ? 'Submit — hover for Log Time' : card.label"
+            :title="card.label"
             :data-label="card.label"
             @click="handleCardClick(card)"
           >
@@ -300,11 +295,6 @@
               <span v-if="card.kind === 'nest'" class="rail-card-cta" aria-hidden="true">
                 {{ isNestExpanded(card.id) ? '▾' : '▸' }}
               </span>
-              <span
-                v-else-if="card.id === 'submit' && isHourlyWorkerUser"
-                class="rail-card-cta"
-                aria-hidden="true"
-              >{{ showSubmitLogTimeChild ? '▾' : '▸' }}</span>
               <span v-else class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
             </div>
           </button>
@@ -806,12 +796,15 @@
             data-tour="dash-submit-panel"
           >
             <SubmitPanelTab
+              ref="submitPanelRef"
               v-model:view="submitPanelView"
               :agency-id="currentAgencyId"
               :current-user-id="authStore.user?.id"
               :company-car-manage-access="!!authStore.user?.companyCarManageAccess"
               :flags="submitPanelFlags"
+              :enabled="activeTab === 'submit'"
               @action="onSubmitPanelAction"
+              @view-payroll="openMyPayrollSection"
             />
           </div>
 
@@ -1088,6 +1081,7 @@
     <CompanyEventsCalendarModal
       v-if="showCompanyEventsCalendar"
       @close="showCompanyEventsCalendar = false"
+      @changed="onCompanyEventsCalendarChanged"
     />
   </div>
 </template>
@@ -1184,6 +1178,9 @@ const showCompanyEventsCalendar = ref(false);
 function openCompanyEventsCalendar() {
   showCompanyEventsCalendar.value = true;
 }
+function onCompanyEventsCalendarChanged() {
+  void loadMyCompanyEvents();
+}
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -1250,9 +1247,6 @@ function isRailCardActive(card) {
   if (id === 'submit' && activeTab.value === 'log_time') return true;
   if ((id === 'portals_nest' || id === 'tools_nest') && Array.isArray(card.children)) {
     return card.children.some((c) => isRailCardActive(c));
-  }
-  if (id === 'submit' && Array.isArray(card.children) && card.children.some((c) => isRailCardActive(c))) {
-    return true;
   }
   if (card?.kind === 'link' && card?.to) {
     const path = String(route.path || '');
@@ -3458,18 +3452,7 @@ const dashboardCards = computed(() => {
             kind: 'content',
             badgeCount: 0,
             iconUrl: brandingStore.getDashboardCardIconUrl('submit', iconOrg),
-            description: 'Submit mileage, in-school claims, and more.',
-            // Log Time lives under Submit (hover / while Submit is open) to keep the rail short.
-            children: isHourlyWorkerUser.value
-              ? [{
-                  id: 'log_time',
-                  label: 'Log Time',
-                  kind: 'content',
-                  badgeCount: 0,
-                  iconUrl: brandingStore.getDashboardCardIconUrl('submit', iconOrg),
-                  description: 'Clock in/out and submit indirect time for payroll.'
-                }]
-              : []
+            description: 'Submit mileage, in-school claims, and more.'
           });
         }
         if (shiftProgramsEnabledForAgency.value) {
@@ -3822,42 +3805,6 @@ const railCards = computed(() => {
   });
 });
 
-/** Show Log Time under Submit on hover, or while Submit / Log Time is open. */
-const submitLogTimeHover = ref(false);
-let submitLogTimeHoverTimer = null;
-
-function onSubmitRailRowEnter(card) {
-  if (!isHourlyWorkerUser.value) return;
-  const id = String(card?.id || '');
-  const under = String(card?.nestedUnder || '');
-  if (id === 'submit' || id === 'log_time' || under === 'submit') {
-    if (submitLogTimeHoverTimer) {
-      clearTimeout(submitLogTimeHoverTimer);
-      submitLogTimeHoverTimer = null;
-    }
-    submitLogTimeHover.value = true;
-  }
-}
-
-function onSubmitRailRowLeave(card) {
-  const id = String(card?.id || '');
-  const under = String(card?.nestedUnder || '');
-  if (id === 'submit' || id === 'log_time' || under === 'submit') {
-    if (submitLogTimeHoverTimer) clearTimeout(submitLogTimeHoverTimer);
-    submitLogTimeHoverTimer = setTimeout(() => {
-      submitLogTimeHover.value = false;
-      submitLogTimeHoverTimer = null;
-    }, 200);
-  }
-}
-
-const showSubmitLogTimeChild = computed(() => {
-  if (!isHourlyWorkerUser.value) return false;
-  if (submitLogTimeHover.value) return true;
-  const tab = String(activeTab.value || '');
-  return tab === 'submit' || tab === 'log_time';
-});
-
 /** Flatten nest children into the rail when expanded. */
 const railCardsForDisplay = computed(() => {
   const out = [];
@@ -3871,15 +3818,6 @@ const railCardsForDisplay = computed(() => {
     ) {
       for (const child of card.children) {
         out.push({ ...child, nestedUnder: card.id });
-      }
-    } else if (
-      card?.id === 'submit' &&
-      showSubmitLogTimeChild.value &&
-      Array.isArray(card.children) &&
-      card.children.length
-    ) {
-      for (const child of card.children) {
-        out.push({ ...child, nestedUnder: 'submit' });
       }
     }
   }
@@ -4018,17 +3956,12 @@ const handleCardClick = (card) => {
     }
     return;
   }
-  if (card.id === 'log_time') {
-    closeInlineProgramHub();
-    openLogTimeTab();
-    return;
-  }
   if (card.id === 'submit') {
     closeInlineProgramHub();
     submitPanelView.value = 'root';
     activeTab.value = 'submit';
     previousContentTab.value = 'submit';
-    submitLogTimeHover.value = true;
+    selectedRailCardId.value = 'submit';
     loadMyAssignedSchools();
     navFn({ query: { ...route.query, tab: 'submit' } });
     return;
@@ -4181,6 +4114,12 @@ const syncFromQuery = () => {
   }
 
   if (typeof qTab === 'string') {
+    if (qTab === 'log_time' && isHourlyWorkerUser.value) {
+      activeTab.value = 'log_time';
+      previousContentTab.value = 'log_time';
+      selectedRailCardId.value = 'submit';
+      return;
+    }
     const allowed = new Set((railCards.value || []).map((c) => String(c?.id || '')).filter(Boolean));
     const toolsChildIds = new Set(['tools_assessments', 'tools_games', 'tools_ai']);
     if (qTab === 'tools_aids' || toolsChildIds.has(qTab)) {
@@ -4283,6 +4222,17 @@ const syncFromQuery = () => {
 };
 
 const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability' | 'virtual_hours' | 'company_car'
+const submitPanelRef = ref(null);
+
+const refreshSubmitHistory = () => {
+  submitPanelRef.value?.refreshHistory?.();
+};
+
+/** Close a submit modal and stay on Submit so users can file multiple claims in a row. */
+const finishSubmitModal = (closeModal) => {
+  if (typeof closeModal === 'function') closeModal();
+  refreshSubmitHistory();
+};
 
 const submitPanelFlags = computed(() => ({
   companyCardEnabled: Boolean(authStore.user?.companyCardEnabled),
@@ -4304,8 +4254,7 @@ const openLogTimeTab = () => {
   closeInlineProgramHub();
   activeTab.value = 'log_time';
   previousContentTab.value = 'log_time';
-  selectedRailCardId.value = 'log_time';
-  submitLogTimeHover.value = true;
+  selectedRailCardId.value = 'submit';
   router.replace({ query: { ...route.query, tab: 'log_time' } }).catch(() => {});
 };
 
@@ -4459,8 +4408,9 @@ const openMyPayrollSection = () => {
 };
 
 const onMileageSubmittedFromModal = () => {
-  pendingMileageModalOpen.value = null;
-  openMyPayrollSection();
+  finishSubmitModal(() => {
+    pendingMileageModalOpen.value = null;
+  });
 };
 
 const openReimbursementModal = () => {
@@ -4468,8 +4418,9 @@ const openReimbursementModal = () => {
 };
 
 const onReimbursementSubmittedFromModal = () => {
-  pendingReimbursementModalOpen.value = false;
-  openMyPayrollSection();
+  finishSubmitModal(() => {
+    pendingReimbursementModalOpen.value = false;
+  });
 };
 
 const openMedcancelModal = () => {
@@ -4485,8 +4436,9 @@ const openMedcancelModal = () => {
 };
 
 const onMedcancelSubmittedFromModal = () => {
-  pendingMedcancelModalOpen.value = false;
-  openMyPayrollSection();
+  finishSubmitModal(() => {
+    pendingMedcancelModalOpen.value = false;
+  });
 };
 
 const openPtoModal = () => {
@@ -4494,8 +4446,9 @@ const openPtoModal = () => {
 };
 
 const onPtoSubmittedFromModal = () => {
-  pendingPtoModalOpen.value = false;
-  openMyPayrollSection();
+  finishSubmitModal(() => {
+    pendingPtoModalOpen.value = false;
+  });
 };
 
 const openCompanyCardModal = () => {
@@ -4507,13 +4460,15 @@ const openCompanyCarMileage = () => {
 };
 
 const onCompanyCardSubmittedFromModal = () => {
-  pendingCompanyCardModalOpen.value = false;
-  openMyPayrollSection();
+  finishSubmitModal(() => {
+    pendingCompanyCardModalOpen.value = false;
+  });
 };
 
 const onBudgetExpensesSubmitted = () => {
-  showBudgetSubmitExpensesModal.value = false;
-  openMyPayrollSection();
+  finishSubmitModal(() => {
+    showBudgetSubmitExpensesModal.value = false;
+  });
 };
 
 const openTimeMeetingModal = () => { pendingTimeModalOpen.value = 'meeting'; };
@@ -4528,8 +4483,9 @@ const openTimeCorrectionModal = () => {
 const openTimeOvertimeModal = () => { pendingTimeModalOpen.value = 'overtime'; };
 
 const onTimeSubmittedFromModal = () => {
-  pendingTimeModalOpen.value = null;
-  openMyPayrollSection();
+  finishSubmitModal(() => {
+    pendingTimeModalOpen.value = null;
+  });
 };
 
 const goToSubmission = async (kind) => {
