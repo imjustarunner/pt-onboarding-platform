@@ -71,7 +71,8 @@ const iconSvg = computed(() => SECTION_ICONS[meta.value.icon] || SECTION_ICONS.w
   border-left: 4px solid var(--cat-accent, #0d9488);
   border-radius: 10px;
   margin-bottom: 14px;
-  overflow: hidden;
+  /* Allow inner tables (e.g. Service Codes) to scroll horizontally instead of clipping */
+  overflow: visible;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
@@ -145,6 +146,8 @@ const iconSvg = computed(() => SECTION_ICONS[meta.value.icon] || SECTION_ICONS.w
 
 .pay-hub__section-body {
   padding: 14px 18px 18px;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .pay-hub__section-body :deep(.table) {
