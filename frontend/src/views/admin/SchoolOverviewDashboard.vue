@@ -42,67 +42,94 @@
     <main class="main-content">
       <div class="container">
     <div class="page-header" data-tour="schools-overview-header">
-      <div class="header-left">
-        <h1 data-tour="schools-overview-title">{{ pageTitle }}</h1>
-        <span class="badge badge-info">Admin</span>
+      <div class="page-header__brand">
+        <BrandingLogo
+          size="large"
+          class="page-header__logo"
+          :logo-url="headerLogoUrl"
+        />
+        <div class="page-header__title">
+          <h1 data-tour="schools-overview-title">{{ pageTitle }}</h1>
+          <span class="badge badge-info">Admin</span>
+        </div>
       </div>
-      <div class="header-actions" data-tour="schools-overview-actions">
-        <router-link class="btn btn-secondary" to="/admin/clients">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
-          Back to Client Management
-        </router-link>
-        <router-link class="btn btn-secondary" :to="hubTo">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
-          School Portals Hub
-        </router-link>
-        <router-link
-          v-if="!isAllPortalsPage && orgType === 'school'"
-          class="btn btn-secondary"
-          :to="showAllPortalsTo"
-        >All school portals</router-link>
-        <router-link v-if="isAllPortalsPage" class="btn btn-secondary" :to="schoolOverviewTo">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-          School overview
-        </router-link>
-        <button
-          v-if="canManageSchoolsHere"
-          class="btn btn-primary"
-          type="button"
-          @click="showAddSchoolModal = true"
-        >
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v16m8-8H4"></path></svg>
-          Add school
-        </button>
-        <router-link
-          v-if="canManageMarketingCampaigns"
-          to="/admin/marketing-campaigns"
-          class="btn btn-secondary"
-        >
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>
-          School Marketing Campaign
-        </router-link>
-        <button
-          class="btn btn-secondary"
-          type="button"
-          :disabled="loading || schools.length === 0"
-          @click="openBulkAnnouncementModal"
-        >
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path></svg>
-          Post announcement
-        </button>
-        <button
-          class="btn btn-secondary"
-          type="button"
-          :disabled="loading || !selectedAgencyId"
-          @click="openSchoolEventRequestModal"
-        >
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-          Request school events
-        </button>
-        <button class="btn btn-secondary" type="button" :disabled="loading" @click="refresh">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-          {{ loading ? 'Refreshing…' : 'Refresh' }}
-        </button>
+
+      <div class="page-header__toolbar" data-tour="schools-overview-actions">
+        <div class="toolbar-group">
+          <router-link class="btn btn-secondary btn-sm" to="/admin/clients" title="Back to Client Management">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+            Clients
+          </router-link>
+          <router-link class="btn btn-secondary btn-sm" :to="hubTo" title="School Portals Hub">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+            Hub
+          </router-link>
+          <router-link
+            v-if="!isAllPortalsPage && orgType === 'school'"
+            class="btn btn-secondary btn-sm"
+            :to="showAllPortalsTo"
+            title="All school portals"
+          >All portals</router-link>
+          <router-link
+            v-if="isAllPortalsPage"
+            class="btn btn-secondary btn-sm"
+            :to="schoolOverviewTo"
+            title="School overview metrics"
+          >
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+            Overview
+          </router-link>
+        </div>
+
+        <span class="toolbar-divider" aria-hidden="true" />
+
+        <div class="toolbar-group">
+          <button
+            v-if="canManageSchoolsHere"
+            class="btn btn-primary btn-sm"
+            type="button"
+            @click="showAddSchoolModal = true"
+          >
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v16m8-8H4"></path></svg>
+            Add school
+          </button>
+          <router-link
+            v-if="canManageMarketingCampaigns"
+            to="/admin/marketing-campaigns"
+            class="btn btn-secondary btn-sm"
+            title="School Marketing Campaign"
+          >
+            Marketing
+          </router-link>
+          <button
+            class="btn btn-secondary btn-sm"
+            type="button"
+            :disabled="loading || schools.length === 0"
+            title="Post announcement to school portals"
+            @click="openBulkAnnouncementModal"
+          >
+            Announce
+          </button>
+          <button
+            class="btn btn-secondary btn-sm"
+            type="button"
+            :disabled="loading || !selectedAgencyId"
+            title="Request school events"
+            @click="openSchoolEventRequestModal"
+          >
+            Events
+          </button>
+          <button
+            class="btn btn-secondary btn-sm btn-icon-only"
+            type="button"
+            :disabled="loading"
+            title="Refresh"
+            @click="refresh"
+          >
+            <svg class="btn-icon btn-icon--solo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            <span class="sr-only">{{ loading ? 'Refreshing' : 'Refresh' }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -817,6 +844,7 @@ import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import AddSchoolScopedModal from '../../components/admin/AddSchoolScopedModal.vue';
 import SchoolReinitAdminPanel from '../../components/admin/SchoolReinitAdminPanel.vue';
+import BrandingLogo from '../../components/BrandingLogo.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -1003,6 +1031,14 @@ const overviewAgencyRowForGate = computed(() => {
     return (agencyOptions.value || []).find((a) => Number(a?.id) === id) || null;
   }
   return agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
+});
+
+const headerLogoUrl = computed(() => {
+  const row = overviewAgencyRowForGate.value;
+  const cur = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  const raw = row?.logo_url || row?.logoUrl || cur?.logo_url || cur?.logoUrl || null;
+  if (raw) return toUploadsUrl(raw);
+  return brandingStore.displayLogoUrl || null;
 });
 
 const isBackofficeManager = computed(() => {
@@ -1707,53 +1743,112 @@ onMounted(async () => {
 
 .page-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-  padding-bottom: 0;
-  border-bottom: none;
-  gap: 12px;
-}
-@media (max-width: 1024px) {
-  .page-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.header-left h1 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-}
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
   flex-wrap: wrap;
 }
-.header-actions .btn {
+.page-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.page-header__logo {
+  flex-shrink: 0;
+}
+.page-header__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.page-header__title h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.page-header__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 1;
+  min-width: 0;
+}
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.toolbar-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--border, #e2e8f0);
+  flex-shrink: 0;
+}
+@media (max-width: 900px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .page-header__toolbar {
+    justify-content: flex-start;
+  }
+  .toolbar-divider {
+    display: none;
+  }
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.header-actions .btn,
+.page-header__toolbar .btn {
   display: inline-flex;
   align-items: center;
   border-radius: 8px;
-  padding: 8px 14px;
+  padding: 7px 12px;
   font-weight: 600;
-  font-size: 13px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  font-size: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  white-space: nowrap;
 }
-.header-actions .btn-secondary {
-  background: white;
-  border: 1px solid var(--border);
-  color: var(--text-primary);
+.page-header__toolbar .btn-sm {
+  padding: 6px 10px;
 }
-.header-actions .btn-primary {
+.page-header__toolbar .btn-icon-only {
+  padding: 6px 8px;
+}
+.page-header__toolbar .btn-secondary {
+  background: #f8fafc;
+  border: 1px solid var(--border, #e2e8f0);
+  color: var(--text-primary, #1e293b);
+}
+.page-header__toolbar .btn-primary {
   background: #065f46;
   border-color: #065f46;
   color: white;
+}
+.btn-icon--solo {
+  margin-right: 0;
 }
 
 .controls {
