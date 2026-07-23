@@ -448,7 +448,7 @@
                     <span
                       v-if="directoryBadgeCount > 0"
                       class="nav-badge nav-badge-pulse"
-                      :title="`${directoryBadgeCount} new item(s)`"
+                      :title="directoryBadgeTitle"
                     >
                       {{ formatNavBadgeCount(directoryBadgeCount) }}
                     </span>
@@ -468,10 +468,23 @@
                         @click.stop="setDirectoryFlyout(directorySchedulesNavExpanded ? null : 'schedules')"
                       >
                         <span>Schedules</span>
+                        <span
+                          v-if="showBuildingsPendingBadge && buildingsPendingCount > 0"
+                          class="nav-badge"
+                          :title="availabilityPendingTitle"
+                        >{{ buildingsPendingCount }}</span>
                         <span class="nav-dropdown-group-caret" :class="{ open: directorySchedulesNavExpanded }" aria-hidden="true">▸</span>
                       </button>
                       <div v-show="directorySchedulesNavExpanded" class="nav-dropdown-group-items">
                         <router-link :to="orgTo('/schedule')">Schedule Hub</router-link>
+                        <router-link v-if="showBuildingsPendingBadge" :to="orgTo('/admin/office-approvals')">
+                          <span>Office requests</span>
+                          <span v-if="officeAvailabilityPendingCount > 0" class="nav-badge">{{ officeAvailabilityPendingCount }}</span>
+                        </router-link>
+                        <router-link v-if="showBuildingsPendingBadge" :to="schoolAvailabilityRequestsNavLink">
+                          <span>School requests</span>
+                          <span v-if="schoolAvailabilityPendingCount > 0" class="nav-badge">{{ schoolAvailabilityPendingCount }}</span>
+                        </router-link>
                         <router-link :to="orgTo('/buildings/schedule')">Buildings schedule</router-link>
                         <router-link :to="orgTo('/buildings')">Buildings &amp; offices</router-link>
                       </div>
@@ -489,6 +502,11 @@
                         @click.stop="setDirectoryFlyout(directorySkillBuildersNavExpanded ? null : 'events')"
                       >
                         <span>Events &amp; programs</span>
+                        <span
+                          v-if="eventPortalRegistrantBadgeCount > 0"
+                          class="nav-badge nav-badge-pulse"
+                          :title="`${eventPortalRegistrantBadgeCount} event registration workflow item(s)`"
+                        >{{ eventPortalRegistrantBadgeCount }}</span>
                         <span class="nav-dropdown-group-caret" :class="{ open: directorySkillBuildersNavExpanded }" aria-hidden="true">▸</span>
                       </button>
                       <div v-show="directorySkillBuildersNavExpanded" class="nav-dropdown-group-items">
@@ -533,7 +551,7 @@
                             <span
                               v-if="eventPortalRegistrantCount(ev) > 0"
                               class="nav-badge nav-badge-pulse"
-                              :title="`${eventPortalRegistrantCount(ev)} new registrant(s)`"
+                              :title="`${eventPortalRegistrantCount(ev)} registration workflow item(s)`"
                             >
                               {{ eventPortalRegistrantCount(ev) }}
                             </span>
@@ -943,7 +961,7 @@
                       <span
                         v-if="showBuildingsPendingBadge && buildingsPendingCount > 0"
                         class="nav-badge"
-                        :title="`${buildingsPendingCount} pending availability request(s)`"
+                        :title="availabilityPendingTitle"
                       >
                         {{ buildingsPendingCount }}
                       </span>
@@ -1565,7 +1583,7 @@
                   <span
                     v-if="directoryBadgeCount > 0"
                     class="nav-badge nav-badge-pulse"
-                    :title="`${directoryBadgeCount} new item(s)`"
+                    :title="directoryBadgeTitle"
                   >
                     {{ formatNavBadgeCount(directoryBadgeCount) }}
                   </span>
@@ -1580,10 +1598,19 @@
                   @click="directorySchedulesNavExpanded = !directorySchedulesNavExpanded"
                 >
                   <span>Schedules</span>
+                  <span v-if="showBuildingsPendingBadge && buildingsPendingCount > 0" class="nav-badge" :title="availabilityPendingTitle">{{ buildingsPendingCount }}</span>
                   <span class="mobile-nav-group-caret" :class="{ open: directorySchedulesNavExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="directorySchedulesNavExpanded">
                   <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Schedule Hub</router-link>
+                  <router-link v-if="showBuildingsPendingBadge" :to="orgTo('/admin/office-approvals')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
+                    <span>Office requests</span>
+                    <span v-if="officeAvailabilityPendingCount > 0" class="nav-badge">{{ officeAvailabilityPendingCount }}</span>
+                  </router-link>
+                  <router-link v-if="showBuildingsPendingBadge" :to="schoolAvailabilityRequestsNavLink" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
+                    <span>School requests</span>
+                    <span v-if="schoolAvailabilityPendingCount > 0" class="nav-badge">{{ schoolAvailabilityPendingCount }}</span>
+                  </router-link>
                   <router-link :to="orgTo('/buildings/schedule')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Buildings schedule</router-link>
                   <router-link :to="orgTo('/buildings')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Buildings &amp; offices</router-link>
                 </template>
@@ -1596,6 +1623,11 @@
                   @click="directorySkillBuildersNavExpanded = !directorySkillBuildersNavExpanded"
                 >
                   <span>Events &amp; programs</span>
+                  <span
+                    v-if="eventPortalRegistrantBadgeCount > 0"
+                    class="nav-badge nav-badge-pulse"
+                    :title="`${eventPortalRegistrantBadgeCount} event registration workflow item(s)`"
+                  >{{ eventPortalRegistrantBadgeCount }}</span>
                   <span class="mobile-nav-group-caret" :class="{ open: directorySkillBuildersNavExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="directorySkillBuildersNavExpanded">
@@ -1917,7 +1949,7 @@
                   </router-link>
                   <router-link v-if="canShowScheduleTopNav && !isSscSstcTenant" :to="scheduleNavLink" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
                     <span>Schedule</span>
-                    <span v-if="showBuildingsPendingBadge && buildingsPendingCount > 0" class="nav-badge" style="margin-left: 8px;">{{ buildingsPendingCount }}</span>
+                    <span v-if="showBuildingsPendingBadge && buildingsPendingCount > 0" class="nav-badge" style="margin-left: 8px;" :title="availabilityPendingTitle">{{ buildingsPendingCount }}</span>
                   </router-link>
                   <router-link v-if="user?.role === 'supervisor'" :to="orgTo('/supervisor/availability-lab')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Find Providers</router-link>
                 </template>
@@ -4577,6 +4609,17 @@ const directoryBadgeCount = computed(() => {
   return count;
 });
 
+const directoryBadgeTitle = computed(() => {
+  const parts = [];
+  if (eventPortalRegistrantBadgeCount.value > 0) {
+    parts.push(`${eventPortalRegistrantBadgeCount.value} event registration workflow item(s)`);
+  }
+  if (schoolClientsPendingCount.value > 0) {
+    parts.push(`${schoolClientsPendingCount.value} pending school client(s)`);
+  }
+  return parts.join(' · ') || 'No directory items need attention';
+});
+
 /** Build the href for an event portal link, using the program org slug when available. */
 const eventPortalHref = (ev) => {
   const id = Number(ev?.id || ev || 0);
@@ -4932,6 +4975,14 @@ const scheduleNavLink = computed(() => {
   return orgTo('/schedule');
 });
 
+const schoolAvailabilityRequestsNavLink = computed(() => ({
+  path: orgTo('/admin/availability-intake'),
+  query: {
+    tab: 'school',
+    ...(currentAgencyId.value ? { agencyId: String(currentAgencyId.value) } : {})
+  }
+}));
+
 const myScheduleNavLink = computed(() => {
   // Full-screen My Schedule (not embedded in My Dashboard).
   return orgTo('/my-schedule');
@@ -5092,13 +5143,23 @@ const showBuildingsPendingBadge = computed(() => {
 });
 
 const buildingsPendingCount = ref(0);
+const officeAvailabilityPendingCount = ref(0);
+const schoolAvailabilityPendingCount = ref(0);
+const availabilityPendingTitle = computed(() => (
+  `${officeAvailabilityPendingCount.value} office request(s) · ${schoolAvailabilityPendingCount.value} school request(s)`
+));
 let buildingsPendingInterval = null;
 
 const fetchBuildingsPendingCounts = async () => {
   if (!isAuthenticated.value) return;
   if (!showBuildingsPendingBadge.value) return;
   try {
-    const resp = await api.get('/availability/admin/pending-counts', { skipGlobalLoading: true });
+    const resp = await api.get('/availability/admin/pending-counts', {
+      params: currentAgencyId.value ? { agencyId: Number(currentAgencyId.value) } : undefined,
+      skipGlobalLoading: true
+    });
+    officeAvailabilityPendingCount.value = Number(resp?.data?.officeRequestsPending || 0);
+    schoolAvailabilityPendingCount.value = Number(resp?.data?.schoolRequestsPending || 0);
     buildingsPendingCount.value = Number(resp?.data?.total || 0);
   } catch {
     // ignore (badge is best-effort)
@@ -5115,11 +5176,14 @@ function syncAuthenticatedSideEffects(authenticated) {
   } else {
     stopActivityTracking();
     buildingsPendingCount.value = 0;
+    officeAvailabilityPendingCount.value = 0;
+    schoolAvailabilityPendingCount.value = 0;
     if (buildingsPendingInterval) clearInterval(buildingsPendingInterval);
     buildingsPendingInterval = null;
   }
 }
 watch(isAuthenticated, syncAuthenticatedSideEffects);
+watch(currentAgencyId, () => { void fetchBuildingsPendingCounts(); });
 
 // Reload the active season nav whenever the user logs in/out or their agency list changes.
 watch(
@@ -5638,6 +5702,7 @@ watch(() => route.params.organizationSlug, async (newSlug) => {
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick);
   window.addEventListener('app:just-logged-in', resetLoginNotificationGate);
+  window.addEventListener('school-clients-pending-changed', fetchSchoolClientsPendingCount);
   router.afterEach(() => closeAllNavMenus());
 
   // Run all initial syncs that were previously `{ immediate: true }` watchers.
@@ -5779,6 +5844,7 @@ onUnmounted(() => {
   unbindNavLinksScrollHelpers();
   document.removeEventListener('click', onDocumentClick);
   window.removeEventListener('app:just-logged-in', resetLoginNotificationGate);
+  window.removeEventListener('school-clients-pending-changed', fetchSchoolClientsPendingCount);
   window.removeEventListener('superadmin-preview-updated', onPreviewUpdated);
   stopActivityTracking();
   if (buildingsPendingInterval) clearInterval(buildingsPendingInterval);

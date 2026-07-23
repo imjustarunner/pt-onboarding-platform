@@ -331,7 +331,7 @@
       :key="String(selectedClient?.id || '')"
       :client="selectedClient"
       @close="closeClientDetail"
-      @updated="closeClientDetail"
+      @updated="handleClientUpdated"
     />
   </div>
 </template>
@@ -744,6 +744,12 @@ const openClientDetail = async (row) => {
 
 const closeClientDetail = () => {
   selectedClient.value = null;
+};
+
+const handleClientUpdated = async () => {
+  closeClientDetail();
+  await reload();
+  window.dispatchEvent(new Event('school-clients-pending-changed'));
 };
 
 const reload = async () => {

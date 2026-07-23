@@ -4975,10 +4975,26 @@ export const getAdminPendingCounts = async (req, res, next) => {
     }
 
     const role = String(req.user?.role || '').toLowerCase();
+    const requestedAgencyId = parseIntSafe(req.query?.agencyId);
     let officeRequestsPending = 0;
     let schoolRequestsPending = 0;
+    let scopedAgencyIds = null;
 
-    if (role === 'super_admin') {
+    if (requestedAgencyId) {
+      if (role !== 'super_admin') {
+        const agencies = await User.getAgencies(req.user.id);
+        const permitted = (agencies || []).some((agency) => Number(agency?.id) === Number(requestedAgencyId));
+        if (!permitted) return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+      scopedAgencyIds = [requestedAgencyId];
+    } else if (role !== 'super_admin') {
+      const agencies = await User.getAgencies(req.user.id);
+      scopedAgencyIds = (agencies || [])
+        .map((agency) => parseIntSafe(agency?.id))
+        .filter((id) => Number.isInteger(id) && id > 0);
+    }
+
+    if (role === 'super_admin' && !scopedAgencyIds) {
       try {
         const [[o]] = await pool.execute(
           `SELECT COUNT(*) AS c FROM provider_office_availability_requests WHERE status = 'PENDING'`
@@ -4997,26 +5013,22 @@ export const getAdminPendingCounts = async (req, res, next) => {
         }
       }
     } else {
-      const agencies = await User.getAgencies(req.user.id);
-      const agencyIds = (agencies || [])
-        .map((a) => parseIntSafe(a?.id))
-        .filter((n) => Number.isInteger(n) && n > 0);
-      if (agencyIds.length === 0) {
+      if (!scopedAgencyIds?.length) {
         return res.json({ ok: true, officeRequestsPending: 0, schoolRequestsPending: 0, total: 0 });
       }
-      const placeholders = agencyIds.map(() => '?').join(',');
+      const placeholders = scopedAgencyIds.map(() => '?').join(',');
       try {
         const [[o]] = await pool.execute(
           `SELECT COUNT(*) AS c
            FROM provider_office_availability_requests
            WHERE status = 'PENDING' AND agency_id IN (${placeholders})`,
-          agencyIds
+          scopedAgencyIds
         );
         const [[s]] = await pool.execute(
           `SELECT COUNT(*) AS c
            FROM provider_school_availability_requests
            WHERE status = 'PENDING' AND agency_id IN (${placeholders})`,
-          agencyIds
+          scopedAgencyIds
         );
         officeRequestsPending = Number(o?.c || 0);
         schoolRequestsPending = Number(s?.c || 0);
@@ -5121,4 +5133,3 @@ export const rotatePublicProviderLinkKey = async (req, res, next) => {
     next(e);
   }
 };
-

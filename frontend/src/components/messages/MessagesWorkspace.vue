@@ -2958,7 +2958,7 @@ const deleteThread = async () => {
   }
 };
 
-const closeChat = () => {
+function closeChat() {
   activeChatUser.value = null;
   activeChannel.value = null;
   activeThreadId.value = null;
@@ -2980,7 +2980,7 @@ const closeChat = () => {
   attachError.value = '';
   uploadingAttach.value = false;
   reactionPickerFor.value = null;
-};
+}
 
 const fetchMyPresence = async () => {
   try {
@@ -4301,4 +4301,3 @@ onUnmounted(() => {
   color: #e5e7eb;
 }
 </style>
-

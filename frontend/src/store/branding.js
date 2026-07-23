@@ -1122,14 +1122,8 @@ export const useBrandingStore = defineStore('branding', () => {
         const url = iconUrlById(platformBranding.value.organization_logo_icon_id);
         if (url) return addCacheBuster(url);
       }
-      if (import.meta.env.DEV && !window.location.pathname.includes('/intake/')) {
-        console.warn('[Branding] No platform logo available for displayLogoUrl:', {
-          hasOrgLogoUrl: !!platformBranding.value?.organization_logo_url,
-          hasOrgLogoPath: !!platformBranding.value?.organization_logo_path,
-          hasOrgLogoIconPath: !!platformBranding.value?.organization_logo_icon_path,
-          hasOrgLogoIconId: !!platformBranding.value?.organization_logo_icon_id
-        });
-      }
+      // A platform logo is optional. Consumers already fall back to the
+      // configured brand name/default chrome when no image is available.
       return null;
     }
     return null;
@@ -1728,4 +1722,3 @@ export const useBrandingStore = defineStore('branding', () => {
     setSettingsTenantPickerBrandingActive
   };
 });
-
