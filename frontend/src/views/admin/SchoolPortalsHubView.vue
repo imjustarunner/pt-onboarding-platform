@@ -30,6 +30,15 @@
         </p>
         <span class="sph-card-cta">Open portals →</span>
       </router-link>
+
+      <router-link class="sph-card sph-card--settings" :to="toYearUpdateSettings">
+        <div class="sph-card-icon" aria-hidden="true">⚙️</div>
+        <h2 class="sph-card-title">Year update settings</h2>
+        <p class="sph-card-desc muted">
+          Enable the collaborative fall year update, edit the questionnaire, push to schools, and track progress and scores.
+        </p>
+        <span class="sph-card-cta">Open settings →</span>
+      </router-link>
     </div>
   </div>
 </template>
@@ -47,6 +56,7 @@ const orgPrefix = computed(() => {
 
 const toOverview = computed(() => `${orgPrefix.value}/admin/schools/overview?orgType=school`);
 const toAllPortals = computed(() => `${orgPrefix.value}/admin/school-portals`);
+const toYearUpdateSettings = computed(() => `${orgPrefix.value}/admin/schools/overview?orgType=school&yearUpdate=1`);
 </script>
 
 <style scoped>
@@ -65,6 +75,9 @@ const toAllPortals = computed(() => `${orgPrefix.value}/admin/school-portals`);
   max-width: 42rem;
   line-height: 1.45;
   font-size: 0.95rem;
+}
+.sph-card--settings {
+  border-color: color-mix(in srgb, var(--primary, #15803d) 28%, #e2e8f0);
 }
 .sph-cards {
   display: grid;

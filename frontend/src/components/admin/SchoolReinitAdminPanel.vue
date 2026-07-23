@@ -123,7 +123,11 @@
       {{ scoreHighlight }}
     </div>
 
-    <div class="reinit-admin__workspace" :class="{ 'has-detail': Boolean(selectedRow) }">
+    <div
+      ref="workspaceEl"
+      class="reinit-admin__workspace"
+      :class="{ 'has-detail': Boolean(selectedRow), 'is-resizing': isResizingDetail }"
+    >
       <div class="reinit-admin__main">
         <div class="reinit-admin__filters">
           <input v-model="filterText" type="text" placeholder="Search schools…" class="reinit-admin__input" />
@@ -231,8 +235,22 @@
         </div>
       </div>
 
+      <div
+        v-if="selectedRow"
+        class="reinit-admin__resize-handle"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize school detail panel"
+        title="Drag to resize"
+        @mousedown.prevent="startDetailResize"
+      />
+
       <!-- Persistent right detail pane -->
-      <aside v-if="selectedRow" class="reinit-admin__detail">
+      <aside
+        v-if="selectedRow"
+        class="reinit-admin__detail"
+        :style="{ width: `${detailPanelWidth}px` }"
+      >
         <div class="detail__head">
           <div class="school-cell">
             <span class="school-avatar" :style="{ background: avatarColor(selectedRow.schoolName) }">
@@ -374,7 +392,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { SECTION_META } from '../../utils/schoolReinit';
@@ -416,6 +434,13 @@ const detail = ref(null);
 const detailLoading = ref(false);
 const detailTab = ref('summary');
 const newSlot = reactive({ startsAt: '', label: '' });
+const workspaceEl = ref(null);
+const detailPanelWidth = ref(560);
+const isResizingDetail = ref(false);
+const DETAIL_WIDTH_STORAGE_KEY = 'schoolReinitAdmin.detailPanelWidth';
+const DETAIL_MIN_WIDTH = 380;
+const DETAIL_MAX_WIDTH_RATIO = 0.72;
+let stopDetailResize = null;
 
 const schoolYear = computed(() => {
   if (props.schoolYear) return props.schoolYear;
@@ -756,6 +781,63 @@ function clearSelection() {
   detail.value = null;
 }
 
+function detailPanelMaxWidth() {
+  const workspaceWidth = workspaceEl.value?.clientWidth || window.innerWidth;
+  return Math.max(DETAIL_MIN_WIDTH, Math.floor(workspaceWidth * DETAIL_MAX_WIDTH_RATIO));
+}
+
+function clampDetailWidth(width) {
+  return Math.min(detailPanelMaxWidth(), Math.max(DETAIL_MIN_WIDTH, Math.round(width)));
+}
+
+function loadDetailPanelWidth() {
+  try {
+    const saved = Number(localStorage.getItem(DETAIL_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(saved) && saved > 0) {
+      detailPanelWidth.value = clampDetailWidth(saved);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function persistDetailPanelWidth() {
+  try {
+    localStorage.setItem(DETAIL_WIDTH_STORAGE_KEY, String(detailPanelWidth.value));
+  } catch {
+    /* ignore */
+  }
+}
+
+function startDetailResize(event) {
+  if (!selectedRow.value) return;
+  isResizingDetail.value = true;
+  const startX = event.clientX;
+  const startWidth = detailPanelWidth.value;
+
+  const onMove = (moveEvent) => {
+    const delta = startX - moveEvent.clientX;
+    detailPanelWidth.value = clampDetailWidth(startWidth + delta);
+  };
+
+  const onUp = () => {
+    isResizingDetail.value = false;
+    persistDetailPanelWidth();
+    if (stopDetailResize) stopDetailResize();
+    stopDetailResize = null;
+  };
+
+  stopDetailResize = () => {
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    document.body.classList.remove('reinit-admin-resizing');
+  };
+
+  document.body.classList.add('reinit-admin-resizing');
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+}
+
 async function resolveCr(id, status) {
   try {
     await api.post(`/school-reinit/change-requests/${id}/resolve`, { status });
@@ -867,7 +949,14 @@ watch(() => props.agencyId, () => {
   clearSelection();
   load();
 });
-onMounted(() => load());
+onMounted(() => {
+  loadDetailPanelWidth();
+  load();
+});
+onUnmounted(() => {
+  if (stopDetailResize) stopDetailResize();
+  document.body.classList.remove('reinit-admin-resizing');
+});
 </script>
 
 <style scoped>
@@ -1049,11 +1138,51 @@ onMounted(() => load());
   align-items: start;
 }
 .reinit-admin__workspace.has-detail {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+.reinit-admin__main {
+  flex: 1;
+  min-width: 0;
+}
+.reinit-admin__resize-handle {
+  width: 10px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  position: relative;
+  margin: 0 2px;
+  border-radius: 6px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.reinit-admin__resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background 0.15s ease;
+}
+.reinit-admin__resize-handle:hover::after,
+.reinit-admin__workspace.is-resizing .reinit-admin__resize-handle::after {
+  background: var(--primary, #15803d);
 }
 @media (max-width: 1100px) {
   .reinit-admin__workspace.has-detail {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+  .reinit-admin__resize-handle {
+    display: none;
+  }
+  .reinit-admin__detail {
+    width: 100% !important;
+    max-height: none;
+    position: static;
   }
 }
 .reinit-admin__filters {
@@ -1213,7 +1342,8 @@ onMounted(() => load());
   border-radius: 12px;
   display: flex;
   flex-direction: column;
-  max-height: min(80vh, 900px);
+  flex-shrink: 0;
+  max-height: min(82vh, 960px);
   position: sticky;
   top: 12px;
 }
@@ -1385,5 +1515,12 @@ onMounted(() => load());
   background: #f1f5f9;
   border-color: #cbd5e1;
   color: #334155;
+}
+</style>
+
+<style>
+body.reinit-admin-resizing {
+  cursor: col-resize !important;
+  user-select: none;
 }
 </style>
