@@ -2860,7 +2860,10 @@
                       <td>{{ submittedAtYmd(c) }}</td>
                       <td>{{ submitterLabel(c) }}</td>
                       <td>{{ fmtClaimDate(c.claim_date) }}</td>
-                      <td>{{ timeTypeLabel(c) }}</td>
+                      <td>
+                        <div>{{ timeTypeLabel(c) }}</div>
+                        <div v-if="logTimeSummary(c)" class="hint" style="margin-top: 4px; max-width: 280px;">{{ logTimeSummary(c) }}</div>
+                      </td>
                       <td class="right">{{ timeRequestedLabel(c) }}</td>
                       <td class="right">
                         <select v-model="timeBucketByClaimId[c.id]" :disabled="approvingTimeClaimId === c.id">
@@ -3559,7 +3562,10 @@
                     <tr v-for="c in approvedTimeClaims" :key="c.id">
                       <td>{{ nameForUserId(c.user_id) }}</td>
                       <td>{{ fmtClaimDate(c.claim_date) }}</td>
-                      <td>{{ timeTypeLabel(c) }}</td>
+                      <td>
+                        <div>{{ timeTypeLabel(c) }}</div>
+                        <div v-if="logTimeSummary(c)" class="hint" style="margin-top: 4px; max-width: 280px;">{{ logTimeSummary(c) }}</div>
+                      </td>
                       <td class="right">{{ String(c.bucket || 'indirect').toLowerCase() === 'direct' ? 'Direct' : 'Indirect' }}</td>
                       <td class="right">{{ fmtNum(timeClaimHours(c)) }}</td>
                       <td class="right">{{ fmtMoney(Number(c.applied_amount || 0)) }}</td>
@@ -6287,25 +6293,11 @@
             </template>
 
             <!-- indirect_time (hourly log) -->
-            <template v-else-if="reviewedTimeClaim.claim_type === 'indirect_time'">
-              <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
-                <div class="field"><label>Entry method</label><div>{{ reviewedTimeClaim.payload?.entryMethod || '—' }}</div></div>
-                <div class="field"><label>Start</label><div>{{ reviewedTimeClaim.payload?.startTime || '—' }}</div></div>
-                <div class="field"><label>End</label><div>{{ reviewedTimeClaim.payload?.endTime || '—' }}</div></div>
-              </div>
-              <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
-              <div v-if="Array.isArray(reviewedTimeClaim.payload?.allocations) && reviewedTimeClaim.payload.allocations.length" class="card" style="margin-top: 8px;">
-                <h4 style="margin: 0 0 8px 0;">Allocations</h4>
-                <div
-                  v-for="(a, idx) in reviewedTimeClaim.payload.allocations"
-                  :key="idx"
-                  style="font-size: 13px; margin-bottom: 6px;"
-                >
-                  {{ a.serviceTypeLabel || a.label || 'Type' }} — {{ a.minutes ?? 0 }} min
-                </div>
-              </div>
-              <div class="field"><label>Attestation</label><div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.attestation) }}</div></div>
-            </template>
+            <IndirectTimeClaimDetailFields
+              v-else-if="reviewedTimeClaim.claim_type === 'indirect_time'"
+              :payload="reviewedTimeClaim.payload"
+              :bucket="reviewedTimeClaim.payload?.bucket || reviewedTimeClaim.bucket"
+            />
 
             <!-- meeting_training / mentor_cpa_meeting -->
             <template v-else-if="reviewedTimeClaim.claim_type === 'meeting_training' || reviewedTimeClaim.claim_type === 'mentor_cpa_meeting'">
@@ -6466,6 +6458,8 @@ import { useBrandingStore } from '../../store/branding';
 import AdminPayrollSubmitOverride from '../../components/admin/AdminPayrollSubmitOverride.vue';
 import PayrollPtoSheetModal from '../../components/admin/PayrollPtoSheetModal.vue';
 import PayrollSupervisionSheetModal from '../../components/admin/PayrollSupervisionSheetModal.vue';
+import IndirectTimeClaimDetailFields from '../../components/payroll/IndirectTimeClaimDetailFields.vue';
+import { logTimeActivitiesSummary } from '../../utils/logTimeClaimDetails';
 
 const router = useRouter();
 const route = useRoute();
@@ -8303,8 +8297,16 @@ const timeTypeLabel = (c) => {
   if (t === 'overtime_evaluation') return 'Overtime eval';
   if (t === 'holiday_pay') return 'Holiday pay';
   if (t === 'jury_duty') return 'Jury Duty';
-  if (t === 'indirect_time') return 'Indirect time';
+  if (t === 'indirect_time') {
+    const bucket = String(c?.payload?.bucket || c?.bucket || '').trim().toLowerCase();
+    return bucket === 'other_1' ? 'Log Time (Other 1)' : 'Log Time';
+  }
   return t ? t.replace(/_/g, ' ') : 'Time';
+};
+
+const logTimeSummary = (c) => {
+  if (String(c?.claim_type || '').toLowerCase() !== 'indirect_time') return '';
+  return logTimeActivitiesSummary(c?.payload);
 };
 
 const timeClaimPayload = (c) => (c && typeof c.payload === 'object' && c.payload) ? c.payload : {};

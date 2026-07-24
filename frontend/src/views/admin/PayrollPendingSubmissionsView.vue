@@ -206,7 +206,10 @@
               <tr v-for="c in timeClaims" :key="c.id" :class="{ 'row-highlight': focusUserId && Number(c.user_id) === focusUserId }">
                 <td>{{ claimName(c) }}</td>
                 <td>{{ fmtDate(c.claim_date) }}</td>
-                <td>{{ timeTypeLabel(c) }}</td>
+                <td>
+                  <div>{{ timeTypeLabel(c) }}</div>
+                  <div v-if="logTimeSummary(c)" class="hint" style="margin-top: 4px; max-width: 280px;">{{ logTimeSummary(c) }}</div>
+                </td>
                 <td class="right">
                   <input
                     v-if="claimHoursValue(c) <= 0"
@@ -567,14 +570,11 @@
               </div>
             </template>
 
-            <template v-else-if="reviewedTimeClaim.claim_type === 'indirect_time'">
-              <div class="pps-detail-grid">
-                <div class="field"><label>Entry method</label><div>{{ reviewedTimeClaim.payload?.entryMethod || '—' }}</div></div>
-                <div class="field"><label>Start</label><div>{{ reviewedTimeClaim.payload?.startTime || '—' }}</div></div>
-                <div class="field"><label>End</label><div>{{ reviewedTimeClaim.payload?.endTime || '—' }}</div></div>
-                <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
-              </div>
-            </template>
+            <IndirectTimeClaimDetailFields
+              v-else-if="reviewedTimeClaim.claim_type === 'indirect_time'"
+              :payload="reviewedTimeClaim.payload"
+              :bucket="reviewedTimeClaim.payload?.bucket || reviewedTimeClaim.bucket"
+            />
 
             <template v-else-if="reviewedTimeClaim.claim_type === 'service_correction'">
               <div class="pps-detail-grid">
@@ -679,6 +679,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import IndirectTimeClaimDetailFields from '../../components/payroll/IndirectTimeClaimDetailFields.vue';
+import { logTimeActivitiesSummary } from '../../utils/logTimeClaimDetails';
 
 const route = useRoute();
 const router = useRouter();
@@ -1010,6 +1012,11 @@ const timeTypeLabel = (c) => {
   }
   if (t === 'training_focus_completion') return 'Training Focus Completion';
   return t.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+};
+
+const logTimeSummary = (c) => {
+  if (String(c?.claim_type || '').toLowerCase() !== 'indirect_time') return '';
+  return logTimeActivitiesSummary(c?.payload);
 };
 
 const timeClaimApproveBucket = (c) => {

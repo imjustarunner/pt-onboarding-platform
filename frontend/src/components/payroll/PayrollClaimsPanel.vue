@@ -49,7 +49,10 @@
               <tr v-for="c in timeClaims" :key="c.id">
                 <td>{{ providerName(c) }}</td>
                 <td>{{ fmtDate(c.claim_date) }}</td>
-                <td>{{ timeTypeLabel(c) }}</td>
+                <td>
+                  <div>{{ timeTypeLabel(c) }}</div>
+                  <div v-if="logTimeSummary(c)" class="pcp-muted" style="margin-top: 4px; max-width: 240px;">{{ logTimeSummary(c) }}</div>
+                </td>
                 <td class="right">{{ fmtHours(c) }}</td>
                 <td class="right">
                   <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === c.id" @click="openTimeClaimView(c)">View</button>
@@ -193,6 +196,12 @@
               </div>
             </div>
           </template>
+          <template v-else-if="reviewedTimeClaim.claim_type === 'indirect_time'">
+            <IndirectTimeClaimDetailFields
+              :payload="reviewedTimeClaim.payload"
+              :bucket="reviewedTimeClaim.payload?.bucket || reviewedTimeClaim.bucket"
+            />
+          </template>
           <template v-else-if="reviewedTimeClaim.payload">
             <pre class="pcp-payload">{{ JSON.stringify(reviewedTimeClaim.payload, null, 2) }}</pre>
           </template>
@@ -205,6 +214,8 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import IndirectTimeClaimDetailFields from './IndirectTimeClaimDetailFields.vue';
+import { logTimeActivitiesSummary } from '../../utils/logTimeClaimDetails';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
@@ -288,6 +299,11 @@ const timeTypeLabel = (c) => {
   }
   if (t === 'training_focus_completion') return 'Training Focus Completion';
   return t.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+};
+
+const logTimeSummary = (c) => {
+  if (String(c?.claim_type || '').toLowerCase() !== 'indirect_time') return '';
+  return logTimeActivitiesSummary(c?.payload);
 };
 
 const timeClaimApproveBucket = (c) => {
