@@ -139,6 +139,7 @@ import {
   logoSrc,
   parseAgencyPalette,
   agencyDisplayName,
+  schoolEventCategoryLabel,
 } from '../../../utils/schoolReinit';
 
 const props = defineProps({
@@ -286,57 +287,98 @@ const summaryCards = computed(() => {
   const fall = s.fallCheckIn || {};
   const fallBooking = s.fallCheckInBooking || {};
   const growth = s.growthFeedback || {};
-  const info = s.schoolInformation || {};
-  const school = props.school || {};
-  const addressParts = [
-    school.address || school.street_address || school.address_line1,
-    [school.city, school.state || school.region].filter(Boolean).join(', '),
-    school.zip || school.postal_code,
-  ].filter(Boolean);
-  const addressLine = addressParts.join(' · ') || info.notes || 'Reviewed and confirmed.';
+  const providerAnswers = s.assignedProviders || s.assigned_providers || {};
+  const capacityOutlook = providerAnswers.capacity_outlook || (providerAnswers.same_arrangements ? 'same' : '');
+  const capacityLabel =
+    capacityOutlook === 'more'
+      ? 'May need more providers/days'
+      : capacityOutlook === 'less'
+        ? 'May need fewer providers/days'
+        : capacityOutlook === 'same'
+          ? 'Same providers and days'
+          : '—';
+  const roster = Array.isArray(s.providers) ? s.providers : [];
+  const providerCount = roster.length
+    ? roster[0]?.assignments
+      ? roster.length
+      : new Set(roster.map((p) => p.providerUserId || p.provider_user_id || p.id)).size
+    : 0;
+  const providerLines = roster.slice(0, 4).map((p) => {
+    if (Array.isArray(p.assignments) && p.assignments.length) {
+      const days = p.assignments.map((a) => a.dayOfWeek || a.day_of_week).filter(Boolean).join(', ');
+      return `<li>${esc(p.name)} — ${esc(days)}</li>`;
+    }
+    return `<li>${esc(p.name)} — ${esc(p.dayOfWeek || p.day_of_week || '')}</li>`;
+  });
+  const btsStatus = answers.bts_status || (s.events?.backToSchool?.startsAt ? 'has_event' : '');
+  const btsDate =
+    answers.bts_event_date ||
+    (btsStatus === 'has_event' ? s.events?.backToSchool?.startsAt : null);
+  const btsTitle = answers.bts_event_title || s.events?.backToSchool?.title || '';
+  let btsSummary = '—';
+  if (btsStatus === 'has_event') {
+    btsSummary = [formatDate(btsDate), btsTitle].filter(Boolean).join(' — ') || 'Scheduled';
+  } else if (btsStatus === 'no_event') {
+    btsSummary = 'No Back-to-School event';
+  } else if (btsStatus === 'partner_not_invited') {
+    btsSummary = `${tenantName.value} not invited`;
+    if (btsDate) btsSummary += ` (${formatDate(btsDate)})`;
+  } else if (btsStatus === 'partner_unable') {
+    btsSummary = `${tenantName.value} unable to attend`;
+    if (btsDate) btsSummary += ` (${formatDate(btsDate)})`;
+  } else if (s.events?.backToSchool?.startsAt) {
+    btsSummary = formatDate(s.events.backToSchool.startsAt);
+  }
+
+  const attendableEvents = Array.isArray(s.events?.attendableEvents) ? s.events.attendableEvents : [];
+  const otherEventLines = attendableEvents
+    .filter((e) => String(e.category || '') !== 'back_to_school')
+    .map(
+      (e) =>
+        `<li>${esc(schoolEventCategoryLabel(e.category))}: ${esc(e.title)} — ${esc(formatDate(e.startsAt))}</li>`
+    )
+    .join('');
 
   const cards = [
     {
-      key: 'school_information',
-      num: 1,
-      title: 'School Information',
-      icon: ICONS.calendar,
-      html: `
-        <p><strong>${esc(schoolName.value)}</strong></p>
-        <p class="muted">${esc(addressLine)}</p>
-        ${info.notes && addressParts.length ? `<p class="muted">${esc(info.notes)}</p>` : ''}
-      `,
-    },
-    {
       key: 'school_events',
-      num: 2,
+      num: 1,
       title: 'School Events',
       icon: ICONS.confetti,
       html: `
         ${line('First Day of School', answers.first_day_of_school || formatDate(s.events?.firstDay?.startsAt))}
-        ${line('Back-to-School', formatDate(s.events?.backToSchool?.startsAt))}
-        ${checkLine(`${tenantName.value} Invited: ${yn(partnerInvited)}`, partnerInvited)}
+        ${line('Back-to-School', btsSummary)}
+        ${otherEventLines ? `<p class="muted"><strong>Other school events</strong></p><ul class="rcpt-mini">${otherEventLines}</ul>` : ''}
+        ${answers.bts_note && btsStatus !== 'has_event' ? `<p class="muted">${esc(answers.bts_note)}</p>` : ''}
+        ${
+          btsStatus === 'has_event'
+            ? `${checkLine(`${tenantName.value} Invited: ${yn(partnerInvited)}`, partnerInvited)}
         ${checkLine(`Marketing Table: ${yn(answers.bts_marketing_table)}`, answers.bts_marketing_table)}
-        ${checkLine(`Active Sign-ups: ${answers.bts_active_signups ? 'Permitted' : yn(answers.bts_active_signups)}`, answers.bts_active_signups)}
+        ${checkLine(`Active Sign-ups: ${answers.bts_active_signups ? 'Permitted' : yn(answers.bts_active_signups)}`, answers.bts_active_signups)}`
+            : ''
+        }
       `,
     },
     {
       key: 'assigned_providers',
-      num: 3,
+      num: 2,
       title: 'Providers',
       icon: ICONS.providers,
       html: `
-        <p><strong>${(s.providers || []).length} Providers</strong></p>
-        <p class="muted">${esc(schoolYearLabel.value)} · Confirmed</p>
-        <ul class="rcpt-mini">${(s.providers || [])
-          .slice(0, 4)
-          .map((p) => `<li>${esc(p.name)} — ${esc(p.dayOfWeek)}</li>`)
-          .join('')}</ul>
+        <p><strong>${providerCount} Provider${providerCount === 1 ? '' : 's'}</strong></p>
+        <p class="muted">${esc(capacityLabel)}</p>
+        ${
+          Array.isArray(providerAnswers.preferred_service_days) && providerAnswers.preferred_service_days.length
+            ? `<p class="muted">Preferred school days: ${esc(providerAnswers.preferred_service_days.join(', '))}</p>`
+            : ''
+        }
+        ${providerAnswers.notes ? `<p class="muted">${esc(providerAnswers.notes)}</p>` : ''}
+        <ul class="rcpt-mini">${providerLines.join('')}</ul>
       `,
     },
     {
       key: 'school_staff',
-      num: 4,
+      num: 3,
       title: 'Staff Members',
       icon: ICONS.staff,
       html: `
@@ -346,7 +388,7 @@ const summaryCards = computed(() => {
     },
     {
       key: 'materials',
-      num: 5,
+      num: 4,
       title: 'Materials Request',
       icon: ICONS.box,
       html: `
@@ -357,7 +399,7 @@ const summaryCards = computed(() => {
     },
     {
       key: 'needs_assessment',
-      num: 6,
+      num: 5,
       title: 'Needs Assessment',
       icon: ICONS.chart,
       html: `
@@ -367,7 +409,7 @@ const summaryCards = computed(() => {
     },
     {
       key: 'fall_check_in',
-      num: 7,
+      num: 6,
       title: 'Fall School Check-In',
       icon: ICONS.clock,
       html: (() => {
@@ -403,7 +445,7 @@ const summaryCards = computed(() => {
     },
     {
       key: 'growth_feedback',
-      num: 8,
+      num: 7,
       title: 'Growth & Feedback',
       icon: ICONS.heart,
       html: `

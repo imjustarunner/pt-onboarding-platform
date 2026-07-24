@@ -5387,8 +5387,8 @@ const peerTypedBlocksInCell = (uid, dayName, hour, ws, minute = 0) => {
       let activityType = 'event';
       let title = String(row?.title || '').trim() || 'Schedule event';
       if (kind === 'SCHEDULE_HOLD') { activityType = 'hold'; title = title || 'Schedule hold'; }
-      else if (kind === 'FALL_CHECKIN_PRESLOT') { activityType = 'hold'; title = title || '(fills in Fall Check-in)'; }
-      else if (kind === 'FALL_CHECKIN_BOOKED') { activityType = 'team_meeting'; title = title || 'Fall Check-in'; }
+      else if (kind === 'FALL_CHECKIN_PRESLOT') { activityType = 'hold'; title = title || '(fills in school visit)'; }
+      else if (kind === 'FALL_CHECKIN_BOOKED') { activityType = 'team_meeting'; title = title || 'School visit'; }
       else if (kind === 'INDIRECT_SERVICES') { activityType = 'indirect'; title = title || 'Indirect'; }
       else if (kind === 'TEAM_MEETING') { activityType = 'team_meeting'; title = title || 'Team meeting'; }
       else if (kind === 'HUDDLE') { activityType = 'huddle'; title = title || 'Huddle'; }
@@ -8279,8 +8279,8 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
   let typePrefix = 'Event';
   if (eventKind === 'TEAM_MEETING') typePrefix = 'Meeting';
   else if (eventKind === 'HUDDLE') typePrefix = 'Huddle';
-  else if (eventKind === 'FALL_CHECKIN_PRESLOT') typePrefix = 'Fall Check-in';
-  else if (eventKind === 'FALL_CHECKIN_BOOKED') typePrefix = 'Fall Check-in';
+  else if (eventKind === 'FALL_CHECKIN_PRESLOT') typePrefix = 'School visit';
+  else if (eventKind === 'FALL_CHECKIN_BOOKED') typePrefix = 'School visit';
   else if (eventKind === 'SCHEDULE_HOLD') typePrefix = ev?.allDay ? 'All-day block' : 'Hold';
   else if (eventKind === 'INDIRECT_SERVICES') typePrefix = 'Indirect';
   else if (eventKind === 'PERSONAL_EVENT' && isClientSessionScheduleEvent(ev)) typePrefix = 'Session';
@@ -18912,8 +18912,8 @@ const SCHEDULE_EVENT_KIND_LABELS = {
   INDIRECT_SERVICES: 'Indirect services',
   AGENCY_MEETING: 'Agency meeting',
   DOCUMENTATION: 'Documentation',
-  FALL_CHECKIN_PRESLOT: 'Fall Check-in pre-slot',
-  FALL_CHECKIN_BOOKED: 'Fall Check-in',
+  FALL_CHECKIN_PRESLOT: 'School visit pre-slot',
+  FALL_CHECKIN_BOOKED: 'School visit',
 };
 
 const scheduleKindLabel = (kindRaw, ev = null) => {

@@ -5,6 +5,7 @@ import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js'
 import AgencySchool from '../models/AgencySchool.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
+import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 import {
   getSupervisorSuperviseeIds,
   isSupervisorActor,
@@ -1343,6 +1344,276 @@ export const placeClientInOpenSoftSlot = async (req, res, next) => {
     } finally {
       connection.release();
     }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/school-portal/:schoolId/providers/addable
+ * Providers from the parent agency who can be affiliated to this school (with day/slots).
+ */
+export const listAddableSchoolProviders = async (req, res, next) => {
+  try {
+    const { schoolId } = req.params;
+    const access = await ensureSchoolAccess(req, schoolId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (!canManageSchoolDayProviders(req)) {
+      return res.status(403).json({ error: { message: 'Only school staff or admin/support can add providers.' } });
+    }
+
+    const schoolOrgId = parseInt(schoolId, 10);
+    const agencyId =
+      (await OrganizationAffiliation.getActiveAgencyIdForOrganization(schoolOrgId)) ||
+      (await AgencySchool.getActiveAgencyIdForSchool(schoolOrgId)) ||
+      null;
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'School is not linked to a parent agency' } });
+    }
+
+    let rows = [];
+    try {
+      const [r] = await pool.execute(
+        `SELECT u.id AS provider_user_id,
+                u.first_name,
+                u.last_name,
+                u.email,
+                EXISTS(
+                  SELECT 1 FROM user_agencies ua_school
+                  WHERE ua_school.user_id = u.id AND ua_school.agency_id = ?
+                ) AS already_at_school
+         FROM users u
+         JOIN user_agencies ua_agency ON ua_agency.user_id = u.id AND ua_agency.agency_id = ?
+         WHERE (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
+           AND (u.role IN ('provider') OR u.has_provider_access = TRUE)
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [schoolOrgId, agencyId]
+      );
+      rows = r || [];
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (!msg.includes('Unknown column')) throw e;
+      const [r2] = await pool.execute(
+        `SELECT u.id AS provider_user_id,
+                u.first_name,
+                u.last_name,
+                u.email,
+                EXISTS(
+                  SELECT 1 FROM user_agencies ua_school
+                  WHERE ua_school.user_id = u.id AND ua_school.agency_id = ?
+                ) AS already_at_school
+         FROM users u
+         JOIN user_agencies ua_agency ON ua_agency.user_id = u.id AND ua_agency.agency_id = ?
+         WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [schoolOrgId, agencyId]
+      );
+      rows = r2 || [];
+    }
+
+    // Attach existing active days at this school (if any).
+    const providerIds = rows.map((r) => Number(r.provider_user_id)).filter(Boolean);
+    const daysByProvider = new Map();
+    if (providerIds.length) {
+      const placeholders = providerIds.map(() => '?').join(',');
+      const [dayRows] = await pool.execute(
+        `SELECT provider_user_id, day_of_week, slots_total, start_time, end_time
+         FROM provider_school_assignments
+         WHERE school_organization_id = ?
+           AND provider_user_id IN (${placeholders})
+           AND is_active = TRUE
+         ORDER BY FIELD(day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday'), day_of_week`,
+        [schoolOrgId, ...providerIds]
+      );
+      for (const d of dayRows || []) {
+        const pid = Number(d.provider_user_id);
+        if (!daysByProvider.has(pid)) daysByProvider.set(pid, []);
+        daysByProvider.get(pid).push({
+          dayOfWeek: d.day_of_week,
+          slotsTotal: d.slots_total,
+          startTime: d.start_time,
+          endTime: d.end_time
+        });
+      }
+    }
+
+    res.json(
+      (rows || []).map((r) => ({
+        provider_user_id: Number(r.provider_user_id),
+        first_name: r.first_name,
+        last_name: r.last_name,
+        email: r.email,
+        already_at_school: Boolean(r.already_at_school),
+        active_days: daysByProvider.get(Number(r.provider_user_id)) || []
+      }))
+    );
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/school-portal/:schoolId/providers
+ * Affiliate a parent-agency provider to this school and set day/slots (PSA + portal day sync).
+ * Body: { providerUserId, dayOfWeek, slotsTotal, startTime?, endTime? }
+ * Optional: days: [{ dayOfWeek, slotsTotal, startTime?, endTime? }] for multiple days.
+ */
+export const addSchoolProviderWithSchedule = async (req, res, next) => {
+  try {
+    const { schoolId } = req.params;
+    const access = await ensureSchoolAccess(req, schoolId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (!canManageSchoolDayProviders(req)) {
+      return res.status(403).json({ error: { message: 'Only school staff or admin/support can add providers.' } });
+    }
+
+    const schoolOrgId = parseInt(schoolId, 10);
+    const agencyId =
+      (await OrganizationAffiliation.getActiveAgencyIdForOrganization(schoolOrgId)) ||
+      (await AgencySchool.getActiveAgencyIdForSchool(schoolOrgId)) ||
+      null;
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'School is not linked to a parent agency' } });
+    }
+
+    const providerUserId = parseInt(req.body?.providerUserId, 10);
+    if (!providerUserId) {
+      return res.status(400).json({ error: { message: 'providerUserId is required' } });
+    }
+
+    // Provider must belong to the parent agency.
+    const [agencyMembership] = await pool.execute(
+      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      [providerUserId, agencyId]
+    );
+    if (!agencyMembership?.[0]) {
+      return res.status(400).json({
+        error: { message: 'Provider must already be on the parent agency before they can be added to this school.' }
+      });
+    }
+
+    // Confirm provider-like role.
+    const [userRows] = await pool.execute(
+      `SELECT id, role, has_provider_access, first_name, last_name
+       FROM users WHERE id = ? LIMIT 1`,
+      [providerUserId]
+    );
+    const user = userRows?.[0];
+    if (!user) return res.status(404).json({ error: { message: 'Provider not found' } });
+    const role = String(user.role || '').toLowerCase();
+    if (role !== 'provider' && !user.has_provider_access) {
+      return res.status(400).json({ error: { message: 'Selected user is not a provider' } });
+    }
+
+    let daySpecs = Array.isArray(req.body?.days) ? req.body.days : null;
+    if (!daySpecs || !daySpecs.length) {
+      daySpecs = [
+        {
+          dayOfWeek: req.body?.dayOfWeek,
+          slotsTotal: req.body?.slotsTotal,
+          startTime: req.body?.startTime,
+          endTime: req.body?.endTime
+        }
+      ];
+    }
+
+    const normalizedDays = [];
+    for (const spec of daySpecs) {
+      const dayOfWeek = normalizeDay(spec?.dayOfWeek);
+      const slotsTotal = parseInt(spec?.slotsTotal, 10);
+      if (!dayOfWeek) {
+        return res.status(400).json({
+          error: { message: `dayOfWeek is required (allowed: ${allowedDays.join(', ')})` }
+        });
+      }
+      if (!Number.isFinite(slotsTotal) || slotsTotal < 1) {
+        return res.status(400).json({ error: { message: 'slotsTotal must be a positive number' } });
+      }
+      const startTime = normalizeTime(spec?.startTime) || null;
+      const endTime = normalizeTime(spec?.endTime) || null;
+      if (startTime && endTime) {
+        const a = timeToMinutes(startTime);
+        const b = timeToMinutes(endTime);
+        if (a != null && b != null && b <= a) {
+          return res.status(400).json({ error: { message: 'End time must be after start time' } });
+        }
+      }
+      normalizedDays.push({ dayOfWeek, slotsTotal, startTime, endTime });
+    }
+
+    // Affiliate provider to school org.
+    try {
+      await pool.execute(
+        `INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id`,
+        [providerUserId, schoolOrgId]
+      );
+    } catch (e) {
+      // Best-effort; some schemas may differ
+      const msg = String(e?.message || '');
+      if (!msg.includes('Duplicate') && !msg.includes('ER_DUP_ENTRY')) {
+        // continue — PSA insert may still work for scheduling lists that join differently
+      }
+    }
+
+    const assignments = [];
+    for (const day of normalizedDays) {
+      const [existing] = await pool.execute(
+        `SELECT id, slots_total, slots_available FROM provider_school_assignments
+         WHERE provider_user_id = ? AND school_organization_id = ? AND day_of_week = ?
+         LIMIT 1`,
+        [providerUserId, schoolOrgId, day.dayOfWeek]
+      );
+
+      if (!existing[0]) {
+        const [result] = await pool.execute(
+          `INSERT INTO provider_school_assignments
+            (provider_user_id, school_organization_id, day_of_week, slots_total, slots_available, start_time, end_time, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+          [
+            providerUserId,
+            schoolOrgId,
+            day.dayOfWeek,
+            day.slotsTotal,
+            day.slotsTotal,
+            day.startTime,
+            day.endTime
+          ]
+        );
+        const [rows] = await pool.execute(`SELECT * FROM provider_school_assignments WHERE id = ?`, [result.insertId]);
+        assignments.push(rows[0] || null);
+      } else {
+        const oldTotal = parseInt(existing[0].slots_total ?? 0, 10);
+        const oldAvail = parseInt(existing[0].slots_available ?? 0, 10);
+        const used = Math.max(0, oldTotal - oldAvail);
+        const nextSlotsAvailable = Math.max(0, day.slotsTotal - used);
+        await pool.execute(
+          `UPDATE provider_school_assignments
+           SET slots_total = ?, slots_available = ?, start_time = ?, end_time = ?, is_active = 1
+           WHERE id = ?`,
+          [day.slotsTotal, nextSlotsAvailable, day.startTime, day.endTime, existing[0].id]
+        );
+        const [rows] = await pool.execute(`SELECT * FROM provider_school_assignments WHERE id = ?`, [existing[0].id]);
+        assignments.push(rows[0] || null);
+      }
+
+      await syncSchoolPortalDayProvider({
+        schoolId: schoolOrgId,
+        providerUserId,
+        weekday: day.dayOfWeek,
+        isActive: true,
+        actorUserId: req.user?.id
+      });
+    }
+
+    res.status(201).json({
+      ok: true,
+      providerUserId,
+      providerName: [user.first_name, user.last_name].filter(Boolean).join(' ').trim(),
+      schoolOrganizationId: schoolOrgId,
+      assignments: assignments.filter(Boolean)
+    });
   } catch (e) {
     next(e);
   }

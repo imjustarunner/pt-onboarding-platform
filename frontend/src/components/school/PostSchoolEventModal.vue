@@ -138,7 +138,7 @@
 
           <label v-if="!isCalendarOnlyCategory" class="checkbox-row">
             <input v-model="form.outreachTableInvited" type="checkbox" />
-            <span>ITSCO is invited to attend via an outreach table</span>
+            <span>{{ partnerLabel }} is invited to attend via an outreach table</span>
           </label>
 
           <div v-if="canAssignOnCreate" class="assign-now">
@@ -222,6 +222,11 @@ const props = defineProps({
   initialEndTime: { type: String, default: '' },
   lockedCategory: { type: Boolean, default: false },
   postToken: { type: String, default: '' },
+  /** When set, posts via /public/school-reinit/:token/school-events (year-update guests). */
+  reinitToken: { type: String, default: '' },
+  reinitIdentity: { type: Object, default: null },
+  /** Partner name for outreach-table checkbox (defaults to ITSCO). */
+  partnerLabel: { type: String, default: 'ITSCO' },
   editEvent: { type: Object, default: null }
 });
 
@@ -260,6 +265,30 @@ const displaySchoolName = computed(() => {
   const fromEdit = String(props.editEvent?.schoolName || '').trim();
   return fromEdit || '';
 });
+
+function schoolEventUploadUrl() {
+  if (props.reinitToken) return `/public/school-reinit/${props.reinitToken}/school-events/upload-flier`;
+  return `/school-portal/${props.schoolOrganizationId}/school-events/upload-flier`;
+}
+
+function schoolEventCreateUrl() {
+  if (props.reinitToken) return `/public/school-reinit/${props.reinitToken}/school-events`;
+  return `/school-portal/${props.schoolOrganizationId}/school-events`;
+}
+
+function schoolEventUpdateUrl(eventId) {
+  if (props.reinitToken) return `/public/school-reinit/${props.reinitToken}/school-events/${eventId}`;
+  return `/school-portal/${props.schoolOrganizationId}/school-events/${eventId}`;
+}
+
+function withReinitIdentity(payload) {
+  if (!props.reinitToken || !props.reinitIdentity) return payload;
+  return {
+    ...payload,
+    displayName: props.reinitIdentity.displayName || props.reinitIdentity.name || '',
+    identityTitle: props.reinitIdentity.identityTitle || props.reinitIdentity.title || '',
+  };
+}
 
 /** Direct assign-on-create: admin / support / super_admin only (not school staff or providers). */
 const canDirectAssignRole = computed(() => {
@@ -444,13 +473,13 @@ const onFileChange = async (event) => {
   try {
     uploading.value = true;
     error.value = '';
-    if (!props.schoolOrganizationId) {
+    if (!props.schoolOrganizationId && !props.reinitToken) {
       error.value = 'Flier upload requires a single school. Create the district event first, then edit one school.';
       return;
     }
     const fd = new FormData();
     fd.append('file', file);
-    const res = await api.post(`/school-portal/${props.schoolOrganizationId}/school-events/upload-flier`, fd, {
+    const res = await api.post(schoolEventUploadUrl(), fd, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
     form.flierFileUrl = res.data?.flierFileUrl || res.data?.url || '';
@@ -476,7 +505,7 @@ const submit = async () => {
       error.value = 'Date and times are required';
       return;
     }
-    const payload = {
+    const payload = withReinitIdentity({
       category: form.category,
       title: form.title.trim(),
       description: form.description.trim(),
@@ -492,7 +521,7 @@ const submit = async () => {
       eventImageUrl: form.eventImageUrl || null,
       detailsUrl: String(form.detailsUrl || '').trim() || null,
       postToken: props.postToken || undefined
-    };
+    });
     if (!isCalendarOnlyCategory.value) {
       payload.minProvidersPerSession = Math.max(1, Math.min(99, Number(form.minProvidersPerSession) || 2));
     }
@@ -503,14 +532,11 @@ const submit = async () => {
         agencyId: Number(props.agencyId)
       });
     } else if (props.editEvent?.id) {
-      if (!props.schoolOrganizationId) {
+      if (!props.schoolOrganizationId && !props.reinitToken) {
         error.value = 'School is required';
         return;
       }
-      res = await api.put(
-        `/school-portal/${props.schoolOrganizationId}/school-events/${props.editEvent.id}`,
-        payload
-      );
+      res = await api.put(schoolEventUpdateUrl(props.editEvent.id), payload);
     } else if (isDistrictCreate.value) {
       if (!props.agencyId) {
         error.value = 'Agency is required for district events';
@@ -522,11 +548,11 @@ const submit = async () => {
         districtName: String(props.districtName).trim()
       });
     } else {
-      if (!props.schoolOrganizationId) {
+      if (!props.schoolOrganizationId && !props.reinitToken) {
         error.value = 'School is required';
         return;
       }
-      res = await api.post(`/school-portal/${props.schoolOrganizationId}/school-events`, payload);
+      res = await api.post(schoolEventCreateUrl(), payload);
     }
 
     let assignNote = '';

@@ -1,6 +1,20 @@
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import * as S from '../services/schoolReinit.service.js';
 import * as Checkin from '../services/schoolReinitCheckin.service.js';
+import multer from 'multer';
+import StorageService from '../services/storage.service.js';
+import {
+  createSchoolPortalEvent,
+  updateSchoolPortalEvent,
+  SCHOOL_EVENT_CATEGORIES,
+  resolveAgencyIdForSchoolOrg,
+} from '../services/schoolPortalEvents.service.js';
+import { parseSchoolEventBody } from './schoolPortalEvents.controller.js';
+
+const schoolEventUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
 
 function safeInt(v) {
   const n = Number(v);
@@ -527,8 +541,9 @@ export async function bookPublicCheckinSlot(req, res, next) {
     if (!actor) {
       return res.status(400).json({ error: { message: 'Identity (displayName) is required' } });
     }
+    const cycle = await S.resolveTokenCycle(result.row);
     const booking = await Checkin.bookCheckinSlot({
-      cycleId: result.row.cycle_id,
+      cycleId: cycle.id,
       slotId,
       modality,
       actor,
@@ -807,11 +822,19 @@ async function buildDashboardPayload(cycle) {
 
   const pool = (await import('../config/database.js')).default;
   const [agencyRows] = await pool.execute(
-    `SELECT id, name, logo_url, logo_path, color_palette FROM agencies WHERE id = ? LIMIT 1`,
+    `SELECT a.id, a.name, a.logo_url, a.logo_path, a.color_palette, i.file_path AS icon_file_path
+     FROM agencies a
+     LEFT JOIN icons i ON i.id = a.icon_id
+     WHERE a.id = ?
+     LIMIT 1`,
     [cycle.agency_id]
   );
   const [schoolRows] = await pool.execute(
-    `SELECT id, name, logo_url, logo_path, portal_url, slug FROM agencies WHERE id = ? LIMIT 1`,
+    `SELECT a.id, a.name, a.logo_url, a.logo_path, a.portal_url, a.slug, i.file_path AS icon_file_path
+     FROM agencies a
+     LEFT JOIN icons i ON i.id = a.icon_id
+     WHERE a.id = ?
+     LIMIT 1`,
     [cycle.school_organization_id]
   );
 
@@ -971,7 +994,7 @@ export async function getPublicByToken(req, res, next) {
     if (!row) return res.status(404).json({ error: { message: 'Invalid link' } });
 
     // Locked tokens can still view receipt if finalized
-    const cycle = await S.getCycleById(row.cycle_id);
+    const cycle = await S.resolveTokenCycle(row);
     await S.recordTokenClick(row);
 
     const payload = await buildDashboardPayload(cycle);
@@ -999,7 +1022,7 @@ export async function updatePublicSection(req, res, next) {
     if (result.row.locked_at) {
       return res.status(400).json({ error: { message: 'This link is locked after finalization' } });
     }
-    const cycle = await S.getCycleById(result.row.cycle_id);
+    const cycle = await S.resolveTokenCycle(result.row);
     if (cycle.status === 'finalized') {
       return res.status(400).json({ error: { message: 'Already finalized' } });
     }
@@ -1032,7 +1055,7 @@ export async function submitPublicChangeRequest(req, res, next) {
     if (result.row.locked_at) {
       return res.status(400).json({ error: { message: 'Link locked' } });
     }
-    const cycle = await S.getCycleById(result.row.cycle_id);
+    const cycle = await S.resolveTokenCycle(result.row);
     const actor = actorFromReq(req, req.body);
     if (!actor) return res.status(400).json({ error: { message: 'Identity required' } });
 
@@ -1070,7 +1093,8 @@ export async function finalizePublic(req, res, next) {
     }
     const actor = actorFromReq(req, req.body);
     if (!actor) return res.status(400).json({ error: { message: 'Identity required to finalize' } });
-    const finalized = await S.finalizeCycle({ cycleId: result.row.cycle_id, actor });
+    const cycle = await S.resolveTokenCycle(result.row);
+    const finalized = await S.finalizeCycle({ cycleId: cycle.id, actor });
     res.json({ cycle: parseSnapshot(finalized) });
   } catch (e) {
     const msg = e?.message || 'Finalize failed';
@@ -1101,3 +1125,149 @@ export async function createPublicAddendum(req, res, next) {
     next(e);
   }
 }
+
+async function resolveWritableCycleFromToken(token) {
+  const result = await S.validateToken(token);
+  if (!result.valid || !result.row) {
+    const err = new Error('Invalid or expired link');
+    err.status = 404;
+    throw err;
+  }
+  if (result.row.locked_at) {
+    const err = new Error('This link is locked after finalization');
+    err.status = 400;
+    throw err;
+  }
+  const cycle = await S.resolveTokenCycle(result.row);
+  if (cycle.status === 'finalized') {
+    const err = new Error('Already finalized');
+    err.status = 400;
+    throw err;
+  }
+  return cycle;
+}
+
+/** POST /api/public/school-reinit/:token/school-events */
+export async function createPublicSchoolEvent(req, res, next) {
+  try {
+    const cycle = await resolveWritableCycleFromToken(req.params.token);
+    const actor = actorFromReq(req, req.body);
+    if (!actor) {
+      return res.status(400).json({ error: { message: 'Please identify yourself (name) before saving' } });
+    }
+
+    const parsed = parseSchoolEventBody(req.body || {});
+    if (!parsed.category || !SCHOOL_EVENT_CATEGORIES.includes(parsed.category)) {
+      return res.status(400).json({
+        error: { message: `category must be one of: ${SCHOOL_EVENT_CATEGORIES.join(', ')}` },
+      });
+    }
+    if (!parsed.title) return res.status(400).json({ error: { message: 'title is required' } });
+    if (!parsed.startsAt || !parsed.endsAt) {
+      return res.status(400).json({ error: { message: 'startsAt and endsAt are required' } });
+    }
+
+    const event = await createSchoolPortalEvent({
+      agencyId: cycle.agency_id,
+      organizationId: cycle.school_organization_id,
+      userId: actor.userId || null,
+      title: parsed.title,
+      description: parsed.description,
+      category: parsed.category,
+      startsAt: parsed.startsAt,
+      endsAt: parsed.endsAt,
+      timezone: parsed.timezone,
+      outreachTableInvited: parsed.outreachTableInvited,
+      eventImageUrl: parsed.eventImageUrl,
+      flierFileUrl: parsed.flierFileUrl,
+      detailsUrl: parsed.detailsUrl ?? null,
+      schoolEventStatus: parsed.schoolEventStatus || 'scheduled',
+      employeeReportTime: parsed.employeeReportTime,
+      skillBuilderDirectHours: 0,
+      minProvidersPerSession: parsed.minProvidersPerSession ?? 2,
+    });
+
+    res.status(201).json(event);
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+}
+
+/** PUT /api/public/school-reinit/:token/school-events/:eventId */
+export async function updatePublicSchoolEvent(req, res, next) {
+  try {
+    const cycle = await resolveWritableCycleFromToken(req.params.token);
+    const actor = actorFromReq(req, req.body);
+    if (!actor) {
+      return res.status(400).json({ error: { message: 'Please identify yourself (name) before saving' } });
+    }
+
+    const eventId = parseInt(String(req.params.eventId || ''), 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid eventId' } });
+
+    const parsed = parseSchoolEventBody(req.body || {});
+    if (parsed.category && !SCHOOL_EVENT_CATEGORIES.includes(parsed.category)) {
+      return res.status(400).json({ error: { message: 'Invalid category' } });
+    }
+
+    const agencyId = await resolveAgencyIdForSchoolOrg(cycle.school_organization_id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'School is not linked to an agency' } });
+
+    const event = await updateSchoolPortalEvent({
+      eventId,
+      organizationId: cycle.school_organization_id,
+      agencyId,
+      userId: actor.userId || null,
+      title: parsed.title || undefined,
+      description: parsed.description,
+      category: parsed.category || undefined,
+      startsAt: parsed.startsAt || undefined,
+      endsAt: parsed.endsAt || undefined,
+      timezone: parsed.timezone,
+      outreachTableInvited: parsed.outreachTableInvited,
+      eventImageUrl: parsed.eventImageUrl,
+      flierFileUrl: parsed.flierFileUrl,
+      detailsUrl: parsed.detailsUrl,
+      schoolEventStatus: parsed.schoolEventStatus,
+      employeeReportTime: parsed.employeeReportTime,
+      skillBuilderDirectHours: 0,
+      minProvidersPerSession: parsed.minProvidersPerSession,
+    });
+
+    res.json(event);
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+}
+
+/** POST /api/public/school-reinit/:token/school-events/upload-flier */
+export const uploadPublicSchoolEventFlier = [
+  schoolEventUpload.single('file'),
+  async (req, res, next) => {
+    try {
+      const cycle = await resolveWritableCycleFromToken(req.params.token);
+      if (!req.file) return res.status(400).json({ error: { message: 'No file uploaded' } });
+
+      const saved = await StorageService.saveSchoolPublicDocument({
+        schoolOrganizationId: cycle.school_organization_id,
+        uploadedByUserId: req.user?.id || null,
+        fileBuffer: req.file.buffer,
+        filename: req.file.originalname || `school-event-flier-${Date.now()}`,
+        contentType: req.file.mimetype,
+      });
+
+      const isImage = String(req.file.mimetype || '').startsWith('image/');
+      res.status(201).json({
+        url: saved?.path || null,
+        flierFileUrl: saved?.path || null,
+        eventImageUrl: isImage ? saved?.path || null : null,
+        mimeType: req.file.mimetype,
+      });
+    } catch (e) {
+      if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+      next(e);
+    }
+  },
+];

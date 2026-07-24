@@ -150,13 +150,18 @@ class ProviderScheduleEvent {
         WHERE psea.event_id = pse.id AND psea.user_id = ?
       )
     ))`;
-    const params = [...scopeParams, pId, pId, windowEnd, windowStart, windowEnd, windowStart];
+    // Fall school-visit bookings store the school org as agency_id (for logo).
+    // Always include those for this provider even when the calendar is filtered to the tenant.
+    const fallVisitClause = `(pse.provider_id = ? AND UPPER(COALESCE(pse.kind, '')) IN ('FALL_CHECKIN_PRESLOT', 'FALL_CHECKIN_BOOKED'))`;
+    const params = [...scopeParams, pId, pId, pId, windowEnd, windowStart, windowEnd, windowStart];
     // Include CANCELLED rows so cancelled meetings remain visible on calendars.
     const [rows] = await pool.execute(
       `SELECT *
        FROM provider_schedule_events pse
-       WHERE ${scopeClause}
-         AND ${userClause}
+       WHERE (
+           (${scopeClause} AND ${userClause})
+           OR ${fallVisitClause}
+         )
          AND (
            (pse.all_day = 1 AND pse.start_date < DATE(?) AND pse.end_date > DATE(?))
            OR

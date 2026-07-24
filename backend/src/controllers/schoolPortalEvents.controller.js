@@ -241,7 +241,7 @@ async function userCanEditSchoolEventPayrollFields({ userId, role, agencyId }) {
   }
 }
 
-function parseSchoolEventBody(body) {
+export function parseSchoolEventBody(body) {
   const category = String(body?.category || body?.eventCategory || '').trim().toLowerCase();
   const title = String(body?.title || body?.name || '').trim();
   const description = String(body?.description || body?.details || '').trim();

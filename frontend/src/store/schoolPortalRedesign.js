@@ -107,6 +107,34 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     await fetchDayProviders(weekday);
   };
 
+  /** Affiliate provider + set PSA day/slots (school staff / admin). */
+  const addProviderWithSchedule = async ({
+    providerUserId,
+    dayOfWeek,
+    slotsTotal,
+    startTime = null,
+    endTime = null,
+    days = null
+  } = {}) => {
+    if (!schoolId.value) throw new Error('School is not loaded');
+    const body = days?.length
+      ? { providerUserId: Number(providerUserId), days }
+      : {
+          providerUserId: Number(providerUserId),
+          dayOfWeek,
+          slotsTotal: Number(slotsTotal),
+          startTime: startTime || null,
+          endTime: endTime || null
+        };
+    const r = await api.post(`/school-portal/${schoolId.value}/providers`, body);
+    await Promise.all([fetchEligibleProviders(), fetchDays()]);
+    if (dayOfWeek || (days && days[0]?.dayOfWeek)) {
+      const wd = dayOfWeek || days[0].dayOfWeek;
+      if (selectedWeekday.value === wd) await fetchDayProviders(wd);
+    }
+    return r.data;
+  };
+
   const ensurePanel = (weekday, providerUserId) => {
     const key = keyFor(weekday, providerUserId);
     if (!providerPanels.value[key]) {
@@ -221,6 +249,7 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     fetchEligibleProviders,
     fetchDayProviders,
     addProviderToDay,
+    addProviderWithSchedule,
     ensurePanel,
     loadProviderPanel,
     saveSoftSlots,

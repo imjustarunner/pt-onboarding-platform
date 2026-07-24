@@ -1,12 +1,6 @@
+import { toUploadsUrl } from './uploadsUrl.js';
+
 export const SECTION_META = [
-  {
-    key: 'school_information',
-    title: 'School Information',
-    shortTitle: 'School Information',
-    hint: 'Confirm basic school details for the upcoming year',
-    description: 'Confirm school name and contact details for the year.',
-    icon: 'calendar',
-  },
   {
     key: 'school_events',
     title: 'School Events',
@@ -19,8 +13,8 @@ export const SECTION_META = [
     key: 'assigned_providers',
     title: 'Providers',
     shortTitle: 'Providers',
-    hint: 'Confirm last year’s clinicians and days',
-    description: 'Review assigned clinicians and weekly day schedules.',
+    hint: 'Review clinicians, then share capacity plans',
+    description: 'Review assigned clinicians with photos and schedules, then indicate if you expect more or fewer providers/days.',
     icon: 'providers',
   },
   {
@@ -43,8 +37,8 @@ export const SECTION_META = [
     key: 'needs_assessment',
     title: 'Needs Assessment',
     shortTitle: 'Needs Assessment',
-    hint: 'On-site days and provider preferences',
-    description: 'Estimate on-site days and share provider preferences.',
+    hint: 'How many on-site days you need (5–7 clients per day)',
+    description: 'Estimate on-site days using the 5–7 clients per full day guide, then share preferences.',
     icon: 'chart',
   },
   {
@@ -67,12 +61,54 @@ export const SECTION_META = [
 
 export const DAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
-export function logoSrc(agencyLike) {
-  if (!agencyLike) return null;
-  const raw = agencyLike.logo_url || agencyLike.logo_path || agencyLike.logoUrl || agencyLike.logoPath;
+const SCHOOL_EVENT_CATEGORY_LABELS = {
+  back_to_school: 'Back to School',
+  fall_check_in: 'Fall School Check-in',
+  spring: 'Spring School Check-in',
+  first_day: 'First Day of School',
+  open_house: 'Open House',
+  resource_fair: 'Resource Fair',
+  family_night: 'Family Night',
+  orientation: 'Orientation',
+  holiday: 'Holiday',
+  day_off: 'Day Off',
+  other: 'School Event',
+};
+
+export function schoolEventCategoryLabel(category) {
+  return SCHOOL_EVENT_CATEGORY_LABELS[String(category || '').trim().toLowerCase()] || 'School Event';
+}
+
+/** Attendable school portal events (not calendar-only dates). */
+export const CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES = new Set([
+  'holiday',
+  'day_off',
+  'first_day',
+  'fall_check_in',
+  'spring',
+]);
+
+function resolveLogoUrl(pathOrUrl) {
+  if (!pathOrUrl) return null;
+  const raw = String(pathOrUrl).trim();
   if (!raw) return null;
-  if (String(raw).startsWith('http') || String(raw).startsWith('/')) return raw;
-  return `/uploads/${raw}`;
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  if (raw.startsWith('/uploads/') || raw.includes('/uploads/')) return toUploadsUrl(raw);
+  if (raw.startsWith('/')) return raw;
+  return toUploadsUrl(raw);
+}
+
+/** Prefer full logo assets over icons; schools may fall back to icon when no logo is set. */
+export function logoSrc(agencyLike, { allowIcon = false } = {}) {
+  if (!agencyLike) return null;
+  const path = agencyLike.logo_path || agencyLike.logoPath;
+  if (path) return resolveLogoUrl(path);
+  if (allowIcon) {
+    const icon = agencyLike.icon_file_path || agencyLike.iconFilePath;
+    if (icon) return resolveLogoUrl(icon);
+  }
+  const url = agencyLike.logo_url || agencyLike.logoUrl;
+  return resolveLogoUrl(url);
 }
 
 export function parseAgencyPalette(agencyLike) {
@@ -96,6 +132,24 @@ export function parseAgencyPalette(agencyLike) {
 export function agencyDisplayName(agencyLike, fallback = 'Partner') {
   const name = String(agencyLike?.name || agencyLike?.agency_name || '').trim();
   return name || fallback;
+}
+
+/** Match backend schoolReinit currentSchoolYear (July rollover for fall year-update). */
+export function currentSchoolYear(d = new Date()) {
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;
+  if (m >= 7) return `${y}-${String(y + 1).slice(-2)}`;
+  return `${y - 1}-${String(y).slice(-2)}`;
+}
+
+/** 2026-27 → 2026–2027 */
+export function formatSchoolYearLabel(raw) {
+  const y = String(raw || '').trim();
+  const m = y.match(/^(\d{4})-(\d{2})$/);
+  if (m) return `${m[1]}–20${m[2]}`;
+  const m2 = y.match(/^(\d{4})-(\d{4})$/);
+  if (m2) return `${m2[1]}–${m2[2]}`;
+  return y || 'upcoming';
 }
 
 export function sectionProgressMap(sections = []) {
@@ -131,6 +185,20 @@ export function publicReinitUrl(token) {
   if (!token) return '';
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   return `${origin}/school-reinit/${token}`;
+}
+
+export const PROVIDER_REMOVAL_REASONS = [
+  {
+    value: 'different_day',
+    label: 'Requesting different day',
+    description: 'Choose which days work for the whole school; non-matching provider days are requested for removal.',
+  },
+  { value: 'day_wont_work', label: 'Day will not work, will discuss at meeting' },
+  { value: 'provider_not_fit', label: 'Provider not a good fit, will discuss at meeting' },
+];
+
+export function providerRemovalReasonLabel(value) {
+  return PROVIDER_REMOVAL_REASONS.find((r) => r.value === value)?.label || value || '';
 }
 
 export async function copyTextToClipboard(text) {

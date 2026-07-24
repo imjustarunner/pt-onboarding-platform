@@ -25,6 +25,85 @@
       </div>
       <div class="actions">
         <input v-model="query" class="search" type="search" placeholder="Search name/email…" />
+        <button
+          v-if="canAddProvider"
+          class="btn btn-primary btn-sm"
+          type="button"
+          @click="openAddModal"
+        >
+          Add Provider
+        </button>
+      </div>
+    </div>
+
+    <div v-if="showAddModal" class="modal-overlay" @click.self="closeAddModal">
+      <div class="modal" @click.stop role="dialog" aria-modal="true" aria-label="Add provider to school">
+        <div class="modal-header">
+          <div>
+            <strong>Add Provider</strong>
+            <p class="modal-sub">Affiliate a clinician to this school and set their day and slots.</p>
+          </div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeAddModal">Close</button>
+        </div>
+        <div class="modal-body">
+          <label class="field">
+            <span>Provider</span>
+            <select v-model="addForm.providerUserId" class="input">
+              <option value="">Select…</option>
+              <option
+                v-for="p in addableProviders"
+                :key="p.provider_user_id"
+                :value="String(p.provider_user_id)"
+              >
+                {{ p.last_name }}, {{ p.first_name }}{{ p.already_at_school ? ' (already at school)' : '' }}
+              </option>
+            </select>
+          </label>
+          <p v-if="selectedAddableHint" class="hint">{{ selectedAddableHint }}</p>
+
+          <label class="field">
+            <span>Service day</span>
+            <select v-model="addForm.dayOfWeek" class="input">
+              <option v-for="d in weekDays" :key="d" :value="d">{{ d }}</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Slots</span>
+            <input v-model.number="addForm.slotsTotal" type="number" min="1" max="40" step="1" class="input" />
+          </label>
+
+          <div class="field-row">
+            <label class="field">
+              <span>Start time (optional)</span>
+              <input v-model="addForm.startTime" type="time" class="input" />
+            </label>
+            <label class="field">
+              <span>End time (optional)</span>
+              <input v-model="addForm.endTime" type="time" class="input" />
+            </label>
+          </div>
+
+          <p class="hint">
+            This creates the school affiliation and work-hour schedule for that day (same as Provider Scheduling).
+            You can add more days afterward.
+          </p>
+
+          <div v-if="addError" class="error">{{ addError }}</div>
+          <div v-if="addSuccess" class="success">{{ addSuccess }}</div>
+
+          <div class="modal-actions">
+            <button class="btn btn-secondary" type="button" :disabled="adding" @click="closeAddModal">Cancel</button>
+            <button
+              class="btn btn-primary"
+              type="button"
+              :disabled="adding || !canSubmitAdd"
+              @click="submitAddProvider"
+            >
+              {{ adding ? 'Adding…' : 'Add to school' }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -134,10 +213,103 @@ const props = defineProps({
   organizationSlug: { type: String, default: '' },
   providers: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
-  currentUserRole: { type: String, default: '' }
+  currentUserRole: { type: String, default: '' },
+  canAddProvider: { type: Boolean, default: false }
 });
 
-defineEmits(['open-provider', 'message-provider']);
+const emit = defineEmits(['open-provider', 'message-provider', 'provider-added']);
+
+const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const showAddModal = ref(false);
+const addableProviders = ref([]);
+const addableLoading = ref(false);
+const adding = ref(false);
+const addError = ref('');
+const addSuccess = ref('');
+const addForm = reactive({
+  providerUserId: '',
+  dayOfWeek: 'Monday',
+  slotsTotal: 4,
+  startTime: '08:00',
+  endTime: '15:00'
+});
+
+const canSubmitAdd = computed(
+  () =>
+    Boolean(addForm.providerUserId) &&
+    Boolean(addForm.dayOfWeek) &&
+    Number(addForm.slotsTotal) >= 1
+);
+
+const selectedAddableHint = computed(() => {
+  const id = Number(addForm.providerUserId || 0);
+  const p = addableProviders.value.find((x) => Number(x.provider_user_id) === id);
+  if (!p) return '';
+  const days = Array.isArray(p.active_days) ? p.active_days : [];
+  if (!days.length) {
+    return p.already_at_school
+      ? 'Already affiliated with this school — add another service day below.'
+      : '';
+  }
+  return `Current days: ${days.map((d) => d.dayOfWeek).join(', ')}`;
+});
+
+const loadAddableProviders = async () => {
+  if (!props.schoolOrganizationId) return;
+  addableLoading.value = true;
+  addError.value = '';
+  try {
+    const r = await api.get(`/school-portal/${props.schoolOrganizationId}/providers/addable`);
+    addableProviders.value = Array.isArray(r.data) ? r.data : [];
+  } catch (e) {
+    addableProviders.value = [];
+    addError.value = e?.response?.data?.error?.message || 'Failed to load providers';
+  } finally {
+    addableLoading.value = false;
+  }
+};
+
+const openAddModal = async () => {
+  showAddModal.value = true;
+  addError.value = '';
+  addSuccess.value = '';
+  addForm.providerUserId = '';
+  addForm.dayOfWeek = 'Monday';
+  addForm.slotsTotal = 4;
+  addForm.startTime = '08:00';
+  addForm.endTime = '15:00';
+  await loadAddableProviders();
+};
+
+const closeAddModal = () => {
+  showAddModal.value = false;
+  addError.value = '';
+  addSuccess.value = '';
+};
+
+const submitAddProvider = async () => {
+  if (!canSubmitAdd.value || !props.schoolOrganizationId) return;
+  adding.value = true;
+  addError.value = '';
+  addSuccess.value = '';
+  try {
+    const r = await api.post(`/school-portal/${props.schoolOrganizationId}/providers`, {
+      providerUserId: Number(addForm.providerUserId),
+      dayOfWeek: addForm.dayOfWeek,
+      slotsTotal: Number(addForm.slotsTotal),
+      startTime: addForm.startTime || null,
+      endTime: addForm.endTime || null
+    });
+    const name = r.data?.providerName || 'Provider';
+    addSuccess.value = `${name} added for ${addForm.dayOfWeek} (${addForm.slotsTotal} slots).`;
+    emit('provider-added', r.data);
+    await loadAddableProviders();
+  } catch (e) {
+    addError.value = e?.response?.data?.error?.message || 'Failed to add provider';
+  } finally {
+    adding.value = false;
+  }
+};
 
 const schoolOrgIdRef = computed(() => props.schoolOrganizationId);
 const slotVerification = useSlotVerification(schoolOrgIdRef);
@@ -577,6 +749,90 @@ const runClientFind = async () => {
   font-weight: 800;
 }
 .muted { color: var(--text-secondary); }
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1400;
+  padding: 16px;
+}
+.modal {
+  width: 520px;
+  max-width: 96vw;
+  max-height: 90vh;
+  overflow: auto;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-sub {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.modal-body {
+  padding: 14px 16px 16px;
+  display: grid;
+  gap: 12px;
+}
+.field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.input {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  font: inherit;
+  font-weight: 600;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.error {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.success {
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
 @media (max-width: 900px) {
   .grid { grid-template-columns: 1fr; }
   .search { width: 180px; }
@@ -585,6 +841,9 @@ const runClientFind = async () => {
     height: 120px;
     border-radius: 24px;
     font-size: 28px;
+  }
+  .field-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>

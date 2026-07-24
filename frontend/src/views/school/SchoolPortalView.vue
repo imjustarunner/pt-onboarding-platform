@@ -1040,8 +1040,10 @@
             :providers="store.eligibleProviders"
             :loading="store.eligibleProvidersLoading"
             :current-user-role="roleNorm"
+            :can-add-provider="canAddSchoolProviders"
             @open-provider="goToProviderSchoolProfile"
             @message-provider="messageProvider"
+            @provider-added="onSchoolProviderAdded"
           />
         </div>
           </div>
@@ -2584,6 +2586,18 @@ const hasSupervisorCapability = computed(() => isSupervisor(authStore.user));
 const isProvider = computed(() => roleNorm.value === 'provider' && !hasSupervisorCapability.value);
 const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && roleNorm.value === 'provider');
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
+const canAddSchoolProviders = computed(() =>
+  ['school_staff', 'admin', 'support', 'super_admin'].includes(roleNorm.value) && !props.previewMode
+);
+const onSchoolProviderAdded = async () => {
+  try {
+    await store.fetchEligibleProviders();
+    await store.fetchDays();
+    await store.fetchPortalStats();
+  } catch {
+    // best-effort refresh
+  }
+};
 /** School staff, assigned providers, and agency managers can add/edit events on this portal. */
 const canManageSchoolEvents = computed(() => {
   if (props.previewMode) return false;

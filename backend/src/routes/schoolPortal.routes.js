@@ -64,7 +64,9 @@ import {
   moveSoftScheduleSlot,
   getClientDayAssignmentContext,
   setClientAssignedDay,
-  placeClientInOpenSoftSlot
+  placeClientInOpenSoftSlot,
+  listAddableSchoolProviders,
+  addSchoolProviderWithSchedule
 } from '../controllers/schoolSoftSchedule.controller.js';
 import {
   getProviderSchoolProfile,
@@ -189,6 +191,10 @@ router.post('/:organizationId/public-documents', authenticate, createSchoolPubli
 router.put('/:organizationId/public-documents/:documentId', authenticate, updateSchoolPublicDocumentMeta);
 router.put('/:organizationId/public-documents/:documentId/file', authenticate, replaceSchoolPublicDocumentFile);
 router.delete('/:organizationId/public-documents/:documentId', authenticate, deleteSchoolPublicDocument);
+
+// Add provider to school (affiliation + day/slots) — before :providerId routes
+router.get('/:schoolId/providers/addable', authenticate, listAddableSchoolProviders);
+router.post('/:schoolId/providers', authenticate, addSchoolProviderWithSchedule);
 
 // Provider page within a school (profile + slot-based caseload)
 router.get('/:schoolId/providers/:providerId/profile', authenticate, getProviderSchoolProfile);

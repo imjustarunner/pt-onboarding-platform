@@ -103,6 +103,10 @@ const SKIP_KEYS = new Set([
   'bts_partner_invited',
   'bts_marketing_table',
   'bts_active_signups',
+  'bts_status',
+  'bts_event_date',
+  'bts_event_title',
+  'bts_note',
   'fall_checkin_slot_id',
   'fall_checkin_modality',
 ]);

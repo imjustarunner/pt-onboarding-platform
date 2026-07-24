@@ -129,9 +129,17 @@ export function currentCalendarYear(date = new Date()) {
  */
 export function schoolYearBounds(input = new Date()) {
   let startYear;
-  if (typeof input === 'string' && /^\d{4}-\d{4}$/.test(String(input).trim())) {
-    startYear = parseInt(String(input).trim().split('-')[0], 10);
-  } else {
+  if (typeof input === 'string') {
+    const trimmed = String(input).trim();
+    const long = trimmed.match(/^(\d{4})-(\d{4})$/);
+    if (long) {
+      startYear = parseInt(long[1], 10);
+    } else {
+      const short = trimmed.match(/^(\d{4})-(\d{2})$/);
+      if (short) startYear = parseInt(short[1], 10);
+    }
+  }
+  if (!Number.isFinite(startYear)) {
     const d = input instanceof Date ? input : new Date(input);
     const y = Number.isFinite(d.getTime()) ? d.getFullYear() : new Date().getFullYear();
     const m = Number.isFinite(d.getTime()) ? d.getMonth() + 1 : new Date().getMonth() + 1;

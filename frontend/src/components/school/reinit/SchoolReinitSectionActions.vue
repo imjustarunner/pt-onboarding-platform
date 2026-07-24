@@ -8,7 +8,31 @@
       <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('save')">
         Save progress
       </button>
-      <button type="button" class="btn btn-confirm" :disabled="saving || done" @click="$emit('confirm')">
+      <button
+        v-if="done && hasNext"
+        type="button"
+        class="btn btn-confirm"
+        :disabled="saving"
+        @click="$emit('next')"
+      >
+        Next section →
+      </button>
+      <button
+        v-else-if="done && !hasNext"
+        type="button"
+        class="btn btn-secondary"
+        :disabled="saving"
+        @click="$emit('hub')"
+      >
+        ← All sections
+      </button>
+      <button
+        v-else
+        type="button"
+        class="btn btn-confirm"
+        :disabled="saving"
+        @click="$emit('confirm')"
+      >
         {{ confirmLabel }}
       </button>
     </div>
@@ -20,8 +44,9 @@ defineProps({
   done: { type: Boolean, default: false },
   saving: { type: Boolean, default: false },
   confirmLabel: { type: String, default: 'Looks accurate' },
+  hasNext: { type: Boolean, default: false },
 });
-defineEmits(['save', 'confirm']);
+defineEmits(['save', 'confirm', 'next', 'hub']);
 </script>
 
 <style scoped>

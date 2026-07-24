@@ -40,12 +40,13 @@
           <button
             v-if="canManageYearUpdate"
             type="button"
-            class="btn btn-secondary btn-sm btn-year-update"
+            class="btn btn-sm btn-year-update"
+            :class="showYearUpdatePanel ? 'btn-primary' : 'btn-secondary'"
             title="Enable, push, and track the collaborative year update"
-            @click="openYearUpdateSettings"
+            @click="toggleYearUpdateSettings"
           >
             <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-            Year update
+            {{ showYearUpdatePanel ? 'School overview' : 'Year update' }}
           </button>
           <button
             v-if="canManageSchoolsHere"
@@ -96,7 +97,7 @@
       </div>
     </div>
 
-    <div class="controls" data-tour="schools-overview-controls">
+    <div v-if="!showYearUpdatePanel" class="controls" data-tour="schools-overview-controls">
       <div v-if="isSuperAdmin" class="control" data-tour="schools-overview-agency">
         <label class="control-label">Agency</label>
         <select v-model="selectedAgencyId" class="control-select">
@@ -143,16 +144,31 @@
       </div>
     </div>
 
+    <div
+      v-else-if="isSuperAdmin && showYearUpdatePanel"
+      class="controls"
+      data-tour="schools-year-update-agency"
+    >
+      <div class="control" data-tour="schools-overview-agency">
+        <label class="control-label">Agency</label>
+        <select v-model="selectedAgencyId" class="control-select">
+          <option v-for="a in agencyOptions" :key="a.id" :value="String(a.id)">
+            {{ a.name }}
+          </option>
+        </select>
+      </div>
+    </div>
+
     <div v-if="announcementFlash" class="success-banner">{{ announcementFlash }}</div>
     <div v-if="schoolEventRequestFlash" class="success-banner">{{ schoolEventRequestFlash }}</div>
 
     <div
-      v-if="isAllPortalsPage && canManageYearUpdate && !showYearUpdatePanel && selectedAgencyId"
+      v-if="canManageYearUpdate && !showYearUpdatePanel && selectedAgencyId"
       class="year-update-hint"
     >
-      <span>Collaborative year update — enable, push to schools, and track progress.</span>
+      <span>Collaborative year update — enable, push to schools, and track progress from the Year update button.</span>
       <button type="button" class="btn btn-secondary btn-sm btn-year-update" @click="openYearUpdateSettings">
-        Year update settings
+        Open year update
       </button>
     </div>
 
@@ -161,9 +177,15 @@
       id="school-reinit-admin"
       class="year-update-panel-wrap"
     >
+      <div class="year-update-panel-bar">
+        <button type="button" class="btn btn-secondary btn-sm" @click="closeYearUpdateSettings">
+          ← Back to {{ isAllPortalsPage ? 'school portals' : 'school overview' }}
+        </button>
+      </div>
       <SchoolReinitAdminPanel :agency-id="selectedAgencyId" />
     </div>
 
+    <template v-if="!showYearUpdatePanel">
     <div v-if="!isAllPortalsPage && schoolEventsOverview.events?.length" class="school-events-section">
       <div class="school-events-header">
         <strong>School events ({{ schoolEventsOverview.year }})</strong>
@@ -282,7 +304,7 @@
             </button>
             <button
               type="button"
-              class="portal-card-action portal-card-action--outline"
+              class="portal-card-action portal-card-action--token"
               @click="copySchoolReinitToken(s)"
             >
               {{ tokenCopyFlashId === String(s.school_id) ? 'Copied!' : 'Copy token' }}
@@ -442,13 +464,14 @@
             <button type="button" class="btn btn-primary btn-sm" @click="openSchoolReinit(s)">
               Collaborative update
             </button>
-            <button type="button" class="btn btn-secondary btn-sm school-card-token-btn" @click="copySchoolReinitToken(s)">
+            <button type="button" class="btn btn-primary btn-sm school-card-token-btn" @click="copySchoolReinitToken(s)">
               {{ tokenCopyFlashId === String(s.school_id) ? 'Copied!' : 'Copy token' }}
             </button>
           </div>
         </div>
       </div>
     </div>
+    </template>
 
     <div v-if="showBulkAnnouncementModal" class="modal-overlay" @click.self="closeBulkAnnouncementModal">
       <div class="modal announcement-modal" @click.stop>
@@ -995,9 +1018,23 @@ const canManageYearUpdate = computed(() => {
 
 function openYearUpdateSettings() {
   showYearUpdatePanel.value = true;
+  const q = { ...route.query, yearUpdate: '1' };
+  router.replace({ query: q }).catch(() => {});
   nextTick(() => {
     document.getElementById('school-reinit-admin')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
+}
+
+function closeYearUpdateSettings() {
+  showYearUpdatePanel.value = false;
+  const q = { ...route.query };
+  delete q.yearUpdate;
+  router.replace({ query: q }).catch(() => {});
+}
+
+function toggleYearUpdateSettings() {
+  if (showYearUpdatePanel.value) closeYearUpdateSettings();
+  else openYearUpdateSettings();
 }
 
 const isBackofficeManager = computed(() => {
@@ -1609,9 +1646,11 @@ onMounted(async () => {
   await agencyStore.fetchUserAgencies();
   await fetchAgenciesForPicker();
   selectedAgencyId.value = resolveDefaultAgencyId();
-  showYearUpdatePanel.value = !isAllPortalsPage.value || String(route.query?.yearUpdate || '') === '1';
+  // Year update is a separate view toggled by the toolbar button (or ?yearUpdate=1).
+  // School overview / portals remain the default landing content.
+  showYearUpdatePanel.value = String(route.query?.yearUpdate || '') === '1';
   await Promise.all([fetchOverview(), fetchBulkAnnouncements(), fetchSchoolEventsOverview()]);
-  if (String(route.query?.yearUpdate || '') === '1') {
+  if (showYearUpdatePanel.value) {
     nextTick(() => {
       document.getElementById('school-reinit-admin')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
@@ -1737,12 +1776,20 @@ onMounted(async () => {
   border-color: var(--primary, #065f46);
   color: white;
 }
-.btn-year-update {
+.btn-year-update.btn-primary {
+  color: #fff !important;
+}
+.btn-year-update:not(.btn-primary) {
   border-color: color-mix(in srgb, var(--primary, #065f46) 35%, #e2e8f0) !important;
   color: var(--primary, #065f46) !important;
 }
 .year-update-panel-wrap {
   scroll-margin-top: 80px;
+}
+.year-update-panel-bar {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 10px;
 }
 .year-update-hint {
   display: flex;
@@ -1959,6 +2006,16 @@ onMounted(async () => {
   border-color: color-mix(in srgb, var(--primary, #15803d) 30%, #e2e8f0);
   background: color-mix(in srgb, var(--primary, #15803d) 8%, #fff);
 }
+.portal-card-action--token {
+  grid-column: span 2;
+  background: var(--primary, #15803d);
+  border-color: var(--primary, #15803d);
+  color: #fff;
+}
+.portal-card-action--token:hover {
+  filter: brightness(1.05);
+  color: #fff;
+}
 .portal-card-action--outline {
   grid-column: span 2;
 }
@@ -1971,9 +2028,14 @@ onMounted(async () => {
   border-top: 1px solid var(--border);
 }
 .school-card-token-btn {
-  border-color: #0c4a6e !important;
-  color: #0c4a6e !important;
+  background: var(--primary, #15803d) !important;
+  border-color: var(--primary, #15803d) !important;
+  color: #fff !important;
   font-weight: 800;
+}
+.school-card-token-btn:hover {
+  filter: brightness(1.05);
+  color: #fff !important;
 }
 
 .school-notes-modal {

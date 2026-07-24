@@ -4,9 +4,15 @@
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import {
+  listSchoolEventsForOrg,
+  schoolYearBounds,
+} from './schoolPortalEvents.service.js';
+
+const PROVIDER_DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 export const SECTION_KEYS = [
-  'school_information',
   'school_events',
   'assigned_providers',
   'school_staff',
@@ -27,8 +33,8 @@ export const DEFAULT_QUESTIONS = [
   {
     question_key: 'need_paper_packets',
     section_key: 'materials',
-    label: 'Do you need physical paper packets?',
-    help_text: 'Printed packets for families or staff.',
+    label: 'We need printed paper packets.',
+    help_text: 'Check this if you need paper packets for families or staff.',
     input_type: 'boolean',
     required: 0,
     sort_order: 10,
@@ -36,8 +42,8 @@ export const DEFAULT_QUESTIONS = [
   {
     question_key: 'need_trifolds',
     section_key: 'materials',
-    label: 'Do you need trifold brochures?',
-    help_text: null,
+    label: 'We need trifold brochures.',
+    help_text: 'Check this if you need printed trifold brochures about our services.',
     input_type: 'boolean',
     required: 0,
     sort_order: 20,
@@ -45,8 +51,8 @@ export const DEFAULT_QUESTIONS = [
   {
     question_key: 'materials_delivery_required',
     section_key: 'materials',
-    label: 'Is delivery required for materials?',
-    help_text: 'If yes, we will coordinate drop-off.',
+    label: 'We need materials delivered to our school.',
+    help_text: 'Check this if delivery / drop-off is required for materials.',
     input_type: 'boolean',
     required: 0,
     sort_order: 30,
@@ -54,8 +60,8 @@ export const DEFAULT_QUESTIONS = [
   {
     question_key: 'materials_notes',
     section_key: 'materials',
-    label: 'Any other materials notes?',
-    help_text: null,
+    label: 'Anything else we should know about your materials needs?',
+    help_text: 'Quantities, timing, or other requests.',
     input_type: 'textarea',
     required: 0,
     sort_order: 40,
@@ -63,8 +69,8 @@ export const DEFAULT_QUESTIONS = [
   {
     question_key: 'days_per_week_onsite',
     section_key: 'needs_assessment',
-    label: 'About how many days per week will you need {agencyName} on-site?',
-    help_text: 'Estimate for the upcoming school year.',
+    label: 'How many days per week will you need {agencyName} on-site?',
+    help_text: 'Each full day on-site, a provider can typically see 5–7 clients. Example: 2 days ≈ 10–14 clients per week.',
     input_type: 'number',
     required: 1,
     sort_order: 10,
@@ -72,8 +78,8 @@ export const DEFAULT_QUESTIONS = [
   {
     question_key: 'provider_preferences',
     section_key: 'needs_assessment',
-    label: 'Provider preferences or special requests',
-    help_text: 'e.g. Spanish-speaking clinician, preferred days.',
+    label: 'Anything else about your provider or schedule needs?',
+    help_text: 'e.g. need more/fewer days, Spanish-speaking clinician, preferred days, or other special requests.',
     input_type: 'textarea',
     required: 0,
     sort_order: 20,
@@ -257,8 +263,9 @@ export const DEFAULT_QUESTIONS = [
 export function currentSchoolYear(d = new Date()) {
   const y = d.getFullYear();
   const m = d.getMonth() + 1;
-  // School year starts August
-  if (m >= 8) return `${y}-${String(y + 1).slice(-2)}`;
+  // Fall year-update targets the school year starting the coming August.
+  // From July onward we're prepping for that year (e.g. Jul 2026 → 2026-27).
+  if (m >= 7) return `${y}-${String(y + 1).slice(-2)}`;
   return `${y - 1}-${String(y).slice(-2)}`;
 }
 
@@ -270,11 +277,16 @@ export function reinitWindowOpen(d = new Date()) {
   return d.getTime() >= openAt.getTime();
 }
 
+/** Avoid collation clash between connection (0900) and school_reinit tables (unicode_ci until mig 1035). */
+function yearEq(columnSql = 'school_year') {
+  return `${columnSql} COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci`;
+}
+
 export async function getCampaign(agencyId, schoolYear) {
   const year = schoolYear || currentSchoolYear();
   const [rows] = await pool.execute(
     `SELECT * FROM school_reinit_campaigns
-     WHERE agency_id = ? AND school_year = ?
+     WHERE agency_id = ? AND ${yearEq()}
      LIMIT 1`,
     [agencyId, year]
   );
@@ -361,7 +373,7 @@ export async function pushCampaign({ agencyId, schoolYear, userId }) {
          pushed_by_user_id = ?,
          enabled_at = COALESCE(enabled_at, NOW()),
          enabled_by_user_id = COALESCE(enabled_by_user_id, ?)
-     WHERE agency_id = ? AND school_year = ?`,
+     WHERE agency_id = ? AND ${yearEq()}`,
     [userId || null, userId || null, agencyId, year]
   );
 
@@ -414,7 +426,7 @@ export async function getOrCreateCycle({ agencyId, schoolOrganizationId, schoolY
   const year = schoolYear || currentSchoolYear();
   const [existing] = await pool.execute(
     `SELECT * FROM school_reinit_cycles
-     WHERE agency_id = ? AND school_organization_id = ? AND school_year = ?
+     WHERE agency_id = ? AND school_organization_id = ? AND ${yearEq()}
      LIMIT 1`,
     [agencyId, schoolOrganizationId, year]
   );
@@ -449,7 +461,12 @@ export async function createToken({ cycleId, agencyId, schoolOrganizationId, cre
      VALUES (?, ?, ?, ?, ?, ?)`,
     [token, cycleId, agencyId, schoolOrganizationId, createdByUserId || null, expires]
   );
-  const [rows] = await pool.execute(`SELECT * FROM school_reinit_tokens WHERE token = ? LIMIT 1`, [token]);
+  const [rows] = await pool.execute(
+    `SELECT * FROM school_reinit_tokens
+     WHERE BINARY token = BINARY ?
+     LIMIT 1`,
+    [token]
+  );
   return rows[0];
 }
 
@@ -502,7 +519,7 @@ export async function validateToken(tokenRaw) {
      JOIN school_reinit_cycles c ON c.id = t.cycle_id
      JOIN agencies a ON a.id = t.school_organization_id
      JOIN agencies ag ON ag.id = t.agency_id
-     WHERE t.token = ?
+     WHERE BINARY t.token = BINARY ?
      LIMIT 1`,
     [token]
   );
@@ -513,6 +530,33 @@ export async function validateToken(tokenRaw) {
     return { valid: false, reason: 'expired', row };
   }
   return { valid: true, row };
+}
+
+/** Move unlocked in-progress token links onto the active school year cycle. */
+export async function resolveTokenCycle(tokenRow) {
+  if (!tokenRow) return null;
+  const expectedYear = currentSchoolYear();
+  if (String(tokenRow.cycle_status) === 'finalized') {
+    return getCycleById(tokenRow.cycle_id);
+  }
+  if (String(tokenRow.school_year || '') === expectedYear) {
+    return getCycleById(tokenRow.cycle_id);
+  }
+  const cycle = await getOrCreateCycle({
+    agencyId: tokenRow.agency_id,
+    schoolOrganizationId: tokenRow.school_organization_id,
+    schoolYear: expectedYear,
+  });
+  if (!tokenRow.locked_at) {
+    await pool.execute(`UPDATE school_reinit_tokens SET cycle_id = ? WHERE id = ?`, [
+      cycle.id,
+      tokenRow.id,
+    ]);
+    tokenRow.cycle_id = cycle.id;
+    tokenRow.school_year = cycle.school_year;
+    tokenRow.cycle_status = cycle.status;
+  }
+  return cycle;
 }
 
 export async function recordTokenClick(tokenRow, actorDisplayName = null) {
@@ -587,7 +631,7 @@ export async function ensureDefaultQuestions(agencyId, schoolYear) {
   const year = schoolYear || currentSchoolYear();
   const [existing] = await pool.execute(
     `SELECT question_key FROM school_reinit_question_configs
-     WHERE agency_id = ? AND school_year = ?`,
+     WHERE agency_id = ? AND ${yearEq()}`,
     [agencyId, year]
   );
   const have = new Set((existing || []).map((r) => r.question_key));
@@ -619,7 +663,7 @@ export async function listQuestionConfigs(agencyId, schoolYear) {
   await ensureDefaultQuestions(agencyId, year);
   const [rows] = await pool.execute(
     `SELECT * FROM school_reinit_question_configs
-     WHERE agency_id = ? AND school_year = ?
+     WHERE agency_id = ? AND ${yearEq()}
      ORDER BY section_key ASC, sort_order ASC, id ASC`,
     [agencyId, year]
   );
@@ -629,7 +673,7 @@ export async function listQuestionConfigs(agencyId, schoolYear) {
 export async function upsertQuestionConfig(agencyId, schoolYear, questionKey, patch) {
   const [existing] = await pool.execute(
     `SELECT id FROM school_reinit_question_configs
-     WHERE agency_id = ? AND school_year = ? AND question_key = ?
+     WHERE agency_id = ? AND ${yearEq()} AND question_key COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci
      LIMIT 1`,
     [agencyId, schoolYear, questionKey]
   );
@@ -690,7 +734,7 @@ export async function upsertQuestionConfig(agencyId, schoolYear, questionKey, pa
   }
   const [rows] = await pool.execute(
     `SELECT * FROM school_reinit_question_configs
-     WHERE agency_id = ? AND school_year = ? AND question_key = ? LIMIT 1`,
+     WHERE agency_id = ? AND ${yearEq()} AND question_key COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci LIMIT 1`,
     [agencyId, schoolYear, questionKey]
   );
   return rows[0];
@@ -698,7 +742,7 @@ export async function upsertQuestionConfig(agencyId, schoolYear, questionKey, pa
 
 export async function resetQuestionConfigs(agencyId, schoolYear) {
   await pool.execute(
-    `DELETE FROM school_reinit_question_configs WHERE agency_id = ? AND school_year = ?`,
+    `DELETE FROM school_reinit_question_configs WHERE agency_id = ? AND ${yearEq()}`,
     [agencyId, schoolYear]
   );
   await ensureDefaultQuestions(agencyId, schoolYear);
@@ -804,31 +848,145 @@ export async function upsertSectionProgress({
 }
 
 export async function loadProvidersForSchool(schoolOrganizationId) {
-  const [rows] = await pool.execute(
-    `SELECT psa.id, psa.provider_user_id, psa.day_of_week, psa.slots_total, psa.start_time, psa.end_time,
-            psa.is_active, u.first_name, u.last_name, u.email, u.profile_photo_path
-     FROM provider_school_assignments psa
-     JOIN users u ON u.id = psa.provider_user_id
-     WHERE psa.school_organization_id = ?
-       AND (psa.is_active = 1 OR psa.is_active IS NULL)
-     ORDER BY u.last_name, u.first_name, psa.day_of_week`,
-    [schoolOrganizationId]
+  const orgId = parseInt(schoolOrganizationId, 10);
+  if (!orgId) return [];
+
+  let rows = [];
+  try {
+    const [r] = await pool.execute(
+      `SELECT psa.id,
+              psa.provider_user_id,
+              psa.day_of_week,
+              psa.slots_total,
+              psa.slots_available,
+              psa.start_time,
+              psa.end_time,
+              psa.is_active,
+              u.first_name,
+              u.last_name,
+              u.email,
+              u.profile_photo_path,
+              COALESCE(psa.accepting_new_clients_override, u.provider_accepting_new_clients, TRUE) AS accepting_new_clients_effective,
+              COALESCE(u.provider_school_info_blurb, psp.school_info_blurb) AS school_info_blurb
+       FROM provider_school_assignments psa
+       JOIN users u ON u.id = psa.provider_user_id
+       JOIN user_agencies ua
+         ON ua.user_id = psa.provider_user_id
+        AND ua.agency_id = psa.school_organization_id
+       LEFT JOIN provider_school_profiles psp
+         ON psp.school_organization_id = psa.school_organization_id
+        AND psp.provider_user_id = psa.provider_user_id
+       WHERE psa.school_organization_id = ?
+         AND psa.is_active = TRUE
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')
+       ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
+      [orgId]
+    );
+    rows = r || [];
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const canFallback =
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR') ||
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE');
+    if (!canFallback) throw e;
+    const [r2] = await pool.execute(
+      `SELECT psa.id,
+              psa.provider_user_id,
+              psa.day_of_week,
+              psa.slots_total,
+              psa.slots_available,
+              psa.start_time,
+              psa.end_time,
+              psa.is_active,
+              u.first_name,
+              u.last_name,
+              u.email,
+              u.profile_photo_path
+       FROM provider_school_assignments psa
+       JOIN users u ON u.id = psa.provider_user_id
+       WHERE psa.school_organization_id = ?
+         AND (psa.is_active = 1 OR psa.is_active IS NULL)
+       ORDER BY u.last_name, u.first_name, psa.day_of_week`,
+      [orgId]
+    );
+    rows = (r2 || []).map((x) => ({
+      ...x,
+      accepting_new_clients_effective: true,
+      school_info_blurb: null,
+    }));
+  }
+
+  const byProvider = new Map();
+  for (const r of rows || []) {
+    const pid = r.provider_user_id;
+    if (!byProvider.has(pid)) {
+      byProvider.set(pid, {
+        providerUserId: pid,
+        firstName: r.first_name,
+        lastName: r.last_name,
+        name: [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email,
+        email: r.email,
+        photoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path),
+        schoolInfoBlurb: r.school_info_blurb || null,
+        acceptingNewClients: r.accepting_new_clients_effective !== undefined ? !!r.accepting_new_clients_effective : true,
+        assignments: [],
+      });
+    }
+    byProvider.get(pid).assignments.push({
+      id: r.id,
+      dayOfWeek: r.day_of_week,
+      slotsTotal: r.slots_total,
+      slotsAvailable: r.slots_available,
+      startTime: r.start_time,
+      endTime: r.end_time,
+      isActive: !!r.is_active,
+    });
+  }
+
+  const providerIds = Array.from(byProvider.keys()).map((v) => parseInt(v, 10)).filter(Boolean);
+  if (providerIds.length > 0) {
+    try {
+      const placeholders = providerIds.map(() => '?').join(',');
+      const dayPlaceholders = PROVIDER_DAY_ORDER.map(() => '?').join(',');
+      const usedMap = new Map();
+      const [cpaCounts] = await pool.execute(
+        `SELECT cpa.provider_user_id, cpa.service_day, COUNT(*) AS cnt
+         FROM client_provider_assignments cpa
+         JOIN clients c ON c.id = cpa.client_id
+         WHERE cpa.organization_id = ?
+           AND cpa.is_active = TRUE
+           AND c.status <> 'ARCHIVED'
+           AND cpa.provider_user_id IN (${placeholders})
+           AND cpa.service_day IN (${dayPlaceholders})
+         GROUP BY cpa.provider_user_id, cpa.service_day`,
+        [orgId, ...providerIds, ...PROVIDER_DAY_ORDER]
+      );
+      for (const row of cpaCounts || []) {
+        usedMap.set(`${Number(row.provider_user_id)}:${String(row.service_day)}`, Number(row.cnt || 0));
+      }
+      for (const obj of byProvider.values()) {
+        obj.assignments = (obj.assignments || []).map((a) => {
+          const used = usedMap.get(`${Number(obj.providerUserId)}:${String(a.dayOfWeek)}`) || 0;
+          const total = Number(a.slotsTotal);
+          const totalOk = Number.isFinite(total) && total > 0;
+          return {
+            ...a,
+            slotsUsed: used,
+            slotsAvailableCalculated: totalOk ? Math.max(0, total - used) : null,
+          };
+        });
+      }
+    } catch {
+      // Best-effort slot counts only.
+    }
+  }
+
+  return Array.from(byProvider.values()).sort((a, b) =>
+    String(a.lastName || '').localeCompare(String(b.lastName || ''))
   );
-  return (rows || []).map((r) => ({
-    id: r.id,
-    providerUserId: r.provider_user_id,
-    dayOfWeek: r.day_of_week,
-    slotsTotal: r.slots_total,
-    startTime: r.start_time,
-    endTime: r.end_time,
-    name: [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email,
-    photoUrl: r.profile_photo_path
-      ? (String(r.profile_photo_path).startsWith('/') || String(r.profile_photo_path).startsWith('http')
-          ? r.profile_photo_path
-          : `/uploads/${r.profile_photo_path}`)
-      : null,
-    email: r.email,
-  }));
 }
 
 export async function loadSchoolStaff(schoolOrganizationId) {
@@ -836,7 +994,9 @@ export async function loadSchoolStaff(schoolOrganizationId) {
     `SELECT sc.id, sc.full_name, sc.email, sc.role_title, sc.is_primary, sc.is_school_admin, sc.is_scheduler,
             u.id AS user_id, u.first_name, u.last_name
      FROM school_contacts sc
-     LEFT JOIN users u ON LOWER(TRIM(u.email)) = LOWER(TRIM(sc.email)) AND u.role = 'school_staff'
+     LEFT JOIN users u
+       ON LOWER(TRIM(u.email)) COLLATE utf8mb4_unicode_ci = LOWER(TRIM(sc.email)) COLLATE utf8mb4_unicode_ci
+      AND u.role = 'school_staff'
      WHERE sc.school_organization_id = ?
      ORDER BY sc.is_primary DESC, sc.full_name ASC`,
     [schoolOrganizationId]
@@ -854,51 +1014,71 @@ export async function loadSchoolStaff(schoolOrganizationId) {
 }
 
 export async function loadSchoolEventsContext(agencyId, schoolOrganizationId, schoolYear) {
-  const startYear = Number(String(schoolYear).slice(0, 4));
-  const yearStart = `${startYear}-08-01`;
-  const yearEnd = `${startYear + 1}-07-31`;
-  let rows = [];
+  const bounds = schoolYearBounds(schoolYear);
+  let events = [];
   try {
-    const [r] = await pool.execute(
-      `SELECT id, event_type, title, starts_at, ends_at, outreach_table_invited
-       FROM company_events
-       WHERE organization_id = ?
-         AND agency_id = ?
-         AND event_type IN ('school_first_day', 'school_back_to_school', 'school_fall_check_in')
-         AND DATE(starts_at) BETWEEN ? AND ?
-       ORDER BY starts_at ASC`,
-      [schoolOrganizationId, agencyId, yearStart, yearEnd]
-    );
-    rows = r || [];
+    events = await listSchoolEventsForOrg(schoolOrganizationId);
   } catch {
-    rows = [];
+    events = [];
   }
 
-  const firstDay = rows.find((r) => r.event_type === 'school_first_day');
-  const bts = rows.find((r) => r.event_type === 'school_back_to_school');
-  const fallCheckIn = rows.find((r) => r.event_type === 'school_fall_check_in');
-  return {
-    firstDay: firstDay
-      ? { id: firstDay.id, startsAt: firstDay.starts_at, title: firstDay.title }
-      : null,
-    backToSchool: bts
+  const inYear = (events || []).filter((e) => {
+    const d = e?.startsAt ? new Date(e.startsAt) : null;
+    if (!d || Number.isNaN(d.getTime())) return false;
+    const t = d.getTime();
+    return t >= bounds.startDate.getTime() && t <= bounds.endDate.getTime();
+  });
+
+  const pick = (category, eventType) =>
+    inYear.find((e) => e.category === category || e.eventType === eventType) || null;
+
+  const firstDayEvents = inYear
+    .filter((e) => e.category === 'first_day' || e.eventType === 'school_first_day')
+    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+  const firstDay = firstDayEvents[0] || pick('first_day', 'school_first_day');
+  const bts = pick('back_to_school', 'school_back_to_school');
+  const fallCheckIn = pick('fall_check_in', 'school_fall_check_in');
+
+  const mapLite = (e) =>
+    e
       ? {
-          id: bts.id,
-          startsAt: bts.starts_at,
-          title: bts.title,
-          outreachTableInvited: Boolean(bts.outreach_table_invited),
+          id: e.id,
+          startsAt: e.startsAt,
+          endsAt: e.endsAt,
+          title: e.title,
+          description: e.description || '',
+          category: e.category,
+          eventType: e.eventType,
+          timezone: e.timezone,
+          outreachTableInvited: Boolean(e.outreachTableInvited),
+          employeeReportTime: e.employeeReportTime,
+          minProvidersPerSession: e.minProvidersPerSession,
+          detailsUrl: e.detailsUrl || '',
+          flierFileUrl: e.flierFileUrl || '',
+          eventImageUrl: e.eventImageUrl || '',
+          schoolEventStatus: e.schoolEventStatus,
         }
-      : null,
-    fallCheckIn: fallCheckIn
-      ? { id: fallCheckIn.id, startsAt: fallCheckIn.starts_at, title: fallCheckIn.title }
-      : null,
+      : null;
+
+  const calendarOnly = new Set(['holiday', 'day_off', 'first_day', 'fall_check_in', 'spring']);
+  const attendableEvents = inYear
+    .filter((e) => !calendarOnly.has(String(e.category || '').toLowerCase()))
+    .map(mapLite)
+    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+
+  return {
+    firstDay: mapLite(firstDay),
+    firstDays: firstDayEvents.map(mapLite),
+    backToSchool: mapLite(bts),
+    fallCheckIn: mapLite(fallCheckIn),
+    attendableEvents,
   };
 }
 
 export async function listCheckinSlots(agencyId, schoolYear) {
   const [rows] = await pool.execute(
     `SELECT * FROM school_reinit_checkin_slots
-     WHERE agency_id = ? AND school_year = ? AND is_active = 1
+     WHERE agency_id = ? AND ${yearEq()} AND is_active = 1
      ORDER BY starts_at ASC`,
     [agencyId, schoolYear]
   );
@@ -1016,14 +1196,39 @@ async function applyChangeRequest(req) {
     if (action === 'delete' && req.entity_id) {
       await pool.execute(`DELETE FROM school_contacts WHERE id = ?`, [req.entity_id]);
     } else if (action === 'modify' && req.entity_id && after) {
-      await pool.execute(
-        `UPDATE school_contacts
-         SET full_name = COALESCE(?, full_name),
-             role_title = COALESCE(?, role_title),
-             email = COALESCE(?, email)
-         WHERE id = ?`,
-        [after.name ?? after.full_name ?? null, after.title ?? after.role_title ?? null, after.email ?? null, req.entity_id]
-      );
+      const updates = [];
+      const params = [];
+      if (after.name !== undefined || after.full_name !== undefined) {
+        updates.push('full_name = COALESCE(?, full_name)');
+        params.push(after.name ?? after.full_name ?? null);
+      }
+      if (after.title !== undefined || after.role_title !== undefined) {
+        updates.push('role_title = ?');
+        params.push(after.title ?? after.role_title ?? null);
+      }
+      if (after.email !== undefined) {
+        updates.push('email = COALESCE(?, email)');
+        params.push(after.email ?? null);
+      }
+      if (after.is_primary !== undefined) {
+        updates.push('is_primary = ?');
+        params.push(after.is_primary ? 1 : 0);
+      }
+      if (after.is_school_admin !== undefined) {
+        updates.push('is_school_admin = ?');
+        params.push(after.is_school_admin ? 1 : 0);
+      }
+      if (after.is_scheduler !== undefined) {
+        updates.push('is_scheduler = ?');
+        params.push(after.is_scheduler ? 1 : 0);
+      }
+      if (updates.length) {
+        params.push(req.entity_id);
+        await pool.execute(
+          `UPDATE school_contacts SET ${updates.join(', ')} WHERE id = ?`,
+          params
+        );
+      }
     }
   }
 }
@@ -1077,6 +1282,7 @@ export async function buildSnapshot(cycle) {
       answers: byKey.school_events?.data || null,
     },
     providers,
+    assignedProviders: byKey.assigned_providers?.data || null,
     staff,
     materials: byKey.materials?.data || null,
     needsAssessment: byKey.needs_assessment?.data || null,
@@ -1227,7 +1433,7 @@ export async function listAgencyReport(agencyId, schoolYear) {
     let cycle = null;
     const [cycles] = await pool.execute(
       `SELECT * FROM school_reinit_cycles
-       WHERE agency_id = ? AND school_organization_id = ? AND school_year = ?
+       WHERE agency_id = ? AND school_organization_id = ? AND ${yearEq()}
        LIMIT 1`,
       [agencyId, schoolId, year]
     );
@@ -1307,6 +1513,8 @@ export async function listAgencyReport(agencyId, schoolYear) {
       schoolOrganizationId: schoolId,
       schoolName: school.name || school.organization_name || `School ${schoolId}`,
       schoolSlug: school.portal_url || school.slug || null,
+      logoUrl: school.logo_url || null,
+      logoPath: school.logo_path || school.icon_file_path || null,
       cycleId: cycle?.id || null,
       status: cycle?.status || 'not_started',
       started: Boolean(cycle && cycle.status !== 'not_started'),

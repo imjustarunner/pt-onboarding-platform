@@ -7,7 +7,27 @@ import GoogleCalendarService from './googleCalendar.service.js';
 
 export const PRESLOT_KIND = 'FALL_CHECKIN_PRESLOT';
 export const BOOKED_KIND = 'FALL_CHECKIN_BOOKED';
-export const PRESLOT_TITLE = '(fills in Fall Check-in)';
+export const PRESLOT_TITLE = '(fills in school visit)';
+
+function bookedSchoolVisitTitle(modality, schoolLabel) {
+  const name = String(schoolLabel || 'School').trim() || 'School';
+  return modality === 'virtual'
+    ? `Virtual school visit — ${name}`
+    : `In person school visit — ${name}`;
+}
+
+function bookedSchoolVisitDescription(modality, schoolLabel, { locationText = null, meetLink = null } = {}) {
+  const name = String(schoolLabel || 'School').trim() || 'School';
+  const lines = [
+    modality === 'virtual'
+      ? `Virtual school visit (Fall School Check-in) for ${name}.`
+      : `In person school visit (Fall School Check-in) for ${name}.`,
+    'Booked via Collaborative Year Update.',
+  ];
+  if (modality === 'in_person' && locationText) lines.push(`Location: ${locationText}`);
+  if (modality === 'virtual' && meetLink) lines.push(`Meet: ${meetLink}`);
+  return lines.join('\n');
+}
 
 function parseJsonField(raw) {
   if (raw == null) return null;
@@ -29,17 +49,83 @@ function asIntArray(raw) {
   return Array.from(new Set(parsed.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0)));
 }
 
+/**
+ * Check-in slots are wall-clock times (e.g. "11:00 AM at the school"), not UTC instants.
+ * The DB pool uses timezone '+00:00', so mysql2 treats DATETIME as UTC. We therefore:
+ *  - parse/store the Y-M-D H:M:S the admin typed (no TZ conversion)
+ *  - do arithmetic with Date.UTC of those components
+ *  - serialize API fields back as "YYYY-MM-DD HH:mm:ss" (no Z) so the browser
+ *    does not shift them by the local offset.
+ */
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function parseWallClock(raw) {
+  if (raw == null || raw === '') return null;
+  if (raw instanceof Date) {
+    if (Number.isNaN(raw.getTime())) return null;
+    // mysql2 Date: stored wall-clock was read as UTC — use UTC getters.
+    return {
+      y: raw.getUTCFullYear(),
+      mo: raw.getUTCMonth() + 1,
+      d: raw.getUTCDate(),
+      h: raw.getUTCHours(),
+      mi: raw.getUTCMinutes(),
+      s: raw.getUTCSeconds(),
+    };
+  }
+  const s = String(raw).trim();
+  // Prefer explicit components so "…Z" / ISO does not shift the clock face.
+  // If the client sends an ISO UTC instant, take UTC components as the wall clock
+  // only when Z is present; otherwise take the digits as typed.
+  const m = s.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?(?:\.\d+)?(Z)?/i
+  );
+  if (!m) return null;
+  return {
+    y: Number(m[1]),
+    mo: Number(m[2]),
+    d: Number(m[3]),
+    h: Number(m[4] || 0),
+    mi: Number(m[5] || 0),
+    s: Number(m[6] || 0),
+  };
+}
+
+function wallClockToMysql(parts) {
+  if (!parts) return null;
+  return `${parts.y}-${pad2(parts.mo)}-${pad2(parts.d)} ${pad2(parts.h)}:${pad2(parts.mi)}:${pad2(parts.s)}`;
+}
+
+function wallClockToUtcDate(parts) {
+  if (!parts) return null;
+  return new Date(Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s));
+}
+
+/** @deprecated name kept for call sites — always emits wall-clock MySQL DATETIME */
 function toMysqlDateTime(d) {
-  const dt = d instanceof Date ? d : new Date(d);
-  if (Number.isNaN(dt.getTime())) return null;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+  return wallClockToMysql(parseWallClock(d));
 }
 
 function addMinutes(dateLike, minutes) {
-  const dt = new Date(dateLike);
-  dt.setMinutes(dt.getMinutes() + Number(minutes || 0));
-  return dt;
+  const parts = parseWallClock(dateLike);
+  const base = wallClockToUtcDate(parts);
+  if (!base || Number.isNaN(base.getTime())) return new Date(NaN);
+  return new Date(base.getTime() + Number(minutes || 0) * 60_000);
+}
+
+function serializeSlotRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  const out = { ...row };
+  // Only slot schedule fields are wall-clock; leave real timestamps alone.
+  for (const key of ['starts_at', 'ends_at']) {
+    if (out[key] != null) {
+      const mysql = toMysqlDateTime(out[key]);
+      if (mysql) out[key] = mysql;
+    }
+  }
+  return out;
 }
 
 function normalizeModality(raw) {
@@ -195,8 +281,8 @@ async function findConflictingSlots({
     `SELECT id, starts_at, ends_at, modality, status, label
      FROM school_reinit_checkin_slots
      WHERE agency_id = ?
-       AND school_year = ?
-       AND modality = ?
+       AND school_year COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci
+       AND modality COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci
        AND status IN ('open', 'booked')
        AND is_active = 1
        AND starts_at < ?
@@ -220,7 +306,7 @@ async function mirrorPreslotToHosts({ slot, campaign, createdByUserId }) {
   const startsAt = toMysqlDateTime(slot.starts_at);
   const endsAt = toMysqlDateTime(slot.ends_at || addMinutes(slot.starts_at, settings.slotDurationMinutes));
   const modalityLabel = slot.modality === 'virtual' ? 'Virtual' : 'In person';
-  const description = `Fall Check-in pre-slot (${modalityLabel}). This block fills when a school books.`;
+  const description = `School visit pre-slot (${modalityLabel}). This block fills when a school books their Fall School Check-in.`;
 
   const hostEventRows = [];
   for (const host of hosts) {
@@ -302,10 +388,15 @@ export async function createCheckinPreslot({
   }
 
   const modality = normalizeModality(modalityRaw);
-  const start = new Date(String(startsAt).replace(' ', 'T'));
-  if (Number.isNaN(start.getTime())) throw new Error('Invalid startsAt');
+  const startParts = parseWallClock(startsAt);
+  if (!startParts) throw new Error('Invalid startsAt');
+  // Ignore trailing Z from older clients — use the clock face they typed / intended.
+  // Prefer non-ISO wall-clock payloads from the admin UI.
+  const startMysql = wallClockToMysql(startParts);
+  const start = wallClockToUtcDate(startParts);
   const duration = settings.slotDurationMinutes;
   const end = addMinutes(start, duration);
+  const endMysql = toMysqlDateTime(end);
   const gap = modality === 'virtual' ? settings.virtualGapMinutes : settings.inPersonGapMinutes;
 
   if (!skipGapCheck) {
@@ -332,8 +423,8 @@ export async function createCheckinPreslot({
     [
       agencyId,
       schoolYear,
-      toMysqlDateTime(start),
-      toMysqlDateTime(end),
+      startMysql,
+      endMysql,
       label || null,
       modality,
       duration,
@@ -375,9 +466,9 @@ export async function getCheckinSlotDetail(slotId) {
     booking = bRows?.[0] || null;
   }
   return {
-    ...slot,
+    ...serializeSlotRow(slot),
     hostEvents: hosts || [],
-    booking,
+    booking: booking ? serializeSlotRow(booking) : null,
   };
 }
 
@@ -394,12 +485,12 @@ export async function listCheckinSlotsDetailed(agencyId, schoolYear, { includeIn
      LEFT JOIN school_reinit_checkin_bookings b
        ON b.slot_id = s.id AND b.status = 'booked'
      WHERE s.agency_id = ?
-       AND s.school_year = ?
+       AND s.school_year COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci
        ${includeInactive ? '' : 'AND s.is_active = 1'}
      ORDER BY s.starts_at ASC, s.modality ASC`,
     [agencyId, schoolYear]
   );
-  return rows || [];
+  return (rows || []).map(serializeSlotRow);
 }
 
 export async function listBookableCheckinSlots(agencyId, schoolYear, modalityRaw) {
@@ -408,14 +499,14 @@ export async function listBookableCheckinSlots(agencyId, schoolYear, modalityRaw
     `SELECT *
      FROM school_reinit_checkin_slots
      WHERE agency_id = ?
-       AND school_year = ?
-       AND modality = ?
+       AND school_year COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci
+       AND modality COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci
        AND status = 'open'
        AND is_active = 1
      ORDER BY starts_at ASC`,
     [agencyId, schoolYear, modality]
   );
-  return rows || [];
+  return (rows || []).map(serializeSlotRow);
 }
 
 export async function getBookingForCycle(cycleId) {
@@ -428,7 +519,7 @@ export async function getBookingForCycle(cycleId) {
      LIMIT 1`,
     [cycleId]
   );
-  return rows?.[0] || null;
+  return rows?.[0] ? serializeSlotRow(rows[0]) : null;
 }
 
 async function convertHostCalendarsOnBook({
@@ -448,14 +539,8 @@ async function convertHostCalendarsOnBook({
     [slot.id]
   );
 
-  const title =
-    modality === 'virtual'
-      ? `Virtual Fall Check-in — ${schoolLabel}`
-      : `In person ${schoolLabel}`;
-  const description =
-    modality === 'virtual'
-      ? `Collaborative Year Update Fall Check-in (virtual) for ${schoolLabel}.`
-      : `Collaborative Year Update Fall Check-in (in person) for ${schoolLabel}.${locationText ? `\nLocation: ${locationText}` : ''}`;
+  const title = bookedSchoolVisitTitle(modality, schoolLabel);
+  let description = bookedSchoolVisitDescription(modality, schoolLabel, { locationText });
 
   let meetLink = null;
   const primaryHostEmail = String(hostEvents?.[0]?.email || '').trim().toLowerCase();
@@ -468,6 +553,10 @@ async function convertHostCalendarsOnBook({
     const email = String(he.email || '').trim().toLowerCase();
     const createMeet = modality === 'virtual' && !meetLink;
     let patched = null;
+    description = bookedSchoolVisitDescription(modality, schoolLabel, {
+      locationText,
+      meetLink,
+    });
 
     if (email && he.google_event_id && GoogleCalendarService.isConfigured()) {
       patched = await GoogleCalendarService.patchEventDetails({
@@ -506,16 +595,23 @@ async function convertHostCalendarsOnBook({
 
     if (he.provider_schedule_event_id) {
       try {
+        // agency_id → school org so the school logo shows on the host calendar
         await pool.execute(
           `UPDATE provider_schedule_events
-           SET kind = ?, title = ?, description = ?, google_meet_link = COALESCE(?, google_meet_link),
+           SET kind = ?, title = ?, description = ?,
+               agency_id = COALESCE(?, agency_id),
+               google_meet_link = COALESCE(?, google_meet_link),
                google_event_id = COALESCE(?, google_event_id),
                google_html_link = COALESCE(?, google_html_link)
            WHERE id = ?`,
           [
             BOOKED_KIND,
             title,
-            description,
+            bookedSchoolVisitDescription(modality, schoolLabel, {
+              locationText,
+              meetLink: patched?.meetLink || meetLink || null,
+            }),
+            schoolAgencyId ? Number(schoolAgencyId) : null,
             patched?.meetLink || meetLink || null,
             patched?.eventId || null,
             patched?.htmlLink || null,
@@ -556,8 +652,82 @@ async function convertHostCalendarsOnBook({
   }
 
   void hostUserIds;
-  void schoolAgencyId;
   return { meetLink, title, description };
+}
+
+/**
+ * Create or update the school's yearly Fall School Check-in company_event
+ * so the booking appears on school / caseload calendars.
+ */
+async function syncFallSchoolVisitCompanyEvent({
+  agencyId,
+  schoolOrganizationId,
+  schoolYear,
+  schoolLabel,
+  modality,
+  startsAt,
+  endsAt,
+  locationText,
+  meetLink,
+  actorUserId = null,
+  hostUserIds = [],
+}) {
+  const Events = await import('./schoolPortalEvents.service.js');
+  const title = bookedSchoolVisitTitle(modality, schoolLabel);
+  const description = bookedSchoolVisitDescription(modality, schoolLabel, {
+    locationText,
+    meetLink,
+  });
+  const start = startsAt instanceof Date ? startsAt : new Date(String(startsAt).replace(' ', 'T'));
+  const end = endsAt instanceof Date ? endsAt : new Date(String(endsAt).replace(' ', 'T'));
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new Error('Invalid booking times for school visit event');
+  }
+
+  const existing = await Events.findExistingSchoolEventForYear({
+    organizationId: schoolOrganizationId,
+    eventType: 'school_fall_check_in',
+    schoolYear,
+  });
+
+  const userId =
+    Number(actorUserId) ||
+    Number(hostUserIds?.[0]) ||
+    null;
+  if (!userId) {
+    console.warn('[schoolReinitCheckin] Skipping school visit company_event sync — no actor/host user id');
+    return null;
+  }
+
+  if (existing?.id) {
+    const updated = await Events.updateSchoolPortalEvent({
+      eventId: existing.id,
+      organizationId: schoolOrganizationId,
+      agencyId,
+      userId,
+      title,
+      description,
+      category: 'fall_check_in',
+      startsAt: start,
+      endsAt: end,
+      schoolEventStatus: 'scheduled',
+    });
+    return Number(updated?.id || existing.id);
+  }
+
+  const created = await Events.createSchoolPortalEvent({
+    agencyId,
+    organizationId: schoolOrganizationId,
+    userId,
+    title,
+    description,
+    category: 'fall_check_in',
+    startsAt: start,
+    endsAt: end,
+    schoolEventStatus: 'scheduled',
+    outreachTableInvited: false,
+  });
+  return Number(created?.id || 0) || null;
 }
 
 export async function bookCheckinSlot({ cycleId, slotId, modality: modalityRaw, actor }) {
@@ -680,6 +850,39 @@ export async function bookCheckinSlot({ cycleId, slotId, modality: modalityRaw, 
     );
   }
 
+  let companyEventId = null;
+  try {
+    companyEventId = await syncFallSchoolVisitCompanyEvent({
+      agencyId: cycle.agency_id,
+      schoolOrganizationId: cycle.school_organization_id,
+      schoolYear: cycle.school_year,
+      schoolLabel,
+      modality,
+      startsAt: refreshedSlot?.starts_at || slot.starts_at,
+      endsAt:
+        refreshedSlot?.ends_at ||
+        slot.ends_at ||
+        addMinutes(slot.starts_at, slot.duration_minutes || settings.slotDurationMinutes),
+      locationText,
+      meetLink: calendarResult.meetLink || null,
+      actorUserId: actor?.userId || null,
+      hostUserIds: settings.hostUserIds,
+    });
+    if (companyEventId) {
+      try {
+        await pool.execute(
+          `UPDATE school_reinit_checkin_bookings SET company_event_id = ? WHERE id = ?`,
+          [companyEventId, bookingId]
+        );
+      } catch (e) {
+        // Column may not exist until migration 1038 runs
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      }
+    }
+  } catch (e) {
+    console.warn('[schoolReinitCheckin] Fall school visit company_event sync failed', e?.message || e);
+  }
+
   await S.upsertSectionProgress({
     cycleId,
     sectionKey: 'fall_check_in',
@@ -687,6 +890,7 @@ export async function bookCheckinSlot({ cycleId, slotId, modality: modalityRaw, 
       fall_checkin_modality: modality,
       fall_checkin_slot_id: String(slotId),
       fall_checkin_booking_id: bookingId,
+      fall_checkin_company_event_id: companyEventId,
       fall_checkin_starts_at: toMysqlDateTime(refreshedSlot?.starts_at || slot.starts_at),
       fall_checkin_ends_at: toMysqlDateTime(refreshedSlot?.ends_at || slot.ends_at),
       fall_checkin_meet_link: calendarResult.meetLink || null,
@@ -747,10 +951,12 @@ export async function inviteSchoolStaffOnFinalize(cycleId) {
 
   let meetLink = booking.meet_link || null;
   const schoolLabel = booking.school_name || (await schoolName(cycle.school_organization_id));
-  const title =
-    booking.modality === 'virtual'
-      ? `Virtual Fall Check-in — ${schoolLabel}`
-      : `In person ${schoolLabel}`;
+  const title = bookedSchoolVisitTitle(booking.modality, schoolLabel);
+  const description =
+    bookedSchoolVisitDescription(booking.modality, schoolLabel, {
+      locationText: booking.location_text,
+      meetLink,
+    }) + '\nSchool staff invited on Year Update finalize.';
 
   for (const he of hostEvents || []) {
     const email = String(he.email || '').trim().toLowerCase();
@@ -768,15 +974,63 @@ export async function inviteSchoolStaffOnFinalize(cycleId) {
       subjectEmail: email,
       eventId: he.google_event_id,
       summary: title,
-      description:
-        booking.modality === 'virtual'
-          ? `Fall Check-in (virtual) for ${schoolLabel}. School staff invited on Year Update finalize.`
-          : `Fall Check-in (in person) for ${schoolLabel}. School staff invited on Year Update finalize.`,
+      description,
       location: booking.modality === 'in_person' ? booking.location_text || schoolLabel : null,
       attendeeEmails: attendees,
       createMeetLink: booking.modality === 'virtual' && !meetLink,
     });
     if (patched?.meetLink) meetLink = patched.meetLink;
+
+    if (he.provider_schedule_event_id) {
+      try {
+        await pool.execute(
+          `UPDATE provider_schedule_events
+           SET kind = ?, title = ?, description = ?,
+               agency_id = COALESCE(?, agency_id),
+               google_meet_link = COALESCE(?, google_meet_link)
+           WHERE id = ?`,
+          [
+            BOOKED_KIND,
+            title,
+            description,
+            cycle.school_organization_id ? Number(cycle.school_organization_id) : null,
+            patched?.meetLink || meetLink || null,
+            he.provider_schedule_event_id,
+          ]
+        );
+      } catch (e) {
+        console.warn('[schoolReinitCheckin] Finalize PSE update failed', e?.message || e);
+      }
+    }
+  }
+
+  // Keep linked Fall School Check-in company event title/description in sync
+  try {
+    const companyEventId = await syncFallSchoolVisitCompanyEvent({
+      agencyId: cycle.agency_id,
+      schoolOrganizationId: cycle.school_organization_id,
+      schoolYear: cycle.school_year,
+      schoolLabel,
+      modality: booking.modality,
+      startsAt: booking.starts_at,
+      endsAt: booking.ends_at,
+      locationText: booking.location_text,
+      meetLink,
+      actorUserId: booking.booked_by_user_id || settings.hostUserIds?.[0] || null,
+      hostUserIds: settings.hostUserIds,
+    });
+    if (companyEventId) {
+      try {
+        await pool.execute(
+          `UPDATE school_reinit_checkin_bookings SET company_event_id = COALESCE(company_event_id, ?) WHERE id = ?`,
+          [companyEventId, booking.id]
+        );
+      } catch (e) {
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      }
+    }
+  } catch (e) {
+    console.warn('[schoolReinitCheckin] Finalize school visit event sync failed', e?.message || e);
   }
 
   await pool.execute(

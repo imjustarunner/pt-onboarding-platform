@@ -81,14 +81,15 @@
 
     <!-- Check-in pre-slots -->
     <div v-if="showSlots" class="reinit-admin__panel">
-      <strong>Fall check-in hosts &amp; pre-slots</strong>
+      <strong>Fall school visit hosts &amp; pre-slots</strong>
       <p class="muted small" style="margin: 6px 0 12px;">
-        Set tenant hosts (typically two). Pre-slots appear on their calendars as “(fills in Fall Check-in)” until a school books.
+        Set agency hosts (typically two). Pre-slots appear on their calendars as “(fills in school visit)” until a school books.
+        Booked visits are titled In person / Virtual school visit, linked to the school’s Fall School Check-in event, and show the school logo.
       </p>
 
       <div class="reinit-admin__checkin-settings">
         <div class="reinit-admin__checkin-hosts">
-          <label class="small muted">Tenant hosts</label>
+          <label class="small muted">Agency hosts</label>
           <div class="reinit-admin__host-chips">
             <label v-for="u in agencyUsers" :key="u.id" class="reinit-admin__host-chip">
               <input v-model="checkinSettings.hostUserIds" type="checkbox" :value="Number(u.id)" />
@@ -121,19 +122,25 @@
       </div>
 
       <ul class="reinit-admin__slots">
-        <li v-for="s in slots" :key="s.id" class="reinit-admin__slot-row">
+        <li
+          v-for="s in slots"
+          :key="s.id"
+          class="reinit-admin__slot-row"
+          :class="{ 'reinit-admin__slot-row--past': isSlotPast(s) }"
+        >
           <span>
             <span class="pill" :class="s.modality === 'virtual' ? 'pill--enabled' : 'pill--draft'">
               {{ s.modality === 'virtual' ? 'Virtual' : 'In person' }}
             </span>
-            {{ formatDt(s.starts_at) }}
+            {{ formatSlotDt(s.starts_at) }}
             <template v-if="s.label"> — {{ s.label }}</template>
+            <span v-if="isSlotPast(s)" class="reinit-admin__slot-past-badge">past</span>
             <span v-if="s.status === 'booked'" class="muted small">
               · Booked {{ s.booked_school_name || '' }}
               <template v-if="s.booking_meet_link"> · Meet ready</template>
               <template v-if="s.booking_invited_at"> · Staff invited</template>
             </span>
-            <span v-else class="muted small"> · Open pre-slot</span>
+            <span v-else-if="!isSlotPast(s)" class="muted small"> · Open pre-slot</span>
           </span>
           <button
             v-if="s.status === 'open'"
@@ -143,25 +150,69 @@
           >Remove</button>
         </li>
       </ul>
-      <div class="reinit-admin__slot-form">
-        <input v-model="newSlot.startsAt" type="datetime-local" />
-        <select v-model="newSlot.modality" @change="suggestNextSlotStart">
-          <option value="in_person">In person available</option>
-          <option value="virtual">Virtual available</option>
-        </select>
-        <input v-model="newSlot.label" type="text" placeholder="Label (optional)" />
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="!checkinSettings.hostUserIds.length" @click="suggestNextSlotStart">
-          Suggest next time
-        </button>
-        <button type="button" class="btn btn-primary btn-sm" :disabled="!newSlot.startsAt || !checkinSettings.hostUserIds.length" @click="addSlot">
-          Add pre-slot
-        </button>
+      <div class="reinit-admin__slot-form-wrap">
+        <div class="reinit-admin__slot-form">
+          <label class="reinit-admin__slot-label">
+            <span class="reinit-admin__slot-field-label">Start time</span>
+            <input v-model="newSlot.startsAt" type="datetime-local" @change="onSlotTimeChange" />
+          </label>
+          <label class="reinit-admin__slot-label">
+            <span class="reinit-admin__slot-field-label">End time</span>
+            <input v-model="newSlot.endsAt" type="datetime-local" @change="onSlotTimeChange" />
+          </label>
+          <label class="reinit-admin__slot-label">
+            <span class="reinit-admin__slot-field-label">Modality</span>
+            <select v-model="newSlot.modality" @change="suggestNextSlotStart">
+              <option value="in_person">In person</option>
+              <option value="virtual">Virtual</option>
+            </select>
+          </label>
+          <label class="reinit-admin__slot-label">
+            <span class="reinit-admin__slot-field-label">Label (optional)</span>
+            <input v-model="newSlot.label" type="text" placeholder="e.g. Morning session" />
+          </label>
+        </div>
+
+        <!-- Live slot preview -->
+        <div v-if="previewSlots.length" class="reinit-admin__slot-preview">
+          <strong class="reinit-admin__slot-preview-count">
+            {{ previewSlots.length }} slot{{ previewSlots.length === 1 ? '' : 's' }} will be added
+          </strong>
+          <ul class="reinit-admin__slot-preview-list">
+            <li v-for="(s, i) in previewSlots" :key="i">{{ s }}</li>
+          </ul>
+        </div>
+        <p v-else-if="newSlot.startsAt && !newSlot.endsAt" class="muted small">
+          Add an end time to preview and bulk-add multiple slots, or add a single slot below.
+        </p>
+
+        <div class="reinit-admin__slot-actions">
+          <button type="button" class="btn btn-secondary btn-sm" @click="suggestNextSlotStart">
+            Suggest next time
+          </button>
+          <button
+            v-if="previewSlots.length > 1"
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="!newSlot.startsAt || addingSlots"
+            @click="addAllSlots"
+          >
+            {{ addingSlots ? 'Adding…' : `Add all ${previewSlots.length} slots` }}
+          </button>
+          <button
+            v-else
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="!newSlot.startsAt || addingSlots"
+            @click="addSlot"
+          >
+            {{ addingSlots ? 'Adding…' : 'Add pre-slot' }}
+          </button>
+        </div>
+        <p v-if="!checkinSettings.hostUserIds.length" class="reinit-admin__slot-warn">
+          ⚠ No hosts selected — add slots will still work but save hosts first for calendar events.
+        </p>
       </div>
-      <p class="muted small">
-        First slot = the start time you pick. Next starts after meeting duration + gap
-        (e.g. 8:00 + {{ checkinSettings.slotDurationMinutes || 30 }} + {{ activeGapMinutes }} → {{ exampleNextStartLabel }}).
-      </p>
-      <p v-if="!checkinSettings.hostUserIds.length" class="muted small">Select at least one host before adding pre-slots.</p>
     </div>
 
     <!-- Metric cards -->
@@ -246,7 +297,18 @@
               >
                 <td>
                   <div class="school-cell">
-                    <span class="school-avatar" :style="{ background: avatarColor(row.schoolName) }">
+                    <img
+                      v-if="schoolLogo(row)"
+                      :src="schoolLogo(row)"
+                      :alt="`${row.schoolName} logo`"
+                      class="school-logo"
+                      @error="onLogoError(row)"
+                    />
+                    <span
+                      v-else
+                      class="school-avatar"
+                      :style="{ background: avatarColor(row.schoolName) }"
+                    >
                       {{ initials(row.schoolName) }}
                     </span>
                     <div>
@@ -296,9 +358,19 @@
                 <td>{{ row.tokenClickCount || 0 }}</td>
                 <td class="muted small">{{ formatDt(row.lastActivityAt) }}</td>
                 <td>
-                  <button type="button" class="btn btn-secondary btn-sm icon-btn" title="Open details" @click.stop="selectRow(row)">
-                    👁
-                  </button>
+                  <div class="row-actions" @click.stop>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      title="Copy year update link"
+                      @click="copyShareLink(row)"
+                    >
+                      {{ copiedSchoolId === row.schoolOrganizationId ? 'Copied' : 'Link' }}
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm icon-btn" title="Open details" @click="selectRow(row)">
+                      👁
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -325,7 +397,18 @@
       >
         <div class="detail__head">
           <div class="school-cell">
-            <span class="school-avatar" :style="{ background: avatarColor(selectedRow.schoolName) }">
+            <img
+              v-if="schoolLogo(selectedRow)"
+              :src="schoolLogo(selectedRow)"
+              :alt="`${selectedRow.schoolName} logo`"
+              class="school-logo school-logo--lg"
+              @error="onLogoError(selectedRow)"
+            />
+            <span
+              v-else
+              class="school-avatar school-avatar--lg"
+              :style="{ background: avatarColor(selectedRow.schoolName) }"
+            >
               {{ initials(selectedRow.schoolName) }}
             </span>
             <div>
@@ -339,6 +422,33 @@
           <button type="button" class="btn btn-secondary btn-sm" @click="clearSelection">✕</button>
         </div>
 
+        <div class="detail__share">
+          <label class="detail__share-label">Year update link</label>
+          <div class="detail__share-row">
+            <input
+              class="detail__share-input"
+              type="text"
+              readonly
+              :value="shareLinkFor(selectedRow) || 'No link yet — generate one'"
+              @focus="$event.target.select()"
+            />
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="linkBusy"
+              @click="shareLinkFor(selectedRow) ? copyShareLink(selectedRow) : generateLink(selectedRow)"
+            >
+              {{
+                linkBusy
+                  ? '…'
+                  : shareLinkFor(selectedRow)
+                    ? (copiedSchoolId === selectedRow.schoolOrganizationId ? 'Copied!' : 'Copy link')
+                    : 'Generate link'
+              }}
+            </button>
+          </div>
+        </div>
+
         <div class="detail__stats">
           <div><span>Progress</span><strong>{{ selectedRow.sectionPercent }}%</strong></div>
           <div><span>Token clicks</span><strong>{{ selectedRow.tokenClickCount || 0 }}</strong></div>
@@ -348,7 +458,7 @@
         <div class="detail__tabs">
           <button type="button" :class="{ active: detailTab === 'summary' }" @click="detailTab = 'summary'">Summary</button>
           <button type="button" :class="{ active: detailTab === 'sections' }" @click="detailTab = 'sections'">
-            Sections ({{ selectedRow.sectionTotal || 8 }})
+            Sections ({{ selectedRow.sectionTotal || 7 }})
           </button>
           <button type="button" :class="{ active: detailTab === 'activity' }" @click="detailTab = 'activity'">Activity</button>
           <button type="button" :class="{ active: detailTab === 'addendums' }" @click="detailTab = 'addendums'">
@@ -385,14 +495,16 @@
                 <div class="span-2"><span>Marketing quote</span><strong>{{ selectedRow.marketingQuote || (selectedRow.hasMarketingQuote ? 'Yes' : '—') }}</strong></div>
               </div>
               <div class="detail__token-actions">
-                <button type="button" class="btn btn-secondary btn-sm" @click="generateLink(selectedRow)">Generate link</button>
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="linkBusy" @click="generateLink(selectedRow)">
+                  {{ shareLinkFor(selectedRow) ? 'Refresh link' : 'Generate link' }}
+                </button>
                 <button
-                  v-if="selectedRow.tokens?.[0]"
+                  v-if="shareLinkFor(selectedRow)"
                   type="button"
                   class="btn btn-secondary btn-sm"
-                  @click="copyLink(selectedRow.tokens[0].token)"
+                  @click="copyShareLink(selectedRow)"
                 >
-                  Copy token
+                  {{ copiedSchoolId === selectedRow.schoolOrganizationId ? 'Copied!' : 'Copy link' }}
                 </button>
                 <button
                   v-if="selectedRow.tokens?.[0]"
@@ -475,7 +587,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
-import { SECTION_META } from '../../utils/schoolReinit';
+import { SECTION_META, logoSrc, publicReinitUrl, copyTextToClipboard, currentSchoolYear } from '../../utils/schoolReinit';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
@@ -509,11 +621,15 @@ const filterHasQuote = ref(false);
 const filterDelivery = ref(false);
 const filterSat4 = ref(false);
 const lastLink = ref('');
+const copiedSchoolId = ref(null);
+const linkBusy = ref(false);
+const failedLogoIds = ref(new Set());
 const selectedRow = ref(null);
 const detail = ref(null);
 const detailLoading = ref(false);
 const detailTab = ref('summary');
-const newSlot = reactive({ startsAt: '', label: '', modality: 'in_person' });
+const newSlot = reactive({ startsAt: '', endsAt: '', label: '', modality: 'in_person' });
+const addingSlots = ref(false);
 const checkinSettings = reactive({
   hostUserIds: [],
   extraAttendeeUserIds: [],
@@ -532,13 +648,7 @@ const DETAIL_MIN_WIDTH = 380;
 const DETAIL_MAX_WIDTH_RATIO = 0.72;
 let stopDetailResize = null;
 
-const schoolYear = computed(() => {
-  if (props.schoolYear) return props.schoolYear;
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = d.getMonth() + 1;
-  return m >= 8 ? `${y}-${String(y + 1).slice(-2)}` : `${y - 1}-${String(y).slice(-2)}`;
-});
+const schoolYear = computed(() => props.schoolYear || currentSchoolYear());
 
 const campaignLabel = computed(() => {
   const s = campaign.value?.status || 'draft';
@@ -610,6 +720,39 @@ function formatDt(raw) {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+/** Parse check-in slot times as wall-clock (no UTC shift). */
+function parseSlotWallClock(raw) {
+  if (!raw) return null;
+  const m = String(raw)
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) {
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return new Date(
+    Number(m[1]),
+    Number(m[2]) - 1,
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5]),
+    Number(m[6] || 0)
+  );
+}
+
+function formatSlotDt(raw) {
+  const d = parseSlotWallClock(raw);
+  if (!d) return '—';
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function toMysqlWallClock(date) {
+  const d = date instanceof Date ? date : parseDatetimeLocal(date);
+  if (!d || Number.isNaN(d.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+}
+
 function statusLabel(s) {
   if (s === 'finalized') return 'Finalized';
   if (s === 'in_progress') return 'In Progress';
@@ -632,6 +775,27 @@ function initials(name) {
     .split(/[\s,]+/)
     .filter(Boolean);
   return ((parts[0]?.[0] || '?') + (parts[1]?.[0] || '')).toUpperCase();
+}
+
+function schoolLogo(row) {
+  if (!row) return null;
+  const id = String(row.schoolOrganizationId || '');
+  if (failedLogoIds.value.has(id)) return null;
+  return logoSrc({
+    logo_url: row.logoUrl,
+    logo_path: row.logoPath,
+  });
+}
+
+function onLogoError(row) {
+  const id = String(row?.schoolOrganizationId || '');
+  if (!id) return;
+  failedLogoIds.value = new Set([...failedLogoIds.value, id]);
+}
+
+function shareLinkFor(row) {
+  const token = row?.tokens?.[0]?.token;
+  return token ? publicReinitUrl(token) : '';
 }
 
 function avatarColor(name) {
@@ -672,6 +836,11 @@ function userLabel(u) {
   return [u.first_name || u.firstName, u.last_name || u.lastName].filter(Boolean).join(' ') || u.email || `#${u.id}`;
 }
 
+function isSlotPast(slot) {
+  const d = parseSlotWallClock(slot.starts_at);
+  return d != null && d.getTime() < Date.now();
+}
+
 const activeGapMinutes = computed(() => {
   const modality = newSlot.modality || 'in_person';
   return modality === 'virtual'
@@ -692,6 +861,56 @@ const gapSpacingHint = computed(() => {
 });
 
 const exampleNextStartLabel = computed(() => formatClockFromMinutes(8 * 60 + slotStepMinutes.value));
+
+/**
+ * Parse a datetime-local string ("YYYY-MM-DDTHH:MM") as LOCAL time.
+ * Using new Date() directly can be ambiguous across browsers (Safari esp.).
+ */
+function parseDatetimeLocal(str) {
+  if (!str) return null;
+  const [datePart, timePart = '00:00'] = str.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes] = timePart.split(':').map(Number);
+  if ([year, month, day, hours, minutes].some(Number.isNaN)) return null;
+  return new Date(year, month - 1, day, hours, minutes, 0, 0);
+}
+
+/** Preview times that would be created between startsAt and endsAt */
+const previewSlots = computed(() => {
+  if (!newSlot.startsAt || !newSlot.endsAt) return [];
+  const start = parseDatetimeLocal(newSlot.startsAt);
+  const end = parseDatetimeLocal(newSlot.endsAt);
+  if (!start || !end) return [];
+  if (end <= start) return [];
+  const step = slotStepMinutes.value;
+  if (step <= 0) return [];
+  const duration = Math.max(5, Number(checkinSettings.slotDurationMinutes) || 30);
+  const times = [];
+  const cur = new Date(start);
+  // Cap at 40 slots to avoid runaway
+  while (cur < end && times.length < 40) {
+    const slotEnd = new Date(cur.getTime() + duration * 60_000);
+    times.push(formatSlotTimeRange(new Date(cur), slotEnd));
+    cur.setMinutes(cur.getMinutes() + step);
+  }
+  return times;
+});
+
+function formatSlotTimeRange(start, end) {
+  const fmt = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const day = start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  return `${day} · ${fmt(start)} – ${fmt(end)}`;
+}
+
+function onSlotTimeChange() {
+  if (newSlot.startsAt && newSlot.endsAt) {
+    const s = parseDatetimeLocal(newSlot.startsAt);
+    const e = parseDatetimeLocal(newSlot.endsAt);
+    if (s && e && e <= s) {
+      newSlot.endsAt = '';
+    }
+  }
+}
 
 function formatClockFromMinutes(totalMinutes) {
   const mins = ((Number(totalMinutes) % (24 * 60)) + 24 * 60) % (24 * 60);
@@ -906,30 +1125,67 @@ async function saveCheckinSettings() {
 }
 
 async function addSlot() {
+  if (addingSlots.value) return;
+  addingSlots.value = true;
   try {
-    if (!checkinSettings.hostUserIds.length) {
+    if (checkinSettings.hostUserIds.length) {
       await saveCheckinSettings();
     }
-    const startsAtLocal = newSlot.startsAt;
+    const startLocal = parseDatetimeLocal(newSlot.startsAt);
+    const startsAt = toMysqlWallClock(startLocal);
+    if (!startsAt) { error.value = 'Invalid start time'; return; }
     await api.post('/school-reinit/checkin-slots', {
       agencyId: Number(props.agencyId),
       schoolYear: schoolYear.value,
-      startsAt: startsAtLocal.replace('T', ' ') + ':00',
+      startsAt,
       label: newSlot.label || null,
       modality: newSlot.modality || 'in_person',
     });
     newSlot.label = '';
     await load();
-    // Auto-advance: 8:00 + duration + gap → next start (e.g. 9:00)
-    const next = new Date(startsAtLocal);
-    if (!Number.isNaN(next.getTime())) {
-      next.setMinutes(next.getMinutes() + slotStepMinutes.value);
-      newSlot.startsAt = toDatetimeLocalValue(next);
-    } else {
-      suggestNextSlotStart();
-    }
+    const next = new Date(startLocal);
+    next.setMinutes(next.getMinutes() + slotStepMinutes.value);
+    newSlot.startsAt = toDatetimeLocalValue(next);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Add slot failed';
+  } finally {
+    addingSlots.value = false;
+  }
+}
+
+async function addAllSlots() {
+  if (addingSlots.value || !previewSlots.value.length) return;
+  addingSlots.value = true;
+  try {
+    if (checkinSettings.hostUserIds.length) {
+      await saveCheckinSettings();
+    }
+    const start = parseDatetimeLocal(newSlot.startsAt);
+    const end = parseDatetimeLocal(newSlot.endsAt);
+    const step = slotStepMinutes.value;
+    const label = newSlot.label || null;
+    const modality = newSlot.modality || 'in_person';
+    const cur = new Date(start);
+    const promises = [];
+    while (cur < end && promises.length < 40) {
+      promises.push(api.post('/school-reinit/checkin-slots', {
+        agencyId: Number(props.agencyId),
+        schoolYear: schoolYear.value,
+        startsAt: toMysqlWallClock(cur),
+        label,
+        modality,
+      }));
+      cur.setMinutes(cur.getMinutes() + step);
+    }
+    await Promise.all(promises);
+    newSlot.startsAt = '';
+    newSlot.endsAt = '';
+    newSlot.label = '';
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Add slots failed';
+  } finally {
+    addingSlots.value = false;
   }
 }
 
@@ -946,6 +1202,9 @@ async function deactivateSlot(slot) {
 }
 
 async function generateLink(row) {
+  if (!row || linkBusy.value) return;
+  linkBusy.value = true;
+  error.value = '';
   try {
     const res = await api.post('/school-reinit/tokens', {
       agencyId: Number(props.agencyId),
@@ -955,21 +1214,40 @@ async function generateLink(row) {
     const path = res.data.path || `/school-reinit/${res.data.token}`;
     lastLink.value = `${window.location.origin}${path}`;
     await load();
+    const refreshed = (report.value.schools || []).find(
+      (r) => r.schoolOrganizationId === row.schoolOrganizationId
+    );
+    if (refreshed && selectedRow.value?.schoolOrganizationId === row.schoolOrganizationId) {
+      selectedRow.value = refreshed;
+    }
+    await copyShareLink(refreshed || row, lastLink.value);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Token failed';
+  } finally {
+    linkBusy.value = false;
   }
 }
 
-function copyLink(token) {
-  copyText(`${window.location.origin}/school-reinit/${token}`);
-}
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    lastLink.value = text;
-  } catch {
-    lastLink.value = text;
+async function copyShareLink(row, forcedUrl = null) {
+  let url = forcedUrl || shareLinkFor(row);
+  if (!url) {
+    await generateLink(row);
+    return;
   }
+  const ok = await copyTextToClipboard(url);
+  lastLink.value = url;
+  if (ok) {
+    copiedSchoolId.value = row?.schoolOrganizationId || null;
+    setTimeout(() => {
+      if (copiedSchoolId.value === row?.schoolOrganizationId) copiedSchoolId.value = null;
+    }, 1800);
+  }
+}
+
+async function copyText(text) {
+  const ok = await copyTextToClipboard(text);
+  lastLink.value = text;
+  return ok;
 }
 
 async function toggleSent(tokenRow) {
@@ -986,6 +1264,28 @@ async function toggleSent(tokenRow) {
 async function selectRow(row) {
   selectedRow.value = row;
   detailTab.value = 'summary';
+  // Ensure a shareable token exists so the copyable link is ready in the detail pane
+  if (campaign.value?.isEnabled && !shareLinkFor(row) && !linkBusy.value) {
+    try {
+      linkBusy.value = true;
+      await api.post('/school-reinit/tokens', {
+        agencyId: Number(props.agencyId),
+        schoolOrganizationId: row.schoolOrganizationId,
+        schoolYear: schoolYear.value,
+        ensure: true,
+      });
+      await load();
+      const refreshed = (report.value.schools || []).find(
+        (r) => r.schoolOrganizationId === row.schoolOrganizationId
+      );
+      if (refreshed) selectedRow.value = refreshed;
+      row = refreshed || row;
+    } catch {
+      /* link can still be generated manually */
+    } finally {
+      linkBusy.value = false;
+    }
+  }
   if (!row.cycleId) {
     detail.value = { sections: row.sections || [], changeRequests: [], addendums: [], viewEvents: [] };
     return;
@@ -1467,6 +1767,58 @@ onUnmounted(() => {
   font-weight: 800;
   flex-shrink: 0;
 }
+.school-avatar--lg {
+  width: 44px;
+  height: 44px;
+  font-size: 0.85rem;
+}
+.school-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  object-fit: contain;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+.school-logo--lg {
+  width: 44px;
+  height: 44px;
+}
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.detail__share {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.detail__share-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.detail__share-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.detail__share-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-size: 0.75rem;
+  background: #fff;
+  color: #0f172a;
+}
 .progress-cell {
   min-width: 90px;
 }
@@ -1769,16 +2121,93 @@ onUnmounted(() => {
   gap: 10px;
   flex-wrap: wrap;
 }
+.reinit-admin__slot-row--past {
+  opacity: 0.45;
+}
+.reinit-admin__slot-past-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #f1f5f9;
+  color: #94a3b8;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 4px;
+}
+.reinit-admin__slot-form-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
 .reinit-admin__slot-form {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
+  align-items: flex-end;
 }
+.reinit-admin__slot-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.83rem;
+}
+.reinit-admin__slot-field-label {
+  font-weight: 600;
+  color: #475569;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.reinit-admin__slot-form input[type="datetime-local"],
+.reinit-admin__slot-form input[type="text"],
 .reinit-admin__slot-form select {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   padding: 6px 8px;
   font-size: 0.85rem;
+  background: #fff;
+}
+.reinit-admin__slot-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.reinit-admin__slot-warn {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #b45309;
+}
+.reinit-admin__slot-preview {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.reinit-admin__slot-preview-count {
+  display: block;
+  font-size: 0.88rem;
+  color: #1d4ed8;
+  margin-bottom: 6px;
+}
+.reinit-admin__slot-preview-list {
+  margin: 0;
+  padding: 0 0 0 16px;
+  font-size: 0.82rem;
+  color: #334155;
+  max-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 24px;
+  list-style: disc;
 }
 .btn {
   font-family: system-ui, sans-serif;
