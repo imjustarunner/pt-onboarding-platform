@@ -80,7 +80,7 @@
         </div>
         <div v-for="a in assignments" :key="a.id" class="lc-gear-row">
           <span class="lc-gear-name">{{ a.typeName }}</span>
-          <span>{{ a.assetCode || a.sizeLabel || '—' }}</span>
+          <span>{{ a.displayLabel || a.assetCode || a.sizeLabel || '—' }}</span>
           <span>{{ fmtDate(a.issuedAt) || '—' }}</span>
           <span v-if="!viewOnly" class="lc-gear-actions">
             <button type="button" class="lc-gear-return" :disabled="returningId === a.id" @click="returnItem(a)">
@@ -103,11 +103,18 @@
         </select>
 
         <template v-if="issuable?.trackingMode === 'SIZED_STOCK'">
+          <template v-if="issuable.isGendered">
+            <label class="lc-gear-lbl">Cut</label>
+            <select v-model="issueForm.gender" class="lc-gear-input" @change="onGenderChange">
+              <option value="">Select…</option>
+              <option v-for="g in issuable.genders || []" :key="g.value" :value="g.value">{{ g.label }}</option>
+            </select>
+          </template>
           <label class="lc-gear-lbl">Size</label>
-          <select v-model="issueForm.sizeLabel" class="lc-gear-input">
+          <select v-model="issueForm.sizeLabel" class="lc-gear-input" :disabled="issuable.isGendered && !issueForm.gender">
             <option value="">Select…</option>
-            <option v-for="s in issuable.sizes || []" :key="s.sizeLabel" :value="s.sizeLabel">
-              {{ s.sizeLabel }} ({{ s.quantityOnHand }} on hand)
+            <option v-for="s in filteredIssuableSizes" :key="`${s.gender}-${s.sizeLabel}`" :value="s.sizeLabel">
+              {{ s.displayLabel || s.sizeLabel }} ({{ s.quantityOnHand }} on hand)
             </option>
           </select>
         </template>
@@ -134,7 +141,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, computed } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -161,8 +168,16 @@ const showIssue = ref(false);
 const issuing = ref(false);
 const issueError = ref('');
 const issuable = ref(null);
-const issueForm = ref({ gearItemTypeId: 0, sizeLabel: '', uniqueAssetId: 0, notes: '' });
+const issueForm = ref({ gearItemTypeId: 0, gender: '', sizeLabel: '', uniqueAssetId: 0, notes: '' });
 const returningId = ref(null);
+
+const filteredIssuableSizes = computed(() => {
+  const sizes = issuable.value?.sizes || [];
+  if (!issuable.value?.isGendered) return sizes;
+  const g = String(issueForm.value.gender || '');
+  if (!g) return [];
+  return sizes.filter((s) => String(s.gender || '') === g);
+});
 
 const base = () => `/gear-inventory/${props.agencyId}`;
 
@@ -232,7 +247,7 @@ async function savePrefs() {
 }
 
 function openIssue() {
-  issueForm.value = { gearItemTypeId: 0, sizeLabel: '', uniqueAssetId: 0, notes: '' };
+  issueForm.value = { gearItemTypeId: 0, gender: '', sizeLabel: '', uniqueAssetId: 0, notes: '' };
   issuable.value = null;
   issueError.value = '';
   showIssue.value = true;
@@ -241,13 +256,14 @@ function openIssue() {
 async function onTypeChange() {
   const tid = issueForm.value.gearItemTypeId;
   issuable.value = null;
+  issueForm.value.gender = '';
   issueForm.value.sizeLabel = '';
   issueForm.value.uniqueAssetId = 0;
   if (!tid) return;
   try {
     const res = await api.get(`${base()}/types/${tid}/issuable`, quiet);
     issuable.value = res.data;
-    if (issuable.value?.trackingMode === 'SIZED_STOCK') {
+    if (issuable.value?.trackingMode === 'SIZED_STOCK' && !issuable.value?.isGendered) {
       const preferred = prefs.value.hoodie || prefs.value.shirt || '';
       const match = (issuable.value.sizes || []).find(
         (s) => String(s.sizeLabel).toLowerCase() === String(preferred).toLowerCase()
@@ -257,6 +273,15 @@ async function onTypeChange() {
   } catch (e) {
     issueError.value = e?.response?.data?.error?.message || 'Failed to load options';
   }
+}
+
+function onGenderChange() {
+  issueForm.value.sizeLabel = '';
+  const preferred = prefs.value.hoodie || prefs.value.shirt || '';
+  const match = filteredIssuableSizes.value.find(
+    (s) => String(s.sizeLabel).toLowerCase() === String(preferred).toLowerCase()
+  );
+  if (match) issueForm.value.sizeLabel = match.sizeLabel;
 }
 
 async function submitIssue() {
@@ -269,6 +294,7 @@ async function submitIssue() {
     };
     if (issuable.value?.trackingMode === 'SIZED_STOCK') {
       payload.sizeLabel = issueForm.value.sizeLabel;
+      if (issuable.value.isGendered) payload.gender = issueForm.value.gender;
     } else {
       payload.uniqueAssetId = issueForm.value.uniqueAssetId || null;
     }

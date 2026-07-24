@@ -11,6 +11,15 @@ export const CLEAR_EQUIPMENT_LIFECYCLE_KEYS = Object.freeze([
   'keys_badge_issued',
 ]);
 
+const GEAR_GENDERS = Object.freeze(['women', 'men']);
+
+const genderLabel = (g) => {
+  const v = String(g || '').toLowerCase();
+  if (v === 'women') return "Women's";
+  if (v === 'men') return "Men's";
+  return '';
+};
+
 const parseSizeOptions = (raw) => {
   if (Array.isArray(raw)) return raw.map((s) => String(s || '').trim()).filter(Boolean);
   if (typeof raw === 'string') {
@@ -23,21 +32,109 @@ const parseSizeOptions = (raw) => {
   return [];
 };
 
+/** Parse size_options_json — flat array or { women: [], men: [] } when gendered. */
+const parseSizeOptionsPayload = (raw, isGendered) => {
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try { parsed = JSON.parse(raw); } catch { parsed = raw; }
+  }
+  if (isGendered) {
+    const src = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    const byGender = {};
+    for (const g of GEAR_GENDERS) {
+      const sizes = parseSizeOptions(src[g]);
+      if (sizes.length) byGender[g] = sizes;
+    }
+    return { isGendered: true, sizeOptions: [], sizeOptionsByGender: byGender };
+  }
+  return {
+    isGendered: false,
+    sizeOptions: parseSizeOptions(parsed),
+    sizeOptionsByGender: {},
+  };
+};
+
+const normalizeGenderedBody = (body) => {
+  const isGendered = !!body?.isGendered;
+  if (!isGendered) {
+    return {
+      isGendered: false,
+      sizeOptions: parseSizeOptions(body?.sizeOptions),
+      sizeOptionsByGender: {},
+    };
+  }
+  const byGender = {};
+  const raw = body?.sizeOptionsByGender;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const g of GEAR_GENDERS) {
+      const sizes = parseSizeOptions(raw[g]);
+      if (sizes.length) byGender[g] = sizes;
+    }
+  } else {
+    const women = parseSizeOptions(body?.womenSizeOptions ?? body?.womenSizes);
+    const men = parseSizeOptions(body?.menSizeOptions ?? body?.menSizes);
+    if (women.length) byGender.women = women;
+    if (men.length) byGender.men = men;
+  }
+  if (!Object.keys(byGender).length) {
+    throw Object.assign(new Error('At least one gender size list is required'), { status: 400 });
+  }
+  return { isGendered: true, sizeOptions: [], sizeOptionsByGender: byGender };
+};
+
+const serializeSizeOptionsJson = ({ isGendered, sizeOptions, sizeOptionsByGender }) => {
+  if (isGendered) return JSON.stringify(sizeOptionsByGender || {});
+  return JSON.stringify(sizeOptions || []);
+};
+
+async function ensureStockRows(aid, typeId, { isGendered, sizeOptions, sizeOptionsByGender }) {
+  if (isGendered) {
+    for (const [gender, sizes] of Object.entries(sizeOptionsByGender || {})) {
+      for (const size of sizes) {
+        await pool.execute(
+          `INSERT IGNORE INTO gear_stock_levels (agency_id, gear_item_type_id, gender, size_label, quantity_on_hand)
+           VALUES (?, ?, ?, ?, 0)`,
+          [aid, typeId, gender, size]
+        );
+      }
+    }
+    return;
+  }
+  for (const size of sizeOptions || []) {
+    await pool.execute(
+      `INSERT IGNORE INTO gear_stock_levels (agency_id, gear_item_type_id, gender, size_label, quantity_on_hand)
+       VALUES (?, ?, '', ?, 0)`,
+      [aid, typeId, size]
+    );
+  }
+}
+
 const mapType = (row) => {
   if (!row) return null;
+  const isGendered = !!row.is_gendered;
+  const parsed = parseSizeOptionsPayload(row.size_options_json, isGendered);
   return {
     id: row.id,
     agencyId: row.agency_id,
     name: row.name,
     category: row.category,
     trackingMode: row.tracking_mode,
-    sizeOptions: parseSizeOptions(row.size_options_json),
+    isGendered,
+    sizeOptions: parsed.sizeOptions,
+    sizeOptionsByGender: parsed.sizeOptionsByGender,
     lifecycleItemKey: row.lifecycle_item_key || null,
     lowStockThreshold: Number(row.low_stock_threshold ?? 2),
     isActive: !!row.is_active,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+};
+
+const formatStockLabel = (gender, sizeLabel) => {
+  const g = genderLabel(gender);
+  const size = String(sizeLabel || '').trim();
+  if (g && size) return `${g} · ${size}`;
+  return size || g || '';
 };
 
 async function resolveAgencyId(raw) {
@@ -153,11 +250,18 @@ export async function createType(agencyId, body, actorUserId) {
     throw Object.assign(new Error('Invalid tracking mode'), { status: 400 });
   }
   const category = String(body?.category || 'general').trim().slice(0, 64) || 'general';
-  const sizeOptions = trackingMode === 'SIZED_STOCK'
-    ? (parseSizeOptions(body?.sizeOptions).length
-      ? parseSizeOptions(body.sizeOptions)
-      : ['XS', 'S', 'M', 'L', 'XL'])
-    : [];
+  const isGendered = trackingMode === 'SIZED_STOCK' && !!body?.isGendered;
+  const sizePayload = trackingMode === 'SIZED_STOCK'
+    ? (isGendered
+      ? normalizeGenderedBody(body)
+      : {
+        isGendered: false,
+        sizeOptions: parseSizeOptions(body?.sizeOptions).length
+          ? parseSizeOptions(body.sizeOptions)
+          : ['XS', 'S', 'M', 'L', 'XL'],
+        sizeOptionsByGender: {},
+      })
+    : { isGendered: false, sizeOptions: [], sizeOptionsByGender: {} };
   const lifecycleItemKey = body?.lifecycleItemKey ? String(body.lifecycleItemKey).trim().slice(0, 64) : null;
   if (lifecycleItemKey && !CLEAR_EQUIPMENT_LIFECYCLE_KEYS.includes(lifecycleItemKey)) {
     throw Object.assign(new Error('Invalid lifecycle item key'), { status: 400 });
@@ -166,20 +270,23 @@ export async function createType(agencyId, body, actorUserId) {
 
   const [result] = await pool.execute(
     `INSERT INTO gear_item_types
-       (agency_id, name, category, tracking_mode, size_options_json, lifecycle_item_key, low_stock_threshold)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [aid, name, category, trackingMode, JSON.stringify(sizeOptions), lifecycleItemKey, lowStockThreshold]
+       (agency_id, name, category, tracking_mode, is_gendered, size_options_json, lifecycle_item_key, low_stock_threshold)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      aid,
+      name,
+      category,
+      trackingMode,
+      sizePayload.isGendered ? 1 : 0,
+      serializeSizeOptionsJson(sizePayload),
+      lifecycleItemKey,
+      lowStockThreshold,
+    ]
   );
   const typeId = result.insertId;
 
   if (trackingMode === 'SIZED_STOCK') {
-    for (const size of sizeOptions) {
-      await pool.execute(
-        `INSERT INTO gear_stock_levels (agency_id, gear_item_type_id, size_label, quantity_on_hand)
-         VALUES (?, ?, ?, 0)`,
-        [aid, typeId, size]
-      );
-    }
+    await ensureStockRows(aid, typeId, sizePayload);
   }
 
   void actorUserId;
@@ -223,17 +330,37 @@ export async function updateType(agencyId, typeId, body) {
     updates.push('is_active = ?');
     values.push(body.isActive ? 1 : 0);
   }
-  if (body?.sizeOptions !== undefined && existing.tracking_mode === 'SIZED_STOCK') {
-    const sizeOptions = parseSizeOptions(body.sizeOptions);
-    updates.push('size_options_json = ?');
-    values.push(JSON.stringify(sizeOptions));
-    for (const size of sizeOptions) {
-      await pool.execute(
-        `INSERT IGNORE INTO gear_stock_levels (agency_id, gear_item_type_id, size_label, quantity_on_hand)
-         VALUES (?, ?, ?, 0)`,
-        [aid, tid, size]
-      );
+  if (
+    existing.tracking_mode === 'SIZED_STOCK'
+    && (body?.sizeOptions !== undefined || body?.sizeOptionsByGender !== undefined || body?.isGendered !== undefined)
+  ) {
+    const nextGendered = body?.isGendered !== undefined ? !!body.isGendered : !!existing.is_gendered;
+    let sizePayload;
+    if (nextGendered) {
+      if (body?.sizeOptionsByGender || body?.womenSizeOptions || body?.menSizeOptions) {
+        sizePayload = normalizeGenderedBody({ ...body, isGendered: true });
+      } else {
+        sizePayload = parseSizeOptionsPayload(existing.size_options_json, true);
+        sizePayload.isGendered = true;
+        if (!Object.keys(sizePayload.sizeOptionsByGender).length) {
+          throw Object.assign(new Error('Women\'s and/or men\'s size lists are required'), { status: 400 });
+        }
+      }
+    } else {
+      const flat = body?.sizeOptions !== undefined
+        ? parseSizeOptions(body.sizeOptions)
+        : parseSizeOptionsPayload(existing.size_options_json, false).sizeOptions;
+      sizePayload = {
+        isGendered: false,
+        sizeOptions: flat.length ? flat : ['XS', 'S', 'M', 'L', 'XL'],
+        sizeOptionsByGender: {},
+      };
     }
+    updates.push('is_gendered = ?');
+    values.push(sizePayload.isGendered ? 1 : 0);
+    updates.push('size_options_json = ?');
+    values.push(serializeSizeOptionsJson(sizePayload));
+    await ensureStockRows(aid, tid, sizePayload);
   }
 
   if (updates.length) {
@@ -252,11 +379,11 @@ export async function listStock(agencyId) {
   const aid = await resolveAgencyId(agencyId);
   if (!aid) throw Object.assign(new Error('Agency ID required'), { status: 400 });
   const [rows] = await pool.execute(
-    `SELECT s.*, t.name AS type_name, t.category, t.low_stock_threshold, t.tracking_mode
+    `SELECT s.*, t.name AS type_name, t.category, t.low_stock_threshold, t.tracking_mode, t.is_gendered
      FROM gear_stock_levels s
      JOIN gear_item_types t ON t.id = s.gear_item_type_id
      WHERE s.agency_id = ? AND t.tracking_mode = 'SIZED_STOCK' AND t.is_active = 1
-     ORDER BY t.category, t.name, s.size_label`,
+     ORDER BY t.category, t.name, s.gender, s.size_label`,
     [aid]
   );
   return (rows || []).map((r) => ({
@@ -265,17 +392,25 @@ export async function listStock(agencyId) {
     gearItemTypeId: r.gear_item_type_id,
     typeName: r.type_name,
     category: r.category,
+    gender: r.gender || '',
+    genderLabel: genderLabel(r.gender),
     sizeLabel: r.size_label,
+    displayLabel: formatStockLabel(r.gender, r.size_label),
     quantityOnHand: Number(r.quantity_on_hand || 0),
     lowStockThreshold: Number(r.low_stock_threshold ?? 2),
     isLow: Number(r.quantity_on_hand || 0) <= Number(r.low_stock_threshold ?? 2),
+    isGendered: !!r.is_gendered,
   }));
 }
 
-export async function adjustStock(agencyId, { gearItemTypeId, sizeLabel, quantityOnHand, delta, reason }, actorUserId) {
+export async function adjustStock(agencyId, { gearItemTypeId, sizeLabel, gender = '', quantityOnHand, delta, reason }, actorUserId) {
   const aid = await resolveAgencyId(agencyId);
   const tid = Number(gearItemTypeId || 0);
   const size = String(sizeLabel || '').trim();
+  const genderKey = String(gender || '').trim().toLowerCase();
+  if (genderKey && !GEAR_GENDERS.includes(genderKey)) {
+    throw Object.assign(new Error('Invalid gender'), { status: 400 });
+  }
   if (!aid || !tid || !size) throw Object.assign(new Error('Type and size are required'), { status: 400 });
 
   const [[typeRow]] = await pool.execute(
@@ -283,10 +418,13 @@ export async function adjustStock(agencyId, { gearItemTypeId, sizeLabel, quantit
     [tid, aid]
   );
   if (!typeRow) throw Object.assign(new Error('Sized gear type not found'), { status: 404 });
+  if (typeRow.is_gendered && !genderKey) {
+    throw Object.assign(new Error('Gender is required for this gear type'), { status: 400 });
+  }
 
   const [[stock]] = await pool.execute(
-    `SELECT * FROM gear_stock_levels WHERE agency_id = ? AND gear_item_type_id = ? AND size_label = ?`,
-    [aid, tid, size]
+    `SELECT * FROM gear_stock_levels WHERE agency_id = ? AND gear_item_type_id = ? AND gender = ? AND size_label = ?`,
+    [aid, tid, genderKey, size]
   );
 
   let nextQty;
@@ -301,9 +439,9 @@ export async function adjustStock(agencyId, { gearItemTypeId, sizeLabel, quantit
 
   if (!stock) {
     await pool.execute(
-      `INSERT INTO gear_stock_levels (agency_id, gear_item_type_id, size_label, quantity_on_hand)
-       VALUES (?, ?, ?, ?)`,
-      [aid, tid, size, nextQty]
+      `INSERT INTO gear_stock_levels (agency_id, gear_item_type_id, gender, size_label, quantity_on_hand)
+       VALUES (?, ?, ?, ?, ?)`,
+      [aid, tid, genderKey, size, nextQty]
     );
   } else {
     await pool.execute(
@@ -318,11 +456,11 @@ export async function adjustStock(agencyId, { gearItemTypeId, sizeLabel, quantit
     sizeLabel: size,
     movementType: 'ADJUST',
     quantityDelta: qtyDelta,
-    reason: reason || 'Stock adjustment',
+    reason: genderKey ? `${genderLabel(genderKey)} · ${reason || 'Stock adjustment'}` : (reason || 'Stock adjustment'),
     createdByUserId: actorUserId,
   });
 
-  return { gearItemTypeId: tid, sizeLabel: size, quantityOnHand: nextQty };
+  return { gearItemTypeId: tid, gender: genderKey, sizeLabel: size, quantityOnHand: nextQty };
 }
 
 export async function listAssets(agencyId, { gearItemTypeId = null, status = null } = {}) {
@@ -499,7 +637,10 @@ export async function listUserAssignments(agencyId, userId, { activeOnly = true 
     typeName: r.type_name,
     category: r.category,
     trackingMode: r.tracking_mode,
+    gender: r.gender || '',
+    genderLabel: genderLabel(r.gender),
     sizeLabel: r.size_label,
+    displayLabel: r.asset_code || formatStockLabel(r.gender, r.size_label) || '—',
     uniqueAssetId: r.unique_asset_id,
     assetCode: r.asset_code,
     issuedAt: r.issued_at,
@@ -512,12 +653,17 @@ export async function issueGear(agencyId, {
   userId,
   gearItemTypeId,
   sizeLabel = null,
+  gender = '',
   uniqueAssetId = null,
   notes = null,
 }, actorUserId) {
   const aid = await resolveAgencyId(agencyId);
   const uid = Number(userId || 0);
   const tid = Number(gearItemTypeId || 0);
+  const genderKey = String(gender || '').trim().toLowerCase();
+  if (genderKey && !GEAR_GENDERS.includes(genderKey)) {
+    throw Object.assign(new Error('Invalid gender'), { status: 400 });
+  }
   if (!aid || !uid || !tid) throw Object.assign(new Error('Agency, user, and type are required'), { status: 400 });
 
   const conn = await pool.getConnection();
@@ -535,14 +681,18 @@ export async function issueGear(agencyId, {
     if (typeRow.tracking_mode === 'SIZED_STOCK') {
       size = String(sizeLabel || '').trim();
       if (!size) throw Object.assign(new Error('Size is required'), { status: 400 });
+      if (typeRow.is_gendered && !genderKey) {
+        throw Object.assign(new Error('Gender is required for this gear type'), { status: 400 });
+      }
       const [[stock]] = await conn.execute(
         `SELECT * FROM gear_stock_levels
-         WHERE agency_id = ? AND gear_item_type_id = ? AND size_label = ?
+         WHERE agency_id = ? AND gear_item_type_id = ? AND gender = ? AND size_label = ?
          FOR UPDATE`,
-        [aid, tid, size]
+        [aid, tid, genderKey, size]
       );
       if (!stock || Number(stock.quantity_on_hand) < 1) {
-        throw Object.assign(new Error(`No stock available for size ${size}`), { status: 400 });
+        const label = formatStockLabel(genderKey, size) || size;
+        throw Object.assign(new Error(`No stock available for ${label}`), { status: 400 });
       }
       await conn.execute(
         `UPDATE gear_stock_levels SET quantity_on_hand = quantity_on_hand - 1 WHERE id = ?`,
@@ -569,9 +719,9 @@ export async function issueGear(agencyId, {
 
     const [assignResult] = await conn.execute(
       `INSERT INTO gear_assignments
-         (agency_id, user_id, gear_item_type_id, size_label, unique_asset_id, issued_by_user_id, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [aid, uid, tid, size, assetId, actorUserId || null, notes ? String(notes).trim() : null]
+         (agency_id, user_id, gear_item_type_id, gender, size_label, unique_asset_id, issued_by_user_id, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [aid, uid, tid, genderKey, size, assetId, actorUserId || null, notes ? String(notes).trim() : null]
     );
     const assignmentId = assignResult.insertId;
 
@@ -640,8 +790,8 @@ export async function returnGear(agencyId, assignmentId, actorUserId, { notes = 
       await conn.execute(
         `UPDATE gear_stock_levels
          SET quantity_on_hand = quantity_on_hand + 1
-         WHERE agency_id = ? AND gear_item_type_id = ? AND size_label = ?`,
-        [aid, assignment.gear_item_type_id, assignment.size_label]
+         WHERE agency_id = ? AND gear_item_type_id = ? AND gender = ? AND size_label = ?`,
+        [aid, assignment.gear_item_type_id, assignment.gender || '', assignment.size_label]
       );
     } else if (assignment.unique_asset_id) {
       await conn.execute(
@@ -724,17 +874,24 @@ export async function listIssuableStock(agencyId, gearItemTypeId) {
   if (!typeRow) throw Object.assign(new Error('Not found'), { status: 404 });
   if (typeRow.tracking_mode === 'SIZED_STOCK') {
     const [rows] = await pool.execute(
-      `SELECT size_label, quantity_on_hand FROM gear_stock_levels
+      `SELECT gender, size_label, quantity_on_hand FROM gear_stock_levels
        WHERE agency_id = ? AND gear_item_type_id = ? AND quantity_on_hand > 0
-       ORDER BY size_label`,
+       ORDER BY gender, size_label`,
       [aid, tid]
     );
+    const sizes = (rows || []).map((r) => ({
+      gender: r.gender || '',
+      genderLabel: genderLabel(r.gender),
+      sizeLabel: r.size_label,
+      displayLabel: formatStockLabel(r.gender, r.size_label),
+      quantityOnHand: Number(r.quantity_on_hand || 0),
+    }));
+    const genders = [...new Set(sizes.map((s) => s.gender).filter(Boolean))];
     return {
       trackingMode: 'SIZED_STOCK',
-      sizes: (rows || []).map((r) => ({
-        sizeLabel: r.size_label,
-        quantityOnHand: Number(r.quantity_on_hand || 0),
-      })),
+      isGendered: !!typeRow.is_gendered,
+      genders: genders.map((g) => ({ value: g, label: genderLabel(g) })),
+      sizes,
     };
   }
   const assets = await listAssets(aid, { gearItemTypeId: tid, status: 'AVAILABLE' });

@@ -60,7 +60,7 @@
           <div v-for="t in types" :key="t.id" class="gi-row">
             <span class="gi-strong">{{ t.name }}</span>
             <span>{{ t.category }}</span>
-            <span>{{ t.trackingMode === 'UNIQUE_ASSET' ? 'Unique asset' : 'Sized stock' }}</span>
+            <span>{{ t.trackingMode === 'UNIQUE_ASSET' ? 'Unique asset' : (t.isGendered ? 'Sized · gendered' : 'Sized stock') }}</span>
             <span class="muted">{{ t.lifecycleItemKey || '—' }}</span>
             <span class="gi-actions">
               <button type="button" class="gi-link" @click="openTypeForm(t)">Edit</button>
@@ -83,7 +83,7 @@
             :class="{ low: s.isLow }"
           >
             <div class="gi-stock-name">{{ s.typeName }}</div>
-            <div class="gi-stock-size">Size {{ s.sizeLabel }}</div>
+            <div class="gi-stock-size">{{ s.displayLabel || `Size ${s.sizeLabel}` }}</div>
             <div class="gi-stock-qty">{{ s.quantityOnHand }}</div>
             <div class="gi-stock-meta">{{ s.isLow ? 'Low stock' : 'On hand' }}</div>
             <button type="button" class="btn btn-secondary btn-sm" @click="openAdjust(s)">Adjust</button>
@@ -165,8 +165,20 @@
           <option value="UNIQUE_ASSET">Unique asset (Cart #4, laptop SN…)</option>
         </select>
         <template v-if="typeForm.trackingMode === 'SIZED_STOCK'">
-          <label class="lbl">Sizes (comma-separated)</label>
-          <input v-model="typeForm.sizeOptionsText" class="input" type="text" placeholder="XS, S, M, L, XL" />
+          <label class="lbl gi-check-row">
+            <input v-model="typeForm.isGendered" type="checkbox" />
+            Gendered sizing (women's and men's sizes differ)
+          </label>
+          <template v-if="typeForm.isGendered">
+            <label class="lbl">Women's sizes (comma-separated)</label>
+            <input v-model="typeForm.womenSizeOptionsText" class="input" type="text" placeholder="XS, S, M, L, XL" />
+            <label class="lbl">Men's sizes (comma-separated)</label>
+            <input v-model="typeForm.menSizeOptionsText" class="input" type="text" placeholder="S, M, L, XL, XXL" />
+          </template>
+          <template v-else>
+            <label class="lbl">Sizes (comma-separated)</label>
+            <input v-model="typeForm.sizeOptionsText" class="input" type="text" placeholder="XS, S, M, L, XL" />
+          </template>
           <label class="lbl">Low-stock threshold</label>
           <input v-model.number="typeForm.lowStockThreshold" class="input" type="number" min="0" />
         </template>
@@ -186,7 +198,7 @@
     <!-- Adjust modal -->
     <div v-if="showAdjustModal" class="gi-modal-backdrop" @click.self="showAdjustModal = false">
       <div class="gi-modal">
-        <h3>Adjust stock — {{ adjustTarget?.typeName }} ({{ adjustTarget?.sizeLabel }})</h3>
+        <h3>Adjust stock — {{ adjustTarget?.typeName }} ({{ adjustTarget?.displayLabel || adjustTarget?.sizeLabel }})</h3>
         <label class="lbl">New quantity on hand</label>
         <input v-model.number="adjustQty" class="input" type="number" min="0" />
         <label class="lbl">Reason</label>
@@ -270,10 +282,17 @@ const typeForm = ref({
   name: '',
   category: 'general',
   trackingMode: 'SIZED_STOCK',
+  isGendered: false,
   sizeOptionsText: 'XS, S, M, L, XL',
+  womenSizeOptionsText: 'XS, S, M, L, XL',
+  menSizeOptionsText: 'S, M, L, XL, XXL',
   lowStockThreshold: 2,
   lifecycleItemKey: '',
 });
+
+function parseSizesText(text) {
+  return String(text || '').split(',').map((s) => s.trim()).filter(Boolean);
+}
 
 const showAdjustModal = ref(false);
 const adjustTarget = ref(null);
@@ -312,11 +331,15 @@ async function loadAll() {
 function openTypeForm(t = null) {
   editingType.value = t;
   modalError.value = '';
+  const byGender = t?.sizeOptionsByGender || {};
   typeForm.value = {
     name: t?.name || '',
     category: t?.category || 'general',
     trackingMode: t?.trackingMode || 'SIZED_STOCK',
+    isGendered: !!t?.isGendered,
     sizeOptionsText: (t?.sizeOptions || ['XS', 'S', 'M', 'L', 'XL']).join(', '),
+    womenSizeOptionsText: (byGender.women || ['XS', 'S', 'M', 'L', 'XL']).join(', '),
+    menSizeOptionsText: (byGender.men || ['S', 'M', 'L', 'XL', 'XXL']).join(', '),
     lowStockThreshold: t?.lowStockThreshold ?? 2,
     lifecycleItemKey: t?.lifecycleItemKey || '',
   };
@@ -331,10 +354,20 @@ async function saveType() {
       name: typeForm.value.name,
       category: typeForm.value.category,
       trackingMode: typeForm.value.trackingMode,
-      sizeOptions: typeForm.value.sizeOptionsText.split(',').map((s) => s.trim()).filter(Boolean),
+      isGendered: !!typeForm.value.isGendered,
       lowStockThreshold: typeForm.value.lowStockThreshold,
       lifecycleItemKey: typeForm.value.lifecycleItemKey || null,
     };
+    if (typeForm.value.trackingMode === 'SIZED_STOCK') {
+      if (typeForm.value.isGendered) {
+        payload.sizeOptionsByGender = {
+          women: parseSizesText(typeForm.value.womenSizeOptionsText),
+          men: parseSizesText(typeForm.value.menSizeOptionsText),
+        };
+      } else {
+        payload.sizeOptions = parseSizesText(typeForm.value.sizeOptionsText);
+      }
+    }
     if (editingType.value?.id) {
       await api.patch(`${base()}/types/${editingType.value.id}`, payload);
     } else {
@@ -363,6 +396,7 @@ async function saveAdjust() {
   try {
     await api.post(`${base()}/stock/adjust`, {
       gearItemTypeId: adjustTarget.value.gearItemTypeId,
+      gender: adjustTarget.value.gender || '',
       sizeLabel: adjustTarget.value.sizeLabel,
       quantityOnHand: adjustQty.value,
       reason: adjustReason.value || 'Stock adjustment',
@@ -560,6 +594,17 @@ watch(agencyId, () => { void loadAll(); });
 .gi-modal h3 { margin: 0 0 12px; font-size: 1.1rem; }
 .gi-modal .lbl { display: block; margin-top: 10px; font-size: 12px; font-weight: 700; color: #4b5563; }
 .gi-modal .input { width: 100%; margin-top: 4px; }
+.gi-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+}
+.gi-check-row input { margin: 0; }
 .gi-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
 @media (max-width: 800px) {
