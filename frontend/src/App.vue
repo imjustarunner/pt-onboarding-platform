@@ -659,24 +659,19 @@
                     <div
                       v-if="showAffiliationsNav"
                       class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout affiliations-nav"
-                      @mouseenter="userPreferencesStore.navHoverMenusEnabled !== false && (directoryAffiliationsNavExpanded = true)"
-                      @mouseleave="userPreferencesStore.navHoverMenusEnabled !== false && (directoryAffiliationsNavExpanded = false)"
+                      @mouseenter="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout('affiliations')"
+                      @mouseleave="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout(null)"
                     >
-                      <div
+                      <button
+                        type="button"
                         class="nav-dropdown-group-trigger"
                         :aria-expanded="directoryAffiliationsNavExpanded ? 'true' : 'false'"
+                        @click.stop="setDirectoryFlyout(directoryAffiliationsNavExpanded ? null : 'affiliations')"
                       >
-                        <span class="school-portals-nav-label">Affiliations</span>
-                        <button
-                          type="button"
-                          class="nav-dropdown-group-caret-btn"
-                          :aria-label="directoryAffiliationsNavExpanded ? 'Collapse affiliations' : 'Expand affiliations'"
-                          @click.stop="directoryAffiliationsNavExpanded = !directoryAffiliationsNavExpanded"
-                        >
-                          <span class="nav-dropdown-group-caret" :class="{ open: directoryAffiliationsNavExpanded }" aria-hidden="true">▸</span>
-                        </button>
-                      </div>
-                      <div v-show="directoryAffiliationsNavExpanded" class="nav-dropdown-group-items nav-dropdown-group-items-nested">
+                        <span>Affiliations</span>
+                        <span class="nav-dropdown-group-caret" :class="{ open: directoryAffiliationsNavExpanded }" aria-hidden="true">▸</span>
+                      </button>
+                      <div v-show="directoryAffiliationsNavExpanded" class="nav-dropdown-group-items">
                         <button
                           v-for="row in affiliationPortalLinks"
                           :key="`dir-aff-${row.id}`"
@@ -695,20 +690,14 @@
                       @mouseenter="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout('schools')"
                       @mouseleave="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout(null)"
                     >
-                      <div
+                      <button
+                        type="button"
                         class="nav-dropdown-group-trigger school-mgmt-trigger"
                         :class="{ 'school-mgmt-flash': schoolMgmtFlashActive }"
                         :aria-expanded="directorySchoolsNavExpanded ? 'true' : 'false'"
+                        @click.stop="onSchoolMgmtTriggerClick"
                       >
-                        <router-link
-                          v-if="canSeeSchoolPortalsNav"
-                          :to="orgTo('/admin/caseload-hub/schools-staff')"
-                          class="school-mgmt-link"
-                          @click="closeAllNavMenus"
-                        >
-                          School Management
-                        </router-link>
-                        <span v-else class="school-mgmt-link">School Management</span>
+                        <span class="school-mgmt-label">School Management</span>
                         <span
                           v-if="schoolClientsPendingCount > 0"
                           class="nav-badge nav-badge-pulse"
@@ -716,16 +705,14 @@
                         >
                           {{ schoolClientsPendingCount }}
                         </span>
-                        <button
-                          type="button"
-                          class="nav-dropdown-group-caret-btn"
-                          :aria-label="directorySchoolsNavExpanded ? 'Collapse school links' : 'Expand school links'"
-                          @click.stop="setDirectoryFlyout(directorySchoolsNavExpanded ? null : 'schools')"
-                        >
-                          <span class="nav-dropdown-group-caret" :class="{ open: directorySchoolsNavExpanded }" aria-hidden="true">▸</span>
-                        </button>
-                      </div>
+                        <span class="nav-dropdown-group-caret" :class="{ open: directorySchoolsNavExpanded }" aria-hidden="true">▸</span>
+                      </button>
                       <div v-show="directorySchoolsNavExpanded" class="nav-dropdown-group-items">
+                        <router-link
+                          v-if="canSeeSchoolPortalsNav"
+                          :to="orgTo('/admin/caseload-hub/schools-staff')"
+                          @click="closeAllNavMenus"
+                        >Open School Management</router-link>
                         <div
                           v-if="canSeeSchoolPortalsNav"
                           class="nav-dropdown-group nav-dropdown-group-collapsible school-portals-nav"
@@ -764,6 +751,7 @@
                         </router-link>
                       </div>
                     </div>
+                    <div class="nav-dropdown-sep" v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav || canSeeProgramOverviewNav" />
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav">Program Overview</router-link>
                     <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Provider Booking Interface</router-link>
                     <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" >Provider Management</router-link>
@@ -1781,20 +1769,14 @@
               </div>
 
                   <div v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav" class="mobile-nav-group mobile-nav-group-collapsible">
-                    <div
-                      class="mobile-nav-group-trigger mobile-nav-sublink school-mgmt-trigger"
+                    <button
+                      type="button"
+                      class="mobile-nav-group-trigger school-mgmt-trigger"
                       :class="{ 'school-mgmt-flash': schoolMgmtFlashActive }"
                       :aria-expanded="directorySchoolsNavExpanded ? 'true' : 'false'"
+                      @click="directorySchoolsNavExpanded = !directorySchoolsNavExpanded"
                     >
-                      <router-link
-                        v-if="canSeeSchoolPortalsNav"
-                        :to="orgTo('/admin/caseload-hub/schools-staff')"
-                        class="school-mgmt-link"
-                        @click="closeMobileMenu"
-                      >
-                        School Management
-                      </router-link>
-                      <span v-else class="school-mgmt-link">School Management</span>
+                      <span class="school-mgmt-label">School Management</span>
                       <span
                         v-if="schoolClientsPendingCount > 0"
                         class="nav-badge nav-badge-pulse"
@@ -1802,15 +1784,15 @@
                       >
                         {{ schoolClientsPendingCount }}
                       </span>
-                      <button
-                        type="button"
-                        class="nav-dropdown-group-caret-btn"
-                        @click.stop="directorySchoolsNavExpanded = !directorySchoolsNavExpanded"
-                      >
-                        <span class="mobile-nav-group-caret" :class="{ open: directorySchoolsNavExpanded }" aria-hidden="true">▸</span>
-                      </button>
-                    </div>
+                      <span class="mobile-nav-group-caret" :class="{ open: directorySchoolsNavExpanded }" aria-hidden="true">▸</span>
+                    </button>
                     <template v-if="directorySchoolsNavExpanded">
+                      <router-link
+                        v-if="canSeeSchoolPortalsNav"
+                        :to="orgTo('/admin/caseload-hub/schools-staff')"
+                        @click="closeMobileMenu"
+                        class="mobile-nav-link mobile-nav-sublink"
+                      >Open School Management</router-link>
                       <div v-if="canSeeSchoolPortalsNav" class="mobile-nav-group mobile-nav-group-collapsible">
                         <button
                           type="button"
@@ -1834,13 +1816,13 @@
                       </router-link>
                     </template>
                   </div>
-                  <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Program Overview</router-link>
-                  <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Booking Interface</router-link>
-                  <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Management</router-link>
-                  <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
-                  <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Guardians</router-link>
-                  <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Clients</router-link>
-                  <router-link :to="orgTo('/admin/referral-directory')" v-if="canSeeReferralDirectoryNavLink" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Referral Directory</router-link>
+                  <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeMobileMenu" class="mobile-nav-link">Program Overview</router-link>
+                  <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Provider Booking Interface</router-link>
+                  <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Provider Management</router-link>
+                  <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
+                  <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Guardians</router-link>
+                  <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
+                  <router-link :to="orgTo('/admin/referral-directory')" v-if="canSeeReferralDirectoryNavLink" @click="closeMobileMenu" class="mobile-nav-link">Referral Directory</router-link>
                 </template>
               </div>
 
@@ -3042,9 +3024,15 @@ function setDirectoryFlyout(key) {
   directorySchedulesNavExpanded.value = key === 'schedules';
   directorySkillBuildersNavExpanded.value = key === 'events';
   directoryPublicLinksNavExpanded.value = key === 'public';
+  directoryAffiliationsNavExpanded.value = key === 'affiliations';
   directorySchoolsNavExpanded.value = key === 'schools';
   if (key !== 'schools') directorySchoolPortalsNavExpanded.value = false;
   if (key === 'public') loadDirectoryPublicLinks();
+}
+
+/** School Management row matches other Directory flyouts; click toggles the panel. */
+function onSchoolMgmtTriggerClick() {
+  setDirectoryFlyout(directorySchoolsNavExpanded.value ? null : 'schools');
 }
 
 const toggleDirectoryMenu = () => {
@@ -6418,20 +6406,23 @@ onUnmounted(() => {
   max-height: min(70vh, 520px);
   overflow-x: hidden;
   overflow-y: auto;
-  margin: 0;
-  padding: 8px 8px 8px 14px;
+  /* Override inline nested indent styles so the main Directory list stays flush */
+  margin: 0 !important;
+  padding: 8px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-left: 1px solid #e2e8f0 !important;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
 }
 .nav-dropdown-menu-wide .nav-dropdown-group-flyout > .nav-dropdown-group-items a {
   padding-left: 10px;
 }
-.nav-dropdown-menu-wide .nav-dropdown-group-items-nested {
+/* Nested lists only inside a flyout panel — never on the main Directory column */
+.nav-dropdown-menu-wide .nav-dropdown-group-flyout > .nav-dropdown-group-items .nav-dropdown-group-items-nested {
   position: static;
   margin: 0 0 4px 8px;
   padding: 2px 0 2px 8px;
@@ -6513,11 +6504,19 @@ onUnmounted(() => {
   gap: 6px;
   width: 100%;
 }
+.school-mgmt-label {
+  flex: 1;
+  text-align: left;
+  font-weight: 600;
+}
 .school-mgmt-link {
   flex: 1;
+  padding: 0 !important;
+  margin: 0 !important;
   color: inherit !important;
   text-decoration: none !important;
   font-weight: 600;
+  background: transparent !important;
 }
 .school-portals-nav {
   padding: 0;
