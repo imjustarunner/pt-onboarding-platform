@@ -4951,7 +4951,9 @@ const SCHEDULE_EVENT_KIND_LABELS = {
   SCHEDULE_HOLD: 'Schedule Hold',
   INDIRECT_SERVICES: 'Indirect Services',
   TEAM_MEETING: 'Team Meeting',
-  HUDDLE: 'Huddle'
+  HUDDLE: 'Huddle',
+  FALL_CHECKIN_PRESLOT: 'Fall Check-in pre-slot',
+  FALL_CHECKIN_BOOKED: 'Fall Check-in',
 };
 
 function nextDateYmd(ymd) {

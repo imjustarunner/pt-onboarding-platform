@@ -204,12 +204,25 @@ export const DEFAULT_QUESTIONS = [
     sort_order: 5,
   },
   {
+    question_key: 'fall_checkin_modality',
+    section_key: 'fall_check_in',
+    label: 'Check-in format',
+    help_text: 'In person at the school is the default. Request virtual if needed.',
+    input_type: 'select',
+    required: 1,
+    sort_order: 5,
+    options_json: [
+      { value: 'in_person', label: 'In person (at school)' },
+      { value: 'virtual', label: 'Request virtual' },
+    ],
+  },
+  {
     question_key: 'fall_checkin_slot_id',
     section_key: 'fall_check_in',
     label: 'Book a Fall School Check-In slot',
-    help_text: 'Select a preset available date, or leave blank and provide a preferred time below.',
+    help_text: 'Select an available pre-slot for your chosen format.',
     input_type: 'select',
-    required: 0,
+    required: 1,
     sort_order: 10,
   },
   {
@@ -1088,14 +1101,31 @@ export async function finalizeCycle({ cycleId, actor }) {
   const bySection = Object.fromEntries(sections.map((s) => [s.sectionKey, s.data || {}]));
   for (const q of questions) {
     if (!q.enabled || !q.required) continue;
-    if (['fall_checkin_slot_id'].includes(q.question_key)) continue;
+    // Slot booking is enforced via booking row + invite step below
+    if (['fall_checkin_slot_id', 'fall_checkin_modality'].includes(q.question_key)) continue;
     const val = bySection[q.section_key]?.[q.question_key];
     if (val === undefined || val === null || val === '') {
       throw new Error(`Required answer missing: ${q.label}`);
     }
   }
 
+  // Require booked check-in and invite all school_staff as of finalize time
+  const Checkin = await import('./schoolReinitCheckin.service.js');
+  const booking = await Checkin.inviteSchoolStaffOnFinalize(cycleId);
+
   const snapshot = await buildSnapshot(cycle);
+  snapshot.fallCheckInBooking = {
+    id: booking?.id || null,
+    slotId: booking?.slot_id || null,
+    modality: booking?.modality || null,
+    startsAt: booking?.starts_at || null,
+    endsAt: booking?.ends_at || null,
+    meetLink: booking?.meet_link || null,
+    locationText: booking?.location_text || null,
+    invitedSchoolStaff: parseJsonField(booking?.invited_school_staff_json) || [],
+    invitedAt: booking?.invited_at || null,
+  };
+
   await pool.execute(
     `UPDATE school_reinit_cycles
      SET status = 'finalized',
@@ -1313,6 +1343,12 @@ export async function listAgencyReport(agencyId, schoolYear) {
         preferredDay: fall.fall_checkin_preferred_day || null,
         preferredTime: fall.fall_checkin_preferred_time || null,
         slotId: fall.fall_checkin_slot_id || null,
+        modality: fall.fall_checkin_modality || null,
+        startsAt: fall.fall_checkin_starts_at || null,
+        endsAt: fall.fall_checkin_ends_at || null,
+        meetLink: fall.fall_checkin_meet_link || null,
+        location: fall.fall_checkin_location || null,
+        bookingId: fall.fall_checkin_booking_id || null,
       },
       scores: {
         overallSatisfaction,

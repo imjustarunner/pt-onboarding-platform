@@ -1,5 +1,6 @@
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import * as S from '../services/schoolReinit.service.js';
+import * as Checkin from '../services/schoolReinitCheckin.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -310,7 +311,8 @@ export async function getCycleDetail(req, res, next) {
       cycle.school_year
     );
     const questions = await S.listQuestionConfigs(cycle.agency_id, cycle.school_year);
-    const slots = await S.listCheckinSlots(cycle.agency_id, cycle.school_year);
+    const slots = await Checkin.listCheckinSlotsDetailed(cycle.agency_id, cycle.school_year);
+    const checkinBooking = await Checkin.getBookingForCycle(cycleId);
     const viewEvents = await S.listViewEvents(cycleId, 40);
     res.json({
       cycle: parseSnapshot(cycle),
@@ -322,6 +324,7 @@ export async function getCycleDetail(req, res, next) {
       events,
       questions: questions.filter((q) => q.enabled),
       checkinSlots: slots,
+      checkinBooking,
       viewEvents,
     });
   } catch (e) {
@@ -357,6 +360,47 @@ export async function resolveChangeRequest(req, res, next) {
   }
 }
 
+function campaignPayload(campaign) {
+  const checkin = Checkin.serializeCampaignCheckin(campaign);
+  return {
+    status: campaign?.status || 'draft',
+    enabledAt: campaign?.enabled_at || null,
+    pushedAt: campaign?.pushed_at || null,
+    isEnabled: S.campaignIsEnabled(campaign),
+    isPushed: S.campaignIsPushed(campaign),
+    checkin,
+  };
+}
+
+/** PUT /api/school-reinit/campaign/checkin-settings */
+export async function updateCheckinSettings(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    const campaign = await Checkin.updateCampaignCheckinSettings({
+      agencyId,
+      schoolYear,
+      hostUserIds: req.body?.hostUserIds,
+      extraAttendeeUserIds: req.body?.extraAttendeeUserIds,
+      slotDurationMinutes: req.body?.slotDurationMinutes,
+      inPersonGapMinutes: req.body?.inPersonGapMinutes,
+      virtualGapMinutes: req.body?.virtualGapMinutes,
+      defaultLocationMode: req.body?.defaultLocationMode,
+    });
+    res.json({ agencyId, schoolYear, campaign: campaignPayload(campaign) });
+  } catch (e) {
+    const msg = e?.message || 'Failed to save check-in settings';
+    if (/Host user|not in agency/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
+    next(e);
+  }
+}
+
 /** POST /api/school-reinit/checkin-slots */
 export async function createCheckinSlot(req, res, next) {
   try {
@@ -369,25 +413,21 @@ export async function createCheckinSlot(req, res, next) {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
-    const pool = (await import('../config/database.js')).default;
-    const [result] = await pool.execute(
-      `INSERT INTO school_reinit_checkin_slots
-        (agency_id, school_year, starts_at, ends_at, label, capacity, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, 1)`,
-      [
-        agencyId,
-        schoolYear,
-        startsAt,
-        req.body?.endsAt || null,
-        req.body?.label || null,
-        Number(req.body?.capacity) || 20,
-      ]
-    );
-    const [rows] = await pool.execute(`SELECT * FROM school_reinit_checkin_slots WHERE id = ?`, [
-      result.insertId,
-    ]);
-    res.status(201).json({ slot: rows[0] });
+    const slot = await Checkin.createCheckinPreslot({
+      agencyId,
+      schoolYear,
+      startsAt,
+      modality: req.body?.modality || 'in_person',
+      label: req.body?.label || null,
+      createdByUserId: req.user?.id || null,
+      skipGapCheck: req.body?.skipGapCheck === true,
+    });
+    res.status(201).json({ slot });
   } catch (e) {
+    const msg = e?.message || 'Create slot failed';
+    if (/host|Conflict|Invalid/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
     next(e);
   }
 }
@@ -401,9 +441,104 @@ export async function listCheckinSlotsAdmin(req, res, next) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
     const schoolYear = String(req.query.schoolYear || S.currentSchoolYear());
-    const slots = await S.listCheckinSlots(agencyId, schoolYear);
-    res.json({ slots });
+    const slots = await Checkin.listCheckinSlotsDetailed(agencyId, schoolYear);
+    const campaign = await S.getOrCreateCampaign(agencyId, schoolYear);
+    res.json({ slots, campaign: campaignPayload(campaign) });
   } catch (e) {
+    next(e);
+  }
+}
+
+/** DELETE /api/school-reinit/checkin-slots/:slotId */
+export async function deactivateCheckinSlot(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId || req.query?.agencyId);
+    const slotId = safeInt(req.params.slotId);
+    if (!agencyId || !slotId) {
+      return res.status(400).json({ error: { message: 'agencyId and slotId are required' } });
+    }
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    await Checkin.deactivateCheckinSlot(slotId, agencyId);
+    res.json({ ok: true });
+  } catch (e) {
+    const msg = e?.message || 'Deactivate failed';
+    if (/booked|not found|Forbidden/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
+    next(e);
+  }
+}
+
+/** POST /api/school-reinit/checkin-bookings — school books a pre-slot */
+export async function bookCheckinSlot(req, res, next) {
+  try {
+    const cycleId = safeInt(req.body?.cycleId);
+    const slotId = safeInt(req.body?.slotId);
+    const modality = String(req.body?.modality || 'in_person');
+    if (!cycleId || !slotId) {
+      return res.status(400).json({ error: { message: 'cycleId and slotId are required' } });
+    }
+    const cycle = await S.getCycleById(cycleId);
+    if (!cycle) return res.status(404).json({ error: { message: 'Cycle not found' } });
+
+    const actor = actorFromReq(req, req.body);
+    if (!actor) {
+      return res.status(400).json({ error: { message: 'Identity (displayName) is required' } });
+    }
+
+    const isStaff = await assertSchoolStaffForOrg(req, cycle.school_organization_id);
+    const isAdmin = await assertAgencyAccess(req, cycle.agency_id);
+    if (!isStaff && !isAdmin) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+
+    const booking = await Checkin.bookCheckinSlot({
+      cycleId,
+      slotId,
+      modality,
+      actor,
+    });
+    res.status(201).json({ booking });
+  } catch (e) {
+    const msg = e?.message || 'Booking failed';
+    if (/not available|already|modality|mismatch|finalized|not found/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
+    next(e);
+  }
+}
+
+/** POST /api/public/school-reinit/:token/checkin-bookings */
+export async function bookPublicCheckinSlot(req, res, next) {
+  try {
+    const result = await S.validateToken(req.params.token);
+    if (!result.valid) {
+      return res.status(404).json({ error: { message: 'Invalid or expired token' } });
+    }
+    if (result.row?.locked_at || result.row?.cycle_status === 'finalized') {
+      return res.status(400).json({ error: { message: 'This year update is locked' } });
+    }
+    const slotId = safeInt(req.body?.slotId);
+    const modality = String(req.body?.modality || 'in_person');
+    if (!slotId) return res.status(400).json({ error: { message: 'slotId is required' } });
+    const actor = actorFromReq(req, req.body);
+    if (!actor) {
+      return res.status(400).json({ error: { message: 'Identity (displayName) is required' } });
+    }
+    const booking = await Checkin.bookCheckinSlot({
+      cycleId: result.row.cycle_id,
+      slotId,
+      modality,
+      actor,
+    });
+    res.status(201).json({ booking });
+  } catch (e) {
+    const msg = e?.message || 'Booking failed';
+    if (/not available|already|modality|mismatch|finalized|not found/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
     next(e);
   }
 }
@@ -565,13 +700,7 @@ export async function getCampaignStatus(req, res, next) {
     res.json({
       agencyId,
       schoolYear,
-      campaign: {
-        status: campaign.status,
-        enabledAt: campaign.enabled_at,
-        pushedAt: campaign.pushed_at,
-        isEnabled: S.campaignIsEnabled(campaign),
-        isPushed: S.campaignIsPushed(campaign),
-      },
+      campaign: campaignPayload(campaign),
     });
   } catch (e) {
     next(e);
@@ -595,13 +724,7 @@ export async function enableCampaign(req, res, next) {
     res.json({
       agencyId,
       schoolYear,
-      campaign: {
-        status: result.campaign.status,
-        enabledAt: result.campaign.enabled_at,
-        pushedAt: result.campaign.pushed_at,
-        isEnabled: S.campaignIsEnabled(result.campaign),
-        isPushed: S.campaignIsPushed(result.campaign),
-      },
+      campaign: campaignPayload(result.campaign),
       alreadyEnabled: Boolean(result.alreadyEnabled),
       alreadyPushed: Boolean(result.alreadyPushed),
     });
@@ -628,9 +751,7 @@ export async function pushCampaign(req, res, next) {
       agencyId,
       schoolYear,
       campaign: {
-        status: result.campaign.status,
-        enabledAt: result.campaign.enabled_at,
-        pushedAt: result.campaign.pushed_at,
+        ...campaignPayload(result.campaign),
         isEnabled: true,
         isPushed: true,
       },
@@ -677,7 +798,10 @@ async function buildDashboardPayload(cycle) {
   const questions = (await S.listQuestionConfigs(cycle.agency_id, cycle.school_year)).filter(
     (q) => q.enabled
   );
-  const slots = await S.listCheckinSlots(cycle.agency_id, cycle.school_year);
+  const campaign = await S.getOrCreateCampaign(cycle.agency_id, cycle.school_year);
+  const checkinSettings = Checkin.serializeCampaignCheckin(campaign);
+  const allSlots = await Checkin.listCheckinSlotsDetailed(cycle.agency_id, cycle.school_year);
+  const checkinBooking = await Checkin.getBookingForCycle(cycle.id);
   const changeRequests = await S.listChangeRequests(cycle.id);
   const addendums = cycle.status === 'finalized' ? await S.listAddendums(cycle.id) : [];
 
@@ -698,7 +822,9 @@ async function buildDashboardPayload(cycle) {
     staff,
     events,
     questions,
-    checkinSlots: slots,
+    checkinSlots: allSlots.filter((s) => s.status === 'open' || Number(s.booked_cycle_id) === Number(cycle.id)),
+    checkinSettings,
+    checkinBooking,
     changeRequests,
     addendums,
     agency: agencyRows?.[0] || null,
@@ -799,6 +925,10 @@ export async function finalizeMyCycle(req, res, next) {
     const finalized = await S.finalizeCycle({ cycleId, actor });
     res.json({ cycle: parseSnapshot(finalized) });
   } catch (e) {
+    const msg = e?.message || 'Finalize failed';
+    if (/Book a Fall Check-in|Required answer|Sections not reviewed|Already finalized/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
     next(e);
   }
 }
@@ -943,6 +1073,10 @@ export async function finalizePublic(req, res, next) {
     const finalized = await S.finalizeCycle({ cycleId: result.row.cycle_id, actor });
     res.json({ cycle: parseSnapshot(finalized) });
   } catch (e) {
+    const msg = e?.message || 'Finalize failed';
+    if (/Book a Fall Check-in|Required answer|Sections not reviewed|Already finalized/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
     next(e);
   }
 }

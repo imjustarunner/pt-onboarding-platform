@@ -274,6 +274,95 @@ export class GoogleCalendarService {
   }
 
   /**
+   * Patch summary/location/attendees and optionally create a Google Meet conference.
+   * Used by Fall Check-in booking + finalize school_staff invites.
+   */
+  static async patchEventDetails({
+    subjectEmail,
+    calendarId = 'primary',
+    eventId,
+    summary,
+    description,
+    location,
+    attendeeEmails = null,
+    createMeetLink = false,
+    timeZone = 'America/New_York'
+  } = {}) {
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    const eid = String(eventId || '').trim();
+    if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!eid) return { ok: false, reason: 'missing_event_id' };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+
+    try {
+      const cal = this.buildCalendarClientForSubject(subject);
+      const getResp = await cal.events.get({ calendarId, eventId: eid });
+      const existing = getResp?.data || {};
+      const hasMeet = Boolean(
+        existing?.hangoutLink
+        || existing?.conferenceData?.entryPoints?.find((e) => e?.entryPointType === 'video')?.uri
+      );
+
+      const requestBody = {};
+      if (summary !== undefined && summary !== null) requestBody.summary = String(summary).trim();
+      if (description !== undefined && description !== null) requestBody.description = String(description);
+      if (location !== undefined && location !== null) requestBody.location = String(location).trim();
+
+      if (Array.isArray(attendeeEmails)) {
+        const emails = Array.from(new Set(
+          attendeeEmails.map((v) => String(v || '').trim().toLowerCase()).filter(Boolean)
+        )).filter((email) => email !== subject);
+        requestBody.attendees = emails.map((email) => ({ email }));
+      }
+
+      if (createMeetLink && !hasMeet) {
+        requestBody.conferenceData = {
+          createRequest: {
+            requestId: randomUUID(),
+            conferenceSolutionKey: { type: 'hangoutsMeet' }
+          }
+        };
+      }
+
+      // Preserve times if present so patch doesn't clear them
+      if (existing?.start) requestBody.start = existing.start;
+      if (existing?.end) requestBody.end = existing.end;
+      if (!requestBody.start?.timeZone && timeZone && requestBody.start?.dateTime) {
+        requestBody.start = { ...requestBody.start, timeZone };
+      }
+      if (!requestBody.end?.timeZone && timeZone && requestBody.end?.dateTime) {
+        requestBody.end = { ...requestBody.end, timeZone };
+      }
+
+      const upd = await cal.events.patch({
+        calendarId,
+        eventId: eid,
+        requestBody,
+        sendUpdates: 'all',
+        ...(createMeetLink && !hasMeet ? { conferenceDataVersion: 1 } : {})
+      });
+      const ev = upd?.data || {};
+      const meetLink =
+        ev?.conferenceData?.entryPoints?.find((e) => e?.entryPointType === 'video')?.uri
+        || ev?.hangoutLink
+        || existing?.hangoutLink
+        || null;
+      return {
+        ok: true,
+        eventId: ev?.id || eid,
+        htmlLink: ev?.htmlLink || existing?.htmlLink || null,
+        meetLink,
+        summary: ev?.summary || null
+      };
+    } catch (e) {
+      const code = Number(e?.code || e?.response?.status || 0);
+      if (code === 404) return { ok: false, reason: 'event_not_found', error: 'Event not found or deleted' };
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.patchEventDetails' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
+
+  /**
    * Update only the start/end times of an existing Google Calendar event.
    * Used by the meeting reschedule flow.
    */

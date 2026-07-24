@@ -104,6 +104,7 @@ const SKIP_KEYS = new Set([
   'bts_marketing_table',
   'bts_active_signups',
   'fall_checkin_slot_id',
+  'fall_checkin_modality',
 ]);
 
 const visibleQuestions = computed(() =>

@@ -221,14 +221,53 @@
 
               <section v-else class="cua__section-body">
                 <template v-if="activeSection === 'fall_check_in'">
-                  <div class="cua__panel">
-                    <h4>Available check-in slots</h4>
-                    <p v-if="!checkinSlots.length" class="cua__muted">No preset slots yet — share a preferred time below.</p>
-                    <label v-for="slot in checkinSlots" :key="slot.id" class="cua__check">
-                      <input v-model="formData.fall_check_in.fall_checkin_slot_id" type="radio" :value="String(slot.id)" />
-                      {{ formatSlot(slot) }}
-                    </label>
+                  <div v-if="checkinBooking" class="cua__panel" style="border-color: color-mix(in srgb, var(--cua-primary, #15803d) 35%, #e2e8f0); background: color-mix(in srgb, var(--cua-primary, #15803d) 6%, #fff);">
+                    <h4>Check-in booked</h4>
+                    <p>
+                      <strong>{{ checkinBooking.modality === 'virtual' ? 'Virtual' : 'In person' }}</strong>
+                      · {{ formatSlotRange(checkinBooking) }}
+                    </p>
+                    <p v-if="checkinBooking.location_text" class="cua__muted">{{ checkinBooking.location_text }}</p>
+                    <p v-if="checkinBooking.meet_link">
+                      Meet link:
+                      <a :href="checkinBooking.meet_link" target="_blank" rel="noopener">{{ checkinBooking.meet_link }}</a>
+                    </p>
+                    <p class="cua__muted">On finalize, all school staff accounts will be invited to this check-in.</p>
                   </div>
+                  <template v-else>
+                    <div class="cua__panel">
+                      <h4>1. Check-in format</h4>
+                      <p class="cua__muted">Default is in person at your school. Request virtual if you need a Google Meet.</p>
+                      <label class="cua__check">
+                        <input v-model="formData.fall_check_in.fall_checkin_modality" type="radio" value="in_person" />
+                        In person (at school)
+                      </label>
+                      <label class="cua__check">
+                        <input v-model="formData.fall_check_in.fall_checkin_modality" type="radio" value="virtual" />
+                        Request virtual
+                      </label>
+                    </div>
+                    <div class="cua__panel">
+                      <h4>2. Available {{ formData.fall_check_in.fall_checkin_modality === 'virtual' ? 'virtual' : 'in-person' }} pre-slots</h4>
+                      <p v-if="!filteredCheckinSlots.length" class="cua__muted">
+                        No open {{ formData.fall_check_in.fall_checkin_modality === 'virtual' ? 'virtual' : 'in-person' }} slots yet.
+                        Prefer a time below, or ask your agency to add pre-slots.
+                      </p>
+                      <label v-for="slot in filteredCheckinSlots" :key="slot.id" class="cua__check">
+                        <input v-model="formData.fall_check_in.fall_checkin_slot_id" type="radio" :value="String(slot.id)" />
+                        {{ formatSlot(slot) }}
+                      </label>
+                      <button
+                        type="button"
+                        class="btn btn-primary"
+                        style="margin-top: 10px;"
+                        :disabled="!formData.fall_check_in.fall_checkin_slot_id || bookingSlot"
+                        @click="bookSelectedSlot"
+                      >
+                        {{ bookingSlot ? 'Booking…' : 'Book selected slot' }}
+                      </button>
+                    </div>
+                  </template>
                 </template>
                 <template v-if="activeSection === 'growth_feedback'">
                   <div class="cua__panel cua__panel--warn">
@@ -322,6 +361,8 @@ const staff = ref([]);
 const events = ref(null);
 const questions = ref([]);
 const checkinSlots = ref([]);
+const checkinBooking = ref(null);
+const bookingSlot = ref(false);
 const changeRequests = ref([]);
 const addendums = ref([]);
 const shareToken = ref(null);
@@ -349,12 +390,21 @@ const formData = reactive({
   materials: {},
   needs_assessment: {},
   fall_check_in: {
+    fall_checkin_modality: 'in_person',
     fall_checkin_slot_id: '',
     fall_checkin_preferred_week: '',
     fall_checkin_preferred_day: '',
     fall_checkin_preferred_time: '',
   },
   growth_feedback: {},
+});
+
+const filteredCheckinSlots = computed(() => {
+  const modality = formData.fall_check_in.fall_checkin_modality || 'in_person';
+  return (checkinSlots.value || []).filter((s) => {
+    if (s.status && s.status !== 'open') return false;
+    return String(s.modality || 'in_person') === modality;
+  });
 });
 
 const ICONS = {
@@ -427,7 +477,37 @@ function formatDate(raw) {
 }
 function formatSlot(slot) {
   const label = slot.label ? `${slot.label} — ` : '';
-  return `${label}${formatDate(slot.starts_at)}`;
+  const start = slot.starts_at || slot.startsAt;
+  const end = slot.ends_at || slot.endsAt;
+  const startLabel = formatDateTime(start);
+  if (!end) return `${label}${startLabel}`;
+  const endTime = formatTimeOnly(end);
+  return `${label}${startLabel} – ${endTime}`;
+}
+function formatDateTime(raw) {
+  if (!raw) return '—';
+  const d = new Date(String(raw).replace(' ', 'T'));
+  if (Number.isNaN(d.getTime())) return String(raw);
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+function formatTimeOnly(raw) {
+  if (!raw) return '';
+  const d = new Date(String(raw).replace(' ', 'T'));
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+function formatSlotRange(booking) {
+  return formatSlot({
+    starts_at: booking.starts_at || booking.startsAt,
+    ends_at: booking.ends_at || booking.endsAt,
+    label: booking.slot_label,
+  });
 }
 
 function openSection(key) {
@@ -458,9 +538,13 @@ function applyPayload(data) {
   events.value = data.events || null;
   questions.value = data.questions || [];
   checkinSlots.value = data.checkinSlots || [];
+  checkinBooking.value = data.checkinBooking || null;
   changeRequests.value = data.changeRequests || [];
   addendums.value = data.addendums || [];
   shareToken.value = data.shareToken || (data.token ? { token: data.token, path: `/school-reinit/${data.token}` } : null);
+  if (!formData.fall_check_in.fall_checkin_modality) {
+    formData.fall_check_in.fall_checkin_modality = 'in_person';
+  }
 
   for (const s of sections.value) {
     if (s.data && formData[s.sectionKey]) {
@@ -607,7 +691,55 @@ async function saveSection(sectionKey, reviewed) {
   }
 }
 
+async function bookSelectedSlot() {
+  const slotId = Number(formData.fall_check_in.fall_checkin_slot_id);
+  const modality = formData.fall_check_in.fall_checkin_modality || 'in_person';
+  if (!slotId || !cycle.value?.id) return;
+  bookingSlot.value = true;
+  error.value = '';
+  try {
+    const body = {
+      cycleId: cycle.value.id,
+      slotId,
+      modality,
+      ...actorPayload(),
+    };
+    let res;
+    if (props.mode === 'token') {
+      res = await api.post(`/public/school-reinit/${props.token}/checkin-bookings`, body);
+    } else if (props.mode === 'admin' && shareToken.value?.token) {
+      res = await api.post(`/public/school-reinit/${shareToken.value.token}/checkin-bookings`, {
+        ...body,
+        displayName: 'Agency admin',
+      });
+    } else {
+      res = await api.post('/school-reinit/checkin-bookings', body);
+    }
+    checkinBooking.value = res.data.booking;
+    Object.assign(formData.fall_check_in, {
+      fall_checkin_modality: modality,
+      fall_checkin_slot_id: String(slotId),
+      fall_checkin_meet_link: res.data.booking?.meet_link || null,
+    });
+    await saveSection('fall_check_in', true);
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Booking failed';
+  } finally {
+    bookingSlot.value = false;
+  }
+}
+
 async function onConfirmSection(sectionKey) {
+  if (sectionKey === 'fall_check_in' && !checkinBooking.value) {
+    if (formData.fall_check_in.fall_checkin_slot_id) {
+      await bookSelectedSlot();
+      if (!checkinBooking.value) return;
+    } else {
+      error.value = 'Book a check-in slot (or wait for your agency to publish pre-slots).';
+      return;
+    }
+  }
   await saveSection(sectionKey, true);
   if (isSectionDone(sectionKey) || true) {
     const next = sectionMeta.find((s) => !isSectionDone(s.key) && s.key !== sectionKey);

@@ -79,17 +79,89 @@
       </div>
     </div>
 
-    <!-- Check-in slots -->
+    <!-- Check-in pre-slots -->
     <div v-if="showSlots" class="reinit-admin__panel">
-      <strong>Fall check-in preset slots</strong>
+      <strong>Fall check-in hosts &amp; pre-slots</strong>
+      <p class="muted small" style="margin: 6px 0 12px;">
+        Set tenant hosts (typically two). Pre-slots appear on their calendars as “(fills in Fall Check-in)” until a school books.
+      </p>
+
+      <div class="reinit-admin__checkin-settings">
+        <div class="reinit-admin__checkin-hosts">
+          <label class="small muted">Tenant hosts</label>
+          <div class="reinit-admin__host-chips">
+            <label v-for="u in agencyUsers" :key="u.id" class="reinit-admin__host-chip">
+              <input v-model="checkinSettings.hostUserIds" type="checkbox" :value="Number(u.id)" />
+              {{ userLabel(u) }}
+            </label>
+          </div>
+          <label class="small muted" style="margin-top: 8px; display: block;">Also present (optional)</label>
+          <div class="reinit-admin__host-chips">
+            <label v-for="u in agencyUsers" :key="'x' + u.id" class="reinit-admin__host-chip">
+              <input v-model="checkinSettings.extraAttendeeUserIds" type="checkbox" :value="Number(u.id)" />
+              {{ userLabel(u) }}
+            </label>
+          </div>
+        </div>
+        <div class="reinit-admin__checkin-gaps">
+          <label>Meeting duration (min)
+            <input v-model.number="checkinSettings.slotDurationMinutes" type="number" min="5" class="reinit-admin__input" />
+          </label>
+          <label>In-person gap after meeting (min)
+            <input v-model.number="checkinSettings.inPersonGapMinutes" type="number" min="0" class="reinit-admin__input" />
+          </label>
+          <label>Virtual gap after meeting (min)
+            <input v-model.number="checkinSettings.virtualGapMinutes" type="number" min="0" class="reinit-admin__input" />
+          </label>
+          <p class="muted small reinit-admin__gap-hint">{{ gapSpacingHint }}</p>
+          <button type="button" class="btn btn-primary btn-sm" :disabled="savingCheckin" @click="saveCheckinSettings">
+            {{ savingCheckin ? 'Saving…' : 'Save hosts & gaps' }}
+          </button>
+        </div>
+      </div>
+
       <ul class="reinit-admin__slots">
-        <li v-for="s in slots" :key="s.id">{{ formatDt(s.starts_at) }} {{ s.label ? `— ${s.label}` : '' }}</li>
+        <li v-for="s in slots" :key="s.id" class="reinit-admin__slot-row">
+          <span>
+            <span class="pill" :class="s.modality === 'virtual' ? 'pill--enabled' : 'pill--draft'">
+              {{ s.modality === 'virtual' ? 'Virtual' : 'In person' }}
+            </span>
+            {{ formatDt(s.starts_at) }}
+            <template v-if="s.label"> — {{ s.label }}</template>
+            <span v-if="s.status === 'booked'" class="muted small">
+              · Booked {{ s.booked_school_name || '' }}
+              <template v-if="s.booking_meet_link"> · Meet ready</template>
+              <template v-if="s.booking_invited_at"> · Staff invited</template>
+            </span>
+            <span v-else class="muted small"> · Open pre-slot</span>
+          </span>
+          <button
+            v-if="s.status === 'open'"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="deactivateSlot(s)"
+          >Remove</button>
+        </li>
       </ul>
       <div class="reinit-admin__slot-form">
         <input v-model="newSlot.startsAt" type="datetime-local" />
+        <select v-model="newSlot.modality" @change="suggestNextSlotStart">
+          <option value="in_person">In person available</option>
+          <option value="virtual">Virtual available</option>
+        </select>
         <input v-model="newSlot.label" type="text" placeholder="Label (optional)" />
-        <button type="button" class="btn btn-primary btn-sm" :disabled="!newSlot.startsAt" @click="addSlot">Add slot</button>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="!checkinSettings.hostUserIds.length" @click="suggestNextSlotStart">
+          Suggest next time
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" :disabled="!newSlot.startsAt || !checkinSettings.hostUserIds.length" @click="addSlot">
+          Add pre-slot
+        </button>
       </div>
+      <p class="muted small">
+        First slot = the start time you pick. Next starts after meeting duration + gap
+        (e.g. 8:00 + {{ checkinSettings.slotDurationMinutes || 30 }} + {{ activeGapMinutes }} → {{ exampleNextStartLabel }}).
+      </p>
+      <p v-if="!checkinSettings.hostUserIds.length" class="muted small">Select at least one host before adding pre-slots.</p>
     </div>
 
     <!-- Metric cards -->
@@ -302,6 +374,14 @@
                 <div><span>Trifolds</span><strong>{{ yn(selectedRow.needTrifolds) }}</strong></div>
                 <div><span>Delivery</span><strong>{{ yn(selectedRow.materialsDeliveryRequired) }}</strong></div>
                 <div><span>Fall check-in</span><strong>{{ fallCheckInLabel(selectedRow) }}</strong></div>
+                <div v-if="detail?.checkinBooking?.meet_link">
+                  <span>Meet link</span>
+                  <strong><a :href="detail.checkinBooking.meet_link" target="_blank" rel="noopener">Open Meet</a></strong>
+                </div>
+                <div v-if="detail?.checkinBooking?.invited_at">
+                  <span>Staff invited</span>
+                  <strong>{{ formatDt(detail.checkinBooking.invited_at) }}</strong>
+                </div>
                 <div class="span-2"><span>Marketing quote</span><strong>{{ selectedRow.marketingQuote || (selectedRow.hasMarketingQuote ? 'Yes' : '—') }}</strong></div>
               </div>
               <div class="detail__token-actions">
@@ -433,7 +513,17 @@ const selectedRow = ref(null);
 const detail = ref(null);
 const detailLoading = ref(false);
 const detailTab = ref('summary');
-const newSlot = reactive({ startsAt: '', label: '' });
+const newSlot = reactive({ startsAt: '', label: '', modality: 'in_person' });
+const checkinSettings = reactive({
+  hostUserIds: [],
+  extraAttendeeUserIds: [],
+  slotDurationMinutes: 30,
+  inPersonGapMinutes: 30,
+  virtualGapMinutes: 0,
+  defaultLocationMode: 'school',
+});
+const agencyUsers = ref([]);
+const savingCheckin = ref(false);
 const workspaceEl = ref(null);
 const detailPanelWidth = ref(560);
 const isResizingDetail = ref(false);
@@ -563,11 +653,92 @@ function sectionTitle(key) {
 
 function fallCheckInLabel(row) {
   const f = row.fallCheckIn || {};
-  if (f.preferredWeek || f.preferredDay || f.preferredTime) {
-    return [f.preferredWeek, f.preferredDay, f.preferredTime].filter(Boolean).join(' · ');
+  const modality = f.fall_checkin_modality || f.modality;
+  const modalityLabel = modality === 'virtual' ? 'Virtual' : modality === 'in_person' ? 'In person' : null;
+  const starts = f.fall_checkin_starts_at || f.startsAt;
+  if (starts) {
+    return [modalityLabel, formatDt(starts)].filter(Boolean).join(' · ');
   }
-  if (f.slotId) return `Slot #${f.slotId}`;
+  if (f.preferredWeek || f.preferredDay || f.preferredTime) {
+    return [modalityLabel, f.preferredWeek, f.preferredDay, f.preferredTime].filter(Boolean).join(' · ');
+  }
+  if (f.slotId || f.fall_checkin_slot_id) {
+    return [modalityLabel, `Slot #${f.slotId || f.fall_checkin_slot_id}`].filter(Boolean).join(' · ');
+  }
   return '—';
+}
+
+function userLabel(u) {
+  return [u.first_name || u.firstName, u.last_name || u.lastName].filter(Boolean).join(' ') || u.email || `#${u.id}`;
+}
+
+const activeGapMinutes = computed(() => {
+  const modality = newSlot.modality || 'in_person';
+  return modality === 'virtual'
+    ? Math.max(0, Number(checkinSettings.virtualGapMinutes) || 0)
+    : Math.max(0, Number(checkinSettings.inPersonGapMinutes) || 0);
+});
+
+const slotStepMinutes = computed(() => {
+  const duration = Math.max(5, Number(checkinSettings.slotDurationMinutes) || 30);
+  return duration + activeGapMinutes.value;
+});
+
+const gapSpacingHint = computed(() => {
+  const duration = Math.max(5, Number(checkinSettings.slotDurationMinutes) || 30);
+  const inGap = Math.max(0, Number(checkinSettings.inPersonGapMinutes) || 0);
+  const vGap = Math.max(0, Number(checkinSettings.virtualGapMinutes) || 0);
+  return `Spacing = meeting duration + gap after it. In person: every ${duration + inGap} min (e.g. 8:00 then ${formatClockFromMinutes(8 * 60 + duration + inGap)}). Virtual: every ${duration + vGap} min.`;
+});
+
+const exampleNextStartLabel = computed(() => formatClockFromMinutes(8 * 60 + slotStepMinutes.value));
+
+function formatClockFromMinutes(totalMinutes) {
+  const mins = ((Number(totalMinutes) % (24 * 60)) + 24 * 60) % (24 * 60);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+function toDatetimeLocalValue(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Next start = previous start + meeting duration + gap for that modality. */
+function suggestNextSlotStart() {
+  const modality = newSlot.modality || 'in_person';
+  const sameModality = (slots.value || [])
+    .filter((s) => String(s.modality || 'in_person') === modality && s.status !== 'cancelled' && Number(s.is_active) !== 0)
+    .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime());
+  const last = sameModality[sameModality.length - 1];
+  if (!last?.starts_at) {
+    if (!newSlot.startsAt) {
+      const d = new Date();
+      d.setMinutes(0, 0, 0);
+      d.setHours(8);
+      newSlot.startsAt = toDatetimeLocalValue(d);
+    }
+    return;
+  }
+  const next = new Date(String(last.starts_at).replace(' ', 'T'));
+  if (Number.isNaN(next.getTime())) return;
+  next.setMinutes(next.getMinutes() + slotStepMinutes.value);
+  newSlot.startsAt = toDatetimeLocalValue(next);
+}
+
+function applyCheckinSettings(src) {
+  const c = src || {};
+  checkinSettings.hostUserIds = (c.hostUserIds || []).map(Number);
+  checkinSettings.extraAttendeeUserIds = (c.extraAttendeeUserIds || []).map(Number);
+  checkinSettings.slotDurationMinutes = Number(c.slotDurationMinutes) || 30;
+  checkinSettings.inPersonGapMinutes = Number(c.inPersonGapMinutes) ?? 30;
+  checkinSettings.virtualGapMinutes = Number(c.virtualGapMinutes) ?? 0;
+  checkinSettings.defaultLocationMode = c.defaultLocationMode || 'school';
 }
 
 async function load() {
@@ -595,9 +766,10 @@ async function load() {
     }
 
     if (campaign.value.isEnabled) {
-      const [qs, sl] = await Promise.all([
+      const [qs, sl, usersRes] = await Promise.all([
         api.get('/school-reinit/questions', { params: { agencyId: props.agencyId, schoolYear: schoolYear.value } }),
         api.get('/school-reinit/checkin-slots', { params: { agencyId: props.agencyId, schoolYear: schoolYear.value } }),
+        api.get(`/agencies/${props.agencyId}/users`).catch(() => ({ data: [] })),
       ]);
       questions.value = (qs.data.questions || []).map((q) => ({
         ...q,
@@ -605,9 +777,16 @@ async function load() {
         required: q.required ? 1 : 0,
       }));
       slots.value = sl.data.slots || [];
+      applyCheckinSettings(sl.data?.campaign?.checkin || campaign.value.checkin);
+      const users = usersRes.data?.users || usersRes.data || [];
+      agencyUsers.value = Array.isArray(users) ? users.filter((u) => {
+        const role = String(u.role || '').toLowerCase();
+        return role !== 'school_staff' && role !== 'guardian' && role !== 'client';
+      }) : [];
     } else {
       questions.value = [];
       slots.value = [];
+      applyCheckinSettings(campaign.value.checkin);
     }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load';
@@ -703,19 +882,66 @@ async function resetQuestions() {
   }
 }
 
+async function saveCheckinSettings() {
+  savingCheckin.value = true;
+  error.value = '';
+  try {
+    const res = await api.put('/school-reinit/campaign/checkin-settings', {
+      agencyId: Number(props.agencyId),
+      schoolYear: schoolYear.value,
+      hostUserIds: checkinSettings.hostUserIds.map(Number),
+      extraAttendeeUserIds: checkinSettings.extraAttendeeUserIds.map(Number),
+      slotDurationMinutes: checkinSettings.slotDurationMinutes,
+      inPersonGapMinutes: checkinSettings.inPersonGapMinutes,
+      virtualGapMinutes: checkinSettings.virtualGapMinutes,
+      defaultLocationMode: checkinSettings.defaultLocationMode,
+    });
+    campaign.value = { ...campaign.value, ...(res.data.campaign || {}) };
+    applyCheckinSettings(res.data?.campaign?.checkin);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Save check-in settings failed';
+  } finally {
+    savingCheckin.value = false;
+  }
+}
+
 async function addSlot() {
   try {
+    if (!checkinSettings.hostUserIds.length) {
+      await saveCheckinSettings();
+    }
+    const startsAtLocal = newSlot.startsAt;
     await api.post('/school-reinit/checkin-slots', {
       agencyId: Number(props.agencyId),
       schoolYear: schoolYear.value,
-      startsAt: newSlot.startsAt.replace('T', ' ') + ':00',
+      startsAt: startsAtLocal.replace('T', ' ') + ':00',
       label: newSlot.label || null,
+      modality: newSlot.modality || 'in_person',
     });
-    newSlot.startsAt = '';
     newSlot.label = '';
     await load();
+    // Auto-advance: 8:00 + duration + gap → next start (e.g. 9:00)
+    const next = new Date(startsAtLocal);
+    if (!Number.isNaN(next.getTime())) {
+      next.setMinutes(next.getMinutes() + slotStepMinutes.value);
+      newSlot.startsAt = toDatetimeLocalValue(next);
+    } else {
+      suggestNextSlotStart();
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Add slot failed';
+  }
+}
+
+async function deactivateSlot(slot) {
+  if (!window.confirm('Remove this open pre-slot from host calendars?')) return;
+  try {
+    await api.delete(`/school-reinit/checkin-slots/${slot.id}`, {
+      data: { agencyId: Number(props.agencyId) },
+    });
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Remove failed';
   }
 }
 
@@ -1491,10 +1717,68 @@ onUnmounted(() => {
   padding-left: 18px;
   font-size: 0.85rem;
 }
+.reinit-admin__checkin-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.8fr);
+  gap: 16px;
+  margin-bottom: 14px;
+}
+@media (max-width: 900px) {
+  .reinit-admin__checkin-settings {
+    grid-template-columns: 1fr;
+  }
+}
+.reinit-admin__host-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  max-height: 140px;
+  overflow: auto;
+}
+.reinit-admin__host-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #f8fafc;
+}
+.reinit-admin__checkin-gaps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.reinit-admin__checkin-gaps label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.reinit-admin__gap-hint {
+  margin: 0;
+  line-height: 1.35;
+}
+.reinit-admin__slot-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .reinit-admin__slot-form {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.reinit-admin__slot-form select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
 }
 .btn {
   font-family: system-ui, sans-serif;

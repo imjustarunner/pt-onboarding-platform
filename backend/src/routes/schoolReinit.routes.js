@@ -9,6 +9,7 @@ router.get('/report', authenticate, ctrl.getReport);
 router.get('/campaign', authenticate, ctrl.getCampaignStatus);
 router.post('/campaign/enable', authenticate, ctrl.enableCampaign);
 router.post('/campaign/push', authenticate, ctrl.pushCampaign);
+router.put('/campaign/checkin-settings', authenticate, ctrl.updateCheckinSettings);
 router.post('/tokens', authenticate, ctrl.generateToken);
 router.get('/schools/:schoolOrganizationId', authenticate, ctrl.getSchoolBundle);
 router.patch('/tokens/:tokenId/mark-sent', authenticate, ctrl.markTokenSent);
@@ -19,6 +20,8 @@ router.get('/cycles/:cycleId', authenticate, ctrl.getCycleDetail);
 router.post('/change-requests/:id/resolve', authenticate, ctrl.resolveChangeRequest);
 router.get('/checkin-slots', authenticate, ctrl.listCheckinSlotsAdmin);
 router.post('/checkin-slots', authenticate, ctrl.createCheckinSlot);
+router.delete('/checkin-slots/:slotId', authenticate, ctrl.deactivateCheckinSlot);
+router.post('/checkin-bookings', authenticate, ctrl.bookCheckinSlot);
 
 // School staff
 router.get('/me', authenticate, ctrl.getMyCycle);

@@ -284,6 +284,7 @@ const summaryCards = computed(() => {
   const mats = s.materials || {};
   const needs = s.needsAssessment || {};
   const fall = s.fallCheckIn || {};
+  const fallBooking = s.fallCheckInBooking || {};
   const growth = s.growthFeedback || {};
   const info = s.schoolInformation || {};
   const school = props.school || {};
@@ -369,15 +370,36 @@ const summaryCards = computed(() => {
       num: 7,
       title: 'Fall School Check-In',
       icon: ICONS.clock,
-      html: `
-        ${line(
-          'Booking',
+      html: (() => {
+        const modality =
+          fallBooking.modality ||
+          fall.fall_checkin_modality ||
+          (fall.fall_checkin_meet_link ? 'virtual' : null);
+        const modalityLabel =
+          modality === 'virtual' ? 'Virtual' : modality === 'in_person' ? 'In person (school)' : '—';
+        const when =
+          fall.fall_checkin_starts_at ||
+          fallBooking.startsAt ||
+          fallBooking.starts_at ||
           fall.fall_checkin_preferred_week ||
-            (fall.fall_checkin_slot_id ? `Slot #${fall.fall_checkin_slot_id}` : '—')
-        )}
+          (fall.fall_checkin_slot_id ? `Slot #${fall.fall_checkin_slot_id}` : '—');
+        const meet = fallBooking.meetLink || fallBooking.meet_link || fall.fall_checkin_meet_link;
+        const loc = fallBooking.locationText || fallBooking.location_text || fall.fall_checkin_location;
+        const invited = Array.isArray(fallBooking.invitedSchoolStaff)
+          ? fallBooking.invitedSchoolStaff.length
+          : Array.isArray(fallBooking.invited_school_staff_json)
+            ? fallBooking.invited_school_staff_json.length
+            : null;
+        return `
+        ${line('Format', modalityLabel)}
+        ${line('When', when)}
+        ${loc ? line('Location', loc) : ''}
+        ${meet ? line('Meet link', meet) : ''}
+        ${invited != null ? line('School staff invited', String(invited)) : ''}
         ${line('Preferred day', fall.fall_checkin_preferred_day || '—')}
         ${line('Preferred time', fall.fall_checkin_preferred_time || '—')}
-      `,
+      `;
+      })(),
     },
     {
       key: 'growth_feedback',
