@@ -117,11 +117,11 @@ const redirectNestedAwayFromFullDashboard = async () => {
     if (parent) agencyStore.setCurrentAgency(parent);
   }
 
-  // Book Club / clinical: leave full dashboard for the resolved portal path.
+  // Book Club / clinical: leave full dashboard for the parent tenant dashboard.
   // SSTC affiliations: my_club_dashboard (summit), never personal DashboardView.
   const path = nav.path
     || (isBookClubAgency(org)
-      ? `/${getOrgSlug(nav.parent) || getOrgSlug(org)}/bookclub`
+      ? `/${getOrgSlug(nav.parent) || getOrgSlug(org)}/dashboard`
       : null);
 
   if (path && String(route.path || '') !== path) {

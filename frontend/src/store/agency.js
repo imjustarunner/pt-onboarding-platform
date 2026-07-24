@@ -7,6 +7,8 @@ import {
   getDemoWindowAgency,
   isDemoWindowSession
 } from '../utils/demoWindowSession';
+import { isBookClubAgency } from '../utils/bookClubAgency.js';
+import { isTenantOrganizationType } from '../utils/organizationTypes.js';
 
 export const useAgencyStore = defineStore('agency', () => {
   const agencies = ref([]);
@@ -304,12 +306,16 @@ export const useAgencyStore = defineStore('agency', () => {
   const pickDefaultAgencyForUser = (list, roleNorm) => {
     const arr = Array.isArray(list) ? list : [];
     if (!arr.length) return null;
+
+    const workTenant = arr.find((a) => isTenantOrganizationType(a) && !isBookClubAgency(a));
+    if (workTenant && roleNorm !== 'club_manager') return workTenant;
+
     // Club managers: first path segment is the Summit *platform* slug (e.g. ssc), which matches the
     // tenant agency row—not the club affiliation. Prefer affiliation before portal-key matching.
     if (roleNorm === 'club_manager') {
       const affiliation = arr.find((a) => {
         const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-        return t === 'affiliation';
+        return t === 'affiliation' && !isBookClubAgency(a);
       });
       if (affiliation) return affiliation;
     }
@@ -331,10 +337,12 @@ export const useAgencyStore = defineStore('agency', () => {
     if (roleNorm === 'club_manager') {
       const affiliation = arr.find((a) => {
         const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-        return t === 'affiliation';
+        return t === 'affiliation' && !isBookClubAgency(a);
       });
       if (affiliation) return affiliation;
     }
+    const nonBookClub = arr.find((a) => !isBookClubAgency(a));
+    if (nonBookClub) return nonBookClub;
     return arr[0] || null;
   };
 
@@ -350,6 +358,7 @@ export const useAgencyStore = defineStore('agency', () => {
     const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
     const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
     const isAffiliation = currentType === 'affiliation';
+    const isBookClub = isBookClubAgency(currentAgency.value);
     const hasAffiliation = arr.some((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation');
     const preferredPortal = inferPreferredPortalFromRuntime();
     const currentPortal = pickPortalKey(currentAgency.value);
@@ -359,12 +368,14 @@ export const useAgencyStore = defineStore('agency', () => {
     // Only snap non-admin users with an affiliation back to the club — admins who are
     // also club members should be able to stay on their work tenant without being overridden.
     const snapToAffiliation = hasAffiliation && !isAffiliation && roleNorm === 'club_manager';
+    const snapFromBookClub = isBookClub && roleNorm !== 'club_manager';
     const shouldOverride =
       !currentAgency.value ||
       !currentAgencyStillAccessible ||
       hasPreferredMismatch ||
       (roleNorm === 'school_staff' && !isPortal) ||
-      snapToAffiliation;
+      snapToAffiliation ||
+      snapFromBookClub;
     if (shouldOverride) {
       const def = pickDefaultAgencyForUser(arr, roleNorm);
       if (def) setCurrentAgency(def);

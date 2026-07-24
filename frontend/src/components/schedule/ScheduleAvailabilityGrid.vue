@@ -14258,8 +14258,60 @@ const officeBuildingShortName = (buildingId) => {
 const resolveSpecificOfficeId = () => {
   const cur = Number(selectedOfficeLocationId.value || 0);
   if (cur > 0) return cur;
+  const fromAssigned = pickDefaultOfficeLocationId(officeLocations.value, myAssignedOffices.value);
+  if (fromAssigned > 0) return fromAssigned;
   const first = Number((officeLocations.value || [])[0]?.id || 0);
   return first > 0 ? first : 0;
+};
+
+const myAssignedOffices = ref([]);
+
+/** Prefer primary building office from user_office_locations, then any assigned office. */
+const pickDefaultOfficeLocationId = (officeRows, assignedList) => {
+  const rows = Array.isArray(officeRows) ? officeRows : [];
+  const assigned = Array.isArray(assignedList) ? assignedList : [];
+  const officeIds = new Set(rows.map((o) => Number(o?.id || 0)).filter((id) => id > 0));
+  const matching = assigned.filter((o) => officeIds.has(Number(o?.id || 0)));
+  if (matching.length) {
+    const primary = matching.find((o) => o.isPrimary);
+    return Number((primary || matching[0]).id);
+  }
+  if (rows.length === 1) return Number(rows[0].id);
+  return null;
+};
+
+const fetchMyAssignedOffices = async () => {
+  if (props.mode !== 'self') {
+    myAssignedOffices.value = [];
+    return [];
+  }
+  const agencyId = Number(effectiveAgencyId.value || 0);
+  const tryFetch = async (params = {}) => {
+    const resp = await api.get('/payroll/me/assigned-offices', { params, skipGlobalLoading: true });
+    return Array.isArray(resp?.data) ? resp.data : [];
+  };
+  try {
+    let list = agencyId > 0 ? await tryFetch({ agencyId }) : await tryFetch();
+    if (!list.length && agencyId > 0) list = await tryFetch();
+    myAssignedOffices.value = list;
+    return list;
+  } catch {
+    myAssignedOffices.value = [];
+    return [];
+  }
+};
+
+const shouldApplySelfDefaultOffice = () => (
+  props.mode === 'self' && Number(selectedOfficeLocationId.value) === OFFICE_SCOPE_ALL
+);
+
+const applySelfDefaultOfficeSelection = async (officeRows) => {
+  if (!shouldApplySelfDefaultOffice()) return;
+  const assigned = myAssignedOffices.value.length
+    ? myAssignedOffices.value
+    : await fetchMyAssignedOffices();
+  const picked = pickDefaultOfficeLocationId(officeRows, assigned);
+  if (picked > 0) selectedOfficeLocationId.value = picked;
 };
 
 /** IANA timezone for the selected (or first) office — schedule wall clock source of truth. */
@@ -14882,23 +14934,9 @@ const loadOfficeLocations = async () => {
         : []
     }));
 
-    // Default to user's assigned office when none selected (most have just 1)
-    if (Number(selectedOfficeLocationId.value || 0) === 0 && props.mode === 'self' && rows.length > 0) {
-      try {
-        const agencyId = Number(effectiveAgencyId.value || 0);
-        const params = agencyId > 0 ? { agencyId } : {};
-        const assigned = await api.get('/payroll/me/assigned-offices', { params });
-        const list = Array.isArray(assigned?.data) ? assigned.data : [];
-        const officeIds = new Set(rows.map((o) => Number(o.id)));
-        const first = list.find((o) => officeIds.has(Number(o.id)));
-        if (first) {
-          selectedOfficeLocationId.value = Number(first.id);
-        } else if (rows.length === 1) {
-          selectedOfficeLocationId.value = Number(rows[0].id);
-        }
-      } catch {
-        if (rows.length === 1) selectedOfficeLocationId.value = Number(rows[0].id);
-      }
+    // Default to the user's assigned (primary) building office when still on "All offices".
+    if (shouldApplySelfDefaultOffice() && rows.length > 0) {
+      await applySelfDefaultOfficeSelection(rows);
     }
   } catch {
     officeLocations.value = [];
@@ -14933,6 +14971,15 @@ watch(
     if (!officeLocations.value.length) void loadOfficeLocations();
   },
   { immediate: true }
+);
+
+// Offices can load before agency scope; re-apply primary assigned office once scope is ready.
+watch(
+  [effectiveAgencyId, selfScheduleAgenciesLoaded, () => officeLocations.value.length],
+  () => {
+    if (!officeLocations.value.length || !shouldApplySelfDefaultOffice()) return;
+    void applySelfDefaultOfficeSelection(officeLocations.value);
+  }
 );
 
 const loadOfficeRooms = async (buildingId) => {

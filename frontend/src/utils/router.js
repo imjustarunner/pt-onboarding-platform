@@ -13,6 +13,7 @@ import {
 } from './summitRoutingContext.js';
 import { getSstcSurfaceChoice, getPreferredWorkAgencyId } from './sstcSurfaceChoice.js';
 import { isPractitionerOrgType } from './practitionerVertical.js';
+import { isBookClubAgency, getBookClubParentSlug } from './bookClubAgency.js';
 
 /**
  * Resolve preferred org slug + type for practitioner vertical landing.
@@ -257,6 +258,10 @@ export function getDashboardRoute() {
       const orgType = String(orgs[0]?.organization_type || orgs[0]?.organizationType || '').toLowerCase();
       if (slug && String(slug).trim()) {
         if (orgType === 'affiliation') {
+          if (isBookClubAgency(orgs[0])) {
+            const parentSlug = getBookClubParentSlug(orgs[0], orgs) || slug;
+            return parentSlug ? `/${parentSlug}/dashboard` : '/dashboard';
+          }
           const affiliationClubId = orgs[0]?.id ?? null;
           return affiliationClubId ? `/${slug}/clubs/${affiliationClubId}` : `/${slug}/my_club_dashboard`;
         }

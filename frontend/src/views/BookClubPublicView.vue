@@ -12,13 +12,22 @@
           </p>
 
           <div class="book-club-hero__actions">
-            <button v-if="isAuthenticated" class="btn btn-primary" type="button" :disabled="saving" @click="respond('enroll')">
-              Join this month
-            </button>
+            <template v-if="isAuthenticated && !hasResponded">
+              <button class="btn btn-primary" type="button" :disabled="saving" @click="respond('enroll')">
+                Join this month
+              </button>
+              <button class="btn btn-secondary" type="button" :disabled="saving" @click="respond('skip')">
+                Skip this month
+              </button>
+            </template>
+            <router-link
+              v-else-if="isAuthenticated && hasResponded"
+              class="btn btn-primary"
+              :to="dashboardPath"
+            >
+              Go to dashboard
+            </router-link>
             <router-link v-else class="btn btn-primary" :to="loginPath">Sign in to join</router-link>
-            <button v-if="isAuthenticated" class="btn btn-secondary" type="button" :disabled="saving" @click="respond('skip')">
-              Skip this month
-            </button>
           </div>
           <div v-if="actionMessage" class="book-club-public__message">{{ actionMessage }}</div>
         </div>
@@ -78,11 +87,12 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 
 const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 
 const loading = ref(false);
@@ -90,6 +100,7 @@ const saving = ref(false);
 const error = ref('');
 const actionMessage = ref('');
 const data = ref(null);
+const responseStatus = ref(null);
 
 const orgSlug = computed(() => String(route.params?.organizationSlug || '').trim());
 const isAuthenticated = computed(() => authStore.isAuthenticated);
@@ -97,6 +108,11 @@ const featuredBook = computed(() => data.value?.currentBook || data.value?.upcom
 const archive = computed(() => Array.isArray(data.value?.archive) ? data.value.archive : []);
 const fallbackInitials = computed(() => String(featuredBook.value?.className || 'BC').slice(0, 2).toUpperCase());
 const loginPath = computed(() => `/${orgSlug.value}/login?returnTo=${encodeURIComponent(route.fullPath)}`);
+const dashboardPath = computed(() => (orgSlug.value ? `/${orgSlug.value}/dashboard` : '/dashboard'));
+const hasResponded = computed(() => {
+  const status = String(responseStatus.value || '').toLowerCase();
+  return status === 'enrolled' || status === 'skipped';
+});
 
 const formatEvent = (event) => {
   const start = event?.startsAt ? new Date(event.startsAt) : null;
@@ -129,9 +145,15 @@ const respond = async (action) => {
       agencyId: Number(data.value.tenant.id),
       action
     });
-    actionMessage.value = action === 'enroll'
-      ? 'You’re in. Your dashboard will now show this month’s book club status.'
-      : 'You’ve skipped this month. You can still change that later.';
+    if (action === 'enroll' || action === 'skip') {
+      responseStatus.value = action === 'enroll' ? 'enrolled' : 'skipped';
+      actionMessage.value = action === 'enroll'
+        ? 'You’re in. Taking you to your dashboard…'
+        : 'You’ve skipped this month. Taking you to your dashboard…';
+      await router.replace(dashboardPath.value);
+      return;
+    }
+    actionMessage.value = 'Your Book Club preferences were updated.';
   } catch (err) {
     actionMessage.value = err?.response?.data?.error?.message || err?.message || 'Could not update your Book Club response.';
   } finally {

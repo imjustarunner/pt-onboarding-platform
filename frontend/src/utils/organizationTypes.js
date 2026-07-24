@@ -97,7 +97,7 @@ export function resolveNestedOrgNavigation(org, agencyList = []) {
     getOrgSlug(parent) || String(org?.parent_slug || org?.parentSlug || '').trim() || null;
 
   if (isBookClubAgency(org)) {
-    const path = parentSlug ? `/${parentSlug}/bookclub` : nestedSlug ? `/${nestedSlug}/bookclub` : '/bookclub';
+    const path = parentSlug ? `/${parentSlug}/dashboard` : nestedSlug ? `/${nestedSlug}/dashboard` : '/dashboard';
     return {
       parent,
       path,

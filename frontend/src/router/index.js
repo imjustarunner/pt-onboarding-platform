@@ -18,7 +18,7 @@ import { userChoseWorkOverSummitFromStores } from '../utils/sstcSurfaceChoice.js
 import { isSstcTenantSlug } from '../config/tenantAppProfiles.js';
 import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuildersSchoolProgramAccess.js';
-import { isBookClubAgency } from '../utils/bookClubAgency.js';
+import { isBookClubAgency, getBookClubParentSlug } from '../utils/bookClubAgency.js';
 import {
   isTenantOrganizationType,
   isNestedOrganizationType,
@@ -172,20 +172,31 @@ const getDefaultOrganizationSlug = () => {
     }
 
     const curAgency = agencyStore.currentAgency;
+    const storedList = JSON.parse(localStorage.getItem('userAgencies') || '[]');
+    const storedArr = Array.isArray(storedList) ? storedList : [];
     const fromStore = curAgency?.slug || curAgency?.portal_url;
     if (fromStore) {
       if (!isSchoolStaff && isPortalOrg(curAgency)) {
         const p = String(curAgency.parent_slug || curAgency.parentSlug || '').trim();
         if (p) return p;
       }
+      if (isBookClubAgency(curAgency)) {
+        const parentSlug = getBookClubParentSlug(curAgency, storedArr);
+        if (parentSlug) return parentSlug;
+      }
       return fromStore;
     }
 
-    // Prefer affiliation (SSTC) when picking from stored user agencies
     const isAffiliation = (org) => String(org?.organization_type || org?.organizationType || '').toLowerCase() === 'affiliation';
-    const storedList = JSON.parse(localStorage.getItem('userAgencies') || '[]');
-    const storedArr = Array.isArray(storedList) ? storedList : [];
-    const firstAffiliation = storedArr.find((o) => isAffiliation(o) && pickSlug(o));
+    const isTenant = (org) => {
+      const t = String(org?.organization_type || org?.organizationType || '').toLowerCase();
+      return !t || t === 'agency' || t === 'life_coach' || t === 'consultant';
+    };
+    const firstTenant = storedArr.find((o) => isTenant(o) && pickSlug(o) && !isBookClubAgency(o));
+    if (firstTenant) return pickSlug(firstTenant);
+
+    // Prefer Summit affiliations (not book clubs) when picking from stored user agencies
+    const firstAffiliation = storedArr.find((o) => isAffiliation(o) && !isBookClubAgency(o) && pickSlug(o));
     if (firstAffiliation) return pickSlug(firstAffiliation);
 
     const fromUserAgencies = authStore.user?.agencies?.[0]?.slug;
@@ -3809,14 +3820,14 @@ router.beforeEach(async (to, from, next) => {
               const orgType = String(org?.organization_type || org?.organizationType || '').toLowerCase();
               const isSstcAffiliation = isNested && (orgType === 'affiliation' || orgType === 'clubwebapp') && !isBookClub;
 
-              // Book Club dashboard bookmarks → parent bookclub surface.
+              // Book Club org rows have no dashboard — send members to the parent tenant dashboard.
               const pathNorm = String(to.path || '');
               if (isBookClub && /\/dashboard\/?$/i.test(pathNorm)) {
                 const parent = getParentAgencyFromOrg(org, memberships);
                 const parentSlug = getOrgSlug(parent) || String(org?.parent_slug || org?.parentSlug || '').trim();
                 if (parent) agencyStore.setCurrentAgency(parent);
                 if (parentSlug) {
-                  next({ path: `/${parentSlug}/bookclub`, replace: true });
+                  next({ path: `/${parentSlug}/dashboard`, replace: true });
                   return;
                 }
               }
