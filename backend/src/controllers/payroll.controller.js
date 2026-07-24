@@ -3156,12 +3156,19 @@ export const ensureFuturePayrollPeriods = async (req, res, next) => {
       let start = ymdToDateUtc(cur?.periodStart) || addDaysUtc(previousFridayOnOrBefore(today), -13);
       let end = ymdToDateUtc(cur?.periodEnd) || previousFridayOnOrBefore(today);
 
-      while (futureCount < minFutureDrafts && checked < 200) {
+      // Always create the period that contains today (open window for submissions),
+      // plus minFutureDrafts periods that start after today. Counting only
+      // periodStart > today used to under-create when the current window had already begun.
+      let ensuredCurrent = false;
+      while (checked < 200) {
         checked += 1;
         const periodStart = formatYmd(start);
         const periodEnd = formatYmd(end);
         const key = `${periodStart}|${periodEnd}`;
-        if (periodStart > todayYmd) futureCount += 1;
+        const isCurrent = periodStart <= todayYmd && periodEnd >= todayYmd;
+        const isFuture = periodStart > todayYmd;
+        if (isCurrent) ensuredCurrent = true;
+        if (isFuture) futureCount += 1;
         if (!existing.has(key)) {
           const label = `${periodStart} to ${periodEnd}`;
           try {
@@ -3181,9 +3188,10 @@ export const ensureFuturePayrollPeriods = async (req, res, next) => {
         }
         start = addDaysUtc(start, 14);
         end = addDaysUtc(end, 14);
+        if (ensuredCurrent && futureCount >= minFutureDrafts) break;
       }
 
-      return res.json({ ok: true, agencyId, schedule: { ...sched, minFutureDrafts }, created, checked, futureCount });
+      return res.json({ ok: true, agencyId, schedule: { ...sched, minFutureDrafts }, created, checked, futureCount, ensuredCurrent });
     }
 
     // Sat→Fri biweekly: end on the most recent Friday on/before today, start 13 days earlier.
@@ -13287,6 +13295,57 @@ export const postPayrollPeriod = async (req, res, next) => {
       });
     } catch {
       // Do not block posting payroll if ratio notifications fail.
+    }
+
+    // Best-effort: create the next open pay period(s) so submissions can target them immediately.
+    try {
+      const sched = await getScheduleSettingsOrDefault({ agencyId: period.agency_id });
+      if (sched) {
+        const type = String(sched.schedule_type || 'biweekly');
+        const minFutureDrafts = Math.max(1, Math.min(60, parseInt(sched.future_draft_count || 6, 10) || 6));
+        const periods = await PayrollPeriod.listByAgency(period.agency_id, { limit: 500, offset: 0 });
+        const existing = new Set((periods || []).map((p) => `${ymdFromDbDate(p.period_start)}|${ymdFromDbDate(p.period_end)}`));
+        const today = new Date();
+        const todayYmd = formatYmd(today);
+        if (type !== 'semi_monthly') {
+          const anchorEnd = ymdFromDbDate(sched.biweekly_anchor_period_end) || formatYmd(previousFridayOnOrBefore(today));
+          const cur = computeBiweeklyPeriodForDate({ anchorEndYmd: anchorEnd, date: today }) || null;
+          let start = ymdToDateUtc(cur?.periodStart) || addDaysUtc(previousFridayOnOrBefore(today), -13);
+          let end = ymdToDateUtc(cur?.periodEnd) || previousFridayOnOrBefore(today);
+          let futureCount = 0;
+          let ensuredCurrent = false;
+          let checked = 0;
+          while (checked < 40) {
+            checked += 1;
+            const periodStart = formatYmd(start);
+            const periodEnd = formatYmd(end);
+            const key = `${periodStart}|${periodEnd}`;
+            if (periodStart <= todayYmd && periodEnd >= todayYmd) ensuredCurrent = true;
+            if (periodStart > todayYmd) futureCount += 1;
+            if (!existing.has(key)) {
+              const createdPeriod = await PayrollPeriod.create({
+                agencyId: period.agency_id,
+                label: `${periodStart} to ${periodEnd}`,
+                periodStart,
+                periodEnd,
+                createdByUserId: req.user?.id
+              });
+              existing.add(key);
+              try {
+                await PayrollPeriodTodo.ensureMaterializedForPeriod({
+                  payrollPeriodId: createdPeriod?.id,
+                  agencyId: period.agency_id
+                });
+              } catch { /* ignore */ }
+            }
+            start = addDaysUtc(start, 14);
+            end = addDaysUtc(end, 14);
+            if (ensuredCurrent && futureCount >= Math.min(2, minFutureDrafts)) break;
+          }
+        }
+      }
+    } catch {
+      // Do not block posting if next-period creation fails.
     }
 
     res.json(await PayrollPeriod.findById(payrollPeriodId));

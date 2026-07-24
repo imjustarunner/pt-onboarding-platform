@@ -12410,10 +12410,18 @@ const showOffSchedulePeriods = ref(false);
 
 const loadPeriods = async () => {
   if (!agencyId.value) return;
-  // Fire ensure-future in the background so it never blocks the page render.
-  // It is idempotent — missing periods will be created asynchronously.
-  api.post('/payroll/periods/ensure-future', { months: 6, pastPeriods: 2 }, { params: { agencyId: agencyId.value } }).catch(() => {/* silent */});
   try {
+    // Must await: otherwise the next open period (after a post) is created too late
+    // and the dropdown/history only show already-posted periods.
+    try {
+      await api.post(
+        '/payroll/periods/ensure-future',
+        { months: 6, pastPeriods: 2 },
+        { params: { agencyId: agencyId.value } }
+      );
+    } catch (ensureErr) {
+      console.warn('ensure-future pay periods failed', ensureErr);
+    }
     const resp = await api.get('/payroll/periods', {
       // Always load all periods so off-schedule/older periods resolve labels correctly.
       params: { agencyId: agencyId.value, alignedOnly: 'false' }
