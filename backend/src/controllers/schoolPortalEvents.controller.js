@@ -26,6 +26,7 @@ import {
   schoolYearBounds,
   updateDistrictSchoolEvents,
   updateSchoolPortalEvent,
+  deleteSchoolPortalEvent,
   validatePostToken
 } from '../services/schoolPortalEvents.service.js';
 import KioskModel from '../models/Kiosk.model.js';
@@ -165,6 +166,19 @@ async function assertSchoolStaffPortalAccess(req, organizationId) {
         throw err;
       }
     }
+  }
+  return { orgId, userId, role };
+}
+
+/** Admin / support / super_admin only — delete school portal events. */
+const SCHOOL_EVENT_DELETE_ROLES = new Set(['super_admin', 'admin', 'support']);
+
+async function assertSchoolEventDeleteAccess(req, organizationId) {
+  const { orgId, userId, role } = await assertSchoolPortalReadAccess(req, organizationId);
+  if (!SCHOOL_EVENT_DELETE_ROLES.has(role)) {
+    const err = new Error('Only admin or support can delete school events');
+    err.status = 403;
+    throw err;
   }
   return { orgId, userId, role };
 }
@@ -437,6 +451,27 @@ export const updateSchoolPortalEventHandler = async (req, res, next) => {
       minProvidersPerSession: parsed.minProvidersPerSession
     });
     res.json(event);
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const deleteSchoolPortalEventHandler = async (req, res, next) => {
+  try {
+    const { orgId, userId } = await assertSchoolEventDeleteAccess(req, req.params.organizationId);
+    const eventId = parseInt(String(req.params.eventId || ''), 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid eventId' } });
+    const agencyId = await resolveAgencyIdForSchoolOrg(orgId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'School is not linked to an agency' } });
+
+    const result = await deleteSchoolPortalEvent({
+      eventId,
+      organizationId: orgId,
+      agencyId,
+      userId
+    });
+    res.json(result);
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

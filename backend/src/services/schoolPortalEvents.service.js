@@ -996,6 +996,72 @@ export async function updateSchoolPortalEvent({
 }
 
 /**
+ * Soft-delete a school portal event (hides from portal/calendar/kiosk).
+ * Keeps staffing/punch history intact. Ends any linked portal announcement.
+ */
+export async function deleteSchoolPortalEvent({
+  eventId,
+  organizationId,
+  agencyId,
+  userId = null
+}) {
+  const eid = Number(eventId);
+  const orgId = Number(organizationId);
+  const aid = Number(agencyId);
+  if (!eid || !orgId || !aid) {
+    throw Object.assign(new Error('eventId, organizationId, and agencyId are required'), { status: 400 });
+  }
+
+  const [existingRows] = await pool.execute(
+    `SELECT id, event_type, is_active
+     FROM company_events
+     WHERE id = ? AND agency_id = ? AND organization_id = ?
+     LIMIT 1`,
+    [eid, aid, orgId]
+  );
+  const existing = existingRows?.[0];
+  if (!existing) throw Object.assign(new Error('School event not found'), { status: 404 });
+  if (!isSchoolPortalEventType(existing.event_type)) {
+    throw Object.assign(new Error('Not a school portal event'), { status: 400 });
+  }
+
+  try {
+    await pool.execute(
+      `UPDATE company_events
+       SET is_active = 0,
+           school_event_status = 'canceled',
+           updated_by_user_id = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND agency_id = ? AND organization_id = ?`,
+      [userId || null, eid, aid, orgId]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    await pool.execute(
+      `UPDATE company_events
+       SET is_active = 0,
+           updated_by_user_id = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND agency_id = ? AND organization_id = ?`,
+      [userId || null, eid, aid, orgId]
+    );
+  }
+
+  try {
+    await pool.execute(
+      `UPDATE school_portal_announcements
+       SET ends_at = NOW(), updated_at = CURRENT_TIMESTAMP
+       WHERE organization_id = ? AND company_event_id = ? AND ends_at > NOW()`,
+      [orgId, eid]
+    );
+  } catch {
+    /* announcement table/column may be missing */
+  }
+
+  return { ok: true, id: eid, deleted: true };
+}
+
+/**
  * Attach live staffing counts + assigned provider names so portal/calendar UIs
  * can show Assigned vs Request and providers can see who else is staffed.
  */

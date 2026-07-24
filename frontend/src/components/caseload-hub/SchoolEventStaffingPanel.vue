@@ -231,6 +231,7 @@
       :initial-category="editEventPayload?.category || 'back_to_school'"
       @close="showEditModal = false"
       @saved="onEventSaved"
+      @deleted="onEventDeleted"
     />
   </aside>
 </template>
@@ -490,6 +491,13 @@ async function onEventSaved() {
   actionMsg.value = 'Event updated.';
   emit('changed');
   await reload();
+}
+
+async function onEventDeleted() {
+  showEditModal.value = false;
+  actionMsg.value = 'Event deleted.';
+  emit('changed');
+  emit('close');
 }
 
 async function loadProviders() {

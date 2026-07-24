@@ -104,6 +104,7 @@ import {
   getSchoolPortalEventsMissing,
   createSchoolPortalEventHandler,
   updateSchoolPortalEventHandler,
+  deleteSchoolPortalEventHandler,
   uploadSchoolEventFlier,
   getSchoolEventsOverview,
   getSchoolYearCoverage,
@@ -179,6 +180,7 @@ router.get('/:organizationId/school-events', authenticate, listSchoolPortalEvent
 router.post('/:organizationId/school-events/upload-flier', authenticate, uploadSchoolEventFlier);
 router.post('/:organizationId/school-events', authenticate, createSchoolPortalEventHandler);
 router.put('/:organizationId/school-events/:eventId', authenticate, updateSchoolPortalEventHandler);
+router.delete('/:organizationId/school-events/:eventId', authenticate, deleteSchoolPortalEventHandler);
 
 // School portal: shared public documents library (non-PHI)
 router.get('/:organizationId/intake-links/copy-sources', authenticate, listSchoolPortalIntakeLinkCopySources);

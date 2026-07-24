@@ -185,8 +185,18 @@
         </div>
 
         <footer class="pse-actions">
-          <button type="button" class="btn btn-secondary" @click="$emit('close')">Cancel</button>
-          <button type="button" class="btn btn-primary" :disabled="submitting || uploading" @click="submit">
+          <button
+            v-if="canDeleteEvent"
+            type="button"
+            class="btn btn-danger"
+            :disabled="submitting || uploading || deleting"
+            @click="deleteEvent"
+          >
+            {{ deleting ? 'Deleting…' : 'Delete event' }}
+          </button>
+          <span class="pse-actions-spacer" />
+          <button type="button" class="btn btn-secondary" @click="$emit('close')" :disabled="deleting">Cancel</button>
+          <button type="button" class="btn btn-primary" :disabled="submitting || uploading || deleting" @click="submit">
             {{ submitting ? (editEvent ? 'Saving…' : 'Posting…') : (editEvent ? 'Save changes' : 'Post event') }}
           </button>
         </footer>
@@ -230,13 +240,21 @@ const props = defineProps({
   editEvent: { type: Object, default: null }
 });
 
-const emit = defineEmits(['close', 'saved']);
+const emit = defineEmits(['close', 'saved', 'deleted']);
 const authStore = useAuthStore();
 
 const submitting = ref(false);
 const uploading = ref(false);
+const deleting = ref(false);
 const error = ref('');
 const success = ref('');
+
+const canDeleteEvent = computed(() => {
+  if (!props.editEvent?.id || props.reinitToken) return false;
+  if (!props.schoolOrganizationId) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support'].includes(role);
+});
 
 const isDistrictCreate = computed(() => !!String(props.districtName || '').trim() && !props.editEvent);
 
@@ -278,6 +296,10 @@ function schoolEventCreateUrl() {
 
 function schoolEventUpdateUrl(eventId) {
   if (props.reinitToken) return `/public/school-reinit/${props.reinitToken}/school-events/${eventId}`;
+  return `/school-portal/${props.schoolOrganizationId}/school-events/${eventId}`;
+}
+
+function schoolEventDeleteUrl(eventId) {
   return `/school-portal/${props.schoolOrganizationId}/school-events/${eventId}`;
 }
 
@@ -587,6 +609,28 @@ const submit = async () => {
   }
 };
 
+const deleteEvent = async () => {
+  if (!canDeleteEvent.value || !props.editEvent?.id) return;
+  const title = String(props.editEvent.title || 'this event').trim();
+  const ok = window.confirm(
+    `Delete "${title}"? It will be removed from the school portal, calendar, and kiosk.`
+  );
+  if (!ok) return;
+  deleting.value = true;
+  error.value = '';
+  success.value = '';
+  try {
+    await api.delete(schoolEventDeleteUrl(props.editEvent.id));
+    success.value = 'Event deleted.';
+    emit('deleted', { id: props.editEvent.id });
+    setTimeout(() => emit('close'), 700);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to delete event';
+  } finally {
+    deleting.value = false;
+  }
+};
+
 const hydrateFromEdit = () => {
   const e = props.editEvent;
   if (!e) return;
@@ -816,10 +860,25 @@ watch(
 .pse-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
   padding: 12px 18px 16px;
+  flex-wrap: wrap;
   border-top: 1px solid #e2e8f0;
   background: #f8fafc;
+}
+.pse-actions-spacer {
+  flex: 1;
+  min-width: 0.5rem;
+}
+.btn-danger {
+  background: #b91c1c;
+  color: #fff;
+  border: 1px solid #991b1b;
+}
+.btn-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .btn {
   display: inline-flex;

@@ -1129,6 +1129,15 @@
                 >
                   Edit
                 </button>
+                <button
+                  v-if="canDeleteSchoolEvents"
+                  type="button"
+                  class="btn btn-secondary btn-sm school-event-delete"
+                  :disabled="deletingSchoolEventId === ev.id"
+                  @click="deleteSchoolEvent(ev)"
+                >
+                  {{ deletingSchoolEventId === ev.id ? 'Deleting…' : 'Delete' }}
+                </button>
               </div>
             </li>
           </ul>
@@ -1295,6 +1304,7 @@
       :edit-event="editingSchoolEvent"
       @close="closePostSchoolEvent"
       @saved="handleSchoolEventSaved"
+      @deleted="handleSchoolEventSaved"
     />
 
     <div
@@ -2013,6 +2023,29 @@ const handleSchoolEventSaved = async () => {
   editingSchoolEvent.value = null;
 };
 
+const deleteSchoolEvent = async (ev) => {
+  if (!canDeleteSchoolEvents.value || !ev?.id || !organizationId.value) return;
+  const title = String(ev.title || 'this event').trim();
+  const ok = window.confirm(
+    `Delete "${title}"? It will be removed from the school portal, calendar, and kiosk. This cannot be undone from the portal.`
+  );
+  if (!ok) return;
+  deletingSchoolEventId.value = ev.id;
+  schoolPortalEventsError.value = '';
+  try {
+    await api.delete(`/school-portal/${organizationId.value}/school-events/${ev.id}`);
+    if (staffingEvent.value?.id === ev.id) staffingEvent.value = null;
+    if (editingSchoolEvent.value?.id === ev.id) closePostSchoolEvent();
+    await loadSchoolEventsMissing();
+    await loadSchoolPortalEvents();
+    await schoolCalendarPanelRef.value?.reload?.();
+  } catch (e) {
+    schoolPortalEventsError.value = e?.response?.data?.error?.message || 'Failed to delete event';
+  } finally {
+    deletingSchoolEventId.value = null;
+  }
+};
+
 const promptDismissKey = (orgId, category, year) =>
   `schoolEventPromptDismiss:${orgId}:${category}:${year}`;
 
@@ -2615,6 +2648,12 @@ const canManageSchoolEvents = computed(() => {
     'intern_plus'
   ].includes(roleNorm.value);
 });
+/** Admin / support / super_admin can permanently remove events from the portal. */
+const canDeleteSchoolEvents = computed(() => {
+  if (props.previewMode) return false;
+  return ['super_admin', 'admin', 'support'].includes(roleNorm.value);
+});
+const deletingSchoolEventId = ref(null);
 /** Providers (not school staff) can request assignment on attendable/staffable school events. */
 const canRequestSchoolEventAssignment = computed(() => {
   if (props.previewMode) return false;
@@ -5461,6 +5500,10 @@ watch(() => store.selectedWeekday, async (weekday) => {
   gap: 0.4rem;
   justify-content: flex-end;
   flex-shrink: 0;
+}
+.school-event-delete {
+  color: #b91c1c;
+  border-color: #fecaca;
 }
 .school-event-main {
   display: flex;
