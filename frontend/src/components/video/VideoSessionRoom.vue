@@ -572,14 +572,16 @@ defineExpose({
 .vsr__tile--solo,
 .vsr__stage--duo .vsr__tile--local,
 .vsr__tile--duo {
-  position: relative;
-  right: auto;
-  bottom: auto;
-  width: 100%;
-  max-width: none;
+  position: relative !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  top: auto !important;
+  width: 100% !important;
+  max-width: none !important;
   min-height: 220px;
   height: 100%;
-  box-shadow: none;
+  box-shadow: none !important;
   z-index: 1;
 }
 .vsr__stage--duo .vsr__tile--remote {

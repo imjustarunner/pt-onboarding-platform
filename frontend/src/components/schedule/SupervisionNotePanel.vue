@@ -96,8 +96,8 @@
         v-else-if="!loading && !String(transcript || '').trim() && !String(summary || '').trim()"
         class="muted snp-empty"
       >
-        No transcript or AI summary yet. Vonage video does not auto-transcribe — paste a Meet transcript
-        (or text) above, then generate a Gemini summary.
+        No transcript or AI summary yet. Live browser speech capture runs during app video joins
+        (Chrome/Safari + mic permission). You can also paste a Meet transcript above, then generate a Gemini summary.
       </p>
     </div>
   </div>

@@ -62,6 +62,7 @@
           <button type="button" :class="{ active: sideTab === 'notes' }" @click="sideTab = 'notes'">Notes</button>
         </div>
         <div v-if="sideTab === 'discussion'" class="gsl__discussion">
+          <p v-if="transcriptHint" class="gsl__transcript-hint">{{ transcriptHint }}</p>
           <form class="gsl__ask" @submit.prevent="postQuestion">
             <input v-model="questionDraft" type="text" class="input" placeholder="Ask a question…" />
             <button type="submit" class="btn btn-primary btn-sm" :disabled="!questionDraft.trim()">Send</button>
@@ -205,7 +206,9 @@ const props = defineProps({
   participantHint: { type: String, default: '' },
   joinIdentity: { type: String, default: '' },
   localDisplayName: { type: String, default: '' },
-  localRoleLabel: { type: String, default: '' }
+  localRoleLabel: { type: String, default: '' },
+  /** Opaque join_token for public guest transcript flush */
+  joinToken: { type: String, default: '' }
 });
 
 const emit = defineEmits(['leave', 'connected']);
@@ -221,6 +224,10 @@ const currentSlide = ref(null);
 const activity = ref([]);
 const pollTimer = ref(null);
 const lifecyclePosted = ref(false);
+const liveTranscriptChunks = ref([]);
+const transcriptHint = ref('');
+let speechRecognition = null;
+let transcriptFlushTimer = null;
 
 const sessionTypeNorm = computed(() => String(props.sessionMeta || '').trim().toLowerCase());
 const isIndividualSession = computed(() => {
@@ -304,12 +311,113 @@ async function postLifecycle(eventType) {
   }
 }
 
+function speakerLabelForTranscript() {
+  const role = String(props.localRoleLabel || '').trim();
+  const name = String(props.localDisplayName || '').trim();
+  if (props.isSupervisor) return name ? `Supervisor · ${name}` : 'Supervisor';
+  if (role && name && role.toLowerCase() !== name.toLowerCase()) return `${role} · ${name}`;
+  return role || name || 'Participant';
+}
+
+async function flushLiveTranscript({ final = false } = {}) {
+  const chunks = (liveTranscriptChunks.value || []).map((t) => String(t || '').trim()).filter(Boolean);
+  if (!chunks.length) return;
+  const transcript = chunks.join(' ').trim();
+  if (!transcript) return;
+  liveTranscriptChunks.value = [];
+  const sid = props.supervisionSessionId;
+  const joinToken = String(props.joinToken || '').trim();
+  try {
+    if (authStore.isAuthenticated && sid) {
+      await api.post(
+        `/supervision/sessions/${encodeURIComponent(sid)}/client-transcript`,
+        { transcript, speakerLabel: speakerLabelForTranscript(), replace: false },
+        { skipGlobalLoading: true, skipAuthRedirect: true }
+      );
+    } else if (joinToken) {
+      await api.post(
+        `/supervision/guest-transcript/${encodeURIComponent(joinToken)}`,
+        { transcript, speakerLabel: speakerLabelForTranscript() },
+        { skipGlobalLoading: true, skipAuthRedirect: true }
+      );
+    }
+    if (final) transcriptHint.value = 'Transcript saved for this session.';
+  } catch (e) {
+    // Put chunks back so a later flush can retry.
+    liveTranscriptChunks.value = [...chunks, ...liveTranscriptChunks.value];
+    if (final) {
+      transcriptHint.value = e?.response?.data?.error?.message || 'Could not save live transcript.';
+    }
+  }
+}
+
+function stopLiveTranscriptCapture() {
+  if (transcriptFlushTimer) {
+    clearInterval(transcriptFlushTimer);
+    transcriptFlushTimer = null;
+  }
+  try {
+    speechRecognition?.stop?.();
+  } catch {
+    /* ignore */
+  }
+  speechRecognition = null;
+}
+
+function startLiveTranscriptCapture() {
+  const SR = typeof window !== 'undefined'
+    ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+    : null;
+  if (!SR || speechRecognition) {
+    if (!SR) {
+      transcriptHint.value = 'Live transcript needs Chrome/Safari speech recognition (mic permission).';
+    }
+    return;
+  }
+  try {
+    speechRecognition = new SR();
+    speechRecognition.continuous = true;
+    speechRecognition.interimResults = false;
+    speechRecognition.lang = 'en-US';
+    speechRecognition.onresult = (event) => {
+      try {
+        const result = event?.results?.[event.resultIndex];
+        const text = String(result?.[0]?.transcript || '').trim();
+        if (text) liveTranscriptChunks.value.push(text);
+      } catch {
+        /* ignore */
+      }
+    };
+    speechRecognition.onerror = () => {
+      /* keep UI usable even if speech fails */
+    };
+    speechRecognition.onend = () => {
+      // Restart while still in-room (browsers often stop continuous recognition).
+      if (!speechRecognition) return;
+      try {
+        speechRecognition.start();
+      } catch {
+        /* ignore */
+      }
+    };
+    speechRecognition.start();
+    transcriptHint.value = 'Listening for live transcript…';
+    transcriptFlushTimer = setInterval(() => {
+      void flushLiveTranscript({ final: false });
+    }, 20000);
+  } catch {
+    transcriptHint.value = 'Could not start live transcript capture.';
+    speechRecognition = null;
+  }
+}
+
 function onVideoConnected() {
   if (!lifecyclePosted.value) {
     lifecyclePosted.value = true;
     // Single join event (do not also post "opened" — that left unmatched opens and inflated hours).
     postLifecycle('joined');
   }
+  startLiveTranscriptCapture();
   emit('connected');
 }
 
@@ -419,6 +527,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollTimer.value) clearInterval(pollTimer.value);
+  stopLiveTranscriptCapture();
+  void flushLiveTranscript({ final: true });
   if (lifecyclePosted.value) postLifecycle('left');
 });
 </script>
@@ -538,6 +648,12 @@ onUnmounted(() => {
   white-space: normal;
   line-height: 1.45;
 }
+.gsl__transcript-hint {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: rgba(226, 232, 240, 0.85);
+}
 .gsl__main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
@@ -552,6 +668,21 @@ onUnmounted(() => {
   .gsl__video-pane--hero,
   .gsl__video-pane--hero :deep(.vsr) {
     min-height: 42vh;
+  }
+  /* Phone: stack equal tiles (never corner PiP). */
+  .gsl__video-pane--hero :deep(.vsr__stage--duo) {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+  .gsl__video-pane--hero :deep(.vsr__stage--duo .vsr__tile--local),
+  .gsl__video-pane--hero :deep(.vsr__tile--duo),
+  .gsl__video-pane--hero :deep(.vsr__stage--duo .vsr__tile--remote) {
+    position: relative !important;
+    inset: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 28vh;
+    box-shadow: none !important;
   }
 }
 .gsl__stage {

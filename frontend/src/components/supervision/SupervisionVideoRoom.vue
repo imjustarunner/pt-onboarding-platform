@@ -69,10 +69,12 @@ const localName = computed(() => {
   const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
     || u.email
     || '';
-  const name = fromProp || authName || 'You';
-  if (role && name && name !== 'You') return `You · ${role} · ${name}`;
+  const name = fromProp || authName || '';
+  // Avoid "You · Guest · Guest" when role and display name are the same.
+  if (role && name && role.toLowerCase() !== name.toLowerCase()) return `You · ${role} · ${name}`;
   if (role) return `You · ${role}`;
-  return name === 'You' ? 'You' : `You · ${name}`;
+  if (name) return `You · ${name}`;
+  return 'You';
 });
 </script>
 

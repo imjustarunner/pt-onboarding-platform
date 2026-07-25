@@ -28,6 +28,7 @@
       :join-identity="joinIdentity"
       :local-display-name="localDisplayName"
       :local-role-label="localRoleLabel"
+      :join-token="isOpaqueJoinRef ? String(sessionId || '') : ''"
       @leave="onDisconnected"
     />
     <div v-else class="join-placeholder">Loading…</div>

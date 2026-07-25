@@ -164,6 +164,9 @@ export const authenticate = async (req, res, next) => {
     if (req.method === 'GET' && /^\/api\/supervision\/guest-join\/[^/]+\/?$/.test(requestPath)) {
       return next();
     }
+    if (req.method === 'POST' && /^\/api\/supervision\/guest-transcript\/[^/]+\/?$/.test(requestPath)) {
+      return next();
+    }
     if (req.method === 'POST' && /^\/api\/supervision\/sessions\/[^/]+\/join-presence\/?$/.test(requestPath)) {
       return next();
     }

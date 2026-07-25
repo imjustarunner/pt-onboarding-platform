@@ -1655,6 +1655,47 @@ export const getAdmissionStatus = async (req, res, next) => {
   }
 };
 
+async function upsertSessionTranscriptText({
+  sessionId,
+  transcript,
+  speakerLabel = null,
+  updatedByUserId = null,
+  replace = false
+}) {
+  const sid = Number(sessionId || 0);
+  const chunk = String(transcript || '').trim();
+  if (!sid || !chunk) return null;
+
+  const label = String(speakerLabel || '').trim();
+  const stamped = label
+    ? `[${label}] ${chunk}`
+    : chunk;
+
+  await SupervisionSessionArtifact.ensureTagged({ sessionId: sid });
+  let nextText = stamped;
+  if (!replace) {
+    const existing = await SupervisionSessionArtifact.findBySessionId(sid);
+    const prev = String(existing?.transcript_text || '').trim();
+    if (prev) {
+      // Avoid duplicating the exact same chunk on repeated flush.
+      if (prev.includes(stamped)) nextText = prev;
+      else nextText = `${prev}\n${stamped}`;
+    }
+  }
+
+  await SupervisionSessionArtifact.upsertBySessionId({
+    sessionId: sid,
+    transcriptText: nextText.slice(0, 120000),
+    updatedByUserId: updatedByUserId ? Number(updatedByUserId) : null
+  });
+
+  const { triggerSupervisionSummaryFromTranscript } = await import('../services/supervisionTranscriptSummary.service.js');
+  await triggerSupervisionSummaryFromTranscript(sid).catch((e) => {
+    console.error('[Supervision] AI summary from client transcript:', e?.message);
+  });
+  return { sessionId: sid, chars: nextText.length };
+}
+
 export const saveClientTranscript = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -1666,26 +1707,53 @@ export const saveClientTranscript = async (req, res, next) => {
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
       supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const transcript = String(req.body?.transcript || '').trim();
     if (!transcript) return res.status(400).json({ error: { message: 'transcript is required' } });
 
-    await SupervisionSessionArtifact.ensureTagged({ sessionId: id });
-    await SupervisionSessionArtifact.upsertBySessionId({
+    const out = await upsertSessionTranscriptText({
       sessionId: id,
-      transcriptText: transcript.slice(0, 120000),
-      updatedByUserId: Number(req.user?.id || 0) || null
+      transcript,
+      speakerLabel: req.body?.speakerLabel || req.body?.displayName || null,
+      updatedByUserId: Number(req.user?.id || 0) || null,
+      replace: req.body?.replace === true
     });
 
-    const { triggerSupervisionSummaryFromTranscript } = await import('../services/supervisionTranscriptSummary.service.js');
-    await triggerSupervisionSummaryFromTranscript(id).catch((e) => {
-      console.error('[Supervision] AI summary from client transcript:', e?.message);
-    });
+    res.json({ ok: true, sessionId: id, chars: out?.chars || 0 });
+  } catch (e) {
+    next(e);
+  }
+};
 
-    res.json({ ok: true, sessionId: id });
+/**
+ * Public guest transcript flush (opaque join_token only).
+ * Used by live browser speech capture during Vonage sessions.
+ */
+export const saveGuestTranscript = async (req, res, next) => {
+  try {
+    const ref = String(req.params.joinToken || '').trim();
+    if (!ref || isNumericJoinRef(ref)) {
+      return res.status(400).json({ error: { message: 'A secure join link is required.' } });
+    }
+    const row = await SupervisionSession.resolveByJoinRef(ref);
+    if (!row?.id || String(row.join_token || '') !== ref) {
+      return res.status(404).json({ error: { message: 'Session not found' } });
+    }
+    const transcript = String(req.body?.transcript || '').trim();
+    if (!transcript) return res.status(400).json({ error: { message: 'transcript is required' } });
+
+    const out = await upsertSessionTranscriptText({
+      sessionId: Number(row.id),
+      transcript,
+      speakerLabel: req.body?.speakerLabel || req.body?.displayName || 'Guest',
+      updatedByUserId: null,
+      replace: false
+    });
+    res.json({ ok: true, sessionId: Number(row.id), chars: out?.chars || 0 });
   } catch (e) {
     next(e);
   }
@@ -2547,12 +2615,14 @@ export const getMySupervisionPrompts = async (req, res, next) => {
 
 async function repairInflatedSessionAttendance(sessions, { userId } = {}) {
   const uid = Number(userId || 0);
-  if (!uid || !Array.isArray(sessions) || !sessions.length) return sessions;
+  if (!uid || !Array.isArray(sessions) || !sessions.length) return false;
   let repaired = false;
+  const { resyncFinalizedSessionHourCredits } = await import('../services/supervisionFinalizePipeline.service.js');
+
   for (const s of sessions) {
     const sid = Number(s?.id || 0);
-    const totalSeconds = Number(s?.totalSeconds || 0);
-    if (!sid || !(totalSeconds > 0)) continue;
+    if (!sid) continue;
+    let totalSeconds = Number(s?.totalSeconds || 0);
     const startMs = parseAsDate(s.startAt)?.getTime();
     const endMs = parseAsDate(s.endAt)?.getTime();
     const scheduledSeconds = (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs)
@@ -2560,15 +2630,46 @@ async function repairInflatedSessionAttendance(sessions, { userId } = {}) {
       : 3600;
     const status = String(s.status || '').toUpperCase();
     const absurd = totalSeconds > 8 * 3600 || totalSeconds > Math.max(scheduledSeconds * 3, 3 * 3600);
-    if (!absurd) continue;
-    // eslint-disable-next-line no-await-in-loop
-    await recomputeAttendanceRollupForUser({
-      sessionId: sid,
-      userId: uid,
-      closeOpenAt: s.endAt || null,
-      forceFinalize: ['FINALIZED', 'MISSED'].includes(status)
-    });
-    repaired = true;
+    if (absurd && totalSeconds > 0) {
+      // eslint-disable-next-line no-await-in-loop
+      const fixed = await recomputeAttendanceRollupForUser({
+        sessionId: sid,
+        userId: uid,
+        closeOpenAt: s.endAt || null,
+        forceFinalize: ['FINALIZED', 'MISSED'].includes(status)
+      });
+      totalSeconds = Number(fixed?.totalSeconds || 0);
+      repaired = true;
+    }
+
+    // Re-sync requirement hour credits when they disagree with attendance
+    // (fixes inflated credits that were written before attendance repair).
+    if (status === 'FINALIZED') {
+      try {
+        const [credRows] = await pool.execute(
+          `SELECT individual_hours, group_hours, total_seconds
+           FROM supervision_session_hour_credits
+           WHERE session_id = ? AND user_id = ?
+           LIMIT 1`,
+          [sid, uid]
+        );
+        const credit = credRows?.[0] || null;
+        const creditHrs = Number(credit?.individual_hours || 0) + Number(credit?.group_hours || 0);
+        const rollupHrs = Math.round((Math.min(totalSeconds, 8 * 3600) / 3600) * 100) / 100;
+        const mismatch = credit
+          ? Math.abs(creditHrs - rollupHrs) > 0.02
+          : rollupHrs > 0.02;
+        if (mismatch) {
+          // eslint-disable-next-line no-await-in-loop
+          await resyncFinalizedSessionHourCredits({ sessionId: sid });
+          repaired = true;
+        }
+      } catch (e) {
+        if (!/supervision_session_hour_credits/i.test(String(e?.message || ''))) {
+          console.warn('[supervision] hour credit resync failed', sid, e?.message || e);
+        }
+      }
+    }
   }
   return repaired;
 }

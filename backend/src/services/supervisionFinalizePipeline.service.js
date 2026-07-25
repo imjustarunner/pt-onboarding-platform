@@ -116,15 +116,43 @@ export async function creditSuperviseeHoursFromFinalizedSession({
   );
 
   const superviseeIds = await resolveSuperviseeUserIds(session);
-  const credited = [];
+  const touched = new Set(superviseeIds);
+  // Also touch anyone who still has a credit row for this session (so stale inflated rows clear).
+  try {
+    const [priorCredits] = await pool.execute(
+      'SELECT user_id FROM supervision_session_hour_credits WHERE session_id = ?',
+      [sid]
+    );
+    for (const row of priorCredits || []) {
+      const uid = Number(row?.user_id || 0);
+      if (uid > 0) touched.add(uid);
+    }
+  } catch {
+    /* table may not exist yet */
+  }
 
-  for (const userId of superviseeIds) {
-    const totalSeconds = Math.max(0, Number(rollupByUser.get(userId) || 0));
-    if (!(totalSeconds > 0)) continue;
+  const credited = [];
+  const cleared = [];
+
+  for (const userId of touched) {
+    const totalSecondsRaw = Math.max(0, Number(rollupByUser.get(userId) || 0));
+    // Cap at 8h so a prior open-segment bug cannot permanently inflate requirement totals.
+    const totalSeconds = Math.min(totalSecondsRaw, 8 * 3600);
     const hours = clampHours(totalSeconds / 3600);
-    if (!(hours > 0)) continue;
     const individualHours = asGroup ? 0 : hours;
     const groupHours = asGroup ? hours : 0;
+
+    if (!(hours > 0)) {
+      // eslint-disable-next-line no-await-in-loop
+      await pool.execute(
+        'DELETE FROM supervision_session_hour_credits WHERE session_id = ? AND user_id = ?',
+        [sid, userId]
+      );
+      // eslint-disable-next-line no-await-in-loop
+      await recomputeSupervisionAccountForUser({ agencyId, userId });
+      cleared.push(userId);
+      continue;
+    }
 
     // eslint-disable-next-line no-await-in-loop
     await pool.execute(
@@ -161,7 +189,26 @@ export async function creditSuperviseeHoursFromFinalizedSession({
     credited.push({ userId, individualHours, groupHours, totalSeconds });
   }
 
-  return { ok: true, credited };
+  return { ok: true, credited, cleared };
+}
+
+/**
+ * Re-apply hour credits from current attendance rollups for a FINALIZED session.
+ * Use after attendance repair so inflated credits are corrected in supervision_accounts.
+ */
+export async function resyncFinalizedSessionHourCredits({ sessionId, actorUserId = null } = {}) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return { ok: false, skipped: true, reason: 'missing_session' };
+  const session = await SupervisionSession.findById(sid);
+  if (!session) return { ok: false, skipped: true, reason: 'not_found' };
+  const status = String(session.status || '').trim().toUpperCase();
+  if (status !== 'FINALIZED') return { ok: true, skipped: true, reason: 'not_finalized' };
+  const rollups = await SupervisionSession.listAttendanceRollupsForSession(sid);
+  return creditSuperviseeHoursFromFinalizedSession({
+    session,
+    rollups,
+    actorUserId
+  });
 }
 
 export async function createSupervisorSupervisionTimeClaim({
