@@ -52,6 +52,8 @@
       @dismiss="emit('dismiss-virtual')"
     />
 
+    <slot name="before-recurrence" />
+
     <RecurrenceControls
       v-if="showRecurrence"
       :frequency="recurrenceFrequency"

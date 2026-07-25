@@ -1148,6 +1148,14 @@
             </div>
           </div>
         </template>
+        <div
+          v-if="scheduleNowLineStyle"
+          class="sched-now-line"
+          :style="scheduleNowLineStyle"
+          aria-hidden="true"
+        >
+          <span class="sched-now-line__dot" aria-hidden="true"></span>
+        </div>
       </div>
       </div>
     </template>
@@ -1443,6 +1451,17 @@
           @cancel-office-request="onEditorCancelOfficeRequest"
           @scroll-to-group-clients="onScrollToGroupClients"
         >
+          <template v-if="editorIsSupervision" #before-recurrence>
+            <SupervisionBody
+              section="controls"
+              v-model:is-virtual="editorSupervisionIsVirtual"
+              v-model:group-mode="supervisionGroupModeEnabled"
+              :session-type-label="supervisionEffectiveSessionTypeLabel"
+              :can-book-group="canBookGroupSupervisionFromGrid"
+              :disabled="submitting || scheduleEventSaving"
+            />
+          </template>
+
           <template #provider>
             <PersonSearchSelect
               v-if="canSelectBookingProvider && !isAppointmentEditMode"
@@ -1662,6 +1681,7 @@
 
           <SupervisionBody
             v-else-if="editorIsSupervision"
+            section="details"
             v-model:is-virtual="editorSupervisionIsVirtual"
             v-model:group-mode="supervisionGroupModeEnabled"
             v-model:facilitator-user-id="supervisionFacilitatorUserId"
@@ -2643,6 +2663,17 @@
             </div>
           </div>
 
+          <div v-if="requestType === 'supervision'" style="margin-top: 10px;">
+            <SupervisionBody
+              section="controls"
+              v-model:is-virtual="editorSupervisionIsVirtual"
+              v-model:group-mode="supervisionGroupModeEnabled"
+              :session-type-label="supervisionEffectiveSessionTypeLabel"
+              :can-book-group="canBookGroupSupervisionFromGrid"
+              :disabled="submitting"
+            />
+          </div>
+
           <div v-if="requestType === 'supervision' && supervisionProvidersLoading" class="muted" style="margin-top: 6px;">
             Loading providers…
           </div>
@@ -2651,13 +2682,10 @@
           </div>
 
           <div v-if="requestType === 'supervision' && availableSupervisionParticipants.length" style="margin-top: 10px;">
-            <div v-if="supervisionEffectiveSessionTypeLabel" class="lbl" style="margin-bottom: 4px;">
-              {{ supervisionEffectiveSessionTypeLabel }}
-            </div>
             <div class="muted" style="margin-top: 6px;">
               {{ supervisionGroupModeEnabled
                 ? 'Group mode: select anyone in this agency or a saved practice group. Facilitator is set below.'
-                : 'Showing your assigned supervisees. Turn on Group supervision below to invite agency-wide and use practice groups.' }}
+                : 'Showing your assigned supervisees. Turn on Group supervision above to invite agency-wide and use practice groups.' }}
             </div>
             <MeetingParticipantsPicker
               :expanded="true"
@@ -2688,6 +2716,7 @@
               @create-group="createSupervisionInviteGroup"
             />
             <SupervisionBody
+              section="details"
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:facilitator-user-id="supervisionFacilitatorUserId"
@@ -6104,6 +6133,36 @@ const gridStyle = computed(() => {
   return {
     gridTemplateColumns: `${timeCol}px repeat(${cols}, minmax(${dayMin}px, 1fr))`,
     minWidth: `${timeCol + cols * dayMin}px`
+  };
+});
+
+const SCHED_GRID_HEADER_PX = 48;
+const scheduleNowLineStyle = computed(() => {
+  if (props.mode !== 'self' || viewMode.value !== 'open_finder') return null;
+  const todayDay = (visibleDays.value || []).find((d) => isTodayDay(d));
+  if (!todayDay) return null;
+  const colIdx = visibleDays.value.indexOf(todayDay);
+  if (colIdx < 0) return null;
+
+  const now = new Date(joinPromptNowMs.value || Date.now());
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  const minH = Number(gridMinHour.value || 0);
+  const maxH = Number(gridMaxHour.value || 24);
+  if (hour < minH || hour >= maxH) return null;
+
+  const slotH = Number(rowHeightPx.value || 48);
+  const slotsPerHour = showQuarterDetail.value ? 4 : 1;
+  const hourOffset = hour - minH;
+  const quarterIdx = showQuarterDetail.value ? Math.floor(minute / 15) : 0;
+  const fracInSlot = showQuarterDetail.value ? (minute % 15) / 15 : minute / 60;
+  const topPx = SCHED_GRID_HEADER_PX + (hourOffset * slotsPerHour + quarterIdx) * slotH + fracInSlot * slotH;
+  const colCount = Math.max(1, visibleDays.value.length);
+
+  return {
+    '--sched-now-col-idx': String(colIdx),
+    '--sched-now-col-count': String(colCount),
+    top: `${topPx}px`
   };
 });
 
@@ -20008,7 +20067,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   --sched-muted: #64748b;
   --sched-line: rgba(15, 23, 42, 0.08);
   --sched-soft: #f8fafc;
-  --sched-today: rgba(167, 139, 250, 0.12);
+  --sched-today: rgba(139, 92, 246, 0.22);
 }
 .sched-toolbar { margin-top: 4px; }
 .sched-tool-bar {
@@ -21185,6 +21244,27 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   overflow: visible;
   background: #fff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  position: relative;
+}
+.sched-now-line {
+  position: absolute;
+  left: calc(90px + ((100% - 90px) * var(--sched-now-col-idx) / var(--sched-now-col-count)));
+  width: calc((100% - 90px) / var(--sched-now-col-count));
+  height: 2px;
+  background: #ef4444;
+  pointer-events: none;
+  z-index: 12;
+}
+.sched-now-line__dot {
+  position: absolute;
+  left: -5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px #fff;
 }
 .sched-head-cell {
   padding: 12px 10px;
@@ -21208,7 +21288,11 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .sched-head-today {
   background: var(--sched-today);
-  box-shadow: none;
+  box-shadow: inset 0 -3px 0 0 #8b5cf6;
+}
+.sched-head-today .sched-head-dow {
+  color: #6d28d9;
+  font-weight: 800;
 }
 .sched-grid > .sched-head-cell:first-child {
   border-left: none;
@@ -21300,8 +21384,8 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   padding-bottom: 0;
 }
 .sched-cell-today {
-  background: rgba(167, 139, 250, 0.05);
-  box-shadow: none;
+  background: rgba(139, 92, 246, 0.09);
+  box-shadow: inset 3px 0 0 0 rgba(139, 92, 246, 0.45);
 }
 .sched-cell.clickable {
   cursor: pointer;
@@ -23711,7 +23795,16 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .sched-wrap--dark .sched-head-today,
 .sched-wrap--dark .sched-cell-today {
-  background: rgba(139, 92, 246, 0.14);
+  background: rgba(139, 92, 246, 0.24);
+}
+.sched-wrap--dark .sched-head-today {
+  box-shadow: inset 0 -3px 0 0 #a78bfa;
+}
+.sched-wrap--dark .sched-head-today .sched-head-dow {
+  color: #ddd6fe;
+}
+.sched-wrap--dark .sched-cell-today {
+  box-shadow: inset 3px 0 0 0 rgba(167, 139, 250, 0.55);
 }
 .sched-wrap--dark .sched-head-dow {
   color: #f8fafc;
