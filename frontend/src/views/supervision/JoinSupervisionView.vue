@@ -26,6 +26,8 @@
       :is-in-lobby="isInLobby"
       :lobby-enabled-for-session="lobbyEnabledForSession"
       :join-identity="joinIdentity"
+      :local-display-name="localDisplayName"
+      :local-role-label="localRoleLabel"
       @leave="onDisconnected"
     />
     <div v-else class="join-placeholder">Loading…</div>
@@ -33,7 +35,7 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import GroupSupervisionLiveRoom from '../../components/supervision/GroupSupervisionLiveRoom.vue';
@@ -64,6 +66,8 @@ const isPresenter = ref(false);
 const roomMode = ref('main');
 const lobbyEnabledForSession = ref(false);
 const joinIdentity = ref('');
+const localDisplayName = ref('');
+const localRoleLabel = ref('');
 const joinAttemptedForPath = ref('');
 
 const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
@@ -71,6 +75,22 @@ const isOpaqueJoinRef = computed(() => {
   const ref = String(sessionId.value || '').trim();
   return !!ref && !/^\d+$/.test(ref);
 });
+
+function stableGuestKey(joinToken) {
+  const tokenKey = String(joinToken || '').trim();
+  if (!tokenKey) return '';
+  const storageKey = `supv-guest-key:${tokenKey}`;
+  try {
+    let existing = sessionStorage.getItem(storageKey) || '';
+    if (!/^[a-zA-Z0-9]{8,32}$/.test(existing)) {
+      existing = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.slice(0, 24);
+      sessionStorage.setItem(storageKey, existing);
+    }
+    return existing;
+  } catch {
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.slice(0, 24);
+  }
+}
 
 function applyTokenPayload(data) {
   const tok = (data.token || data.data?.token || '').trim();
@@ -87,6 +107,9 @@ function applyTokenPayload(data) {
   if (data.supervisionSessionId) numericSessionId.value = Number(data.supervisionSessionId);
   sessionMeta.value = data.sessionType ? String(data.sessionType) : '';
   joinIdentity.value = String(data.identity || '').trim();
+  localDisplayName.value = String(data.displayName || '').trim();
+  localRoleLabel.value = String(data.roleLabel || '').trim()
+    || (data.isSupervisor ? 'Supervisor' : (data.isPresenter ? 'Presenter' : (data.guest ? 'Guest' : 'Supervisee')));
 }
 
 async function pollAdmissionStatus() {
@@ -129,14 +152,29 @@ function startPresenceHeartbeat() {
   presencePollInterval.value = setInterval(tick, 15000);
 }
 
+function presenceLeaveUrl(sid) {
+  const base = String(api?.defaults?.baseURL || '/api').replace(/\/$/, '');
+  return `${base}/supervision/sessions/${encodeURIComponent(sid)}/join-presence`;
+}
+
 async function leavePresence() {
   const sid = numericSessionId.value || sessionId.value;
   const identity = joinIdentity.value;
   if (!sid || !identity) return;
+  const body = { identity, action: 'leave' };
+  try {
+    // Beacon survives tab close / navigation better than a normal XHR.
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
+      if (navigator.sendBeacon(presenceLeaveUrl(sid), blob)) return;
+    }
+  } catch {
+    /* fall through */
+  }
   try {
     await api.post(
       `/supervision/sessions/${encodeURIComponent(sid)}/join-presence`,
-      { identity, action: 'leave' },
+      body,
       { skipAuthRedirect: true, skipGlobalLoading: true }
     );
   } catch {
@@ -173,7 +211,9 @@ async function resolveAndRedirect() {
 async function fetchGuestToken() {
   const sid = sessionId.value;
   if (!sid || !isOpaqueJoinRef.value) return false;
+  const guestKey = stableGuestKey(sid);
   const resp = await api.get(`/supervision/guest-join/${encodeURIComponent(sid)}`, {
+    params: guestKey ? { guestKey } : undefined,
     skipAuthRedirect: true,
     skipGlobalLoading: true
   });
@@ -235,7 +275,24 @@ async function fetchTokenAndJoin() {
   error.value = '';
   showLoginFallback.value = false;
   try {
-    // Prefer guest join for opaque tokens — works in a fresh tab with no login.
+    // Prefer authenticated join when logged in so the same user reuses one seat
+    // (guest path used to mint a new identity per tab and lock individual rooms at 2).
+    const loggedIn = await ensureAuthenticatedSession();
+    if (loggedIn) {
+      try {
+        await fetchAuthenticatedToken();
+        return;
+      } catch (authErr) {
+        const status = Number(authErr?.response?.status || 0);
+        if (status === 409) {
+          error.value = authErr?.response?.data?.error?.message
+            || 'This session is full right now. When someone leaves, try the link again.';
+          return;
+        }
+        // Fall through to guest when auth token path fails for other reasons.
+      }
+    }
+
     if (isOpaqueJoinRef.value) {
       try {
         await fetchGuestToken();
@@ -247,19 +304,13 @@ async function fetchTokenAndJoin() {
             || 'This session is full right now. When someone leaves, try the link again.';
           return;
         }
-        // Fall through to authenticated join when guest path is unavailable.
       }
     }
 
-    const ok = await ensureAuthenticatedSession();
-    if (!ok) {
-      showLoginFallback.value = true;
-      error.value = isOpaqueJoinRef.value
-        ? 'Could not join as guest. Log in with your account, or ask the host for a fresh join link.'
-        : 'Please log in to join this session.';
-      return;
-    }
-    await fetchAuthenticatedToken();
+    showLoginFallback.value = true;
+    error.value = isOpaqueJoinRef.value
+      ? 'Could not join as guest. Log in with your account, or ask the host for a fresh join link.'
+      : 'Please log in to join this session.';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
     if (Number(e?.response?.status || 0) === 401) showLoginFallback.value = true;
@@ -286,7 +337,18 @@ watch(
   { immediate: true }
 );
 
+function onPageLeave() {
+  void leavePresence();
+}
+
+onMounted(() => {
+  window.addEventListener('pagehide', onPageLeave);
+  window.addEventListener('beforeunload', onPageLeave);
+});
+
 onUnmounted(() => {
+  window.removeEventListener('pagehide', onPageLeave);
+  window.removeEventListener('beforeunload', onPageLeave);
   if (admissionPollInterval.value) clearInterval(admissionPollInterval.value);
   if (presencePollInterval.value) clearInterval(presencePollInterval.value);
   void leavePresence();

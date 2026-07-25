@@ -12,6 +12,7 @@
       :layout="layout"
       :diagnostics="diagnostics"
       :can-recreate-room="canRecreateRoom"
+      promote-local-when-alone
       @disconnected="$emit('disconnected')"
       @connected="$emit('connected', $event)"
       @error="$emit('error', $event)"
@@ -45,7 +46,9 @@ const props = defineProps({
   isHost: { type: Boolean, default: false },
   layout: { type: String, default: 'strip' },
   diagnostics: { type: Object, default: null },
-  canRecreateRoom: { type: Boolean, default: false }
+  canRecreateRoom: { type: Boolean, default: false },
+  localDisplayName: { type: String, default: '' },
+  localRoleLabel: { type: String, default: '' }
 });
 
 defineEmits(['disconnected', 'connected', 'error', 'recreate-room']);
@@ -60,9 +63,16 @@ const projectId = computed(() =>
   String(props.applicationId || props.apiKey || '').trim()
 );
 const localName = computed(() => {
+  const role = String(props.localRoleLabel || (props.isHost ? 'Supervisor' : '')).trim();
+  const fromProp = String(props.localDisplayName || '').trim();
   const u = authStore.user || {};
-  const name = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim();
-  return name || u.email || 'You';
+  const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
+    || u.email
+    || '';
+  const name = fromProp || authName || 'You';
+  if (role && name && name !== 'You') return `You · ${role} · ${name}`;
+  if (role) return `You · ${role}`;
+  return name === 'You' ? 'You' : `You · ${name}`;
 });
 </script>
 

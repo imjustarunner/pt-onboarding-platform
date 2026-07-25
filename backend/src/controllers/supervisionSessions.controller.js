@@ -22,21 +22,60 @@ import crypto from 'crypto';
 import { joinUrlForSupervision, isNumericJoinRef } from '../utils/joinToken.js';
 import SupervisionCasePresentation from '../models/SupervisionCasePresentation.model.js';
 
+const JOIN_PRESENCE_STALE_SECONDS = 25;
+
+async function pruneStaleJoinPresence(sessionId) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return;
+  try {
+    await pool.execute(
+      `UPDATE supervision_session_join_presence
+       SET left_at = UTC_TIMESTAMP()
+       WHERE session_id = ?
+         AND left_at IS NULL
+         AND last_seen_at < (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
+      [sid]
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
 async function countActiveJoinPresence(sessionId) {
   const sid = Number(sessionId || 0);
   if (!sid) return 0;
   try {
+    await pruneStaleJoinPresence(sid);
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS cnt
        FROM supervision_session_join_presence
        WHERE session_id = ?
          AND left_at IS NULL
-         AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL 45 SECOND)`,
+         AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
       [sid]
     );
     return Number(rows?.[0]?.cnt || 0);
   } catch {
     return 0;
+  }
+}
+
+async function isJoinIdentityActive(sessionId, joinIdentity) {
+  const sid = Number(sessionId || 0);
+  const identity = String(joinIdentity || '').trim();
+  if (!sid || !identity) return false;
+  try {
+    const [mine] = await pool.execute(
+      `SELECT 1 FROM supervision_session_join_presence
+       WHERE session_id = ? AND join_identity = ?
+         AND left_at IS NULL
+         AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)
+       LIMIT 1`,
+      [sid, identity]
+    );
+    return !!(mine?.length);
+  } catch {
+    return false;
   }
 }
 
@@ -1035,8 +1074,15 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
 
     const sessionType = String(row.session_type || 'individual').toLowerCase();
     const maxCapacity = maxJoinCapacityForSessionType(sessionType);
+    const guestKeyRaw = String(req.query?.guestKey || req.query?.guest_key || '').trim();
+    const guestKey = guestKeyRaw.replace(/[^a-zA-Z0-9]/g, '').slice(0, 32);
+    const guestId = guestKey || crypto.randomBytes(12).toString('hex');
+    const identity = `guest-${guestId}`;
+    const displayName = String(req.query?.displayName || req.query?.name || 'Guest').trim().slice(0, 80) || 'Guest';
+
+    const alreadyPresent = await isJoinIdentityActive(id, identity);
     const activeCount = await countActiveJoinPresence(id);
-    if (activeCount >= maxCapacity) {
+    if (!alreadyPresent && activeCount >= maxCapacity) {
       return res.status(409).json({
         error: {
           message: 'This session is full right now. When someone leaves, the join link will work again.'
@@ -1063,14 +1109,12 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
       });
     }
 
-    const guestId = crypto.randomBytes(12).toString('hex');
-    const identity = `guest-${guestId}`;
-    const displayName = String(req.query?.displayName || req.query?.name || 'Guest').trim().slice(0, 80) || 'Guest';
     const token = await createAccessTokenAsync({
       roomSid: vonageSessionId,
       identity,
       metadata: {
         role: 'guest',
+        roleLabel: 'Guest',
         sessionId: id,
         displayName
       }
@@ -1097,6 +1141,8 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
       roomName,
       roomSid: vonageSessionId,
       identity,
+      displayName,
+      roleLabel: 'Guest',
       isSupervisor: false,
       isPresenter: false,
       supervisionSessionId: id,
@@ -1105,7 +1151,7 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
       roomMode: 'main',
       lobbyEnabledForSession: false,
       videoConfigured: true,
-      activeParticipants: activeCount + 1,
+      activeParticipants: alreadyPresent ? activeCount : activeCount + 1,
       maxParticipants: maxCapacity,
       diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
     });
@@ -1258,21 +1304,8 @@ export const getSupervisionVideoToken = async (req, res, next) => {
 
     // Capacity lock applies to new joiners who are not already counted as present.
     const maxCapacity = maxJoinCapacityForSessionType(sessionType);
+    const alreadyPresent = await isJoinIdentityActive(id, identity);
     const activeCount = await countActiveJoinPresence(id);
-    let alreadyPresent = false;
-    try {
-      const [mine] = await pool.execute(
-        `SELECT 1 FROM supervision_session_join_presence
-         WHERE session_id = ? AND join_identity = ?
-           AND left_at IS NULL
-           AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL 45 SECOND)
-         LIMIT 1`,
-        [id, identity]
-      );
-      alreadyPresent = !!(mine?.length);
-    } catch {
-      alreadyPresent = false;
-    }
     if (!alreadyPresent && activeCount >= maxCapacity) {
       return res.status(409).json({
         error: {
@@ -1284,11 +1317,15 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       });
     }
 
+    const role = isSupervisor ? 'supervisor' : (isPresenter ? 'presenter' : 'supervisee');
+    const roleLabel = isSupervisor ? 'Supervisor' : (isPresenter ? 'Presenter' : 'Supervisee');
+
     const token = await createAccessTokenAsync({
       roomSid: vonageSessionId,
       identity,
       metadata: {
-        role: isSupervisor ? 'supervisor' : (isPresenter ? 'presenter' : 'participant'),
+        role,
+        roleLabel,
         sessionId: id,
         displayName
       }
@@ -1316,6 +1353,8 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       roomName,
       roomSid: vonageSessionId,
       identity,
+      displayName,
+      roleLabel,
       isSupervisor: !!isSupervisor,
       isPresenter: !!isPresenter,
       supervisionSessionId: id,

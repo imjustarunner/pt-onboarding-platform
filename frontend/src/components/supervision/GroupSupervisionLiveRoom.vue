@@ -49,6 +49,8 @@
           :session-id="supervisionSessionId"
           :is-host="isSupervisor"
           :diagnostics="diagnostics"
+          :local-display-name="localDisplayName"
+          :local-role-label="localRoleLabel"
           layout="standard"
           @disconnected="$emit('leave')"
           @connected="onVideoConnected"
@@ -96,6 +98,8 @@
           :session-id="supervisionSessionId"
           :is-host="isSupervisor"
           :diagnostics="diagnostics"
+          :local-display-name="localDisplayName"
+          :local-role-label="localRoleLabel"
           layout="strip"
           @disconnected="$emit('leave')"
           @connected="onVideoConnected"
@@ -199,7 +203,9 @@ const props = defineProps({
   isInLobby: { type: Boolean, default: false },
   lobbyEnabledForSession: { type: Boolean, default: false },
   participantHint: { type: String, default: '' },
-  joinIdentity: { type: String, default: '' }
+  joinIdentity: { type: String, default: '' },
+  localDisplayName: { type: String, default: '' },
+  localRoleLabel: { type: String, default: '' }
 });
 
 const emit = defineEmits(['leave', 'connected']);
@@ -494,6 +500,18 @@ onUnmounted(() => {
   width: 30%;
   max-width: 220px;
   min-height: 140px;
+}
+/* Alone: self-view fills the hero stage (not a corner PiP). */
+.gsl__video-pane--hero :deep(.vsr__stage--solo .vsr__tile--local),
+.gsl__video-pane--hero :deep(.vsr__tile--solo) {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  max-width: none;
+  min-height: min(48vh, 440px);
+  height: 100%;
+  box-shadow: none;
 }
 .gsl__sidebar--roomy {
   min-height: min(62vh, 560px);

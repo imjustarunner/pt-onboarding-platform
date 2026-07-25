@@ -25,8 +25,15 @@
     </div>
 
     <template v-else>
-      <div class="vsr__stage" :class="{ 'vsr__stage--strip': layout === 'strip' }">
+      <div
+        class="vsr__stage"
+        :class="{
+          'vsr__stage--strip': layout === 'strip',
+          'vsr__stage--solo': promoteLocalWhenAlone && !hasRemote && layout !== 'strip'
+        }"
+      >
         <div
+          v-show="!(promoteLocalWhenAlone && !hasRemote && layout !== 'strip')"
           ref="remoteEl"
           class="vsr__tile vsr__tile--remote"
           :class="{ 'vsr__tile--empty': !hasRemote }"
@@ -38,7 +45,11 @@
           v-show="!hideSelfView"
           ref="localEl"
           class="vsr__tile vsr__tile--local"
-          :class="{ 'vsr__tile--muted': !publishAudio, 'vsr__tile--cam-off': !publishVideo }"
+          :class="{
+            'vsr__tile--muted': !publishAudio,
+            'vsr__tile--cam-off': !publishVideo,
+            'vsr__tile--solo': promoteLocalWhenAlone && !hasRemote && layout !== 'strip'
+          }"
         >
           <span class="vsr__label">{{ localName || 'You' }}</span>
         </div>
@@ -101,6 +112,8 @@ const props = defineProps({
   compact: { type: Boolean, default: false },
   layout: { type: String, default: 'standard' }, // standard | strip
   autoConnect: { type: Boolean, default: true },
+  /** When alone, fill the main stage with self-view instead of a tiny PiP. */
+  promoteLocalWhenAlone: { type: Boolean, default: true },
   /** Optional server diagnostics (no secrets). */
   diagnostics: { type: Object, default: null },
   /** Show “Reset video room” when auth fails (parent handles recreate). */
@@ -139,6 +152,20 @@ function clearRemote() {
   remoteName.value = '';
   if (remoteEl.value) remoteEl.value.innerHTML = '';
   subscribers.clear();
+}
+
+function formatRemoteLabel(parsed = {}) {
+  const roleRaw = String(parsed.roleLabel || parsed.role || '').trim().toLowerCase();
+  let roleLabel = String(parsed.roleLabel || '').trim();
+  if (!roleLabel) {
+    if (roleRaw === 'supervisor') roleLabel = 'Supervisor';
+    else if (roleRaw === 'supervisee' || roleRaw === 'participant') roleLabel = 'Supervisee';
+    else if (roleRaw === 'presenter') roleLabel = 'Presenter';
+    else if (roleRaw === 'guest') roleLabel = 'Guest';
+  }
+  const name = String(parsed.displayName || parsed.identity || '').trim() || 'Participant';
+  if (roleLabel && name) return `${roleLabel} · ${name}`;
+  return name;
 }
 
 function looksLikeJwt(value) {
@@ -265,11 +292,13 @@ async function connect() {
       try {
         const data = event.stream.connection?.data;
         if (data) {
-          const parsed = JSON.parse(data);
-          remoteName.value = parsed.displayName || parsed.identity || 'Participant';
+          const parsed = typeof data === 'string' ? JSON.parse(data) : (data || {});
+          remoteName.value = formatRemoteLabel(parsed);
+        } else {
+          remoteName.value = event.stream?.name || 'Participant';
         }
       } catch {
-        remoteName.value = 'Participant';
+        remoteName.value = event.stream?.name || 'Participant';
       }
       emit('stream-created', event);
     });
@@ -515,6 +544,22 @@ defineExpose({
   min-height: 90px;
   z-index: 2;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.vsr__stage--solo {
+  grid-template-columns: 1fr;
+  min-height: 280px;
+}
+.vsr__stage--solo .vsr__tile--local,
+.vsr__tile--solo {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  max-width: none;
+  min-height: 260px;
+  height: 100%;
+  box-shadow: none;
+  z-index: 1;
 }
 .vsr__stage--strip .vsr__tile--local {
   position: relative;
