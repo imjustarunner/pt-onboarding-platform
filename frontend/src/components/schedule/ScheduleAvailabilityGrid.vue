@@ -3586,7 +3586,7 @@
         </div>
         <div
           v-else-if="isSupervisionEditMode"
-          class="nr-footer"
+          class="nr-footer nr-footer--supv"
         >
           <button
             class="btn btn-danger"
@@ -3596,14 +3596,25 @@
           >
             Cancel session
           </button>
-          <button
-            class="btn nr-btn-submit"
-            type="button"
-            :disabled="supvSaving || !selectedSupvSessionId"
-            @click="saveSupvSessionFromScheduleModal"
-          >
-            {{ supvSaving ? 'Saving…' : 'Save changes' }}
-          </button>
+          <div class="nr-footer__actions">
+            <button
+              v-if="canJoinSelectedSupvSession"
+              class="btn nr-btn-join"
+              type="button"
+              :disabled="supvSaving || supvMeetOpening || supvAppVideoLoading || !selectedSupvSessionId"
+              @click="startTrackedSupvMeet"
+            >
+              {{ supvJoinSessionLabel }}
+            </button>
+            <button
+              class="btn nr-btn-submit"
+              type="button"
+              :disabled="supvSaving || !selectedSupvSessionId"
+              @click="saveSupvSessionFromScheduleModal"
+            >
+              {{ supvSaving ? 'Saving…' : 'Save changes' }}
+            </button>
+          </div>
         </div>
         <div v-else-if="meetingCreatedShare" class="nr-footer">
           <button class="btn nr-btn-submit" type="button" @click="dismissMeetingCreatedShare">
@@ -3812,13 +3823,24 @@
             </div>
           </div>
 
-          <div class="modal-actions" style="margin-top: 14px; justify-content: space-between;">
+          <div class="modal-actions modal-actions--supv" style="margin-top: 14px;">
             <button class="btn btn-danger" type="button" @click="cancelSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
               Cancel session
             </button>
-            <button class="btn btn-primary btn-sm stack-details-edit-btn" type="button" @click="saveSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
-              {{ supvSaving ? 'Saving…' : 'Save changes' }}
-            </button>
+            <div class="modal-actions__right">
+              <button
+                v-if="canJoinSelectedSupvSession"
+                class="btn btn-sm stack-details-join-btn"
+                type="button"
+                :disabled="supvSaving || supvMeetOpening || supvAppVideoLoading || !selectedSupvSessionId"
+                @click="startTrackedSupvMeet"
+              >
+                {{ supvJoinSessionLabel }}
+              </button>
+              <button class="btn btn-primary btn-sm stack-details-edit-btn" type="button" @click="saveSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
+                {{ supvSaving ? 'Saving…' : 'Save changes' }}
+              </button>
+            </div>
           </div>
           </div>
         </div>
@@ -18077,6 +18099,19 @@ const selectedSupvSession = computed(() => {
   return list.find((x) => Number(x?.id) === Number(selectedSupvSessionId.value)) || null;
 });
 
+const canJoinSelectedSupvSession = computed(() => {
+  const s = selectedSupvSession.value;
+  if (!Number(s?.id || 0)) return false;
+  return !!(String(s?.joinUrl || '').trim() || String(s?.googleMeetLink || '').trim());
+});
+
+const supvJoinSessionLabel = computed(() => {
+  if (supvMeetOpening.value || supvAppVideoLoading.value) return 'Joining…';
+  const s = selectedSupvSession.value;
+  if (String(s?.joinUrl || '').trim()) return 'Join session';
+  return 'Join Meet';
+});
+
 /** Day label for display: derive from session startAt when available to avoid timezone/day mismatch. */
 const supvDisplayDayLabel = computed(() => {
   const ev = selectedSupvSession.value;
@@ -21637,6 +21672,21 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .stack-details-edit-btn:hover:not(:disabled) {
   background: #14532d !important;
 }
+.stack-details-join-btn {
+  background: #7c3aed !important;
+  border-color: #6d28d9 !important;
+  color: #fff !important;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.28);
+}
+.stack-details-join-btn:hover:not(:disabled) {
+  background: #6d28d9 !important;
+  filter: brightness(1.04);
+}
+.stack-details-join-btn:disabled {
+  opacity: 0.5;
+  box-shadow: none;
+}
 .stack-details-notes {
   border: 1.5px solid #94a3b8 !important;
   background: #f8fafc !important;
@@ -22905,8 +22955,40 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border-top: 1px solid var(--nr-line);
   background: var(--nr-soft);
 }
+.nr-footer--supv {
+  justify-content: space-between;
+  align-items: center;
+}
+.nr-footer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
 .nr-btn-cancel {
   min-width: 96px;
+}
+.nr-btn-join {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 132px;
+  background: #7c3aed !important;
+  border-color: #6d28d9 !important;
+  color: #fff !important;
+  font-weight: 800;
+  border-radius: 10px;
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.28);
+}
+.nr-btn-join:hover:not(:disabled) {
+  background: #6d28d9 !important;
+  filter: brightness(1.04);
+  transform: translateY(-1px);
+}
+.nr-btn-join:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 .nr-btn-submit {
   display: inline-flex;
@@ -23331,6 +23413,18 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   margin-top: 12px;
   display: flex;
   justify-content: flex-end;
+}
+.modal-actions--supv {
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.modal-actions__right {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .field-grid {
