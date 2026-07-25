@@ -29,11 +29,12 @@
         class="vsr__stage"
         :class="{
           'vsr__stage--strip': layout === 'strip',
-          'vsr__stage--solo': promoteLocalWhenAlone && !hasRemote && layout !== 'strip'
+          'vsr__stage--solo': isSoloStage,
+          'vsr__stage--duo': isDuoStage
         }"
       >
         <div
-          v-show="!(promoteLocalWhenAlone && !hasRemote && layout !== 'strip')"
+          v-show="!isSoloStage"
           ref="remoteEl"
           class="vsr__tile vsr__tile--remote"
           :class="{ 'vsr__tile--empty': !hasRemote }"
@@ -48,7 +49,8 @@
           :class="{
             'vsr__tile--muted': !publishAudio,
             'vsr__tile--cam-off': !publishVideo,
-            'vsr__tile--solo': promoteLocalWhenAlone && !hasRemote && layout !== 'strip'
+            'vsr__tile--solo': isSoloStage,
+            'vsr__tile--duo': isDuoStage
           }"
         >
           <span class="vsr__label">{{ localName || 'You' }}</span>
@@ -114,6 +116,8 @@ const props = defineProps({
   autoConnect: { type: Boolean, default: true },
   /** When alone, fill the main stage with self-view instead of a tiny PiP. */
   promoteLocalWhenAlone: { type: Boolean, default: true },
+  /** When someone else joins, use equal side-by-side tiles (not a tiny corner PiP). */
+  equalTilesWhenRemote: { type: Boolean, default: true },
   /** Optional server diagnostics (no secrets). */
   diagnostics: { type: Object, default: null },
   /** Show “Reset video room” when auth fails (parent handles recreate). */
@@ -141,6 +145,13 @@ const hasRemote = ref(false);
 const remoteName = ref('');
 const sharingScreen = ref(false);
 const sessionReady = ref(false);
+
+const isSoloStage = computed(() =>
+  props.promoteLocalWhenAlone && !hasRemote.value && props.layout !== 'strip'
+);
+const isDuoStage = computed(() =>
+  props.equalTilesWhenRemote && hasRemote.value && props.layout !== 'strip'
+);
 
 let session = null;
 let screenPublisher = null;
@@ -281,7 +292,9 @@ async function connect() {
         {
           insertMode: 'append',
           width: '100%',
-          height: '100%'
+          height: '100%',
+          fitMode: 'contain',
+          style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
         },
         (err) => {
           if (err) console.error('[VideoSessionRoom] subscribe error', err);
@@ -324,9 +337,11 @@ async function connect() {
         insertMode: 'append',
         width: '100%',
         height: '100%',
+        fitMode: 'contain',
         publishAudio: publishAudio.value,
         publishVideo: publishVideo.value,
-        name: props.localName
+        name: props.localName,
+        style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
       },
       (err) => {
         if (err) console.error('[VideoSessionRoom] publisher error', err);
@@ -549,17 +564,34 @@ defineExpose({
   grid-template-columns: 1fr;
   min-height: 280px;
 }
+.vsr__stage--duo {
+  grid-template-columns: 1fr 1fr;
+  min-height: 280px;
+}
 .vsr__stage--solo .vsr__tile--local,
-.vsr__tile--solo {
+.vsr__tile--solo,
+.vsr__stage--duo .vsr__tile--local,
+.vsr__tile--duo {
   position: relative;
   right: auto;
   bottom: auto;
   width: 100%;
   max-width: none;
-  min-height: 260px;
+  min-height: 220px;
   height: 100%;
   box-shadow: none;
   z-index: 1;
+}
+.vsr__stage--duo .vsr__tile--remote {
+  min-height: 220px;
+}
+.vsr__tile :deep(.OT_publisher),
+.vsr__tile :deep(.OT_subscriber),
+.vsr__tile :deep(video) {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  background: #0b0e14;
 }
 .vsr__stage--strip .vsr__tile--local {
   position: relative;

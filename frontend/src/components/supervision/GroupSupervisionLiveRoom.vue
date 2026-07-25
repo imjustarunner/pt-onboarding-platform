@@ -291,11 +291,14 @@ const questions = computed(() => {
 async function postLifecycle(eventType) {
   const sid = props.supervisionSessionId;
   if (!sid) return;
+  // Guests cannot hit authenticated lifecycle; skip quietly.
+  if (!authStore.isAuthenticated && !authStore.user?.id) return;
   try {
     await api.post(`/supervision/sessions/${sid}/meeting-lifecycle`, {
       eventType,
-      clientSessionKey: `web-${sid}-${authStore.user?.id || 0}`
-    }, { skipGlobalLoading: true });
+      // Unique per browser visit so join/leave pairs don't collide on the unique key.
+      clientSessionKey: `web-${sid}-${authStore.user?.id || 0}-${props.joinIdentity || 'auth'}`
+    }, { skipGlobalLoading: true, skipAuthRedirect: true });
   } catch {
     // best-effort
   }
@@ -304,6 +307,7 @@ async function postLifecycle(eventType) {
 function onVideoConnected() {
   if (!lifecyclePosted.value) {
     lifecyclePosted.value = true;
+    // Single join event (do not also post "opened" — that left unmatched opens and inflated hours).
     postLifecycle('joined');
   }
   emit('connected');
@@ -405,7 +409,6 @@ watch(() => props.isInLobby, (inLobby) => {
 });
 
 onMounted(async () => {
-  await postLifecycle('opened');
   await refreshPresentation();
   await refreshActivity();
   pollTimer.value = setInterval(() => {
@@ -416,7 +419,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollTimer.value) clearInterval(pollTimer.value);
-  postLifecycle('left');
+  if (lifecyclePosted.value) postLifecycle('left');
 });
 </script>
 
@@ -496,14 +499,20 @@ onUnmounted(() => {
 .gsl__video-pane--hero :deep(.vsr__tile) {
   min-height: min(48vh, 440px);
 }
-.gsl__video-pane--hero :deep(.vsr__tile--local) {
-  width: 30%;
-  max-width: 220px;
-  min-height: 140px;
+/* Alone or 1:1 duo: equal full tiles — never force a tiny corner self-view. */
+.gsl__video-pane--hero :deep(.vsr__stage--solo),
+.gsl__video-pane--hero :deep(.vsr__stage--duo) {
+  grid-template-columns: 1fr;
+  min-height: min(52vh, 480px);
 }
-/* Alone: self-view fills the hero stage (not a corner PiP). */
+.gsl__video-pane--hero :deep(.vsr__stage--duo) {
+  grid-template-columns: 1fr 1fr;
+}
 .gsl__video-pane--hero :deep(.vsr__stage--solo .vsr__tile--local),
-.gsl__video-pane--hero :deep(.vsr__tile--solo) {
+.gsl__video-pane--hero :deep(.vsr__tile--solo),
+.gsl__video-pane--hero :deep(.vsr__stage--duo .vsr__tile--local),
+.gsl__video-pane--hero :deep(.vsr__tile--duo),
+.gsl__video-pane--hero :deep(.vsr__stage--duo .vsr__tile--remote) {
   position: relative;
   right: auto;
   bottom: auto;

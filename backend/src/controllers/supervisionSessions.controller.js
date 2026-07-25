@@ -318,13 +318,6 @@ function isSupervisionMeetingCode(codeRaw) {
   return code === '99414' || code === '99415' || code === '99416';
 }
 
-function parseAsDate(input) {
-  const raw = String(input || '').trim();
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
 function mysqlNowDateTime() {
   const d = new Date();
   const p2 = (n) => String(n).padStart(2, '0');
@@ -378,7 +371,45 @@ function buildSupervisionSummaryPrompt(transcriptText) {
   ].join('\n');
 }
 
-async function recomputeAttendanceRollupForUser({ sessionId, userId }) {
+function wallMysqlFromMs(ms) {
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return null;
+  const p2 = (n) => String(n).padStart(2, '0');
+  // Keep wall-clock local components (same convention as mysqlNowDateTime / session start_at).
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
+
+/**
+ * Parse MySQL DATETIME / ISO as wall-clock local time (no UTC shift).
+ * Session times are stored without timezone.
+ */
+function parseAsDate(input) {
+  if (input instanceof Date && !Number.isNaN(input.getTime())) return input;
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(raw);
+  if (m) {
+    const d = new Date(
+      Number(m[1]),
+      Number(m[2]) - 1,
+      Number(m[3]),
+      Number(m[4]),
+      Number(m[5]),
+      Number(m[6] || 0)
+    );
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+async function recomputeAttendanceRollupForUser({
+  sessionId,
+  userId,
+  closeOpenAt = null,
+  forceFinalize = false
+} = {}) {
   const sid = Number(sessionId || 0);
   const uid = Number(userId || 0);
   if (!sid || !uid) return null;
@@ -390,12 +421,23 @@ async function recomputeAttendanceRollupForUser({ sessionId, userId }) {
   let totalSeconds = 0;
   let segmentCount = 0;
   const nowMs = Date.now();
+  const closeCapMs = closeOpenAt ? parseAsDate(closeOpenAt)?.getTime() : null;
 
   for (const ev of events || []) {
     const evType = String(ev?.event_type || '').trim().toLowerCase();
     const atMs = parseAsDate(ev?.event_at)?.getTime();
     if (!Number.isFinite(atMs)) continue;
     if (evType === 'joined' || evType === 'opened') {
+      // Duplicate open/joined (e.g. mounted "opened" + connected "joined") used to leave
+      // unmatched opens that ballooned hours until finalize. Auto-close prior open first.
+      if (openedStack.length) {
+        const prevOpenMs = openedStack.pop();
+        if (atMs > prevOpenMs) {
+          totalSeconds += Math.round((atMs - prevOpenMs) / 1000);
+          segmentCount += 1;
+          if (!lastLeftAt || atMs > lastLeftAt.getTime()) lastLeftAt = new Date(atMs);
+        }
+      }
       openedStack.push(atMs);
       if (!firstJoinedAt || atMs < firstJoinedAt.getTime()) firstJoinedAt = new Date(atMs);
       continue;
@@ -410,31 +452,40 @@ async function recomputeAttendanceRollupForUser({ sessionId, userId }) {
     }
   }
 
-  // Provisional open segments count toward running totals until closed.
+  // Close leftover opens at session end (finalize) or cap provisional time at session end / now.
   for (const openedAtMs of openedStack) {
-    if (nowMs > openedAtMs) {
-      totalSeconds += Math.round((nowMs - openedAtMs) / 1000);
+    const endMs = Number.isFinite(closeCapMs)
+      ? Math.min(nowMs, closeCapMs)
+      : nowMs;
+    if (endMs > openedAtMs) {
+      totalSeconds += Math.round((endMs - openedAtMs) / 1000);
       segmentCount += 1;
+      if (!lastLeftAt || endMs > lastLeftAt.getTime()) lastLeftAt = new Date(endMs);
     }
   }
+  if (forceFinalize) openedStack.length = 0;
+
+  // Hard sanity cap: never credit more than 8h for a single session attendance row.
+  const MAX_SESSION_SECONDS = 8 * 3600;
+  if (totalSeconds > MAX_SESSION_SECONDS) totalSeconds = MAX_SESSION_SECONDS;
 
   await SupervisionSession.upsertAttendanceRollup({
     sessionId: sid,
     userId: uid,
-    firstJoinedAt: firstJoinedAt ? parseDateTimeLocalString(firstJoinedAt.toISOString()) : null,
-    lastLeftAt: lastLeftAt ? parseDateTimeLocalString(lastLeftAt.toISOString()) : null,
+    firstJoinedAt: firstJoinedAt ? wallMysqlFromMs(firstJoinedAt.getTime()) : null,
+    lastLeftAt: lastLeftAt ? wallMysqlFromMs(lastLeftAt.getTime()) : null,
     totalSeconds,
     segmentCount,
-    isFinalized: openedStack.length === 0
+    isFinalized: forceFinalize || openedStack.length === 0
   });
   return {
     sessionId: sid,
     userId: uid,
-    firstJoinedAt: firstJoinedAt ? firstJoinedAt.toISOString() : null,
-    lastLeftAt: lastLeftAt ? lastLeftAt.toISOString() : null,
+    firstJoinedAt: firstJoinedAt ? wallMysqlFromMs(firstJoinedAt.getTime()) : null,
+    lastLeftAt: lastLeftAt ? wallMysqlFromMs(lastLeftAt.getTime()) : null,
     totalSeconds,
     segmentCount,
-    isFinalized: openedStack.length === 0
+    isFinalized: forceFinalize || openedStack.length === 0
   };
 }
 
@@ -454,6 +505,42 @@ async function finalizeSupervisionSession({
   }
   if (status === 'FINALIZED' || status === 'MISSED') {
     return { skipped: true, reason: 'already_finalized', session: row };
+  }
+
+  // Recompute each participant before finalize so open/unpaired joins do not
+  // count from join-time until finalize-time (that produced absurd multi-day hours).
+  const closeOpenAt = row.end_at || mysqlNowDateTime();
+  let priorRollups = [];
+  try {
+    priorRollups = await SupervisionSession.listAttendanceRollupsForSession(sid);
+  } catch {
+    priorRollups = [];
+  }
+  const userIds = new Set(
+    (priorRollups || []).map((r) => Number(r.user_id || 0)).filter((n) => n > 0)
+  );
+  try {
+    const attendees = await SupervisionSession.listAttendees(sid);
+    for (const a of attendees || []) {
+      const uid = Number(a?.user_id || 0);
+      if (uid > 0) userIds.add(uid);
+    }
+  } catch {
+    /* ignore */
+  }
+  const supervisorId = Number(row.supervisor_user_id || 0);
+  const superviseeId = Number(row.supervisee_user_id || 0);
+  if (supervisorId > 0) userIds.add(supervisorId);
+  if (superviseeId > 0) userIds.add(superviseeId);
+
+  for (const uid of userIds) {
+    // eslint-disable-next-line no-await-in-loop
+    await recomputeAttendanceRollupForUser({
+      sessionId: sid,
+      userId: uid,
+      closeOpenAt,
+      forceFinalize: true
+    });
   }
 
   const rollups = await SupervisionSession.listAttendanceRollupsForSession(sid);
@@ -2458,6 +2545,34 @@ export const getMySupervisionPrompts = async (req, res, next) => {
   }
 };
 
+async function repairInflatedSessionAttendance(sessions, { userId } = {}) {
+  const uid = Number(userId || 0);
+  if (!uid || !Array.isArray(sessions) || !sessions.length) return sessions;
+  let repaired = false;
+  for (const s of sessions) {
+    const sid = Number(s?.id || 0);
+    const totalSeconds = Number(s?.totalSeconds || 0);
+    if (!sid || !(totalSeconds > 0)) continue;
+    const startMs = parseAsDate(s.startAt)?.getTime();
+    const endMs = parseAsDate(s.endAt)?.getTime();
+    const scheduledSeconds = (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs)
+      ? Math.round((endMs - startMs) / 1000)
+      : 3600;
+    const status = String(s.status || '').toUpperCase();
+    const absurd = totalSeconds > 8 * 3600 || totalSeconds > Math.max(scheduledSeconds * 3, 3 * 3600);
+    if (!absurd) continue;
+    // eslint-disable-next-line no-await-in-loop
+    await recomputeAttendanceRollupForUser({
+      sessionId: sid,
+      userId: uid,
+      closeOpenAt: s.endAt || null,
+      forceFinalize: ['FINALIZED', 'MISSED'].includes(status)
+    });
+    repaired = true;
+  }
+  return repaired;
+}
+
 export const getMySupervisionSessions = async (req, res, next) => {
   try {
     const userId = Number(req.user?.id || 0);
@@ -2465,11 +2580,18 @@ export const getMySupervisionSessions = async (req, res, next) => {
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     await autoFinalizeOverdueSessions({ agencyId, actorUserId: userId });
 
-    const sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
+    let sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
       superviseeUserId: userId,
       agencyId: Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null,
       limit: 50
     });
+    if (await repairInflatedSessionAttendance(sessions, { userId })) {
+      sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
+        superviseeUserId: userId,
+        agencyId: Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null,
+        limit: 50
+      });
+    }
 
     const role = String(req.user?.role || '').toLowerCase();
     const includeTranscript = canViewTranscript(role);
@@ -2522,11 +2644,18 @@ export const getSuperviseeSessions = async (req, res, next) => {
     }
     await autoFinalizeOverdueSessions({ agencyId: aId, actorUserId: actorId });
 
-    const sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
+    let sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
       superviseeUserId: superviseeId,
       agencyId: aId,
       limit: 50
     });
+    if (await repairInflatedSessionAttendance(sessions, { userId: superviseeId })) {
+      sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
+        superviseeUserId: superviseeId,
+        agencyId: aId,
+        limit: 50
+      });
+    }
 
     const includeTranscript = canViewTranscript(role);
     const sanitized = (sessions || []).map((s) => {

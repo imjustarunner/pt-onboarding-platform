@@ -533,35 +533,109 @@
                 </div>
                 <div v-if="sessionHistoryLoading" class="summary-meta" style="margin-top: 0.5rem;">Loading session history…</div>
                 <div v-else-if="sessionHistoryError" class="supervision-error-inline" style="margin-top: 0.5rem;">{{ sessionHistoryError }}</div>
-                <ul v-else-if="sessionHistory.length" class="supervision-docs-list">
-                  <li v-for="s in sessionHistory" :key="`history-${s.id}`">
-                    <strong>{{ formatSessionDate(s.startAt) }}</strong> – {{ formatSessionDate(s.endAt) }}
-                    <span class="summary-meta"> · {{ String(s.sessionType || 'individual') }}</span>
-                    <span class="summary-meta"> · Status: {{ String(s.status || '').toLowerCase() }}</span>
-                    <span class="summary-meta" v-if="s.totalHours != null"> · {{ fmtNum(s.totalHours) }} hrs</span>
-                    <span class="summary-meta" v-if="s.segmentCount"> · {{ s.segmentCount }} segments</span>
-                    <span class="summary-meta" v-if="s.firstJoinedAt"> · joined {{ formatSessionDate(s.firstJoinedAt) }}</span>
-                    <span class="summary-meta" v-if="s.lastLeftAt"> · left {{ formatSessionDate(s.lastLeftAt) }}</span>
-                    <span class="summary-meta" v-if="s.sessionFinalizedAt"> · finalized {{ formatSessionDate(s.sessionFinalizedAt) }}</span>
-                    <div class="supervision-actions-row" style="margin-top: 0.35rem;">
-                      <button
-                        v-if="isFinalizableSession(s)"
-                        type="button"
-                        class="btn btn-primary btn-sm"
-                        :disabled="!!sessionFinalizeLoadingById[s.id]"
-                        @click="submitFinalizeSession(s, false)"
-                      >
-                        {{ sessionFinalizeLoadingById[s.id] ? 'Finalizing…' : 'Submit session' }}
-                      </button>
-                      <button
-                        v-if="isFinalizableSession(s)"
-                        type="button"
-                        class="btn btn-secondary btn-sm"
-                        :disabled="!!sessionFinalizeLoadingById[s.id]"
-                        @click="submitFinalizeSession(s, true)"
-                      >
-                        Mark missed
-                      </button>
+                <ul v-else-if="sessionHistory.length" class="supervision-docs-list supervision-history-list">
+                  <li v-for="s in sessionHistory" :key="`history-${s.id}`" class="supervision-history-item">
+                    <button
+                      type="button"
+                      class="supervision-history-toggle"
+                      :aria-expanded="expandedHistoryId === s.id"
+                      @click="toggleHistorySession(s)"
+                    >
+                      <span class="supervision-history-main">
+                        <strong>{{ formatSessionDate(s.startAt) }}</strong>
+                        <span class="summary-meta"> – {{ formatSessionDate(s.endAt) }}</span>
+                        <span class="summary-meta"> · {{ String(s.sessionType || 'individual') }}</span>
+                        <span class="summary-meta"> · {{ formatHistoryStatus(s.status) }}</span>
+                        <span class="summary-meta"> · attended {{ formatAttendanceDuration(s) }}</span>
+                      </span>
+                      <span class="summary-meta">{{ expandedHistoryId === s.id ? 'Hide' : 'Details' }}</span>
+                    </button>
+                    <div v-if="expandedHistoryId === s.id" class="supervision-history-detail">
+                      <p class="summary-meta" v-if="s.firstJoinedAt || s.lastLeftAt || s.sessionFinalizedAt">
+                        <span v-if="s.firstJoinedAt">Joined {{ formatSessionDate(s.firstJoinedAt) }}</span>
+                        <span v-if="s.lastLeftAt"> · Left {{ formatSessionDate(s.lastLeftAt) }}</span>
+                        <span v-if="s.sessionFinalizedAt"> · Finalized {{ formatSessionDate(s.sessionFinalizedAt) }}</span>
+                        <span v-if="s.segmentCount"> · {{ s.segmentCount }} segment(s)</span>
+                      </p>
+                      <p v-if="s.notes" class="supervision-history-notes">{{ s.notes }}</p>
+                      <div v-if="artifactLoadingById[s.id]" class="summary-meta">Loading transcript / summary…</div>
+                      <div v-else class="supervision-artifact-box">
+                        <div class="form-group">
+                          <label class="summary-meta">Transcript link</label>
+                          <input
+                            :value="artifactDraftForSession(s.id).transcriptUrl"
+                            type="url"
+                            class="input"
+                            placeholder="https://… transcript link"
+                            @input="setArtifactDraft(s.id, { transcriptUrl: $event?.target?.value || '' })"
+                          />
+                        </div>
+                        <div class="form-group">
+                          <label class="summary-meta">Transcript text</label>
+                          <textarea
+                            :value="artifactDraftForSession(s.id).transcriptText"
+                            class="input"
+                            rows="4"
+                            placeholder="No auto transcript from Vonage yet — paste Meet/text transcript here."
+                            @input="setArtifactDraft(s.id, { transcriptText: $event?.target?.value || '' })"
+                          />
+                        </div>
+                        <div class="form-group">
+                          <label class="summary-meta">Summary</label>
+                          <textarea
+                            :value="artifactDraftForSession(s.id).summaryText"
+                            class="input"
+                            rows="3"
+                            placeholder="Session summary (or generate with Gemini after pasting a transcript)"
+                            @input="setArtifactDraft(s.id, { summaryText: $event?.target?.value || '' })"
+                          />
+                        </div>
+                        <div class="supervision-actions-row">
+                          <button
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            :disabled="artifactSavingById[s.id]"
+                            @click="saveSessionArtifact(s.id, { autoSummarize: false })"
+                          >
+                            Save transcript + summary
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-primary btn-sm"
+                            :disabled="artifactSavingById[s.id] || !String(artifactDraftForSession(s.id).transcriptText || '').trim()"
+                            @click="saveSessionArtifact(s.id, { autoSummarize: true })"
+                          >
+                            Generate summary with Gemini
+                          </button>
+                        </div>
+                        <p v-if="artifactErrorById[s.id]" class="supervision-error-inline">{{ artifactErrorById[s.id] }}</p>
+                        <p
+                          v-if="!artifactDraftForSession(s.id).transcriptText && !artifactDraftForSession(s.id).summaryText"
+                          class="summary-meta"
+                        >
+                          No transcript or AI summary saved for this meeting yet.
+                        </p>
+                      </div>
+                      <div class="supervision-actions-row" style="margin-top: 0.35rem;">
+                        <button
+                          v-if="isFinalizableSession(s)"
+                          type="button"
+                          class="btn btn-primary btn-sm"
+                          :disabled="!!sessionFinalizeLoadingById[s.id]"
+                          @click="submitFinalizeSession(s, false)"
+                        >
+                          {{ sessionFinalizeLoadingById[s.id] ? 'Finalizing…' : 'Submit session' }}
+                        </button>
+                        <button
+                          v-if="isFinalizableSession(s)"
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          :disabled="!!sessionFinalizeLoadingById[s.id]"
+                          @click="submitFinalizeSession(s, true)"
+                        >
+                          Mark missed
+                        </button>
+                      </div>
                     </div>
                   </li>
                 </ul>
@@ -748,6 +822,7 @@ const sessionHistory = ref([]);
 const sessionHistoryLoading = ref(false);
 const sessionHistoryError = ref('');
 const sessionFinalizeLoadingById = ref({});
+const expandedHistoryId = ref(null);
 
 const organizationSlug = computed(() => route.params?.organizationSlug || '');
 
@@ -787,14 +862,57 @@ const upcomingSessions = computed(() => {
     .slice(0, 10);
 });
 
+/** Format wall-clock DATETIME without UTC shift (sessions are stored without timezone). */
 function formatSessionDate(iso) {
   if (!iso) return '—';
   try {
-    const d = new Date(iso);
+    const raw = String(iso);
+    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(raw);
+    const d = m
+      ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6] || 0))
+      : new Date(raw);
+    if (Number.isNaN(d.getTime())) return raw;
     return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
   } catch {
     return String(iso);
   }
+}
+
+function formatHistoryStatus(status) {
+  const s = String(status || '').trim().toUpperCase();
+  if (s === 'FINALIZED') return 'Finalized';
+  if (s === 'MISSED') return 'Missed';
+  if (s === 'IN_PROGRESS') return 'In progress';
+  if (s === 'COMPLETED_PENDING_FINALIZE') return 'Pending finalize';
+  if (s === 'SCHEDULED') return 'Scheduled';
+  return s ? s.replace(/_/g, ' ').toLowerCase() : '—';
+}
+
+function formatAttendanceDuration(session) {
+  const seconds = Number(session?.totalSeconds || 0);
+  if (seconds > 0) {
+    const mins = Math.max(1, Math.round(seconds / 60));
+    if (mins < 60) return `${mins} min`;
+    const hrs = Math.round((seconds / 3600) * 100) / 100;
+    return `${hrs} hrs (${mins} min)`;
+  }
+  const hrs = Number(session?.totalHours || 0);
+  if (hrs > 0 && hrs < 24) {
+    const mins = Math.max(1, Math.round(hrs * 60));
+    return mins < 60 ? `${mins} min` : `${fmtNum(hrs)} hrs`;
+  }
+  return '0 min';
+}
+
+async function toggleHistorySession(session) {
+  const sid = Number(session?.id || 0);
+  if (!sid) return;
+  if (expandedHistoryId.value === sid) {
+    expandedHistoryId.value = null;
+    return;
+  }
+  expandedHistoryId.value = sid;
+  await loadSessionArtifact(sid, { force: true });
 }
 
 function artifactForSession(sessionId) {
@@ -2269,6 +2387,48 @@ onUnmounted(() => {
 }
 .supervision-docs-list li {
   margin-bottom: 0.25rem;
+}
+.supervision-history-list {
+  list-style: none;
+  padding-left: 0;
+}
+.supervision-history-item {
+  margin-bottom: 0.55rem;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.supervision-history-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.supervision-history-toggle:hover {
+  background: #f8fafc;
+}
+.supervision-history-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.25rem;
+}
+.supervision-history-detail {
+  padding: 0 0.75rem 0.75rem;
+  border-top: 1px solid var(--border, #e5e7eb);
+}
+.supervision-history-notes {
+  margin: 0.4rem 0;
+  white-space: pre-wrap;
+  font-size: 0.9rem;
 }
 .supervision-artifact-box {
   margin-top: 0.5rem;

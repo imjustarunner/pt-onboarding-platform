@@ -343,7 +343,11 @@ function fmtDuration(session) {
 
 function formatSessionDate(d) {
   if (!d) return '';
-  const date = new Date(d);
+  const raw = String(d);
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(raw);
+  const date = m
+    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6] || 0))
+    : new Date(raw);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleDateString(undefined, {
     weekday: 'short',

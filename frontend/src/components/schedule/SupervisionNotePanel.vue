@@ -92,6 +92,13 @@
       </div>
       <p v-if="loading" class="muted">Loading transcript / summary…</p>
       <p v-if="error" class="error">{{ error }}</p>
+      <p
+        v-else-if="!loading && !String(transcript || '').trim() && !String(summary || '').trim()"
+        class="muted snp-empty"
+      >
+        No transcript or AI summary yet. Vonage video does not auto-transcribe — paste a Meet transcript
+        (or text) above, then generate a Gemini summary.
+      </p>
     </div>
   </div>
 </template>
@@ -161,6 +168,7 @@ const emit = defineEmits([
   background: #f8fafc;
 }
 .snp-artifact-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.snp-empty { margin: 4px 0 0; font-size: 0.82rem; line-height: 1.4; }
 .error { color: #b91c1c; font-size: 0.85rem; margin: 0; }
 .muted { color: #64748b; }
 </style>
