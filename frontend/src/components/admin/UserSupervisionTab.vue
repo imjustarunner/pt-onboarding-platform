@@ -143,7 +143,11 @@
                 </span>
                 <strong class="session-when">{{ formatSessionDate(session.startAt) }}</strong>
                 <span v-if="session.supervisorName" class="session-supervisor">with {{ session.supervisorName }}</span>
-                <span v-if="session.status" class="session-status">{{ String(session.status || '').toLowerCase() }}</span>
+                <span
+                  v-if="session.status"
+                  class="session-status"
+                  :class="statusClass(session.status)"
+                >{{ formatSessionStatus(session.status) }}</span>
               </div>
               <div class="session-actions">
                 <button
@@ -171,7 +175,7 @@
             </div>
 
             <div class="session-stats">
-              <span>Attended: <strong>{{ fmtHours(session.totalHours || 0) }} hrs</strong></span>
+              <span>Attended: <strong>{{ fmtDuration(session) }}</strong></span>
               <span v-if="session.segmentCount">Segments: {{ session.segmentCount }}</span>
               <span v-if="session.sessionFinalizedAt">Finalized: {{ formatSessionDate(session.sessionFinalizedAt) }}</span>
             </div>
@@ -304,6 +308,37 @@ function formatSessionType(type) {
   if (t === 'group') return 'Group';
   if (t === 'triadic') return 'Triadic';
   return 'Individual';
+}
+
+function formatSessionStatus(status) {
+  const s = String(status || '').trim().toUpperCase();
+  if (s === 'FINALIZED') return 'Finalized';
+  if (s === 'MISSED') return 'Missed';
+  if (s === 'IN_PROGRESS') return 'In progress';
+  if (s === 'COMPLETED_PENDING_FINALIZE') return 'Pending finalize';
+  if (s === 'SCHEDULED') return 'Scheduled';
+  if (s === 'CANCELLED') return 'Cancelled';
+  if (s === 'RESCHEDULED') return 'Rescheduled';
+  return s ? s.replace(/_/g, ' ').toLowerCase() : '';
+}
+
+function statusClass(status) {
+  const s = String(status || '').trim().toUpperCase();
+  if (s === 'FINALIZED') return 'is-finalized';
+  if (s === 'MISSED') return 'is-missed';
+  if (s === 'IN_PROGRESS' || s === 'COMPLETED_PENDING_FINALIZE') return 'is-pending';
+  return '';
+}
+
+function fmtDuration(session) {
+  const seconds = Number(session?.totalSeconds || 0);
+  if (seconds > 0) {
+    const mins = Math.round(seconds / 60);
+    if (mins < 60) return `${mins} min`;
+    return `${fmtHours(seconds / 3600)} hrs (${mins} min)`;
+  }
+  const hours = Number(session?.totalHours || 0);
+  return `${fmtHours(hours)} hrs`;
 }
 
 function formatSessionDate(d) {
@@ -623,6 +658,18 @@ watch([() => props.userId, () => props.agencyId], fetchAll);
 .session-no-artifacts {
   color: var(--text-secondary, #6b7280);
   font-size: 0.88rem;
+}
+.session-status.is-finalized {
+  color: #166534;
+  font-weight: 600;
+}
+.session-status.is-missed {
+  color: #9a3412;
+  font-weight: 600;
+}
+.session-status.is-pending {
+  color: #854d0e;
+  font-weight: 600;
 }
 .session-actions {
   display: flex;

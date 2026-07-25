@@ -3,6 +3,7 @@ import { normalizePayBucket } from '../utils/hourlyDualRateContract.js';
 
 export const DEFAULT_INDIRECT_SERVICE_TYPES = [
   { typeKey: 'preparing_for_sessions', label: 'Preparing for Sessions', description: 'Prep materials and plan for upcoming sessions', iconKey: 'book', payBucket: 'indirect', sortOrder: 10 },
+  { typeKey: 'supervision', label: 'Supervision', description: 'Supervision meeting time', iconKey: 'users', payBucket: 'indirect', sortOrder: 15 },
   { typeKey: 'writing_notes', label: 'Writing Notes', description: 'Write clinical or session documentation', iconKey: 'file-text', payBucket: 'indirect', sortOrder: 20 },
   { typeKey: 'non_billable_contacts', label: 'Non-Billable Contacts', description: 'Phone and outreach contacts that are not billable', iconKey: 'phone', payBucket: 'indirect', sortOrder: 30 },
   { typeKey: 'prep_for_outreach', label: 'Prep or attendance of outreach', description: 'Prepare for or attend community/outreach activities', iconKey: 'megaphone', payBucket: 'indirect', sortOrder: 40 },

@@ -440,11 +440,28 @@ async function finalizeSupervisionSession({
     supersededBySessionId: null
   });
 
+  let pipeline = null;
+  if (!finalizeAsMissed) {
+    try {
+      const { runSupervisionFinalizeSideEffects } = await import('../services/supervisionFinalizePipeline.service.js');
+      pipeline = await runSupervisionFinalizeSideEffects({
+        session: updated || row,
+        rollups,
+        actorUserId,
+        finalizeAsMissed: false
+      });
+    } catch (e) {
+      console.warn('[supervision] finalize pipeline failed', e?.message || e);
+      pipeline = { ok: false, error: e?.message || 'pipeline_failed' };
+    }
+  }
+
   return {
     skipped: false,
     status: finalizeAsMissed ? 'MISSED' : 'FINALIZED',
     finalTotalSeconds: finalizeAsMissed ? 0 : totalSeconds,
-    session: updated
+    session: updated,
+    pipeline
   };
 }
 
@@ -486,6 +503,12 @@ async function maybeReopenAutoFinalizedSessionForJoin(row) {
   const finalizeSource = String(row.finalize_source || '').trim().toLowerCase();
   if (!['FINALIZED', 'MISSED'].includes(status) || finalizeSource !== 'auto_plus_15') {
     return row;
+  }
+  try {
+    const { reverseSupervisionFinalizeSideEffects } = await import('../services/supervisionFinalizePipeline.service.js');
+    await reverseSupervisionFinalizeSideEffects({ session: row });
+  } catch (e) {
+    console.warn('[supervision] reverse finalize side effects failed', e?.message || e);
   }
   await SupervisionSession.setStatus(row.id, 'IN_PROGRESS', {
     finalizedAt: null,

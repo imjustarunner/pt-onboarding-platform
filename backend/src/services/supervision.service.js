@@ -155,6 +155,22 @@ async function recomputeAccount({ agencyId, userId }) {
   let individualHours = clampHours(rows?.[0]?.individualHours || 0);
   let groupHours = clampHours(rows?.[0]?.groupHours || 0);
 
+  // Session-finalize credits (separate from payroll period entries so re-accrual cannot wipe them).
+  try {
+    const [creditRows] = await pool.execute(
+      `SELECT
+         COALESCE(SUM(individual_hours), 0) AS individualHours,
+         COALESCE(SUM(group_hours), 0) AS groupHours
+       FROM supervision_session_hour_credits
+       WHERE agency_id = ? AND user_id = ?`,
+      [agencyId, userId]
+    );
+    individualHours += clampHours(creditRows?.[0]?.individualHours || 0);
+    groupHours += clampHours(creditRows?.[0]?.groupHours || 0);
+  } catch {
+    // Table may not exist yet before migration 1044.
+  }
+
   // Baseline hours for prelicensed providers (best-effort; column may not exist yet).
   try {
     const [uaRows] = await pool.execute(

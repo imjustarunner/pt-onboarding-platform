@@ -5008,8 +5008,15 @@ async function buildResolvedSupervisionUnitsByUserCode({
   );
 
   // App attendance by user/date/session role/type.
-  const [appRows] = await pool.execute(
-    `SELECT
+  // When a supervisor finalize time-claim is linked, exclude that supervisor's
+  // rollup minutes so payroll does not double-pay (claim + attendance overlay).
+  const appAttendanceParams = [
+    agencyId,
+    String(periodStart || '').slice(0, 10),
+    String(periodEnd || '').slice(0, 10)
+  ];
+  const appAttendanceSelect = `
+     SELECT
        ssar.user_id,
        DATE_FORMAT(ss.start_at, '%Y-%m-%d') AS service_date,
        LOWER(TRIM(COALESCE(ss.session_type, 'individual'))) AS session_type,
@@ -5029,7 +5036,8 @@ async function buildResolvedSupervisionUnitsByUserCode({
        AND (ss.status IS NULL OR UPPER(ss.status) <> 'CANCELLED')
        AND ss.start_at >= ?
        AND ss.start_at < DATE_ADD(?, INTERVAL 1 DAY)
-       AND COALESCE(ssar.total_seconds, 0) > 0
+       AND COALESCE(ssar.total_seconds, 0) > 0`;
+  const appAttendanceGroupBy = `
      GROUP BY
        ssar.user_id,
        DATE_FORMAT(ss.start_at, '%Y-%m-%d'),
@@ -5037,9 +5045,29 @@ async function buildResolvedSupervisionUnitsByUserCode({
        LOWER(TRIM(COALESCE(ssa.participant_role,
          CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
        ))),
-       LOWER(TRIM(COALESCE(u.role, '')))` ,
-    [agencyId, String(periodStart || '').slice(0, 10), String(periodEnd || '').slice(0, 10)]
-  );
+       LOWER(TRIM(COALESCE(u.role, '')))`;
+  let appRows = [];
+  try {
+    const [rows] = await pool.execute(
+      `${appAttendanceSelect}
+       AND NOT (
+         ss.supervisor_time_claim_id IS NOT NULL
+         AND ssar.user_id = ss.supervisor_user_id
+       )
+       ${appAttendanceGroupBy}`,
+      appAttendanceParams
+    );
+    appRows = rows || [];
+  } catch (e) {
+    // Pre-migration 1044: column may not exist yet.
+    if (!/supervisor_time_claim_id/i.test(String(e?.message || ''))) throw e;
+    const [rows] = await pool.execute(
+      `${appAttendanceSelect}
+       ${appAttendanceGroupBy}`,
+      appAttendanceParams
+    );
+    appRows = rows || [];
+  }
 
   const appByUserDateCode = new Map();
   for (const r of appRows || []) {
