@@ -25,24 +25,31 @@ class SupervisionSession {
     notes = null,
     createdByUserId = null,
     joinToken = null,
+    waitingRoomEnabled = true,
     recurrenceSeriesId = null,
     recurrenceFrequency = null,
     recurrenceIndex = null
   }) {
-    const token = String(joinToken || generateJoinToken()).slice(0, 64);
+    const participantToken = String(joinToken || generateJoinToken()).slice(0, 64);
+    const hostToken = generateJoinToken().slice(0, 64);
     const audienceAllSupervised = inviteAudienceAllSupervised ? 1 : 0;
     const audienceGroupSupport = inviteAudienceGroupSupport ? 1 : 0;
     const coFacilitatorId = Number(coFacilitatorUserId || 0) > 0 ? Number(coFacilitatorUserId) : null;
+    const waitingRoomFlag = waitingRoomEnabled === false || waitingRoomEnabled === 0 ? 0 : 1;
     try {
       const [result] = await pool.execute(
         `INSERT INTO supervision_sessions
-          (join_token, agency_id, supervisor_user_id, co_facilitator_user_id, supervisee_user_id, session_type, invite_scope,
+          (join_token, host_join_token, participant_join_token, waiting_room_enabled,
+           agency_id, supervisor_user_id, co_facilitator_user_id, supervisee_user_id, session_type, invite_scope,
            invite_audience_all_supervised, invite_audience_group_support,
            start_at, end_at, modality, location_text, notes, status,
            recurrence_series_id, recurrence_frequency, recurrence_index, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
         [
-          token,
+          participantToken,
+          hostToken,
+          participantToken,
+          waitingRoomFlag,
           Number(agencyId),
           Number(supervisorUserId),
           coFacilitatorId,
@@ -70,7 +77,7 @@ class SupervisionSession {
           (join_token, agency_id, supervisor_user_id, supervisee_user_id, session_type, invite_scope, start_at, end_at, modality, location_text, notes, status, created_by_user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?)`,
         [
-          token,
+          participantToken,
           Number(agencyId),
           Number(supervisorUserId),
           Number(superviseeUserId),
@@ -110,11 +117,35 @@ class SupervisionSession {
   static async findByJoinToken(joinToken) {
     const token = String(joinToken || '').trim();
     if (!token) return null;
-    const [rows] = await pool.execute(
-      `SELECT * FROM supervision_sessions WHERE join_token = ? LIMIT 1`,
-      [token]
-    );
-    return rows?.[0] || null;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT * FROM supervision_sessions
+         WHERE join_token = ?
+            OR host_join_token = ?
+            OR participant_join_token = ?
+         LIMIT 1`,
+        [token, token, token]
+      );
+      return rows?.[0] || null;
+    } catch (e) {
+      if (!/host_join_token|participant_join_token/i.test(String(e?.message || ''))) throw e;
+      const [rows] = await pool.execute(
+        `SELECT * FROM supervision_sessions WHERE join_token = ? LIMIT 1`,
+        [token]
+      );
+      return rows?.[0] || null;
+    }
+  }
+
+  /** Which role link matched: host | participant | legacy */
+  static classifyJoinTokenRole(row, ref) {
+    const raw = String(ref || '').trim();
+    if (!row || !raw || /^\d+$/.test(raw)) return 'legacy';
+    if (String(row.host_join_token || '') === raw) return 'host';
+    if (String(row.participant_join_token || '') === raw || String(row.join_token || '') === raw) {
+      return 'participant';
+    }
+    return 'legacy';
   }
 
   /** Resolve numeric id or opaque join_token. Lazily backfills token when missing. */
@@ -139,6 +170,35 @@ class SupervisionSession {
       } catch {
         /* column may not exist yet pre-migration */
       }
+    }
+    // Best-effort backfill host/participant tokens after migration 1048.
+    try {
+      const updates = [];
+      const vals = [];
+      if (!row.participant_join_token && row.join_token) {
+        updates.push('participant_join_token = ?');
+        vals.push(String(row.join_token).slice(0, 64));
+        row.participant_join_token = row.join_token;
+      }
+      if (!row.host_join_token) {
+        const hostTok = generateJoinToken().slice(0, 64);
+        updates.push('host_join_token = ?');
+        vals.push(hostTok);
+        row.host_join_token = hostTok;
+      }
+      if (row.waiting_room_enabled == null) {
+        updates.push('waiting_room_enabled = 1');
+        row.waiting_room_enabled = 1;
+      }
+      if (updates.length) {
+        vals.push(Number(row.id));
+        await pool.execute(
+          `UPDATE supervision_sessions SET ${updates.join(', ')} WHERE id = ? LIMIT 1`,
+          vals
+        );
+      }
+    } catch {
+      /* columns may not exist yet */
     }
     return row;
   }
@@ -758,7 +818,8 @@ class SupervisionSession {
     coFacilitatorUserId,
     modality,
     locationText,
-    notes
+    notes,
+    waitingRoomEnabled
   }) {
     const sid = parseInt(id, 10);
     const updates = [];
@@ -806,6 +867,10 @@ class SupervisionSession {
     if (notes !== undefined) {
       updates.push('notes = ?');
       values.push(notes);
+    }
+    if (waitingRoomEnabled !== undefined) {
+      updates.push('waiting_room_enabled = ?');
+      values.push(waitingRoomEnabled === false || waitingRoomEnabled === 0 ? 0 : 1);
     }
 
     if (!updates.length) return this.findById(sid);

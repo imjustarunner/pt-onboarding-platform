@@ -117,8 +117,13 @@ export async function startAdhocTeamMeeting({
   await ProviderScheduleEventAttendee.upsertForEvent(created.id, [otherId]);
 
   const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-  const joinPath = `/join/team-meeting/${created.id}`;
+  const joinKey = String(created.participant_join_token || created.join_token || created.id || '').trim();
+  const joinPath = `/join/team-meeting/${encodeURIComponent(joinKey)}`;
   const joinUrl = frontendUrl ? `${frontendUrl}${joinPath}` : joinPath;
+  const hostKey = String(created.host_join_token || '').trim();
+  const hostJoinUrl = (frontendUrl && hostKey)
+    ? `${frontendUrl}/join/team-meeting/${encodeURIComponent(hostKey)}`
+    : null;
 
   let inviteEmailed = false;
   try {
@@ -149,6 +154,7 @@ export async function startAdhocTeamMeeting({
       email: target.email
     },
     joinUrl,
+    hostJoinUrl,
     joinPath,
     inviteEmailed
   };

@@ -84,6 +84,70 @@ export const postSupervisionActivity = async (req, res, next) => {
 };
 
 /**
+ * Public guest activity list via opaque join token.
+ * GET /api/supervision/guest-activity/:joinToken
+ */
+export const getSupervisionGuestActivity = async (req, res, next) => {
+  try {
+    const ref = String(req.params.joinToken || '').trim();
+    if (!ref || /^\d+$/.test(ref)) {
+      return res.status(400).json({ error: { message: 'A secure join link is required' } });
+    }
+    const session = await SupervisionSession.resolveByJoinRef(ref);
+    if (!session?.id) return res.status(404).json({ error: { message: 'Session not found' } });
+    const limit = parseInt(req.query?.limit, 10) || 500;
+    let activity = [];
+    try {
+      activity = await VideoMeetingActivity.list({ sessionId: session.id, limit: Math.min(limit, 1000) });
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true, activity: [] });
+      throw e;
+    }
+    res.json({ ok: true, activity });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Public guest Q&A / activity post via opaque join token.
+ * POST /api/supervision/guest-activity/:joinToken
+ */
+export const postSupervisionGuestActivity = async (req, res, next) => {
+  try {
+    const ref = String(req.params.joinToken || '').trim();
+    if (!ref || /^\d+$/.test(ref)) {
+      return res.status(400).json({ error: { message: 'A secure join link is required' } });
+    }
+    const session = await SupervisionSession.resolveByJoinRef(ref);
+    if (!session?.id) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const { activityType, payload, joinIdentity, displayName } = req.body || {};
+    const identity = String(joinIdentity || '').trim();
+    if (!identity.startsWith('guest-')) {
+      return res.status(400).json({ error: { message: 'guest joinIdentity required' } });
+    }
+    const type = String(activityType || 'question').toLowerCase();
+    if (!['chat', 'question'].includes(type)) {
+      return res.status(400).json({ error: { message: 'Guests may only post chat or questions' } });
+    }
+    const authorName = String(displayName || payload?.authorName || 'Guest').trim().slice(0, 80) || 'Guest';
+    const id = await VideoMeetingActivity.create({
+      sessionId: session.id,
+      eventId: null,
+      userId: null,
+      participantIdentity: identity,
+      activityType: type,
+      payload: { ...(payload || {}), authorName, text: payload?.text || payload?.question || '' }
+    });
+    if (!id) return res.status(400).json({ error: { message: 'Failed to save activity' } });
+    res.status(201).json({ ok: true, id });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * GET /api/supervision/sessions/:id/activity - list activity (for owner)
  */
 export const getSupervisionActivity = async (req, res, next) => {

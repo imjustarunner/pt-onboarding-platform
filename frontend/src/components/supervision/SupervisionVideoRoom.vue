@@ -9,6 +9,7 @@
       :application-id="projectId"
       :api-key="projectId"
       :local-name="localName"
+      :local-profile-photo-url="localProfilePhotoUrl"
       :layout="layout"
       :diagnostics="diagnostics"
       :can-recreate-room="canRecreateRoom"
@@ -48,7 +49,8 @@ const props = defineProps({
   diagnostics: { type: Object, default: null },
   canRecreateRoom: { type: Boolean, default: false },
   localDisplayName: { type: String, default: '' },
-  localRoleLabel: { type: String, default: '' }
+  localRoleLabel: { type: String, default: '' },
+  localProfilePhotoUrl: { type: String, default: '' }
 });
 
 defineEmits(['disconnected', 'connected', 'error', 'recreate-room']);
@@ -69,12 +71,22 @@ const localName = computed(() => {
   const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
     || u.email
     || '';
-  const name = fromProp || authName || '';
-  // Avoid "You · Guest · Guest" when role and display name are the same.
-  if (role && name && role.toLowerCase() !== name.toLowerCase()) return `You · ${role} · ${name}`;
-  if (role) return `You · ${role}`;
+  // Prefer real auth name over a stale "Guest" label from a prior guest fallthrough.
+  const name = (fromProp && fromProp.toLowerCase() !== 'guest')
+    ? fromProp
+    : (authName || fromProp || '');
+  const roleSafe = role && role.toLowerCase() === 'guest' && authName ? 'Supervisee' : role;
+  if (roleSafe && name && roleSafe.toLowerCase() !== name.toLowerCase()) return `You · ${roleSafe} · ${name}`;
+  if (roleSafe) return `You · ${roleSafe}`;
   if (name) return `You · ${name}`;
   return 'You';
+});
+
+const localProfilePhotoUrl = computed(() => {
+  const fromProp = String(props.localProfilePhotoUrl || '').trim();
+  if (fromProp) return fromProp;
+  const u = authStore.user || {};
+  return String(u.profile_photo_url || u.profilePhotoUrl || '').trim();
 });
 </script>
 

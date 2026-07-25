@@ -2,18 +2,33 @@
   <div class="join-team-meeting-view">
     <div v-if="resolving" class="join-placeholder">Resolving meeting…</div>
     <div v-else-if="error && !token" class="join-error">{{ error }}</div>
-    <template v-else-if="token && roomName">
+    <template v-else-if="token && (vonageSessionId || roomName)">
+      <div v-if="isInLobby" class="join-lobby-banner">
+        You’re in the waiting room. The host will admit you shortly.
+      </div>
       <div class="join-session-layout">
         <div class="join-video">
           <SupervisionVideoRoom
             :token="token"
+            :vonage-session-id="vonageSessionId"
             :room-name="roomName"
+            :application-id="applicationId"
+            :diagnostics="diagnostics"
             :event-id="resolvedEventId || eventId"
             :is-host="isHost"
+            :local-display-name="localDisplayName"
+            :local-role-label="localRoleLabel"
+            :local-profile-photo-url="localProfilePhotoUrl"
             @disconnected="onDisconnected"
           />
+          <SupervisionVideoLobbyPanel
+            v-if="isHost && resolvedEventId"
+            :session-id="resolvedEventId"
+            :is-supervisor="isHost"
+            meeting-kind="team-meeting"
+          />
         </div>
-        <aside v-if="resolvedEventId" class="join-agenda-aside">
+        <aside v-if="resolvedEventId && !isInLobby" class="join-agenda-aside">
           <MeetingAgendaPanel
             meeting-type="provider_schedule_event"
             :meeting-id="resolvedEventId"
@@ -61,10 +76,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
+import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
 import MeetingAgendaPanel from '../../components/meetings/MeetingAgendaPanel.vue';
 import api from '../../services/api';
 
@@ -78,14 +94,26 @@ const organizationSlug = computed(() => route.params.organizationSlug);
 const resolving = ref(false);
 const error = ref('');
 const token = ref('');
+const vonageSessionId = ref('');
+const applicationId = ref('');
+const diagnostics = ref(null);
 const roomName = ref('');
 const isHost = ref(false);
 const resolvedEventId = ref(0);
+const roomMode = ref('main');
+const joinIdentity = ref('');
+const localDisplayName = ref('');
+const localRoleLabel = ref('');
+const localProfilePhotoUrl = ref('');
 const activityExpanded = ref(false);
 const activityLoading = ref(false);
 const activityError = ref('');
 const activityList = ref([]);
 const joinAttemptedForPath = ref('');
+let admissionPollInterval = null;
+let presencePollInterval = null;
+
+const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
 
 function formatActivityTime(createdAt) {
   if (!createdAt) return '';
@@ -95,6 +123,84 @@ function formatActivityTime(createdAt) {
   } catch {
     return '';
   }
+}
+
+function applyTokenPayload(data) {
+  const tok = String(data.token || data.data?.token || '').trim();
+  if (tok) token.value = tok;
+  const sid = String(data.sessionId || data.roomSid || data.vonageSessionId || '').trim();
+  if (sid) vonageSessionId.value = sid;
+  applicationId.value = String(data.applicationId || data.apiKey || applicationId.value || '').trim();
+  diagnostics.value = data.diagnostics || diagnostics.value;
+  roomName.value = data.roomName || data.room_name || roomName.value;
+  isHost.value = !!(data.isHost ?? data.is_host);
+  roomMode.value = String(data.roomMode || (String(roomName.value || '').endsWith('-lobby') ? 'lobby' : 'main')).toLowerCase();
+  joinIdentity.value = String(data.identity || joinIdentity.value || '').trim();
+  localDisplayName.value = String(data.displayName || localDisplayName.value || '').trim();
+  localRoleLabel.value = String(data.roleLabel || localRoleLabel.value || '').trim();
+  localProfilePhotoUrl.value = String(data.profilePhotoUrl || localProfilePhotoUrl.value || '').trim();
+  if (Number(data.eventId || 0) > 0) resolvedEventId.value = Number(data.eventId);
+}
+
+function stopAdmissionPolling() {
+  if (admissionPollInterval) {
+    clearInterval(admissionPollInterval);
+    admissionPollInterval = null;
+  }
+}
+
+function stopPresenceHeartbeat() {
+  if (presencePollInterval) {
+    clearInterval(presencePollInterval);
+    presencePollInterval = null;
+  }
+}
+
+async function sendPresence(action = 'heartbeat') {
+  const eid = resolvedEventId.value || eventId.value;
+  const identity = joinIdentity.value;
+  if (!eid || !identity) return;
+  try {
+    await api.post(`/team-meetings/${encodeURIComponent(eid)}/join-presence`, {
+      identity,
+      joinIdentity: identity,
+      action,
+      displayName: localDisplayName.value || undefined
+    }, { skipAuthRedirect: true, skipGlobalLoading: true });
+  } catch {
+    /* best-effort */
+  }
+}
+
+function startPresenceHeartbeat() {
+  stopPresenceHeartbeat();
+  sendPresence('heartbeat');
+  presencePollInterval = setInterval(() => sendPresence('heartbeat'), 15000);
+}
+
+async function pollAdmission() {
+  const eid = resolvedEventId.value || eventId.value;
+  if (!eid || !isInLobby.value) return;
+  try {
+    const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/admission-status`, {
+      skipAuthRedirect: true,
+      skipGlobalLoading: true
+    });
+    const data = resp?.data || {};
+    if (data.admitted && data.token) {
+      applyTokenPayload(data);
+      stopAdmissionPolling();
+      startPresenceHeartbeat();
+    }
+  } catch {
+    /* keep waiting */
+  }
+}
+
+function startAdmissionPolling() {
+  stopAdmissionPolling();
+  pollAdmission();
+  admissionPollInterval = setInterval(pollAdmission, 2500);
 }
 
 async function toggleActivity() {
@@ -152,19 +258,24 @@ async function fetchTokenAndJoin() {
   error.value = '';
   try {
     const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/video-token`);
-    const data = resp?.data || {};
-    const tok = String(data.token || data.data?.token || data.result?.token || '').trim();
-    const rn = data.roomName || data.room_name || data.data?.roomName || `team-meeting-${eid}`;
-    if (!tok) {
-      const errMsg = data?.error?.message || data?.error || '';
-      error.value = errMsg || `Video token was empty. Check Network tab: GET /api/team-meetings/${eid}/video-token.`;
+    applyTokenPayload(resp?.data || {});
+    if (!token.value) {
+      error.value = `Video token was empty. Check Network tab: GET /api/team-meetings/${eid}/video-token.`;
       return;
     }
-    token.value = tok;
-    roomName.value = rn;
-    isHost.value = !!(data.isHost ?? data.is_host);
-    if (Number(data.eventId || 0) > 0) resolvedEventId.value = Number(data.eventId);
-    else if (/^\d+$/.test(String(eid))) resolvedEventId.value = Number(eid);
+    if (!vonageSessionId.value) {
+      vonageSessionId.value = String(resp?.data?.roomSid || '').trim();
+    }
+    const u = authStore.user || {};
+    const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim() || u.email || '';
+    if (authName && (!localDisplayName.value || localDisplayName.value === 'Guest')) {
+      localDisplayName.value = authName;
+    }
+    if (!localProfilePhotoUrl.value) {
+      localProfilePhotoUrl.value = String(u.profile_photo_url || u.profilePhotoUrl || '').trim();
+    }
+    if (roomMode.value === 'lobby') startAdmissionPolling();
+    startPresenceHeartbeat();
   } catch (e) {
     if (Number(e?.response?.status || 0) === 401) {
       const slug = organizationSlug.value;
@@ -199,6 +310,9 @@ async function ensureAuthenticatedSession() {
 }
 
 function onDisconnected() {
+  sendPresence('leave');
+  stopAdmissionPolling();
+  stopPresenceHeartbeat();
   const slug = organizationSlug.value;
   if (slug) {
     router.push(`/${slug}/dashboard`);
@@ -232,6 +346,12 @@ watch(
 onMounted(async () => {
   await runJoinFlowForCurrentRoute();
 });
+
+onUnmounted(() => {
+  sendPresence('leave');
+  stopAdmissionPolling();
+  stopPresenceHeartbeat();
+});
 </script>
 
 <style scoped>
@@ -243,6 +363,14 @@ onMounted(async () => {
   background: var(--bg-primary, #0f0f0f);
   gap: 12px;
 }
+.join-lobby-banner {
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(147, 197, 253, 0.45);
+  color: #dbeafe;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.92rem;
+}
 .join-session-layout {
   flex: 1;
   display: grid;
@@ -253,6 +381,9 @@ onMounted(async () => {
 .join-video {
   min-width: 0;
   min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .join-agenda-aside {
   min-width: 0;

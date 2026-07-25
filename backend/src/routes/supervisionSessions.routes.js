@@ -27,10 +27,16 @@ import {
   markSessionPresenterPresented,
   getSupervisionJoinInfo,
   getSupervisionGuestJoin,
+  getGuestAdmissionStatus,
   postSupervisionJoinPresence,
   saveGuestTranscript
 } from '../controllers/supervisionSessions.controller.js';
-import { getSupervisionActivity, postSupervisionActivity } from '../controllers/videoMeetingActivity.controller.js';
+import {
+  getSupervisionActivity,
+  postSupervisionActivity,
+  getSupervisionGuestActivity,
+  postSupervisionGuestActivity
+} from '../controllers/videoMeetingActivity.controller.js';
 import {
   listSessionPresentations,
   getOrCreateMyPresentation,
@@ -52,7 +58,10 @@ const router = express.Router();
 router.get('/join-info/:sessionId', getSupervisionJoinInfo);
 // Public: guest video join via opaque join_token (no login)
 router.get('/guest-join/:joinToken', getSupervisionGuestJoin);
+router.get('/guest-admission/:joinToken', getGuestAdmissionStatus);
 router.post('/guest-transcript/:joinToken', saveGuestTranscript);
+router.get('/guest-activity/:joinToken', getSupervisionGuestActivity);
+router.post('/guest-activity/:joinToken', postSupervisionGuestActivity);
 router.post('/sessions/:id/join-presence', postSupervisionJoinPresence);
 
 router.use(authenticate);

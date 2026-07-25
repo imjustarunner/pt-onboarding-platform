@@ -29,11 +29,62 @@ class ProviderScheduleEvent {
     packagePaymentId = null,
     sessionIndex = null,
     joinToken = null,
-    isTrainingPayEligible = false
+    isTrainingPayEligible = false,
+    waitingRoomEnabled = true
   }) {
     const kindUpper = String(kind || '').trim().toUpperCase();
     const needsJoinToken = ['TEAM_MEETING', 'HUDDLE'].includes(kindUpper) && !!platformVideoLink;
-    const token = needsJoinToken ? String(joinToken || generateJoinToken()).slice(0, 64) : (joinToken || null);
+    const participantToken = needsJoinToken ? String(joinToken || generateJoinToken()).slice(0, 64) : (joinToken || null);
+    const hostToken = needsJoinToken ? generateJoinToken().slice(0, 64) : null;
+    const waitingRoomFlag = waitingRoomEnabled === false || waitingRoomEnabled === 0 ? 0 : 1;
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO provider_schedule_events
+          (join_token, host_join_token, participant_join_token, waiting_room_enabled,
+           agency_id, provider_id, client_id, entitlement_id, package_payment_id, session_index,
+           kind, title, description, reason_code, is_private, all_day, start_at, end_at, start_date, end_date, status,
+           recurrence_series_id, recurrence_frequency, recurrence_policy, recurrence_index,
+           google_event_id, google_html_link, google_meet_link, platform_video_link,
+           is_training_pay_eligible, created_by_user_id, updated_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          participantToken,
+          hostToken,
+          participantToken,
+          waitingRoomFlag,
+          agencyId == null ? null : Number(agencyId),
+          Number(providerId),
+          clientId ? Number(clientId) : null,
+          entitlementId ? Number(entitlementId) : null,
+          packagePaymentId ? Number(packagePaymentId) : null,
+          sessionIndex == null ? null : Math.max(1, Number(sessionIndex) || 1),
+          kindUpper,
+          String(title || '').trim(),
+          description ? String(description) : null,
+          reasonCode ? String(reasonCode).trim().toUpperCase() : null,
+          isPrivate ? 1 : 0,
+          allDay ? 1 : 0,
+          startAt || null,
+          endAt || null,
+          startDate || null,
+          endDate || null,
+          recurrenceSeriesId ? String(recurrenceSeriesId).trim().slice(0, 64) : null,
+          recurrenceFrequency ? String(recurrenceFrequency).trim().toUpperCase().slice(0, 16) : null,
+          recurrencePolicy ? String(recurrencePolicy).trim().toUpperCase().slice(0, 16) : null,
+          recurrenceIndex == null ? null : Math.max(0, parseInt(recurrenceIndex, 10) || 0),
+          googleEventId ? String(googleEventId) : null,
+          googleHtmlLink ? String(googleHtmlLink) : null,
+          googleMeetLink ? String(googleMeetLink).trim().slice(0, 1024) : null,
+          platformVideoLink == null ? null : (platformVideoLink ? 1 : 0),
+          isTrainingPayEligible ? 1 : 0,
+          createdByUserId ? Number(createdByUserId) : null,
+          createdByUserId ? Number(createdByUserId) : null
+        ]
+      );
+      return this.findById(result.insertId);
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
     const [result] = await pool.execute(
       `INSERT INTO provider_schedule_events
         (join_token, agency_id, provider_id, client_id, entitlement_id, package_payment_id, session_index,
@@ -43,7 +94,7 @@ class ProviderScheduleEvent {
          is_training_pay_eligible, created_by_user_id, updated_by_user_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        token,
+        participantToken,
         agencyId == null ? null : Number(agencyId),
         Number(providerId),
         clientId ? Number(clientId) : null,
@@ -92,11 +143,34 @@ class ProviderScheduleEvent {
   static async findByJoinToken(joinToken) {
     const token = String(joinToken || '').trim();
     if (!token) return null;
-    const [rows] = await pool.execute(
-      `SELECT * FROM provider_schedule_events WHERE join_token = ? LIMIT 1`,
-      [token]
-    );
-    return rows?.[0] || null;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT * FROM provider_schedule_events
+         WHERE join_token = ?
+            OR host_join_token = ?
+            OR participant_join_token = ?
+         LIMIT 1`,
+        [token, token, token]
+      );
+      return rows?.[0] || null;
+    } catch (e) {
+      if (!/host_join_token|participant_join_token/i.test(String(e?.message || ''))) throw e;
+      const [rows] = await pool.execute(
+        `SELECT * FROM provider_schedule_events WHERE join_token = ? LIMIT 1`,
+        [token]
+      );
+      return rows?.[0] || null;
+    }
+  }
+
+  static classifyJoinTokenRole(row, ref) {
+    const raw = String(ref || '').trim();
+    if (!row || !raw || /^\d+$/.test(raw)) return 'legacy';
+    if (String(row.host_join_token || '') === raw) return 'host';
+    if (String(row.participant_join_token || '') === raw || String(row.join_token || '') === raw) {
+      return 'participant';
+    }
+    return 'legacy';
   }
 
   static async resolveByJoinRef(ref) {
@@ -109,7 +183,8 @@ class ProviderScheduleEvent {
       row = await this.findByJoinToken(raw);
     }
     if (!row) return null;
-    if (!row.join_token && ['TEAM_MEETING', 'HUDDLE'].includes(String(row.kind || '').toUpperCase())) {
+    const isMeeting = ['TEAM_MEETING', 'HUDDLE'].includes(String(row.kind || '').toUpperCase());
+    if (!row.join_token && isMeeting) {
       const token = generateJoinToken();
       try {
         await pool.execute(
@@ -119,6 +194,36 @@ class ProviderScheduleEvent {
         row.join_token = token;
       } catch {
         /* pre-migration */
+      }
+    }
+    if (isMeeting) {
+      try {
+        const updates = [];
+        const vals = [];
+        if (!row.participant_join_token && row.join_token) {
+          updates.push('participant_join_token = ?');
+          vals.push(String(row.join_token).slice(0, 64));
+          row.participant_join_token = row.join_token;
+        }
+        if (!row.host_join_token) {
+          const hostTok = generateJoinToken().slice(0, 64);
+          updates.push('host_join_token = ?');
+          vals.push(hostTok);
+          row.host_join_token = hostTok;
+        }
+        if (row.waiting_room_enabled == null) {
+          updates.push('waiting_room_enabled = 1');
+          row.waiting_room_enabled = 1;
+        }
+        if (updates.length) {
+          vals.push(Number(row.id));
+          await pool.execute(
+            `UPDATE provider_schedule_events SET ${updates.join(', ')} WHERE id = ? LIMIT 1`,
+            vals
+          );
+        }
+      } catch {
+        /* columns may not exist yet */
       }
     }
     return row;

@@ -44,6 +44,26 @@
           <span class="supb-switch-slider" aria-hidden="true"></span>
         </label>
       </div>
+
+      <div v-if="isVirtual" class="supb-row supb-switch-row">
+        <div class="supb-switch-copy">
+          <span class="supb-switch-title">Waiting room</span>
+          <p class="supb-hint muted">
+            On by default. Participants wait until the host admits them. Hosts always enter the main room.
+          </p>
+        </div>
+        <label class="supb-switch" :class="{ disabled: disabled }">
+          <input
+            type="checkbox"
+            role="switch"
+            :checked="waitingRoomEnabled"
+            :disabled="disabled"
+            :aria-checked="String(!!waitingRoomEnabled)"
+            @change="emit('update:waitingRoomEnabled', !!$event.target.checked)"
+          />
+          <span class="supb-switch-slider" aria-hidden="true"></span>
+        </label>
+      </div>
     </div>
 
     <template v-if="showDetails">
@@ -134,6 +154,7 @@ import { computed } from 'vue';
 
 const props = defineProps({
   isVirtual: { type: Boolean, default: true },
+  waitingRoomEnabled: { type: Boolean, default: true },
   groupMode: { type: Boolean, default: false },
   canBookGroup: { type: Boolean, default: false },
   facilitatorUserId: { type: Number, default: 0 },
@@ -151,6 +172,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'update:isVirtual',
+  'update:waitingRoomEnabled',
   'update:groupMode',
   'update:facilitatorUserId',
   'update:coFacilitatorUserId',

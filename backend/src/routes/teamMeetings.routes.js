@@ -4,7 +4,11 @@ import {
   getTeamMeetingJoinInfo,
   getTeamMeetingVideoToken,
   setTeamMeetingRecordingRules,
-  saveTeamMeetingClientTranscript
+  saveTeamMeetingClientTranscript,
+  postTeamMeetingJoinPresence,
+  getTeamMeetingLobbyParticipants,
+  admitTeamMeetingParticipant,
+  getTeamMeetingAdmissionStatus
 } from '../controllers/teamMeetings.controller.js';
 import { getTeamMeetingActivity, postTeamMeetingActivity } from '../controllers/videoMeetingActivity.controller.js';
 
@@ -12,10 +16,15 @@ const router = express.Router();
 
 // Public: resolve event to org slug for join redirect (no auth)
 router.get('/join-info/:eventId', getTeamMeetingJoinInfo);
+// Public presence heartbeat (identity in body; used during lobby wait)
+router.post('/:eventId/join-presence', postTeamMeetingJoinPresence);
 
 router.use(authenticate);
 
 router.get('/:eventId/video-token', getTeamMeetingVideoToken);
+router.get('/:eventId/lobby-participants', getTeamMeetingLobbyParticipants);
+router.get('/:eventId/admission-status', getTeamMeetingAdmissionStatus);
+router.post('/:eventId/admit/:userId', admitTeamMeetingParticipant);
 router.post('/:eventId/recording-rules', setTeamMeetingRecordingRules);
 router.post('/:eventId/client-transcript', saveTeamMeetingClientTranscript);
 router.get('/:eventId/activity', getTeamMeetingActivity);

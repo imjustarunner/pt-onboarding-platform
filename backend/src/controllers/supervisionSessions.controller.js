@@ -20,6 +20,7 @@ import pool from '../config/database.js';
 import { isAdminLikeRole, isSupervisorActor } from '../utils/supervisorSchoolAccess.js';
 import crypto from 'crypto';
 import { joinUrlForSupervision, isNumericJoinRef } from '../utils/joinToken.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import SupervisionCasePresentation from '../models/SupervisionCasePresentation.model.js';
 
 const JOIN_PRESENCE_STALE_SECONDS = 25;
@@ -126,8 +127,142 @@ function maxJoinCapacityForSessionType(sessionType) {
 function supervisionAppJoinUrl(sessionRow) {
   const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
   if (!frontendUrl || !sessionRow) return null;
-  const key = String(sessionRow.join_token || sessionRow.id || '').trim();
+  const key = String(
+    sessionRow.participant_join_token || sessionRow.join_token || sessionRow.id || ''
+  ).trim();
   return joinUrlForSupervision(frontendUrl, key);
+}
+
+function supervisionHostJoinUrl(sessionRow) {
+  const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+  if (!frontendUrl || !sessionRow) return null;
+  const key = String(sessionRow.host_join_token || '').trim();
+  if (!key) return null;
+  return joinUrlForSupervision(frontendUrl, key);
+}
+
+function isWaitingRoomEnabled(sessionRow) {
+  if (sessionRow?.waiting_room_enabled === undefined || sessionRow?.waiting_room_enabled === null) {
+    return true;
+  }
+  return isTruthyFlag(sessionRow.waiting_room_enabled);
+}
+
+function displayNameFromUser(user) {
+  if (!user) return '';
+  return `${user.firstName || user.first_name || ''} ${user.lastName || user.last_name || ''}`.trim()
+    || String(user.email || '').trim()
+    || '';
+}
+
+async function profilePhotoUrlForUserId(userId) {
+  const uid = Number(userId || 0);
+  if (!uid) return null;
+  try {
+    const [rows] = await pool.execute(
+      'SELECT profile_photo_path FROM users WHERE id = ? LIMIT 1',
+      [uid]
+    );
+    return publicUploadsUrlFromStoredPath(rows?.[0]?.profile_photo_path || null) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function isUserAdmittedToSupervision({ sessionId, userId = null, joinIdentity = null }) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return false;
+  const uid = Number(userId || 0);
+  const identity = String(joinIdentity || '').trim();
+  try {
+    if (uid > 0) {
+      const [rows] = await pool.execute(
+        `SELECT 1 FROM supervision_session_video_admissions
+         WHERE session_id = ? AND (user_id = ? OR join_identity = ?)
+         LIMIT 1`,
+        [sid, uid, `user-${uid}`]
+      );
+      if (rows?.length) return true;
+    }
+    if (identity) {
+      const [rows] = await pool.execute(
+        `SELECT 1 FROM supervision_session_video_admissions
+         WHERE session_id = ? AND join_identity = ?
+         LIMIT 1`,
+        [sid, identity]
+      );
+      if (rows?.length) return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+async function admitSupervisionJoinIdentity({ sessionId, userId = null, joinIdentity = null }) {
+  const sid = Number(sessionId || 0);
+  const uid = Number(userId || 0) || null;
+  const identity = String(joinIdentity || (uid ? `user-${uid}` : '')).trim();
+  if (!sid || !identity) return false;
+  try {
+    await pool.execute(
+      `INSERT INTO supervision_session_video_admissions (session_id, user_id, join_identity)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE admitted_at = admitted_at`,
+      [sid, uid, identity]
+    );
+    return true;
+  } catch (e) {
+    // Pre-migration fallback: user_id only
+    if (uid) {
+      try {
+        await pool.execute(
+          'INSERT IGNORE INTO supervision_session_video_admissions (session_id, user_id) VALUES (?, ?)',
+          [sid, uid]
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    console.warn('[supervision] admit failed', e?.message || e);
+    return false;
+  }
+}
+
+async function listWaitingLobbyPresence(sessionId) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return [];
+  await pruneStaleJoinPresence(sid);
+  const [rows] = await pool.execute(
+    `SELECT p.join_identity, p.display_name, p.is_guest, p.joined_at, p.last_seen_at
+     FROM supervision_session_join_presence p
+     WHERE p.session_id = ?
+       AND p.left_at IS NULL
+       AND p.last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)
+       AND NOT EXISTS (
+         SELECT 1 FROM supervision_session_video_admissions a
+         WHERE a.session_id = p.session_id
+           AND (
+             a.join_identity = p.join_identity
+             OR (a.user_id IS NOT NULL AND CONCAT('user-', a.user_id) = p.join_identity)
+           )
+       )
+     ORDER BY p.joined_at ASC`,
+    [sid]
+  );
+  return (rows || []).map((r) => {
+    const identity = String(r.join_identity || '');
+    const m = identity.match(/^user-(\d+)$/);
+    return {
+      identity,
+      joinIdentity: identity,
+      userId: m ? Number(m[1]) : null,
+      displayName: r.display_name || identity,
+      isGuest: !!r.is_guest,
+      sid: identity
+    };
+  });
 }
 
 function requireValid(req, res) {
@@ -345,6 +480,11 @@ async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeU
   const sid = Number(sessionId || 0);
   if (sid && actorId) {
     try {
+      const sessionRow = await SupervisionSession.findById(sid);
+      if (actorId === Number(sessionRow?.co_facilitator_user_id || 0)) {
+        const actorAgencies = await User.getAgencies(actorId);
+        return (actorAgencies || []).some((a) => Number(a?.id) === aId);
+      }
       const [attendee] = await pool.execute(
         `SELECT 1 FROM supervision_session_attendees WHERE session_id = ? AND user_id = ? LIMIT 1`,
         [sid, actorId]
@@ -361,7 +501,6 @@ async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeU
         const actorAgencies = await User.getAgencies(actorId);
         return (actorAgencies || []).some((a) => Number(a?.id) === aId);
       }
-      const sessionRow = await SupervisionSession.findById(sid);
       const canOpenJoin = await userMatchesSupervisionOpenAudience({ sessionRow, userId: actorId });
       if (canOpenJoin) {
         const actorAgencies = await User.getAgencies(actorId);
@@ -1260,17 +1399,31 @@ export const getSupervisionJoinInfo = async (req, res, next) => {
     const orgSlug = String(row.slug || row.portal_url || '').trim();
     if (!orgSlug) return res.status(404).json({ error: { message: 'Session organization has no portal' } });
 
-    const joinKey = String(session.join_token || session.id);
+    const participantKey = String(
+      session.participant_join_token || session.join_token || session.id
+    );
+    const hostKey = String(session.host_join_token || '').trim();
+    const tokenRole = SupervisionSession.classifyJoinTokenRole(session, ref);
+    const redirectKey = tokenRole === 'host' && hostKey
+      ? hostKey
+      : (participantKey || String(session.id));
     const sessionType = String(session.session_type || 'individual').toLowerCase();
     const activeCount = await countActiveJoinPresence(session.id);
     const maxCapacity = maxJoinCapacityForSessionType(sessionType);
     res.json({
       orgSlug,
       sessionId: Number(session.id),
-      joinToken: session.join_token || null,
-      joinPath: `/join/supervision/${encodeURIComponent(joinKey)}`,
+      joinToken: redirectKey || null,
+      hostJoinToken: hostKey || null,
+      participantJoinToken: participantKey || null,
+      joinPath: `/join/supervision/${encodeURIComponent(redirectKey)}`,
+      hostJoinPath: hostKey ? `/join/supervision/${encodeURIComponent(hostKey)}` : null,
+      joinUrl: supervisionAppJoinUrl(session),
+      hostJoinUrl: supervisionHostJoinUrl(session),
+      waitingRoomEnabled: isWaitingRoomEnabled(session),
+      joinTokenRole: tokenRole,
       sessionType,
-      guestJoinAllowed: !isNumericJoinRef(joinKey),
+      guestJoinAllowed: !isNumericJoinRef(participantKey),
       activeParticipants: activeCount,
       maxParticipants: maxCapacity,
       joinLocked: activeCount >= maxCapacity
@@ -1311,7 +1464,20 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
     }
 
     let row = await SupervisionSession.resolveByJoinRef(ref);
-    if (!row?.id || String(row.join_token || '') !== ref) {
+    if (!row?.id) {
+      return res.status(404).json({ error: { message: 'Session not found' } });
+    }
+    const tokenRole = SupervisionSession.classifyJoinTokenRole(row, ref);
+    // Host link is for authenticated hosts; guests may only use participant/legacy links.
+    if (tokenRole === 'host') {
+      return res.status(403).json({
+        error: { message: 'This is the host join link. Log in as the supervisor to join, or use the participant join link.' }
+      });
+    }
+    const matchesOpaque = [row.join_token, row.participant_join_token, row.host_join_token]
+      .map((t) => String(t || ''))
+      .includes(ref);
+    if (!matchesOpaque) {
       return res.status(404).json({ error: { message: 'Session not found' } });
     }
     const id = Number(row.id);
@@ -1322,6 +1488,7 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
     }
 
     const sessionType = String(row.session_type || 'individual').toLowerCase();
+    const waitingRoomOn = isWaitingRoomEnabled(row);
     const maxCapacity = maxJoinCapacityForSessionType(sessionType);
     const guestKeyRaw = String(req.query?.guestKey || req.query?.guest_key || '').trim();
     const guestKey = guestKeyRaw.replace(/[^a-zA-Z0-9]/g, '').slice(0, 32);
@@ -1329,9 +1496,13 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
     const identity = `guest-${guestId}`;
     const displayName = String(req.query?.displayName || req.query?.name || 'Guest').trim().slice(0, 80) || 'Guest';
 
+    const admitted = await isUserAdmittedToSupervision({ sessionId: id, joinIdentity: identity });
+    const useLobby = waitingRoomOn && !admitted;
+
     const alreadyPresent = await isJoinIdentityActive(id, identity);
     const activeCount = await countActiveJoinPresence(id);
-    if (!alreadyPresent && activeCount >= maxCapacity) {
+    // Capacity applies to main room; lobby waiters do not consume seats.
+    if (!useLobby && !alreadyPresent && activeCount >= maxCapacity) {
       return res.status(409).json({
         error: {
           message: 'This session is full right now. When someone leaves, the join link will work again.'
@@ -1342,13 +1513,21 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
       });
     }
 
-    const roomName = row.twilio_room_unique_name || `supervision-${id}`;
-    let vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
-    if (!vonageSessionId) {
-      const roomResult = await createOrGetRoomByUniqueName(roomName);
-      vonageSessionId = roomResult?.sid || null;
-      if (vonageSessionId) {
-        await SupervisionSession.setVideoRoom(id, { roomSid: vonageSessionId, uniqueName: roomName });
+    let roomName;
+    let vonageSessionId = null;
+    if (useLobby) {
+      roomName = `supervision-${id}-lobby`;
+      const lobbyRoom = await createOrGetRoomByUniqueName(roomName);
+      vonageSessionId = lobbyRoom?.sid || null;
+    } else {
+      roomName = row.twilio_room_unique_name || `supervision-${id}`;
+      vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
+      if (!vonageSessionId) {
+        const roomResult = await createOrGetRoomByUniqueName(roomName);
+        vonageSessionId = roomResult?.sid || null;
+        if (vonageSessionId) {
+          await SupervisionSession.setVideoRoom(id, { roomSid: vonageSessionId, uniqueName: roomName });
+        }
       }
     }
     if (!vonageSessionId) {
@@ -1365,7 +1544,8 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
         role: 'guest',
         roleLabel: 'Guest',
         sessionId: id,
-        displayName
+        displayName,
+        profilePhotoUrl: null
       }
     });
     if (!token) {
@@ -1392,13 +1572,15 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
       identity,
       displayName,
       roleLabel: 'Guest',
+      profilePhotoUrl: null,
       isSupervisor: false,
       isPresenter: false,
       supervisionSessionId: id,
       sessionTitle: sessionTitle || null,
       sessionType,
-      roomMode: 'main',
-      lobbyEnabledForSession: false,
+      roomMode: useLobby ? 'lobby' : 'main',
+      lobbyEnabledForSession: waitingRoomOn,
+      waitingRoomEnabled: waitingRoomOn,
       videoConfigured: true,
       activeParticipants: alreadyPresent ? activeCount : activeCount + 1,
       maxParticipants: maxCapacity,
@@ -1486,36 +1668,57 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     const actorUserId = Number(req.user?.id || 0);
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
-    const roomParam = req.query?.room || '';
-    const isSupervisor = actorUserId === Number(row.supervisor_user_id);
+    const roomParam = String(req.query?.room || '').trim().toLowerCase();
+    const tokenRole = SupervisionSession.classifyJoinTokenRole(row, ref);
+    const isSupervisor = actorUserId === Number(row.supervisor_user_id)
+      || actorUserId === Number(row.co_facilitator_user_id || 0);
+    // Host join link may only be used by the facilitator; others get a clear error (no guest fallthrough).
+    if (tokenRole === 'host' && !isSupervisor) {
+      return res.status(403).json({
+        error: {
+          message: 'This host join link is for the session facilitator. Use the participant join link, or ask the host to admit you.'
+        }
+      });
+    }
     const sessionType = String(row.session_type || 'individual').toLowerCase();
+    const waitingRoomOn = isWaitingRoomEnabled(row);
 
-    // Supervisor always goes to main room. Supervisee: for individual/triadic, go directly to main room
-    // (avoids admit flow issues). For group (3+), use lobby first, then admit.
-    const skipLobbyForSupervisee = sessionType === 'individual' || sessionType === 'triadic';
-    const useLobby = roomParam === 'lobby' || (!roomParam && !isSupervisor && !skipLobbyForSupervisee);
+    let isPresenter = false;
+    try {
+      const [presenterRows] = await pool.execute(
+        `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
+        [id, actorUserId]
+      );
+      isPresenter = !!(presenterRows?.length);
+    } catch {
+      isPresenter = false;
+    }
+
+    const identity = `user-${actorUserId}`;
+    const displayName = displayNameFromUser(req.user) || identity;
+    const profilePhotoUrl = await profilePhotoUrlForUserId(actorUserId);
+    const admitted = isSupervisor
+      || await isUserAdmittedToSupervision({ sessionId: id, userId: actorUserId, joinIdentity: identity });
+
+    // Hosts always main. Non-hosts wait in lobby when waiting room is on (unless already admitted).
+    const forceMain = roomParam === 'main';
+    const forceLobby = roomParam === 'lobby';
+    const useLobby = !isSupervisor && waitingRoomOn && (forceLobby || (!forceMain && !admitted));
+
+    if (forceMain && !isSupervisor && waitingRoomOn && !admitted) {
+      return res.status(403).json({ error: { message: 'Not admitted yet. Wait in the lobby.' } });
+    }
 
     let vonageSessionId = null;
     let roomName = null;
 
-    if (useLobby && !isSupervisor) {
+    if (useLobby) {
       roomName = `supervision-${id}-lobby`;
       const lobbyRoom = await createOrGetRoomByUniqueName(roomName);
       vonageSessionId = lobbyRoom?.sid || null;
     } else {
       roomName = row.twilio_room_unique_name || `supervision-${id}`;
       vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
-
-      if (!isSupervisor && roomParam === 'main' && !skipLobbyForSupervisee) {
-        const [admitted] = await pool.execute(
-          'SELECT 1 FROM supervision_session_video_admissions WHERE session_id = ? AND user_id = ? LIMIT 1',
-          [id, actorUserId]
-        );
-        if (!admitted?.length) {
-          return res.status(403).json({ error: { message: 'Not admitted yet. Wait in the lobby.' } });
-        }
-      }
-
       if (!vonageSessionId) {
         const roomResult = await createOrGetRoomByUniqueName(roomName);
         vonageSessionId = roomResult?.sid || null;
@@ -1535,27 +1738,11 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       });
     }
 
-    let isPresenter = false;
-    try {
-      const [presenterRows] = await pool.execute(
-        `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
-        [id, actorUserId]
-      );
-      isPresenter = !!(presenterRows?.length);
-    } catch {
-      isPresenter = false;
-    }
-
-    const identity = `user-${actorUserId}`;
-    const displayName = `${req.user?.firstName || req.user?.first_name || ''} ${req.user?.lastName || req.user?.last_name || ''}`.trim()
-      || req.user?.email
-      || identity;
-
-    // Capacity lock applies to new joiners who are not already counted as present.
+    // Capacity lock applies to main-room joiners who are not already counted as present.
     const maxCapacity = maxJoinCapacityForSessionType(sessionType);
     const alreadyPresent = await isJoinIdentityActive(id, identity);
     const activeCount = await countActiveJoinPresence(id);
-    if (!alreadyPresent && activeCount >= maxCapacity) {
+    if (!useLobby && !alreadyPresent && activeCount >= maxCapacity) {
       return res.status(409).json({
         error: {
           message: 'This session is full right now. When someone leaves, you can join again.'
@@ -1576,7 +1763,8 @@ export const getSupervisionVideoToken = async (req, res, next) => {
         role,
         roleLabel,
         sessionId: id,
-        displayName
+        displayName,
+        profilePhotoUrl
       }
     });
 
@@ -1604,13 +1792,17 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       identity,
       displayName,
       roleLabel,
+      profilePhotoUrl,
       isSupervisor: !!isSupervisor,
       isPresenter: !!isPresenter,
       supervisionSessionId: id,
       sessionTitle: sessionTitle || null,
       sessionType,
       roomMode: useLobby ? 'lobby' : 'main',
-      lobbyEnabledForSession: !skipLobbyForSupervisee,
+      lobbyEnabledForSession: waitingRoomOn,
+      waitingRoomEnabled: waitingRoomOn,
+      joinUrl: supervisionAppJoinUrl(row),
+      hostJoinUrl: supervisionHostJoinUrl(row),
       videoConfigured: true,
       activeParticipants: alreadyPresent ? activeCount : activeCount + 1,
       maxParticipants: maxCapacity,
@@ -1647,29 +1839,33 @@ export const getLobbyParticipants = async (req, res, next) => {
     const actorUserId = Number(req.user?.id || 0);
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
-    const isSupervisor = actorUserId === Number(row.supervisor_user_id);
+    const isSupervisor = actorUserId === Number(row.supervisor_user_id)
+      || actorUserId === Number(row.co_facilitator_user_id || 0);
     if (!isSupervisor) {
       return res.status(403).json({ error: { message: 'Only the supervisor can view lobby participants' } });
     }
 
-    const lobbyName = `supervision-${id}-lobby`;
-    const raw = await listRoomParticipants(lobbyName);
-    const participants = [];
-    for (const p of raw || []) {
-      const m = String(p?.identity || '').match(/^user-(\d+)$/);
-      const uid = m ? parseInt(m[1], 10) : null;
-      let displayName = p?.identity || 'Participant';
-      if (uid) {
-        const [rows] = await pool.execute('SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1', [uid]);
-        const u = rows?.[0];
-        if (u) {
-          displayName = `${String(u.first_name || '').trim()} ${String(u.last_name || '').trim()}`.trim() || displayName;
+    const participants = await listWaitingLobbyPresence(id);
+    for (const p of participants) {
+      if (p.userId) {
+        try {
+          const [rows] = await pool.execute(
+            'SELECT first_name, last_name, profile_photo_path FROM users WHERE id = ? LIMIT 1',
+            [p.userId]
+          );
+          const u = rows?.[0];
+          if (u) {
+            const name = `${String(u.first_name || '').trim()} ${String(u.last_name || '').trim()}`.trim();
+            if (name) p.displayName = name;
+            p.profilePhotoUrl = publicUploadsUrlFromStoredPath(u.profile_photo_path || null) || null;
+          }
+        } catch {
+          /* ignore */
         }
       }
-      participants.push({ ...p, displayName });
     }
 
-    res.json({ participants });
+    res.json({ participants, waitingRoomEnabled: isWaitingRoomEnabled(row) });
   } catch (e) {
     next(e);
   }
@@ -1678,8 +1874,16 @@ export const getLobbyParticipants = async (req, res, next) => {
 export const admitToMainRoom = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const userId = parseInt(req.params.userId, 10);
-    if (!id || !userId) return res.status(400).json({ error: { message: 'Invalid session or user id' } });
+    const userIdRaw = req.params.userId;
+    const joinIdentityBody = String(req.body?.joinIdentity || req.query?.joinIdentity || '').trim();
+    // Allow admit by user id OR guest identity (userId path param may be "guest-xxx")
+    const userIdNum = /^\d+$/.test(String(userIdRaw || '')) ? parseInt(userIdRaw, 10) : 0;
+    const joinIdentity = joinIdentityBody
+      || (!userIdNum && String(userIdRaw || '').startsWith('guest-') ? String(userIdRaw) : '')
+      || (userIdNum ? `user-${userIdNum}` : '');
+    if (!id || (!userIdNum && !joinIdentity)) {
+      return res.status(400).json({ error: { message: 'Invalid session or participant id' } });
+    }
 
     const row = await SupervisionSession.findById(id);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
@@ -1687,7 +1891,8 @@ export const admitToMainRoom = async (req, res, next) => {
     const actorUserId = Number(req.user?.id || 0);
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
-    const isSupervisor = actorUserId === Number(row.supervisor_user_id);
+    const isSupervisor = actorUserId === Number(row.supervisor_user_id)
+      || actorUserId === Number(row.co_facilitator_user_id || 0);
     if (!isSupervisor) {
       return res.status(403).json({ error: { message: 'Only the supervisor can admit participants' } });
     }
@@ -1695,27 +1900,100 @@ export const admitToMainRoom = async (req, res, next) => {
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
       supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const isParticipant =
-      userId === Number(row.supervisee_user_id) ||
-      (await pool.execute('SELECT 1 FROM supervision_session_attendees WHERE session_id = ? AND user_id = ? LIMIT 1', [id, userId]))[0]?.length > 0;
-    if (!isParticipant) {
-      return res.status(400).json({ error: { message: 'User is not a participant in this session' } });
+    if (userIdNum) {
+      const [attendeeRows] = await pool.execute(
+        'SELECT 1 FROM supervision_session_attendees WHERE session_id = ? AND user_id = ? LIMIT 1',
+        [id, userIdNum]
+      );
+      const isParticipant =
+        userIdNum === Number(row.supervisee_user_id)
+        || userIdNum === Number(row.supervisor_user_id)
+        || userIdNum === Number(row.co_facilitator_user_id || 0)
+        || !!(attendeeRows?.length)
+        || await userMatchesSupervisionOpenAudience({ sessionRow: row, userId: userIdNum });
+      if (!isParticipant) {
+        return res.status(400).json({ error: { message: 'User is not a participant in this session' } });
+      }
+    } else if (!String(joinIdentity).startsWith('guest-')) {
+      return res.status(400).json({ error: { message: 'Invalid guest identity' } });
     }
 
-    await pool.execute(
-      'INSERT IGNORE INTO supervision_session_video_admissions (session_id, user_id) VALUES (?, ?)',
-      [id, userId]
-    );
+    const admitted = await admitSupervisionJoinIdentity({
+      sessionId: id,
+      userId: userIdNum || null,
+      joinIdentity
+    });
+    if (!admitted) {
+      return res.status(500).json({ error: { message: 'Failed to admit participant' } });
+    }
 
-    res.json({ ok: true, admitted: userId });
+    res.json({ ok: true, admitted: userIdNum || joinIdentity, joinIdentity });
   } catch (e) {
     next(e);
   }
 };
+
+async function buildMainRoomAdmissionPayload({ row, identity, displayName, roleLabel, role, profilePhotoUrl = null }) {
+  const id = Number(row.id);
+  const projectId = resolveVideoProjectId();
+  const mainName = row.twilio_room_unique_name || `supervision-${id}`;
+  let vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
+  if (!vonageSessionId) {
+    const roomResult = await createOrGetRoomByUniqueName(mainName);
+    vonageSessionId = roomResult?.sid || null;
+    if (vonageSessionId) {
+      await SupervisionSession.setVideoRoom(id, {
+        roomSid: vonageSessionId,
+        uniqueName: mainName
+      });
+    }
+  }
+  if (!vonageSessionId) return null;
+  const token = await createAccessTokenAsync({
+    roomSid: vonageSessionId,
+    identity,
+    metadata: {
+      role,
+      roleLabel,
+      sessionId: id,
+      displayName,
+      profilePhotoUrl
+    }
+  });
+  if (!token) return null;
+  const sessionTitle = await buildSupervisionSessionTitle(id, row);
+  const sessionType = String(row.session_type || 'individual').toLowerCase();
+  const waitingRoomOn = isWaitingRoomEnabled(row);
+  return {
+    admitted: true,
+    token: String(token).trim(),
+    sessionId: vonageSessionId,
+    applicationId: projectId,
+    apiKey: projectId,
+    roomName: mainName,
+    roomSid: vonageSessionId,
+    identity,
+    displayName,
+    roleLabel,
+    profilePhotoUrl,
+    isSupervisor: role === 'supervisor',
+    isPresenter: role === 'presenter',
+    guest: String(identity).startsWith('guest-'),
+    supervisionSessionId: id,
+    sessionTitle: sessionTitle || null,
+    sessionType,
+    roomMode: 'main',
+    lobbyEnabledForSession: waitingRoomOn,
+    waitingRoomEnabled: waitingRoomOn,
+    videoConfigured: true,
+    diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
+  };
+}
 
 export const getAdmissionStatus = async (req, res, next) => {
   try {
@@ -1729,6 +2007,11 @@ export const getAdmissionStatus = async (req, res, next) => {
     const row = await SupervisionSession.resolveByJoinRef(ref);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
     const id = Number(row.id);
+    const waitingRoomOn = isWaitingRoomEnabled(row);
+    const sessionType = String(row.session_type || 'individual').toLowerCase();
+
+    const actorUserId = Number(req.user?.id || 0);
+    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
@@ -1738,80 +2021,121 @@ export const getAdmissionStatus = async (req, res, next) => {
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const actorUserId = Number(req.user?.id || 0);
-    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
-
-    const isSupervisor = actorUserId === Number(row.supervisor_user_id);
-    const sessionType = String(row.session_type || 'individual').toLowerCase();
-    const skipLobbyForSupervisee = sessionType === 'individual' || sessionType === 'triadic';
-    if (isSupervisor) {
+    const isSupervisor = actorUserId === Number(row.supervisor_user_id)
+      || actorUserId === Number(row.co_facilitator_user_id || 0);
+    if (isSupervisor || !waitingRoomOn) {
       return res.json({
         admitted: true,
-        role: 'supervisor',
+        role: isSupervisor ? 'supervisor' : 'supervisee',
         sessionType,
         roomMode: 'main',
-        lobbyEnabledForSession: !skipLobbyForSupervisee
+        lobbyEnabledForSession: waitingRoomOn,
+        waitingRoomEnabled: waitingRoomOn
       });
-    }
-
-    const [admitted] = await pool.execute(
-      'SELECT 1 FROM supervision_session_video_admissions WHERE session_id = ? AND user_id = ? LIMIT 1',
-      [id, actorUserId]
-    );
-
-    if (!admitted?.length) {
-      return res.json({
-        admitted: false,
-        sessionType,
-        roomMode: skipLobbyForSupervisee ? 'main' : 'lobby',
-        lobbyEnabledForSession: !skipLobbyForSupervisee
-      });
-    }
-
-    const projectId = resolveVideoProjectId();
-    const mainName = row.twilio_room_unique_name || `supervision-${id}`;
-    let vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
-    if (!vonageSessionId) {
-      const roomResult = await createOrGetRoomByUniqueName(mainName);
-      vonageSessionId = roomResult?.sid || null;
-      if (vonageSessionId) {
-        await SupervisionSession.setVideoRoom(id, {
-          roomSid: vonageSessionId,
-          uniqueName: mainName
-        });
-      }
-    }
-    if (!vonageSessionId) {
-      return res.status(500).json({ error: { message: 'Failed to get main room' } });
     }
 
     const identity = `user-${actorUserId}`;
-    const token = await createAccessTokenAsync({
-      roomSid: vonageSessionId,
-      identity
+    const admitted = await isUserAdmittedToSupervision({
+      sessionId: id,
+      userId: actorUserId,
+      joinIdentity: identity
     });
-    if (!token) {
-      return res.status(500).json({ error: { message: 'Failed to generate token' } });
+
+    if (!admitted) {
+      return res.json({
+        admitted: false,
+        sessionType,
+        roomMode: 'lobby',
+        lobbyEnabledForSession: waitingRoomOn,
+        waitingRoomEnabled: waitingRoomOn
+      });
     }
 
-    const sessionTitle = await buildSupervisionSessionTitle(id, row);
-
-    res.json({
-      admitted: true,
-      token: String(token).trim(),
-      sessionId: vonageSessionId,
-      applicationId: projectId,
-      apiKey: projectId,
-      roomName: mainName,
-      roomSid: vonageSessionId,
+    let isPresenter = false;
+    try {
+      const [presenterRows] = await pool.execute(
+        `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
+        [id, actorUserId]
+      );
+      isPresenter = !!(presenterRows?.length);
+    } catch {
+      isPresenter = false;
+    }
+    const role = isPresenter ? 'presenter' : 'supervisee';
+    const roleLabel = isPresenter ? 'Presenter' : 'Supervisee';
+    const displayName = displayNameFromUser(req.user) || identity;
+    const profilePhotoUrl = await profilePhotoUrlForUserId(actorUserId);
+    const payload = await buildMainRoomAdmissionPayload({
+      row,
       identity,
-      sessionTitle: sessionTitle || null,
-      sessionType,
-      roomMode: 'main',
-      lobbyEnabledForSession: !skipLobbyForSupervisee,
-      videoConfigured: true,
-      diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
+      displayName,
+      roleLabel,
+      role,
+      profilePhotoUrl
     });
+    if (!payload) {
+      return res.status(500).json({ error: { message: 'Failed to get main room' } });
+    }
+    res.json(payload);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Public guest admission poll (opaque join token + guest identity). */
+export const getGuestAdmissionStatus = async (req, res, next) => {
+  try {
+    if (!isVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Video is not configured' } });
+    }
+    const ref = String(req.params.joinToken || '').trim();
+    const guestKeyRaw = String(req.query?.guestKey || req.query?.guest_key || '').trim();
+    const guestKey = guestKeyRaw.replace(/[^a-zA-Z0-9]/g, '').slice(0, 32);
+    if (!ref || isNumericJoinRef(ref) || !guestKey) {
+      return res.status(400).json({ error: { message: 'joinToken and guestKey required' } });
+    }
+    const row = await SupervisionSession.resolveByJoinRef(ref);
+    if (!row?.id) return res.status(404).json({ error: { message: 'Session not found' } });
+    const tokenRole = SupervisionSession.classifyJoinTokenRole(row, ref);
+    if (tokenRole === 'host') {
+      return res.status(403).json({ error: { message: 'Host link cannot be used for guest admission' } });
+    }
+    const id = Number(row.id);
+    const waitingRoomOn = isWaitingRoomEnabled(row);
+    const sessionType = String(row.session_type || 'individual').toLowerCase();
+    const identity = `guest-${guestKey}`;
+    if (!waitingRoomOn) {
+      return res.json({
+        admitted: true,
+        sessionType,
+        roomMode: 'main',
+        lobbyEnabledForSession: false,
+        waitingRoomEnabled: false
+      });
+    }
+    const admitted = await isUserAdmittedToSupervision({ sessionId: id, joinIdentity: identity });
+    if (!admitted) {
+      return res.json({
+        admitted: false,
+        sessionType,
+        roomMode: 'lobby',
+        lobbyEnabledForSession: true,
+        waitingRoomEnabled: true
+      });
+    }
+    const displayName = String(req.query?.displayName || req.query?.name || 'Guest').trim().slice(0, 80) || 'Guest';
+    const payload = await buildMainRoomAdmissionPayload({
+      row,
+      identity,
+      displayName,
+      roleLabel: 'Guest',
+      role: 'guest',
+      profilePhotoUrl: null
+    });
+    if (!payload) {
+      return res.status(500).json({ error: { message: 'Failed to get main room' } });
+    }
+    res.json(payload);
   } catch (e) {
     next(e);
   }
@@ -2263,7 +2587,8 @@ export const createSupervisionSessionValidators = [
   body('coFacilitatorUserId').optional({ nullable: true }).isInt({ min: 1 }).withMessage('coFacilitatorUserId must be a valid user id'),
   body('startAt').not().isEmpty().withMessage('startAt is required'),
   body('endAt').not().isEmpty().withMessage('endAt is required'),
-  body('createMeetLink').optional().isBoolean().withMessage('createMeetLink must be boolean')
+  body('createMeetLink').optional().isBoolean().withMessage('createMeetLink must be boolean'),
+  body('waitingRoomEnabled').optional().isBoolean().withMessage('waitingRoomEnabled must be boolean')
 ];
 
 export const patchSupervisionSessionValidators = [
@@ -2279,7 +2604,8 @@ export const patchSupervisionSessionValidators = [
   body('notes').optional(),
   body('modality').optional(),
   body('locationText').optional(),
-  body('createMeetLink').optional().isBoolean().withMessage('createMeetLink must be boolean')
+  body('createMeetLink').optional().isBoolean().withMessage('createMeetLink must be boolean'),
+  body('waitingRoomEnabled').optional().isBoolean().withMessage('waitingRoomEnabled must be boolean')
 ];
 
 export const createSupervisionSession = async (req, res, next) => {
@@ -2384,6 +2710,7 @@ export const createSupervisionSession = async (req, res, next) => {
         hasNamedInvites
       });
 
+    const waitingRoomEnabled = req.body?.waitingRoomEnabled !== false;
     const created = await SupervisionSession.create({
       agencyId,
       supervisorUserId,
@@ -2399,6 +2726,7 @@ export const createSupervisionSession = async (req, res, next) => {
       locationText: locationText ? String(locationText) : null,
       notes: notes ? String(notes) : null,
       createdByUserId: req.user.id,
+      waitingRoomEnabled,
       recurrenceSeriesId,
       recurrenceFrequency,
       recurrenceIndex
@@ -2507,8 +2835,17 @@ export const createSupervisionSession = async (req, res, next) => {
       });
     }
 
-    const out = await SupervisionSession.findById(created.id);
-    res.status(201).json({ ok: true, session: out });
+    const out = await SupervisionSession.resolveByJoinRef(created.id) || await SupervisionSession.findById(created.id);
+    res.status(201).json({
+      ok: true,
+      session: {
+        ...out,
+        joinUrl: supervisionAppJoinUrl(out),
+        hostJoinUrl: supervisionHostJoinUrl(out),
+        participantJoinUrl: supervisionAppJoinUrl(out),
+        waitingRoomEnabled: isWaitingRoomEnabled(out)
+      }
+    });
   } catch (e) {
     next(e);
   }
@@ -2562,6 +2899,9 @@ export const patchSupervisionSession = async (req, res, next) => {
       : undefined;
     const inviteAudienceGroupSupport = req.body?.inviteAudienceGroupSupport !== undefined
       ? req.body.inviteAudienceGroupSupport === true
+      : undefined;
+    const waitingRoomEnabled = req.body?.waitingRoomEnabled !== undefined
+      ? req.body.waitingRoomEnabled === true
       : undefined;
 
     const nextStart = startAt !== undefined ? startAt : row.start_at;
@@ -2625,7 +2965,8 @@ export const patchSupervisionSession = async (req, res, next) => {
           inviteAudienceGroupSupport,
           notes,
           modality,
-          locationText
+          locationText,
+          waitingRoomEnabled
         } : {})
       });
       if (occId === id) updated = rowUpdated;
@@ -2639,7 +2980,8 @@ export const patchSupervisionSession = async (req, res, next) => {
       inviteAudienceGroupSupport,
       notes,
       modality,
-      locationText
+      locationText,
+      waitingRoomEnabled
     });
 
     if (presenterUserIds !== undefined) {
@@ -2931,7 +3273,10 @@ export const getMySupervisionSessions = async (req, res, next) => {
 
     const withJoinUrl = sanitized.map((s) => ({
       ...s,
-      joinUrl: supervisionAppJoinUrl(s)
+      joinUrl: supervisionAppJoinUrl(s),
+      participantJoinUrl: supervisionAppJoinUrl(s),
+      hostJoinUrl: supervisionHostJoinUrl(s),
+      waitingRoomEnabled: isWaitingRoomEnabled(s)
     }));
 
     res.json({ ok: true, sessions: withJoinUrl });
@@ -2994,7 +3339,10 @@ export const getSuperviseeSessions = async (req, res, next) => {
 
     const withJoinUrl = sanitized.map((s) => ({
       ...s,
-      joinUrl: supervisionAppJoinUrl(s)
+      joinUrl: supervisionAppJoinUrl(s),
+      participantJoinUrl: supervisionAppJoinUrl(s),
+      hostJoinUrl: supervisionHostJoinUrl(s),
+      waitingRoomEnabled: isWaitingRoomEnabled(s)
     }));
 
     res.json({ ok: true, sessions: withJoinUrl });

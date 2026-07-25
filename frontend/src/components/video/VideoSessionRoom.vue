@@ -29,17 +29,33 @@
         class="vsr__stage"
         :class="{
           'vsr__stage--strip': layout === 'strip',
-          'vsr__stage--solo': isSoloStage,
-          'vsr__stage--duo': isDuoStage
+          'vsr__stage--solo': isSoloStage && !hasScreenShare,
+          'vsr__stage--duo': isDuoStage && !hasScreenShare,
+          'vsr__stage--screen': hasScreenShare
         }"
       >
         <div
-          v-show="!isSoloStage"
+          v-show="hasScreenShare"
+          ref="screenEl"
+          class="vsr__tile vsr__tile--screen"
+        >
+          <span class="vsr__label">{{ screenShareLabel || 'Screen share' }}</span>
+        </div>
+        <div
+          v-show="!isSoloStage || hasScreenShare"
           ref="remoteEl"
           class="vsr__tile vsr__tile--remote"
-          :class="{ 'vsr__tile--empty': !hasRemote }"
+          :class="{
+            'vsr__tile--empty': !hasRemote,
+            'vsr__tile--cam-off': hasRemote && !remoteHasVideo,
+            'vsr__tile--pip': hasScreenShare
+          }"
         >
           <span v-if="!hasRemote" class="vsr__waiting">Waiting for the other person…</span>
+          <div v-if="hasRemote && !remoteHasVideo" class="vsr__avatar" aria-hidden="true">
+            <img v-if="remoteProfilePhotoUrl" :src="remoteProfilePhotoUrl" alt="" class="vsr__avatar-img" />
+            <span v-else class="vsr__avatar-initials">{{ remoteInitials }}</span>
+          </div>
           <span v-if="remoteName" class="vsr__label">{{ remoteName }}</span>
         </div>
         <div
@@ -49,10 +65,15 @@
           :class="{
             'vsr__tile--muted': !publishAudio,
             'vsr__tile--cam-off': !publishVideo,
-            'vsr__tile--solo': isSoloStage,
-            'vsr__tile--duo': isDuoStage
+            'vsr__tile--solo': isSoloStage && !hasScreenShare,
+            'vsr__tile--duo': isDuoStage && !hasScreenShare,
+            'vsr__tile--pip': hasScreenShare
           }"
         >
+          <div v-if="!publishVideo" class="vsr__avatar" aria-hidden="true">
+            <img v-if="localProfilePhotoUrl" :src="localProfilePhotoUrl" alt="" class="vsr__avatar-img" />
+            <span v-else class="vsr__avatar-initials">{{ localInitials }}</span>
+          </div>
           <span class="vsr__label">{{ localName || 'You' }}</span>
         </div>
       </div>
@@ -111,6 +132,7 @@ const props = defineProps({
   sessionId: { type: String, default: '' },
   token: { type: String, default: '' },
   localName: { type: String, default: 'You' },
+  localProfilePhotoUrl: { type: String, default: '' },
   compact: { type: Boolean, default: false },
   layout: { type: String, default: 'standard' }, // standard | strip
   autoConnect: { type: Boolean, default: true },
@@ -135,6 +157,7 @@ const emit = defineEmits([
 
 const localEl = ref(null);
 const remoteEl = ref(null);
+const screenEl = ref(null);
 const connecting = ref(false);
 const errorMessage = ref('');
 const errorMeta = ref(null);
@@ -143,7 +166,11 @@ const publishVideo = ref(true);
 const hideSelfView = ref(false);
 const hasRemote = ref(false);
 const remoteName = ref('');
+const remoteHasVideo = ref(true);
+const remoteProfilePhotoUrl = ref('');
 const sharingScreen = ref(false);
+const hasScreenShare = ref(false);
+const screenShareLabel = ref('');
 const sessionReady = ref(false);
 
 const isSoloStage = computed(() =>
@@ -153,16 +180,51 @@ const isDuoStage = computed(() =>
   props.equalTilesWhenRemote && hasRemote.value && props.layout !== 'strip'
 );
 
+function initialsFromLabel(label) {
+  const parts = String(label || '')
+    .replace(/^You\s*[·|]\s*/i, '')
+    .replace(/^(Supervisor|Supervisee|Presenter|Guest)\s*[·|]\s*/i, '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+}
+
+const localInitials = computed(() => initialsFromLabel(props.localName));
+const remoteInitials = computed(() => initialsFromLabel(remoteName.value));
+
 let session = null;
 let screenPublisher = null;
 let publisher = null;
 const subscribers = new Map();
+let screenSubscriber = null;
 
 function clearRemote() {
   hasRemote.value = false;
   remoteName.value = '';
+  remoteHasVideo.value = true;
+  remoteProfilePhotoUrl.value = '';
   if (remoteEl.value) remoteEl.value.innerHTML = '';
   subscribers.clear();
+}
+
+function clearScreenShareTile() {
+  hasScreenShare.value = false;
+  screenShareLabel.value = '';
+  if (screenSubscriber) {
+    try { session?.unsubscribe(screenSubscriber); } catch { /* ignore */ }
+    screenSubscriber = null;
+  }
+  if (screenEl.value) screenEl.value.innerHTML = '';
+}
+
+function isScreenStream(stream) {
+  const vt = String(stream?.videoType || '').toLowerCase();
+  if (vt === 'screen') return true;
+  const name = String(stream?.name || '');
+  return /\(screen\)/i.test(name);
 }
 
 function formatRemoteLabel(parsed = {}) {
@@ -175,8 +237,8 @@ function formatRemoteLabel(parsed = {}) {
     else if (roleRaw === 'guest') roleLabel = 'Guest';
   }
   const name = String(parsed.displayName || parsed.identity || '').trim() || 'Participant';
-  if (roleLabel && name) return `${roleLabel} · ${name}`;
-  return name;
+  if (roleLabel && name && roleLabel.toLowerCase() !== name.toLowerCase()) return `${roleLabel} · ${name}`;
+  return name || roleLabel || 'Participant';
 }
 
 function looksLikeJwt(value) {
@@ -285,40 +347,70 @@ async function connect() {
     session = OT.initSession(projectId, props.sessionId);
 
     session.on('streamCreated', (event) => {
-      if (!remoteEl.value) return;
+      const stream = event.stream;
+      const screen = isScreenStream(stream);
+      const targetEl = screen ? screenEl.value : remoteEl.value;
+      if (!targetEl) return;
+
+      if (screen) {
+        if (screenSubscriber) {
+          try { session.unsubscribe(screenSubscriber); } catch { /* ignore */ }
+          screenSubscriber = null;
+        }
+        if (screenEl.value) screenEl.value.innerHTML = '';
+      }
+
       const sub = session.subscribe(
-        event.stream,
-        remoteEl.value,
+        stream,
+        targetEl,
         {
           insertMode: 'append',
           width: '100%',
           height: '100%',
-          fitMode: 'contain',
+          fitMode: screen ? 'contain' : 'contain',
           style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
         },
         (err) => {
           if (err) console.error('[VideoSessionRoom] subscribe error', err);
         }
       );
-      subscribers.set(event.stream.streamId, sub);
-      hasRemote.value = true;
-      try {
-        const data = event.stream.connection?.data;
-        if (data) {
-          const parsed = typeof data === 'string' ? JSON.parse(data) : (data || {});
-          remoteName.value = formatRemoteLabel(parsed);
-        } else {
-          remoteName.value = event.stream?.name || 'Participant';
+
+      if (screen) {
+        screenSubscriber = sub;
+        hasScreenShare.value = true;
+        screenShareLabel.value = String(stream?.name || 'Screen share');
+      } else {
+        subscribers.set(stream.streamId, sub);
+        hasRemote.value = true;
+        remoteHasVideo.value = stream?.hasVideo !== false;
+        try {
+          const data = stream.connection?.data;
+          if (data) {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : (data || {});
+            remoteName.value = formatRemoteLabel(parsed);
+            remoteProfilePhotoUrl.value = String(parsed.profilePhotoUrl || parsed.profile_photo_url || '').trim();
+          } else {
+            remoteName.value = stream?.name || 'Participant';
+            remoteProfilePhotoUrl.value = '';
+          }
+        } catch {
+          remoteName.value = stream?.name || 'Participant';
+          remoteProfilePhotoUrl.value = '';
         }
-      } catch {
-        remoteName.value = event.stream?.name || 'Participant';
+        sub.on?.('videoEnabled', () => { remoteHasVideo.value = true; });
+        sub.on?.('videoDisabled', () => { remoteHasVideo.value = false; });
       }
       emit('stream-created', event);
     });
 
     session.on('streamDestroyed', (event) => {
-      subscribers.delete(event.stream.streamId);
-      if (subscribers.size === 0) clearRemote();
+      const stream = event.stream;
+      if (isScreenStream(stream) || (screenSubscriber && screenSubscriber.streamId === stream.streamId)) {
+        clearScreenShareTile();
+      } else {
+        subscribers.delete(stream.streamId);
+        if (subscribers.size === 0) clearRemote();
+      }
       emit('stream-destroyed', event);
     });
 
@@ -390,7 +482,10 @@ function stopScreenShare() {
 }
 
 async function toggleScreenShare() {
-  if (!session || !sessionReady.value) return;
+  if (!session || !sessionReady.value) {
+    errorMessage.value = 'Connect to the session before sharing your screen.';
+    return;
+  }
   if (sharingScreen.value) {
     stopScreenShare();
     return;
@@ -398,33 +493,41 @@ async function toggleScreenShare() {
   try {
     const mod = await import('@vonage/client-sdk-video');
     const OT = mod?.default || mod;
+    // Publish into the featured screen tile so local + remote can see it.
+    const target = screenEl.value || undefined;
     await new Promise((resolve, reject) => {
       screenPublisher = OT.initPublisher(
-        null,
+        target || undefined,
         {
           videoSource: 'screen',
           publishAudio: false,
           name: `${props.localName || 'You'} (screen)`,
           insertMode: 'append',
           width: '100%',
-          height: '100%'
+          height: '100%',
+          fitMode: 'contain',
+          style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
         },
         (err) => (err ? reject(err) : resolve())
       );
     });
     screenPublisher.on('mediaStopped', () => {
       stopScreenShare();
+      clearScreenShareTile();
     });
     await new Promise((resolve, reject) => {
       session.publish(screenPublisher, (err) => (err ? reject(err) : resolve()));
     });
     sharingScreen.value = true;
+    hasScreenShare.value = true;
+    screenShareLabel.value = `${props.localName || 'You'} (screen)`;
   } catch (err) {
     console.error('[VideoSessionRoom] screen share failed', err);
     stopScreenShare();
+    clearScreenShareTile();
     const name = String(err?.name || '');
     const msg = String(err?.message || '');
-    errorMessage.value = name.includes('MEDIA_ACCESS') || /permission|denied|blocked/i.test(msg)
+    errorMessage.value = name.includes('MEDIA_ACCESS') || /permission|denied|blocked|NotAllowed/i.test(msg)
       ? 'Screen share was blocked. Allow screen sharing in your browser, then try again.'
       : (msg || 'Could not share your screen.');
   }
@@ -433,6 +536,7 @@ async function toggleScreenShare() {
 function disconnect(emitEvent = true) {
   try {
     stopScreenShare();
+    clearScreenShareTile();
     sessionReady.value = false;
     if (publisher) {
       try {
@@ -549,6 +653,59 @@ defineExpose({
   border-radius: 8px;
   overflow: hidden;
   min-height: 100px;
+}
+.vsr__stage--screen {
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(220px, 1fr) auto;
+  min-height: 320px;
+}
+.vsr__tile--screen {
+  min-height: 220px;
+  background: #0b0e14;
+}
+.vsr__tile--pip {
+  position: absolute !important;
+  width: 22%;
+  max-width: 140px;
+  min-height: 80px;
+  z-index: 3;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.vsr__tile--remote.vsr__tile--pip {
+  left: 0.75rem;
+  bottom: 0.75rem;
+  right: auto;
+}
+.vsr__tile--cam-off {
+  background: linear-gradient(160deg, #243044 0%, #151a24 100%);
+}
+.vsr__avatar {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 1;
+  pointer-events: none;
+}
+.vsr__avatar-img {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+}
+.vsr__avatar-initials {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: 0.02em;
+  background: rgba(124, 58, 237, 0.35);
+  color: #f8fafc;
+  border: 2px solid rgba(255, 255, 255, 0.25);
 }
 .vsr__tile--local {
   position: absolute;

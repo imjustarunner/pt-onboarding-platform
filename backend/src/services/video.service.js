@@ -53,7 +53,9 @@ export async function createOrGetRoom(uniqueName = null) {
   // so we'd typically store the uniqueName -> sessionId mapping in our DB.
   // For now, we'll just create a new session.
   const sessionId = await VonageVideoService.createSession();
-  return { sid: sessionId, uniqueName: uniqueName || sessionId };
+  const unique = uniqueName || sessionId;
+  // Expose both sid and roomSid — callers historically used either name.
+  return { sid: sessionId, roomSid: sessionId, uniqueName: unique };
 }
 
 export async function createOrGetRoomByUniqueName(uniqueName) {

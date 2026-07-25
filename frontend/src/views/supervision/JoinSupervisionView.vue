@@ -28,6 +28,7 @@
       :join-identity="joinIdentity"
       :local-display-name="localDisplayName"
       :local-role-label="localRoleLabel"
+      :local-profile-photo-url="localProfilePhotoUrl"
       :join-token="isOpaqueJoinRef ? String(sessionId || '') : ''"
       @leave="onDisconnected"
     />
@@ -69,6 +70,8 @@ const lobbyEnabledForSession = ref(false);
 const joinIdentity = ref('');
 const localDisplayName = ref('');
 const localRoleLabel = ref('');
+const localProfilePhotoUrl = ref('');
+const isGuestJoin = ref(false);
 const joinAttemptedForPath = ref('');
 
 const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
@@ -103,24 +106,46 @@ function applyTokenPayload(data) {
   isSupervisor.value = !!data.isSupervisor;
   isPresenter.value = !!data.isPresenter;
   roomMode.value = String(data.roomMode || (String(roomName.value || '').endsWith('-lobby') ? 'lobby' : 'main')).toLowerCase();
-  lobbyEnabledForSession.value = !!data.lobbyEnabledForSession;
+  lobbyEnabledForSession.value = !!(data.lobbyEnabledForSession ?? data.waitingRoomEnabled);
   sessionTitle.value = data.sessionTitle || data.session_title || sessionTitle.value;
   if (data.supervisionSessionId) numericSessionId.value = Number(data.supervisionSessionId);
   sessionMeta.value = data.sessionType ? String(data.sessionType) : '';
   joinIdentity.value = String(data.identity || '').trim();
+  isGuestJoin.value = !!data.guest || String(data.identity || '').startsWith('guest-');
   localDisplayName.value = String(data.displayName || '').trim();
+  localProfilePhotoUrl.value = String(data.profilePhotoUrl || data.profile_photo_url || '').trim();
   localRoleLabel.value = String(data.roleLabel || '').trim()
-    || (data.isSupervisor ? 'Supervisor' : (data.isPresenter ? 'Presenter' : (data.guest ? 'Guest' : 'Supervisee')));
+    || (data.isSupervisor ? 'Supervisor' : (data.isPresenter ? 'Presenter' : (isGuestJoin.value ? 'Guest' : 'Supervisee')));
+}
+
+function startAdmissionPolling() {
+  if (admissionPollInterval.value) clearInterval(admissionPollInterval.value);
+  admissionPollInterval.value = setInterval(pollAdmissionStatus, 2000);
 }
 
 async function pollAdmissionStatus() {
   const sid = sessionId.value;
   if (!sid || !isInLobby.value) return;
   try {
-    const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/admission-status`, {
-      skipAuthRedirect: true
-    });
-    const data = resp?.data || {};
+    let data = {};
+    if (isGuestJoin.value && isOpaqueJoinRef.value) {
+      const guestKey = stableGuestKey(sid);
+      const resp = await api.get(`/supervision/guest-admission/${encodeURIComponent(sid)}`, {
+        params: {
+          guestKey,
+          displayName: localDisplayName.value || undefined
+        },
+        skipAuthRedirect: true,
+        skipGlobalLoading: true
+      });
+      data = resp?.data || {};
+    } else {
+      const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/admission-status`, {
+        skipAuthRedirect: true,
+        skipGlobalLoading: true
+      });
+      data = resp?.data || {};
+    }
     if (data.admitted && data.token) {
       applyTokenPayload(data);
       if (admissionPollInterval.value) {
@@ -222,6 +247,7 @@ async function fetchGuestToken() {
   if (!token.value || !vonageSessionId.value || !applicationId.value) {
     throw new Error('Video credentials were incomplete.');
   }
+  if (roomMode.value === 'lobby') startAdmissionPolling();
   startPresenceHeartbeat();
   return true;
 }
@@ -235,9 +261,18 @@ async function fetchAuthenticatedToken() {
   if (!token.value || !vonageSessionId.value || !applicationId.value) {
     throw new Error('Video credentials were incomplete.');
   }
-  if (roomMode.value === 'lobby') {
-    admissionPollInterval.value = setInterval(pollAdmissionStatus, 2000);
+  // Prefer auth-store identity when available so labels never stick on Guest.
+  const u = authStore.user || {};
+  const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
+    || u.email
+    || '';
+  if (authName && (!localDisplayName.value || localDisplayName.value === 'Guest')) {
+    localDisplayName.value = authName;
   }
+  if (!localProfilePhotoUrl.value) {
+    localProfilePhotoUrl.value = String(u.profile_photo_url || u.profilePhotoUrl || '').trim();
+  }
+  if (roomMode.value === 'lobby') startAdmissionPolling();
   startPresenceHeartbeat();
   return true;
 }
@@ -290,7 +325,11 @@ async function fetchTokenAndJoin() {
             || 'This session is full right now. When someone leaves, try the link again.';
           return;
         }
-        // Fall through to guest when auth token path fails for other reasons.
+        // Do not silently fall through to guest while logged in — that caused "Guest" labels.
+        error.value = authErr?.response?.data?.error?.message
+          || 'You’re signed in but can’t join this session with this account. Use the participant link for your role, or sign out to join as a guest.';
+        showLoginFallback.value = status === 401 || status === 403;
+        return;
       }
     }
 
@@ -305,13 +344,15 @@ async function fetchTokenAndJoin() {
             || 'This session is full right now. When someone leaves, try the link again.';
           return;
         }
+        error.value = guestErr?.response?.data?.error?.message
+          || 'Could not join as guest. Log in with your account, or ask the host for a fresh join link.';
+        showLoginFallback.value = true;
+        return;
       }
     }
 
     showLoginFallback.value = true;
-    error.value = isOpaqueJoinRef.value
-      ? 'Could not join as guest. Log in with your account, or ask the host for a fresh join link.'
-      : 'Please log in to join this session.';
+    error.value = 'Please log in to join this session.';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
     if (Number(e?.response?.status || 0) === 401) showLoginFallback.value = true;

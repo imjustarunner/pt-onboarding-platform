@@ -164,6 +164,15 @@ export const authenticate = async (req, res, next) => {
     if (req.method === 'GET' && /^\/api\/supervision\/guest-join\/[^/]+\/?$/.test(requestPath)) {
       return next();
     }
+    if (req.method === 'GET' && /^\/api\/supervision\/guest-admission\/[^/]+\/?$/.test(requestPath)) {
+      return next();
+    }
+    if (
+      (req.method === 'GET' || req.method === 'POST')
+      && /^\/api\/supervision\/guest-activity\/[^/]+\/?$/.test(requestPath)
+    ) {
+      return next();
+    }
     if (req.method === 'POST' && /^\/api\/supervision\/guest-transcript\/[^/]+\/?$/.test(requestPath)) {
       return next();
     }
@@ -171,6 +180,9 @@ export const authenticate = async (req, res, next) => {
       return next();
     }
     if (req.method === 'GET' && /^\/api\/team-meetings\/join-info\/[^/]+\/?$/.test(requestPath)) {
+      return next();
+    }
+    if (req.method === 'POST' && /^\/api\/team-meetings\/[^/]+\/join-presence\/?$/.test(requestPath)) {
       return next();
     }
 

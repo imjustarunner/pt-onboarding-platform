@@ -36,7 +36,7 @@ import {
   toBusyOnlyScheduleSummary,
   toTypedPeerScheduleSummary
 } from '../services/scheduleSummaryPrivacy.service.js';
-import { generateJoinToken, joinUrlForSupervision } from '../utils/joinToken.js';
+import { generateJoinToken, joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -4149,7 +4149,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const startWall = toMysqlDateTimeWall(r.start_at) || r.start_at;
         const endWall = toMysqlDateTimeWall(r.end_at) || r.end_at;
         const startDateYmd = String(r?.start_date_ymd || '').trim() || (startWall ? String(startWall).slice(0, 10) : null);
-        let joinToken = String(r.join_token || '').trim();
+        let joinToken = String(r.participant_join_token || r.join_token || '').trim();
+        let hostJoinToken = String(r.host_join_token || '').trim();
         if (!joinToken && Number(r.id || 0) > 0) {
           joinToken = generateJoinToken();
           try {
@@ -4161,7 +4162,23 @@ export const getUserScheduleSummary = async (req, res, next) => {
             joinToken = '';
           }
         }
+        if (!hostJoinToken && Number(r.id || 0) > 0) {
+          hostJoinToken = generateJoinToken();
+          try {
+            await pool.execute(
+              `UPDATE supervision_sessions
+               SET host_join_token = ?
+               WHERE id = ? AND (host_join_token IS NULL OR host_join_token = '')`,
+              [hostJoinToken, Number(r.id)]
+            );
+          } catch {
+            hostJoinToken = '';
+          }
+        }
         const joinKey = joinToken || String(r.id || '').trim();
+        const waitingRoomEnabled = r.waiting_room_enabled == null
+          ? true
+          : !(r.waiting_room_enabled === 0 || r.waiting_room_enabled === false || r.waiting_room_enabled === '0');
         return {
           id: r.id,
           role: isSupervisor ? 'supervisor' : 'supervisee',
@@ -4179,7 +4196,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
           notes: r.notes,
           googleMeetLink: r.google_meet_link || null,
           joinToken: joinToken || null,
+          hostJoinToken: hostJoinToken || null,
           joinUrl: joinUrlForSupervision(supervisionJoinUrlBase, joinKey),
+          participantJoinUrl: joinUrlForSupervision(supervisionJoinUrlBase, joinKey),
+          hostJoinUrl: hostJoinToken
+            ? joinUrlForSupervision(supervisionJoinUrlBase, hostJoinToken)
+            : null,
+          waitingRoomEnabled,
           superviseeUserId: Number(r.supervisee_user_id || 0) || null,
           supervisorUserId: Number(r.supervisor_user_id || 0) || null,
           superviseeName: `${r.supervisee_first_name || ''} ${r.supervisee_last_name || ''}`.trim() || null,
@@ -4240,10 +4263,20 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const isAllDay = Number(r.all_day || 0) === 1;
         const { startAt: startAtOut, endAt: endAtOut } = scheduleEventStartEndForSummary(r);
         const kind = String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT';
+        const meetingJoinKey = String(r.participant_join_token || r.join_token || r.id || '').trim();
+        const meetingHostKey = String(r.host_join_token || '').trim();
         const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured && frontendUrl
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
-          ? `${frontendUrl}/join/team-meeting/${encodeURIComponent(String(r.join_token || r.id || ''))}`
+          ? joinUrlForTeamMeeting(frontendUrl, meetingJoinKey)
           : null;
+        const hostJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured && frontendUrl
+          && meetingHostKey
+          && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
+          ? joinUrlForTeamMeeting(frontendUrl, meetingHostKey)
+          : null;
+        const waitingRoomEnabled = r.waiting_room_enabled == null
+          ? true
+          : !(r.waiting_room_enabled === 0 || r.waiting_room_enabled === false || r.waiting_room_enabled === '0');
         const eventProviderId = Number(r.provider_id || 0) || null;
         const createdByUserId = Number(r.created_by_user_id || 0) || null;
         const isHost = !!eventProviderId && eventProviderId === Number(providerId);
@@ -4280,6 +4313,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
           htmlLink: r.google_html_link || null,
           meetLink: r.google_meet_link ? String(r.google_meet_link).trim().slice(0, 1024) : null,
           appJoinUrl,
+          hostJoinUrl,
+          participantJoinUrl: appJoinUrl,
+          waitingRoomEnabled: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? waitingRoomEnabled : null,
           status: String(r.status || 'ACTIVE').trim().toUpperCase() || 'ACTIVE',
           isCancelled: String(r.status || '').trim().toUpperCase() === 'CANCELLED',
           isTrainingPayEligible: Number(r.is_training_pay_eligible || 0) === 1,
@@ -5338,7 +5374,9 @@ export const createUserScheduleEvent = async (req, res, next) => {
 
     let saved = null;
     let appJoinUrl = null;
+    let hostJoinUrl = null;
     try {
+      const waitingRoomEnabled = req.body?.waitingRoomEnabled !== false;
       saved = await ProviderScheduleEvent.create({
         agencyId,
         providerId: userId,
@@ -5362,7 +5400,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
         platformVideoLink: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? createPlatformVideoLink : null,
         createdByUserId: actorUserId,
         clientId: Number(req.body?.clientId || 0) || null,
-        isTrainingPayEligible
+        isTrainingPayEligible,
+        waitingRoomEnabled
       });
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && attendeeUserIds?.length) {
         const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
@@ -5371,8 +5410,10 @@ export const createUserScheduleEvent = async (req, res, next) => {
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && createPlatformVideoLink) {
         const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
         if (frontendUrl) {
-          const joinKey = String(saved.join_token || saved.id || '').trim();
-          appJoinUrl = joinKey ? `${frontendUrl}/join/team-meeting/${encodeURIComponent(joinKey)}` : null;
+          const joinKey = String(saved.participant_join_token || saved.join_token || saved.id || '').trim();
+          const hostKey = String(saved.host_join_token || '').trim();
+          appJoinUrl = joinKey ? joinUrlForTeamMeeting(frontendUrl, joinKey) : null;
+          hostJoinUrl = hostKey ? joinUrlForTeamMeeting(frontendUrl, hostKey) : null;
           if (result?.eventId && appJoinUrl) {
             await GoogleCalendarService.appendToEventDescription({
               subjectEmail,
@@ -5414,6 +5455,11 @@ export const createUserScheduleEvent = async (req, res, next) => {
         htmlLink: result?.htmlLink || null,
         meetLink: result?.meetLink || null,
         appJoinUrl: appJoinUrl || null,
+        hostJoinUrl: hostJoinUrl || null,
+        participantJoinUrl: appJoinUrl || null,
+        waitingRoomEnabled: (kind === 'TEAM_MEETING' || kind === 'HUDDLE')
+          ? (req.body?.waitingRoomEnabled !== false)
+          : null,
         agencyId,
         kind,
         title: summaryText,

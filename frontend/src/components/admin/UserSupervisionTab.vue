@@ -98,13 +98,22 @@
                 <span v-if="session.supervisorName" class="session-supervisor">with {{ session.supervisorName }}</span>
               </div>
               <a
-                v-if="session.joinUrl"
-                :href="session.joinUrl"
+                v-if="session.hostJoinUrl || session.joinUrl"
+                :href="session.hostJoinUrl || session.joinUrl"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="btn btn-primary btn-sm"
               >
-                Join
+                {{ session.hostJoinUrl ? 'Host join' : 'Join' }}
+              </a>
+              <a
+                v-if="session.hostJoinUrl && (session.participantJoinUrl || session.joinUrl)"
+                :href="session.participantJoinUrl || session.joinUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-secondary btn-sm"
+              >
+                Participant link
               </a>
             </div>
           </article>

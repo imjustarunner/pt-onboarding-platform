@@ -1268,15 +1268,21 @@
 
         <div v-if="meetingCreatedShare" class="nr-meeting-created" data-testid="meeting-created-share">
           <div class="nr-meeting-created-copy">
-            <strong>Meeting scheduled</strong>
-            <span class="muted">{{ meetingCreatedShare.title || 'Team meeting' }}</span>
+            <strong>{{ meetingCreatedShare.title || 'Meeting scheduled' }}</strong>
+            <span class="muted">Share the right link for each role</span>
           </div>
+          <VirtualLinkControls
+            v-if="meetingCreatedShare.hostJoinUrl"
+            :is-virtual="true"
+            :link="meetingCreatedShare.hostJoinUrl"
+            hint="Host join link — enters the main room immediately."
+          />
           <VirtualLinkControls
             :is-virtual="true"
             :link="meetingCreatedShare.joinUrl || meetingCreatedShare.meetLink"
             :meet-link="meetingCreatedShare.meetLink"
             :platform-link="meetingCreatedShare.joinUrl"
-            hint="Share or join now — you can dismiss this when you’re done."
+            hint="Participant join link — waiting room when enabled."
             dismissible
             @dismiss="dismissMeetingCreatedShare"
           />
@@ -1455,6 +1461,7 @@
             <SupervisionBody
               section="controls"
               v-model:is-virtual="editorSupervisionIsVirtual"
+              v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
               v-model:group-mode="supervisionGroupModeEnabled"
               :session-type-label="supervisionEffectiveSessionTypeLabel"
               :can-book-group="canBookGroupSupervisionFromGrid"
@@ -1658,6 +1665,7 @@
             v-model:title="editorMeetingTitle"
             v-model:is-virtual="editorMeetingIsVirtual"
             v-model:use-platform-video="linkMeetingPlatformVideo"
+            v-model:waiting-room-enabled="editorMeetingWaitingRoomEnabled"
             v-model:create-meet-link="createMeetingMeetLink"
             v-model:agenda-items="createAgendaDraftItems"
             v-model:notes="editorMeetingNotes"
@@ -2667,6 +2675,7 @@
             <SupervisionBody
               section="controls"
               v-model:is-virtual="editorSupervisionIsVirtual"
+              v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
               v-model:group-mode="supervisionGroupModeEnabled"
               :session-type-label="supervisionEffectiveSessionTypeLabel"
               :can-book-group="canBookGroupSupervisionFromGrid"
@@ -3690,7 +3699,7 @@
             </div>
           </div>
 
-          <div v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink" class="muted" style="margin-top: 8px;">
+          <div v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.hostJoinUrl || selectedSupvSession?.googleMeetLink" class="muted" style="margin-top: 8px;">
             <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
               <button
                 class="btn btn-primary btn-sm"
@@ -3718,6 +3727,47 @@
               >
                 Agenda
               </button>
+            </div>
+            <div
+              v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.hostJoinUrl"
+              class="supv-join-links"
+              style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px;"
+            >
+              <div v-if="selectedSupvSession?.hostJoinUrl" class="supv-join-link-row">
+                <span class="supv-join-link-label">Host join link</span>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                  <a
+                    class="btn btn-secondary btn-sm"
+                    :href="selectedSupvSession.hostJoinUrl"
+                    target="_blank"
+                    rel="noreferrer"
+                  >Open host link</a>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    @click="copyTextToClipboard(selectedSupvSession.hostJoinUrl, 'Host join link copied')"
+                  >Copy</button>
+                </div>
+              </div>
+              <div v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.participantJoinUrl" class="supv-join-link-row">
+                <span class="supv-join-link-label">Participant join link</span>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                  <a
+                    class="btn btn-secondary btn-sm"
+                    :href="selectedSupvSession.participantJoinUrl || selectedSupvSession.joinUrl"
+                    target="_blank"
+                    rel="noreferrer"
+                  >Open participant link</a>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    @click="copyTextToClipboard(selectedSupvSession.participantJoinUrl || selectedSupvSession.joinUrl, 'Participant join link copied')"
+                  >Copy</button>
+                </div>
+              </div>
+              <p v-if="selectedSupvSession?.waitingRoomEnabled !== false" class="muted" style="margin: 0; font-size: 0.8rem;">
+                Waiting room is on — participants wait until the host admits them.
+              </p>
             </div>
           </div>
           <div v-else class="muted" style="margin-top: 8px;">
@@ -10706,6 +10756,7 @@ const editorBookedUntil = ref('');
 const editorStatus = ref('confirmed');
 const editorMeetingIsVirtual = ref(true);
 const editorSupervisionIsVirtual = ref(true);
+const editorSupervisionWaitingRoomEnabled = ref(true);
 const editorOpenSlotEnabled = ref(true);
 const editorAttachOfficeRequest = ref(false);
 const editorOfficeLocationId = ref(0);
@@ -13351,6 +13402,7 @@ const meetingCreateGroupBusy = ref(false);
 const meetingCreateGroupError = ref('');
 const createMeetingMeetLink = ref(true);
 const linkMeetingPlatformVideo = ref(true);
+const editorMeetingWaitingRoomEnabled = ref(true);
 
 const scheduleVideoConfigured = computed(() => !!summary.value?.videoConfigured);
 
@@ -13747,6 +13799,16 @@ const copyVirtualSessionShareUrl = async () => {
     /* ignore */
   }
 };
+
+async function copyTextToClipboard(text, _toastLabel = '') {
+  const value = String(text || '').trim();
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    /* ignore */
+  }
+}
 const ensureScheduleAgencyVisible = (agencyId) => {
   const id = Number(agencyId || 0);
   if (!id) return;
@@ -16498,6 +16560,7 @@ const submitRequest = async () => {
                   attendeeUserIds: meetingAttendeeUserIds,
                   createMeetLink,
                   createPlatformVideoLink,
+                  waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
                   allowLocalOnly: true,
                   isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                   recurrenceSeriesId,
@@ -16538,6 +16601,7 @@ const submitRequest = async () => {
                     attendeeUserIds: meetingAttendeeUserIds,
                     createMeetLink,
                     createPlatformVideoLink,
+                    waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
                     allowLocalOnly: true,
                     isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                     recurrenceSeriesId,
@@ -16570,12 +16634,14 @@ const submitRequest = async () => {
         }
         if (requestType.value === 'agency_meeting' || requestType.value === 'huddle') {
           const first = createdScheduleEvents[0] || {};
-          const joinUrl = String(first.appJoinUrl || '').trim();
+          const joinUrl = String(first.appJoinUrl || first.participantJoinUrl || '').trim();
+          const hostJoinUrl = String(first.hostJoinUrl || '').trim();
           const meetLink = String(first.meetLink || first.googleMeetLink || '').trim();
-          if (joinUrl || meetLink) {
+          if (joinUrl || hostJoinUrl || meetLink) {
             meetingCreatedShare.value = {
               title: String(first.title || title || 'Team meeting').trim(),
               joinUrl,
+              hostJoinUrl,
               meetLink
             };
           }
@@ -17149,6 +17215,7 @@ const submitRequest = async () => {
           notes: requestNotes.value || '',
           createMeetLink: !!editorSupervisionIsVirtual.value && !!createSupervisionMeetLink.value,
           modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
+          waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
           ...(supervisionSeriesId
             ? {
                 recurrenceSeriesId: supervisionSeriesId,
@@ -17160,6 +17227,15 @@ const submitRequest = async () => {
         if (supervisionSeriesId) supervisionRecurrenceIndex += 1;
         const sessionId = Number(supvRes?.data?.session?.id || 0);
         if (sessionId > 0) createdSessionIds.push(sessionId);
+        const createdSession = supvRes?.data?.session || null;
+        if (createdSession && (createdSession.hostJoinUrl || createdSession.joinUrl || createdSession.participantJoinUrl)) {
+          meetingCreatedShare.value = {
+            title: 'Supervision scheduled',
+            joinUrl: String(createdSession.participantJoinUrl || createdSession.joinUrl || '').trim(),
+            hostJoinUrl: String(createdSession.hostJoinUrl || '').trim(),
+            meetLink: String(createdSession.google_meet_link || createdSession.googleMeetLink || '').trim()
+          };
+        }
       }
       if (createdSessionIds.length && createAgendaDraftItems.value.length) {
         for (const sessionId of createdSessionIds) {

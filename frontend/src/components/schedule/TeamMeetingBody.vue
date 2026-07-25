@@ -46,6 +46,15 @@
         />
         <span>Create Google Meet link</span>
       </label>
+      <label v-if="isVirtual && usePlatformVideo && videoConfigured" class="tmb-check">
+        <input
+          type="checkbox"
+          :checked="waitingRoomEnabled"
+          :disabled="disabled"
+          @change="emit('update:waitingRoomEnabled', !!$event.target.checked)"
+        />
+        <span>Waiting room (participants wait until host admits)</span>
+      </label>
     </div>
 
     <div v-if="showParticipants" class="tmb-row">
@@ -116,6 +125,7 @@ const props = defineProps({
   title: { type: String, default: '' },
   isVirtual: { type: Boolean, default: true },
   usePlatformVideo: { type: Boolean, default: true },
+  waitingRoomEnabled: { type: Boolean, default: true },
   createMeetLink: { type: Boolean, default: false },
   videoConfigured: { type: Boolean, default: false },
   agendaItems: { type: Array, default: () => [] },
@@ -135,6 +145,7 @@ const emit = defineEmits([
   'update:title',
   'update:isVirtual',
   'update:usePlatformVideo',
+  'update:waitingRoomEnabled',
   'update:createMeetLink',
   'update:agendaItems',
   'update:notes',

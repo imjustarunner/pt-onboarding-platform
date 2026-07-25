@@ -51,6 +51,7 @@
           :diagnostics="diagnostics"
           :local-display-name="localDisplayName"
           :local-role-label="localRoleLabel"
+          :local-profile-photo-url="localProfilePhotoUrl"
           layout="standard"
           @disconnected="$emit('leave')"
           @connected="onVideoConnected"
@@ -63,9 +64,10 @@
         </div>
         <div v-if="sideTab === 'discussion'" class="gsl__discussion">
           <p v-if="transcriptHint" class="gsl__transcript-hint">{{ transcriptHint }}</p>
+          <p v-if="questionError" class="gsl__question-error">{{ questionError }}</p>
           <form class="gsl__ask" @submit.prevent="postQuestion">
             <input v-model="questionDraft" type="text" class="input" placeholder="Ask a question…" />
-            <button type="submit" class="btn btn-primary btn-sm" :disabled="!questionDraft.trim()">Send</button>
+            <button type="submit" class="btn btn-primary btn-sm" :disabled="!questionDraft.trim() || questionBusy">Send</button>
           </form>
           <ul class="gsl__feed">
             <li v-for="item in questions" :key="item.id">
@@ -101,6 +103,7 @@
           :diagnostics="diagnostics"
           :local-display-name="localDisplayName"
           :local-role-label="localRoleLabel"
+          :local-profile-photo-url="localProfilePhotoUrl"
           layout="strip"
           @disconnected="$emit('leave')"
           @connected="onVideoConnected"
@@ -158,9 +161,10 @@
             <button type="button" :class="{ active: sideTab === 'notes' }" @click="sideTab = 'notes'">Notes</button>
           </div>
           <div v-if="sideTab === 'discussion'" class="gsl__discussion">
+            <p v-if="questionError" class="gsl__question-error">{{ questionError }}</p>
             <form class="gsl__ask" @submit.prevent="postQuestion">
               <input v-model="questionDraft" type="text" class="input" placeholder="Ask a question…" />
-              <button type="submit" class="btn btn-primary btn-sm" :disabled="!questionDraft.trim()">Send</button>
+              <button type="submit" class="btn btn-primary btn-sm" :disabled="!questionDraft.trim() || questionBusy">Send</button>
             </form>
             <ul class="gsl__feed">
               <li v-for="item in questions" :key="item.id">
@@ -207,6 +211,7 @@ const props = defineProps({
   joinIdentity: { type: String, default: '' },
   localDisplayName: { type: String, default: '' },
   localRoleLabel: { type: String, default: '' },
+  localProfilePhotoUrl: { type: String, default: '' },
   /** Opaque join_token for public guest transcript flush */
   joinToken: { type: String, default: '' }
 });
@@ -217,6 +222,8 @@ const authStore = useAuthStore();
 const viewAsAttendee = ref(false);
 const sideTab = ref('discussion');
 const questionDraft = ref('');
+const questionError = ref('');
+const questionBusy = ref(false);
 const personalNotes = ref('');
 const presentation = ref(null);
 const slides = ref([]);
@@ -441,7 +448,17 @@ async function refreshActivity() {
   const sid = props.supervisionSessionId;
   if (!sid || props.isInLobby) return;
   try {
-    const { data } = await api.get(`/supervision/sessions/${sid}/activity`, { skipGlobalLoading: true });
+    const joinTok = String(props.joinToken || '').trim();
+    const isGuest = String(props.joinIdentity || '').startsWith('guest-');
+    const { data } = (isGuest && joinTok)
+      ? await api.get(`/supervision/guest-activity/${encodeURIComponent(joinTok)}`, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      })
+      : await api.get(`/supervision/sessions/${sid}/activity`, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      });
     const rows = data?.activity || data?.items || data || [];
     activity.value = Array.isArray(rows) ? rows : [];
   } catch {
@@ -475,37 +492,68 @@ function nextSlide() {
 
 async function postQuestion() {
   const text = questionDraft.value.trim();
-  if (!text) return;
+  if (!text || questionBusy.value) return;
+  questionBusy.value = true;
+  questionError.value = '';
+  const authorName = String(props.localDisplayName || '').trim()
+    || `${authStore.user?.firstName || authStore.user?.first_name || ''} ${authStore.user?.lastName || authStore.user?.last_name || ''}`.trim()
+    || 'Participant';
   try {
-    await api.post(`/supervision/sessions/${props.supervisionSessionId}/activity`, {
-      activityType: 'question',
-      payload: {
-        text,
-        authorName: `${authStore.user?.firstName || ''} ${authStore.user?.lastName || ''}`.trim() || 'Participant',
-        upvotes: 0
-      }
-    });
+    const joinTok = String(props.joinToken || '').trim();
+    const isGuest = String(props.joinIdentity || '').startsWith('guest-');
+    if (isGuest && joinTok) {
+      await api.post(`/supervision/guest-activity/${encodeURIComponent(joinTok)}`, {
+        activityType: 'question',
+        joinIdentity: props.joinIdentity,
+        displayName: authorName,
+        payload: { text, authorName, upvotes: 0 }
+      }, { skipAuthRedirect: true });
+    } else {
+      await api.post(`/supervision/sessions/${props.supervisionSessionId}/activity`, {
+        activityType: 'question',
+        payload: { text, authorName, upvotes: 0 }
+      });
+    }
     questionDraft.value = '';
     await refreshActivity();
-  } catch {
-    // ignore
+  } catch (e) {
+    questionError.value = e?.response?.data?.error?.message || e?.message || 'Could not send your question.';
+  } finally {
+    questionBusy.value = false;
   }
 }
 
 async function upvote(item) {
+  questionError.value = '';
   try {
-    await api.post(`/supervision/sessions/${props.supervisionSessionId}/activity`, {
-      activityType: 'question',
-      payload: {
-        text: item.text,
-        authorName: item.author,
-        upvotes: (item.upvotes || 0) + 1,
-        replyToId: item.id
-      }
-    });
+    const joinTok = String(props.joinToken || '').trim();
+    const isGuest = String(props.joinIdentity || '').startsWith('guest-');
+    if (isGuest && joinTok) {
+      await api.post(`/supervision/guest-activity/${encodeURIComponent(joinTok)}`, {
+        activityType: 'question',
+        joinIdentity: props.joinIdentity,
+        displayName: props.localDisplayName || 'Guest',
+        payload: {
+          text: item.text,
+          authorName: item.author,
+          upvotes: (item.upvotes || 0) + 1,
+          replyToId: item.id
+        }
+      }, { skipAuthRedirect: true });
+    } else {
+      await api.post(`/supervision/sessions/${props.supervisionSessionId}/activity`, {
+        activityType: 'question',
+        payload: {
+          text: item.text,
+          authorName: item.author,
+          upvotes: (item.upvotes || 0) + 1,
+          replyToId: item.id
+        }
+      });
+    }
     await refreshActivity();
-  } catch {
-    // ignore
+  } catch (e) {
+    questionError.value = e?.response?.data?.error?.message || e?.message || 'Could not upvote.';
   }
 }
 
@@ -791,6 +839,11 @@ onUnmounted(() => {
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
+}
+.gsl__question-error {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  color: #fca5a5;
 }
 .gsl__feed {
   list-style: none;
