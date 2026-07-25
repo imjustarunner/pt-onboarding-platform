@@ -156,7 +156,7 @@ async function assertCanManageGroupSupervision(req, res, { sessionType, existing
   }
 
   const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'admin' || role === 'super_admin' || role === 'support') {
+  if (['admin', 'super_admin', 'support', 'clinical_practice_assistant'].includes(role)) {
     return true;
   }
 
@@ -172,7 +172,7 @@ async function assertCanManageGroupSupervision(req, res, { sessionType, existing
 
   if (!privileged || !eligible) {
     res.status(403).json({
-      error: { message: 'Only group-supervision-eligible supervisors can book or edit group supervision sessions' }
+      error: { message: 'Only admins, CPAs, support, or group-supervision-eligible supervisors can book or edit group supervision sessions' }
     });
     return false;
   }
@@ -968,7 +968,37 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
           role: String(r.role || '').trim().toLowerCase()
         }));
       }
-      return res.json({ ok: true, agencyId, agencyIds: [agencyId], mode, audience, providers });
+      let facilitators = [];
+      try {
+        const [facRows] = await pool.execute(
+          `SELECT DISTINCT
+             u.id, u.first_name, u.last_name, u.email, u.role, u.group_supervision_eligible
+           FROM user_agencies ua
+           JOIN users u ON u.id = ua.user_id
+           WHERE ua.agency_id = ?
+             ${ACTIVE_SUPERVISION_USER_SQL}
+             AND (
+               LOWER(COALESCE(u.role, '')) IN ('super_admin', 'admin', 'support', 'clinical_practice_assistant')
+               OR (
+                 (u.has_supervisor_privileges = 1 OR LOWER(COALESCE(u.role, '')) = 'supervisor')
+                 AND u.group_supervision_eligible = 1
+               )
+             )
+           ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+          [agencyId]
+        );
+        facilitators = (facRows || []).map((r) => ({
+          id: Number(r.id),
+          firstName: String(r.first_name || '').trim(),
+          lastName: String(r.last_name || '').trim(),
+          email: String(r.email || '').trim().toLowerCase(),
+          role: String(r.role || '').trim().toLowerCase(),
+          groupSupervisionEligible: isTruthyFlag(r.group_supervision_eligible)
+        }));
+      } catch {
+        facilitators = [];
+      }
+      return res.json({ ok: true, agencyId, agencyIds: [agencyId], mode, audience, providers, facilitators });
     }
 
     if (mode === 'individual' && audience !== 'assigned') {
@@ -1005,7 +1035,52 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       role: String(r.role || '').trim().toLowerCase()
     }));
 
-    res.json({ ok: true, agencyId: allAgencies ? null : agencyId, agencyIds: scopedAgencyIds, mode, audience, providers });
+    let facilitators = [];
+    try {
+      const [facRows] = await pool.execute(
+        `SELECT DISTINCT
+           u.id,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.role,
+           u.has_supervisor_privileges,
+           u.group_supervision_eligible
+         FROM user_agencies ua
+         JOIN users u ON u.id = ua.user_id
+         WHERE ua.agency_id IN (${placeholders})
+           ${ACTIVE_SUPERVISION_USER_SQL}
+           AND (
+             LOWER(COALESCE(u.role, '')) IN ('super_admin', 'admin', 'support', 'clinical_practice_assistant')
+             OR (
+               (u.has_supervisor_privileges = 1 OR LOWER(COALESCE(u.role, '')) = 'supervisor')
+               AND u.group_supervision_eligible = 1
+             )
+           )
+         ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+        scopedAgencyIds
+      );
+      facilitators = (facRows || []).map((r) => ({
+        id: Number(r.id),
+        firstName: String(r.first_name || '').trim(),
+        lastName: String(r.last_name || '').trim(),
+        email: String(r.email || '').trim().toLowerCase(),
+        role: String(r.role || '').trim().toLowerCase(),
+        groupSupervisionEligible: isTruthyFlag(r.group_supervision_eligible)
+      }));
+    } catch {
+      facilitators = [];
+    }
+
+    res.json({
+      ok: true,
+      agencyId: allAgencies ? null : agencyId,
+      agencyIds: scopedAgencyIds,
+      mode,
+      audience,
+      providers,
+      facilitators
+    });
   } catch (e) {
     next(e);
   }
@@ -2185,6 +2260,7 @@ export const createSupervisionSessionValidators = [
   body('inviteScope').optional().isIn(['invited_only', 'open_to_all', 'open_and_invited']).withMessage('inviteScope must be invited_only, open_to_all, or open_and_invited'),
   body('inviteAudienceAllSupervised').optional().isBoolean().withMessage('inviteAudienceAllSupervised must be boolean'),
   body('inviteAudienceGroupSupport').optional().isBoolean().withMessage('inviteAudienceGroupSupport must be boolean'),
+  body('coFacilitatorUserId').optional({ nullable: true }).isInt({ min: 1 }).withMessage('coFacilitatorUserId must be a valid user id'),
   body('startAt').not().isEmpty().withMessage('startAt is required'),
   body('endAt').not().isEmpty().withMessage('endAt is required'),
   body('createMeetLink').optional().isBoolean().withMessage('createMeetLink must be boolean')
@@ -2199,6 +2275,7 @@ export const patchSupervisionSessionValidators = [
   body('inviteScope').optional().isIn(['invited_only', 'open_to_all', 'open_and_invited']).withMessage('inviteScope must be invited_only, open_to_all, or open_and_invited'),
   body('inviteAudienceAllSupervised').optional().isBoolean().withMessage('inviteAudienceAllSupervised must be boolean'),
   body('inviteAudienceGroupSupport').optional().isBoolean().withMessage('inviteAudienceGroupSupport must be boolean'),
+  body('coFacilitatorUserId').optional({ nullable: true }).isInt({ min: 1 }).withMessage('coFacilitatorUserId must be a valid user id'),
   body('notes').optional(),
   body('modality').optional(),
   body('locationText').optional(),
@@ -2216,6 +2293,13 @@ export const createSupervisionSession = async (req, res, next) => {
     const sessionType = String(req.body?.sessionType || 'individual').trim().toLowerCase();
     const inviteAudienceAllSupervised = req.body?.inviteAudienceAllSupervised === true;
     const inviteAudienceGroupSupport = req.body?.inviteAudienceGroupSupport === true;
+    const coFacilitatorUserIdRaw = req.body?.coFacilitatorUserId == null || req.body?.coFacilitatorUserId === ''
+      ? null
+      : parseInt(req.body.coFacilitatorUserId, 10);
+    const coFacilitatorUserId = Number.isFinite(coFacilitatorUserIdRaw) && coFacilitatorUserIdRaw > 0
+      && coFacilitatorUserIdRaw !== supervisorUserId
+      ? coFacilitatorUserIdRaw
+      : null;
     const modality = req.body?.modality ?? null;
     const locationText = req.body?.locationText ?? null;
     const notes = req.body?.notes ?? null;
@@ -2259,6 +2343,12 @@ export const createSupervisionSession = async (req, res, next) => {
     const { supOk, svOk } = await requireUsersInAgency({ agencyId, supervisorUserId, superviseeUserId });
     if (!supOk) return res.status(400).json({ error: { message: 'Supervisor does not belong to this agency' } });
     if (!svOk) return res.status(400).json({ error: { message: 'Supervisee does not belong to this agency' } });
+    if (coFacilitatorUserId) {
+      const coMap = await getUsersInAgencyMap({ agencyId, userIds: [coFacilitatorUserId] });
+      if (!coMap[coFacilitatorUserId]) {
+        return res.status(400).json({ error: { message: 'Co-facilitator does not belong to this agency' } });
+      }
+    }
     const allExtraAttendees = Array.from(new Set([
       ...additionalAttendeeUserIds,
       ...requiredAttendeeUserIds,
@@ -2297,6 +2387,7 @@ export const createSupervisionSession = async (req, res, next) => {
     const created = await SupervisionSession.create({
       agencyId,
       supervisorUserId,
+      coFacilitatorUserId,
       superviseeUserId,
       sessionType,
       inviteScope,
@@ -2334,6 +2425,13 @@ export const createSupervisionSession = async (req, res, next) => {
         isCompensableSnapshot: false,
         status: 'INVITED'
       },
+      ...(coFacilitatorUserId ? [{
+        userId: coFacilitatorUserId,
+        participantRole: 'co_facilitator',
+        isRequired: true,
+        isCompensableSnapshot: false,
+        status: 'INVITED'
+      }] : []),
       ...superviseeIds.map((uid) => ({
         userId: uid,
         participantRole: 'supervisee',

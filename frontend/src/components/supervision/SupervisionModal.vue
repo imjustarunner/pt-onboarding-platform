@@ -337,7 +337,7 @@
                       <option value="triadic">Triadic</option>
                       <option v-if="canBookGroupSupervision" value="group">Group</option>
                     </select>
-                    <p v-if="!canBookGroupSupervision" class="form-hint">Group supervision booking requires group supervision eligibility.</p>
+                    <p v-if="!canBookGroupSupervision" class="form-hint">Group supervision booking requires admin/CPA/support access or group supervision eligibility.</p>
                   </div>
                   <div v-if="availableAdditionalAttendees.length > 0 && scheduleSessionType !== 'individual'" class="form-row">
                     <div class="form-group">
@@ -727,7 +727,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
-import { isGroupSupervisionEligible } from '../../utils/helpers.js';
+import { canScheduleGroupSupervision } from '../../utils/helpers.js';
 import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
 import ClientModal from '../school/redesign/ClientModal.vue';
@@ -739,7 +739,7 @@ import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
 const route = useRoute();
 
 const authStore = useAuthStore();
-const canBookGroupSupervision = computed(() => isGroupSupervisionEligible(authStore.user));
+const canBookGroupSupervision = computed(() => canScheduleGroupSupervision(authStore.user));
 const agencyStore = useAgencyStore();
 
 const loading = ref(true);

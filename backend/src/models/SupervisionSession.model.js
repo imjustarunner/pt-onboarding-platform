@@ -12,6 +12,7 @@ class SupervisionSession {
   static async create({
     agencyId,
     supervisorUserId,
+    coFacilitatorUserId = null,
     superviseeUserId,
     sessionType = 'individual',
     inviteScope = 'invited_only',
@@ -31,31 +32,30 @@ class SupervisionSession {
     const token = String(joinToken || generateJoinToken()).slice(0, 64);
     const audienceAllSupervised = inviteAudienceAllSupervised ? 1 : 0;
     const audienceGroupSupport = inviteAudienceGroupSupport ? 1 : 0;
-    const baseParams = [
-      token,
-      Number(agencyId),
-      Number(supervisorUserId),
-      Number(superviseeUserId),
-      String(sessionType || 'individual'),
-      normalizeInviteScopeValue(inviteScope),
-      audienceAllSupervised,
-      audienceGroupSupport,
-      startAt,
-      endAt,
-      modality,
-      locationText,
-      notes
-    ];
+    const coFacilitatorId = Number(coFacilitatorUserId || 0) > 0 ? Number(coFacilitatorUserId) : null;
     try {
       const [result] = await pool.execute(
         `INSERT INTO supervision_sessions
-          (join_token, agency_id, supervisor_user_id, supervisee_user_id, session_type, invite_scope,
+          (join_token, agency_id, supervisor_user_id, co_facilitator_user_id, supervisee_user_id, session_type, invite_scope,
            invite_audience_all_supervised, invite_audience_group_support,
            start_at, end_at, modality, location_text, notes, status,
            recurrence_series_id, recurrence_frequency, recurrence_index, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
         [
-          ...baseParams,
+          token,
+          Number(agencyId),
+          Number(supervisorUserId),
+          coFacilitatorId,
+          Number(superviseeUserId),
+          String(sessionType || 'individual'),
+          normalizeInviteScopeValue(inviteScope),
+          audienceAllSupervised,
+          audienceGroupSupport,
+          startAt,
+          endAt,
+          modality,
+          locationText,
+          notes,
           recurrenceSeriesId ? String(recurrenceSeriesId).trim().slice(0, 64) : null,
           recurrenceFrequency ? String(recurrenceFrequency).trim().toUpperCase().slice(0, 16) : null,
           recurrenceIndex == null ? null : Math.max(0, parseInt(recurrenceIndex, 10) || 0),
@@ -755,6 +755,7 @@ class SupervisionSession {
     inviteScope,
     inviteAudienceAllSupervised,
     inviteAudienceGroupSupport,
+    coFacilitatorUserId,
     modality,
     locationText,
     notes
@@ -789,6 +790,10 @@ class SupervisionSession {
     if (inviteAudienceGroupSupport !== undefined) {
       updates.push('invite_audience_group_support = ?');
       values.push(inviteAudienceGroupSupport ? 1 : 0);
+    }
+    if (coFacilitatorUserId !== undefined) {
+      updates.push('co_facilitator_user_id = ?');
+      values.push(Number(coFacilitatorUserId || 0) > 0 ? Number(coFacilitatorUserId) : null);
     }
     if (modality !== undefined) {
       updates.push('modality = ?');

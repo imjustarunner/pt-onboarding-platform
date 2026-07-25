@@ -1663,14 +1663,15 @@
           <SupervisionBody
             v-else-if="editorIsSupervision"
             v-model:is-virtual="editorSupervisionIsVirtual"
+            v-model:group-mode="supervisionGroupModeEnabled"
+            v-model:facilitator-user-id="supervisionFacilitatorUserId"
+            v-model:co-facilitator-user-id="supervisionCoFacilitatorUserId"
             v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
             v-model:invite-audience-group-support="supervisionInviteAudienceGroupSupport"
-            v-model:session-type="supervisionSessionTypePreference"
             v-model:presenter-ids="supervisionPresenterIds"
             :session-type-label="supervisionEffectiveSessionTypeLabel"
-            :show-invite-options="supervisionShowInviteOptions"
-            :show-session-type-picker="supervisionShowSessionTypePicker"
             :can-book-group="canBookGroupSupervisionFromGrid"
+            :facilitator-options="supervisionFacilitatorOptions"
             :presenter-options="supervisionPresenterCandidateOptions"
             :disabled="submitting || scheduleEventSaving"
           />
@@ -2654,7 +2655,9 @@
               {{ supervisionEffectiveSessionTypeLabel }}
             </div>
             <div class="muted" style="margin-top: 6px;">
-              Add supervisees below (agency-wide for group/triadic). Use groups for repeat invite lists. Named invites are optional when an open audience is selected.
+              {{ supervisionGroupModeEnabled
+                ? 'Group mode: select anyone in this agency or a saved practice group. Facilitator is set below.'
+                : 'Showing your assigned supervisees. Turn on Group supervision below to invite agency-wide and use practice groups.' }}
             </div>
             <MeetingParticipantsPicker
               :expanded="true"
@@ -2686,24 +2689,25 @@
             />
             <SupervisionBody
               v-model:is-virtual="editorSupervisionIsVirtual"
+              v-model:group-mode="supervisionGroupModeEnabled"
+              v-model:facilitator-user-id="supervisionFacilitatorUserId"
+              v-model:co-facilitator-user-id="supervisionCoFacilitatorUserId"
               v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
-            v-model:invite-audience-group-support="supervisionInviteAudienceGroupSupport"
-              v-model:session-type="supervisionSessionTypePreference"
+              v-model:invite-audience-group-support="supervisionInviteAudienceGroupSupport"
               v-model:presenter-ids="supervisionPresenterIds"
-              :session-type-label="supervisionShowSessionTypePicker ? '' : supervisionEffectiveSessionTypeLabel"
-              :show-invite-options="supervisionShowInviteOptions"
-              :show-session-type-picker="supervisionShowSessionTypePicker"
+              :session-type-label="supervisionEffectiveSessionTypeLabel"
               :can-book-group="canBookGroupSupervisionFromGrid"
+              :facilitator-options="supervisionFacilitatorOptions"
               :presenter-options="supervisionPresenterCandidateOptions"
               :disabled="submitting"
               style="margin-top: 12px;"
             />
             <div
-              v-if="requestType === 'supervision' && isGroupSupervisionType && supervisionSelectedParticipantCount < 3 && !supervisionIsOpenInvite"
+              v-if="requestType === 'supervision' && supervisionGroupModeEnabled && supervisionSelectedParticipantCount < 3 && !supervisionIsOpenInvite"
               class="muted"
               style="margin-top: 6px;"
             >
-              Group supervision requires at least 3 participants (primary + 2 additional), or choose an open invite option.
+              Group supervision needs at least 3 named participants, or an open-join audience option.
             </div>
           </div>
 
@@ -4522,7 +4526,7 @@ import './schedule-new-request-modal.css';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { createCounselingSession, openCounselingFromAppointment } from '../../services/counselingApi.js';
-import { isSupervisor, isGroupSupervisionEligible } from '../../utils/helpers.js';
+import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
 import api from '../../services/api';
 import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { timezoneLabelFor } from '../../utils/timezones.js';
@@ -7284,7 +7288,7 @@ const showMeetingTrainingPayOption = computed(() => (
   canMarkMeetingTrainingPay.value || !!meetingIsTrainingPayEligible.value
 ));
 const canScheduleSupervisionFromGrid = computed(() => isSupervisor(authStore.user));
-const canBookGroupSupervisionFromGrid = computed(() => isGroupSupervisionEligible(authStore.user));
+const canBookGroupSupervisionFromGrid = computed(() => canScheduleGroupSupervision(authStore.user));
 const isViewingOtherUserSchedule = computed(() => {
   if (!isAdminMode.value) return false;
   const actorId = Number(authStore.user?.id || 0);
@@ -12949,9 +12953,12 @@ const supervisionIncludeAllAgencies = ref(false);
 const selectedSupervisionParticipantId = ref(0);
 const selectedSupervisionAdditionalParticipantIds = ref([]);
 const supervisionParticipantsExpanded = ref(false);
+const supervisionGroupModeEnabled = ref(false);
+const supervisionFacilitatorUserId = ref(0);
+const supervisionCoFacilitatorUserId = ref(0);
+const supervisionFacilitators = ref([]);
 const supervisionInviteAudienceAllSupervised = ref(false);
 const supervisionInviteAudienceGroupSupport = ref(false);
-const supervisionSessionTypePreference = ref('individual');
 const supervisionOptionalAttendeeIds = ref([]);
 const supervisionPresenterIds = ref([]);
 const supervisionCreateGroupBusy = ref(false);
@@ -12960,9 +12967,16 @@ const createSupervisionMeetLink = ref(true);
 const supervisionParticipantSearch = ref('');
 
 const availableSupervisionParticipants = computed(() => {
-  const actorId = Number(authStore.user?.id || 0);
+  const excluded = new Set([
+    Number(authStore.user?.id || 0),
+    Number(supervisionFacilitatorUserId.value || 0),
+    Number(supervisionCoFacilitatorUserId.value || 0)
+  ].filter((n) => n > 0));
   const rows = Array.isArray(supervisionProviders.value) ? supervisionProviders.value : [];
-  return rows.filter((row) => Number(row?.id || 0) !== actorId);
+  return rows.filter((row) => {
+    const id = Number(row?.id || 0);
+    return id > 0 && !excluded.has(id);
+  });
 });
 
 const filteredSupervisionParticipants = computed(() => {
@@ -12986,67 +13000,43 @@ const supervisionSelectedParticipantCount = computed(() => {
   const extras = selectedSupervisionAdditionalParticipantIdSet.value.size;
   return primary + extras;
 });
-/** Derived from participant count unless session type preference is set for open invites. */
-const supervisionDerivedSessionType = computed(() => {
+/** Individual/triadic from named count; group only when the Group supervision toggle is on. */
+const supervisionEffectiveSessionType = computed(() => {
+  if (supervisionGroupModeEnabled.value && canBookGroupSupervisionFromGrid.value) return 'group';
   const extras = selectedSupervisionAdditionalParticipantIdSet.value.size;
-  if (extras >= 2) {
-    return canBookGroupSupervisionFromGrid.value ? 'group' : 'triadic';
-  }
-  if (extras === 1) return 'triadic';
+  if (extras >= 1) return 'triadic';
   return 'individual';
 });
 const supervisionIsOpenInvite = computed(() => (
   !!supervisionInviteAudienceAllSupervised.value || !!supervisionInviteAudienceGroupSupport.value
 ));
-const supervisionShowInviteOptions = computed(() => (
-  supervisionDerivedSessionType.value !== 'individual'
-  || supervisionIsOpenInvite.value
-  || supervisionSelectedParticipantCount.value > 1
-  || supervisionEffectiveSessionType.value !== 'individual'
-));
-const supervisionShowSessionTypePicker = computed(() => (
-  supervisionIsOpenInvite.value || supervisionEffectiveSessionType.value === 'group'
-));
-const supervisionEffectiveSessionType = computed(() => {
-  if (supervisionShowSessionTypePicker.value) {
-    const pref = String(supervisionSessionTypePreference.value || 'individual').trim().toLowerCase();
-    if (pref === 'group' && !canBookGroupSupervisionFromGrid.value) return 'triadic';
-    if (pref === 'group' || pref === 'triadic' || pref === 'individual') return pref;
-  }
-  return supervisionDerivedSessionType.value;
-});
 const supervisionEffectiveSessionTypeLabel = computed(() => {
   const t = supervisionEffectiveSessionType.value;
-  const extras = selectedSupervisionAdditionalParticipantIdSet.value.size;
-  if (extras >= 2 && !canBookGroupSupervisionFromGrid.value) {
-    return 'Group supervision requires eligibility (capped as triadic for booking)';
-  }
   if (t === 'group') return 'Group supervision (99416)';
   if (t === 'triadic') return 'Triadic supervision (counts as individual for everyone)';
   return 'Individual supervision';
 });
 const isGroupSupervisionType = computed(() => supervisionEffectiveSessionType.value === 'group');
 const supervisionCanUseAllAgencies = computed(
-  () => isGroupSupervisionType.value && (effectiveAgencyIds.value || []).length > 1
+  () => supervisionGroupModeEnabled.value && canBookGroupSupervisionFromGrid.value && (effectiveAgencyIds.value || []).length > 1
 );
 const supervisionUsingAllAgencies = computed(
   () => supervisionCanUseAllAgencies.value && !!supervisionIncludeAllAgencies.value
 );
+const supervisionFacilitatorOptions = computed(() => (
+  (supervisionFacilitators.value || []).map((row) => ({
+    id: Number(row?.id || 0),
+    label: supervisionParticipantLabel(row)
+  })).filter((r) => r.id > 0)
+));
 const supervisionCanSubmit = computed(() => {
   if (supervisionProvidersLoading.value) return false;
   if ((availableSupervisionParticipants.value || []).length === 0 && !supervisionIsOpenInvite.value) return false;
   if (!Number(selectedSupervisionParticipantId.value || 0)) return false;
-  const sessionType = supervisionEffectiveSessionType.value;
-  if (sessionType === 'group' && !canBookGroupSupervisionFromGrid.value) return false;
-  if (sessionType === 'group' && supervisionSelectedParticipantCount.value < 3 && !supervisionIsOpenInvite.value) {
-    return false;
-  }
-  if (
-    selectedSupervisionAdditionalParticipantIdSet.value.size >= 2
-    && !canBookGroupSupervisionFromGrid.value
-    && sessionType === 'group'
-  ) {
-    return false;
+  if (supervisionGroupModeEnabled.value) {
+    if (!canBookGroupSupervisionFromGrid.value) return false;
+    if (!Number(supervisionFacilitatorUserId.value || 0)) return false;
+    if (supervisionSelectedParticipantCount.value < 3 && !supervisionIsOpenInvite.value) return false;
   }
   return true;
 });
@@ -13063,8 +13053,12 @@ const selectedSupervisionParticipantIds = computed(() => {
 });
 
 const supervisionInviteGroupsFiltered = computed(() => {
+  // Non-group: hide practice-wide chips; only keep custom groups that intersect assigned supervisees.
+  // Group mode: show all practice-shared groups filtered to agency candidates.
   const allowed = new Set((availableSupervisionParticipants.value || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
+  const groupMode = supervisionGroupModeEnabled.value && canBookGroupSupervisionFromGrid.value;
   return (meetingInviteGroups.value || [])
+    .filter((g) => groupMode || String(g?.kind || '') === 'custom')
     .map((g) => ({
       ...g,
       userIds: (g.userIds || []).map((n) => Number(n || 0)).filter((id) => id > 0 && allowed.has(id))
@@ -13957,34 +13951,56 @@ const loadSupervisionInviteGroups = async () => {
   }
 };
 
-const supervisionProvidersAudience = computed(() => {
-  if (supervisionEffectiveSessionType.value === 'individual') return 'assigned';
-  if (supervisionInviteAudienceGroupSupport.value && !supervisionInviteAudienceAllSupervised.value) {
-    return 'group_support';
-  }
-  return 'all_supervised';
-});
-
 const loadSupervisionProviders = async () => {
   if (!authStore.user?.id) return;
   if (!supervisionUsingAllAgencies.value && !effectiveAgencyId.value) return;
   try {
     supervisionProvidersLoading.value = true;
     supervisionProvidersError.value = '';
-    const params = {
-      mode: supervisionEffectiveSessionType.value === 'individual' ? 'individual' : 'group',
-      audience: supervisionProvidersAudience.value,
+    const actorId = Number(authStore.user?.id || 0);
+    const groupMode = supervisionGroupModeEnabled.value && canBookGroupSupervisionFromGrid.value;
+    const agencyId = Number(effectiveAgencyId.value || 0);
+
+    // Always load facilitator candidates from supervision providers endpoint.
+    const facParams = {
+      mode: groupMode ? 'group' : 'individual',
+      audience: groupMode ? 'all_supervised' : 'assigned',
       allAgencies: supervisionUsingAllAgencies.value ? 'true' : 'false'
     };
-    if (!supervisionUsingAllAgencies.value) params.agencyId = effectiveAgencyId.value;
-    const r = await api.get('/supervision/providers', {
-      params
-    });
-    supervisionProviders.value = Array.isArray(r?.data?.providers) ? r.data.providers : [];
-    await loadSupervisionInviteGroups();
+    if (!supervisionUsingAllAgencies.value) facParams.agencyId = agencyId;
+    const facRes = await api.get('/supervision/providers', { params: facParams });
+    supervisionFacilitators.value = Array.isArray(facRes?.data?.facilitators) ? facRes.data.facilitators : [];
+    if (!Number(supervisionFacilitatorUserId.value || 0)) {
+      const facIds = new Set((supervisionFacilitators.value || []).map((r) => Number(r?.id || 0)).filter((n) => n > 0));
+      if (facIds.has(actorId)) supervisionFacilitatorUserId.value = actorId;
+      else if (supervisionFacilitators.value.length === 1) {
+        supervisionFacilitatorUserId.value = Number(supervisionFacilitators.value[0].id || 0);
+      }
+    }
+
+    if (groupMode) {
+      // Agency-wide roster + practice-shared groups for group supervision.
+      const mcParams = { allAgencies: supervisionUsingAllAgencies.value ? 'true' : 'false' };
+      if (!supervisionUsingAllAgencies.value) mcParams.agencyId = agencyId;
+      const uid = Number(props.userId || actorId || 0);
+      const mc = await api.get(`/users/${uid}/meeting-candidates`, { params: mcParams, skipGlobalLoading: true });
+      supervisionProviders.value = Array.isArray(mc?.data?.users) ? mc.data.users : [];
+      meetingInviteGroups.value = Array.isArray(mc?.data?.groups)
+        ? mc.data.groups.map((g) => ({
+          key: String(g?.key || ''),
+          label: String(g?.label || 'Group').trim() || 'Group',
+          kind: String(g?.kind || 'group'),
+          userIds: Array.isArray(g?.userIds) ? g.userIds.map((n) => Number(n || 0)).filter((n) => n > 0) : []
+        })).filter((g) => g.key && g.userIds.length)
+        : [];
+    } else {
+      // Assigned supervisees only — never flip to agency-wide from picking 2 people.
+      supervisionProviders.value = Array.isArray(facRes?.data?.providers) ? facRes.data.providers : [];
+      await loadSupervisionInviteGroups();
+    }
+
     const candidates = availableSupervisionParticipants.value;
     const viewedUserId = Number(props.userId || 0);
-    const actorId = Number(authStore.user?.id || 0);
     const viewedIsSelectable = viewedUserId > 0 && viewedUserId !== actorId && candidates.some((row) => Number(row?.id || 0) === viewedUserId);
     if (!selectedSupervisionParticipantId.value) {
       if (viewedIsSelectable) {
@@ -13995,6 +14011,7 @@ const loadSupervisionProviders = async () => {
     }
   } catch (e) {
     supervisionProviders.value = [];
+    supervisionFacilitators.value = [];
     supervisionProvidersError.value = e?.response?.data?.error?.message
       || e?.message
       || 'Could not load supervisees.';
@@ -14294,9 +14311,12 @@ const openSlotActionModal = async ({
   supervisionIncludeAllAgencies.value = false;
   selectedSupervisionParticipantId.value = 0;
   selectedSupervisionAdditionalParticipantIds.value = [];
+  supervisionGroupModeEnabled.value = false;
+  supervisionFacilitatorUserId.value = 0;
+  supervisionCoFacilitatorUserId.value = 0;
+  supervisionFacilitators.value = [];
   supervisionInviteAudienceAllSupervised.value = false;
   supervisionInviteAudienceGroupSupport.value = false;
-  supervisionSessionTypePreference.value = 'individual';
   supervisionOptionalAttendeeIds.value = [];
   supervisionPresenterIds.value = [];
   supervisionParticipantsExpanded.value = false;
@@ -17017,10 +17037,15 @@ const submitRequest = async () => {
       const inviteAudienceAllSupervised = !!supervisionInviteAudienceAllSupervised.value;
       const inviteAudienceGroupSupport = !!supervisionInviteAudienceGroupSupport.value;
       const actorId = Number(authStore.user?.id || 0);
+      const facilitatorUserId = Number(supervisionFacilitatorUserId.value || 0) || actorId;
+      const coFacilitatorUserId = Number(supervisionCoFacilitatorUserId.value || 0) || null;
       if (!actorId) throw new Error('Not signed in.');
       if (!participantId) throw new Error('Please select a primary supervisee.');
       if (sessionType === 'group' && !canBookGroupSupervisionFromGrid.value) {
-        throw new Error('Only group-supervision-eligible supervisors can book group sessions.');
+        throw new Error('Only admins, CPAs, support, or group-supervision-eligible supervisors can book group sessions.');
+      }
+      if (sessionType === 'group' && !facilitatorUserId) {
+        throw new Error('Select a group supervision facilitator.');
       }
       if (
         sessionType === 'group'
@@ -17029,9 +17054,6 @@ const submitRequest = async () => {
         && !inviteAudienceGroupSupport
       ) {
         throw new Error('Group supervision requires at least 2 additional participants, or choose an open audience.');
-      }
-      if (additionalAttendeeUserIds.length >= 2 && !canBookGroupSupervisionFromGrid.value && sessionType === 'group') {
-        throw new Error('Only group-supervision-eligible supervisors can book group sessions. Remove attendees or request eligibility.');
       }
       const dayIdx = orderedDays.value.indexOf(String(dn)) - (effectiveWeekStartsOn.value === 'sunday' ? 1 : 0);
       if (dayIdx < -1) throw new Error('Invalid day');
@@ -17053,14 +17075,15 @@ const submitRequest = async () => {
         // eslint-disable-next-line no-await-in-loop
         const supvRes = await api.post('/supervision/sessions', {
           agencyId: effectiveAgencyId.value,
-          supervisorUserId: actorId,
+          supervisorUserId: facilitatorUserId,
+          coFacilitatorUserId: sessionType === 'group' ? coFacilitatorUserId : null,
           superviseeUserId: participantId,
           sessionType,
           additionalAttendeeUserIds,
           optionalAttendeeUserIds,
           presenterUserIds,
-          inviteAudienceAllSupervised,
-          inviteAudienceGroupSupport,
+          inviteAudienceAllSupervised: sessionType === 'group' ? inviteAudienceAllSupervised : false,
+          inviteAudienceGroupSupport: sessionType === 'group' ? inviteAudienceGroupSupport : false,
           startAt,
           endAt,
           notes: requestNotes.value || '',
@@ -17349,11 +17372,19 @@ watch([modalLockRoomToAssigned, () => modalContext.value?.roomId], ([locked, roo
   officeBookingRecurrence.value = 'ONCE';
 });
 
-watch(supervisionEffectiveSessionType, (nextType) => {
-  if (String(nextType || '') !== 'group' && supervisionIncludeAllAgencies.value) {
+watch(supervisionGroupModeEnabled, (enabled) => {
+  if (!canBookGroupSupervisionFromGrid.value && enabled) {
+    supervisionGroupModeEnabled.value = false;
+    return;
+  }
+  if (!enabled) {
     supervisionIncludeAllAgencies.value = false;
+    supervisionInviteAudienceAllSupervised.value = false;
+    supervisionInviteAudienceGroupSupport.value = false;
+    supervisionCoFacilitatorUserId.value = 0;
   }
   if (String(requestType.value || '') === 'supervision' && showRequestModal.value) {
+    // Reload roster when toggling group mode — do NOT reload when merely picking 2 people.
     void loadSupervisionProviders();
   }
 });
@@ -17375,16 +17406,9 @@ watch(selectedSupervisionParticipantIds, () => {
     .slice(0, 2);
 }, { deep: true });
 
-watch([supervisionInviteAudienceAllSupervised, supervisionInviteAudienceGroupSupport], () => {
-  if (String(requestType.value || '') === 'supervision' && showRequestModal.value) {
-    void loadSupervisionProviders();
-  }
-  if (supervisionInviteAudienceAllSupervised.value || supervisionInviteAudienceGroupSupport.value) {
-    if (String(supervisionSessionTypePreference.value || 'individual') === 'individual') {
-      supervisionSessionTypePreference.value = supervisionDerivedSessionType.value === 'individual'
-        ? 'group'
-        : supervisionDerivedSessionType.value;
-    }
+watch(supervisionFacilitatorUserId, (facId) => {
+  if (Number(supervisionCoFacilitatorUserId.value || 0) === Number(facId || 0)) {
+    supervisionCoFacilitatorUserId.value = 0;
   }
 });
 

@@ -30,7 +30,7 @@ export function isSupervisor(user) {
 }
 
 /**
- * Check if a supervisor may book/edit group supervision sessions.
+ * Check if a supervisor has the group-supervision privilege flag.
  */
 export function isGroupSupervisionEligible(user) {
   if (!user || !isSupervisor(user)) return false;
@@ -40,4 +40,17 @@ export function isGroupSupervisionEligible(user) {
     user.groupSupervisionEligible === true ||
     user.groupSupervisionEligible === 1 ||
     user.groupSupervisionEligible === '1';
+}
+
+/**
+ * Who may schedule multi-person / group supervision and use practice invite groups:
+ * admin, super_admin, support, clinical_practice_assistant, or group-eligible supervisors.
+ */
+export function canScheduleGroupSupervision(user) {
+  if (!user) return false;
+  const role = String(user.role || '').toLowerCase();
+  if (['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(role)) {
+    return true;
+  }
+  return isGroupSupervisionEligible(user);
 }
