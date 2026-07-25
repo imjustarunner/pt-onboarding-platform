@@ -2688,7 +2688,7 @@
                 : 'Showing your assigned supervisees. Turn on Group supervision above to invite agency-wide and use practice groups.' }}
             </div>
             <MeetingParticipantsPicker
-              :expanded="true"
+              :expanded="supervisionParticipantsExpanded"
               :loading="supervisionProvidersLoading"
               :error="supervisionProvidersError"
               :disabled="submitting"
@@ -2705,6 +2705,7 @@
               :initials="providerInitials"
               :create-group-busy="supervisionCreateGroupBusy"
               :create-group-error="supervisionCreateGroupError"
+              @toggle="openSupervisionParticipantTray"
               @retry="loadSupervisionProviders"
               @toggle-group="toggleSupervisionInviteGroup"
               @toggle-user="toggleSupervisionParticipantPicker"
@@ -12069,7 +12070,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   }
   if (editorIsSupervision.value || k === 'supervision') {
     if (!isSupervisionEditMode.value) {
-      supervisionParticipantsExpanded.value = true;
+      supervisionParticipantsExpanded.value = false;
     }
     void loadSupervisionProviders();
   }
@@ -17530,7 +17531,7 @@ watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agency
   if (!isOpen) return;
   if (String(type || '') !== 'supervision') return;
   if (!isSupervisionEditMode.value) {
-    supervisionParticipantsExpanded.value = true;
+    supervisionParticipantsExpanded.value = false;
   }
   if (supervisionUsingAllAgencies.value) {
     void loadSupervisionProviders();

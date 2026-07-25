@@ -1,6 +1,6 @@
 <template>
   <div class="supb" data-testid="supervision-body">
-    <template v-if="showControls">
+    <div v-if="showControls" class="supb-card">
       <div v-if="sessionTypeLabel" class="supb-row">
         <label class="supb-label">Session type</label>
         <div class="supb-value">{{ sessionTypeLabel }}</div>
@@ -44,7 +44,7 @@
           <span class="supb-switch-slider" aria-hidden="true"></span>
         </label>
       </div>
-    </template>
+    </div>
 
     <template v-if="showDetails">
       <template v-if="groupMode && canBookGroup">
@@ -178,6 +178,16 @@ function onPresenterChange(event) {
 
 <style scoped>
 .supb { display: flex; flex-direction: column; gap: 12px; }
+.supb-card {
+  border: 1px solid #d7e3f0;
+  border-radius: 12px;
+  background: #eef4fa;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
 .supb-row { display: flex; flex-direction: column; gap: 6px; }
 .supb-label {
   font-size: 0.72rem;
