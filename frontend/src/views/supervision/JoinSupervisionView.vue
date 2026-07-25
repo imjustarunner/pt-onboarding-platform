@@ -114,13 +114,17 @@ async function resolveAndRedirect() {
   }
 }
 
-async function ensureAuthenticatedSession() {
-  if (authStore.isAuthenticated) return true;
+async function ensureAuthenticatedSession({ forceRefresh = false } = {}) {
+  if (authStore.isAuthenticated && !forceRefresh) return true;
   try {
     const resp = await api.get('/users/me', { skipAuthRedirect: true, skipGlobalLoading: true });
     const u = resp?.data || null;
     if (u && (u.id || u.email)) {
-      authStore.setAuth(null, u, localStorage.getItem('sessionId') || null);
+      // Keep any existing Bearer JWT; only refresh the SPA user payload from cookie/session.
+      const existingToken = (() => {
+        try { return localStorage.getItem('authToken') || authStore.token || null; } catch { return null; }
+      })();
+      authStore.setAuth(existingToken, u, localStorage.getItem('sessionId') || null);
       return true;
     }
   } catch {
@@ -157,8 +161,9 @@ async function fetchTokenAndJoin({ retried = false } = {}) {
     }
   } catch (e) {
     if (Number(e?.response?.status || 0) === 401 && !retried) {
-      authStore.clearAuth();
-      const ok = await ensureAuthenticatedSession();
+      // Do NOT clearAuth first — that wipes localStorage JWT and forces a false login wall
+      // when the cookie is briefly unavailable but the SPA still has a valid Bearer token.
+      const ok = await ensureAuthenticatedSession({ forceRefresh: true });
       if (!ok) return;
       await fetchTokenAndJoin({ retried: true });
       return;

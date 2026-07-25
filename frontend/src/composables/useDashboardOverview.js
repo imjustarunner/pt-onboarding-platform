@@ -62,6 +62,9 @@ function fallCheckinSchoolFromTitle(title) {
   if (!raw) return '';
   const dashMatch = raw.match(/school visit\s*[—-]\s*(.+)$/i);
   if (dashMatch) return String(dashMatch[1] || '').trim();
+  // Legacy titles: "In person Columbia" / "Virtual Columbia" / "In person Columbia High"
+  const legacy = raw.match(/^(?:in\s*person|virtual)\s+(.+)$/i);
+  if (legacy) return String(legacy[1] || '').trim();
   return '';
 }
 
@@ -158,6 +161,7 @@ export function useDashboardOverview(opts = {}) {
         preslot: isPreslot,
         logoAgencyId: isBookedVisit ? Number(e.agencyId || 0) || null : null,
         schoolName: schoolName || null,
+        schoolLogoUrl: String(e.schoolLogoUrl || '').trim() || null,
         locationAddress: String(e.locationAddress || '').trim() || null,
         mapsUrl: String(e.mapsUrl || '').trim() || null,
         modality: isBookedVisit ? modality : null
@@ -420,7 +424,7 @@ export function useDashboardOverview(opts = {}) {
           })
           .catch(() => { tier.value = null; }),
         api.get(`/users/${uid}/schedule-summary`, {
-          params: { agencyId: aid, weekStart },
+          params: { agencyId: aid, weekStart, includeAllAgencies: 1 },
           skipGlobalLoading: true
         })
           .then((r) => { scheduleSummary.value = r.data || null; })

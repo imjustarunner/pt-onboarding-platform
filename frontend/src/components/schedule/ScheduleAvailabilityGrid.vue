@@ -816,6 +816,17 @@
               </div>
               <div v-if="item.isOfficeBlock" class="sched-agenda__meta">{{ item.officeStatusLabel }}</div>
               <div v-else-if="item.kind === 'peerbusy'" class="sched-agenda__meta muted">Peer busy</div>
+              <template v-else-if="isFallCheckinBookedBlock(item)">
+                <div v-if="item.locationAddress" class="sched-agenda__meta">{{ item.locationAddress }}</div>
+                <a
+                  v-if="item.mapsUrl"
+                  class="sched-agenda__maps"
+                  :href="item.mapsUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click.stop
+                >Open in Google Maps ↗</a>
+              </template>
               <div v-else-if="agendaItemMeta(item)" class="sched-agenda__meta">{{ agendaItemMeta(item) }}</div>
             </div>
           </li>
@@ -886,9 +897,9 @@
                   :style="{ background: peerColorById(b.peerUserId) }"
                 >{{ peerInitials(b.peerUserId) }}</span>
                 <img
-                  v-if="b.agencyId && agencyIconUrlById(b.agencyId)"
+                  v-if="b.agencyId && blockAgencyIconUrl(b)"
                   class="cell-block-agency-icon"
-                  :src="agencyIconUrlById(b.agencyId)"
+                  :src="blockAgencyIconUrl(b)"
                   alt=""
                 />
                 <div class="sched-day-card__body">
@@ -1102,9 +1113,9 @@
                   aria-hidden="true"
                 >{{ peerInitials(b.peerUserId) }}</span>
                 <img
-                  v-if="hasAgencyBadge(b) && !b.hideAgencyDot && agencyIconUrlById(b.agencyId)"
+                  v-if="hasAgencyBadge(b) && !b.hideAgencyDot && blockAgencyIconUrl(b)"
                   class="cell-block-agency-icon"
-                  :src="agencyIconUrlById(b.agencyId)"
+                  :src="blockAgencyIconUrl(b)"
                   alt=""
                   :title="agencyBadgeTitle(b)"
                 />
@@ -4550,6 +4561,7 @@ import { timezoneLabelFor } from '../../utils/timezones.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { useUserPreferencesStore } from '../../store/userPreferences';
 import { isMedicalBillingEnabled } from '../../config/medicalBillingAccess.js';
 import {
@@ -8330,8 +8342,8 @@ const fallCheckinSchoolFromTitle = (title) => {
   if (!raw) return '';
   const dashMatch = raw.match(/school visit\s*[—-]\s*(.+)$/i);
   if (dashMatch) return String(dashMatch[1] || '').trim();
-  if (/^in person\s+/i.test(raw)) return raw.replace(/^in person\s+/i, '').trim();
-  if (/^virtual\s+/i.test(raw)) return raw.replace(/^virtual\s+/i, '').trim();
+  const legacy = raw.match(/^(?:in\s*person|virtual)\s+(.+)$/i);
+  if (legacy) return String(legacy[1] || '').trim();
   return '';
 };
 
@@ -8357,7 +8369,11 @@ const fallCheckinEventClass = (blockOrEvent) => {
 
 const agendaItemTitle = (item) => {
   if (item?.isOfficeBlock) return item.officeRoomLabel || item.shortLabel || item.title;
-  if (isFallCheckinPreslotBlock(item) || isFallCheckinBookedBlock(item)) return fallCheckinDisplayTitle(item);
+  if (isFallCheckinPreslotBlock(item)) return 'Open visit slot';
+  if (isFallCheckinBookedBlock(item)) {
+    const school = String(item?.schoolName || '').trim() || fallCheckinSchoolFromTitle(item?.title) || 'School';
+    return `${school} · ${fallCheckinModalityLabel(item?.title)}`;
+  }
   return item.shortLabel || item.title;
 };
 
@@ -8369,9 +8385,10 @@ const agendaItemMeta = (item) => {
 
 const agendaItemLogo = (item) => {
   if (!isFallCheckinBookedBlock(item)) return null;
-  const aid = Number(item?.agencyId || 0);
-  if (!aid) return null;
-  return agencyIconUrlById(aid);
+  return agencyIconUrlById(item?.agencyId, {
+    preferSchoolOwn: true,
+    schoolLogoUrl: item?.schoolLogoUrl || '',
+  });
 };
 
 const agendaItemStyle = (b) => {
@@ -8405,7 +8422,7 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
     });
   }
   if (eventKind === 'FALL_CHECKIN_BOOKED') {
-    const school = fallCheckinSchoolFromTitle(raw) || 'School';
+    const school = String(ev?.schoolName || '').trim() || fallCheckinSchoolFromTitle(raw) || 'School';
     return runningAppointmentLabel({
       segmentClass,
       startAt: ev?.startAt,
@@ -9177,7 +9194,11 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       link: String(ev?.htmlLink || '').trim() || null,
       appJoinUrl: isScheduleEventCancelled(ev) ? null : (String(ev?.appJoinUrl || '').trim() || null),
       eventId: Number(ev?.id || 0) || null,
-      agencyId: Number(ev?._agencyId || 0) || null,
+      agencyId: Number(ev?.agencyId || ev?._agencyId || 0) || null,
+      schoolName: String(ev?.schoolName || '').trim() || null,
+      schoolLogoUrl: String(ev?.schoolLogoUrl || '').trim() || null,
+      locationAddress: String(ev?.locationAddress || '').trim() || null,
+      mapsUrl: String(ev?.mapsUrl || '').trim() || null,
       isCancelled: isScheduleEventCancelled(ev),
       segmentClass: 'single',
       hideAgencyDot: false,
@@ -14658,6 +14679,19 @@ const scheduleAgencyIconUrls = computed(() => {
     const id = Number(ev?.agencyId || ev?._agencyId || 0);
     if (id > 0) ids.add(id);
   }
+  const bookedSchoolLogoByAgencyId = {};
+  for (const ev of summary.value?.scheduleEvents || []) {
+    if (String(ev?.kind || '').toUpperCase() !== 'FALL_CHECKIN_BOOKED') continue;
+    const id = Number(ev?.agencyId || ev?._agencyId || 0);
+    const logo = String(ev?.schoolLogoUrl || '').trim();
+    if (id > 0 && logo) bookedSchoolLogoByAgencyId[id] = logo;
+  }
+  const bookedSchoolAgencyIds = new Set(
+    (summary.value?.scheduleEvents || [])
+      .filter((ev) => String(ev?.kind || '').toUpperCase() === 'FALL_CHECKIN_BOOKED')
+      .map((ev) => Number(ev?.agencyId || ev?._agencyId || 0))
+      .filter((id) => id > 0)
+  );
   // Re-render when hydrated agencies or lazy icon paths arrive.
   void agencyStore.currentAgency;
   void agencyStore.userAgencies;
@@ -14667,16 +14701,43 @@ const scheduleAgencyIconUrls = computed(() => {
   const out = {};
   for (const id of ids) {
     if (!Number.isFinite(id) || id <= 0) continue;
-    const url = brandingStore.getOrganizationChromeIconUrl(id);
+    const apiLogo = bookedSchoolLogoByAgencyId[id];
+    if (apiLogo) {
+      out[id] = apiLogo.startsWith('http://') || apiLogo.startsWith('https://')
+        ? apiLogo
+        : toUploadsUrl(apiLogo);
+      continue;
+    }
+    const url = bookedSchoolAgencyIds.has(id)
+      ? brandingStore.getOrganizationOwnIconUrl(id)
+      : brandingStore.getOrganizationChromeIconUrl(id);
     if (url) out[id] = url;
   }
   return out;
 });
 
-const agencyIconUrlById = (agencyId) => {
+const agencyIconUrlById = (agencyId, { preferSchoolOwn = false, schoolLogoUrl = '' } = {}) => {
   const id = Number(agencyId || 0);
   if (!Number.isFinite(id) || id <= 0) return null;
-  return scheduleAgencyIconUrls.value[id] || brandingStore.getOrganizationChromeIconUrl(id) || null;
+  const apiLogo = String(schoolLogoUrl || '').trim();
+  if (apiLogo) {
+    return apiLogo.startsWith('http://') || apiLogo.startsWith('https://')
+      ? apiLogo
+      : toUploadsUrl(apiLogo);
+  }
+  if (scheduleAgencyIconUrls.value[id]) return scheduleAgencyIconUrls.value[id];
+  return preferSchoolOwn
+    ? (brandingStore.getOrganizationOwnIconUrl(id) || brandingStore.getOrganizationChromeIconUrl(id))
+    : (brandingStore.getOrganizationChromeIconUrl(id) || null);
+};
+
+const blockAgencyIconUrl = (block) => {
+  const id = Number(block?.agencyId || 0);
+  if (!id) return null;
+  return agencyIconUrlById(id, {
+    preferSchoolOwn: isFallCheckinBookedBlock(block),
+    schoolLogoUrl: block?.schoolLogoUrl || '',
+  });
 };
 
 const officeOverlayStyle = computed(() => {
@@ -15054,6 +15115,8 @@ const scheduleSubjectAgencyIdSet = computed(() => {
 const hasAgencyBadge = (block) => {
   const aid = Number(block?.agencyId || 0);
   if (!aid) return false;
+  // Open visit holds should stay quiet; booked school visits show the school logo.
+  if (isFallCheckinPreslotBlock(block)) return false;
   if (isFallCheckinBookedBlock(block)) return true;
   const allowed = scheduleSubjectAgencyIdSet.value;
   // When we know the subject's memberships, hide logos for unrelated tenants.
@@ -20065,6 +20128,15 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   background: rgba(16, 185, 129, 0.12);
   box-shadow: inset 4px 0 0 rgba(5, 150, 105, 0.85);
 }
+.sched-agenda__maps {
+  display: inline-flex;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #047857;
+  text-decoration: none;
+}
+.sched-agenda__maps:hover { text-decoration: underline; }
 .sched-agenda__meta {
   margin-top: 2px;
   font-size: 12px;

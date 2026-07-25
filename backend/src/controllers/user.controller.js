@@ -4942,44 +4942,105 @@ export const getUserScheduleSummary = async (req, res, next) => {
       /* appointments table optional until migration */
     }
 
-    // Fall school visit bookings: attach school address + maps link for dashboard/calendar.
+    // Fall school visit bookings: resolve school via booking rows (not PSE.agency_id alone —
+    // older booked PSEs may still point at the tenant agency and would show ITSCO branding).
     try {
-      const bookedSchoolAgencyIds = new Set();
+      const bookedPseIds = (scheduleEvents || [])
+        .filter((ev) => String(ev?.kind || '').toUpperCase() === 'FALL_CHECKIN_BOOKED')
+        .map((ev) => Number(ev?.id || 0))
+        .filter((n) => n > 0);
+      const schoolByPseId = new Map();
+      if (bookedPseIds.length) {
+        const placeholders = bookedPseIds.map(() => '?').join(',');
+        const [bookingSchoolRows] = await pool.execute(
+          `SELECT he.provider_schedule_event_id AS pse_id,
+                  b.school_agency_id,
+                  b.location_text AS booking_location_text,
+                  a.id AS school_id,
+                  a.name AS school_name,
+                  a.street_address, a.address, a.mailing_address, a.city, a.state, a.zip,
+                  a.logo_url, a.logo_path, i.file_path AS icon_file_path
+           FROM school_reinit_checkin_slot_host_events he
+           INNER JOIN school_reinit_checkin_slots s ON s.id = he.slot_id
+           INNER JOIN school_reinit_checkin_bookings b
+             ON b.slot_id = s.id AND LOWER(COALESCE(b.status, '')) NOT IN ('cancelled', 'canceled')
+           INNER JOIN agencies a ON a.id = b.school_agency_id
+           LEFT JOIN icons i ON a.icon_id = i.id
+           WHERE he.provider_schedule_event_id IN (${placeholders})`,
+          bookedPseIds
+        );
+        for (const r of bookingSchoolRows || []) {
+          const pseId = Number(r.pse_id || 0);
+          if (pseId > 0) schoolByPseId.set(pseId, r);
+        }
+      }
+
+      // Fallback: PSE.agency_id already set to the school org.
+      const fallbackAgencyIds = new Set();
       for (const ev of scheduleEvents || []) {
         if (String(ev?.kind || '').toUpperCase() !== 'FALL_CHECKIN_BOOKED') continue;
+        if (schoolByPseId.has(Number(ev?.id || 0))) continue;
         const aid = Number(ev?.agencyId || 0);
-        if (aid > 0) bookedSchoolAgencyIds.add(aid);
+        if (aid > 0) fallbackAgencyIds.add(aid);
       }
-      if (bookedSchoolAgencyIds.size) {
-        const ids = Array.from(bookedSchoolAgencyIds.values());
+      const schoolByAgencyId = new Map();
+      if (fallbackAgencyIds.size) {
+        const ids = Array.from(fallbackAgencyIds.values());
         const placeholders = ids.map(() => '?').join(',');
         const [schoolRows] = await pool.execute(
-          `SELECT id, name, street_address, address, mailing_address, city, state, zip
-           FROM agencies
-           WHERE id IN (${placeholders})`,
+          `SELECT a.id, a.name AS school_name, a.street_address, a.address, a.mailing_address,
+                  a.city, a.state, a.zip, a.logo_url, a.logo_path, i.file_path AS icon_file_path
+           FROM agencies a
+           LEFT JOIN icons i ON a.icon_id = i.id
+           WHERE a.id IN (${placeholders})`,
           ids
         );
-        const schoolById = new Map((schoolRows || []).map((r) => [Number(r.id), r]));
-        scheduleEvents = (scheduleEvents || []).map((ev) => {
-          if (String(ev?.kind || '').toUpperCase() !== 'FALL_CHECKIN_BOOKED') return ev;
-          const row = schoolById.get(Number(ev?.agencyId || 0));
-          if (!row) return ev;
-          const locationAddress = [
-            row.street_address || row.address || row.mailing_address,
-            [row.city, row.state].filter(Boolean).join(', '),
-            row.zip,
-          ].filter(Boolean).join(' ').trim() || null;
-          const mapsQuery = locationAddress || String(row.name || '').trim() || null;
-          const mapsUrl = mapsQuery
-            ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`
-            : null;
-          return {
-            ...ev,
-            schoolName: String(row.name || '').trim() || null,
-            locationAddress,
-            mapsUrl,
-          };
-        });
+        for (const r of schoolRows || []) schoolByAgencyId.set(Number(r.id), r);
+      }
+
+      const repairPseAgencyIds = [];
+      scheduleEvents = (scheduleEvents || []).map((ev) => {
+        if (String(ev?.kind || '').toUpperCase() !== 'FALL_CHECKIN_BOOKED') return ev;
+        const row = schoolByPseId.get(Number(ev?.id || 0))
+          || schoolByAgencyId.get(Number(ev?.agencyId || 0));
+        if (!row) return ev;
+        const schoolAgencyId = Number(row.school_agency_id || row.school_id || row.id || 0) || null;
+        const locationAddress = [
+          row.booking_location_text || row.street_address || row.address || row.mailing_address,
+          [row.city, row.state].filter(Boolean).join(', '),
+          row.zip,
+        ].filter(Boolean).join(' ').trim() || null;
+        const schoolName = String(row.school_name || row.name || '').trim() || null;
+        const mapsQuery = locationAddress || schoolName || null;
+        const mapsUrl = mapsQuery
+          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`
+          : null;
+        const schoolLogoUrl = String(
+          row.icon_file_path || row.logo_path || row.logo_url || ''
+        ).trim() || null;
+        if (schoolAgencyId && Number(ev.agencyId || 0) !== schoolAgencyId && Number(ev.id || 0) > 0) {
+          repairPseAgencyIds.push({ pseId: Number(ev.id), schoolAgencyId });
+        }
+        return {
+          ...ev,
+          agencyId: schoolAgencyId || ev.agencyId || null,
+          schoolName,
+          locationAddress,
+          mapsUrl,
+          schoolLogoUrl,
+        };
+      });
+
+      // Best-effort: keep PSE.agency_id aligned to school so logos keep working.
+      for (const fix of repairPseAgencyIds) {
+        try {
+          await pool.execute(
+            `UPDATE provider_schedule_events SET agency_id = ? WHERE id = ? AND kind = 'FALL_CHECKIN_BOOKED'`,
+            [fix.schoolAgencyId, fix.pseId]
+          );
+        } catch {
+          /* ignore */
+        }
       }
     } catch (enrichErr) {
       console.warn('[schedule-summary] fall check-in school address enrich failed', enrichErr?.message || enrichErr);

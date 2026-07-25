@@ -102,6 +102,7 @@
 
 <script setup>
 import { useBrandingStore } from '../../store/branding';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 defineProps({
   items: { type: Array, default: () => [] },
@@ -114,9 +115,14 @@ defineEmits(['navigate', 'book', 'book-virtual']);
 const brandingStore = useBrandingStore();
 
 const itemLogo = (item) => {
+  const apiLogo = String(item?.schoolLogoUrl || '').trim();
+  if (apiLogo) {
+    if (apiLogo.startsWith('http://') || apiLogo.startsWith('https://')) return apiLogo;
+    return toUploadsUrl(apiLogo);
+  }
   const id = Number(item?.logoAgencyId || 0);
   if (!id) return null;
-  return brandingStore.getOrganizationChromeIconUrl(id) || null;
+  return brandingStore.getOrganizationOwnIconUrl(id) || null;
 };
 
 const statusLabel = (s) => {

@@ -1655,6 +1655,35 @@ export const useBrandingStore = defineStore('branding', () => {
     return null;
   };
 
+  /**
+   * School / child-org icon without walking up to affiliated agency branding.
+   * Use for booked school visits where the school's own logo should show.
+   */
+  const getOrganizationOwnIconUrl = (organization) => {
+    const orgParam = resolveOrganizationParamForIcons(organization);
+    if (!orgParam || typeof orgParam !== 'object') return null;
+    const org = orgParam;
+    if (org?.icon_file_path) {
+      return toUploadsUrl(org.icon_file_path);
+    }
+    const iconId = org?.icon_id ?? org?.iconId;
+    if (iconId) {
+      const url = iconUrlById(iconId);
+      if (url) return url;
+      prefetchIconIds([iconId]).catch(() => {});
+    }
+    const logoPath = org?.logo_path ?? org?.logoPath;
+    if (logoPath) return toUploadsUrl(logoPath);
+    const logoUrlRaw = org?.logo_url ?? org?.logoUrl;
+    if (logoUrlRaw) {
+      const s = String(logoUrlRaw).trim();
+      if (s.startsWith('http://') || s.startsWith('https://')) return s;
+      const apiBase = getBackendBaseUrl();
+      return `${apiBase}${s.startsWith('/') ? '' : '/'}${s}`;
+    }
+    return null;
+  };
+
   return {
     userRole,
     isSuperAdmin,
@@ -1706,6 +1735,7 @@ export const useBrandingStore = defineStore('branding', () => {
     clearPortalHostOverride,
     getNotificationIconUrl,
     getOrganizationChromeIconUrl,
+    getOrganizationOwnIconUrl,
     getDashboardCardIconUrl,
     getSchoolPortalCardIconUrl,
     getAdminQuickActionIconUrl,
