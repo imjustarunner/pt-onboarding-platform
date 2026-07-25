@@ -455,6 +455,11 @@ export async function listCheckinSlotsAdmin(req, res, next) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
     const schoolYear = String(req.query.schoolYear || S.currentSchoolYear());
+    try {
+      await Checkin.repairAgencyCheckinHostCalendars(agencyId, schoolYear);
+    } catch (repairErr) {
+      console.warn('[listCheckinSlotsAdmin] host calendar repair failed', repairErr?.message || repairErr);
+    }
     const slots = await Checkin.listCheckinSlotsDetailed(agencyId, schoolYear);
     const campaign = await S.getOrCreateCampaign(agencyId, schoolYear);
     res.json({ slots, campaign: campaignPayload(campaign) });

@@ -3479,8 +3479,11 @@ function toScheduleWallIso(value) {
 function scheduleEventStartEndForSummary(row) {
   const isAllDay = Number(row?.all_day || 0) === 1;
   if (isAllDay) return { startAt: null, endAt: null };
+  const kind = String(row?.kind || '').trim().toUpperCase();
+  const isFallCheckin = kind === 'FALL_CHECKIN_PRESLOT' || kind === 'FALL_CHECKIN_BOOKED';
   const hasGoogleSync = !!String(row?.google_event_id || '').trim();
-  if (hasGoogleSync) {
+  // Fall check-in times are wall-clock in MySQL, not UTC instants — never apply Z conversion.
+  if (hasGoogleSync && !isFallCheckin) {
     return {
       startAt: toIsoUtcForSchedule(row.start_at) || toScheduleWallIso(row.start_at) || row.start_at || null,
       endAt: toIsoUtcForSchedule(row.end_at) || toScheduleWallIso(row.end_at) || row.end_at || null
@@ -4196,6 +4199,16 @@ export const getUserScheduleSummary = async (req, res, next) => {
     // includeAllAgencies: return every tenant the provider is booked on (not just membership/current org).
     let scheduleEvents = [];
     try {
+      try {
+        const Checkin = await import('../services/schoolReinitCheckin.service.js');
+        await Checkin.repairHostScheduleEventsInWindow({
+          providerId,
+          windowStart,
+          windowEnd,
+        });
+      } catch (repairErr) {
+        console.warn('[schedule-summary] check-in host calendar repair failed', repairErr?.message || repairErr);
+      }
       const rows = await ProviderScheduleEvent.listForUserInWindow({
         agencyId: includeAllAgencies ? null : agencyId,
         allAgencies: includeAllAgencies,

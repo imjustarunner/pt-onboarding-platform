@@ -7347,6 +7347,11 @@ const filterSummaryByActiveAgencies = (data) => {
     const aid = Number(row?.agencyId || row?._agencyId || 0);
     return !aid || active.has(aid);
   };
+  const keepScheduleEvent = (ev) => {
+    const kind = String(ev?.kind || '').toUpperCase();
+    if (kind === 'FALL_CHECKIN_PRESLOT' || kind === 'FALL_CHECKIN_BOOKED') return true;
+    return keep(ev);
+  };
   return {
     ...data,
     officeRequests: (data.officeRequests || []).filter(keep),
@@ -7354,7 +7359,7 @@ const filterSummaryByActiveAgencies = (data) => {
     schoolAssignments: (data.schoolAssignments || []).filter(keep),
     officeEvents: (data.officeEvents || []).filter(keep),
     supervisionSessions: (data.supervisionSessions || []).filter(keep),
-    scheduleEvents: (data.scheduleEvents || []).filter(keep),
+    scheduleEvents: (data.scheduleEvents || []).filter(keepScheduleEvent),
     virtualWorkingHours: (data.virtualWorkingHours || []).filter(keep)
   };
 };
@@ -8154,7 +8159,11 @@ const scheduleEventsInCell = (dayName, hour, minute = 0) => {
     // For most schedule events, avoid duplicate blocks when Google titles are enabled.
     // Keep TEAM_MEETING/HUDDLE visible because they carry app/Twilio join behavior.
     const eventKind = String(ev?.kind || '').trim().toUpperCase();
-    const isInternalMeeting = eventKind === 'TEAM_MEETING' || eventKind === 'HUDDLE';
+    const isInternalMeeting =
+      eventKind === 'TEAM_MEETING'
+      || eventKind === 'HUDDLE'
+      || eventKind === 'FALL_CHECKIN_PRESLOT'
+      || eventKind === 'FALL_CHECKIN_BOOKED';
     if (ev?.googleEventId && showGoogleEvents.value && !isInternalMeeting) continue;
     if (ev?.allDay) {
       const startDate = String(ev?.startDate || '').slice(0, 10);
@@ -14818,6 +14827,8 @@ const typeStyleToken = (b) => {
     const eventKind = String(b?.eventKind || '').toUpperCase();
     if (eventKind === 'TEAM_MEETING') return 'Meeting';
     if (eventKind === 'HUDDLE') return 'Huddle';
+    if (eventKind === 'FALL_CHECKIN_PRESLOT') return 'Visit hold';
+    if (eventKind === 'FALL_CHECKIN_BOOKED') return 'School visit';
     if (eventKind === 'SCHEDULE_HOLD') return b?.allDay ? 'All-day' : 'Hold';
     if (eventKind === 'INDIRECT_SERVICES') return 'Indirect';
     const title = String(b?.title || b?.shortLabel || '').toLowerCase();

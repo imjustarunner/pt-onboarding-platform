@@ -294,81 +294,259 @@ async function findConflictingSlots({
   return rows || [];
 }
 
+async function ensureHostCalendarForSlot({
+  host,
+  slot,
+  campaign,
+  createdByUserId,
+  booked = false,
+  schoolLabel = null,
+  modality = null,
+  locationText = null,
+}) {
+  const settings = serializeCampaignCheckin(campaign);
+  const startsAt = toMysqlDateTime(slot.starts_at);
+  const endsAt = toMysqlDateTime(
+    slot.ends_at || addMinutes(slot.starts_at, slot.duration_minutes || settings.slotDurationMinutes)
+  );
+  const slotModality = normalizeModality(modality || slot.modality);
+  const modalityLabel = slotModality === 'virtual' ? 'Virtual' : 'In person';
+  const title = booked
+    ? bookedSchoolVisitTitle(slotModality, schoolLabel || 'School')
+    : PRESLOT_TITLE;
+  const description = booked
+    ? bookedSchoolVisitDescription(slotModality, schoolLabel || 'School', { locationText })
+    : `School visit pre-slot (${modalityLabel}). This block fills when a school books their Fall School Check-in.`;
+  const pseAgencyId = booked && slot.booked_school_agency_id
+    ? Number(slot.booked_school_agency_id)
+    : Number(slot.agency_id);
+  const pseKind = booked ? BOOKED_KIND : PRESLOT_KIND;
+
+  const [heRows] = await pool.execute(
+    `SELECT * FROM school_reinit_checkin_slot_host_events
+     WHERE slot_id = ? AND host_user_id = ?
+     LIMIT 1`,
+    [slot.id, host.id]
+  );
+  const existing = heRows?.[0] || null;
+
+  const email = String(host.email || '').trim().toLowerCase();
+  let googleEventId = existing?.google_event_id || null;
+  let googleHtmlLink = existing?.google_html_link || null;
+  let googleMeetLink = existing?.google_meet_link || null;
+
+  if (email && GoogleCalendarService.isConfigured()) {
+    if (googleEventId) {
+      const patched = await GoogleCalendarService.patchEventDetails({
+        subjectEmail: email,
+        eventId: googleEventId,
+        summary: title,
+        description,
+        location: slotModality === 'in_person' ? locationText || schoolLabel || null : null,
+      });
+      if (patched?.htmlLink) googleHtmlLink = patched.htmlLink;
+      if (patched?.meetLink) googleMeetLink = patched.meetLink;
+    } else {
+      const google = await GoogleCalendarService.createProviderScheduleEvent({
+        subjectEmail: email,
+        startAt: startsAt,
+        endAt: endsAt,
+        summary: title,
+        description,
+        kind: pseKind,
+        createMeetLink: booked && slotModality === 'virtual',
+        attendeeEmails: [],
+      });
+      if (google?.ok) {
+        googleEventId = google.eventId || null;
+        googleHtmlLink = google.htmlLink || null;
+        googleMeetLink = google.meetLink || null;
+      }
+    }
+  }
+
+  let pseId = existing?.provider_schedule_event_id || null;
+  if (pseId) {
+    const pse = await ProviderScheduleEvent.findById(pseId);
+    if (!pse) pseId = null;
+  }
+
+  if (pseId) {
+    try {
+      await pool.execute(
+        `UPDATE provider_schedule_events
+         SET kind = ?, title = ?, description = ?, start_at = ?, end_at = ?,
+             agency_id = ?, google_event_id = COALESCE(?, google_event_id),
+             google_html_link = COALESCE(?, google_html_link),
+             google_meet_link = COALESCE(?, google_meet_link),
+             status = 'ACTIVE'
+         WHERE id = ?`,
+        [
+          pseKind,
+          title,
+          description,
+          startsAt,
+          endsAt,
+          pseAgencyId,
+          googleEventId,
+          googleHtmlLink,
+          googleMeetLink,
+          pseId,
+        ]
+      );
+    } catch (e) {
+      console.warn('[schoolReinitCheckin] PSE update failed', e?.message || e);
+      pseId = null;
+    }
+  }
+
+  if (!pseId) {
+    try {
+      const pse = await ProviderScheduleEvent.create({
+        agencyId: pseAgencyId,
+        providerId: host.id,
+        kind: pseKind,
+        title,
+        description,
+        startAt: startsAt,
+        endAt: endsAt,
+        googleEventId,
+        googleHtmlLink,
+        googleMeetLink,
+        createdByUserId: createdByUserId || null,
+      });
+      pseId = pse?.id || null;
+    } catch (e) {
+      console.warn('[schoolReinitCheckin] PSE create failed', e?.message || e);
+    }
+  }
+
+  await pool.execute(
+    `INSERT INTO school_reinit_checkin_slot_host_events
+      (slot_id, host_user_id, provider_schedule_event_id, google_event_id, google_html_link, google_meet_link)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       provider_schedule_event_id = COALESCE(VALUES(provider_schedule_event_id), provider_schedule_event_id),
+       google_event_id = COALESCE(VALUES(google_event_id), google_event_id),
+       google_html_link = COALESCE(VALUES(google_html_link), google_html_link),
+       google_meet_link = COALESCE(VALUES(google_meet_link), google_meet_link)`,
+    [slot.id, host.id, pseId, googleEventId, googleHtmlLink, googleMeetLink]
+  );
+
+  return {
+    hostUserId: host.id,
+    providerScheduleEventId: pseId,
+    googleEventId,
+  };
+}
+
 async function mirrorPreslotToHosts({ slot, campaign, createdByUserId }) {
   const settings = serializeCampaignCheckin(campaign);
   const hostIds = settings.hostUserIds;
   if (!hostIds.length) {
-    throw new Error('Set at least one tenant host before creating check-in pre-slots');
+    throw new Error('Set at least one agency host before creating check-in pre-slots');
   }
   const hosts = await loadUsersByIds(hostIds);
   if (!hosts.length) throw new Error('Host users not found');
 
-  const startsAt = toMysqlDateTime(slot.starts_at);
-  const endsAt = toMysqlDateTime(slot.ends_at || addMinutes(slot.starts_at, settings.slotDurationMinutes));
-  const modalityLabel = slot.modality === 'virtual' ? 'Virtual' : 'In person';
-  const description = `School visit pre-slot (${modalityLabel}). This block fills when a school books their Fall School Check-in.`;
-
   const hostEventRows = [];
   for (const host of hosts) {
-    const email = String(host.email || '').trim().toLowerCase();
-    let google = { ok: false };
-    if (email && GoogleCalendarService.isConfigured()) {
-      google = await GoogleCalendarService.createProviderScheduleEvent({
-        subjectEmail: email,
-        startAt: startsAt,
-        endAt: endsAt,
-        summary: PRESLOT_TITLE,
-        description,
-        kind: PRESLOT_KIND,
-        createMeetLink: false,
-        attendeeEmails: [],
-      });
-    }
-
-    let pse = null;
-    try {
-      pse = await ProviderScheduleEvent.create({
-        agencyId: slot.agency_id,
-        providerId: host.id,
-        kind: PRESLOT_KIND,
-        title: PRESLOT_TITLE,
-        description,
-        startAt: startsAt,
-        endAt: endsAt,
-        googleEventId: google?.eventId || null,
-        googleHtmlLink: google?.htmlLink || null,
-        googleMeetLink: null,
-        createdByUserId: createdByUserId || null,
-      });
-    } catch (e) {
-      console.warn('[schoolReinitCheckin] PSE create failed', e?.message || e);
-    }
-
-    await pool.execute(
-      `INSERT INTO school_reinit_checkin_slot_host_events
-        (slot_id, host_user_id, provider_schedule_event_id, google_event_id, google_html_link, google_meet_link)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         provider_schedule_event_id = VALUES(provider_schedule_event_id),
-         google_event_id = VALUES(google_event_id),
-         google_html_link = VALUES(google_html_link),
-         google_meet_link = VALUES(google_meet_link)`,
-      [
-        slot.id,
-        host.id,
-        pse?.id || null,
-        google?.eventId || null,
-        google?.htmlLink || null,
-        null,
-      ]
+    hostEventRows.push(
+      await ensureHostCalendarForSlot({
+        host,
+        slot,
+        campaign,
+        createdByUserId,
+        booked: false,
+      })
     );
-    hostEventRows.push({
-      hostUserId: host.id,
-      providerScheduleEventId: pse?.id || null,
-      googleEventId: google?.eventId || null,
-    });
   }
   return hostEventRows;
+}
+
+/** Backfill missing in-app calendar rows for a host's check-in slots in a date window. */
+export async function repairHostScheduleEventsInWindow({ providerId, windowStart, windowEnd }) {
+  const pId = Number(providerId || 0);
+  if (!pId || !windowStart || !windowEnd) return { repaired: 0 };
+
+  const [rows] = await pool.execute(
+    `SELECT s.*, h.host_user_id,
+            b.modality AS booking_modality,
+            b.location_text AS booking_location_text,
+            sch.name AS booked_school_name
+     FROM school_reinit_checkin_slot_host_events h
+     INNER JOIN school_reinit_checkin_slots s ON s.id = h.slot_id
+     LEFT JOIN school_reinit_checkin_bookings b
+       ON b.slot_id = s.id AND b.status = 'booked'
+     LEFT JOIN agencies sch ON sch.id = s.booked_school_agency_id
+     WHERE h.host_user_id = ?
+       AND s.is_active = 1
+       AND s.status IN ('open', 'booked')
+       AND s.starts_at < ?
+       AND COALESCE(s.ends_at, s.starts_at) > ?
+       AND (
+         h.provider_schedule_event_id IS NULL
+         OR NOT EXISTS (
+           SELECT 1 FROM provider_schedule_events pse
+           WHERE pse.id = h.provider_schedule_event_id AND pse.status = 'ACTIVE'
+         )
+       )`,
+    [pId, windowEnd, windowStart]
+  );
+
+  let repaired = 0;
+  const campaignCache = new Map();
+  for (const row of rows || []) {
+    const cacheKey = `${row.agency_id}:${row.school_year}`;
+    let campaign = campaignCache.get(cacheKey);
+    if (!campaign) {
+      const S = await reinit();
+      campaign = await S.getCampaign(row.agency_id, row.school_year);
+      campaignCache.set(cacheKey, campaign);
+    }
+    const [userRows] = await pool.execute(`SELECT id, email FROM users WHERE id = ? LIMIT 1`, [pId]);
+    const hostUser = userRows?.[0];
+    if (!hostUser) continue;
+    const booked = String(row.status || '') === 'booked';
+    await ensureHostCalendarForSlot({
+      host: hostUser,
+      slot: row,
+      campaign,
+      createdByUserId: null,
+      booked,
+      schoolLabel: row.booked_school_name || null,
+      modality: row.booking_modality || row.modality,
+      locationText: row.booking_location_text || null,
+    });
+    repaired += 1;
+  }
+  return { repaired };
+}
+
+/** Repair all open/booked check-in slots for an agency year (admin panel load). */
+export async function repairAgencyCheckinHostCalendars(agencyId, schoolYear) {
+  const aId = Number(agencyId || 0);
+  if (!aId) return { repaired: 0 };
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT h.host_user_id
+     FROM school_reinit_checkin_slot_host_events h
+     INNER JOIN school_reinit_checkin_slots s ON s.id = h.slot_id
+     WHERE s.agency_id = ?
+       AND s.school_year COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci
+       AND s.is_active = 1
+       AND s.status IN ('open', 'booked')`,
+    [aId, schoolYear]
+  );
+  let repaired = 0;
+  for (const row of rows || []) {
+    const res = await repairHostScheduleEventsInWindow({
+      providerId: row.host_user_id,
+      windowStart: '1970-01-01 00:00:00',
+      windowEnd: '2099-12-31 23:59:59',
+    });
+    repaired += res.repaired || 0;
+  }
+  return { repaired };
 }
 
 export async function createCheckinPreslot({
