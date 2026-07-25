@@ -25,7 +25,9 @@ import {
   getMyPresenterAssignments,
   getSessionPresenters,
   markSessionPresenterPresented,
-  getSupervisionJoinInfo
+  getSupervisionJoinInfo,
+  getSupervisionGuestJoin,
+  postSupervisionJoinPresence
 } from '../controllers/supervisionSessions.controller.js';
 import { getSupervisionActivity, postSupervisionActivity } from '../controllers/videoMeetingActivity.controller.js';
 import {
@@ -47,6 +49,9 @@ const router = express.Router();
 
 // Public: resolve session to org slug for join redirect (no auth)
 router.get('/join-info/:sessionId', getSupervisionJoinInfo);
+// Public: guest video join via opaque join_token (no login)
+router.get('/guest-join/:joinToken', getSupervisionGuestJoin);
+router.post('/sessions/:id/join-presence', postSupervisionJoinPresence);
 
 router.use(authenticate);
 

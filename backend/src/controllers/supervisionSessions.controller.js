@@ -18,8 +18,71 @@ import PayrollRate from '../models/PayrollRate.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import pool from '../config/database.js';
 import { isAdminLikeRole, isSupervisorActor } from '../utils/supervisorSchoolAccess.js';
-import { joinUrlForSupervision } from '../utils/joinToken.js';
+import crypto from 'crypto';
+import { joinUrlForSupervision, isNumericJoinRef } from '../utils/joinToken.js';
 import SupervisionCasePresentation from '../models/SupervisionCasePresentation.model.js';
+
+async function countActiveJoinPresence(sessionId) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return 0;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS cnt
+       FROM supervision_session_join_presence
+       WHERE session_id = ?
+         AND left_at IS NULL
+         AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL 45 SECOND)`,
+      [sid]
+    );
+    return Number(rows?.[0]?.cnt || 0);
+  } catch {
+    return 0;
+  }
+}
+
+async function upsertJoinPresence({ sessionId, joinIdentity, displayName = null, isGuest = false }) {
+  const sid = Number(sessionId || 0);
+  const identity = String(joinIdentity || '').trim();
+  if (!sid || !identity) return;
+  try {
+    await pool.execute(
+      `INSERT INTO supervision_session_join_presence
+         (session_id, join_identity, display_name, is_guest, joined_at, last_seen_at, left_at)
+       VALUES (?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP(), NULL)
+       ON DUPLICATE KEY UPDATE
+         display_name = COALESCE(VALUES(display_name), display_name),
+         is_guest = VALUES(is_guest),
+         last_seen_at = UTC_TIMESTAMP(),
+         left_at = NULL`,
+      [sid, identity, displayName ? String(displayName).slice(0, 255) : null, isGuest ? 1 : 0]
+    );
+  } catch (e) {
+    console.warn('[supervision] join presence upsert failed', e?.message || e);
+  }
+}
+
+async function markJoinPresenceLeft({ sessionId, joinIdentity }) {
+  const sid = Number(sessionId || 0);
+  const identity = String(joinIdentity || '').trim();
+  if (!sid || !identity) return;
+  try {
+    await pool.execute(
+      `UPDATE supervision_session_join_presence
+       SET left_at = UTC_TIMESTAMP(), last_seen_at = UTC_TIMESTAMP()
+       WHERE session_id = ? AND join_identity = ? AND left_at IS NULL`,
+      [sid, identity]
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function maxJoinCapacityForSessionType(sessionType) {
+  const t = String(sessionType || 'individual').toLowerCase();
+  if (t === 'group') return 24;
+  if (t === 'triadic') return 3;
+  return 2; // individual: supervisor + supervisee
+}
 
 function supervisionAppJoinUrl(sessionRow) {
   const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
@@ -887,11 +950,176 @@ export const getSupervisionJoinInfo = async (req, res, next) => {
     if (!orgSlug) return res.status(404).json({ error: { message: 'Session organization has no portal' } });
 
     const joinKey = String(session.join_token || session.id);
+    const sessionType = String(session.session_type || 'individual').toLowerCase();
+    const activeCount = await countActiveJoinPresence(session.id);
+    const maxCapacity = maxJoinCapacityForSessionType(sessionType);
     res.json({
       orgSlug,
       sessionId: Number(session.id),
       joinToken: session.join_token || null,
-      joinPath: `/join/supervision/${encodeURIComponent(joinKey)}`
+      joinPath: `/join/supervision/${encodeURIComponent(joinKey)}`,
+      sessionType,
+      guestJoinAllowed: !isNumericJoinRef(joinKey),
+      activeParticipants: activeCount,
+      maxParticipants: maxCapacity,
+      joinLocked: activeCount >= maxCapacity
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Public guest join: opaque join_token only (not numeric id).
+ * No login required. Locks when the room already has capacity filled;
+ * unlocks again when someone leaves (presence heartbeat expires / leave).
+ */
+export const getSupervisionGuestJoin = async (req, res, next) => {
+  try {
+    if (!isVideoConfigured()) {
+      return res.status(503).json({
+        error: { message: 'Video is not configured' },
+        videoConfigured: false,
+        diagnostics: getVideoClientDiagnostics()
+      });
+    }
+    const projectId = resolveVideoProjectId();
+    if (!projectId) {
+      return res.status(503).json({
+        error: { message: 'Vonage Video Application ID is missing. Set VONAGE_APPLICATION_ID.' },
+        videoConfigured: false,
+        diagnostics: getVideoClientDiagnostics()
+      });
+    }
+
+    const ref = String(req.params.joinToken || '').trim();
+    if (!ref || isNumericJoinRef(ref)) {
+      return res.status(400).json({
+        error: { message: 'A secure join link is required. Ask the host to share the session join link.' }
+      });
+    }
+
+    let row = await SupervisionSession.resolveByJoinRef(ref);
+    if (!row?.id || String(row.join_token || '') !== ref) {
+      return res.status(404).json({ error: { message: 'Session not found' } });
+    }
+    const id = Number(row.id);
+    row = await maybeReopenAutoFinalizedSessionForJoin(row);
+    const status = String(row.status || '').trim().toUpperCase();
+    if (['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED'].includes(status)) {
+      return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });
+    }
+
+    const sessionType = String(row.session_type || 'individual').toLowerCase();
+    const maxCapacity = maxJoinCapacityForSessionType(sessionType);
+    const activeCount = await countActiveJoinPresence(id);
+    if (activeCount >= maxCapacity) {
+      return res.status(409).json({
+        error: {
+          message: 'This session is full right now. When someone leaves, the join link will work again.'
+        },
+        joinLocked: true,
+        activeParticipants: activeCount,
+        maxParticipants: maxCapacity
+      });
+    }
+
+    const roomName = row.twilio_room_unique_name || `supervision-${id}`;
+    let vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
+    if (!vonageSessionId) {
+      const roomResult = await createOrGetRoomByUniqueName(roomName);
+      vonageSessionId = roomResult?.sid || null;
+      if (vonageSessionId) {
+        await SupervisionSession.setVideoRoom(id, { roomSid: vonageSessionId, uniqueName: roomName });
+      }
+    }
+    if (!vonageSessionId) {
+      return res.status(500).json({
+        error: { message: 'Failed to create or get video room' },
+        diagnostics: getVideoClientDiagnostics()
+      });
+    }
+
+    const guestId = crypto.randomBytes(12).toString('hex');
+    const identity = `guest-${guestId}`;
+    const displayName = String(req.query?.displayName || req.query?.name || 'Guest').trim().slice(0, 80) || 'Guest';
+    const token = await createAccessTokenAsync({
+      roomSid: vonageSessionId,
+      identity,
+      metadata: {
+        role: 'guest',
+        sessionId: id,
+        displayName
+      }
+    });
+    if (!token) {
+      return res.status(500).json({ error: { message: 'Failed to generate access token' } });
+    }
+
+    await upsertJoinPresence({
+      sessionId: id,
+      joinIdentity: identity,
+      displayName,
+      isGuest: true
+    });
+
+    const sessionTitle = await buildSupervisionSessionTitle(id, row);
+    res.json({
+      ok: true,
+      guest: true,
+      token: String(token).trim(),
+      sessionId: vonageSessionId,
+      applicationId: projectId,
+      apiKey: projectId,
+      roomName,
+      roomSid: vonageSessionId,
+      identity,
+      isSupervisor: false,
+      isPresenter: false,
+      supervisionSessionId: id,
+      sessionTitle: sessionTitle || null,
+      sessionType,
+      roomMode: 'main',
+      lobbyEnabledForSession: false,
+      videoConfigured: true,
+      activeParticipants: activeCount + 1,
+      maxParticipants: maxCapacity,
+      diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Public heartbeat / leave for guest or authenticated join identities. */
+export const postSupervisionJoinPresence = async (req, res, next) => {
+  try {
+    const ref = String(req.params.id || '').trim();
+    const identity = String(req.body?.identity || req.body?.joinIdentity || '').trim();
+    const action = String(req.body?.action || 'heartbeat').toLowerCase();
+    if (!ref || !identity) {
+      return res.status(400).json({ error: { message: 'identity required' } });
+    }
+    const row = await SupervisionSession.resolveByJoinRef(ref);
+    if (!row?.id) return res.status(404).json({ error: { message: 'Session not found' } });
+    const id = Number(row.id);
+    if (action === 'leave') {
+      await markJoinPresenceLeft({ sessionId: id, joinIdentity: identity });
+    } else {
+      await upsertJoinPresence({
+        sessionId: id,
+        joinIdentity: identity,
+        displayName: req.body?.displayName || null,
+        isGuest: String(identity).startsWith('guest-')
+      });
+    }
+    const activeCount = await countActiveJoinPresence(id);
+    const maxCapacity = maxJoinCapacityForSessionType(row.session_type);
+    res.json({
+      ok: true,
+      activeParticipants: activeCount,
+      maxParticipants: maxCapacity,
+      joinLocked: activeCount >= maxCapacity
     });
   } catch (e) {
     next(e);
@@ -1001,21 +1229,58 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     }
 
     const identity = `user-${actorUserId}`;
+    const displayName = `${req.user?.firstName || req.user?.first_name || ''} ${req.user?.lastName || req.user?.last_name || ''}`.trim()
+      || req.user?.email
+      || identity;
+
+    // Capacity lock applies to new joiners who are not already counted as present.
+    const maxCapacity = maxJoinCapacityForSessionType(sessionType);
+    const activeCount = await countActiveJoinPresence(id);
+    let alreadyPresent = false;
+    try {
+      const [mine] = await pool.execute(
+        `SELECT 1 FROM supervision_session_join_presence
+         WHERE session_id = ? AND join_identity = ?
+           AND left_at IS NULL
+           AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL 45 SECOND)
+         LIMIT 1`,
+        [id, identity]
+      );
+      alreadyPresent = !!(mine?.length);
+    } catch {
+      alreadyPresent = false;
+    }
+    if (!alreadyPresent && activeCount >= maxCapacity) {
+      return res.status(409).json({
+        error: {
+          message: 'This session is full right now. When someone leaves, you can join again.'
+        },
+        joinLocked: true,
+        activeParticipants: activeCount,
+        maxParticipants: maxCapacity
+      });
+    }
+
     const token = await createAccessTokenAsync({
       roomSid: vonageSessionId,
       identity,
       metadata: {
         role: isSupervisor ? 'supervisor' : (isPresenter ? 'presenter' : 'participant'),
         sessionId: id,
-        displayName: `${req.user?.firstName || req.user?.first_name || ''} ${req.user?.lastName || req.user?.last_name || ''}`.trim()
-          || req.user?.email
-          || identity
+        displayName
       }
     });
 
     if (!token) {
       return res.status(500).json({ error: { message: 'Failed to generate access token' } });
     }
+
+    await upsertJoinPresence({
+      sessionId: id,
+      joinIdentity: identity,
+      displayName,
+      isGuest: false
+    });
 
     const sessionTitle = await buildSupervisionSessionTitle(id, row);
 
@@ -1036,6 +1301,8 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       roomMode: useLobby ? 'lobby' : 'main',
       lobbyEnabledForSession: !skipLobbyForSupervisee,
       videoConfigured: true,
+      activeParticipants: alreadyPresent ? activeCount : activeCount + 1,
+      maxParticipants: maxCapacity,
       diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
     });
   } catch (e) {

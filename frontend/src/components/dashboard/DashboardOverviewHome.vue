@@ -83,6 +83,7 @@
         @navigate="navigate"
         @book="onBookSchedule"
         @book-virtual="onBookVirtual"
+        @join="onJoinEvent"
       />
       <OverviewPayPeriodCard
         v-if="showPayroll"

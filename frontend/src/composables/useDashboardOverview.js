@@ -172,16 +172,20 @@ export function useDashboardOverview(opts = {}) {
       const startMs = parseAt(e.startAt || e.startsAt);
       const endMs = parseAt(e.endAt || e.endsAt);
       if (!isSameLocalDay(startMs, ymd) && !isSameLocalDay(endMs, ymd)) continue;
+      const sessionType = String(e.sessionType || e.session_type || '').trim();
+      const who = String(e.counterpartyName || e.superviseeName || e.supervisorName || '').trim();
       items.push({
         id: `supv-${e.id || startMs}`,
         kind: 'supervision',
-        title: e.title || 'Supervision',
-        subtitle: e.sessionType || e.superviseeName || '',
+        title: who ? `Supervision · ${who}` : (e.title || 'Supervision'),
+        subtitle: sessionType ? `Supervision (${sessionType})` : 'Supervision',
         startMs,
         endMs,
         timeLabel: formatTimeRange(startMs, endMs),
         status: statusForWindow(startMs, endMs, now),
-        joinUrl: e.joinUrl || e.meetingUrl || null
+        joinUrl: e.joinUrl || e.meetingUrl || null,
+        modality: e.modality || null,
+        sessionType
       });
     }
 

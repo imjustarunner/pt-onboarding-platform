@@ -8740,11 +8740,14 @@ const schoolAssignmentsInCell = (dayName, hour) => {
 };
 
 const supervisionReplacesSchoolAssignment = (session, assignment) => {
+  // Supervision always takes the calendar cell — do not stack over school assignment blocks
+  // (including virtual sessions while the provider is assigned to a school).
   const modality = String(session?.modality || '').trim().toLowerCase();
-  if (modality === 'virtual') return false;
+  if (modality === 'virtual' || modality === 'telehealth' || !modality) return true;
   const loc = String(session?.locationText || '').trim().toLowerCase();
   const schoolName = String(assignment?.schoolName || '').trim().toLowerCase();
-  if (!loc || !schoolName) return false;
+  if (!schoolName) return true;
+  if (!loc) return true;
   return loc.includes(schoolName) || schoolName.includes(loc);
 };
 
@@ -17418,11 +17421,16 @@ const startAppVideoMeetingFromGrid = async (session) => {
       supvAppVideoError.value = data?.error?.message || data?.error || 'Video credentials were incomplete.';
       return;
     }
-    // Prefer full branded join room for group sessions when org slug is available.
+    // Open the branded join page (guest-capable opaque token) so a fresh tab
+    // does not require re-login. Prefer join_token over numeric id.
     const sessionType = String(data.sessionType || session?.sessionType || session?.session_type || '').toLowerCase();
-    if (sessionType === 'group' && supvAppVideoOrgSlug.value) {
+    const joinKey = String(
+      session?.joinToken || session?.join_token || data.joinToken || data.join_token || sid
+    ).trim();
+    const opaqueJoin = joinKey && !/^\d+$/.test(joinKey);
+    if (supvAppVideoOrgSlug.value && (sessionType === 'group' || opaqueJoin)) {
       await logSupvMeetingLifecycle({ sessionId: sid, eventType: 'opened' });
-      const joinPath = `/${supvAppVideoOrgSlug.value}/join/supervision/${sid}`;
+      const joinPath = `/${supvAppVideoOrgSlug.value}/join/supervision/${encodeURIComponent(joinKey)}`;
       window.open(joinPath, '_blank', 'noopener');
       return;
     }

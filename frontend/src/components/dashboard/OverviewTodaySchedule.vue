@@ -77,7 +77,17 @@
             </div>
           </div>
         </div>
-        <span class="ov-status" :class="`ov-status--${item.status}`">{{ statusLabel(item.status) }}</span>
+        <div class="ov-timeline-actions">
+          <button
+            v-if="canJoinItem(item)"
+            type="button"
+            class="ov-join-btn"
+            @click.stop="$emit('join', item)"
+          >
+            Join
+          </button>
+          <span class="ov-status" :class="`ov-status--${item.status}`">{{ statusLabel(item.status) }}</span>
+        </div>
       </li>
     </ul>
 
@@ -110,7 +120,7 @@ defineProps({
   /** When true, show Book virtual (calendar telehealth booking) CTA. */
   showVirtualBook: { type: Boolean, default: false }
 });
-defineEmits(['navigate', 'book', 'book-virtual']);
+defineEmits(['navigate', 'book', 'book-virtual', 'join']);
 
 const brandingStore = useBrandingStore();
 
@@ -123,6 +133,12 @@ const itemLogo = (item) => {
   const id = Number(item?.logoAgencyId || 0);
   if (!id) return null;
   return brandingStore.getOrganizationOwnIconUrl(id) || null;
+};
+
+const canJoinItem = (item) => {
+  if (!String(item?.joinUrl || '').trim()) return false;
+  // Supervision join links work as guest tokens — show Join whenever a link exists.
+  return String(item?.kind || '').toLowerCase() === 'supervision';
 };
 
 const statusLabel = (s) => {
@@ -362,6 +378,23 @@ const statusLabel = (s) => {
   color: #6b7280;
   margin-top: 1px;
 }
+.ov-timeline-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.ov-join-btn {
+  border: none;
+  border-radius: 999px;
+  background: #15803d;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.ov-join-btn:hover { background: #166534; }
 .ov-status {
   font-size: 11px;
   font-weight: 600;

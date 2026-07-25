@@ -4,7 +4,7 @@
       <div class="gsl__header-left">
         <BrandingLogo size="small" class="gsl__logo" />
         <div>
-          <h1>{{ sessionTitle || 'Group Supervision' }}</h1>
+          <h1>{{ sessionTitle || (isIndividualSession ? 'Supervision' : 'Group Supervision') }}</h1>
           <p class="gsl__meta">
             <span v-if="sessionMeta">{{ sessionMeta }}</span>
             <span class="gsl__live">● Live</span>
@@ -53,8 +53,8 @@
       />
     </div>
 
-    <div class="gsl__main">
-      <section class="gsl__stage-wrap">
+    <div class="gsl__main" :class="{ 'gsl__main--individual': isIndividualSession }">
+      <section v-if="showPresentationStage" class="gsl__stage-wrap">
         <div class="gsl__stage">
           <template v-if="externalEmbedUrl">
             <iframe
@@ -148,7 +148,8 @@ const props = defineProps({
   isPresenter: { type: Boolean, default: false },
   isInLobby: { type: Boolean, default: false },
   lobbyEnabledForSession: { type: Boolean, default: false },
-  participantHint: { type: String, default: '' }
+  participantHint: { type: String, default: '' },
+  joinIdentity: { type: String, default: '' }
 });
 
 const emit = defineEmits(['leave', 'connected']);
@@ -165,14 +166,26 @@ const activity = ref([]);
 const pollTimer = ref(null);
 const lifecyclePosted = ref(false);
 
+const sessionTypeNorm = computed(() => String(props.sessionMeta || '').trim().toLowerCase());
+const isIndividualSession = computed(() => {
+  const t = sessionTypeNorm.value;
+  return !t || t === 'individual' || t === '1:1' || t === 'one_on_one';
+});
+const showPresentationStage = computed(() => !isIndividualSession.value);
+
 const showLobbyPanel = computed(() =>
   props.isSupervisor && props.lobbyEnabledForSession && !props.isInLobby
 );
 const canControlSlides = computed(() =>
-  !viewAsAttendee.value && (props.isSupervisor || props.isPresenter) && slides.value.length > 0
+  showPresentationStage.value
+  && !viewAsAttendee.value
+  && (props.isSupervisor || props.isPresenter)
+  && slides.value.length > 0
 );
 const showPresenterNotes = computed(() =>
-  !viewAsAttendee.value && (props.isPresenter || props.isSupervisor)
+  showPresentationStage.value
+  && !viewAsAttendee.value
+  && (props.isPresenter || props.isSupervisor)
 );
 const caseSummary = computed(() => presentation.value?.caseSummary || {});
 const slidePositionLabel = computed(() => {
@@ -242,14 +255,17 @@ function onVideoConnected() {
 
 async function refreshPresentation() {
   const sid = props.supervisionSessionId;
-  if (!sid || props.isInLobby) return;
+  if (!sid || props.isInLobby || isIndividualSession.value) return;
   try {
-    const { data } = await api.get(`/supervision/sessions/${sid}/presentation-state`, { skipGlobalLoading: true });
+    const { data } = await api.get(`/supervision/sessions/${sid}/presentation-state`, {
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
     presentation.value = data.presentation || null;
     slides.value = data.presentation?.slides || [];
     currentSlide.value = data.currentSlide || slides.value[0] || null;
   } catch {
-    // ignore until presentation exists
+    // ignore until presentation exists (guests / no slides)
   }
 }
 
@@ -406,6 +422,15 @@ onUnmounted(() => {
   gap: 14px;
   flex: 1;
   min-height: 0;
+}
+.gsl__main--individual {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+.gsl__main--individual .gsl__sidebar {
+  max-height: none;
 }
 .gsl__stage {
   position: relative;

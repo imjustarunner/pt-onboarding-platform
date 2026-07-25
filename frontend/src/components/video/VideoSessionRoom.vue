@@ -72,6 +72,16 @@
         >
           {{ hideSelfView ? 'Show me' : 'Hide me' }}
         </button>
+        <button
+          type="button"
+          class="vsr__ctrl"
+          :aria-pressed="sharingScreen"
+          :disabled="!sessionReady"
+          :title="sharingScreen ? 'Stop sharing your screen' : 'Share your screen'"
+          @click="toggleScreenShare"
+        >
+          {{ sharingScreen ? 'Stop share' : 'Share screen' }}
+        </button>
         <slot name="extra-controls" />
       </div>
     </template>
@@ -116,8 +126,11 @@ const publishVideo = ref(true);
 const hideSelfView = ref(false);
 const hasRemote = ref(false);
 const remoteName = ref('');
+const sharingScreen = ref(false);
+const sessionReady = ref(false);
 
 let session = null;
+let screenPublisher = null;
 let publisher = null;
 const subscribers = new Map();
 
@@ -296,6 +309,7 @@ async function connect() {
     });
 
     connecting.value = false;
+    sessionReady.value = true;
     emit('connected');
   } catch (err) {
     console.error('[VideoSessionRoom] connect failed', {
@@ -304,6 +318,7 @@ async function connect() {
       message: stripSecrets(err?.message)
     });
     connecting.value = false;
+    sessionReady.value = false;
     const sanitized = sanitizeVideoError(err);
     errorMessage.value = sanitized.message;
     errorMeta.value = sanitized;
@@ -311,8 +326,70 @@ async function connect() {
   }
 }
 
+function stopScreenShare() {
+  if (!screenPublisher) {
+    sharingScreen.value = false;
+    return;
+  }
+  try {
+    session?.unpublish(screenPublisher);
+  } catch {
+    /* ignore */
+  }
+  try {
+    screenPublisher.destroy();
+  } catch {
+    /* ignore */
+  }
+  screenPublisher = null;
+  sharingScreen.value = false;
+}
+
+async function toggleScreenShare() {
+  if (!session || !sessionReady.value) return;
+  if (sharingScreen.value) {
+    stopScreenShare();
+    return;
+  }
+  try {
+    const mod = await import('@vonage/client-sdk-video');
+    const OT = mod?.default || mod;
+    await new Promise((resolve, reject) => {
+      screenPublisher = OT.initPublisher(
+        null,
+        {
+          videoSource: 'screen',
+          publishAudio: false,
+          name: `${props.localName || 'You'} (screen)`,
+          insertMode: 'append',
+          width: '100%',
+          height: '100%'
+        },
+        (err) => (err ? reject(err) : resolve())
+      );
+    });
+    screenPublisher.on('mediaStopped', () => {
+      stopScreenShare();
+    });
+    await new Promise((resolve, reject) => {
+      session.publish(screenPublisher, (err) => (err ? reject(err) : resolve()));
+    });
+    sharingScreen.value = true;
+  } catch (err) {
+    console.error('[VideoSessionRoom] screen share failed', err);
+    stopScreenShare();
+    const name = String(err?.name || '');
+    const msg = String(err?.message || '');
+    errorMessage.value = name.includes('MEDIA_ACCESS') || /permission|denied|blocked/i.test(msg)
+      ? 'Screen share was blocked. Allow screen sharing in your browser, then try again.'
+      : (msg || 'Could not share your screen.');
+  }
+}
+
 function disconnect(emitEvent = true) {
   try {
+    stopScreenShare();
+    sessionReady.value = false;
     if (publisher) {
       try {
         session?.unpublish(publisher);
@@ -388,8 +465,10 @@ defineExpose({
   disconnect,
   toggleMic,
   toggleCamera,
+  toggleScreenShare,
   publishAudio,
-  publishVideo
+  publishVideo,
+  sharingScreen
 });
 </script>
 
