@@ -22,7 +22,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onUnmounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import GroupSupervisionLiveRoom from '../../components/supervision/GroupSupervisionLiveRoom.vue';
@@ -50,6 +50,7 @@ const isSupervisor = ref(false);
 const isPresenter = ref(false);
 const roomMode = ref('main');
 const lobbyEnabledForSession = ref(false);
+const joinAttemptedForPath = ref('');
 
 const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
 
@@ -113,7 +114,28 @@ async function resolveAndRedirect() {
   }
 }
 
-async function fetchTokenAndJoin() {
+async function ensureAuthenticatedSession() {
+  if (authStore.isAuthenticated) return true;
+  try {
+    const resp = await api.get('/users/me', { skipAuthRedirect: true, skipGlobalLoading: true });
+    const u = resp?.data || null;
+    if (u && (u.id || u.email)) {
+      authStore.setAuth(null, u, localStorage.getItem('sessionId') || null);
+      return true;
+    }
+  } catch {
+    // route to login below
+  }
+  const slug = organizationSlug.value;
+  if (slug) {
+    router.replace(`/${slug}/login?redirect=${encodeURIComponent(route.fullPath)}`);
+  } else {
+    router.replace('/login');
+  }
+  return false;
+}
+
+async function fetchTokenAndJoin({ retried = false } = {}) {
   const sid = sessionId.value;
   if (!sid) {
     error.value = 'Invalid session';
@@ -134,9 +156,38 @@ async function fetchTokenAndJoin() {
       admissionPollInterval.value = setInterval(pollAdmissionStatus, 2000);
     }
   } catch (e) {
+    if (Number(e?.response?.status || 0) === 401 && !retried) {
+      authStore.clearAuth();
+      const ok = await ensureAuthenticatedSession();
+      if (!ok) return;
+      await fetchTokenAndJoin({ retried: true });
+      return;
+    }
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
   }
 }
+
+async function runJoinFlowForCurrentRoute() {
+  const pathKey = String(route.fullPath || '');
+  if (joinAttemptedForPath.value === pathKey) return;
+  joinAttemptedForPath.value = pathKey;
+
+  if (!organizationSlug.value) {
+    await resolveAndRedirect();
+    return;
+  }
+  const ok = await ensureAuthenticatedSession();
+  if (!ok) return;
+  await fetchTokenAndJoin();
+}
+
+watch(
+  () => [route.fullPath, organizationSlug.value, sessionId.value],
+  () => {
+    void runJoinFlowForCurrentRoute();
+  },
+  { immediate: true }
+);
 
 onUnmounted(() => {
   if (admissionPollInterval.value) {
@@ -152,19 +203,6 @@ function onDisconnected() {
     router.push('/dashboard');
   }
 }
-
-onMounted(async () => {
-  if (!organizationSlug.value) {
-    await resolveAndRedirect();
-    return;
-  }
-  if (!authStore.isAuthenticated) {
-    const slug = organizationSlug.value;
-    router.replace(`/${slug}/login?redirect=${encodeURIComponent(route.fullPath)}`);
-    return;
-  }
-  await fetchTokenAndJoin();
-});
 </script>
 
 <style scoped>

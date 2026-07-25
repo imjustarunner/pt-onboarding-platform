@@ -4942,6 +4942,49 @@ export const getUserScheduleSummary = async (req, res, next) => {
       /* appointments table optional until migration */
     }
 
+    // Fall school visit bookings: attach school address + maps link for dashboard/calendar.
+    try {
+      const bookedSchoolAgencyIds = new Set();
+      for (const ev of scheduleEvents || []) {
+        if (String(ev?.kind || '').toUpperCase() !== 'FALL_CHECKIN_BOOKED') continue;
+        const aid = Number(ev?.agencyId || 0);
+        if (aid > 0) bookedSchoolAgencyIds.add(aid);
+      }
+      if (bookedSchoolAgencyIds.size) {
+        const ids = Array.from(bookedSchoolAgencyIds.values());
+        const placeholders = ids.map(() => '?').join(',');
+        const [schoolRows] = await pool.execute(
+          `SELECT id, name, street_address, address, mailing_address, city, state, zip
+           FROM agencies
+           WHERE id IN (${placeholders})`,
+          ids
+        );
+        const schoolById = new Map((schoolRows || []).map((r) => [Number(r.id), r]));
+        scheduleEvents = (scheduleEvents || []).map((ev) => {
+          if (String(ev?.kind || '').toUpperCase() !== 'FALL_CHECKIN_BOOKED') return ev;
+          const row = schoolById.get(Number(ev?.agencyId || 0));
+          if (!row) return ev;
+          const locationAddress = [
+            row.street_address || row.address || row.mailing_address,
+            [row.city, row.state].filter(Boolean).join(', '),
+            row.zip,
+          ].filter(Boolean).join(' ').trim() || null;
+          const mapsQuery = locationAddress || String(row.name || '').trim() || null;
+          const mapsUrl = mapsQuery
+            ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`
+            : null;
+          return {
+            ...ev,
+            schoolName: String(row.name || '').trim() || null,
+            locationAddress,
+            mapsUrl,
+          };
+        });
+      }
+    } catch (enrichErr) {
+      console.warn('[schedule-summary] fall check-in school address enrich failed', enrichErr?.message || enrichErr);
+    }
+
     const fullPayload = {
       ok: true,
       detailLevel: 'full',

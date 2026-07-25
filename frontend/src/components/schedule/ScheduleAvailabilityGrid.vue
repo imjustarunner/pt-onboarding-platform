@@ -792,9 +792,10 @@
             :class="[
               `cell-block-${item.kind}`,
               item.isOfficeBlock ? `cell-block-office cell-block-office--${item.officeStatus || 'reserved'}` : '',
-              item.isCancelled ? 'cell-block-sevt--cancelled' : ''
+              item.isCancelled ? 'cell-block-sevt--cancelled' : '',
+              fallCheckinEventClass(item)
             ]"
-            :style="cellBlockStyle(item)"
+            :style="agendaItemStyle(item)"
             role="button"
             tabindex="0"
             @click="onCellBlockClick($event, item, agendaDayName, item.hour, 0)"
@@ -802,11 +803,20 @@
           >
             <div class="sched-agenda__time">{{ item.timeLabel }}</div>
             <div class="sched-agenda__body">
-              <div class="sched-agenda__title">
-                {{ item.isOfficeBlock ? (item.officeRoomLabel || item.shortLabel || item.title) : (item.shortLabel || item.title) }}
+              <div class="sched-agenda__title-row">
+                <img
+                  v-if="agendaItemLogo(item)"
+                  class="sched-agenda__logo"
+                  :src="agendaItemLogo(item)"
+                  alt=""
+                />
+                <div class="sched-agenda__title">
+                  {{ agendaItemTitle(item) }}
+                </div>
               </div>
               <div v-if="item.isOfficeBlock" class="sched-agenda__meta">{{ item.officeStatusLabel }}</div>
               <div v-else-if="item.kind === 'peerbusy'" class="sched-agenda__meta muted">Peer busy</div>
+              <div v-else-if="agendaItemMeta(item)" class="sched-agenda__meta">{{ agendaItemMeta(item) }}</div>
             </div>
           </li>
         </ul>
@@ -857,7 +867,8 @@
                   `cell-block-${b.kind}`,
                   b.isOfficeBlock ? `cell-block-office cell-block-office--${b.officeStatus || 'reserved'}` : '',
                   b.peerActivityType ? `cell-block-peer-${b.peerActivityType}` : '',
-                  b.isCancelled ? 'cell-block-sevt--cancelled' : ''
+                  b.isCancelled ? 'cell-block-sevt--cancelled' : '',
+                  fallCheckinEventClass(b)
                 ]"
                 :style="cellBlockStyle(b)"
                 :title="b.title"
@@ -1053,6 +1064,7 @@
                   b.peerActivityType ? `cell-block-peer-${b.peerActivityType}` : '',
                   b.segmentClass ? `cell-block-segment-${b.segmentClass}` : '',
                   b.isCancelled ? 'cell-block-sevt--cancelled' : '',
+                  fallCheckinEventClass(b),
                   {
                     'cell-block-hovered': isBlockHovered(d, slot.hour, b),
                     'cell-block-peer-interactive': b.peerInteractive,
@@ -8301,14 +8313,112 @@ const isScheduleEventCancelled = (ev) => (
   || String(ev?.status || '').trim().toUpperCase() === 'CANCELLED'
 );
 
+const fallCheckinEventKind = (blockOrEvent) => String(
+  blockOrEvent?.eventKind || blockOrEvent?.kind || ''
+).trim().toUpperCase();
+
+const isFallCheckinPreslotBlock = (blockOrEvent) => (
+  fallCheckinEventKind(blockOrEvent) === 'FALL_CHECKIN_PRESLOT'
+);
+
+const isFallCheckinBookedBlock = (blockOrEvent) => (
+  fallCheckinEventKind(blockOrEvent) === 'FALL_CHECKIN_BOOKED'
+);
+
+const fallCheckinSchoolFromTitle = (title) => {
+  const raw = String(title || '').trim();
+  if (!raw) return '';
+  const dashMatch = raw.match(/school visit\s*[—-]\s*(.+)$/i);
+  if (dashMatch) return String(dashMatch[1] || '').trim();
+  if (/^in person\s+/i.test(raw)) return raw.replace(/^in person\s+/i, '').trim();
+  if (/^virtual\s+/i.test(raw)) return raw.replace(/^virtual\s+/i, '').trim();
+  return '';
+};
+
+const fallCheckinModalityLabel = (title) => (
+  /virtual/i.test(String(title || '')) ? 'Virtual' : 'In person'
+);
+
+const fallCheckinDisplayTitle = (blockOrEvent) => {
+  const raw = String(blockOrEvent?.title || '').trim();
+  if (isFallCheckinPreslotBlock(blockOrEvent)) return 'Open visit slot';
+  if (isFallCheckinBookedBlock(blockOrEvent)) {
+    const school = fallCheckinSchoolFromTitle(raw) || 'School';
+    return `${school} · ${fallCheckinModalityLabel(raw)}`;
+  }
+  return raw;
+};
+
+const fallCheckinEventClass = (blockOrEvent) => {
+  if (isFallCheckinPreslotBlock(blockOrEvent)) return 'cell-block-sevt--fall-preslot sched-agenda__item--visit-hold';
+  if (isFallCheckinBookedBlock(blockOrEvent)) return 'cell-block-sevt--fall-booked sched-agenda__item--visit-booked';
+  return '';
+};
+
+const agendaItemTitle = (item) => {
+  if (item?.isOfficeBlock) return item.officeRoomLabel || item.shortLabel || item.title;
+  if (isFallCheckinPreslotBlock(item) || isFallCheckinBookedBlock(item)) return fallCheckinDisplayTitle(item);
+  return item.shortLabel || item.title;
+};
+
+const agendaItemMeta = (item) => {
+  if (isFallCheckinPreslotBlock(item)) return 'Open until a school books this slot';
+  if (isFallCheckinBookedBlock(item)) return 'Booked Fall School Check-in';
+  return '';
+};
+
+const agendaItemLogo = (item) => {
+  if (!isFallCheckinBookedBlock(item)) return null;
+  const aid = Number(item?.agencyId || 0);
+  if (!aid) return null;
+  return agencyIconUrlById(aid);
+};
+
+const agendaItemStyle = (b) => {
+  const style = cellBlockStyle({ ...b, timedSlice: null, spanBlock: false, shareRow: false });
+  delete style.position;
+  delete style.top;
+  delete style.left;
+  delete style.right;
+  delete style.width;
+  delete style.height;
+  delete style.zIndex;
+  delete style.flex;
+  delete style.minHeight;
+  delete style.alignItems;
+  delete style.paddingTop;
+  return style;
+};
+
 const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = false } = {}) => {
   const raw = String(ev?.title || '').trim() || 'Event';
   const eventKind = String(ev?.kind || '').trim().toUpperCase();
+  if (eventKind === 'FALL_CHECKIN_PRESLOT') {
+    return runningAppointmentLabel({
+      segmentClass,
+      startAt: ev?.startAt,
+      endAt: ev?.endAt,
+      typeLabel: 'Open slot',
+      whoLabel: 'School visit',
+      max: 56,
+      multiline
+    });
+  }
+  if (eventKind === 'FALL_CHECKIN_BOOKED') {
+    const school = fallCheckinSchoolFromTitle(raw) || 'School';
+    return runningAppointmentLabel({
+      segmentClass,
+      startAt: ev?.startAt,
+      endAt: ev?.endAt,
+      typeLabel: fallCheckinModalityLabel(raw),
+      whoLabel: school,
+      max: 56,
+      multiline
+    });
+  }
   let typePrefix = 'Event';
   if (eventKind === 'TEAM_MEETING') typePrefix = 'Meeting';
   else if (eventKind === 'HUDDLE') typePrefix = 'Huddle';
-  else if (eventKind === 'FALL_CHECKIN_PRESLOT') typePrefix = 'School visit';
-  else if (eventKind === 'FALL_CHECKIN_BOOKED') typePrefix = 'School visit';
   else if (eventKind === 'SCHEDULE_HOLD') typePrefix = ev?.allDay ? 'All-day block' : 'Hold';
   else if (eventKind === 'INDIRECT_SERVICES') typePrefix = 'Indirect';
   else if (eventKind === 'PERSONAL_EVENT' && isClientSessionScheduleEvent(ev)) typePrefix = 'Session';
@@ -14544,6 +14654,10 @@ const scheduleAgencyIconUrls = computed(() => {
     const id = Number(row?.id || 0);
     if (id > 0) ids.add(id);
   }
+  for (const ev of summary.value?.scheduleEvents || []) {
+    const id = Number(ev?.agencyId || ev?._agencyId || 0);
+    if (id > 0) ids.add(id);
+  }
   // Re-render when hydrated agencies or lazy icon paths arrive.
   void agencyStore.currentAgency;
   void agencyStore.userAgencies;
@@ -14859,7 +14973,15 @@ const cellBlockStyle = (b) => {
   }
   if (kind === 'sevt') {
     const eventKind = String(b?.eventKind || '').toUpperCase();
-    if (eventKind === 'TEAM_MEETING') {
+    if (eventKind === 'FALL_CHECKIN_PRESLOT') {
+      style['--blockFill'] = dark ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)';
+      style['--blockBorder'] = dark ? 'rgba(148, 163, 184, 0.72)' : 'rgba(100, 116, 139, 0.72)';
+      style['--blockBorderStyle'] = 'dashed';
+    } else if (eventKind === 'FALL_CHECKIN_BOOKED') {
+      style['--blockFill'] = dark ? 'rgba(52, 211, 153, 0.42)' : 'rgba(16, 185, 129, 0.24)';
+      style['--blockBorder'] = dark ? 'rgba(110, 231, 183, 0.92)' : 'rgba(5, 150, 105, 0.78)';
+      style['--blockTypeStripe'] = dark ? 'rgba(110, 231, 183, 0.95)' : 'rgba(5, 150, 105, 0.92)';
+    } else if (eventKind === 'TEAM_MEETING') {
       style['--blockFill'] = dark ? 'rgba(216, 180, 254, 0.48)' : 'rgba(147, 51, 234, 0.22)';
       style['--blockBorder'] = dark ? 'rgba(196, 181, 253, 0.85)' : 'rgba(126, 34, 206, 0.52)';
     } else if (eventKind === 'HUDDLE') {
@@ -14932,6 +15054,7 @@ const scheduleSubjectAgencyIdSet = computed(() => {
 const hasAgencyBadge = (block) => {
   const aid = Number(block?.agencyId || 0);
   if (!aid) return false;
+  if (isFallCheckinBookedBlock(block)) return true;
   const allowed = scheduleSubjectAgencyIdSet.value;
   // When we know the subject's memberships, hide logos for unrelated tenants.
   if (allowed.size > 0 && !allowed.has(aid)) return false;
@@ -19918,6 +20041,30 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   font-weight: 800;
   color: var(--text, #0f172a);
 }
+.sched-agenda__title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sched-agenda__logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  flex: 0 0 auto;
+}
+.sched-agenda__item--visit-hold {
+  border-style: dashed;
+  background: rgba(148, 163, 184, 0.12);
+}
+.sched-agenda__item--visit-booked {
+  border-color: rgba(5, 150, 105, 0.45);
+  background: rgba(16, 185, 129, 0.12);
+  box-shadow: inset 4px 0 0 rgba(5, 150, 105, 0.85);
+}
 .sched-agenda__meta {
   margin-top: 2px;
   font-size: 12px;
@@ -21147,7 +21294,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   flex: 1 1 0;
   min-width: 0;
   border-radius: 8px;
-  border: 1px solid transparent;
+  border: 1px var(--blockBorderStyle, solid) var(--blockBorder, transparent);
   padding: 3px 7px;
   display: flex;
   align-items: center;
@@ -21543,6 +21690,18 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .peer-activity-body { min-width: 0; }
 .cell-block-gevt { background: rgba(191, 219, 254, 0.45); border-color: rgba(59, 130, 246, 0.2); cursor: pointer; }
 .cell-block-sevt { background: var(--blockFill, rgba(167, 243, 208, 0.55)); border-color: var(--blockBorder, rgba(16, 185, 129, 0.22)); color: rgba(6, 95, 70, 0.95); cursor: pointer; }
+.cell-block-sevt--fall-preslot {
+  background: var(--blockFill, rgba(148, 163, 184, 0.14));
+  border-color: var(--blockBorder, rgba(100, 116, 139, 0.72));
+  border-style: dashed;
+  color: rgba(51, 65, 85, 0.95);
+}
+.cell-block-sevt--fall-booked {
+  background: var(--blockFill, rgba(16, 185, 129, 0.24));
+  border-color: var(--blockBorder, rgba(5, 150, 105, 0.78));
+  color: rgba(6, 78, 59, 0.98);
+  box-shadow: inset 3px 0 0 var(--blockTypeStripe, rgba(5, 150, 105, 0.92));
+}
 .cell-block-sevt--cancelled {
   opacity: 0.62;
   text-decoration: line-through;

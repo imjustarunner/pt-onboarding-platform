@@ -1027,7 +1027,7 @@ const routes = [
     path: '/:organizationSlug/join/supervision/:sessionId',
     name: 'OrganizationJoinSupervision',
     component: () => import('../views/supervision/JoinSupervisionView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { requiresGuest: false, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/supervision/sessions/:sessionId/presentation',

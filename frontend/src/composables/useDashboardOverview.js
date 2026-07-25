@@ -53,6 +53,18 @@ function statusForWindow(startMs, endMs, now = Date.now()) {
   return 'upcoming';
 }
 
+function fallCheckinModalityFromTitle(title) {
+  return /virtual/i.test(String(title || '')) ? 'Virtual' : 'In person';
+}
+
+function fallCheckinSchoolFromTitle(title) {
+  const raw = String(title || '').trim();
+  if (!raw) return '';
+  const dashMatch = raw.match(/school visit\s*[—-]\s*(.+)$/i);
+  if (dashMatch) return String(dashMatch[1] || '').trim();
+  return '';
+}
+
 /**
  * @param {object} opts
  * @param {import('vue').Ref|import('vue').ComputedRef} opts.userId
@@ -118,15 +130,37 @@ export function useDashboardOverview(opts = {}) {
       const startMs = parseAt(e.startAt || e.startsAt || e.startDate);
       const endMs = parseAt(e.endAt || e.endsAt || e.endDate);
       if (!isSameLocalDay(startMs, ymd) && !isSameLocalDay(endMs, ymd)) continue;
+      const eventKind = String(e.kind || '').trim().toUpperCase();
+      const isPreslot = eventKind === 'FALL_CHECKIN_PRESLOT';
+      const isBookedVisit = eventKind === 'FALL_CHECKIN_BOOKED';
+      const schoolName = String(e.schoolName || fallCheckinSchoolFromTitle(e.title) || '').trim();
+      const modality = fallCheckinModalityFromTitle(e.title);
+      let title = e.title || e.kind || 'Scheduled event';
+      let subtitle = e.location || e.subtitle || '';
+      if (isPreslot) {
+        title = 'Open visit slot';
+        subtitle = 'Open until a school books';
+      } else if (isBookedVisit) {
+        title = schoolName ? `${schoolName} · ${modality}` : title;
+        subtitle = String(e.locationAddress || e.description || '').trim() || subtitle;
+      }
       items.push({
         id: `sched-${e.kind || 'evt'}-${e.id || startMs}`,
         kind: String(e.kind || 'event').toLowerCase(),
-        title: e.title || e.kind || 'Scheduled event',
-        subtitle: e.location || e.subtitle || '',
+        eventKind,
+        title,
+        subtitle,
         startMs,
         endMs,
         timeLabel: formatTimeRange(startMs, endMs),
-        status: statusForWindow(startMs, endMs, now)
+        status: statusForWindow(startMs, endMs, now),
+        featured: isBookedVisit,
+        preslot: isPreslot,
+        logoAgencyId: isBookedVisit ? Number(e.agencyId || 0) || null : null,
+        schoolName: schoolName || null,
+        locationAddress: String(e.locationAddress || '').trim() || null,
+        mapsUrl: String(e.mapsUrl || '').trim() || null,
+        modality: isBookedVisit ? modality : null
       });
     }
 

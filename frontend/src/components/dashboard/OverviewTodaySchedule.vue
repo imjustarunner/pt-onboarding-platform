@@ -36,14 +36,46 @@
       </div>
     </div>
     <ul v-else class="ov-timeline">
-      <li v-for="item in items" :key="item.id" class="ov-timeline-row" :class="`is-${item.status}`">
+      <li
+        v-for="item in items"
+        :key="item.id"
+        class="ov-timeline-row"
+        :class="[
+          `is-${item.status}`,
+          item.featured ? 'is-featured-visit' : '',
+          item.preslot ? 'is-preslot' : ''
+        ]"
+      >
         <div class="ov-timeline-rail" aria-hidden="true">
           <span class="ov-timeline-dot" />
         </div>
         <div class="ov-timeline-time">{{ item.timeLabel }}</div>
         <div class="ov-timeline-body">
-          <div class="ov-timeline-title">{{ item.title }}</div>
-          <div v-if="item.subtitle" class="ov-timeline-sub">{{ item.subtitle }}</div>
+          <div class="ov-timeline-title-row">
+            <img
+              v-if="itemLogo(item)"
+              class="ov-timeline-logo"
+              :src="itemLogo(item)"
+              :alt="item.schoolName || ''"
+            />
+            <div class="ov-timeline-copy">
+              <div class="ov-timeline-title">{{ item.title }}</div>
+              <div v-if="item.subtitle && !item.featured" class="ov-timeline-sub">{{ item.subtitle }}</div>
+              <div v-if="item.featured && item.locationAddress" class="ov-timeline-address">
+                {{ item.locationAddress }}
+              </div>
+              <a
+                v-if="item.featured && item.mapsUrl"
+                class="ov-timeline-maps"
+                :href="item.mapsUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                @click.stop
+              >
+                Open in Google Maps ↗
+              </a>
+            </div>
+          </div>
         </div>
         <span class="ov-status" :class="`ov-status--${item.status}`">{{ statusLabel(item.status) }}</span>
       </li>
@@ -69,6 +101,8 @@
 </template>
 
 <script setup>
+import { useBrandingStore } from '../../store/branding';
+
 defineProps({
   items: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
@@ -76,6 +110,14 @@ defineProps({
   showVirtualBook: { type: Boolean, default: false }
 });
 defineEmits(['navigate', 'book', 'book-virtual']);
+
+const brandingStore = useBrandingStore();
+
+const itemLogo = (item) => {
+  const id = Number(item?.logoAgencyId || 0);
+  if (!id) return null;
+  return brandingStore.getOrganizationChromeIconUrl(id) || null;
+};
 
 const statusLabel = (s) => {
   if (s === 'completed') return 'Completed';
@@ -229,6 +271,61 @@ const statusLabel = (s) => {
   border-radius: 8px;
   border-bottom-color: transparent;
 }
+.ov-timeline-row.is-featured-visit {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.14), rgba(16, 185, 129, 0.04));
+  border: 1px solid rgba(5, 150, 105, 0.28);
+  border-radius: 12px;
+  margin: 4px 0;
+  padding: 12px 10px;
+  box-shadow: inset 4px 0 0 #059669;
+}
+.ov-timeline-row.is-featured-visit .ov-timeline-dot {
+  background: #059669;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+}
+.ov-timeline-row.is-preslot {
+  opacity: 0.82;
+}
+.ov-timeline-row.is-preslot .ov-timeline-title {
+  color: #64748b;
+  font-style: italic;
+}
+.ov-timeline-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.ov-timeline-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid #d1fae5;
+  flex: 0 0 auto;
+}
+.ov-timeline-copy {
+  min-width: 0;
+}
+.ov-timeline-address {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #334155;
+  font-weight: 500;
+}
+.ov-timeline-maps {
+  display: inline-flex;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #047857;
+  text-decoration: none;
+}
+.ov-timeline-maps:hover {
+  text-decoration: underline;
+}
 .ov-timeline-rail {
   display: flex;
   justify-content: center;
@@ -332,6 +429,17 @@ const statusLabel = (s) => {
   background: #1e1a2e;
   border-bottom-color: transparent;
 }
+[data-theme="dark"] .ov-timeline-row.is-featured-visit {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.18), rgba(15, 23, 42, 0.4));
+  border-color: rgba(52, 211, 153, 0.28);
+}
+[data-theme="dark"] .ov-timeline-logo {
+  background: #0f172a;
+  border-color: rgba(52, 211, 153, 0.35);
+}
+[data-theme="dark"] .ov-timeline-address { color: #cbd5e1; }
+[data-theme="dark"] .ov-timeline-maps { color: #6ee7b7; }
+[data-theme="dark"] .ov-timeline-row.is-preslot .ov-timeline-title { color: #94a3b8; }
 [data-theme="dark"] .ov-timeline-time { color: var(--text-secondary, #94a3b8); }
 [data-theme="dark"] .ov-timeline-title { color: var(--text-primary, #cbd5e1); }
 [data-theme="dark"] .ov-timeline-sub { color: var(--text-secondary, #94a3b8); }
