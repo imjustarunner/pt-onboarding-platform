@@ -622,6 +622,12 @@ const routes = [
     component: () => import('../views/PublicProviderFinderView.vue'),
     meta: { requiresGuest: false }
   },
+  {
+    path: '/supervision/sessions/:sessionId/presentation',
+    name: 'SupervisionPresentation',
+    component: () => import('../views/supervision/SupervisionPresentationBuilderView.vue'),
+    meta: { requiresAuth: true }
+  },
   // Join supervision (no org slug): resolve session → redirect to /{slug}/join/supervision/:id
   {
     path: '/join/supervision/:sessionId',
@@ -1021,6 +1027,12 @@ const routes = [
     path: '/:organizationSlug/join/supervision/:sessionId',
     name: 'OrganizationJoinSupervision',
     component: () => import('../views/supervision/JoinSupervisionView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/supervision/sessions/:sessionId/presentation',
+    name: 'OrganizationSupervisionPresentation',
+    component: () => import('../views/supervision/SupervisionPresentationBuilderView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {

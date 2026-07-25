@@ -86,6 +86,7 @@
           </div>
           <div class="invite-actions">
             <button type="button" class="btn btn-primary btn-sm btn-join-pulse" @click="joinSupervisionPrompt(item)">View session</button>
+            <button type="button" class="btn btn-secondary btn-sm" @click="openPresentationBuilder(item)">Build presentation</button>
             <button type="button" class="btn btn-secondary btn-sm" @click="dismissPresenterAssignment(item.presenterAssignmentId)">Dismiss</button>
           </div>
         </article>
@@ -2239,6 +2240,20 @@ const joinSupervisionPrompt = (prompt) => {
   }
   activeTab.value = 'my_schedule';
   router.replace({ query: { ...route.query, tab: 'my_schedule' } });
+};
+
+const openPresentationBuilder = (item) => {
+  const sid = Number(item?.sessionId || item?.session_id || 0);
+  if (!sid) return;
+  const slug = String(route.params?.organizationSlug || '').trim();
+  if (slug) {
+    router.push({
+      name: 'OrganizationSupervisionPresentation',
+      params: { organizationSlug: slug, sessionId: String(sid) }
+    });
+    return;
+  }
+  router.push(`/supervision/sessions/${sid}/presentation`);
 };
 
 const loadSupervisionPrompts = async () => {

@@ -7,10 +7,11 @@ import GoogleCalendarService from '../services/googleCalendar.service.js';
 import { fetchMeetTranscriptForSession } from '../services/googleMeetTranscript.service.js';
 import {
   isVideoConfigured,
-  createOrGetRoom,
   createOrGetRoomByUniqueName,
   createAccessTokenAsync,
-  listRoomParticipants
+  listRoomParticipants,
+  resolveVideoProjectId,
+  getVideoClientDiagnostics
 } from '../services/video.service.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
@@ -18,6 +19,7 @@ import { callGeminiText } from '../services/geminiText.service.js';
 import pool from '../config/database.js';
 import { isAdminLikeRole, isSupervisorActor } from '../utils/supervisorSchoolAccess.js';
 import { joinUrlForSupervision } from '../utils/joinToken.js';
+import SupervisionCasePresentation from '../models/SupervisionCasePresentation.model.js';
 
 function supervisionAppJoinUrl(sessionRow) {
   const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
@@ -30,6 +32,46 @@ function requireValid(req, res) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    return false;
+  }
+  return true;
+}
+
+function isTruthyFlag(v) {
+  return v === true || v === 1 || v === '1';
+}
+
+/** Actor must have supervisor privileges and group_supervision_eligible to manage group sessions. */
+async function assertCanManageGroupSupervision(req, res, { sessionType, existingSessionType } = {}) {
+  const nextType = String(sessionType || existingSessionType || '').trim().toLowerCase();
+  const involvesGroup = nextType === 'group' || String(existingSessionType || '').trim().toLowerCase() === 'group';
+  if (!involvesGroup) return true;
+
+  const actorId = Number(req.user?.id || 0);
+  if (!actorId) {
+    res.status(401).json({ error: { message: 'Not authenticated' } });
+    return false;
+  }
+
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'admin' || role === 'super_admin' || role === 'support') {
+    return true;
+  }
+
+  let actor = req.user;
+  if (actor?.group_supervision_eligible === undefined && actor?.groupSupervisionEligible === undefined) {
+    actor = await User.findById(actorId);
+  }
+  const eligible = isTruthyFlag(actor?.group_supervision_eligible) || isTruthyFlag(actor?.groupSupervisionEligible);
+  const privileged = isTruthyFlag(actor?.has_supervisor_privileges)
+    || isTruthyFlag(actor?.hasSupervisorPrivileges)
+    || String(actor?.role || '').toLowerCase() === 'supervisor'
+    || await isSupervisorActor({ userId: actorId, role: actor?.role || req.user?.role, user: actor });
+
+  if (!privileged || !eligible) {
+    res.status(403).json({
+      error: { message: 'Only group-supervision-eligible supervisors can book or edit group supervision sessions' }
+    });
     return false;
   }
   return true;
@@ -108,7 +150,7 @@ async function getUsersInAgencyMap({ agencyId, userIds = [] }) {
   return out;
 }
 
-async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeUserId }) {
+async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeUserId, sessionId = null }) {
   const role = String(req.user?.role || '').toLowerCase();
   const actorId = Number(req.user?.id || 0);
   const aId = Number(agencyId);
@@ -124,6 +166,31 @@ async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeU
   if (actorId === Number(superviseeUserId) || actorId === Number(supervisorUserId)) {
     const actorAgencies = await User.getAgencies(actorId);
     return (actorAgencies || []).some((a) => Number(a?.id) === aId);
+  }
+
+  // Group/triadic additional attendees (and presenters) may join/view the session.
+  const sid = Number(sessionId || 0);
+  if (sid && actorId) {
+    try {
+      const [attendee] = await pool.execute(
+        `SELECT 1 FROM supervision_session_attendees WHERE session_id = ? AND user_id = ? LIMIT 1`,
+        [sid, actorId]
+      );
+      if (attendee?.length) {
+        const actorAgencies = await User.getAgencies(actorId);
+        return (actorAgencies || []).some((a) => Number(a?.id) === aId);
+      }
+      const [presenter] = await pool.execute(
+        `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
+        [sid, actorId]
+      );
+      if (presenter?.length) {
+        const actorAgencies = await User.getAgencies(actorId);
+        return (actorAgencies || []).some((a) => Number(a?.id) === aId);
+      }
+    } catch {
+      // ignore schema gaps
+    }
   }
   return false;
 }
@@ -659,7 +726,8 @@ export const markSupervisionMeetingLifecycle = async (req, res, next) => {
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
       supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
@@ -833,7 +901,20 @@ export const getSupervisionJoinInfo = async (req, res, next) => {
 export const getSupervisionVideoToken = async (req, res, next) => {
   try {
     if (!isVideoConfigured()) {
-      return res.status(503).json({ error: { message: 'Video is not configured' } });
+      return res.status(503).json({
+        error: { message: 'Video is not configured' },
+        videoConfigured: false,
+        diagnostics: getVideoClientDiagnostics()
+      });
+    }
+
+    const projectId = resolveVideoProjectId();
+    if (!projectId) {
+      return res.status(503).json({
+        error: { message: 'Vonage Video Application ID is missing. Set VONAGE_APPLICATION_ID.' },
+        videoConfigured: false,
+        diagnostics: getVideoClientDiagnostics()
+      });
     }
 
     const ref = String(req.params.id || '').trim();
@@ -851,7 +932,8 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
       supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
@@ -866,16 +948,19 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     // (avoids admit flow issues). For group (3+), use lobby first, then admit.
     const skipLobbyForSupervisee = sessionType === 'individual' || sessionType === 'triadic';
     const useLobby = roomParam === 'lobby' || (!roomParam && !isSupervisor && !skipLobbyForSupervisee);
-    let roomResult;
+
+    let vonageSessionId = null;
+    let roomName = null;
 
     if (useLobby && !isSupervisor) {
-      const lobbyName = `supervision-${id}-lobby`;
-      roomResult = await createOrGetRoomByUniqueName(lobbyName);
+      roomName = `supervision-${id}-lobby`;
+      const lobbyRoom = await createOrGetRoomByUniqueName(roomName);
+      vonageSessionId = lobbyRoom?.sid || null;
     } else {
-      const mainName = row.twilio_room_unique_name || `supervision-${id}`;
-      roomResult = await createOrGetRoom({ sessionId: id, uniqueName: mainName });
+      roomName = row.twilio_room_unique_name || `supervision-${id}`;
+      vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
 
-      if (!isSupervisor && roomParam === 'main') {
+      if (!isSupervisor && roomParam === 'main' && !skipLobbyForSupervisee) {
         const [admitted] = await pool.execute(
           'SELECT 1 FROM supervision_session_video_admissions WHERE session_id = ? AND user_id = ? LIMIT 1',
           [id, actorUserId]
@@ -885,21 +970,47 @@ export const getSupervisionVideoToken = async (req, res, next) => {
         }
       }
 
-      if (!row.twilio_room_sid && roomParam !== 'lobby') {
-        await SupervisionSession.setVideoRoom(id, {
-          roomSid: roomResult.roomSid,
-          uniqueName: roomResult.uniqueName
-        });
+      if (!vonageSessionId) {
+        const roomResult = await createOrGetRoomByUniqueName(roomName);
+        vonageSessionId = roomResult?.sid || null;
+        if (vonageSessionId) {
+          await SupervisionSession.setVideoRoom(id, {
+            roomSid: vonageSessionId,
+            uniqueName: roomName
+          });
+        }
       }
     }
 
-    if (!roomResult) {
-      return res.status(500).json({ error: { message: 'Failed to create or get video room' } });
+    if (!vonageSessionId) {
+      return res.status(500).json({
+        error: { message: 'Failed to create or get video room' },
+        diagnostics: getVideoClientDiagnostics()
+      });
     }
 
+    let isPresenter = false;
+    try {
+      const [presenterRows] = await pool.execute(
+        `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
+        [id, actorUserId]
+      );
+      isPresenter = !!(presenterRows?.length);
+    } catch {
+      isPresenter = false;
+    }
+
+    const identity = `user-${actorUserId}`;
     const token = await createAccessTokenAsync({
-      identity: `user-${actorUserId}`,
-      roomName: roomResult.uniqueName
+      roomSid: vonageSessionId,
+      identity,
+      metadata: {
+        role: isSupervisor ? 'supervisor' : (isPresenter ? 'presenter' : 'participant'),
+        sessionId: id,
+        displayName: `${req.user?.firstName || req.user?.first_name || ''} ${req.user?.lastName || req.user?.last_name || ''}`.trim()
+          || req.user?.email
+          || identity
+      }
     });
 
     if (!token) {
@@ -908,24 +1019,25 @@ export const getSupervisionVideoToken = async (req, res, next) => {
 
     const sessionTitle = await buildSupervisionSessionTitle(id, row);
 
-    const payload = {
+    res.json({
+      ok: true,
       token: String(token).trim(),
-      roomName: roomResult.uniqueName,
-      roomSid: roomResult.roomSid,
+      sessionId: vonageSessionId,
+      applicationId: projectId,
+      apiKey: projectId,
+      roomName,
+      roomSid: vonageSessionId,
+      identity,
       isSupervisor: !!isSupervisor,
+      isPresenter: !!isPresenter,
+      supervisionSessionId: id,
       sessionTitle: sessionTitle || null,
       sessionType,
       roomMode: useLobby ? 'lobby' : 'main',
-      lobbyEnabledForSession: !skipLobbyForSupervisee
-    };
-    if (req.query?.debug === '1') {
-      try {
-        const { default: jwt } = await import('jsonwebtoken');
-        const decoded = jwt.decode(token);
-        payload._debug = { iss: decoded?.iss, sub: decoded?.sub, room: decoded?.grants?.video?.room, exp: decoded?.exp };
-      } catch (_) { /* ignore */ }
-    }
-    res.json(payload);
+      lobbyEnabledForSession: !skipLobbyForSupervisee,
+      videoConfigured: true,
+      diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
+    });
   } catch (e) {
     next(e);
   }
@@ -1043,7 +1155,8 @@ export const getAdmissionStatus = async (req, res, next) => {
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
       supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
@@ -1077,15 +1190,27 @@ export const getAdmissionStatus = async (req, res, next) => {
       });
     }
 
+    const projectId = resolveVideoProjectId();
     const mainName = row.twilio_room_unique_name || `supervision-${id}`;
-    const roomResult = await createOrGetRoom({ sessionId: id, uniqueName: mainName });
-    if (!roomResult) {
+    let vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
+    if (!vonageSessionId) {
+      const roomResult = await createOrGetRoomByUniqueName(mainName);
+      vonageSessionId = roomResult?.sid || null;
+      if (vonageSessionId) {
+        await SupervisionSession.setVideoRoom(id, {
+          roomSid: vonageSessionId,
+          uniqueName: mainName
+        });
+      }
+    }
+    if (!vonageSessionId) {
       return res.status(500).json({ error: { message: 'Failed to get main room' } });
     }
 
+    const identity = `user-${actorUserId}`;
     const token = await createAccessTokenAsync({
-      identity: `user-${actorUserId}`,
-      roomName: roomResult.uniqueName
+      roomSid: vonageSessionId,
+      identity
     });
     if (!token) {
       return res.status(500).json({ error: { message: 'Failed to generate token' } });
@@ -1096,12 +1221,18 @@ export const getAdmissionStatus = async (req, res, next) => {
     res.json({
       admitted: true,
       token: String(token).trim(),
-      roomName: roomResult.uniqueName,
-      roomSid: roomResult.roomSid,
+      sessionId: vonageSessionId,
+      applicationId: projectId,
+      apiKey: projectId,
+      roomName: mainName,
+      roomSid: vonageSessionId,
+      identity,
       sessionTitle: sessionTitle || null,
       sessionType,
       roomMode: 'main',
-      lobbyEnabledForSession: !skipLobbyForSupervisee
+      lobbyEnabledForSession: !skipLobbyForSupervisee,
+      videoConfigured: true,
+      diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
     });
   } catch (e) {
     next(e);
@@ -1544,6 +1675,7 @@ export const createSupervisionSession = async (req, res, next) => {
 
     const ok = await canScheduleSession(req, { agencyId, supervisorUserId, superviseeUserId });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await assertCanManageGroupSupervision(req, res, { sessionType }))) return;
 
     const { supOk, svOk } = await requireUsersInAgency({ agencyId, supervisorUserId, superviseeUserId });
     if (!supOk) return res.status(400).json({ error: { message: 'Supervisor does not belong to this agency' } });
@@ -1623,6 +1755,15 @@ export const createSupervisionSession = async (req, res, next) => {
       presenterUserIds: validPresenterIds,
       assignedByUserId: req.user.id
     });
+    try {
+      await SupervisionCasePresentation.ensureForPresenters({
+        sessionId: created.id,
+        presenterUserIds: validPresenterIds,
+        createdByUserId: req.user.id
+      });
+    } catch (presErr) {
+      console.warn('[supervision] Failed to seed case presentations:', presErr?.message || presErr);
+    }
 
     // Best-effort: sync to Google Calendar on supervisor calendar
     const hostEmail = String(supervisor.email || '').trim().toLowerCase();
@@ -1705,6 +1846,10 @@ export const patchSupervisionSession = async (req, res, next) => {
     const startAt = req.body?.startAt !== undefined ? parseDateTimeLocalString(req.body?.startAt) : undefined;
     const endAt = req.body?.endAt !== undefined ? parseDateTimeLocalString(req.body?.endAt) : undefined;
     const sessionType = req.body?.sessionType !== undefined ? String(req.body?.sessionType || '').trim().toLowerCase() : undefined;
+    if (!(await assertCanManageGroupSupervision(req, res, {
+      sessionType,
+      existingSessionType: row.session_type
+    }))) return;
     const notes = req.body?.notes !== undefined ? (req.body?.notes ? String(req.body.notes) : '') : undefined;
     const modality = req.body?.modality !== undefined ? (req.body?.modality ? String(req.body.modality) : null) : undefined;
     const locationText = req.body?.locationText !== undefined ? (req.body?.locationText ? String(req.body.locationText) : null) : undefined;
@@ -1796,6 +1941,15 @@ export const patchSupervisionSession = async (req, res, next) => {
         presenterUserIds: validPresenterIds,
         assignedByUserId: req.user.id
       });
+      try {
+        await SupervisionCasePresentation.ensureForPresenters({
+          sessionId: id,
+          presenterUserIds: validPresenterIds,
+          createdByUserId: req.user.id
+        });
+      } catch (presErr) {
+        console.warn('[supervision] Failed to seed case presentations:', presErr?.message || presErr);
+      }
     }
 
     // Best-effort: patch/insert Google event on supervisor calendar (keep existing meet link unless requested and missing)
@@ -1874,6 +2028,9 @@ export const cancelSupervisionSession = async (req, res, next) => {
       superviseeUserId: row.supervisee_user_id
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!(await assertCanManageGroupSupervision(req, res, {
+      existingSessionType: row.session_type
+    }))) return;
 
     const cancelled = await SupervisionSession.cancel(id);
 

@@ -348,7 +348,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'department', 'work_location', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'provider_start_date', 'work_role', 'employment_type', 'benefits_notes', 'benefits_eligibility_overrides_json', 'benefits_enrollment_json')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'department', 'work_location', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'group_supervision_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'provider_start_date', 'work_role', 'employment_type', 'benefits_notes', 'benefits_eligibility_overrides_json', 'benefits_enrollment_json')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -389,6 +389,7 @@ class User {
       if (existingColumns.includes('languages_spoken')) query += ', languages_spoken';
       if (existingColumns.includes('credential')) query += ', credential';
       if (existingColumns.includes('skill_builder_eligible')) query += ', skill_builder_eligible';
+      if (existingColumns.includes('group_supervision_eligible')) query += ', group_supervision_eligible';
       if (existingColumns.includes('has_skill_builder_coordinator_access')) query += ', has_skill_builder_coordinator_access';
       if (existingColumns.includes('skill_builder_confirm_required_next_login')) query += ', skill_builder_confirm_required_next_login';
       if (existingColumns.includes('has_hiring_access')) query += ', has_hiring_access';
@@ -749,6 +750,7 @@ class User {
       companyCarSubmitAccess,
       companyCarManageAccess,
       skillBuilderEligible,
+      groupSupervisionEligible,
       hasSkillBuilderCoordinatorAccess,
       skillBuilderConfirmRequiredNextLogin,
       isHourlyWorker,
@@ -1324,6 +1326,25 @@ class User {
           values.push(skillBuilderEligible ? 1 : 0);
         } else {
           throw new Error('Database is missing users.skill_builder_eligible. Run migrations (see database/migrations/250_skill_builder_availability.sql).');
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // Group supervision booking eligibility
+    if (groupSupervisionEligible !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'group_supervision_eligible'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('group_supervision_eligible = ?');
+          values.push(groupSupervisionEligible ? 1 : 0);
+        } else {
+          throw new Error('Database is missing users.group_supervision_eligible. Run migrations (see database/migrations/1040_users_group_supervision_eligible.sql).');
         }
       } catch (err) {
         throw err;

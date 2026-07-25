@@ -3584,6 +3584,7 @@ const accountForm = ref({
   companyCarSubmitAccess: false,
   companyCarManageAccess: false,
   skillBuilderEligible: false,
+  groupSupervisionEligible: false,
   hasSkillBuilderCoordinatorAccess: false,
   externalBusyIcsUrl: '',
   role: '',
@@ -5126,6 +5127,7 @@ const fetchUser = async () => {
       companyCarSubmitAccess: currentCompanyCarSubmitAccess,
       companyCarManageAccess: currentCompanyCarManageAccess,
       skillBuilderEligible: user.value.skill_builder_eligible === true || user.value.skill_builder_eligible === 1 || user.value.skill_builder_eligible === '1' || false,
+      groupSupervisionEligible: user.value.group_supervision_eligible === true || user.value.group_supervision_eligible === 1 || user.value.group_supervision_eligible === '1' || user.value.groupSupervisionEligible === true || false,
       hasSkillBuilderCoordinatorAccess:
         user.value.has_skill_builder_coordinator_access === true ||
         user.value.has_skill_builder_coordinator_access === 1 ||
@@ -5980,6 +5982,7 @@ const saveAccount = async (options = {}) => {
       companyCarSubmitAccess: Boolean(accountForm.value.companyCarSubmitAccess),
       companyCarManageAccess: Boolean(accountForm.value.companyCarManageAccess),
       skillBuilderEligible: Boolean(accountForm.value.skillBuilderEligible),
+      groupSupervisionEligible: Boolean(accountForm.value.groupSupervisionEligible),
       hasPayrollAccess: Boolean(accountForm.value.hasPayrollAccess),
       hasBillingAccess: Boolean(accountForm.value.hasBillingAccess),
       isMarketingContact: Boolean(accountForm.value.isMarketingContact),

@@ -28,6 +28,20 @@ import {
   getSupervisionJoinInfo
 } from '../controllers/supervisionSessions.controller.js';
 import { getSupervisionActivity, postSupervisionActivity } from '../controllers/videoMeetingActivity.controller.js';
+import {
+  listSessionPresentations,
+  getOrCreateMyPresentation,
+  updatePresentation,
+  createSlide,
+  updateSlide,
+  deleteSlide,
+  reorderSlides,
+  uploadPresentationFile,
+  presentationUploadMiddleware,
+  setExternalPresentationLink,
+  getPresentationState,
+  putPresentationState
+} from '../controllers/supervisionPresentations.controller.js';
 
 const router = express.Router();
 
@@ -46,6 +60,26 @@ router.get('/supervisee/:superviseeId/sessions', getSuperviseeSessions);
 router.get('/my-presenter-assignments', getMyPresenterAssignments);
 router.get('/sessions/:id/presenters', getSessionPresenters);
 router.post('/sessions/:id/presenters/:userId/presented', markSessionPresenterPresented);
+router.get('/sessions/:id/presentations', listSessionPresentations);
+router.get('/sessions/:id/presentations/mine', getOrCreateMyPresentation);
+router.get('/sessions/:id/presentation-state', getPresentationState);
+router.put('/sessions/:id/presentation-state', putPresentationState);
+router.patch('/presentations/:presentationId', updatePresentation);
+router.post('/presentations/:presentationId/slides', createSlide);
+router.patch('/presentations/:presentationId/slides/reorder', reorderSlides);
+router.patch('/presentation-slides/:slideId', updateSlide);
+router.delete('/presentation-slides/:slideId', deleteSlide);
+router.post(
+  '/presentations/:presentationId/upload',
+  (req, res, next) => {
+    presentationUploadMiddleware(req, res, (err) => {
+      if (err) return res.status(400).json({ error: { message: err.message || 'Upload failed' } });
+      return next();
+    });
+  },
+  uploadPresentationFile
+);
+router.post('/presentations/:presentationId/external-link', setExternalPresentationLink);
 router.post('/sessions/:id/meeting-lifecycle', markSupervisionMeetingLifecycle);
 router.post('/sessions/:id/finalize', finalizeSupervisionSessionBySubmit);
 router.get('/sessions/:id/video-token', getSupervisionVideoToken);

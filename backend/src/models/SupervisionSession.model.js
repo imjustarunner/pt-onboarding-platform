@@ -792,9 +792,18 @@ class SupervisionSession {
     return this.findById(sid);
   }
 
-  static async listForUserInWindow({ agencyId, userId, windowStart, windowEnd }) {
-    const aId = parseInt(agencyId, 10);
+  static async listForUserInWindow({ agencyId, allAgencies = false, userId, windowStart, windowEnd }) {
     const uId = parseInt(userId, 10);
+    if (!uId || !windowStart || !windowEnd) return [];
+    const aId = parseInt(agencyId, 10);
+    let agencyClause = 'ss.agency_id = ?';
+    let agencyParams = [aId];
+    if (allAgencies) {
+      agencyClause = '1=1';
+      agencyParams = [];
+    } else if (!aId) {
+      return [];
+    }
     const [rows] = await pool.execute(
       `SELECT
          ss.*,
@@ -841,7 +850,7 @@ class SupervisionSession {
        FROM supervision_sessions ss
        JOIN users sup ON sup.id = ss.supervisor_user_id
        LEFT JOIN users sv ON sv.id = ss.supervisee_user_id
-       WHERE ss.agency_id = ?
+       WHERE ${agencyClause}
          AND (
            ss.supervisor_user_id = ?
            OR ss.supervisee_user_id = ?
@@ -856,7 +865,7 @@ class SupervisionSession {
          AND ss.end_at > ?
          AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
        ORDER BY ss.start_at ASC`,
-      [uId, uId, uId, aId, uId, uId, uId, windowEnd, windowStart]
+      [uId, uId, uId, ...agencyParams, uId, uId, uId, windowEnd, windowStart]
     );
     return rows || [];
   }

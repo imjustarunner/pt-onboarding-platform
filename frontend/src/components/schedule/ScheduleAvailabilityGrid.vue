@@ -1313,7 +1313,9 @@
             :virtual-link="editorVirtualLink"
             :notes="editorInfoNotes"
             :show-notes="!editorIsSupervision"
-            :show-virtual-link="!editorIsSupervision"
+            :show-virtual-link="!!editorVirtualLink || !!editorMeetLink"
+            :show-join-quick="editorIsSupervision && editorShowVirtual && !!(editorVirtualLink || editorMeetLink)"
+            :join-busy="supvMeetOpening || supvAppVideoLoading"
             :show-note-quick="editorIsSupervision"
             :show-billing="editorShowBillingTab"
             :show-clinical="editorShowClinicalTab"
@@ -1326,6 +1328,7 @@
             @open-billing="editorWorkspaceTab = 'billing'"
             @open-clinical="editorWorkspaceTab = 'clinical'"
             @open-note="editorWorkspaceTab = 'note'"
+            @join="startTrackedSupvMeet"
           />
 
         <AppointmentEditorShell
@@ -1962,8 +1965,8 @@
               <span class="nr-info-value">Supervision</span>
             </div>
             <div class="nr-booking-strip-cell">
-              <span class="nr-info-label">Participant</span>
-              <span class="nr-info-value">{{ selectedSupvSession?.counterpartyName || '—' }}</span>
+              <span class="nr-info-label">{{ editorParticipantLabel }}</span>
+              <span class="nr-info-value">{{ editorParticipantSummary }}</span>
             </div>
             <div class="nr-booking-strip-cell">
               <span class="nr-info-label">Booked for</span>
@@ -3653,8 +3656,8 @@
               <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
             </div>
             <div class="nr-info-cell">
-              <span class="nr-info-label">Participant</span>
-              <span class="nr-info-value">{{ selectedSupvSession?.counterpartyName || '—' }}</span>
+              <span class="nr-info-label">{{ editorParticipantLabel }}</span>
+              <span class="nr-info-value">{{ editorParticipantSummary }}</span>
             </div>
             <div class="nr-info-cell">
               <span class="nr-info-label">Status</span>
@@ -3712,15 +3715,25 @@
                   <span class="muted"> ({{ p.presenter_role === 'secondary' ? 'Secondary' : 'Primary' }})</span>
                   <span class="muted"> · {{ String(p.status || 'assigned') }}</span>
                 </div>
-                <button
-                  v-if="canManagePresenterStatus"
-                  class="btn btn-secondary btn-sm"
-                  type="button"
-                  :disabled="supvSaving"
-                  @click="togglePresenterPresented(p)"
-                >
-                  {{ String(p.status || '').toLowerCase() === 'presented' ? 'Mark unpresented' : 'Mark presented' }}
-                </button>
+                <div class="supv-presenter-actions">
+                  <button
+                    v-if="Number(p.user_id) === Number(authStore.user?.id)"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="openSupvPresentationBuilder"
+                  >
+                    Build presentation
+                  </button>
+                  <button
+                    v-if="canManagePresenterStatus"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    :disabled="supvSaving"
+                    @click="togglePresenterPresented(p)"
+                  >
+                    {{ String(p.status || '').toLowerCase() === 'presented' ? 'Mark unpresented' : 'Mark presented' }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -3784,8 +3797,13 @@
           <SupervisionVideoRoom
             :token="supvAppVideoToken"
             :room-name="supvAppVideoRoomName"
+            :vonage-session-id="supvAppVideoVonageSessionId"
+            :room-sid="supvAppVideoVonageSessionId"
+            :application-id="supvAppVideoApplicationId"
+            :api-key="supvAppVideoApplicationId"
             :session-title="supvAppVideoSessionTitle"
             :session-id="supvAppVideoSessionId"
+            :diagnostics="supvAppVideoDiagnostics"
             :is-host="supvAppVideoIsSupervisor"
             @disconnected="closeSupvAppVideoModal"
           />
@@ -4513,7 +4531,7 @@ import './schedule-new-request-modal.css';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { createCounselingSession, openCounselingFromAppointment } from '../../services/counselingApi.js';
-import { isSupervisor } from '../../utils/helpers.js';
+import { isSupervisor, isGroupSupervisionEligible } from '../../utils/helpers.js';
 import api from '../../services/api';
 import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { timezoneLabelFor } from '../../utils/timezones.js';
@@ -7274,6 +7292,7 @@ const showMeetingTrainingPayOption = computed(() => (
   canMarkMeetingTrainingPay.value || !!meetingIsTrainingPayEligible.value
 ));
 const canScheduleSupervisionFromGrid = computed(() => isSupervisor(authStore.user));
+const canBookGroupSupervisionFromGrid = computed(() => isGroupSupervisionEligible(authStore.user));
 const isViewingOtherUserSchedule = computed(() => {
   if (!isAdminMode.value) return false;
   const actorId = Number(authStore.user?.id || 0);
@@ -8584,6 +8603,15 @@ const schoolAssignmentsInCell = (dayName, hour) => {
   });
 };
 
+const supervisionReplacesSchoolAssignment = (session, assignment) => {
+  const modality = String(session?.modality || '').trim().toLowerCase();
+  if (modality === 'virtual') return false;
+  const loc = String(session?.locationText || '').trim().toLowerCase();
+  const schoolName = String(assignment?.schoolName || '').trim().toLowerCase();
+  if (!loc || !schoolName) return false;
+  return loc.includes(schoolName) || schoolName.includes(loc);
+};
+
 const portalIntakeInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
@@ -8948,26 +8976,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     });
   }
 
-  // Assigned school — one block per agency
-  const schoolHits = schoolAssignmentsInCell(dayName, hour);
-  const schoolByAgency = new Map();
-  for (const a of schoolHits) {
-    const aid = Number(a?._agencyId || 0) || null;
-    const key = aid || 'none';
-    if (!schoolByAgency.has(key)) schoolByAgency.set(key, []);
-    schoolByAgency.get(key).push(a);
-  }
-  for (const [aid, assignments] of schoolByAgency) {
-    const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
-    const names = assignments.flatMap((a) => (a?.schoolName ? [String(a.schoolName).trim()] : [])).filter(Boolean);
-    const shortLabel = singleDayFocused
-      ? ((names.join(', ') || 'School').length > 28 ? `${(names.join(', ') || 'School').slice(0, 28)}…` : (names.join(', ') || 'School'))
-      : (names.length <= 1 ? (names[0] || 'School') : `${names[0]}+${names.length - 1}`);
-    const ids = agencyId ? [agencyId] : [];
-    blocks.push({ key: `school-${agencyId || 'x'}`, kind: 'school', shortLabel, title: `School assigned${agencySuffix(ids)} — ${dayName} ${hourLabel(hour)}`, agencyId });
-  }
-
-  // Supervision sessions — one block per agency
+  // Supervision sessions — compute first for school overlap / replacement logic
   const supvHits = supervisionSessionsInCell(dayName, hour, minute);
   const supvByAgency = new Map();
   for (const ev of supvHits) {
@@ -8976,6 +8985,35 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     if (!supvByAgency.has(key)) supvByAgency.set(key, []);
     supvByAgency.get(key).push(ev);
   }
+
+  // Assigned school — hide when an in-person supervision session at that school replaces it
+  const schoolHits = schoolAssignmentsInCell(dayName, hour);
+  const schoolByAgency = new Map();
+  for (const a of schoolHits) {
+    if (supvHits.some((ev) => supervisionReplacesSchoolAssignment(ev, a))) continue;
+    const aid = Number(a?._agencyId || a?.agencyId || 0) || null;
+    const key = aid || 'none';
+    if (!schoolByAgency.has(key)) schoolByAgency.set(key, []);
+    schoolByAgency.get(key).push(a);
+  }
+  const hasSchoolBlocks = schoolByAgency.size > 0;
+  for (const [aid, assignments] of schoolByAgency) {
+    const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
+    const names = assignments.flatMap((a) => (a?.schoolName ? [String(a.schoolName).trim()] : [])).filter(Boolean);
+    const shortLabel = singleDayFocused
+      ? ((names.join(', ') || 'School').length > 28 ? `${(names.join(', ') || 'School').slice(0, 28)}…` : (names.join(', ') || 'School'))
+      : (names.length <= 1 ? (names[0] || 'School') : `${names[0]}+${names.length - 1}`);
+    const ids = agencyId ? [agencyId] : [];
+    blocks.push({
+      key: `school-${agencyId || 'x'}`,
+      kind: 'school',
+      shortLabel,
+      title: `School assigned${agencySuffix(ids)} — ${dayName} ${hourLabel(hour)}`,
+      agencyId,
+      shareRow: hasSchoolBlocks && supvHits.length > 0
+    });
+  }
+
   for (const [aid, events] of supvByAgency) {
     const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
     const sortedEvents = [...events].sort((a, b) => String(a?.startAt || '').localeCompare(String(b?.startAt || '')));
@@ -8999,6 +9037,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim() || null,
       timedSlice,
       spanBlock: true,
+      shareRow: hasSchoolBlocks,
       draggable: !isScheduleEventCancelled(first) && Number(first?.id || 0) > 0
     });
   }
@@ -11040,7 +11079,12 @@ function inferModalityFromEvent(target = {}) {
 const editorShowParticipant = computed(() => editorIsClinical.value || editorIsMeeting.value || editorIsSupervision.value);
 const editorParticipantLabel = computed(() => {
   if (editorIsMeeting.value) return 'Participants';
-  if (editorIsSupervision.value) return 'Participant';
+  if (editorIsSupervision.value) {
+    const sessionRole = String(selectedSupvSession.value?.role || '').trim().toLowerCase();
+    if (sessionRole === 'supervisor') return 'Supervisee';
+    if (sessionRole === 'supervisee') return 'Supervisor';
+    return 'Participant';
+  }
   return 'Client';
 });
 const editorMeetingParticipantNames = computed(() => {
@@ -11099,7 +11143,15 @@ const editorParticipantSummary = computed(() => {
     return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
   }
   if (editorIsSupervision.value) {
-    const fromSession = String(selectedSupvSession.value?.counterpartyName || '').trim();
+    const session = selectedSupvSession.value;
+    const sessionRole = String(session?.role || '').trim().toLowerCase();
+    if (sessionRole === 'supervisor') {
+      return String(session?.superviseeName || session?.counterpartyName || '').trim() || '—';
+    }
+    if (sessionRole === 'supervisee') {
+      return String(session?.supervisorName || session?.counterpartyName || '').trim() || '—';
+    }
+    const fromSession = String(session?.counterpartyName || '').trim();
     if (fromSession) return fromSession;
     const pid = Number(selectedSupervisionParticipantId.value || 0);
     if (pid > 0) {
@@ -12809,12 +12861,18 @@ const supervisionSelectedParticipantCount = computed(() => {
 /** Derived from participant count: 0 additional = individual, 1 = triadic (billed as individual), 2+ = group (99416) */
 const supervisionEffectiveSessionType = computed(() => {
   const extras = selectedSupervisionAdditionalParticipantIdSet.value.size;
-  if (extras >= 2) return 'group';
+  if (extras >= 2) {
+    return canBookGroupSupervisionFromGrid.value ? 'group' : 'triadic';
+  }
   if (extras === 1) return 'triadic';
   return 'individual';
 });
 const supervisionEffectiveSessionTypeLabel = computed(() => {
   const t = supervisionEffectiveSessionType.value;
+  const extras = selectedSupervisionAdditionalParticipantIdSet.value.size;
+  if (extras >= 2 && !canBookGroupSupervisionFromGrid.value) {
+    return 'Group supervision requires eligibility (capped as triadic for booking)';
+  }
   if (t === 'group') return 'Group supervision (99416)';
   if (t === 'triadic') return 'Triadic supervision (counts as individual for everyone)';
   return 'Individual supervision';
@@ -12831,6 +12889,12 @@ const supervisionCanSubmit = computed(() => {
   if ((availableSupervisionParticipants.value || []).length === 0) return false;
   if (!Number(selectedSupervisionParticipantId.value || 0)) return false;
   if (isGroupSupervisionType.value && supervisionSelectedParticipantCount.value < 3) return false;
+  if (
+    selectedSupervisionAdditionalParticipantIdSet.value.size >= 2
+    && !canBookGroupSupervisionFromGrid.value
+  ) {
+    return false;
+  }
   return true;
 });
 
@@ -13006,6 +13070,12 @@ const selectedMeetingOutOfAgencyCount = computed(() => {
   const candidates = availableMeetingCandidates.value || [];
   if (!candidates.length && !meetingCandidatesError.value) return 0;
   const byId = new Map(candidates.map((r) => [Number(r.id || 0), r]));
+  const actorRole = String(authStore.user?.role || '').toLowerCase();
+  const actorIsSuperAdmin = actorRole === 'super_admin' || actorRole === 'superadmin';
+  const isPlatformSuperadminRole = (role) => {
+    const r = String(role || '').trim().toLowerCase();
+    return r === 'super_admin' || r === 'superadmin';
+  };
   let count = 0;
   for (const id of selectedMeetingParticipantIdSet.value.values()) {
     const row = byId.get(Number(id));
@@ -13014,6 +13084,7 @@ const selectedMeetingOutOfAgencyCount = computed(() => {
       count += 1;
       continue;
     }
+    if (actorIsSuperAdmin && isPlatformSuperadminRole(row?.role)) continue;
     const agencyIds = Array.isArray(row?.agencyIds) ? row.agencyIds.map((n) => Number(n || 0)) : [];
     // If we have agency membership info and selected tenant is missing, count as out-of-agency.
     if (agencyIds.length && !agencyIds.includes(agencyId)) count += 1;
@@ -14815,7 +14886,12 @@ const cellBlockStyle = (b) => {
     const hp = Number(b.timedSlice.heightPct);
     style.position = 'absolute';
     style.left = '3px';
-    style.right = '3px';
+    if (b?.shareRow) {
+      style.width = 'calc(52% - 4px)';
+      style.right = 'auto';
+    } else {
+      style.right = '3px';
+    }
     style.top = `${b.timedSlice.topPct}%`;
     style.height = `${hp}%`;
     style.zIndex = b?.spanBlock ? 6 : 3;
@@ -14825,6 +14901,11 @@ const cellBlockStyle = (b) => {
     style.paddingTop = '4px';
     // Fewer lines on short blocks so text stays inside the colored fill.
     style['--block-line-clamp'] = hp >= 180 ? '6' : hp >= 100 ? '4' : '2';
+  }
+  if (b?.shareRow && !b?.timedSlice) {
+    style.flex = '1 1 42%';
+    style.minWidth = '0';
+    style.maxWidth = '48%';
   }
   return style;
 };
@@ -16529,8 +16610,14 @@ const submitRequest = async () => {
       const actorId = Number(authStore.user?.id || 0);
       if (!actorId) throw new Error('Not signed in.');
       if (!participantId) throw new Error('Please select a participant.');
+      if (sessionType === 'group' && !canBookGroupSupervisionFromGrid.value) {
+        throw new Error('Only group-supervision-eligible supervisors can book group sessions.');
+      }
       if (sessionType === 'group' && additionalAttendeeUserIds.length < 2) {
         throw new Error('Group supervision requires at least 2 additional participants.');
+      }
+      if (additionalAttendeeUserIds.length >= 2 && !canBookGroupSupervisionFromGrid.value) {
+        throw new Error('Only group-supervision-eligible supervisors can book group sessions. Remove attendees or request eligibility.');
       }
       const dayIdx = orderedDays.value.indexOf(String(dn)) - (effectiveWeekStartsOn.value === 'sunday' ? 1 : 0);
       if (dayIdx < -1) throw new Error('Invalid day');
@@ -16581,6 +16668,8 @@ const submitRequest = async () => {
       }
       forceRefreshSummary = true;
       invalidateScheduleSummaryCacheForUser(props.userId);
+      invalidateScheduleSummaryCacheForUser(actorId);
+      invalidateScheduleSummaryCacheForUser(participantId);
     } else if (requestType.value === 'extend_assignment') {
       const contexts = selectedActionContexts().filter(
         (x) => Number(x?.officeLocationId || 0) > 0 && Number(x?.standingAssignmentId || 0) > 0
@@ -17056,6 +17145,9 @@ const supvSuperviseeHours = ref({
 const showSupvAppVideoModal = ref(false);
 const supvAppVideoToken = ref('');
 const supvAppVideoRoomName = ref('');
+const supvAppVideoVonageSessionId = ref('');
+const supvAppVideoApplicationId = ref('');
+const supvAppVideoDiagnostics = ref(null);
 const supvAppVideoSessionTitle = ref('');
 const supvAppVideoSessionId = ref(0);
 const supvAppVideoIsSupervisor = ref(false);
@@ -17121,16 +17213,29 @@ const startAppVideoMeetingFromGrid = async (session) => {
     const data = resp?.data || {};
     const tok = (data.token || data.data?.token || data.result?.token || '').trim();
     const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
+    const vonageSid = String(data.sessionId || data.roomSid || '').trim();
+    const appId = String(data.applicationId || data.apiKey || '').trim();
     if (typeof window !== 'undefined') window.__supvDebugRunId = `run-${Date.now()}`;
-    if (!tok) {
-      console.warn('[ScheduleGrid] video-token empty:', { status: resp?.status, data });
-      supvAppVideoError.value = data?.error?.message || data?.error || 'Video token was empty.';
+    if (!tok || !vonageSid || !appId) {
+      console.warn('[ScheduleGrid] video-token incomplete:', { status: resp?.status, data });
+      supvAppVideoError.value = data?.error?.message || data?.error || 'Video credentials were incomplete.';
+      return;
+    }
+    // Prefer full branded join room for group sessions when org slug is available.
+    const sessionType = String(data.sessionType || session?.sessionType || session?.session_type || '').toLowerCase();
+    if (sessionType === 'group' && supvAppVideoOrgSlug.value) {
+      await logSupvMeetingLifecycle({ sessionId: sid, eventType: 'opened' });
+      const joinPath = `/${supvAppVideoOrgSlug.value}/join/supervision/${sid}`;
+      window.open(joinPath, '_blank', 'noopener');
       return;
     }
     supvMeetClientSessionKey.value = `web-${sid}-${Number(authStore.user?.id || 0)}-${Date.now()}`;
     await logSupvMeetingLifecycle({ sessionId: sid, eventType: 'opened' });
     supvAppVideoToken.value = tok;
     supvAppVideoRoomName.value = rn;
+    supvAppVideoVonageSessionId.value = vonageSid;
+    supvAppVideoApplicationId.value = appId;
+    supvAppVideoDiagnostics.value = data.diagnostics || null;
     supvAppVideoSessionTitle.value = data.sessionTitle || data.session_title || '';
     supvAppVideoSessionId.value = sid;
     supvAppVideoIsSupervisor.value = !!data.isSupervisor;
@@ -17152,6 +17257,9 @@ const closeSupvAppVideoModal = () => {
   showSupvAppVideoModal.value = false;
   supvAppVideoToken.value = '';
   supvAppVideoRoomName.value = '';
+  supvAppVideoVonageSessionId.value = '';
+  supvAppVideoApplicationId.value = '';
+  supvAppVideoDiagnostics.value = null;
   supvAppVideoSessionTitle.value = '';
   supvAppVideoSessionId.value = 0;
   supvAppVideoIsSupervisor.value = false;
@@ -17522,6 +17630,20 @@ watch(selectedSupvSessionId, (id) => {
   void loadSupvPresenters(id);
   void loadSupvArtifact(id);
 });
+
+const openSupvPresentationBuilder = () => {
+  const sid = Number(selectedSupvSessionId.value || 0);
+  if (!sid) return;
+  const slug = String(route.params?.organizationSlug || '').trim();
+  if (slug) {
+    router.push({
+      name: 'OrganizationSupervisionPresentation',
+      params: { organizationSlug: slug, sessionId: String(sid) }
+    });
+    return;
+  }
+  router.push({ name: 'SupervisionPresentation', params: { sessionId: String(sid) } });
+};
 
 const togglePresenterPresented = async (presenter) => {
   const sid = Number(selectedSupvSessionId.value || 0);

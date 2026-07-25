@@ -1,83 +1,94 @@
 <template>
-  <div class="video-room-stub">
-    <div class="video-room-stub__header">
-      <span class="video-room-stub__title">{{ sessionTitle || roomName || 'Video session' }}</span>
-      <button type="button" class="btn btn-secondary btn-sm" @click="$emit('disconnected')">Close</button>
-    </div>
-    <div class="video-room-stub__body">
-      <div class="video-room-stub__icon">📹</div>
-      <h3>Video not configured</h3>
-      <p>A video provider is not set up yet. Contact your administrator to enable in-app video sessions.</p>
+  <div class="supervision-video-room">
+    <div v-if="sessionTitle" class="supervision-video-room__title">{{ sessionTitle }}</div>
+    <VideoSessionRoom
+      v-if="token && vonageSessionId && projectId"
+      :key="`${vonageSessionId}-${token.slice(0, 12)}`"
+      :token="token"
+      :session-id="vonageSessionId"
+      :application-id="projectId"
+      :api-key="projectId"
+      :local-name="localName"
+      :layout="layout"
+      :diagnostics="diagnostics"
+      :can-recreate-room="canRecreateRoom"
+      @disconnected="$emit('disconnected')"
+      @connected="$emit('connected', $event)"
+      @error="$emit('error', $event)"
+      @recreate-room="$emit('recreate-room')"
+    >
+      <template #extra-controls>
+        <slot name="extra-controls" />
+      </template>
+    </VideoSessionRoom>
+    <div v-else class="supervision-video-room__empty">
+      <p>Waiting for video credentials…</p>
     </div>
   </div>
 </template>
 
 <script setup>
-defineProps({
-  token:        { type: String,           default: '' },
-  roomName:     { type: String,           default: '' },
-  sessionTitle: { type: String,           default: '' },
-  sessionId:    { type: [Number, String], default: null },
-  eventId:      { type: [Number, String], default: null },
-  isHost:       { type: Boolean,          default: false }
+import { computed } from 'vue';
+import VideoSessionRoom from '../video/VideoSessionRoom.vue';
+import { useAuthStore } from '../../store/auth';
+
+const props = defineProps({
+  token: { type: String, default: '' },
+  /** Vonage session id (preferred). Legacy alias: roomSid */
+  vonageSessionId: { type: String, default: '' },
+  sessionId: { type: [Number, String], default: null },
+  roomSid: { type: String, default: '' },
+  roomName: { type: String, default: '' },
+  applicationId: { type: String, default: '' },
+  apiKey: { type: String, default: '' },
+  sessionTitle: { type: String, default: '' },
+  isHost: { type: Boolean, default: false },
+  layout: { type: String, default: 'strip' },
+  diagnostics: { type: Object, default: null },
+  canRecreateRoom: { type: Boolean, default: false }
 });
 
-defineEmits(['disconnected']);
+defineEmits(['disconnected', 'connected', 'error', 'recreate-room']);
+
+const authStore = useAuthStore();
+
+const vonageSessionId = computed(() =>
+  // Do not fall back to props.sessionId — callers use that for the supervision DB id.
+  String(props.vonageSessionId || props.roomSid || '').trim()
+);
+const projectId = computed(() =>
+  String(props.applicationId || props.apiKey || '').trim()
+);
+const localName = computed(() => {
+  const u = authStore.user || {};
+  const name = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim();
+  return name || u.email || 'You';
+});
 </script>
 
 <style scoped>
-.video-room-stub {
+.supervision-video-room {
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 300px;
+  min-height: 220px;
   background: #0f1117;
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
   color: #fff;
 }
-
-.video-room-stub__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: #1a1d24;
-  border-bottom: 1px solid #2a2d36;
-}
-
-.video-room-stub__title {
+.supervision-video-room__title {
+  padding: 10px 14px;
   font-weight: 600;
   font-size: 0.95rem;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
-
-.video-room-stub__body {
+.supervision-video-room__empty {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 40px 24px;
-  text-align: center;
-}
-
-.video-room-stub__icon {
-  font-size: 3rem;
-  opacity: 0.5;
-}
-
-.video-room-stub__body h3 {
-  margin: 0;
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: #e0e0e0;
-}
-
-.video-room-stub__body p {
-  margin: 0;
-  color: #888;
-  max-width: 360px;
-  line-height: 1.5;
+  display: grid;
+  place-items: center;
+  color: #889;
+  padding: 24px;
 }
 </style>

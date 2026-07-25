@@ -28,3 +28,16 @@ export function isSupervisor(user) {
   
   return false;
 }
+
+/**
+ * Check if a supervisor may book/edit group supervision sessions.
+ */
+export function isGroupSupervisionEligible(user) {
+  if (!user || !isSupervisor(user)) return false;
+  return user.group_supervision_eligible === true ||
+    user.group_supervision_eligible === 1 ||
+    user.group_supervision_eligible === '1' ||
+    user.groupSupervisionEligible === true ||
+    user.groupSupervisionEligible === 1 ||
+    user.groupSupervisionEligible === '1';
+}

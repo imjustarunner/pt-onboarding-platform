@@ -335,8 +335,9 @@
                     <select v-model="scheduleSessionType" class="input">
                       <option value="individual">Individual</option>
                       <option value="triadic">Triadic</option>
-                      <option value="group">Group</option>
+                      <option v-if="canBookGroupSupervision" value="group">Group</option>
                     </select>
+                    <p v-if="!canBookGroupSupervision" class="form-hint">Group supervision booking requires group supervision eligibility.</p>
                   </div>
                   <div v-if="availableAdditionalAttendees.length > 0 && scheduleSessionType !== 'individual'" class="form-row">
                     <div class="form-group">
@@ -617,9 +618,14 @@
           <SupervisionVideoRoom
             :token="appVideoToken"
             :room-name="appVideoRoomName"
+            :vonage-session-id="appVideoVonageSessionId"
+            :room-sid="appVideoVonageSessionId"
+            :application-id="appVideoApplicationId"
+            :api-key="appVideoApplicationId"
             :session-title="appVideoSessionTitle"
             :session-id="appVideoSessionId"
             :is-host="appVideoIsSupervisor"
+            :diagnostics="appVideoDiagnostics"
             @disconnected="closeAppVideoModal"
           />
         </div>
@@ -647,6 +653,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { isGroupSupervisionEligible } from '../../utils/helpers.js';
 import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
 import ClientModal from '../school/redesign/ClientModal.vue';
@@ -658,6 +665,7 @@ import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
 const route = useRoute();
 
 const authStore = useAuthStore();
+const canBookGroupSupervision = computed(() => isGroupSupervisionEligible(authStore.user));
 const agencyStore = useAgencyStore();
 
 const loading = ref(true);
@@ -718,6 +726,9 @@ const trackedMeetingClientSessionKey = ref('');
 const showAppVideoModal = ref(false);
 const appVideoToken = ref('');
 const appVideoRoomName = ref('');
+const appVideoVonageSessionId = ref('');
+const appVideoApplicationId = ref('');
+const appVideoDiagnostics = ref(null);
 const appVideoSessionTitle = ref('');
 const appVideoSessionId = ref(null);
 const appVideoIsSupervisor = ref(false);
@@ -1039,13 +1050,18 @@ async function startAppVideoMeeting(session) {
     const data = resp?.data || {};
     const tok = (data.token || data.data?.token || data.result?.token || '').trim();
     const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
-    if (!tok) {
-      console.warn('[SupervisionModal] video-token empty:', { status: resp?.status, data });
-      appVideoError.value = data?.error?.message || data?.error || 'Video token was empty.';
+    const vonageSid = String(data.sessionId || data.roomSid || '').trim();
+    const appId = String(data.applicationId || data.apiKey || '').trim();
+    if (!tok || !vonageSid || !appId) {
+      console.warn('[SupervisionModal] video-token incomplete:', { status: resp?.status, data });
+      appVideoError.value = data?.error?.message || data?.error || 'Video credentials were incomplete.';
       return;
     }
     appVideoToken.value = tok;
     appVideoRoomName.value = rn;
+    appVideoVonageSessionId.value = vonageSid;
+    appVideoApplicationId.value = appId;
+    appVideoDiagnostics.value = data.diagnostics || null;
     appVideoSessionTitle.value = data.sessionTitle || data.session_title || '';
     appVideoIsSupervisor.value = !!data.isSupervisor;
     appVideoFullscreen.value = true;
@@ -1062,6 +1078,9 @@ function closeAppVideoModal() {
   showAppVideoModal.value = false;
   appVideoToken.value = '';
   appVideoRoomName.value = '';
+  appVideoVonageSessionId.value = '';
+  appVideoApplicationId.value = '';
+  appVideoDiagnostics.value = null;
   appVideoSessionTitle.value = '';
   appVideoSessionId.value = null;
   appVideoIsSupervisor.value = false;
@@ -1111,6 +1130,10 @@ async function submitScheduleMeeting() {
   const presenterIds = Array.from(new Set((schedulePresenterIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))).slice(0, 2);
   if (!startAt || !endAt) {
     scheduleError.value = 'Start and end are required.';
+    return;
+  }
+  if (scheduleSessionType.value === 'group' && !canBookGroupSupervision.value) {
+    scheduleError.value = 'Only group-supervision-eligible supervisors can book group sessions.';
     return;
   }
   if (scheduleSessionType.value === 'triadic') {
@@ -1941,6 +1964,11 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 1rem;
+}
+.form-hint {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #6b7280);
 }
 .supervision-groups {
   display: grid;

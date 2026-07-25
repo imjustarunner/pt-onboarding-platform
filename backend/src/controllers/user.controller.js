@@ -369,6 +369,7 @@ export const getCurrentUser = async (req, res, next) => {
       companyCarSubmitAccess: Boolean(user.company_car_submit_access),
       companyCarManageAccess: Boolean(user.company_car_manage_access),
       has_supervisor_privileges: !!(user.has_supervisor_privileges === true || user.has_supervisor_privileges === 1 || user.has_supervisor_privileges === '1'),
+      group_supervision_eligible: !!(user.group_supervision_eligible === true || user.group_supervision_eligible === 1 || user.group_supervision_eligible === '1'),
       has_provider_access: !!(user.has_provider_access === true || user.has_provider_access === 1 || user.has_provider_access === '1'),
       has_staff_access: !!(user.has_staff_access === true || user.has_staff_access === 1 || user.has_staff_access === '1'),
       has_games_access: !!(user.has_games_access === true || user.has_games_access === 1 || user.has_games_access === '1'),
@@ -2346,6 +2347,7 @@ export const updateUser = async (req, res, next) => {
       companyCarManageAccess,
       billingAcknowledged,
       skillBuilderEligible,
+      groupSupervisionEligible,
       hasSkillBuilderCoordinatorAccess,
       hasPayrollAccess,
       hasBillingAccess,
@@ -2825,6 +2827,9 @@ export const updateUser = async (req, res, next) => {
 
     // Skill Builder eligibility (provider program)
     if (skillBuilderEligible !== undefined) updateData.skillBuilderEligible = Boolean(skillBuilderEligible);
+
+    // Group supervision booking eligibility
+    if (groupSupervisionEligible !== undefined) updateData.groupSupervisionEligible = Boolean(groupSupervisionEligible);
 
     // Program coordinator access (admin/support/super admin only)
     if (hasSkillBuilderCoordinatorAccess !== undefined) {
@@ -3785,28 +3790,47 @@ export const getUserScheduleSummary = async (req, res, next) => {
     // 3) School scheduled hours (provider_school_assignments; not soft schedule)
     let schoolAssignments = [];
     try {
-      const [rows] = await pool.execute(
-        `SELECT
-           psa.school_organization_id,
-           a.name AS school_name,
-           psa.day_of_week,
-           psa.start_time,
-           psa.end_time
-         FROM provider_school_assignments psa
-         JOIN agencies a ON a.id = psa.school_organization_id
-         JOIN organization_affiliations oa ON oa.organization_id = psa.school_organization_id AND oa.agency_id = ? AND oa.is_active = TRUE
-         WHERE psa.provider_user_id = ?
-           AND psa.is_active = TRUE
-         ORDER BY FIELD(psa.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday'), psa.start_time ASC`,
-        [agencyId, providerId]
-      );
-      schoolAssignments = (rows || []).map((r) => ({
-        schoolOrgId: r.school_organization_id,
-        schoolName: r.school_name,
-        dayOfWeek: r.day_of_week,
-        startTime: String(r.start_time || '').slice(0, 5),
-        endTime: String(r.end_time || '').slice(0, 5)
-      }));
+      let schoolAgencyIds = agencyId ? [Number(agencyId)] : [];
+      if (includeAllAgencies) {
+        try {
+          const targetAgencies = await User.getAgencies(providerId);
+          schoolAgencyIds = Array.from(new Set(
+            (targetAgencies || []).map((a) => Number(a?.id || 0)).filter((n) => n > 0)
+          ));
+        } catch {
+          schoolAgencyIds = [];
+        }
+      }
+      if (schoolAgencyIds.length) {
+        const placeholders = schoolAgencyIds.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT
+             psa.school_organization_id,
+             oa.agency_id,
+             a.name AS school_name,
+             psa.day_of_week,
+             psa.start_time,
+             psa.end_time
+           FROM provider_school_assignments psa
+           JOIN agencies a ON a.id = psa.school_organization_id
+           JOIN organization_affiliations oa
+             ON oa.organization_id = psa.school_organization_id
+            AND oa.agency_id IN (${placeholders})
+            AND oa.is_active = TRUE
+           WHERE psa.provider_user_id = ?
+             AND psa.is_active = TRUE
+           ORDER BY FIELD(psa.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday'), psa.start_time ASC`,
+          [...schoolAgencyIds, providerId]
+        );
+        schoolAssignments = (rows || []).map((r) => ({
+          schoolOrgId: r.school_organization_id,
+          agencyId: Number(r.agency_id || 0) || null,
+          schoolName: r.school_name,
+          dayOfWeek: r.day_of_week,
+          startTime: String(r.start_time || '').slice(0, 5),
+          endTime: String(r.end_time || '').slice(0, 5)
+        }));
+      }
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
@@ -4097,7 +4121,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
     }
     try {
       const rows = await SupervisionSession.listForUserInWindow({
-        agencyId,
+        agencyId: includeAllAgencies ? null : agencyId,
+        allAgencies: includeAllAgencies,
         userId: providerId,
         windowStart,
         windowEnd
@@ -4154,6 +4179,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           joinUrl: joinUrlForSupervision(supervisionJoinUrlBase, joinKey),
           superviseeUserId: Number(r.supervisee_user_id || 0) || null,
           supervisorUserId: Number(r.supervisor_user_id || 0) || null,
+          superviseeName: `${r.supervisee_first_name || ''} ${r.supervisee_last_name || ''}`.trim() || null,
+          supervisorName: `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim() || null,
           agencyId: Number(r.agency_id || agencyId || 0) || null,
           recurrenceSeriesId: String(r.recurrence_series_id || '').trim() || null,
           recurrenceFrequency: String(r.recurrence_frequency || '').trim().toUpperCase() || null,
@@ -5110,6 +5137,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
         `SELECT
            u.id,
            u.email,
+           u.role,
            EXISTS(
              SELECT 1 FROM user_agencies ua
              WHERE ua.user_id = u.id
@@ -5120,10 +5148,17 @@ export const createUserScheduleEvent = async (req, res, next) => {
         [agencyId, ...attendeeUserIds]
       );
       const attendeeById = new Map((attendeeRows || []).map((r) => [Number(r.id || 0), r]));
+      const { isMeetingAttendeeEligible } = await import('../utils/scheduleCoworkerRoles.js');
+      const hostUser = await User.findById(userId);
+      const hostRole = String(hostUser?.role || '').trim().toLowerCase();
       for (const attendeeId of attendeeUserIds) {
         const row = attendeeById.get(attendeeId);
-        const inAgency = Number(row?.in_agency || 0) === 1;
-        if (!row || !inAgency) {
+        if (!isMeetingAttendeeEligible({
+          attendeeRow: row,
+          agencyId,
+          actorRole,
+          hostRole
+        })) {
           return res.status(400).json({
             error: { message: 'One or more participants are not in the selected tenant. Switch tenant or remove them.' }
           });
@@ -5394,6 +5429,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const [attendeeRows] = await pool.execute(
         `SELECT
            u.id,
+           u.role,
            EXISTS(
              SELECT 1 FROM user_agencies ua
              WHERE ua.user_id = u.id
@@ -5404,9 +5440,17 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         [eventAgencyId, ...attendeeUserIds]
       );
       const attendeeById = new Map((attendeeRows || []).map((r) => [Number(r.id || 0), r]));
+      const { isMeetingAttendeeEligible } = await import('../utils/scheduleCoworkerRoles.js');
+      const hostUser = await User.findById(hostProviderId);
+      const hostRole = String(hostUser?.role || '').trim().toLowerCase();
       for (const attendeeId of attendeeUserIds) {
         const row = attendeeById.get(attendeeId);
-        if (!row || Number(row?.in_agency || 0) !== 1) {
+        if (!isMeetingAttendeeEligible({
+          attendeeRow: row,
+          agencyId: eventAgencyId,
+          actorRole,
+          hostRole
+        })) {
           return res.status(400).json({
             error: { message: 'One or more participants are not in the selected tenant. Switch tenant or remove them.' }
           });
@@ -5761,14 +5805,18 @@ export const listUserMeetingCandidates = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    const isActorSuperAdmin = actorRole === 'super_admin' || actorRole === 'superadmin';
+
     const targetAgencies = await User.getAgencies(userId);
     const targetAgencyIds = Array.from(new Set((targetAgencies || []).map((a) => Number(a?.id || 0)).filter((n) => n > 0)));
-    if (!targetAgencyIds.length) return res.json({ ok: true, agencyIds: [], users: [] });
+    if (!targetAgencyIds.length && !isActorSuperAdmin) {
+      return res.json({ ok: true, agencyIds: [], users: [] });
+    }
 
     const actorAgencies = await User.getAgencies(actorUserId);
     const actorAgencyIds = Array.from(new Set((actorAgencies || []).map((a) => Number(a?.id || 0)).filter((n) => n > 0)));
     const accessibleAgencyIds = targetAgencyIds.filter((id) => actorAgencyIds.includes(id));
-    if (!accessibleAgencyIds.length && actorRole !== 'super_admin') {
+    if (!accessibleAgencyIds.length && !isActorSuperAdmin) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
@@ -5776,7 +5824,7 @@ export const listUserMeetingCandidates = async (req, res, next) => {
     const requestedAgencyId = Number(req.query?.agencyId || 0);
     let scopedAgencyIds = [];
     if (allAgencies) {
-      if (actorRole === 'super_admin') {
+      if (isActorSuperAdmin) {
         // Platform operators should see coworkers across every active tenant, not only
         // agencies the viewed user happens to belong to.
         try {
@@ -5799,10 +5847,10 @@ export const listUserMeetingCandidates = async (req, res, next) => {
         scopedAgencyIds = accessibleAgencyIds;
       }
     } else {
-      const fallbackAgencyId = (actorRole === 'super_admin' ? targetAgencyIds : accessibleAgencyIds)[0] || 0;
+      const fallbackAgencyId = (isActorSuperAdmin ? targetAgencyIds : accessibleAgencyIds)[0] || 0;
       const agencyId = requestedAgencyId > 0 ? requestedAgencyId : fallbackAgencyId;
       let scopeAllowed = accessibleAgencyIds.includes(agencyId);
-      if (actorRole === 'super_admin') {
+      if (isActorSuperAdmin) {
         if (targetAgencyIds.includes(agencyId) || accessibleAgencyIds.includes(agencyId)) {
           scopeAllowed = true;
         } else if (agencyId > 0) {
@@ -5829,45 +5877,96 @@ export const listUserMeetingCandidates = async (req, res, next) => {
       }
       scopedAgencyIds = [agencyId];
     }
-    if (!scopedAgencyIds.length) return res.json({ ok: true, agencyIds: [], users: [] });
+    if (!scopedAgencyIds.length && !isActorSuperAdmin) {
+      return res.json({ ok: true, agencyIds: [], users: [] });
+    }
 
-    const placeholders = scopedAgencyIds.map(() => '?').join(',');
-    const { scheduleCoworkerRoleSqlClause, scheduleCoworkerRoleSqlParams } = await import('../utils/scheduleCoworkerRoles.js');
-    const roleClause = scheduleCoworkerRoleSqlClause('u.role');
-    const [rows] = await pool.execute(
-      `SELECT
-         u.id,
-         u.first_name,
-         u.last_name,
-         u.email,
-         u.role,
-         u.profile_photo_path,
-         GROUP_CONCAT(DISTINCT ua.agency_id ORDER BY ua.agency_id ASC) AS agency_ids
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id IN (${placeholders})
-         AND u.id <> ?
-         AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
-         AND ${roleClause}
-       GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path
-       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
-      [...scopedAgencyIds, userId, ...scheduleCoworkerRoleSqlParams()]
-    );
+    let users = [];
+    if (scopedAgencyIds.length) {
+      const placeholders = scopedAgencyIds.map(() => '?').join(',');
+      const { scheduleCoworkerRoleSqlClause, scheduleCoworkerRoleSqlParams } = await import('../utils/scheduleCoworkerRoles.js');
+      const roleClause = scheduleCoworkerRoleSqlClause('u.role');
+      const [rows] = await pool.execute(
+        `SELECT
+           u.id,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.role,
+           u.profile_photo_path,
+           GROUP_CONCAT(DISTINCT ua.agency_id ORDER BY ua.agency_id ASC) AS agency_ids
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id IN (${placeholders})
+           AND u.id <> ?
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
+           AND ${roleClause}
+         GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path
+         ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+        [...scopedAgencyIds, userId, ...scheduleCoworkerRoleSqlParams()]
+      );
 
-    const users = (rows || []).map((r) => ({
-      id: Number(r.id || 0),
-      firstName: String(r.first_name || '').trim(),
-      lastName: String(r.last_name || '').trim(),
-      email: String(r.email || '').trim().toLowerCase(),
-      role: String(r.role || '').trim().toLowerCase(),
-      profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path || null) || null,
-      agencyIds: String(r.agency_ids || '')
-        .split(',')
-        .map((v) => Number(v || 0))
-        .filter((n) => n > 0)
-    })).filter((u) => u.id > 0);
+      users = (rows || []).map((r) => ({
+        id: Number(r.id || 0),
+        firstName: String(r.first_name || '').trim(),
+        lastName: String(r.last_name || '').trim(),
+        email: String(r.email || '').trim().toLowerCase(),
+        role: String(r.role || '').trim().toLowerCase(),
+        profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path || null) || null,
+        agencyIds: String(r.agency_ids || '')
+          .split(',')
+          .map((v) => Number(v || 0))
+          .filter((n) => n > 0)
+      })).filter((u) => u.id > 0);
+    }
+
+    if (isActorSuperAdmin) {
+      const existingIds = new Set(users.map((u) => u.id));
+      const [platformRows] = await pool.execute(
+        `SELECT
+           u.id,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.role,
+           u.profile_photo_path,
+           GROUP_CONCAT(DISTINCT ua.agency_id ORDER BY ua.agency_id ASC) AS agency_ids
+         FROM users u
+         LEFT JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE u.id <> ?
+           AND LOWER(COALESCE(u.role, '')) IN ('super_admin', 'superadmin')
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
+         GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path
+         ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+        [userId]
+      );
+      for (const r of (platformRows || [])) {
+        const id = Number(r.id || 0);
+        if (!id || existingIds.has(id)) continue;
+        existingIds.add(id);
+        users.push({
+          id,
+          firstName: String(r.first_name || '').trim(),
+          lastName: String(r.last_name || '').trim(),
+          email: String(r.email || '').trim().toLowerCase(),
+          role: String(r.role || '').trim().toLowerCase(),
+          profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path || null) || null,
+          agencyIds: String(r.agency_ids || '')
+            .split(',')
+            .map((v) => Number(v || 0))
+            .filter((n) => n > 0)
+        });
+      }
+      users.sort((a, b) => {
+        const last = String(a.lastName || '').localeCompare(String(b.lastName || ''));
+        if (last !== 0) return last;
+        return String(a.firstName || '').localeCompare(String(b.firstName || ''));
+      });
+    }
 
     const candidateIdSet = new Set(users.map((u) => u.id));
     const filterCandidateIds = (ids) => (ids || [])
@@ -5879,7 +5978,7 @@ export const listUserMeetingCandidates = async (req, res, next) => {
       users.filter((u) => ['provider', 'provider_plus', 'clinician'].includes(u.role)).map((u) => u.id)
     );
     const adminStaffIds = filterCandidateIds(
-      users.filter((u) => ['admin', 'assistant_admin', 'staff', 'support', 'clinical_practice_assistant'].includes(u.role)).map((u) => u.id)
+      users.filter((u) => ['admin', 'assistant_admin', 'staff', 'support', 'clinical_practice_assistant', 'super_admin', 'superadmin'].includes(u.role)).map((u) => u.id)
     );
     if (providerIds.length) {
       groups.push({ key: 'role:providers', label: 'Providers', kind: 'team', userIds: providerIds });
@@ -5888,6 +5987,8 @@ export const listUserMeetingCandidates = async (req, res, next) => {
       groups.push({ key: 'role:admin_staff', label: 'Admin / staff', kind: 'team', userIds: adminStaffIds });
     }
 
+    if (scopedAgencyIds.length) {
+      const placeholders = scopedAgencyIds.map(() => '?').join(',');
     try {
       const [supervisorRows] = await pool.execute(
         `SELECT DISTINCT supervisor_id AS user_id
@@ -5940,15 +6041,6 @@ export const listUserMeetingCandidates = async (req, res, next) => {
       // department tables may not exist
     }
 
-    if (users.length) {
-      groups.unshift({
-        key: 'all:available',
-        label: 'Everyone available',
-        kind: 'team',
-        userIds: users.map((u) => u.id)
-      });
-    }
-
     try {
       const AgencyMeetingInviteGroup = (await import('../models/AgencyMeetingInviteGroup.model.js')).default;
       const customGroups = await AgencyMeetingInviteGroup.listByAgencyIds(scopedAgencyIds);
@@ -5964,6 +6056,16 @@ export const listUserMeetingCandidates = async (req, res, next) => {
       }
     } catch {
       // custom invite-group tables may not exist yet
+    }
+    }
+
+    if (users.length) {
+      groups.unshift({
+        key: 'all:available',
+        label: 'Everyone available',
+        kind: 'team',
+        userIds: users.map((u) => u.id)
+      });
     }
 
     return res.json({
@@ -8358,6 +8460,8 @@ export const getAccountInfo = async (req, res, next) => {
       companyCarSubmitAccess: !!(user.company_car_submit_access === 1 || user.company_car_submit_access === true || user.company_car_submit_access === '1'),
       companyCarManageAccess: !!(user.company_car_manage_access === 1 || user.company_car_manage_access === true || user.company_car_manage_access === '1'),
       skillBuilderEligible: !!(user.skill_builder_eligible === 1 || user.skill_builder_eligible === true || user.skill_builder_eligible === '1'),
+      groupSupervisionEligible: !!(user.group_supervision_eligible === 1 || user.group_supervision_eligible === true || user.group_supervision_eligible === '1'),
+      group_supervision_eligible: !!(user.group_supervision_eligible === 1 || user.group_supervision_eligible === true || user.group_supervision_eligible === '1'),
       medcancelRateSchedule: ['low', 'high', 'none'].includes(String(user.medcancel_rate_schedule || '').toLowerCase())
         ? String(user.medcancel_rate_schedule).toLowerCase()
         : 'none',
@@ -10371,6 +10475,8 @@ export const getProfileOverview = async (req, res, next) => {
           companyCarSubmitAccess: !!(user.company_car_submit_access === 1 || user.company_car_submit_access === true || user.company_car_submit_access === '1'),
           companyCarManageAccess: !!(user.company_car_manage_access === 1 || user.company_car_manage_access === true || user.company_car_manage_access === '1'),
           skillBuilderEligible: !!(user.skill_builder_eligible === 1 || user.skill_builder_eligible === true || user.skill_builder_eligible === '1'),
+          groupSupervisionEligible: !!(user.group_supervision_eligible === 1 || user.group_supervision_eligible === true || user.group_supervision_eligible === '1'),
+          group_supervision_eligible: !!(user.group_supervision_eligible === 1 || user.group_supervision_eligible === true || user.group_supervision_eligible === '1'),
           hasPayrollAccess: (await User.listPayrollAgencyIds(targetId)).length > 0,
           hasBillingAccess: (await User.listBillingAgencyIds(targetId)).length > 0,
           isMarketingContact: (await User.listMarketingAgencyIds(targetId)).length > 0,

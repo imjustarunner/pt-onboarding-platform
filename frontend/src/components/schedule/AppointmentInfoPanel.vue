@@ -158,6 +158,19 @@
         </span>
       </button>
       <button
+        v-if="showJoinQuick"
+        type="button"
+        class="aip-quick-card"
+        :disabled="joinBusy"
+        @click="emit('join')"
+      >
+        <span class="aip-quick-ico aip-quick-ico--violet">↗</span>
+        <span>
+          <strong>{{ joinBusy ? 'Joining…' : 'Join session' }}</strong>
+          <em>Start or open the virtual room</em>
+        </span>
+      </button>
+      <button
         v-if="showNoteQuick"
         type="button"
         class="aip-quick-card"
@@ -201,6 +214,8 @@ const props = defineProps({
   notes: { type: String, default: '' },
   showNotes: { type: Boolean, default: true },
   showVirtualLink: { type: Boolean, default: true },
+  showJoinQuick: { type: Boolean, default: false },
+  joinBusy: { type: Boolean, default: false },
   showNoteQuick: { type: Boolean, default: false },
   showBilling: { type: Boolean, default: false },
   showClinical: { type: Boolean, default: false },
@@ -209,7 +224,7 @@ const props = defineProps({
   clinicalNoteId: { type: [Number, String], default: 0 }
 });
 
-const emit = defineEmits(['edit', 'open-provider', 'open-client', 'open-billing', 'open-clinical', 'open-note']);
+const emit = defineEmits(['edit', 'open-provider', 'open-client', 'open-billing', 'open-clinical', 'open-note', 'join']);
 
 const statusPretty = computed(() => {
   const s = String(props.statusLabel || '').trim();

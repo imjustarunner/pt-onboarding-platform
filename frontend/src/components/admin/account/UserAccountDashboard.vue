@@ -825,7 +825,10 @@ const permissionGroups = computed(() => {
         ...(unwrap(ctx.showCredentialingAccessToggle) ? [{ key: 'hasCredentialingAccess', label: 'Credentialing access', type: 'checkbox' }] : []),
         { key: 'hasHiringAccess', label: 'Hiring process access', type: 'checkbox' },
         { key: 'hasMedicalRecordsReleaseAccess', label: 'Medical records release', type: 'checkbox' },
-        ...(unwrap(ctx.canToggleSupervisorPrivileges) ? [{ key: 'hasSupervisorPrivileges', label: 'Supervisor privileges', type: 'checkbox' }] : [])
+        ...(unwrap(ctx.canToggleSupervisorPrivileges) ? [
+          { key: 'hasSupervisorPrivileges', label: 'Supervisor privileges', type: 'checkbox' },
+          { key: 'groupSupervisionEligible', label: 'Group supervision eligible', type: 'checkbox' }
+        ] : [])
       ]
     },
     {

@@ -2,29 +2,21 @@
   <div class="join-supervision-view">
     <div v-if="resolving" class="join-placeholder">Resolving session…</div>
     <div v-else-if="error" class="join-error">{{ error }}</div>
-    <div v-else-if="token && roomName" class="join-video">
-      <div class="join-video-header">
-        <BrandingLogo size="medium" class="join-video-logo" />
-        <span class="join-video-title">Supervision video</span>
-      </div>
-      <div v-if="isInLobby && lobbyEnabledForSession" class="lobby-banner">
-        <strong>Admit</strong> — Waiting for supervisor to admit you to the room…
-      </div>
-      <SupervisionVideoLobbyPanel
-        v-else-if="!isInLobby && isSupervisor && lobbyEnabledForSession"
-        :session-id="sessionId"
-        :is-supervisor="isSupervisor"
-      />
-      <SupervisionVideoRoom
-        :key="videoRoomKey"
-        :token="token"
-        :room-name="roomName"
-        :session-title="sessionTitle"
-        :session-id="sessionId"
-        :is-host="isSupervisor"
-        @disconnected="onDisconnected"
-      />
-    </div>
+    <GroupSupervisionLiveRoom
+      v-else-if="token && vonageSessionId && applicationId"
+      :supervision-session-id="numericSessionId || sessionId"
+      :token="token"
+      :vonage-session-id="vonageSessionId"
+      :application-id="applicationId"
+      :diagnostics="diagnostics"
+      :session-title="sessionTitle || 'Group Supervision'"
+      :session-meta="sessionMeta"
+      :is-supervisor="isSupervisor"
+      :is-presenter="isPresenter"
+      :is-in-lobby="isInLobby"
+      :lobby-enabled-for-session="lobbyEnabledForSession"
+      @leave="onDisconnected"
+    />
     <div v-else class="join-placeholder">Loading…</div>
   </div>
 </template>
@@ -33,9 +25,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
-import BrandingLogo from '../../components/BrandingLogo.vue';
-import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
-import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
+import GroupSupervisionLiveRoom from '../../components/supervision/GroupSupervisionLiveRoom.vue';
 import api from '../../services/api';
 
 const router = useRouter();
@@ -48,15 +38,36 @@ const organizationSlug = computed(() => route.params.organizationSlug);
 const resolving = ref(false);
 const error = ref('');
 const token = ref('');
+const vonageSessionId = ref('');
+const applicationId = ref('');
+const diagnostics = ref(null);
 const roomName = ref('');
 const sessionTitle = ref('');
-const videoRoomKey = ref(0);
+const sessionMeta = ref('');
+const numericSessionId = ref(null);
 const admissionPollInterval = ref(null);
 const isSupervisor = ref(false);
+const isPresenter = ref(false);
 const roomMode = ref('main');
 const lobbyEnabledForSession = ref(false);
 
 const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
+
+function applyTokenPayload(data) {
+  const tok = (data.token || data.data?.token || '').trim();
+  token.value = tok;
+  vonageSessionId.value = String(data.sessionId || data.roomSid || data.vonageSessionId || '').trim();
+  applicationId.value = String(data.applicationId || data.apiKey || '').trim();
+  diagnostics.value = data.diagnostics || null;
+  roomName.value = data.roomName || data.room_name || '';
+  isSupervisor.value = !!data.isSupervisor;
+  isPresenter.value = !!data.isPresenter;
+  roomMode.value = String(data.roomMode || (String(roomName.value || '').endsWith('-lobby') ? 'lobby' : 'main')).toLowerCase();
+  lobbyEnabledForSession.value = !!data.lobbyEnabledForSession;
+  sessionTitle.value = data.sessionTitle || data.session_title || sessionTitle.value;
+  if (data.supervisionSessionId) numericSessionId.value = Number(data.supervisionSessionId);
+  sessionMeta.value = data.sessionType ? String(data.sessionType) : '';
+}
 
 async function pollAdmissionStatus() {
   const sid = sessionId.value;
@@ -64,13 +75,8 @@ async function pollAdmissionStatus() {
   try {
     const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/admission-status`);
     const data = resp?.data || {};
-    if (data.admitted && data.token && data.roomName) {
-      token.value = String(data.token).trim();
-      roomName.value = data.roomName;
-      sessionTitle.value = data.sessionTitle || data.session_title || '';
-      roomMode.value = String(data.roomMode || 'main').toLowerCase();
-      lobbyEnabledForSession.value = !!data.lobbyEnabledForSession;
-      videoRoomKey.value += 1;
+    if (data.admitted && data.token) {
+      applyTokenPayload(data);
       if (admissionPollInterval.value) {
         clearInterval(admissionPollInterval.value);
         admissionPollInterval.value = null;
@@ -95,6 +101,7 @@ async function resolveAndRedirect() {
     const slug = data.orgSlug;
     if (slug) {
       const joinKey = String(data.joinToken || sid).trim();
+      if (data.sessionId) numericSessionId.value = Number(data.sessionId);
       router.replace(`/${slug}/join/supervision/${encodeURIComponent(joinKey)}`);
       return;
     }
@@ -116,20 +123,13 @@ async function fetchTokenAndJoin() {
   try {
     const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/video-token`);
     const data = resp?.data || {};
-    const tok = (data.token || data.data?.token || data.result?.token || '').trim();
-    const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
-    isSupervisor.value = !!data.isSupervisor;
-    roomMode.value = String(data.roomMode || (String(rn || '').endsWith('-lobby') ? 'lobby' : 'main')).toLowerCase();
-    lobbyEnabledForSession.value = !!data.lobbyEnabledForSession;
-    if (!tok) {
-      console.warn('[JoinSupervisionView] video-token empty:', { status: resp?.status, data });
+    applyTokenPayload(data);
+    if (!token.value || !vonageSessionId.value || !applicationId.value) {
+      console.warn('[JoinSupervisionView] video-token incomplete:', { status: resp?.status, data });
       const errMsg = data?.error?.message || data?.error || '';
-      error.value = errMsg || 'Video token was empty. Check Network tab: GET /api/supervision/sessions/' + sid + '/video-token.';
+      error.value = errMsg || 'Video credentials were incomplete. Check Vonage configuration.';
       return;
     }
-    token.value = tok;
-    roomName.value = rn;
-    sessionTitle.value = data.sessionTitle || data.session_title || '';
     if (roomMode.value === 'lobby') {
       admissionPollInterval.value = setInterval(pollAdmissionStatus, 2000);
     }
@@ -172,7 +172,6 @@ onMounted(async () => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 24px;
   background: var(--bg-primary, #0f0f0f);
 }
 .join-placeholder {
@@ -181,6 +180,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
+  padding: 24px;
 }
 .join-error {
   flex: 1;
@@ -189,33 +189,5 @@ onMounted(async () => {
   justify-content: center;
   color: #b91c1c;
   padding: 24px;
-}
-.join-video {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-.join-video-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.join-video-logo {
-  flex-shrink: 0;
-}
-.join-video-title {
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-.lobby-banner {
-  padding: 12px 16px;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 14px;
-  margin-bottom: 12px;
 }
 </style>
