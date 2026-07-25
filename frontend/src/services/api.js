@@ -236,7 +236,7 @@ api.interceptors.response.use(
       reqUrl.includes('/members/directory/public') ||
       reqUrl.includes('/public-intake') ||
       reqUrl.startsWith('/public-intake');
-    const publicPathPrefixes = ['/intake/', '/schools', '/kiosk', '/p/', '/pre-hire/', '/school-events/kiosk'];
+    const publicPathPrefixes = ['/intake/', '/schools', '/kiosk', '/p/', '/pre-hire/', '/school-events/kiosk', '/join/supervision', '/join/team-meeting'];
     const isBrandedKioskPath =
       /\/[^/]+\/kiosk\/?$/.test(path) ||
       path.includes('/skill-builders/kiosk/') ||
@@ -245,6 +245,8 @@ api.interceptors.response.use(
       path.includes('/school-events/kiosk');
     const isPublicPath =
       publicPathPrefixes.some((prefix) => path.startsWith(prefix)) ||
+      /\/join\/supervision\//.test(path) ||
+      /\/join\/team-meeting\//.test(path) ||
       path.includes('/clubs') ||
       isBrandedKioskPath;
     const isPrehirePortalApi = reqUrl.includes('/prehire-portal/');

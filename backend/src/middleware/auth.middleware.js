@@ -157,6 +157,13 @@ export const authenticate = async (req, res, next) => {
     if (requestPath.startsWith('/api/prehire-portal/')) {
       return next();
     }
+    // Public join-link resolvers (mounted after catch-all /api routers that call authenticate).
+    if (req.method === 'GET' && /^\/api\/supervision\/join-info\/[^/]+\/?$/.test(requestPath)) {
+      return next();
+    }
+    if (req.method === 'GET' && /^\/api\/team-meetings\/join-info\/[^/]+\/?$/.test(requestPath)) {
+      return next();
+    }
 
     // Prefer Authorization Bearer when present (Capacitor + window-scoped demo launches).
     // Cookie alone still works for normal browser sessions without a stored token.

@@ -746,6 +746,10 @@ app.use('/api/notification-triggers', notificationTriggerAdminRoutes);
 app.get('/api/learning-program-classes/:classId/banner', serveSeasonBanner);
 app.get('/api/learning-program-classes/:classId/logo', serveSeasonLogo);
 
+// Public join-info endpoints must register before catch-all `/api` routers that call authenticate.
+app.use('/api/supervision', supervisionSessionsRoutes);
+app.use('/api/team-meetings', teamMeetingsRoutes);
+
 app.use('/api', userCommunicationRoutes);
 app.use('/api', userAdminDocsRoutes);
 app.use('/api/users', userPreferencesRoutes);
@@ -753,8 +757,6 @@ app.use('/api/branding-templates', brandingTemplateRoutes);
 app.use('/api/fonts', fontRoutes);
 app.use('/api/activity-log', activityLogRoutes);
 app.use('/api/supervisor-assignments', supervisorAssignmentRoutes);
-app.use('/api/supervision', supervisionSessionsRoutes);
-app.use('/api/team-meetings', teamMeetingsRoutes);
 app.use('/api/agency-campaigns', agencyCampaignsRoutes);
 app.use('/api/organizations', referralUploadRoutes); // Organization routes (referral upload, etc.)
 app.use('/api/referrals', referralOcrRoutes);
