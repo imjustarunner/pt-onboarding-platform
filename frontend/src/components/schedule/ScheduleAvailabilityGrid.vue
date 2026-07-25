@@ -2705,66 +2705,65 @@
             </div>
           </div>
 
-            <div v-if="requestType === 'supervision'" class="agenda-draft-section" style="margin-top: 12px;">
-              <label class="lbl">Agenda items (optional)</label>
-              <div style="display: flex; gap: 8px; margin-bottom: 6px;">
-                <input
-                  v-model="createAgendaDraftTitle"
-                  class="input"
-                  type="text"
-                  placeholder="Add agenda item…"
-                  @keydown.enter.prevent="addCreateAgendaDraftItem"
-                />
-                <button type="button" class="btn btn-secondary btn-sm" @click="addCreateAgendaDraftItem">Add</button>
-              </div>
-              <ul v-if="createAgendaDraftItems.length" class="agenda-draft-list">
-                <li v-for="(it, idx) in createAgendaDraftItems" :key="idx">
-                  {{ it.title }}
-                  <button type="button" class="btn btn-ghost btn-xs" @click="removeCreateAgendaDraftItem(idx)">×</button>
-                </li>
-              </ul>
-            </div>
-
-            <div style="margin-top: 12px;">
-              <label class="lbl">Frequency</label>
-              <select v-model="supervisionRecurrence" class="input">
-                <option value="ONCE">Once</option>
-                <option value="WEEKLY">Weekly</option>
-                <option value="BIWEEKLY">Biweekly</option>
-                <option value="MONTHLY">Monthly</option>
-              </select>
-              <label
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence)"
-                class="lbl"
-                style="margin-top: 10px;"
-              >
-                Recurrence ends
-              </label>
-              <select
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence)"
-                v-model="supervisionRecurrenceEndMode"
-                class="input"
-              >
-                <option value="count">After number of occurrences</option>
-                <option value="indefinite">Indefinite (prebuild future sessions)</option>
-              </select>
-              <label
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence) && supervisionRecurrenceEndMode === 'count'"
-                class="lbl"
-                style="margin-top: 10px;"
-              >
-                Occurrences
-              </label>
+          <div v-if="requestType === 'supervision'" class="agenda-draft-section" style="margin-top: 12px;">
+            <label class="lbl">Agenda items (optional)</label>
+            <div style="display: flex; gap: 8px; margin-bottom: 6px;">
               <input
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence) && supervisionRecurrenceEndMode === 'count'"
-                v-model.number="supervisionOccurrenceCount"
-                type="number"
-                min="1"
-                max="104"
+                v-model="createAgendaDraftTitle"
                 class="input"
-                style="margin-top: 4px; width: 80px;"
+                type="text"
+                placeholder="Add agenda item…"
+                @keydown.enter.prevent="addCreateAgendaDraftItem"
               />
+              <button type="button" class="btn btn-secondary btn-sm" @click="addCreateAgendaDraftItem">Add</button>
             </div>
+            <ul v-if="createAgendaDraftItems.length" class="agenda-draft-list">
+              <li v-for="(it, idx) in createAgendaDraftItems" :key="idx">
+                {{ it.title }}
+                <button type="button" class="btn btn-ghost btn-xs" @click="removeCreateAgendaDraftItem(idx)">×</button>
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="requestType === 'supervision'" style="margin-top: 12px;">
+            <label class="lbl">Frequency</label>
+            <select v-model="supervisionRecurrence" class="input">
+              <option value="ONCE">Once</option>
+              <option value="WEEKLY">Weekly</option>
+              <option value="BIWEEKLY">Biweekly</option>
+              <option value="MONTHLY">Monthly</option>
+            </select>
+            <label
+              v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence)"
+              class="lbl"
+              style="margin-top: 10px;"
+            >
+              Recurrence ends
+            </label>
+            <select
+              v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence)"
+              v-model="supervisionRecurrenceEndMode"
+              class="input"
+            >
+              <option value="count">After number of occurrences</option>
+              <option value="indefinite">Indefinite (prebuild future sessions)</option>
+            </select>
+            <label
+              v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence) && supervisionRecurrenceEndMode === 'count'"
+              class="lbl"
+              style="margin-top: 10px;"
+            >
+              Occurrences
+            </label>
+            <input
+              v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence) && supervisionRecurrenceEndMode === 'count'"
+              v-model.number="supervisionOccurrenceCount"
+              type="number"
+              min="1"
+              max="104"
+              class="input"
+              style="margin-top: 4px; width: 80px;"
+            />
           </div>
 
           <div
