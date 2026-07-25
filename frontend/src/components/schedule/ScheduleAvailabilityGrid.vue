@@ -1390,7 +1390,7 @@
           :show-participant="editorShowParticipant"
           :participant-label="editorParticipantLabel"
           :participant-summary="editorParticipantSummary"
-          :participant-tray-open="editorIsMeeting && meetingParticipantsExpanded"
+          :participant-tray-open="(editorIsMeeting && meetingParticipantsExpanded) || (editorIsSupervision && supervisionParticipantsExpanded && !isSupervisionEditMode)"
           :status="editorStatus"
           :status-options="APPOINTMENT_EDITOR_STATUS_OPTIONS"
           :show-occurrence-count="editorShowOccurrenceCount"
@@ -1513,12 +1513,12 @@
               <span class="aes-participant-chevron" aria-hidden="true">{{ meetingParticipantsExpanded ? '▴' : '▾' }}</span>
             </button>
             <button
-              v-else-if="editorIsSupervision && !isSupervisionEditMode && availableSupervisionParticipants.length"
+              v-else-if="editorIsSupervision && !isSupervisionEditMode"
               type="button"
               class="aes-participant-trigger"
               :class="{ open: supervisionParticipantsExpanded }"
               :title="editorParticipantSummary"
-              @click="supervisionParticipantsExpanded = !supervisionParticipantsExpanded"
+              @click="openSupervisionParticipantTray"
             >
               <span class="aes-participant-names">
                 <template v-if="editorSupervisionParticipantNames.length">
@@ -1531,7 +1531,9 @@
                     +{{ editorSupervisionParticipantNames.length - 4 }}
                   </span>
                 </template>
-                <span v-else class="nr-info-value">Select supervisees…</span>
+                <span v-else class="nr-info-value">
+                  {{ supervisionProvidersLoading ? 'Loading supervisees…' : 'Select supervisees…' }}
+                </span>
               </span>
               <span class="aes-participant-chevron" aria-hidden="true">{{ supervisionParticipantsExpanded ? '▴' : '▾' }}</span>
             </button>
@@ -1544,7 +1546,7 @@
               tray-mode
               :expanded="true"
               :loading="supervisionProvidersLoading"
-              :error="supervisionProvidersError"
+              :error="supervisionProvidersError || ((!supervisionProvidersLoading && !availableSupervisionParticipants.length) ? 'No eligible supervisees found for this tenant.' : '')"
               :disabled="submitting || scheduleEventSaving"
               :candidates="filteredSupervisionParticipants"
               :groups="supervisionInviteGroupsFiltered"
@@ -12003,6 +12005,9 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
     void loadMeetingCandidates();
   }
   if (editorIsSupervision.value || k === 'supervision') {
+    if (!isSupervisionEditMode.value) {
+      supervisionParticipantsExpanded.value = true;
+    }
     void loadSupervisionProviders();
   }
   if (editorAppointmentId.value) {
@@ -13175,6 +13180,14 @@ const setSelectedSupervisionParticipantIds = (ids = []) => {
   const unique = Array.from(new Set((ids || []).map((n) => Number(n || 0)).filter((n) => n > 0)));
   selectedSupervisionParticipantId.value = unique[0] || 0;
   selectedSupervisionAdditionalParticipantIds.value = unique.slice(1);
+};
+
+const openSupervisionParticipantTray = () => {
+  const nextOpen = !supervisionParticipantsExpanded.value;
+  supervisionParticipantsExpanded.value = nextOpen;
+  if (nextOpen) {
+    void loadSupervisionProviders();
+  }
 };
 
 const toggleSupervisionParticipantPicker = (userId) => {
@@ -17433,17 +17446,26 @@ watch([requestType, modalDay, modalHour, modalEndHour, modalStartMinute, modalEn
 watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agencyId], [prevOpen, prevType, prevAgencyId]) => {
   if (!isOpen) return;
   if (String(type || '') !== 'supervision') return;
-  if (supervisionUsingAllAgencies.value) return;
+  if (!isSupervisionEditMode.value) {
+    supervisionParticipantsExpanded.value = true;
+  }
+  if (supervisionUsingAllAgencies.value) {
+    void loadSupervisionProviders();
+    return;
+  }
   const currentAgencyId = Number(agencyId || 0);
   const previousAgencyId = Number(prevAgencyId || 0);
   const agencyChanged = currentAgencyId > 0 && currentAgencyId !== previousAgencyId;
-  const stayedOnSupervision = String(prevType || '') === 'supervision' && isOpen === !!prevOpen;
-  if (!agencyChanged || !stayedOnSupervision) return;
+  const typeChanged = String(prevType || '') !== 'supervision';
+  const justOpened = isOpen && !prevOpen;
+  if (!agencyChanged && !typeChanged && !justOpened) return;
 
   // Reset stale participant/search state when supervision context switches agencies.
-  selectedSupervisionParticipantId.value = 0;
-  selectedSupervisionAdditionalParticipantIds.value = [];
-  supervisionParticipantSearch.value = '';
+  if (agencyChanged) {
+    selectedSupervisionParticipantId.value = 0;
+    selectedSupervisionAdditionalParticipantIds.value = [];
+    supervisionParticipantSearch.value = '';
+  }
   if (!currentAgencyId) {
     supervisionProviders.value = [];
     return;
