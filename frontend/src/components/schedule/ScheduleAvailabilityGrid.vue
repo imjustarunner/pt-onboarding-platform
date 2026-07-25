@@ -4603,7 +4603,6 @@ import {
 import { isTenantOrganizationType as isTenantOrganizationTypeShared } from '../../utils/organizationTypes.js';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
-import BrandingLogo from '../BrandingLogo.vue';
 import GroupSupervisionLiveRoom from '../supervision/GroupSupervisionLiveRoom.vue';
 import UnifiedBookingPanel from './UnifiedBookingPanel.vue';
 import PersonSearchSelect from './PersonSearchSelect.vue';
