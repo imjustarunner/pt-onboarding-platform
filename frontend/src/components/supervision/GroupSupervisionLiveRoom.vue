@@ -27,12 +27,24 @@
 
     <SupervisionVideoLobbyPanel
       v-if="showLobbyPanel"
-      :session-id="supervisionSessionId"
+      :session-id="numericSessionId"
       :is-supervisor="isSupervisor"
     />
 
-    <div v-if="isInLobby && !isSupervisor" class="gsl__lobby-banner">
-      Waiting for the supervisor to admit you…
+    <div v-if="isInLobby && !isSupervisor" class="gsl__lobby-wait">
+      <video
+        class="gsl__lobby-video"
+        autoplay
+        muted
+        loop
+        playsinline
+        poster=""
+      >
+        <source src="/assets/video/waiting-room.mp4" type="video/mp4" />
+      </video>
+      <div class="gsl__lobby-banner">
+        Waiting for the supervisor to admit you…
+      </div>
     </div>
 
     <!-- Individual: large video + discussion side panel -->
@@ -64,6 +76,10 @@
         </div>
         <div v-if="sideTab === 'discussion'" class="gsl__discussion">
           <p v-if="transcriptHint" class="gsl__transcript-hint">{{ transcriptHint }}</p>
+          <div v-if="sessionTranscriptPreview || liveTranscriptPreview" class="gsl__transcript-box">
+            <h4 class="gsl__transcript-title">Live transcript</h4>
+            <pre class="gsl__transcript-text">{{ sessionTranscriptPreview }}{{ liveTranscriptPreview ? `\n${liveTranscriptPreview}` : '' }}</pre>
+          </div>
           <p v-if="questionError" class="gsl__question-error">{{ questionError }}</p>
           <form class="gsl__ask" @submit.prevent="postQuestion">
             <input v-model="questionDraft" type="text" class="input" placeholder="Ask a question…" />
@@ -161,6 +177,11 @@
             <button type="button" :class="{ active: sideTab === 'notes' }" @click="sideTab = 'notes'">Notes</button>
           </div>
           <div v-if="sideTab === 'discussion'" class="gsl__discussion">
+            <p v-if="transcriptHint" class="gsl__transcript-hint">{{ transcriptHint }}</p>
+            <div v-if="sessionTranscriptPreview || liveTranscriptPreview" class="gsl__transcript-box">
+              <h4 class="gsl__transcript-title">Live transcript</h4>
+              <pre class="gsl__transcript-text">{{ sessionTranscriptPreview }}{{ liveTranscriptPreview ? `\n${liveTranscriptPreview}` : '' }}</pre>
+            </div>
             <p v-if="questionError" class="gsl__question-error">{{ questionError }}</p>
             <form class="gsl__ask" @submit.prevent="postQuestion">
               <input v-model="questionDraft" type="text" class="input" placeholder="Ask a question…" />
@@ -232,9 +253,15 @@ const activity = ref([]);
 const pollTimer = ref(null);
 const lifecyclePosted = ref(false);
 const liveTranscriptChunks = ref([]);
+const sessionTranscriptText = ref('');
 const transcriptHint = ref('');
 let speechRecognition = null;
 let transcriptFlushTimer = null;
+
+const numericSessionId = computed(() => {
+  const n = Number(props.supervisionSessionId || 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+});
 
 const sessionTypeNorm = computed(() => String(props.sessionMeta || '').trim().toLowerCase());
 const isIndividualSession = computed(() => {
@@ -244,8 +271,12 @@ const isIndividualSession = computed(() => {
 const showPresentationStage = computed(() => !isIndividualSession.value);
 
 const showLobbyPanel = computed(() =>
-  props.isSupervisor && props.lobbyEnabledForSession && !props.isInLobby
+  props.isSupervisor && props.lobbyEnabledForSession
 );
+const liveTranscriptPreview = computed(() =>
+  (liveTranscriptChunks.value || []).map((t) => String(t || '').trim()).filter(Boolean).join(' ')
+);
+const sessionTranscriptPreview = computed(() => String(sessionTranscriptText.value || '').trim());
 const canControlSlides = computed(() =>
   showPresentationStage.value
   && !viewAsAttendee.value
@@ -287,23 +318,26 @@ const questions = computed(() => {
   return (activity.value || [])
     .filter((a) => String(a.activity_type || a.activityType || '') === 'question')
     .map((a) => {
-      const payload = typeof a.payload_json === 'string'
-        ? JSON.parse(a.payload_json || '{}')
-        : (a.payload || a.payload_json || {});
+      let payload = a.payload || a.payload_json || {};
+      if (typeof payload === 'string') {
+        try { payload = JSON.parse(payload || '{}'); } catch { payload = {}; }
+      }
+      const created = a.created_at || a.createdAt;
       return {
         id: a.id,
         text: payload.text || payload.question || '',
         author: payload.authorName || 'Participant',
-        timeLabel: a.created_at ? new Date(a.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '',
+        timeLabel: created ? new Date(created).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '',
         upvotes: Number(payload.upvotes || 0),
         pinned: !!payload.pinned
       };
     })
+    .filter((q) => q.text)
     .reverse();
 });
 
 async function postLifecycle(eventType) {
-  const sid = props.supervisionSessionId;
+  const sid = numericSessionId.value || props.supervisionSessionId;
   if (!sid) return;
   // Guests cannot hit authenticated lifecycle; skip quietly.
   if (!authStore.isAuthenticated && !authStore.user?.id) return;
@@ -326,13 +360,27 @@ function speakerLabelForTranscript() {
   return role || name || 'Participant';
 }
 
+async function loadSessionTranscript() {
+  const sid = numericSessionId.value;
+  if (!sid || !authStore.isAuthenticated) return;
+  try {
+    const { data } = await api.get(`/supervision/sessions/${sid}/artifacts`, {
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
+    sessionTranscriptText.value = String(data?.transcriptText || data?.transcript_text || '').trim();
+  } catch {
+    /* optional */
+  }
+}
+
 async function flushLiveTranscript({ final = false } = {}) {
   const chunks = (liveTranscriptChunks.value || []).map((t) => String(t || '').trim()).filter(Boolean);
   if (!chunks.length) return;
   const transcript = chunks.join(' ').trim();
   if (!transcript) return;
   liveTranscriptChunks.value = [];
-  const sid = props.supervisionSessionId;
+  const sid = numericSessionId.value || props.supervisionSessionId;
   const joinToken = String(props.joinToken || '').trim();
   try {
     if (authStore.isAuthenticated && sid) {
@@ -348,6 +396,10 @@ async function flushLiveTranscript({ final = false } = {}) {
         { skipGlobalLoading: true, skipAuthRedirect: true }
       );
     }
+    const stamped = `[${speakerLabelForTranscript()}] ${transcript}`;
+    const prev = String(sessionTranscriptText.value || '').trim();
+    if (!prev) sessionTranscriptText.value = stamped;
+    else if (!prev.includes(stamped)) sessionTranscriptText.value = `${prev}\n${stamped}`;
     if (final) transcriptHint.value = 'Transcript saved for this session.';
   } catch (e) {
     // Put chunks back so a later flush can retry.
@@ -445,8 +497,8 @@ async function refreshPresentation() {
 }
 
 async function refreshActivity() {
-  const sid = props.supervisionSessionId;
-  if (!sid || props.isInLobby) return;
+  const sid = numericSessionId.value || props.supervisionSessionId;
+  if (!sid) return;
   try {
     const joinTok = String(props.joinToken || '').trim();
     const isGuest = String(props.joinIdentity || '').startsWith('guest-');
@@ -455,14 +507,16 @@ async function refreshActivity() {
         skipGlobalLoading: true,
         skipAuthRedirect: true
       })
-      : await api.get(`/supervision/sessions/${sid}/activity`, {
+      : await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/activity`, {
         skipGlobalLoading: true,
         skipAuthRedirect: true
       });
     const rows = data?.activity || data?.items || data || [];
     activity.value = Array.isArray(rows) ? rows : [];
-  } catch {
-    activity.value = [];
+  } catch (e) {
+    // Keep prior feed on transient errors so a just-posted question does not vanish.
+    if (!activity.value?.length) activity.value = [];
+    console.warn('[GroupSupervisionLiveRoom] activity refresh failed', e?.response?.status || e?.message);
   }
 }
 
@@ -498,6 +552,7 @@ async function postQuestion() {
   const authorName = String(props.localDisplayName || '').trim()
     || `${authStore.user?.firstName || authStore.user?.first_name || ''} ${authStore.user?.lastName || authStore.user?.last_name || ''}`.trim()
     || 'Participant';
+  const sid = numericSessionId.value || props.supervisionSessionId;
   try {
     const joinTok = String(props.joinToken || '').trim();
     const isGuest = String(props.joinIdentity || '').startsWith('guest-');
@@ -509,11 +564,23 @@ async function postQuestion() {
         payload: { text, authorName, upvotes: 0 }
       }, { skipAuthRedirect: true });
     } else {
-      await api.post(`/supervision/sessions/${props.supervisionSessionId}/activity`, {
+      if (!sid) throw new Error('Session id missing — rejoin the session and try again.');
+      await api.post(`/supervision/sessions/${encodeURIComponent(sid)}/activity`, {
         activityType: 'question',
         payload: { text, authorName, upvotes: 0 }
       });
     }
+    // Optimistic insert so the asker sees their question immediately.
+    activity.value = [
+      ...(activity.value || []),
+      {
+        id: `local-${Date.now()}`,
+        activityType: 'question',
+        activity_type: 'question',
+        payload: { text, authorName, upvotes: 0 },
+        createdAt: new Date().toISOString()
+      }
+    ];
     questionDraft.value = '';
     await refreshActivity();
   } catch (e) {
@@ -541,7 +608,8 @@ async function upvote(item) {
         }
       }, { skipAuthRedirect: true });
     } else {
-      await api.post(`/supervision/sessions/${props.supervisionSessionId}/activity`, {
+      const sid = numericSessionId.value || props.supervisionSessionId;
+      await api.post(`/supervision/sessions/${encodeURIComponent(sid)}/activity`, {
         activityType: 'question',
         payload: {
           text: item.text,
@@ -558,18 +626,19 @@ async function upvote(item) {
 }
 
 watch(() => props.isInLobby, (inLobby) => {
-  if (!inLobby) {
-    refreshPresentation();
-    refreshActivity();
-  }
+  refreshActivity();
+  loadSessionTranscript();
+  if (!inLobby) refreshPresentation();
 });
 
 onMounted(async () => {
   await refreshPresentation();
   await refreshActivity();
+  await loadSessionTranscript();
   pollTimer.value = setInterval(() => {
     refreshPresentation();
     refreshActivity();
+    loadSessionTranscript();
   }, 5000);
 });
 
@@ -584,11 +653,13 @@ onUnmounted(() => {
 <style scoped>
 .gsl {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   background: linear-gradient(180deg, color-mix(in srgb, var(--agency-secondary-color, #1d2633) 88%, #000), #0c1018);
   color: #eef2f8;
   padding: 12px 16px 20px;
+  box-sizing: border-box;
 }
 .gsl__header {
   display: flex;
@@ -622,12 +693,55 @@ onUnmounted(() => {
   opacity: 0.85;
   font-size: 0.9rem;
 }
+.gsl__lobby-wait {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 1fr;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.gsl__lobby-video {
+  width: 100%;
+  max-height: 140px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: #0b0e14;
+}
 .gsl__lobby-banner {
   background: color-mix(in srgb, var(--agency-primary-color, var(--primary)) 18%, transparent);
   border: 1px solid color-mix(in srgb, var(--agency-primary-color, var(--primary)) 40%, transparent);
   padding: 10px 12px;
   border-radius: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 0;
+}
+.gsl__transcript-box {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  max-height: 140px;
+  overflow: auto;
+}
+.gsl__transcript-title {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+}
+.gsl__transcript-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: #e2e8f0;
+  font-family: inherit;
+}
+.gsl__question-error {
+  color: #fecaca;
+  font-size: 0.82rem;
+  margin: 0 0 6px;
 }
 .gsl__video-strip {
   min-height: 160px;

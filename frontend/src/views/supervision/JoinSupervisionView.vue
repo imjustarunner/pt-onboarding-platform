@@ -112,10 +112,26 @@ function applyTokenPayload(data) {
   sessionMeta.value = data.sessionType ? String(data.sessionType) : '';
   joinIdentity.value = String(data.identity || '').trim();
   isGuestJoin.value = !!data.guest || String(data.identity || '').startsWith('guest-');
-  localDisplayName.value = String(data.displayName || '').trim();
-  localProfilePhotoUrl.value = String(data.profilePhotoUrl || data.profile_photo_url || '').trim();
-  localRoleLabel.value = String(data.roleLabel || '').trim()
-    || (data.isSupervisor ? 'Supervisor' : (data.isPresenter ? 'Presenter' : (isGuestJoin.value ? 'Guest' : 'Supervisee')));
+  const u = authStore.user || {};
+  const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
+    || u.email
+    || '';
+  const fromApi = String(data.displayName || '').trim();
+  localDisplayName.value = (fromApi && fromApi.toLowerCase() !== 'guest')
+    ? fromApi
+    : (authName || fromApi || '');
+  localProfilePhotoUrl.value = String(
+    data.profilePhotoUrl || data.profile_photo_url || u.profile_photo_url || u.profilePhotoUrl || ''
+  ).trim();
+  if (data.isSupervisor) localRoleLabel.value = 'Supervisor';
+  else if (data.isPresenter) localRoleLabel.value = 'Presenter';
+  else if (isGuestJoin.value && !authName) localRoleLabel.value = 'Guest';
+  else {
+    const roleFromApi = String(data.roleLabel || '').trim();
+    localRoleLabel.value = (roleFromApi && roleFromApi.toLowerCase() !== 'guest')
+      ? roleFromApi
+      : 'Supervisee';
+  }
 }
 
 function startAdmissionPolling() {

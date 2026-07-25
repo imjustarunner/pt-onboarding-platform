@@ -3709,15 +3709,14 @@
               >
                 {{ (supvMeetOpening || supvAppVideoLoading) ? 'Joining…' : (selectedSupvSession?.joinUrl ? 'Join with app' : 'Join Meet (tracked)') }}
               </button>
-              <a
-                v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink"
+              <button
+                v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.participantJoinUrl"
                 class="btn btn-secondary btn-sm"
-                :href="selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink"
-                target="_blank"
-                rel="noreferrer"
+                type="button"
+                @click="copyTextToClipboard(selectedSupvSession.participantJoinUrl || selectedSupvSession.joinUrl, 'Participant join link copied')"
               >
-                Open in new tab
-              </a>
+                Copy participant link
+              </button>
               <button
                 v-if="supervisionSessionInitiated"
                 class="btn btn-secondary btn-sm"
@@ -3836,53 +3835,31 @@
       </div>
     </div>
 
-    <div v-if="showSupvAppVideoModal && supvAppVideoToken" class="modal-backdrop supv-video-backdrop" style="z-index: 10001;" @click.self="closeSupvAppVideoModal">
-      <div class="modal supv-video-modal" :class="{ 'supv-video-fullscreen': supvAppVideoFullscreen }" @click.stop>
-        <div class="modal-head supv-video-head" style="flex-shrink: 0;">
-          <div class="supv-video-head-brand">
-            <BrandingLogo size="medium" class="supv-video-logo" />
-            <div class="modal-title">Supervision video (in-app)</div>
-          </div>
-          <div class="supv-video-head-actions">
-            <a
-              v-if="supvAppVideoOrgSlug && supvAppVideoSessionId"
-              :href="`/${supvAppVideoOrgSlug}/join/supervision/${supvAppVideoSessionId}`"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="btn btn-ghost btn-sm"
-            >
-              Open in new tab
-            </a>
-            <button class="btn btn-secondary btn-sm" type="button" @click.stop="supvAppVideoFullscreen = !supvAppVideoFullscreen">
-              {{ supvAppVideoFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}
-            </button>
-            <button class="btn btn-secondary btn-sm" type="button" @click.stop="closeSupvAppVideoModal">Close</button>
-          </div>
-        </div>
-        <div class="modal-body supv-video-body" style="padding: 12px; overflow-y: auto; flex: 1; min-height: 0;">
-          <p class="muted" style="margin-bottom: 12px;">Attendance is tracked automatically when you join and leave.</p>
-          <SupervisionVideoLobbyPanel
-            v-if="supvAppVideoRoomMode !== 'lobby' && supvAppVideoIsSupervisor && supvAppVideoLobbyEnabled"
-            :session-id="supvAppVideoSessionId"
-            :is-supervisor="supvAppVideoIsSupervisor"
-          />
-          <div v-else-if="supvAppVideoRoomMode === 'lobby' && supvAppVideoLobbyEnabled" class="hint" style="margin-bottom: 12px;">
-            Waiting for supervisor to admit you to the room…
-          </div>
-          <SupervisionVideoRoom
-            :token="supvAppVideoToken"
-            :room-name="supvAppVideoRoomName"
-            :vonage-session-id="supvAppVideoVonageSessionId"
-            :room-sid="supvAppVideoVonageSessionId"
-            :application-id="supvAppVideoApplicationId"
-            :api-key="supvAppVideoApplicationId"
-            :session-title="supvAppVideoSessionTitle"
-            :session-id="supvAppVideoSessionId"
-            :diagnostics="supvAppVideoDiagnostics"
-            :is-host="supvAppVideoIsSupervisor"
-            @disconnected="closeSupvAppVideoModal"
-          />
-        </div>
+    <div
+      v-if="showSupvAppVideoModal && supvAppVideoToken"
+      class="modal-backdrop supv-video-backdrop supv-video-takeover"
+      style="z-index: 10001;"
+    >
+      <div class="modal supv-video-modal supv-video-fullscreen" @click.stop>
+        <GroupSupervisionLiveRoom
+          :supervision-session-id="supvAppVideoSessionId"
+          :token="supvAppVideoToken"
+          :vonage-session-id="supvAppVideoVonageSessionId"
+          :application-id="supvAppVideoApplicationId"
+          :diagnostics="supvAppVideoDiagnostics"
+          :session-title="supvAppVideoSessionTitle || 'Supervision'"
+          :session-meta="supvAppVideoSessionType"
+          :is-supervisor="supvAppVideoIsSupervisor"
+          :is-presenter="supvAppVideoIsPresenter"
+          :is-in-lobby="supvAppVideoRoomMode === 'lobby'"
+          :lobby-enabled-for-session="supvAppVideoLobbyEnabled"
+          :join-identity="supvAppVideoJoinIdentity"
+          :local-display-name="supvAppVideoDisplayName"
+          :local-role-label="supvAppVideoRoleLabel"
+          :local-profile-photo-url="supvAppVideoProfilePhotoUrl"
+          :join-token="supvAppVideoJoinToken"
+          @leave="closeSupvAppVideoModal"
+        />
       </div>
     </div>
     <div v-if="supvAppVideoError" class="modal-backdrop" style="z-index: 10002;" @click.self="supvAppVideoError = ''">
@@ -4627,8 +4604,7 @@ import { isTenantOrganizationType as isTenantOrganizationTypeShared } from '../.
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import BrandingLogo from '../BrandingLogo.vue';
-import SupervisionVideoRoom from '../supervision/SupervisionVideoRoom.vue';
-import SupervisionVideoLobbyPanel from '../supervision/SupervisionVideoLobbyPanel.vue';
+import GroupSupervisionLiveRoom from '../supervision/GroupSupervisionLiveRoom.vue';
 import UnifiedBookingPanel from './UnifiedBookingPanel.vue';
 import PersonSearchSelect from './PersonSearchSelect.vue';
 import AppointmentEditorShell from './AppointmentEditorShell.vue';
@@ -17760,11 +17736,18 @@ const supvAppVideoDiagnostics = ref(null);
 const supvAppVideoSessionTitle = ref('');
 const supvAppVideoSessionId = ref(0);
 const supvAppVideoIsSupervisor = ref(false);
+const supvAppVideoIsPresenter = ref(false);
 const supvAppVideoRoomMode = ref('main');
 const supvAppVideoLobbyEnabled = ref(false);
-const supvAppVideoFullscreen = ref(false);
+const supvAppVideoJoinIdentity = ref('');
+const supvAppVideoDisplayName = ref('');
+const supvAppVideoRoleLabel = ref('');
+const supvAppVideoProfilePhotoUrl = ref('');
+const supvAppVideoJoinToken = ref('');
+const supvAppVideoSessionType = ref('individual');
 const supvAppVideoError = ref('');
 const supvAppVideoLoading = ref(false);
+let supvAppVideoAdmissionPoll = null;
 
 const clearSupvMeetPolling = () => {
   if (supvMeetPollTimer.value) {
@@ -17812,51 +17795,112 @@ const endTrackedSupvMeet = async () => {
   }
 };
 
+const stopSupvAppVideoAdmissionPoll = () => {
+  if (supvAppVideoAdmissionPoll) {
+    clearInterval(supvAppVideoAdmissionPoll);
+    supvAppVideoAdmissionPoll = null;
+  }
+};
+
+const applySupvAppVideoTokenPayload = (data, sid) => {
+  const tok = (data.token || data.data?.token || data.result?.token || '').trim();
+  const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
+  const vonageSid = String(data.sessionId || data.roomSid || '').trim();
+  const appId = String(data.applicationId || data.apiKey || '').trim();
+  if (tok) supvAppVideoToken.value = tok;
+  if (vonageSid) supvAppVideoVonageSessionId.value = vonageSid;
+  if (appId) supvAppVideoApplicationId.value = appId;
+  supvAppVideoRoomName.value = rn;
+  supvAppVideoDiagnostics.value = data.diagnostics || supvAppVideoDiagnostics.value;
+  if (data.sessionTitle || data.session_title) {
+    supvAppVideoSessionTitle.value = data.sessionTitle || data.session_title;
+  }
+  if (Number(data.supervisionSessionId || sid) > 0) {
+    supvAppVideoSessionId.value = Number(data.supervisionSessionId || sid);
+  }
+  supvAppVideoIsSupervisor.value = !!data.isSupervisor;
+  supvAppVideoIsPresenter.value = !!data.isPresenter;
+  supvAppVideoRoomMode.value = String(
+    data.roomMode || (String(rn || '').endsWith('-lobby') ? 'lobby' : 'main')
+  ).toLowerCase();
+  supvAppVideoLobbyEnabled.value = !!(data.lobbyEnabledForSession ?? data.waitingRoomEnabled);
+  supvAppVideoJoinIdentity.value = String(data.identity || '').trim();
+  const u = authStore.user || {};
+  const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
+    || u.email
+    || '';
+  const fromApi = String(data.displayName || '').trim();
+  supvAppVideoDisplayName.value = (fromApi && fromApi.toLowerCase() !== 'guest')
+    ? fromApi
+    : (authName || fromApi || '');
+  const roleFromApi = String(data.roleLabel || '').trim();
+  if (data.isSupervisor) supvAppVideoRoleLabel.value = 'Supervisor';
+  else if (data.isPresenter) supvAppVideoRoleLabel.value = 'Presenter';
+  else if (roleFromApi && roleFromApi.toLowerCase() !== 'guest') supvAppVideoRoleLabel.value = roleFromApi;
+  else if (authName) supvAppVideoRoleLabel.value = 'Supervisee';
+  else supvAppVideoRoleLabel.value = roleFromApi || 'Supervisee';
+  supvAppVideoProfilePhotoUrl.value = String(
+    data.profilePhotoUrl || data.profile_photo_url || u.profile_photo_url || u.profilePhotoUrl || ''
+  ).trim();
+  supvAppVideoSessionType.value = String(data.sessionType || data.session_type || 'individual').toLowerCase();
+};
+
+const startSupvAppVideoAdmissionPoll = (sid) => {
+  stopSupvAppVideoAdmissionPoll();
+  if (!sid || supvAppVideoIsSupervisor.value || supvAppVideoRoomMode.value !== 'lobby') return;
+  const tick = async () => {
+    if (!showSupvAppVideoModal.value || supvAppVideoRoomMode.value !== 'lobby') {
+      stopSupvAppVideoAdmissionPoll();
+      return;
+    }
+    try {
+      const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/admission-status`, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      });
+      const data = resp?.data || {};
+      if (data.admitted && data.token) {
+        applySupvAppVideoTokenPayload(data, sid);
+        stopSupvAppVideoAdmissionPoll();
+      }
+    } catch {
+      /* retry */
+    }
+  };
+  void tick();
+  supvAppVideoAdmissionPoll = setInterval(tick, 2500);
+};
+
 const startAppVideoMeetingFromGrid = async (session) => {
   const sid = Number(session?.id || 0);
   if (!sid) return;
+  stopSupvAppVideoAdmissionPoll();
   supvAppVideoLoading.value = true;
   supvAppVideoError.value = '';
   try {
-    const resp = await api.get(`/supervision/sessions/${sid}/video-token`);
+    // Prefer host join token when this viewer is the session supervisor so they
+    // enter main immediately (never fall through to a guest browser tab).
+    const role = String(session?.role || '').toLowerCase();
+    const hostTok = String(session?.hostJoinToken || session?.host_join_token || '').trim();
+    const tokenRef = (role === 'supervisor' && hostTok) ? hostTok : sid;
+    const resp = await api.get(`/supervision/sessions/${encodeURIComponent(tokenRef)}/video-token`);
     const data = resp?.data || {};
     const tok = (data.token || data.data?.token || data.result?.token || '').trim();
-    const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
     const vonageSid = String(data.sessionId || data.roomSid || '').trim();
     const appId = String(data.applicationId || data.apiKey || '').trim();
-    if (typeof window !== 'undefined') window.__supvDebugRunId = `run-${Date.now()}`;
     if (!tok || !vonageSid || !appId) {
       console.warn('[ScheduleGrid] video-token incomplete:', { status: resp?.status, data });
       supvAppVideoError.value = data?.error?.message || data?.error || 'Video credentials were incomplete.';
       return;
     }
-    // Open the branded join page (guest-capable opaque token) so a fresh tab
-    // does not require re-login. Prefer join_token over numeric id.
-    const sessionType = String(data.sessionType || session?.sessionType || session?.session_type || '').toLowerCase();
-    const joinKey = String(
-      session?.joinToken || session?.join_token || data.joinToken || data.join_token || sid
-    ).trim();
-    const opaqueJoin = joinKey && !/^\d+$/.test(joinKey);
-    if (supvAppVideoOrgSlug.value && (sessionType === 'group' || opaqueJoin)) {
-      await logSupvMeetingLifecycle({ sessionId: sid, eventType: 'opened' });
-      const joinPath = `/${supvAppVideoOrgSlug.value}/join/supervision/${encodeURIComponent(joinKey)}`;
-      window.open(joinPath, '_blank', 'noopener');
-      return;
-    }
     supvMeetClientSessionKey.value = `web-${sid}-${Number(authStore.user?.id || 0)}-${Date.now()}`;
     await logSupvMeetingLifecycle({ sessionId: sid, eventType: 'opened' });
-    supvAppVideoToken.value = tok;
-    supvAppVideoRoomName.value = rn;
-    supvAppVideoVonageSessionId.value = vonageSid;
-    supvAppVideoApplicationId.value = appId;
-    supvAppVideoDiagnostics.value = data.diagnostics || null;
-    supvAppVideoSessionTitle.value = data.sessionTitle || data.session_title || '';
-    supvAppVideoSessionId.value = sid;
-    supvAppVideoIsSupervisor.value = !!data.isSupervisor;
-    supvAppVideoRoomMode.value = String(data.roomMode || (String(rn || '').endsWith('-lobby') ? 'lobby' : 'main')).toLowerCase();
-    supvAppVideoLobbyEnabled.value = !!data.lobbyEnabledForSession;
-    supvAppVideoFullscreen.value = true;
+    applySupvAppVideoTokenPayload(data, sid);
+    supvAppVideoJoinToken.value = String(
+      session?.joinToken || session?.join_token || data.joinToken || data.join_token || ''
+    ).trim();
     showSupvAppVideoModal.value = true;
+    if (supvAppVideoRoomMode.value === 'lobby') startSupvAppVideoAdmissionPoll(sid);
   } catch (e) {
     supvAppVideoError.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room.';
   } finally {
@@ -17865,6 +17909,7 @@ const startAppVideoMeetingFromGrid = async (session) => {
 };
 
 const closeSupvAppVideoModal = () => {
+  stopSupvAppVideoAdmissionPoll();
   if (supvAppVideoSessionId.value) {
     void logSupvMeetingLifecycle({ sessionId: supvAppVideoSessionId.value, eventType: 'closed' });
   }
@@ -17877,9 +17922,15 @@ const closeSupvAppVideoModal = () => {
   supvAppVideoSessionTitle.value = '';
   supvAppVideoSessionId.value = 0;
   supvAppVideoIsSupervisor.value = false;
+  supvAppVideoIsPresenter.value = false;
   supvAppVideoRoomMode.value = 'main';
   supvAppVideoLobbyEnabled.value = false;
-  supvAppVideoFullscreen.value = false;
+  supvAppVideoJoinIdentity.value = '';
+  supvAppVideoDisplayName.value = '';
+  supvAppVideoRoleLabel.value = '';
+  supvAppVideoProfilePhotoUrl.value = '';
+  supvAppVideoJoinToken.value = '';
+  supvAppVideoSessionType.value = 'individual';
 };
 
 const startTrackedSupvMeetForSession = async (session) => {
@@ -22901,7 +22952,14 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   }
 }
 
-/* Supervision video modal – larger, with logo and fullscreen */
+/* Supervision video takeover – full app screen, no separate browser tab */
+.supv-video-backdrop.supv-video-takeover {
+  position: fixed;
+  inset: 0;
+  background: #0c1018;
+  padding: 0;
+  margin: 0;
+}
 .supv-video-backdrop .supv-video-modal {
   max-width: min(95vw, 1400px);
   width: min(95vw, 1400px);
@@ -22919,6 +22977,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   max-height: none;
   border-radius: 0;
   z-index: 10002;
+  background: #0c1018;
+  padding: 0;
+  overflow: auto;
 }
 .supv-video-head {
   display: flex;

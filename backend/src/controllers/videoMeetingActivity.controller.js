@@ -15,12 +15,22 @@ async function canAccessSupervisionActivity(req, session) {
   const sid = Number(session?.id || 0);
   const supervisorId = Number(session?.supervisor_user_id || 0);
   const superviseeId = Number(session?.supervisee_user_id || 0);
-  if (actorId === supervisorId || actorId === superviseeId) return true;
+  const coFacilitatorId = Number(session?.co_facilitator_user_id || 0);
+  if (actorId === supervisorId || actorId === superviseeId || actorId === coFacilitatorId) return true;
   const [attendee] = await pool.execute(
     `SELECT 1 FROM supervision_session_attendees WHERE session_id = ? AND user_id = ? LIMIT 1`,
     [sid, actorId]
   );
   if (attendee?.length) return true;
+  try {
+    const [presenter] = await pool.execute(
+      `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
+      [sid, actorId]
+    );
+    if (presenter?.length) return true;
+  } catch {
+    /* optional table */
+  }
   const actorAgencies = await User.getAgencies(actorId);
   const inAgency = (actorAgencies || []).some((a) => Number(a?.id) === Number(session?.agency_id || 0));
   if (!inAgency) return false;

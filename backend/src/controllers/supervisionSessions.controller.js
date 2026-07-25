@@ -1695,7 +1695,14 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     }
 
     const identity = `user-${actorUserId}`;
-    const displayName = displayNameFromUser(req.user) || identity;
+    // JWT req.user often lacks first/last name — load profile for labels.
+    let actorProfile = null;
+    try {
+      actorProfile = await User.findById(actorUserId);
+    } catch {
+      actorProfile = null;
+    }
+    const displayName = displayNameFromUser(actorProfile || req.user) || identity;
     const profilePhotoUrl = await profilePhotoUrlForUserId(actorUserId);
     const admitted = isSupervisor
       || await isUserAdmittedToSupervision({ sessionId: id, userId: actorUserId, joinIdentity: identity });
@@ -1829,13 +1836,6 @@ export const getLobbyParticipants = async (req, res, next) => {
       return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });
     }
 
-    const ok = await canScheduleSession(req, {
-      agencyId: row.agency_id,
-      supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id
-    });
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
     const actorUserId = Number(req.user?.id || 0);
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
@@ -1844,6 +1844,14 @@ export const getLobbyParticipants = async (req, res, next) => {
     if (!isSupervisor) {
       return res.status(403).json({ error: { message: 'Only the supervisor can view lobby participants' } });
     }
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const participants = await listWaitingLobbyPresence(id);
     for (const p of participants) {
@@ -2226,7 +2234,13 @@ export const saveGuestTranscript = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'A secure join link is required.' } });
     }
     const row = await SupervisionSession.resolveByJoinRef(ref);
-    if (!row?.id || String(row.join_token || '') !== ref) {
+    if (!row?.id) {
+      return res.status(404).json({ error: { message: 'Session not found' } });
+    }
+    const matchesOpaque = [row.join_token, row.participant_join_token, row.host_join_token]
+      .map((t) => String(t || ''))
+      .includes(ref);
+    if (!matchesOpaque) {
       return res.status(404).json({ error: { message: 'Session not found' } });
     }
     const transcript = String(req.body?.transcript || '').trim();

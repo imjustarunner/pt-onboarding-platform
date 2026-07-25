@@ -71,15 +71,19 @@ const localName = computed(() => {
   const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
     || u.email
     || '';
+  const authenticated = !!(authStore.isAuthenticated || u.id || authName);
   // Prefer real auth name over a stale "Guest" label from a prior guest fallthrough.
   const name = (fromProp && fromProp.toLowerCase() !== 'guest')
     ? fromProp
-    : (authName || fromProp || '');
-  const roleSafe = role && role.toLowerCase() === 'guest' && authName ? 'Supervisee' : role;
+    : (authName || (fromProp.toLowerCase() === 'guest' ? '' : fromProp) || '');
+  let roleSafe = role;
+  if (props.isHost) roleSafe = 'Supervisor';
+  else if (role && role.toLowerCase() === 'guest' && authenticated) roleSafe = 'Supervisee';
+  else if (!roleSafe && authenticated) roleSafe = 'Supervisee';
   if (roleSafe && name && roleSafe.toLowerCase() !== name.toLowerCase()) return `You · ${roleSafe} · ${name}`;
   if (roleSafe) return `You · ${roleSafe}`;
   if (name) return `You · ${name}`;
-  return 'You';
+  return authenticated ? 'You · Supervisee' : 'You';
 });
 
 const localProfilePhotoUrl = computed(() => {
