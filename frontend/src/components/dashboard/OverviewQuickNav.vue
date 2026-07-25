@@ -84,7 +84,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import {
   buildQuickNavContext,
-  resolveQuickNavLocation,
+  resolveQuickNavRoute,
   searchQuickNav
 } from '../../navigation/quickNavCatalog';
 
@@ -192,7 +192,7 @@ function moveActive(delta) {
 async function go(item) {
   if (!item) return;
   const orgSlug = route.params?.organizationSlug || null;
-  const loc = resolveQuickNavLocation(item, {
+  const loc = resolveQuickNavRoute(item, {
     currentPath: route.path,
     orgSlug,
     currentQuery: route.query

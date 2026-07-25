@@ -357,15 +357,55 @@
         >
           What can you do?
         </button>
-        <div class="aap-composer">
+        <div class="aap-composer-wrap">
+          <div
+            v-if="quickNavPanelOpen"
+            id="aap-quick-nav-listbox"
+            class="aap-qnav-panel"
+            role="listbox"
+            aria-label="Jump to"
+          >
+            <template v-if="quickNavGroups.length">
+              <div v-for="group in quickNavGroups" :key="group.group" class="aap-qnav-group">
+                <div class="aap-qnav-group-label">{{ group.label }}</div>
+                <button
+                  v-for="item in group.items"
+                  :id="quickNavOptionId(item)"
+                  :key="item.id"
+                  type="button"
+                  class="aap-qnav-option"
+                  role="option"
+                  :aria-selected="quickNavActiveId === item.id ? 'true' : 'false'"
+                  :class="{ 'is-active': quickNavActiveId === item.id }"
+                  @mousedown.prevent="goQuickNav(item)"
+                  @mouseenter="quickNavActiveId = item.id"
+                >
+                  <span class="aap-qnav-option-main">
+                    <span class="aap-qnav-option-label">{{ item.label }}</span>
+                    <span class="aap-qnav-option-desc">{{ item.description }}</span>
+                  </span>
+                  <span class="aap-qnav-badge">{{ item.groupLabel }}</span>
+                </button>
+              </div>
+            </template>
+            <div v-else class="aap-qnav-empty" role="status">
+              No quick matches — press Enter to ask the assistant.
+            </div>
+          </div>
+          <div class="aap-composer" :class="{ 'is-open': quickNavPanelOpen }">
           <textarea
             v-model="prompt"
             ref="textareaRef"
             rows="1"
             class="aap-input"
-            placeholder="Ask anything…"
-            @keydown.enter.exact.prevent="submit"
-            @input="autoGrow"
+            placeholder="Ask anything… or type Payroll, Schedule, Submit…"
+            role="combobox"
+            :aria-expanded="quickNavPanelOpen ? 'true' : 'false'"
+            aria-autocomplete="list"
+            aria-controls="aap-quick-nav-listbox"
+            :aria-activedescendant="quickNavActiveDescendantId"
+            @keydown="onComposerKeydown"
+            @input="onComposerInput"
           />
           <div class="aap-composer-actions">
             <button
@@ -397,7 +437,8 @@
             </button>
           </div>
         </div>
-        <p class="aap-foot-hint"><kbd>Enter</kbd> send · <kbd>Esc</kbd> close</p>
+        </div>
+        <p class="aap-foot-hint"><kbd>Enter</kbd> send · <kbd>↑↓</kbd> jump · <kbd>Esc</kbd> close</p>
       </footer>
     </aside>
   </div>
@@ -412,6 +453,13 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useSpeechToText } from '../../composables/useSpeechToText';
 import { useAssistantAgencyContext } from '../../composables/useAssistantAgencyContext';
+import { isSupervisor } from '../../utils/helpers.js';
+import { getDashboardRoute } from '../../utils/router.js';
+import {
+  buildQuickNavContext,
+  resolveQuickNavRoute,
+  searchQuickNav
+} from '../../navigation/quickNavCatalog.js';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -835,6 +883,140 @@ const turns = ref([]);
 const textareaRef = ref(null);
 const turnsRef = ref(null);
 const stickToBottom = ref(true);
+const quickNavActiveId = ref(null);
+
+const quickNavCtx = computed(() => {
+  const u = authStore.user;
+  const role = String(u?.role || '').toLowerCase();
+  const caps = u?.capabilities || {};
+  const isTrueAdmin = role === 'admin' || role === 'super_admin' || role === 'superadmin';
+  const isProviderLike = [
+    'provider',
+    'provider_plus',
+    'intern',
+    'intern_plus',
+    'clinical_practice_assistant'
+  ].includes(role);
+  const isSup = isSupervisor(u);
+  const isLimitedAccessNonProvider =
+    !isTrueAdmin && !isProviderLike && (isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll);
+  const cur = agencyStore.currentAgency;
+  const orgType = String(cur?.organization_type || cur?.organizationType || '').toLowerCase();
+  const isClubContext = orgType === 'affiliation';
+  const kudosEnabled = !!(cur?.kudos_enabled ?? cur?.kudosEnabled);
+
+  return buildQuickNavContext({
+    user: u,
+    isClubContext,
+    kudosEnabled,
+    showSchedule: role !== 'school_staff' && !isClubContext,
+    showPayroll: role !== 'school_staff' && !isClubContext && !isLimitedAccessNonProvider,
+    showClaims:
+      role !== 'school_staff' && !isClubContext && !isLimitedAccessNonProvider && (isProviderLike || isTrueAdmin),
+    showSupervision: !isClubContext && isSup,
+    showMySupervision: !isClubContext && !isSup && !isLimitedAccessNonProvider,
+    showChats: !isLimitedAccessNonProvider,
+    isOnboardingComplete: true
+  });
+});
+
+const quickNavSearch = computed(() => searchQuickNav(prompt.value, quickNavCtx.value, { limit: 8 }));
+const quickNavGroups = computed(() => quickNavSearch.value.groups);
+const quickNavFlat = computed(() => quickNavSearch.value.flat);
+
+const quickNavPanelOpen = computed(
+  () => String(prompt.value || '').trim().length > 0 && quickNavFlat.value.length > 0 && !busy.value
+);
+
+const quickNavActiveDescendantId = computed(() => {
+  if (!quickNavPanelOpen.value || !quickNavActiveId.value) return undefined;
+  return `aap-qnav-opt-${quickNavActiveId.value}`;
+});
+
+watch(quickNavFlat, (list) => {
+  if (!list?.length) {
+    quickNavActiveId.value = null;
+    return;
+  }
+  if (!list.some((i) => i.id === quickNavActiveId.value)) {
+    quickNavActiveId.value = list[0].id;
+  }
+});
+
+function dashboardPathForQuickNav() {
+  const raw = getDashboardRoute();
+  return typeof raw === 'string' ? raw : String(raw?.path || '/dashboard');
+}
+
+async function goQuickNav(item) {
+  if (!item || busy.value) return;
+  const orgSlug = route.params?.organizationSlug || null;
+  const loc = resolveQuickNavRoute(item, {
+    currentPath: route.path,
+    orgSlug,
+    currentQuery: route.query,
+    dashboardPath: dashboardPathForQuickNav()
+  });
+  if (!loc) return;
+  prompt.value = '';
+  quickNavActiveId.value = null;
+  markEngaged();
+  try {
+    await router.push(loc);
+    if (!isEmbedded.value) emit('close');
+  } catch (e) {
+    console.warn('[AskAssistantPanel] quick-nav failed', e?.message);
+  }
+}
+
+function moveQuickNavActive(delta) {
+  const list = quickNavFlat.value;
+  if (!list.length) return;
+  const idx = list.findIndex((i) => i.id === quickNavActiveId.value);
+  const next = idx < 0 ? 0 : (idx + delta + list.length) % list.length;
+  quickNavActiveId.value = list[next].id;
+  nextTick(() => {
+    document.getElementById(`aap-qnav-opt-${list[next].id}`)?.scrollIntoView?.({ block: 'nearest' });
+  });
+}
+
+function activateQuickNavSelection() {
+  const list = quickNavFlat.value;
+  if (!list.length) return false;
+  const hit = list.find((i) => i.id === quickNavActiveId.value) || list[0];
+  void goQuickNav(hit);
+  return true;
+}
+
+function onComposerInput() {
+  autoGrow();
+}
+
+function onComposerKeydown(e) {
+  if (e.key === 'ArrowDown') {
+    if (quickNavPanelOpen.value && quickNavFlat.value.length) {
+      e.preventDefault();
+      moveQuickNavActive(1);
+    }
+    return;
+  }
+  if (e.key === 'ArrowUp') {
+    if (quickNavPanelOpen.value && quickNavFlat.value.length) {
+      e.preventDefault();
+      moveQuickNavActive(-1);
+    }
+    return;
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (quickNavPanelOpen.value && quickNavFlat.value.length) {
+      activateQuickNavSelection();
+      return;
+    }
+    void submit();
+    return;
+  }
+}
 
 const { isListening, isSupported: sttSupported, startListening, stopListening } = useSpeechToText({
   onFinal: (text) => {
@@ -2307,6 +2489,104 @@ onUnmounted(() => {
 .aap-help-action:hover:not(:disabled) {
   border-color: rgba(13, 148, 136, 0.45);
   background: #f0fdfa;
+}
+
+.aap-composer-wrap {
+  position: relative;
+}
+
+.aap-qnav-panel {
+  position: absolute;
+  z-index: 12;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  max-height: min(280px, 40vh);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  padding: 6px;
+}
+
+.aap-qnav-group + .aap-qnav-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.aap-qnav-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  padding: 6px 10px 4px;
+}
+
+.aap-qnav-option {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.aap-qnav-option:hover,
+.aap-qnav-option.is-active {
+  background: #f0fdfa;
+}
+
+.aap-qnav-option-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.aap-qnav-option-label {
+  font-size: 13px;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.aap-qnav-option-desc {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.aap-qnav-badge {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #0f766e;
+  background: #ccfbf1;
+  border-radius: 999px;
+  padding: 3px 7px;
+  margin-top: 2px;
+}
+
+.aap-qnav-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+}
+
+.aap-composer.is-open {
+  border-color: rgba(13, 148, 136, 0.45);
+  box-shadow: 0 0 0 3px var(--aap-glow), 0 4px 20px rgba(15, 23, 42, 0.06);
 }
 
 .aap-composer {

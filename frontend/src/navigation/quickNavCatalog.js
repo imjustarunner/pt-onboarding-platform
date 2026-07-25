@@ -712,8 +712,9 @@ export function searchQuickNav(query, ctx, { limit = 24 } = {}) {
 /**
  * Resolve a catalog entry to a vue-router location.
  * Dashboard destinations keep the current path and merge tab/my into query.
+ * Pass `dashboardPath` when jumping from a non-dashboard surface (e.g. Ask Assistant).
  */
-export function resolveQuickNavLocation(entry, { currentPath, orgSlug, currentQuery } = {}) {
+export function resolveQuickNavLocation(entry, { currentPath, orgSlug, currentQuery, dashboardPath } = {}) {
   if (!entry) return null;
 
   if (entry.kind === 'dashboard') {
@@ -721,8 +722,9 @@ export function resolveQuickNavLocation(entry, { currentPath, orgSlug, currentQu
     query.tab = entry.tab;
     if (entry.my) query.my = entry.my;
     else delete query.my;
+    const basePath = String(dashboardPath || currentPath || '/dashboard').trim() || '/dashboard';
     return {
-      path: currentPath || '/dashboard',
+      path: basePath,
       query
     };
   }
@@ -737,5 +739,14 @@ export function resolveQuickNavLocation(entry, { currentPath, orgSlug, currentQu
     return { path, query };
   }
 
+  return null;
+}
+
+/** Router location for any catalog entry (dashboard, path, or named route). */
+export function resolveQuickNavRoute(entry, opts = {}) {
+  const loc = resolveQuickNavLocation(entry, opts);
+  if (loc) return loc;
+  const name = String(entry?.routeName || '').trim();
+  if (name) return { name };
   return null;
 }

@@ -3,6 +3,7 @@ import {
   buildQuickNavContext,
   getAccessibleQuickNavEntries,
   resolveQuickNavLocation,
+  resolveQuickNavRoute,
   scoreQuickNavEntry,
   searchQuickNav
 } from '../quickNavCatalog.js';
@@ -100,5 +101,21 @@ describe('quickNavCatalog', () => {
     const { groups } = searchQuickNav('pay', providerCtx());
     expect(groups.length).toBeGreaterThanOrEqual(1);
     expect(groups[0].label).toBe('Account');
+  });
+
+  it('resolveQuickNavLocation uses dashboardPath from assistant surfaces', () => {
+    const loc = resolveQuickNavLocation(
+      { kind: 'dashboard', tab: 'my', my: 'payroll' },
+      { currentPath: '/admin/users', dashboardPath: '/itsco/dashboard' }
+    );
+    expect(loc).toEqual({
+      path: '/itsco/dashboard',
+      query: { tab: 'my', my: 'payroll' }
+    });
+  });
+
+  it('resolveQuickNavRoute falls back to routeName', () => {
+    const loc = resolveQuickNavRoute({ kind: 'route', routeName: 'MyLearning' }, {});
+    expect(loc).toEqual({ name: 'MyLearning' });
   });
 });
