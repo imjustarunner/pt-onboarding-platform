@@ -13,7 +13,7 @@
       </div>
       <div class="gsl__header-right">
         <button
-          v-if="isSupervisor || isPresenter"
+          v-if="showPresentationStage && (isSupervisor || isPresenter)"
           type="button"
           class="btn btn-secondary btn-sm"
           @click="viewAsAttendee = !viewAsAttendee"
@@ -35,70 +35,26 @@
       Waiting for the supervisor to admit you…
     </div>
 
-    <div class="gsl__video-strip">
-      <SupervisionVideoRoom
-        v-if="token && vonageSessionId && applicationId"
-        :token="token"
-        :vonage-session-id="vonageSessionId"
-        :room-sid="vonageSessionId"
-        :application-id="applicationId"
-        :api-key="applicationId"
-        :session-title="''"
-        :session-id="supervisionSessionId"
-        :is-host="isSupervisor"
-        :diagnostics="diagnostics"
-        layout="strip"
-        @disconnected="$emit('leave')"
-        @connected="onVideoConnected"
-      />
-    </div>
-
-    <div class="gsl__main" :class="{ 'gsl__main--individual': isIndividualSession }">
-      <section v-if="showPresentationStage" class="gsl__stage-wrap">
-        <div class="gsl__stage">
-          <template v-if="externalEmbedUrl">
-            <iframe
-              class="gsl__embed"
-              :src="externalEmbedUrl"
-              title="Presentation"
-              allowfullscreen
-            />
-          </template>
-          <template v-else-if="currentSlide">
-            <div class="gsl__slide">
-              <p class="gsl__slide-kicker">{{ currentSlide.section_key || 'Case Presentation' }}</p>
-              <h2>{{ currentSlide.title }}</h2>
-              <div class="gsl__slide-body" v-html="slideBodyHtml" />
-            </div>
-          </template>
-          <div v-else class="gsl__stage-empty">Presentation will appear here</div>
-          <div class="gsl__stage-controls">
-            <span>{{ slidePositionLabel }}</span>
-            <div v-if="canControlSlides" class="gsl__stage-nav">
-              <button type="button" class="btn btn-secondary btn-sm" @click="prevSlide">←</button>
-              <button type="button" class="btn btn-secondary btn-sm" @click="nextSlide">→</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="gsl__below">
-          <div v-if="showPresenterNotes" class="gsl__card">
-            <h3>Presenter notes <small>visible to you</small></h3>
-            <p>{{ currentSlide?.presenter_notes || 'No notes for this slide.' }}</p>
-          </div>
-          <div class="gsl__card">
-            <h3>Case at a glance</h3>
-            <dl class="gsl__case">
-              <div><dt>Client</dt><dd>{{ caseSummary.client || '—' }}</dd></div>
-              <div><dt>Presenting concerns</dt><dd>{{ caseSummary.presentingConcerns || '—' }}</dd></div>
-              <div><dt>Duration</dt><dd>{{ caseSummary.duration || '—' }}</dd></div>
-              <div><dt>Setting</dt><dd>{{ caseSummary.setting || '—' }}</dd></div>
-            </dl>
-          </div>
-        </div>
-      </section>
-
-      <aside class="gsl__sidebar">
+    <!-- Individual: large video + discussion side panel -->
+    <div v-if="isIndividualSession" class="gsl__body gsl__body--individual">
+      <div class="gsl__video-pane gsl__video-pane--hero">
+        <SupervisionVideoRoom
+          v-if="token && vonageSessionId && applicationId"
+          :token="token"
+          :vonage-session-id="vonageSessionId"
+          :room-sid="vonageSessionId"
+          :application-id="applicationId"
+          :api-key="applicationId"
+          :session-title="''"
+          :session-id="supervisionSessionId"
+          :is-host="isSupervisor"
+          :diagnostics="diagnostics"
+          layout="standard"
+          @disconnected="$emit('leave')"
+          @connected="onVideoConnected"
+        />
+      </div>
+      <aside class="gsl__sidebar gsl__sidebar--roomy">
         <div class="gsl__tabs">
           <button type="button" :class="{ active: sideTab === 'discussion' }" @click="sideTab = 'discussion'">Discussion</button>
           <button type="button" :class="{ active: sideTab === 'notes' }" @click="sideTab = 'notes'">Notes</button>
@@ -125,6 +81,100 @@
         </div>
       </aside>
     </div>
+
+    <!-- Group: strip video + presentation stage + sidebar -->
+    <template v-else>
+      <div class="gsl__video-strip">
+        <SupervisionVideoRoom
+          v-if="token && vonageSessionId && applicationId"
+          :token="token"
+          :vonage-session-id="vonageSessionId"
+          :room-sid="vonageSessionId"
+          :application-id="applicationId"
+          :api-key="applicationId"
+          :session-title="''"
+          :session-id="supervisionSessionId"
+          :is-host="isSupervisor"
+          :diagnostics="diagnostics"
+          layout="strip"
+          @disconnected="$emit('leave')"
+          @connected="onVideoConnected"
+        />
+      </div>
+
+      <div class="gsl__main">
+        <section class="gsl__stage-wrap">
+          <div class="gsl__stage">
+            <template v-if="externalEmbedUrl">
+              <iframe
+                class="gsl__embed"
+                :src="externalEmbedUrl"
+                title="Presentation"
+                allowfullscreen
+              />
+            </template>
+            <template v-else-if="currentSlide">
+              <div class="gsl__slide">
+                <p class="gsl__slide-kicker">{{ currentSlide.section_key || 'Case Presentation' }}</p>
+                <h2>{{ currentSlide.title }}</h2>
+                <div class="gsl__slide-body" v-html="slideBodyHtml" />
+              </div>
+            </template>
+            <div v-else class="gsl__stage-empty">Presentation will appear here</div>
+            <div class="gsl__stage-controls">
+              <span>{{ slidePositionLabel }}</span>
+              <div v-if="canControlSlides" class="gsl__stage-nav">
+                <button type="button" class="btn btn-secondary btn-sm" @click="prevSlide">←</button>
+                <button type="button" class="btn btn-secondary btn-sm" @click="nextSlide">→</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="gsl__below">
+            <div v-if="showPresenterNotes" class="gsl__card">
+              <h3>Presenter notes <small>visible to you</small></h3>
+              <p>{{ currentSlide?.presenter_notes || 'No notes for this slide.' }}</p>
+            </div>
+            <div class="gsl__card">
+              <h3>Case at a glance</h3>
+              <dl class="gsl__case">
+                <div><dt>Client</dt><dd>{{ caseSummary.client || '—' }}</dd></div>
+                <div><dt>Presenting concerns</dt><dd>{{ caseSummary.presentingConcerns || '—' }}</dd></div>
+                <div><dt>Duration</dt><dd>{{ caseSummary.duration || '—' }}</dd></div>
+                <div><dt>Setting</dt><dd>{{ caseSummary.setting || '—' }}</dd></div>
+              </dl>
+            </div>
+          </div>
+        </section>
+
+        <aside class="gsl__sidebar">
+          <div class="gsl__tabs">
+            <button type="button" :class="{ active: sideTab === 'discussion' }" @click="sideTab = 'discussion'">Discussion</button>
+            <button type="button" :class="{ active: sideTab === 'notes' }" @click="sideTab = 'notes'">Notes</button>
+          </div>
+          <div v-if="sideTab === 'discussion'" class="gsl__discussion">
+            <form class="gsl__ask" @submit.prevent="postQuestion">
+              <input v-model="questionDraft" type="text" class="input" placeholder="Ask a question…" />
+              <button type="submit" class="btn btn-primary btn-sm" :disabled="!questionDraft.trim()">Send</button>
+            </form>
+            <ul class="gsl__feed">
+              <li v-for="item in questions" :key="item.id">
+                <button type="button" class="gsl__vote" @click="upvote(item)">{{ item.upvotes || 0 }}</button>
+                <div>
+                  <p>{{ item.text }}</p>
+                  <small>{{ item.author }} · {{ item.timeLabel }}</small>
+                  <span v-if="item.pinned" class="gsl__pinned">Pinned by facilitator</span>
+                </div>
+              </li>
+              <li v-if="!questions.length" class="gsl__empty">No questions yet. Be the first to ask.</li>
+            </ul>
+          </div>
+          <div v-else class="gsl__notes-side">
+            <textarea v-model="personalNotes" class="input" rows="12" placeholder="Your private session notes…" />
+          </div>
+        </aside>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -413,8 +463,53 @@ onUnmounted(() => {
   margin-bottom: 10px;
 }
 .gsl__video-strip {
-  min-height: 140px;
+  min-height: 160px;
   margin-bottom: 12px;
+}
+.gsl__body--individual {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+.gsl__video-pane--hero {
+  min-height: min(62vh, 560px);
+  display: flex;
+  flex-direction: column;
+}
+.gsl__video-pane--hero :deep(.vsr) {
+  flex: 1;
+  min-height: min(62vh, 560px);
+}
+.gsl__video-pane--hero :deep(.vsr__stage) {
+  min-height: min(52vh, 480px);
+  grid-template-columns: 1fr;
+}
+.gsl__video-pane--hero :deep(.vsr__tile) {
+  min-height: min(48vh, 440px);
+}
+.gsl__video-pane--hero :deep(.vsr__tile--local) {
+  width: 30%;
+  max-width: 220px;
+  min-height: 140px;
+}
+.gsl__sidebar--roomy {
+  min-height: min(62vh, 560px);
+}
+.gsl__sidebar--roomy .gsl__discussion {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.gsl__sidebar--roomy .gsl__feed {
+  min-height: 180px;
+}
+.gsl__sidebar--roomy .gsl__empty {
+  white-space: normal;
+  line-height: 1.45;
 }
 .gsl__main {
   display: grid;
@@ -423,14 +518,14 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
 }
-.gsl__main--individual {
-  grid-template-columns: minmax(0, 1fr);
-  max-width: 720px;
-  margin: 0 auto;
-  width: 100%;
-}
-.gsl__main--individual .gsl__sidebar {
-  max-height: none;
+@media (max-width: 900px) {
+  .gsl__body--individual {
+    grid-template-columns: 1fr;
+  }
+  .gsl__video-pane--hero,
+  .gsl__video-pane--hero :deep(.vsr) {
+    min-height: 42vh;
+  }
 }
 .gsl__stage {
   position: relative;
