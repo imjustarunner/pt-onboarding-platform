@@ -252,6 +252,77 @@ async function getUsersInAgencyMap({ agencyId, userIds = [] }) {
   return out;
 }
 
+function normalizeInviteScope(raw) {
+  const scope = String(raw || 'invited_only').trim().toLowerCase();
+  if (scope === 'open_to_all' || scope === 'open_and_invited') return scope;
+  return 'invited_only';
+}
+
+function deriveInviteScope({ audienceAllSupervised = false, audienceGroupSupport = false, hasNamedInvites = false }) {
+  const hasOpen = isTruthyFlag(audienceAllSupervised) || isTruthyFlag(audienceGroupSupport);
+  if (!hasOpen) return 'invited_only';
+  return hasNamedInvites ? 'open_and_invited' : 'open_to_all';
+}
+
+const ACTIVE_SUPERVISION_USER_SQL = `
+  AND (u.is_active IS NULL OR u.is_active = TRUE)
+  AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+  AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
+  AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+`;
+
+async function getAgencySupervisionAudienceFlags({ agencyId, userId }) {
+  const aId = Number(agencyId || 0);
+  const uid = Number(userId || 0);
+  if (!aId || !uid) return null;
+  const [rows] = await pool.execute(
+    `SELECT supervision_is_prelicensed, supervision_start_group_hours
+     FROM user_agencies
+     WHERE agency_id = ? AND user_id = ?
+     LIMIT 1`,
+    [aId, uid]
+  );
+  return rows?.[0] || null;
+}
+
+async function userMatchesSupervisionOpenAudience({ sessionRow, userId }) {
+  const agencyId = Number(sessionRow?.agency_id || 0);
+  const uid = Number(userId || 0);
+  if (!agencyId || !uid) return false;
+
+  const audienceAllSupervised = isTruthyFlag(sessionRow?.invite_audience_all_supervised);
+  const audienceGroupSupport = isTruthyFlag(sessionRow?.invite_audience_group_support);
+  const legacyScope = normalizeInviteScope(sessionRow?.invite_scope);
+
+  if (!audienceAllSupervised && !audienceGroupSupport) {
+    if (legacyScope === 'open_to_all' || legacyScope === 'open_and_invited') {
+      return isAssignedSuperviseeInAgency({
+        supervisorUserId: sessionRow?.supervisor_user_id,
+        superviseeUserId: uid,
+        agencyId
+      });
+    }
+    return false;
+  }
+
+  const ua = await getAgencySupervisionAudienceFlags({ agencyId, userId: uid });
+  if (!ua) return false;
+  const isPrelicensed = isTruthyFlag(ua.supervision_is_prelicensed);
+  const needsGroupHours = Number(ua.supervision_start_group_hours || 0) > 0;
+  if (audienceAllSupervised && isPrelicensed) return true;
+  if (audienceGroupSupport && isPrelicensed && needsGroupHours) return true;
+  return false;
+}
+
+async function isAssignedSuperviseeInAgency({ supervisorUserId, superviseeUserId, agencyId }) {
+  const supId = Number(supervisorUserId || 0);
+  const svId = Number(superviseeUserId || 0);
+  const aId = Number(agencyId || 0);
+  if (!supId || !svId || !aId) return false;
+  const assigned = await SupervisorAssignment.findBySupervisor(supId, aId);
+  return (assigned || []).some((row) => Number(row?.supervisee_id) === svId);
+}
+
 async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeUserId, sessionId = null }) {
   const role = String(req.user?.role || '').toLowerCase();
   const actorId = Number(req.user?.id || 0);
@@ -289,6 +360,12 @@ async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeU
       if (presenter?.length) {
         const actorAgencies = await User.getAgencies(actorId);
         return (actorAgencies || []).some((a) => Number(a?.id) === aId);
+      }
+      const sessionRow = await SupervisionSession.findById(sid);
+      const canOpenJoin = await userMatchesSupervisionOpenAudience({ sessionRow, userId: actorId });
+      if (canOpenJoin) {
+        const actorAgencies = await User.getAgencies(actorId);
+        return (actorAgencies || []).some((a) => Number(a?.id) === Number(sessionRow?.agency_id));
       }
     } catch {
       // ignore schema gaps
@@ -836,6 +913,10 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
     const modeRaw = String(req.query?.mode || 'individual').trim().toLowerCase();
     const mode = modeRaw === 'group' ? 'group' : 'individual';
     const allAgencies = String(req.query?.allAgencies || '').trim().toLowerCase() === 'true';
+    const audienceRaw = String(req.query?.audience || '').trim().toLowerCase();
+    const audience = ['assigned', 'all_supervised', 'group_support'].includes(audienceRaw)
+      ? audienceRaw
+      : (mode === 'group' ? 'all_supervised' : 'assigned');
 
     const requestedAgencyId = Number(req.query?.agencyId || 0);
     const agencyId = requestedAgencyId > 0 ? requestedAgencyId : actorAgencyIds[0];
@@ -846,7 +927,7 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'All-agencies supervision list is only available for group supervision.' } });
     }
 
-    if (mode === 'individual') {
+    if (mode === 'individual' && audience === 'assigned') {
       const assigned = await SupervisorAssignment.findBySupervisor(actorId, agencyId);
       let providers = [];
       if ((assigned || []).length > 0) {
@@ -887,11 +968,19 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
           role: String(r.role || '').trim().toLowerCase()
         }));
       }
-      return res.json({ ok: true, agencyId, agencyIds: [agencyId], mode, providers });
+      return res.json({ ok: true, agencyId, agencyIds: [agencyId], mode, audience, providers });
+    }
+
+    if (mode === 'individual' && audience !== 'assigned') {
+      return res.status(400).json({ error: { message: 'Agency-wide supervision audiences are only available for group/triadic scheduling.' } });
     }
 
     const scopedAgencyIds = allAgencies ? actorAgencyIds : [agencyId];
     const placeholders = scopedAgencyIds.map(() => '?').join(',');
+    let audienceSql = 'ua.supervision_is_prelicensed = 1';
+    if (audience === 'group_support') {
+      audienceSql = 'ua.supervision_is_prelicensed = 1 AND COALESCE(ua.supervision_start_group_hours, 0) > 0';
+    }
     const [rows] = await pool.execute(
       `SELECT DISTINCT
          u.id,
@@ -899,13 +988,11 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
          u.last_name,
          u.email,
          u.role
-       FROM supervisor_assignments sa
-       JOIN users u ON u.id = sa.supervisee_id
-       WHERE sa.agency_id IN (${placeholders})
-         AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
-         AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+       FROM user_agencies ua
+       JOIN users u ON u.id = ua.user_id
+       WHERE ua.agency_id IN (${placeholders})
+         AND ${audienceSql}
+         ${ACTIVE_SUPERVISION_USER_SQL}
        ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
       scopedAgencyIds
     );
@@ -918,7 +1005,7 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       role: String(r.role || '').trim().toLowerCase()
     }));
 
-    res.json({ ok: true, agencyId: allAgencies ? null : agencyId, agencyIds: scopedAgencyIds, mode, providers });
+    res.json({ ok: true, agencyId: allAgencies ? null : agencyId, agencyIds: scopedAgencyIds, mode, audience, providers });
   } catch (e) {
     next(e);
   }
@@ -2095,6 +2182,9 @@ export const createSupervisionSessionValidators = [
   body('optionalAttendeeUserIds.*').optional().isInt({ min: 1 }).withMessage('optionalAttendeeUserIds must contain valid user ids'),
   body('presenterUserIds').optional().isArray().withMessage('presenterUserIds must be an array'),
   body('presenterUserIds.*').optional().isInt({ min: 1 }).withMessage('presenterUserIds must contain valid user ids'),
+  body('inviteScope').optional().isIn(['invited_only', 'open_to_all', 'open_and_invited']).withMessage('inviteScope must be invited_only, open_to_all, or open_and_invited'),
+  body('inviteAudienceAllSupervised').optional().isBoolean().withMessage('inviteAudienceAllSupervised must be boolean'),
+  body('inviteAudienceGroupSupport').optional().isBoolean().withMessage('inviteAudienceGroupSupport must be boolean'),
   body('startAt').not().isEmpty().withMessage('startAt is required'),
   body('endAt').not().isEmpty().withMessage('endAt is required'),
   body('createMeetLink').optional().isBoolean().withMessage('createMeetLink must be boolean')
@@ -2106,6 +2196,9 @@ export const patchSupervisionSessionValidators = [
   body('sessionType').optional().isIn(['individual', 'triadic', 'group']).withMessage('sessionType must be individual, triadic, or group'),
   body('presenterUserIds').optional().isArray().withMessage('presenterUserIds must be an array'),
   body('presenterUserIds.*').optional().isInt({ min: 1 }).withMessage('presenterUserIds must contain valid user ids'),
+  body('inviteScope').optional().isIn(['invited_only', 'open_to_all', 'open_and_invited']).withMessage('inviteScope must be invited_only, open_to_all, or open_and_invited'),
+  body('inviteAudienceAllSupervised').optional().isBoolean().withMessage('inviteAudienceAllSupervised must be boolean'),
+  body('inviteAudienceGroupSupport').optional().isBoolean().withMessage('inviteAudienceGroupSupport must be boolean'),
   body('notes').optional(),
   body('modality').optional(),
   body('locationText').optional(),
@@ -2121,6 +2214,8 @@ export const createSupervisionSession = async (req, res, next) => {
     const startAt = parseDateTimeLocalString(req.body?.startAt);
     const endAt = parseDateTimeLocalString(req.body?.endAt);
     const sessionType = String(req.body?.sessionType || 'individual').trim().toLowerCase();
+    const inviteAudienceAllSupervised = req.body?.inviteAudienceAllSupervised === true;
+    const inviteAudienceGroupSupport = req.body?.inviteAudienceGroupSupport === true;
     const modality = req.body?.modality ?? null;
     const locationText = req.body?.locationText ?? null;
     const notes = req.body?.notes ?? null;
@@ -2188,11 +2283,25 @@ export const createSupervisionSession = async (req, res, next) => {
       ? null
       : Math.max(0, parseInt(req.body.recurrenceIndex, 10) || 0);
 
+    const hasNamedInvites = additionalAttendeeUserIds.length > 0
+      || requiredAttendeeUserIds.length > 0
+      || optionalAttendeeUserIds.length > 0;
+    const inviteScope = req.body?.inviteScope !== undefined
+      ? normalizeInviteScope(req.body.inviteScope)
+      : deriveInviteScope({
+        audienceAllSupervised: inviteAudienceAllSupervised,
+        audienceGroupSupport: inviteAudienceGroupSupport,
+        hasNamedInvites
+      });
+
     const created = await SupervisionSession.create({
       agencyId,
       supervisorUserId,
       superviseeUserId,
       sessionType,
+      inviteScope,
+      inviteAudienceAllSupervised,
+      inviteAudienceGroupSupport,
       startAt,
       endAt,
       modality: modality ? String(modality) : null,
@@ -2347,6 +2456,15 @@ export const patchSupervisionSession = async (req, res, next) => {
         )
       ).slice(0, 2)
       : undefined;
+    const inviteScope = req.body?.inviteScope !== undefined
+      ? normalizeInviteScope(req.body.inviteScope)
+      : undefined;
+    const inviteAudienceAllSupervised = req.body?.inviteAudienceAllSupervised !== undefined
+      ? req.body.inviteAudienceAllSupervised === true
+      : undefined;
+    const inviteAudienceGroupSupport = req.body?.inviteAudienceGroupSupport !== undefined
+      ? req.body.inviteAudienceGroupSupport === true
+      : undefined;
 
     const nextStart = startAt !== undefined ? startAt : row.start_at;
     const nextEnd = endAt !== undefined ? endAt : row.end_at;
@@ -2402,7 +2520,15 @@ export const patchSupervisionSession = async (req, res, next) => {
       const rowUpdated = await SupervisionSession.updateById(occId, {
         startAt: occStart,
         endAt: occEnd,
-        ...(occId === id ? { sessionType, notes, modality, locationText } : {})
+        ...(occId === id ? {
+          sessionType,
+          inviteScope,
+          inviteAudienceAllSupervised,
+          inviteAudienceGroupSupport,
+          notes,
+          modality,
+          locationText
+        } : {})
       });
       if (occId === id) updated = rowUpdated;
     }
@@ -2410,6 +2536,9 @@ export const patchSupervisionSession = async (req, res, next) => {
       startAt: startAt !== undefined ? startAt : undefined,
       endAt: endAt !== undefined ? endAt : undefined,
       sessionType,
+      inviteScope,
+      inviteAudienceAllSupervised,
+      inviteAudienceGroupSupport,
       notes,
       modality,
       locationText

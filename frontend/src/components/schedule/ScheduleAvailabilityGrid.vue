@@ -1512,27 +1512,65 @@
               </span>
               <span class="aes-participant-chevron" aria-hidden="true">{{ meetingParticipantsExpanded ? '▴' : '▾' }}</span>
             </button>
-            <select
+            <button
               v-else-if="editorIsSupervision && !isSupervisionEditMode && availableSupervisionParticipants.length"
-              class="ahf-input"
-              :value="selectedSupervisionParticipantId || 0"
-              @change="selectedSupervisionParticipantId = Number($event.target.value || 0)"
+              type="button"
+              class="aes-participant-trigger"
+              :class="{ open: supervisionParticipantsExpanded }"
+              :title="editorParticipantSummary"
+              @click="supervisionParticipantsExpanded = !supervisionParticipantsExpanded"
             >
-              <option :value="0">Select participant…</option>
-              <option
-                v-for="p in availableSupervisionParticipants"
-                :key="`aes-supv-header-${p.id}`"
-                :value="Number(p.id)"
-              >
-                {{ supervisionParticipantLabel(p) }}
-              </option>
-            </select>
+              <span class="aes-participant-names">
+                <template v-if="editorSupervisionParticipantNames.length">
+                  <span
+                    v-for="(name, idx) in editorSupervisionParticipantNames.slice(0, 4)"
+                    :key="`aes-supv-name-${idx}`"
+                    class="aes-participant-chip"
+                  >{{ name }}</span>
+                  <span v-if="editorSupervisionParticipantNames.length > 4" class="aes-participant-more">
+                    +{{ editorSupervisionParticipantNames.length - 4 }}
+                  </span>
+                </template>
+                <span v-else class="nr-info-value">Select supervisees…</span>
+              </span>
+              <span class="aes-participant-chevron" aria-hidden="true">{{ supervisionParticipantsExpanded ? '▴' : '▾' }}</span>
+            </button>
             <span v-else class="nr-info-value">{{ editorParticipantSummary }}</span>
           </template>
 
           <template #participant-tray>
             <MeetingParticipantsPicker
-              v-if="editorIsMeeting && meetingParticipantsExpanded"
+              v-if="editorIsSupervision && supervisionParticipantsExpanded && !isSupervisionEditMode"
+              tray-mode
+              :expanded="true"
+              :loading="supervisionProvidersLoading"
+              :error="supervisionProvidersError"
+              :disabled="submitting || scheduleEventSaving"
+              :candidates="filteredSupervisionParticipants"
+              :groups="supervisionInviteGroupsFiltered"
+              :selected-ids="selectedSupervisionParticipantIds"
+              :selected-chips="selectedSupervisionParticipantChips"
+              :selected-names="editorSupervisionParticipantNames"
+              :search="supervisionParticipantSearch"
+              :include-all-agencies="supervisionIncludeAllAgencies"
+              :can-use-all-agencies="supervisionCanUseAllAgencies"
+              :person-label="supervisionParticipantLabel"
+              :photo-url="participantPhotoUrl"
+              :initials="providerInitials"
+              :create-group-busy="supervisionCreateGroupBusy"
+              :create-group-error="supervisionCreateGroupError"
+              @retry="loadSupervisionProviders"
+              @toggle-group="toggleSupervisionInviteGroup"
+              @toggle-user="toggleSupervisionParticipantPicker"
+              @remove="removeSupervisionParticipantFromPicker"
+              @add-all-shown="selectAllFilteredSupervisionAdditionalParticipants"
+              @clear="clearSupervisionAllParticipants"
+              @update:search="supervisionParticipantSearch = $event"
+              @update:includeAllAgencies="supervisionIncludeAllAgencies = $event"
+              @create-group="createSupervisionInviteGroup"
+            />
+            <MeetingParticipantsPicker
+              v-else-if="editorIsMeeting && meetingParticipantsExpanded"
               tray-mode
               :expanded="true"
               :loading="meetingCandidatesLoading"
@@ -1623,6 +1661,15 @@
           <SupervisionBody
             v-else-if="editorIsSupervision"
             v-model:is-virtual="editorSupervisionIsVirtual"
+            v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
+            v-model:invite-audience-group-support="supervisionInviteAudienceGroupSupport"
+            v-model:session-type="supervisionSessionTypePreference"
+            v-model:presenter-ids="supervisionPresenterIds"
+            :session-type-label="supervisionEffectiveSessionTypeLabel"
+            :show-invite-options="supervisionShowInviteOptions"
+            :show-session-type-picker="supervisionShowSessionTypePicker"
+            :can-book-group="canBookGroupSupervisionFromGrid"
+            :presenter-options="supervisionPresenterCandidateOptions"
             :disabled="submitting || scheduleEventSaving"
           />
 
@@ -2604,139 +2651,59 @@
             <div v-if="supervisionEffectiveSessionTypeLabel" class="lbl" style="margin-bottom: 4px;">
               {{ supervisionEffectiveSessionTypeLabel }}
             </div>
-            <label v-if="supervisionCanUseAllAgencies" class="sched-toggle" style="margin-top: 8px; margin-bottom: 8px;">
-              <input type="checkbox" v-model="supervisionIncludeAllAgencies" />
-              <span>Show group supervisees from all my agencies</span>
-            </label>
             <div class="muted" style="margin-top: 6px;">
-              Add participants below. Individual = 1 supervisee; triadic = 2 supervisees (billed as individual); group = 3+ supervisees (99416, different rate).
+              Add supervisees below (agency-wide for group/triadic). Use groups for repeat invite lists. Named invites are optional when an open audience is selected.
             </div>
-            <label class="lbl">Primary participant</label>
-            <input
-              v-model="supervisionParticipantSearch"
-              class="input"
-              type="text"
-              placeholder="Search participants by name or email"
-              style="margin-bottom: 8px;"
+            <MeetingParticipantsPicker
+              :expanded="true"
+              :loading="supervisionProvidersLoading"
+              :error="supervisionProvidersError"
+              :disabled="submitting"
+              :candidates="filteredSupervisionParticipants"
+              :groups="supervisionInviteGroupsFiltered"
+              :selected-ids="selectedSupervisionParticipantIds"
+              :selected-chips="selectedSupervisionParticipantChips"
+              :selected-names="editorSupervisionParticipantNames"
+              :search="supervisionParticipantSearch"
+              :include-all-agencies="supervisionIncludeAllAgencies"
+              :can-use-all-agencies="supervisionCanUseAllAgencies"
+              :person-label="supervisionParticipantLabel"
+              :photo-url="participantPhotoUrl"
+              :initials="providerInitials"
+              :create-group-busy="supervisionCreateGroupBusy"
+              :create-group-error="supervisionCreateGroupError"
+              @retry="loadSupervisionProviders"
+              @toggle-group="toggleSupervisionInviteGroup"
+              @toggle-user="toggleSupervisionParticipantPicker"
+              @remove="removeSupervisionParticipantFromPicker"
+              @add-all-shown="selectAllFilteredSupervisionAdditionalParticipants"
+              @clear="clearSupervisionAllParticipants"
+              @update:search="supervisionParticipantSearch = $event"
+              @update:includeAllAgencies="supervisionIncludeAllAgencies = $event"
+              @create-group="createSupervisionInviteGroup"
             />
-            <div class="participant-scroll">
-              <div class="participant-grid">
-              <button
-                v-for="p in filteredSupervisionParticipants"
-                :key="`supv-provider-${p.id}`"
-                type="button"
-                class="participant-card participant-card--rich"
-                :class="{ on: Number(selectedSupervisionParticipantId || 0) === Number(p.id) }"
-                @click="togglePrimarySupervisionParticipant(Number(p.id))"
-              >
-                <img
-                  v-if="participantPhotoUrl(p)"
-                  class="participant-face"
-                  :src="participantPhotoUrl(p)"
-                  alt=""
-                />
-                <span
-                  v-else
-                  class="participant-face participant-face--initials"
-                  aria-hidden="true"
-                >{{ providerInitials(p) }}</span>
-                <span class="participant-copy">
-                  <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
-                  <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
-                </span>
-              </button>
-              </div>
-            </div>
-            <div v-if="supervisionParticipantSearch.trim() && filteredSupervisionParticipants.length === 0" class="muted" style="margin-top: 6px;">
-              No participants match your search.
-            </div>
+            <SupervisionBody
+              v-model:is-virtual="editorSupervisionIsVirtual"
+              v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
+            v-model:invite-audience-group-support="supervisionInviteAudienceGroupSupport"
+              v-model:session-type="supervisionSessionTypePreference"
+              v-model:presenter-ids="supervisionPresenterIds"
+              :session-type-label="supervisionShowSessionTypePicker ? '' : supervisionEffectiveSessionTypeLabel"
+              :show-invite-options="supervisionShowInviteOptions"
+              :show-session-type-picker="supervisionShowSessionTypePicker"
+              :can-book-group="canBookGroupSupervisionFromGrid"
+              :presenter-options="supervisionPresenterCandidateOptions"
+              :disabled="submitting"
+              style="margin-top: 12px;"
+            />
             <div
-              v-if="isViewingOtherUserSchedule && availableSupervisionParticipants.length > 1 && !selectedSupervisionParticipantId"
+              v-if="requestType === 'supervision' && isGroupSupervisionType && supervisionSelectedParticipantCount < 3 && !supervisionIsOpenInvite"
               class="muted"
               style="margin-top: 6px;"
             >
-              Select who this supervision meeting is for.
+              Group supervision requires at least 3 participants (primary + 2 additional), or choose an open invite option.
             </div>
-
-            <div style="margin-top: 8px;">
-              <label class="lbl">Additional participants (optional)</label>
-              <div class="muted" style="margin-top: 4px;">
-                Selected: {{ supervisionSelectedParticipantCount }} (primary + additional)
-              </div>
-              <div v-if="selectedSupervisionParticipantChips.length" class="supervision-selected-chips" style="margin-top: 6px;">
-                <button
-                  v-for="chip in selectedSupervisionParticipantChips"
-                  :key="`supv-chip-${chip.kind}-${chip.id}`"
-                  type="button"
-                  class="supervision-chip"
-                  :class="{ primary: chip.kind === 'primary' }"
-                  @click="removeSelectedSupervisionParticipant(chip.id, chip.kind)"
-                >
-                  <span>{{ chip.kind === 'primary' ? 'Primary' : 'Additional' }}: {{ supervisionParticipantLabel(chip.row || { id: chip.id }) }}</span>
-                  <span aria-hidden="true">x</span>
-                </button>
-              </div>
-              <button
-                v-if="!showAdditionalParticipantsPicker"
-                type="button"
-                class="btn btn-secondary btn-sm"
-                style="margin-top: 8px;"
-                @click="showAdditionalParticipantsPicker = true"
-              >
-                Add additional participants
-              </button>
-              <div v-else style="margin-top: 8px;">
-                <div class="row" style="gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
-                  <button class="btn btn-secondary btn-sm" type="button" @click="selectAllFilteredSupervisionAdditionalParticipants">
-                    Add all shown
-                  </button>
-                  <button class="btn btn-secondary btn-sm" type="button" @click="selectAllAvailableSupervisionAdditionalParticipants">
-                    Add everyone in list
-                  </button>
-                  <button class="btn btn-secondary btn-sm" type="button" @click="clearSupervisionAdditionalParticipants">
-                    Clear additional
-                  </button>
-                  <button class="btn btn-ghost btn-sm" type="button" @click="showAdditionalParticipantsPicker = false">
-                    Hide picker
-                  </button>
-                </div>
-                <div class="participant-scroll">
-                  <div class="participant-grid">
-                    <button
-                      v-for="p in filteredSupervisionAdditionalParticipants"
-                      :key="`supv-extra-${p.id}`"
-                      type="button"
-                      class="participant-card participant-card--rich"
-                      :class="{ on: selectedSupervisionAdditionalParticipantIdSet.has(Number(p.id)) }"
-                      @click="toggleSupervisionAdditionalParticipant(Number(p.id))"
-                    >
-                      <img
-                        v-if="participantPhotoUrl(p)"
-                        class="participant-face"
-                        :src="participantPhotoUrl(p)"
-                        alt=""
-                      />
-                      <span
-                        v-else
-                        class="participant-face participant-face--initials"
-                        aria-hidden="true"
-                      >{{ providerInitials(p) }}</span>
-                      <span class="participant-copy">
-                        <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
-                        <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div
-                v-if="requestType === 'supervision' && isGroupSupervisionType && supervisionSelectedParticipantCount < 3"
-                class="muted"
-                style="margin-top: 6px;"
-              >
-                Group supervision requires at least 3 participants (primary + 2 additional).
-              </div>
-            </div>
+          </div>
 
             <div v-if="requestType === 'supervision'" class="agenda-draft-section" style="margin-top: 12px;">
               <label class="lbl">Agenda items (optional)</label>
@@ -11223,6 +11190,7 @@ const editorShowParticipant = computed(() => editorIsClinical.value || editorIsM
 const editorParticipantLabel = computed(() => {
   if (editorIsMeeting.value) return 'Participants';
   if (editorIsSupervision.value) {
+    if ((editorSupervisionParticipantNames.value || []).length > 1) return 'Supervisees';
     const sessionRole = String(selectedSupvSession.value?.role || '').trim().toLowerCase();
     if (sessionRole === 'supervisor') return 'Supervisee';
     if (sessionRole === 'supervisee') return 'Supervisor';
@@ -11293,6 +11261,11 @@ const editorParticipantSummary = computed(() => {
     }
     if (sessionRole === 'supervisee') {
       return String(session?.supervisorName || session?.counterpartyName || '').trim() || '—';
+    }
+    const names = editorSupervisionParticipantNames.value;
+    if (names.length) {
+      if (names.length <= 3) return names.join(', ');
+      return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
     }
     const fromSession = String(session?.counterpartyName || '').trim();
     if (fromSession) return fromSession;
@@ -12966,11 +12939,19 @@ const officeRequestSummary = computed(() => {
 });
 
 const supervisionProvidersLoading = ref(false);
+const supervisionProvidersError = ref('');
 const supervisionProviders = ref([]);
 const supervisionIncludeAllAgencies = ref(false);
 const selectedSupervisionParticipantId = ref(0);
 const selectedSupervisionAdditionalParticipantIds = ref([]);
-const showAdditionalParticipantsPicker = ref(false);
+const supervisionParticipantsExpanded = ref(false);
+const supervisionInviteAudienceAllSupervised = ref(false);
+const supervisionInviteAudienceGroupSupport = ref(false);
+const supervisionSessionTypePreference = ref('individual');
+const supervisionOptionalAttendeeIds = ref([]);
+const supervisionPresenterIds = ref([]);
+const supervisionCreateGroupBusy = ref(false);
+const supervisionCreateGroupError = ref('');
 const createSupervisionMeetLink = ref(true);
 const supervisionParticipantSearch = ref('');
 
@@ -13001,14 +12982,34 @@ const supervisionSelectedParticipantCount = computed(() => {
   const extras = selectedSupervisionAdditionalParticipantIdSet.value.size;
   return primary + extras;
 });
-/** Derived from participant count: 0 additional = individual, 1 = triadic (billed as individual), 2+ = group (99416) */
-const supervisionEffectiveSessionType = computed(() => {
+/** Derived from participant count unless session type preference is set for open invites. */
+const supervisionDerivedSessionType = computed(() => {
   const extras = selectedSupervisionAdditionalParticipantIdSet.value.size;
   if (extras >= 2) {
     return canBookGroupSupervisionFromGrid.value ? 'group' : 'triadic';
   }
   if (extras === 1) return 'triadic';
   return 'individual';
+});
+const supervisionIsOpenInvite = computed(() => (
+  !!supervisionInviteAudienceAllSupervised.value || !!supervisionInviteAudienceGroupSupport.value
+));
+const supervisionShowInviteOptions = computed(() => (
+  supervisionDerivedSessionType.value !== 'individual'
+  || supervisionIsOpenInvite.value
+  || supervisionSelectedParticipantCount.value > 1
+  || supervisionEffectiveSessionType.value !== 'individual'
+));
+const supervisionShowSessionTypePicker = computed(() => (
+  supervisionIsOpenInvite.value || supervisionEffectiveSessionType.value === 'group'
+));
+const supervisionEffectiveSessionType = computed(() => {
+  if (supervisionShowSessionTypePicker.value) {
+    const pref = String(supervisionSessionTypePreference.value || 'individual').trim().toLowerCase();
+    if (pref === 'group' && !canBookGroupSupervisionFromGrid.value) return 'triadic';
+    if (pref === 'group' || pref === 'triadic' || pref === 'individual') return pref;
+  }
+  return supervisionDerivedSessionType.value;
 });
 const supervisionEffectiveSessionTypeLabel = computed(() => {
   const t = supervisionEffectiveSessionType.value;
@@ -13029,16 +13030,62 @@ const supervisionUsingAllAgencies = computed(
 );
 const supervisionCanSubmit = computed(() => {
   if (supervisionProvidersLoading.value) return false;
-  if ((availableSupervisionParticipants.value || []).length === 0) return false;
+  if ((availableSupervisionParticipants.value || []).length === 0 && !supervisionIsOpenInvite.value) return false;
   if (!Number(selectedSupervisionParticipantId.value || 0)) return false;
-  if (isGroupSupervisionType.value && supervisionSelectedParticipantCount.value < 3) return false;
+  const sessionType = supervisionEffectiveSessionType.value;
+  if (sessionType === 'group' && !canBookGroupSupervisionFromGrid.value) return false;
+  if (sessionType === 'group' && supervisionSelectedParticipantCount.value < 3 && !supervisionIsOpenInvite.value) {
+    return false;
+  }
   if (
     selectedSupervisionAdditionalParticipantIdSet.value.size >= 2
     && !canBookGroupSupervisionFromGrid.value
+    && sessionType === 'group'
   ) {
     return false;
   }
   return true;
+});
+
+const selectedSupervisionParticipantIds = computed(() => {
+  const ids = [];
+  const primary = Number(selectedSupervisionParticipantId.value || 0);
+  if (primary > 0) ids.push(primary);
+  for (const idRaw of (selectedSupervisionAdditionalParticipantIds.value || [])) {
+    const id = Number(idRaw || 0);
+    if (id > 0 && id !== primary) ids.push(id);
+  }
+  return ids;
+});
+
+const supervisionInviteGroupsFiltered = computed(() => {
+  const allowed = new Set((availableSupervisionParticipants.value || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
+  return (meetingInviteGroups.value || [])
+    .map((g) => ({
+      ...g,
+      userIds: (g.userIds || []).map((n) => Number(n || 0)).filter((id) => id > 0 && allowed.has(id))
+    }))
+    .filter((g) => (g.userIds || []).length > 0);
+});
+
+const editorSupervisionParticipantNames = computed(() => (
+  (selectedSupervisionParticipantChips.value || []).map((chip) => {
+    const label = supervisionParticipantLabel(chip.row || { id: chip.id });
+    return String(label || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || `User #${chip.id}`;
+  }).filter(Boolean)
+));
+
+const supervisionPresenterCandidateOptions = computed(() => {
+  const map = new Map();
+  for (const chip of (selectedSupervisionParticipantChips.value || [])) {
+    const id = Number(chip?.id || 0);
+    if (!id) continue;
+    map.set(id, {
+      id,
+      label: supervisionParticipantLabel(chip.row || { id })
+    });
+  }
+  return Array.from(map.values());
 });
 
 const filteredSupervisionAdditionalParticipants = computed(() => {
@@ -13123,6 +13170,97 @@ const removeSelectedSupervisionParticipant = (userId, kind = 'additional') => {
   selectedSupervisionAdditionalParticipantIds.value = (selectedSupervisionAdditionalParticipantIds.value || [])
     .map((n) => Number(n || 0))
     .filter((n) => n > 0 && n !== id);
+};
+
+const setSelectedSupervisionParticipantIds = (ids = []) => {
+  const unique = Array.from(new Set((ids || []).map((n) => Number(n || 0)).filter((n) => n > 0)));
+  selectedSupervisionParticipantId.value = unique[0] || 0;
+  selectedSupervisionAdditionalParticipantIds.value = unique.slice(1);
+};
+
+const toggleSupervisionParticipantPicker = (userId) => {
+  const id = Number(userId || 0);
+  if (!id) return;
+  const current = selectedSupervisionParticipantIds.value;
+  const next = new Set(current);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  setSelectedSupervisionParticipantIds(Array.from(next.values()));
+  supervisionParticipantsExpanded.value = true;
+};
+
+const removeSupervisionParticipantFromPicker = (userId) => {
+  const id = Number(userId || 0);
+  if (!id) return;
+  const next = selectedSupervisionParticipantIds.value.filter((n) => Number(n) !== id);
+  setSelectedSupervisionParticipantIds(next);
+};
+
+const clearSupervisionAllParticipants = () => {
+  selectedSupervisionParticipantId.value = 0;
+  selectedSupervisionAdditionalParticipantIds.value = [];
+  supervisionPresenterIds.value = [];
+};
+
+const toggleSupervisionInviteGroup = (group) => {
+  const allowed = new Set((availableSupervisionParticipants.value || []).map((r) => Number(r?.id || 0)).filter((n) => n > 0));
+  const ids = (group?.userIds || [])
+    .map((n) => Number(n || 0))
+    .filter((id) => id > 0 && allowed.has(id));
+  if (!ids.length) return;
+  const next = new Set(selectedSupervisionParticipantIds.value);
+  const allSelected = ids.every((id) => next.has(id));
+  if (allSelected) {
+    for (const id of ids) next.delete(id);
+  } else {
+    for (const id of ids) next.add(id);
+  }
+  setSelectedSupervisionParticipantIds(Array.from(next.values()));
+  supervisionParticipantsExpanded.value = true;
+};
+
+const createSupervisionInviteGroup = async ({ name, userIds }) => {
+  const uid = Number(props.userId || authStore.user?.id || 0);
+  const agencyId = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
+  const ids = Array.from(new Set((userIds || []).map((n) => Number(n || 0)).filter((n) => n > 0)));
+  const label = String(name || '').trim();
+  if (!uid || !agencyId || !label || !ids.length) {
+    supervisionCreateGroupError.value = !ids.length
+      ? 'Select supervisees before creating a group.'
+      : 'Select a tenant before creating a group.';
+    return;
+  }
+  supervisionCreateGroupBusy.value = true;
+  supervisionCreateGroupError.value = '';
+  try {
+    const resp = await api.post(`/users/${uid}/meeting-invite-groups`, {
+      agencyId,
+      name: label,
+      userIds: ids
+    });
+    const group = resp?.data?.group;
+    if (group?.key) {
+      const next = {
+        key: String(group.key),
+        label: String(group.label || label).trim() || label,
+        kind: 'custom',
+        customGroupId: Number(group.customGroupId || 0) || null,
+        userIds: Array.isArray(group.userIds) ? group.userIds.map((n) => Number(n || 0)).filter((n) => n > 0) : ids
+      };
+      meetingInviteGroups.value = [
+        ...(meetingInviteGroups.value || []).filter((g) => g.key !== next.key),
+        next
+      ];
+    } else {
+      await loadSupervisionInviteGroups();
+    }
+  } catch (e) {
+    supervisionCreateGroupError.value = e?.response?.data?.error?.message
+      || e?.message
+      || 'Could not create group.';
+  } finally {
+    supervisionCreateGroupBusy.value = false;
+  }
 };
 
 const supervisionParticipantLabel = (row) => {
@@ -13785,13 +13923,45 @@ const loadMeetingCandidates = async () => {
   scheduleMeetingBusyCheck();
 };
 
+const loadSupervisionInviteGroups = async () => {
+  const uid = Number(props.userId || authStore.user?.id || 0);
+  if (!uid) return;
+  const useAllAgencies = supervisionUsingAllAgencies.value;
+  if (!useAllAgencies && !effectiveAgencyId.value) return;
+  try {
+    const params = { allAgencies: useAllAgencies ? 'true' : 'false' };
+    if (!useAllAgencies) params.agencyId = Number(effectiveAgencyId.value || 0);
+    const r = await api.get(`/users/${uid}/meeting-candidates`, { params, skipGlobalLoading: true });
+    meetingInviteGroups.value = Array.isArray(r?.data?.groups)
+      ? r.data.groups.map((g) => ({
+        key: String(g?.key || ''),
+        label: String(g?.label || 'Group').trim() || 'Group',
+        kind: String(g?.kind || 'group'),
+        userIds: Array.isArray(g?.userIds) ? g.userIds.map((n) => Number(n || 0)).filter((n) => n > 0) : []
+      })).filter((g) => g.key && g.userIds.length)
+      : [];
+  } catch {
+    meetingInviteGroups.value = [];
+  }
+};
+
+const supervisionProvidersAudience = computed(() => {
+  if (supervisionEffectiveSessionType.value === 'individual') return 'assigned';
+  if (supervisionInviteAudienceGroupSupport.value && !supervisionInviteAudienceAllSupervised.value) {
+    return 'group_support';
+  }
+  return 'all_supervised';
+});
+
 const loadSupervisionProviders = async () => {
   if (!authStore.user?.id) return;
   if (!supervisionUsingAllAgencies.value && !effectiveAgencyId.value) return;
   try {
     supervisionProvidersLoading.value = true;
+    supervisionProvidersError.value = '';
     const params = {
-      mode: isGroupSupervisionType.value ? 'group' : 'individual',
+      mode: supervisionEffectiveSessionType.value === 'individual' ? 'individual' : 'group',
+      audience: supervisionProvidersAudience.value,
       allAgencies: supervisionUsingAllAgencies.value ? 'true' : 'false'
     };
     if (!supervisionUsingAllAgencies.value) params.agencyId = effectiveAgencyId.value;
@@ -13799,6 +13969,7 @@ const loadSupervisionProviders = async () => {
       params
     });
     supervisionProviders.value = Array.isArray(r?.data?.providers) ? r.data.providers : [];
+    await loadSupervisionInviteGroups();
     const candidates = availableSupervisionParticipants.value;
     const viewedUserId = Number(props.userId || 0);
     const actorId = Number(authStore.user?.id || 0);
@@ -13810,8 +13981,11 @@ const loadSupervisionProviders = async () => {
         selectedSupervisionParticipantId.value = Number(candidates[0].id || 0);
       }
     }
-  } catch {
+  } catch (e) {
     supervisionProviders.value = [];
+    supervisionProvidersError.value = e?.response?.data?.error?.message
+      || e?.message
+      || 'Could not load supervisees.';
   } finally {
     supervisionProvidersLoading.value = false;
   }
@@ -14108,6 +14282,13 @@ const openSlotActionModal = async ({
   supervisionIncludeAllAgencies.value = false;
   selectedSupervisionParticipantId.value = 0;
   selectedSupervisionAdditionalParticipantIds.value = [];
+  supervisionInviteAudienceAllSupervised.value = false;
+  supervisionInviteAudienceGroupSupport.value = false;
+  supervisionSessionTypePreference.value = 'individual';
+  supervisionOptionalAttendeeIds.value = [];
+  supervisionPresenterIds.value = [];
+  supervisionParticipantsExpanded.value = false;
+  supervisionCreateGroupError.value = '';
   createSupervisionMeetLink.value = true;
   meetingParticipantSearch.value = '';
   selectedMeetingParticipantIds.value = [];
@@ -16807,16 +16988,37 @@ const submitRequest = async () => {
             .filter((n) => n > 0 && n !== participantId)
         )
       );
+      const optionalAttendeeUserIds = Array.from(
+        new Set(
+          (supervisionOptionalAttendeeIds.value || [])
+            .map((n) => Number(n || 0))
+            .filter((n) => n > 0 && n !== participantId && !additionalAttendeeUserIds.includes(n))
+        )
+      );
+      const presenterUserIds = Array.from(
+        new Set(
+          (supervisionPresenterIds.value || [])
+            .map((n) => Number(n || 0))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        )
+      ).slice(0, 2);
+      const inviteAudienceAllSupervised = !!supervisionInviteAudienceAllSupervised.value;
+      const inviteAudienceGroupSupport = !!supervisionInviteAudienceGroupSupport.value;
       const actorId = Number(authStore.user?.id || 0);
       if (!actorId) throw new Error('Not signed in.');
-      if (!participantId) throw new Error('Please select a participant.');
+      if (!participantId) throw new Error('Please select a primary supervisee.');
       if (sessionType === 'group' && !canBookGroupSupervisionFromGrid.value) {
         throw new Error('Only group-supervision-eligible supervisors can book group sessions.');
       }
-      if (sessionType === 'group' && additionalAttendeeUserIds.length < 2) {
-        throw new Error('Group supervision requires at least 2 additional participants.');
+      if (
+        sessionType === 'group'
+        && additionalAttendeeUserIds.length < 2
+        && !inviteAudienceAllSupervised
+        && !inviteAudienceGroupSupport
+      ) {
+        throw new Error('Group supervision requires at least 2 additional participants, or choose an open audience.');
       }
-      if (additionalAttendeeUserIds.length >= 2 && !canBookGroupSupervisionFromGrid.value) {
+      if (additionalAttendeeUserIds.length >= 2 && !canBookGroupSupervisionFromGrid.value && sessionType === 'group') {
         throw new Error('Only group-supervision-eligible supervisors can book group sessions. Remove attendees or request eligibility.');
       }
       const dayIdx = orderedDays.value.indexOf(String(dn)) - (effectiveWeekStartsOn.value === 'sunday' ? 1 : 0);
@@ -16843,6 +17045,10 @@ const submitRequest = async () => {
           superviseeUserId: participantId,
           sessionType,
           additionalAttendeeUserIds,
+          optionalAttendeeUserIds,
+          presenterUserIds,
+          inviteAudienceAllSupervised,
+          inviteAudienceGroupSupport,
           startAt,
           endAt,
           notes: requestNotes.value || '',
@@ -17145,7 +17351,29 @@ watch(supervisionIncludeAllAgencies, () => {
   selectedSupervisionParticipantId.value = 0;
   selectedSupervisionAdditionalParticipantIds.value = [];
   supervisionParticipantSearch.value = '';
+  supervisionPresenterIds.value = [];
   void loadSupervisionProviders();
+});
+
+watch(selectedSupervisionParticipantIds, () => {
+  const allowed = new Set((supervisionPresenterCandidateOptions.value || []).map((p) => Number(p.id)));
+  supervisionPresenterIds.value = (supervisionPresenterIds.value || [])
+    .map((n) => Number(n))
+    .filter((n) => allowed.has(n))
+    .slice(0, 2);
+}, { deep: true });
+
+watch([supervisionInviteAudienceAllSupervised, supervisionInviteAudienceGroupSupport], () => {
+  if (String(requestType.value || '') === 'supervision' && showRequestModal.value) {
+    void loadSupervisionProviders();
+  }
+  if (supervisionInviteAudienceAllSupervised.value || supervisionInviteAudienceGroupSupport.value) {
+    if (String(supervisionSessionTypePreference.value || 'individual') === 'individual') {
+      supervisionSessionTypePreference.value = supervisionDerivedSessionType.value === 'individual'
+        ? 'group'
+        : supervisionDerivedSessionType.value;
+    }
+  }
 });
 
 watch(meetingIncludeAllAgencies, () => {

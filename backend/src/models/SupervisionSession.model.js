@@ -2,12 +2,21 @@ import pool from '../config/database.js';
 import Notification from './Notification.model.js';
 import { generateJoinToken } from '../utils/joinToken.js';
 
+function normalizeInviteScopeValue(raw) {
+  const scope = String(raw || 'invited_only').trim().toLowerCase();
+  if (scope === 'open_to_all' || scope === 'open_and_invited') return scope;
+  return 'invited_only';
+}
+
 class SupervisionSession {
   static async create({
     agencyId,
     supervisorUserId,
     superviseeUserId,
     sessionType = 'individual',
+    inviteScope = 'invited_only',
+    inviteAudienceAllSupervised = false,
+    inviteAudienceGroupSupport = false,
     startAt,
     endAt,
     modality = null,
@@ -20,12 +29,17 @@ class SupervisionSession {
     recurrenceIndex = null
   }) {
     const token = String(joinToken || generateJoinToken()).slice(0, 64);
+    const audienceAllSupervised = inviteAudienceAllSupervised ? 1 : 0;
+    const audienceGroupSupport = inviteAudienceGroupSupport ? 1 : 0;
     const baseParams = [
       token,
       Number(agencyId),
       Number(supervisorUserId),
       Number(superviseeUserId),
       String(sessionType || 'individual'),
+      normalizeInviteScopeValue(inviteScope),
+      audienceAllSupervised,
+      audienceGroupSupport,
       startAt,
       endAt,
       modality,
@@ -35,9 +49,11 @@ class SupervisionSession {
     try {
       const [result] = await pool.execute(
         `INSERT INTO supervision_sessions
-          (join_token, agency_id, supervisor_user_id, supervisee_user_id, session_type, start_at, end_at, modality, location_text, notes, status,
+          (join_token, agency_id, supervisor_user_id, supervisee_user_id, session_type, invite_scope,
+           invite_audience_all_supervised, invite_audience_group_support,
+           start_at, end_at, modality, location_text, notes, status,
            recurrence_series_id, recurrence_frequency, recurrence_index, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
         [
           ...baseParams,
           recurrenceSeriesId ? String(recurrenceSeriesId).trim().slice(0, 64) : null,
@@ -51,9 +67,22 @@ class SupervisionSession {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const [result] = await pool.execute(
         `INSERT INTO supervision_sessions
-          (join_token, agency_id, supervisor_user_id, supervisee_user_id, session_type, start_at, end_at, modality, location_text, notes, status, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?)`,
-        [...baseParams, createdByUserId ? Number(createdByUserId) : null]
+          (join_token, agency_id, supervisor_user_id, supervisee_user_id, session_type, invite_scope, start_at, end_at, modality, location_text, notes, status, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?)`,
+        [
+          token,
+          Number(agencyId),
+          Number(supervisorUserId),
+          Number(superviseeUserId),
+          String(sessionType || 'individual'),
+          normalizeInviteScopeValue(inviteScope),
+          startAt,
+          endAt,
+          modality,
+          locationText,
+          notes,
+          createdByUserId ? Number(createdByUserId) : null
+        ]
       );
       return this.findById(result.insertId);
     }
@@ -719,7 +748,17 @@ class SupervisionSession {
     return this.findById(sid);
   }
 
-  static async updateById(id, { startAt, endAt, sessionType, modality, locationText, notes }) {
+  static async updateById(id, {
+    startAt,
+    endAt,
+    sessionType,
+    inviteScope,
+    inviteAudienceAllSupervised,
+    inviteAudienceGroupSupport,
+    modality,
+    locationText,
+    notes
+  }) {
     const sid = parseInt(id, 10);
     const updates = [];
     const values = [];
@@ -738,6 +777,18 @@ class SupervisionSession {
     if (sessionType !== undefined) {
       updates.push('session_type = ?');
       values.push(String(sessionType || 'individual'));
+    }
+    if (inviteScope !== undefined) {
+      updates.push('invite_scope = ?');
+      values.push(normalizeInviteScopeValue(inviteScope));
+    }
+    if (inviteAudienceAllSupervised !== undefined) {
+      updates.push('invite_audience_all_supervised = ?');
+      values.push(inviteAudienceAllSupervised ? 1 : 0);
+    }
+    if (inviteAudienceGroupSupport !== undefined) {
+      updates.push('invite_audience_group_support = ?');
+      values.push(inviteAudienceGroupSupport ? 1 : 0);
     }
     if (modality !== undefined) {
       updates.push('modality = ?');
