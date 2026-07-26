@@ -88,9 +88,14 @@ const localName = computed(() => {
     ? fromProp
     : (authName || (fromProp.toLowerCase() === 'guest' ? '' : fromProp) || '');
   let roleSafe = role;
-  if (props.isHost) roleSafe = 'Supervisor';
-  else if (role && role.toLowerCase() === 'guest' && authenticated) roleSafe = 'Supervisee';
-  else if (!roleSafe && authenticated) roleSafe = 'Supervisee';
+  // Prefer an explicit role label (e.g. Host / Participant for team meetings).
+  if (props.isHost && !roleSafe) roleSafe = 'Supervisor';
+  else if (!props.isHost && role && role.toLowerCase() === 'guest' && authenticated) roleSafe = 'Supervisee';
+  else if (!roleSafe && authenticated) roleSafe = props.isHost ? 'Supervisor' : 'Supervisee';
+  // Team-meeting hosts should never fall through as "Supervisor".
+  if (props.isHost && roleSafe.toLowerCase() === 'supervisor' && props.localRoleLabel) {
+    roleSafe = String(props.localRoleLabel).trim() || roleSafe;
+  }
   if (roleSafe && name && roleSafe.toLowerCase() !== name.toLowerCase()) return `You · ${roleSafe} · ${name}`;
   if (roleSafe) return `You · ${roleSafe}`;
   if (name) return `You · ${name}`;

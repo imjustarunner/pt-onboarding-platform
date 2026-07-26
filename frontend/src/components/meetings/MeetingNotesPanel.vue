@@ -1,7 +1,7 @@
 <template>
   <div class="mnp" data-testid="meeting-notes-panel">
     <div class="mnp__head">
-      <h4>Notes</h4>
+      <h4>Meeting transcript</h4>
       <button type="button" class="btn btn-ghost btn-sm" :disabled="loading" @click="load">Refresh</button>
     </div>
     <p v-if="error" class="error">{{ error }}</p>

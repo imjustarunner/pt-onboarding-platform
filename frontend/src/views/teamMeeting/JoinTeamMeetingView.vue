@@ -12,7 +12,7 @@
         </button>
         <span v-if="meetingCompletedAt" class="join-completed-chip">Session completed</span>
       </div>
-      <div class="join-session-layout">
+      <div class="join-session-layout" :class="{ 'join-session-layout--chat-only': !canSeeFullWorkspace }">
         <div class="join-video">
           <SupervisionVideoRoom
             ref="videoRoomRef"
@@ -23,91 +23,85 @@
             :diagnostics="diagnostics"
             :event-id="resolvedEventId || eventId"
             :is-host="isHost"
+            layout="standard"
             :local-display-name="localDisplayName"
             :local-role-label="localRoleLabel"
             :local-profile-photo-url="localProfilePhotoUrl"
             @disconnected="onDisconnected"
           />
           <SupervisionVideoLobbyPanel
-            v-if="isHost && resolvedEventId"
+            v-if="isHost && resolvedEventId && waitingRoomEnabled"
             :session-id="resolvedEventId"
             :is-supervisor="isHost"
             meeting-kind="team-meeting"
           />
         </div>
-        <aside v-if="resolvedEventId && !isInLobby" class="join-agenda-aside">
-          <div class="join-workspace-tabs">
+        <aside v-if="resolvedEventId && !isInLobby" class="join-workspace">
+          <div v-if="workspaceBannerVisible" class="join-workspace__banner">
+            <span class="join-workspace__lock" aria-hidden="true">🔒</span>
+            <p>
+              {{ workspaceBannerText }}
+            </p>
+            <button
+              type="button"
+              class="join-workspace__banner-x"
+              aria-label="Dismiss"
+              @click="workspaceBannerVisible = false"
+            >×</button>
+          </div>
+
+          <div class="join-workspace__tabs" role="tablist">
             <button
               v-for="tab in asideTabs"
               :key="tab.id"
               type="button"
-              class="join-workspace-tab"
+              role="tab"
+              class="join-workspace__tab"
               :class="{ on: asideTab === tab.id }"
+              :aria-selected="asideTab === tab.id"
               @click="asideTab = tab.id"
             >{{ tab.label }}</button>
           </div>
-          <MeetingAgendaPanel
-            v-show="asideTab === 'agenda'"
-            meeting-type="provider_schedule_event"
-            :meeting-id="resolvedEventId"
-            :can-add-item="true"
-            :embedded="true"
-            :live="true"
-          />
-          <MeetingGoalsActionsPanel
-            v-if="asideTab === 'goals' || asideTab === 'actions'"
-            :event-id="resolvedEventId"
-            :section="asideTab === 'goals' ? 'goals' : 'actions'"
-            :meeting-subtype="meetingSubtype"
-          />
-          <MeetingAttendancePanel
-            v-if="asideTab === 'attendance' && showCompTabs"
-            :event-id="resolvedEventId"
-          />
-          <MeetingTimeClaimsPanel
-            v-if="asideTab === 'time_claims' && showCompTabs"
-            :event-id="resolvedEventId"
-          />
-          <MeetingNotesPanel
-            v-if="asideTab === 'notes' && showNotesTab"
-            :event-id="resolvedEventId"
-          />
+
+          <div class="join-workspace__body">
+            <MeetingAgendaPanel
+              v-if="canSeeFullWorkspace"
+              v-show="asideTab === 'agenda'"
+              meeting-type="provider_schedule_event"
+              :meeting-id="resolvedEventId"
+              :can-add-item="true"
+              :embedded="true"
+              :live="true"
+            />
+            <MeetingGoalsActionsPanel
+              v-if="canSeeFullWorkspace && (asideTab === 'goals' || asideTab === 'actions')"
+              :event-id="resolvedEventId"
+              :section="asideTab === 'goals' ? 'goals' : 'actions'"
+              :meeting-subtype="meetingSubtype"
+            />
+            <MeetingAttendancePanel
+              v-if="canSeeFullWorkspace && asideTab === 'attendance' && showAttendanceTab"
+              :event-id="resolvedEventId"
+              :live-poll="true"
+            />
+            <MeetingNotesPanel
+              v-if="canSeeFullWorkspace && asideTab === 'notes' && showNotesTab"
+              :event-id="resolvedEventId"
+            />
+            <MeetingLiveActivityPanel
+              v-if="asideTab === 'chat'"
+              :event-id="resolvedEventId"
+              :is-host="isHost"
+              :start-open="true"
+              :embedded="true"
+              :hide-chrome="true"
+              :since-joined-at="chatSinceJoinedAt"
+            />
+          </div>
         </aside>
       </div>
     </template>
     <div v-else class="join-placeholder">Loading…</div>
-
-    <div v-if="isHost && resolvedEventId && (token || error)" class="join-activity-section">
-      <button
-        type="button"
-        class="btn btn-outline btn-sm"
-        :disabled="activityLoading"
-        @click="toggleActivity"
-      >
-        {{ activityExpanded ? 'Hide' : 'View' }} meeting chat & Q&A
-      </button>
-      <div v-if="activityExpanded" class="join-activity-content">
-        <div v-if="activityLoading" class="muted">Loading…</div>
-        <div v-else-if="activityError" class="error-inline">{{ activityError }}</div>
-        <div v-else-if="!activityList?.length" class="muted">No chat, polls, or Q&A recorded for this meeting.</div>
-        <div v-else class="activity-list">
-          <div
-            v-for="a in activityList"
-            :key="a.id"
-            class="activity-item"
-            :class="`activity-${a.activityType}`"
-          >
-            <span class="activity-sender">{{ a.participantIdentity?.replace(/^user-/, 'User ') }}</span>
-            <span v-if="a.activityType === 'chat'" class="activity-text">{{ a.payload?.text }}</span>
-            <span v-else-if="a.activityType === 'poll'" class="activity-text">Poll: {{ a.payload?.question }} — {{ (a.payload?.options || []).join(', ') }}</span>
-            <span v-else-if="a.activityType === 'poll_vote'" class="activity-text">Voted on poll</span>
-            <span v-else-if="a.activityType === 'question'" class="activity-text">Q: {{ a.payload?.text }}</span>
-            <span v-else-if="a.activityType === 'answer'" class="activity-text">A: {{ a.payload?.text }}</span>
-            <span class="activity-time">{{ formatActivityTime(a.createdAt) }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <div v-if="showHostLeaveModal" class="join-modal-backdrop" role="dialog" aria-modal="true">
       <div class="join-modal">
@@ -143,8 +137,8 @@ import SupervisionVideoLobbyPanel from '../../components/supervision/Supervision
 import MeetingAgendaPanel from '../../components/meetings/MeetingAgendaPanel.vue';
 import MeetingGoalsActionsPanel from '../../components/meetings/MeetingGoalsActionsPanel.vue';
 import MeetingAttendancePanel from '../../components/meetings/MeetingAttendancePanel.vue';
-import MeetingTimeClaimsPanel from '../../components/meetings/MeetingTimeClaimsPanel.vue';
 import MeetingNotesPanel from '../../components/meetings/MeetingNotesPanel.vue';
+import MeetingLiveActivityPanel from '../../components/meetings/MeetingLiveActivityPanel.vue';
 import api from '../../services/api';
 
 const router = useRouter();
@@ -161,6 +155,10 @@ const vonageSessionId = ref('');
 const applicationId = ref('');
 const diagnostics = ref(null);
 const asideTab = ref('agenda');
+watch(asideTab, (tab) => {
+  // Time Claims removed from live join chrome — bounce stray state to Attendance.
+  if (tab === 'time_claims') asideTab.value = canSeeFullWorkspace.value ? 'attendance' : 'chat';
+});
 const meetingSubtype = ref('general');
 const meetingKind = ref('TEAM_MEETING');
 const meetingCompletedAt = ref(null);
@@ -168,64 +166,116 @@ const roomName = ref('');
 const isHost = ref(false);
 const resolvedEventId = ref(0);
 const roomMode = ref('main');
+const waitingRoomEnabled = ref(true);
 const joinIdentity = ref('');
 const localDisplayName = ref('');
 const localRoleLabel = ref('');
 const localProfilePhotoUrl = ref('');
-const activityExpanded = ref(false);
-const activityLoading = ref(false);
-const activityError = ref('');
-const activityList = ref([]);
 const joinAttemptedForPath = ref('');
 const showHostLeaveModal = ref(false);
 const completing = ref(false);
 const completeError = ref('');
 const intentionalLeave = ref(false);
 const videoRoomRef = ref(null);
+/** When the participant entered the main room (for chat/polls visibility). */
+const joinedMainAt = ref(null);
+const workspaceBannerVisible = ref(true);
 let admissionPollInterval = null;
 let presencePollInterval = null;
 
+/** Roles that see full meeting workspace (agenda/goals/actions/attendance/transcript). */
+const FULL_WORKSPACE_ROLES = new Set([
+  'super_admin',
+  'admin',
+  'support',
+  'staff',
+  'clinical_practice_assistant',
+  'provider_plus',
+  'schedule_manager',
+  'assistant_admin'
+]);
+
 const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
 
-const showCompTabs = computed(() => {
+const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase().trim());
+
+/** Host + admin-side roles see the full right-rail workspace. Providers see chat/polls only. */
+const canSeeFullWorkspace = computed(() => {
+  if (isHost.value) return true;
+  return FULL_WORKSPACE_ROLES.has(actorRole.value);
+});
+
+const showAttendanceTab = computed(() => {
+  if (!canSeeFullWorkspace.value) return false;
   const kind = String(meetingKind.value || '').toUpperCase();
-  if (kind === 'HUDDLE') return true;
+  if (kind === 'HUDDLE' || kind === 'TEAM_MEETING') return true;
+  const subtype = String(meetingSubtype.value || '').toLowerCase();
+  return subtype === 'admin' || subtype === 'town_hall' || subtype === 'general';
+});
+
+const showNotesTab = computed(() => {
+  if (!canSeeFullWorkspace.value) return false;
+  const kind = String(meetingKind.value || '').toUpperCase();
+  if (kind === 'HUDDLE' || kind === 'TEAM_MEETING') return true;
   const subtype = String(meetingSubtype.value || '').toLowerCase();
   return subtype === 'admin' || subtype === 'town_hall';
 });
 
-const showNotesTab = computed(() => {
-  const kind = String(meetingKind.value || '').toUpperCase();
-  if (kind === 'HUDDLE') return true;
-  const subtype = String(meetingSubtype.value || '').toLowerCase();
-  return subtype === 'admin' || subtype === 'town_hall' || kind === 'TEAM_MEETING';
+/** Providers only see activity from when they joined the main room. */
+const chatSinceJoinedAt = computed(() => {
+  if (canSeeFullWorkspace.value) return null;
+  return joinedMainAt.value || null;
+});
+
+const workspaceBannerText = computed(() => {
+  if (canSeeFullWorkspace.value) {
+    return 'Meeting workspace — agenda, attendance, transcript, and live chat stay with this session.';
+  }
+  return 'Chat & polls from when you joined. Your attendance time claim is created when the host completes the meeting.';
 });
 
 const asideTabs = computed(() => {
+  if (!canSeeFullWorkspace.value) {
+    return [{ id: 'chat', label: 'Chat & Polls' }];
+  }
   const tabs = [
     { id: 'agenda', label: 'Agenda' },
     { id: 'goals', label: 'Goals' },
-    { id: 'actions', label: 'Actions' }
+    { id: 'actions', label: 'Action Items' },
+    { id: 'attendance', label: 'Attendance' },
+    { id: 'chat', label: 'Chat' }
   ];
-  if (showCompTabs.value) {
-    tabs.push({ id: 'attendance', label: 'Attendance' });
-    tabs.push({ id: 'time_claims', label: 'Time Claims' });
-  }
   if (showNotesTab.value) {
-    tabs.push({ id: 'notes', label: 'Notes' });
+    tabs.push({ id: 'notes', label: 'Transcript' });
+  }
+  // Attendance only when eligible for this meeting type
+  if (!showAttendanceTab.value) {
+    return tabs.filter((t) => t.id !== 'attendance');
   }
   return tabs;
 });
 
-function formatActivityTime(createdAt) {
-  if (!createdAt) return '';
-  try {
-    const d = new Date(createdAt);
-    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  } catch {
-    return '';
+watch(canSeeFullWorkspace, (full) => {
+  if (!full) asideTab.value = 'chat';
+  else if (asideTab.value === 'chat' && asideTabs.value.some((t) => t.id === 'agenda')) {
+    /* keep current tab */
   }
-}
+}, { immediate: true });
+
+watch(asideTabs, (tabs) => {
+  if (!tabs.some((t) => t.id === asideTab.value)) {
+    asideTab.value = tabs[0]?.id || 'chat';
+  }
+});
+
+watch(isInLobby, (lobby, wasLobby) => {
+  if (wasLobby && !lobby && !joinedMainAt.value) {
+    joinedMainAt.value = new Date().toISOString();
+  }
+  if (!lobby && !joinedMainAt.value && token.value) {
+    joinedMainAt.value = new Date().toISOString();
+  }
+});
 
 function applyTokenPayload(data) {
   const tok = String(data.token || data.data?.token || '').trim();
@@ -236,10 +286,22 @@ function applyTokenPayload(data) {
   diagnostics.value = data.diagnostics || diagnostics.value;
   roomName.value = data.roomName || data.room_name || roomName.value;
   isHost.value = !!(data.isHost ?? data.is_host);
+  const prevMode = roomMode.value;
   roomMode.value = String(data.roomMode || (String(roomName.value || '').endsWith('-lobby') ? 'lobby' : 'main')).toLowerCase();
+  if (roomMode.value === 'main' && (!joinedMainAt.value || prevMode === 'lobby')) {
+    joinedMainAt.value = new Date().toISOString();
+  }
+  if (data.waitingRoomEnabled != null || data.lobbyEnabledForSession != null) {
+    waitingRoomEnabled.value = !!(data.waitingRoomEnabled ?? data.lobbyEnabledForSession);
+  }
   joinIdentity.value = String(data.identity || joinIdentity.value || '').trim();
   localDisplayName.value = String(data.displayName || localDisplayName.value || '').trim();
   localRoleLabel.value = String(data.roleLabel || localRoleLabel.value || '').trim();
+  if (isHost.value && (!localRoleLabel.value || localRoleLabel.value.toLowerCase() === 'supervisor')) {
+    localRoleLabel.value = 'Host';
+  } else if (!isHost.value && !localRoleLabel.value) {
+    localRoleLabel.value = 'Participant';
+  }
   localProfilePhotoUrl.value = String(data.profilePhotoUrl || localProfilePhotoUrl.value || '').trim();
   if (Number(data.eventId || 0) > 0) resolvedEventId.value = Number(data.eventId);
   if (data.kind) meetingKind.value = String(data.kind).toUpperCase();
@@ -309,26 +371,6 @@ function startAdmissionPolling() {
   admissionPollInterval = setInterval(pollAdmission, 2500);
 }
 
-async function toggleActivity() {
-  const eid = resolvedEventId.value || eventId.value;
-  if (!eid) return;
-  const expanded = !activityExpanded.value;
-  activityExpanded.value = expanded;
-  if (!expanded) return;
-  if (activityList.value?.length) return;
-  activityLoading.value = true;
-  activityError.value = '';
-  try {
-    const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/activity`);
-    activityList.value = resp?.data?.activity || [];
-  } catch (err) {
-    activityError.value = err?.response?.data?.error?.message || 'Failed to load chat & Q&A.';
-    activityList.value = [];
-  } finally {
-    activityLoading.value = false;
-  }
-}
-
 async function resolveAndRedirect() {
   const eid = eventId.value;
   if (!eid) {
@@ -363,7 +405,10 @@ async function fetchTokenAndJoin() {
   }
   error.value = '';
   try {
-    const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/video-token`);
+    const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/video-token`, {
+      skipAuthRedirect: true,
+      skipGlobalLoading: true
+    });
     applyTokenPayload(resp?.data || {});
     if (!token.value) {
       error.value = `Video token was empty. Check Network tab: GET /api/team-meetings/${eid}/video-token.`;
@@ -383,7 +428,10 @@ async function fetchTokenAndJoin() {
     if (roomMode.value === 'lobby') startAdmissionPolling();
     startPresenceHeartbeat();
   } catch (e) {
-    if (Number(e?.response?.status || 0) === 401) {
+    const status = Number(e?.response?.status || 0);
+    if (status === 401) {
+      // Not authenticated — send to login once. Do not clear an existing session here;
+      // a 403/access error must not look like a logout loop.
       const slug = organizationSlug.value;
       if (slug) {
         router.replace(`/${slug}/login?redirect=${encodeURIComponent(route.fullPath)}`);
@@ -511,7 +559,10 @@ watch(
   async (eid) => {
     if (!eid) return;
     try {
-      const { data } = await api.get(`/team-meetings/${eid}/workspace`, { skipGlobalLoading: true });
+      const { data } = await api.get(`/team-meetings/${eid}/workspace`, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      });
       const subtype = String(data?.meetingSubtype || 'general').toLowerCase();
       meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall') ? subtype : 'general';
       if (data?.kind) meetingKind.value = String(data.kind).toUpperCase();
@@ -519,7 +570,10 @@ watch(
       meetingSubtype.value = 'general';
     }
     try {
-      const { data: att } = await api.get(`/team-meetings/${eid}/attendance`, { skipGlobalLoading: true });
+      const { data: att } = await api.get(`/team-meetings/${eid}/attendance`, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      });
       meetingCompletedAt.value = att?.meetingCompletedAt || null;
       if (att?.kind) meetingKind.value = String(att.kind).toUpperCase();
       if (att?.meetingSubtype) {
@@ -576,46 +630,157 @@ onUnmounted(() => {
 .join-session-layout {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  gap: 14px;
   min-height: 0;
+  align-items: stretch;
+}
+.join-session-layout--chat-only {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
 }
 .join-video {
   min-width: 0;
-  min-height: 60vh;
+  min-height: 70vh;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-.join-agenda-aside {
+.join-video :deep(.supervision-video-room) {
+  flex: 1 1 auto;
+  min-height: min(64vh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+.join-video :deep(.vsr) {
+  flex: 1 1 auto;
+  min-height: min(58vh, 640px);
+  display: flex;
+  flex-direction: column;
+}
+.join-video :deep(.vsr__stage:not(.vsr__stage--strip)) {
+  flex: 1 1 0;
+  min-height: min(52vh, 560px) !important;
+  height: auto !important;
+}
+.join-video :deep(.vsr__stage--solo .vsr__tile),
+.join-video :deep(.vsr__stage--duo .vsr__tile) {
+  min-height: min(46vh, 480px) !important;
+  height: 100% !important;
+}
+.join-video :deep(.vsr__tile video),
+.join-video :deep(.vsr__tile .OT_root),
+.join-video :deep(.vsr__tile .OT_publisher),
+.join-video :deep(.vsr__tile .OT_subscriber),
+.join-video :deep(.vsr__tile .OT_widget-container) {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+.join-workspace {
   min-width: 0;
   max-height: calc(100vh - 48px);
-  overflow: auto;
-  border-radius: 12px;
-  background: #fff;
-  padding: 8px;
-}
-.join-workspace-tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid #e5e7eb;
-  padding-bottom: 6px;
+  flex-direction: column;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.12);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  overflow: hidden;
 }
-.join-workspace-tab {
+.join-workspace__banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 12px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.join-workspace__banner p {
+  margin: 0;
+  flex: 1;
+}
+.join-workspace__lock {
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+.join-workspace__banner-x {
   border: 0;
   background: transparent;
-  font-weight: 800;
-  font-size: 12px;
-  padding: 6px 10px;
-  border-radius: 8px;
+  color: #047857;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.join-workspace__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 8px 12px 0;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0 2px;
+}
+.join-workspace__tab {
+  border: 0;
+  background: transparent;
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 10px 12px 9px;
   cursor: pointer;
   color: #64748b;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
 }
-.join-workspace-tab.on {
+.join-workspace__tab:hover {
+  color: #0f766e;
+}
+.join-workspace__tab.on {
+  color: #047857;
+  border-bottom-color: #10b981;
+}
+.join-workspace__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.join-workspace__body :deep(.meeting-agenda-panel--embedded),
+.join-workspace__body :deep(.mgap),
+.join-workspace__body :deep(.map),
+.join-workspace__body :deep(.mnp),
+.join-workspace__body :deep(.mlap) {
+  flex: 1;
+}
+.join-workspace__body :deep(.mgap__head h3),
+.join-workspace__body :deep(.map__head h4),
+.join-workspace__body :deep(.mnp__head h4),
+.join-workspace__body :deep(.agenda-section-head h3) {
+  color: #0f172a;
+  font-size: 0.95rem;
+}
+.join-workspace__body :deep(.btn-secondary),
+.join-workspace__body :deep(.agenda-section-head .btn) {
+  border-color: #a7f3d0;
+  color: #047857;
+  background: #fff;
+}
+.join-workspace__body :deep(.agenda-status-select) {
+  border-color: #6ee7b7;
   background: #ecfdf5;
   color: #047857;
+  font-weight: 700;
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 .join-placeholder {
   flex: 1;
@@ -631,25 +796,6 @@ onUnmounted(() => {
   border-radius: 10px;
   padding: 12px 14px;
 }
-.join-activity-section {
-  border-top: 1px solid rgba(148, 163, 184, 0.25);
-  padding-top: 10px;
-}
-.join-activity-content {
-  margin-top: 10px;
-  max-height: 220px;
-  overflow: auto;
-}
-.activity-list { display: flex; flex-direction: column; gap: 6px; }
-.activity-item {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 0.85rem;
-  color: #e2e8f0;
-}
-.activity-sender { font-weight: 700; color: #93c5fd; }
-.activity-time { color: #94a3b8; margin-left: auto; }
 .muted { color: #94a3b8; }
 .error-inline { color: #b91c1c; margin: 0; }
 .join-modal-backdrop {
@@ -677,11 +823,12 @@ onUnmounted(() => {
 .join-modal p { margin: 0; line-height: 1.45; font-size: 0.95rem; color: #334155; }
 .join-modal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 @media (max-width: 900px) {
-  .join-session-layout {
+  .join-session-layout,
+  .join-session-layout--chat-only {
     grid-template-columns: 1fr;
   }
-  .join-agenda-aside {
-    max-height: 40vh;
+  .join-workspace {
+    max-height: 48vh;
   }
 }
 </style>

@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, authenticateOptional } from '../middleware/auth.middleware.js';
 import {
   getTeamMeetingJoinInfo,
   getTeamMeetingVideoToken,
@@ -24,8 +24,8 @@ const router = express.Router();
 
 // Public: resolve event to org slug for join redirect (no auth)
 router.get('/join-info/:eventId', getTeamMeetingJoinInfo);
-// Public presence heartbeat (identity in body; used during lobby wait)
-router.post('/:eventId/join-presence', postTeamMeetingJoinPresence);
+// Presence heartbeat (guest-safe; auth optional so we can normalize user-{id})
+router.post('/:eventId/join-presence', authenticateOptional, postTeamMeetingJoinPresence);
 
 router.use(authenticate);
 

@@ -3415,6 +3415,20 @@ function startOfWeekIsoYmd(dateStr) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function startOfWeekSundayYmd(dateStr) {
+  const d = new Date(`${String(dateStr || '').slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const day = d.getDay(); // 0=Sun..6=Sat
+  d.setDate(d.getDate() - day);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function startOfWeekYmd(dateStr, weekStartsOn = 'monday') {
+  return String(weekStartsOn || '').toLowerCase() === 'sunday'
+    ? startOfWeekSundayYmd(dateStr)
+    : startOfWeekIsoYmd(dateStr);
+}
+
 function addDaysYmd(ymd, days) {
   const d = new Date(`${String(ymd).slice(0, 10)}T00:00:00`);
   d.setDate(d.getDate() + Number(days || 0));
@@ -3640,7 +3654,12 @@ export const getUserScheduleSummary = async (req, res, next) => {
     }
 
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
-    const weekStart = startOfWeekIsoYmd(weekStartRaw);
+    const weekStartsOn = String(req.query.weekStartsOn || req.query.week_starts_on || 'monday')
+      .trim()
+      .toLowerCase() === 'sunday'
+      ? 'sunday'
+      : 'monday';
+    const weekStart = startOfWeekYmd(weekStartRaw, weekStartsOn);
     if (!weekStart) return res.status(400).json({ error: { message: 'weekStart must be YYYY-MM-DD' } });
     const weekEnd = addDaysYmd(weekStart, 7);
 
@@ -3700,18 +3719,25 @@ export const getUserScheduleSummary = async (req, res, next) => {
         // ignore
       }
       const officeLocationIds = Array.from(officeLocationIdSet.values());
-      const mondayAnchor = OfficeScheduleMaterializer.startOfWeekMonday(weekStart) || weekStart;
-      // Materialize only the viewed week on the read path (cached, not force). Ahead weeks
-      // are filled when those weeks are opened — forcing 3 weeks × N offices made My Schedule ~15s.
+      const mondayAnchors = new Set();
+      mondayAnchors.add(OfficeScheduleMaterializer.startOfWeekMonday(weekStart) || weekStart);
+      // Sunday-start windows span parts of two Monday office weeks (e.g. Sun Jul 26–Sat Aug 1).
+      if (weekStartsOn === 'sunday') {
+        const nextDay = addDaysYmd(weekStart, 1);
+        mondayAnchors.add(OfficeScheduleMaterializer.startOfWeekMonday(nextDay) || nextDay);
+      }
+      // Materialize only the viewed week(s) on the read path (cached, not force).
       await Promise.all(
-        officeLocationIds.map((officeLocationId) =>
-          OfficeScheduleMaterializer.materializeWeek({
-            officeLocationId,
-            weekStartRaw: mondayAnchor,
-            createdByUserId: req.user.id,
-            useExactWeekStart: true,
-            force: false
-          }).catch(() => null)
+        officeLocationIds.flatMap((officeLocationId) =>
+          Array.from(mondayAnchors).map((mondayAnchor) =>
+            OfficeScheduleMaterializer.materializeWeek({
+              officeLocationId,
+              weekStartRaw: mondayAnchor,
+              createdByUserId: req.user.id,
+              useExactWeekStart: true,
+              force: false
+            }).catch(() => null)
+          )
         )
       );
     } catch {

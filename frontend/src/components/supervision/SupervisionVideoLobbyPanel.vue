@@ -3,7 +3,7 @@
     <h4 class="lobby-panel-title">Waiting room — Admit participants</h4>
     <div v-if="admitSuccess" class="lobby-panel-success">Admitted. They’re joining the room…</div>
     <div v-else-if="admitError" class="lobby-panel-error">{{ admitError }}</div>
-    <div v-if="loading" class="lobby-panel-loading">Loading…</div>
+    <div v-if="initialLoading" class="lobby-panel-loading">Loading…</div>
     <div v-else-if="participants.length === 0" class="lobby-panel-empty">No one waiting</div>
     <ul v-else class="lobby-panel-list">
       <li v-for="p in participants" :key="p.sid || p.joinIdentity" class="lobby-panel-item">
@@ -51,17 +51,19 @@ function admitPath(pathId) {
 }
 
 const participants = ref([]);
-const loading = ref(false);
+const initialLoading = ref(false);
 const admittingKey = ref(null);
 const admitSuccess = ref(false);
 const admitError = ref('');
 let pollInterval = null;
+let hasLoadedOnce = false;
 
 async function fetchLobbyParticipants() {
   if (!props.sessionId || !props.isSupervisor) return;
-  loading.value = true;
+  // Only flash "Loading…" on the first fetch — polling every 2s was flickering the panel.
+  if (!hasLoadedOnce) initialLoading.value = true;
   try {
-    const resp = await api.get(lobbyParticipantsPath());
+    const resp = await api.get(lobbyParticipantsPath(), { skipGlobalLoading: true, skipAuthRedirect: true });
     const list = resp?.data?.participants || [];
     participants.value = list.map((p) => {
       const identity = String(p.joinIdentity || p.identity || '');
@@ -77,10 +79,12 @@ async function fetchLobbyParticipants() {
         admitKey
       };
     }).filter((p) => p.admitKey);
+    hasLoadedOnce = true;
   } catch {
-    participants.value = [];
+    // Keep the last good list on poll errors so the UI does not bounce empty ↔ filled.
+    if (!hasLoadedOnce) participants.value = [];
   } finally {
-    loading.value = false;
+    initialLoading.value = false;
   }
 }
 
@@ -106,8 +110,8 @@ async function admit(p) {
 
 function startPolling() {
   if (!props.sessionId || !props.isSupervisor) return;
-  fetchLobbyParticipants();
-  pollInterval = setInterval(fetchLobbyParticipants, 2000);
+  void fetchLobbyParticipants();
+  pollInterval = setInterval(() => { void fetchLobbyParticipants(); }, 4000);
 }
 
 function stopPolling() {
@@ -121,10 +125,12 @@ watch(
   () => [props.sessionId, props.isSupervisor],
   () => {
     stopPolling();
+    hasLoadedOnce = false;
     if (props.sessionId && props.isSupervisor) {
       startPolling();
     } else {
       participants.value = [];
+      initialLoading.value = false;
     }
   },
   { immediate: true }

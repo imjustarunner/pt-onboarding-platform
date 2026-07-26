@@ -32,11 +32,13 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, onUnmounted } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  eventId: { type: [Number, String], required: true }
+  eventId: { type: [Number, String], required: true },
+  /** When true, refresh totals every few seconds while the panel is mounted. */
+  livePoll: { type: Boolean, default: false }
 });
 
 const loading = ref(false);
@@ -46,6 +48,7 @@ const copyNames = ref('');
 const copyWithTime = ref('');
 const meetingCompletedAt = ref(null);
 const copied = ref(false);
+let pollTimer = null;
 
 function formatMins(m) {
   const n = Number(m || 0);
@@ -61,22 +64,40 @@ function formatWhen(raw) {
   }
 }
 
-async function load() {
+async function load({ quiet = false } = {}) {
   const eid = Number(props.eventId || 0);
   if (!eid) return;
-  loading.value = true;
+  if (!quiet) loading.value = true;
   error.value = '';
   try {
-    const { data } = await api.get(`/team-meetings/${eid}/attendance`, { skipGlobalLoading: true });
+    const { data } = await api.get(`/team-meetings/${eid}/attendance`, {
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
     participants.value = Array.isArray(data?.participants) ? data.participants : [];
     copyNames.value = String(data?.copyNamesCsv || '');
     copyWithTime.value = String(data?.copyNamesWithTimeCsv || '');
     meetingCompletedAt.value = data?.meetingCompletedAt || null;
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load attendance';
+    if (!quiet) {
+      error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load attendance';
+    }
   } finally {
-    loading.value = false;
+    if (!quiet) loading.value = false;
   }
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  if (!props.livePoll) return;
+  pollTimer = setInterval(() => { void load({ quiet: true }); }, 8000);
 }
 
 async function copy(text) {
@@ -91,8 +112,16 @@ async function copy(text) {
   }
 }
 
-watch(() => props.eventId, () => load());
-onMounted(load);
+watch(() => props.eventId, () => {
+  void load();
+  startPolling();
+});
+watch(() => props.livePoll, () => startPolling());
+onMounted(() => {
+  void load();
+  startPolling();
+});
+onUnmounted(stopPolling);
 
 defineExpose({ load });
 </script>

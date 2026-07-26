@@ -3761,6 +3761,7 @@
               Close
             </button>
             <button
+              v-if="isEditableScheduleStackItem(editingScheduleStackItem)"
               class="btn nr-btn-submit"
               type="button"
               :disabled="scheduleEventSaving"
@@ -4856,9 +4857,11 @@ const props = defineProps({
   // Optional: map of agencyId -> label for tooltips (helps explain overlaps).
   agencyLabelById: { type: Object, default: null },
   mode: { type: String, default: 'self' }, // 'self' | 'admin'
-  // Optional: parent-controlled weekStart (any date; normalized to Monday).
+  // Optional: parent-controlled weekStart (normalized to Sun or Mon per weekStartsOn).
   weekStartYmd: { type: String, default: null },
   weekStartsOn: { type: String, default: 'monday' },
+  /** When set (e.g. Staff schedules drill-in), open this schedule event once summary loads. */
+  focusEventId: { type: Number, default: 0 },
   // Optional: availability overlay (computed server-side), to highlight open slots.
   availabilityOverlay: { type: Object, default: null },
   // Club/affiliation context: hide office space, Open finder, Google busy, Therapy Notes.
@@ -5068,15 +5071,17 @@ const effectiveWeekStartsOn = computed(() => {
 });
 const orderedDays = computed(() => (effectiveWeekStartsOn.value === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
 /**
- * Anchor `weekStart` YMD is always Monday. Use the same column order as `orderedDays` so headers/cells
- * cannot drift from `effectiveWeekStartsOn` (avoids stale closure / evaluation-order bugs in HMR).
+ * Offset from the week anchor (`weekStart`) for a day column.
+ * Anchor is Monday when week starts Monday, Sunday when week starts Sunday.
+ * Column order matches `orderedDays` so Sunday-first weeks stay chronological
+ * (Sun→Sat) and Sunday appointments land in the Sunday column.
  */
 const dayIdxFromWeekStartMonday = (dayName) => {
-  const idx = ALL_DAYS.indexOf(String(dayName || ''));
-  if (idx < 0) return 0;
-  const sunFirst = orderedDays.value.length > 0 && orderedDays.value[0] === 'Sunday';
-  if (sunFirst) return idx === 6 ? -1 : idx;
-  return idx;
+  const name = String(dayName || '');
+  const idx = orderedDays.value.indexOf(name);
+  if (idx >= 0) return idx;
+  // Fallback for callers that pass a weekday while orderedDays is briefly empty.
+  return Math.max(0, ALL_DAYS.indexOf(name));
 };
 
 // Default working-hours band; Full day (24h) expands to 0–23 (12 AM–11 PM).
@@ -5331,7 +5336,17 @@ const viewMode = ref('open_finder'); // 'open_finder' | 'office_layout' (office_
 
 const toggleWeekStartsOn = () => {
   if (props.mode !== 'self') return;
+  // Keep "today" (or mid-week) visible when switching Sun/Mon week anchors.
+  const keepYmd = todayLocalYmd.value
+    || addDaysYmd(weekStart.value, 3)
+    || weekStart.value;
   weekStartsOnLocal.value = weekStartsOnLocal.value === 'monday' ? 'sunday' : 'monday';
+  const nextAnchor = startOfWeekForPreference(keepYmd);
+  if (nextAnchor && nextAnchor !== weekStart.value) {
+    weekStart.value = nextAnchor;
+    emit('update:weekStartYmd', weekStart.value);
+    void load({ forceRefresh: true });
+  }
   saveDisplayPrefs();
 };
 
@@ -5878,6 +5893,7 @@ const loadPeerBusySummaries = async () => {
       const data = await api.get(`/users/${uid}/schedule-summary`, {
         params: {
           weekStart: ws,
+          weekStartsOn: effectiveWeekStartsOn.value,
           includeAllAgencies: 'true',
           detailLevel,
           includeGoogleBusy: 'true',
@@ -6613,6 +6629,22 @@ const startOfWeekMondayYmd = (dateLike) => {
   return localYmd(d);
 };
 
+const startOfWeekSundayYmd = (dateLike) => {
+  const d = toLocalDateNoon(dateLike);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay()); // back to Sunday
+  return localYmd(d);
+};
+
+const startOfWeekForPreference = (dateLike, preference = null) => {
+  const pref = preference != null
+    ? String(preference).toLowerCase()
+    : effectiveWeekStartsOn.value;
+  return pref === 'sunday'
+    ? startOfWeekSundayYmd(dateLike)
+    : startOfWeekMondayYmd(dateLike);
+};
+
 const addDaysYmd = (ymd, daysToAdd) => {
   const d = toLocalDateNoon(String(ymd).slice(0, 10));
   d.setHours(0, 0, 0, 0);
@@ -6648,7 +6680,7 @@ const dayDateLabel = (dayName) => {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
-const weekStart = ref(startOfWeekMondayYmd(props.weekStartYmd || new Date()));
+const weekStart = ref(startOfWeekForPreference(props.weekStartYmd || new Date()));
 
 const formatWeekRangePart = (ymd, { includeYear = false } = {}) => {
   const d = toLocalDateNoon(String(ymd || '').slice(0, 10));
@@ -6689,14 +6721,15 @@ const dayNameForDateYmd = (dateYmd) => {
     const idx = g.days.findIndex((x) => String(x || '').slice(0, 10) === d);
     if (idx >= 0) return ALL_DAYS[idx] || null;
   }
-  // Fallback: compute from the visible weekStart (Monday-first grid).
+  // Fallback: offset from the visible week anchor (Mon or Sun based on preference).
   const ws = String(weekStart.value || '').slice(0, 10);
   const [y1, m1, d1] = ws.split('-').map(Number);
   const [y2, m2, d2] = d.split('-').map(Number);
   const a = new Date(y1, (m1 || 1) - 1, d1 || 1);
   const b = new Date(y2, (m2 || 1) - 1, d2 || 1);
   const diff = Math.floor((b - a) / (1000 * 60 * 60 * 24));
-  return ALL_DAYS[diff] ?? null;
+  const days = orderedDays.value?.length ? orderedDays.value : ALL_DAYS;
+  return days[diff] ?? null;
 };
 
 const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event, alreadyRequested }) => {
@@ -7861,13 +7894,14 @@ const load = async ({ forceRefresh = false } = {}) => {
 
   const ids = effectiveAgencyIds.value;
   const useAllAgencies = props.mode === 'self';
-  const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
+  const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
   const cached = forceRefresh ? null : getScheduleSummary(cacheKey);
   if (cached) {
     mergeDiscoveredScheduleAgencies(cached.scheduleAgencyIds || []);
     summary.value = filterSummaryByActiveAgencies(cached);
     error.value = '';
     loading.value = false;
+    tryOpenFocusScheduleEvent();
     return;
   }
 
@@ -7887,6 +7921,7 @@ const load = async ({ forceRefresh = false } = {}) => {
       const resp = await api.get(`/users/${props.userId}/schedule-summary`, {
         params: {
           weekStart: weekStart.value,
+          weekStartsOn: effectiveWeekStartsOn.value,
           includeAllAgencies: 'true',
           includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
           includeGoogleEvents: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleEvents.value ? 'true' : 'false'),
@@ -7939,6 +7974,7 @@ const load = async ({ forceRefresh = false } = {}) => {
       const resp = await api.get(`/users/${props.userId}/schedule-summary`, {
         params: {
           weekStart: weekStart.value,
+          weekStartsOn: effectiveWeekStartsOn.value,
           agencyId: ids[0],
           includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
           includeGoogleEvents: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleEvents.value ? 'true' : 'false'),
@@ -7958,6 +7994,7 @@ const load = async ({ forceRefresh = false } = {}) => {
               .get(`/users/${props.userId}/schedule-summary`, {
                 params: {
                   weekStart: weekStart.value,
+                  weekStartsOn: effectiveWeekStartsOn.value,
                   agencyId,
                   includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
                   includeGoogleEvents: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleEvents.value ? 'true' : 'false'),
@@ -8133,6 +8170,7 @@ const load = async ({ forceRefresh = false } = {}) => {
   loadInFlightKey = flightKey;
   try {
     await run;
+    tryOpenFocusScheduleEvent();
   } finally {
     if (loadInFlight === run) {
       loadInFlight = null;
@@ -8140,6 +8178,38 @@ const load = async ({ forceRefresh = false } = {}) => {
     }
   }
 };
+
+let lastOpenedFocusEventId = 0;
+const tryOpenFocusScheduleEvent = () => {
+  const eid = Number(props.focusEventId || 0);
+  if (!eid || eid === lastOpenedFocusEventId) return;
+  const rows = Array.isArray(summary.value?.scheduleEvents) ? summary.value.scheduleEvents : [];
+  const ev = rows.find((e) => Number(e?.id || 0) === eid);
+  if (!ev) return;
+  lastOpenedFocusEventId = eid;
+  const st = parseLocalDateTime(ev?.startAt);
+  const dayName = dayNameForDateYmd(st ? localYmd(st) : String(ev?.startAt || '').slice(0, 10))
+    || orderedDays.value?.[0]
+    || 'Monday';
+  const hour = st ? st.getHours() : 0;
+  const minute = showQuarterDetail.value ? (Math.floor((st?.getMinutes() || 0) / 15) * 15) : 0;
+  const stackItem = buildScheduleStackItemFromEvent(ev, {
+    id: `sevt-focus-${eid}`,
+    providerId: resolveBookedProviderIdForEvent(ev)
+  });
+  void openAppointmentEditInScheduleModal({
+    item: stackItem,
+    items: [stackItem],
+    dayName,
+    hour,
+    minute,
+    focusEventId: eid
+  });
+};
+watch(() => props.focusEventId, () => {
+  lastOpenedFocusEventId = 0;
+  tryOpenFocusScheduleEvent();
+});
 
 // Defer + debounce load so startup/watcher bursts do not spam schedule-summary.
 let deferredLoadTimer = null;
@@ -8181,7 +8251,7 @@ watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalen
 watch(activeScheduleAgencyIds, () => {
   if (props.mode !== 'self') return;
   const cached = getScheduleSummary(
-    `${props.userId}|all|${weekStart.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`
+    `${props.userId}|all|${weekStart.value}|${effectiveWeekStartsOn.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`
   );
   if (cached) summary.value = filterSummaryByActiveAgencies(cached);
 }, { deep: true });
@@ -8242,13 +8312,27 @@ watch(
   () => props.weekStartYmd,
   (next) => {
     const anchor = next && String(next).trim() ? next : new Date();
-    const monday = startOfWeekMondayYmd(anchor);
-    if (monday && monday !== weekStart.value) {
-      weekStart.value = monday;
+    const nextStart = startOfWeekForPreference(anchor);
+    if (nextStart && nextStart !== weekStart.value) {
+      weekStart.value = nextStart;
       load();
     }
   }
 );
+
+// Re-anchor the visible week when Sun/Mon preference changes (self toggle or admin prop).
+watch(effectiveWeekStartsOn, (pref, prev) => {
+  if (!prev || pref === prev) return;
+  const keepYmd = todayLocalYmd.value
+    || addDaysYmd(weekStart.value, 3)
+    || weekStart.value;
+  const nextStart = startOfWeekForPreference(keepYmd, pref);
+  if (nextStart && nextStart !== weekStart.value) {
+    weekStart.value = nextStart;
+    emit('update:weekStartYmd', weekStart.value);
+  }
+  void load({ forceRefresh: true });
+});
 
 watch(externalCalendarsAvailable, (next) => {
   // Drop selections that no longer exist in the available list.
@@ -8366,16 +8450,16 @@ const agendaItems = computed(() => {
   return items;
 });
 
-/** Move focused day by ±1; only reload schedule-summary when the Monday week anchor changes. */
+/** Move focused day by ±1; only reload schedule-summary when the week anchor changes. */
 const shiftFocusedDay = (deltaDays) => {
   ensureSingleDayFocus();
   const cur = focusedDateYmd.value || todayLocalYmd.value;
   const nextYmd = addDaysYmd(cur, Number(deltaDays || 0));
   if (!nextYmd) return;
-  const monday = startOfWeekMondayYmd(nextYmd);
-  const weekChanged = monday && monday !== weekStart.value;
+  const anchor = startOfWeekForPreference(nextYmd);
+  const weekChanged = anchor && anchor !== weekStart.value;
   if (weekChanged) {
-    weekStart.value = monday;
+    weekStart.value = anchor;
     emit('update:weekStartYmd', weekStart.value);
   }
   const dayName = dayNameForDateYmd(nextYmd);
@@ -8402,10 +8486,10 @@ const nextWeek = () => {
   load();
 };
 const goToTodayWeek = () => {
-  const monday = startOfWeekMondayYmd(new Date());
-  if (!monday) return;
-  const weekChanged = monday !== weekStart.value;
-  weekStart.value = monday;
+  const anchor = startOfWeekForPreference(new Date());
+  if (!anchor) return;
+  const weekChanged = anchor !== weekStart.value;
+  weekStart.value = anchor;
   emit('update:weekStartYmd', weekStart.value);
   if (isDayOrAgendaSpan.value) {
     focusedDays.value = [todayDayName()];
@@ -14581,6 +14665,7 @@ const fetchMeetingBusyEntries = async (ids, ranges) => {
       try {
         const params = {
           weekStart: weekStart.value,
+          weekStartsOn: effectiveWeekStartsOn.value,
           // Typed returns activity titles (Team meeting, Supervision, etc.) without client PII.
           detailLevel: 'typed',
           includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false')
@@ -15920,7 +16005,8 @@ const loadSelectedOfficeGrid = async () => {
     if (!hadGrid) officeGridLoading.value = true;
     officeGridError.value = '';
     const r = await api.get(`/office-schedule/locations/${id}/weekly-grid`, {
-      params: { weekStart: weekStart.value },
+      // Office grids are Monday-anchored even when My Schedule uses a Sunday week start.
+      params: { weekStart: startOfWeekMondayYmd(weekStart.value) || weekStart.value },
       skipGlobalLoading: true
     });
     officeGrid.value = r.data || null;
@@ -17285,6 +17371,7 @@ const submitRequest = async () => {
     submitting.value = true;
     modalError.value = '';
     let createdScheduleEvents = [];
+    let meetingAttendeeUserIds = [];
     let refreshInBackground = false;
     let forceRefreshSummary = false;
     let needsOfficeRefresh = false;
@@ -17391,7 +17478,7 @@ const submitRequest = async () => {
           throw new Error('Huddles must be hosted by a CPA or Provider Plus. Open their schedule or choose them under Schedule for.');
         }
       }
-      const meetingAttendeeUserIds = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
+      meetingAttendeeUserIds = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
         ? Array.from(selectedMeetingParticipantIdSet.value.values()).map((n) => Number(n || 0)).filter((n) => n > 0)
         : [];
       if (normalizedAction === 'agency_meeting' && !meetingAttendeeUserIds.length) {
@@ -18349,13 +18436,21 @@ const submitRequest = async () => {
           htmlLink: ev?.htmlLink || null,
           appJoinUrl: ev?.appJoinUrl || null,
           agencyId: Number(ev?.agencyId || 0) || null,
-          _agencyId: Number(ev?.agencyId || 0) || null
+          _agencyId: Number(ev?.agencyId || 0) || null,
+          // Keep participant chips accurate before the force-refresh round-trip finishes.
+          attendeeUserIds: Array.isArray(ev?.attendeeUserIds)
+            ? ev.attendeeUserIds.map((n) => Number(n)).filter((n) => n > 0)
+            : (Array.isArray(meetingAttendeeUserIds) ? meetingAttendeeUserIds.slice() : []),
+          attendees: Array.isArray(ev?.attendees) ? ev.attendees : []
         }));
         current.scheduleEvents = [...(Array.isArray(current.scheduleEvents) ? current.scheduleEvents : []), ...mapped];
         summary.value = { ...current };
       }
       // Must bust cache — plain load() was restoring a pre-create snapshot and wiping the new meeting.
       invalidateScheduleSummaryCacheForUser(props.userId);
+      for (const attendeeUid of (meetingAttendeeUserIds || [])) {
+        invalidateScheduleSummaryCacheForUser(attendeeUid);
+      }
       void load({ forceRefresh: true });
     } else {
       await load({ forceRefresh: forceRefreshSummary });
@@ -20101,6 +20196,10 @@ const beginEditScheduleStackItem = async (item) => {
     rememberMeetingParticipantNames(Array.isArray(item?.attendees) ? item.attendees : []);
     meetingParticipantSearch.value = '';
     meetingParticipantsExpanded.value = false;
+    // Default ON when unset (matches create + backend); respect explicit false from the event.
+    editorMeetingWaitingRoomEnabled.value = item?.waitingRoomEnabled !== false
+      && item?.waiting_room_enabled !== false
+      && item?.waiting_room_enabled !== 0;
     if (agencyId > 0) void loadMeetingCandidates();
   } else if (agencyId > 0) {
     void loadVirtualSessionClients(agencyId);
@@ -20204,6 +20303,9 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
   try {
     scheduleEventSaving.value = true;
     scheduleEventEditError.value = '';
+    const savedAttendeeIds = isMeeting
+      ? Array.from(selectedMeetingParticipantIdSet.value)
+      : [];
     await api.patch(`/users/${uid}/schedule-events/${eid}`, {
       title,
       description,
@@ -20216,7 +20318,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       ...(scope ? { scope } : {}),
       ...(isMeeting
         ? {
-            attendeeUserIds: Array.from(selectedMeetingParticipantIdSet.value),
+            attendeeUserIds: savedAttendeeIds,
             isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
             ...(String(item?.eventKind || '').toUpperCase() === 'TEAM_MEETING'
               ? {
@@ -20231,12 +20333,20 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
         : {})
     }, { skipGlobalLoading: true });
     scheduleEventEditId.value = 0;
+    // Bust host + attendee caches so participant chips / calendars update without a hard refresh.
+    const priorAttendeeIds = Array.isArray(item?.attendeeUserIds)
+      ? item.attendeeUserIds.map((n) => Number(n)).filter((n) => n > 0)
+      : [];
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    invalidateScheduleSummaryCacheForUser(uid);
+    for (const attendeeUid of new Set([...savedAttendeeIds, ...priorAttendeeIds])) {
+      invalidateScheduleSummaryCacheForUser(attendeeUid);
+    }
     // Close editor immediately; refresh calendar in the background (no global Loading overlay).
     // Use closeModal() — requestCloseModal() prompts "Discard…" because the form is still dirty.
     const keepPicker = stackDetailsItems.value.length > 1 && stackDetailsDayName.value;
     if (keepPicker) {
       // Refresh first so the picker list can rebuild; still skip global overlay.
-      invalidateScheduleSummaryCacheForUser(props.userId);
       await load({ forceRefresh: true });
       const refreshed = scheduleEventsInCell(
         stackDetailsDayName.value,
@@ -20255,7 +20365,6 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     } else {
       closeStackDetailsModal();
       closeModal();
-      invalidateScheduleSummaryCacheForUser(props.userId);
       void load({ forceRefresh: true });
     }
   } catch (e) {
@@ -20381,7 +20490,10 @@ const openAppointmentEditInScheduleModal = async ({
     || list.find((it) => isEditableScheduleStackItem(it))
     || list[0];
 
-  if (!isEditableScheduleStackItem(target)) {
+  const targetKind = String(target?.eventKind || '').trim().toUpperCase();
+  const isMeetingView = targetKind === 'TEAM_MEETING' || targetKind === 'HUDDLE';
+  // Attendees (and other non-editors) still get the shared meeting shell so Join / Info match the host UI.
+  if (!isEditableScheduleStackItem(target) && !isMeetingView) {
     // Non-editable items (e.g. program events) stay on the legacy details surface.
     openStackDetailsModal({
       title: `${scheduleKindLabel(target?.eventKind, target)} — ${dayName} ${hourLabel(hour)}`,
@@ -20423,7 +20535,9 @@ const openAppointmentEditInScheduleModal = async ({
 
 const pickScheduleEventForEdit = async (item) => {
   if (!item) return;
-  if (!isEditableScheduleStackItem(item)) {
+  const kind = String(item?.eventKind || '').trim().toUpperCase();
+  const isMeetingView = kind === 'TEAM_MEETING' || kind === 'HUDDLE';
+  if (!isEditableScheduleStackItem(item) && !isMeetingView) {
     openStackDetailsModal({
       title: String(item.kindLabel || 'Details'),
       items: [item],
@@ -20507,15 +20621,23 @@ const openStackDetailsModal = ({
 } = {}) => {
   const list = Array.isArray(items) ? items : [];
   const editable = list.filter((it) => isEditableScheduleStackItem(it));
-  // Editable appointments always use the shared Schedule shell.
-  if (!forceLegacy && editable.length > 0) {
+  const meetingItem = list.find((it) => {
+    const k = String(it?.eventKind || '').trim().toUpperCase();
+    return k === 'TEAM_MEETING' || k === 'HUDDLE';
+  });
+  // Editable appointments + team meetings (even view-only for attendees) use the shared Schedule shell.
+  if (!forceLegacy && (editable.length > 0 || meetingItem)) {
+    const preferred = editable.find((it) => Number(it?.eventId || 0) === Number(focusEventId || 0))
+      || (meetingItem && Number(meetingItem?.eventId || 0) === Number(focusEventId || 0) ? meetingItem : null)
+      || editable[0]
+      || meetingItem;
     void openAppointmentEditInScheduleModal({
       items: list,
       dayName,
       hour,
       minute,
       focusEventId,
-      item: editable.find((it) => Number(it?.eventId || 0) === Number(focusEventId || 0)) || editable[0]
+      item: preferred
     });
     return;
   }

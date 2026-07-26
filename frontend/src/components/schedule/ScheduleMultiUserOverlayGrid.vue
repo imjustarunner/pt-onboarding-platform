@@ -118,18 +118,17 @@ const props = defineProps({
   /** busy = anonymous intervals only; full = rich titles/clients when authorized */
   detailLevel: { type: String, default: 'full' }
 });
-const emit = defineEmits(['update:weekStartYmd']);
+const emit = defineEmits(['update:weekStartYmd', 'open-user']);
 
 const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const SUNDAY_FIRST_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const orderedDays = computed(() => (String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
-/** Match visible column order (`orderedDays`) so Sunday date aligns with the first column (Sun vs Mon). */
+/** Offset from week anchor; columns follow `orderedDays` (Sun-first or Mon-first). */
 const dayIdxFromWeekStartMonday = (dayName) => {
-  const idx = ALL_DAYS.indexOf(String(dayName || ''));
-  if (idx < 0) return 0;
-  const sunFirst = orderedDays.value.length > 0 && orderedDays.value[0] === 'Sunday';
-  if (sunFirst) return idx === 6 ? -1 : idx;
-  return idx;
+  const name = String(dayName || '');
+  const idx = orderedDays.value.indexOf(name);
+  if (idx >= 0) return idx;
+  return Math.max(0, ALL_DAYS.indexOf(name));
 };
 
 // Club context (runners): main view 5–22, expand to full 0–23
@@ -163,6 +162,18 @@ const startOfWeekMondayYmd = (ymd) => {
   d.setDate(d.getDate() - offset);
   return localYmd(d);
 };
+const startOfWeekSundayYmd = (ymd) => {
+  const s = String(ymd || '').slice(0, 10);
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T12:00:00`) : new Date();
+  if (Number.isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay());
+  return localYmd(d);
+};
+const weekStartsOnSunday = computed(() => String(props.weekStartsOn || '').toLowerCase() === 'sunday');
+const startOfWeekForPreference = (ymd) => (
+  weekStartsOnSunday.value ? startOfWeekSundayYmd(ymd) : startOfWeekMondayYmd(ymd)
+);
 const addDaysYmd = (ymd, n) => {
   const s = String(ymd || '').slice(0, 10);
   const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T12:00:00`) : new Date();
@@ -171,12 +182,12 @@ const addDaysYmd = (ymd, n) => {
   return localYmd(d);
 };
 
-const effectiveWeekStart = computed(() => startOfWeekMondayYmd(props.weekStartYmd || todayYmd()) || startOfWeekMondayYmd(todayYmd()));
+const effectiveWeekStart = computed(() => startOfWeekForPreference(props.weekStartYmd || todayYmd()) || startOfWeekForPreference(todayYmd()));
 const shiftWeek = (deltaDays) => {
   const next = addDaysYmd(effectiveWeekStart.value, deltaDays);
   emit('update:weekStartYmd', next);
 };
-const goToToday = () => emit('update:weekStartYmd', startOfWeekMondayYmd(todayYmd()));
+const goToToday = () => emit('update:weekStartYmd', startOfWeekForPreference(todayYmd()));
 
 const isTodayDay = (dayName) => {
   if (ALL_DAYS.indexOf(String(dayName || '')) < 0) return false;
@@ -277,6 +288,7 @@ const load = async () => {
                   params: {
                     agencyId,
                     weekStart: ws,
+                    weekStartsOn: weekStartsOnSunday.value ? 'sunday' : 'monday',
                     detailLevel: (() => {
                       const d = String(props.detailLevel || 'full').toLowerCase();
                       if (d === 'busy' || d === 'typed' || d === 'full') return d;
@@ -389,7 +401,16 @@ const deferredLoad = () => {
     }
   }, 120);
 };
-watch([() => props.userIds, effectiveWeekStart, showGoogleBusy, showGoogleEvents, () => props.hideGoogleAndTherapyNotes, () => props.detailLevel, effectiveAgencyIds], deferredLoad, { deep: true, immediate: true });
+watch([
+  () => props.userIds,
+  effectiveWeekStart,
+  () => props.weekStartsOn,
+  showGoogleBusy,
+  showGoogleEvents,
+  () => props.hideGoogleAndTherapyNotes,
+  () => props.detailLevel,
+  effectiveAgencyIds
+], deferredLoad, { deep: true, immediate: true });
 
 const gridStyle = computed(() => ({
   gridTemplateColumns: `64px repeat(${orderedDays.value.length}, minmax(0, 1fr))`
@@ -605,6 +626,8 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
       kind: 'sevt',
       key: `u${uid}-sevt-${ev?.id || raw}-${dayName}-${hour}`,
       userId: uid,
+      eventId: Number(ev?.id || 0) || null,
+      eventKind: String(ev?.kind || '').trim().toUpperCase() || null,
       shortLabel: `${init} ${short}`,
       title: `${props.userLabelById?.[uid] || `User ${uid}`} — ${raw}`
     });
@@ -682,12 +705,22 @@ const overlayErrorText = computed(() => {
 });
 
 const onBlockClick = (e, b) => {
-  if (b?.kind !== 'gevt') return;
-  const link = String(b?.link || '').trim();
-  if (!link) return;
   e?.preventDefault?.();
   e?.stopPropagation?.();
-  window.open(link, '_blank', 'noreferrer');
+  if (b?.kind === 'gevt') {
+    const link = String(b?.link || '').trim();
+    if (link) window.open(link, '_blank', 'noreferrer');
+    return;
+  }
+  // Team meetings / supervision / schedule events: open that person's editable schedule.
+  const uid = Number(b?.userId || 0);
+  if (uid > 0 && ['sevt', 'supv', 'peerbusy', 'ob', 'ot', 'oa'].includes(String(b?.kind || ''))) {
+    emit('open-user', {
+      userId: uid,
+      eventId: Number(b?.eventId || 0) || null,
+      kind: String(b?.kind || '')
+    });
+  }
 };
 </script>
 
@@ -762,7 +795,7 @@ const onBlockClick = (e, b) => {
 }
 .cell-blocks { display: flex; gap: 6px; flex-wrap: wrap; }
 .cell-block {
-  cursor: default;
+  cursor: pointer;
   border: 1px solid rgba(15, 23, 42, 0.18);
   border-left: 5px solid var(--user-color, rgba(15, 23, 42, 0.18));
   border-radius: 10px;

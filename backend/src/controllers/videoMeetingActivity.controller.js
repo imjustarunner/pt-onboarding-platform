@@ -60,6 +60,42 @@ async function parseUserIdFromIdentity(identity) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+function displayNameFromUser(user) {
+  if (!user) return '';
+  const name = `${user.first_name || user.firstName || ''} ${user.last_name || user.lastName || ''}`.trim();
+  return name || user.email || '';
+}
+
+/** Enrich activity payloads with authorName when missing (for live chat UI). */
+async function withAuthorNames(activityList) {
+  const list = Array.isArray(activityList) ? activityList : [];
+  const needIds = new Set();
+  for (const a of list) {
+    if (a?.payload?.authorName) continue;
+    const uid = Number(a?.userId || 0) || (await parseUserIdFromIdentity(a?.participantIdentity));
+    if (uid) needIds.add(uid);
+  }
+  const nameById = new Map();
+  for (const uid of needIds) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const u = await User.findById(uid);
+      const n = displayNameFromUser(u);
+      if (n) nameById.set(uid, n);
+    } catch { /* ignore */ }
+  }
+  return list.map((a) => {
+    if (a?.payload?.authorName) return a;
+    const uid = Number(a?.userId || 0) || Number(String(a?.participantIdentity || '').match(/^user-(\d+)$/)?.[1] || 0);
+    const authorName = uid ? nameById.get(uid) : '';
+    if (!authorName) return a;
+    return {
+      ...a,
+      payload: { ...(a.payload || {}), authorName }
+    };
+  });
+}
+
 /**
  * POST /api/supervision/sessions/:id/activity - add chat/poll/Q&A
  */
@@ -181,7 +217,7 @@ export const getSupervisionActivity = async (req, res, next) => {
       return res.json({ ok: true, activity: [] });
     }
 
-    res.json({ ok: true, activity });
+    res.json({ ok: true, activity: await withAuthorNames(activity) });
   } catch (e) {
     next(e);
   }
@@ -235,9 +271,16 @@ export const getTeamMeetingActivity = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const limit = parseInt(req.query?.limit, 10) || 500;
-    const activity = await VideoMeetingActivity.list({ eventId, limit: Math.min(limit, 1000) });
+    let activity = [];
+    try {
+      activity = await VideoMeetingActivity.list({ eventId, limit: Math.min(limit, 1000) });
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true, activity: [] });
+      console.warn('[getTeamMeetingActivity] Failed to list activity:', e?.message);
+      return res.json({ ok: true, activity: [] });
+    }
 
-    res.json({ ok: true, activity });
+    res.json({ ok: true, activity: await withAuthorNames(activity) });
   } catch (e) {
     next(e);
   }

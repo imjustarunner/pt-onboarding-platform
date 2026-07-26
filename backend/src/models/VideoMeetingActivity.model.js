@@ -54,16 +54,16 @@ export default class VideoMeetingActivity {
     if (!sid && !eid) return [];
 
     const where = sid ? 'session_id = ?' : 'event_id = ?';
-    const args = [sid || eid, lim];
-
+    // mysql2 prepared statements reject LIMIT ? on some servers ("Incorrect arguments to mysqld_stmt_execute").
+    // lim is already clamped to an integer 1..1000 above.
     const [rows] = await pool.execute(
       `SELECT id, session_id, event_id, user_id, participant_identity, activity_type, payload_json,
               payload_ciphertext, payload_iv, payload_auth_tag, encryption_key_id, created_at
        FROM video_meeting_activity
        WHERE ${where}
        ORDER BY created_at ASC
-       LIMIT ?`,
-      args
+       LIMIT ${lim}`,
+      [sid || eid]
     );
 
     return (rows || []).map((r) => ({

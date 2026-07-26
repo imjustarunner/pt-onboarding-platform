@@ -1161,11 +1161,17 @@
                 <router-link
                   v-if="!isSummitStatsChallengeChrome"
                   :to="myAccountNavTo"
-                  class="nav-icon-btn"
+                  class="nav-icon-btn nav-account-btn"
                   title="My Account"
                   aria-label="My Account"
                 >
-                  <span aria-hidden="true">👤</span>
+                  <UserAvatar
+                    class="nav-account-avatar"
+                    :photo-path="navAccountPhotoPath"
+                    :first-name="user?.firstName || user?.first_name || ''"
+                    :last-name="user?.lastName || user?.last_name || ''"
+                    size="xs"
+                  />
                 </router-link>
                 <LogoutStatusSplit
                   class="nav-logout-split"
@@ -2237,6 +2243,7 @@ import StatusPromptModal from './components/StatusPromptModal.vue';
 import AwaySessionOverlay from './components/AwaySessionOverlay.vue';
 import LogoutStatusSplit from './components/LogoutStatusSplit.vue';
 import LoginSplashModal from './components/LoginSplashModal.vue';
+import UserAvatar from './components/common/UserAvatar.vue';
 import { usePresenceSessionStore } from './store/presenceSession';
 import { getStatusPromptMode, subscribeStatusPrompt } from './utils/statusPromptBridge';
 import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
@@ -5018,6 +5025,12 @@ const myAccountNavTo = computed(() => {
   const t = myDashboardTo.value;
   const path = typeof t === 'string' ? t : (t?.path || '/dashboard');
   return { path, query: { tab: 'my' } };
+});
+
+/** Top-bar My Account avatar — keep a fixed box so photos never collapse to a sliver. */
+const navAccountPhotoPath = computed(() => {
+  const u = user.value || authStore.user || {};
+  return String(u.profile_photo_url || u.profilePhotoUrl || u.profile_photo_path || '').trim() || null;
 });
 
 /** Personal My Settings (appearance, hover menus, notifications) inside My Account. */
@@ -7996,6 +8009,28 @@ details[open].mobile-nav-group-collapsible .mobile-nav-group-caret {
   object-fit: contain;
   display: block;
   filter: brightness(0) invert(1);
+}
+.nav-account-btn {
+  overflow: hidden;
+  flex: 0 0 36px;
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
+  padding: 0;
+}
+.nav-account-btn :deep(.nav-account-avatar),
+.nav-account-btn :deep(.avatar) {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  flex-shrink: 0 !important;
+}
+.nav-account-btn :deep(.avatar__img) {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+  display: block;
 }
 
 /*

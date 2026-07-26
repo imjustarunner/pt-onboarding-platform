@@ -86,14 +86,8 @@ async function pruneStaleJoinPresence(eventId) {
   const eid = Number(eventId || 0);
   if (!eid) return;
   try {
-    const [stale] = await pool.execute(
-      `SELECT join_identity
-       FROM provider_schedule_event_join_presence
-       WHERE event_id = ?
-         AND left_at IS NULL
-         AND last_seen_at < (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
-      [eid]
-    );
+    // Only clear lobby presence. Do not close attendance segments here —
+    // a missed heartbeat while still in the Vonage room was zeroing minutes.
     await pool.execute(
       `UPDATE provider_schedule_event_join_presence
        SET left_at = UTC_TIMESTAMP()
@@ -102,17 +96,6 @@ async function pruneStaleJoinPresence(eventId) {
          AND last_seen_at < (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
       [eid]
     );
-    if (stale?.length) {
-      const {
-        closeAttendanceSegment,
-        rebuildAttendanceRollupsFromSegments
-      } = await import('../services/meetingAttendanceSegments.service.js');
-      for (const row of stale) {
-        // eslint-disable-next-line no-await-in-loop
-        await closeAttendanceSegment({ eventId: eid, joinIdentity: row.join_identity });
-      }
-      await rebuildAttendanceRollupsFromSegments(eid, { syncClaims: true });
-    }
   } catch {
     /* table may not exist yet */
   }
@@ -204,10 +187,39 @@ async function admitJoinIdentity({ eventId, userId = null, joinIdentity = null }
   }
 }
 
-async function listWaitingLobbyPresence(eventId) {
+function normalizeJoinIdentity(raw, { userId = null } = {}) {
+  const identity = String(raw || '').trim();
+  const uid = Number(userId || 0);
+  if (uid > 0) return `user-${uid}`;
+  if (/^\d+$/.test(identity)) return `user-${identity}`;
+  const m = identity.match(/^user-(\d+)$/i);
+  if (m) return `user-${m[1]}`;
+  return identity;
+}
+
+function userIdFromJoinIdentity(raw) {
+  const identity = normalizeJoinIdentity(raw);
+  const m = String(identity || '').match(/^user-(\d+)$/);
+  return m ? Number(m[1]) : null;
+}
+
+async function listWaitingLobbyPresence(eventId, {
+  excludeUserIds = [],
+  excludeDisplayNames = []
+} = {}) {
   const eid = Number(eventId || 0);
   if (!eid) return [];
   await pruneStaleJoinPresence(eid);
+  const excludeSet = new Set(
+    (Array.isArray(excludeUserIds) ? excludeUserIds : [excludeUserIds])
+      .map((n) => Number(n || 0))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  );
+  const excludeNames = new Set(
+    (Array.isArray(excludeDisplayNames) ? excludeDisplayNames : [excludeDisplayNames])
+      .map((s) => String(s || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
   try {
     const [rows] = await pool.execute(
       `SELECT p.join_identity, p.display_name, p.is_guest, p.joined_at, p.last_seen_at
@@ -221,22 +233,32 @@ async function listWaitingLobbyPresence(eventId) {
              AND (
                a.join_identity = p.join_identity
                OR (a.user_id IS NOT NULL AND CONCAT('user-', a.user_id) = p.join_identity)
+               OR (a.user_id IS NOT NULL AND CAST(a.user_id AS CHAR) = p.join_identity)
              )
          )
        ORDER BY p.joined_at ASC`,
       [eid]
     );
     return (rows || []).map((r) => {
-      const identity = String(r.join_identity || '');
-      const m = identity.match(/^user-(\d+)$/);
+      const identity = normalizeJoinIdentity(r.join_identity);
+      const userId = userIdFromJoinIdentity(identity);
       return {
         identity,
         joinIdentity: identity,
-        userId: m ? Number(m[1]) : null,
+        userId,
         displayName: r.display_name || identity,
         isGuest: !!r.is_guest,
         sid: identity
       };
+    }).filter((p) => {
+      // Host (and the viewer fetching the list) are in the main room — never show as waiting.
+      if (p.userId && excludeSet.has(Number(p.userId))) return false;
+      for (const uid of excludeSet) {
+        if (p.joinIdentity === `user-${uid}` || p.joinIdentity === String(uid)) return false;
+      }
+      const dn = String(p.displayName || '').trim().toLowerCase();
+      if (dn && excludeNames.has(dn)) return false;
+      return true;
     });
   } catch {
     return [];
@@ -338,7 +360,29 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
 
     const waitingRoomOn = isWaitingRoomEnabled(row);
     const identity = `user-${actorUserId}`;
-    const admitted = await isUserAdmitted({ eventId, userId: actorUserId, joinIdentity: identity });
+    // Host always bypasses the waiting room; mark them admitted so they never appear in the lobby list.
+    if (isHost) {
+      await admitJoinIdentity({ eventId, userId: actorUserId, joinIdentity: identity });
+      // Drop legacy/duplicate host waiting rows (e.g. raw numeric identity or name-only).
+      try {
+        const hostName = displayNameFromUser(await User.findById(actorUserId)) || '';
+        await pool.execute(
+          `UPDATE provider_schedule_event_join_presence
+           SET left_at = UTC_TIMESTAMP()
+           WHERE event_id = ?
+             AND left_at IS NULL
+             AND join_identity <> ?
+             AND (
+               join_identity = ?
+               OR (? <> '' AND LOWER(TRIM(COALESCE(display_name, ''))) = LOWER(?))
+             )`,
+          [eventId, identity, String(actorUserId), hostName, hostName]
+        );
+      } catch (e) {
+        console.warn('[teamMeeting] host lobby presence cleanup failed', e?.message || e);
+      }
+    }
+    const admitted = isHost || await isUserAdmitted({ eventId, userId: actorUserId, joinIdentity: identity });
     const useLobby = !isHost && waitingRoomOn && !admitted;
 
     const actor = await User.findById(actorUserId);
@@ -394,6 +438,28 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       isGuest: false
     });
 
+    // Start / refresh payable attendance as soon as they receive a main-room token
+    // (lobby heartbeats alone were leaving attendees at 0m until a later rebuild).
+    if (!useLobby) {
+      try {
+        const {
+          openAttendanceSegment,
+          rebuildAttendanceRollupsFromSegments
+        } = await import('../services/meetingAttendanceSegments.service.js');
+        const opened = await openAttendanceSegment({
+          eventId,
+          userId: actorUserId,
+          joinIdentity: identity,
+          source: 'platform'
+        });
+        if (opened?.created || opened?.alreadyOpen) {
+          await rebuildAttendanceRollupsFromSegments(eventId, { syncClaims: false });
+        }
+      } catch (e) {
+        console.warn('[teamMeeting] open attendance on token failed', e?.message || e);
+      }
+    }
+
     res.json({
       token: String(token).trim(),
       sessionId: vonageSessionId,
@@ -429,7 +495,11 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
 export const postTeamMeetingJoinPresence = async (req, res, next) => {
   try {
     const ref = String(req.params.eventId || '').trim();
-    const identity = String(req.body?.identity || req.body?.joinIdentity || '').trim();
+    const actorUserId = Number(req.user?.id || 0) || null;
+    const identity = normalizeJoinIdentity(
+      req.body?.identity || req.body?.joinIdentity,
+      { userId: actorUserId }
+    );
     const action = String(req.body?.action || 'heartbeat').toLowerCase();
     if (!ref || !identity) {
       return res.status(400).json({ error: { message: 'identity required' } });
@@ -455,16 +525,27 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
       displayName: String(req.body?.displayName || '').trim() || null,
       isGuest: !!req.body?.isGuest || identity.startsWith('guest-')
     });
-    // Open payable segment (clamped to scheduled start; no-op before start / after complete).
-    const opened = await openAttendanceSegment({
-      eventId: row.id,
-      joinIdentity: identity,
-      source: 'platform'
-    });
-    if (opened?.created) {
-      await rebuildAttendanceRollupsFromSegments(row.id, { syncClaims: true });
+
+    const isHost = actorUserId > 0 && actorUserId === Number(row.provider_id || 0);
+    const waitingRoomOn = isWaitingRoomEnabled(row);
+    const admitted = isHost
+      || !waitingRoomOn
+      || await isUserAdmitted({ eventId: row.id, userId: actorUserId, joinIdentity: identity });
+
+    // Only accrue attendance once they're in the main room (not waiting).
+    let opened = null;
+    if (admitted) {
+      opened = await openAttendanceSegment({
+        eventId: row.id,
+        userId: actorUserId || userIdFromJoinIdentity(identity),
+        joinIdentity: identity,
+        source: 'platform'
+      });
+      if (opened?.created || opened?.alreadyOpen) {
+        await rebuildAttendanceRollupsFromSegments(row.id, { syncClaims: false });
+      }
     }
-    res.json({ ok: true, attendance: opened || null });
+    res.json({ ok: true, attendance: opened || null, admitted: !!admitted });
   } catch (e) {
     next(e);
   }
@@ -484,7 +565,27 @@ export const getTeamMeetingLobbyParticipants = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only the host can view the waiting room' } });
     }
 
-    const participants = await listWaitingLobbyPresence(row.id);
+    const hostId = Number(row.provider_id || 0);
+    let hostDisplayName = '';
+    if (hostId) {
+      try {
+        const hostUser = await User.findById(hostId);
+        hostDisplayName = displayNameFromUser(hostUser) || '';
+      } catch { /* ignore */ }
+    }
+    let actorDisplayName = '';
+    if (actorUserId && actorUserId !== hostId) {
+      try {
+        const actor = await User.findById(actorUserId);
+        actorDisplayName = displayNameFromUser(actor) || '';
+      } catch { /* ignore */ }
+    } else {
+      actorDisplayName = hostDisplayName;
+    }
+    const participants = await listWaitingLobbyPresence(row.id, {
+      excludeUserIds: [hostId, actorUserId],
+      excludeDisplayNames: [hostDisplayName, actorDisplayName].filter(Boolean)
+    });
     for (const p of participants) {
       if (p.userId) {
         // eslint-disable-next-line no-await-in-loop
@@ -500,19 +601,24 @@ export const getTeamMeetingLobbyParticipants = async (req, res, next) => {
 
 export const admitTeamMeetingParticipant = async (req, res, next) => {
   try {
-    const eventId = parseInt(req.params.eventId, 10);
+    const ref = String(req.params.eventId || '').trim();
     const userIdRaw = req.params.userId;
     const joinIdentityBody = String(req.body?.joinIdentity || '').trim();
     const userIdNum = /^\d+$/.test(String(userIdRaw || '')) ? parseInt(userIdRaw, 10) : 0;
-    const joinIdentity = joinIdentityBody
-      || (!userIdNum && String(userIdRaw || '').startsWith('guest-') ? String(userIdRaw) : '')
-      || (userIdNum ? `user-${userIdNum}` : '');
-    if (!eventId || (!userIdNum && !joinIdentity)) {
+    const joinIdentity = normalizeJoinIdentity(
+      joinIdentityBody
+        || (!userIdNum && String(userIdRaw || '').startsWith('guest-') ? String(userIdRaw) : '')
+        || (userIdNum ? `user-${userIdNum}` : ''),
+      { userId: userIdNum || null }
+    );
+    if (!ref || (!userIdNum && !joinIdentity)) {
       return res.status(400).json({ error: { message: 'Invalid event or participant id' } });
     }
 
-    const row = await ProviderScheduleEvent.findById(eventId);
-    if (!row) return res.status(404).json({ error: { message: 'Event not found' } });
+    const row = await ProviderScheduleEvent.resolveByJoinRef(ref)
+      || (/^\d+$/.test(ref) ? await ProviderScheduleEvent.findById(Number(ref)) : null);
+    if (!row?.id) return res.status(404).json({ error: { message: 'Event not found' } });
+    const eventId = Number(row.id);
 
     const actorUserId = Number(req.user?.id || 0);
     if (actorUserId !== Number(row.provider_id)) {
@@ -526,6 +632,21 @@ export const admitTeamMeetingParticipant = async (req, res, next) => {
     });
     if (!admitted) {
       return res.status(500).json({ error: { message: 'Failed to admit participant' } });
+    }
+    try {
+      const {
+        openAttendanceSegment,
+        rebuildAttendanceRollupsFromSegments
+      } = await import('../services/meetingAttendanceSegments.service.js');
+      await openAttendanceSegment({
+        eventId,
+        userId: userIdNum || null,
+        joinIdentity,
+        source: 'platform'
+      });
+      await rebuildAttendanceRollupsFromSegments(eventId, { syncClaims: false });
+    } catch (e) {
+      console.warn('[teamMeeting] attendance open on admit failed', e?.message || e);
     }
     res.json({ ok: true, admitted: userIdNum || joinIdentity, joinIdentity });
   } catch (e) {
@@ -607,6 +728,24 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     });
     if (!token) {
       return res.status(500).json({ error: { message: 'Failed to generate access token' } });
+    }
+
+    try {
+      const {
+        openAttendanceSegment,
+        rebuildAttendanceRollupsFromSegments
+      } = await import('../services/meetingAttendanceSegments.service.js');
+      const opened = await openAttendanceSegment({
+        eventId: row.id,
+        userId: actorUserId,
+        joinIdentity: identity,
+        source: 'platform'
+      });
+      if (opened?.created || opened?.alreadyOpen) {
+        await rebuildAttendanceRollupsFromSegments(row.id, { syncClaims: false });
+      }
+    } catch (e) {
+      console.warn('[teamMeeting] open attendance on admit-status failed', e?.message || e);
     }
 
     res.json({

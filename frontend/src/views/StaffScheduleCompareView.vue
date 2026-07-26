@@ -120,6 +120,7 @@
             :hide-google-and-therapy-notes="isClubContext || isBusyOnlyViewer"
             :detail-level="overlayDetailLevel"
             @update:weekStartYmd="(v) => (weekStartYmd = v)"
+            @open-user="openUserFromOverlay"
           />
         </div>
 
@@ -140,6 +141,7 @@
               :agency-label-by-id="agencyLabelById"
               :week-start-ymd="weekStartYmd"
               :week-starts-on="weekStartsOn"
+              :focus-event-id="overlayFocusEventId"
               :availability-overlay="availabilityByUserId[uid] || null"
               :hide-office-and-calendar-integration="isClubContext"
               mode="admin"
@@ -195,7 +197,6 @@ const effectiveViewMode = computed(() => {
 
 const toLocalYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const todayYmd = () => toLocalYmd(new Date());
-const weekStartYmd = ref(todayYmd());
 const weekStartsOn = ref(
   typeof window !== 'undefined' && window.localStorage.getItem('schedule.weekStartsOn') === 'sunday' ? 'sunday' : 'monday'
 );
@@ -207,17 +208,29 @@ const startOfWeekMondayYmd = (ymd) => {
   d.setDate(d.getDate() - offset);
   return toLocalYmd(d);
 };
+const startOfWeekSundayYmd = (ymd) => {
+  const d = new Date(`${String(ymd || todayYmd()).slice(0, 10)}T12:00:00`);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay());
+  return toLocalYmd(d);
+};
+const startOfWeekForPreference = (ymd) => (
+  weekStartsOn.value === 'sunday' ? startOfWeekSundayYmd(ymd) : startOfWeekMondayYmd(ymd)
+);
+const weekStartYmd = ref(startOfWeekForPreference(todayYmd()));
 const shiftWeek = (deltaDays) => {
-  const d = new Date(`${weekStartYmd.value}T00:00:00`);
+  const d = new Date(`${weekStartYmd.value}T12:00:00`);
   d.setDate(d.getDate() + Number(deltaDays || 0));
-  weekStartYmd.value = toLocalYmd(d);
+  weekStartYmd.value = startOfWeekForPreference(toLocalYmd(d));
 };
 const goToCurrentWeek = () => {
-  weekStartYmd.value = startOfWeekMondayYmd(todayYmd());
+  weekStartYmd.value = startOfWeekForPreference(todayYmd());
 };
 const toggleWeekStartsOn = () => {
+  const keepYmd = weekStartYmd.value || todayYmd();
   weekStartsOn.value = weekStartsOn.value === 'monday' ? 'sunday' : 'monday';
   if (typeof window !== 'undefined') window.localStorage.setItem('schedule.weekStartsOn', weekStartsOn.value);
+  weekStartYmd.value = startOfWeekForPreference(keepYmd);
 };
 
 const isClubContext = computed(() => {
@@ -293,6 +306,7 @@ const overlayGridKey = computed(() => [
   (selectedUserIds.value || []).map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0).join(','),
   (agencyIdsForSchedule.value || []).join(','),
   String(weekStartYmd.value || ''),
+  String(weekStartsOn.value || 'monday'),
   overlayDetailLevel.value
 ].join('|'));
 
@@ -402,7 +416,10 @@ const providerInitials = (u) => {
   return `${first}${last}`.toUpperCase() || '?';
 };
 
+/** Overlay blocks are not editable in-place — drill into that person's stacked schedule. */
+const overlayFocusEventId = ref(0);
 const toggleUser = (id) => {
+  overlayFocusEventId.value = 0;
   const uid = Number(id);
   const cur = selectedUserIds.value.slice();
   const idx = cur.indexOf(uid);
@@ -415,6 +432,14 @@ const toggleUser = (id) => {
   const next = [...cur, uid];
   selectedUserIds.value = next;
   if (next.length >= 2) viewMode.value = 'overlay';
+};
+
+const openUserFromOverlay = (payload = {}) => {
+  const uid = Number(payload?.userId || 0);
+  if (!uid) return;
+  overlayFocusEventId.value = Number(payload?.eventId || 0) || 0;
+  selectedUserIds.value = [uid];
+  viewMode.value = 'stacked';
 };
 
 const moveUp = (id) => {

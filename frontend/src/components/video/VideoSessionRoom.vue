@@ -249,6 +249,23 @@ function initialsFromLabel(label) {
   return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
 }
 
+/** Force Vonage OT media nodes to fill their tile (avoids tiny right-aligned insets). */
+function forceMediaFill(container) {
+  if (!container) return;
+  const nodes = container.querySelectorAll('.OT_root, .OT_publisher, .OT_subscriber, .OT_widget-container, video');
+  nodes.forEach((el) => {
+    el.style.position = 'absolute';
+    el.style.inset = '0';
+    el.style.width = '100%';
+    el.style.height = '100%';
+    el.style.maxWidth = 'none';
+    el.style.maxHeight = 'none';
+    if (el.tagName === 'VIDEO') {
+      el.style.objectFit = 'cover';
+    }
+  });
+}
+
 const localInitials = computed(() => initialsFromLabel(props.localName));
 const remoteInitials = computed(() => initialsFromLabel(remoteName.value));
 
@@ -417,18 +434,20 @@ async function connect() {
         if (screenEl.value) screenEl.value.innerHTML = '';
       }
 
+      if (!screen && targetEl) targetEl.querySelectorAll('.OT_subscriber, .OT_root').forEach((n) => n.remove());
       const sub = session.subscribe(
         stream,
         targetEl,
         {
-          insertMode: 'append',
+          insertMode: 'replace',
           width: '100%',
           height: '100%',
-          fitMode: screen ? 'contain' : 'contain',
+          fitMode: screen ? 'contain' : 'cover',
           style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
         },
         (err) => {
           if (err) console.error('[VideoSessionRoom] subscribe error', err);
+          else forceMediaFill(targetEl);
         }
       );
 
@@ -480,13 +499,14 @@ async function connect() {
       session.connect(props.token, (err) => (err ? reject(err) : resolve()));
     });
 
+    if (localEl.value) localEl.value.querySelectorAll('.OT_publisher, .OT_root').forEach((n) => n.remove());
     publisher = OT.initPublisher(
       localEl.value,
       {
-        insertMode: 'append',
+        insertMode: 'replace',
         width: '100%',
         height: '100%',
-        fitMode: 'contain',
+        fitMode: 'cover',
         publishAudio: publishAudio.value,
         publishVideo: publishVideo.value,
         name: props.localName,
@@ -494,6 +514,7 @@ async function connect() {
       },
       (err) => {
         if (err) console.error('[VideoSessionRoom] publisher error', err);
+        else forceMediaFill(localEl.value);
       }
     );
 
@@ -683,6 +704,7 @@ defineExpose({
   flex-direction: column;
   gap: 0.5rem;
   min-height: 180px;
+  height: 100%;
   background: #12151c;
   border-radius: 10px;
   color: #f2f4f8;
@@ -696,13 +718,16 @@ defineExpose({
   display: grid;
   grid-template-columns: 1fr;
   gap: 0.35rem;
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 160px;
+  height: 100%;
   padding: 0.35rem;
 }
 .vsr__stage--strip {
   grid-template-columns: 1fr 1fr;
   min-height: 100px;
+  height: auto;
+  flex: 0 0 auto;
 }
 .vsr__tile {
   position: relative;
@@ -776,11 +801,18 @@ defineExpose({
 }
 .vsr__stage--solo {
   grid-template-columns: 1fr;
-  min-height: 280px;
+  grid-template-rows: 1fr;
+  flex: 1 1 0;
+  min-height: min(52vh, 560px) !important;
+  height: 100%;
 }
 .vsr__stage--duo {
   grid-template-columns: 1fr 1fr;
-  min-height: 280px;
+  grid-template-rows: 1fr;
+  flex: 1 1 0;
+  min-height: min(52vh, 560px) !important;
+  height: 100%;
+  align-items: stretch;
 }
 .vsr__stage--solo .vsr__tile--local,
 .vsr__tile--solo,
@@ -793,13 +825,16 @@ defineExpose({
   top: auto !important;
   width: 100% !important;
   max-width: none !important;
-  min-height: 220px;
-  height: 100%;
+  min-height: min(46vh, 480px) !important;
+  height: 100% !important;
   box-shadow: none !important;
   z-index: 1;
 }
 .vsr__stage--duo .vsr__tile--remote {
-  min-height: 220px;
+  position: relative !important;
+  min-height: min(46vh, 480px) !important;
+  height: 100% !important;
+  width: 100% !important;
 }
 .vsr__stage--focus-local,
 .vsr__stage--focus-remote {
@@ -861,13 +896,25 @@ defineExpose({
 .vsr--hide-controls .vsr__controls {
   display: none;
 }
+.vsr__tile :deep(.OT_root),
 .vsr__tile :deep(.OT_publisher),
 .vsr__tile :deep(.OT_subscriber),
+.vsr__tile :deep(.OT_widget-container) {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+}
 .vsr__tile :deep(video) {
   width: 100% !important;
   height: 100% !important;
-  object-fit: contain !important;
+  object-fit: cover !important;
   background: #0b0e14;
+}
+.vsr__stage--strip .vsr__tile :deep(video) {
+  object-fit: contain !important;
 }
 .vsr__stage--strip .vsr__tile--local {
   position: relative;
