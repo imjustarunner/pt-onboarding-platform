@@ -53,7 +53,6 @@
           <span class="vsr__label">{{ screenShareLabel || 'Screen share' }}</span>
         </div>
         <div
-          v-show="!isSoloStage || hasScreenShare || tileFocus === 'remote' || tileFocus === 'local' || tileFocus === 'collapsed'"
           ref="remoteEl"
           class="vsr__tile vsr__tile--remote"
           :class="{
@@ -61,7 +60,8 @@
             'vsr__tile--cam-off': hasRemote && !remoteHasVideo,
             'vsr__tile--pip': hasScreenShare || tileFocus === 'local',
             'vsr__tile--featured': tileFocus === 'remote',
-            'vsr__tile--mini': tileFocus === 'collapsed'
+            'vsr__tile--mini': tileFocus === 'collapsed',
+            'vsr__tile--parked': isSoloStage && !hasScreenShare && tileFocus === 'equal'
           }"
           @click="onTileActivate('remote')"
         >
@@ -117,18 +117,20 @@
         <button
           type="button"
           class="vsr__ctrl"
+          :class="{ 'vsr__ctrl--danger': !publishAudio }"
           :aria-pressed="!publishAudio"
           :title="publishAudio ? 'Mute microphone' : 'Unmute microphone'"
-          @click="toggleMic"
+          @click.stop.prevent="toggleMic"
         >
           {{ publishAudio ? 'Mic' : 'Muted' }}
         </button>
         <button
           type="button"
           class="vsr__ctrl"
+          :class="{ 'vsr__ctrl--danger': !publishVideo }"
           :aria-pressed="!publishVideo"
           :title="publishVideo ? 'Turn camera off' : 'Turn camera on'"
-          @click="toggleCamera"
+          @click.stop.prevent="toggleCamera"
         >
           {{ publishVideo ? 'Camera' : 'Cam off' }}
         </button>
@@ -158,7 +160,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 
 const props = defineProps({
   /** Vonage Application ID (preferred) or legacy OpenTok project API key */
@@ -276,12 +278,106 @@ const subscribers = new Map();
 let screenSubscriber = null;
 
 function clearRemote() {
+  subscribers.forEach((sub) => {
+    try { session?.unsubscribe(sub); } catch { /* ignore */ }
+  });
+  subscribers.clear();
   hasRemote.value = false;
   remoteName.value = '';
   remoteHasVideo.value = true;
   remoteProfilePhotoUrl.value = '';
   if (remoteEl.value) remoteEl.value.innerHTML = '';
-  subscribers.clear();
+}
+
+async function subscribeToStream(stream) {
+  if (!session || !stream) return;
+  const screen = isScreenStream(stream);
+  const streamId = String(stream.streamId || '');
+
+  if (!screen) {
+    // Bring remote tile out of solo/parked layout BEFORE OT attaches media.
+    // Subscribing into display:none / zero-size tiles drops video + audio.
+    hasRemote.value = true;
+    await nextTick();
+    await new Promise((r) => requestAnimationFrame(() => r()));
+  }
+
+  const targetEl = screen ? screenEl.value : remoteEl.value;
+  if (!targetEl) {
+    console.error('[VideoSessionRoom] subscribe target missing', { screen, streamId });
+    return;
+  }
+
+  if (!screen && streamId && subscribers.has(streamId)) return;
+  if (screen && screenSubscriber && String(screenSubscriber.streamId || '') === streamId) return;
+
+  if (screen) {
+    if (screenSubscriber) {
+      try { session.unsubscribe(screenSubscriber); } catch { /* ignore */ }
+      screenSubscriber = null;
+    }
+    targetEl.innerHTML = '';
+  } else {
+    // One camera tile for now — cleanly replace any prior remote subscriber.
+    for (const [id, sub] of [...subscribers.entries()]) {
+      try { session.unsubscribe(sub); } catch { /* ignore */ }
+      subscribers.delete(id);
+    }
+    targetEl.querySelectorAll('.OT_subscriber').forEach((n) => {
+      try { n.remove(); } catch { /* ignore */ }
+    });
+  }
+
+  const sub = session.subscribe(
+    stream,
+    targetEl,
+    {
+      insertMode: 'append',
+      width: '100%',
+      height: '100%',
+      fitMode: screen ? 'contain' : 'cover',
+      subscribeToAudio: true,
+      subscribeToVideo: true,
+      style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
+    },
+    (err) => {
+      if (err) {
+        console.error('[VideoSessionRoom] subscribe error', err);
+        return;
+      }
+      forceMediaFill(targetEl);
+      try {
+        if (typeof sub?.subscribeToAudio === 'function') sub.subscribeToAudio(true);
+      } catch { /* ignore */ }
+    }
+  );
+
+  if (screen) {
+    screenSubscriber = sub;
+    hasScreenShare.value = true;
+    screenShareLabel.value = String(stream?.name || 'Screen share');
+    return;
+  }
+
+  if (streamId) subscribers.set(streamId, sub);
+  hasRemote.value = true;
+  remoteHasVideo.value = stream?.hasVideo !== false;
+  try {
+    const data = stream.connection?.data;
+    if (data) {
+      const parsed = typeof data === 'string' ? JSON.parse(data) : (data || {});
+      remoteName.value = formatRemoteLabel(parsed);
+      remoteProfilePhotoUrl.value = String(parsed.profilePhotoUrl || parsed.profile_photo_url || '').trim();
+    } else {
+      remoteName.value = stream?.name || 'Participant';
+      remoteProfilePhotoUrl.value = '';
+    }
+  } catch {
+    remoteName.value = stream?.name || 'Participant';
+    remoteProfilePhotoUrl.value = '';
+  }
+  sub.on?.('videoEnabled', () => { remoteHasVideo.value = true; });
+  sub.on?.('videoDisabled', () => { remoteHasVideo.value = false; });
 }
 
 function clearScreenShareTile() {
@@ -421,62 +517,7 @@ async function connect() {
     session = OT.initSession(projectId, props.sessionId);
 
     session.on('streamCreated', (event) => {
-      const stream = event.stream;
-      const screen = isScreenStream(stream);
-      const targetEl = screen ? screenEl.value : remoteEl.value;
-      if (!targetEl) return;
-
-      if (screen) {
-        if (screenSubscriber) {
-          try { session.unsubscribe(screenSubscriber); } catch { /* ignore */ }
-          screenSubscriber = null;
-        }
-        if (screenEl.value) screenEl.value.innerHTML = '';
-      }
-
-      if (!screen && targetEl) targetEl.querySelectorAll('.OT_subscriber, .OT_root').forEach((n) => n.remove());
-      const sub = session.subscribe(
-        stream,
-        targetEl,
-        {
-          insertMode: 'replace',
-          width: '100%',
-          height: '100%',
-          fitMode: screen ? 'contain' : 'cover',
-          style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
-        },
-        (err) => {
-          if (err) console.error('[VideoSessionRoom] subscribe error', err);
-          else forceMediaFill(targetEl);
-        }
-      );
-
-      if (screen) {
-        screenSubscriber = sub;
-        hasScreenShare.value = true;
-        screenShareLabel.value = String(stream?.name || 'Screen share');
-      } else {
-        subscribers.set(stream.streamId, sub);
-        hasRemote.value = true;
-        remoteHasVideo.value = stream?.hasVideo !== false;
-        try {
-          const data = stream.connection?.data;
-          if (data) {
-            const parsed = typeof data === 'string' ? JSON.parse(data) : (data || {});
-            remoteName.value = formatRemoteLabel(parsed);
-            remoteProfilePhotoUrl.value = String(parsed.profilePhotoUrl || parsed.profile_photo_url || '').trim();
-          } else {
-            remoteName.value = stream?.name || 'Participant';
-            remoteProfilePhotoUrl.value = '';
-          }
-        } catch {
-          remoteName.value = stream?.name || 'Participant';
-          remoteProfilePhotoUrl.value = '';
-        }
-        sub.on?.('videoEnabled', () => { remoteHasVideo.value = true; });
-        sub.on?.('videoDisabled', () => { remoteHasVideo.value = false; });
-      }
-      emit('stream-created', event);
+      void subscribeToStream(event.stream).then(() => emit('stream-created', event));
     });
 
     session.on('streamDestroyed', (event) => {
@@ -499,11 +540,15 @@ async function connect() {
       session.connect(props.token, (err) => (err ? reject(err) : resolve()));
     });
 
-    if (localEl.value) localEl.value.querySelectorAll('.OT_publisher, .OT_root').forEach((n) => n.remove());
+    if (localEl.value) {
+      localEl.value.querySelectorAll('.OT_publisher').forEach((n) => {
+        try { n.remove(); } catch { /* ignore */ }
+      });
+    }
     publisher = OT.initPublisher(
       localEl.value,
       {
-        insertMode: 'replace',
+        insertMode: 'append',
         width: '100%',
         height: '100%',
         fitMode: 'cover',
@@ -521,6 +566,18 @@ async function connect() {
     await new Promise((resolve, reject) => {
       session.publish(publisher, (err) => (err ? reject(err) : resolve()));
     });
+
+    // Catch streams that were already in the session before our listener ran.
+    try {
+      const existing = session.streams;
+      if (existing && typeof existing.forEach === 'function') {
+        existing.forEach((stream) => { void subscribeToStream(stream); });
+      } else if (existing && typeof existing === 'object') {
+        Object.values(existing).forEach((stream) => { void subscribeToStream(stream); });
+      }
+    } catch (e) {
+      console.warn('[VideoSessionRoom] existing stream subscribe failed', e);
+    }
 
     connecting.value = false;
     sessionReady.value = true;
@@ -654,13 +711,33 @@ function disconnect(emitEvent = true) {
 }
 
 function toggleMic() {
-  publishAudio.value = !publishAudio.value;
-  if (publisher) publisher.publishAudio(publishAudio.value);
+  const next = !publishAudio.value;
+  publishAudio.value = next;
+  if (!publisher) {
+    console.warn('[VideoSessionRoom] mic toggled before publisher ready');
+    return;
+  }
+  try {
+    publisher.publishAudio(next);
+  } catch (e) {
+    console.error('[VideoSessionRoom] publishAudio failed', e);
+    publishAudio.value = !next;
+  }
 }
 
 function toggleCamera() {
-  publishVideo.value = !publishVideo.value;
-  if (publisher) publisher.publishVideo(publishVideo.value);
+  const next = !publishVideo.value;
+  publishVideo.value = next;
+  if (!publisher) {
+    console.warn('[VideoSessionRoom] camera toggled before publisher ready');
+    return;
+  }
+  try {
+    publisher.publishVideo(next);
+  } catch (e) {
+    console.error('[VideoSessionRoom] publishVideo failed', e);
+    publishVideo.value = !next;
+  }
 }
 
 function retryConnect() {
@@ -965,9 +1042,25 @@ defineExpose({
   font-size: 0.85rem;
   cursor: pointer;
 }
-.vsr__ctrl[aria-pressed='true'] {
-  background: #3a2a2a;
-  border-color: #6a3a3a;
+.vsr__ctrl[aria-pressed='true'],
+.vsr__ctrl--danger {
+  background: #b91c1c !important;
+  border-color: #f87171 !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+.vsr__tile--parked {
+  /* Keep a real layout box so OT can attach; visually parked until someone joins. */
+  position: absolute !important;
+  width: 8px !important;
+  height: 8px !important;
+  min-height: 8px !important;
+  opacity: 0.01;
+  pointer-events: none;
+  overflow: hidden;
+  right: 0;
+  bottom: 0;
+  z-index: 0;
 }
 .vsr__btn--ghost {
   background: transparent;

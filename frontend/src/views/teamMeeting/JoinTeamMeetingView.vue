@@ -50,53 +50,45 @@
             >×</button>
           </div>
 
-          <div class="join-workspace__tabs" role="tablist">
-            <button
-              v-for="tab in asideTabs"
-              :key="tab.id"
-              type="button"
-              role="tab"
-              class="join-workspace__tab"
-              :class="{ on: asideTab === tab.id }"
-              :aria-selected="asideTab === tab.id"
-              @click="asideTab = tab.id"
-            >{{ tab.label }}</button>
-          </div>
-
-          <div class="join-workspace__body">
-            <MeetingAgendaPanel
-              v-if="canSeeFullWorkspace"
-              v-show="asideTab === 'agenda'"
-              meeting-type="provider_schedule_event"
-              :meeting-id="resolvedEventId"
-              :can-add-item="true"
-              :embedded="true"
-              :live="true"
-            />
-            <MeetingGoalsActionsPanel
-              v-if="canSeeFullWorkspace && (asideTab === 'goals' || asideTab === 'actions')"
-              :event-id="resolvedEventId"
-              :section="asideTab === 'goals' ? 'goals' : 'actions'"
-              :meeting-subtype="meetingSubtype"
-            />
-            <MeetingAttendancePanel
-              v-if="canSeeFullWorkspace && asideTab === 'attendance' && showAttendanceTab"
-              :event-id="resolvedEventId"
-              :live-poll="true"
-            />
-            <MeetingNotesPanel
-              v-if="canSeeFullWorkspace && asideTab === 'notes' && showNotesTab"
-              :event-id="resolvedEventId"
-            />
-            <MeetingLiveActivityPanel
-              v-if="asideTab === 'chat'"
-              :event-id="resolvedEventId"
-              :is-host="isHost"
-              :start-open="true"
-              :embedded="true"
-              :hide-chrome="true"
-              :since-joined-at="chatSinceJoinedAt"
-            />
+          <div class="join-workspace__body join-workspace__body--stack">
+            <template v-if="canSeeFullWorkspace">
+              <section class="join-stack-section">
+                <MeetingAgendaPanel
+                  meeting-type="provider_schedule_event"
+                  :meeting-id="resolvedEventId"
+                  :can-add-item="true"
+                  :embedded="true"
+                  :live="true"
+                />
+              </section>
+              <section class="join-stack-section">
+                <MeetingGoalsActionsPanel
+                  :event-id="resolvedEventId"
+                  section="both"
+                  :meeting-subtype="meetingSubtype"
+                />
+              </section>
+              <section v-if="showAttendanceTab" class="join-stack-section">
+                <MeetingAttendancePanel
+                  :event-id="resolvedEventId"
+                  :live-poll="true"
+                />
+              </section>
+              <section v-if="showNotesTab" class="join-stack-section">
+                <MeetingNotesPanel :event-id="resolvedEventId" />
+              </section>
+            </template>
+            <section class="join-stack-section join-stack-section--chat">
+              <h3 class="join-stack-title">{{ canSeeFullWorkspace ? 'Chat, Polls & Q&A' : 'Chat & Polls' }}</h3>
+              <MeetingLiveActivityPanel
+                :event-id="resolvedEventId"
+                :is-host="isHost"
+                :start-open="true"
+                :embedded="true"
+                :hide-chrome="true"
+                :since-joined-at="chatSinceJoinedAt"
+              />
+            </section>
           </div>
         </aside>
       </div>
@@ -154,11 +146,6 @@ const token = ref('');
 const vonageSessionId = ref('');
 const applicationId = ref('');
 const diagnostics = ref(null);
-const asideTab = ref('agenda');
-watch(asideTab, (tab) => {
-  // Time Claims removed from live join chrome — bounce stray state to Attendance.
-  if (tab === 'time_claims') asideTab.value = canSeeFullWorkspace.value ? 'attendance' : 'chat';
-});
 const meetingSubtype = ref('general');
 const meetingKind = ref('TEAM_MEETING');
 const meetingCompletedAt = ref(null);
@@ -232,40 +219,6 @@ const workspaceBannerText = computed(() => {
     return 'Meeting workspace — agenda, attendance, transcript, and live chat stay with this session.';
   }
   return 'Chat & polls from when you joined. Your attendance time claim is created when the host completes the meeting.';
-});
-
-const asideTabs = computed(() => {
-  if (!canSeeFullWorkspace.value) {
-    return [{ id: 'chat', label: 'Chat & Polls' }];
-  }
-  const tabs = [
-    { id: 'agenda', label: 'Agenda' },
-    { id: 'goals', label: 'Goals' },
-    { id: 'actions', label: 'Action Items' },
-    { id: 'attendance', label: 'Attendance' },
-    { id: 'chat', label: 'Chat' }
-  ];
-  if (showNotesTab.value) {
-    tabs.push({ id: 'notes', label: 'Transcript' });
-  }
-  // Attendance only when eligible for this meeting type
-  if (!showAttendanceTab.value) {
-    return tabs.filter((t) => t.id !== 'attendance');
-  }
-  return tabs;
-});
-
-watch(canSeeFullWorkspace, (full) => {
-  if (!full) asideTab.value = 'chat';
-  else if (asideTab.value === 'chat' && asideTabs.value.some((t) => t.id === 'agenda')) {
-    /* keep current tab */
-  }
-}, { immediate: true });
-
-watch(asideTabs, (tabs) => {
-  if (!tabs.some((t) => t.id === asideTab.value)) {
-    asideTab.value = tabs[0]?.id || 'chat';
-  }
 });
 
 watch(isInLobby, (lobby, wasLobby) => {
@@ -719,32 +672,6 @@ onUnmounted(() => {
   cursor: pointer;
   padding: 0 2px;
 }
-.join-workspace__tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0;
-  margin: 8px 12px 0;
-  border-bottom: 1px solid #e5e7eb;
-  padding: 0 2px;
-}
-.join-workspace__tab {
-  border: 0;
-  background: transparent;
-  font-weight: 700;
-  font-size: 0.82rem;
-  padding: 10px 12px 9px;
-  cursor: pointer;
-  color: #64748b;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-.join-workspace__tab:hover {
-  color: #0f766e;
-}
-.join-workspace__tab.on {
-  color: #047857;
-  border-bottom-color: #10b981;
-}
 .join-workspace__body {
   flex: 1;
   min-height: 0;
@@ -753,12 +680,30 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
 }
-.join-workspace__body :deep(.meeting-agenda-panel--embedded),
-.join-workspace__body :deep(.mgap),
-.join-workspace__body :deep(.map),
-.join-workspace__body :deep(.mnp),
-.join-workspace__body :deep(.mlap) {
+.join-workspace__body--stack {
+  gap: 14px;
+}
+.join-stack-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+.join-stack-section--chat {
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+.join-stack-title {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.join-workspace__body :deep(.mlap),
+.join-workspace__body :deep(.mlap__panel) {
   flex: 1;
+  min-height: 220px;
 }
 .join-workspace__body :deep(.mgap__head h3),
 .join-workspace__body :deep(.map__head h4),
