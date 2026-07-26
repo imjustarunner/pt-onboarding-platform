@@ -63,8 +63,14 @@ export async function createOrGetRoomByUniqueName(uniqueName) {
 }
 
 export async function completeRoom(roomSid) {
-  // Vonage sessions don't need explicit completion, but we could stop archiving here.
-  return { sid: roomSid, status: 'completed' };
+  // Signal + force-disconnect everyone still in the Vonage session.
+  try {
+    const result = await VonageVideoService.endLiveSession(roomSid, { reason: 'meeting_completed' });
+    return { sid: roomSid, status: 'completed', ...result };
+  } catch (e) {
+    console.warn('[video.service] completeRoom failed', e?.message || e);
+    return { sid: roomSid, status: 'completed', ok: false };
+  }
 }
 
 /**

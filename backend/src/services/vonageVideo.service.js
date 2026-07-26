@@ -106,6 +106,86 @@ class VonageVideoService {
     const vonage = this.getClient();
     return await vonage.video.getArchive(archiveId);
   }
+
+  /**
+   * Broadcast a signal to everyone in a session (or one connection).
+   */
+  static async sendSignal(sessionId, { type, data = '' } = {}, connectionId = null) {
+    if (!sessionId || !type) return false;
+    const vonage = this.getClient();
+    await vonage.video.sendSignal(
+      { type: String(type), data: typeof data === 'string' ? data : JSON.stringify(data || {}) },
+      String(sessionId),
+      connectionId || undefined
+    );
+    return true;
+  }
+
+  /**
+   * List active streams in a session (includes connection ids).
+   */
+  static async listStreams(sessionId) {
+    if (!sessionId) return [];
+    const vonage = this.getClient();
+    const resp = await vonage.video.getStreamInfo(String(sessionId));
+    const items = Array.isArray(resp?.items)
+      ? resp.items
+      : (Array.isArray(resp) ? resp : (resp?.data?.items || []));
+    return items || [];
+  }
+
+  /**
+   * Force-disconnect a client connection from the session.
+   */
+  static async disconnectClient(sessionId, connectionId) {
+    if (!sessionId || !connectionId) return false;
+    const vonage = this.getClient();
+    await vonage.video.disconnectClient(String(sessionId), String(connectionId));
+    return true;
+  }
+
+  /**
+   * End a live room: signal meeting_ended, then disconnect every connection.
+   */
+  static async endLiveSession(sessionId, { reason = 'meeting_completed' } = {}) {
+    const sid = String(sessionId || '').trim();
+    if (!sid || !this.isVideoConfigured()) {
+      return { ok: false, signaled: false, disconnected: 0 };
+    }
+    let signaled = false;
+    try {
+      await this.sendSignal(sid, {
+        type: 'meeting_ended',
+        data: JSON.stringify({ reason, at: new Date().toISOString() })
+      });
+      signaled = true;
+    } catch (e) {
+      console.warn('[VonageVideo] sendSignal meeting_ended failed', e?.message || e);
+    }
+
+    let disconnected = 0;
+    try {
+      const streams = await this.listStreams(sid);
+      const connectionIds = new Set();
+      for (const s of streams || []) {
+        const cid = s?.connection?.id || s?.connectionId || s?.connection?.connectionId;
+        if (cid) connectionIds.add(String(cid));
+      }
+      for (const cid of connectionIds) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await this.disconnectClient(sid, cid);
+          disconnected += 1;
+        } catch (e) {
+          console.warn('[VonageVideo] disconnectClient failed', cid, e?.message || e);
+        }
+      }
+    } catch (e) {
+      console.warn('[VonageVideo] list/disconnect on endLiveSession failed', e?.message || e);
+    }
+
+    return { ok: true, signaled, disconnected };
+  }
 }
 
 export default VonageVideoService;

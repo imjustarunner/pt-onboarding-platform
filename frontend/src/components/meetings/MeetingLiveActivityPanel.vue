@@ -4,19 +4,22 @@
     :class="{
       'mlap--embedded': embedded,
       'mlap--open': panelOpen,
-      'mlap--chrome-less': hideChrome
+      'mlap--chrome-less': hideChrome,
+      'mlap--below-video': belowVideo
     }"
   >
+    <div v-if="toastText" class="mlap__toast" role="status">{{ toastText }}</div>
+
     <div v-if="!hideChrome" class="mlap__bar">
       <button
         type="button"
         class="mlap__toggle"
         :class="{ on: panelOpen }"
         title="Chat, polls & Q&A"
-        @click="panelOpen = !panelOpen"
+        @click="openPanel"
       >
         Chat &amp; polls
-        <span v-if="unreadCount > 0" class="mlap__badge">{{ unreadCount }}</span>
+        <span v-if="totalUnread > 0" class="mlap__badge">{{ totalUnread }}</span>
       </button>
       <button
         v-if="panelOpen"
@@ -31,16 +34,21 @@
 
     <div v-if="panelOpen || hideChrome" class="mlap__panel">
       <div class="mlap__tabs">
-        <button type="button" class="mlap__tab" :class="{ on: tab === 'chat' }" @click="tab = 'chat'">Chat</button>
-        <button type="button" class="mlap__tab" :class="{ on: tab === 'polls' }" @click="tab = 'polls'">Polls</button>
-        <button type="button" class="mlap__tab" :class="{ on: tab === 'qa' }" @click="tab = 'qa'">Q&amp;A</button>
+        <button type="button" class="mlap__tab" :class="{ on: tab === 'chat' }" @click="setTab('chat')">
+          Chat
+          <span v-if="unread.chat > 0" class="mlap__tab-badge">{{ unread.chat }}</span>
+        </button>
+        <button type="button" class="mlap__tab" :class="{ on: tab === 'polls' }" @click="setTab('polls')">
+          Polls
+          <span v-if="unread.polls > 0" class="mlap__tab-badge">{{ unread.polls }}</span>
+        </button>
+        <button type="button" class="mlap__tab" :class="{ on: tab === 'qa' }" @click="setTab('qa')">
+          Q&amp;A
+          <span v-if="unread.qa > 0" class="mlap__tab-badge">{{ unread.qa }}</span>
+        </button>
       </div>
 
       <p v-if="error" class="mlap__error">{{ error }}</p>
-
-      <p v-if="sinceJoinedAt" class="mlap__since-hint">
-        Showing chat &amp; polls from when you joined this meeting.
-      </p>
 
       <div v-if="tab === 'chat'" class="mlap__body">
         <div ref="chatMessagesEl" class="mlap__messages">
@@ -71,7 +79,7 @@
       </div>
 
       <div v-else-if="tab === 'polls'" class="mlap__body">
-        <div v-if="isHost" class="mlap__poll-create">
+        <div v-if="canCreatePolls" class="mlap__poll-create">
           <input v-model="pollQuestion" type="text" class="mlap__input" placeholder="Poll question" maxlength="500" />
           <input
             v-model="pollOptionsText"
@@ -91,10 +99,10 @@
         </div>
         <div class="mlap__messages">
           <div v-if="!polls.length" class="mlap__empty">
-            {{ isHost ? 'No polls yet. Create one above.' : 'No polls yet.' }}
+            {{ canCreatePolls ? 'No polls yet. Create one above.' : 'No polls yet.' }}
           </div>
           <div v-for="p in polls" :key="p.id" class="mlap__poll">
-            <div class="mlap__poll-q">{{ p.question }}</div>
+            <div class="mlap__poll-q">{{ p.question || 'Poll' }}</div>
             <div class="mlap__poll-opts">
               <button
                 v-for="(opt, idx) in p.options"
@@ -119,7 +127,7 @@
           <div v-for="q in qaItems" :key="q.id" class="mlap__qa">
             <div><strong>Q:</strong> {{ q.text }}</div>
             <div v-if="q.answer" class="mlap__qa-a"><strong>A:</strong> {{ q.answer }}</div>
-            <div v-else-if="isHost" class="mlap__qa-form">
+            <div v-else-if="canAnswerQuestions" class="mlap__qa-form">
               <input v-model="q.answerDraft" type="text" class="mlap__input" placeholder="Type answer…" />
               <button type="button" class="btn btn-primary btn-sm" :disabled="sending || !q.answerDraft?.trim()" @click="submitAnswer(q)">
                 Submit
@@ -146,28 +154,34 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted, nextTick, computed } from 'vue';
+import { ref, watch, onMounted, onUnmounted, nextTick, computed, reactive } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 
+/** Non-provider staff (and host via isHost) may create polls. Providers vote only. */
+const POLL_CREATE_ROLES = new Set([
+  'super_admin',
+  'superadmin',
+  'admin',
+  'support',
+  'staff',
+  'clinical_practice_assistant',
+  'schedule_manager',
+  'assistant_admin'
+]);
+
 const props = defineProps({
-  /** provider_schedule_events.id for team meetings / huddles */
   eventId: { type: [Number, String], default: null },
-  /** supervision_sessions.id */
   sessionId: { type: [Number, String], default: null },
   isHost: { type: Boolean, default: false },
-  /** Start open (e.g. when selected as a workspace tab) */
+  /** Explicitly allow creating polls (host/admin). If null, derived from role. */
+  canCreatePolls: { type: Boolean, default: null },
   startOpen: { type: Boolean, default: true },
-  /** Compact styling for sidebar embedding */
   embedded: { type: Boolean, default: false },
-  /** When true, always show panel body (no collapse toggle). */
   hideChrome: { type: Boolean, default: false },
-  /**
-   * ISO/date string — when set, only show chat/polls/Q&A created at or after this time
-   * (used so providers only see activity from when they joined).
-   */
+  belowVideo: { type: Boolean, default: false },
+  /** @deprecated Providers now see full history; kept for API compatibility. */
   sinceJoinedAt: { type: [String, Date, Number], default: null },
-  /** Poll interval for live sync (ms) */
   pollMs: { type: Number, default: 4000 }
 });
 
@@ -179,15 +193,18 @@ const sending = ref(false);
 const error = ref('');
 const chatInput = ref('');
 const chatMessages = ref([]);
-const unreadCount = ref(0);
 const pollQuestion = ref('');
 const pollOptionsText = ref('');
 const polls = ref([]);
 const questionInput = ref('');
 const qaItems = ref([]);
 const chatMessagesEl = ref(null);
+const toastText = ref('');
+const unread = reactive({ chat: 0, polls: 0, qa: 0 });
 const seenIds = new Set();
 let pollTimer = null;
+let toastTimer = null;
+let initialLoadDone = false;
 
 const ownIdentity = computed(() => {
   const id = Number(authStore.user?.id || 0);
@@ -200,6 +217,18 @@ const ownDisplayName = computed(() => {
     || u.email
     || 'You';
 });
+
+const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase().trim());
+
+const canCreatePolls = computed(() => {
+  if (props.canCreatePolls != null) return !!props.canCreatePolls;
+  if (props.isHost) return true;
+  return POLL_CREATE_ROLES.has(actorRole.value);
+});
+
+const canAnswerQuestions = computed(() => props.isHost || POLL_CREATE_ROLES.has(actorRole.value));
+
+const totalUnread = computed(() => unread.chat + unread.polls + unread.qa);
 
 function activityApiBase() {
   const eid = Number(props.eventId || 0);
@@ -218,26 +247,42 @@ function senderLabel(identity, payload = {}) {
   return id || 'Unknown';
 }
 
-function sinceCutoffMs() {
-  if (props.sinceJoinedAt == null || props.sinceJoinedAt === '') return null;
-  const t = new Date(props.sinceJoinedAt).getTime();
-  return Number.isFinite(t) ? t : null;
+function normalizeOptions(raw) {
+  if (Array.isArray(raw)) return raw.map((s) => String(s || '').trim()).filter(Boolean);
+  if (typeof raw === 'string') {
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return [];
 }
 
-function isAfterJoin(a) {
-  const cut = sinceCutoffMs();
-  if (cut == null) return true;
-  const created = a?.createdAt != null ? new Date(a.createdAt).getTime() : NaN;
-  // Local optimistic rows (no server createdAt yet) always show.
-  if (!Number.isFinite(created)) return true;
-  return created >= cut;
+function showToast(text) {
+  toastText.value = text;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastText.value = ''; }, 3500);
 }
 
-function applyActivity(a, { fromPoll = false } = {}) {
-  if (!isAfterJoin(a)) return;
+function bumpUnread(kind, amount = 1) {
+  if (!amount) return;
+  unread[kind] = (unread[kind] || 0) + amount;
+  if (kind === 'chat') showToast(`New chat message${amount > 1 ? 's' : ''}`);
+  else if (kind === 'polls') showToast(amount > 1 ? 'New polls' : 'New poll');
+  else if (kind === 'qa') showToast(amount > 1 ? 'New questions' : 'New question');
+}
+
+function setTab(next) {
+  tab.value = next;
+  unread[next] = 0;
+}
+
+function openPanel() {
+  panelOpen.value = !panelOpen.value;
+  if (panelOpen.value) unread[tab.value] = 0;
+}
+
+function applyActivity(a) {
   const key = a?.id != null ? `id:${a.id}` : null;
   if (key) {
-    if (seenIds.has(key)) return;
+    if (seenIds.has(key)) return { kind: null, isNew: false };
     seenIds.add(key);
   }
   const type = String(a?.activityType || '').toLowerCase();
@@ -251,37 +296,45 @@ function applyActivity(a, { fromPoll = false } = {}) {
       senderLabel: senderLabel(a.participantIdentity, payload),
       isOwn
     });
-    if (fromPoll && !isOwn && !panelOpen.value) unreadCount.value += 1;
-  } else if (type === 'poll') {
+    return { kind: 'chat', isNew: !isOwn };
+  }
+  if (type === 'poll') {
     const pollId = payload.id ?? a.id;
-    if (polls.value.some((p) => String(p.id) === String(pollId))) return;
+    if (polls.value.some((p) => String(p.id) === String(pollId))) return { kind: null, isNew: false };
     polls.value.push({
       id: pollId,
-      question: payload.question || '',
-      options: Array.isArray(payload.options) ? payload.options : [],
+      question: String(payload.question || '').trim(),
+      options: normalizeOptions(payload.options),
       votes: {},
       userVote: null
     });
-  } else if (type === 'poll_vote') {
+    return { kind: 'polls', isNew: !isOwn };
+  }
+  if (type === 'poll_vote') {
     const p = polls.value.find((x) => String(x.id) === String(payload.pollId));
     if (p && payload.optionIndex != null) {
       const idx = Number(payload.optionIndex);
       p.votes = { ...p.votes, [idx]: (p.votes[idx] || 0) + 1 };
       if (isOwn) p.userVote = idx;
     }
-  } else if (type === 'question') {
+    return { kind: null, isNew: false };
+  }
+  if (type === 'question') {
     const qid = payload.id ?? a.id;
-    if (qaItems.value.some((q) => String(q.id) === String(qid))) return;
+    if (qaItems.value.some((q) => String(q.id) === String(qid))) return { kind: null, isNew: false };
     qaItems.value.push({
       id: qid,
       text: payload.text || '',
       answer: null,
       answerDraft: ''
     });
-  } else if (type === 'answer') {
+    return { kind: 'qa', isNew: !isOwn };
+  }
+  if (type === 'answer') {
     const q = qaItems.value.find((x) => String(x.id) === String(payload.inReplyToId));
     if (q) q.answer = payload.text || '';
   }
+  return { kind: null, isNew: false };
 }
 
 async function persistActivity(activityType, payload) {
@@ -309,38 +362,45 @@ async function loadActivity({ quiet = false } = {}) {
       skipAuthRedirect: true
     });
     const list = Array.isArray(resp?.data?.activity) ? resp.data.activity : [];
-    const prevChatIds = new Set(
-      [...seenIds].filter((k) => k.startsWith('id:'))
-    );
-    let newChatCount = 0;
-    if (quiet && panelOpen.value === false) {
-      for (const a of list) {
-        if (String(a?.activityType || '').toLowerCase() !== 'chat') continue;
-        const key = a?.id != null ? `id:${a.id}` : null;
-        if (!key || prevChatIds.has(key)) continue;
-        const isOwn = !!(ownIdentity.value && String(a?.participantIdentity || '') === ownIdentity.value);
-        if (!isOwn) newChatCount += 1;
-      }
-    }
+    const prevIds = new Set(seenIds);
+    const newCounts = { chat: 0, polls: 0, qa: 0 };
 
-    // Rebuild from server so vote counts / answers stay accurate.
     seenIds.clear();
     chatMessages.value = [];
     polls.value = [];
     qaItems.value = [];
+
     for (const a of list) {
       const t = String(a?.activityType || '').toLowerCase();
       if (t === 'poll_vote' || t === 'answer') continue;
-      applyActivity(a, { fromPoll: false });
+      const wasNew = a?.id != null && !prevIds.has(`id:${a.id}`);
+      const result = applyActivity(a);
+      if (initialLoadDone && quiet && wasNew && result.isNew && result.kind) {
+        newCounts[result.kind] += 1;
+      }
     }
     for (const a of list) {
       const t = String(a?.activityType || '').toLowerCase();
-      if (t === 'poll_vote' || t === 'answer') applyActivity(a, { fromPoll: false });
+      if (t === 'poll_vote' || t === 'answer') applyActivity(a);
     }
-    if (newChatCount > 0) unreadCount.value += newChatCount;
 
+    if (initialLoadDone && quiet) {
+      const viewing = panelOpen.value || props.hideChrome;
+      for (const kind of ['chat', 'polls', 'qa']) {
+        const n = newCounts[kind];
+        if (!n) continue;
+        if (viewing && tab.value === kind) continue;
+        bumpUnread(kind, n);
+      }
+    }
+
+    if (panelOpen.value || props.hideChrome) {
+      unread[tab.value] = 0;
+    }
+
+    initialLoadDone = true;
     await nextTick();
-    if (chatMessagesEl.value && panelOpen.value) {
+    if (chatMessagesEl.value && tab.value === 'chat') {
       chatMessagesEl.value.scrollTop = chatMessagesEl.value.scrollHeight;
     }
   } catch (e) {
@@ -379,10 +439,7 @@ async function sendChatMessage() {
 
 async function createPoll() {
   const question = String(pollQuestion.value || '').trim();
-  const options = String(pollOptionsText.value || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const options = normalizeOptions(pollOptionsText.value);
   if (!question || !options.length || sending.value) return;
   sending.value = true;
   error.value = '';
@@ -397,6 +454,7 @@ async function createPoll() {
       activityType: 'poll',
       payload: { id: id || localId, question, options }
     });
+    tab.value = 'polls';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to create poll';
   } finally {
@@ -435,6 +493,7 @@ async function submitQuestion() {
       activityType: 'question',
       payload: { id: id || localId, text, authorName: ownDisplayName.value }
     });
+    tab.value = 'qa';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to ask';
   } finally {
@@ -473,16 +532,22 @@ function stopPolling() {
 }
 
 watch(panelOpen, (open) => {
-  if (open) unreadCount.value = 0;
+  if (open) unread[tab.value] = 0;
 });
 
+watch(tab, (t) => { unread[t] = 0; });
+
 watch(
-  () => [props.eventId, props.sessionId, props.sinceJoinedAt],
+  () => [props.eventId, props.sessionId],
   () => {
     seenIds.clear();
+    initialLoadDone = false;
     chatMessages.value = [];
     polls.value = [];
     qaItems.value = [];
+    unread.chat = 0;
+    unread.polls = 0;
+    unread.qa = 0;
     void loadActivity();
     startPolling();
   }
@@ -502,7 +567,10 @@ onMounted(() => {
   startPolling();
 });
 
-onUnmounted(stopPolling);
+onUnmounted(() => {
+  stopPolling();
+  if (toastTimer) clearTimeout(toastTimer);
+});
 
 defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
 </script>
@@ -513,6 +581,25 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  position: relative;
+}
+.mlap__toast {
+  position: absolute;
+  top: -6px;
+  right: 8px;
+  z-index: 6;
+  background: #0f766e;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 999px;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.2);
+  animation: mlap-pop 0.25s ease-out;
+}
+@keyframes mlap-pop {
+  from { transform: translateY(4px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 .mlap__bar {
   display: flex;
@@ -533,13 +620,15 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   background: #1d4ed8;
   border-color: #60a5fa;
 }
-.mlap__badge {
+.mlap__badge,
+.mlap__tab-badge {
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 999px;
   background: #b91c1c;
   color: #fff;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
+  font-weight: 800;
 }
 .mlap__refresh {
   border: 0;
@@ -560,19 +649,35 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   overflow: hidden;
 }
 .mlap--embedded .mlap__panel,
-.mlap--chrome-less .mlap__panel {
+.mlap--chrome-less .mlap__panel,
+.mlap--below-video .mlap__panel {
   background: #fff;
   color: #0f172a;
   border-color: #e2e8f0;
   max-height: none;
-  min-height: 280px;
+  min-height: 260px;
   flex: 1;
+}
+.mlap--chrome-less .mlap__panel,
+.mlap--below-video .mlap__panel {
   border: 0;
   border-radius: 0;
 }
-.mlap--chrome-less {
+.mlap--chrome-less,
+.mlap--below-video {
   flex: 1;
   min-height: 0;
+}
+.mlap--below-video {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  min-height: 280px;
+}
+.mlap--below-video .mlap__panel {
+  min-height: 260px;
+  max-height: min(36vh, 380px);
 }
 .mlap--embedded .mlap__toggle {
   background: #ecfdf5;
@@ -602,7 +707,9 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   color: #38bdf8;
   border-bottom: 2px solid #38bdf8;
 }
-.mlap--embedded .mlap__tab.on {
+.mlap--embedded .mlap__tab.on,
+.mlap--below-video .mlap__tab.on,
+.mlap--chrome-less .mlap__tab.on {
   color: #047857;
   border-bottom-color: #047857;
 }
@@ -630,14 +737,18 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   border-radius: 8px;
   background: rgba(30, 41, 59, 0.9);
 }
-.mlap--embedded .mlap__msg {
+.mlap--embedded .mlap__msg,
+.mlap--below-video .mlap__msg,
+.mlap--chrome-less .mlap__msg {
   background: #f1f5f9;
 }
 .mlap__msg.own {
   background: rgba(37, 99, 235, 0.28);
   margin-left: 18px;
 }
-.mlap--embedded .mlap__msg.own {
+.mlap--embedded .mlap__msg.own,
+.mlap--below-video .mlap__msg.own,
+.mlap--chrome-less .mlap__msg.own {
   background: #dbeafe;
 }
 .mlap__sender {
@@ -667,7 +778,9 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   color: #f8fafc;
   font-size: 0.9rem;
 }
-.mlap--embedded .mlap__input {
+.mlap--embedded .mlap__input,
+.mlap--below-video .mlap__input,
+.mlap--chrome-less .mlap__input {
   background: #fff;
   border-color: #cbd5e1;
   color: #0f172a;
@@ -703,7 +816,9 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   cursor: pointer;
   font-size: 0.85rem;
 }
-.mlap--embedded .mlap__opt {
+.mlap--embedded .mlap__opt,
+.mlap--below-video .mlap__opt,
+.mlap--chrome-less .mlap__opt {
   background: #fff;
   border-color: #cbd5e1;
   color: #0f172a;
@@ -734,13 +849,9 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   color: #fecaca;
   font-size: 0.85rem;
 }
-.mlap--embedded .mlap__error {
+.mlap--embedded .mlap__error,
+.mlap--below-video .mlap__error,
+.mlap--chrome-less .mlap__error {
   color: #b91c1c;
-}
-.mlap__since-hint {
-  margin: 0;
-  padding: 8px 10px 0;
-  font-size: 0.78rem;
-  color: #64748b;
 }
 </style>

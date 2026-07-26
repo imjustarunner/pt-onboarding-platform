@@ -24,6 +24,7 @@
       @connected="$emit('connected', $event)"
       @error="$emit('error', $event)"
       @recreate-room="$emit('recreate-room')"
+      @meeting-ended="$emit('meeting-ended', $event)"
     >
       <template #extra-controls>
         <slot name="extra-controls" />
@@ -67,7 +68,7 @@ const props = defineProps({
   localProfilePhotoUrl: { type: String, default: '' }
 });
 
-defineEmits(['disconnected', 'connected', 'error', 'recreate-room', 'update:tileFocus']);
+defineEmits(['disconnected', 'connected', 'error', 'recreate-room', 'update:tileFocus', 'meeting-ended']);
 
 const authStore = useAuthStore();
 

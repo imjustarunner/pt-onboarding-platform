@@ -28,7 +28,9 @@
             :local-display-name="localDisplayName"
             :local-role-label="localRoleLabel"
             :local-profile-photo-url="localProfilePhotoUrl"
+            @connected="onVideoConnected"
             @disconnected="onDisconnected"
+            @meeting-ended="onMeetingEnded"
           />
           <SupervisionVideoLobbyPanel
             v-if="isHost && resolvedEventId && waitingRoomEnabled"
@@ -36,8 +38,23 @@
             :is-supervisor="isHost"
             meeting-kind="team-meeting"
           />
+          <section
+            v-if="resolvedEventId && !isInLobby"
+            class="join-live-activity"
+            aria-label="Chat, polls, and Q&A"
+          >
+            <h3 class="join-live-activity__title">Chat, Polls &amp; Q&A</h3>
+            <MeetingLiveActivityPanel
+              :event-id="resolvedEventId"
+              :is-host="isHost"
+              :can-create-polls="canCreatePolls"
+              :start-open="true"
+              :hide-chrome="true"
+              :below-video="true"
+            />
+          </section>
         </div>
-        <aside v-if="resolvedEventId && !isInLobby" class="join-workspace">
+        <aside v-if="resolvedEventId && !isInLobby && canSeeFullWorkspace" class="join-workspace">
           <div v-if="workspaceBannerVisible" class="join-workspace__banner">
             <span class="join-workspace__lock" aria-hidden="true">🔒</span>
             <p>
@@ -52,42 +69,35 @@
           </div>
 
           <div class="join-workspace__body join-workspace__body--stack">
-            <template v-if="canSeeFullWorkspace">
-              <section class="join-stack-section">
-                <MeetingAgendaPanel
-                  meeting-type="provider_schedule_event"
-                  :meeting-id="resolvedEventId"
-                  :can-add-item="true"
-                  :embedded="true"
-                  :live="true"
-                />
-              </section>
-              <section class="join-stack-section">
-                <MeetingGoalsActionsPanel
-                  :event-id="resolvedEventId"
-                  section="both"
-                  :meeting-subtype="meetingSubtype"
-                />
-              </section>
-              <section v-if="showAttendanceTab" class="join-stack-section">
-                <MeetingAttendancePanel
-                  :event-id="resolvedEventId"
-                  :live-poll="true"
-                />
-              </section>
-              <section v-if="showNotesTab" class="join-stack-section">
-                <MeetingNotesPanel :event-id="resolvedEventId" />
-              </section>
-            </template>
-            <section class="join-stack-section join-stack-section--chat">
-              <h3 class="join-stack-title">{{ canSeeFullWorkspace ? 'Chat, Polls & Q&A' : 'Chat & Polls' }}</h3>
-              <MeetingLiveActivityPanel
-                :event-id="resolvedEventId"
-                :is-host="isHost"
-                :start-open="true"
+            <section class="join-stack-section">
+              <MeetingAgendaPanel
+                meeting-type="provider_schedule_event"
+                :meeting-id="resolvedEventId"
+                :can-add-item="true"
                 :embedded="true"
-                :hide-chrome="true"
-                :since-joined-at="chatSinceJoinedAt"
+                :live="true"
+              />
+            </section>
+            <section class="join-stack-section">
+              <MeetingGoalsActionsPanel
+                :event-id="resolvedEventId"
+                section="both"
+                :meeting-subtype="meetingSubtype"
+              />
+            </section>
+            <section v-if="showAttendanceTab" class="join-stack-section">
+              <MeetingAttendancePanel
+                :event-id="resolvedEventId"
+                :live-poll="true"
+              />
+            </section>
+            <section v-if="showNotesTab" class="join-stack-section">
+              <MeetingNotesPanel
+                :event-id="resolvedEventId"
+                :live-capturing="transcriptCapturing"
+                :live-hint="transcriptHint"
+                :live-preview="transcriptLivePreview"
+                :auto-refresh="true"
               />
             </section>
           </div>
@@ -125,6 +135,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
+import { useTeamMeetingLiveTranscript } from '../../composables/useTeamMeetingLiveTranscript';
 import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
 import MeetingAgendaPanel from '../../components/meetings/MeetingAgendaPanel.vue';
@@ -168,8 +179,10 @@ const videoRoomRef = ref(null);
 /** When the participant entered the main room (for chat/polls visibility). */
 const joinedMainAt = ref(null);
 const workspaceBannerVisible = ref(true);
+const videoConnected = ref(false);
 let admissionPollInterval = null;
 let presencePollInterval = null;
+let completionPollInterval = null;
 
 /** Roles that see full meeting workspace (agenda/goals/actions/attendance/transcript). */
 const FULL_WORKSPACE_ROLES = new Set([
@@ -183,7 +196,38 @@ const FULL_WORKSPACE_ROLES = new Set([
   'assistant_admin'
 ]);
 
+/** Non-provider staff may create polls (host always can). Providers vote/chat/ask only. */
+const POLL_CREATE_ROLES = new Set([
+  'super_admin',
+  'superadmin',
+  'admin',
+  'support',
+  'staff',
+  'clinical_practice_assistant',
+  'schedule_manager',
+  'assistant_admin'
+]);
+
 const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
+
+const transcriptEnabled = computed(() => (
+  videoConnected.value
+  && !!token.value
+  && !isInLobby.value
+  && !!Number(resolvedEventId.value || 0)
+  && !intentionalLeave.value
+));
+
+const {
+  capturing: transcriptCapturing,
+  transcriptHint,
+  livePreview: transcriptLivePreview,
+  stopAndFlush: stopTranscriptCapture
+} = useTeamMeetingLiveTranscript({
+  eventId: resolvedEventId,
+  enabled: transcriptEnabled,
+  displayName: localDisplayName
+});
 
 const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase().trim());
 
@@ -209,18 +253,17 @@ const showNotesTab = computed(() => {
   return subtype === 'admin' || subtype === 'town_hall';
 });
 
-/** Providers only see activity from when they joined the main room. */
-const chatSinceJoinedAt = computed(() => {
-  if (canSeeFullWorkspace.value) return null;
-  return joinedMainAt.value || null;
+/** Host or non-provider staff can create polls (providers vote / chat / ask). */
+const canCreatePolls = computed(() => {
+  if (isHost.value) return true;
+  const role = actorRole.value;
+  if (role === 'provider' || role === 'provider_plus') return false;
+  return POLL_CREATE_ROLES.has(role);
 });
 
-const workspaceBannerText = computed(() => {
-  if (canSeeFullWorkspace.value) {
-    return 'Meeting workspace — agenda, attendance, transcript, and live chat stay with this session.';
-  }
-  return 'Chat & polls from when you joined. Your attendance time claim is created when the host completes the meeting.';
-});
+const workspaceBannerText = computed(() => (
+  'Meeting workspace — agenda, attendance, and transcript stay with this session. Chat & polls are under the video.'
+));
 
 watch(isInLobby, (lobby, wasLobby) => {
   if (wasLobby && !lobby && !joinedMainAt.value) {
@@ -278,6 +321,37 @@ function stopPresenceHeartbeat() {
   }
 }
 
+function stopCompletionPolling() {
+  if (completionPollInterval) {
+    clearInterval(completionPollInterval);
+    completionPollInterval = null;
+  }
+}
+
+async function pollMeetingCompletion() {
+  const eid = resolvedEventId.value || eventId.value;
+  if (!eid || intentionalLeave.value || meetingCompletedAt.value) return;
+  try {
+    const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/admission-status`, {
+      skipAuthRedirect: true,
+      skipGlobalLoading: true
+    });
+    const data = resp?.data || {};
+    if (data.meetingCompleted || data.meetingCompletedAt || data.roomMode === 'ended') {
+      meetingCompletedAt.value = data.meetingCompletedAt || new Date().toISOString();
+      onMeetingEnded();
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
+function startCompletionPolling() {
+  stopCompletionPolling();
+  pollMeetingCompletion();
+  completionPollInterval = setInterval(pollMeetingCompletion, 4000);
+}
+
 async function sendPresence(action = 'heartbeat') {
   const eid = resolvedEventId.value || eventId.value;
   const identity = joinIdentity.value;
@@ -309,10 +383,17 @@ async function pollAdmission() {
       skipGlobalLoading: true
     });
     const data = resp?.data || {};
+    if (data.meetingCompleted || data.meetingCompletedAt || data.roomMode === 'ended') {
+      meetingCompletedAt.value = data.meetingCompletedAt || new Date().toISOString();
+      stopAdmissionPolling();
+      onMeetingEnded();
+      return;
+    }
     if (data.admitted && data.token) {
       applyTokenPayload(data);
       stopAdmissionPolling();
       startPresenceHeartbeat();
+      startCompletionPolling();
     }
   } catch {
     /* keep waiting */
@@ -380,6 +461,7 @@ async function fetchTokenAndJoin() {
       localProfilePhotoUrl.value = String(u.profile_photo_url || u.profilePhotoUrl || '').trim();
     }
     if (roomMode.value === 'lobby') startAdmissionPolling();
+    else startCompletionPolling();
     startPresenceHeartbeat();
   } catch (e) {
     const status = Number(e?.response?.status || 0);
@@ -391,6 +473,11 @@ async function fetchTokenAndJoin() {
         router.replace(`/${slug}/login?redirect=${encodeURIComponent(route.fullPath)}`);
         return;
       }
+    }
+    if (status === 410 || e?.response?.data?.meetingCompletedAt) {
+      meetingCompletedAt.value = e?.response?.data?.meetingCompletedAt || new Date().toISOString();
+      error.value = e?.response?.data?.error?.message || 'This meeting has ended.';
+      return;
     }
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
   }
@@ -426,10 +513,19 @@ function navigateAway() {
   }
 }
 
-function finishLeave() {
+function onVideoConnected() {
+  videoConnected.value = true;
+}
+
+async function finishLeave() {
   intentionalLeave.value = true;
+  videoConnected.value = false;
   stopAdmissionPolling();
   stopPresenceHeartbeat();
+  stopCompletionPolling();
+  try {
+    await stopTranscriptCapture();
+  } catch { /* ignore */ }
   sendPresence('leave');
   token.value = '';
   navigateAway();
@@ -449,12 +545,15 @@ async function markCompletedAndLeave() {
   if (!eid) return;
   completing.value = true;
   completeError.value = '';
+  // Server force-disconnect may fire before the POST returns — don't re-open the modal.
+  intentionalLeave.value = true;
   try {
     const { data } = await api.post(`/team-meetings/${encodeURIComponent(eid)}/complete`, {}, { skipGlobalLoading: true });
     meetingCompletedAt.value = data?.meetingCompletedAt || new Date().toISOString();
     showHostLeaveModal.value = false;
     finishLeave();
   } catch (e) {
+    intentionalLeave.value = false;
     completeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to complete meeting';
   } finally {
     completing.value = false;
@@ -466,10 +565,23 @@ function leaveWithoutClosing() {
   finishLeave();
 }
 
+function onMeetingEnded() {
+  if (intentionalLeave.value) return;
+  meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
+  showHostLeaveModal.value = false;
+  finishLeave();
+}
+
 function onDisconnected() {
   if (intentionalLeave.value) return;
+  videoConnected.value = false;
+  // Force-kick after host completed the meeting.
+  if (meetingCompletedAt.value) {
+    finishLeave();
+    return;
+  }
   // Unexpected disconnect — still close this user's attendance segment.
-  if (isHost.value && !meetingCompletedAt.value) {
+  if (isHost.value) {
     showHostLeaveModal.value = true;
     return;
   }
@@ -547,6 +659,7 @@ onUnmounted(() => {
   if (!intentionalLeave.value) sendPresence('leave');
   stopAdmissionPolling();
   stopPresenceHeartbeat();
+  stopCompletionPolling();
 });
 </script>
 
@@ -590,7 +703,7 @@ onUnmounted(() => {
   align-items: stretch;
 }
 .join-session-layout--chat-only {
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  grid-template-columns: 1fr;
 }
 .join-video {
   min-width: 0;
@@ -598,6 +711,22 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.join-live-activity {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 280px;
+}
+.join-live-activity__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
 }
 .join-video :deep(.supervision-video-room) {
   flex: 1 1 auto;

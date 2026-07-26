@@ -87,7 +87,9 @@ export async function openAttendanceSegment({
   userId,
   joinIdentity = null,
   source = 'platform',
-  at = null
+  at = null,
+  /** When true, open even slightly before scheduled start (live presence sync). */
+  force = false
 } = {}) {
   const eid = Number(eventId || 0);
   let uid = Number(userId || 0);
@@ -107,7 +109,9 @@ export async function openAttendanceSegment({
   const startMs = payableStartMs(event);
   const nowMs = now.getTime();
   // Before scheduled start: do not open a segment yet (heartbeat can retry later).
-  if (startMs != null && nowMs < startMs) {
+  // Allow a 15-minute early window, or force when the caller knows they're live in-room.
+  const earlyMs = 15 * 60 * 1000;
+  if (!force && startMs != null && nowMs < (startMs - earlyMs)) {
     return { ok: true, skipped: true, error: 'before_start', opensAt: new Date(startMs).toISOString() };
   }
 

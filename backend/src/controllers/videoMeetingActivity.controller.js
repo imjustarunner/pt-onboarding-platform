@@ -55,6 +55,27 @@ async function canAccessTeamMeetingActivity(req, event) {
   return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
 }
 
+/** Host or non-provider staff can create polls / answer Q&A. Providers vote/chat/ask only. */
+const TEAM_MEETING_POLL_CREATE_ROLES = new Set([
+  'super_admin',
+  'superadmin',
+  'admin',
+  'support',
+  'staff',
+  'clinical_practice_assistant',
+  'schedule_manager',
+  'assistant_admin'
+]);
+
+function canCreateTeamMeetingPoll(req, event) {
+  const actorId = Number(req.user?.id || 0);
+  if (!actorId) return false;
+  if (actorId === Number(event?.provider_id || 0)) return true;
+  const role = String(req.user?.role || '').toLowerCase().trim();
+  if (role === 'provider' || role === 'provider_plus') return false;
+  return TEAM_MEETING_POLL_CREATE_ROLES.has(role);
+}
+
 async function parseUserIdFromIdentity(identity) {
   const m = String(identity || '').match(/^user-(\d+)$/);
   return m ? parseInt(m[1], 10) : null;
@@ -238,15 +259,22 @@ export const postTeamMeetingActivity = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const { activityType, payload } = req.body || {};
+    const type = String(activityType || 'chat').toLowerCase();
     const identity = String(req.user?.id ? `user-${req.user.id}` : req.body?.participantIdentity || '').trim();
     if (!identity) return res.status(400).json({ error: { message: 'Invalid participant identity' } });
+
+    if (type === 'poll' && !canCreateTeamMeetingPoll(req, event)) {
+      return res.status(403).json({
+        error: { message: 'Only the host or non-provider staff can create polls.' }
+      });
+    }
 
     const id = await VideoMeetingActivity.create({
       sessionId: null,
       eventId,
       userId: await parseUserIdFromIdentity(identity) || req.user?.id,
       participantIdentity: identity,
-      activityType: activityType || 'chat',
+      activityType: type,
       payload: payload || {}
     });
 

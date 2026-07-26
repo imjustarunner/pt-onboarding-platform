@@ -233,7 +233,7 @@ async function load() {
 
 async function saveNow() {
   const eid = Number(props.eventId || 0);
-  if (!eid) return;
+  if (!eid || !hasLoaded.value || eid !== loadedEventId) return;
   if (saving.value) {
     pendingSave.value = true;
     return;

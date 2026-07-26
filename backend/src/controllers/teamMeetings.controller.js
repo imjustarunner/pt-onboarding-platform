@@ -13,6 +13,7 @@ import {
   isVideoConfigured,
   createOrGetRoomByUniqueName,
   createAccessTokenAsync,
+  completeRoom,
   setHostOnlyRecordingRules,
   setRecordAllRecordingRules,
   resolveVideoProjectId,
@@ -349,6 +350,13 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     const actorUserId = Number(req.user?.id || 0);
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
+    if (row.meeting_completed_at) {
+      return res.status(410).json({
+        error: { message: 'This meeting has ended.' },
+        meetingCompletedAt: row.meeting_completed_at
+      });
+    }
+
     const projectId = resolveVideoProjectId();
     const tokenRole = ProviderScheduleEvent.classifyJoinTokenRole(row, ref);
     const isHost = actorUserId === Number(row.provider_id);
@@ -667,11 +675,25 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     const identity = `user-${actorUserId}`;
     const waitingRoomOn = isWaitingRoomEnabled(row);
     const isHost = actorUserId === Number(row.provider_id);
+    const meetingCompletedAt = row.meeting_completed_at || null;
+
+    if (meetingCompletedAt) {
+      return res.json({
+        admitted: false,
+        roomMode: 'ended',
+        meetingCompleted: true,
+        meetingCompletedAt,
+        lobbyEnabledForSession: waitingRoomOn,
+        waitingRoomEnabled: waitingRoomOn
+      });
+    }
 
     if (isHost || !waitingRoomOn) {
       return res.json({
         admitted: true,
         roomMode: 'main',
+        meetingCompleted: false,
+        meetingCompletedAt: null,
         lobbyEnabledForSession: waitingRoomOn,
         waitingRoomEnabled: waitingRoomOn
       });
@@ -687,6 +709,8 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       return res.json({
         admitted: false,
         roomMode: 'lobby',
+        meetingCompleted: false,
+        meetingCompletedAt: null,
         lobbyEnabledForSession: waitingRoomOn,
         waitingRoomEnabled: waitingRoomOn
       });
@@ -751,6 +775,8 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     res.json({
       admitted: true,
       roomMode: 'main',
+      meetingCompleted: false,
+      meetingCompletedAt: null,
       token: String(token).trim(),
       sessionId: vonageSessionId,
       applicationId: projectId,
@@ -822,6 +848,7 @@ export const setTeamMeetingRecordingRules = async (req, res, next) => {
 
 /**
  * Save client transcript from real-time transcription.
+ * Default appends labeled chunks (live speech). Pass replace:true to overwrite (manual edit).
  */
 export const saveTeamMeetingClientTranscript = async (req, res, next) => {
   try {
@@ -842,10 +869,24 @@ export const saveTeamMeetingClientTranscript = async (req, res, next) => {
     const transcript = String(req.body?.transcript || '').trim();
     if (!transcript) return res.status(400).json({ error: { message: 'transcript is required' } });
 
+    const replace = req.body?.replace === true;
+    const label = String(req.body?.speakerLabel || req.body?.displayName || '').trim();
+    const stamped = label ? `[${label}] ${transcript}` : transcript;
+
     await ProviderScheduleEventArtifact.ensureTagged({ eventId });
+    let nextText = stamped;
+    if (!replace) {
+      const existing = await ProviderScheduleEventArtifact.findByEventId(eventId);
+      const prev = String(existing?.transcript_text || '').trim();
+      if (prev) {
+        if (prev.includes(stamped)) nextText = prev;
+        else nextText = `${prev}\n${stamped}`;
+      }
+    }
+
     await ProviderScheduleEventArtifact.upsertByEventId({
       eventId,
-      transcriptText: transcript.slice(0, 120000),
+      transcriptText: nextText.slice(0, 120000),
       updatedByUserId: Number(req.user?.id || 0) || null
     });
 
@@ -854,7 +895,7 @@ export const saveTeamMeetingClientTranscript = async (req, res, next) => {
       console.error('[TeamMeeting] AI summary from client transcript:', e?.message);
     });
 
-    res.json({ ok: true, eventId });
+    res.json({ ok: true, eventId, chars: nextText.length });
   } catch (e) {
     next(e);
   }
@@ -1206,7 +1247,19 @@ export const completeTeamMeetingSession = async (req, res, next) => {
     if (!result?.ok) {
       return res.status(400).json({ error: { message: result?.error || 'Unable to complete meeting' } });
     }
-    res.json(result);
+
+    // Kick everyone still in the live Vonage room (signal + force-disconnect).
+    const roomSid = String(event.twilio_room_sid || '').trim();
+    let videoEnd = null;
+    if (roomSid) {
+      try {
+        videoEnd = await completeRoom(roomSid);
+      } catch (e) {
+        console.warn('[teamMeeting] completeRoom failed', e?.message || e);
+      }
+    }
+
+    res.json({ ...result, videoEnd });
   } catch (e) {
     next(e);
   }
@@ -1224,11 +1277,39 @@ export const getTeamMeetingAttendance = async (req, res, next) => {
     if (!(await canAccessTeamMeeting(req, event))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    // Refresh open segments into rollups for live totals.
+    // Open segments for anyone currently present + admitted (fixes 0m while in-room).
     try {
-      const { rebuildAttendanceRollupsFromSegments } = await import('../services/meetingAttendanceSegments.service.js');
+      const {
+        openAttendanceSegment,
+        rebuildAttendanceRollupsFromSegments
+      } = await import('../services/meetingAttendanceSegments.service.js');
+      await pruneStaleJoinPresence(eventId);
+      const [present] = await pool.execute(
+        `SELECT p.join_identity
+         FROM provider_schedule_event_join_presence p
+         WHERE p.event_id = ?
+           AND p.left_at IS NULL
+           AND p.last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
+        [eventId]
+      );
+      for (const row of present || []) {
+        const identity = normalizeJoinIdentity(row.join_identity);
+        const uid = userIdFromJoinIdentity(identity);
+        if (!uid) continue;
+        // Active presence heartbeat means they're in the live join flow — accrue time.
+        // eslint-disable-next-line no-await-in-loop
+        await openAttendanceSegment({
+          eventId,
+          userId: uid,
+          joinIdentity: identity,
+          source: 'platform',
+          force: true
+        });
+      }
       await rebuildAttendanceRollupsFromSegments(eventId, { syncClaims: false });
-    } catch { /* ignore */ }
+    } catch (e) {
+      console.warn('[teamMeeting] attendance sync on list failed', e?.message || e);
+    }
     const { listAttendanceSummary } = await import('../services/meetingAttendanceSegments.service.js');
     const summary = await listAttendanceSummary(eventId);
     res.json(summary || { eventId, participants: [], copyNamesCsv: '', copyNamesWithTimeCsv: '' });

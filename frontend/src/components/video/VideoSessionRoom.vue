@@ -201,7 +201,8 @@ const emit = defineEmits([
   'stream-created',
   'stream-destroyed',
   'request-recreate-room',
-  'update:tileFocus'
+  'update:tileFocus',
+  'meeting-ended'
 ]);
 
 const localMediaEl = ref(null);
@@ -595,6 +596,21 @@ async function connect() {
     session.on('sessionDisconnected', () => {
       connecting.value = false;
       emit('disconnected');
+    });
+
+    // Host/server broadcasts this when the meeting is marked completed.
+    session.on('signal:meeting_ended', (event) => {
+      let payload = null;
+      try {
+        payload = event?.data ? JSON.parse(event.data) : null;
+      } catch {
+        payload = { raw: event?.data || null };
+      }
+      emit('meeting-ended', payload);
+      try {
+        // Parent handles navigation via meeting-ended; avoid a second disconnected race.
+        disconnect(false);
+      } catch { /* ignore */ }
     });
 
     await new Promise((resolve, reject) => {
