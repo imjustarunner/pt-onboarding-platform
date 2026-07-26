@@ -86,6 +86,14 @@ async function pruneStaleJoinPresence(eventId) {
   const eid = Number(eventId || 0);
   if (!eid) return;
   try {
+    const [stale] = await pool.execute(
+      `SELECT join_identity
+       FROM provider_schedule_event_join_presence
+       WHERE event_id = ?
+         AND left_at IS NULL
+         AND last_seen_at < (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
+      [eid]
+    );
     await pool.execute(
       `UPDATE provider_schedule_event_join_presence
        SET left_at = UTC_TIMESTAMP()
@@ -94,6 +102,17 @@ async function pruneStaleJoinPresence(eventId) {
          AND last_seen_at < (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
       [eid]
     );
+    if (stale?.length) {
+      const {
+        closeAttendanceSegment,
+        rebuildAttendanceRollupsFromSegments
+      } = await import('../services/meetingAttendanceSegments.service.js');
+      for (const row of stale) {
+        // eslint-disable-next-line no-await-in-loop
+        await closeAttendanceSegment({ eventId: eid, joinIdentity: row.join_identity });
+      }
+      await rebuildAttendanceRollupsFromSegments(eid, { syncClaims: true });
+    }
   } catch {
     /* table may not exist yet */
   }
@@ -417,8 +436,17 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
     }
     const row = await ProviderScheduleEvent.resolveByJoinRef(ref);
     if (!row?.id) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    const {
+      openAttendanceSegment,
+      closeAttendanceSegment,
+      rebuildAttendanceRollupsFromSegments
+    } = await import('../services/meetingAttendanceSegments.service.js');
+
     if (action === 'leave') {
       await markJoinPresenceLeft({ eventId: row.id, joinIdentity: identity });
+      await closeAttendanceSegment({ eventId: row.id, joinIdentity: identity });
+      await rebuildAttendanceRollupsFromSegments(row.id, { syncClaims: true });
       return res.json({ ok: true });
     }
     await upsertJoinPresence({
@@ -427,7 +455,16 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
       displayName: String(req.body?.displayName || '').trim() || null,
       isGuest: !!req.body?.isGuest || identity.startsWith('guest-')
     });
-    res.json({ ok: true });
+    // Open payable segment (clamped to scheduled start; no-op before start / after complete).
+    const opened = await openAttendanceSegment({
+      eventId: row.id,
+      joinIdentity: identity,
+      source: 'platform'
+    });
+    if (opened?.created) {
+      await rebuildAttendanceRollupsFromSegments(row.id, { syncClaims: true });
+    }
+    res.json({ ok: true, attendance: opened || null });
   } catch (e) {
     next(e);
   }
@@ -736,10 +773,12 @@ export const getTeamMeetingWorkspace = async (req, res, next) => {
     const artifact = await ProviderScheduleEventArtifact.findByEventId(eventId);
     const workspace = ProviderScheduleEventArtifact.toWorkspaceDto(artifact);
     const participants = await loadMeetingParticipants(event);
+    const subtypeRaw = String(event.meeting_subtype || 'general').toLowerCase();
+    const meetingSubtype = (subtypeRaw === 'admin' || subtypeRaw === 'town_hall') ? subtypeRaw : 'general';
     res.json({
       ok: true,
       eventId,
-      meetingSubtype: String(event.meeting_subtype || 'general').toLowerCase() === 'admin' ? 'admin' : 'general',
+      meetingSubtype,
       kind,
       title: String(event.title || '').trim() || null,
       participants,
@@ -887,9 +926,77 @@ export const escalateTeamMeetingActionItem = async (req, res, next) => {
     const ticketId = Number(insertResult?.insertId || 0);
     if (!ticketId) return res.status(500).json({ error: { message: 'Failed to create escalation' } });
 
+    // Prefer the action-item assignee as ticket owner; otherwise use chain-of-responsibility routing.
+    let claimedByUserId = Number(item.assigneeUserId || item.assignee_user_id || 0) || 0;
+    if (!claimedByUserId) {
+      try {
+        const Agency = (await import('../models/Agency.model.js')).default;
+        const agency = await Agency.findById(agencyId);
+        const raw = agency?.escalation_routing_json;
+        let routing = [];
+        try {
+          const parsed = typeof raw === 'string' ? JSON.parse(raw || '[]') : raw;
+          routing = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          routing = [];
+        }
+        for (const step of routing) {
+          const type = String(step?.type || '').toLowerCase();
+          const value = step?.value;
+          if (type === 'user') {
+            const uid = parseInt(value, 10);
+            if (!uid) continue;
+            const [rows] = await pool.execute(
+              `SELECT u.id FROM users u
+               INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+               WHERE u.id = ? AND COALESCE(u.is_archived, 0) = 0
+               LIMIT 1`,
+              [agencyId, uid]
+            );
+            if (rows?.[0]?.id) {
+              claimedByUserId = Number(rows[0].id);
+              break;
+            }
+          } else if (type === 'role') {
+            const r = String(value || '').toLowerCase();
+            if (!r) continue;
+            const [rows] = await pool.execute(
+              `SELECT u.id FROM users u
+               INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+               WHERE LOWER(u.role) = ?
+                 AND COALESCE(u.is_archived, 0) = 0
+               ORDER BY u.last_name ASC, u.first_name ASC
+               LIMIT 1`,
+              [agencyId, r]
+            );
+            if (rows?.[0]?.id) {
+              claimedByUserId = Number(rows[0].id);
+              break;
+            }
+          }
+        }
+      } catch {
+        /* optional auto-assign */
+      }
+    }
+    if (claimedByUserId > 0) {
+      await pool.execute(
+        `UPDATE support_tickets
+         SET claimed_by_user_id = ?, claimed_at = CURRENT_TIMESTAMP, escalation_status = 'assigned'
+         WHERE id = ?`,
+        [claimedByUserId, ticketId]
+      );
+    }
+
     const nextActions = (workspace.actionItems || []).map((a) => (
       String(a.id) === itemId
-        ? { ...a, isEscalation: true, escalationTicketId: ticketId, text: a.text || issue }
+        ? {
+            ...a,
+            isEscalation: true,
+            escalationTicketId: ticketId,
+            text: a.text || issue,
+            assigneeUserId: claimedByUserId || a.assigneeUserId || null
+          }
         : a
     ));
     const saved = await ProviderScheduleEventArtifact.upsertWorkspace({
@@ -909,6 +1016,250 @@ export const escalateTeamMeetingActionItem = async (req, res, next) => {
         error: { message: 'Escalation meeting links are not available until migrations 1052–1054 are applied.' }
       });
     }
+    next(e);
+  }
+};
+
+async function canEditMeetingTimeClaims(req, agencyId) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'superadmin' || role === 'admin') return true;
+  const uid = Number(req.user?.id || 0);
+  const aid = Number(agencyId || 0);
+  if (!uid || !aid) return false;
+  try {
+    const [rows] = await pool.execute(
+      'SELECT has_payroll_access FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [uid, aid]
+    );
+    const v = rows?.[0]?.has_payroll_access;
+    return v === 1 || v === true || v === '1';
+  } catch {
+    return false;
+  }
+}
+
+function isCompensationEligibleMeeting(event) {
+  const kind = String(event?.kind || '').toUpperCase();
+  if (kind === 'HUDDLE') return true;
+  if (kind !== 'TEAM_MEETING') return false;
+  const subtype = String(event?.meeting_subtype || 'general').trim().toLowerCase();
+  return subtype === 'admin' || subtype === 'town_hall';
+}
+
+/** POST /api/team-meetings/:eventId/complete — host marks session completed (stops pay accrual). */
+export const completeTeamMeetingSession = async (req, res, next) => {
+  try {
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const event = await ProviderScheduleEvent.findById(eventId);
+    if (!event || !['TEAM_MEETING', 'HUDDLE'].includes(String(event.kind || '').toUpperCase())) {
+      return res.status(404).json({ error: { message: 'Meeting not found' } });
+    }
+    const actorId = Number(req.user?.id || 0);
+    const role = String(req.user?.role || '').toLowerCase();
+    const isHost = actorId === Number(event.provider_id || 0);
+    const isPrivileged = ['super_admin', 'superadmin', 'admin', 'support'].includes(role);
+    if (!isHost && !isPrivileged) {
+      return res.status(403).json({ error: { message: 'Only the host or admin/support/super admin can complete this meeting.' } });
+    }
+    const { completeMeetingSession } = await import('../services/meetingAttendanceSegments.service.js');
+    const result = await completeMeetingSession({ eventId, actorUserId: actorId });
+    if (!result?.ok) {
+      return res.status(400).json({ error: { message: result?.error || 'Unable to complete meeting' } });
+    }
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/team-meetings/:eventId/attendance */
+export const getTeamMeetingAttendance = async (req, res, next) => {
+  try {
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const event = await ProviderScheduleEvent.findById(eventId);
+    if (!event || !['TEAM_MEETING', 'HUDDLE'].includes(String(event.kind || '').toUpperCase())) {
+      return res.status(404).json({ error: { message: 'Meeting not found' } });
+    }
+    if (!(await canAccessTeamMeeting(req, event))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    // Refresh open segments into rollups for live totals.
+    try {
+      const { rebuildAttendanceRollupsFromSegments } = await import('../services/meetingAttendanceSegments.service.js');
+      await rebuildAttendanceRollupsFromSegments(eventId, { syncClaims: false });
+    } catch { /* ignore */ }
+    const { listAttendanceSummary } = await import('../services/meetingAttendanceSegments.service.js');
+    const summary = await listAttendanceSummary(eventId);
+    res.json(summary || { eventId, participants: [], copyNamesCsv: '', copyNamesWithTimeCsv: '' });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/team-meetings/:eventId/time-claims */
+export const getTeamMeetingTimeClaims = async (req, res, next) => {
+  try {
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const event = await ProviderScheduleEvent.findById(eventId);
+    if (!event || !['TEAM_MEETING', 'HUDDLE'].includes(String(event.kind || '').toUpperCase())) {
+      return res.status(404).json({ error: { message: 'Meeting not found' } });
+    }
+    if (!(await canAccessTeamMeeting(req, event))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    if (!isCompensationEligibleMeeting(event)) {
+      return res.json({
+        eventId,
+        eligible: false,
+        canEdit: false,
+        rows: []
+      });
+    }
+
+    try {
+      const { rebuildAttendanceRollupsFromSegments } = await import('../services/meetingAttendanceSegments.service.js');
+      await rebuildAttendanceRollupsFromSegments(eventId, { syncClaims: true });
+    } catch { /* ignore */ }
+
+    const { listAttendanceSummary } = await import('../services/meetingAttendanceSegments.service.js');
+    const attendance = await listAttendanceSummary(eventId);
+    const [claimRows] = await pool.execute(
+      `SELECT *
+       FROM payroll_time_claims
+       WHERE claim_type = 'meeting_training'
+         AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.scheduleEventId')) AS UNSIGNED) = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.source')) = 'meeting_compensation_auto'
+       ORDER BY user_id ASC, id DESC`,
+      [eventId]
+    );
+    const latestByUser = new Map();
+    for (const c of claimRows || []) {
+      const uid = Number(c.user_id || 0);
+      if (!uid || latestByUser.has(uid)) continue;
+      let payload = {};
+      try {
+        payload = typeof c.payload_json === 'string' ? JSON.parse(c.payload_json) : (c.payload_json || {});
+      } catch { payload = {}; }
+      latestByUser.set(uid, {
+        claimId: Number(c.id),
+        userId: uid,
+        status: c.status,
+        claimDate: c.claim_date,
+        serviceCode: payload.serviceCode || null,
+        meetingType: payload.meetingType || null,
+        totalMinutes: Number(payload.totalMinutes || 0) || 0,
+        appliedAmount: c.applied_amount != null ? Number(c.applied_amount) : null
+      });
+    }
+
+    const kind = String(event.kind || '').toUpperCase();
+    const hostId = Number(event.provider_id || 0);
+    const rows = (attendance?.participants || []).map((p) => {
+      const claim = latestByUser.get(Number(p.userId)) || null;
+      const defaultCode = (kind === 'HUDDLE' && p.isHost) ? 'Individual Meeting' : 'MEETING';
+      return {
+        userId: p.userId,
+        name: p.name,
+        role: p.role,
+        isHost: !!p.isHost,
+        attendanceMinutes: p.totalMinutes,
+        attendanceSeconds: p.totalSeconds,
+        serviceCode: claim?.serviceCode || defaultCode,
+        claimId: claim?.claimId || null,
+        status: claim?.status || null,
+        totalMinutes: claim?.totalMinutes ?? p.totalMinutes,
+        appliedAmount: claim?.appliedAmount ?? null,
+        claimDate: claim?.claimDate || null
+      };
+    });
+
+    const canEdit = await canEditMeetingTimeClaims(req, event.agency_id);
+    res.json({
+      eventId,
+      eligible: true,
+      canEdit,
+      meetingCompletedAt: attendance?.meetingCompletedAt || null,
+      rows
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** PATCH /api/team-meetings/:eventId/time-claims/:claimId */
+export const patchTeamMeetingTimeClaim = async (req, res, next) => {
+  try {
+    const eventId = parseInt(req.params.eventId, 10);
+    const claimId = parseInt(req.params.claimId, 10);
+    if (!eventId || !claimId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+    const event = await ProviderScheduleEvent.findById(eventId);
+    if (!event || !isCompensationEligibleMeeting(event)) {
+      return res.status(404).json({ error: { message: 'Eligible meeting not found' } });
+    }
+    if (!(await canEditMeetingTimeClaims(req, event.agency_id))) {
+      return res.status(403).json({ error: { message: 'Only admin, super admin, or payroll can edit meeting time claims.' } });
+    }
+
+    const PayrollTimeClaim = (await import('../models/PayrollTimeClaim.model.js')).default;
+    const claim = await PayrollTimeClaim.findById(claimId);
+    if (!claim) return res.status(404).json({ error: { message: 'Time claim not found' } });
+    const payload = claim.payload || {};
+    if (Number(payload.scheduleEventId || 0) !== eventId) {
+      return res.status(400).json({ error: { message: 'Claim does not belong to this meeting' } });
+    }
+    if (String(payload.source || '') !== 'meeting_compensation_auto') {
+      return res.status(400).json({ error: { message: 'Only auto meeting compensation claims can be edited here' } });
+    }
+    const status = String(claim.status || '').toLowerCase();
+    if (!['submitted', 'deferred', 'rejected', 'withdrawn'].includes(status)) {
+      return res.status(400).json({ error: { message: 'Only unapproved claims can be edited' } });
+    }
+
+    const mins = Number(req.body?.totalMinutes ?? req.body?.total_minutes);
+    if (!(Number.isFinite(mins) && mins >= 0.5)) {
+      return res.status(400).json({ error: { message: 'totalMinutes must be at least 0.5' } });
+    }
+    const nextPayload = {
+      ...payload,
+      totalMinutes: Math.round(mins * 100) / 100,
+      editedByUserId: Number(req.user?.id || 0) || null,
+      editedAt: new Date().toISOString(),
+      editNote: String(req.body?.note || req.body?.editNote || '').trim().slice(0, 500) || payload.editNote || null
+    };
+    const updated = await PayrollTimeClaim.resubmit({
+      id: claimId,
+      payload: nextPayload
+    });
+    res.json({ ok: true, claim: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/team-meetings/:eventId/notes — transcript + summary */
+export const getTeamMeetingNotes = async (req, res, next) => {
+  try {
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const event = await ProviderScheduleEvent.findById(eventId);
+    if (!event || !['TEAM_MEETING', 'HUDDLE'].includes(String(event.kind || '').toUpperCase())) {
+      return res.status(404).json({ error: { message: 'Meeting not found' } });
+    }
+    if (!(await canAccessTeamMeeting(req, event))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const artifact = await ProviderScheduleEventArtifact.findByEventId(eventId);
+    res.json({
+      eventId,
+      transcript: artifact?.transcript_text || '',
+      summary: artifact?.summary_text || '',
+      meetingSubtype: String(event.meeting_subtype || 'general').toLowerCase(),
+      kind: String(event.kind || '').toUpperCase()
+    });
+  } catch (e) {
     next(e);
   }
 };

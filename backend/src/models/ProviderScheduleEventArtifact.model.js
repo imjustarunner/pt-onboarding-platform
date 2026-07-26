@@ -197,6 +197,59 @@ class ProviderScheduleEventArtifact {
     return this.toWorkspaceDto(row);
   }
 
+  static async syncActionItemAssigneeByEscalationTicket({
+    escalationTicketId,
+    actionItemId = null,
+    eventId = null,
+    assigneeUserId = null,
+    updatedByUserId = null
+  }) {
+    const ticketId = Number(escalationTicketId || 0);
+    const eid = Number(eventId || 0);
+    if (!ticketId && !eid) return false;
+
+    let targetEventId = eid;
+    let targetItemId = actionItemId;
+    if (!targetEventId || !targetItemId) {
+      const [rows] = await pool.execute(
+        `SELECT linked_schedule_event_id, linked_action_item_id
+         FROM support_tickets
+         WHERE id = ?
+         LIMIT 1`,
+        [ticketId]
+      );
+      if (!targetEventId) targetEventId = Number(rows?.[0]?.linked_schedule_event_id || 0);
+      if (!targetItemId) targetItemId = rows?.[0]?.linked_action_item_id || null;
+    }
+    if (!targetEventId || !targetItemId) return false;
+
+    const row = await this.findByEventId(targetEventId);
+    if (!row) return false;
+    const workspace = this.toWorkspaceDto(row);
+    let changed = false;
+    const nextAssignee = Number(assigneeUserId || 0) > 0 ? Number(assigneeUserId) : null;
+    const nextActions = workspace.actionItems.map((item) => {
+      const matchesTicket = ticketId > 0 && Number(item.escalationTicketId || 0) === ticketId;
+      const matchesId = targetItemId && String(item.id) === String(targetItemId);
+      if (!matchesTicket && !matchesId) return item;
+      if (Number(item.assigneeUserId || 0) === Number(nextAssignee || 0)) return item;
+      changed = true;
+      return {
+        ...item,
+        assigneeUserId: nextAssignee,
+        isEscalation: true,
+        escalationTicketId: item.escalationTicketId || ticketId || null
+      };
+    });
+    if (!changed) return false;
+    await this.upsertWorkspace({
+      eventId: targetEventId,
+      actionItems: nextActions,
+      updatedByUserId
+    });
+    return true;
+  }
+
   static async markActionItemDoneByEscalationTicket({
     escalationTicketId,
     actionItemId = null,

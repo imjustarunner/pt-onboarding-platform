@@ -228,16 +228,16 @@ async function loadUsersByIds(userIds) {
 async function schoolAddressText(schoolAgencyId) {
   try {
     const [rows] = await pool.execute(
-      `SELECT name, address, city, state, zip, street_address, mailing_address
+      `SELECT name, street_address, city, state, postal_code
        FROM agencies WHERE id = ? LIMIT 1`,
       [schoolAgencyId]
     );
     const a = rows?.[0];
     if (!a) return null;
     const parts = [
-      a.street_address || a.address || a.mailing_address,
+      a.street_address,
       [a.city, a.state].filter(Boolean).join(', '),
-      a.zip,
+      a.postal_code,
     ].filter(Boolean);
     return parts.length ? parts.join(' ').trim() : a.name || null;
   } catch {

@@ -1817,8 +1817,9 @@
           <select v-model="timeMeetingForm.meetingType">
             <option>Admin Update Meeting</option>
             <option>Admin Meeting</option>
+            <option>Town Hall</option>
+            <option>Huddle</option>
             <option>Leadership Circle Meeting</option>
-            <option>Admin Town Hall Meeting</option>
             <option>Training</option>
             <option>Outreach</option>
             <option>Evaluation</option>

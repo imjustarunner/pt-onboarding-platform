@@ -6,6 +6,7 @@ import {
   listEscalations,
   getEscalation,
   updateEscalationStatus,
+  updateEscalationDetails,
   assignEscalation,
   listEscalationAssignees,
   getEscalationRouting,
@@ -32,6 +33,7 @@ router.get('/', requireAgencyAccess, listEscalations);
 router.post('/', requireAgencyAccess, createEscalation);
 
 router.get('/:id', getEscalation);
+router.patch('/:id', updateEscalationDetails);
 router.patch('/:id/status', updateEscalationStatus);
 router.patch('/:id/meeting-link', updateEscalationMeetingLink);
 router.post('/:id/assign', assignEscalation);

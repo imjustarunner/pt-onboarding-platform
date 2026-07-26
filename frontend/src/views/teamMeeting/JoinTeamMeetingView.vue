@@ -6,9 +6,16 @@
       <div v-if="isInLobby" class="join-lobby-banner">
         You’re in the waiting room. The host will admit you shortly.
       </div>
+      <div class="join-toolbar">
+        <button type="button" class="btn btn-danger btn-sm" @click="requestLeave">
+          {{ isHost ? 'Leave / End meeting' : 'Leave meeting' }}
+        </button>
+        <span v-if="meetingCompletedAt" class="join-completed-chip">Session completed</span>
+      </div>
       <div class="join-session-layout">
         <div class="join-video">
           <SupervisionVideoRoom
+            ref="videoRoomRef"
             :token="token"
             :vonage-session-id="vonageSessionId"
             :room-name="roomName"
@@ -31,23 +38,13 @@
         <aside v-if="resolvedEventId && !isInLobby" class="join-agenda-aside">
           <div class="join-workspace-tabs">
             <button
+              v-for="tab in asideTabs"
+              :key="tab.id"
               type="button"
               class="join-workspace-tab"
-              :class="{ on: asideTab === 'agenda' }"
-              @click="asideTab = 'agenda'"
-            >Agenda</button>
-            <button
-              type="button"
-              class="join-workspace-tab"
-              :class="{ on: asideTab === 'goals' }"
-              @click="asideTab = 'goals'"
-            >Goals</button>
-            <button
-              type="button"
-              class="join-workspace-tab"
-              :class="{ on: asideTab === 'actions' }"
-              @click="asideTab = 'actions'"
-            >Actions</button>
+              :class="{ on: asideTab === tab.id }"
+              @click="asideTab = tab.id"
+            >{{ tab.label }}</button>
           </div>
           <MeetingAgendaPanel
             v-show="asideTab === 'agenda'"
@@ -62,6 +59,18 @@
             :event-id="resolvedEventId"
             :section="asideTab === 'goals' ? 'goals' : 'actions'"
             :meeting-subtype="meetingSubtype"
+          />
+          <MeetingAttendancePanel
+            v-if="asideTab === 'attendance' && showCompTabs"
+            :event-id="resolvedEventId"
+          />
+          <MeetingTimeClaimsPanel
+            v-if="asideTab === 'time_claims' && showCompTabs"
+            :event-id="resolvedEventId"
+          />
+          <MeetingNotesPanel
+            v-if="asideTab === 'notes' && showNotesTab"
+            :event-id="resolvedEventId"
           />
         </aside>
       </div>
@@ -99,6 +108,28 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showHostLeaveModal" class="join-modal-backdrop" role="dialog" aria-modal="true">
+      <div class="join-modal">
+        <h3>Mark Session as Completed and Close Meeting?</h3>
+        <p>
+          Individuals who are compensated for attending will continue to be compensated while this
+          meeting is occurring. It is recommended that you mark this session as completed and close.
+        </p>
+        <p v-if="completeError" class="error-inline">{{ completeError }}</p>
+        <div class="join-modal-actions">
+          <button type="button" class="btn btn-primary" :disabled="completing" @click="markCompletedAndLeave">
+            {{ completing ? 'Closing…' : 'Mark Completed & Close' }}
+          </button>
+          <button type="button" class="btn btn-secondary" :disabled="completing" @click="leaveWithoutClosing">
+            Leave without closing
+          </button>
+          <button type="button" class="btn btn-ghost" :disabled="completing" @click="showHostLeaveModal = false">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -111,6 +142,9 @@ import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoR
 import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
 import MeetingAgendaPanel from '../../components/meetings/MeetingAgendaPanel.vue';
 import MeetingGoalsActionsPanel from '../../components/meetings/MeetingGoalsActionsPanel.vue';
+import MeetingAttendancePanel from '../../components/meetings/MeetingAttendancePanel.vue';
+import MeetingTimeClaimsPanel from '../../components/meetings/MeetingTimeClaimsPanel.vue';
+import MeetingNotesPanel from '../../components/meetings/MeetingNotesPanel.vue';
 import api from '../../services/api';
 
 const router = useRouter();
@@ -128,6 +162,8 @@ const applicationId = ref('');
 const diagnostics = ref(null);
 const asideTab = ref('agenda');
 const meetingSubtype = ref('general');
+const meetingKind = ref('TEAM_MEETING');
+const meetingCompletedAt = ref(null);
 const roomName = ref('');
 const isHost = ref(false);
 const resolvedEventId = ref(0);
@@ -141,10 +177,45 @@ const activityLoading = ref(false);
 const activityError = ref('');
 const activityList = ref([]);
 const joinAttemptedForPath = ref('');
+const showHostLeaveModal = ref(false);
+const completing = ref(false);
+const completeError = ref('');
+const intentionalLeave = ref(false);
+const videoRoomRef = ref(null);
 let admissionPollInterval = null;
 let presencePollInterval = null;
 
 const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
+
+const showCompTabs = computed(() => {
+  const kind = String(meetingKind.value || '').toUpperCase();
+  if (kind === 'HUDDLE') return true;
+  const subtype = String(meetingSubtype.value || '').toLowerCase();
+  return subtype === 'admin' || subtype === 'town_hall';
+});
+
+const showNotesTab = computed(() => {
+  const kind = String(meetingKind.value || '').toUpperCase();
+  if (kind === 'HUDDLE') return true;
+  const subtype = String(meetingSubtype.value || '').toLowerCase();
+  return subtype === 'admin' || subtype === 'town_hall' || kind === 'TEAM_MEETING';
+});
+
+const asideTabs = computed(() => {
+  const tabs = [
+    { id: 'agenda', label: 'Agenda' },
+    { id: 'goals', label: 'Goals' },
+    { id: 'actions', label: 'Actions' }
+  ];
+  if (showCompTabs.value) {
+    tabs.push({ id: 'attendance', label: 'Attendance' });
+    tabs.push({ id: 'time_claims', label: 'Time Claims' });
+  }
+  if (showNotesTab.value) {
+    tabs.push({ id: 'notes', label: 'Notes' });
+  }
+  return tabs;
+});
 
 function formatActivityTime(createdAt) {
   if (!createdAt) return '';
@@ -171,6 +242,10 @@ function applyTokenPayload(data) {
   localRoleLabel.value = String(data.roleLabel || localRoleLabel.value || '').trim();
   localProfilePhotoUrl.value = String(data.profilePhotoUrl || localProfilePhotoUrl.value || '').trim();
   if (Number(data.eventId || 0) > 0) resolvedEventId.value = Number(data.eventId);
+  if (data.kind) meetingKind.value = String(data.kind).toUpperCase();
+  if (data.meetingSubtype || data.meeting_subtype) {
+    meetingSubtype.value = String(data.meetingSubtype || data.meeting_subtype || 'general').toLowerCase();
+  }
 }
 
 function stopAdmissionPolling() {
@@ -340,16 +415,63 @@ async function ensureAuthenticatedSession() {
   return false;
 }
 
-function onDisconnected() {
-  sendPresence('leave');
-  stopAdmissionPolling();
-  stopPresenceHeartbeat();
+function navigateAway() {
   const slug = organizationSlug.value;
   if (slug) {
     router.push(`/${slug}/dashboard`);
   } else {
     router.push('/dashboard');
   }
+}
+
+function finishLeave() {
+  intentionalLeave.value = true;
+  stopAdmissionPolling();
+  stopPresenceHeartbeat();
+  sendPresence('leave');
+  token.value = '';
+  navigateAway();
+}
+
+function requestLeave() {
+  if (isHost.value && !meetingCompletedAt.value) {
+    showHostLeaveModal.value = true;
+    completeError.value = '';
+    return;
+  }
+  finishLeave();
+}
+
+async function markCompletedAndLeave() {
+  const eid = resolvedEventId.value || eventId.value;
+  if (!eid) return;
+  completing.value = true;
+  completeError.value = '';
+  try {
+    const { data } = await api.post(`/team-meetings/${encodeURIComponent(eid)}/complete`, {}, { skipGlobalLoading: true });
+    meetingCompletedAt.value = data?.meetingCompletedAt || new Date().toISOString();
+    showHostLeaveModal.value = false;
+    finishLeave();
+  } catch (e) {
+    completeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to complete meeting';
+  } finally {
+    completing.value = false;
+  }
+}
+
+function leaveWithoutClosing() {
+  showHostLeaveModal.value = false;
+  finishLeave();
+}
+
+function onDisconnected() {
+  if (intentionalLeave.value) return;
+  // Unexpected disconnect — still close this user's attendance segment.
+  if (isHost.value && !meetingCompletedAt.value) {
+    showHostLeaveModal.value = true;
+    return;
+  }
+  finishLeave();
 }
 
 async function runJoinFlowForCurrentRoute() {
@@ -390,12 +512,21 @@ watch(
     if (!eid) return;
     try {
       const { data } = await api.get(`/team-meetings/${eid}/workspace`, { skipGlobalLoading: true });
-      meetingSubtype.value = String(data?.meetingSubtype || 'general').toLowerCase() === 'admin'
-        ? 'admin'
-        : 'general';
+      const subtype = String(data?.meetingSubtype || 'general').toLowerCase();
+      meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall') ? subtype : 'general';
+      if (data?.kind) meetingKind.value = String(data.kind).toUpperCase();
     } catch {
       meetingSubtype.value = 'general';
     }
+    try {
+      const { data: att } = await api.get(`/team-meetings/${eid}/attendance`, { skipGlobalLoading: true });
+      meetingCompletedAt.value = att?.meetingCompletedAt || null;
+      if (att?.kind) meetingKind.value = String(att.kind).toUpperCase();
+      if (att?.meetingSubtype) {
+        const subtype = String(att.meetingSubtype).toLowerCase();
+        meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall') ? subtype : meetingSubtype.value;
+      }
+    } catch { /* ignore */ }
   }
 );
 
@@ -405,7 +536,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   resumeInactivityTimeout();
-  sendPresence('leave');
+  if (!intentionalLeave.value) sendPresence('leave');
   stopAdmissionPolling();
   stopPresenceHeartbeat();
 });
@@ -419,6 +550,20 @@ onUnmounted(() => {
   padding: 16px;
   background: var(--bg-primary, #0f0f0f);
   gap: 12px;
+}
+.join-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.join-completed-chip {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #bbf7d0;
+  background: rgba(22, 163, 74, 0.25);
+  border: 1px solid rgba(74, 222, 128, 0.45);
+  border-radius: 999px;
+  padding: 4px 10px;
 }
 .join-lobby-banner {
   background: rgba(59, 130, 246, 0.18);
@@ -452,6 +597,7 @@ onUnmounted(() => {
 }
 .join-workspace-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 8px;
   border-bottom: 1px solid #e5e7eb;
@@ -505,7 +651,31 @@ onUnmounted(() => {
 .activity-sender { font-weight: 700; color: #93c5fd; }
 .activity-time { color: #94a3b8; margin-left: auto; }
 .muted { color: #94a3b8; }
-.error-inline { color: #fecaca; }
+.error-inline { color: #b91c1c; margin: 0; }
+.join-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 80;
+  padding: 16px;
+}
+.join-modal {
+  background: #fff;
+  color: #0f172a;
+  border-radius: 14px;
+  padding: 20px;
+  max-width: 480px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.join-modal h3 { margin: 0; font-size: 1.1rem; }
+.join-modal p { margin: 0; line-height: 1.45; font-size: 0.95rem; color: #334155; }
+.join-modal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 @media (max-width: 900px) {
   .join-session-layout {
     grid-template-columns: 1fr;

@@ -1,41 +1,60 @@
 <template>
-  <div class="meeting-agenda-panel">
-    <div class="agenda-header">
-      <h3 class="agenda-title">{{ embedded ? 'Agenda' : `Agenda for ${meeting?.title || 'Meeting'}` }}</h3>
-      <span v-if="meeting?.start_at && !embedded" class="agenda-date">{{ formatMeetingDate(meeting.start_at) }}</span>
+  <div class="meeting-agenda-panel" :class="{ 'meeting-agenda-panel--embedded': embedded }">
+    <div v-if="!embedded" class="agenda-header">
+      <h3 class="agenda-title">Agenda for {{ meeting?.title || 'Meeting' }}</h3>
+      <span v-if="meeting?.start_at" class="agenda-date">{{ formatMeetingDate(meeting.start_at) }}</span>
       <span v-if="live" class="agenda-live">Live — updates for everyone</span>
-      <button v-if="!embedded" type="button" class="btn-close" aria-label="Close" @click="$emit('close')">×</button>
+      <button type="button" class="btn-close" aria-label="Close" @click="$emit('close')">×</button>
     </div>
 
-    <div v-if="loading" class="agenda-loading">Loading agenda…</div>
-    <div v-else-if="error" class="agenda-error">{{ error }}</div>
-    <template v-else>
-      <div v-if="canAddItem" class="agenda-add-form">
-        <input
-          v-model="newItemTitle"
-          type="text"
-          class="form-control"
-          placeholder="Add agenda item…"
-          @keydown.enter="addFreeformItem"
-        />
-        <button
-          type="button"
-          class="btn btn-primary btn-sm"
-          :disabled="!newItemTitle.trim() || adding"
-          @click="addFreeformItem"
-        >
-          {{ adding ? '…' : 'Add' }}
-        </button>
-      </div>
+    <div v-if="loading && !hasLoaded" class="agenda-loading">Loading agenda…</div>
+    <div v-else-if="error && !hasLoaded" class="agenda-error">{{ error }}</div>
+    <template v-else-if="hasLoaded || !loading">
+      <section class="agenda-section">
+        <div class="agenda-section-head">
+          <h3>{{ embedded ? 'Agenda' : 'Agenda items' }}</h3>
+          <button
+            v-if="canAddItem"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="adding"
+            @click="startAdd"
+          >
+            + Add agenda item
+          </button>
+        </div>
 
-      <ul class="agenda-items">
-        <li
-          v-for="item in items"
-          :key="item.id"
-          class="agenda-item"
-          :class="{ 'agenda-item-done': item.status === 'completed', 'agenda-item-discussed': item.status === 'discussed' }"
-        >
-          <label class="agenda-item-check">
+        <div v-if="canAddItem && showAddRow" class="agenda-add-row">
+          <input
+            ref="addInputRef"
+            v-model="newItemTitle"
+            type="text"
+            class="input agenda-add-input"
+            placeholder="Agenda item"
+            :disabled="adding"
+            @keydown.enter.prevent="addFreeformItem"
+            @keydown.escape.prevent="cancelAdd"
+          />
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="!newItemTitle.trim() || adding"
+            @click="addFreeformItem"
+          >
+            {{ adding ? '…' : 'Add' }}
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="adding" @click="cancelAdd">
+            Cancel
+          </button>
+        </div>
+
+        <ul class="agenda-items">
+          <li
+            v-for="item in items"
+            :key="item.id"
+            class="agenda-item"
+            :class="{ 'agenda-item-done': item.status === 'completed', 'agenda-item-discussed': item.status === 'discussed' }"
+          >
             <select
               :value="item.status"
               :disabled="togglingId === item.id"
@@ -46,45 +65,46 @@
               <option value="discussed">Discussed</option>
               <option value="completed">Completed</option>
             </select>
-          </label>
-          <div class="agenda-item-content">
-            <span class="agenda-item-title">{{ item.title }}</span>
-            <a
-              v-if="item.task_id"
-              :href="`/tasks`"
-              class="agenda-item-task-link"
-              target="_blank"
-              rel="noopener"
+            <div class="agenda-item-content">
+              <span class="agenda-item-title">{{ item.title }}</span>
+              <a
+                v-if="item.task_id"
+                href="/tasks"
+                class="agenda-item-task-link"
+                target="_blank"
+                rel="noopener"
+              >
+                Open task
+              </a>
+            </div>
+            <button
+              v-if="canAddItem"
+              type="button"
+              class="agenda-icon"
+              aria-label="Remove"
+              :disabled="deletingId === item.id"
+              @click="removeItem(item)"
             >
-              Open task
-            </a>
-          </div>
-          <button
-            v-if="canAddItem"
-            type="button"
-            class="btn btn-ghost btn-xs"
-            aria-label="Remove"
-            :disabled="deletingId === item.id"
-            @click="removeItem(item)"
-          >
-            {{ deletingId === item.id ? '…' : '×' }}
-          </button>
-        </li>
-      </ul>
-      <div v-if="items.length === 0 && !loading" class="agenda-empty">No agenda items yet. Add items above or from a task list.</div>
+              {{ deletingId === item.id ? '…' : '🗑' }}
+            </button>
+          </li>
+          <li v-if="!items.length" class="agenda-empty muted">No agenda items yet.</li>
+        </ul>
+        <p v-if="live" class="agenda-live-hint muted">Live — updates for everyone</p>
+      </section>
     </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
   meetingType: { type: String, required: true },
   meetingId: { type: [Number, String], required: true },
   canAddItem: { type: Boolean, default: true },
-  /** Hide chrome close button; for embedding beside video */
+  /** Hide chrome close button; for embedding beside video / info rail */
   embedded: { type: Boolean, default: false },
   /** Poll for shared updates during a live session */
   live: { type: Boolean, default: false },
@@ -94,63 +114,88 @@ const props = defineProps({
 const emit = defineEmits(['close', 'updated']);
 
 const loading = ref(true);
+const hasLoaded = ref(false);
 const error = ref('');
 const agenda = ref(null);
 const meeting = ref(null);
 const items = ref([]);
 const newItemTitle = ref('');
+const showAddRow = ref(false);
 const adding = ref(false);
 const togglingId = ref(null);
 const deletingId = ref(null);
+const addInputRef = ref(null);
 let pollTimer = null;
+let loadedKey = '';
+let fetchGeneration = 0;
+
+const meetingKey = () => `${String(props.meetingType || '')}:${String(props.meetingId || '')}`;
 
 const fetchAgenda = async ({ silent = false } = {}) => {
   if (!props.meetingType || !props.meetingId) return;
-  if (!silent) {
+  const key = meetingKey();
+  const generation = ++fetchGeneration;
+  // Already have data for this meeting — refresh quietly (no full-panel loading state).
+  const quiet = silent || (hasLoaded.value && loadedKey === key);
+  if (!quiet) {
     loading.value = true;
     error.value = '';
   }
   try {
     const res = await api.get('/meeting-agendas', {
-      params: { meetingType: props.meetingType, meetingId: props.meetingId }
+      params: { meetingType: props.meetingType, meetingId: props.meetingId },
+      skipGlobalLoading: true
     });
+    if (generation !== fetchGeneration) return;
     agenda.value = res.data?.agenda || null;
     meeting.value = res.data?.meeting || null;
     items.value = Array.isArray(res.data?.items) ? res.data.items : [];
+    loadedKey = key;
+    hasLoaded.value = true;
   } catch (e) {
-    if (!silent) {
-      error.value = e?.response?.data?.error?.message || 'Failed to load agenda';
-      items.value = [];
-    }
+    if (generation !== fetchGeneration) return;
+    if (!quiet) error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load agenda';
   } finally {
-    if (!silent) loading.value = false;
+    if (generation === fetchGeneration && !quiet) loading.value = false;
   }
 };
 
-function startLivePoll() {
-  stopLivePoll();
-  if (!props.live) return;
-  const ms = Math.max(3000, Number(props.pollMs || 8000));
-  pollTimer = setInterval(() => {
-    void fetchAgenda({ silent: true });
-  }, ms);
+async function startAdd() {
+  showAddRow.value = true;
+  await nextTick();
+  addInputRef.value?.focus?.();
 }
 
-function stopLivePoll() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
+function cancelAdd() {
+  showAddRow.value = false;
+  newItemTitle.value = '';
+}
+
+const addFreeformItem = async () => {
+  const title = String(newItemTitle.value || '').trim();
+  if (!title || adding.value) return;
+  adding.value = true;
+  try {
+    if (!agenda.value) await fetchAgenda({ silent: true });
+    if (!agenda.value?.id) {
+      error.value = 'Agenda is not ready yet';
+      return;
+    }
+    const res = await api.post(`/meeting-agendas/${agenda.value.id}/items`, { title });
+    if (res?.data) items.value.push(res.data);
+    else await fetchAgenda({ silent: true });
+    newItemTitle.value = '';
+    showAddRow.value = false;
+    emit('updated');
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to add item';
+  } finally {
+    adding.value = false;
   }
-}
-
-const formatMeetingDate = (d) => {
-  if (!d) return '';
-  const dt = new Date(d);
-  return isNaN(dt.getTime()) ? d : dt.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 };
 
 const updateItemStatus = async (item, status) => {
-  if (!agenda.value || togglingId.value) return;
+  if (!item?.id || !agenda.value?.id || togglingId.value) return;
   togglingId.value = item.id;
   try {
     await api.patch(`/meeting-agendas/${agenda.value.id}/items/${item.id}`, { status });
@@ -158,223 +203,208 @@ const updateItemStatus = async (item, status) => {
     if (idx >= 0) items.value[idx] = { ...items.value[idx], status };
     emit('updated');
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to update';
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to update item';
   } finally {
     togglingId.value = null;
   }
 };
 
-const addFreeformItem = async () => {
-  const title = newItemTitle.value?.trim();
-  if (!title || adding.value) return;
-  adding.value = true;
-  try {
-    if (!agenda.value) await fetchAgenda();
-    if (!agenda.value) {
-      error.value = 'Agenda is not ready yet';
-      return;
-    }
-    const res = await api.post(`/meeting-agendas/${agenda.value.id}/items`, { title });
-    items.value.push(res.data);
-    newItemTitle.value = '';
-    emit('updated');
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to add item';
-  } finally {
-    adding.value = false;
-  }
-};
-
 const removeItem = async (item) => {
-  if (!agenda.value || deletingId.value) return;
+  if (!item?.id || !agenda.value?.id || deletingId.value) return;
   deletingId.value = item.id;
   try {
     await api.delete(`/meeting-agendas/${agenda.value.id}/items/${item.id}`);
     items.value = items.value.filter((i) => i.id !== item.id);
     emit('updated');
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to remove';
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to remove item';
   } finally {
     deletingId.value = null;
   }
 };
 
-onMounted(async () => {
-  await fetchAgenda();
-  startLivePoll();
-});
-onUnmounted(() => stopLivePoll());
-watch(
-  () => [props.meetingType, props.meetingId, props.live],
-  async () => {
-    await fetchAgenda();
-    startLivePoll();
+function formatMeetingDate(raw) {
+  try {
+    return new Date(raw).toLocaleString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return String(raw || '');
   }
+}
+
+function stopPoll() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function startPoll() {
+  stopPoll();
+  if (!props.live) return;
+  pollTimer = setInterval(() => { void fetchAgenda({ silent: true }); }, Math.max(3000, Number(props.pollMs || 8000)));
+}
+
+watch(
+  () => [props.meetingType, props.meetingId],
+  (curr, prev) => {
+    const nextKey = `${String(curr?.[0] || '')}:${String(curr?.[1] || '')}`;
+    const prevKey = `${String(prev?.[0] || '')}:${String(prev?.[1] || '')}`;
+    if (nextKey !== prevKey) {
+      hasLoaded.value = false;
+      loadedKey = '';
+      items.value = [];
+      agenda.value = null;
+    }
+    void fetchAgenda();
+    startPoll();
+  },
+  { immediate: true }
 );
+
+watch(() => props.live, () => { startPoll(); });
+
+onMounted(() => { startPoll(); });
+onUnmounted(() => { stopPoll(); });
 </script>
 
 <style scoped>
 .meeting-agenda-panel {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  max-width: 480px;
-  width: 100%;
-  max-height: 80vh;
-  overflow: auto;
-  color: #0f172a;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.meeting-agenda-panel :deep(.form-control),
-.meeting-agenda-panel :deep(input),
-.meeting-agenda-panel :deep(select) {
-  color: #0f172a;
-  background: #fff;
+.meeting-agenda-panel--embedded {
+  padding: 4px 2px 0;
 }
-
 .agenda-header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
-
 .agenda-title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  flex: 1;
-  min-width: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #0f172a;
 }
-
-.agenda-date {
-  font-size: 13px;
-  color: var(--text-secondary, #6b7280);
-  white-space: nowrap;
-}
-
+.agenda-date,
 .agenda-live {
-  font-size: 11px;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+.agenda-live {
+  color: #15803d;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #166534;
-  background: #dcfce7;
-  border-radius: 999px;
-  padding: 3px 8px;
-  white-space: nowrap;
 }
-
-.btn-close {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  color: #6b7280;
-  line-height: 1;
+.agenda-section {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.65);
 }
-
-.btn-close:hover {
-  color: #1f2937;
-}
-
-.agenda-loading,
-.agenda-error {
-  padding: 16px 0;
-  color: var(--text-secondary, #6b7280);
-}
-
-.agenda-error {
-  color: #dc2626;
-}
-
-.agenda-add-form {
+.agenda-section-head {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 }
-
-.agenda-add-form .form-control {
+.agenda-section-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.agenda-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  align-items: center;
+}
+.agenda-add-input {
   flex: 1;
-  padding: 8px 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  min-width: 160px;
 }
-
 .agenda-items {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-
 .agenda-item {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  margin-bottom: 8px;
+  align-items: flex-start;
+  gap: 8px;
 }
-
-.agenda-item-discussed .agenda-item-title {
-  opacity: 0.8;
-}
-
-.agenda-item-done .agenda-item-title {
-  text-decoration: line-through;
-  color: var(--text-secondary, #6b7280);
-}
-
-.agenda-item-check {
-  flex-shrink: 0;
-}
-
 .agenda-status-select {
+  flex: 0 0 auto;
+  margin-top: 2px;
   padding: 4px 8px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   font-size: 12px;
-  background: white;
+  background: #fff;
 }
-
 .agenda-item-content {
   flex: 1;
   min-width: 0;
+  padding-top: 4px;
 }
-
 .agenda-item-title {
   display: block;
-  font-size: 14px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #0f172a;
 }
-
+.agenda-item-discussed .agenda-item-title { opacity: 0.8; }
+.agenda-item-done .agenda-item-title {
+  text-decoration: line-through;
+  color: #64748b;
+}
 .agenda-item-task-link {
   font-size: 12px;
   color: var(--primary, #3b82f6);
   margin-top: 4px;
   display: inline-block;
 }
-
-.agenda-item-task-link:hover {
-  text-decoration: underline;
-}
-
-.btn-ghost {
-  background: none;
+.agenda-icon {
+  appearance: none;
   border: none;
-  color: #6b7280;
+  background: transparent;
   cursor: pointer;
   padding: 4px;
+  line-height: 1;
 }
-
-.btn-ghost:hover {
-  color: #1f2937;
-}
-
 .agenda-empty {
-  padding: 24px;
-  text-align: center;
-  color: var(--text-secondary, #6b7280);
-  font-size: 14px;
+  padding: 4px 0;
+  font-size: 0.88rem;
+}
+.agenda-live-hint {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+}
+.agenda-loading,
+.agenda-error {
+  padding: 8px 0;
+  color: #64748b;
+  font-size: 0.88rem;
+}
+.agenda-error { color: #dc2626; }
+.muted { color: #64748b; }
+.btn-ghost {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
 }
 </style>

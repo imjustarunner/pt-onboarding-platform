@@ -129,7 +129,10 @@
               :key="`mpp-p-${p.id}`"
               type="button"
               class="mpp-card"
-              :class="{ on: selectedIdSet.has(Number(p.id)) }"
+              :class="{
+                on: selectedIdSet.has(Number(p.id)),
+                busy: isBusy && isBusy(p.id)
+              }"
               :disabled="disabled"
               @click="emit('toggle-user', Number(p.id))"
             >
@@ -171,6 +174,7 @@ const props = defineProps({
   includeAllAgencies: { type: Boolean, default: false },
   canUseAllAgencies: { type: Boolean, default: false },
   busyText: { type: Function, default: null },
+  isBusy: { type: Function, default: null },
   personLabel: { type: Function, required: true },
   photoUrl: { type: Function, default: () => '' },
   initials: { type: Function, default: () => '?' },
@@ -428,6 +432,18 @@ watch(
   border-color: #2563eb;
   background: #eff6ff;
   box-shadow: inset 0 0 0 1px #2563eb;
+}
+.mpp-card.busy {
+  border-color: #d97706;
+}
+.mpp-card.busy .mpp-meta {
+  color: #b45309;
+  font-weight: 600;
+}
+.mpp-card.on.busy {
+  border-color: #d97706;
+  background: #fffbeb;
+  box-shadow: inset 0 0 0 1px #d97706;
 }
 .mpp-face {
   width: 36px;

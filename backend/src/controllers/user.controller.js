@@ -4319,9 +4319,11 @@ export const getUserScheduleSummary = async (req, res, next) => {
           status: String(r.status || 'ACTIVE').trim().toUpperCase() || 'ACTIVE',
           isCancelled: String(r.status || '').trim().toUpperCase() === 'CANCELLED',
           isTrainingPayEligible: Number(r.is_training_pay_eligible || 0) === 1,
-          meetingSubtype: String(r.meeting_subtype || 'general').trim().toLowerCase() === 'admin'
-            ? 'admin'
-            : 'general',
+          meetingSubtype: (() => {
+            const subtype = String(r.meeting_subtype || 'general').trim().toLowerCase();
+            if (subtype === 'admin' || subtype === 'town_hall') return subtype;
+            return 'general';
+          })(),
           canEdit: canEditThisEvent && String(r.status || '').trim().toUpperCase() !== 'CANCELLED'
         };
       });
@@ -4340,12 +4342,25 @@ export const getUserScheduleSummary = async (req, res, next) => {
           .filter((n) => n > 0);
         if (meetingEventIds.length) {
           const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
-          const byEvent = await ProviderScheduleEventAttendee.listUserIdsByEventIds(meetingEventIds);
+          const byEvent = await ProviderScheduleEventAttendee.listDetailsByEventIds(meetingEventIds);
           scheduleEvents = (scheduleEvents || []).map((e) => {
             const kind = String(e?.kind || '').toUpperCase();
             if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) return e;
             const eid = Number(e?.id || 0);
-            return { ...e, attendeeUserIds: byEvent.get(eid) || [] };
+            const details = byEvent.get(eid) || [];
+            return {
+              ...e,
+              attendeeUserIds: details.map((d) => Number(d.userId || 0)).filter((n) => n > 0),
+              attendees: details.map((d) => ({
+                id: Number(d.userId || 0),
+                firstName: d.firstName || '',
+                lastName: d.lastName || '',
+                email: d.email || '',
+                name: [d.firstName, d.lastName].filter(Boolean).join(' ').trim()
+                  || d.email
+                  || `User #${d.userId}`
+              }))
+            };
           });
         }
       } catch {
@@ -4997,7 +5012,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
                   b.location_text AS booking_location_text,
                   a.id AS school_id,
                   a.name AS school_name,
-                  a.street_address, a.address, a.mailing_address, a.city, a.state, a.zip,
+                  a.street_address, a.city, a.state, a.postal_code,
                   a.logo_url, a.logo_path, i.file_path AS icon_file_path
            FROM school_reinit_checkin_slot_host_events he
            INNER JOIN school_reinit_checkin_slots s ON s.id = he.slot_id
@@ -5027,8 +5042,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const ids = Array.from(fallbackAgencyIds.values());
         const placeholders = ids.map(() => '?').join(',');
         const [schoolRows] = await pool.execute(
-          `SELECT a.id, a.name AS school_name, a.street_address, a.address, a.mailing_address,
-                  a.city, a.state, a.zip, a.logo_url, a.logo_path, i.file_path AS icon_file_path
+          `SELECT a.id, a.name AS school_name, a.street_address,
+                  a.city, a.state, a.postal_code, a.logo_url, a.logo_path, i.file_path AS icon_file_path
            FROM agencies a
            LEFT JOIN icons i ON a.icon_id = i.id
            WHERE a.id IN (${placeholders})`,
@@ -5045,9 +5060,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         if (!row) return ev;
         const schoolAgencyId = Number(row.school_agency_id || row.school_id || row.id || 0) || null;
         const locationAddress = [
-          row.booking_location_text || row.street_address || row.address || row.mailing_address,
+          row.booking_location_text || row.street_address,
           [row.city, row.state].filter(Boolean).join(', '),
-          row.zip,
+          row.postal_code || row.zip,
         ].filter(Boolean).join(' ').trim() || null;
         const schoolName = String(row.school_name || row.name || '').trim() || null;
         const mapsQuery = locationAddress || schoolName || null;
@@ -5183,8 +5198,29 @@ export const createUserScheduleEvent = async (req, res, next) => {
     if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE'].includes(kind)) {
       return res.status(400).json({ error: { message: 'kind must be PERSONAL_EVENT, SCHEDULE_HOLD, INDIRECT_SERVICES, TEAM_MEETING, or HUDDLE' } });
     }
-    if (kind === 'HUDDLE' && actorRole !== 'provider_plus') {
-      return res.status(403).json({ error: { message: 'Only provider_plus can schedule Huddle meetings' } });
+    if (kind === 'HUDDLE') {
+      const hostRole = String(provider?.role || '').trim().toLowerCase();
+      const hostIsCpaOrPp = ['provider_plus', 'clinical_practice_assistant'].includes(hostRole);
+      const actorIsCpaOrPp = ['provider_plus', 'clinical_practice_assistant'].includes(actorRole);
+      const actorIsPrivilegedScheduler = ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole);
+      if (actorIsCpaOrPp) {
+        // CPA/Provider Plus schedule huddles as themselves (host = actor calendar).
+        if (!isSelf && !hostIsCpaOrPp) {
+          return res.status(403).json({
+            error: { message: 'Huddles must be hosted by a CPA or Provider Plus.' }
+          });
+        }
+      } else if (actorIsPrivilegedScheduler) {
+        if (!hostIsCpaOrPp) {
+          return res.status(403).json({
+            error: { message: 'Admin, support, or super admin can only schedule Huddles for a CPA or Provider Plus host.' }
+          });
+        }
+      } else {
+        return res.status(403).json({
+          error: { message: 'Only Provider Plus, CPA, or admin/support/super admin can schedule Huddle meetings.' }
+        });
+      }
     }
     const isPrivate = req.body?.isPrivate === true;
 
@@ -5245,26 +5281,32 @@ export const createUserScheduleEvent = async (req, res, next) => {
     const recurrenceFrequency = String(req.body?.recurrenceFrequency || '').trim().toUpperCase() || null;
     const recurrencePolicy = String(req.body?.recurrencePolicy || '').trim().toUpperCase() || null;
     const recurrenceIndex = req.body?.recurrenceIndex == null ? null : Math.max(0, parseInt(req.body.recurrenceIndex, 10) || 0);
-    if ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && !attendeeUserIds.length) {
-      return res.status(400).json({ error: { message: `${kind} requires at least one attendeeUserId.` } });
+    if (kind === 'TEAM_MEETING' && !attendeeUserIds.length) {
+      return res.status(400).json({ error: { message: 'TEAM_MEETING requires at least one attendeeUserId.' } });
     }
     if (!['TEAM_MEETING', 'HUDDLE'].includes(kind) && attendeeUserIds.length) {
       return res.status(400).json({ error: { message: 'attendeeUserIds are only supported for TEAM_MEETING and HUDDLE.' } });
     }
-    const canSetAdminMeetingSubtype = ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole);
+    const canSetPrivilegedMeetingSubtype = ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole);
     const requestedSubtype = String(req.body?.meetingSubtype || req.body?.meeting_subtype || 'general')
       .trim()
       .toLowerCase();
     let meetingSubtype = 'general';
-    if (kind === 'TEAM_MEETING' && requestedSubtype === 'admin') {
-      if (!canSetAdminMeetingSubtype) {
+    if (kind === 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall')) {
+      if (!canSetPrivilegedMeetingSubtype) {
         return res.status(403).json({
-          error: { message: 'Only admin, support, or super admin can schedule Admin Meetings.' }
+          error: {
+            message: requestedSubtype === 'town_hall'
+              ? 'Only admin, support, or super admin can schedule Town Hall meetings.'
+              : 'Only admin, support, or super admin can schedule Admin Meetings.'
+          }
         });
       }
-      meetingSubtype = 'admin';
-    } else if (kind !== 'TEAM_MEETING' && requestedSubtype === 'admin') {
-      return res.status(400).json({ error: { message: 'Admin Meeting subtype is only valid for team meetings.' } });
+      meetingSubtype = requestedSubtype;
+    } else if (kind !== 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall')) {
+      return res.status(400).json({
+        error: { message: 'Admin Meeting and Town Hall subtypes are only valid for team meetings.' }
+      });
     }
     const wantsTrainingPay = req.body?.isTrainingPayEligible === true
       || req.body?.isTrainingPayEligible === 1
@@ -5470,7 +5512,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
           : String(storedStartAt || startAt || '').replace(' ', ' · ').slice(0, 16);
         const titleText = String(summaryText || (kind === 'HUDDLE' ? 'Huddle' : 'Team meeting')).trim();
         const recipientIds = Array.from(new Set(
-          [Number(providerId || 0), ...(Array.isArray(attendeeUserIds) ? attendeeUserIds : [])]
+          [Number(userId || 0), ...(Array.isArray(attendeeUserIds) ? attendeeUserIds : [])]
             .map((n) => Number(n || 0))
             .filter((uid) => uid > 0 && uid !== Number(actorUserId || 0))
         ));
@@ -5710,17 +5752,23 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const requestedSubtype = String(req.body?.meetingSubtype || req.body?.meeting_subtype || 'general')
         .trim()
         .toLowerCase();
-      if (kind !== 'TEAM_MEETING' && requestedSubtype === 'admin') {
-        return res.status(400).json({ error: { message: 'Admin Meeting subtype is only valid for team meetings.' } });
+      if (kind !== 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall')) {
+        return res.status(400).json({
+          error: { message: 'Admin Meeting and Town Hall subtypes are only valid for team meetings.' }
+        });
       }
-      if (requestedSubtype === 'admin') {
-        const canSetAdminMeetingSubtype = ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole);
-        if (!canSetAdminMeetingSubtype) {
+      if (requestedSubtype === 'admin' || requestedSubtype === 'town_hall') {
+        const canSetPrivilegedMeetingSubtype = ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole);
+        if (!canSetPrivilegedMeetingSubtype) {
           return res.status(403).json({
-            error: { message: 'Only admin, support, or super admin can set Admin Meeting subtype.' }
+            error: {
+              message: requestedSubtype === 'town_hall'
+                ? 'Only admin, support, or super admin can set Town Hall subtype.'
+                : 'Only admin, support, or super admin can set Admin Meeting subtype.'
+            }
           });
         }
-        nextMeetingSubtype = 'admin';
+        nextMeetingSubtype = requestedSubtype;
       } else {
         nextMeetingSubtype = 'general';
       }

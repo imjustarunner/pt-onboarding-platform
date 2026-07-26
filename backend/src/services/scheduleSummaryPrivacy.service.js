@@ -133,6 +133,9 @@ function activityFromScheduleEvent(row = {}) {
     return { activityType: 'indirect', title: 'Indirect', agencyId };
   }
   if (kind === 'TEAM_MEETING') {
+    const subtype = String(row.meetingSubtype || row.meeting_subtype || '').trim().toLowerCase();
+    if (subtype === 'admin') return { activityType: 'team_meeting', title: 'Admin meeting', agencyId };
+    if (subtype === 'town_hall') return { activityType: 'team_meeting', title: 'Town hall', agencyId };
     return { activityType: 'team_meeting', title: 'Team meeting', agencyId };
   }
   if (kind === 'HUDDLE') {

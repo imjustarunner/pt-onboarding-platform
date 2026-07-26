@@ -69,8 +69,10 @@ export async function startAdhocTeamMeeting({
     err.status = 400;
     throw err;
   }
-  if (kindUpper === 'HUDDLE' && role !== 'provider_plus') {
-    const err = new Error('Only provider_plus can start huddles');
+  // Ad-hoc huddles are always hosted by the actor; only CPA/Provider Plus may self-host.
+  // Privileged roles schedule huddles for CPA/PP hosts via the schedule grid instead.
+  if (kindUpper === 'HUDDLE' && !['provider_plus', 'clinical_practice_assistant'].includes(role)) {
+    const err = new Error('Only Provider Plus or CPA can start huddles from chat. Admins can schedule Huddles on a CPA/Provider Plus calendar.');
     err.status = 403;
     throw err;
   }

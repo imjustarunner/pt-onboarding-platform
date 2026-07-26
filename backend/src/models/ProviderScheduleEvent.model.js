@@ -38,8 +38,9 @@ class ProviderScheduleEvent {
     const participantToken = needsJoinToken ? String(joinToken || generateJoinToken()).slice(0, 64) : (joinToken || null);
     const hostToken = needsJoinToken ? generateJoinToken().slice(0, 64) : null;
     const waitingRoomFlag = waitingRoomEnabled === false || waitingRoomEnabled === 0 ? 0 : 1;
-    const subtype = kindUpper === 'TEAM_MEETING' && String(meetingSubtype || '').trim().toLowerCase() === 'admin'
-      ? 'admin'
+    const requestedSubtype = String(meetingSubtype || '').trim().toLowerCase();
+    const subtype = kindUpper === 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall')
+      ? requestedSubtype
       : 'general';
     try {
       const [result] = await pool.execute(
@@ -383,7 +384,10 @@ class ProviderScheduleEvent {
       params.push(isTrainingPayEligible ? 1 : 0);
     }
     if (meetingSubtype !== undefined) {
-      const nextSubtype = String(meetingSubtype || '').trim().toLowerCase() === 'admin' ? 'admin' : 'general';
+      const requestedSubtype = String(meetingSubtype || '').trim().toLowerCase();
+      const nextSubtype = (requestedSubtype === 'admin' || requestedSubtype === 'town_hall')
+        ? requestedSubtype
+        : 'general';
       sets.push('meeting_subtype = ?');
       params.push(nextSubtype);
     }

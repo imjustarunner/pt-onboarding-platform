@@ -103,26 +103,82 @@
 
         <div class="fields-grid">
           <section>
-            <h4>Issue</h4>
-            <p>{{ detail.issue }}</p>
+            <div class="section-head">
+              <h4>Issue</h4>
+              <button
+                v-if="canEditDetails && !editingDetails"
+                type="button"
+                class="btn secondary sm"
+                @click="startEditDetails"
+              >
+                Edit
+              </button>
+            </div>
+            <textarea
+              v-if="editingDetails"
+              v-model="detailsDraft.issue"
+              class="field-input"
+              rows="3"
+            />
+            <p v-else>{{ detail.issue }}</p>
           </section>
           <section>
             <h4>Root cause</h4>
-            <p>{{ detail.root_cause || '—' }}</p>
+            <textarea
+              v-if="editingDetails"
+              v-model="detailsDraft.rootCause"
+              class="field-input"
+              rows="3"
+              placeholder="Optional"
+            />
+            <p v-else>{{ detail.root_cause || '—' }}</p>
           </section>
           <section>
             <h4>Recommended resolution</h4>
-            <p>{{ detail.recommended_resolution || '—' }}</p>
+            <textarea
+              v-if="editingDetails"
+              v-model="detailsDraft.recommended"
+              class="field-input"
+              rows="3"
+            />
+            <p v-else>{{ detail.recommended_resolution || '—' }}</p>
           </section>
           <section>
             <h4>Details</h4>
-            <ul class="kv">
+            <ul v-if="editingDetails" class="kv kv--edit">
+              <li>
+                <span>Department</span>
+                <input v-model="detailsDraft.department" class="field-input" type="text" placeholder="Department" />
+              </li>
+              <li>
+                <span>Project</span>
+                <input v-model="detailsDraft.project" class="field-input" type="text" placeholder="Related project" />
+              </li>
+              <li>
+                <span>Immediate</span>
+                <label class="check inline">
+                  <input v-model="detailsDraft.immediate" type="checkbox" />
+                  Required
+                </label>
+              </li>
+              <li><span>Owner</span><strong>{{ detail.claimed_by_name || 'Unassigned' }}</strong></li>
+            </ul>
+            <ul v-else class="kv">
               <li><span>Department</span><strong>{{ detail.affected_department || '—' }}</strong></li>
               <li><span>Project</span><strong>{{ detail.related_project || '—' }}</strong></li>
               <li><span>Immediate</span><strong>{{ detail.immediate_action_required ? 'Yes' : 'No' }}</strong></li>
               <li><span>Owner</span><strong>{{ detail.claimed_by_name || 'Unassigned' }}</strong></li>
               <li v-if="detail.resolution_outcome"><span>Outcome</span><strong>{{ detail.resolution_outcome }}</strong></li>
             </ul>
+            <div v-if="editingDetails" class="details-edit-actions">
+              <button type="button" class="btn secondary sm" :disabled="savingDetails" @click="cancelEditDetails">
+                Cancel
+              </button>
+              <button type="button" class="btn primary sm" :disabled="savingDetails || !detailsDraft.issue.trim() || !detailsDraft.recommended.trim()" @click="saveDetails">
+                {{ savingDetails ? 'Saving…' : 'Save details' }}
+              </button>
+            </div>
+            <p v-if="detailsError" class="error">{{ detailsError }}</p>
           </section>
           <section class="meeting-link-section">
             <h4>Admin Meeting</h4>
@@ -166,9 +222,13 @@
           </label>
           <label>
             Assign to
-            <select v-model="assignDraft" @change="saveAssign">
-              <option value="">—</option>
-              <option v-for="u in assignees" :key="u.id" :value="String(u.id)">
+            <select v-model="assignDraft" :disabled="savingAssign" @change="saveAssign">
+              <option value="">Unassigned</option>
+              <option
+                v-for="u in assignOptions"
+                :key="u.id"
+                :value="String(u.id)"
+              >
                 {{ u.last_name }}, {{ u.first_name }}
               </option>
             </select>
@@ -280,7 +340,12 @@ const statusLabel = escalationStatusLabel;
 const statusTone = escalationStatusTone;
 
 const role = computed(() => String(authStore.user?.role || '').toLowerCase());
-const canManage = computed(() => ['admin', 'support', 'super_admin'].includes(role.value));
+const canManage = computed(() => ['admin', 'support', 'super_admin', 'superadmin'].includes(role.value));
+const canEditDetails = computed(() => {
+  if (!detail.value) return false;
+  if (canManage.value) return true;
+  return Number(detail.value.created_by_user_id || 0) === Number(authStore.user?.id || 0);
+});
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id) || null);
 
 const loading = ref(false);
@@ -309,6 +374,18 @@ const createError = ref('');
 const adminMeetings = ref([]);
 const meetingLinkDraft = ref('');
 const savingMeetingLink = ref(false);
+const savingAssign = ref(false);
+const editingDetails = ref(false);
+const savingDetails = ref(false);
+const detailsError = ref('');
+const detailsDraft = ref({
+  issue: '',
+  rootCause: '',
+  recommended: '',
+  department: '',
+  project: '',
+  immediate: false
+});
 const form = ref({
   issue: '',
   rootCause: '',
@@ -333,6 +410,23 @@ const filtered = computed(() => {
   const q = search.value.trim().toLowerCase();
   if (q) {
     list = list.filter((e) => String(e.subject || '').toLowerCase().includes(q) || String(e.id).includes(q));
+  }
+  return list;
+});
+
+/** Keep current owner in the dropdown even if they are not in the assignees list. */
+const assignOptions = computed(() => {
+  const list = Array.isArray(assignees.value) ? [...assignees.value] : [];
+  const ownerId = Number(detail.value?.claimed_by_user_id || 0);
+  if (ownerId > 0 && !list.some((u) => Number(u.id) === ownerId)) {
+    const name = String(detail.value?.claimed_by_name || '').trim();
+    const parts = name.split(/\s+/);
+    list.unshift({
+      id: ownerId,
+      first_name: parts[0] || 'Owner',
+      last_name: parts.slice(1).join(' ') || '',
+      role: 'assigned'
+    });
   }
   return list;
 });
@@ -476,6 +570,8 @@ async function loadDetail(id) {
   detail.value = null;
   messages.value = [];
   meetingLinkDraft.value = '';
+  editingDetails.value = false;
+  detailsError.value = '';
   try {
     const res = await api.get(`/escalations/${id}`, { skipGlobalLoading: true });
     detail.value = res.data;
@@ -496,6 +592,54 @@ async function loadDetail(id) {
   }
 }
 
+function startEditDetails() {
+  if (!detail.value) return;
+  detailsDraft.value = {
+    issue: String(detail.value.issue || ''),
+    rootCause: String(detail.value.root_cause || ''),
+    recommended: String(detail.value.recommended_resolution || ''),
+    department: String(detail.value.affected_department || ''),
+    project: String(detail.value.related_project || ''),
+    immediate: !!detail.value.immediate_action_required
+  };
+  detailsError.value = '';
+  editingDetails.value = true;
+}
+
+function cancelEditDetails() {
+  editingDetails.value = false;
+  detailsError.value = '';
+}
+
+async function saveDetails() {
+  if (!detail.value || !canEditDetails.value) return;
+  const issue = String(detailsDraft.value.issue || '').trim();
+  const recommended = String(detailsDraft.value.recommended || '').trim();
+  if (!issue || !recommended) {
+    detailsError.value = 'Issue and recommended resolution are required.';
+    return;
+  }
+  savingDetails.value = true;
+  detailsError.value = '';
+  try {
+    const res = await api.patch(`/escalations/${detail.value.id}`, {
+      issue,
+      rootCause: String(detailsDraft.value.rootCause || '').trim() || null,
+      recommendedResolution: recommended,
+      affectedDepartment: String(detailsDraft.value.department || '').trim() || null,
+      relatedProject: String(detailsDraft.value.project || '').trim() || null,
+      immediateActionRequired: !!detailsDraft.value.immediate
+    }, { skipGlobalLoading: true });
+    detail.value = res.data;
+    editingDetails.value = false;
+    await refresh();
+  } catch (e) {
+    detailsError.value = e.response?.data?.error?.message || 'Failed to save details';
+  } finally {
+    savingDetails.value = false;
+  }
+}
+
 async function saveStatus() {
   if (!detail.value || !canManage.value) return;
   try {
@@ -511,16 +655,24 @@ async function saveStatus() {
 }
 
 async function saveAssign() {
-  if (!detail.value || !canManage.value || !assignDraft.value) return;
+  if (!detail.value || !canManage.value || savingAssign.value) return;
+  savingAssign.value = true;
+  error.value = '';
   try {
+    const assigneeUserId = assignDraft.value ? Number(assignDraft.value) : null;
     const res = await api.post(`/escalations/${detail.value.id}/assign`, {
-      assigneeUserId: Number(assignDraft.value)
-    });
-    detail.value = { ...detail.value, ...res.data };
+      assigneeUserId
+    }, { skipGlobalLoading: true });
+    detail.value = res.data;
     statusDraft.value = res.data?.escalation_status || statusDraft.value;
+    assignDraft.value = res.data?.claimed_by_user_id ? String(res.data.claimed_by_user_id) : '';
     await refresh();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to assign';
+    // Revert draft to the persisted owner so the dropdown does not lie.
+    assignDraft.value = detail.value?.claimed_by_user_id ? String(detail.value.claimed_by_user_id) : '';
+  } finally {
+    savingAssign.value = false;
   }
 }
 
@@ -770,7 +922,44 @@ onMounted(async () => {
   padding: 10px 12px;
 }
 .fields-grid h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; color: #64748b; }
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.section-head h4 { margin: 0; }
 .fields-grid p { margin: 0; font-size: 13px; white-space: pre-wrap; }
+.field-input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  background: #fff;
+  box-sizing: border-box;
+}
+.kv--edit li {
+  align-items: center;
+}
+.kv--edit .field-input {
+  max-width: 62%;
+}
+.check.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.details-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
 .meeting-link-section { grid-column: 1 / -1; }
 .meeting-link-row {
   display: flex;

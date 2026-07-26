@@ -709,6 +709,161 @@ export const updateEscalationMeetingLink = async (req, res, next) => {
   }
 };
 
+async function resolveAssignableUser({ agencyId, assigneeId }) {
+  const uid = Number(assigneeId || 0);
+  const aid = Number(agencyId || 0);
+  if (!uid) return null;
+  if (aid) {
+    const [aRows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.is_archived, u.status
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE u.id = ?
+       LIMIT 1`,
+      [aid, uid]
+    );
+    if (aRows?.[0]) return aRows[0];
+  }
+  // Platform super admins can own escalations even without a tenant membership row.
+  const [uRows] = await pool.execute(
+    `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.is_archived, u.status
+     FROM users u
+     WHERE u.id = ?
+     LIMIT 1`,
+    [uid]
+  );
+  const u = uRows?.[0];
+  if (!u) return null;
+  const role = String(u.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'superadmin') return u;
+  return null;
+}
+
+async function syncLinkedActionItemAssignee({ row, assigneeUserId, actorUserId }) {
+  const eventId = Number(row?.linked_schedule_event_id || 0);
+  const actionItemId = row?.linked_action_item_id || null;
+  if (!eventId && !Number(row?.id || 0)) return;
+  try {
+    const ProviderScheduleEventArtifact = (await import('../models/ProviderScheduleEventArtifact.model.js')).default;
+    await ProviderScheduleEventArtifact.syncActionItemAssigneeByEscalationTicket({
+      escalationTicketId: Number(row.id || 0),
+      eventId,
+      actionItemId,
+      assigneeUserId,
+      updatedByUserId: actorUserId
+    });
+  } catch (syncErr) {
+    console.warn('[escalations] sync meeting action assignee failed', syncErr?.message || syncErr);
+  }
+}
+
+/** PATCH /api/escalations/:id — update issue/details fields */
+export const updateEscalationDetails = async (req, res, next) => {
+  try {
+    if (!(await hasEscalationColumns())) return requireEscalationSchema(res);
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!isEscalationManagerRole(role) && !isEscalationSubmitterRole(role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid escalation id' } });
+
+    const row = await loadEscalationById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Escalation not found' } });
+
+    const access = await ensureAgencyAccess(req, row.agency_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    // Submitters can edit only their own tickets; managers can edit any.
+    if (!isEscalationManagerRole(role) && Number(row.created_by_user_id || 0) !== Number(req.user.id || 0)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const body = req.body || {};
+    const sets = [];
+    const params = [];
+
+    if (Object.prototype.hasOwnProperty.call(body, 'issue') || Object.prototype.hasOwnProperty.call(body, 'question')) {
+      const issue = String(body.issue ?? body.question ?? '').trim();
+      if (!issue) return res.status(400).json({ error: { message: 'Issue cannot be empty' } });
+      sets.push('question = ?');
+      params.push(issue);
+      // Keep subject in sync when it was auto-derived from the old issue.
+      const oldIssue = String(row.question || '').trim();
+      const oldSubject = String(row.subject || '').trim();
+      if (!oldSubject || oldSubject === oldIssue.slice(0, 80) || oldSubject === oldIssue.slice(0, 255)) {
+        sets.push('subject = ?');
+        params.push(issue.slice(0, 80));
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'rootCause') || Object.prototype.hasOwnProperty.call(body, 'root_cause')) {
+      const rootCause = String(body.rootCause ?? body.root_cause ?? '').trim() || null;
+      sets.push('root_cause = ?');
+      params.push(rootCause);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'recommendedResolution')
+      || Object.prototype.hasOwnProperty.call(body, 'recommended_resolution')
+    ) {
+      const recommended = String(body.recommendedResolution ?? body.recommended_resolution ?? '').trim();
+      if (!recommended) return res.status(400).json({ error: { message: 'Recommended resolution cannot be empty' } });
+      sets.push('recommended_resolution = ?');
+      params.push(recommended);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'affectedDepartment')
+      || Object.prototype.hasOwnProperty.call(body, 'affected_department')
+    ) {
+      const department = String(body.affectedDepartment ?? body.affected_department ?? '').trim().slice(0, 120) || null;
+      sets.push('affected_department = ?');
+      params.push(department);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'relatedProject')
+      || Object.prototype.hasOwnProperty.call(body, 'related_project')
+    ) {
+      const project = String(body.relatedProject ?? body.related_project ?? '').trim().slice(0, 255) || null;
+      sets.push('related_project = ?');
+      params.push(project);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'immediateActionRequired')
+      || Object.prototype.hasOwnProperty.call(body, 'immediate_action_required')
+    ) {
+      const immediate = body.immediateActionRequired === true
+        || body.immediateActionRequired === 1
+        || body.immediateActionRequired === '1'
+        || body.immediateActionRequired === 'true'
+        || body.immediate_action_required === true
+        || body.immediate_action_required === 1
+        || body.immediate_action_required === '1'
+        || body.immediate_action_required === 'true';
+      sets.push('immediate_action_required = ?');
+      params.push(immediate ? 1 : 0);
+      if (immediate && String(row.priority || '').toLowerCase() !== 'high') {
+        sets.push('priority = ?');
+        params.push('high');
+      }
+    }
+
+    if (!sets.length) {
+      return res.status(400).json({ error: { message: 'No fields to update' } });
+    }
+
+    params.push(id);
+    await pool.execute(
+      `UPDATE support_tickets SET ${sets.join(', ')} WHERE id = ? LIMIT 1`,
+      params
+    );
+
+    const updated = await loadEscalationById(id);
+    res.json(mapEscalationRow(updated));
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** POST /api/escalations/:id/assign */
 export const assignEscalation = async (req, res, next) => {
   try {
@@ -719,9 +874,16 @@ export const assignEscalation = async (req, res, next) => {
     }
 
     const id = parseInt(req.params.id, 10);
-    const assigneeId = parseInt(req.body?.assigneeUserId, 10);
-    if (!id || !assigneeId) {
-      return res.status(400).json({ error: { message: 'escalation id and assigneeUserId are required' } });
+    if (!id) return res.status(400).json({ error: { message: 'escalation id is required' } });
+
+    const rawAssignee = req.body?.assigneeUserId;
+    const clearAssignee = rawAssignee === null
+      || rawAssignee === ''
+      || rawAssignee === 0
+      || rawAssignee === '0';
+    const assigneeId = clearAssignee ? 0 : parseInt(rawAssignee, 10);
+    if (!clearAssignee && !assigneeId) {
+      return res.status(400).json({ error: { message: 'assigneeUserId is required (or null to unassign)' } });
     }
 
     const row = await loadEscalationById(id);
@@ -730,15 +892,26 @@ export const assignEscalation = async (req, res, next) => {
     const access = await ensureAgencyAccess(req, row.agency_id);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    const [aRows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.is_archived, u.status
-       FROM users u
-       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-       WHERE u.id = ?
-       LIMIT 1`,
-      [row.agency_id, assigneeId]
-    );
-    const assignee = aRows?.[0];
+    if (clearAssignee) {
+      const current = String(row.escalation_status || 'submitted');
+      const nextStatus = ['resolved', 'closed', 'awaiting_information'].includes(current)
+        ? current
+        : (current === 'assigned' ? 'under_review' : current);
+      await pool.execute(
+        `UPDATE support_tickets
+         SET claimed_by_user_id = NULL,
+             claimed_at = NULL,
+             escalation_status = ?,
+             status = CASE WHEN ? IN ('resolved', 'closed') THEN status ELSE 'open' END
+         WHERE id = ?`,
+        [nextStatus, nextStatus, id]
+      );
+      await syncLinkedActionItemAssignee({ row, assigneeUserId: null, actorUserId: req.user.id });
+      const updated = await loadEscalationById(id);
+      return res.json(mapEscalationRow(updated));
+    }
+
+    const assignee = await resolveAssignableUser({ agencyId: row.agency_id, assigneeId });
     if (!assignee) return res.status(404).json({ error: { message: 'Assignee not found in this agency' } });
     if (assignee.is_archived === 1 || String(assignee.status || '').toUpperCase() === 'ARCHIVED') {
       return res.status(409).json({ error: { message: 'Assignee is archived' } });
@@ -753,6 +926,8 @@ export const assignEscalation = async (req, res, next) => {
        WHERE id = ?`,
       [assigneeId, nextStatus, id]
     );
+
+    await syncLinkedActionItemAssignee({ row, assigneeUserId: assigneeId, actorUserId: req.user.id });
 
     const updated = await loadEscalationById(id);
     await notifyAssignee({ escalation: updated, assignee, assignedBy: req.user });
@@ -783,7 +958,23 @@ export const listEscalationAssignees = async (req, res, next) => {
        LIMIT 200`,
       [agencyId]
     );
-    res.json({ users: rows || [] });
+    const users = Array.isArray(rows) ? [...rows] : [];
+    // Ensure the current actor can assign to themselves (common for platform super admins).
+    const meId = Number(req.user?.id || 0);
+    if (meId > 0 && !users.some((u) => Number(u.id) === meId)) {
+      const meRole = String(req.user?.role || '').toLowerCase();
+      if (meRole === 'super_admin' || meRole === 'superadmin' || isEscalationManagerRole(meRole)) {
+        users.unshift({
+          id: meId,
+          first_name: req.user?.first_name || req.user?.firstName || 'Me',
+          last_name: req.user?.last_name || req.user?.lastName || '',
+          email: req.user?.email || null,
+          work_email: req.user?.work_email || null,
+          role: req.user?.role || 'super_admin'
+        });
+      }
+    }
+    res.json({ users });
   } catch (e) {
     next(e);
   }

@@ -11,7 +11,12 @@ import {
   getTeamMeetingAdmissionStatus,
   getTeamMeetingWorkspace,
   upsertTeamMeetingWorkspace,
-  escalateTeamMeetingActionItem
+  escalateTeamMeetingActionItem,
+  completeTeamMeetingSession,
+  getTeamMeetingAttendance,
+  getTeamMeetingTimeClaims,
+  patchTeamMeetingTimeClaim,
+  getTeamMeetingNotes
 } from '../controllers/teamMeetings.controller.js';
 import { getTeamMeetingActivity, postTeamMeetingActivity } from '../controllers/videoMeetingActivity.controller.js';
 
@@ -35,5 +40,10 @@ router.post('/:eventId/activity', postTeamMeetingActivity);
 router.get('/:eventId/workspace', getTeamMeetingWorkspace);
 router.post('/:eventId/workspace', upsertTeamMeetingWorkspace);
 router.post('/:eventId/action-items/:itemId/escalate', escalateTeamMeetingActionItem);
+router.post('/:eventId/complete', completeTeamMeetingSession);
+router.get('/:eventId/attendance', getTeamMeetingAttendance);
+router.get('/:eventId/time-claims', getTeamMeetingTimeClaims);
+router.patch('/:eventId/time-claims/:claimId', patchTeamMeetingTimeClaim);
+router.get('/:eventId/notes', getTeamMeetingNotes);
 
 export default router;

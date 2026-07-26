@@ -1298,6 +1298,7 @@
             :is-virtual="true"
             :link="meetingCreatedShare.hostJoinUrl"
             hint="Host join link — enters the main room immediately."
+            compact
           />
           <VirtualLinkControls
             :is-virtual="true"
@@ -1305,6 +1306,7 @@
             :meet-link="meetingCreatedShare.meetLink"
             :platform-link="meetingCreatedShare.joinUrl"
             hint="Participant join link — waiting room when enabled."
+            compact
             dismissible
             @dismiss="dismissMeetingCreatedShare"
           />
@@ -1327,9 +1329,12 @@
                 type="button"
                 role="tab"
                 class="appt-workspace-tab"
-                :class="{ on: editorWorkspaceTab === tab.id }"
+                :class="{ on: editorWorkspaceTab === tab.id, disabled: !!tab.disabled }"
                 :aria-selected="editorWorkspaceTab === tab.id"
-                @click="editorWorkspaceTab = tab.id"
+                :aria-disabled="!!tab.disabled"
+                :disabled="!!tab.disabled"
+                :title="tab.disabledReason || ''"
+                @click="!tab.disabled && (editorWorkspaceTab = tab.id)"
               >
                 <span v-if="tab.icon" class="appt-workspace-tab-ico" aria-hidden="true">{{ tab.icon }}</span>
                 {{ tab.label }}
@@ -1348,7 +1353,7 @@
           </div>
 
           <div
-            v-if="editorWorkspaceTab === 'info'"
+            v-show="editorWorkspaceTab === 'info'"
             class="supv-info-layout"
             :class="{ 'supv-info-layout--with-workspace': showIndividualSupervisionWorkspace }"
           >
@@ -1370,14 +1375,16 @@
               :can-open-client="canOpenScheduleClientProfile"
               :participant-label="editorParticipantLabel"
               :participant-summary="editorIsMeeting || editorIsSupervision ? editorParticipantSummary : ''"
+              :participant-names="editorIsMeeting ? editorMeetingParticipantNames : []"
+              :expandable-participants="editorIsMeeting"
               :service-label="editorInfoServiceLabel"
               :location-label="editorInfoLocationLabel"
               :room-label="editorRoomLabel"
               :virtual-link="editorVirtualLink"
               :notes="editorInfoNotes"
               :show-notes="!editorIsSupervision"
-              :show-virtual-link="!!editorVirtualLink || !!editorMeetLink"
-              :compact-virtual-link="editorIsSupervision"
+              :show-virtual-link="!(editorIsMeeting && isAppointmentEditMode) && (!!editorVirtualLink || !!editorMeetLink)"
+              :compact-virtual-link="editorIsSupervision || editorIsMeeting"
               :show-join-quick="false"
               :join-busy="supvMeetOpening || supvAppVideoLoading"
               :show-note-quick="editorIsSupervision"
@@ -1394,6 +1401,7 @@
               @open-note="editorWorkspaceTab = 'note'"
               @join="startTrackedSupvMeet"
             />
+            <!-- Meeting agenda/goals/actions live in dedicated workspace tabs (not duplicated here). -->
             <SupervisionGoalsActionsPanel
               v-if="showIndividualSupervisionWorkspace"
               :session-id="selectedSupvSessionId"
@@ -1408,7 +1416,13 @@
           :subtitle="modalScheduleSubtitle"
           :hide-chrome="true"
           :disabled="submitting || scheduleEventSaving"
-          :show-virtual="editorShowVirtual"
+          :show-virtual="editorShowVirtual || editorIsMeeting"
+          :show-virtual-options="editorIsMeeting"
+          v-model:virtual-is-virtual="editorMeetingIsVirtual"
+          v-model:virtual-use-platform-video="linkMeetingPlatformVideo"
+          v-model:virtual-waiting-room-enabled="editorMeetingWaitingRoomEnabled"
+          v-model:virtual-create-meet-link="createMeetingMeetLink"
+          :virtual-video-configured="scheduleVideoConfigured"
           :virtual-link="editorVirtualLink"
           :meet-link="editorMeetLink"
           :platform-link="editorPlatformLink"
@@ -1647,6 +1661,7 @@
               :include-all-agencies="meetingIncludeAllAgencies"
               :can-use-all-agencies="meetingCanUseAllAgencies"
               :busy-text="meetingParticipantBusyText"
+              :is-busy="isMeetingParticipantBusy"
               :person-label="supervisionParticipantLabel"
               :photo-url="participantPhotoUrl"
               :initials="providerInitials"
@@ -1702,26 +1717,26 @@
             v-model:waiting-room-enabled="editorMeetingWaitingRoomEnabled"
             v-model:create-meet-link="createMeetingMeetLink"
             v-model:agenda-items="createAgendaDraftItems"
+            v-model:goal-draft-items="createGoalDraftItems"
+            v-model:action-draft-items="createActionDraftItems"
             v-model:notes="editorMeetingNotes"
             v-model:is-training-pay-eligible="meetingIsTrainingPayEligible"
             v-model:meeting-subtype="meetingSubtype"
-            :show-training-pay-option="showMeetingTrainingPayOption"
-            :show-meeting-subtype="String(requestType || '') === 'agency_meeting' || String(editingScheduleStackItem?.eventKind || '').toUpperCase() === 'TEAM_MEETING'"
+            :meeting-kind="editorMeetingKind"
+            :show-huddle-option="canSeeHuddleAction && !isAppointmentEditMode"
+            :show-training-pay-option="showMeetingTrainingPayOption && editorMeetingKind !== 'huddle'"
+            :show-meeting-subtype="editorMeetingKind === 'agency_meeting' || String(editingScheduleStackItem?.eventKind || '').toUpperCase() === 'TEAM_MEETING'"
             :can-set-admin-subtype="canSetAdminMeetingSubtype"
+            :participants-required="editorMeetingKind !== 'huddle'"
             :video-configured="scheduleVideoConfigured"
+            :show-virtual-options="false"
             :show-agenda-draft="!isScheduleEventEditMode"
+            :show-goals-actions-draft="!isScheduleEventEditMode"
             :show-participants="false"
             :title-missing="isMeetingTitleMissing"
             :disabled="submitting || scheduleEventSaving"
+            @update:meetingKind="onEditorMeetingKind"
           >
-            <MeetingAgendaPanel
-              v-if="isScheduleEventEditMode && Number(scheduleEventEditId || 0) > 0"
-              meeting-type="provider_schedule_event"
-              :meeting-id="Number(scheduleEventEditId)"
-              :can-add-item="true"
-              :embedded="true"
-              style="margin-top: 4px; max-width: none;"
-            />
           </TeamMeetingBody>
 
           <SupervisionBody
@@ -1803,14 +1818,49 @@
           </div>
 
           <div
-            v-if="(editorWorkspaceTab === 'goals' || editorWorkspaceTab === 'actions') && editorIsMeeting && scheduleEventEditId"
+            v-show="editorWorkspaceTab === 'agenda' && editorIsMeeting && scheduleEventEditId"
+            class="appt-workspace-panel appt-workspace-panel--flush"
+          >
+            <MeetingAgendaPanel
+              v-if="editorIsMeeting && Number(scheduleEventEditId || 0) > 0"
+              meeting-type="provider_schedule_event"
+              :meeting-id="Number(scheduleEventEditId)"
+              :can-add-item="true"
+              :embedded="true"
+            />
+          </div>
+
+          <div
+            v-show="(editorWorkspaceTab === 'goals' || editorWorkspaceTab === 'actions') && editorIsMeeting && scheduleEventEditId"
             class="appt-workspace-panel appt-workspace-panel--flush"
           >
             <MeetingGoalsActionsPanel
+              v-if="editorIsMeeting && Number(scheduleEventEditId || 0) > 0"
               :event-id="scheduleEventEditId"
-              :section="editorWorkspaceTab"
+              :section="editorWorkspaceTab === 'actions' ? 'actions' : 'goals'"
               :meeting-subtype="meetingSubtype"
             />
+          </div>
+
+          <div
+            v-if="editorWorkspaceTab === 'attendance' && canOpenMeetingAttendanceTab"
+            class="appt-workspace-panel appt-workspace-panel--flush"
+          >
+            <MeetingAttendancePanel :event-id="scheduleEventEditId" />
+          </div>
+
+          <div
+            v-if="editorWorkspaceTab === 'time_claims' && editorIsMeeting && scheduleEventEditId"
+            class="appt-workspace-panel appt-workspace-panel--flush"
+          >
+            <MeetingTimeClaimsPanel :event-id="scheduleEventEditId" />
+          </div>
+
+          <div
+            v-if="editorWorkspaceTab === 'meeting_notes' && editorIsMeeting && scheduleEventEditId"
+            class="appt-workspace-panel appt-workspace-panel--flush"
+          >
+            <MeetingNotesPanel :event-id="scheduleEventEditId" />
           </div>
 
           <div v-show="editorWorkspaceTab === 'note'" class="appt-workspace-panel appt-workspace-panel--flush">
@@ -2939,7 +2989,10 @@
                   :key="`meeting-participant-${p.id}`"
                   type="button"
                   class="participant-card participant-card--rich"
-                  :class="{ on: selectedMeetingParticipantIdSet.has(Number(p.id)) }"
+                  :class="{
+                    on: selectedMeetingParticipantIdSet.has(Number(p.id)),
+                    busy: isMeetingParticipantBusy(p.id)
+                  }"
                   @click="toggleMeetingParticipant(Number(p.id))"
                 >
                   <img
@@ -3258,15 +3311,18 @@
               <select
                 v-model="meetingSubtype"
                 class="input"
-                :disabled="!canSetAdminMeetingSubtype && meetingSubtype !== 'admin'"
+                :disabled="!canSetAdminMeetingSubtype && meetingSubtype === 'general'"
               >
                 <option value="general">General team meeting</option>
                 <option v-if="canSetAdminMeetingSubtype || meetingSubtype === 'admin'" value="admin">
                   Admin Meeting
                 </option>
+                <option v-if="canSetAdminMeetingSubtype || meetingSubtype === 'town_hall'" value="town_hall">
+                  Town Hall
+                </option>
               </select>
               <div v-if="!canSetAdminMeetingSubtype" class="muted nr-help" style="margin-top: 4px;">
-                Only admin, support, or super admin can create Admin Meetings. Others may still be invited.
+                Only admin, support, or super admin can create Admin Meetings or Town Halls. Others may still be invited.
               </div>
             </div>
 
@@ -3458,13 +3514,46 @@
 
           <!-- Admin assign form (shown instead of standard end-time/notes/submit) -->
           <div v-if="requestType === 'admin_assign'" class="aa-form">
-            <!-- Room context info -->
-            <div v-if="modalContext.roomId" class="aa-room-info">
-              <span class="aa-room-label">Room:</span>
-              <span>{{ adminAssignRoomLabel }}</span>
+            <div class="aa-field">
+              <label class="lbl">Office</label>
+              <select
+                v-model.number="adminAssignOfficeLocationId"
+                class="input aa-input"
+                :disabled="adminAssignLoading"
+                @change="onAdminAssignOfficeChange"
+              >
+                <option :value="0">Select office…</option>
+                <option
+                  v-for="o in officeLocations"
+                  :key="`aa-office-${o.id}`"
+                  :value="Number(o.id)"
+                >
+                  {{ o.name }}
+                </option>
+              </select>
             </div>
-            <div v-else class="modern-help" style="margin-top: 8px;">
-              Switch to office layout view and click a specific room cell to assign directly. Make sure an office location is selected in the toolbar.
+
+            <div class="aa-field">
+              <label class="lbl">Room</label>
+              <select
+                v-model.number="adminAssignRoomId"
+                class="input aa-input"
+                :disabled="adminAssignLoading || !adminAssignOfficeLocationId || adminAssignRoomsLoading"
+              >
+                <option :value="0">
+                  {{ adminAssignRoomsLoading ? 'Loading rooms…' : 'Select room…' }}
+                </option>
+                <option
+                  v-for="r in adminAssignRooms"
+                  :key="`aa-room-${r.id}`"
+                  :value="Number(r.id)"
+                >
+                  {{ r.roomNumber ? `#${r.roomNumber}` : '' }} {{ r.label || r.name || `Room ${r.id}` }}
+                </option>
+              </select>
+              <div v-if="adminAssignOfficeLocationId && !adminAssignRoomsLoading && !adminAssignRooms.length" class="muted" style="margin-top: 4px; font-size: 12px;">
+                No rooms found for this office.
+              </div>
             </div>
 
             <!-- Mode: person vs company hold -->
@@ -3506,7 +3595,7 @@
             <div v-else class="aa-field aa-person-field">
               <label class="lbl">
                 Person
-                <span v-if="adminAssignProvidersLoading" class="muted" style="font-weight:400;"> (loading…)</span>
+                <span v-if="adminAssignProvidersLoading || adminAssignDirectoryLoading" class="muted" style="font-weight:400;"> (loading…)</span>
               </label>
               <div class="aa-person-search-wrap">
                 <input
@@ -3515,7 +3604,7 @@
                   :class="{ 'aa-has-selection': adminAssignPersonId }"
                   type="text"
                   autocomplete="off"
-                  placeholder="Search by name…"
+                  :placeholder="adminAssignOfficeLocationId ? 'Search providers at this office…' : 'Search by name (picks their office)…'"
                   @focus="adminAssignShowDropdown = true"
                   @blur="onAdminAssignPersonBlur"
                 />
@@ -3535,10 +3624,21 @@
               </div>
               <div v-if="adminAssignPersonId" class="aa-selected-person">
                 <span class="aa-selected-person-name">✓ {{ adminAssignPersonName }}</span>
-                <button type="button" class="aa-clear-person" title="Clear selection" @click="adminAssignPersonId = 0; adminAssignPersonName = ''; adminAssignPersonSearch = ''">Clear</button>
+                <button type="button" class="aa-clear-person" title="Clear selection" @click="clearAdminAssignPerson">Clear</button>
               </div>
-              <div v-if="!adminAssignProvidersLoading && !adminAssignProviders.length && selectedOfficeLocationId" class="muted" style="margin-top: 4px; font-size: 12px;">
-                No providers found for this office location.
+              <div
+                v-if="!adminAssignProvidersLoading && adminAssignOfficeLocationId && !adminAssignProviders.length"
+                class="muted"
+                style="margin-top: 4px; font-size: 12px;"
+              >
+                No providers found for this office. Try another office, or search a name to auto-pick their assigned office.
+              </div>
+              <div
+                v-else-if="!adminAssignProvidersLoading && !adminAssignOfficeLocationId && !adminAssignDirectory.length"
+                class="muted"
+                style="margin-top: 4px; font-size: 12px;"
+              >
+                Select an office to list its providers, or type a name to find someone and auto-select their office.
               </div>
             </div>
 
@@ -3633,6 +3733,7 @@
         <div
           v-if="isScheduleEventEditMode && editingScheduleStackItem"
           class="nr-footer"
+          :class="{ 'nr-footer--supv': canJoinEditingMeeting }"
         >
           <div v-if="scheduleEventEditError" class="error" style="flex: 1 1 100%; margin-bottom: 8px;">
             {{ scheduleEventEditError }}
@@ -3646,17 +3747,28 @@
           >
             {{ isMeetingStackItem(editingScheduleStackItem) ? 'Cancel meeting' : 'Cancel event' }}
           </button>
-          <button class="btn btn-secondary nr-btn-cancel" type="button" :disabled="scheduleEventSaving" @click="requestCloseModal">
-            Close
-          </button>
-          <button
-            class="btn nr-btn-submit"
-            type="button"
-            :disabled="scheduleEventSaving"
-            @click="saveScheduleStackItem(editingScheduleStackItem)"
-          >
-            {{ scheduleEventSaving ? 'Saving…' : 'Save changes' }}
-          </button>
+          <div class="nr-footer__actions">
+            <button
+              v-if="canJoinEditingMeeting"
+              class="btn nr-btn-join"
+              type="button"
+              :disabled="scheduleEventSaving"
+              @click="joinEditingMeeting"
+            >
+              {{ editorMeetingJoinLabel }}
+            </button>
+            <button class="btn btn-secondary nr-btn-cancel" type="button" :disabled="scheduleEventSaving" @click="requestCloseModal">
+              Close
+            </button>
+            <button
+              class="btn nr-btn-submit"
+              type="button"
+              :disabled="scheduleEventSaving"
+              @click="saveScheduleStackItem(editingScheduleStackItem)"
+            >
+              {{ scheduleEventSaving ? 'Saving…' : 'Save changes' }}
+            </button>
+          </div>
         </div>
         <div
           v-else-if="isSupervisionEditMode"
@@ -4134,7 +4246,10 @@
                             :key="`edit-meeting-participant-${p.id}`"
                             type="button"
                             class="participant-card participant-card--rich"
-                            :class="{ on: selectedMeetingParticipantIdSet.has(Number(p.id)) }"
+                            :class="{
+                              on: selectedMeetingParticipantIdSet.has(Number(p.id)),
+                              busy: isMeetingParticipantBusy(p.id)
+                            }"
                             @click="toggleMeetingParticipant(Number(p.id))"
                           >
                             <img
@@ -4150,7 +4265,12 @@
                             >{{ providerInitials(p) }}</span>
                             <span class="participant-copy">
                               <span class="participant-name">{{ supervisionParticipantLabel(p) }}</span>
-                              <span class="participant-role">{{ String(p.role || '').trim() || 'provider' }}</span>
+                              <span class="participant-role">
+                                {{ String(p.role || '').trim() || 'provider' }}
+                                <template v-if="meetingParticipantBusyText(p.id)">
+                                  • {{ meetingParticipantBusyText(p.id) }}
+                                </template>
+                              </span>
                             </span>
                           </button>
                         </div>
@@ -4714,6 +4834,9 @@ import SupervisionBody from './SupervisionBody.vue';
 import SupervisionNotePanel from './SupervisionNotePanel.vue';
 import SupervisionGoalsActionsPanel from './SupervisionGoalsActionsPanel.vue';
 import MeetingGoalsActionsPanel from '../meetings/MeetingGoalsActionsPanel.vue';
+import MeetingAttendancePanel from '../meetings/MeetingAttendancePanel.vue';
+import MeetingTimeClaimsPanel from '../meetings/MeetingTimeClaimsPanel.vue';
+import MeetingNotesPanel from '../meetings/MeetingNotesPanel.vue';
 import SupervisionSuperviseePanel from './SupervisionSuperviseePanel.vue';
 import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
@@ -7578,6 +7701,14 @@ const officeRequestsApproveLink = computed(() => {
 });
 const currentUserRole = computed(() => String(authStore.user?.role || '').trim().toLowerCase());
 const isProviderPlus = computed(() => currentUserRole.value === 'provider_plus');
+const isCpaOrProviderPlus = computed(() => (
+  currentUserRole.value === 'provider_plus' || currentUserRole.value === 'clinical_practice_assistant'
+));
+const canScheduleHuddleForOthers = computed(() => (
+  ['super_admin', 'superadmin', 'admin', 'support'].includes(currentUserRole.value)
+));
+const canSeeHuddleAction = computed(() => isCpaOrProviderPlus.value || canScheduleHuddleForOthers.value);
+const HUDDLE_HOST_ROLES = new Set(['clinical_practice_assistant', 'provider_plus']);
 const TRAINING_PAY_HOST_ROLES = new Set(['clinical_practice_assistant', 'provider_plus']);
 const bookingTargetRoleKey = computed(() => {
   const id = Number(bookingTargetUserId.value || props.userId || authStore.user?.id || 0);
@@ -7587,17 +7718,61 @@ const bookingTargetRoleKey = computed(() => {
   const raw = (bookingProvidersRaw.value || []).find((u) => Number(u?.id || 0) === id);
   return String(raw?.role || raw?.user_role || '').trim().toLowerCase();
 });
+const huddleHostRoleKey = computed(() => {
+  // Huddle host is the calendar being booked (viewed user / booking target).
+  const id = Number(bookingTargetUserId.value || props.userId || authStore.user?.id || 0);
+  if (id > 0 && id === Number(authStore.user?.id || 0)) {
+    return String(authStore.user?.role || '').trim().toLowerCase();
+  }
+  // Prefer full coworker roster (includes host) over filtered available-attendee list.
+  const raw = (bookingProvidersRaw.value || []).find((u) => Number(u?.id || 0) === id)
+    || (meetingCandidates.value || []).find((u) => Number(u?.id || 0) === id)
+    || (availableMeetingCandidates.value || []).find((u) => Number(u?.id || 0) === id);
+  if (raw) return String(raw?.role || raw?.user_role || '').trim().toLowerCase();
+  // When viewing another user's schedule in admin mode, prefer that user's role if loaded.
+  if (Number(props.userId || 0) > 0 && Number(props.userId) !== Number(authStore.user?.id || 0)) {
+    const viewed = (bookingProvidersRaw.value || []).find((u) => Number(u?.id || 0) === Number(props.userId))
+      || (meetingCandidates.value || []).find((u) => Number(u?.id || 0) === Number(props.userId));
+    if (viewed) return String(viewed?.role || viewed?.user_role || '').trim().toLowerCase();
+  }
+  return bookingTargetRoleKey.value;
+});
 const canMarkMeetingTrainingPay = computed(() => TRAINING_PAY_HOST_ROLES.has(bookingTargetRoleKey.value));
 const meetingIsTrainingPayEligible = ref(false);
-/** general | admin — Admin Meeting only creatable by super_admin/admin/support */
+/** general | admin | town_hall — privileged subtypes only creatable by super_admin/admin/support */
 const meetingSubtype = ref('general');
 const canSetAdminMeetingSubtype = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'superadmin', 'admin', 'support'].includes(role);
 });
+function normalizeMeetingSubtype(value) {
+  const subtype = String(value || 'general').trim().toLowerCase();
+  if (subtype === 'admin' || subtype === 'town_hall') return subtype;
+  return 'general';
+}
+function meetingSubtypeForCreatePayload() {
+  if (!canSetAdminMeetingSubtype.value) return 'general';
+  return normalizeMeetingSubtype(meetingSubtype.value);
+}
+/** Hide Admin Time checkbox for Huddles — Huddle kind itself initiates Individual Meeting pay. */
 const showMeetingTrainingPayOption = computed(() => (
-  canMarkMeetingTrainingPay.value || !!meetingIsTrainingPayEligible.value
+  String(requestType.value || '') !== 'huddle'
+  && (canMarkMeetingTrainingPay.value || !!meetingIsTrainingPayEligible.value)
 ));
+const editorMeetingKind = computed(() => {
+  if (isScheduleEventEditMode.value) {
+    const kind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
+    return kind === 'HUDDLE' ? 'huddle' : 'agency_meeting';
+  }
+  return String(requestType.value || '') === 'huddle' ? 'huddle' : 'agency_meeting';
+});
+function onEditorMeetingKind(value) {
+  const v = String(value || '').trim().toLowerCase();
+  if (v !== 'agency_meeting' && v !== 'huddle') return;
+  if (isAppointmentEditMode.value) return;
+  if (String(requestType.value || '') === v) return;
+  onEditorAppointmentType(v);
+}
 const canScheduleSupervisionFromGrid = computed(() => isSupervisor(authStore.user));
 const canBookGroupSupervisionFromGrid = computed(() => canScheduleGroupSupervision(authStore.user));
 const isViewingOtherUserSchedule = computed(() => {
@@ -8718,7 +8893,10 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
   }
   let typePrefix = 'Event';
   if (eventKind === 'TEAM_MEETING') {
-    typePrefix = String(ev?.meetingSubtype || '').toLowerCase() === 'admin' ? 'Admin Meeting' : 'Meeting';
+    const subtype = String(ev?.meetingSubtype || '').toLowerCase();
+    if (subtype === 'admin') typePrefix = 'Admin Meeting';
+    else if (subtype === 'town_hall') typePrefix = 'Town Hall';
+    else typePrefix = 'Meeting';
   } else if (eventKind === 'HUDDLE') typePrefix = 'Huddle';
   else if (eventKind === 'SCHEDULE_HOLD') typePrefix = ev?.allDay ? 'All-day block' : 'Hold';
   else if (eventKind === 'INDIRECT_SERVICES') typePrefix = 'Indirect';
@@ -9475,6 +9653,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       key: `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
       kind: 'sevt',
       eventKind: String(ev?.kind || '').trim().toUpperCase(),
+      meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),
       allDay: !!ev?.allDay,
       shortLabel: scheduleEventShortLabel(ev, 'start', { multiline: true }),
       title: scheduleEventBlockTitle(ev, dayName, hour),
@@ -10305,9 +10484,17 @@ const availableQuickActions = computed(() => {
     {
       id: 'huddle',
       label: 'Huddle',
-      description: 'Provider Plus: schedule a huddle with one or more participants (99415 for host, MEETING for participants)',
-      disabledReason: isProviderPlus.value ? '' : 'Provider Plus only',
-      visible: !supervisionOnlyMode && isProviderPlus.value,
+      description: canScheduleHuddleForOthers.value && !isCpaOrProviderPlus.value
+        ? 'Schedule a Huddle for a CPA or Provider Plus host (Individual Meeting rate for host; MEETING for attendees)'
+        : 'CPA / Provider Plus: host paid at Individual Meeting rate; attendees at MEETING rate',
+      disabledReason: canSeeHuddleAction.value
+        ? ((canScheduleHuddleForOthers.value
+          && huddleHostRoleKey.value
+          && !HUDDLE_HOST_ROLES.has(huddleHostRoleKey.value))
+          ? 'Select a CPA or Provider Plus calendar as the Huddle host'
+          : '')
+        : 'CPA, Provider Plus, or admin/support/super admin only',
+      visible: !supervisionOnlyMode && canSeeHuddleAction.value,
       tone: 'cyan'
     },
     {
@@ -11173,10 +11360,11 @@ const editorTypeOptions = computed(() => {
   if (!showAppointmentEditorShell.value) return [];
   if (editorIsOpenSlot.value || editorIsSupervision.value) return [];
   if (editorIsMeeting.value) {
-    return [
-      { value: 'agency_meeting', label: 'Team Meeting' },
-      { value: 'huddle', label: 'Huddle' }
-    ];
+    const opts = [{ value: 'agency_meeting', label: 'Team Meeting' }];
+    if (canSeeHuddleAction.value || editorMeetingKind.value === 'huddle') {
+      opts.push({ value: 'huddle', label: 'Huddle' });
+    }
+    return opts;
   }
   if (!editorIsClinical.value) return [];
   // Overarching practice categories (Coaching, Consulting, Mental health, Tutoring).
@@ -11240,10 +11428,30 @@ const editorWorkspaceTabs = computed(() => {
     tabs.push({ id: 'supervisee', label: 'Supervisee', icon: '◎' });
   }
   if (editorIsMeeting.value && Number(scheduleEventEditId.value || 0) > 0) {
+    // Dedicated tabs for Agenda / Goals / Actions (single editor instance each — avoids reload thrash).
     tabs.splice(1, 0,
+      { id: 'agenda', label: 'Agenda', icon: '☰' },
       { id: 'goals', label: 'Goals', icon: '◎' },
       { id: 'actions', label: 'Action Items', icon: '☑' }
     );
+    const eventKind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
+    const subtype = normalizeMeetingSubtype(meetingSubtype.value || editingScheduleStackItem.value?.meetingSubtype);
+    const showComp = eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall';
+    tabs.push({
+      id: 'attendance',
+      label: 'Attendance',
+      icon: '◎',
+      disabled: !showComp,
+      disabledReason: showComp
+        ? ''
+        : 'Attendance tracking is available for Huddles, Admin Meetings, and Town Halls'
+    });
+    if (showComp) {
+      tabs.push({ id: 'time_claims', label: 'Time Claims', icon: '$' });
+    }
+    if (eventKind === 'HUDDLE' || eventKind === 'TEAM_MEETING') {
+      tabs.push({ id: 'meeting_notes', label: 'Notes', icon: '✎' });
+    }
   }
   if (editorShowBillingTab.value) tabs.push({ id: 'billing', label: 'Billing', icon: '$' });
   if (editorShowClinicalTab.value) tabs.push({ id: 'clinical', label: 'Clinical', icon: '☰' });
@@ -11531,6 +11739,8 @@ const editorParticipantLabel = computed(() => {
 const editorMeetingParticipantNames = computed(() => {
   const chips = selectedMeetingParticipantChips.value || [];
   return chips.map((chip) => {
+    const cached = String(meetingParticipantNameById.value?.[chip.id] || '').trim();
+    if (cached) return cached;
     const label = supervisionParticipantLabel(chip.row || { id: chip.id });
     return String(label || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || `User #${chip.id}`;
   }).filter(Boolean);
@@ -12379,8 +12589,10 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
     void loadBookingProviderDirectory();
   }
   if (editorIsMeeting.value || ['agency_meeting', 'huddle', 'TEAM_MEETING', 'HUDDLE'].includes(k)) {
-    meetingParticipantsExpanded.value = selectedMeetingParticipantIdSet.value.size === 0;
+    // Keep the coworker grid collapsed unless the user opens Participants.
+    meetingParticipantsExpanded.value = false;
     void loadMeetingCandidates();
+    if (canSelectBookingProvider.value) void loadBookingProviderDirectory();
   }
   if (editorIsSupervision.value || k === 'supervision') {
     if (!isSupervisionEditMode.value) {
@@ -13398,6 +13610,12 @@ const showIndividualSupervisionWorkspace = computed(() => {
   const t = fromSession || supervisionEffectiveSessionType.value;
   return t === 'individual' || t === '1:1' || t === 'one_on_one' || t === 'one-on-one';
 });
+const canOpenMeetingAttendanceTab = computed(() => {
+  if (!editorIsMeeting.value || !Number(scheduleEventEditId.value || 0)) return false;
+  const eventKind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
+  const subtype = normalizeMeetingSubtype(meetingSubtype.value || editingScheduleStackItem.value?.meetingSubtype);
+  return eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall';
+});
 const supervisionCanUseAllAgencies = computed(
   () => supervisionGroupModeEnabled.value && canBookGroupSupervisionFromGrid.value && (effectiveAgencyIds.value || []).length > 1
 );
@@ -13667,14 +13885,33 @@ const meetingInviteGroups = ref([]);
 const meetingCandidatesError = ref('');
 const meetingParticipantSearch = ref('');
 const selectedMeetingParticipantIds = ref([]);
-const meetingParticipantsExpanded = ref(true);
+const meetingParticipantNameById = ref({});
+const meetingParticipantsExpanded = ref(false);
 const meetingCreateGroupBusy = ref(false);
 const meetingCreateGroupError = ref('');
 const createMeetingMeetLink = ref(true);
 const linkMeetingPlatformVideo = ref(true);
 const editorMeetingWaitingRoomEnabled = ref(true);
+const createGoalDraftItems = ref([]);
+const createActionDraftItems = ref([]);
 
 const scheduleVideoConfigured = computed(() => !!summary.value?.videoConfigured);
+
+function rememberMeetingParticipantNames(rows = []) {
+  const next = { ...(meetingParticipantNameById.value || {}) };
+  for (const row of rows || []) {
+    const id = Number(row?.id || row?.userId || 0);
+    if (!id) continue;
+    const name = String(
+      row?.name
+      || [row?.firstName || row?.first_name, row?.lastName || row?.last_name].filter(Boolean).join(' ').trim()
+      || row?.email
+      || ''
+    ).trim();
+    if (name) next[id] = name;
+  }
+  meetingParticipantNameById.value = next;
+}
 
 function addCreateAgendaDraftItem() {
   const t = String(createAgendaDraftTitle.value || '').trim();
@@ -13699,8 +13936,29 @@ async function postAgendaItemsForNewMeeting(meetingType, meetingId, itemsToAdd) 
     if (!itemsToAdd) createAgendaDraftItems.value = [];
   }
 }
+async function postWorkspaceDraftForNewMeeting(eventId, { goals = [], actionItems = [] } = {}) {
+  const eid = Number(eventId || 0);
+  if (!eid) return;
+  const cleanGoals = (goals || [])
+    .map((g) => ({ text: String(g?.text || g || '').trim(), done: !!g?.done }))
+    .filter((g) => g.text);
+  const cleanActions = (actionItems || [])
+    .map((a) => ({ text: String(a?.text || a || '').trim(), done: !!a?.done }))
+    .filter((a) => a.text);
+  if (!cleanGoals.length && !cleanActions.length) return;
+  try {
+    await api.post(`/team-meetings/${eid}/workspace`, {
+      goals: cleanGoals,
+      actionItems: cleanActions
+    }, { skipGlobalLoading: true });
+  } catch {
+    // best-effort
+  }
+}
 const meetingIncludeAllAgencies = ref(false);
 const meetingBusyByUserId = ref({});
+const meetingBusyLabelByUserId = ref({});
+const meetingBusySlotKey = ref('');
 const meetingBusyLoading = ref(false);
 
 const meetingCanUseAllAgencies = computed(() => (effectiveAgencyIds.value || []).length > 1);
@@ -13749,7 +14007,8 @@ const selectedMeetingOutOfAgencyCount = computed(() => {
   for (const id of selectedMeetingParticipantIdSet.value.values()) {
     const row = byId.get(Number(id));
     if (!row) {
-      // Selected person is outside the loaded candidate scope for this tenant.
+      // Keep known attendees from the saved event; only flag unknown selections.
+      if (String(meetingParticipantNameById.value?.[id] || '').trim()) continue;
       count += 1;
       continue;
     }
@@ -13760,14 +14019,16 @@ const selectedMeetingOutOfAgencyCount = computed(() => {
   }
   return count;
 });
-const meetingCanSubmit = computed(
-  () => !meetingCandidatesLoading.value
-    && !meetingCandidatesError.value
-    && selectedMeetingParticipantIdSet.value.size > 0
-    && selectedMeetingOutOfAgencyCount.value === 0
-);
+const meetingCanSubmit = computed(() => {
+  const t = String(requestType.value || '');
+  if (meetingCandidatesLoading.value || meetingCandidatesError.value) return false;
+  if (selectedMeetingOutOfAgencyCount.value > 0) return false;
+  // Huddles may be host-only; team meetings require at least one participant.
+  if (t === 'huddle') return true;
+  return selectedMeetingParticipantIdSet.value.size > 0;
+});
 const isMeetingParticipantsMissing = computed(() => (
-  ['agency_meeting', 'huddle'].includes(String(requestType.value || ''))
+  String(requestType.value || '') === 'agency_meeting'
   && !meetingCandidatesLoading.value
   && selectedMeetingParticipantIdSet.value.size === 0
 ));
@@ -13782,20 +14043,44 @@ const requestModalIsDirty = computed(() => {
 });
 const selectedMeetingParticipantChips = computed(() => {
   const byId = new Map();
-  for (const row of (availableMeetingCandidates.value || [])) {
+  // Use full roster (not filtered) so selected people still resolve after list reloads.
+  for (const row of (meetingCandidates.value || [])) {
     const id = Number(row?.id || 0);
     if (id > 0) byId.set(id, row);
   }
-  return Array.from(selectedMeetingParticipantIdSet.value.values()).map((id) => ({
-    id,
-    row: byId.get(id) || null
-  }));
+  for (const row of (availableMeetingCandidates.value || [])) {
+    const id = Number(row?.id || 0);
+    if (id > 0 && !byId.has(id)) byId.set(id, row);
+  }
+  return Array.from(selectedMeetingParticipantIdSet.value.values()).map((id) => {
+    const row = byId.get(id) || null;
+    const cached = String(meetingParticipantNameById.value?.[id] || '').trim();
+    if (row) return { id, row };
+    if (cached) {
+      const parts = cached.split(/\s+/);
+      return {
+        id,
+        row: {
+          id,
+          firstName: parts[0] || cached,
+          lastName: parts.slice(1).join(' '),
+          name: cached
+        }
+      };
+    }
+    return { id, row: null };
+  });
 });
 const meetingParticipantBusyText = (userId) => {
   const id = Number(userId || 0);
   if (!id) return '';
-  if (meetingBusyLoading.value) return 'Checking...';
-  return meetingBusyByUserId.value[id] ? 'Busy in this slot' : 'Available in this slot';
+  // Only show Checking for people we have not resolved yet (global flag made everyone flicker).
+  if (!Object.prototype.hasOwnProperty.call(meetingBusyByUserId.value || {}, id)) {
+    return meetingBusyLoading.value ? 'Checking…' : '';
+  }
+  if (!meetingBusyByUserId.value[id]) return 'Available in this slot';
+  const label = String(meetingBusyLabelByUserId.value?.[id] || '').trim();
+  return label ? `Busy · ${label}` : 'Busy in this slot';
 };
 const isMeetingParticipantBusy = (userId) => {
   const id = Number(userId || 0);
@@ -13805,17 +14090,29 @@ const toggleMeetingParticipant = (userId) => {
   const id = Number(userId || 0);
   if (!id) return;
   const next = new Set((selectedMeetingParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
+  const wasSelected = next.has(id);
+  if (wasSelected) next.delete(id);
+  else {
+    next.add(id);
+    const row = (meetingCandidates.value || []).find((r) => Number(r?.id || 0) === id)
+      || (availableMeetingCandidates.value || []).find((r) => Number(r?.id || 0) === id);
+    if (row) rememberMeetingParticipantNames([row]);
+  }
   selectedMeetingParticipantIds.value = Array.from(next.values());
+  if (!wasSelected) meetingParticipantSearch.value = '';
 };
 const selectAllFilteredMeetingParticipants = () => {
   const next = new Set((selectedMeetingParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  let addedAny = false;
   for (const row of (filteredMeetingCandidates.value || [])) {
     const id = Number(row?.id || 0);
-    if (id > 0) next.add(id);
+    if (id > 0 && !next.has(id)) {
+      next.add(id);
+      addedAny = true;
+    }
   }
   selectedMeetingParticipantIds.value = Array.from(next.values());
+  if (addedAny) meetingParticipantSearch.value = '';
 };
 const selectAllAvailableMeetingParticipants = () => {
   selectedMeetingParticipantIds.value = Array.from(new Set(
@@ -14182,9 +14479,9 @@ const loadVirtualSessionClients = async (agencyIdOverride = null) => {
   }
 };
 
-const hasBusyOverlapInSummary = (summaryPayload, ranges = []) => {
+const getBusyConflictFromSummary = (summaryPayload, ranges = []) => {
   const targetRanges = Array.isArray(ranges) ? ranges : [];
-  if (!targetRanges.length) return false;
+  if (!targetRanges.length) return { busy: false, label: '' };
   const toDate = (v) => {
     const d = new Date(v);
     return Number.isNaN(d.getTime()) ? null : d;
@@ -14195,34 +14492,148 @@ const hasBusyOverlapInSummary = (summaryPayload, ranges = []) => {
     if (!st || !en) return false;
     return targetRanges.some((r) => st < r.end && en > r.start);
   };
+  const labelFromRow = (row) => {
+    const title = String(row?.title || '').trim();
+    if (title) return title;
+    const activity = String(row?.activityType || '').trim().toLowerCase();
+    if (activity === 'team_meeting') return 'Team meeting';
+    if (activity === 'huddle') return 'Huddle';
+    if (activity === 'supervision') return 'Supervision';
+    if (activity === 'session') return 'Session';
+    if (activity === 'school') return 'School';
+    if (activity === 'hold') return 'Schedule hold';
+    if (activity === 'indirect') return 'Indirect';
+    if (activity === 'personal') return 'Personal';
+    if (activity === 'external') return 'External busy';
+    const kind = String(row?.kind || row?.eventKind || '').trim().toUpperCase();
+    if (kind === 'TEAM_MEETING') return 'Team meeting';
+    if (kind === 'HUDDLE') return 'Huddle';
+    if (kind === 'SCHEDULE_HOLD') return 'Schedule hold';
+    if (kind === 'INDIRECT_SERVICES') return 'Indirect';
+    if (kind === 'PERSONAL_EVENT') return 'Personal';
+    return 'Busy';
+  };
 
-  const officeEvents = Array.isArray(summaryPayload?.officeEvents) ? summaryPayload.officeEvents : [];
-  if (officeEvents.some((e) => overlaps(e?.startAt, e?.endAt))) return true;
-  const scheduleEvents = Array.isArray(summaryPayload?.scheduleEvents) ? summaryPayload.scheduleEvents : [];
-  if (scheduleEvents.some((e) => overlaps(e?.startAt, e?.endAt))) return true;
-  const supervisionSessions = Array.isArray(summaryPayload?.supervisionSessions) ? summaryPayload.supervisionSessions : [];
-  if (supervisionSessions.some((e) => overlaps(e?.startAt, e?.endAt))) return true;
-  const googleBusy = Array.isArray(summaryPayload?.googleBusy) ? summaryPayload.googleBusy : [];
-  if (googleBusy.some((e) => overlaps(e?.startAt, e?.endAt))) return true;
-  const externalBusy = Array.isArray(summaryPayload?.externalBusy) ? summaryPayload.externalBusy : [];
-  if (externalBusy.some((e) => overlaps(e?.startAt, e?.endAt))) return true;
-  return false;
+  // Prefer typed busyBlocks (includes activity titles).
+  const busyBlocks = Array.isArray(summaryPayload?.busyBlocks) ? summaryPayload.busyBlocks : [];
+  for (const block of busyBlocks) {
+    const status = String(block?.displayStatus || '').toUpperCase();
+    const activity = String(block?.activityType || '').toLowerCase();
+    if (status === 'AVAILABLE' || activity === 'opening') continue;
+    if (!overlaps(block?.startAt, block?.endAt)) continue;
+    return { busy: true, label: labelFromRow(block) };
+  }
+  if (busyBlocks.length) return { busy: false, label: '' };
+
+  const collections = [
+    Array.isArray(summaryPayload?.officeEvents) ? summaryPayload.officeEvents : [],
+    Array.isArray(summaryPayload?.scheduleEvents) ? summaryPayload.scheduleEvents : [],
+    Array.isArray(summaryPayload?.supervisionSessions) ? summaryPayload.supervisionSessions : [],
+    Array.isArray(summaryPayload?.googleBusy) ? summaryPayload.googleBusy : [],
+    Array.isArray(summaryPayload?.externalBusy) ? summaryPayload.externalBusy : []
+  ];
+  for (const rows of collections) {
+    for (const row of rows) {
+      const startAt = row?.startAt || row?.start;
+      const endAt = row?.endAt || row?.end;
+      if (!overlaps(startAt, endAt)) continue;
+      return { busy: true, label: labelFromRow(row) };
+    }
+  }
+  return { busy: false, label: '' };
 };
 
-let meetingBusyLoadGeneration = 0;
+const meetingBusySlotKeyForCurrent = () => ([
+  String(weekStart.value || ''),
+  String(modalDay.value || ''),
+  String(effectiveModalStartHour.value || modalHour.value || ''),
+  String(modalEndHour.value || ''),
+  String(canUseQuarterHourInput.value ? modalStartMinute.value : 0),
+  String(canUseQuarterHourInput.value ? modalEndMinute.value : 0),
+  meetingUsingAllAgencies.value ? 'all' : String(effectiveAgencyId.value || 0),
+  props.hideOfficeAndCalendarIntegration ? 'g0' : (showGoogleBusy.value ? 'g1' : 'g0')
+].join('|'));
+
+const applyMeetingBusyEntries = (entries = []) => {
+  if (!entries.length) return;
+  const nextBusy = { ...meetingBusyByUserId.value };
+  const nextLabels = { ...meetingBusyLabelByUserId.value };
+  for (const [id, busy, label] of entries) {
+    nextBusy[id] = !!busy;
+    if (busy && label) nextLabels[id] = label;
+    else delete nextLabels[id];
+  }
+  meetingBusyByUserId.value = nextBusy;
+  meetingBusyLabelByUserId.value = nextLabels;
+};
+
+const fetchMeetingBusyEntries = async (ids, ranges) => {
+  const list = (Array.isArray(ids) ? ids : []).map((n) => Number(n || 0)).filter((n) => n > 0);
+  if (!list.length) return [];
+  const concurrency = Math.min(6, list.length);
+  const out = new Array(list.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < list.length) {
+      const idx = cursor;
+      cursor += 1;
+      const id = list[idx];
+      try {
+        const params = {
+          weekStart: weekStart.value,
+          // Typed returns activity titles (Team meeting, Supervision, etc.) without client PII.
+          detailLevel: 'typed',
+          includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false')
+        };
+        if (meetingUsingAllAgencies.value || !(Number(effectiveAgencyId.value || 0) > 0)) {
+          params.includeAllAgencies = 'true';
+        } else {
+          params.agencyId = Number(effectiveAgencyId.value);
+        }
+        const r = await api.get(`/users/${id}/schedule-summary`, {
+          params,
+          skipGlobalLoading: true
+        });
+        const conflict = getBusyConflictFromSummary(r?.data || {}, ranges);
+        out[idx] = [id, !!conflict.busy, String(conflict.label || '').trim()];
+      } catch {
+        out[idx] = [id, false, ''];
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  return out.filter(Boolean);
+};
+
 let meetingBusyDebounceTimer = null;
-const loadMeetingBusyByParticipant = async () => {
-  // Only check people the user can see/select — never every coworker × every keystroke.
+let meetingBusyPendingOpts = {};
+let meetingBusyInFlightCount = 0;
+const meetingBusyFetchInFlight = new Set();
+const loadMeetingBusyByParticipant = async (opts = {}) => {
+  // Selected first, then only people currently visible — cache per slot so search does not re-hit APIs.
   const selected = Array.from(selectedMeetingParticipantIdSet.value.values());
+  const prioritize = (Array.isArray(opts?.prioritizeIds) ? opts.prioritizeIds : [])
+    .map((n) => Number(n || 0))
+    .filter((n) => n > 0);
   const visible = (filteredMeetingCandidates.value || [])
     .map((r) => Number(r?.id || 0))
-    .filter((n) => n > 0);
-  const idSet = new Set([...selected, ...visible.slice(0, 24)]);
-  const ids = Array.from(idSet.values());
-  if (!ids.length) {
+    .filter((n) => n > 0)
+    .slice(0, 24);
+  const slotKey = meetingBusySlotKeyForCurrent();
+  if (slotKey !== meetingBusySlotKey.value) {
+    meetingBusySlotKey.value = slotKey;
     meetingBusyByUserId.value = {};
-    return;
+    meetingBusyLabelByUserId.value = {};
+    meetingBusyFetchInFlight.clear();
   }
+  const needsCheck = (id) => (
+    !Object.prototype.hasOwnProperty.call(meetingBusyByUserId.value || {}, id)
+    && !meetingBusyFetchInFlight.has(id)
+  );
+  const priorityIds = [...new Set([...prioritize, ...selected])].filter(needsCheck);
+  const restIds = visible.filter((id) => !priorityIds.includes(id) && needsCheck(id));
+  if (!priorityIds.length && !restIds.length) return;
+
   const ranges = mergeSelectedSlotsByDay({ dayName: modalDay.value, startHour: Number(effectiveModalStartHour.value || modalHour.value), endHour: Number(modalEndHour.value) })
     .map((row) => {
       const dateYmd = String(row?.dateYmd || '').slice(0, 10);
@@ -14237,50 +14648,52 @@ const loadMeetingBusyByParticipant = async () => {
     .filter(Boolean);
   if (!ranges.length) {
     meetingBusyByUserId.value = {};
+    meetingBusyLabelByUserId.value = {};
     return;
   }
-  const generation = ++meetingBusyLoadGeneration;
+
+  const claimIds = [...priorityIds, ...restIds];
+  for (const id of claimIds) meetingBusyFetchInFlight.add(id);
+  meetingBusyInFlightCount += 1;
   meetingBusyLoading.value = true;
   try {
-    const entries = await Promise.all(
-      ids.map(async (id) => {
-        try {
-          const params = {
-            weekStart: weekStart.value,
-            detailLevel: 'busy',
-            includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false')
-          };
-          if (meetingUsingAllAgencies.value || !(Number(effectiveAgencyId.value || 0) > 0)) {
-            params.includeAllAgencies = 'true';
-          } else {
-            params.agencyId = Number(effectiveAgencyId.value);
-          }
-          const r = await api.get(`/users/${id}/schedule-summary`, {
-            params,
-            skipGlobalLoading: true
-          });
-          const busy = hasBusyOverlapInSummary(r?.data || {}, ranges);
-          return [id, busy];
-        } catch {
-          return [id, false];
-        }
-      })
-    );
-    if (generation !== meetingBusyLoadGeneration) return;
-    meetingBusyByUserId.value = {
-      ...meetingBusyByUserId.value,
-      ...Object.fromEntries(entries)
-    };
+    if (priorityIds.length) {
+      const entries = await fetchMeetingBusyEntries(priorityIds, ranges);
+      if (slotKey === meetingBusySlotKey.value) applyMeetingBusyEntries(entries);
+      for (const id of priorityIds) meetingBusyFetchInFlight.delete(id);
+    }
+    if (restIds.length) {
+      const entries = await fetchMeetingBusyEntries(restIds, ranges);
+      if (slotKey === meetingBusySlotKey.value) applyMeetingBusyEntries(entries);
+      for (const id of restIds) meetingBusyFetchInFlight.delete(id);
+    }
   } finally {
-    if (generation === meetingBusyLoadGeneration) meetingBusyLoading.value = false;
+    for (const id of claimIds) meetingBusyFetchInFlight.delete(id);
+    meetingBusyInFlightCount = Math.max(0, meetingBusyInFlightCount - 1);
+    if (meetingBusyInFlightCount === 0) meetingBusyLoading.value = false;
   }
 };
-const scheduleMeetingBusyCheck = () => {
+const scheduleMeetingBusyCheck = (opts = {}) => {
+  meetingBusyPendingOpts = {
+    ...meetingBusyPendingOpts,
+    ...opts,
+    prioritizeIds: [
+      ...((Array.isArray(meetingBusyPendingOpts?.prioritizeIds) ? meetingBusyPendingOpts.prioritizeIds : [])),
+      ...((Array.isArray(opts?.prioritizeIds) ? opts.prioritizeIds : []))
+    ]
+  };
   if (meetingBusyDebounceTimer) clearTimeout(meetingBusyDebounceTimer);
-  meetingBusyDebounceTimer = setTimeout(() => {
+  const run = () => {
     meetingBusyDebounceTimer = null;
-    void loadMeetingBusyByParticipant();
-  }, 250);
+    const pending = meetingBusyPendingOpts;
+    meetingBusyPendingOpts = {};
+    void loadMeetingBusyByParticipant(pending);
+  };
+  if (opts?.immediate) {
+    run();
+    return;
+  }
+  meetingBusyDebounceTimer = setTimeout(run, 180);
 };
 
 const loadMeetingCandidates = async () => {
@@ -14300,6 +14713,7 @@ const loadMeetingCandidates = async () => {
       skipGlobalLoading: true
     });
     meetingCandidates.value = Array.isArray(r?.data?.users) ? r.data.users : [];
+    rememberMeetingParticipantNames(meetingCandidates.value);
     meetingInviteGroups.value = Array.isArray(r?.data?.groups)
       ? r.data.groups.map((g) => ({
         key: String(g?.key || ''),
@@ -14727,10 +15141,15 @@ const openSlotActionModal = async ({
   selectedMeetingParticipantIds.value = [];
   meetingIncludeAllAgencies.value = false;
   meetingBusyByUserId.value = {};
+  meetingBusyLabelByUserId.value = {};
+  meetingBusySlotKey.value = '';
   createMeetingMeetLink.value = !scheduleVideoConfigured.value;
   linkMeetingPlatformVideo.value = scheduleVideoConfigured.value;
   createAgendaDraftTitle.value = '';
   createAgendaDraftItems.value = [];
+  createGoalDraftItems.value = [];
+  createActionDraftItems.value = [];
+  meetingParticipantNameById.value = {};
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
   // Prefer the standing assignee when opening an assigned office cell so admin work on
   // another person's calendar (e.g. Super Admin) does not default the booking target to that subject.
@@ -14744,9 +15163,9 @@ const openSlotActionModal = async ({
   if (isScheduleSuperAdmin.value && !(agencyStore.agencies || []).length) {
     void agencyStore.fetchAgencies().catch(() => {});
   }
-  // Pre-fill admin assign person with the schedule's user (works in both self and admin mode)
+  // Admin assign: never auto-pick the calendar owner — office + person are chosen in the form.
   if (canManageOffices.value) {
-    adminAssignPersonId.value = Number(scheduleActorUserId.value || props.userId || 0);
+    adminAssignPersonId.value = 0;
     adminAssignPersonName.value = '';
     adminAssignPersonSearch.value = '';
   }
@@ -15057,6 +15476,12 @@ const adminAssignLoading = ref(false);
 const adminAssignError = ref('');
 const adminAssignProviders = ref([]);
 const adminAssignProvidersLoading = ref(false);
+const adminAssignOfficeLocationId = ref(0);
+const adminAssignRoomId = ref(0);
+const adminAssignRooms = ref([]);
+const adminAssignRoomsLoading = ref(false);
+const adminAssignDirectory = ref([]);
+const adminAssignDirectoryLoading = ref(false);
 
 // ---- Cancel booking action state ----
 const cancelBookingScope = ref('occurrence'); // 'occurrence' | 'future'
@@ -15617,7 +16042,12 @@ const typeStyleToken = (b) => {
   if (kind === 'intake-vi') return 'VI';
   if (kind === 'sevt') {
     const eventKind = String(b?.eventKind || '').toUpperCase();
-    if (eventKind === 'TEAM_MEETING') return 'Meeting';
+    if (eventKind === 'TEAM_MEETING') {
+      const subtype = String(b?.meetingSubtype || '').toLowerCase();
+      if (subtype === 'admin') return 'Admin';
+      if (subtype === 'town_hall') return 'Town Hall';
+      return 'Meeting';
+    }
     if (eventKind === 'HUDDLE') return 'Huddle';
     if (eventKind === 'FALL_CHECKIN_PRESLOT') return 'Visit hold';
     if (eventKind === 'FALL_CHECKIN_BOOKED') return 'School visit';
@@ -15790,8 +16220,16 @@ const onOfficeAssignStartHourChange = () => {
   syncOfficeAssignTimesToModal();
 };
 
+const adminAssignPersonPool = computed(() => {
+  // Prefer office roster when an office is selected; otherwise agency directory for person-first search.
+  if (Number(adminAssignOfficeLocationId.value || 0) > 0) {
+    return Array.isArray(adminAssignProviders.value) ? adminAssignProviders.value : [];
+  }
+  return Array.isArray(adminAssignDirectory.value) ? adminAssignDirectory.value : [];
+});
+
 const adminAssignPersonResults = computed(() => {
-  const list = adminAssignProviders.value || [];
+  const list = adminAssignPersonPool.value || [];
   const q = (adminAssignPersonSearch.value || '').trim().toLowerCase();
   if (!q) return list.slice(0, 30);
   return list.filter((p) =>
@@ -15802,21 +16240,14 @@ const adminAssignPersonResults = computed(() => {
 });
 
 const adminAssignCanSubmit = computed(() =>
-  !adminAssignLoading.value && (
-    adminAssignMode.value === 'company_hold' ||
-    adminAssignPersonId.value > 0
+  !adminAssignLoading.value
+  && Number(adminAssignOfficeLocationId.value || 0) > 0
+  && Number(adminAssignRoomId.value || 0) > 0
+  && (
+    adminAssignMode.value === 'company_hold'
+    || adminAssignPersonId.value > 0
   )
 );
-
-const adminAssignRoomLabel = computed(() => {
-  const roomId = Number(modalContext.value?.roomId || 0);
-  if (!roomId) return '';
-  const rooms = Array.isArray(officeGrid.value?.rooms) ? officeGrid.value.rooms : [];
-  const room = rooms.find((r) => Number(r.id) === roomId);
-  if (!room) return `Room ${roomId}`;
-  const num = room.roomNumber || room.room_number;
-  return [num ? `#${num}` : null, room.label || room.name].filter(Boolean).join(' ') || `Room ${roomId}`;
-});
 
 const loadOfficeLocations = async () => {
   try {
@@ -15969,12 +16400,53 @@ const submitCancelBooking = async () => {
   }
 };
 
+const clearAdminAssignPerson = () => {
+  adminAssignPersonId.value = 0;
+  adminAssignPersonName.value = '';
+  adminAssignPersonSearch.value = '';
+};
+
+const loadAdminAssignRooms = async (officeLocationId) => {
+  const locId = Number(officeLocationId || 0);
+  if (!locId) {
+    adminAssignRooms.value = [];
+    return;
+  }
+  adminAssignRoomsLoading.value = true;
+  try {
+    const r = await api.get(`/office-schedule/locations/${locId}/rooms`, { skipGlobalLoading: true });
+    const rows = Array.isArray(r.data) ? r.data : [];
+    const numVal = (x) => {
+      const n = x?.roomNumber ?? x?.room_number ?? null;
+      const parsed = parseInt(n, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    rows.sort((a, b) => {
+      const an = numVal(a);
+      const bn = numVal(b);
+      if (an !== null && bn !== null && an !== bn) return an - bn;
+      return String(a.label || a.name || '').localeCompare(String(b.label || b.name || ''));
+    });
+    adminAssignRooms.value = rows;
+  } catch {
+    adminAssignRooms.value = [];
+  } finally {
+    adminAssignRoomsLoading.value = false;
+  }
+};
+
 const loadAdminAssignProviders = async () => {
-  const locId = Number(selectedOfficeLocationId.value || 0) || Number(modalContext.value?.officeLocationId || 0);
-  if (!locId || !canManageOffices.value) { adminAssignProviders.value = []; return; }
+  const locId = Number(adminAssignOfficeLocationId.value || 0);
+  if (!(locId > 0) || !canManageOffices.value) {
+    adminAssignProviders.value = [];
+    return;
+  }
   adminAssignProvidersLoading.value = true;
   try {
-    const r = await api.get(`/office-schedule/locations/${locId}/providers`);
+    const r = await api.get(`/office-schedule/locations/${locId}/providers`, {
+      params: { includeStaff: 'true' },
+      skipGlobalLoading: true
+    });
     adminAssignProviders.value = Array.isArray(r.data) ? r.data : [];
   } catch {
     adminAssignProviders.value = [];
@@ -15983,11 +16455,116 @@ const loadAdminAssignProviders = async () => {
   }
 };
 
-const selectAdminAssignPerson = (p) => {
+const loadAdminAssignDirectory = async () => {
+  if (!canManageOffices.value) {
+    adminAssignDirectory.value = [];
+    return;
+  }
+  if (adminAssignDirectory.value.length) return;
+  adminAssignDirectoryLoading.value = true;
+  try {
+    // Agency-wide roster for person-first search when no office is selected yet.
+    if (canSelectBookingProvider.value) {
+      await loadBookingProviderDirectory();
+      adminAssignDirectory.value = (bookingProvidersRaw.value || [])
+        .map((u) => ({
+          id: Number(u?.id || 0),
+          first_name: u?.first_name || u?.firstName || '',
+          last_name: u?.last_name || u?.lastName || '',
+          email: u?.email || '',
+          role: u?.role || u?.user_role || ''
+        }))
+        .filter((u) => u.id > 0);
+    } else {
+      const r = await api.get('/users', { params: { _t: Date.now() }, skipGlobalLoading: true });
+      adminAssignDirectory.value = (Array.isArray(r?.data) ? r.data : [])
+        .map((u) => ({
+          id: Number(u?.id || 0),
+          first_name: u?.first_name || u?.firstName || '',
+          last_name: u?.last_name || u?.lastName || '',
+          email: u?.email || '',
+          role: u?.role || u?.user_role || ''
+        }))
+        .filter((u) => u.id > 0);
+    }
+  } catch {
+    adminAssignDirectory.value = [];
+  } finally {
+    adminAssignDirectoryLoading.value = false;
+  }
+};
+
+const onAdminAssignOfficeChange = async () => {
+  const locId = Number(adminAssignOfficeLocationId.value || 0);
+  const prevRoom = Number(adminAssignRoomId.value || 0);
+  adminAssignError.value = '';
+  if (!(locId > 0)) {
+    adminAssignRooms.value = [];
+    adminAssignRoomId.value = 0;
+    adminAssignProviders.value = [];
+    return;
+  }
+  await Promise.all([loadAdminAssignRooms(locId), loadAdminAssignProviders()]);
+  const roomIds = new Set((adminAssignRooms.value || []).map((r) => Number(r?.id || 0)));
+  if (prevRoom > 0 && roomIds.has(prevRoom)) {
+    adminAssignRoomId.value = prevRoom;
+  } else if ((adminAssignRooms.value || []).length === 1) {
+    adminAssignRoomId.value = Number(adminAssignRooms.value[0].id || 0);
+  } else {
+    adminAssignRoomId.value = 0;
+  }
+  // Keep person only if they appear on this office roster.
+  if (adminAssignPersonId.value > 0) {
+    const stillThere = (adminAssignProviders.value || []).some(
+      (p) => Number(p?.id || 0) === Number(adminAssignPersonId.value)
+    );
+    if (!stillThere) clearAdminAssignPerson();
+  }
+};
+
+const applyAssignedOfficeForPerson = async (userId) => {
+  const uid = Number(userId || 0);
+  if (!uid) return;
+  try {
+    let list = [];
+    try {
+      const r = await api.get(`/users/${uid}/office-assignments`, { skipGlobalLoading: true });
+      const assigned = Array.isArray(r?.data?.assigned) ? r.data.assigned : [];
+      const options = Array.isArray(r?.data?.options) ? r.data.options : [];
+      // Prefer explicit building links; fall back to agency-linked office options.
+      list = assigned.length ? assigned : options;
+    } catch {
+      const agencyId = Number(effectiveAgencyId.value || 0);
+      if (!(agencyId > 0)) return;
+      const r = await api.get(`/payroll/users/${uid}/assigned-offices`, {
+        params: { agencyId },
+        skipGlobalLoading: true
+      });
+      list = Array.isArray(r?.data) ? r.data : [];
+    }
+    const officeIds = new Set((officeLocations.value || []).map((o) => Number(o?.id || 0)).filter((n) => n > 0));
+    const matching = list.filter((o) => officeIds.has(Number(o?.id || o?.officeLocationId || 0)));
+    if (!matching.length) return;
+    const primary = matching.find((o) => o.isPrimary || o.is_primary) || matching[0];
+    const nextOfficeId = Number(primary?.id || primary?.officeLocationId || 0);
+    if (!(nextOfficeId > 0)) return;
+    if (Number(adminAssignOfficeLocationId.value || 0) === nextOfficeId) return;
+    adminAssignOfficeLocationId.value = nextOfficeId;
+    await onAdminAssignOfficeChange();
+  } catch {
+    /* best-effort */
+  }
+};
+
+const selectAdminAssignPerson = async (p) => {
   adminAssignPersonId.value = Number(p.id);
   adminAssignPersonName.value = `${p.last_name || ''}, ${p.first_name || ''}`.trim();
   adminAssignPersonSearch.value = adminAssignPersonName.value;
   adminAssignShowDropdown.value = false;
+  // Person-first: if no office yet, pick their assigned office.
+  if (!(Number(adminAssignOfficeLocationId.value || 0) > 0)) {
+    await applyAssignedOfficeForPerson(adminAssignPersonId.value);
+  }
 };
 
 const onAdminAssignPersonBlur = () => {
@@ -15998,15 +16575,15 @@ const submitAdminAssign = async () => {
   try {
     adminAssignLoading.value = true;
     adminAssignError.value = '';
-    const locId = Number(selectedOfficeLocationId.value || 0) || Number(modalContext.value?.officeLocationId || 0);
-    if (!locId) throw new Error('No office location selected. Switch to office layout and select an office first.');
+    const locId = Number(adminAssignOfficeLocationId.value || 0);
+    if (!(locId > 0)) throw new Error('Select an office first.');
     const slots = sortedSelectedActionSlots();
     const firstSlot = slots[0] || {};
     const dateYmd = String(firstSlot.dateYmd || modalContext.value?.dateYmd || '').slice(0, 10);
     const startHour = Number(officeAssignStartHour.value ?? firstSlot.hour ?? modalContext.value?.hour ?? 0);
     const endHour = Number(officeAssignEndHour.value || 0);
-    const roomId = Number(firstSlot.roomId || modalContext.value?.roomId || 0);
-    if (!roomId) throw new Error('No room selected. Click on a specific room cell in the office layout grid.');
+    const roomId = Number(adminAssignRoomId.value || firstSlot.roomId || modalContext.value?.roomId || 0);
+    if (!(roomId > 0)) throw new Error('Select a room first.');
     if (!dateYmd || !/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) throw new Error('Invalid date. Please try clicking the slot again.');
     if (!(endHour > startHour)) throw new Error('End time must be after start time.');
     if (adminAssignMode.value === 'provider' && !adminAssignPersonId.value) throw new Error('Please select a person to assign.');
@@ -16029,6 +16606,8 @@ const submitAdminAssign = async () => {
       if (adminAssignTemporary4Weeks.value) body.temporaryWeeks = 4;
     }
     await api.post(`/office-slots/${locId}/open-slots/assign`, body);
+    // Keep toolbar office in sync with what was just assigned.
+    if (locId > 0) selectedOfficeLocationId.value = locId;
     invalidateScheduleSummaryCacheForUser(props.userId);
     closeModal();
     await Promise.all([load({ forceRefresh: true }), loadSelectedOfficeGrid()]);
@@ -16041,7 +16620,29 @@ const submitAdminAssign = async () => {
 
 watch(requestType, (newType) => {
   if (newType !== 'admin_assign') return;
-  void loadAdminAssignProviders();
+  void (async () => {
+    if (!officeLocations.value.length) await loadOfficeLocations();
+    const ctx = modalContext.value || {};
+    const fromCtx = Number(ctx.officeLocationId || 0);
+    const fromToolbar = Number(selectedOfficeLocationId.value || 0);
+    const seedOffice = fromCtx > 0
+      ? fromCtx
+      : (fromToolbar > 0 ? fromToolbar : Number(resolveSpecificOfficeId() || 0));
+    adminAssignOfficeLocationId.value = seedOffice > 0 ? seedOffice : 0;
+    adminAssignRoomId.value = Number(ctx.roomId || 0) || 0;
+    clearAdminAssignPerson();
+    // Only prefill person when this slot already has an assignee (re-assign flow).
+    const bookedId = Number(ctx.assignedProviderId || 0);
+    if (bookedId > 0) {
+      adminAssignPersonId.value = bookedId;
+      adminAssignPersonName.value = String(ctx.bookedProviderName || ctx.assignedProviderName || '').trim();
+      adminAssignPersonSearch.value = adminAssignPersonName.value;
+    }
+    await Promise.all([
+      onAdminAssignOfficeChange(),
+      loadAdminAssignDirectory()
+    ]);
+  })();
   // Pre-fill weekday from clicked day
   if (!adminAssignWeekdays.value.length && modalDay.value) {
     const idx = ALL_DAYS.indexOf(String(modalDay.value || ''));
@@ -16057,17 +16658,9 @@ watch(requestType, (newType) => {
   officeAssignEndHour.value = rangeEnd > officeAssignStartHour.value
     ? rangeEnd
     : Math.min(officeAssignStartHour.value + 1, 22);
-  // Pre-fill person from already-booked/assigned slot
-  const ctx = modalContext.value || {};
-  const bookedId = Number(ctx.assignedProviderId || 0);
-  if (bookedId && canManageOffices.value) {
-    adminAssignPersonId.value = bookedId;
-    adminAssignPersonName.value = String(ctx.bookedProviderName || ctx.assignedProviderName || '').trim();
-    adminAssignPersonSearch.value = adminAssignPersonName.value;
-  }
 });
 
-// After providers load, auto-fill name if ID was pre-filled (e.g. from props.userId)
+// After providers load, resolve display name if we only have an id (re-assign).
 watch(adminAssignProviders, (newList) => {
   if (adminAssignPersonId.value && !adminAssignPersonName.value) {
     const p = newList.find((x) => Number(x.id) === Number(adminAssignPersonId.value));
@@ -16199,6 +16792,13 @@ const closeModal = () => {
   scheduleEventPrivate.value = false;
   meetingIsTrainingPayEligible.value = false;
   meetingSubtype.value = 'general';
+  createAgendaDraftTitle.value = '';
+  createAgendaDraftItems.value = [];
+  createGoalDraftItems.value = [];
+  createActionDraftItems.value = [];
+  meetingParticipantNameById.value = {};
+  meetingParticipantsExpanded.value = false;
+  selectedMeetingParticipantIds.value = [];
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'count';
   scheduleEventOccurrenceCount.value = 6;
@@ -16219,6 +16819,10 @@ const closeModal = () => {
   adminAssignPersonId.value = 0;
   adminAssignPersonName.value = '';
   adminAssignShowDropdown.value = false;
+  adminAssignOfficeLocationId.value = 0;
+  adminAssignRoomId.value = 0;
+  adminAssignRooms.value = [];
+  adminAssignProviders.value = [];
   adminAssignRecurrence.value = 'ONCE';
   adminAssignWeekdays.value = [];
   adminAssignRecurringUntil.value = '';
@@ -16772,14 +17376,25 @@ const submitRequest = async () => {
       refreshInBackground = true;
       needsOfficeRefresh = true;
     } else if (isScheduleEventRequestType.value) {
-      const uid = Number(props.userId || authStore.user?.id || 0);
-      if (!uid) throw new Error('Provider is required.');
       const normalizedAction = String(requestType.value || '');
+      // Prefer booking target so admins can schedule Huddles onto a CPA/PP calendar.
+      const uid = Number(
+        (canSelectBookingProvider.value && Number(bookingTargetUserId.value || 0) > 0)
+          ? bookingTargetUserId.value
+          : (props.userId || authStore.user?.id || 0)
+      );
+      if (!uid) throw new Error('Provider is required.');
       const eventKind = scheduleEventKindForAction(normalizedAction);
+      if (normalizedAction === 'huddle') {
+        const hostRole = huddleHostRoleKey.value;
+        if (!HUDDLE_HOST_ROLES.has(hostRole) && canScheduleHuddleForOthers.value) {
+          throw new Error('Huddles must be hosted by a CPA or Provider Plus. Open their schedule or choose them under Schedule for.');
+        }
+      }
       const meetingAttendeeUserIds = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
         ? Array.from(selectedMeetingParticipantIdSet.value.values()).map((n) => Number(n || 0)).filter((n) => n > 0)
         : [];
-      if ((normalizedAction === 'agency_meeting' || normalizedAction === 'huddle') && !meetingAttendeeUserIds.length) {
+      if (normalizedAction === 'agency_meeting' && !meetingAttendeeUserIds.length) {
         throw new Error('Select at least one participant.');
       }
       let eventAgencyId = null;
@@ -16823,7 +17438,7 @@ const submitRequest = async () => {
         ? (createPlatformVideoLink ? false : !!createMeetingMeetLink.value)
         : false;
       const meetingSubtypeForCreate = normalizedAction === 'agency_meeting'
-        ? ((canSetAdminMeetingSubtype.value && meetingSubtype.value === 'admin') ? 'admin' : 'general')
+        ? meetingSubtypeForCreatePayload()
         : 'general';
       if (scheduleEventAllDay.value || normalizedAction === 'schedule_hold_all_day') {
         const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
@@ -16923,6 +17538,18 @@ const submitRequest = async () => {
             if (eid) postAgendaItemsForNewMeeting('provider_schedule_event', eid, items).catch(() => {});
           }
           createAgendaDraftItems.value = [];
+        }
+        if (requestType.value === 'agency_meeting' || requestType.value === 'huddle') {
+          const goals = [...(createGoalDraftItems.value || [])];
+          const actions = [...(createActionDraftItems.value || [])];
+          if (goals.length || actions.length) {
+            for (const ev of createdScheduleEvents) {
+              const eid = ev?.providerScheduleEventId ?? ev?.id;
+              if (eid) postWorkspaceDraftForNewMeeting(eid, { goals, actionItems: actions }).catch(() => {});
+            }
+            createGoalDraftItems.value = [];
+            createActionDraftItems.value = [];
+          }
         }
         if (requestType.value === 'agency_meeting' || requestType.value === 'huddle') {
           const first = createdScheduleEvents[0] || {};
@@ -17727,7 +18354,9 @@ const submitRequest = async () => {
         current.scheduleEvents = [...(Array.isArray(current.scheduleEvents) ? current.scheduleEvents : []), ...mapped];
         summary.value = { ...current };
       }
-      void load();
+      // Must bust cache — plain load() was restoring a pre-create snapshot and wiping the new meeting.
+      invalidateScheduleSummaryCacheForUser(props.userId);
+      void load({ forceRefresh: true });
     } else {
       await load({ forceRefresh: forceRefreshSummary });
       if (forceRefreshSummary && Number(selectedOfficeLocationId.value || 0) > 0) {
@@ -17927,6 +18556,8 @@ watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agency
   selectedMeetingParticipantIds.value = [];
   meetingParticipantSearch.value = '';
   meetingBusyByUserId.value = {};
+  meetingBusyLabelByUserId.value = {};
+  meetingBusySlotKey.value = '';
   if (!currentAgencyId) {
     meetingCandidates.value = [];
     meetingInviteGroups.value = [];
@@ -17935,8 +18566,27 @@ watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agency
   void loadMeetingCandidates();
 });
 
-watch([requestType, modalDay, modalHour, modalEndHour, modalStartMinute, modalEndMinute, meetingParticipantSearch, selectedMeetingParticipantIds], ([type]) => {
+watch([requestType, modalDay, modalHour, modalEndHour, modalStartMinute, modalEndMinute], ([type]) => {
   if (!['agency_meeting', 'huddle'].includes(String(type || '')) || !showRequestModal.value) return;
+  scheduleMeetingBusyCheck({ prioritizeIds: Array.from(selectedMeetingParticipantIdSet.value.values()) });
+});
+
+watch(selectedMeetingParticipantIds, (curr, prev) => {
+  if (!['agency_meeting', 'huddle'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
+  const prevSet = new Set((Array.isArray(prev) ? prev : []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  const added = (Array.isArray(curr) ? curr : [])
+    .map((n) => Number(n || 0))
+    .filter((n) => n > 0 && !prevSet.has(n));
+  if (added.length) {
+    scheduleMeetingBusyCheck({ immediate: true, prioritizeIds: added });
+    return;
+  }
+  scheduleMeetingBusyCheck({ prioritizeIds: Array.from(selectedMeetingParticipantIdSet.value.values()) });
+});
+
+// Search only changes who is visible; reuse cached busy results and fetch only new IDs.
+watch(filteredMeetingCandidates, () => {
+  if (!['agency_meeting', 'huddle'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
   scheduleMeetingBusyCheck();
 });
 
@@ -17980,10 +18630,8 @@ watch(availableSupervisionParticipants, (rows) => {
 });
 
 watch(availableMeetingCandidates, (rows) => {
-  const ids = new Set((rows || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
-  selectedMeetingParticipantIds.value = (selectedMeetingParticipantIds.value || [])
-    .map((n) => Number(n || 0))
-    .filter((n) => n > 0 && ids.has(n));
+  // Cache names for display; do not wipe selections when the list reloads or is briefly empty.
+  rememberMeetingParticipantNames(rows || []);
 });
 
 watch(() => summary.value?.supervisionSessions, (rows) => {
@@ -18443,6 +19091,27 @@ const canJoinSelectedSupvSession = computed(() => {
   if (!Number(s?.id || 0)) return false;
   return !!(String(s?.joinUrl || '').trim() || String(s?.googleMeetLink || '').trim());
 });
+
+const canJoinEditingMeeting = computed(() => {
+  if (!editorIsMeeting.value || !isScheduleEventEditMode.value) return false;
+  if (!editorShowVirtual.value) return false;
+  return !!(String(editorVirtualLink.value || '').trim() || String(editorMeetLink.value || '').trim());
+});
+
+const editorMeetingJoinLabel = computed(() => {
+  if (String(editorVirtualLink.value || '').trim()) return 'Join meeting';
+  return 'Join Meet';
+});
+
+function joinEditingMeeting() {
+  const platform = String(editorVirtualLink.value || '').trim();
+  const meet = String(editorMeetLink.value || '').trim();
+  if (platform) {
+    window.location.href = platform;
+    return;
+  }
+  if (meet) window.open(meet, '_blank', 'noreferrer');
+}
 
 const supvJoinSessionLabel = computed(() => {
   if (supvMeetOpening.value || supvAppVideoLoading.value) return 'Joining…';
@@ -19418,7 +20087,7 @@ const beginEditScheduleStackItem = async (item) => {
     isPrivate: !!item?.isPrivate
   };
   meetingIsTrainingPayEligible.value = !!item?.isTrainingPayEligible;
-  meetingSubtype.value = String(item?.meetingSubtype || 'general').toLowerCase() === 'admin' ? 'admin' : 'general';
+  meetingSubtype.value = normalizeMeetingSubtype(item?.meetingSubtype);
   editTimingBaseline.value = {
     startAt: String(scheduleEventEditForm.value.startAt || '').trim(),
     endAt: String(scheduleEventEditForm.value.endAt || '').trim(),
@@ -19429,8 +20098,9 @@ const beginEditScheduleStackItem = async (item) => {
     selectedMeetingParticipantIds.value = Array.isArray(item?.attendeeUserIds)
       ? item.attendeeUserIds.map((n) => Number(n)).filter((n) => n > 0)
       : [];
+    rememberMeetingParticipantNames(Array.isArray(item?.attendees) ? item.attendees : []);
     meetingParticipantSearch.value = '';
-    meetingParticipantsExpanded.value = true;
+    meetingParticipantsExpanded.value = false;
     if (agencyId > 0) void loadMeetingCandidates();
   } else if (agencyId > 0) {
     void loadVirtualSessionClients(agencyId);
@@ -19477,7 +20147,8 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     return;
   }
   const isMeeting = isMeetingStackItem(item);
-  if (isMeeting && selectedMeetingParticipantIdSet.value.size === 0) {
+  const isHuddleEvent = String(item?.eventKind || '').toUpperCase() === 'HUDDLE';
+  if (isMeeting && !isHuddleEvent && selectedMeetingParticipantIdSet.value.size === 0) {
     scheduleEventEditError.value = 'Add at least one participant before saving.';
     meetingParticipantsExpanded.value = true;
     return;
@@ -19548,15 +20219,20 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
             attendeeUserIds: Array.from(selectedMeetingParticipantIdSet.value),
             isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
             ...(String(item?.eventKind || '').toUpperCase() === 'TEAM_MEETING'
-              ? { meetingSubtype: canSetAdminMeetingSubtype.value || meetingSubtype.value === 'admin'
-                ? meetingSubtype.value
-                : 'general' }
+              ? {
+                  meetingSubtype: (canSetAdminMeetingSubtype.value
+                    || meetingSubtype.value === 'admin'
+                    || meetingSubtype.value === 'town_hall')
+                    ? normalizeMeetingSubtype(meetingSubtype.value)
+                    : 'general'
+                }
               : {})
           }
         : {})
     }, { skipGlobalLoading: true });
     scheduleEventEditId.value = 0;
     // Close editor immediately; refresh calendar in the background (no global Loading overlay).
+    // Use closeModal() — requestCloseModal() prompts "Discard…" because the form is still dirty.
     const keepPicker = stackDetailsItems.value.length > 1 && stackDetailsDayName.value;
     if (keepPicker) {
       // Refresh first so the picker list can rebuild; still skip global overlay.
@@ -19574,11 +20250,11 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
         requestType.value = 'pick_schedule_event';
       } else {
         closeStackDetailsModal();
-        requestCloseModal();
+        closeModal();
       }
     } else {
       closeStackDetailsModal();
-      requestCloseModal();
+      closeModal();
       invalidateScheduleSummaryCacheForUser(props.userId);
       void load({ forceRefresh: true });
     }
@@ -19896,7 +20572,7 @@ const confirmCancelMeeting = async (scope = 'single') => {
     cancelMeetingItem.value = null;
     closeStackDetailsModal();
     if (showRequestModal.value && isScheduleEventEditMode.value) {
-      requestCloseModal();
+      closeModal();
     }
     void load({ forceRefresh: true });
   } catch (e) {
@@ -20103,8 +20779,10 @@ const scheduleKindLabel = (kindRaw, ev = null) => {
     return 'Personal';
   }
   if (k === 'SCHEDULE_HOLD' && ev?.allDay) return 'Schedule block';
-  if (k === 'TEAM_MEETING' && String(ev?.meetingSubtype || '').toLowerCase() === 'admin') {
-    return 'Admin Meeting';
+  if (k === 'TEAM_MEETING') {
+    const subtype = String(ev?.meetingSubtype || '').toLowerCase();
+    if (subtype === 'admin') return 'Admin Meeting';
+    if (subtype === 'town_hall') return 'Town Hall';
   }
   if (SCHEDULE_EVENT_KIND_LABELS[k]) return SCHEDULE_EVENT_KIND_LABELS[k];
   if (!k) return 'Schedule event';
@@ -20200,9 +20878,23 @@ const formatSkillBuildersProgramWallTime = (t) => {
 const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
   const targetKind = String(ev?.kind || '').trim().toUpperCase();
   const clientId = parseClientIdFromScheduleEvent(ev);
-  const attendeeUserIds = Array.isArray(ev?.attendeeUserIds)
-    ? ev.attendeeUserIds.map((n) => Number(n)).filter((n) => n > 0)
+  const attendees = Array.isArray(ev?.attendees)
+    ? ev.attendees.map((a) => ({
+      id: Number(a?.id || a?.userId || 0),
+      firstName: String(a?.firstName || a?.first_name || '').trim(),
+      lastName: String(a?.lastName || a?.last_name || '').trim(),
+      email: String(a?.email || '').trim(),
+      name: String(
+        a?.name
+        || [a?.firstName || a?.first_name, a?.lastName || a?.last_name].filter(Boolean).join(' ').trim()
+        || a?.email
+        || ''
+      ).trim()
+    })).filter((a) => a.id > 0)
     : [];
+  const attendeeUserIds = Array.isArray(ev?.attendeeUserIds) && ev.attendeeUserIds.length
+    ? ev.attendeeUserIds.map((n) => Number(n)).filter((n) => n > 0)
+    : attendees.map((a) => a.id);
   const withClient = { ...ev, kind: targetKind, clientId: clientId || ev?.clientId || null };
   const cancelled = isScheduleEventCancelled(ev);
   const baseKindLabel = scheduleKindLabel(targetKind, withClient);
@@ -20218,10 +20910,11 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     providerId: Number(ev?.providerId || ev?.provider_id || props.userId || 0) || null,
     isHost: ev?.isHost !== undefined ? !!ev.isHost : null,
     attendeeUserIds,
+    attendees,
     canEdit: !cancelled && ev?.canEdit !== false,
     isCancelled: cancelled,
     isTrainingPayEligible: !!ev?.isTrainingPayEligible,
-    meetingSubtype: String(ev?.meetingSubtype || 'general').toLowerCase() === 'admin' ? 'admin' : 'general',
+    meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),
     status: String(ev?.status || (cancelled ? 'CANCELLED' : 'ACTIVE')).trim().toUpperCase() || 'ACTIVE',
     isPrivate: !!ev?.isPrivate,
     allDay: !!ev?.allDay,
@@ -22857,10 +23550,30 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.95fr);
   align-items: start;
 }
+.meeting-info-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  max-height: min(70vh, 640px);
+  overflow: auto;
+  padding-right: 2px;
+}
 @media (max-width: 980px) {
   .supv-info-layout--with-workspace {
     grid-template-columns: 1fr;
   }
+}
+.appt-workspace-tab.disabled,
+.appt-workspace-tab:disabled {
+  opacity: 0.42;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+.appt-workspace-tab.disabled:hover,
+.appt-workspace-tab:disabled:hover {
+  background: transparent;
+  color: #94a3b8;
 }
 .appt-workspace-panel--flush {
   padding: 0;
@@ -23621,6 +24334,18 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border-color: rgba(37, 99, 235, 0.56);
   box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.2);
   background: rgba(239, 246, 255, 0.88);
+}
+.participant-card.busy {
+  border-color: rgba(217, 119, 6, 0.7);
+}
+.participant-card.busy .participant-role {
+  color: #b45309;
+  font-weight: 600;
+}
+.participant-card.on.busy {
+  border-color: rgba(217, 119, 6, 0.85);
+  background: rgba(255, 251, 235, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(217, 119, 6, 0.35);
 }
 .participant-name {
   font-weight: 700;

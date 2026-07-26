@@ -56,6 +56,7 @@ class AgencyMeetingAttendanceRollup {
          pse.agency_id,
          pse.provider_id,
          pse.kind,
+         pse.meeting_subtype,
          pse.title,
          pse.start_at,
          pse.end_at,

@@ -42,14 +42,25 @@
     </AppointmentHeaderFields>
 
     <VirtualLinkControls
-      v-if="showVirtual && !hideVirtualControls"
-      :is-virtual="true"
+      v-if="(showVirtual || showVirtualOptions) && !hideVirtualControls"
+      :is-virtual="virtualIsVirtual"
       :link="virtualLink"
       :meet-link="meetLink"
       :platform-link="platformLink"
       :hint="virtualHint"
       :dismissible="virtualDismissible"
+      :compact="!!String(virtualLink || platformLink || meetLink || '').trim()"
+      :show-options="showVirtualOptions"
+      :use-platform-video="virtualUsePlatformVideo"
+      :waiting-room-enabled="virtualWaitingRoomEnabled"
+      :create-meet-link="virtualCreateMeetLink"
+      :video-configured="virtualVideoConfigured"
+      :disabled="disabled"
       @dismiss="emit('dismiss-virtual')"
+      @update:isVirtual="emit('update:virtualIsVirtual', $event)"
+      @update:usePlatformVideo="emit('update:virtualUsePlatformVideo', $event)"
+      @update:waitingRoomEnabled="emit('update:virtualWaitingRoomEnabled', $event)"
+      @update:createMeetLink="emit('update:virtualCreateMeetLink', $event)"
     />
 
     <slot name="before-recurrence" />
@@ -99,6 +110,13 @@ const props = defineProps({
   platformLink: { type: String, default: '' },
   virtualHint: { type: String, default: '' },
   virtualDismissible: { type: Boolean, default: false },
+  /** Boolean switches for Virtual / platform / waiting room next to the link controls. */
+  showVirtualOptions: { type: Boolean, default: false },
+  virtualIsVirtual: { type: Boolean, default: true },
+  virtualUsePlatformVideo: { type: Boolean, default: true },
+  virtualWaitingRoomEnabled: { type: Boolean, default: true },
+  virtualCreateMeetLink: { type: Boolean, default: false },
+  virtualVideoConfigured: { type: Boolean, default: false },
   showRecurrence: { type: Boolean, default: true },
   recurrenceFrequency: { type: String, default: 'ONCE' },
   recurrenceEndMode: { type: String, default: 'count' },
@@ -183,7 +201,11 @@ const emit = defineEmits([
   'request-office',
   'cancel-office-request',
   'scroll-to-group-clients',
-  'dismiss-virtual'
+  'dismiss-virtual',
+  'update:virtualIsVirtual',
+  'update:virtualUsePlatformVideo',
+  'update:virtualWaitingRoomEnabled',
+  'update:virtualCreateMeetLink'
 ]);
 
 const headerProps = computed(() => ({

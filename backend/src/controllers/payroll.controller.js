@@ -5301,9 +5301,16 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
         }
       }
 
-      // Overlay agency meeting attendance (TEAM_MEETING from Google Meet sync).
+      // Overlay agency meeting attendance (general TEAM_MEETING from Google Meet sync).
+      // Huddle / Admin Meeting / Town Hall pay via meetingCompensationClaims time claims — skip here.
       // MEETING code: pay_divisor 60, so 1 unit = 1 minute; units = total_seconds / 60.
       try {
+        try {
+          const { syncCompensationClaimsForAgencyInWindow } = await import('../services/meetingCompensationClaims.service.js');
+          await syncCompensationClaimsForAgencyInWindow(agencyId, periodStart, periodEnd);
+        } catch (compErr) {
+          console.warn('[payroll] meeting compensation claim sync skipped', compErr?.message || compErr);
+        }
         const AgencyMeetingAttendanceRollup = (await import('../models/AgencyMeetingAttendanceRollup.model.js')).default;
         const meetingRows = await AgencyMeetingAttendanceRollup.listForAgencyInWindow(agencyId, periodStart, periodEnd);
         const meetingUnitsByUserCode = new Map(); // key: `${uid}:${code}`
@@ -5314,8 +5321,12 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
           const units = Math.round((sec / 60) * 100) / 100;
           if (units < 1e-9) continue;
           const kind = String(r?.kind || '').toUpperCase();
-          const isHost = uid === Number(r?.provider_id || 0);
-          const code = (kind === 'HUDDLE' && isHost) ? '99415' : 'MEETING';
+          const subtype = String(r?.meeting_subtype || 'general').trim().toLowerCase();
+          // Claims pay path — do not also stage MEETING/99415 units.
+          if (kind === 'HUDDLE' || (kind === 'TEAM_MEETING' && (subtype === 'admin' || subtype === 'town_hall'))) {
+            continue;
+          }
+          const code = 'MEETING';
           const k = `${uid}:${code}`;
           meetingUnitsByUserCode.set(k, (meetingUnitsByUserCode.get(k) || 0) + units);
         }
@@ -17887,7 +17898,7 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
       if (other1 > 0) return Math.round(((mins / 60) * other1) * 100) / 100;
       return null;
     }
-    // Prefer per-code Admin Time (or other) rate from compensation schedule when present.
+    // Prefer per-code rate from compensation schedule (Admin Time, MEETING, Individual Meeting, etc.).
     const serviceCode = String(payload?.serviceCode || '').trim();
     if (serviceCode && claim?.agency_id && claim?.user_id) {
       try {

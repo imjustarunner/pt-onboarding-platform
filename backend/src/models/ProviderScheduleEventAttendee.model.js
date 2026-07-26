@@ -47,6 +47,35 @@ class ProviderScheduleEventAttendee {
     return out;
   }
 
+  /** @returns {Map<number, Array<{ userId: number, firstName: string, lastName: string, email: string }>>} */
+  static async listDetailsByEventIds(eventIds = []) {
+    const ids = Array.from(new Set((eventIds || []).map((n) => Number(n)).filter((n) => n > 0)));
+    if (!ids.length) return new Map();
+    const placeholders = ids.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT psea.event_id, psea.user_id, u.first_name, u.last_name, u.email
+       FROM provider_schedule_event_attendees psea
+       JOIN users u ON u.id = psea.user_id
+       WHERE psea.event_id IN (${placeholders})
+       ORDER BY psea.event_id ASC, u.last_name ASC, u.first_name ASC`,
+      ids
+    );
+    const out = new Map();
+    for (const r of rows || []) {
+      const eid = Number(r.event_id || 0);
+      const uid = Number(r.user_id || 0);
+      if (!eid || !uid) continue;
+      if (!out.has(eid)) out.set(eid, []);
+      out.get(eid).push({
+        userId: uid,
+        firstName: String(r.first_name || '').trim(),
+        lastName: String(r.last_name || '').trim(),
+        email: String(r.email || '').trim()
+      });
+    }
+    return out;
+  }
+
   static async listByEventId(eventId) {
     const eid = Number(eventId || 0);
     if (!eid) return [];

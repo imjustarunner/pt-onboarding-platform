@@ -14,24 +14,24 @@
       <section v-if="section === 'goals' || section === 'both'" class="sgap__section">
         <div class="sgap__head">
           <h3>Goals for this session</h3>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || saving" @click="addGoal">
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="addGoal">
             + Add goal
           </button>
         </div>
         <ul class="sgap__list">
           <li v-for="(g, idx) in goals" :key="g.id">
             <label class="sgap__check">
-              <input v-model="g.done" type="checkbox" :disabled="disabled || saving" @change="queueSave" />
+              <input v-model="g.done" type="checkbox" :disabled="disabled" @change="queueSave" />
             </label>
             <input
               v-model="g.text"
               class="input"
               type="text"
               placeholder="Goal"
-              :disabled="disabled || saving"
+              :disabled="disabled"
               @input="queueSave"
             />
-            <button type="button" class="sgap__icon" :disabled="disabled || saving" title="Remove" @click="removeGoal(idx)">🗑</button>
+            <button type="button" class="sgap__icon" :disabled="disabled" title="Remove" @click="removeGoal(idx)">🗑</button>
           </li>
           <li v-if="!goals.length" class="sgap__empty muted">No goals yet. Add the first goal for this individual session.</li>
         </ul>
@@ -41,24 +41,24 @@
       <section v-if="section === 'actions' || section === 'both'" class="sgap__section">
         <div class="sgap__head">
           <h3>Action items for this session</h3>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || saving" @click="addAction">
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="addAction">
             + Add action item
           </button>
         </div>
         <ul class="sgap__list">
           <li v-for="(a, idx) in actionItems" :key="a.id">
             <label class="sgap__check">
-              <input v-model="a.done" type="checkbox" :disabled="disabled || saving" @change="queueSave" />
+              <input v-model="a.done" type="checkbox" :disabled="disabled" @change="queueSave" />
             </label>
             <input
               v-model="a.text"
               class="input"
               type="text"
               placeholder="Action item"
-              :disabled="disabled || saving"
+              :disabled="disabled"
               @input="queueSave"
             />
-            <button type="button" class="sgap__icon" :disabled="disabled || saving" title="Remove" @click="removeAction(idx)">🗑</button>
+            <button type="button" class="sgap__icon" :disabled="disabled" title="Remove" @click="removeAction(idx)">🗑</button>
           </li>
           <li v-if="!actionItems.length" class="sgap__empty muted">No action items yet.</li>
         </ul>
@@ -134,12 +134,25 @@ async function load() {
   }
 }
 
+let pendingSave = false;
+
 async function saveNow() {
   const sid = Number(props.sessionId || 0);
-  if (!sid || saving.value) return;
-  const cleanGoals = normalizeList(goals.value).filter((g) => g.text);
-  const cleanActions = normalizeList(actionItems.value).filter((a) => a.text);
+  if (!sid) return;
+  if (saving.value) {
+    pendingSave = true;
+    return;
+  }
+  const cleanGoals = normalizeList(goals.value)
+    .map((g) => ({ ...g, text: String(g.text || '').trim() }))
+    .filter((g) => g.text);
+  const cleanActions = normalizeList(actionItems.value)
+    .map((a) => ({ ...a, text: String(a.text || '').trim() }))
+    .filter((a) => a.text);
+  const emptyGoalDrafts = goals.value.filter((g) => !String(g?.text || '').trim());
+  const emptyActionDrafts = actionItems.value.filter((a) => !String(a?.text || '').trim());
   saving.value = true;
+  pendingSave = false;
   saveStatus.value = 'saving';
   error.value = '';
   try {
@@ -147,9 +160,12 @@ async function saveNow() {
       goals: cleanGoals,
       actionItems: cleanActions
     }, { skipGlobalLoading: true });
-    goals.value = cleanGoals;
-    actionItems.value = cleanActions;
-    emit('saved', { goals: cleanGoals, actionItems: cleanActions });
+    // Keep empty draft rows the user just added; never wipe in-progress inputs.
+    if (!pendingSave) {
+      goals.value = [...cleanGoals, ...emptyGoalDrafts];
+      actionItems.value = [...cleanActions, ...emptyActionDrafts];
+    }
+    emit('saved', { goals: goals.value, actionItems: actionItems.value });
     saveStatus.value = 'saved';
     if (flashTimer) clearTimeout(flashTimer);
     flashTimer = setTimeout(() => { saveStatus.value = ''; }, 2000);
@@ -158,12 +174,16 @@ async function saveNow() {
     saveStatus.value = 'error';
   } finally {
     saving.value = false;
+    if (pendingSave) {
+      pendingSave = false;
+      queueSave();
+    }
   }
 }
 
 function queueSave() {
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { void saveNow(); }, 700);
+  saveTimer = setTimeout(() => { void saveNow(); }, 900);
 }
 
 function addGoal() {

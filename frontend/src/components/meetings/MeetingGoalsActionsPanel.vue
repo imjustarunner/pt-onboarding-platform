@@ -3,31 +3,31 @@
     <p v-if="!eventId" class="muted mgap__hint">
       Save the meeting first, then you can add goals and action items.
     </p>
-    <p v-else-if="loading" class="muted">Loading goals and action items…</p>
-    <p v-else-if="error" class="error">{{ error }}</p>
+    <p v-else-if="loading && !hasLoaded" class="muted">Loading goals and action items…</p>
+    <p v-else-if="error && !hasLoaded" class="error">{{ error }}</p>
 
-    <template v-if="eventId && !loading">
+    <template v-if="eventId && (hasLoaded || !loading)">
       <section v-if="section === 'goals' || section === 'both'" class="mgap__section">
         <div class="mgap__head">
           <h3>Goals for this meeting</h3>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || saving" @click="addGoal">
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="addGoal">
             + Add goal
           </button>
         </div>
         <ul class="mgap__list">
           <li v-for="(g, idx) in goals" :key="g.id">
             <label class="mgap__check">
-              <input v-model="g.done" type="checkbox" :disabled="disabled || saving" @change="queueSave" />
+              <input v-model="g.done" type="checkbox" :disabled="disabled" @change="queueSave" />
             </label>
             <input
               v-model="g.text"
               class="input"
               type="text"
               placeholder="Goal"
-              :disabled="disabled || saving"
+              :disabled="disabled"
               @input="queueSave"
             />
-            <button type="button" class="mgap__icon" :disabled="disabled || saving" title="Remove" @click="removeGoal(idx)">🗑</button>
+            <button type="button" class="mgap__icon" :disabled="disabled" title="Remove" @click="removeGoal(idx)">🗑</button>
           </li>
           <li v-if="!goals.length" class="mgap__empty muted">No goals yet.</li>
         </ul>
@@ -36,14 +36,14 @@
       <section v-if="section === 'actions' || section === 'both'" class="mgap__section">
         <div class="mgap__head">
           <h3>Action items</h3>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || saving" @click="addAction">
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="addAction">
             + Add action item
           </button>
         </div>
         <ul class="mgap__list mgap__list--actions">
           <li v-for="(a, idx) in actionItems" :key="a.id" class="mgap__action-row">
             <label class="mgap__check">
-              <input v-model="a.done" type="checkbox" :disabled="disabled || saving" @change="queueSave" />
+              <input v-model="a.done" type="checkbox" :disabled="disabled" @change="queueSave" />
             </label>
             <div class="mgap__action-body">
               <input
@@ -51,7 +51,7 @@
                 class="input"
                 type="text"
                 placeholder="Action item"
-                :disabled="disabled || saving"
+                :disabled="disabled"
                 @input="queueSave"
               />
               <div class="mgap__action-meta">
@@ -60,7 +60,7 @@
                   <select
                     v-model.number="a.assigneeUserId"
                     class="input"
-                    :disabled="disabled || saving"
+                    :disabled="disabled"
                     @change="queueSave"
                   >
                     <option :value="0">Unassigned</option>
@@ -73,7 +73,7 @@
                   <input
                     type="checkbox"
                     :checked="!!a.isEscalation"
-                    :disabled="disabled || saving || !!a.escalationTicketId"
+                    :disabled="disabled || !!a.escalationTicketId"
                     @change="onEscalationToggle(a, $event)"
                   />
                   <span>Escalation</span>
@@ -83,16 +83,16 @@
                 </span>
               </div>
             </div>
-            <button type="button" class="mgap__icon" :disabled="disabled || saving" title="Remove" @click="removeAction(idx)">🗑</button>
+            <button type="button" class="mgap__icon" :disabled="disabled" title="Remove" @click="removeAction(idx)">🗑</button>
           </li>
           <li v-if="!actionItems.length" class="mgap__empty muted">No action items yet.</li>
         </ul>
       </section>
 
-      <div v-if="saveStatus" class="mgap__status" :class="`mgap__status--${saveStatus}`" aria-live="polite">
+      <div v-if="saveStatus || error" class="mgap__status" :class="`mgap__status--${saveStatus || 'error'}`" aria-live="polite">
         <span v-if="saveStatus === 'saving'">Saving…</span>
         <span v-else-if="saveStatus === 'saved'">Saved</span>
-        <span v-else-if="saveStatus === 'error'">Couldn't save — try again</span>
+        <span v-else-if="saveStatus === 'error' || error">{{ error || "Couldn't save — try again" }}</span>
       </div>
     </template>
 
@@ -143,11 +143,15 @@ const actionItems = ref([]);
 const loadedParticipants = ref([]);
 const loadedSubtype = ref('general');
 const loading = ref(false);
+const hasLoaded = ref(false);
 const saving = ref(false);
+const pendingSave = ref(false);
 const error = ref('');
 const saveStatus = ref('');
 let saveTimer = null;
 let flashTimer = null;
+let loadedEventId = 0;
+let loadGeneration = 0;
 
 const escalateItem = ref(null);
 const escalateForm = ref({
@@ -176,7 +180,7 @@ function normalizeGoals(list) {
   if (!Array.isArray(list)) return [];
   return list.map((item, idx) => ({
     id: String(item?.id || uid(`g-${idx}`)),
-    text: String(item?.text || '').trim(),
+    text: String(item?.text || ''),
     done: !!item?.done
   }));
 }
@@ -185,7 +189,7 @@ function normalizeActions(list) {
   if (!Array.isArray(list)) return [];
   return list.map((item, idx) => ({
     id: String(item?.id || uid(`a-${idx}`)),
-    text: String(item?.text || '').trim(),
+    text: String(item?.text || ''),
     done: !!item?.done,
     assigneeUserId: Number(item?.assigneeUserId || item?.assignee_user_id || 0) || 0,
     isEscalation: !!(item?.isEscalation || item?.escalationTicketId),
@@ -195,44 +199,66 @@ function normalizeActions(list) {
 
 async function load() {
   const eid = Number(props.eventId || 0);
-  goals.value = [];
-  actionItems.value = [];
   error.value = '';
-  if (!eid) return;
-  loading.value = true;
+  if (!eid) {
+    goals.value = [];
+    actionItems.value = [];
+    hasLoaded.value = false;
+    loadedEventId = 0;
+    return;
+  }
+  // Same meeting already loaded — do not wipe the form (tab switches / parent re-renders).
+  if (eid === loadedEventId && hasLoaded.value) return;
+
+  const generation = ++loadGeneration;
+  const isInitial = eid !== loadedEventId || !hasLoaded.value;
+  if (isInitial) loading.value = true;
   try {
     const { data } = await api.get(`/team-meetings/${eid}/workspace`, { skipGlobalLoading: true });
+    if (generation !== loadGeneration) return;
     loadedSubtype.value = String(data?.meetingSubtype || 'general').toLowerCase();
     loadedParticipants.value = Array.isArray(data?.participants) ? data.participants : [];
     const workspace = data?.workspace || {};
-    goals.value = normalizeGoals(workspace.goals).filter((g) => g.text);
-    actionItems.value = normalizeActions(workspace.actionItems).filter((a) => a.text);
+    goals.value = normalizeGoals(workspace.goals).filter((g) => String(g.text || '').trim());
+    actionItems.value = normalizeActions(workspace.actionItems).filter((a) => String(a.text || '').trim());
+    loadedEventId = eid;
+    hasLoaded.value = true;
   } catch (e) {
+    if (generation !== loadGeneration) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load goals / action items';
   } finally {
-    loading.value = false;
+    if (generation === loadGeneration) loading.value = false;
   }
 }
 
 async function saveNow() {
   const eid = Number(props.eventId || 0);
-  if (!eid || saving.value) return;
-  const cleanGoals = normalizeGoals(goals.value).filter((g) => g.text);
-  const cleanActions = normalizeActions(actionItems.value).filter((a) => a.text).map((a) => ({
-    ...a,
-    assigneeUserId: a.assigneeUserId || null
-  }));
+  if (!eid) return;
+  if (saving.value) {
+    pendingSave.value = true;
+    return;
+  }
+  const payloadGoals = normalizeGoals(goals.value)
+    .map((g) => ({ ...g, text: String(g.text || '').trim() }))
+    .filter((g) => g.text);
+  const payloadActions = normalizeActions(actionItems.value)
+    .map((a) => ({
+      ...a,
+      text: String(a.text || '').trim(),
+      assigneeUserId: a.assigneeUserId || null
+    }))
+    .filter((a) => a.text);
+
   saving.value = true;
+  pendingSave.value = false;
   saveStatus.value = 'saving';
   error.value = '';
   try {
-    const { data } = await api.post(`/team-meetings/${eid}/workspace`, {
-      goals: cleanGoals,
-      actionItems: cleanActions
+    await api.post(`/team-meetings/${eid}/workspace`, {
+      goals: payloadGoals,
+      actionItems: payloadActions
     }, { skipGlobalLoading: true });
-    const workspace = data?.workspace || {};
-    goals.value = normalizeGoals(workspace.goals).filter((g) => g.text);
-    actionItems.value = normalizeActions(workspace.actionItems).filter((a) => a.text);
+    // Keep local rows as source of truth so typing/focus is never reset by the save response.
     emit('saved', { goals: goals.value, actionItems: actionItems.value });
     saveStatus.value = 'saved';
     if (flashTimer) clearTimeout(flashTimer);
@@ -242,12 +268,16 @@ async function saveNow() {
     saveStatus.value = 'error';
   } finally {
     saving.value = false;
+    if (pendingSave.value) {
+      pendingSave.value = false;
+      queueSave();
+    }
   }
 }
 
 function queueSave() {
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { void saveNow(); }, 700);
+  saveTimer = setTimeout(() => { void saveNow(); }, 900);
 }
 
 function addGoal() {
@@ -316,7 +346,9 @@ async function submitEscalate() {
       { skipGlobalLoading: true }
     );
     const workspace = data?.workspace || {};
-    actionItems.value = normalizeActions(workspace.actionItems).filter((a) => a.text);
+    const serverActions = normalizeActions(workspace.actionItems).filter((a) => String(a.text || '').trim());
+    const drafts = actionItems.value.filter((a) => !String(a?.text || '').trim());
+    actionItems.value = [...serverActions, ...drafts];
     emit('escalated', { ticketId: data?.escalationTicketId, workspace });
     closeEscalate();
   } catch (e) {
@@ -326,7 +358,13 @@ async function submitEscalate() {
   }
 }
 
-watch(() => Number(props.eventId || 0), () => { void load(); }, { immediate: true });
+watch(() => Number(props.eventId || 0), (eid, prev) => {
+  if (Number(eid || 0) !== Number(prev || 0)) {
+    hasLoaded.value = false;
+    loadedEventId = 0;
+  }
+  void load();
+}, { immediate: true });
 </script>
 
 <style scoped>
@@ -424,6 +462,7 @@ watch(() => Number(props.eventId || 0), () => { void load(); }, { immediate: tru
   font-size: 12px;
   font-weight: 700;
 }
+.mgap__status--saving { color: #64748b; }
 .mgap__status--saved { color: #047857; }
 .mgap__status--error { color: #b91c1c; }
 .mgap-modal {

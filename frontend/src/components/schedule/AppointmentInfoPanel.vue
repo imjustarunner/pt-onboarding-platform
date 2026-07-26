@@ -84,17 +84,29 @@
           <div class="aip-v">{{ serviceLabel }}</div>
         </div>
       </div>
+
       <div
-        v-if="participantSummary"
-        class="aip-card"
-        :class="{ 'aip-card--wide': !(virtualLink && showVirtualLink && compactVirtualLink) }"
+        v-if="participantSummary || participantNames.length"
+        class="aip-card aip-card--participants"
       >
         <span class="aip-ico aip-ico--amber" aria-hidden="true">👥</span>
-        <div>
+        <div class="aip-participants">
           <div class="aip-k">{{ participantLabel }}</div>
-          <div class="aip-v">{{ participantSummary }}</div>
+          <div class="aip-v aip-participants-summary">{{ participantDisplaySummary }}</div>
+          <button
+            v-if="canExpandParticipants"
+            type="button"
+            class="aip-expand-btn"
+            @click="participantsExpanded = !participantsExpanded"
+          >
+            {{ participantsExpanded ? 'Hide list' : `Show all ${participantNames.length}` }}
+          </button>
+          <ul v-if="participantsExpanded && participantNames.length" class="aip-participants-list">
+            <li v-for="(name, idx) in participantNames" :key="`aip-p-${idx}`">{{ name }}</li>
+          </ul>
         </div>
       </div>
+
       <div
         v-if="virtualLink && showVirtualLink"
         class="aip-card"
@@ -231,6 +243,9 @@ const props = defineProps({
   canOpenClient: { type: Boolean, default: false },
   participantLabel: { type: String, default: 'Participants' },
   participantSummary: { type: String, default: '' },
+  /** Full name list for expandable participants (meetings). */
+  participantNames: { type: Array, default: () => [] },
+  expandableParticipants: { type: Boolean, default: false },
   serviceLabel: { type: String, default: '' },
   locationLabel: { type: String, default: '' },
   roomLabel: { type: String, default: '' },
@@ -251,10 +266,24 @@ const props = defineProps({
 
 const emit = defineEmits(['edit', 'open-provider', 'open-client', 'open-billing', 'open-clinical', 'open-note', 'join']);
 
+const participantsExpanded = ref(false);
+
 const statusPretty = computed(() => {
   const s = String(props.statusLabel || '').trim();
   if (!s) return '—';
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+});
+
+const canExpandParticipants = computed(() => (
+  !!props.expandableParticipants && (props.participantNames || []).length > 1
+));
+
+const participantDisplaySummary = computed(() => {
+  const names = (props.participantNames || []).map((n) => String(n || '').trim()).filter(Boolean);
+  if (!names.length) return props.participantSummary || 'None selected';
+  if (!props.expandableParticipants || names.length <= 2) return names.join(', ');
+  if (participantsExpanded.value) return `${names.length} participants`;
+  return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
 });
 
 const copiedLink = ref(false);
@@ -292,6 +321,50 @@ async function copyVirtualLink() {
   border: 1px solid #eef2f7;
 }
 .aip-card--wide { grid-column: 1 / -1; }
+.aip-card--participants {
+  min-height: 72px;
+}
+.aip-participants {
+  min-width: 0;
+  flex: 1;
+}
+.aip-participants-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.aip-expand-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 4px 0 0;
+  color: #4338ca;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.aip-expand-btn:hover { text-decoration: underline; }
+.aip-participants-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 140px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.aip-participants-list li {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
 .aip-tenant {
   display: flex;
   align-items: center;
