@@ -24,6 +24,7 @@
             :event-id="resolvedEventId || eventId"
             :is-host="isHost"
             layout="standard"
+            :equal-tiles-when-remote="true"
             :local-display-name="localDisplayName"
             :local-role-label="localRoleLabel"
             :local-profile-photo-url="localProfilePhotoUrl"
@@ -616,8 +617,9 @@ onUnmounted(() => {
   height: auto !important;
 }
 .join-video :deep(.vsr__stage--solo .vsr__tile),
-.join-video :deep(.vsr__stage--duo .vsr__tile) {
-  min-height: min(46vh, 480px) !important;
+.join-video :deep(.vsr__stage--duo .vsr__tile),
+.join-video :deep(.vsr__stage--grid .vsr__tile) {
+  min-height: min(40vh, 420px) !important;
   height: 100% !important;
 }
 .join-video :deep(.vsr__tile video),

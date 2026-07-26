@@ -15,6 +15,7 @@
       :diagnostics="diagnostics"
       :can-recreate-room="canRecreateRoom"
       :promote-local-when-alone="promoteLocalWhenAlone"
+      :equal-tiles-when-remote="equalTilesWhenRemote"
       :tile-focus="tileFocus"
       :hide-controls="hideControls"
       :allow-tile-focus="allowTileFocus"
@@ -56,6 +57,8 @@ const props = defineProps({
   diagnostics: { type: Object, default: null },
   canRecreateRoom: { type: Boolean, default: false },
   promoteLocalWhenAlone: { type: Boolean, default: true },
+  /** When false, remotes fill the stage and local stays a small corner PiP. */
+  equalTilesWhenRemote: { type: Boolean, default: true },
   tileFocus: { type: String, default: 'equal' },
   hideControls: { type: Boolean, default: false },
   allowTileFocus: { type: Boolean, default: false },
