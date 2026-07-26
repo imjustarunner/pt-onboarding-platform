@@ -198,6 +198,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
+import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
 import VideoSessionRoom from '../../components/video/VideoSessionRoom.vue';
 import ActivityHost from '../../components/counseling/ActivityHost.vue';
 import ActivityLibrary from '../../components/counseling/ActivityLibrary.vue';
@@ -481,6 +482,13 @@ watch(inActivityMode, (v) => {
   if (v) activePanel.value = 'activity';
 });
 
+watch(phase, (p, prev) => {
+  const active = p === 'joining' || p === 'connected';
+  const wasActive = prev === 'joining' || prev === 'connected';
+  if (active && !wasActive) suspendInactivityTimeout();
+  else if (!active && wasActive) resumeInactivityTimeout();
+}, { immediate: true });
+
 let mediaQuery = null;
 let onMediaQueryChange = null;
 
@@ -504,6 +512,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  resumeInactivityTimeout();
   if (mediaQuery && onMediaQueryChange) {
     mediaQuery.removeEventListener?.('change', onMediaQueryChange);
   }

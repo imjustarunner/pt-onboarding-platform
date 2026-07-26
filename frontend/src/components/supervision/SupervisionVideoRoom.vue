@@ -3,6 +3,7 @@
     <div v-if="sessionTitle" class="supervision-video-room__title">{{ sessionTitle }}</div>
     <VideoSessionRoom
       v-if="token && vonageSessionId && projectId"
+      ref="videoRoomRef"
       :key="`${vonageSessionId}-${token.slice(0, 12)}`"
       :token="token"
       :session-id="vonageSessionId"
@@ -13,7 +14,11 @@
       :layout="layout"
       :diagnostics="diagnostics"
       :can-recreate-room="canRecreateRoom"
-      promote-local-when-alone
+      :promote-local-when-alone="promoteLocalWhenAlone"
+      :tile-focus="tileFocus"
+      :hide-controls="hideControls"
+      :allow-tile-focus="allowTileFocus"
+      @update:tile-focus="$emit('update:tileFocus', $event)"
       @disconnected="$emit('disconnected')"
       @connected="$emit('connected', $event)"
       @error="$emit('error', $event)"
@@ -30,9 +35,11 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import VideoSessionRoom from '../video/VideoSessionRoom.vue';
 import { useAuthStore } from '../../store/auth';
+
+const videoRoomRef = ref(null);
 
 const props = defineProps({
   token: { type: String, default: '' },
@@ -48,12 +55,16 @@ const props = defineProps({
   layout: { type: String, default: 'strip' },
   diagnostics: { type: Object, default: null },
   canRecreateRoom: { type: Boolean, default: false },
+  promoteLocalWhenAlone: { type: Boolean, default: true },
+  tileFocus: { type: String, default: 'equal' },
+  hideControls: { type: Boolean, default: false },
+  allowTileFocus: { type: Boolean, default: false },
   localDisplayName: { type: String, default: '' },
   localRoleLabel: { type: String, default: '' },
   localProfilePhotoUrl: { type: String, default: '' }
 });
 
-defineEmits(['disconnected', 'connected', 'error', 'recreate-room']);
+defineEmits(['disconnected', 'connected', 'error', 'recreate-room', 'update:tileFocus']);
 
 const authStore = useAuthStore();
 
@@ -91,6 +102,15 @@ const localProfilePhotoUrl = computed(() => {
   if (fromProp) return fromProp;
   const u = authStore.user || {};
   return String(u.profile_photo_url || u.profilePhotoUrl || '').trim();
+});
+
+defineExpose({
+  toggleMic: (...args) => videoRoomRef.value?.toggleMic?.(...args),
+  toggleCamera: (...args) => videoRoomRef.value?.toggleCamera?.(...args),
+  toggleScreenShare: (...args) => videoRoomRef.value?.toggleScreenShare?.(...args),
+  get publishAudio() { return videoRoomRef.value?.publishAudio; },
+  get publishVideo() { return videoRoomRef.value?.publishVideo; },
+  get sharingScreen() { return videoRoomRef.value?.sharingScreen; }
 });
 </script>
 

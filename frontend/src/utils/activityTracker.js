@@ -71,6 +71,8 @@ let timeoutInFlight = false;
 /** When set (ISO), Timedown idle clock is paused until this time (privileged away status). */
 let sessionExtendUntilMs = null;
 let extendWatchTimer = null;
+/** Refcount: while > 0, idle → Timedown and active Timedown countdown are suspended (live video session). */
+let inactivitySuspendCount = 0;
 
 /** Runtime timeouts from agency settings (fall back to branding defaults). */
 let idleBeforeTimedownMs = IDLE_BEFORE_TIMEDOWN_MS;
@@ -179,6 +181,48 @@ function isSessionExtendActive() {
     return false;
   }
   return true;
+}
+
+function isInactivitySuspended() {
+  return inactivitySuspendCount > 0;
+}
+
+/**
+ * Suspend idle → Timedown (and dismiss an active Timedown) while a live video session is in progress.
+ * Refcounted so nested joins (e.g. modal + room) stay safe.
+ */
+export function suspendInactivityTimeout() {
+  inactivitySuspendCount += 1;
+  if (inactivitySuspendCount !== 1) return;
+
+  if (warningTimer) {
+    clearTimeout(warningTimer);
+    warningTimer = null;
+  }
+
+  try {
+    const store = useSessionLockStore();
+    if (store.warningActive) store.dismissWarning();
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Resume normal inactivity timing after leaving a live video session.
+ */
+export function resumeInactivityTimeout() {
+  if (inactivitySuspendCount <= 0) return;
+  inactivitySuspendCount -= 1;
+  if (inactivitySuspendCount > 0) return;
+
+  lastActivityTime = Date.now();
+  try {
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
+  } catch {
+    /* ignore */
+  }
+  if (isTracking) resetTimer();
 }
 
 function canSendHeartbeat() {
@@ -349,6 +393,7 @@ function fireTimedown() {
   if (!isTracking || !auth.isAuthenticated) return;
   if (store.warningActive || store.isLocked) return;
   if (isSessionExtendActive()) return;
+  if (isInactivitySuspended()) return;
 
   if (warningTimer) {
     clearTimeout(warningTimer);
@@ -390,6 +435,7 @@ function resetTimer() {
   if (sessionLockStore.isLocked) return;
   if (!isTracking) return;
   if (isSessionExtendActive()) return;
+  if (isInactivitySuspended()) return;
 
   // Schedule from lastActivityTime so background throttling + resume stay accurate.
   const elapsed = Math.max(0, Date.now() - lastActivityTime);
@@ -425,6 +471,7 @@ function checkIdleWatchdog() {
     }, delay);
   }
   if (isSessionExtendActive()) return;
+  if (isInactivitySuspended()) return;
   const store = useSessionLockStore();
   if (store.warningActive || store.isLocked) return;
   if (Date.now() - lastActivityTime >= getWarningDelayMs()) {
@@ -647,6 +694,7 @@ export function stopActivityTracking({ dismissWarning: shouldDismiss = true } = 
   }
   isTracking = false;
   clearSessionExtendPause();
+  inactivitySuspendCount = 0;
 
   MEANINGFUL_EVENTS.forEach((event) => document.removeEventListener(event, onMeaningfulActivity, true));
   PASSIVE_EVENTS.forEach((event) => document.removeEventListener(event, onPassiveActivity, true));
@@ -821,6 +869,8 @@ export function getIdleTimeoutDebug() {
     idleElapsedMs: Date.now() - lastActivityTime,
     sessionExtendUntilMs,
     sessionExtendActive: isSessionExtendActive(),
+    inactivitySuspended: isInactivitySuspended(),
+    inactivitySuspendCount,
     sessionExtendRemainingSec: sessionExtendUntilMs
       ? Math.max(0, Math.round((sessionExtendUntilMs - Date.now()) / 1000))
       : 0,

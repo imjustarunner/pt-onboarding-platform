@@ -1325,48 +1325,60 @@
             </button>
           </div>
 
-          <AppointmentInfoPanel
+          <div
             v-if="editorWorkspaceTab === 'info'"
-            :when-label="editorInfoWhenLabel"
-            :when-date-label="editorInfoWhenDateLabel"
-            :when-time-label="editorInfoWhenTimeLabel"
-            :type-label="editorInfoTypeLabel"
-            :status-label="editorStatus"
-            :modality-label="editorInfoModalityLabel"
-            :tenant-label="modalTenantLabel"
-            :tenant-icon-url="editorTenantIconUrl"
-            :provider-label="isAppointmentEditMode ? 'Booked for' : 'Provider'"
-            :provider-name="bookingTargetUserLabel"
-            :provider-user-id="Number(bookingTargetUserId || props.userId || 0)"
-            :can-open-provider="canOpenScheduleUserProfile"
-            :client-id="editorInfoClientId"
-            :client-name="editorInfoClientName"
-            :can-open-client="canOpenScheduleClientProfile"
-            :participant-label="editorParticipantLabel"
-            :participant-summary="editorIsMeeting || editorIsSupervision ? editorParticipantSummary : ''"
-            :service-label="editorInfoServiceLabel"
-            :location-label="editorInfoLocationLabel"
-            :room-label="editorRoomLabel"
-            :virtual-link="editorVirtualLink"
-            :notes="editorInfoNotes"
-            :show-notes="!editorIsSupervision"
-            :show-virtual-link="!!editorVirtualLink || !!editorMeetLink"
-            :show-join-quick="editorIsSupervision && editorShowVirtual && !!(editorVirtualLink || editorMeetLink)"
-            :join-busy="supvMeetOpening || supvAppVideoLoading"
-            :show-note-quick="editorIsSupervision"
-            :show-billing="editorShowBillingTab"
-            :show-clinical="editorShowClinicalTab"
-            :claim-id="editorClaimId"
-            :clinical-session-id="editorClinicalSessionId"
-            :clinical-note-id="editorClinicalNoteId"
-            @edit="editorWorkspaceTab = 'edit'"
-            @open-provider="openScheduleUserProfile"
-            @open-client="openScheduleClientProfile"
-            @open-billing="editorWorkspaceTab = 'billing'"
-            @open-clinical="editorWorkspaceTab = 'clinical'"
-            @open-note="editorWorkspaceTab = 'note'"
-            @join="startTrackedSupvMeet"
-          />
+            class="supv-info-layout"
+            :class="{ 'supv-info-layout--with-workspace': showIndividualSupervisionWorkspace }"
+          >
+            <AppointmentInfoPanel
+              :when-label="editorInfoWhenLabel"
+              :when-date-label="editorInfoWhenDateLabel"
+              :when-time-label="editorInfoWhenTimeLabel"
+              :type-label="editorInfoTypeLabel"
+              :status-label="editorStatus"
+              :modality-label="editorInfoModalityLabel"
+              :tenant-label="modalTenantLabel"
+              :tenant-icon-url="editorTenantIconUrl"
+              :provider-label="isAppointmentEditMode ? 'Booked for' : 'Provider'"
+              :provider-name="bookingTargetUserLabel"
+              :provider-user-id="Number(bookingTargetUserId || props.userId || 0)"
+              :can-open-provider="canOpenScheduleUserProfile"
+              :client-id="editorInfoClientId"
+              :client-name="editorInfoClientName"
+              :can-open-client="canOpenScheduleClientProfile"
+              :participant-label="editorParticipantLabel"
+              :participant-summary="editorIsMeeting || editorIsSupervision ? editorParticipantSummary : ''"
+              :service-label="editorInfoServiceLabel"
+              :location-label="editorInfoLocationLabel"
+              :room-label="editorRoomLabel"
+              :virtual-link="editorVirtualLink"
+              :notes="editorInfoNotes"
+              :show-notes="!editorIsSupervision"
+              :show-virtual-link="!!editorVirtualLink || !!editorMeetLink"
+              :compact-virtual-link="editorIsSupervision"
+              :show-join-quick="false"
+              :join-busy="supvMeetOpening || supvAppVideoLoading"
+              :show-note-quick="editorIsSupervision"
+              :show-billing="editorShowBillingTab"
+              :show-clinical="editorShowClinicalTab"
+              :claim-id="editorClaimId"
+              :clinical-session-id="editorClinicalSessionId"
+              :clinical-note-id="editorClinicalNoteId"
+              @edit="editorWorkspaceTab = 'edit'"
+              @open-provider="openScheduleUserProfile"
+              @open-client="openScheduleClientProfile"
+              @open-billing="editorWorkspaceTab = 'billing'"
+              @open-clinical="editorWorkspaceTab = 'clinical'"
+              @open-note="editorWorkspaceTab = 'note'"
+              @join="startTrackedSupvMeet"
+            />
+            <SupervisionGoalsActionsPanel
+              v-if="showIndividualSupervisionWorkspace"
+              :session-id="selectedSupvSessionId"
+              section="both"
+              lock-position="bottom"
+            />
+          </div>
 
         <AppointmentEditorShell
           v-show="editorWorkspaceTab === 'edit'"
@@ -1755,23 +1767,29 @@
             <p v-else class="muted">Clinical notes are available for client sessions on this tenant.</p>
           </div>
 
+          <div
+            v-if="(editorWorkspaceTab === 'goals' || editorWorkspaceTab === 'actions') && showIndividualSupervisionWorkspace"
+            class="appt-workspace-panel appt-workspace-panel--flush"
+          >
+            <SupervisionGoalsActionsPanel
+              :session-id="selectedSupvSessionId"
+              :section="editorWorkspaceTab"
+            />
+          </div>
+
           <div v-show="editorWorkspaceTab === 'note'" class="appt-workspace-panel appt-workspace-panel--flush">
             <SupervisionNotePanel
               v-if="editorIsSupervision"
-              v-model:notes="supvNotes"
-              v-model:transcript-url="supvTranscriptUrl"
-              v-model:transcript="supvTranscriptText"
-              v-model:summary="supvSummaryText"
+              :transcript="supvTranscriptText"
+              :summary="supvSummaryText"
               :session-id="selectedSupvSessionId"
               :join-url="editorVirtualLink"
-              :show-join="!!(selectedSupvSession?.joinUrl || selectedSupvSession?.googleMeetLink)"
+              :show-join="false"
               :show-agenda="supervisionSessionInitiated"
               :join-busy="supvMeetOpening || supvAppVideoLoading"
-              :saving="supvArtifactSaving"
               :loading="supvArtifactLoading"
               :error="supvArtifactError"
               :disabled="submitting || scheduleEventSaving"
-              @save="saveSupvArtifact"
               @join="startTrackedSupvMeet"
               @open-agenda="showAgendaPanel = true"
             />
@@ -1781,7 +1799,7 @@
           <div v-show="editorWorkspaceTab === 'supervisee'" class="appt-workspace-panel appt-workspace-panel--flush">
             <SupervisionSuperviseePanel
               v-if="editorIsSupervision"
-              :participant-name="editorParticipantSummary"
+              :participant-name="editorSuperviseeDisplayName"
               :session-type="selectedSupvSession?.sessionType || supervisionEffectiveSessionType"
               :individual-hours="supvSuperviseeHours.individualHours"
               :group-hours="supvSuperviseeHours.groupHours"
@@ -3863,7 +3881,7 @@
       style="z-index: 10001;"
     >
       <div class="modal supv-video-modal supv-video-fullscreen" @click.stop>
-        <GroupSupervisionLiveRoom
+        <SupervisionLiveRoom
           :supervision-session-id="supvAppVideoSessionId"
           :token="supvAppVideoToken"
           :vonage-session-id="supvAppVideoVonageSessionId"
@@ -4625,7 +4643,7 @@ import {
 import { isTenantOrganizationType as isTenantOrganizationTypeShared } from '../../utils/organizationTypes.js';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
-import GroupSupervisionLiveRoom from '../supervision/GroupSupervisionLiveRoom.vue';
+import SupervisionLiveRoom from '../supervision/SupervisionLiveRoom.vue';
 import UnifiedBookingPanel from './UnifiedBookingPanel.vue';
 import PersonSearchSelect from './PersonSearchSelect.vue';
 import AppointmentEditorShell from './AppointmentEditorShell.vue';
@@ -4638,6 +4656,7 @@ import TeamMeetingBody from './TeamMeetingBody.vue';
 import VirtualLinkControls from './VirtualLinkControls.vue';
 import SupervisionBody from './SupervisionBody.vue';
 import SupervisionNotePanel from './SupervisionNotePanel.vue';
+import SupervisionGoalsActionsPanel from './SupervisionGoalsActionsPanel.vue';
 import SupervisionSuperviseePanel from './SupervisionSuperviseePanel.vue';
 import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
@@ -11025,6 +11044,12 @@ const editorWorkspaceTabs = computed(() => {
     { id: 'edit', label: 'Edit', icon: '✎' }
   ];
   if (editorIsSupervision.value) {
+    if (showIndividualSupervisionWorkspace.value) {
+      tabs.splice(1, 0,
+        { id: 'goals', label: 'Goals', icon: '◎' },
+        { id: 'actions', label: 'Action Items', icon: '☑' }
+      );
+    }
     tabs.push({ id: 'note', label: 'Note', icon: '✎' });
     tabs.push({ id: 'supervisee', label: 'Supervisee', icon: '◎' });
   }
@@ -11408,6 +11433,53 @@ const editorParticipantSummary = computed(() => {
   if (n > 1) return `${n} clients`;
   return '—';
 });
+
+/** Supervisee tab: always the supervisee's user id (not the supervisor / counterparty). */
+const editorSuperviseeUserId = computed(() => {
+  const session = selectedSupvSession.value;
+  const fromSession = Number(session?.superviseeUserId || 0);
+  if (fromSession > 0) return fromSession;
+  if (String(session?.role || '').toLowerCase() === 'supervisee') {
+    return Number(authStore.user?.id || props.userId || 0);
+  }
+  const pid = Number(selectedSupervisionParticipantId.value || 0);
+  if (pid > 0) return pid;
+  return 0;
+});
+
+/** Supervisee tab: always the supervisee's display name (self when viewer is supervisee). */
+const editorSuperviseeDisplayName = computed(() => {
+  const session = selectedSupvSession.value;
+  const sessionRole = String(session?.role || '').trim().toLowerCase();
+
+  if (session) {
+    if (sessionRole === 'supervisee') {
+      const u = authStore.user || {};
+      const selfName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim();
+      if (selfName) return selfName;
+    }
+    const superviseeName = String(session.superviseeName || '').trim();
+    if (superviseeName) return superviseeName;
+    if (sessionRole === 'supervisor') {
+      return String(session.counterpartyName || '').trim() || '—';
+    }
+  }
+
+  const names = editorSupervisionParticipantNames.value;
+  if (names.length === 1) return names[0];
+  if (names.length > 1) return names.join(', ');
+
+  const pid = Number(selectedSupervisionParticipantId.value || 0);
+  if (pid > 0) {
+    const row = supervisionParticipantById.value.get(pid);
+    if (row) {
+      const label = supervisionParticipantLabel(row);
+      return String(label || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || label;
+    }
+  }
+  return '—';
+});
+
 const editorShowLocation = computed(() => !editorShowVirtual.value || editorIsOpenSlot.value);
 const editorShowRoom = computed(() => editorShowLocation.value || editorIsOpenSlot.value);
 const editorRoomLabel = computed(() => String(modalOccupiedSlotSummary.value?.roomDisplay || '').trim());
@@ -13125,6 +13197,13 @@ const supervisionEffectiveSessionTypeLabel = computed(() => {
   return 'Individual supervision';
 });
 const isGroupSupervisionType = computed(() => supervisionEffectiveSessionType.value === 'group');
+/** Goals / action items only for individual supervision (not group/triadic). */
+const showIndividualSupervisionWorkspace = computed(() => {
+  if (!editorIsSupervision.value) return false;
+  const fromSession = String(selectedSupvSession.value?.sessionType || '').trim().toLowerCase();
+  const t = fromSession || supervisionEffectiveSessionType.value;
+  return t === 'individual' || t === '1:1' || t === 'one_on_one' || t === 'one-on-one';
+});
 const supervisionCanUseAllAgencies = computed(
   () => supervisionGroupModeEnabled.value && canBookGroupSupervisionFromGrid.value && (effectiveAgencyIds.value || []).length > 1
 );
@@ -17736,7 +17815,6 @@ const supvMeetTrackedSessionLabel = ref('');
 const supvArtifactLoading = ref(false);
 const supvArtifactSaving = ref(false);
 const supvArtifactError = ref('');
-const supvTranscriptUrl = ref('');
 const supvTranscriptText = ref('');
 const supvSummaryText = ref('');
 const supvSuperviseeHoursLoading = ref(false);
@@ -18152,7 +18230,6 @@ const loadSupvPresenters = async (sessionId) => {
 const loadSupvArtifact = async (sessionId) => {
   const sid = Number(sessionId || 0);
   if (!sid) {
-    supvTranscriptUrl.value = '';
     supvTranscriptText.value = '';
     supvSummaryText.value = '';
     supvArtifactError.value = '';
@@ -18163,7 +18240,6 @@ const loadSupvArtifact = async (sessionId) => {
     supvArtifactError.value = '';
     const resp = await api.get(`/supervision/sessions/${sid}/artifacts`);
     const artifact = resp?.data?.artifact || null;
-    supvTranscriptUrl.value = String(artifact?.transcript_url || '');
     supvTranscriptText.value = String(artifact?.transcript_text || '');
     supvSummaryText.value = String(artifact?.summary_text || '');
   } catch (e) {
@@ -18175,12 +18251,7 @@ const loadSupvArtifact = async (sessionId) => {
 
 const loadSupvSuperviseeHours = async () => {
   const session = selectedSupvSession.value;
-  const superviseeId = Number(
-    session?.superviseeUserId
-    || (session?.role === 'supervisee' ? props.userId : 0)
-    || selectedSupervisionParticipantId.value
-    || 0
-  );
+  const superviseeId = Number(editorSuperviseeUserId.value || 0);
   const agencyId = Number(session?.agencyId || session?._agencyId || editorAgencyId.value || effectiveAgencyId.value || 0);
   if (!superviseeId) {
     supvSuperviseeHoursError.value = '';
@@ -18237,35 +18308,6 @@ watch(
   }
 );
 
-const saveSupvArtifact = async ({ autoSummarize = false } = {}) => {
-  const sid = Number(selectedSupvSessionId.value || 0);
-  if (!sid) return;
-  try {
-    supvArtifactSaving.value = true;
-    supvArtifactError.value = '';
-    const resp = await api.post(`/supervision/sessions/${sid}/artifacts`, {
-      transcriptUrl: supvTranscriptUrl.value || null,
-      transcriptText: supvTranscriptText.value || null,
-      summaryText: autoSummarize ? undefined : (supvSummaryText.value || null),
-      autoSummarize
-    });
-    const artifact = resp?.data?.artifact || null;
-    supvTranscriptUrl.value = String(artifact?.transcript_url || '');
-    supvTranscriptText.value = String(artifact?.transcript_text || '');
-    supvSummaryText.value = String(artifact?.summary_text || '');
-    // Keep short session notes in sync when saving from the Note tab.
-    try {
-      await api.patch(`/supervision/sessions/${sid}`, { notes: supvNotes.value || '' });
-    } catch {
-      /* artifact save succeeded; notes can still be saved via Save changes */
-    }
-  } catch (e) {
-    supvArtifactError.value = e.response?.data?.error?.message || e.message || 'Failed to save transcript/summary';
-  } finally {
-    supvArtifactSaving.value = false;
-  }
-};
-
 const openSupvModal = (dayName, hour) => {
   const hits = supervisionSessionsInCell(dayName, hour);
   if (!hits.length) return;
@@ -18309,7 +18351,6 @@ const closeSupvModal = () => {
   supvArtifactLoading.value = false;
   supvArtifactSaving.value = false;
   supvArtifactError.value = '';
-  supvTranscriptUrl.value = '';
   supvTranscriptText.value = '';
   supvSummaryText.value = '';
 };
@@ -22487,6 +22528,19 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border: 1px solid #e8eef5;
   border-radius: 12px;
   background: #fff;
+}
+.supv-info-layout {
+  display: grid;
+  gap: 14px;
+}
+.supv-info-layout--with-workspace {
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.95fr);
+  align-items: start;
+}
+@media (max-width: 980px) {
+  .supv-info-layout--with-workspace {
+    grid-template-columns: 1fr;
+  }
 }
 .appt-workspace-panel--flush {
   padding: 0;

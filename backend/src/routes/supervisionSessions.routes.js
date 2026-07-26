@@ -13,6 +13,8 @@ import {
   saveClientTranscript,
   getSupervisionSessionArtifacts,
   upsertSupervisionSessionArtifacts,
+  getSupervisionSessionPersonalNote,
+  upsertSupervisionSessionPersonalNote,
   createSupervisionSession,
   createSupervisionSessionValidators,
   patchSupervisionSession,
@@ -105,6 +107,8 @@ router.post('/sessions/:id/admit/:userId', admitToMainRoom);
 router.post('/sessions/:id/client-transcript', saveClientTranscript);
 router.get('/sessions/:id/artifacts', getSupervisionSessionArtifacts);
 router.post('/sessions/:id/artifacts', upsertSupervisionSessionArtifacts);
+router.get('/sessions/:id/personal-note', getSupervisionSessionPersonalNote);
+router.put('/sessions/:id/personal-note', upsertSupervisionSessionPersonalNote);
 router.get('/sessions/:id/activity', getSupervisionActivity);
 router.post('/sessions/:id/activity', postSupervisionActivity);
 router.post('/sessions', createSupervisionSessionValidators, createSupervisionSession);

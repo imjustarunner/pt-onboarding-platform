@@ -79,6 +79,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
+import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
 import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
 import MeetingAgendaPanel from '../../components/meetings/MeetingAgendaPanel.vue';
@@ -343,11 +344,22 @@ watch(
   { immediate: true }
 );
 
+watch(
+  () => token.value,
+  (t, prev) => {
+    const has = String(t || '').trim();
+    const had = String(prev || '').trim();
+    if (has && !had) suspendInactivityTimeout();
+    else if (!has && had) resumeInactivityTimeout();
+  }
+);
+
 onMounted(async () => {
   await runJoinFlowForCurrentRoute();
 });
 
 onUnmounted(() => {
+  resumeInactivityTimeout();
   sendPresence('leave');
   stopAdmissionPolling();
   stopPresenceHeartbeat();

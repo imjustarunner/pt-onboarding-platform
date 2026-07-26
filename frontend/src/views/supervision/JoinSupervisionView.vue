@@ -12,7 +12,7 @@
         Log in to join
       </button>
     </div>
-    <GroupSupervisionLiveRoom
+    <SupervisionLiveRoom
       v-else-if="token && vonageSessionId && applicationId"
       :supervision-session-id="numericSessionId || sessionId"
       :token="token"
@@ -40,7 +40,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
-import GroupSupervisionLiveRoom from '../../components/supervision/GroupSupervisionLiveRoom.vue';
+import SupervisionLiveRoom from '../../components/supervision/SupervisionLiveRoom.vue';
 import api from '../../services/api';
 
 const router = useRouter();

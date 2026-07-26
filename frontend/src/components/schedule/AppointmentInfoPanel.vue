@@ -84,11 +84,46 @@
           <div class="aip-v">{{ serviceLabel }}</div>
         </div>
       </div>
-      <div v-if="participantSummary" class="aip-card aip-card--wide">
+      <div
+        v-if="participantSummary"
+        class="aip-card"
+        :class="{ 'aip-card--wide': !(virtualLink && showVirtualLink && compactVirtualLink) }"
+      >
         <span class="aip-ico aip-ico--amber" aria-hidden="true">👥</span>
         <div>
           <div class="aip-k">{{ participantLabel }}</div>
           <div class="aip-v">{{ participantSummary }}</div>
+        </div>
+      </div>
+      <div
+        v-if="virtualLink && showVirtualLink"
+        class="aip-card"
+        :class="{ 'aip-card--wide': !compactVirtualLink }"
+      >
+        <span class="aip-ico aip-ico--violet" aria-hidden="true">↗</span>
+        <div>
+          <div class="aip-k">Join link</div>
+          <div v-if="compactVirtualLink" class="aip-v aip-inline-link">
+            <a
+              :href="virtualLink"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="aip-inline-btn aip-inline-btn--join"
+            >
+              Join
+            </a>
+            <button
+              type="button"
+              class="aip-inline-btn"
+              :title="copiedLink ? 'Copied' : 'Copy join link'"
+              @click="copyVirtualLink"
+            >
+              {{ copiedLink ? 'Copied' : 'Copy link' }}
+            </button>
+          </div>
+          <div v-else class="aip-v">
+            <a :href="virtualLink" target="_blank" rel="noopener noreferrer" class="aip-link">{{ virtualLink }}</a>
+          </div>
         </div>
       </div>
       <div v-if="locationLabel" class="aip-card">
@@ -105,15 +140,6 @@
           <div class="aip-v">{{ roomLabel }}</div>
         </div>
       </div>
-      <div v-if="virtualLink && showVirtualLink" class="aip-card aip-card--wide">
-        <span class="aip-ico aip-ico--violet" aria-hidden="true">↗</span>
-        <div>
-          <div class="aip-k">Join link</div>
-          <div class="aip-v">
-            <a :href="virtualLink" target="_blank" rel="noopener noreferrer" class="aip-link">{{ virtualLink }}</a>
-          </div>
-        </div>
-      </div>
       <div v-if="notes && showNotes" class="aip-card aip-card--wide">
         <span class="aip-ico aip-ico--slate" aria-hidden="true">✎</span>
         <div>
@@ -121,73 +147,71 @@
           <div class="aip-v aip-notes">{{ notes }}</div>
         </div>
       </div>
-    </div>
 
-    <div class="aip-quick">
-      <button type="button" class="aip-quick-card" @click="emit('edit')">
-        <span class="aip-quick-ico aip-quick-ico--violet">✎</span>
-        <span>
-          <strong>Edit appointment</strong>
-          <em>Change date, time or details</em>
-        </span>
+      <button type="button" class="aip-card aip-card--action" @click="emit('edit')">
+        <span class="aip-ico aip-ico--violet" aria-hidden="true">✎</span>
+        <div>
+          <div class="aip-k">Edit appointment</div>
+          <div class="aip-v">Change date, time or details</div>
+        </div>
       </button>
       <button
         v-if="showBilling"
         type="button"
-        class="aip-quick-card"
+        class="aip-card aip-card--action"
         :disabled="!claimId && !clinicalSessionId"
         @click="emit('open-billing')"
       >
-        <span class="aip-quick-ico aip-quick-ico--blue">$</span>
-        <span>
-          <strong>{{ claimId ? 'Open claim' : 'Billing / claim' }}</strong>
-          <em>Create or manage claim</em>
-        </span>
+        <span class="aip-ico aip-ico--blue" aria-hidden="true">$</span>
+        <div>
+          <div class="aip-k">{{ claimId ? 'Open claim' : 'Billing / claim' }}</div>
+          <div class="aip-v">Create or manage claim</div>
+        </div>
       </button>
       <button
         v-if="showClinical"
         type="button"
-        class="aip-quick-card"
+        class="aip-card aip-card--action"
         :disabled="!clinicalNoteId && !clinicalSessionId"
         @click="emit('open-clinical')"
       >
-        <span class="aip-quick-ico aip-quick-ico--green">☰</span>
-        <span>
-          <strong>Clinical notes</strong>
-          <em>View or add notes</em>
-        </span>
+        <span class="aip-ico aip-ico--green" aria-hidden="true">☰</span>
+        <div>
+          <div class="aip-k">Clinical notes</div>
+          <div class="aip-v">View or add notes</div>
+        </div>
       </button>
       <button
         v-if="showJoinQuick"
         type="button"
-        class="aip-quick-card"
+        class="aip-card aip-card--action"
         :disabled="joinBusy"
         @click="emit('join')"
       >
-        <span class="aip-quick-ico aip-quick-ico--violet">↗</span>
-        <span>
-          <strong>{{ joinBusy ? 'Joining…' : 'Join session' }}</strong>
-          <em>Start or open the virtual room</em>
-        </span>
+        <span class="aip-ico aip-ico--violet" aria-hidden="true">↗</span>
+        <div>
+          <div class="aip-k">{{ joinBusy ? 'Joining…' : 'Join session' }}</div>
+          <div class="aip-v">Start or open the virtual room</div>
+        </div>
       </button>
       <button
         v-if="showNoteQuick"
         type="button"
-        class="aip-quick-card"
+        class="aip-card aip-card--action"
         @click="emit('open-note')"
       >
-        <span class="aip-quick-ico aip-quick-ico--green">✎</span>
-        <span>
-          <strong>Supervision note</strong>
-          <em>Short note, transcript &amp; summary</em>
-        </span>
+        <span class="aip-ico aip-ico--green" aria-hidden="true">✎</span>
+        <div>
+          <div class="aip-k">Supervision note</div>
+          <div class="aip-v">Short note, transcript &amp; summary</div>
+        </div>
       </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps({
   whenLabel: { type: String, default: '' },
@@ -214,6 +238,7 @@ const props = defineProps({
   notes: { type: String, default: '' },
   showNotes: { type: Boolean, default: true },
   showVirtualLink: { type: Boolean, default: true },
+  compactVirtualLink: { type: Boolean, default: false },
   showJoinQuick: { type: Boolean, default: false },
   joinBusy: { type: Boolean, default: false },
   showNoteQuick: { type: Boolean, default: false },
@@ -231,6 +256,22 @@ const statusPretty = computed(() => {
   if (!s) return '—';
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 });
+
+const copiedLink = ref(false);
+let copiedTimer = null;
+
+async function copyVirtualLink() {
+  const text = String(props.virtualLink || '').trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard?.writeText(text);
+    copiedLink.value = true;
+    if (copiedTimer) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => { copiedLink.value = false; }, 1800);
+  } catch {
+    // ignore — clipboard may be blocked
+  }
+}
 </script>
 
 <style scoped>
@@ -324,10 +365,68 @@ const statusPretty = computed(() => {
   font-size: 0.72rem;
   font-weight: 800;
 }
+.aip-inline-link {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.aip-inline-btn {
+  appearance: none;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.2;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.aip-inline-btn:hover {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+}
+.aip-inline-btn--join {
+  background: #ede9fe;
+  color: #6d28d9;
+  border-color: #c4b5fd;
+}
+.aip-inline-btn--join:hover {
+  background: #ddd6fe;
+}
 .aip-notes {
   font-weight: 500;
   white-space: pre-wrap;
   color: #334155;
+}
+.aip-card--action {
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.aip-card--action:hover:not(:disabled) {
+  border-color: #c7d2fe;
+  background: #fff;
+}
+.aip-card--action:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+.aip-card--action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.aip-card--action .aip-v {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
 }
 .aip-link {
   appearance: none;
@@ -342,59 +441,7 @@ const statusPretty = computed(() => {
   text-decoration: underline;
   word-break: break-all;
 }
-.aip-quick {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-.aip-quick-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  text-align: left;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid #e8eef5;
-  background: #fff;
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.aip-quick-card:hover:not(:disabled) {
-  border-color: #c7d2fe;
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.08);
-}
-.aip-quick-card:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.aip-quick-card strong {
-  display: block;
-  font-size: 0.86rem;
-  color: #0f172a;
-}
-.aip-quick-card em {
-  display: block;
-  font-style: normal;
-  font-size: 0.74rem;
-  color: #64748b;
-  margin-top: 2px;
-}
-.aip-quick-ico {
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 0.95rem;
-}
-.aip-quick-ico--violet { background: #ede9fe; color: #6d28d9; }
-.aip-quick-ico--blue { background: #dbeafe; color: #1d4ed8; }
-.aip-quick-ico--green { background: #dcfce7; color: #15803d; }
 @media (max-width: 720px) {
-  .aip-grid,
-  .aip-quick { grid-template-columns: 1fr; }
+  .aip-grid { grid-template-columns: 1fr; }
 }
 </style>

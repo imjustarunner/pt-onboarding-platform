@@ -4,7 +4,11 @@
       <div>
         <h2 class="ust-title">My Supervision</h2>
         <p class="ust-sub">
-          Individual and group hours count toward your requirement. Open a session for notes, summary, or transcript.
+          Individual and group hours count toward your requirement. Session focus, goals, action items, summary, and transcript are encrypted and available below.
+        </p>
+        <p class="ust-encrypt muted">
+          <span aria-hidden="true">🔒</span>
+          All supervision data is encrypted and accessible only to you and your supervisor for training and development purposes.
         </p>
       </div>
       <button
@@ -95,7 +99,7 @@
                   {{ formatSessionType(session.sessionType) }}
                 </span>
                 <strong class="session-when">{{ formatSessionDate(session.startAt) }}</strong>
-                <span v-if="session.supervisorName" class="session-supervisor">with {{ session.supervisorName }}</span>
+                <span v-if="sessionPeerLabel(session)" class="session-supervisor">with {{ sessionPeerLabel(session) }}</span>
               </div>
               <a
                 v-if="session.hostJoinUrl || session.joinUrl"
@@ -139,71 +143,138 @@
           <p>No past sessions yet — only upcoming sessions are scheduled.</p>
         </div>
 
-        <div v-else class="sessions-list">
-          <article
-            v-for="session in pastSessions"
-            :key="session.id"
-            class="supervision-session-card"
-          >
-            <div class="session-header">
-              <div class="session-meta">
-                <span class="session-type-pill" :class="typeClass(session.sessionType)">
-                  {{ formatSessionType(session.sessionType) }}
-                </span>
-                <strong class="session-when">{{ formatSessionDate(session.startAt) }}</strong>
-                <span v-if="session.supervisorName" class="session-supervisor">with {{ session.supervisorName }}</span>
-                <span
-                  v-if="session.status"
-                  class="session-status"
-                  :class="statusClass(session.status)"
-                >{{ formatSessionStatus(session.status) }}</span>
-              </div>
-              <div class="session-actions">
-                <button
-                  v-if="session.summaryText"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :aria-expanded="expandedId === `sum-${session.id}`"
-                  @click="toggleExpand(`sum-${session.id}`)"
-                >
-                  {{ expandedId === `sum-${session.id}` ? 'Hide summary' : 'Summary' }}
-                </button>
-                <button
-                  v-if="session.transcriptText"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :aria-expanded="expandedId === `tr-${session.id}`"
-                  @click="toggleExpand(`tr-${session.id}`)"
-                >
-                  {{ expandedId === `tr-${session.id}` ? 'Hide transcript' : 'Transcript' }}
-                </button>
-                <span v-if="!session.summaryText && !session.transcriptText" class="session-no-artifacts">
-                  No summary or transcript yet
-                </span>
-              </div>
-            </div>
+        <div v-else class="ust-split" :class="{ 'ust-split--detail': pastSessions.length > 0 }">
+          <div class="ust-list-panel">
+            <div class="sessions-list">
+              <article
+                v-for="session in pastSessions"
+                :key="session.id"
+                class="supervision-session-card"
+                :class="{ 'is-selected': selectedSessionId === session.id }"
+                role="button"
+                tabindex="0"
+                :aria-pressed="selectedSessionId === session.id"
+                @click="selectSession(session.id)"
+                @keydown.enter.prevent="selectSession(session.id)"
+                @keydown.space.prevent="selectSession(session.id)"
+              >
+                <div class="session-header">
+                  <div class="session-meta">
+                    <span class="session-type-pill" :class="typeClass(session.sessionType)">
+                      {{ formatSessionType(session.sessionType) }}
+                    </span>
+                    <strong class="session-when">{{ formatSessionDate(session.startAt) }}</strong>
+                    <span v-if="sessionPeerLabel(session)" class="session-supervisor">with {{ sessionPeerLabel(session) }}</span>
+                    <span
+                      v-if="session.status"
+                      class="session-status"
+                      :class="statusClass(session.status)"
+                    >{{ formatSessionStatus(session.status) }}</span>
+                  </div>
+                  <span class="session-chevron" aria-hidden="true">›</span>
+                </div>
 
-            <div class="session-stats">
-              <span>Attended: <strong>{{ fmtDuration(session) }}</strong></span>
-              <span v-if="session.segmentCount">Segments: {{ session.segmentCount }}</span>
-              <span v-if="session.sessionFinalizedAt">Finalized: {{ formatSessionDate(session.sessionFinalizedAt) }}</span>
+                <div class="session-stats">
+                  <span>Attended: <strong>{{ fmtDuration(session) }}</strong></span>
+                  <span v-if="session.segmentCount">Segments: {{ session.segmentCount }}</span>
+                </div>
+              </article>
             </div>
+          </div>
 
-            <div
-              v-if="expandedId === `sum-${session.id}` && session.summaryText"
-              class="artifact-panel"
-            >
-              <div class="artifact-label">Session summary</div>
-              <div class="artifact-content markdown-body" v-html="renderedSummary(session.summaryText)"></div>
-            </div>
-            <div
-              v-if="expandedId === `tr-${session.id}` && session.transcriptText"
-              class="artifact-panel"
-            >
-              <div class="artifact-label">Transcript</div>
-              <pre class="artifact-content">{{ session.transcriptText }}</pre>
-            </div>
-          </article>
+          <aside v-if="pastSessions.length" class="ust-detail-panel" :class="{ 'ust-detail-panel--empty': !selectedSession }">
+            <template v-if="selectedSession">
+              <div class="ust-detail-head">
+                <div>
+                  <div class="ust-detail-kicker">
+                    <span class="session-type-pill" :class="typeClass(selectedSession.sessionType)">
+                      {{ formatSessionType(selectedSession.sessionType) }}
+                    </span>
+                    <span
+                      v-if="selectedSession.status"
+                      class="session-status"
+                      :class="statusClass(selectedSession.status)"
+                    >{{ formatSessionStatus(selectedSession.status) }}</span>
+                  </div>
+                  <h4 class="ust-detail-title">{{ formatSessionDate(selectedSession.startAt) }}</h4>
+                  <p v-if="sessionPeerLabel(selectedSession)" class="ust-detail-peer muted">
+                    with {{ sessionPeerLabel(selectedSession) }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="ust-detail-close"
+                  title="Close session details"
+                  @click="clearSelectedSession"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div class="ust-detail-stats">
+                <div class="ust-detail-stat">
+                  <span class="ust-detail-stat-k">Attended</span>
+                  <strong>{{ fmtDuration(selectedSession) }}</strong>
+                </div>
+                <div v-if="selectedSession.segmentCount" class="ust-detail-stat">
+                  <span class="ust-detail-stat-k">Segments</span>
+                  <strong>{{ selectedSession.segmentCount }}</strong>
+                </div>
+                <div v-if="selectedSession.sessionFinalizedAt" class="ust-detail-stat">
+                  <span class="ust-detail-stat-k">Finalized</span>
+                  <strong>{{ formatSessionDate(selectedSession.sessionFinalizedAt) }}</strong>
+                </div>
+              </div>
+
+              <section class="ust-detail-section">
+                <h5 class="ust-detail-section-title">Session focus</h5>
+                <p v-if="selectedSession.focusTitle" class="ust-detail-text">{{ selectedSession.focusTitle }}</p>
+                <p v-else class="ust-detail-empty-line">Not recorded for this session.</p>
+              </section>
+
+              <section class="ust-detail-section">
+                <h5 class="ust-detail-section-title">Goals</h5>
+                <ul v-if="(selectedSession.goals || []).length" class="workspace-list">
+                  <li v-for="g in selectedSession.goals" :key="g.id || g.text">
+                    <span class="workspace-check" :class="{ done: g.done }">{{ g.done ? '✓' : '○' }}</span>
+                    <span :class="{ done: g.done }">{{ g.text }}</span>
+                  </li>
+                </ul>
+                <p v-else class="ust-detail-empty-line">No goals recorded.</p>
+              </section>
+
+              <section class="ust-detail-section">
+                <h5 class="ust-detail-section-title">Action items</h5>
+                <ul v-if="(selectedSession.actionItems || []).length" class="workspace-list">
+                  <li v-for="a in selectedSession.actionItems" :key="a.id || a.text">
+                    <span class="workspace-check" :class="{ done: a.done }">{{ a.done ? '✓' : '○' }}</span>
+                    <span :class="{ done: a.done }">{{ a.text }}</span>
+                  </li>
+                </ul>
+                <p v-else class="ust-detail-empty-line">No action items recorded.</p>
+              </section>
+
+              <section class="ust-detail-section">
+                <h5 class="ust-detail-section-title">AI summary</h5>
+                <div
+                  v-if="selectedSession.summaryText"
+                  class="artifact-content markdown-body"
+                  v-html="renderedSummary(selectedSession.summaryText)"
+                />
+                <p v-else class="ust-detail-empty-line">No AI summary yet.</p>
+              </section>
+
+              <section class="ust-detail-section">
+                <h5 class="ust-detail-section-title">Transcript</h5>
+                <pre v-if="selectedSession.transcriptText" class="artifact-content">{{ selectedSession.transcriptText }}</pre>
+                <p v-else class="ust-detail-empty-line">No transcript yet.</p>
+              </section>
+            </template>
+
+            <p v-else class="ust-detail-placeholder">
+              Select a session to view focus, goals, action items, summary, and transcript.
+            </p>
+          </aside>
         </div>
       </div>
     </template>
@@ -224,7 +295,7 @@ const error = ref('');
 const sessions = ref([]);
 const supervision = ref(null);
 const supervisionEnabled = ref(null);
-const expandedId = ref('');
+const selectedSessionId = ref(null);
 
 const showProgress = computed(() => {
   const s = supervision.value;
@@ -260,6 +331,12 @@ const pastSessions = computed(() =>
   (sessions.value || []).filter((s) => !isUpcoming(s))
 );
 
+const selectedSession = computed(() => {
+  const id = Number(selectedSessionId.value || 0);
+  if (!id) return null;
+  return pastSessions.value.find((s) => Number(s.id) === id) || null;
+});
+
 const sessionAttendanceHours = computed(() =>
   pastSessions.value.reduce((sum, s) => sum + (Number(s.totalHours) || 0), 0)
 );
@@ -289,6 +366,10 @@ async function fetchAll() {
     ]);
 
     sessions.value = sessionsResp?.data?.sessions || [];
+    const validIds = new Set((sessions.value || []).map((s) => Number(s.id)));
+    if (!validIds.has(Number(selectedSessionId.value || 0))) {
+      selectedSessionId.value = null;
+    }
     const sup = summaryResp?.data?.supervision || null;
     supervision.value = sup;
     supervisionEnabled.value = sup == null ? null : !!sup.enabled;
@@ -301,8 +382,22 @@ async function fetchAll() {
   }
 }
 
-function toggleExpand(id) {
-  expandedId.value = expandedId.value === id ? '' : id;
+function selectSession(id) {
+  const sid = Number(id || 0);
+  if (!sid) return;
+  selectedSessionId.value = sid;
+}
+
+function clearSelectedSession() {
+  selectedSessionId.value = null;
+}
+
+function sessionPeerLabel(session) {
+  if (!session) return '';
+  if (session.role === 'supervisor' || session.role === 'both') {
+    return String(session.superviseeName || session.supervisorName || '').trim();
+  }
+  return String(session.supervisorName || session.superviseeName || '').trim();
 }
 
 function typeClass(type) {
@@ -612,16 +707,175 @@ watch([() => props.userId, () => props.agencyId], fetchAll);
   font-size: 0.85rem;
   color: var(--text-secondary, #6b7280);
 }
+.ust-encrypt {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
 .sessions-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.ust-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.ust-split--detail {
+  grid-template-columns: minmax(0, 0.95fr) minmax(280px, 1.05fr);
+}
+.ust-list-panel {
+  min-width: 0;
+}
+.ust-detail-panel {
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px;
+  min-width: 0;
+}
+.ust-detail-panel--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  background: var(--bg-secondary, #f8fafc);
+}
+.ust-detail-placeholder {
+  margin: 0;
+  max-width: 18rem;
+  text-align: center;
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+.ust-detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+.ust-detail-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.ust-detail-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+}
+.ust-detail-peer {
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+}
+.ust-detail-close {
+  border: 0;
+  background: #f1f5f9;
+  color: #64748b;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ust-detail-close:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+.ust-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.ust-detail-stat {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-secondary, #f8fafc);
+  border: 1px solid var(--border, #e5e7eb);
+}
+.ust-detail-stat-k {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+.ust-detail-stat strong {
+  font-size: 0.92rem;
+  color: #0f172a;
+}
+.ust-detail-section {
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--border, #e5e7eb);
+}
+.ust-detail-section-title {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+.ust-detail-text {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: #0f172a;
+}
+.ust-detail-empty-line {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #94a3b8;
+  font-style: italic;
 }
 .supervision-session-card {
   border: 1px solid var(--border, #e5e7eb);
   border-radius: 12px;
   padding: 14px 16px;
   background: var(--bg-secondary, #f8fafc);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.supervision-session-card:hover {
+  border-color: #c7d2fe;
+  background: #fff;
+}
+.supervision-session-card.is-selected {
+  border-color: #5b4cdb;
+  background: #f5f3ff;
+  box-shadow: 0 0 0 1px rgba(91, 76, 219, 0.15);
+}
+.supervision-session-card:focus-visible {
+  outline: 2px solid #5b4cdb;
+  outline-offset: 2px;
+}
+.session-chevron {
+  color: #94a3b8;
+  font-size: 1.2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.supervision-session-card.is-selected .session-chevron {
+  color: #5b4cdb;
 }
 .supervision-session-card.is-upcoming {
   background: #eff6ff;
@@ -698,23 +952,11 @@ watch([() => props.userId, () => props.agencyId], fetchAll);
   font-size: 0.85em;
   color: var(--text-secondary, #6b7280);
 }
-.artifact-panel {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border, #e5e7eb);
-}
-.artifact-label {
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary, #6b7280);
-  margin-bottom: 8px;
-}
 .artifact-content {
   margin: 0;
   padding: 12px;
   background: var(--bg-primary, #fff);
+  border: 1px solid var(--border, #e5e7eb);
   border-radius: 8px;
   font-size: 0.9em;
   white-space: pre-wrap;
@@ -725,6 +967,48 @@ watch([() => props.userId, () => props.agencyId], fetchAll);
 .markdown-body :deep(h2) { font-size: 1.1em; margin: 8px 0 4px; }
 .markdown-body :deep(h3) { font-size: 1em; margin: 6px 0 4px; }
 .markdown-body :deep(h4) { font-size: 0.95em; margin: 4px 0 2px; }
+.workspace-list {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg-primary, #fff);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+}
+.workspace-list li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 0.9em;
+}
+.workspace-check {
+  color: #94a3b8;
+  font-weight: 700;
+  min-width: 1rem;
+}
+.workspace-check.done,
+.workspace-list .done {
+  color: #15803d;
+}
+.workspace-list .done {
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+
+@media (max-width: 960px) {
+  .ust-split,
+  .ust-split--detail {
+    grid-template-columns: 1fr;
+  }
+  .ust-detail-panel {
+    position: static;
+    max-height: none;
+  }
+  .ust-detail-panel--empty {
+    display: none;
+  }
+}
 
 @media (max-width: 720px) {
   .ust-tracks {

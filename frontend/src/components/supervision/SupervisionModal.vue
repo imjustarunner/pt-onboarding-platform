@@ -558,6 +558,28 @@
                         <span v-if="s.segmentCount"> · {{ s.segmentCount }} segment(s)</span>
                       </p>
                       <p v-if="s.notes" class="supervision-history-notes">{{ s.notes }}</p>
+                      <div v-if="hasHistoryWorkspace(s)" class="supervision-history-workspace">
+                        <div v-if="s.focusTitle" class="form-group">
+                          <label class="summary-meta">Session focus</label>
+                          <div>{{ s.focusTitle }}</div>
+                        </div>
+                        <div v-if="(s.goals || []).length" class="form-group">
+                          <label class="summary-meta">Goals</label>
+                          <ul class="supervision-workspace-list">
+                            <li v-for="g in s.goals" :key="g.id || g.text">
+                              <span>{{ g.done ? '✓' : '○' }}</span> {{ g.text }}
+                            </li>
+                          </ul>
+                        </div>
+                        <div v-if="(s.actionItems || []).length" class="form-group">
+                          <label class="summary-meta">Action items</label>
+                          <ul class="supervision-workspace-list">
+                            <li v-for="a in s.actionItems" :key="a.id || a.text">
+                              <span>{{ a.done ? '✓' : '○' }}</span> {{ a.text }}
+                            </li>
+                          </ul>
+                        </div>
+                      </div>
                       <div v-if="artifactLoadingById[s.id]" class="summary-meta">Loading transcript / summary…</div>
                       <div v-else class="supervision-artifact-box">
                         <div class="form-group">
@@ -735,6 +757,7 @@ import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import BrandingLogo from '../BrandingLogo.vue';
 import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
+import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
 
 const route = useRoute();
 
@@ -878,6 +901,14 @@ function formatSessionDate(iso) {
   }
 }
 
+function hasHistoryWorkspace(session) {
+  if (!session) return false;
+  if (String(session.focusTitle || '').trim()) return true;
+  if (Array.isArray(session.goals) && session.goals.length) return true;
+  if (Array.isArray(session.actionItems) && session.actionItems.length) return true;
+  return false;
+}
+
 function formatHistoryStatus(status) {
   const s = String(status || '').trim().toUpperCase();
   if (s === 'FINALIZED') return 'Finalized';
@@ -960,9 +991,21 @@ async function loadSessionArtifact(sessionId, { force = false } = {}) {
     };
     if (artifact) {
       setArtifactDraft(sid, {
-        transcriptUrl: String(artifact.transcript_url || ''),
-        transcriptText: String(artifact.transcript_text || ''),
-        summaryText: String(artifact.summary_text || '')
+        transcriptUrl: String(artifact.transcript_url || artifact.transcriptUrl || ''),
+        transcriptText: String(artifact.transcript_text || artifact.transcriptText || ''),
+        summaryText: String(artifact.summary_text || artifact.summaryText || '')
+      });
+      sessionHistory.value = (sessionHistory.value || []).map((row) => {
+        if (Number(row?.id) !== sid) return row;
+        return {
+          ...row,
+          focusTitle: artifact.focusTitle || artifact.focus_title || row.focusTitle || null,
+          goals: artifact.goals || artifact.goals_json || row.goals || [],
+          actionItems: artifact.actionItems || artifact.action_items_json || row.actionItems || [],
+          privateNotesText: artifact.privateNotesText || artifact.private_notes_text || row.privateNotesText || null,
+          summaryText: artifact.summaryText || artifact.summary_text || row.summaryText || null,
+          transcriptText: artifact.transcriptText || artifact.transcript_text || row.transcriptText || null
+        };
       });
     }
   } catch (err) {
@@ -1204,6 +1247,13 @@ function closeAppVideoModal() {
   appVideoIsSupervisor.value = false;
   appVideoFullscreen.value = false;
 }
+
+watch([showAppVideoModal, appVideoToken], ([show, tok], [prevShow, prevTok]) => {
+  const active = !!(show && String(tok || '').trim());
+  const wasActive = !!(prevShow && String(prevTok || '').trim());
+  if (active && !wasActive) suspendInactivityTimeout();
+  else if (!active && wasActive) resumeInactivityTimeout();
+});
 
 async function startTrackedMeeting(session) {
   const sid = Number(session?.id || 0);
@@ -1984,6 +2034,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (showAppVideoModal.value && String(appVideoToken.value || '').trim()) {
+    resumeInactivityTimeout();
+  }
   clearTrackedMeetingPoll();
 });
 </script>
@@ -2429,6 +2482,25 @@ onUnmounted(() => {
   margin: 0.4rem 0;
   white-space: pre-wrap;
   font-size: 0.9rem;
+}
+.supervision-history-workspace {
+  margin: 0.5rem 0;
+  padding: 0.6rem;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.supervision-workspace-list {
+  margin: 0.25rem 0 0;
+  padding-left: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+.supervision-workspace-list li {
+  display: flex;
+  gap: 8px;
 }
 .supervision-artifact-box {
   margin-top: 0.5rem;

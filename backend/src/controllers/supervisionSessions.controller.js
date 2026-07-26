@@ -2,6 +2,7 @@ import { body, validationResult } from 'express-validator';
 import User from '../models/User.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import SupervisionSessionArtifact from '../models/SupervisionSessionArtifact.model.js';
+import SupervisionSessionPersonalNote from '../models/SupervisionSessionPersonalNote.model.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import { fetchMeetTranscriptForSession } from '../services/googleMeetTranscript.service.js';
@@ -2479,6 +2480,15 @@ export const getSupervisionSessionArtifacts = async (req, res, next) => {
       artifact = { ...artifact, transcript_url: null, transcript_text: null };
     }
 
+    // Personal notes are per-user — never return legacy shared private_notes on artifacts.
+    if (artifact) {
+      artifact = {
+        ...artifact,
+        private_notes_text: null,
+        privateNotesText: null
+      };
+    }
+
     const hasTranscriptUrl = !!String(artifact?.transcript_url || '').trim();
     const hasTranscriptText = !!String(artifact?.transcript_text || '').trim();
     const canAttemptAutoPull = !hasTranscriptUrl && !hasTranscriptText
@@ -2531,6 +2541,9 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
     const transcriptTextInput = req.body?.transcriptText;
     const summaryTextInput = req.body?.summaryText;
     const autoSummarize = req.body?.autoSummarize === true;
+    const focusTitleInput = req.body?.focusTitle ?? req.body?.focus_title;
+    const goalsInput = req.body?.goals ?? req.body?.goalsJson ?? req.body?.goals_json;
+    const actionItemsInput = req.body?.actionItems ?? req.body?.actionItemsJson ?? req.body?.action_items_json;
 
     const mayEditTranscript = canViewTranscript(role);
     const transcriptUrl = mayEditTranscript && transcriptUrlInput !== undefined
@@ -2558,6 +2571,27 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
       summaryGeneratedAt = mysqlNowDateTime();
     }
 
+    const normalizeChecklist = (raw) => {
+      if (raw === undefined) return undefined;
+      let list = raw;
+      if (typeof list === 'string') {
+        try { list = JSON.parse(list || '[]'); } catch { list = []; }
+      }
+      if (!Array.isArray(list)) return [];
+      return list.slice(0, 50).map((item, idx) => ({
+        id: String(item?.id || `item-${idx + 1}`).slice(0, 64),
+        text: String(item?.text || '').trim().slice(0, 500),
+        done: !!item?.done
+      })).filter((item) => item.text);
+    };
+
+    const focusTitle = focusTitleInput === undefined
+      ? undefined
+      : String(focusTitleInput || '').trim().slice(0, 500);
+    const goals = normalizeChecklist(goalsInput);
+    const actionItems = normalizeChecklist(actionItemsInput);
+    // privateNotesText is deprecated — personal notes use /personal-note per user.
+
     let artifact = await SupervisionSessionArtifact.upsertBySessionId({
       sessionId: id,
       taggedAt: mysqlNowDateTime(),
@@ -2566,11 +2600,21 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
       summaryText,
       summaryModel,
       summaryGeneratedAt,
+      focusTitle,
+      goals,
+      actionItems,
       updatedByUserId: Number(req.user?.id || 0) || null
     });
 
     if (artifact && !mayEditTranscript) {
       artifact = { ...artifact, transcript_url: null, transcript_text: null };
+    }
+    if (artifact) {
+      artifact = {
+        ...artifact,
+        private_notes_text: null,
+        privateNotesText: null
+      };
     }
 
     res.json({ ok: true, sessionId: id, artifact });
@@ -2578,6 +2622,89 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
     if (e?.status) {
       return res.status(e.status).json({ error: { message: e.message || 'Failed to save supervision artifacts' } });
     }
+    next(e);
+  }
+};
+
+export const getSupervisionSessionPersonalNote = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const userId = Number(req.user?.id || 0);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!canViewSessionArtifacts(role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const saved = await SupervisionSessionPersonalNote.findBySessionAndUser({
+      sessionId: id,
+      userId
+    });
+
+    res.json({
+      ok: true,
+      sessionId: id,
+      note: saved?.noteText || '',
+      updatedAt: saved?.updatedAt || null,
+      isEncrypted: !!saved?.isEncrypted
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const upsertSupervisionSessionPersonalNote = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const userId = Number(req.user?.id || 0);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!canViewSessionArtifacts(role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const noteText = String(
+      req.body?.noteText ?? req.body?.note ?? req.body?.notes ?? ''
+    ).slice(0, 120000);
+
+    const saved = await SupervisionSessionPersonalNote.upsertBySessionAndUser({
+      sessionId: id,
+      userId,
+      noteText
+    });
+
+    res.json({
+      ok: true,
+      sessionId: id,
+      note: saved?.noteText || '',
+      updatedAt: saved?.updatedAt || null,
+      isEncrypted: !!saved?.isEncrypted
+    });
+  } catch (e) {
     next(e);
   }
 };
@@ -3264,18 +3391,46 @@ export const getMySupervisionSessions = async (req, res, next) => {
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     await autoFinalizeOverdueSessions({ agencyId, actorUserId: userId });
 
-    let sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
+    const aId = Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null;
+    let asSupervisee = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
       superviseeUserId: userId,
-      agencyId: Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null,
+      agencyId: aId,
       limit: 50
     });
-    if (await repairInflatedSessionAttendance(sessions, { userId })) {
-      sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
+    if (await repairInflatedSessionAttendance(asSupervisee, { userId })) {
+      asSupervisee = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
         superviseeUserId: userId,
-        agencyId: Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null,
+        agencyId: aId,
         limit: 50
       });
     }
+    let asSupervisor = await SupervisionSession.listSessionsForSupervisorWithArtifacts({
+      supervisorUserId: userId,
+      agencyId: aId,
+      limit: 50
+    });
+    if (await repairInflatedSessionAttendance(asSupervisor, { userId })) {
+      asSupervisor = await SupervisionSession.listSessionsForSupervisorWithArtifacts({
+        supervisorUserId: userId,
+        agencyId: aId,
+        limit: 50
+      });
+    }
+
+    const byId = new Map();
+    for (const s of asSupervisee || []) {
+      byId.set(Number(s.id), { ...s, role: s.role || 'supervisee' });
+    }
+    for (const s of asSupervisor || []) {
+      const id = Number(s.id);
+      if (!byId.has(id)) byId.set(id, { ...s, role: 'supervisor' });
+      else byId.set(id, { ...byId.get(id), role: 'both', superviseeName: s.superviseeName || byId.get(id).superviseeName });
+    }
+    const sessions = Array.from(byId.values()).sort((a, b) => {
+      const ta = new Date(a.startAt || 0).getTime();
+      const tb = new Date(b.startAt || 0).getTime();
+      return tb - ta;
+    }).slice(0, 75);
 
     const role = String(req.user?.role || '').toLowerCase();
     const includeTranscript = canViewTranscript(role);

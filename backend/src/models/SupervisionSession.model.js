@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import Notification from './Notification.model.js';
 import { generateJoinToken } from '../utils/joinToken.js';
+import { resolveArtifactPlainFields } from '../services/supervisionArtifactEncryption.service.js';
 
 function normalizeInviteScopeValue(raw) {
   const scope = String(raw || 'invited_only').trim().toLowerCase();
@@ -1023,6 +1024,14 @@ class SupervisionSession {
          ssa2.summary_text,
          ssa2.summary_model,
          ssa2.summary_generated_at,
+         ssa2.focus_title,
+         ssa2.goals_json,
+         ssa2.action_items_json,
+         ssa2.private_notes_text,
+         ssa2.sensitive_ciphertext,
+         ssa2.sensitive_iv,
+         ssa2.sensitive_auth_tag,
+         ssa2.encryption_key_id,
          ssar.first_joined_at,
          ssar.last_left_at,
          ssar.total_seconds,
@@ -1064,9 +1073,18 @@ class SupervisionSession {
       notes: r.notes || null,
       supervisorUserId: Number(r.supervisor_user_id || 0),
       supervisorName: String(r.supervisor_name || '').trim() || null,
-      transcriptUrl: r.transcript_url || null,
-      transcriptText: r.transcript_text || null,
-      summaryText: r.summary_text || null,
+      ...(() => {
+        const plain = resolveArtifactPlainFields(r);
+        return {
+          transcriptUrl: plain.transcriptUrl || null,
+          transcriptText: plain.transcriptText || null,
+          summaryText: plain.summaryText || null,
+          focusTitle: plain.focusTitle || null,
+          goals: Array.isArray(plain.goals) ? plain.goals : [],
+          actionItems: Array.isArray(plain.actionItems) ? plain.actionItems : [],
+          isEncrypted: !!plain.isEncrypted
+        };
+      })(),
       summaryModel: r.summary_model || null,
       summaryGeneratedAt: r.summary_generated_at || null,
       firstJoinedAt: r.first_joined_at || null,
@@ -1080,6 +1098,109 @@ class SupervisionSession {
       sessionFinalTotalSeconds: r.final_total_seconds == null ? null : Number(r.final_total_seconds || 0),
       sessionFinalizedByUserId: r.finalized_by_user_id ? Number(r.finalized_by_user_id) : null
     }));
+  }
+
+  /**
+   * List sessions where the user is the supervisor (or co-facilitator), with decrypted artifacts.
+   */
+  static async listSessionsForSupervisorWithArtifacts({ supervisorUserId, agencyId = null, limit = 50 }) {
+    const uid = parseInt(supervisorUserId, 10);
+    if (!uid) return [];
+    const aId = Number(agencyId) > 0 ? Number(agencyId) : null;
+    const lim = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Math.min(200, Math.floor(Number(limit))) : 50;
+    const whereAgency = aId ? `AND ss.agency_id = ${aId}` : '';
+
+    const [rows] = await pool.execute(
+      `SELECT
+         ss.id,
+         ss.agency_id,
+         ss.session_type,
+         ss.start_at,
+         ss.end_at,
+         ss.status,
+         ss.google_meet_link,
+         ss.twilio_room_unique_name,
+         ss.modality,
+         ss.notes,
+         ss.supervisor_user_id,
+         ss.supervisee_user_id,
+         CONCAT(COALESCE(se.first_name, ''), ' ', COALESCE(se.last_name, '')) AS supervisee_name,
+         ssa2.transcript_url,
+         ssa2.transcript_text,
+         ssa2.summary_text,
+         ssa2.summary_model,
+         ssa2.summary_generated_at,
+         ssa2.focus_title,
+         ssa2.goals_json,
+         ssa2.action_items_json,
+         ssa2.private_notes_text,
+         ssa2.sensitive_ciphertext,
+         ssa2.sensitive_iv,
+         ssa2.sensitive_auth_tag,
+         ssa2.encryption_key_id,
+         ssar.first_joined_at,
+         ssar.last_left_at,
+         ssar.total_seconds,
+         ssar.segment_count,
+         ssar.is_finalized,
+         ss.finalized_at,
+         ss.finalized_by_user_id,
+         ss.finalize_source,
+         ss.final_total_seconds
+       FROM supervision_sessions ss
+       LEFT JOIN users se ON se.id = ss.supervisee_user_id
+       LEFT JOIN supervision_session_artifacts ssa2 ON ssa2.session_id = ss.id
+       LEFT JOIN supervision_session_attendance_rollups ssar
+         ON ssar.session_id = ss.id
+        AND ssar.user_id = ${uid}
+       WHERE (
+          ss.supervisor_user_id = ${uid}
+          OR ss.co_facilitator_user_id = ${uid}
+         )
+         ${whereAgency}
+         AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
+       ORDER BY ss.start_at DESC
+       LIMIT ${lim}`
+    );
+
+    return (rows || []).map((r) => {
+      const plain = resolveArtifactPlainFields(r);
+      return {
+        id: Number(r.id),
+        agencyId: Number(r.agency_id),
+        sessionType: String(r.session_type || 'individual'),
+        startAt: r.start_at,
+        endAt: r.end_at,
+        status: r.status,
+        googleMeetLink: r.google_meet_link || null,
+        twilioRoomUniqueName: r.twilio_room_unique_name || null,
+        modality: r.modality || null,
+        notes: r.notes || null,
+        supervisorUserId: Number(r.supervisor_user_id || 0),
+        superviseeUserId: Number(r.supervisee_user_id || 0) || null,
+        superviseeName: String(r.supervisee_name || '').trim() || null,
+        role: 'supervisor',
+        transcriptUrl: plain.transcriptUrl || null,
+        transcriptText: plain.transcriptText || null,
+        summaryText: plain.summaryText || null,
+        summaryModel: r.summary_model || null,
+        summaryGeneratedAt: r.summary_generated_at || null,
+        focusTitle: plain.focusTitle || null,
+        goals: Array.isArray(plain.goals) ? plain.goals : [],
+        actionItems: Array.isArray(plain.actionItems) ? plain.actionItems : [],
+        isEncrypted: !!plain.isEncrypted,
+        firstJoinedAt: r.first_joined_at || null,
+        lastLeftAt: r.last_left_at || null,
+        totalSeconds: Number(r.total_seconds || 0),
+        totalHours: Math.round((Number(r.total_seconds || 0) / 3600) * 100) / 100,
+        segmentCount: Number(r.segment_count || 0),
+        isFinalized: Number(r.is_finalized || 0) === 1,
+        sessionFinalizedAt: r.finalized_at || null,
+        sessionFinalizeSource: r.finalize_source || null,
+        sessionFinalTotalSeconds: r.final_total_seconds == null ? null : Number(r.final_total_seconds || 0),
+        sessionFinalizedByUserId: r.finalized_by_user_id ? Number(r.finalized_by_user_id) : null
+      };
+    });
   }
 
   /**

@@ -1,5 +1,13 @@
 <template>
-  <div class="vsr" :class="{ 'vsr--compact': compact, 'vsr--strip': layout === 'strip' }">
+  <div
+    class="vsr"
+    :class="{
+      'vsr--compact': compact,
+      'vsr--strip': layout === 'strip',
+      'vsr--hide-controls': hideControls,
+      [`vsr--focus-${tileFocus}`]: !!tileFocus
+    }"
+  >
     <div v-if="errorMessage" class="vsr__error" role="alert">
       <p class="vsr__error-title">{{ errorMessage }}</p>
       <ul v-if="diagnosticHints.length" class="vsr__hints">
@@ -31,7 +39,10 @@
           'vsr__stage--strip': layout === 'strip',
           'vsr__stage--solo': isSoloStage && !hasScreenShare,
           'vsr__stage--duo': isDuoStage && !hasScreenShare,
-          'vsr__stage--screen': hasScreenShare
+          'vsr__stage--screen': hasScreenShare,
+          'vsr__stage--focus-local': tileFocus === 'local' && !hasScreenShare,
+          'vsr__stage--focus-remote': tileFocus === 'remote' && !hasScreenShare,
+          'vsr__stage--focus-collapsed': tileFocus === 'collapsed' && !hasScreenShare
         }"
       >
         <div
@@ -42,14 +53,17 @@
           <span class="vsr__label">{{ screenShareLabel || 'Screen share' }}</span>
         </div>
         <div
-          v-show="!isSoloStage || hasScreenShare"
+          v-show="!isSoloStage || hasScreenShare || tileFocus === 'remote' || tileFocus === 'local' || tileFocus === 'collapsed'"
           ref="remoteEl"
           class="vsr__tile vsr__tile--remote"
           :class="{
             'vsr__tile--empty': !hasRemote,
             'vsr__tile--cam-off': hasRemote && !remoteHasVideo,
-            'vsr__tile--pip': hasScreenShare
+            'vsr__tile--pip': hasScreenShare || tileFocus === 'local',
+            'vsr__tile--featured': tileFocus === 'remote',
+            'vsr__tile--mini': tileFocus === 'collapsed'
           }"
+          @click="onTileActivate('remote')"
         >
           <span v-if="!hasRemote" class="vsr__waiting">Waiting for the other person…</span>
           <div v-if="hasRemote && !remoteHasVideo" class="vsr__avatar" aria-hidden="true">
@@ -57,6 +71,15 @@
             <span v-else class="vsr__avatar-initials">{{ remoteInitials }}</span>
           </div>
           <span v-if="remoteName" class="vsr__label">{{ remoteName }}</span>
+          <button
+            v-if="allowTileFocus"
+            type="button"
+            class="vsr__focus-btn"
+            :title="tileFocus === 'remote' ? 'Shrink video' : 'Enlarge video'"
+            @click.stop="onTileActivate('remote')"
+          >
+            {{ tileFocus === 'remote' ? 'Shrink' : 'Expand' }}
+          </button>
         </div>
         <div
           v-show="!hideSelfView"
@@ -65,20 +88,32 @@
           :class="{
             'vsr__tile--muted': !publishAudio,
             'vsr__tile--cam-off': !publishVideo,
-            'vsr__tile--solo': isSoloStage && !hasScreenShare,
-            'vsr__tile--duo': isDuoStage && !hasScreenShare,
-            'vsr__tile--pip': hasScreenShare
+            'vsr__tile--solo': isSoloStage && !hasScreenShare && tileFocus === 'equal',
+            'vsr__tile--duo': isDuoStage && !hasScreenShare && tileFocus === 'equal',
+            'vsr__tile--pip': hasScreenShare || tileFocus === 'remote',
+            'vsr__tile--featured': tileFocus === 'local',
+            'vsr__tile--mini': tileFocus === 'collapsed'
           }"
+          @click="onTileActivate('local')"
         >
           <div v-if="!publishVideo" class="vsr__avatar" aria-hidden="true">
             <img v-if="localProfilePhotoUrl" :src="localProfilePhotoUrl" alt="" class="vsr__avatar-img" />
             <span v-else class="vsr__avatar-initials">{{ localInitials }}</span>
           </div>
           <span class="vsr__label">{{ localName || 'You' }}</span>
+          <button
+            v-if="allowTileFocus"
+            type="button"
+            class="vsr__focus-btn"
+            :title="tileFocus === 'local' ? 'Shrink video' : 'Enlarge video'"
+            @click.stop="onTileActivate('local')"
+          >
+            {{ tileFocus === 'local' ? 'Shrink' : 'Expand' }}
+          </button>
         </div>
       </div>
 
-      <div class="vsr__controls" role="toolbar" aria-label="Session media controls">
+      <div v-if="!hideControls" class="vsr__controls" role="toolbar" aria-label="Session media controls">
         <button
           type="button"
           class="vsr__ctrl"
@@ -143,7 +178,13 @@ const props = defineProps({
   /** Optional server diagnostics (no secrets). */
   diagnostics: { type: Object, default: null },
   /** Show “Reset video room” when auth fails (parent handles recreate). */
-  canRecreateRoom: { type: Boolean, default: false }
+  canRecreateRoom: { type: Boolean, default: false },
+  /** equal | local | remote | collapsed — parent-driven expandable tiles */
+  tileFocus: { type: String, default: 'equal' },
+  /** Hide built-in control bar when parent renders its own dock */
+  hideControls: { type: Boolean, default: false },
+  /** Show Expand/Shrink controls on tiles */
+  allowTileFocus: { type: Boolean, default: false }
 });
 
 const emit = defineEmits([
@@ -152,7 +193,8 @@ const emit = defineEmits([
   'error',
   'stream-created',
   'stream-destroyed',
-  'request-recreate-room'
+  'request-recreate-room',
+  'update:tileFocus'
 ]);
 
 const localEl = ref(null);
@@ -174,11 +216,26 @@ const screenShareLabel = ref('');
 const sessionReady = ref(false);
 
 const isSoloStage = computed(() =>
-  props.promoteLocalWhenAlone && !hasRemote.value && props.layout !== 'strip'
+  props.promoteLocalWhenAlone
+  && !hasRemote.value
+  && props.layout !== 'strip'
+  && props.tileFocus === 'equal'
 );
 const isDuoStage = computed(() =>
-  props.equalTilesWhenRemote && hasRemote.value && props.layout !== 'strip'
+  props.equalTilesWhenRemote
+  && hasRemote.value
+  && props.layout !== 'strip'
+  && props.tileFocus === 'equal'
 );
+
+function onTileActivate(which) {
+  if (!props.allowTileFocus) return;
+  if (props.tileFocus === which) {
+    emit('update:tileFocus', 'equal');
+    return;
+  }
+  emit('update:tileFocus', which);
+}
 
 function initialsFromLabel(label) {
   const parts = String(label || '')
@@ -743,6 +800,66 @@ defineExpose({
 }
 .vsr__stage--duo .vsr__tile--remote {
   min-height: 220px;
+}
+.vsr__stage--focus-local,
+.vsr__stage--focus-remote {
+  grid-template-columns: 1fr;
+  min-height: min(48vh, 420px);
+}
+.vsr__stage--focus-local .vsr__tile--local.vsr__tile--featured,
+.vsr__stage--focus-remote .vsr__tile--remote.vsr__tile--featured {
+  position: relative !important;
+  inset: auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-height: min(42vh, 380px);
+  height: 100%;
+  box-shadow: none !important;
+}
+.vsr__stage--focus-local .vsr__tile--remote.vsr__tile--pip,
+.vsr__stage--focus-remote .vsr__tile--local.vsr__tile--pip {
+  position: absolute !important;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  left: auto !important;
+  top: auto !important;
+  width: 26%;
+  max-width: 180px;
+  min-height: 96px;
+  z-index: 4;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.vsr__stage--focus-collapsed {
+  grid-template-columns: 1fr 1fr;
+  min-height: 88px;
+  max-height: 110px;
+}
+.vsr__stage--focus-collapsed .vsr__tile,
+.vsr__tile--mini {
+  min-height: 72px !important;
+  height: 88px;
+  cursor: pointer;
+}
+.vsr__focus-btn {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  z-index: 5;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.vsr__focus-btn:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+.vsr--hide-controls .vsr__controls {
+  display: none;
 }
 .vsr__tile :deep(.OT_publisher),
 .vsr__tile :deep(.OT_subscriber),
