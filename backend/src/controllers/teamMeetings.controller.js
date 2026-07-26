@@ -683,3 +683,232 @@ export const saveTeamMeetingClientTranscript = async (req, res, next) => {
     next(e);
   }
 };
+
+async function loadMeetingParticipants(event) {
+  const eid = Number(event?.id || 0);
+  if (!eid) return [];
+  const hostId = Number(event.provider_id || 0);
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.first_name, u.last_name, u.email, u.role
+     FROM (
+       SELECT ? AS user_id
+       UNION
+       SELECT psa.user_id FROM provider_schedule_event_attendees psa WHERE psa.event_id = ?
+     ) x
+     JOIN users u ON u.id = x.user_id
+     ORDER BY u.last_name ASC, u.first_name ASC`,
+    [hostId || 0, eid]
+  );
+  return (rows || []).map((r) => ({
+    id: Number(r.id),
+    firstName: r.first_name,
+    lastName: r.last_name,
+    name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email || `User ${r.id}`,
+    email: r.email || null,
+    role: r.role || null,
+    isHost: Number(r.id) === hostId
+  }));
+}
+
+function syncEscalationStatusFromActionItem(prevItem, nextItem) {
+  const ticketId = Number(nextItem?.escalationTicketId || prevItem?.escalationTicketId || 0);
+  if (!ticketId) return null;
+  const wasDone = !!prevItem?.done;
+  const isDone = !!nextItem?.done;
+  if (!wasDone && isDone) return { ticketId, status: 'resolved' };
+  if (wasDone && !isDone) return { ticketId, status: 'under_review' };
+  return null;
+}
+
+/** GET /api/team-meetings/:eventId/workspace */
+export const getTeamMeetingWorkspace = async (req, res, next) => {
+  try {
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const event = await ProviderScheduleEvent.findById(eventId);
+    const kind = String(event?.kind || '').toUpperCase();
+    if (!event || !['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+      return res.status(404).json({ error: { message: 'Meeting not found' } });
+    }
+    if (!(await canAccessTeamMeeting(req, event))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const artifact = await ProviderScheduleEventArtifact.findByEventId(eventId);
+    const workspace = ProviderScheduleEventArtifact.toWorkspaceDto(artifact);
+    const participants = await loadMeetingParticipants(event);
+    res.json({
+      ok: true,
+      eventId,
+      meetingSubtype: String(event.meeting_subtype || 'general').toLowerCase() === 'admin' ? 'admin' : 'general',
+      kind,
+      title: String(event.title || '').trim() || null,
+      participants,
+      workspace
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST /api/team-meetings/:eventId/workspace */
+export const upsertTeamMeetingWorkspace = async (req, res, next) => {
+  try {
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const event = await ProviderScheduleEvent.findById(eventId);
+    const kind = String(event?.kind || '').toUpperCase();
+    if (!event || !['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+      return res.status(404).json({ error: { message: 'Meeting not found' } });
+    }
+    if (!(await canAccessTeamMeeting(req, event))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const prev = ProviderScheduleEventArtifact.toWorkspaceDto(
+      await ProviderScheduleEventArtifact.findByEventId(eventId)
+    );
+    const body = req.body || {};
+    const workspace = await ProviderScheduleEventArtifact.upsertWorkspace({
+      eventId,
+      focusTitle: body.focusTitle !== undefined ? body.focusTitle : body.focus_title,
+      goals: body.goals !== undefined ? body.goals : body.goalsJson,
+      actionItems: body.actionItems !== undefined ? body.actionItems : body.actionItemsJson,
+      updatedByUserId: req.user?.id
+    });
+
+    // Bidirectional: completing/dismissing an escalated action item updates the desk ticket.
+    try {
+      const prevById = new Map((prev.actionItems || []).map((a) => [String(a.id), a]));
+      for (const item of workspace.actionItems || []) {
+        const sync = syncEscalationStatusFromActionItem(prevById.get(String(item.id)), item);
+        if (!sync) continue;
+        // eslint-disable-next-line no-await-in-loop
+        await pool.execute(
+          `UPDATE support_tickets
+           SET escalation_status = ?,
+               status = CASE WHEN ? IN ('resolved', 'closed') THEN 'closed' ELSE 'open' END,
+               answered_at = CASE WHEN ? IN ('resolved', 'closed') THEN COALESCE(answered_at, CURRENT_TIMESTAMP) ELSE answered_at END
+           WHERE id = ? AND COALESCE(ticket_kind, 'support') = 'escalation'`,
+          [sync.status, sync.status, sync.status, sync.ticketId]
+        );
+      }
+    } catch (syncErr) {
+      console.warn('[teamMeetings] escalation sync from workspace failed', syncErr?.message || syncErr);
+    }
+
+    const participants = await loadMeetingParticipants(event);
+    res.json({
+      ok: true,
+      eventId,
+      meetingSubtype: String(event.meeting_subtype || 'general').toLowerCase() === 'admin' ? 'admin' : 'general',
+      participants,
+      workspace
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST /api/team-meetings/:eventId/action-items/:itemId/escalate */
+export const escalateTeamMeetingActionItem = async (req, res, next) => {
+  try {
+    const { isEscalationSubmitterRole } = await import('../constants/orgEscalations.js');
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!isEscalationSubmitterRole(role)) {
+      return res.status(403).json({ error: { message: 'You cannot submit escalations' } });
+    }
+
+    const eventId = parseInt(req.params.eventId, 10);
+    const itemId = String(req.params.itemId || '').trim();
+    if (!eventId || !itemId) {
+      return res.status(400).json({ error: { message: 'eventId and itemId are required' } });
+    }
+    const event = await ProviderScheduleEvent.findById(eventId);
+    const kind = String(event?.kind || '').toUpperCase();
+    if (!event || kind !== 'TEAM_MEETING') {
+      return res.status(404).json({ error: { message: 'Team meeting not found' } });
+    }
+    if (String(event.meeting_subtype || '').toLowerCase() !== 'admin') {
+      return res.status(400).json({ error: { message: 'Escalations can only be added on Admin Meetings.' } });
+    }
+    if (!(await canAccessTeamMeeting(req, event))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const agencyId = Number(event.agency_id || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Meeting agency is required' } });
+
+    const workspace = ProviderScheduleEventArtifact.toWorkspaceDto(
+      await ProviderScheduleEventArtifact.findByEventId(eventId)
+    );
+    const item = (workspace.actionItems || []).find((a) => String(a.id) === itemId);
+    if (!item) return res.status(404).json({ error: { message: 'Action item not found' } });
+    if (item.escalationTicketId) {
+      return res.status(409).json({
+        error: { message: 'This action item is already linked to an escalation' },
+        escalationTicketId: item.escalationTicketId
+      });
+    }
+
+    const issue = String(req.body?.issue || req.body?.question || item.text || '').trim();
+    const recommended = String(req.body?.recommendedResolution || req.body?.recommended_resolution || '').trim();
+    if (!issue) return res.status(400).json({ error: { message: 'Issue is required' } });
+    if (!recommended) return res.status(400).json({ error: { message: 'Recommended resolution is required' } });
+
+    const rootCause = String(req.body?.rootCause || req.body?.root_cause || '').trim() || null;
+    const immediate =
+      req.body?.immediateActionRequired === true
+      || req.body?.immediateActionRequired === 1
+      || req.body?.immediate_action_required === true
+      || req.body?.immediate_action_required === 1;
+    const subject = String(req.body?.subject || '').trim().slice(0, 255) || issue.slice(0, 80);
+
+    const [insertResult] = await pool.execute(
+      `INSERT INTO support_tickets
+        (school_organization_id, created_by_user_id, agency_id, subject, question, status, priority,
+         ticket_kind, escalation_status, root_cause, recommended_resolution, immediate_action_required,
+         linked_schedule_event_id, linked_recurrence_series_id, linked_action_item_id)
+       VALUES (?, ?, ?, ?, ?, 'open', ?, 'escalation', 'submitted', ?, ?, ?, ?, ?, ?)`,
+      [
+        agencyId,
+        req.user.id,
+        agencyId,
+        subject,
+        issue,
+        immediate ? 'high' : 'medium',
+        rootCause,
+        recommended,
+        immediate ? 1 : 0,
+        eventId,
+        String(event.recurrence_series_id || '').trim() || null,
+        itemId
+      ]
+    );
+    const ticketId = Number(insertResult?.insertId || 0);
+    if (!ticketId) return res.status(500).json({ error: { message: 'Failed to create escalation' } });
+
+    const nextActions = (workspace.actionItems || []).map((a) => (
+      String(a.id) === itemId
+        ? { ...a, isEscalation: true, escalationTicketId: ticketId, text: a.text || issue }
+        : a
+    ));
+    const saved = await ProviderScheduleEventArtifact.upsertWorkspace({
+      eventId,
+      actionItems: nextActions,
+      updatedByUserId: req.user.id
+    });
+
+    res.status(201).json({
+      ok: true,
+      escalationTicketId: ticketId,
+      workspace: saved
+    });
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({
+        error: { message: 'Escalation meeting links are not available until migrations 1052–1054 are applied.' }
+      });
+    }
+    next(e);
+  }
+};

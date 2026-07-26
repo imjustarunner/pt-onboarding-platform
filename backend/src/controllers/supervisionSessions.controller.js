@@ -317,8 +317,14 @@ async function assertCanManageGroupSupervision(req, res, { sessionType, existing
 
 function parseDateTimeLocalString(s) {
   // Accept "YYYY-MM-DDTHH:MM:SS" or "YYYY-MM-DD HH:MM:SS" or ISO strings.
+  // Prefer wall-clock preservation for datetime-local payloads (no TZ reinterpretation).
   const raw = String(s || '').trim();
   if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) return raw.slice(0, 19);
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+    const normalized = raw.length === 16 ? `${raw}:00` : raw;
+    return normalized.replace('T', ' ').slice(0, 19);
+  }
   const d = new Date(raw);
   if (!Number.isNaN(d.getTime())) {
     // Convert to MySQL DATETIME "YYYY-MM-DD HH:MM:SS" in local time
@@ -2977,6 +2983,46 @@ export const createSupervisionSession = async (req, res, next) => {
     }
 
     const out = await SupervisionSession.resolveByJoinRef(created.id) || await SupervisionSession.findById(created.id);
+
+    // Notify counterparts so their schedule can refresh / toast.
+    try {
+      const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
+      const actorId = Number(req.user?.id || 0);
+      const actorName = `${String(req.user?.first_name || req.user?.firstName || '').trim()} ${String(req.user?.last_name || req.user?.lastName || '').trim()}`.trim()
+        || 'A teammate';
+      const whenLabel = String(startAt || '').replace(' ', ' · ').slice(0, 16);
+      const recipientIds = Array.from(new Set([
+        supervisorUserId,
+        superviseeUserId,
+        ...(coFacilitatorUserId ? [coFacilitatorUserId] : []),
+        ...superviseeIds
+      ].filter((uid) => Number(uid) > 0 && Number(uid) !== actorId)));
+      const typeLabel = sessionType === 'group' ? 'Group supervision' : 'Supervision';
+      await Promise.all(recipientIds.map((uid) => createNotificationAndDispatch({
+        type: 'supervision_session_scheduled',
+        severity: 'info',
+        title: `${typeLabel} scheduled`,
+        message: `${actorName} scheduled ${typeLabel.toLowerCase()} for ${whenLabel}. Open My Schedule to see it.`,
+        userId: uid,
+        agencyId,
+        relatedEntityType: 'supervision_sessions',
+        relatedEntityId: Number(created.id),
+        actorSource: 'Schedule',
+        metadata: {
+          sessionId: Number(created.id),
+          startAt,
+          endAt,
+          sessionType,
+          refreshSchedule: true
+        }
+      }).catch((err) => {
+        console.warn('[supervision] schedule notify failed', uid, err?.message || err);
+        return null;
+      })));
+    } catch (notifyErr) {
+      console.warn('[supervision] schedule notify skipped', notifyErr?.message || notifyErr);
+    }
+
     res.status(201).json({
       ok: true,
       session: {

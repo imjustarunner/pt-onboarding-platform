@@ -222,6 +222,9 @@ export async function createSupervisorSupervisionTimeClaim({
   if (!sid || !agencyId || !supervisorId) {
     return { ok: false, skipped: true, reason: 'missing_session' };
   }
+  // NOTE: Salaried supervisors are intentionally included. Finalize always creates a
+  // submitted indirect_time claim (99415/99416) regardless of users.is_hourly_worker.
+  // TEMP testing: keep this path open for salary + supervision compensation rates.
 
   const existingClaimId = Number(session?.supervisor_time_claim_id || 0);
   if (existingClaimId > 0) {

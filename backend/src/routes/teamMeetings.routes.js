@@ -8,7 +8,10 @@ import {
   postTeamMeetingJoinPresence,
   getTeamMeetingLobbyParticipants,
   admitTeamMeetingParticipant,
-  getTeamMeetingAdmissionStatus
+  getTeamMeetingAdmissionStatus,
+  getTeamMeetingWorkspace,
+  upsertTeamMeetingWorkspace,
+  escalateTeamMeetingActionItem
 } from '../controllers/teamMeetings.controller.js';
 import { getTeamMeetingActivity, postTeamMeetingActivity } from '../controllers/videoMeetingActivity.controller.js';
 
@@ -29,5 +32,8 @@ router.post('/:eventId/recording-rules', setTeamMeetingRecordingRules);
 router.post('/:eventId/client-transcript', saveTeamMeetingClientTranscript);
 router.get('/:eventId/activity', getTeamMeetingActivity);
 router.post('/:eventId/activity', postTeamMeetingActivity);
+router.get('/:eventId/workspace', getTeamMeetingWorkspace);
+router.post('/:eventId/workspace', upsertTeamMeetingWorkspace);
+router.post('/:eventId/action-items/:itemId/escalate', escalateTeamMeetingActionItem);
 
 export default router;

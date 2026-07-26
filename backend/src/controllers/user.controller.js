@@ -4319,6 +4319,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
           status: String(r.status || 'ACTIVE').trim().toUpperCase() || 'ACTIVE',
           isCancelled: String(r.status || '').trim().toUpperCase() === 'CANCELLED',
           isTrainingPayEligible: Number(r.is_training_pay_eligible || 0) === 1,
+          meetingSubtype: String(r.meeting_subtype || 'general').trim().toLowerCase() === 'admin'
+            ? 'admin'
+            : 'general',
           canEdit: canEditThisEvent && String(r.status || '').trim().toUpperCase() !== 'CANCELLED'
         };
       });
@@ -5248,6 +5251,21 @@ export const createUserScheduleEvent = async (req, res, next) => {
     if (!['TEAM_MEETING', 'HUDDLE'].includes(kind) && attendeeUserIds.length) {
       return res.status(400).json({ error: { message: 'attendeeUserIds are only supported for TEAM_MEETING and HUDDLE.' } });
     }
+    const canSetAdminMeetingSubtype = ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole);
+    const requestedSubtype = String(req.body?.meetingSubtype || req.body?.meeting_subtype || 'general')
+      .trim()
+      .toLowerCase();
+    let meetingSubtype = 'general';
+    if (kind === 'TEAM_MEETING' && requestedSubtype === 'admin') {
+      if (!canSetAdminMeetingSubtype) {
+        return res.status(403).json({
+          error: { message: 'Only admin, support, or super admin can schedule Admin Meetings.' }
+        });
+      }
+      meetingSubtype = 'admin';
+    } else if (kind !== 'TEAM_MEETING' && requestedSubtype === 'admin') {
+      return res.status(400).json({ error: { message: 'Admin Meeting subtype is only valid for team meetings.' } });
+    }
     const wantsTrainingPay = req.body?.isTrainingPayEligible === true
       || req.body?.isTrainingPayEligible === 1
       || req.body?.isTrainingPayEligible === '1'
@@ -5401,7 +5419,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
         createdByUserId: actorUserId,
         clientId: Number(req.body?.clientId || 0) || null,
         isTrainingPayEligible,
-        waitingRoomEnabled
+        waitingRoomEnabled,
+        meetingSubtype
       });
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && attendeeUserIds?.length) {
         const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
@@ -5440,6 +5459,47 @@ export const createUserScheduleEvent = async (req, res, next) => {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
+    // Notify attendees / host counterparts so their schedule can refresh.
+    if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE')) {
+      try {
+        const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
+        const actorName = `${String(req.user?.first_name || req.user?.firstName || '').trim()} ${String(req.user?.last_name || req.user?.lastName || '').trim()}`.trim()
+          || 'A teammate';
+        const whenLabel = allDay
+          ? String(startDate || '').slice(0, 10)
+          : String(storedStartAt || startAt || '').replace(' ', ' · ').slice(0, 16);
+        const titleText = String(summaryText || (kind === 'HUDDLE' ? 'Huddle' : 'Team meeting')).trim();
+        const recipientIds = Array.from(new Set(
+          [Number(providerId || 0), ...(Array.isArray(attendeeUserIds) ? attendeeUserIds : [])]
+            .map((n) => Number(n || 0))
+            .filter((uid) => uid > 0 && uid !== Number(actorUserId || 0))
+        ));
+        await Promise.all(recipientIds.map((uid) => createNotificationAndDispatch({
+          type: 'team_meeting_scheduled',
+          severity: 'info',
+          title: `${kind === 'HUDDLE' ? 'Huddle' : 'Meeting'} scheduled`,
+          message: `${actorName} scheduled “${titleText}” for ${whenLabel}. Open My Schedule to see it.`,
+          userId: uid,
+          agencyId,
+          relatedEntityType: 'provider_schedule_events',
+          relatedEntityId: Number(saved.id),
+          actorSource: 'Schedule',
+          metadata: {
+            eventId: Number(saved.id),
+            kind,
+            startAt: allDay ? null : (storedStartAt || startAt),
+            endAt: allDay ? null : (storedEndAt || endAt),
+            refreshSchedule: true
+          }
+        }).catch((err) => {
+          console.warn('[createUserScheduleEvent] schedule notify failed', uid, err?.message || err);
+          return null;
+        })));
+      } catch (notifyErr) {
+        console.warn('[createUserScheduleEvent] schedule notify skipped', notifyErr?.message || notifyErr);
+      }
+    }
+
     return res.status(201).json({
       ok: true,
       googleSynced: googleOk,
@@ -5462,6 +5522,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
           : null,
         agencyId,
         kind,
+        meetingSubtype,
         title: summaryText,
         isPrivate,
         isTrainingPayEligible,
@@ -5643,6 +5704,28 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       nextTrainingPayEligible = !!wantsTrainingPay;
     }
 
+    let nextMeetingSubtype = undefined;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'meetingSubtype')
+      || Object.prototype.hasOwnProperty.call(req.body || {}, 'meeting_subtype')) {
+      const requestedSubtype = String(req.body?.meetingSubtype || req.body?.meeting_subtype || 'general')
+        .trim()
+        .toLowerCase();
+      if (kind !== 'TEAM_MEETING' && requestedSubtype === 'admin') {
+        return res.status(400).json({ error: { message: 'Admin Meeting subtype is only valid for team meetings.' } });
+      }
+      if (requestedSubtype === 'admin') {
+        const canSetAdminMeetingSubtype = ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole);
+        if (!canSetAdminMeetingSubtype) {
+          return res.status(403).json({
+            error: { message: 'Only admin, support, or super admin can set Admin Meeting subtype.' }
+          });
+        }
+        nextMeetingSubtype = 'admin';
+      } else {
+        nextMeetingSubtype = 'general';
+      }
+    }
+
     const scope = String(req.body?.scope || 'single').trim().toLowerCase();
     if (!['single', 'future'].includes(scope)) {
       return res.status(400).json({ error: { message: 'scope must be single or future' } });
@@ -5708,6 +5791,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         clientId: isPrimary && req.body?.clientId !== undefined ? Number(req.body.clientId || 0) || null : undefined,
         reasonCode: isPrimary && req.body?.reasonCode !== undefined ? req.body.reasonCode : undefined,
         isTrainingPayEligible: isPrimary ? nextTrainingPayEligible : undefined,
+        meetingSubtype: isPrimary ? nextMeetingSubtype : (scope === 'future' ? nextMeetingSubtype : undefined),
         updatedByUserId: actorUserId
       });
       if (isPrimary) updated = rowUpdated;

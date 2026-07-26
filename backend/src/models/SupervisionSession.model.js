@@ -976,6 +976,7 @@ class SupervisionSession {
          AND (
            ss.supervisor_user_id = ?
            OR ss.supervisee_user_id = ?
+           OR ss.co_facilitator_user_id = ?
            OR EXISTS (
              SELECT 1
              FROM supervision_session_attendees ssa
@@ -987,7 +988,7 @@ class SupervisionSession {
          AND ss.end_at > ?
          AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
        ORDER BY ss.start_at ASC`,
-      [uId, uId, uId, ...agencyParams, uId, uId, uId, windowEnd, windowStart]
+      [uId, uId, uId, ...agencyParams, uId, uId, uId, uId, windowEnd, windowStart]
     );
     return rows || [];
   }

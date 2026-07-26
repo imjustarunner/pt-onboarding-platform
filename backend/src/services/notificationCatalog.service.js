@@ -49,7 +49,8 @@ const TYPES_BY_CATEGORY = {
     'school_provider_slot_verification_requested',
     'school_provider_slot_verification_completed', 'facilitator_availability_push',
     'school_primary_staff_removed', 'public_appointment_request_received',
-    'shift_calloff_need_coverage'
+    'shift_calloff_need_coverage',
+    'supervision_session_scheduled', 'team_meeting_scheduled'
   ],
   events_registration: [
     'company_event_registration_submitted', 'company_event_message'
@@ -138,6 +139,8 @@ const LABEL_OVERRIDES = {
   supervision_individual_50_reached: 'Individual supervision 50% milestone',
   supervision_total_100_reached: 'Supervision requirement completed',
   supervision_supervisee_completed: 'Supervisee completed supervision',
+  supervision_session_scheduled: 'Supervision session scheduled',
+  team_meeting_scheduled: 'Team meeting scheduled',
   kudos_earned_admin_digest: 'Kudos administrative digest',
   agency_campaign_opt_out: 'Campaign opt-out'
 };
@@ -154,6 +157,7 @@ const WORKFORCE_RELEVANT = new Set([
   'background_check_reimbursement_due', 'background_check_renewal_due',
   'hiring_task_assigned', 'training_assigned', 'training_due_soon',
   'supervision_presenter_reminder', 'program_reminder',
+  'supervision_session_scheduled', 'team_meeting_scheduled',
   'birthday_announcement', 'anniversary_announcement', 'kudos_received',
   'survey_completed', 'agency_campaign_opt_out'
 ]);
@@ -177,7 +181,8 @@ const PROVIDER_RELEVANT = new Set([
   'payroll_unpaid_notes_2_periods_old', 'payroll_missing_notes_reminder',
   'payroll_unsigned_draft_notes', 'payroll_direct_indirect_ratio_alert',
   'supervision_individual_50_reached', 'supervision_total_100_reached',
-  'supervision_supervisee_completed', 'sstc_club_member_application_pending',
+  'supervision_supervisee_completed', 'supervision_session_scheduled',
+  'team_meeting_scheduled', 'sstc_club_member_application_pending',
   'sstc_club_invite_request'
 ]);
 
@@ -323,6 +328,16 @@ const DEFAULT_OVERRIDES_BY_TYPE = {
     toast: true,
     toastDurationMode: 'timed',
     toastDurationSeconds: 300
+  },
+  supervision_session_scheduled: {
+    toast: true,
+    toastDurationMode: 'timed',
+    toastDurationSeconds: 8
+  },
+  team_meeting_scheduled: {
+    toast: true,
+    toastDurationMode: 'timed',
+    toastDurationSeconds: 8
   }
 };
 
@@ -342,6 +357,8 @@ const LEGACY_CATEGORY_BY_TYPE = {
   school_availability_request_approved: 'scheduling_room_booking_approved_denied',
   school_availability_request_denied: 'scheduling_room_booking_approved_denied',
   school_availability_request_pending: 'scheduling_schedule_changes',
+  supervision_session_scheduled: 'scheduling_schedule_changes',
+  team_meeting_scheduled: 'scheduling_schedule_changes',
   school_provider_availability_confirmed: 'school_portal_provider_slots',
   school_provider_availability_updated: 'school_portal_provider_slots',
   school_provider_slot_verification_requested: 'school_portal_provider_slots',

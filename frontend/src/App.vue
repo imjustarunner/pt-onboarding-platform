@@ -5429,6 +5429,21 @@ const showNewNotificationToast = async () => {
       const key = String(item.id);
       if (seenNotificationToastIds.has(key)) continue;
       seenNotificationToastIds.add(key);
+      const type = String(item.type || item.notification_type || '').trim();
+      const meta = item.metadata || item.meta || {};
+      if (
+        meta.refreshSchedule === true
+        || type === 'supervision_session_scheduled'
+        || type === 'team_meeting_scheduled'
+      ) {
+        try {
+          window.dispatchEvent(new CustomEvent('pt-schedule-refresh', {
+            detail: { reason: type || 'schedule_booked', notificationId: item.id }
+          }));
+        } catch {
+          /* ignore */
+        }
+      }
       if (item.notification_preference?.toast === true) candidates.push(item);
     }
     notificationToastQueue.value.push(...candidates);

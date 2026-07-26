@@ -30,13 +30,17 @@ class ProviderScheduleEvent {
     sessionIndex = null,
     joinToken = null,
     isTrainingPayEligible = false,
-    waitingRoomEnabled = true
+    waitingRoomEnabled = true,
+    meetingSubtype = 'general'
   }) {
     const kindUpper = String(kind || '').trim().toUpperCase();
     const needsJoinToken = ['TEAM_MEETING', 'HUDDLE'].includes(kindUpper) && !!platformVideoLink;
     const participantToken = needsJoinToken ? String(joinToken || generateJoinToken()).slice(0, 64) : (joinToken || null);
     const hostToken = needsJoinToken ? generateJoinToken().slice(0, 64) : null;
     const waitingRoomFlag = waitingRoomEnabled === false || waitingRoomEnabled === 0 ? 0 : 1;
+    const subtype = kindUpper === 'TEAM_MEETING' && String(meetingSubtype || '').trim().toLowerCase() === 'admin'
+      ? 'admin'
+      : 'general';
     try {
       const [result] = await pool.execute(
         `INSERT INTO provider_schedule_events
@@ -45,8 +49,8 @@ class ProviderScheduleEvent {
            kind, title, description, reason_code, is_private, all_day, start_at, end_at, start_date, end_date, status,
            recurrence_series_id, recurrence_frequency, recurrence_policy, recurrence_index,
            google_event_id, google_html_link, google_meet_link, platform_video_link,
-           is_training_pay_eligible, created_by_user_id, updated_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           is_training_pay_eligible, meeting_subtype, created_by_user_id, updated_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           participantToken,
           hostToken,
@@ -77,6 +81,7 @@ class ProviderScheduleEvent {
           googleMeetLink ? String(googleMeetLink).trim().slice(0, 1024) : null,
           platformVideoLink == null ? null : (platformVideoLink ? 1 : 0),
           isTrainingPayEligible ? 1 : 0,
+          subtype,
           createdByUserId ? Number(createdByUserId) : null,
           createdByUserId ? Number(createdByUserId) : null
         ]
@@ -321,6 +326,7 @@ class ProviderScheduleEvent {
     clientId = undefined,
     reasonCode = undefined,
     isTrainingPayEligible = undefined,
+    meetingSubtype = undefined,
     updatedByUserId = null
   }) {
     const eid = Number(eventId || 0);
@@ -376,17 +382,46 @@ class ProviderScheduleEvent {
       sets.push('is_training_pay_eligible = ?');
       params.push(isTrainingPayEligible ? 1 : 0);
     }
+    if (meetingSubtype !== undefined) {
+      const nextSubtype = String(meetingSubtype || '').trim().toLowerCase() === 'admin' ? 'admin' : 'general';
+      sets.push('meeting_subtype = ?');
+      params.push(nextSubtype);
+    }
     if (!sets.length) return this.findByIdForProvider({ eventId: eid, providerId: pid });
     sets.push('updated_by_user_id = ?');
     params.push(updatedByUserId ? Number(updatedByUserId) : null);
     params.push(eid, pid);
-    await pool.execute(
-      `UPDATE provider_schedule_events
-       SET ${sets.join(', ')}
-       WHERE id = ? AND provider_id = ?
-         AND UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED'`,
-      params
-    );
+    try {
+      await pool.execute(
+        `UPDATE provider_schedule_events
+         SET ${sets.join(', ')}
+         WHERE id = ? AND provider_id = ?
+           AND UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED'`,
+        params
+      );
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR' && meetingSubtype !== undefined) {
+        // Retry without meeting_subtype when migration 1052 is not applied yet.
+        return this.updateForProvider({
+          eventId: eid,
+          providerId: pid,
+          title,
+          description,
+          isPrivate,
+          allDay,
+          startAt,
+          endAt,
+          startDate,
+          endDate,
+          agencyId,
+          clientId,
+          reasonCode,
+          isTrainingPayEligible,
+          updatedByUserId
+        });
+      }
+      throw e;
+    }
     return this.findByIdForProvider({ eventId: eid, providerId: pid });
   }
 

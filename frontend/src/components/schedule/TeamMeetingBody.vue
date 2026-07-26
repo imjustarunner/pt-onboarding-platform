@@ -86,6 +86,22 @@
       </ul>
     </div>
 
+    <div v-if="showMeetingSubtype" class="tmb-row">
+      <label class="tmb-label">Type</label>
+      <select
+        class="tmb-input"
+        :value="meetingSubtype"
+        :disabled="disabled || (!canSetAdminSubtype && meetingSubtype !== 'admin')"
+        @change="emit('update:meetingSubtype', $event.target.value)"
+      >
+        <option value="general">General team meeting</option>
+        <option v-if="canSetAdminSubtype || meetingSubtype === 'admin'" value="admin">Admin Meeting</option>
+      </select>
+      <p v-if="!canSetAdminSubtype" class="muted">
+        Only admin, support, or super admin can create Admin Meetings.
+      </p>
+    </div>
+
     <div v-if="showTrainingPayOption" class="tmb-row">
       <label class="tmb-label">Pay</label>
       <label class="tmb-check">
@@ -138,6 +154,9 @@ const props = defineProps({
   /** CPA / Provider Plus: mark meeting for Admin Time pay approval */
   showTrainingPayOption: { type: Boolean, default: false },
   isTrainingPayEligible: { type: Boolean, default: false },
+  showMeetingSubtype: { type: Boolean, default: false },
+  meetingSubtype: { type: String, default: 'general' },
+  canSetAdminSubtype: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false }
 });
 
@@ -149,7 +168,8 @@ const emit = defineEmits([
   'update:createMeetLink',
   'update:agendaItems',
   'update:notes',
-  'update:isTrainingPayEligible'
+  'update:isTrainingPayEligible',
+  'update:meetingSubtype'
 ]);
 
 const draftAgenda = ref('');

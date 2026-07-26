@@ -29,12 +29,39 @@
           />
         </div>
         <aside v-if="resolvedEventId && !isInLobby" class="join-agenda-aside">
+          <div class="join-workspace-tabs">
+            <button
+              type="button"
+              class="join-workspace-tab"
+              :class="{ on: asideTab === 'agenda' }"
+              @click="asideTab = 'agenda'"
+            >Agenda</button>
+            <button
+              type="button"
+              class="join-workspace-tab"
+              :class="{ on: asideTab === 'goals' }"
+              @click="asideTab = 'goals'"
+            >Goals</button>
+            <button
+              type="button"
+              class="join-workspace-tab"
+              :class="{ on: asideTab === 'actions' }"
+              @click="asideTab = 'actions'"
+            >Actions</button>
+          </div>
           <MeetingAgendaPanel
+            v-show="asideTab === 'agenda'"
             meeting-type="provider_schedule_event"
             :meeting-id="resolvedEventId"
             :can-add-item="true"
             :embedded="true"
             :live="true"
+          />
+          <MeetingGoalsActionsPanel
+            v-if="asideTab === 'goals' || asideTab === 'actions'"
+            :event-id="resolvedEventId"
+            :section="asideTab === 'goals' ? 'goals' : 'actions'"
+            :meeting-subtype="meetingSubtype"
           />
         </aside>
       </div>
@@ -83,6 +110,7 @@ import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/a
 import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
 import MeetingAgendaPanel from '../../components/meetings/MeetingAgendaPanel.vue';
+import MeetingGoalsActionsPanel from '../../components/meetings/MeetingGoalsActionsPanel.vue';
 import api from '../../services/api';
 
 const router = useRouter();
@@ -98,6 +126,8 @@ const token = ref('');
 const vonageSessionId = ref('');
 const applicationId = ref('');
 const diagnostics = ref(null);
+const asideTab = ref('agenda');
+const meetingSubtype = ref('general');
 const roomName = ref('');
 const isHost = ref(false);
 const resolvedEventId = ref(0);
@@ -354,6 +384,21 @@ watch(
   }
 );
 
+watch(
+  () => Number(resolvedEventId.value || 0),
+  async (eid) => {
+    if (!eid) return;
+    try {
+      const { data } = await api.get(`/team-meetings/${eid}/workspace`, { skipGlobalLoading: true });
+      meetingSubtype.value = String(data?.meetingSubtype || 'general').toLowerCase() === 'admin'
+        ? 'admin'
+        : 'general';
+    } catch {
+      meetingSubtype.value = 'general';
+    }
+  }
+);
+
 onMounted(async () => {
   await runJoinFlowForCurrentRoute();
 });
@@ -403,6 +448,28 @@ onUnmounted(() => {
   overflow: auto;
   border-radius: 12px;
   background: #fff;
+  padding: 8px;
+}
+.join-workspace-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 6px;
+}
+.join-workspace-tab {
+  border: 0;
+  background: transparent;
+  font-weight: 800;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #64748b;
+}
+.join-workspace-tab.on {
+  background: #ecfdf5;
+  color: #047857;
 }
 .join-placeholder {
   flex: 1;

@@ -17333,7 +17333,39 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       const isHourly = hw.is_hourly_worker === 1
         || hw.is_hourly_worker === true
         || hw.is_hourly_worker === '1';
-      if (!isHourly && !isAdminRole(req.user?.role)) {
+      // TEMP (testing): salaried staff with a supervision rate (99415/99416) on their
+      // compensation schedule may also submit supervision-related indirect time claims.
+      // Revert this exception once salary + supervision payroll testing is complete.
+      const supervisionCode = String(payload?.serviceCode || '').trim().toUpperCase();
+      const allocKey = String(payload?.allocations?.[0]?.serviceTypeKey || '').trim().toLowerCase();
+      const isSupervisionRelated = ['99415', '99416'].includes(supervisionCode)
+        || String(payload?.source || '').trim() === 'supervision_session_finalize'
+        || allocKey === 'supervision';
+      let hasSupervisionCompensationRate = false;
+      if (!isHourly && isSupervisionRelated) {
+        const codesToCheck = ['99415', '99416'].includes(supervisionCode)
+          ? [supervisionCode]
+          : ['99415', '99416'];
+        for (const code of codesToCheck) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            const rateRow = await PayrollRate.findBestRate({
+              agencyId,
+              userId,
+              serviceCode: code,
+              asOf: String(claimDate || '').slice(0, 10) || null
+            });
+            if (Number(rateRow?.rate_amount || 0) > 0) {
+              hasSupervisionCompensationRate = true;
+              break;
+            }
+          } catch {
+            /* keep false */
+          }
+        }
+      }
+      const allowSalariedSupervisionClaim = !isHourly && isSupervisionRelated && hasSupervisionCompensationRate;
+      if (!isHourly && !isAdminRole(req.user?.role) && !allowSalariedSupervisionClaim) {
         return res.status(403).json({ error: { message: 'Indirect time logging is for hourly employees only' } });
       }
       const dualRate = isHourlyDualRateEnabled(hw);

@@ -171,6 +171,26 @@
         <div v-if="officeReminderToast && !hideOfficeAndCalendarIntegration" class="sched-office-reminder-toast">
           {{ officeReminderToast }}
         </div>
+        <div
+          v-if="bookingReceipt"
+          class="sched-booking-receipt"
+          role="status"
+          data-testid="schedule-booking-receipt"
+          @mouseenter="holdBookingReceipt"
+          @mouseleave="releaseBookingReceipt"
+        >
+          <div class="sched-booking-receipt__body">
+            <strong>{{ bookingReceipt.title }}</strong>
+            <span v-if="bookingReceipt.when">{{ bookingReceipt.when }}</span>
+            <span v-if="bookingReceipt.withWhom" class="sched-booking-receipt__meta">{{ bookingReceipt.withWhom }}</span>
+          </div>
+          <button
+            type="button"
+            class="sched-booking-receipt__dismiss"
+            aria-label="Dismiss"
+            @click="dismissBookingReceipt"
+          >×</button>
+        </div>
       </div>
 
       <div class="sched-tool-bar" data-tour="my-schedule-tool-groups">
@@ -309,12 +329,14 @@
           <button
             type="button"
             class="sched-pill"
-            :class="{ on: hideWeekend }"
+            :class="{ on: hideWeekend && !weekendDaysWithScheduleItems.length }"
             role="switch"
-            :aria-checked="String(!!hideWeekend)"
+            :aria-checked="String(!!hideWeekend && !weekendDaysWithScheduleItems.length)"
             :disabled="loading"
             @click="hideWeekend = !hideWeekend"
-            title="Hide Saturday and Sunday columns to focus on weekdays."
+            :title="weekendDaysWithScheduleItems.length
+              ? 'Weekends are shown because you have Saturday/Sunday appointments this week.'
+              : 'Hide Saturday and Sunday columns to focus on weekdays.'"
             data-tour="my-schedule-hide-weekends-toggle"
           >
             Hide weekends
@@ -1682,7 +1704,10 @@
             v-model:agenda-items="createAgendaDraftItems"
             v-model:notes="editorMeetingNotes"
             v-model:is-training-pay-eligible="meetingIsTrainingPayEligible"
+            v-model:meeting-subtype="meetingSubtype"
             :show-training-pay-option="showMeetingTrainingPayOption"
+            :show-meeting-subtype="String(requestType || '') === 'agency_meeting' || String(editingScheduleStackItem?.eventKind || '').toUpperCase() === 'TEAM_MEETING'"
+            :can-set-admin-subtype="canSetAdminMeetingSubtype"
             :video-configured="scheduleVideoConfigured"
             :show-agenda-draft="!isScheduleEventEditMode"
             :show-participants="false"
@@ -1774,6 +1799,17 @@
             <SupervisionGoalsActionsPanel
               :session-id="selectedSupvSessionId"
               :section="editorWorkspaceTab"
+            />
+          </div>
+
+          <div
+            v-if="(editorWorkspaceTab === 'goals' || editorWorkspaceTab === 'actions') && editorIsMeeting && scheduleEventEditId"
+            class="appt-workspace-panel appt-workspace-panel--flush"
+          >
+            <MeetingGoalsActionsPanel
+              :event-id="scheduleEventEditId"
+              :section="editorWorkspaceTab"
+              :meeting-subtype="meetingSubtype"
             />
           </div>
 
@@ -3213,6 +3249,26 @@
               <input type="checkbox" v-model="meetingIsTrainingPayEligible" />
               <span>Training / Mentorship / Onboarding (Admin Time pay claim)</span>
             </label>
+
+            <div
+              v-if="requestType === 'agency_meeting' || (isScheduleEventEditMode && editorIsMeeting && String(editingScheduleStackItem?.eventKind || '').toUpperCase() === 'TEAM_MEETING')"
+              style="margin-top: 10px;"
+            >
+              <label class="lbl">Meeting type</label>
+              <select
+                v-model="meetingSubtype"
+                class="input"
+                :disabled="!canSetAdminMeetingSubtype && meetingSubtype !== 'admin'"
+              >
+                <option value="general">General team meeting</option>
+                <option v-if="canSetAdminMeetingSubtype || meetingSubtype === 'admin'" value="admin">
+                  Admin Meeting
+                </option>
+              </select>
+              <div v-if="!canSetAdminMeetingSubtype" class="muted nr-help" style="margin-top: 4px;">
+                Only admin, support, or super admin can create Admin Meetings. Others may still be invited.
+              </div>
+            </div>
 
             <div v-if="requestType === 'agency_meeting' || requestType === 'huddle'" style="margin-top: 10px;">
               <label class="lbl">Frequency</label>
@@ -4657,6 +4713,7 @@ import VirtualLinkControls from './VirtualLinkControls.vue';
 import SupervisionBody from './SupervisionBody.vue';
 import SupervisionNotePanel from './SupervisionNotePanel.vue';
 import SupervisionGoalsActionsPanel from './SupervisionGoalsActionsPanel.vue';
+import MeetingGoalsActionsPanel from '../meetings/MeetingGoalsActionsPanel.vue';
 import SupervisionSuperviseePanel from './SupervisionSuperviseePanel.vue';
 import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
@@ -4981,6 +5038,7 @@ const selectedExternalCalendarIdSet = computed(
     )
 );
 let schedMouseUpHandler = null;
+let schedScheduleRefreshHandler = null;
 const hideWeekend = ref(props.mode === 'self');
 const focusedDays = ref([]);
 /** day | agenda | week — day/agenda focus one day; week = full multi-day grid */
@@ -5806,6 +5864,67 @@ const showOfficeReminder = () => {
   }, 3000);
 };
 
+/** Booking confirmation flash: 2s default, hover holds, hover-off / × dismisses. */
+const bookingReceipt = ref(null);
+let bookingReceiptTimer = null;
+let bookingReceiptHeld = false;
+const clearBookingReceiptTimer = () => {
+  if (bookingReceiptTimer) {
+    clearTimeout(bookingReceiptTimer);
+    bookingReceiptTimer = null;
+  }
+};
+const dismissBookingReceipt = () => {
+  clearBookingReceiptTimer();
+  bookingReceiptHeld = false;
+  bookingReceipt.value = null;
+};
+const holdBookingReceipt = () => {
+  bookingReceiptHeld = true;
+  clearBookingReceiptTimer();
+};
+const releaseBookingReceipt = () => {
+  if (!bookingReceipt.value) return;
+  bookingReceiptHeld = false;
+  clearBookingReceiptTimer();
+  bookingReceiptTimer = setTimeout(() => {
+    if (!bookingReceiptHeld) bookingReceipt.value = null;
+  }, 400);
+};
+const showBookingReceipt = ({ title, when = '', withWhom = '' } = {}) => {
+  dismissBookingReceipt();
+  bookingReceipt.value = {
+    title: String(title || 'Scheduled').trim() || 'Scheduled',
+    when: String(when || '').trim(),
+    withWhom: String(withWhom || '').trim()
+  };
+  bookingReceiptTimer = setTimeout(() => {
+    if (!bookingReceiptHeld) bookingReceipt.value = null;
+  }, 2000);
+};
+const formatBookingReceiptWhen = ({ dateYmd, startHour, startMinute = 0, endHour, endMinute = 0 } = {}) => {
+  const ymd = String(dateYmd || '').slice(0, 10);
+  let dateLabel = ymd;
+  try {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+      const [yy, mm, dd] = ymd.split('-').map(Number);
+      dateLabel = new Date(yy, mm - 1, dd).toLocaleDateString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+  } catch { /* keep ymd */ }
+  const fmt = (h, m) => {
+    const hour = Number(h || 0);
+    const min = Number(m || 0);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const h12 = hour % 12 || 12;
+    return `${h12}:${String(min).padStart(2, '0')} ${ampm}`;
+  };
+  return `${dateLabel} · ${fmt(startHour, startMinute)} – ${fmt(endHour, endMinute)}`;
+};
+
 /** Primary CTA: open office/room request (keeps slide toggle for navigation). */
 const openQuickOfficeRoomRequest = async () => {
   if (props.hideOfficeAndCalendarIntegration) return;
@@ -6123,6 +6242,12 @@ onMounted(() => {
     });
     darkThemeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
+  const onScheduleRefreshEvent = () => {
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    void load({ forceRefresh: true });
+  };
+  window.addEventListener('pt-schedule-refresh', onScheduleRefreshEvent);
+  schedScheduleRefreshHandler = onScheduleRefreshEvent;
 });
 
 watch(
@@ -6155,19 +6280,73 @@ onUnmounted(() => {
     window.removeEventListener('mouseup', schedMouseUpHandler);
     schedMouseUpHandler = null;
   }
+  if (schedScheduleRefreshHandler) {
+    window.removeEventListener('pt-schedule-refresh', schedScheduleRefreshHandler);
+    schedScheduleRefreshHandler = null;
+  }
+  dismissBookingReceipt();
   darkThemeObserver?.disconnect();
   darkThemeObserver = null;
 });
 
+/** YMD from schedule rows used to decide if Sat/Sun must stay visible. */
+const scheduleItemDateYmd = (ev) => {
+  const fromApi = String(ev?.startDateYmd || ev?.dateYmd || '').trim().slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fromApi)) return fromApi;
+  const raw = String(ev?.startAt || ev?.start_at || ev?.startDate || '').trim();
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
+};
+
+/**
+ * My Schedule defaults to hiding weekends. That silently hid Sunday supervision
+ * (supervisee admin view shows weekends; supervisor self-view did not).
+ * Always surface Sat/Sun when this week already has appointments on those days.
+ */
+const weekendDaysWithScheduleItems = computed(() => {
+  const s = summary.value;
+  if (!s) return [];
+  const found = new Set();
+  const consider = (ev) => {
+    const ymd = scheduleItemDateYmd(ev);
+    if (!ymd) return;
+    const d = new Date(`${ymd}T12:00:00`);
+    if (Number.isNaN(d.getTime())) return;
+    const name = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()];
+    if (name === 'Saturday' || name === 'Sunday') found.add(name);
+  };
+  for (const ev of s.supervisionSessions || []) consider(ev);
+  for (const ev of s.scheduleEvents || []) consider(ev);
+  for (const ev of s.officeEvents || []) consider(ev);
+  for (const ev of s.schoolAssignments || []) consider(ev);
+  return ['Saturday', 'Sunday'].filter((d) => found.has(d));
+});
+
 const focusableDays = computed(() => {
-  if (hideWeekend.value) return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-  return orderedDays.value.slice();
+  if (!hideWeekend.value) return orderedDays.value.slice();
+  const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const weekendHits = weekendDaysWithScheduleItems.value;
+  if (!weekendHits.length) return weekdays;
+  return orderedDays.value.filter((d) => weekdays.includes(d) || weekendHits.includes(d));
 });
 const focusedDaySet = computed(() => new Set((focusedDays.value || []).map((d) => String(d))));
 const visibleDays = computed(() => {
   const baseDays = focusableDays.value;
   const selected = (focusedDays.value || []).filter((d) => baseDays.includes(String(d)));
   return selected.length ? selected : baseDays;
+});
+
+// When weekend appointments appear, unhide weekends so day/agenda focus can land on today (Sun/Sat).
+watch(weekendDaysWithScheduleItems, (days) => {
+  if (!(days || []).length) return;
+  const wasHidden = hideWeekend.value;
+  if (wasHidden) hideWeekend.value = false;
+  if (!wasHidden || !isDayOrAgendaSpan.value) return;
+  const today = todayDayName();
+  // Only auto-jump when we just revealed weekends (don't steal an intentional day focus later).
+  if (days.includes(today) || today === 'Saturday' || today === 'Sunday') {
+    focusedDays.value = [today];
+  }
 });
 const displayTimeSlots = computed(() => {
   const hList = hours.value || [];
@@ -7410,6 +7589,12 @@ const bookingTargetRoleKey = computed(() => {
 });
 const canMarkMeetingTrainingPay = computed(() => TRAINING_PAY_HOST_ROLES.has(bookingTargetRoleKey.value));
 const meetingIsTrainingPayEligible = ref(false);
+/** general | admin — Admin Meeting only creatable by super_admin/admin/support */
+const meetingSubtype = ref('general');
+const canSetAdminMeetingSubtype = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'superadmin', 'admin', 'support'].includes(role);
+});
 const showMeetingTrainingPayOption = computed(() => (
   canMarkMeetingTrainingPay.value || !!meetingIsTrainingPayEligible.value
 ));
@@ -8532,8 +8717,9 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
     });
   }
   let typePrefix = 'Event';
-  if (eventKind === 'TEAM_MEETING') typePrefix = 'Meeting';
-  else if (eventKind === 'HUDDLE') typePrefix = 'Huddle';
+  if (eventKind === 'TEAM_MEETING') {
+    typePrefix = String(ev?.meetingSubtype || '').toLowerCase() === 'admin' ? 'Admin Meeting' : 'Meeting';
+  } else if (eventKind === 'HUDDLE') typePrefix = 'Huddle';
   else if (eventKind === 'SCHEDULE_HOLD') typePrefix = ev?.allDay ? 'All-day block' : 'Hold';
   else if (eventKind === 'INDIRECT_SERVICES') typePrefix = 'Indirect';
   else if (eventKind === 'PERSONAL_EVENT' && isClientSessionScheduleEvent(ev)) typePrefix = 'Session';
@@ -11053,6 +11239,12 @@ const editorWorkspaceTabs = computed(() => {
     tabs.push({ id: 'note', label: 'Note', icon: '✎' });
     tabs.push({ id: 'supervisee', label: 'Supervisee', icon: '◎' });
   }
+  if (editorIsMeeting.value && Number(scheduleEventEditId.value || 0) > 0) {
+    tabs.splice(1, 0,
+      { id: 'goals', label: 'Goals', icon: '◎' },
+      { id: 'actions', label: 'Action Items', icon: '☑' }
+    );
+  }
   if (editorShowBillingTab.value) tabs.push({ id: 'billing', label: 'Billing', icon: '$' });
   if (editorShowClinicalTab.value) tabs.push({ id: 'clinical', label: 'Clinical', icon: '☰' });
   tabs.push({ id: 'notifications', label: 'Notifications', icon: '🔔' });
@@ -11607,12 +11799,14 @@ function onEditorStartTime(t) {
   const prevEndMins = Number(modalEndHour.value || 0) * 60 + Number(modalEndMinute.value || 0);
   let dur = prevEndMins - prevStartMins;
   if (!(dur > 0)) dur = 60;
-  const nextStartMins = (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
+  const startMm = Number.isFinite(mm) ? snapQuarterMinute(mm) : 0;
+  const nextStartMins = (Number.isFinite(hh) ? hh : 0) * 60 + startMm;
   const nextEndMins = nextStartMins + dur;
   modalHour.value = hh;
-  modalStartMinute.value = mm || 0;
+  modalStartHour.value = hh;
+  modalStartMinute.value = startMm;
   modalEndHour.value = Math.floor(nextEndMins / 60);
-  modalEndMinute.value = nextEndMins % 60;
+  modalEndMinute.value = snapQuarterMinute(nextEndMins % 60);
   onChooserWhenChanged?.();
 }
 function onEditorEndTime(t) {
@@ -11628,7 +11822,7 @@ function onEditorEndTime(t) {
     return;
   }
   modalEndHour.value = hh;
-  modalEndMinute.value = mm || 0;
+  modalEndMinute.value = Number.isFinite(mm) ? snapQuarterMinute(mm) : 0;
   onChooserWhenChanged?.();
 }
 
@@ -14249,12 +14443,20 @@ const ensureModalEndTimeValid = () => {
   if (endH > maxEnd) endH = maxEnd;
   modalEndHour.value = endH;
 
-  const normalizedStartMinute = quarterMinuteOptions.includes(Number(modalStartMinute.value)) ? Number(modalStartMinute.value) : 0;
+  // Snap free-form minutes (e.g. :40) to the nearest quarter — never silently zero them to :00.
+  const rawStartMinute = Number(modalStartMinute.value || 0);
+  const normalizedStartMinute = quarterMinuteOptions.includes(rawStartMinute)
+    ? rawStartMinute
+    : snapQuarterMinute(rawStartMinute);
   modalStartMinute.value = normalizedStartMinute;
 
   const allowedEndMinutes = endMinuteOptions.value;
   let endMinute = Number(modalEndMinute.value || 0);
-  if (!allowedEndMinutes.includes(endMinute)) endMinute = allowedEndMinutes[0] ?? 0;
+  if (!allowedEndMinutes.includes(endMinute)) {
+    endMinute = allowedEndMinutes.includes(snapQuarterMinute(endMinute))
+      ? snapQuarterMinute(endMinute)
+      : (allowedEndMinutes[0] ?? 0);
+  }
 
   const startTotal = startH * 60 + (canUseQuarterHourInput.value ? normalizedStartMinute : 0);
   let endTotal = endH * 60 + (canUseQuarterHourInput.value ? endMinute : 0);
@@ -14474,6 +14676,7 @@ const openSlotActionModal = async ({
   scheduleEventAllDay.value = false;
   scheduleEventPrivate.value = false;
   meetingIsTrainingPayEligible.value = false;
+  meetingSubtype.value = 'general';
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'count';
   scheduleEventOccurrenceCount.value = 6;
@@ -15960,9 +16163,16 @@ const requestCloseModal = () => {
   closeModal();
 };
 
-const dismissMeetingCreatedShare = () => {
+const dismissMeetingCreatedShare = async () => {
   meetingCreatedShare.value = null;
   closeModal();
+  // Done used to leave a stale grid until a manual refresh — force reload after share dismissal.
+  try {
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    await load({ forceRefresh: true });
+  } catch {
+    /* best-effort */
+  }
 };
 
 const closeModal = () => {
@@ -15988,6 +16198,7 @@ const closeModal = () => {
   scheduleEventAllDay.value = false;
   scheduleEventPrivate.value = false;
   meetingIsTrainingPayEligible.value = false;
+  meetingSubtype.value = 'general';
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'count';
   scheduleEventOccurrenceCount.value = 6;
@@ -16611,6 +16822,9 @@ const submitRequest = async () => {
       const createMeetLink = isMeetingAction
         ? (createPlatformVideoLink ? false : !!createMeetingMeetLink.value)
         : false;
+      const meetingSubtypeForCreate = normalizedAction === 'agency_meeting'
+        ? ((canSetAdminMeetingSubtype.value && meetingSubtype.value === 'admin') ? 'admin' : 'general')
+        : 'general';
       if (scheduleEventAllDay.value || normalizedAction === 'schedule_hold_all_day') {
         const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
         const baseDates = Array.from(new Set(ranges.map((x) => String(x.dateYmd || '').slice(0, 10)).filter(Boolean)));
@@ -16639,6 +16853,7 @@ const submitRequest = async () => {
                   waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
                   allowLocalOnly: true,
                   isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
+                  meetingSubtype: meetingSubtypeForCreate,
                   recurrenceSeriesId,
                   recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
                   recurrencePolicy,
@@ -16680,6 +16895,7 @@ const submitRequest = async () => {
                     waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
                     allowLocalOnly: true,
                     isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
+                    meetingSubtype: meetingSubtypeForCreate,
                     recurrenceSeriesId,
                     recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
                     recurrencePolicy,
@@ -16720,6 +16936,22 @@ const submitRequest = async () => {
               hostJoinUrl,
               meetLink
             };
+          }
+          const meetingTitle = String(first.title || title || (requestType.value === 'huddle' ? 'Huddle' : 'Team meeting')).trim();
+          const receiptDateYmd = String(first.startAt || first.startDate || '').slice(0, 10)
+            || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
+          showBookingReceipt({
+            title: `${meetingTitle} scheduled`,
+            when: formatBookingReceiptWhen({
+              dateYmd: receiptDateYmd,
+              startHour: h,
+              startMinute,
+              endHour: endH,
+              endMinute
+            })
+          });
+          for (const attendeeUid of meetingAttendeeUserIds) {
+            invalidateScheduleSummaryCacheForUser(attendeeUid);
           }
         }
       }
@@ -17323,6 +17555,35 @@ const submitRequest = async () => {
       invalidateScheduleSummaryCacheForUser(props.userId);
       invalidateScheduleSummaryCacheForUser(actorId);
       invalidateScheduleSummaryCacheForUser(participantId);
+      invalidateScheduleSummaryCacheForUser(facilitatorUserId);
+      if (coFacilitatorUserId) invalidateScheduleSummaryCacheForUser(coFacilitatorUserId);
+      for (const uid of [...additionalAttendeeUserIds, ...optionalAttendeeUserIds]) {
+        invalidateScheduleSummaryCacheForUser(uid);
+      }
+      showBookingReceipt({
+        title: sessionType === 'group' ? 'Group supervision scheduled' : 'Supervision scheduled',
+        when: formatBookingReceiptWhen({
+          dateYmd,
+          startHour: h,
+          startMinute,
+          endHour: endH,
+          endMinute
+        }),
+        withWhom: (() => {
+          const row = (availableSupervisionParticipants.value || [])
+            .find((p) => Number(p?.id || p?.userId || 0) === participantId);
+          let name = String(row?.name || row?.label || '').trim();
+          if (!name && row) {
+            try { name = String(supervisionParticipantLabel(row) || '').trim(); } catch { /* ignore */ }
+          }
+          return name ? `with ${name}` : '';
+        })()
+      });
+      // Sunday/Saturday bookings must not vanish behind the default "Hide weekends" preference.
+      try {
+        const bookedDow = new Date(`${String(dateYmd).slice(0, 10)}T12:00:00`).getDay();
+        if (bookedDow === 0 || bookedDow === 6) hideWeekend.value = false;
+      } catch { /* ignore */ }
     } else if (requestType.value === 'extend_assignment') {
       const contexts = selectedActionContexts().filter(
         (x) => Number(x?.officeLocationId || 0) > 0 && Number(x?.standingAssignmentId || 0) > 0
@@ -19157,6 +19418,7 @@ const beginEditScheduleStackItem = async (item) => {
     isPrivate: !!item?.isPrivate
   };
   meetingIsTrainingPayEligible.value = !!item?.isTrainingPayEligible;
+  meetingSubtype.value = String(item?.meetingSubtype || 'general').toLowerCase() === 'admin' ? 'admin' : 'general';
   editTimingBaseline.value = {
     startAt: String(scheduleEventEditForm.value.startAt || '').trim(),
     endAt: String(scheduleEventEditForm.value.endAt || '').trim(),
@@ -19284,7 +19546,12 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       ...(isMeeting
         ? {
             attendeeUserIds: Array.from(selectedMeetingParticipantIdSet.value),
-            isTrainingPayEligible: !!meetingIsTrainingPayEligible.value
+            isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
+            ...(String(item?.eventKind || '').toUpperCase() === 'TEAM_MEETING'
+              ? { meetingSubtype: canSetAdminMeetingSubtype.value || meetingSubtype.value === 'admin'
+                ? meetingSubtype.value
+                : 'general' }
+              : {})
           }
         : {})
     }, { skipGlobalLoading: true });
@@ -19836,6 +20103,9 @@ const scheduleKindLabel = (kindRaw, ev = null) => {
     return 'Personal';
   }
   if (k === 'SCHEDULE_HOLD' && ev?.allDay) return 'Schedule block';
+  if (k === 'TEAM_MEETING' && String(ev?.meetingSubtype || '').toLowerCase() === 'admin') {
+    return 'Admin Meeting';
+  }
   if (SCHEDULE_EVENT_KIND_LABELS[k]) return SCHEDULE_EVENT_KIND_LABELS[k];
   if (!k) return 'Schedule event';
   return k
@@ -19951,6 +20221,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     canEdit: !cancelled && ev?.canEdit !== false,
     isCancelled: cancelled,
     isTrainingPayEligible: !!ev?.isTrainingPayEligible,
+    meetingSubtype: String(ev?.meetingSubtype || 'general').toLowerCase() === 'admin' ? 'admin' : 'general',
     status: String(ev?.status || (cancelled ? 'CANCELLED' : 'ACTIVE')).trim().toUpperCase() || 'ACTIVE',
     isPrivate: !!ev?.isPrivate,
     allDay: !!ev?.allDay,
@@ -21149,6 +21420,55 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 @keyframes sched-toast-fade {
   from { opacity: 0; transform: translateX(-50%) translateY(10px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* Booking receipt: 2s flash, hover holds */
+.sched-booking-receipt {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #0f3d2e;
+  color: #f4faf7;
+  padding: 12px 14px 12px 16px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  z-index: 10000;
+  max-width: min(420px, 92vw);
+  animation: sched-toast-fade 0.25s ease-out;
+}
+.sched-booking-receipt__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.sched-booking-receipt__body strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+.sched-booking-receipt__meta {
+  opacity: 0.88;
+  font-weight: 600;
+}
+.sched-booking-receipt__dismiss {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: 0.75;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.sched-booking-receipt__dismiss:hover {
+  opacity: 1;
 }
 .sched-inline {
   display: inline-flex;

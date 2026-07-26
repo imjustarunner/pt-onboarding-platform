@@ -124,6 +124,37 @@
               <li v-if="detail.resolution_outcome"><span>Outcome</span><strong>{{ detail.resolution_outcome }}</strong></li>
             </ul>
           </section>
+          <section class="meeting-link-section">
+            <h4>Admin Meeting</h4>
+            <p v-if="detail.linked_meeting">
+              Tagged to
+              <strong>{{ detail.linked_meeting.title || `Meeting #${detail.linked_meeting.id}` }}</strong>
+              <template v-if="detail.linked_meeting.startAt">
+                · {{ formatTime(detail.linked_meeting.startAt) }}
+              </template>
+            </p>
+            <p v-else class="muted">Not tagged to an Admin Meeting yet.</p>
+            <div class="meeting-link-row">
+              <select v-model="meetingLinkDraft" class="meeting-select">
+                <option value="">Select upcoming Admin Meeting…</option>
+                <option v-for="m in adminMeetings" :key="m.id" :value="String(m.id)">
+                  {{ m.title }} · {{ formatTime(m.startAt) }}
+                </option>
+              </select>
+              <button type="button" class="btn secondary sm" :disabled="savingMeetingLink" @click="saveMeetingLink">
+                {{ savingMeetingLink ? 'Saving…' : 'Tag meeting' }}
+              </button>
+              <button
+                v-if="detail.linked_schedule_event_id"
+                type="button"
+                class="btn secondary sm"
+                :disabled="savingMeetingLink"
+                @click="clearMeetingLink"
+              >
+                Clear
+              </button>
+            </div>
+          </section>
         </div>
 
         <div v-if="canManage" class="manage-bar">
@@ -275,6 +306,9 @@ const replyInternal = ref(false);
 const sendingMsg = ref(false);
 const creating = ref(false);
 const createError = ref('');
+const adminMeetings = ref([]);
+const meetingLinkDraft = ref('');
+const savingMeetingLink = ref(false);
 const form = ref({
   issue: '',
   rootCause: '',
@@ -360,6 +394,53 @@ async function loadAssignees() {
   }
 }
 
+async function loadAdminMeetings() {
+  if (!agencyId.value) return;
+  try {
+    const res = await api.get('/escalations/admin-meetings', {
+      params: { agencyId: agencyId.value },
+      skipGlobalLoading: true
+    });
+    adminMeetings.value = res.data?.meetings || [];
+  } catch {
+    adminMeetings.value = [];
+  }
+}
+
+async function saveMeetingLink() {
+  if (!detail.value?.id || !meetingLinkDraft.value) return;
+  savingMeetingLink.value = true;
+  try {
+    const res = await api.patch(`/escalations/${detail.value.id}/meeting-link`, {
+      scheduleEventId: Number(meetingLinkDraft.value)
+    }, { skipGlobalLoading: true });
+    detail.value = res.data;
+    meetingLinkDraft.value = String(res.data?.linked_schedule_event_id || '');
+    await refresh();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to tag Admin Meeting';
+  } finally {
+    savingMeetingLink.value = false;
+  }
+}
+
+async function clearMeetingLink() {
+  if (!detail.value?.id) return;
+  savingMeetingLink.value = true;
+  try {
+    const res = await api.patch(`/escalations/${detail.value.id}/meeting-link`, {
+      clear: true
+    }, { skipGlobalLoading: true });
+    detail.value = res.data;
+    meetingLinkDraft.value = '';
+    await refresh();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to clear meeting tag';
+  } finally {
+    savingMeetingLink.value = false;
+  }
+}
+
 async function loadRouting() {
   if (!agencyId.value || !canManage.value) return;
   try {
@@ -394,12 +475,17 @@ async function selectEscalation(id) {
 async function loadDetail(id) {
   detail.value = null;
   messages.value = [];
+  meetingLinkDraft.value = '';
   try {
     const res = await api.get(`/escalations/${id}`, { skipGlobalLoading: true });
     detail.value = res.data;
     statusDraft.value = res.data?.escalation_status || 'submitted';
     assignDraft.value = res.data?.claimed_by_user_id ? String(res.data.claimed_by_user_id) : '';
     outcomeDraft.value = res.data?.resolution_outcome || '';
+    meetingLinkDraft.value = res.data?.linked_schedule_event_id
+      ? String(res.data.linked_schedule_event_id)
+      : '';
+    void loadAdminMeetings();
     messagesLoading.value = true;
     const msgRes = await api.get(`/escalations/${id}/messages`, { skipGlobalLoading: true });
     messages.value = msgRes.data?.messages || [];
@@ -516,6 +602,7 @@ watch(
 
 onMounted(async () => {
   await refresh();
+  void loadAdminMeetings();
   const qid = route.query?.id ? parseInt(route.query.id, 10) : null;
   if (qid) await selectEscalation(qid);
 });
@@ -684,6 +771,22 @@ onMounted(async () => {
 }
 .fields-grid h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; color: #64748b; }
 .fields-grid p { margin: 0; font-size: 13px; white-space: pre-wrap; }
+.meeting-link-section { grid-column: 1 / -1; }
+.meeting-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.meeting-select {
+  flex: 1;
+  min-width: 220px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
 .kv { list-style: none; margin: 0; padding: 0; }
 .kv li {
   display: flex;

@@ -1,5 +1,42 @@
 import pool from '../config/database.js';
 
+function parseJsonArray(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (raw == null || raw === '') return [];
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function normalizeGoalItem(item, idx = 0) {
+  const id = String(item?.id || `g-${idx}-${Date.now()}`).slice(0, 64);
+  const text = String(item?.text || '').trim().slice(0, 500);
+  return { id, text, done: !!item?.done };
+}
+
+function normalizeActionItem(item, idx = 0) {
+  const id = String(item?.id || `a-${idx}-${Date.now()}`).slice(0, 64);
+  const text = String(item?.text || '').trim().slice(0, 500);
+  const assigneeRaw = item?.assigneeUserId ?? item?.assignee_user_id ?? null;
+  const assigneeUserId = Number(assigneeRaw || 0) > 0 ? Number(assigneeRaw) : null;
+  const ticketRaw = item?.escalationTicketId ?? item?.escalation_ticket_id ?? null;
+  const escalationTicketId = Number(ticketRaw || 0) > 0 ? Number(ticketRaw) : null;
+  return {
+    id,
+    text,
+    done: !!item?.done,
+    assigneeUserId,
+    isEscalation: !!(item?.isEscalation ?? item?.is_escalation ?? escalationTicketId),
+    escalationTicketId
+  };
+}
+
 class ProviderScheduleEventArtifact {
   static async findByEventId(eventId) {
     const eid = parseInt(eventId, 10);
@@ -12,6 +49,17 @@ class ProviderScheduleEventArtifact {
       [eid]
     );
     return rows?.[0] || null;
+  }
+
+  static toWorkspaceDto(row) {
+    if (!row) {
+      return { focusTitle: '', goals: [], actionItems: [] };
+    }
+    return {
+      focusTitle: String(row.focus_title || '').trim(),
+      goals: parseJsonArray(row.goals_json).map(normalizeGoalItem).filter((g) => g.text).slice(0, 50),
+      actionItems: parseJsonArray(row.action_items_json).map(normalizeActionItem).filter((a) => a.text).slice(0, 50)
+    };
   }
 
   static async ensureTagged({ eventId, updatedByUserId = null }) {
@@ -92,6 +140,106 @@ class ProviderScheduleEventArtifact {
 
     return this.findByEventId(eid);
   }
+
+  static async upsertWorkspace({
+    eventId,
+    focusTitle = undefined,
+    goals = undefined,
+    actionItems = undefined,
+    updatedByUserId = null
+  }) {
+    const eid = parseInt(eventId, 10);
+    if (!eid) return null;
+    const existing = await this.ensureTagged({ eventId: eid, updatedByUserId });
+    const current = this.toWorkspaceDto(existing);
+
+    const nextFocus = focusTitle === undefined
+      ? current.focusTitle
+      : String(focusTitle || '').trim().slice(0, 500);
+    const nextGoals = goals === undefined
+      ? current.goals
+      : (Array.isArray(goals) ? goals : [])
+        .map(normalizeGoalItem)
+        .filter((g) => g.text)
+        .slice(0, 50);
+    const nextActions = actionItems === undefined
+      ? current.actionItems
+      : (Array.isArray(actionItems) ? actionItems : [])
+        .map(normalizeActionItem)
+        .filter((a) => a.text)
+        .slice(0, 50);
+
+    try {
+      await pool.execute(
+        `UPDATE provider_schedule_event_artifacts
+         SET focus_title = ?,
+             goals_json = ?,
+             action_items_json = ?,
+             updated_by_user_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE event_id = ?
+         LIMIT 1`,
+        [
+          nextFocus || null,
+          JSON.stringify(nextGoals),
+          JSON.stringify(nextActions),
+          updatedByUserId ? Number(updatedByUserId) : null,
+          eid
+        ]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      // Migration not applied yet — still return in-memory shape for graceful degrade.
+      return { focusTitle: nextFocus, goals: nextGoals, actionItems: nextActions };
+    }
+
+    const row = await this.findByEventId(eid);
+    return this.toWorkspaceDto(row);
+  }
+
+  static async markActionItemDoneByEscalationTicket({
+    escalationTicketId,
+    actionItemId = null,
+    eventId = null,
+    done = true
+  }) {
+    const ticketId = Number(escalationTicketId || 0);
+    const eid = Number(eventId || 0);
+    if (!ticketId && !eid) return false;
+
+    let targetEventId = eid;
+    if (!targetEventId) {
+      const [rows] = await pool.execute(
+        `SELECT linked_schedule_event_id, linked_action_item_id
+         FROM support_tickets
+         WHERE id = ?
+         LIMIT 1`,
+        [ticketId]
+      );
+      targetEventId = Number(rows?.[0]?.linked_schedule_event_id || 0);
+      if (!actionItemId) actionItemId = rows?.[0]?.linked_action_item_id || null;
+    }
+    if (!targetEventId) return false;
+
+    const row = await this.findByEventId(targetEventId);
+    if (!row) return false;
+    const workspace = this.toWorkspaceDto(row);
+    let changed = false;
+    const nextActions = workspace.actionItems.map((item) => {
+      const matchesTicket = ticketId > 0 && Number(item.escalationTicketId || 0) === ticketId;
+      const matchesId = actionItemId && String(item.id) === String(actionItemId);
+      if (!matchesTicket && !matchesId) return item;
+      changed = true;
+      return { ...item, done: !!done, isEscalation: true, escalationTicketId: item.escalationTicketId || ticketId || null };
+    });
+    if (!changed) return false;
+    await this.upsertWorkspace({
+      eventId: targetEventId,
+      actionItems: nextActions
+    });
+    return true;
+  }
 }
 
 export default ProviderScheduleEventArtifact;
+export { normalizeGoalItem, normalizeActionItem };

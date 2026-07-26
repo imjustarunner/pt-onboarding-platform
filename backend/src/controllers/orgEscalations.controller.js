@@ -91,6 +91,9 @@ function formatUserName(user) {
 function mapEscalationRow(row) {
   if (!row) return null;
   const decrypted = decryptTicketRow(row) || row;
+  const linkedEventId = Number(decrypted.linked_schedule_event_id || 0) || null;
+  const meetingTitle = String(decrypted.linked_meeting_title || '').trim() || null;
+  const meetingStart = decrypted.linked_meeting_start_at || null;
   return {
     id: decrypted.id,
     ticket_kind: decrypted.ticket_kind || 'escalation',
@@ -127,25 +130,57 @@ function mapEscalationRow(row) {
     claimed_at: decrypted.claimed_at,
     created_at: decrypted.created_at,
     updated_at: decrypted.updated_at,
-    answered_at: decrypted.answered_at
+    answered_at: decrypted.answered_at,
+    linked_schedule_event_id: linkedEventId,
+    linked_recurrence_series_id: String(decrypted.linked_recurrence_series_id || '').trim() || null,
+    linked_action_item_id: String(decrypted.linked_action_item_id || '').trim() || null,
+    linked_meeting: linkedEventId
+      ? {
+          id: linkedEventId,
+          title: meetingTitle,
+          startAt: meetingStart,
+          recurrenceSeriesId: String(decrypted.linked_recurrence_series_id || '').trim() || null
+        }
+      : null
   };
 }
 
 async function loadEscalationById(id) {
-  const [rows] = await pool.execute(
-    `SELECT t.*,
-            cb.first_name AS created_by_first_name,
-            cb.last_name AS created_by_last_name,
-            cl.first_name AS claimed_by_first_name,
-            cl.last_name AS claimed_by_last_name
-     FROM support_tickets t
-     LEFT JOIN users cb ON cb.id = t.created_by_user_id
-     LEFT JOIN users cl ON cl.id = t.claimed_by_user_id
-     WHERE t.id = ? AND COALESCE(t.ticket_kind, 'support') = 'escalation'
-     LIMIT 1`,
-    [id]
-  );
-  return rows?.[0] || null;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT t.*,
+              cb.first_name AS created_by_first_name,
+              cb.last_name AS created_by_last_name,
+              cl.first_name AS claimed_by_first_name,
+              cl.last_name AS claimed_by_last_name,
+              pse.title AS linked_meeting_title,
+              pse.start_at AS linked_meeting_start_at
+       FROM support_tickets t
+       LEFT JOIN users cb ON cb.id = t.created_by_user_id
+       LEFT JOIN users cl ON cl.id = t.claimed_by_user_id
+       LEFT JOIN provider_schedule_events pse ON pse.id = t.linked_schedule_event_id
+       WHERE t.id = ? AND COALESCE(t.ticket_kind, 'support') = 'escalation'
+       LIMIT 1`,
+      [id]
+    );
+    return rows?.[0] || null;
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    const [rows] = await pool.execute(
+      `SELECT t.*,
+              cb.first_name AS created_by_first_name,
+              cb.last_name AS created_by_last_name,
+              cl.first_name AS claimed_by_first_name,
+              cl.last_name AS claimed_by_last_name
+       FROM support_tickets t
+       LEFT JOIN users cb ON cb.id = t.created_by_user_id
+       LEFT JOIN users cl ON cl.id = t.claimed_by_user_id
+       WHERE t.id = ? AND COALESCE(t.ticket_kind, 'support') = 'escalation'
+       LIMIT 1`,
+      [id]
+    );
+    return rows?.[0] || null;
+  }
 }
 
 async function parseRouting(agency) {
@@ -395,23 +430,48 @@ export const listEscalations = async (req, res, next) => {
       where.push(`LOWER(COALESCE(t.escalation_status, 'submitted')) NOT IN ('resolved', 'closed')`);
     }
 
-    const [rows] = await pool.execute(
-      `SELECT t.*,
-              cb.first_name AS created_by_first_name,
-              cb.last_name AS created_by_last_name,
-              cl.first_name AS claimed_by_first_name,
-              cl.last_name AS claimed_by_last_name
-       FROM support_tickets t
-       LEFT JOIN users cb ON cb.id = t.created_by_user_id
-       LEFT JOIN users cl ON cl.id = t.claimed_by_user_id
-       WHERE ${where.join(' AND ')}
-       ORDER BY
-         CASE WHEN t.immediate_action_required = 1 THEN 0 ELSE 1 END,
-         FIELD(LOWER(COALESCE(t.priority, 'medium')), 'high', 'medium', 'low'),
-         t.created_at DESC
-       LIMIT ${limit}`,
-      params
-    );
+    let rows;
+    try {
+      [rows] = await pool.execute(
+        `SELECT t.*,
+                cb.first_name AS created_by_first_name,
+                cb.last_name AS created_by_last_name,
+                cl.first_name AS claimed_by_first_name,
+                cl.last_name AS claimed_by_last_name,
+                pse.title AS linked_meeting_title,
+                pse.start_at AS linked_meeting_start_at
+         FROM support_tickets t
+         LEFT JOIN users cb ON cb.id = t.created_by_user_id
+         LEFT JOIN users cl ON cl.id = t.claimed_by_user_id
+         LEFT JOIN provider_schedule_events pse ON pse.id = t.linked_schedule_event_id
+         WHERE ${where.join(' AND ')}
+         ORDER BY
+           CASE WHEN t.immediate_action_required = 1 THEN 0 ELSE 1 END,
+           FIELD(LOWER(COALESCE(t.priority, 'medium')), 'high', 'medium', 'low'),
+           t.created_at DESC
+         LIMIT ${limit}`,
+        params
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      [rows] = await pool.execute(
+        `SELECT t.*,
+                cb.first_name AS created_by_first_name,
+                cb.last_name AS created_by_last_name,
+                cl.first_name AS claimed_by_first_name,
+                cl.last_name AS claimed_by_last_name
+         FROM support_tickets t
+         LEFT JOIN users cb ON cb.id = t.created_by_user_id
+         LEFT JOIN users cl ON cl.id = t.claimed_by_user_id
+         WHERE ${where.join(' AND ')}
+         ORDER BY
+           CASE WHEN t.immediate_action_required = 1 THEN 0 ELSE 1 END,
+           FIELD(LOWER(COALESCE(t.priority, 'medium')), 'high', 'medium', 'low'),
+           t.created_at DESC
+         LIMIT ${limit}`,
+        params
+      );
+    }
 
     res.json({
       escalations: (rows || []).map(mapEscalationRow),
@@ -526,9 +586,125 @@ export const updateEscalationStatus = async (req, res, next) => {
       [nextStatus, ticketStatus, outcome || null, nextStatus, nextStatus, req.user.id, id]
     );
 
+    if (nextStatus === 'resolved' || nextStatus === 'closed') {
+      try {
+        const ProviderScheduleEventArtifact = (await import('../models/ProviderScheduleEventArtifact.model.js')).default;
+        await ProviderScheduleEventArtifact.markActionItemDoneByEscalationTicket({
+          escalationTicketId: id,
+          eventId: Number(row.linked_schedule_event_id || 0) || null,
+          actionItemId: row.linked_action_item_id || null,
+          done: true
+        });
+      } catch (syncErr) {
+        console.warn('[escalations] sync meeting action item failed', syncErr?.message || syncErr);
+      }
+    }
+
     const updated = await loadEscalationById(id);
     res.json(mapEscalationRow(updated));
   } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/escalations/admin-meetings?agencyId= */
+export const listUpcomingAdminMeetings = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.query?.agencyId, 10);
+    const access = await ensureAgencyAccess(req, agencyId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const [rows] = await pool.execute(
+      `SELECT id, title, start_at, end_at, recurrence_series_id, recurrence_frequency, recurrence_index, meeting_subtype
+       FROM provider_schedule_events
+       WHERE agency_id = ?
+         AND UPPER(COALESCE(kind, '')) = 'TEAM_MEETING'
+         AND LOWER(COALESCE(meeting_subtype, 'general')) = 'admin'
+         AND UPPER(COALESCE(status, 'ACTIVE')) = 'ACTIVE'
+         AND start_at >= NOW()
+       ORDER BY start_at ASC
+       LIMIT 80`,
+      [agencyId]
+    );
+
+    res.json({
+      meetings: (rows || []).map((r) => ({
+        id: Number(r.id),
+        title: String(r.title || '').trim() || 'Admin Meeting',
+        startAt: r.start_at,
+        endAt: r.end_at,
+        recurrenceSeriesId: String(r.recurrence_series_id || '').trim() || null,
+        recurrenceFrequency: String(r.recurrence_frequency || '').trim().toUpperCase() || null,
+        recurrenceIndex: r.recurrence_index == null ? null : Number(r.recurrence_index),
+        meetingSubtype: 'admin'
+      }))
+    });
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.json({ meetings: [] });
+    }
+    next(e);
+  }
+};
+
+/** PATCH /api/escalations/:id/meeting-link */
+export const updateEscalationMeetingLink = async (req, res, next) => {
+  try {
+    if (!(await hasEscalationColumns())) return requireEscalationSchema(res);
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!isEscalationManagerRole(role) && !isEscalationSubmitterRole(role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    const row = await loadEscalationById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Escalation not found' } });
+
+    const access = await ensureAgencyAccess(req, row.agency_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const clear = req.body?.clear === true || req.body?.scheduleEventId === null;
+    let eventId = clear ? null : Number(req.body?.scheduleEventId || req.body?.linked_schedule_event_id || 0) || null;
+    let seriesId = clear
+      ? null
+      : (String(req.body?.recurrenceSeriesId || req.body?.linked_recurrence_series_id || '').trim() || null);
+
+    if (eventId) {
+      const [meetRows] = await pool.execute(
+        `SELECT id, agency_id, recurrence_series_id, meeting_subtype, kind
+         FROM provider_schedule_events
+         WHERE id = ?
+         LIMIT 1`,
+        [eventId]
+      );
+      const meet = meetRows?.[0];
+      if (!meet || Number(meet.agency_id) !== Number(row.agency_id)) {
+        return res.status(400).json({ error: { message: 'Admin Meeting not found for this organization' } });
+      }
+      if (String(meet.kind || '').toUpperCase() !== 'TEAM_MEETING'
+        || String(meet.meeting_subtype || '').toLowerCase() !== 'admin') {
+        return res.status(400).json({ error: { message: 'Only Admin Meetings can be tagged' } });
+      }
+      if (!seriesId) seriesId = String(meet.recurrence_series_id || '').trim() || null;
+    }
+
+    await pool.execute(
+      `UPDATE support_tickets
+       SET linked_schedule_event_id = ?,
+           linked_recurrence_series_id = ?
+       WHERE id = ?
+       LIMIT 1`,
+      [eventId, seriesId, id]
+    );
+
+    const updated = await loadEscalationById(id);
+    res.json(mapEscalationRow(updated));
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({
+        error: { message: 'Escalation meeting links require migration 1054.' }
+      });
+    }
     next(e);
   }
 };
