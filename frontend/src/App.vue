@@ -739,6 +739,7 @@
                         </div>
                         <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav">School Events</router-link>
                         <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav">School Calendar</router-link>
+                        <router-link :to="orgTo('/admin/provider-year-update')" v-if="canSeeSchoolPortalsNav">Provider Year Update</router-link>
                         <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav">
                           <span>School Clients</span>
                           <span
@@ -1816,6 +1817,7 @@
                       </div>
                       <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Events</router-link>
                       <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Calendar</router-link>
+                      <router-link :to="orgTo('/admin/provider-year-update')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Year Update</router-link>
                       <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
                         <span>School Clients</span>
                         <span v-if="schoolClientsPendingCount > 0" class="nav-badge nav-badge-pulse" style="margin-left: 8px;">{{ schoolClientsPendingCount }}</span>

@@ -373,6 +373,17 @@ function buildAppEntries() {
       rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
     },
     {
+      id: 'admin-provider-year-update',
+      routeName: 'ProviderYearUpdateAdmin',
+      label: 'Provider Year Update',
+      description: 'Enable, push, and track the fall provider year update.',
+      group: 'admin',
+      keywords: ['provider year update', 'year update', 'provider', 'school cart', 'back to school'],
+      kind: 'path',
+      path: '/admin/provider-year-update',
+      rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+    },
+    {
       id: 'admin-caseload-hub-schools-staff',
       routeName: 'CaseloadHubSchoolsStaff',
       label: 'School Management',

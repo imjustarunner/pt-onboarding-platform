@@ -1,0 +1,570 @@
+import jwt from 'jsonwebtoken';
+import config from '../config/config.js';
+import User from '../models/User.model.js';
+import * as S from '../services/providerYearUpdate.service.js';
+
+function safeInt(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+}
+
+/** Soft-attach req.user from Bearer/cookie when present (public routes skip authenticate). */
+async function attachUserIfPresent(req) {
+  if (req.user?.id) return req.user;
+  try {
+    let token = null;
+    const auth = req.headers.authorization || req.headers.Authorization;
+    if (auth && String(auth).startsWith('Bearer ')) {
+      token = String(auth).slice(7).trim();
+    }
+    if (!token && req.cookies?.token) token = req.cookies.token;
+    if (!token && req.headers['x-user-authorization']) {
+      const raw = String(req.headers['x-user-authorization']);
+      token = raw.startsWith('Bearer ') ? raw.slice(7).trim() : raw.trim();
+    }
+    if (!token) return null;
+    const decoded = jwt.verify(token, config.jwt.secret);
+    const userId = decoded?.id || decoded?.userId;
+    if (!userId) return null;
+    const user = await User.findById(userId);
+    if (!user) return null;
+    req.user = user;
+    return user;
+  } catch {
+    return null;
+  }
+}
+
+function actorFromReq(req) {
+  const user = req.user;
+  if (!user?.id) return null;
+  const role = String(user.role || '').toLowerCase();
+  const actorType =
+    role === 'super_admin' || role === 'admin' || role === 'support' ? 'admin' : 'provider';
+  const displayName =
+    [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'User';
+  return { actorType, userId: user.id, displayName };
+}
+
+async function assertAgencyAccess(req, agencyId) {
+  const user = req.user;
+  if (!user) return false;
+  const role = String(user.role || '').toLowerCase();
+  if (role === 'super_admin') return true;
+  const ua = user.agencies || user.userAgencies || [];
+  if (Array.isArray(ua) && ua.some((a) => Number(a.id || a.agency_id) === Number(agencyId))) {
+    return true;
+  }
+  if (Number(user.agency_id) === Number(agencyId)) return true;
+  try {
+    const pool = (await import('../config/database.js')).default;
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      [user.id, agencyId]
+    );
+    return Boolean(rows?.[0]);
+  } catch {
+    return false;
+  }
+}
+
+function isAdminRole(user) {
+  const role = String(user?.role || '').toLowerCase();
+  return role === 'super_admin' || role === 'admin' || role === 'support';
+}
+
+function tokenResponse(tokenRow, cycle) {
+  return {
+    token: tokenRow.token,
+    tokenId: tokenRow.id,
+    cycleId: cycle.id,
+    schoolYear: cycle.school_year,
+    expiresAt: tokenRow.expires_at,
+    markedSentAt: tokenRow.marked_sent_at || null,
+    path: `/provider-year-update/${tokenRow.token}`,
+    urlPath: `/provider-year-update/${tokenRow.token}`,
+  };
+}
+
+/** GET /api/provider-year-update/report */
+export async function getReport(req, res, next) {
+  try {
+    const agencyId = safeInt(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.query.schoolYear || S.currentSchoolYear());
+    const report = await S.listAgencyReport(agencyId, schoolYear);
+    res.json(report);
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** GET /api/provider-year-update/campaign */
+export async function getCampaignStatus(req, res, next) {
+  try {
+    const agencyId = safeInt(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.query.schoolYear || S.currentSchoolYear());
+    const campaign = await S.getOrCreateCampaign(agencyId, schoolYear);
+    res.json({
+      agencyId,
+      schoolYear,
+      status: campaign.status,
+      enabledAt: campaign.enabled_at,
+      pushedAt: campaign.pushed_at,
+      isEnabled: S.campaignIsEnabled(campaign),
+      isPushed: S.campaignIsPushed(campaign),
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/provider-year-update/campaign/enable */
+export async function enableCampaign(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    const result = await S.enableCampaign({
+      agencyId,
+      schoolYear,
+      userId: req.user?.id,
+    });
+    res.json({
+      ok: true,
+      alreadyEnabled: Boolean(result.alreadyEnabled),
+      alreadyPushed: Boolean(result.alreadyPushed),
+      campaign: {
+        status: result.campaign.status,
+        enabledAt: result.campaign.enabled_at,
+        pushedAt: result.campaign.pushed_at,
+        isEnabled: S.campaignIsEnabled(result.campaign),
+        isPushed: S.campaignIsPushed(result.campaign),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/provider-year-update/campaign/push */
+export async function pushCampaign(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    const result = await S.pushCampaign({
+      agencyId,
+      schoolYear,
+      userId: req.user?.id,
+    });
+    res.json({
+      ok: true,
+      providersReady: result.providersReady,
+      tokensCreated: result.tokensCreated,
+      providerCount: result.providerCount,
+      campaign: {
+        status: result.campaign.status,
+        enabledAt: result.campaign.enabled_at,
+        pushedAt: result.campaign.pushed_at,
+        isEnabled: true,
+        isPushed: true,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/provider-year-update/tokens */
+export async function generateToken(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId);
+    const providerUserId = safeInt(req.body?.providerUserId);
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    if (!agencyId || !providerUserId) {
+      return res.status(400).json({
+        error: { message: 'agencyId and providerUserId are required' },
+      });
+    }
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const campaign = await S.getCampaign(agencyId, schoolYear);
+    if (!S.campaignIsEnabled(campaign)) {
+      return res.status(400).json({
+        error: { message: 'Enable Provider Year Update first before generating tokens.' },
+      });
+    }
+    const { cycle, tokenRow, created } = await S.ensureShareableToken({
+      agencyId,
+      providerUserId,
+      schoolYear,
+      createdByUserId: req.user?.id,
+    });
+    res.status(created ? 201 : 200).json({ ...tokenResponse(tokenRow, cycle), created });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** PATCH /api/provider-year-update/tokens/:tokenId/mark-sent */
+export async function markTokenSent(req, res, next) {
+  try {
+    const tokenId = safeInt(req.params.tokenId);
+    const sent = req.body?.sent !== false;
+    if (!tokenId) return res.status(400).json({ error: { message: 'tokenId required' } });
+    const pool = (await import('../config/database.js')).default;
+    const [rows] = await pool.execute(
+      `SELECT * FROM provider_year_update_tokens WHERE id = ? LIMIT 1`,
+      [tokenId]
+    );
+    const row = rows?.[0];
+    if (!row) return res.status(404).json({ error: { message: 'Token not found' } });
+    if (!(await assertAgencyAccess(req, row.agency_id)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    await S.markTokenSent(tokenId, req.user?.id, sent);
+    res.json({ ok: true, tokenId, markedSent: sent });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** GET /api/provider-year-update/providers/:providerUserId */
+export async function getProviderBundle(req, res, next) {
+  try {
+    const providerUserId = safeInt(req.params.providerUserId);
+    const agencyId = safeInt(req.query.agencyId);
+    if (!agencyId || !providerUserId) {
+      return res.status(400).json({
+        error: { message: 'agencyId and providerUserId are required' },
+      });
+    }
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.query.schoolYear || S.currentSchoolYear());
+    const campaign = await S.getCampaign(agencyId, schoolYear);
+    if (!S.campaignIsEnabled(campaign)) {
+      return res.status(400).json({
+        error: { message: 'Enable Provider Year Update first.' },
+      });
+    }
+    const { cycle, tokenRow } = await S.ensureShareableToken({
+      agencyId,
+      providerUserId,
+      schoolYear,
+      createdByUserId: req.user?.id,
+    });
+    const payload = await S.buildDashboardPayload(cycle);
+    res.json({
+      ...payload,
+      shareToken: tokenResponse(tokenRow, cycle),
+      campaign: {
+        status: campaign.status,
+        isEnabled: true,
+        isPushed: S.campaignIsPushed(campaign),
+      },
+      actorType: 'admin',
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** GET /api/provider-year-update/me */
+export async function getMyCycle(req, res, next) {
+  try {
+    const agencyId = safeInt(req.query.agencyId) || safeInt(req.user?.agency_id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.query.schoolYear || S.currentSchoolYear());
+    const status = await S.getMyStatus({
+      agencyId,
+      providerUserId: req.user.id,
+      schoolYear,
+    });
+    if (!status.available) {
+      return res.json(status);
+    }
+    const cycle = await S.getCycleById(status.cycle.id);
+    const payload = await S.buildDashboardPayload(cycle);
+    res.json({
+      ...status,
+      ...payload,
+      actorType: 'provider',
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** GET /api/provider-year-update/me/status — lightweight for My Dashboard */
+export async function getMyStatus(req, res, next) {
+  try {
+    const agencyId = safeInt(req.query.agencyId) || safeInt(req.user?.agency_id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.query.schoolYear || S.currentSchoolYear());
+    const status = await S.getMyStatus({
+      agencyId,
+      providerUserId: req.user.id,
+      schoolYear,
+    });
+    res.json(status);
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/provider-year-update/me/ensure-token */
+export async function ensureMyToken(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId) || safeInt(req.user?.agency_id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    const campaign = await S.getCampaign(agencyId, schoolYear);
+    if (!S.campaignIsPushed(campaign)) {
+      return res.status(400).json({ error: { message: 'Provider Year Update has not been pushed yet.' } });
+    }
+    const { cycle, tokenRow, created } = await S.ensureShareableToken({
+      agencyId,
+      providerUserId: req.user.id,
+      schoolYear,
+      createdByUserId: req.user.id,
+    });
+    res.status(created ? 201 : 200).json({ ...tokenResponse(tokenRow, cycle), created });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/provider-year-update/me/dismiss */
+export async function dismissMyCycle(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId) || safeInt(req.user?.agency_id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    const cycle = await S.getOrCreateCycle({
+      agencyId,
+      providerUserId: req.user.id,
+      schoolYear,
+    });
+    await S.dismissForUser(cycle.id, req.user.id, req.body?.dismissUntil || null);
+    res.json({ ok: true, cycleId: cycle.id });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** PUT /api/provider-year-update/me/sections/:sectionKey */
+export async function updateMySection(req, res, next) {
+  try {
+    const sectionKey = String(req.params.sectionKey || '').trim();
+    const agencyId = safeInt(req.body?.agencyId) || safeInt(req.user?.agency_id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!S.SECTION_KEYS.includes(sectionKey)) {
+      return res.status(400).json({ error: { message: 'Invalid section_key' } });
+    }
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    const cycle = await S.getOrCreateCycle({
+      agencyId,
+      providerUserId: req.user.id,
+      schoolYear,
+    });
+    if (cycle.status === 'finalized') {
+      return res.status(400).json({ error: { message: 'Cycle is finalized' } });
+    }
+    const actor = actorFromReq(req);
+    const sections = await S.upsertSectionProgress({
+      cycleId: cycle.id,
+      sectionKey,
+      data: req.body?.data,
+      reviewed: Boolean(req.body?.reviewed),
+      completed: req.body?.completed !== undefined ? Boolean(req.body.completed) : undefined,
+      actor,
+    });
+    await S.recordViewEvent({
+      cycleId: cycle.id,
+      userId: req.user.id,
+      actorDisplayName: actor?.displayName,
+      sectionKey,
+      eventType: 'section_open',
+    });
+    res.json({ ok: true, sections });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/provider-year-update/me/finalize */
+export async function finalizeMyCycle(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId) || safeInt(req.user?.agency_id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    const cycle = await S.getOrCreateCycle({
+      agencyId,
+      providerUserId: req.user.id,
+      schoolYear,
+    });
+    const actor = actorFromReq(req);
+    const finalized = await S.finalizeCycle({ cycleId: cycle.id, actor });
+    const payload = await S.buildDashboardPayload(finalized);
+    res.json({ ok: true, cycle: payload.cycle, ...payload });
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (msg.includes('not reviewed') || msg.includes('not completed') || msg.includes('Already')) {
+      return res.status(400).json({ error: { message: msg } });
+    }
+    next(e);
+  }
+}
+
+/** GET /api/public/provider-year-update/:token */
+export async function getPublicByToken(req, res, next) {
+  try {
+    const { valid, reason, row } = await S.validateToken(req.params.token);
+    if (!valid) {
+      return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+    }
+
+    await S.recordTokenClick(row);
+
+    const user = await attachUserIfPresent(req);
+
+    if (!user?.id) {
+      return res.json({
+        requiresLogin: true,
+        providerUserId: row.provider_user_id,
+        providerName: [row.first_name, row.last_name].filter(Boolean).join(' ') || row.email,
+        agencyId: row.agency_id,
+        agencyName: row.agency_name,
+        agencySlug: row.agency_slug || null,
+        schoolYear: row.school_year,
+        returnPath: `/provider-year-update/${row.token}`,
+        loginHint: 'Sign in with your provider account to continue your Year Update.',
+      });
+    }
+
+    if (Number(user.id) !== Number(row.provider_user_id) && !isAdminRole(user)) {
+      return res.status(403).json({
+        error: {
+          message: 'This link belongs to a different provider. Sign out and open the link again, or use your own Year Update from My Dashboard.',
+        },
+        wrongUser: true,
+      });
+    }
+
+    const cycle = await S.getCycleById(row.cycle_id);
+    const payload = await S.buildDashboardPayload(cycle);
+    const campaign = await S.getCampaign(row.agency_id, row.school_year);
+    await S.recordViewEvent({
+      cycleId: cycle.id,
+      tokenId: row.id,
+      userId: user.id,
+      actorDisplayName: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email,
+      eventType: 'view',
+    });
+    res.json({
+      requiresLogin: false,
+      ...payload,
+      shareToken: tokenResponse(row, cycle),
+      campaign: campaign
+        ? {
+            status: campaign.status,
+            isEnabled: S.campaignIsEnabled(campaign),
+            isPushed: S.campaignIsPushed(campaign),
+          }
+        : null,
+      actorType: Number(user.id) === Number(row.provider_user_id) ? 'provider' : 'admin',
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** PUT /api/public/provider-year-update/:token/sections/:sectionKey */
+export async function updatePublicSection(req, res, next) {
+  try {
+    const { valid, reason, row } = await S.validateToken(req.params.token);
+    if (!valid) {
+      return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+    }
+    await attachUserIfPresent(req);
+    if (!req.user?.id) {
+      return res.status(401).json({ error: { message: 'Sign in required' }, requiresLogin: true });
+    }
+    if (Number(req.user.id) !== Number(row.provider_user_id) && !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' }, wrongUser: true });
+    }
+    const cycle = await S.getCycleById(row.cycle_id);
+    if (cycle.status === 'finalized' || row.locked_at) {
+      return res.status(400).json({ error: { message: 'This Year Update is locked' } });
+    }
+    const sectionKey = String(req.params.sectionKey || '').trim();
+    if (!S.SECTION_KEYS.includes(sectionKey)) {
+      return res.status(400).json({ error: { message: 'Invalid section_key' } });
+    }
+    const actor = actorFromReq(req);
+    const sections = await S.upsertSectionProgress({
+      cycleId: cycle.id,
+      sectionKey,
+      data: req.body?.data,
+      reviewed: Boolean(req.body?.reviewed),
+      completed: req.body?.completed !== undefined ? Boolean(req.body.completed) : undefined,
+      actor,
+    });
+    res.json({ ok: true, sections });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/public/provider-year-update/:token/finalize */
+export async function finalizePublic(req, res, next) {
+  try {
+    const { valid, reason, row } = await S.validateToken(req.params.token);
+    if (!valid) {
+      return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+    }
+    await attachUserIfPresent(req);
+    if (!req.user?.id) {
+      return res.status(401).json({ error: { message: 'Sign in required' }, requiresLogin: true });
+    }
+    if (Number(req.user.id) !== Number(row.provider_user_id) && !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' }, wrongUser: true });
+    }
+    const actor = actorFromReq(req);
+    const finalized = await S.finalizeCycle({ cycleId: row.cycle_id, actor });
+    const payload = await S.buildDashboardPayload(finalized);
+    res.json({ ok: true, ...payload });
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (msg.includes('not reviewed') || msg.includes('not completed') || msg.includes('Already')) {
+      return res.status(400).json({ error: { message: msg } });
+    }
+    next(e);
+  }
+}

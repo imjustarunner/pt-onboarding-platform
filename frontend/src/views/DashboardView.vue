@@ -258,6 +258,7 @@
               active: isRailCardActive(card),
               'rail-card-submit': card.id === 'submit',
               'rail-card-pending-alert': card.id === 'clients' && providerPendingClientsCount > 0,
+              'rail-card--pyu-pulse': card.id === 'provider_year_update' && card.pulse,
               'rail-card--nest': card.kind === 'nest',
               'rail-card--nested': !!card.nestedUnder
             }"
@@ -289,7 +290,11 @@
               <span
                 v-if="card.badgeCount > 0"
                 class="rail-card-badge"
-                :class="{ 'rail-card-badge-pulse': card.id === 'clients' && providerPendingClientsCount > 0 }"
+                :class="{
+                  'rail-card-badge-pulse':
+                    (card.id === 'clients' && providerPendingClientsCount > 0) ||
+                    (card.id === 'provider_year_update' && card.pulse)
+                }"
               >
                 {{ card.badgeCount }}
               </span>
@@ -3251,6 +3256,39 @@ const portalsNestLabel = computed(() => {
 const portalsNestExpanded = ref(false);
 const toolsNestExpanded = ref(true);
 const toolsHubTab = ref('assessments');
+/** Provider Year Update status for portals-nest link + pulse */
+const providerYearUpdateStatus = ref(null);
+
+async function loadProviderYearUpdateStatus() {
+  providerYearUpdateStatus.value = null;
+  try {
+    const agencyId = Number(currentAgencyId.value || 0);
+    if (!agencyId || isClubContext.value) return;
+    const role = String(authStore.user?.role || '').toLowerCase();
+    const providerLike = [
+      'provider',
+      'provider_plus',
+      'intern',
+      'intern_plus',
+      'clinical_practice_assistant',
+      'admin',
+      'super_admin',
+      'support',
+      'supervisor'
+    ].includes(role);
+    if (!providerLike) return;
+    const res = await api.get('/provider-year-update/me/status', {
+      params: { agencyId },
+      skipGlobalLoading: true
+    });
+    providerYearUpdateStatus.value = res.data || null;
+    if (res.data?.showPulse) {
+      portalsNestExpanded.value = true;
+    }
+  } catch {
+    providerYearUpdateStatus.value = null;
+  }
+}
 
 function isNestExpanded(nestId) {
   if (nestId === 'tools_nest') return toolsNestExpanded.value;
@@ -3309,6 +3347,19 @@ const portalsNestHubChildren = computed(() => {
         badgeCount: 0,
         iconUrl: brandingStore.getAdminQuickActionIconUrl('program_overview', iconOrg),
         description: 'Programs you are assigned to — open one to access event portals.'
+      });
+    }
+    const pyu = providerYearUpdateStatus.value;
+    if (pyu?.available) {
+      children.push({
+        id: 'provider_year_update',
+        label: 'Provider Year Update',
+        kind: 'link',
+        to: '/provider/year-update',
+        badgeCount: pyu.showPulse ? 1 : 0,
+        pulse: Boolean(pyu.showPulse),
+        iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', iconOrg),
+        description: 'Fall reminders, school events, materials, and schedule review.'
       });
     }
   }
@@ -4975,7 +5026,8 @@ onMounted(async () => {
     loadSupervisionPrompts(),
     loadPresenterAssignments(),
     loadDashboardSocialFeeds(),
-    loadProviderRoiReminderNotifications()
+    loadProviderRoiReminderNotifications(),
+    loadProviderYearUpdateStatus()
   ]);
 
   await nextTick();
@@ -5022,7 +5074,8 @@ watch([currentAgencyId, isOnboardingComplete], async () => {
     loadSupervisionPrompts(),
     loadPresenterAssignments(),
     loadDashboardSocialFeeds(),
-    loadProviderRoiReminderNotifications()
+    loadProviderRoiReminderNotifications(),
+    loadProviderYearUpdateStatus()
   ]);
 });
 
@@ -5997,6 +6050,10 @@ h1 {
 }
 .rail-card-badge-pulse {
   animation: rail-card-badge-pulse 1.05s ease-in-out infinite;
+}
+.rail-card--pyu-pulse {
+  animation: rail-card-pulse 0.9s ease-in-out 5;
+  border-color: color-mix(in srgb, #c2410c 45%, var(--border, #e2e8f0));
 }
 
 @keyframes rail-card-badge-pulse {

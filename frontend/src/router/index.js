@@ -605,6 +605,18 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
+    path: '/provider-year-update/:token',
+    name: 'ProviderYearUpdatePublic',
+    component: () => import('../views/public/ProviderYearUpdatePublicView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/provider-year-update/:token',
+    name: 'OrganizationProviderYearUpdatePublic',
+    component: () => import('../views/public/ProviderYearUpdatePublicView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
     path: '/event-rsvp/:token',
     name: 'CompanyEventRsvp',
     component: () => import('../views/public/CompanyEventRsvpView.vue'),
@@ -1711,6 +1723,17 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/provider-year-update',
+    name: 'OrganizationProviderYearUpdateAdmin',
+    component: () => import('../views/admin/ProviderYearUpdateAdminView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/caseload-hub/schools-staff',
     name: 'OrganizationCaseloadHubSchoolsStaff',
     component: () => import('../views/admin/caseload-hub/CaseloadHubSchoolsStaffView.vue'),
@@ -2279,6 +2302,84 @@ const routes = [
     meta: { requiresAuth: true, blockApprovedEmployees: true }
   },
   {
+    path: '/provider/year-update',
+    name: 'ProviderYearUpdateHub',
+    component: () => import('../views/provider/ProviderYearUpdateHubView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'admin',
+        'super_admin',
+        'support',
+        'clinical_practice_assistant',
+        'supervisor'
+      ]
+    }
+  },
+  {
+    path: '/provider/year-update/flow',
+    name: 'ProviderYearUpdateFlow',
+    component: () => import('../views/provider/ProviderYearUpdateFlowView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'admin',
+        'super_admin',
+        'support',
+        'clinical_practice_assistant',
+        'supervisor'
+      ]
+    }
+  },
+  {
+    path: '/:organizationSlug/provider/year-update',
+    name: 'OrganizationProviderYearUpdateHub',
+    component: () => import('../views/provider/ProviderYearUpdateHubView.vue'),
+    meta: {
+      requiresAuth: true,
+      organizationSlug: true,
+      requiresRole: [
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'admin',
+        'super_admin',
+        'support',
+        'clinical_practice_assistant',
+        'supervisor'
+      ]
+    }
+  },
+  {
+    path: '/:organizationSlug/provider/year-update/flow',
+    name: 'OrganizationProviderYearUpdateFlow',
+    component: () => import('../views/provider/ProviderYearUpdateFlowView.vue'),
+    meta: {
+      requiresAuth: true,
+      organizationSlug: true,
+      requiresRole: [
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'admin',
+        'super_admin',
+        'support',
+        'clinical_practice_assistant',
+        'supervisor'
+      ]
+    }
+  },
+  {
     path: '/operations-dashboard',
     name: 'OperationsDashboard',
     component: () => import('../views/ProviderPlusDashboardView.vue'),
@@ -2725,6 +2826,16 @@ const routes = [
     path: '/admin/school-portals-hub',
     name: 'SchoolPortalsHub',
     component: () => import('../views/admin/SchoolPortalsHubView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/provider-year-update',
+    name: 'ProviderYearUpdateAdmin',
+    component: () => import('../views/admin/ProviderYearUpdateAdminView.vue'),
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
