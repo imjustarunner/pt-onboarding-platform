@@ -291,16 +291,20 @@ export function formatReturnAt(iso) {
 
 /**
  * Peer list subtitle — shared availability bands (matches Team Board colors).
- * Privileged viewers may also see rich Away labels (Out for Meal, etc.).
+ * Privileged viewers may also see rich Away labels (Out for Meal, etc.),
+ * but never override Inactive/Available with Team Board "In – Available".
  */
 export function statusSubtitle(person) {
   if (!person) return '';
   const band = availabilityBandForPerson(person);
   let label = String(person.status_label || '').trim() || availabilityBandLabel(band);
-  // Privileged directory payloads include rich Away labels — prefer them for detail.
-  if (person.presence_display_label || person.presence_reason) {
+  // Rich Away detail only while actually Idle/Away — not for offline or plain available.
+  if (band === 'away_reachable' || band === 'unavailable') {
     const rich = teamBoardStatusLabel(person);
-    if (rich) label = rich;
+    const richLower = String(rich || '').toLowerCase();
+    if (rich && richLower !== 'active' && richLower !== 'in – available' && richLower !== 'in-available') {
+      label = rich;
+    }
   }
   if (person.status === 'online' && person.calendar_busy) {
     const apiLabel = String(person.status_label || '').trim();

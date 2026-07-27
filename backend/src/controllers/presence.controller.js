@@ -58,16 +58,67 @@ function richStatusFields(row) {
   };
 }
 
-/** Signed-in Idle = Away overlay (session extend) OR Timedown / soft inactivity. */
-function hasChatIdleSession(row) {
+/**
+ * Signed-in Idle = Away overlay (session extend) OR Timedown / soft inactivity.
+ * Timedown/away phase only counts while the live session is still heartbeating —
+ * otherwise timed-out users stuck with session_phase=timedown look Away forever.
+ */
+function hasChatIdleSession(row, now = Date.now()) {
   const until = richStatusFields(row).presence_session_extend_until;
   if (until) {
     const ext = new Date(until).getTime();
-    if (Number.isFinite(ext) && ext > Date.now()) return true;
+    if (Number.isFinite(ext) && ext > now) return true;
   }
   const phase = String(row?.session_phase || row?.presence_session_phase || '').toLowerCase();
-  if (phase === 'timedown' || phase === 'away') return true;
-  return false;
+  if (phase !== 'timedown' && phase !== 'away') return false;
+  const hb = row?.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : null;
+  return !!(hb && Number.isFinite(hb) && now - hb <= OFFLINE_AFTER_MS);
+}
+
+/**
+ * Clear live chat presence for a user (logout / timeout).
+ * Safe to call when the session_phase column is missing on older DBs.
+ */
+export async function clearUserLivePresence(userId) {
+  const uid = Number(userId || 0);
+  if (!uid) return;
+
+  try {
+    await pool.execute(
+      `UPDATE user_presence
+       SET last_heartbeat_at = NULL,
+           last_activity_at = NULL,
+           availability_level = NULL,
+           session_phase = NULL,
+           updated_at = NOW()
+       WHERE user_id = ?`,
+      [uid]
+    );
+  } catch (err) {
+    const msg = String(err?.message || '');
+    if (!msg.includes('session_phase') && err?.code !== 'ER_BAD_FIELD_ERROR') throw err;
+    await pool.execute(
+      `UPDATE user_presence
+       SET last_heartbeat_at = NULL,
+           last_activity_at = NULL,
+           availability_level = NULL,
+           updated_at = NOW()
+       WHERE user_id = ?`,
+      [uid]
+    );
+  }
+
+  // End session-extension window; keep Team Board day-level status if set.
+  try {
+    await pool.execute(
+      `UPDATE user_presence_status
+       SET session_extend_until = NULL
+       WHERE user_id = ?`,
+      [uid]
+    );
+  } catch {
+    /* columns may not exist yet on older DBs */
+  }
 }
 
 /** Heartbeat is fresh but activity is stale → Idle (Timedown countdown / stepped away). */
@@ -176,17 +227,19 @@ function computePresenceStatus(row, viewerRole) {
   const effectiveRow = applyExpiredTimedAway(row);
   const hb = effectiveRow?.last_heartbeat_at ? new Date(effectiveRow.last_heartbeat_at).getTime() : null;
   const rich = richStatusFields(effectiveRow);
-  const idleSession = hasChatIdleSession(effectiveRow) || hasSoftActivityIdle(effectiveRow, now);
+  const idleSession = hasChatIdleSession(effectiveRow, now) || hasSoftActivityIdle(effectiveRow, now);
   const reason = String(rich?.presence_reason || '').trim();
+  const heartbeatFresh = !!(hb && Number.isFinite(hb) && now - hb <= OFFLINE_AFTER_MS);
 
   let status = 'offline';
   if (reason === 'available_offline') {
     // Logged out but marked available — never treat as online/idle from a stale heartbeat.
     status = 'offline';
-  } else if (idleSession) {
+  } else if (idleSession && heartbeatFresh) {
     // Stay Idle while Timedown / Away overlay is active even if the tab is briefly hidden.
+    // Require a fresh heartbeat so timed-out sessions become Inactive.
     status = 'idle';
-  } else if (hb && now - hb <= OFFLINE_AFTER_MS) {
+  } else if (heartbeatFresh) {
     status = 'online';
   }
 
@@ -423,26 +476,7 @@ export const markOffline = async (req, res, next) => {
       // best-effort; do not block logout
     }
 
-    await pool.execute(
-      `UPDATE user_presence
-       SET last_heartbeat_at = NULL,
-           last_activity_at = NULL,
-           availability_level = NULL, -- reset to role default on next login/session
-           updated_at = NOW()
-       WHERE user_id = ?`,
-      [userId]
-    );
-    // End session-extension window; keep Team Board day-level status if set
-    try {
-      await pool.execute(
-        `UPDATE user_presence_status
-         SET session_extend_until = NULL
-         WHERE user_id = ?`,
-        [userId]
-      );
-    } catch {
-      /* columns may not exist yet on older DBs */
-    }
+    await clearUserLivePresence(userId);
     res.json({ ok: true });
   } catch (e) {
     next(e);

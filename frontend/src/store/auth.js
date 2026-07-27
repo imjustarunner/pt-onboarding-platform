@@ -338,10 +338,15 @@ export const useAuthStore = defineStore('auth', () => {
         }
       }
 
-      // Mark presence offline (best-effort). Never block or flash the global loader.
-      api
-        .post('/presence/offline', {}, { skipAuthRedirect: true, skipGlobalLoading: true })
-        .catch(() => {});
+      // Mark presence offline before hard navigation so timed-out users flip to Inactive.
+      try {
+        await Promise.race([
+          api.post('/presence/offline', {}, { skipAuthRedirect: true, skipGlobalLoading: true }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('presence_offline_timeout')), 2000))
+        ]);
+      } catch {
+        /* best-effort — auth logout also clears presence server-side */
+      }
 
       // Resolve login URL before clearing auth/localStorage helpers.
       let loginUrl = options.redirectTo || null;

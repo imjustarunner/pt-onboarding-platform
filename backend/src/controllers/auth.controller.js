@@ -1464,6 +1464,17 @@ export const logout = async (req, res, next) => {
       }, 0);
     }
 
+    // Clear live chat presence on logout/timeout even if the client never hits /presence/offline.
+    const presenceUserId = userId ?? req.user?.id;
+    if (presenceUserId && Number.isFinite(Number(presenceUserId))) {
+      try {
+        const { clearUserLivePresence } = await import('./presence.controller.js');
+        await clearUserLivePresence(presenceUserId);
+      } catch (err) {
+        console.error('Failed to clear live presence on logout:', err);
+      }
+    }
+
     // Clear authentication cookie
     // Use shared cookie options to ensure exact match with cookie setting options
     // This is critical: clearCookie must use the same path, secure, sameSite, and domain
