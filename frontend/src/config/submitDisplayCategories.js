@@ -52,7 +52,7 @@ export const SUBMIT_ROOT_GROUPS = [
         featured: true
       },
       { id: 'time_menu', title: 'Time claims', description: 'Meeting, excess time, corrections, overtime.', event: 'open-time', icon: 'clock' },
-      { id: 'availability', title: 'Additional availability', description: 'Office or school availability + confirmations.', event: 'availability', icon: 'calendar' },
+      { id: 'availability', title: 'Additional school hours', description: 'Request additional weekday school hours for staff to review.', event: 'availability', icon: 'calendar' },
       { id: 'virtual_hours', title: 'Virtual working hours', description: 'Weekly virtual hours (not tied to a room).', event: 'virtual-hours', icon: 'video' },
     ],
   },

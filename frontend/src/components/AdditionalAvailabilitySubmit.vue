@@ -1,7 +1,7 @@
 <template>
   <div class="avail-wrap">
     <div class="hint">
-      Submit additional availability for office or school. Skill Builders availability is confirmed biweekly (current + next week) so you can keep a consistent set of time/day blocks.
+      Request additional weekday school hours. Staff will review and can assign you to a school day when appropriate.
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
@@ -9,8 +9,8 @@
 
     <div v-else>
       <div class="grid">
-        <!-- Additional office availability request (office slots inside a building) -->
-        <div class="card">
+        <!-- Additional office availability request (retired) -->
+        <div v-if="showOfficeSection" class="card">
           <div class="card-head">
             <div>
               <div class="title">Additional office availability request</div>
@@ -137,8 +137,8 @@
           </div>
         </div>
 
-        <!-- Skill Builders weekly availability (eligible providers) -->
-        <div class="card" v-if="pending.skillBuilder?.eligible">
+        <!-- Skill Builders weekly availability (disabled) -->
+        <div class="card" v-if="showSkillBuilderSection">
           <div class="card-head">
             <div>
               <div class="title">Skill Builders availability (required)</div>
@@ -223,7 +223,7 @@
         </div>
       </div>
 
-      <div v-if="pending.officeRequests.length || pending.schoolRequests.length" class="muted" style="margin-top: 10px;">
+      <div v-if="pending.schoolRequests.length" class="muted" style="margin-top: 10px;">
         You can refresh after staff has processed your request.
       </div>
     </div>
@@ -233,10 +233,26 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../services/api';
+import {
+  OFFICE_ADDITIONAL_AVAILABILITY_ENABLED,
+  SKILL_BUILDERS_AVAILABILITY_ENABLED,
+} from '../config/availabilityFeatures';
 
 const props = defineProps({
-  agencyId: { type: Number, required: true }
+  agencyId: { type: Number, required: true },
+  /** When true, only the school hours form is shown (used in Provider Year Update). */
+  schoolOnly: { type: Boolean, default: false },
 });
+
+const showOfficeSection = computed(
+  () => !props.schoolOnly && OFFICE_ADDITIONAL_AVAILABILITY_ENABLED
+);
+const showSkillBuilderSection = computed(
+  () =>
+    !props.schoolOnly &&
+    SKILL_BUILDERS_AVAILABILITY_ENABLED &&
+    Boolean(pending.skillBuilder?.eligible)
+);
 
 const loading = ref(false);
 const saving = ref(false);
@@ -447,7 +463,7 @@ const skillBuilderValidationError = computed(() => {
 });
 
 const withdrawRequests = async () => {
-  const hasOffice = (pending.officeRequests || []).length > 0;
+  const hasOffice = showOfficeSection.value && (pending.officeRequests || []).length > 0;
   const hasSchool = (pending.schoolRequests || []).length > 0;
   const msg = hasOffice && hasSchool
     ? 'This will withdraw all your pending office and school availability requests. You can submit new ones after.'
@@ -472,10 +488,11 @@ const refresh = async () => {
     loading.value = true;
     error.value = '';
 
-    const [pendingResp, officesResp] = await Promise.all([
-      api.get('/availability/me/pending', { params: { agencyId: props.agencyId } }),
-      api.get('/offices')
-    ]);
+    const pendingResp = await api.get('/availability/me/pending', { params: { agencyId: props.agencyId } });
+    let officesResp = { data: [] };
+    if (showOfficeSection.value) {
+      officesResp = await api.get('/offices');
+    }
 
     pending.officeRequests = pendingResp.data?.officeRequests || [];
     pending.schoolRequests = pendingResp.data?.schoolRequests || [];
@@ -484,7 +501,7 @@ const refresh = async () => {
 
     offices.value = officesResp.data || [];
     // Seed skill builder form from saved blocks (if any)
-    if (pending.skillBuilder?.eligible) {
+    if (showSkillBuilderSection.value && pending.skillBuilder?.eligible) {
       const saved = Array.isArray(pending.skillBuilder.blocks) ? pending.skillBuilder.blocks : [];
       if (saved.length) {
         skillBuilderForm.blocks = saved.map((b) =>

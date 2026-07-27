@@ -7,9 +7,48 @@
           Clinical/learning clients from digital intake awaiting their first provider assignment.
         </p>
       </div>
-      <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">
+      <button class="btn btn-secondary btn-sm" type="button" @click="loadAll" :disabled="loading">
         {{ loading ? 'Loading…' : 'Refresh' }}
       </button>
+    </div>
+
+    <div v-if="acceptance?.agency" class="oiq-acceptance">
+      <div class="oiq-acceptance__summary">
+        <strong>Office referral acceptance</strong>
+        <span>{{ acceptance.agency.acceptanceLabel }}</span>
+        <span class="muted small">
+          Declined = posted to Client Exchange within {{ acceptance.windowDays || 30 }} days of assignment.
+          Accepted = kept (marked current or past the window without an early exchange).
+        </span>
+      </div>
+      <div class="oiq-acceptance__stats">
+        <div><span class="lbl">Referred</span><strong>{{ acceptance.agency.assignedCount || 0 }}</strong></div>
+        <div><span class="lbl">Accepted</span><strong>{{ acceptance.agency.acceptedCount || 0 }}</strong></div>
+        <div><span class="lbl">Declined (exchange)</span><strong>{{ acceptance.agency.declinedCount || 0 }}</strong></div>
+        <div><span class="lbl">In review window</span><strong>{{ acceptance.agency.pendingCount || 0 }}</strong></div>
+      </div>
+      <div v-if="acceptance.providers?.length" class="oiq-acceptance__table-wrap">
+        <table class="oiq-table compact">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Accepted</th>
+              <th>Declined</th>
+              <th>Pending</th>
+              <th>Ratio</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in acceptance.providers" :key="p.providerUserId">
+              <td>{{ p.providerName }}</td>
+              <td>{{ p.acceptedCount }}</td>
+              <td>{{ p.declinedCount }}</td>
+              <td>{{ p.pendingCount }}</td>
+              <td>{{ p.acceptanceLabel }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div v-if="error" class="error">{{ error }}</div>
@@ -94,6 +133,7 @@ const clients = ref([]);
 const providerOptions = ref([]);
 const assignSelections = reactive({});
 const assigningId = ref(null);
+const acceptance = ref(null);
 
 function formatDate(v) {
   if (!v) return '—';
@@ -116,6 +156,19 @@ async function loadProviders() {
   }
 }
 
+async function loadAcceptance() {
+  if (!agencyId.value) return;
+  try {
+    const res = await api.get('/client-exchange/acceptance-metrics', {
+      params: { agencyId: agencyId.value },
+      skipGlobalLoading: true,
+    });
+    acceptance.value = res.data || null;
+  } catch {
+    acceptance.value = null;
+  }
+}
+
 async function load() {
   if (!agencyId.value) return;
   loading.value = true;
@@ -130,13 +183,17 @@ async function load() {
   }
 }
 
+async function loadAll() {
+  await Promise.all([load(), loadAcceptance()]);
+}
+
 async function assign(client) {
   const providerId = assignSelections[client.id];
   if (!providerId) return;
   assigningId.value = client.id;
   try {
     await api.put(`/clients/${client.id}/provider`, { provider_id: Number(providerId) });
-    await load();
+    await loadAll();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to assign provider';
   } finally {
@@ -145,7 +202,7 @@ async function assign(client) {
 }
 
 onMounted(() => {
-  load();
+  loadAll();
   loadProviders();
 });
 </script>
@@ -163,6 +220,46 @@ onMounted(() => {
   gap: 12px;
   flex-wrap: wrap;
 }
+.oiq-acceptance {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+}
+.oiq-acceptance__summary {
+  display: grid;
+  gap: 2px;
+}
+.oiq-acceptance__summary strong {
+  color: #0c4a6e;
+}
+.oiq-acceptance__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+.oiq-acceptance__stats > div {
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.oiq-acceptance__stats .lbl {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+}
+.oiq-acceptance__table-wrap {
+  overflow-x: auto;
+}
+.oiq-table.compact th,
+.oiq-table.compact td {
+  font-size: 12px;
+  padding: 6px 8px;
+}
+.small { font-size: 12px; }
 .oiq-table-wrap {
   overflow-x: auto;
 }

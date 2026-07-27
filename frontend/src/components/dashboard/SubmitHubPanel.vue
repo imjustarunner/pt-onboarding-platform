@@ -97,7 +97,7 @@ const panelTitle = computed(() => {
   const titles = {
     time: 'Time claims',
     in_school: 'In-school claims',
-    availability: 'Additional availability',
+    availability: 'Additional school hours',
     virtual_hours: 'Virtual working hours',
     company_car: 'Company car mileage',
   };
@@ -108,7 +108,7 @@ const panelSubtitle = computed(() => {
   const subs = {
     time: 'Choose the type of time claim to submit for payroll review.',
     in_school: 'School mileage and missed Medicaid session claims.',
-    availability: 'Submit office or school availability for your organization.',
+    availability: 'Request additional weekday school hours for staff to review and assign.',
     virtual_hours: 'Set weekly virtual hours not tied to a specific room.',
     company_car: 'Log and track business vehicle trips.',
   };

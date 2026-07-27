@@ -1,7 +1,7 @@
 <template>
   <div class="pyu-flow-page">
     <div class="pyu-flow-bar">
-      <router-link class="muted" :to="hubTo">← Provider Year Update</router-link>
+      <router-link class="muted" :to="dashboardTo">← My Dashboard</router-link>
     </div>
     <ProviderYearUpdateDashboard mode="provider" :initial-section="initialSection" />
   </div>
@@ -14,9 +14,9 @@ import ProviderYearUpdateDashboard from '../../components/provider/ProviderYearU
 
 const route = useRoute();
 const initialSection = computed(() => String(route.query.section || ''));
-const hubTo = computed(() => {
+const dashboardTo = computed(() => {
   const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
-  return slug ? `/${slug}/provider/year-update` : '/provider/year-update';
+  return slug ? `/${slug}/dashboard` : '/dashboard';
 });
 </script>
 
@@ -26,9 +26,11 @@ const hubTo = computed(() => {
   background: #f8fafc;
 }
 .pyu-flow-bar {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 12px 20px 0;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 12px 28px 0;
+  box-sizing: border-box;
 }
 .pyu-flow-bar a {
   text-decoration: none;

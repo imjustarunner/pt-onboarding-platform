@@ -228,6 +228,17 @@ export async function createListing({
     note: 'Posted to Client Exchange for reassignment'
   });
 
+  try {
+    const OfficeAcceptance = await import('./officeClientAcceptance.service.js');
+    await OfficeAcceptance.recordExchangePosted({
+      clientId: cid,
+      providerUserId: resolvedCurrentProvider || posterId,
+      listingId: result.insertId,
+    });
+  } catch (e) {
+    console.warn('[createListing] office acceptance tracking failed:', e?.message || e);
+  }
+
   return getListingById(result.insertId, { viewerUserId: posterId, viewerRole: 'admin' });
 }
 

@@ -15,11 +15,21 @@ router.post('/providers/:providerUserId/push', authenticate, ctrl.pushProvider);
 router.post('/providers/:providerUserId/mark-complete', authenticate, ctrl.adminMarkComplete);
 router.get('/providers/:providerUserId', authenticate, ctrl.getProviderBundle);
 
+router.get('/school-needs/schools', authenticate, ctrl.listSchoolNeedsSchools);
+router.get('/school-needs', authenticate, ctrl.listSchoolNeedsAdmin);
+router.post('/school-needs', authenticate, ctrl.createSchoolNeed);
+router.patch('/school-needs/applications/:id', authenticate, ctrl.reviewSchoolNeedApplication);
+router.get('/school-needs/:id/applications', authenticate, ctrl.listSchoolNeedApplications);
+router.patch('/school-needs/:id', authenticate, ctrl.updateSchoolNeed);
+
 router.get('/me', authenticate, ctrl.getMyCycle);
 router.get('/me/status', authenticate, ctrl.getMyStatus);
 router.post('/me/ensure-token', authenticate, ctrl.ensureMyToken);
 router.post('/me/dismiss', authenticate, ctrl.dismissMyCycle);
 router.put('/me/sections/:sectionKey', authenticate, ctrl.updateMySection);
 router.post('/me/finalize', authenticate, ctrl.finalizeMyCycle);
+router.get('/me/school-needs', authenticate, ctrl.listMySchoolNeeds);
+router.post('/me/school-needs/:id/apply', authenticate, ctrl.applyMySchoolNeed);
+router.delete('/me/school-needs/:id/apply', authenticate, ctrl.withdrawMySchoolNeed);
 
 export default router;

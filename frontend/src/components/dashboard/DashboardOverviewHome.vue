@@ -262,7 +262,7 @@ const quickActions = computed(() => {
     list.push({
       id: 'add_availability',
       title: 'Add availability',
-      description: 'Office or school availability requests.',
+      description: 'Additional school hours requests.',
       icon: '📅',
       iconBg: '#f3e8ff',
       iconColor: '#7e22ce',

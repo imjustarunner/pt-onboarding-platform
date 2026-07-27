@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
 import User from '../models/User.model.js';
 import * as S from '../services/providerYearUpdate.service.js';
+import * as SchoolNeeds from '../services/providerYearUpdateSchoolNeeds.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -726,6 +727,227 @@ export async function finalizePublic(req, res, next) {
     if (msg.includes('not reviewed') || msg.includes('not completed') || msg.includes('Already')) {
       return res.status(400).json({ error: { message: msg } });
     }
+    next(e);
+  }
+}
+
+function schoolNeedsHttpError(res, e) {
+  const code = e?.code || '';
+  if (
+    code === 'SCHOOL_NEEDS_INVALID_SCHOOL' ||
+    code === 'SCHOOL_NEED_INVALID_STATUS' ||
+    code === 'SCHOOL_NEED_APP_INVALID_STATUS' ||
+    code === 'SCHOOL_NEED_DAY_REQUIRED' ||
+    code === 'SCHOOL_NEED_NOT_OPEN'
+  ) {
+    return res.status(400).json({ error: { message: e.message, code } });
+  }
+  if (code === 'SCHOOL_NEED_NOT_FOUND' || code === 'SCHOOL_NEED_APP_NOT_FOUND') {
+    return res.status(404).json({ error: { message: e.message, code } });
+  }
+  return null;
+}
+
+/** GET /api/provider-year-update/school-needs/schools */
+export async function listSchoolNeedsSchools(req, res, next) {
+  try {
+    const agencyId = safeInt(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schools = await SchoolNeeds.listSchoolsForNeedsPicker(agencyId);
+    res.json({ schools });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** GET /api/provider-year-update/school-needs */
+export async function listSchoolNeedsAdmin(req, res, next) {
+  try {
+    const agencyId = safeInt(req.query.agencyId);
+    const schoolYear = String(req.query.schoolYear || '').trim();
+    if (!agencyId || !schoolYear) {
+      return res.status(400).json({ error: { message: 'agencyId and schoolYear are required' } });
+    }
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const needs = await SchoolNeeds.listNeedsForAdmin({ agencyId, schoolYear });
+    res.json({ needs });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/provider-year-update/school-needs */
+export async function createSchoolNeed(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId);
+    const schoolYear = String(req.body?.schoolYear || '').trim();
+    const schoolOrganizationId = safeInt(req.body?.schoolOrganizationId);
+    if (!agencyId || !schoolYear || !schoolOrganizationId) {
+      return res.status(400).json({
+        error: { message: 'agencyId, schoolYear, and schoolOrganizationId are required' },
+      });
+    }
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const need = await SchoolNeeds.createNeed({
+      agencyId,
+      schoolYear,
+      schoolOrganizationId,
+      title: req.body?.title,
+      body: req.body?.body,
+      slotsNeeded: req.body?.slotsNeeded,
+      days: req.body?.days,
+      postedByUserId: req.user?.id,
+    });
+    res.status(201).json({ need });
+  } catch (e) {
+    if (schoolNeedsHttpError(res, e)) return;
+    next(e);
+  }
+}
+
+/** PATCH /api/provider-year-update/school-needs/:id */
+export async function updateSchoolNeed(req, res, next) {
+  try {
+    const needId = safeInt(req.params.id);
+    const agencyId = safeInt(req.body?.agencyId || req.query?.agencyId);
+    if (!needId || !agencyId) {
+      return res.status(400).json({ error: { message: 'id and agencyId are required' } });
+    }
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const need = await SchoolNeeds.updateNeed({
+      needId,
+      agencyId,
+      patch: {
+        title: req.body?.title,
+        body: req.body?.body,
+        slotsNeeded: req.body?.slotsNeeded,
+        days: req.body?.days,
+        status: req.body?.status,
+      },
+    });
+    res.json({ need });
+  } catch (e) {
+    if (schoolNeedsHttpError(res, e)) return;
+    next(e);
+  }
+}
+
+/** GET /api/provider-year-update/school-needs/:id/applications */
+export async function listSchoolNeedApplications(req, res, next) {
+  try {
+    const needId = safeInt(req.params.id);
+    const agencyId = safeInt(req.query.agencyId);
+    if (!needId || !agencyId) {
+      return res.status(400).json({ error: { message: 'id and agencyId are required' } });
+    }
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const applications = await SchoolNeeds.listApplicationsForNeed({ needId, agencyId });
+    res.json({ applications });
+  } catch (e) {
+    if (schoolNeedsHttpError(res, e)) return;
+    next(e);
+  }
+}
+
+/** PATCH /api/provider-year-update/school-needs/applications/:id */
+export async function reviewSchoolNeedApplication(req, res, next) {
+  try {
+    const applicationId = safeInt(req.params.id);
+    const agencyId = safeInt(req.body?.agencyId);
+    const status = String(req.body?.status || '').trim().toLowerCase();
+    if (!applicationId || !agencyId || !status) {
+      return res.status(400).json({ error: { message: 'id, agencyId, and status are required' } });
+    }
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const application = await SchoolNeeds.reviewApplication({
+      applicationId,
+      agencyId,
+      status,
+      reviewedByUserId: req.user?.id,
+    });
+    res.json({ application });
+  } catch (e) {
+    if (schoolNeedsHttpError(res, e)) return;
+    next(e);
+  }
+}
+
+/** GET /api/provider-year-update/me/school-needs */
+export async function listMySchoolNeeds(req, res, next) {
+  try {
+    const agencyId = safeInt(req.query.agencyId);
+    const schoolYear = String(req.query.schoolYear || '').trim();
+    if (!agencyId || !schoolYear) {
+      return res.status(400).json({ error: { message: 'agencyId and schoolYear are required' } });
+    }
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const needs = await SchoolNeeds.listOpenNeedsForProvider({
+      agencyId,
+      schoolYear,
+      providerUserId: req.user.id,
+    });
+    res.json({ needs });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/provider-year-update/me/school-needs/:id/apply */
+export async function applyMySchoolNeed(req, res, next) {
+  try {
+    const needId = safeInt(req.params.id);
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!needId || !agencyId) {
+      return res.status(400).json({ error: { message: 'id and agencyId are required' } });
+    }
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const need = await SchoolNeeds.applyToNeed({
+      needId,
+      providerUserId: req.user.id,
+      preferredDay: req.body?.preferredDay,
+      notes: req.body?.notes,
+    });
+    res.json({ need });
+  } catch (e) {
+    if (schoolNeedsHttpError(res, e)) return;
+    next(e);
+  }
+}
+
+/** DELETE /api/provider-year-update/me/school-needs/:id/apply */
+export async function withdrawMySchoolNeed(req, res, next) {
+  try {
+    const needId = safeInt(req.params.id);
+    const agencyId = safeInt(req.query.agencyId || req.body?.agencyId);
+    if (!needId || !agencyId) {
+      return res.status(400).json({ error: { message: 'id and agencyId are required' } });
+    }
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const ok = await SchoolNeeds.withdrawApplication({
+      needId,
+      providerUserId: req.user.id,
+    });
+    res.json({ ok });
+  } catch (e) {
     next(e);
   }
 }

@@ -1,73 +1,81 @@
 <template>
   <div class="provider-clients-tab">
-    <div class="pct-section-switcher" role="tablist" aria-label="Clients sections">
+    <nav class="pct-cat-nav" role="tablist" aria-label="Clients sections">
       <button
-        v-for="sec in primarySections"
+        v-for="sec in allSections"
         :key="sec.id"
         type="button"
         role="tab"
         :aria-selected="activeSection === sec.id"
-        :class="['pct-switch-btn', { 'is-active': activeSection === sec.id }]"
+        :class="['pct-cat-tab', { 'is-active': activeSection === sec.id }]"
         @click="setSection(sec.id)"
       >
-        {{ sec.label }}
-        <span v-if="sec.badge" class="pct-tab-badge">{{ sec.badge }}</span>
+        <span class="pct-cat-icon" aria-hidden="true" v-html="sectionIcons[sec.iconKey]" />
+        <span class="pct-cat-label">{{ sec.label }}</span>
+        <span v-if="sec.badge" class="pct-cat-badge">{{ sec.badge }}</span>
       </button>
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeSection === 'referrals'"
-        :class="['pct-switch-btn', { 'is-active': activeSection === 'referrals' }]"
-        @click="setSection('referrals')"
-      >
-        Referral directory
-      </button>
-    </div>
+    </nav>
 
     <ReferralDirectoryPanel v-if="activeSection === 'referrals'" embedded />
 
     <ClientExchangePanel v-else-if="activeSection === 'exchange'" />
 
     <template v-else>
-      <div class="section-header">
-        <div>
-          <h2 style="margin: 0;">{{ sectionTitle }}</h2>
-          <p v-if="sectionHint" class="section-hint muted">{{ sectionHint }}</p>
+      <header class="pct-page-header">
+        <div class="pct-page-header__text">
+          <h2 class="pct-page-title">{{ sectionTitle }}</h2>
+          <p v-if="sectionHint" class="pct-page-subtitle">{{ sectionHint }}</p>
         </div>
-        <div class="filters">
-          <template v-if="activeSection === 'school'">
-            <label>
-              <span class="label">School</span>
-              <select class="select" v-model="selectedSchoolOrgId">
-                <option value="all">All schools</option>
-                <option v-for="s in schools" :key="s.schoolOrganizationId" :value="Number(s.schoolOrganizationId)">
-                  {{ s.name }}
-                </option>
-              </select>
-            </label>
-            <label>
-              <span class="label">Fiscal year</span>
-              <select class="select" v-model="selectedFiscalYearStart">
-                <option v-for="fy in fiscalYearOptions" :key="fy.startYmd" :value="fy.startYmd">
-                  {{ fy.label }}
-                </option>
-              </select>
-            </label>
-          </template>
-          <button class="btn btn-secondary btn-sm" type="button" @click="toggleFullNames" :disabled="loading">
-            {{ clientLabelMode === 'full_name' ? 'Show initials' : 'Show full names' }}
-          </button>
-          <button class="btn-link label-mode-secondary" type="button" @click="toggleCodesMode" :disabled="loading">
-            {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
-          </button>
-          <button class="btn btn-secondary btn-sm" type="button" @click="refreshCurrentScope" :disabled="loading || officeLoading">
-            {{ (loading || officeLoading) ? 'Loading…' : 'Refresh' }}
-          </button>
-          <label v-if="activeSection === 'school' && showSkillBuildersRosterToggle" class="sb-roster-toggle">
+      </header>
+
+      <div class="pct-toolbar">
+        <template v-if="activeSection === 'school'">
+          <label class="pct-field">
+            <span class="pct-field__label">School</span>
+            <select class="pct-control" v-model="selectedSchoolOrgId">
+              <option value="all">All schools</option>
+              <option v-for="s in schools" :key="s.schoolOrganizationId" :value="Number(s.schoolOrganizationId)">
+                {{ s.name }}
+              </option>
+            </select>
+          </label>
+          <label class="pct-field">
+            <span class="pct-field__label">Fiscal year</span>
+            <select class="pct-control" v-model="selectedFiscalYearStart">
+              <option v-for="fy in fiscalYearOptions" :key="fy.startYmd" :value="fy.startYmd">
+                {{ fy.label }}
+              </option>
+            </select>
+          </label>
+          <label v-if="showSkillBuildersRosterToggle" class="pct-check">
             <input v-model="skillBuildersOnlyFilter" type="checkbox" />
             <span>Skill Builders clients only</span>
           </label>
-        </div>
+        </template>
+        <button class="pct-link-btn" type="button" @click="toggleCodesMode" :disabled="loading || officeLoading">
+          {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
+        </button>
+        <button
+          class="pct-btn pct-btn--ghost"
+          type="button"
+          @click="toggleFullNames"
+          :disabled="loading || officeLoading"
+        >
+          {{ clientLabelMode === 'full_name' ? 'Show initials' : 'Show full names' }}
+        </button>
+        <button
+          class="pct-btn pct-btn--primary"
+          type="button"
+          @click="refreshCurrentScope"
+          :disabled="loading || officeLoading"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          {{ (loading || officeLoading) ? 'Loading…' : 'Refresh' }}
+        </button>
       </div>
 
       <!-- School Clients -->
@@ -95,6 +103,18 @@
 
       <!-- Office Clients -->
       <template v-else-if="activeSection === 'office'">
+        <div v-if="officeAcceptance" class="pct-acceptance">
+          <strong>{{ officeAcceptance.acceptanceLabel }}</strong>
+          <span class="muted tiny">
+            Declined if posted to Client Exchange within {{ officeAcceptance.windowDays || 30 }} days of assignment.
+            <template v-if="officeAcceptance.declinedCount">
+              · {{ officeAcceptance.declinedCount }} declined via exchange
+            </template>
+            <template v-if="officeAcceptance.pendingCount">
+              · {{ officeAcceptance.pendingCount }} still in review window
+            </template>
+          </span>
+        </div>
         <div v-if="officeError" class="error">{{ officeError }}</div>
         <div v-else-if="!officeLoading && currentOfficeClients.length === 0" class="muted empty-state">
           No office clients assigned to you yet (clinical, virtual, tutoring, and other non-school clients).
@@ -167,7 +187,11 @@
             </span>
           </div>
           <p class="muted tiny">
-            New clinical / office intakes assigned to you that are still pending. Mark current after you accept them in your workflow.
+            New clinical / office intakes assigned to you that are still pending. Mark current after you accept them.
+            Posting to Client Exchange within 30 days of assignment counts as not accepting the referral.
+            <template v-if="officeAcceptance?.acceptanceLabel">
+              Your ratio: {{ officeAcceptance.acceptanceLabel }}.
+            </template>
           </p>
           <div v-if="officeLoading" class="muted">Loading…</div>
           <div v-else-if="!pendingOfficeClients.length" class="muted empty-state compact">No pending office clients.</div>
@@ -248,6 +272,7 @@ const clientLabelMode = ref('initials');
 const officeClients = ref([]);
 const officeLoading = ref(false);
 const officeError = ref('');
+const officeAcceptance = ref(null);
 
 const isAllSchools = computed(() => selectedSchoolOrgId.value === 'all');
 
@@ -300,16 +325,29 @@ const newClientsCount = computed(
   () => pendingClientsFiltered.value.length + pendingOfficeClients.value.length
 );
 
+const sectionIcons = {
+  school: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  office: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22V12h6v10"/><path d="M8 6h.01M16 6h.01M12 6h.01M8 10h.01M16 10h.01M12 10h.01"/></svg>',
+  new: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>',
+  exchange: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
+  referrals: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg>',
+};
+
 const primarySections = computed(() => {
   const list = [];
   if (schools.value.length > 0) {
-    list.push({ id: 'school', label: 'School Clients', badge: 0 });
+    list.push({ id: 'school', label: 'School Clients', iconKey: 'school', badge: 0 });
   }
-  list.push({ id: 'office', label: 'Office Clients', badge: 0 });
-  list.push({ id: 'new', label: 'New Clients', badge: newClientsCount.value || 0 });
-  list.push({ id: 'exchange', label: 'Client Exchange', badge: 0 });
+  list.push({ id: 'office', label: 'Office Clients', iconKey: 'office', badge: 0 });
+  list.push({ id: 'new', label: 'New Clients', iconKey: 'new', badge: newClientsCount.value || 0 });
+  list.push({ id: 'exchange', label: 'Client Exchange', iconKey: 'exchange', badge: 0 });
   return list;
 });
+
+const allSections = computed(() => [
+  ...primarySections.value,
+  { id: 'referrals', label: 'Referral directory', iconKey: 'referrals', badge: 0 },
+]);
 
 const sectionTitle = computed(() => {
   if (activeSection.value === 'school') return 'School Clients';
@@ -446,6 +484,28 @@ const formatPreferred = (c) => {
   return parts.length ? parts.join(' · ') : '—';
 };
 
+const loadOfficeAcceptance = async () => {
+  if (!agencyId.value || !currentUserId.value) {
+    officeAcceptance.value = null;
+    return;
+  }
+  try {
+    const r = await api.get('/client-exchange/acceptance-metrics', {
+      params: {
+        agencyId: agencyId.value,
+        providerUserId: currentUserId.value,
+      },
+      skipGlobalLoading: true,
+    });
+    officeAcceptance.value = r.data?.provider || null;
+    if (officeAcceptance.value && !officeAcceptance.value.windowDays) {
+      officeAcceptance.value.windowDays = r.data?.windowDays || 30;
+    }
+  } catch {
+    officeAcceptance.value = null;
+  }
+};
+
 const loadOfficeClients = async () => {
   if (!agencyId.value || !currentUserId.value) {
     officeClients.value = [];
@@ -454,14 +514,17 @@ const loadOfficeClients = async () => {
   officeLoading.value = true;
   officeError.value = '';
   try {
-    const r = await api.get('/clients', {
-      params: {
-        agency_id: agencyId.value,
-        provider_id: currentUserId.value,
-        client_type: 'clinical,learning',
-      },
-      skipGlobalLoading: true,
-    });
+    const [r] = await Promise.all([
+      api.get('/clients', {
+        params: {
+          agency_id: agencyId.value,
+          provider_id: currentUserId.value,
+          client_type: 'clinical,learning',
+        },
+        skipGlobalLoading: true,
+      }),
+      loadOfficeAcceptance(),
+    ]);
     const rows = Array.isArray(r.data) ? r.data : r.data?.items || [];
     officeClients.value = rows.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
   } catch (e) {
@@ -633,67 +696,238 @@ watch(skillBuildersOnlyFilter, async () => {
 
 <style scoped>
 .provider-clients-tab {
+  --pct-green: #166534;
+  --pct-border: #e5e7eb;
+  --pct-muted: #6b7280;
   display: grid;
-  gap: 14px;
+  gap: 20px;
   min-width: 0;
   max-width: 100%;
+  font-family: var(--font-body, 'Inter', system-ui, sans-serif);
+  color: #111827;
 }
-.section-hint {
-  margin: 4px 0 0;
-  font-size: 0.88rem;
-  max-width: 40rem;
+
+.pct-cat-nav {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--pct-border);
+  padding-bottom: 0;
+  margin-bottom: 4px;
 }
-.tiny { font-size: 0.8rem; }
-.sb-roster-toggle {
+
+.pct-cat-tab {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 108px;
+  padding: 12px 16px 14px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--pct-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  position: relative;
+}
+
+.pct-cat-tab:hover {
+  color: #374151;
+}
+
+.pct-cat-tab.is-active {
+  color: var(--pct-green);
+  border-bottom-color: var(--pct-green);
+}
+
+.pct-cat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+.pct-cat-label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.pct-cat-tab.is-active .pct-cat-label {
+  font-weight: 700;
+}
+
+.pct-cat-badge {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #c2410c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pct-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pct-page-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #111827;
+}
+
+.pct-page-subtitle {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--pct-muted);
+  max-width: 42rem;
+  line-height: 1.5;
+}
+
+.pct-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid var(--pct-border);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.pct-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 160px;
+}
+
+.pct-field__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+}
+
+.pct-control {
+  border: 1px solid var(--pct-border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 12px;
+  min-width: 180px;
+  min-height: 42px;
+  font-size: 14px;
+  color: #111827;
+}
+
+.pct-check {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.9rem;
-  color: var(--text-secondary, #64748b);
+  min-height: 42px;
+  padding: 0 4px;
+  font-size: 14px;
+  color: #374151;
   cursor: pointer;
   user-select: none;
 }
-.sb-roster-toggle input { margin: 0; }
-.label-mode-secondary {
-  align-self: center;
+
+.pct-check input {
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--pct-green);
+}
+
+.pct-link-btn {
+  align-self: flex-end;
   border: none;
   background: transparent;
-  padding: 0 4px;
-  color: var(--text-secondary, #64748b);
+  padding: 10px 4px;
+  min-height: 42px;
+  color: var(--pct-muted);
   text-decoration: underline;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
-.label-mode-secondary:hover { color: var(--primary, #0c4a6e); }
 
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
+.pct-link-btn:hover:not(:disabled) {
+  color: var(--pct-green);
 }
-.filters {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-  flex-wrap: wrap;
+
+.pct-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  white-space: nowrap;
 }
-.label {
-  display: block;
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
+
+.pct-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
-.select {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg);
-  padding: 10px 12px;
-  min-width: 180px;
-  min-height: 44px;
+
+.pct-btn--ghost {
+  background: #fff;
+  color: #374151;
+  border-color: var(--pct-border);
+}
+
+.pct-btn--ghost:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
+.pct-btn--primary {
+  background: var(--pct-green);
+  color: #fff;
+  margin-left: auto;
+}
+
+.pct-btn--primary:hover:not(:disabled) {
+  background: #14532d;
+}
+
+.tiny { font-size: 0.8rem; }
+.pct-acceptance {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+.pct-acceptance strong {
+  color: #1e3a8a;
+  font-size: 0.95rem;
 }
 .new-block {
   border: 1px solid #e2e8f0;
@@ -754,45 +988,6 @@ watch(skillBuildersOnlyFilter, async () => {
 }
 .error { color: #c33; }
 .muted { color: var(--text-secondary); }
-.pct-section-switcher {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px;
-  background: var(--surface-muted, #f3f4f6);
-  border-radius: 10px;
-}
-.pct-switch-btn {
-  background: transparent;
-  border: none;
-  padding: 8px 14px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-secondary, #6b7280);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.pct-switch-btn.is-active {
-  background: var(--card-bg, #fff);
-  color: var(--text, #111);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-.pct-tab-badge {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: #c2410c;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
 .office-clients-table-wrap { overflow-x: auto; }
 .empty-state {
   border: 1px dashed var(--border, #e2e8f0);
@@ -801,17 +996,34 @@ watch(skillBuildersOnlyFilter, async () => {
   text-align: center;
 }
 .empty-state.compact { padding: 12px; }
+@media (max-width: 900px) {
+  .pct-cat-tab {
+    min-width: 88px;
+    padding: 10px 10px 12px;
+  }
+  .pct-cat-label {
+    font-size: 12px;
+    white-space: normal;
+    max-width: 88px;
+  }
+}
+
 @media (max-width: 640px) {
-  .section-header {
+  .pct-toolbar {
     flex-direction: column;
     align-items: stretch;
   }
-  .filters {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .filters .select {
+  .pct-field,
+  .pct-control {
     min-width: 0;
+    width: 100%;
+  }
+  .pct-btn--primary {
+    margin-left: 0;
+    width: 100%;
+  }
+  .pct-link-btn,
+  .pct-btn--ghost {
     width: 100%;
   }
 }

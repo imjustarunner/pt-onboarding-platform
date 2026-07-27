@@ -94,7 +94,169 @@
         <span class="metric__label">Need School Cart</span>
         <strong>{{ summary.needSchoolCartCount || 0 }}</strong>
       </div>
+      <div class="metric">
+        <span class="metric__label">Open School Needs</span>
+        <strong>{{ openNeedsCount }}</strong>
+      </div>
+      <div class="metric">
+        <span class="metric__label">Pending Applications</span>
+        <strong>{{ pendingAppsCount }}</strong>
+      </div>
     </div>
+
+    <section class="pyu-admin__needs">
+      <div class="pyu-admin__needs-head">
+        <div>
+          <h3>School Needs</h3>
+          <p class="muted">
+            Post schools that need an additional provider. Providers see these on the right side of their Year Update and can request placement.
+            Only affiliated schools with a logo on file can be posted.
+          </p>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="needsLoading" @click="loadNeeds">
+          {{ needsLoading ? 'Loading…' : 'Refresh needs' }}
+        </button>
+      </div>
+
+      <div v-if="needsError" class="error-banner">{{ needsError }}</div>
+
+      <form class="pyu-admin__needs-form" @submit.prevent="createNeed">
+        <label>
+          School
+          <select v-model="needForm.schoolOrganizationId" required>
+            <option disabled value="">Select school…</option>
+            <option v-for="s in needSchools" :key="s.schoolOrganizationId" :value="String(s.schoolOrganizationId)">
+              {{ s.schoolName }}
+            </option>
+          </select>
+        </label>
+        <label>
+          Title (optional)
+          <input v-model="needForm.title" type="text" maxlength="255" placeholder="e.g. Need coverage Mondays" />
+        </label>
+        <label>
+          Slots
+          <input v-model.number="needForm.slotsNeeded" type="number" min="1" max="50" />
+        </label>
+        <fieldset class="pyu-admin__days">
+          <legend>Required day(s) — leave blank if providers should pick a preferred day</legend>
+          <label v-for="d in weekdays" :key="d" class="inline">
+            <input v-model="needForm.days" type="checkbox" :value="d" />
+            {{ d.slice(0, 3) }}
+          </label>
+        </fieldset>
+        <label class="pyu-admin__needs-notes">
+          Notes for providers (optional)
+          <textarea v-model="needForm.body" rows="2" maxlength="2000" placeholder="Caseload notes, start timing, etc." />
+        </label>
+        <button type="submit" class="btn btn-primary" :disabled="needSaving || !needForm.schoolOrganizationId">
+          {{ needSaving ? 'Posting…' : 'Post school need' }}
+        </button>
+      </form>
+
+      <div v-if="!needSchools.length && !needsLoading" class="muted small" style="margin-top: 8px;">
+        No affiliated schools with logos were found. Add school logos in Company Profile before posting needs.
+      </div>
+
+      <div class="pyu-admin__needs-grid">
+        <article v-for="need in schoolNeeds" :key="need.id" class="pyu-admin__need-card">
+          <div class="pyu-admin__need-top">
+            <img
+              v-if="needLogo(need)"
+              :src="needLogo(need)"
+              :alt="need.school?.schoolName || 'School'"
+              class="pyu-admin__need-logo"
+            />
+            <div>
+              <strong>{{ need.school?.schoolName || 'School' }}</strong>
+              <div class="muted small">
+                <span class="pill" :class="'pill--need-' + need.status">{{ need.status }}</span>
+                · {{ need.slotsNeeded }} slot{{ need.slotsNeeded === 1 ? '' : 's' }}
+                · {{ need.pendingApplicationCount || 0 }} pending / {{ need.applicationCount || 0 }} total
+              </div>
+              <div v-if="need.days?.length" class="muted small">Days: {{ need.days.join(', ') }}</div>
+              <div v-else class="muted small">No fixed day — providers choose preferred day</div>
+            </div>
+          </div>
+          <p v-if="need.title" class="small"><strong>{{ need.title }}</strong></p>
+          <p v-if="need.body" class="muted small">{{ need.body }}</p>
+          <div class="pyu-admin__row-actions">
+            <button type="button" class="btn btn-secondary btn-sm" @click="toggleApps(need)">
+              {{ expandedNeedId === need.id ? 'Hide applicants' : 'View applicants' }}
+            </button>
+            <button
+              v-if="need.status === 'open'"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="needSaving"
+              @click="setNeedStatus(need, 'closed')"
+            >
+              Close
+            </button>
+            <button
+              v-if="need.status !== 'open'"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="needSaving"
+              @click="setNeedStatus(need, 'open')"
+            >
+              Reopen
+            </button>
+            <button
+              v-if="need.status === 'open'"
+              type="button"
+              class="btn btn-complete btn-sm"
+              :disabled="needSaving"
+              @click="setNeedStatus(need, 'filled')"
+            >
+              Mark filled
+            </button>
+          </div>
+
+          <div v-if="expandedNeedId === need.id" class="pyu-admin__apps">
+            <div v-if="appsLoadingId === need.id" class="muted small">Loading applicants…</div>
+            <div v-else-if="!(applicationsByNeed[need.id] || []).length" class="muted small">No applications yet.</div>
+            <ul v-else>
+              <li v-for="app in applicationsByNeed[need.id]" :key="app.id">
+                <div>
+                  <strong>{{ app.providerName }}</strong>
+                  <span class="muted small"> · {{ app.email }}</span>
+                  <div class="small">
+                    Day: {{ app.preferredDay || '—' }}
+                    · RT:
+                    {{
+                      app.homeSchoolRoundtripMiles != null
+                        ? `${Number(app.homeSchoolRoundtripMiles).toFixed(1)} mi`
+                        : 'n/a'
+                    }}
+                    · <span class="pill" :class="'pill--app-' + app.status">{{ app.status }}</span>
+                  </div>
+                  <div v-if="app.notes" class="muted small">{{ app.notes }}</div>
+                </div>
+                <div class="pyu-admin__row-actions">
+                  <button
+                    v-if="app.status === 'pending'"
+                    type="button"
+                    class="btn btn-complete btn-sm"
+                    @click="reviewApp(need, app, 'approved')"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    v-if="app.status === 'pending'"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="reviewApp(need, app, 'denied')"
+                  >
+                    Deny
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </article>
+      </div>
+    </section>
 
     <div class="pyu-admin__workspace" :class="{ 'has-detail': Boolean(selectedRow) }">
       <div class="pyu-admin__main">
@@ -287,7 +449,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import {
   SECTION_META,
@@ -295,12 +457,15 @@ import {
   publicProviderYearUpdateUrl,
   copyTextToClipboard,
 } from '../../utils/providerYearUpdate';
+import { logoSrc } from '../../utils/schoolReinit';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
   schoolYear: { type: String, default: '' },
   organizationSlug: { type: String, default: '' },
 });
+
+const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 const schoolYear = computed(() => props.schoolYear || currentSchoolYear());
 const loading = ref(false);
@@ -318,6 +483,146 @@ const filterStatus = ref('all');
 const filterCart = ref(false);
 const selectedRow = ref(null);
 const sectionKeys = SECTION_META.map((m) => m.key);
+
+const needsLoading = ref(false);
+const needSaving = ref(false);
+const needsError = ref('');
+const schoolNeeds = ref([]);
+const needSchools = ref([]);
+const expandedNeedId = ref(null);
+const appsLoadingId = ref(0);
+const applicationsByNeed = reactive({});
+const needForm = reactive({
+  schoolOrganizationId: '',
+  title: '',
+  body: '',
+  slotsNeeded: 1,
+  days: [],
+});
+
+const openNeedsCount = computed(
+  () => (schoolNeeds.value || []).filter((n) => n.status === 'open').length
+);
+const pendingAppsCount = computed(
+  () => (schoolNeeds.value || []).reduce((sum, n) => sum + Number(n.pendingApplicationCount || 0), 0)
+);
+
+function needLogo(need) {
+  return logoSrc(need?.school || {}, { allowIcon: true });
+}
+
+async function loadNeedSchools() {
+  if (!props.agencyId) return;
+  try {
+    const res = await api.get('/provider-year-update/school-needs/schools', {
+      params: { agencyId: props.agencyId },
+      skipGlobalLoading: true,
+    });
+    needSchools.value = res.data?.schools || [];
+  } catch {
+    needSchools.value = [];
+  }
+}
+
+async function loadNeeds() {
+  if (!props.agencyId) return;
+  needsLoading.value = true;
+  needsError.value = '';
+  try {
+    await loadNeedSchools();
+    const res = await api.get('/provider-year-update/school-needs', {
+      params: { agencyId: props.agencyId, schoolYear: schoolYear.value },
+      skipGlobalLoading: true,
+    });
+    schoolNeeds.value = res.data?.needs || [];
+  } catch (e) {
+    needsError.value = e?.response?.data?.error?.message || e.message || 'Failed to load school needs';
+  } finally {
+    needsLoading.value = false;
+  }
+}
+
+async function createNeed() {
+  if (!needForm.schoolOrganizationId || needSaving.value) return;
+  needSaving.value = true;
+  needsError.value = '';
+  try {
+    await api.post('/provider-year-update/school-needs', {
+      agencyId: Number(props.agencyId),
+      schoolYear: schoolYear.value,
+      schoolOrganizationId: Number(needForm.schoolOrganizationId),
+      title: needForm.title,
+      body: needForm.body,
+      slotsNeeded: needForm.slotsNeeded,
+      days: [...needForm.days],
+    });
+    needForm.schoolOrganizationId = '';
+    needForm.title = '';
+    needForm.body = '';
+    needForm.slotsNeeded = 1;
+    needForm.days = [];
+    await loadNeeds();
+  } catch (e) {
+    needsError.value = e?.response?.data?.error?.message || e.message || 'Failed to post school need';
+  } finally {
+    needSaving.value = false;
+  }
+}
+
+async function setNeedStatus(need, status) {
+  needSaving.value = true;
+  needsError.value = '';
+  try {
+    await api.patch(`/provider-year-update/school-needs/${need.id}`, {
+      agencyId: Number(props.agencyId),
+      status,
+    });
+    await loadNeeds();
+  } catch (e) {
+    needsError.value = e?.response?.data?.error?.message || e.message || 'Failed to update need';
+  } finally {
+    needSaving.value = false;
+  }
+}
+
+async function toggleApps(need) {
+  if (expandedNeedId.value === need.id) {
+    expandedNeedId.value = null;
+    return;
+  }
+  expandedNeedId.value = need.id;
+  appsLoadingId.value = need.id;
+  try {
+    const res = await api.get(`/provider-year-update/school-needs/${need.id}/applications`, {
+      params: { agencyId: props.agencyId },
+      skipGlobalLoading: true,
+    });
+    applicationsByNeed[need.id] = res.data?.applications || [];
+  } catch (e) {
+    needsError.value = e?.response?.data?.error?.message || e.message || 'Failed to load applicants';
+    applicationsByNeed[need.id] = [];
+  } finally {
+    appsLoadingId.value = 0;
+  }
+}
+
+async function reviewApp(need, app, status) {
+  needsError.value = '';
+  try {
+    await api.patch(`/provider-year-update/school-needs/applications/${app.id}`, {
+      agencyId: Number(props.agencyId),
+      status,
+    });
+    const res = await api.get(`/provider-year-update/school-needs/${need.id}/applications`, {
+      params: { agencyId: props.agencyId },
+      skipGlobalLoading: true,
+    });
+    applicationsByNeed[need.id] = res.data?.applications || [];
+    await loadNeeds();
+  } catch (e) {
+    needsError.value = e?.response?.data?.error?.message || e.message || 'Failed to update application';
+  }
+}
 
 const campaignLabel = computed(() => {
   if (campaign.value.isDisabled) return 'Disabled';
@@ -493,6 +798,7 @@ async function load() {
       selectedRow.value =
         rows.value.find((r) => r.providerUserId === selectedRow.value.providerUserId) || null;
     }
+    await loadNeeds();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e.message || 'Failed to load report';
   } finally {
@@ -835,9 +1141,130 @@ onMounted(load);
 }
 .small { font-size: 0.8rem; }
 .muted { color: #64748b; }
+.pyu-admin__needs {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #fff;
+  margin-bottom: 16px;
+}
+.pyu-admin__needs-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.pyu-admin__needs-head h3 {
+  margin: 0 0 4px;
+  color: #0c4a6e;
+}
+.pyu-admin__needs-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(140px, 1fr) 90px;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+.pyu-admin__needs-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+}
+.pyu-admin__needs-form input,
+.pyu-admin__needs-form select,
+.pyu-admin__needs-form textarea {
+  font-weight: 400;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+}
+.pyu-admin__days {
+  grid-column: 1 / -1;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.pyu-admin__days legend {
+  padding: 0 4px;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+.pyu-admin__needs-notes {
+  grid-column: 1 / -2;
+}
+.pyu-admin__needs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.pyu-admin__need-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+}
+.pyu-admin__need-top {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.pyu-admin__need-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
+.pill--need-open { background: #dcfce7; color: #166534; }
+.pill--need-closed { background: #fee2e2; color: #991b1b; }
+.pill--need-filled { background: #dbeafe; color: #1e40af; }
+.pill--app-pending { background: #fef3c7; color: #92400e; }
+.pill--app-approved { background: #dcfce7; color: #166534; }
+.pill--app-denied { background: #fee2e2; color: #991b1b; }
+.pill--app-withdrawn { background: #e2e8f0; color: #475569; }
+.pyu-admin__apps {
+  margin-top: 10px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 10px;
+}
+.pyu-admin__apps ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pyu-admin__apps li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
 @media (max-width: 960px) {
   .pyu-admin__workspace.has-detail {
     grid-template-columns: 1fr;
+  }
+  .pyu-admin__needs-form {
+    grid-template-columns: 1fr;
+  }
+  .pyu-admin__needs-notes {
+    grid-column: auto;
   }
 }
 </style>

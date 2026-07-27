@@ -246,6 +246,58 @@ export async function listPendingOfficeClients(req, res, next) {
   }
 }
 
+/**
+ * GET /api/client-exchange/acceptance-metrics?agencyId=&providerUserId=
+ * Office referral acceptance: declined if posted to Client Exchange within 30 days of assignment.
+ */
+export async function getAcceptanceMetrics(req, res, next) {
+  try {
+    const agencyId = safeInt(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const isAdmin = isBackoffice(role);
+    let providerUserId = safeInt(req.query.providerUserId);
+
+    if (!isAdmin) {
+      // Providers may only see their own acceptance metrics.
+      providerUserId = safeInt(req.user.id);
+    }
+
+    const OfficeAcceptance = await import('../services/officeClientAcceptance.service.js');
+    const windowDays = safeInt(req.query.windowDays) || OfficeAcceptance.WINDOW_DAYS;
+    const data = await OfficeAcceptance.getAcceptanceMetrics({
+      agencyId,
+      providerUserId: providerUserId || null,
+      windowDays,
+    });
+
+    if (!isAdmin && providerUserId) {
+      const mine = data.providers.find((p) => Number(p.providerUserId) === Number(providerUserId));
+      return res.json({
+        windowDays: data.windowDays,
+        provider: mine || {
+          providerUserId,
+          assignedCount: 0,
+          acceptedCount: 0,
+          declinedCount: 0,
+          pendingCount: 0,
+          acceptanceRatio: null,
+          acceptanceLabel: 'No office referrals yet',
+          events: [],
+        },
+      });
+    }
+
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
 // ─── Public digital intake ──────────────────────────────────────────────────
 
 /** GET /api/public/office-intake/:agencySlug */

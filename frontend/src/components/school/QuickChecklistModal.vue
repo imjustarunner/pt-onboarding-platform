@@ -34,127 +34,48 @@
             <label>Continuation of Services</label>
             <select v-model="form.continuation.plan" class="input">
               <option value="">—</option>
-              <option value="continue_school">Continuing for in-school services in the fall</option>
+              <option value="continue_school">Continuing for in-school services this fall</option>
               <option value="not_continue_school">Not continuing for in-school services in the fall</option>
               <option value="unable_to_contact_parent">Not able to contact parent/guardian</option>
             </select>
 
             <div v-if="form.continuation.plan === 'continue_school'" class="nested-fields">
-              <div class="choice-row">
-                <label class="choice-card">
-                  <input v-model="form.continuation.schoolChoice" type="radio" value="current_school" />
-                  <span class="choice-card-label">Current school</span>
-                </label>
-                <label class="choice-card">
-                  <input v-model="form.continuation.schoolChoice" type="radio" value="new_school" />
-                  <span class="choice-card-label">New school</span>
-                </label>
+              <p class="hint">
+                Select the day(s) you see this client at your school, then choose the date services continue this fall.
+                Saving will assign them to those days and mark them current when documents are complete.
+              </p>
+              <div v-if="loadingWorkDays" class="muted">Loading your schedule days…</div>
+              <div v-else-if="workDaysError" class="error">{{ workDaysError }}</div>
+              <div v-else-if="!workDays.length" class="muted">
+                No work days at this school on your schedule yet. Set your school schedule first.
               </div>
-
-              <div v-if="form.continuation.schoolChoice === 'current_school'" class="nested-fields">
-                <div class="choice-row">
-                  <label class="choice-card">
-                    <input v-model="form.continuation.currentSchoolAction" type="radio" value="continuing_with_me" />
-                    <span class="choice-card-label">Continuing with me</span>
-                  </label>
-                  <label class="choice-card">
-                    <input v-model="form.continuation.currentSchoolAction" type="radio" value="requesting_transfer" />
-                    <span class="choice-card-label">Requesting transfer</span>
-                  </label>
-                </div>
+              <div v-else class="day-grid" role="group" aria-label="Assigned days of the week">
+                <button
+                  v-for="day in workDays"
+                  :key="day.day_of_week"
+                  type="button"
+                  class="day-chip"
+                  :class="{ active: isDaySelected(day.day_of_week) }"
+                  @click="toggleWorkDay(day.day_of_week)"
+                >
+                  <span class="day-short">{{ shortDay(day.day_of_week) }}</span>
+                  <span v-if="dayHours(day)" class="day-meta">{{ dayHours(day) }}</span>
+                </button>
               </div>
-
-              <div v-if="form.continuation.schoolChoice === 'new_school'" class="nested-fields">
-                <label>New school</label>
-                <select v-model="form.continuation.newSchoolOrganizationId" class="input">
-                  <option value="">Select affiliated school…</option>
-                  <option
-                    v-for="school in agencySchools"
-                    :key="school.school_organization_id"
-                    :value="String(school.school_organization_id)"
-                  >
-                    {{ school.school_name }}
-                  </option>
-                </select>
-                <input
-                  v-if="!form.continuation.newSchoolOrganizationId"
-                  v-model="form.continuation.newSchoolName"
-                  class="input"
-                  type="text"
-                  placeholder="Type school if it is not listed"
-                />
-                <p v-if="agencySchoolsError" class="hint" style="font-size: 12px;">{{ agencySchoolsError }}</p>
-
-                <div v-if="form.continuation.newSchoolOrganizationId" class="nested-fields">
-                  <label class="choice-card">
-                    <input
-                      v-model="form.continuation.newSchoolAction"
-                      type="radio"
-                      value="continue_at_new_school_if_possible"
-                    />
-                    <span class="choice-card-label">I would like to continue to see them at their new school if possible</span>
-                  </label>
-                  <label class="choice-card">
-                    <input
-                      v-model="form.continuation.newSchoolAction"
-                      type="radio"
-                      value="pursue_in_office_support"
-                    />
-                    <span class="choice-card-label">I will pursue in-office support at the client's request</span>
-                  </label>
-                </div>
-              </div>
+              <label class="field-label">Continuation start date</label>
+              <input v-model="form.continuation.continuationStartDate" type="date" class="input" />
             </div>
 
-            <div v-if="form.continuation.plan === 'not_continue_school'" class="nested-fields">
-              <div class="choice-row">
-              <label class="choice-card">
-                <input
-                  v-model="form.continuation.notContinuingAction"
-                  type="radio"
-                  value="transferring_terminating_client"
-                />
-                <span class="choice-card-label">Transferring/terminating the client</span>
-              </label>
-              <label class="choice-card">
-                <input
-                  v-model="form.continuation.notContinuingAction"
-                  type="radio"
-                  value="continuing_office_virtual"
-                />
-                <span class="choice-card-label">Continuing as an in-office/virtual client</span>
-              </label>
-              </div>
+            <div v-else-if="form.continuation.plan === 'not_continue_school'" class="nested-fields">
+              <p class="hint warn">
+                Saving will mark this client as terminated, remove them from your caseload, and notify support.
+              </p>
             </div>
 
-            <div
-              v-if="form.continuation.plan === 'unable_to_contact_parent'"
-              class="sub-prompt-overlay"
-              role="dialog"
-              aria-labelledby="unable-contact-prompt-title"
-            >
-              <div class="sub-prompt">
-                <h4 id="unable-contact-prompt-title">Not able to contact parent/guardian</h4>
-                <p class="sub-prompt-lead">Select a recommendation:</p>
-                <div class="choice-row">
-                  <label class="choice-card">
-                    <input
-                      v-model="form.continuation.unableToContactRecommendation"
-                      type="radio"
-                      value="recommend_continue"
-                    />
-                    <span class="choice-card-label">Recommend Continue</span>
-                  </label>
-                  <label class="choice-card">
-                    <input
-                      v-model="form.continuation.unableToContactRecommendation"
-                      type="radio"
-                      value="recommend_terminate"
-                    />
-                    <span class="choice-card-label">Recommend Terminate</span>
-                  </label>
-                </div>
-              </div>
+            <div v-else-if="form.continuation.plan === 'unable_to_contact_parent'" class="nested-fields">
+              <p class="hint warn">
+                Saving will mark this client as terminated, remove them from your caseload, and notify support.
+              </p>
             </div>
           </div>
         </div>
@@ -173,6 +94,7 @@
 <script setup>
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -180,8 +102,12 @@ const props = defineProps({
 });
 const emit = defineEmits(['close', 'saved']);
 
+const authStore = useAuthStore();
+
 const emptyContinuation = () => ({
   plan: '',
+  serviceDays: [],
+  continuationStartDate: '',
   schoolChoice: '',
   currentSchoolAction: '',
   newSchoolOrganizationId: '',
@@ -200,8 +126,14 @@ const form = ref({
 
 const saving = ref(false);
 const error = ref('');
-const agencySchools = ref([]);
-const agencySchoolsError = ref('');
+const workDays = ref([]);
+const loadingWorkDays = ref(false);
+const workDaysError = ref('');
+
+const providerUserId = computed(() => Number(authStore.user?.id || 0) || null);
+const schoolOrganizationId = computed(() =>
+  Number(props.client?.organization_id || props.client?.school_organization_id || 0) || null
+);
 
 const clientLabel = ref('');
 const isContinuationServicesSeason = (value = new Date()) => {
@@ -227,6 +159,10 @@ const parseContinuationServices = (value) => {
   return {
     ...emptyContinuation(),
     plan: String(data.plan || ''),
+    serviceDays: Array.isArray(data.serviceDays)
+      ? data.serviceDays.map((d) => String(d || '').trim()).filter(Boolean)
+      : [],
+    continuationStartDate: data.continuationStartDate ? String(data.continuationStartDate).slice(0, 10) : '',
     schoolChoice: String(data.schoolChoice || ''),
     currentSchoolAction: String(data.currentSchoolAction || ''),
     newSchoolOrganizationId: data.newSchoolOrganizationId ? String(data.newSchoolOrganizationId) : '',
@@ -262,16 +198,78 @@ const onKeydown = (e) => {
 onMounted(() => window.addEventListener('keydown', onKeydown));
 onUnmounted(() => window.removeEventListener('keydown', onKeydown));
 
-const fetchAgencySchools = async () => {
-  if (!props.parentAgencyId || !showContinuationServices.value) return;
-  try {
-    agencySchoolsError.value = '';
-    const response = await api.get(`/agencies/${props.parentAgencyId}/schools`, { skipGlobalLoading: true });
-    agencySchools.value = Array.isArray(response.data) ? response.data : [];
-  } catch {
-    agencySchools.value = [];
-    agencySchoolsError.value = 'Affiliated schools could not be loaded. Type the school if it is not listed.';
+const fetchWorkDays = async () => {
+  const orgId = schoolOrganizationId.value;
+  const clientId = Number(props.client?.id || 0);
+  const providerId = providerUserId.value;
+  if (!orgId || !clientId || !providerId) {
+    workDays.value = [];
+    return;
   }
+  loadingWorkDays.value = true;
+  workDaysError.value = '';
+  try {
+    const r = await api.get(`/school-portal/${orgId}/clients/${clientId}/day-assignment-context`, {
+      params: { providerUserId: providerId },
+      skipGlobalLoading: true
+    });
+    const providers = Array.isArray(r.data?.providers) ? r.data.providers : [];
+    const match =
+      providers.find((p) => Number(p.provider_user_id) === providerId) ||
+      (r.data?.provider ? {
+        work_days: r.data.work_days,
+        assigned_days: r.data.assigned_days
+      } : null);
+    workDays.value = Array.isArray(match?.work_days) ? match.work_days : [];
+    const assigned = Array.isArray(match?.assigned_days) ? match.assigned_days : [];
+    if (assigned.length && !form.value.continuation.serviceDays?.length) {
+      form.value.continuation.serviceDays = [...assigned];
+    }
+  } catch (e) {
+    workDays.value = [];
+    workDaysError.value = e?.response?.data?.error?.message || 'Could not load your school schedule days';
+  } finally {
+    loadingWorkDays.value = false;
+  }
+};
+
+const shortDay = (day) => {
+  const map = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri' };
+  return map[String(day)] || String(day || '').slice(0, 3);
+};
+
+const formatTime = (t) => {
+  const s = String(t || '').slice(0, 8);
+  const m = s.match(/^(\d{2}):(\d{2})/);
+  if (!m) return '';
+  let hh = parseInt(m[1], 10);
+  const mm = m[2];
+  const ampm = hh >= 12 ? 'PM' : 'AM';
+  hh = hh % 12 || 12;
+  return `${hh}:${mm} ${ampm}`;
+};
+
+const dayHours = (day) => {
+  const a = formatTime(day?.start_time);
+  const b = formatTime(day?.end_time);
+  if (a && b) return `${a}–${b}`;
+  return '';
+};
+
+const isDaySelected = (day) => (form.value.continuation.serviceDays || []).includes(String(day));
+
+const toggleWorkDay = (day) => {
+  const d = String(day || '');
+  if (!d) return;
+  const current = Array.isArray(form.value.continuation.serviceDays) ? [...form.value.continuation.serviceDays] : [];
+  const idx = current.indexOf(d);
+  if (idx >= 0) current.splice(idx, 1);
+  else current.push(d);
+  form.value.continuation.serviceDays = current;
+};
+
+const fetchAgencySchools = async () => {
+  // Legacy admin flow only; no-op for provider quick checklist.
 };
 
 const todayYmd = () => {
@@ -288,24 +286,49 @@ const continuationPayload = () => {
   if (!showContinuationServices.value || !c.plan) return null;
   const payload = { plan: c.plan };
   if (c.plan === 'continue_school') {
-    payload.schoolChoice = c.schoolChoice || '';
-    if (c.schoolChoice === 'current_school') {
-      payload.currentSchoolAction = c.currentSchoolAction || '';
-    } else if (c.schoolChoice === 'new_school') {
-      payload.newSchoolOrganizationId = c.newSchoolOrganizationId ? Number(c.newSchoolOrganizationId) : null;
-      payload.newSchoolName = c.newSchoolOrganizationId ? null : (String(c.newSchoolName || '').trim() || null);
-      if (c.newSchoolOrganizationId) payload.newSchoolAction = c.newSchoolAction || '';
-    }
-  } else if (c.plan === 'not_continue_school') {
-    payload.notContinuingAction = c.notContinuingAction || '';
-  } else if (c.plan === 'unable_to_contact_parent') {
-    payload.unableToContactRecommendation = c.unableToContactRecommendation || '';
+    payload.serviceDays = Array.isArray(c.serviceDays) ? c.serviceDays.filter(Boolean) : [];
+    payload.continuationStartDate = c.continuationStartDate || null;
   }
   return payload;
 };
 
+const assignContinuationDays = async () => {
+  const orgId = schoolOrganizationId.value;
+  const clientId = Number(props.client?.id || 0);
+  const providerId = providerUserId.value;
+  const days = form.value.continuation?.serviceDays || [];
+  if (!orgId || !clientId || !providerId || !days.length) return;
+  for (const serviceDay of days) {
+    await api.post(
+      `/school-portal/${orgId}/clients/${clientId}/assigned-day`,
+      { providerUserId: providerId, serviceDay, assigned: true },
+      { skipGlobalLoading: true }
+    );
+  }
+};
+
+const terminateFromContinuation = async (plan) => {
+  if (String(props.client?.client_status_key || '').toLowerCase() === 'terminated') return;
+  const reason =
+    plan === 'not_continue_school'
+      ? 'Not continuing for in-school services in the fall (continuation checklist)'
+      : 'Not able to contact parent/guardian (continuation checklist)';
+  await api.post(`/clients/${props.client.id}/terminate`, { termination_reason: reason }, { skipGlobalLoading: true });
+};
+
 const save = async () => {
   if (!props.client?.id) return;
+  const plan = form.value.continuation?.plan || '';
+  if (showContinuationServices.value && plan === 'continue_school') {
+    if (!(form.value.continuation.serviceDays || []).length) {
+      error.value = 'Select at least one day of the week for this client.';
+      return;
+    }
+    if (!form.value.continuation.continuationStartDate) {
+      error.value = 'Select a continuation start date.';
+      return;
+    }
+  }
   try {
     saving.value = true;
     error.value = '';
@@ -315,8 +338,18 @@ const save = async () => {
         form.value.parentsContactedSuccessful === '' ? null : form.value.parentsContactedSuccessful === 'true',
       firstServiceAt: form.value.firstServiceAt || null
     };
-    if (showContinuationServices.value) payload.continuationServices = continuationPayload();
+    if (showContinuationServices.value) {
+      payload.continuationServices = continuationPayload();
+      if (plan === 'continue_school' && form.value.continuation.continuationStartDate) {
+        payload.firstServiceAt = form.value.continuation.continuationStartDate;
+      }
+    }
     await api.put(`/clients/${props.client.id}/compliance-checklist`, payload);
+    if (showContinuationServices.value && plan === 'continue_school') {
+      await assignContinuationDays();
+    } else if (showContinuationServices.value && (plan === 'not_continue_school' || plan === 'unable_to_contact_parent')) {
+      await terminateFromContinuation(plan);
+    }
     emit('saved');
     emit('close');
   } catch (e) {
@@ -329,37 +362,24 @@ const save = async () => {
 watch(() => props.parentAgencyId, fetchAgencySchools, { immediate: true });
 
 watch(
+  () => [props.client?.id, form.value.continuation.plan, schoolOrganizationId.value],
+  ([, plan]) => {
+    if (plan === 'continue_school') fetchWorkDays();
+    else {
+      workDays.value = [];
+      workDaysError.value = '';
+    }
+  },
+  { immediate: true }
+);
+
+watch(
   () => form.value.continuation.plan,
   (plan) => {
     if (plan !== 'continue_school') {
-      form.value.continuation.schoolChoice = '';
-      form.value.continuation.currentSchoolAction = '';
-      form.value.continuation.newSchoolOrganizationId = '';
-      form.value.continuation.newSchoolName = '';
-      form.value.continuation.newSchoolAction = '';
+      form.value.continuation.serviceDays = [];
+      form.value.continuation.continuationStartDate = '';
     }
-    if (plan !== 'not_continue_school') form.value.continuation.notContinuingAction = '';
-    if (plan !== 'unable_to_contact_parent') form.value.continuation.unableToContactRecommendation = '';
-  }
-);
-
-watch(
-  () => form.value.continuation.schoolChoice,
-  (choice) => {
-    if (choice !== 'current_school') form.value.continuation.currentSchoolAction = '';
-    if (choice !== 'new_school') {
-      form.value.continuation.newSchoolOrganizationId = '';
-      form.value.continuation.newSchoolName = '';
-      form.value.continuation.newSchoolAction = '';
-    }
-  }
-);
-
-watch(
-  () => form.value.continuation.newSchoolOrganizationId,
-  (schoolId) => {
-    if (schoolId) form.value.continuation.newSchoolName = '';
-    if (!schoolId) form.value.continuation.newSchoolAction = '';
   }
 );
 </script>
@@ -425,73 +445,53 @@ watch(
   gap: 10px;
   margin-top: 10px;
 }
-.choice-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.day-grid {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
-.continuation-section label.choice-card {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 0 !important;
-  margin-bottom: 0 !important;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
+.day-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 1px solid #166534;
   border-radius: 10px;
   background: #fff;
-  color: #1d2633 !important;
-  font-size: 13px !important;
-  font-weight: 700 !important;
-  line-height: 1.35;
+  color: #166534;
   cursor: pointer;
-  width: 100%;
-  box-sizing: border-box;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.choice-card-label {
-  flex: 1;
-  min-width: 0;
-  color: #1d2633;
+.day-chip.active {
+  background: #166534;
+  color: #fff;
+}
+.day-short {
   font-size: 13px;
-  font-weight: 700;
-  line-height: 1.35;
+  font-weight: 800;
 }
-.continuation-section label.choice-card input[type='radio'] {
-  width: 18px !important;
-  min-width: 18px !important;
-  height: 18px !important;
-  margin: 1px 0 0 !important;
-  padding: 0 !important;
-  border: none !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  flex: 0 0 18px;
-  align-self: flex-start;
-  accent-color: var(--primary, #c69a2b);
+.day-meta {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.85;
+  margin-top: 2px;
 }
-.sub-prompt-overlay {
-  position: relative;
-  margin-top: 10px;
-}
-.sub-prompt {
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: var(--shadow);
-}
-.sub-prompt h4 {
-  margin: 0 0 6px;
-  font-size: 14px;
-  font-weight: 700;
-  color: #1d2633;
-}
-.sub-prompt-lead {
-  margin: 0 0 10px;
-  font-size: 13px;
-  color: var(--text-secondary, #64748b);
+.hint.warn {
+  color: #9a3412;
+  background: rgba(234, 88, 12, 0.08);
+  border: 1px solid rgba(234, 88, 12, 0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
 }
 .input-with-today {
   display: flex;
@@ -553,9 +553,6 @@ watch(
     padding: 0;
   }
   .form-grid {
-    grid-template-columns: 1fr;
-  }
-  .choice-row {
     grid-template-columns: 1fr;
   }
   .input-with-today {

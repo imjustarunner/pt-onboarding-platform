@@ -262,11 +262,25 @@ function mergeGuardianIntakeWithFallback(intake, fallback) {
 }
 
 const CONTINUATION_SERVICES_PLANS = new Set(['continue_school', 'not_continue_school', 'unable_to_contact_parent']);
+const CONTINUATION_WEEKDAYS = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
 const CONTINUATION_SCHOOL_CHOICES = new Set(['current_school', 'new_school']);
 const CONTINUATION_CURRENT_SCHOOL_ACTIONS = new Set(['continuing_with_me', 'requesting_transfer']);
 const CONTINUATION_NEW_SCHOOL_ACTIONS = new Set(['continue_at_new_school_if_possible', 'pursue_in_office_support']);
 const CONTINUATION_NOT_CONTINUING_ACTIONS = new Set(['transferring_terminating_client', 'continuing_office_virtual']);
 const CONTINUATION_UNABLE_TO_CONTACT_RECOMMENDATIONS = new Set(['recommend_continue', 'recommend_terminate']);
+
+function normalizeContinuationWeekday(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const title = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+  return CONTINUATION_WEEKDAYS.has(title) ? title : null;
+}
+
+function parseContinuationDateYmd(value) {
+  const s = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  return s;
+}
 
 function normalizeOptionalText(value, maxLength = 255) {
   const text = String(value || '').trim();
@@ -287,6 +301,28 @@ function normalizeContinuationServicesPayload(raw) {
 
   const normalized = { plan };
   if (plan === 'continue_school') {
+    const serviceDays = Array.isArray(raw.serviceDays)
+      ? [...new Set(raw.serviceDays.map((d) => normalizeContinuationWeekday(d)).filter(Boolean))]
+      : [];
+    const continuationStartDate = parseContinuationDateYmd(raw.continuationStartDate);
+    const usesSimplifiedFlow =
+      serviceDays.length > 0 ||
+      continuationStartDate ||
+      raw.serviceDays !== undefined ||
+      raw.continuationStartDate !== undefined;
+
+    if (usesSimplifiedFlow) {
+      if (!serviceDays.length) {
+        throw new Error('Select at least one assigned day of the week');
+      }
+      if (!continuationStartDate) {
+        throw new Error('Select a continuation start date');
+      }
+      normalized.serviceDays = serviceDays;
+      normalized.continuationStartDate = continuationStartDate;
+      return normalized;
+    }
+
     const schoolChoice = String(raw.schoolChoice || '').trim();
     if (!CONTINUATION_SCHOOL_CHOICES.has(schoolChoice)) {
       throw new Error('Select current school or new school');
@@ -318,16 +354,20 @@ function normalizeContinuationServicesPayload(raw) {
     }
   } else if (plan === 'not_continue_school') {
     const notContinuingAction = String(raw.notContinuingAction || '').trim();
-    if (!CONTINUATION_NOT_CONTINUING_ACTIONS.has(notContinuingAction)) {
-      throw new Error('Select the fall plan for not continuing in-school services');
+    if (notContinuingAction) {
+      if (!CONTINUATION_NOT_CONTINUING_ACTIONS.has(notContinuingAction)) {
+        throw new Error('Select the fall plan for not continuing in-school services');
+      }
+      normalized.notContinuingAction = notContinuingAction;
     }
-    normalized.notContinuingAction = notContinuingAction;
   } else {
     const unableToContactRecommendation = String(raw.unableToContactRecommendation || '').trim();
-    if (!CONTINUATION_UNABLE_TO_CONTACT_RECOMMENDATIONS.has(unableToContactRecommendation)) {
-      throw new Error('Select Recommend Continue or Recommend Terminate');
+    if (unableToContactRecommendation) {
+      if (!CONTINUATION_UNABLE_TO_CONTACT_RECOMMENDATIONS.has(unableToContactRecommendation)) {
+        throw new Error('Select Recommend Continue or Recommend Terminate');
+      }
+      normalized.unableToContactRecommendation = unableToContactRecommendation;
     }
-    normalized.unableToContactRecommendation = unableToContactRecommendation;
   }
 
   return normalized;
@@ -2679,6 +2719,20 @@ export const updateClient = async (req, res, next) => {
           }).catch(() => {});
         }
 
+        if (!oldWasCurrent && newIsCurrent && newProviderId) {
+          try {
+            const OfficeAcceptance = await import('../services/officeClientAcceptance.service.js');
+            if (OfficeAcceptance.isOfficeClientType(updatedClient.client_type)) {
+              await OfficeAcceptance.recordMarkedCurrent({
+                clientId: parseInt(id, 10),
+                providerUserId: newProviderId,
+              });
+            }
+          } catch (e) {
+            console.warn('[updateClient] office acceptance current stamp failed:', e?.message || e);
+          }
+        }
+
         // When transitioning to terminated: auto-remove provider assignment, notify
         if (newKey === 'terminated' || newLabel.includes('terminated')) {
           const terminationReason = updatedClient.termination_reason || req.body.termination_reason || '';
@@ -3290,7 +3344,7 @@ export const assignProvider = async (req, res, next) => {
       await connection.beginTransaction();
 
       const [clientRows] = await connection.execute(
-        `SELECT id, agency_id, provider_id, organization_id, service_day, client_status_id
+        `SELECT id, agency_id, provider_id, organization_id, service_day, client_status_id, client_type, status
          FROM clients
          WHERE id = ?
          LIMIT 1
@@ -3448,6 +3502,20 @@ export const assignProvider = async (req, res, next) => {
            VALUES (?, ?, 'provider_id', ?, ?, ?)`,
           [parseInt(id, 10), userId, oldProviderId ? String(oldProviderId) : null, finalProviderId ? String(finalProviderId) : null, note || null]
         );
+        try {
+          const OfficeAcceptance = await import('../services/officeClientAcceptance.service.js');
+          await OfficeAcceptance.recordProviderAssignmentChange({
+            connection,
+            clientId: parseInt(id, 10),
+            agencyId: currentClient.agency_id,
+            clientType: currentClient.client_type,
+            oldProviderUserId: oldProviderId,
+            newProviderUserId: finalProviderId,
+            actingUserId: userId,
+          });
+        } catch (e) {
+          console.warn('[assignProvider] office acceptance tracking failed:', e?.message || e);
+        }
       }
       if (oldDay !== finalDay) {
         await connection.execute(

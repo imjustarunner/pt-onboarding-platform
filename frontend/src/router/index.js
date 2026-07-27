@@ -2347,21 +2347,11 @@ const routes = [
   {
     path: '/provider/year-update',
     name: 'ProviderYearUpdateHub',
-    component: () => import('../views/provider/ProviderYearUpdateHubView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresRole: [
-        'provider',
-        'provider_plus',
-        'intern',
-        'intern_plus',
-        'admin',
-        'super_admin',
-        'support',
-        'clinical_practice_assistant',
-        'supervisor'
-      ]
-    }
+    redirect: (to) => ({
+      path: '/provider/year-update/flow',
+      query: to.query,
+      hash: to.hash,
+    }),
   },
   {
     path: '/provider/year-update/flow',
@@ -2385,22 +2375,11 @@ const routes = [
   {
     path: '/:organizationSlug/provider/year-update',
     name: 'OrganizationProviderYearUpdateHub',
-    component: () => import('../views/provider/ProviderYearUpdateHubView.vue'),
-    meta: {
-      requiresAuth: true,
-      organizationSlug: true,
-      requiresRole: [
-        'provider',
-        'provider_plus',
-        'intern',
-        'intern_plus',
-        'admin',
-        'super_admin',
-        'support',
-        'clinical_practice_assistant',
-        'supervisor'
-      ]
-    }
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/provider/year-update/flow`,
+      query: to.query,
+      hash: to.hash,
+    }),
   },
   {
     path: '/:organizationSlug/provider/year-update/flow',

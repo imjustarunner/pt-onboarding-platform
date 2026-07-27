@@ -990,9 +990,7 @@ export async function finalizeCycle({ cycleId, actor }) {
          finalized_by_actor_type = ?,
          finalized_by_user_id = ?,
          finalized_by_display_name = ?,
-         snapshot_json = ?,
-         pushed_at = NULL,
-         pushed_by_user_id = NULL
+         snapshot_json = ?
      WHERE id = ?`,
     [
       actor?.actorType || null,
@@ -1209,10 +1207,10 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
   );
   let cycle = cycleRows?.[0] || null;
 
-  if (cycle?.status === 'finalized') {
+  if (cycle?.admin_completed_at) {
     return {
       available: false,
-      reason: 'completed',
+      reason: 'admin_completed',
       campaign: campaignPayload,
       cycle: {
         id: cycle.id,
@@ -1222,6 +1220,31 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
         pushedAt: cycle.pushed_at || null,
         adminCompletedAt: cycle.admin_completed_at || null,
       },
+    };
+  }
+
+  const userFinalized = cycle?.status === 'finalized';
+
+  if (userFinalized) {
+    return {
+      available: true,
+      showPulse: false,
+      showSplash: false,
+      userFinalized: true,
+      dismissed: false,
+      allSectionsDone: true,
+      campaign: campaignPayload,
+      cycle: {
+        id: cycle.id,
+        status: cycle.status,
+        schoolYear: cycle.school_year,
+        finalizedAt: cycle.finalized_at || null,
+        pushedAt: cycle.pushed_at || null,
+        adminCompletedAt: null,
+      },
+      sectionPercent: 100,
+      reviewedCount: SECTION_KEYS.length,
+      sectionTotal: SECTION_KEYS.length,
     };
   }
 
@@ -1258,7 +1281,8 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
   const dismissal = await getDismissal(cycle.id, providerUserId);
   const dismissed =
     dismissal &&
-    (!dismissal.dismiss_until || new Date(dismissal.dismiss_until).getTime() > Date.now());
+    dismissal.dismiss_until &&
+    new Date(dismissal.dismiss_until).getTime() > Date.now();
 
   const sections = await getSectionProgress(cycle.id);
   const reviewedCount = sections.filter((s) => s.reviewed || s.completed).length;
@@ -1271,8 +1295,10 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
 
   return {
     available: true,
-    showPulse: !allSectionsDone && !dismissed,
+    showPulse: !allSectionsDone,
+    showSplash: true,
     dismissed: Boolean(dismissed),
+    userFinalized: false,
     allSectionsDone,
     campaign: {
       ...campaignPayload,

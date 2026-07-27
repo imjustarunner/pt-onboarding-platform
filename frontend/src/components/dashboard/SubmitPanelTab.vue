@@ -122,7 +122,7 @@
     <!-- Embedded flows -->
     <div v-else-if="view === 'availability'" class="submit-hub__embed">
       <p v-if="!agencyId" class="submit-hub__warn">Select an organization from the brand menu (top left) to continue.</p>
-      <AdditionalAvailabilitySubmit v-else :agency-id="Number(agencyId)" />
+      <AdditionalAvailabilitySubmit v-else :agency-id="Number(agencyId)" school-only />
     </div>
 
     <div v-else-if="view === 'virtual_hours'" class="submit-hub__embed">

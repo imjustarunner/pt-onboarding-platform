@@ -15,5 +15,6 @@ router.post('/requests/:id/approve', authenticate, ctrl.approveRequest);
 router.post('/requests/:id/deny', authenticate, ctrl.denyRequest);
 
 router.get('/pending-office-clients', authenticate, ctrl.listPendingOfficeClients);
+router.get('/acceptance-metrics', authenticate, ctrl.getAcceptanceMetrics);
 
 export default router;

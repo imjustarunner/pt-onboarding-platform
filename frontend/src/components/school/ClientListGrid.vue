@@ -14,99 +14,104 @@
 
     <div v-else class="clients-table-wrapper">
       <div v-if="showSearch" class="table-toolbar">
-        <div v-if="showAttentionFilters" class="attention-filter-row">
-          <button
-            type="button"
-            class="filter-pill"
-            :class="{ active: !attentionFilterActive && !activeStatusFilterKey }"
-            @click="setAttentionFilter(null)"
-          >
-            All
-          </button>
-          <button
-            type="button"
-            class="filter-pill filter-pill-attention"
-            :class="{ active: attentionFilterActive }"
-            @click="setAttentionFilter('needs_attention')"
-          >
-            Needs attention
-            <span v-if="attentionSummary.total > 0" class="filter-pill-count">{{ attentionSummary.total }}</span>
-          </button>
-          <button
-            type="button"
-            class="filter-pill"
-            :class="{ active: activeStatusFilterKey === 'pending' }"
-            @click="setStatusFilter('pending')"
-          >
-            Pending
-          </button>
-          <div
-            class="waitlist-pill-wrap"
-            @mouseenter="showWaitlistAvailabilityAlert ? (waitlistAlertOpen = true) : null"
-            @mouseleave="waitlistAlertOpen = false"
-          >
+        <div v-if="showAttentionFilters" class="roster-toolbar-band">
+          <div class="attention-filter-row">
             <button
               type="button"
-              class="filter-pill waitlist-pill"
-              :class="{ active: activeStatusFilterKey === 'waitlist' }"
-              @click="setStatusFilter('waitlist')"
+              class="filter-pill"
+              :class="{ active: !attentionFilterActive && !activeStatusFilterKey }"
+              @click="setAttentionFilter(null)"
             >
-              Waitlist
-              <span
-                v-if="showWaitlistAvailabilityAlert"
-                class="waitlist-pill-badge"
-                :aria-label="`${waitlistDisplayCount} waitlisted client${waitlistDisplayCount === 1 ? '' : 's'} in this school`"
-              >
-                ! {{ waitlistDisplayCount }}
-              </span>
+              All
             </button>
-            <div v-if="showWaitlistAvailabilityAlert && waitlistAlertOpen" class="waitlist-alert-tooltip" role="status">
-              There are waitlisted clients. Contact admin if you have openings or
-              <button type="button" class="inline-link-btn" @click.stop.prevent="openAvailabilityRequestFromWaitlist">
-                update my availability
-              </button>.
-              For requesting a whole new day, use
-              <a :href="additionalAvailabilityHref" @click.stop>Submit</a>.
+            <button
+              type="button"
+              class="filter-pill filter-pill-attention"
+              :class="{ active: attentionFilterActive }"
+              @click="setAttentionFilter(attentionFilterActive ? null : 'needs_attention')"
+            >
+              Needs attention
+              <span v-if="attentionSummary.total > 0" class="filter-pill-count">{{ attentionSummary.total }}</span>
+            </button>
+            <button
+              type="button"
+              class="filter-pill"
+              :class="{ active: activeStatusFilterKey === 'pending' }"
+              @click="setStatusFilter(activeStatusFilterKey === 'pending' ? '' : 'pending')"
+            >
+              Pending
+            </button>
+            <div
+              class="waitlist-pill-wrap"
+              @mouseenter="showWaitlistAvailabilityAlert ? (waitlistAlertOpen = true) : null"
+              @mouseleave="waitlistAlertOpen = false"
+            >
+              <button
+                type="button"
+                class="filter-pill waitlist-pill"
+                :class="{ active: activeStatusFilterKey === 'waitlist' }"
+                @click="setStatusFilter(activeStatusFilterKey === 'waitlist' ? '' : 'waitlist')"
+              >
+                Waitlist
+                <span
+                  v-if="showWaitlistAvailabilityAlert"
+                  class="waitlist-pill-badge"
+                  :aria-label="`${waitlistDisplayCount} waitlisted client${waitlistDisplayCount === 1 ? '' : 's'} in this school`"
+                >
+                  ! {{ waitlistDisplayCount }}
+                </span>
+              </button>
+              <div v-if="showWaitlistAvailabilityAlert && waitlistAlertOpen" class="waitlist-alert-tooltip" role="status">
+                There are waitlisted clients. Contact admin if you have openings or
+                <button type="button" class="inline-link-btn" @click.stop.prevent="openAvailabilityRequestFromWaitlist">
+                  update my availability
+                </button>.
+                For requesting a whole new day, use
+                <a :href="additionalAvailabilityHref" @click.stop>Submit</a>.
+              </div>
             </div>
           </div>
-        </div>
-        <div v-if="showSummaryBanner && attentionSummary.any" class="summary-banner">
-          <template v-if="attentionSummary.new > 0">{{ attentionSummary.new }} new</template>
-          <template v-if="attentionSummary.new > 0 && (attentionSummary.pendingCompliance > 0 || attentionSummary.openTickets > 0)"> • </template>
-          <template v-if="attentionSummary.pendingCompliance > 0">{{ attentionSummary.pendingCompliance }} pending compliance</template>
-          <template v-if="attentionSummary.pendingCompliance > 0 && attentionSummary.openTickets > 0"> • </template>
-          <template v-if="attentionSummary.openTickets > 0">{{ attentionSummary.openTickets }} ticket open</template>
+
+          <div
+            v-if="showSummaryBanner && attentionSummary.pendingCompliance > 0"
+            class="summary-banner"
+          >
+            {{ attentionSummary.pendingCompliance }} pending compliance
+          </div>
+
+          <div class="unread-legend" aria-label="Unread bubble legend">
+            <div class="unread-legend-track">
+              <div class="unread-legend-item">
+                <span class="unread-badge unread-badge-comments unread-badge-legend" aria-hidden="true">1</span>
+                <span class="unread-legend-text">New comment(s)</span>
+              </div>
+              <div class="unread-legend-item">
+                <span class="unread-badge unread-badge-messages unread-badge-legend" aria-hidden="true">1</span>
+                <span class="unread-legend-text">New message(s)</span>
+              </div>
+              <div class="unread-legend-item">
+                <span class="unread-badge unread-badge-updates unread-badge-legend" aria-hidden="true">1</span>
+                <span class="unread-legend-text">New updates</span>
+              </div>
+              <div class="unread-legend-item">
+                <span class="ticket-status-badge ticket-status-open ticket-status-legend" aria-hidden="true">1</span>
+                <span class="unread-legend-text">Ticket open</span>
+              </div>
+              <div class="unread-legend-item">
+                <span class="ticket-status-badge ticket-status-answered ticket-status-legend" aria-hidden="true">1</span>
+                <span class="unread-legend-text">Ticket answered</span>
+              </div>
+              <div v-if="showAssignedColumn" class="unread-legend-item">
+                <span class="newly-assigned-badge newly-assigned-badge-legend" aria-hidden="true">New</span>
+                <span class="unread-legend-text">Assigned in last 7 days</span>
+              </div>
+            </div>
+            <div class="unread-legend-hint">Click a bubble to open it.</div>
+          </div>
         </div>
         <div v-if="activeStatusFilterLabel && !showAttentionFilters" class="active-filter-row">
           <span class="active-filter-pill">Status: {{ activeStatusFilterLabel }}</span>
           <button class="btn-link" type="button" @click="clearStatusFilter">Clear</button>
-        </div>
-        <div class="unread-legend" aria-label="Unread bubble legend">
-          <div class="unread-legend-item">
-            <span class="unread-badge unread-badge-comments unread-badge-legend" aria-hidden="true">1</span>
-            <span class="unread-legend-text">New comment(s)</span>
-          </div>
-          <div class="unread-legend-item">
-            <span class="unread-badge unread-badge-messages unread-badge-legend" aria-hidden="true">1</span>
-            <span class="unread-legend-text">New message(s)</span>
-          </div>
-          <div class="unread-legend-item">
-            <span class="unread-badge unread-badge-updates unread-badge-legend" aria-hidden="true">1</span>
-            <span class="unread-legend-text">New updates</span>
-          </div>
-          <div class="unread-legend-item">
-            <span class="ticket-status-badge ticket-status-open ticket-status-legend" aria-hidden="true">1</span>
-            <span class="unread-legend-text">Ticket open</span>
-          </div>
-          <div class="unread-legend-item">
-            <span class="ticket-status-badge ticket-status-answered ticket-status-legend" aria-hidden="true">1</span>
-            <span class="unread-legend-text">Ticket answered</span>
-          </div>
-          <div v-if="showAssignedColumn" class="unread-legend-item">
-            <span class="newly-assigned-badge newly-assigned-badge-legend" aria-hidden="true">New</span>
-            <span class="unread-legend-text">Assigned in last 7 days</span>
-          </div>
-          <div class="unread-legend-hint">Click a bubble to open it.</div>
         </div>
         <input
           v-model="searchQuery"
@@ -1425,9 +1430,9 @@ const parseContinuationServices = (client) => {
 const hasContinuationServices = (client) => {
   const data = parseContinuationServices(client);
   if (!data) return false;
-  if (data.plan === 'not_continue_school') return !!data.notContinuingAction;
-  if (data.plan === 'unable_to_contact_parent') return !!data.unableToContactRecommendation;
+  if (data.plan === 'not_continue_school' || data.plan === 'unable_to_contact_parent') return true;
   if (data.plan !== 'continue_school') return false;
+  if (Array.isArray(data.serviceDays) && data.serviceDays.length && data.continuationStartDate) return true;
   if (data.schoolChoice === 'current_school') return !!data.currentSchoolAction;
   if (data.schoolChoice === 'new_school') {
     const hasSchool = !!Number(data.newSchoolOrganizationId || 0) || !!String(data.newSchoolName || '').trim();
@@ -1440,17 +1445,14 @@ const hasContinuationServices = (client) => {
 const continuationServicesSummary = (client) => {
   const data = parseContinuationServices(client);
   if (!data?.plan) return 'Needs response';
-  if (data.plan === 'not_continue_school') {
-    if (data.notContinuingAction === 'transferring_terminating_client') return 'Not continuing · transfer/terminate';
-    if (data.notContinuingAction === 'continuing_office_virtual') return 'Office/virtual';
-    return 'Not continuing · needs detail';
-  }
-  if (data.plan === 'unable_to_contact_parent') {
-    if (data.unableToContactRecommendation === 'recommend_continue') return 'No contact · recommend continue';
-    if (data.unableToContactRecommendation === 'recommend_terminate') return 'No contact · recommend terminate';
-    return 'No contact · needs recommendation';
-  }
+  if (data.plan === 'not_continue_school') return 'Not continuing this fall';
+  if (data.plan === 'unable_to_contact_parent') return 'No parent contact';
   if (data.plan !== 'continue_school') return 'Needs response';
+  if (Array.isArray(data.serviceDays) && data.serviceDays.length) {
+    const days = data.serviceDays.map((d) => String(d).slice(0, 3)).join(', ');
+    const date = data.continuationStartDate ? String(data.continuationStartDate).slice(0, 10) : '';
+    return date ? `Continuing · ${days} · ${date}` : `Continuing · ${days}`;
+  }
   if (data.schoolChoice === 'current_school') {
     if (data.currentSchoolAction === 'continuing_with_me') return 'Current school · with me';
     if (data.currentSchoolAction === 'requesting_transfer') return 'Current school · transfer';
@@ -1806,50 +1808,67 @@ onMounted(() => {
 .unread-legend {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 10px 0 8px 0;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg-alt);
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+  min-width: 0;
 }
+
+.unread-legend-track {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px 16px;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
 .unread-legend-item {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
+
 .unread-legend-text {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
+
 .unread-legend-hint {
-  margin-left: auto;
+  flex: 0 0 auto;
+  margin-left: 12px;
   color: var(--text-secondary);
   font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .unread-legend {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .unread-legend-hint {
+    margin-left: 0;
+    text-align: right;
+  }
 }
 
 @media (max-width: 640px) {
   .table-toolbar {
     gap: 8px;
   }
-  .unread-legend {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .unread-legend-hint {
-    width: 100%;
-    margin-left: 0;
-    margin-top: 4px;
-  }
   .clients-table th,
   .clients-table td {
     padding: 10px 8px;
     font-size: 0.75rem;
-  }
-  .filter-pill {
-    padding: 10px 12px;
   }
 }
 
@@ -2033,64 +2052,88 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 8px;
+}
+
+.roster-toolbar-band {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 .attention-filter-row {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 0;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
 }
+
+.waitlist-pill-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
 .filter-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 14px;
-  min-height: 44px;
-  border: 1px solid var(--border);
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  min-height: 42px;
+  border: 1px solid #166534;
   border-radius: 999px;
-  background: var(--bg);
-  font-size: 12px;
+  background: #fff;
+  font-size: 13px;
   font-weight: 700;
-  color: var(--text-secondary);
+  color: #166534;
+  white-space: nowrap;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
 }
 .filter-pill:hover {
-  border-color: var(--primary);
-  color: var(--text-primary);
+  background: rgba(22, 101, 52, 0.06);
 }
+
 .filter-pill.active {
-  border-color: var(--primary);
-  background: rgba(79, 70, 229, 0.08);
-  color: var(--primary);
+  border-color: #166534;
+  background: #166534;
+  color: #fff;
 }
+
 .filter-pill-attention.active {
-  border-color: rgba(16, 185, 129, 0.6);
-  background: rgba(16, 185, 129, 0.1);
-  color: #065f46;
+  border-color: #166534;
+  background: #166534;
+  color: #fff;
 }
+
 .filter-pill-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
+  min-width: 20px;
+  height: 20px;
   padding: 0 6px;
   border-radius: 999px;
-  background: rgba(16, 185, 129, 0.2);
-  color: #065f46;
+  background: rgba(255, 255, 255, 0.22);
+  color: inherit;
   font-size: 11px;
+  font-weight: 800;
 }
-.waitlist-pill-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
+
+.filter-pill:not(.active) .filter-pill-count {
+  background: rgba(22, 101, 52, 0.12);
+  color: #166534;
 }
-.waitlist-pill {
+.roster-filter-clear {
   position: relative;
 }
 .waitlist-pill-badge {
@@ -2133,13 +2176,15 @@ onMounted(() => {
   padding: 0;
 }
 .summary-banner {
-  padding: 8px 12px;
-  margin-bottom: 8px;
+  padding: 10px 14px;
   border-radius: 10px;
-  background: rgba(16, 185, 129, 0.06);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  font-size: 13px;
-  color: var(--text-primary);
+  background: rgba(187, 247, 208, 0.45);
+  border: 1px solid rgba(22, 101, 52, 0.18);
+  font-size: 14px;
+  font-weight: 600;
+  color: #14532d;
+  width: 100%;
+  box-sizing: border-box;
 }
 .active-filter-row {
   display: inline-flex;
@@ -2220,13 +2265,13 @@ onMounted(() => {
 }
 .table-search {
   width: 100%;
-  max-width: 320px;
-  padding: 10px 12px;
+  max-width: none;
+  padding: 12px 14px;
   min-height: 44px;
-  font-size: 0.8125rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+  font-size: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
 }
 
 .clients-table thead {

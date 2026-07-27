@@ -504,7 +504,7 @@
                   Show full screen in new window
                 </button>
                 <button
-                  v-if="isSkillBuilderEligible"
+                  v-if="SKILL_BUILDERS_AVAILABILITY_ENABLED && isSkillBuilderEligible"
                   type="button"
                   class="btn btn-secondary btn-sm"
                   @click="showSkillBuilderModal = true"
@@ -950,7 +950,7 @@
     </div>
 
     <SkillBuilderAvailabilityModal
-      v-if="showSkillBuilderModal"
+      v-if="SKILL_BUILDERS_AVAILABILITY_ENABLED && showSkillBuilderModal"
       :agency-id="currentAgencyId"
       :lock-open="isSkillBuilderForceModalRequired"
       @close="showSkillBuilderModal = false"
@@ -1182,6 +1182,7 @@ import PlatformChatsView from './admin/PlatformChatsView.vue';
 import ContactsView from './admin/ContactsView.vue';
 import NotificationsHubView from './NotificationsHubView.vue';
 import { isSupervisor } from '../utils/helpers.js';
+import { SKILL_BUILDERS_AVAILABILITY_ENABLED } from '../config/availabilityFeatures.js';
 import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
@@ -1481,12 +1482,6 @@ const providerSurfacesEnabled = computed(
 );
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
-const clinicalNoteGeneratorEnabledForAgency = computed(() => {
-  // On for all tenants by default. Admins can turn both flags off in Company Profile.
-  const flags = agencyFlags.value || {};
-  if (flags.noteAidEnabled === false && flags.clinicalNoteGeneratorEnabled === false) return false;
-  return true;
-});
 const shiftProgramsEnabledForAgency = computed(() => isTruthyFlag(agencyFlags.value?.shiftProgramsEnabled));
 
 const timeClaimExcessEnabled = computed(() => agencyFlags.value?.timeClaimExcessEnabled !== false);
@@ -3057,6 +3052,7 @@ const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerC
 
 /** Admin “confirm next login” OR biweekly cycle missing confirmation (pending API). */
 const isSkillBuilderForceModalRequired = computed(() => {
+  if (!SKILL_BUILDERS_AVAILABILITY_ENABLED) return false;
   if (props.previewMode) return false;
   if (isSchoolStaff.value) return false;
   if (!isOnboardingComplete.value) return false;
@@ -3066,6 +3062,11 @@ const isSkillBuilderForceModalRequired = computed(() => {
 });
 
 async function loadSkillBuilderBiweeklyPendingState() {
+  if (!SKILL_BUILDERS_AVAILABILITY_ENABLED) {
+    skillBuilderPendingLoaded.value = true;
+    skillBuilderBiweeklyNeedsConfirmation.value = false;
+    return;
+  }
   if (props.previewMode) {
     skillBuilderPendingLoaded.value = true;
     skillBuilderBiweeklyNeedsConfirmation.value = false;
@@ -3325,32 +3326,20 @@ async function loadProviderYearUpdateStatus() {
 const showProviderYearUpdateSplash = computed(() => {
   if (isClubContext.value || props.previewMode || providerYearUpdateSplashDismissed.value) return false;
   const st = providerYearUpdateStatus.value;
-  if (!st?.available || !st.showPulse) return false;
-  if (st.dismissed) return false;
+  if (!st?.available || st.userFinalized) return false;
+  if (st.showSplash === false) return false;
   return true;
 });
 
 async function dismissProviderYearUpdateSplash() {
+  // Session-only — splash returns on next login / fresh dashboard load.
   providerYearUpdateSplashDismissed.value = true;
-  try {
-    const agencyId = Number(currentAgencyId.value || 0);
-    if (agencyId) {
-      await api.post(
-        '/provider-year-update/me/dismiss',
-        { agencyId },
-        { skipGlobalLoading: true }
-      );
-    }
-  } catch {
-    /* session dismiss still applied */
-  }
-  await loadProviderYearUpdateStatus();
 }
 
 function openProviderYearUpdateFromSplash() {
   providerYearUpdateSplashDismissed.value = true;
   const slug = String(route.params.organizationSlug || '').trim();
-  const path = slug ? `/${slug}/provider/year-update` : '/provider/year-update';
+  const path = slug ? `/${slug}/provider/year-update/flow` : '/provider/year-update/flow';
   router.push(path).catch(() => {});
 }
 
@@ -3398,7 +3387,7 @@ const portalsNestHubChildren = computed(() => {
         kind: 'link',
         to: (() => {
           const slug = String(route.params.organizationSlug || '').trim();
-          return slug ? `/${slug}/provider/year-update` : '/provider/year-update';
+          return slug ? `/${slug}/provider/year-update/flow` : '/provider/year-update/flow';
         })(),
         badgeCount: pyu.showPulse ? 1 : 0,
         pulse: Boolean(pyu.showPulse),
@@ -3601,20 +3590,6 @@ const dashboardCards = computed(() => {
             badgeCount: 0,
             iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
             description: 'Program shift schedule, sign up, and call-off.'
-          });
-        }
-        if (
-          isSkillBuilderEligible.value &&
-          !isClubContext.value &&
-          clinicalNoteGeneratorEnabledForAgency.value
-        ) {
-          cards.push({
-            id: 'clinical_aid',
-            label: 'Clinical Aid',
-            kind: 'content',
-            badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg),
-            description: 'H2014 group notes: Skill Builders program hub or event portal (Client management).'
           });
         }
       }
@@ -4060,15 +4035,6 @@ const handleCardClick = (card) => {
       cardId: card.id,
       organization: null,
       initialSection: null
-    });
-    return;
-  }
-  if (card.id === 'clinical_aid') {
-    openInlineProgramHub({
-      mode: 'provider',
-      cardId: card.id,
-      organization: null,
-      initialSection: 'clinical_notes'
     });
     return;
   }

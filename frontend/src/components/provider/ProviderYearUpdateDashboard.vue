@@ -372,7 +372,12 @@
               >
                 {{ showAvailability ? 'Hide availability form' : 'Open additional school availability' }}
               </button>
-              <AdditionalAvailabilitySubmit v-if="showAvailability && props.mode !== 'token'" class="pyu__avail-embed" />
+              <AdditionalAvailabilitySubmit
+                v-if="showAvailability && props.mode !== 'token'"
+                class="pyu__avail-embed"
+                :agency-id="resolvedAgencyId"
+                school-only
+              />
             </div>
 
             <label class="pyu__check" style="margin-top: 16px;">
@@ -444,6 +449,14 @@
           <p v-if="saveFlash" class="success-banner">{{ saveFlash }}</p>
           <p v-if="actionError" class="error-banner">{{ actionError }}</p>
         </main>
+
+        <ProviderYearUpdateSchoolNeedsPanel
+          v-if="resolvedAgencyId && schoolYearKey"
+          class="pyu__needs-rail"
+          :agency-id="resolvedAgencyId"
+          :school-year="schoolYearKey"
+          :can-apply="props.mode !== 'token'"
+        />
       </div>
 
       <footer class="pyu__footer">
@@ -479,6 +492,7 @@ import {
 } from '../../utils/schoolReinit';
 import AdditionalAvailabilitySubmit from '../AdditionalAvailabilitySubmit.vue';
 import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
+import ProviderYearUpdateSchoolNeedsPanel from './ProviderYearUpdateSchoolNeedsPanel.vue';
 
 const props = defineProps({
   mode: { type: String, default: 'provider' }, // provider | token | admin
@@ -544,6 +558,7 @@ const tenantLogo = computed(() => {
   if (full) return full;
   return logoSrc(agency, { allowIcon: true });
 });
+const schoolYearKey = computed(() => String(payload.value?.cycle?.schoolYear || '').trim());
 const schoolYearDisplay = computed(() => formatSchoolYearLabel(payload.value?.cycle?.schoolYear));
 const providerLabel = computed(() => payload.value?.provider?.name || '');
 const providerInitials = computed(() => {
@@ -934,6 +949,11 @@ async function submitScheduleAdjust() {
   }
 }
 
+function dashboardPath() {
+  const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
+  return slug ? `/${slug}/dashboard` : '/dashboard';
+}
+
 async function saveAndExit(sectionKey) {
   actionError.value = '';
   try {
@@ -954,7 +974,7 @@ async function saveAndExit(sectionKey) {
     }
     saveFlash.value = 'Progress saved — return anytime.';
     if (props.mode !== 'token') {
-      router.push({ path: `${orgPrefix()}/provider/year-update` }).catch(() => {});
+      router.push({ path: dashboardPath() }).catch(() => {});
     }
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e.message || 'Save failed';
@@ -1100,8 +1120,11 @@ defineExpose({ load, reload: load });
   background: linear-gradient(90deg, var(--pyu-primary), var(--pyu-accent));
 }
 .pyu__top-inner {
-  max-width: 1100px;
-  margin: 0 auto;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 0 28px;
+  box-sizing: border-box;
 }
 .pyu__top {
   display: grid;
@@ -1220,11 +1243,16 @@ defineExpose({ load, reload: load });
 }
 .pyu__layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 18px;
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 12px 20px 40px;
+  grid-template-columns: 240px minmax(0, 1fr) minmax(280px, 360px);
+  gap: 20px;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 12px 28px 40px;
+  box-sizing: border-box;
+}
+.pyu__needs-rail {
+  min-width: 0;
 }
 .pyu__nav {
   display: flex;
@@ -1389,9 +1417,10 @@ defineExpose({ load, reload: load });
   border-radius: 999px;
 }
 .pyu__footer {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 20px 20px 32px;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 20px 28px 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1399,6 +1428,7 @@ defineExpose({ load, reload: load });
   flex-wrap: wrap;
   font-size: 0.78rem;
   color: #64748b;
+  box-sizing: border-box;
 }
 .pyu__footer-logo {
   height: 22px;
@@ -1490,6 +1520,16 @@ defineExpose({ load, reload: load });
   padding: 6px 0;
   border-top: 1px solid #f1f5f9;
 }
+@media (max-width: 1100px) {
+  .pyu__layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  .pyu__needs-rail {
+    grid-column: 1 / -1;
+    position: static;
+    max-height: none;
+  }
+}
 @media (max-width: 800px) {
   .pyu__top {
     grid-template-columns: 1fr;
@@ -1501,6 +1541,12 @@ defineExpose({ load, reload: load });
   .pyu__help {
     text-align: left;
     max-width: none;
+  }
+  .pyu__top-inner,
+  .pyu__layout,
+  .pyu__footer {
+    padding-left: 16px;
+    padding-right: 16px;
   }
   .pyu__layout {
     grid-template-columns: 1fr;

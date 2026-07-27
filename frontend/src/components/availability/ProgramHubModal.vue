@@ -99,14 +99,19 @@
                 />
               </template>
               <template v-else-if="mode === 'provider'">
-                <p class="pch-muted">
-                  Set and confirm availability: program session time plus additional blocks must total 6+ hrs/week (biweekly confirmation).
+                <p v-if="!SKILL_BUILDERS_AVAILABILITY_ENABLED" class="pch-muted">
+                  Skill Builder availability collection is paused. Contact your coordinator if you have questions.
                 </p>
-                <div class="pch-inline-actions">
-                  <button type="button" class="btn btn-primary btn-sm" @click="$emit('open-skill-builder-availability')">
-                    Manage Skill Builder availability
-                  </button>
-                </div>
+                <template v-else>
+                  <p class="pch-muted">
+                    Set and confirm availability: program session time plus additional blocks must total 6+ hrs/week (biweekly confirmation).
+                  </p>
+                  <div class="pch-inline-actions">
+                    <button type="button" class="btn btn-primary btn-sm" @click="$emit('open-skill-builder-availability')">
+                      Manage Skill Builder availability
+                    </button>
+                  </div>
+                </template>
               </template>
             </template>
             <!-- Non-Skill-Builders: show this program's events and their scheduled meeting times -->
@@ -579,6 +584,7 @@ import SkillBuildersClientManagementPanel from './SkillBuildersClientManagementP
 import SkillBuildersProgramDocumentsPanel from './SkillBuildersProgramDocumentsPanel.vue';
 import SkillBuildersClinicalNotesHubPanel from '../skillBuilders/SkillBuildersClinicalNotesHubPanel.vue';
 import { useBrandingStore } from '../../store/branding';
+import { SKILL_BUILDERS_AVAILABILITY_ENABLED } from '../../config/availabilityFeatures';
 
 const props = defineProps({
   mode: { type: String, default: 'coordinator' }, // 'coordinator' | 'provider'

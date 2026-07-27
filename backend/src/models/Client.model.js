@@ -656,6 +656,24 @@ class Client {
       note: note
     });
 
+    try {
+      const oldPid = oldProviderId != null ? Number(oldProviderId) : null;
+      const newPid = providerId != null ? Number(providerId) : null;
+      if (oldPid !== newPid) {
+        const OfficeAcceptance = await import('../services/officeClientAcceptance.service.js');
+        await OfficeAcceptance.recordProviderAssignmentChange({
+          clientId,
+          agencyId: currentClient.agency_id,
+          clientType: currentClient.client_type,
+          oldProviderUserId: oldPid,
+          newProviderUserId: newPid,
+          actingUserId: changedByUserId,
+        });
+      }
+    } catch (e) {
+      console.warn('[Client.assignProvider] office acceptance tracking failed:', e?.message || e);
+    }
+
     return this.findById(clientId);
   }
 

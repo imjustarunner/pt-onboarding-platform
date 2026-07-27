@@ -853,17 +853,14 @@ const continuationServicesSummary = (raw) => {
     try { data = JSON.parse(raw); } catch { return '—'; }
   }
   if (!data?.plan) return '—';
-  if (data.plan === 'not_continue_school') {
-    if (data.notContinuingAction === 'transferring_terminating_client') return 'Not continuing · transfer/terminate';
-    if (data.notContinuingAction === 'continuing_office_virtual') return 'Not continuing · office/virtual';
-    return 'Not continuing in school';
-  }
-  if (data.plan === 'unable_to_contact_parent') {
-    if (data.unableToContactRecommendation === 'recommend_continue') return 'No contact · recommend continue';
-    if (data.unableToContactRecommendation === 'recommend_terminate') return 'No contact · recommend terminate';
-    return 'No contact · needs recommendation';
-  }
+  if (data.plan === 'not_continue_school') return 'Not continuing this fall';
+  if (data.plan === 'unable_to_contact_parent') return 'No parent contact';
   if (data.plan !== 'continue_school') return '—';
+  if (Array.isArray(data.serviceDays) && data.serviceDays.length) {
+    const days = data.serviceDays.map((d) => String(d).slice(0, 3)).join(', ');
+    const date = data.continuationStartDate ? String(data.continuationStartDate).slice(0, 10) : '';
+    return date ? `Continuing · ${days} · ${date}` : `Continuing · ${days}`;
+  }
   if (data.schoolChoice === 'current_school') {
     if (data.currentSchoolAction === 'continuing_with_me') return 'Current school · with me';
     if (data.currentSchoolAction === 'requesting_transfer') return 'Current school · transfer';

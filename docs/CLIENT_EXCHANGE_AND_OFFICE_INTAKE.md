@@ -29,6 +29,20 @@ deferred work.
 `database/migrations/1061_clients_source_public_office_intake.sql` adds the
 `PUBLIC_OFFICE_INTAKE` value to `clients.source`.
 
+`database/migrations/1063_office_client_acceptance_tracking.sql` adds:
+
+- `clients.provider_assigned_at` — stamped whenever the current office provider is set
+- `office_client_assignment_events` — one row per office/clinical assignment to a
+  provider, with `exchanged_at` (first Client Exchange post after that assignment),
+  `exchanged_before_current`, and `marked_current_at`
+
+**Acceptance ratio:** a referral is *declined* if the assigned provider posts the
+client to Client Exchange within 30 days of assignment. Otherwise it is *accepted*
+once marked current or once the 30-day window passes. Displayed as
+`Accepted X/Y clients referred` on the office intake queue (admin) and provider
+Clients → Office / New Clients. API:
+`GET /api/client-exchange/acceptance-metrics?agencyId=&providerUserId=`.
+
 Office/clinical clients are **not** a new client type — they reuse the existing
 `clients.client_type` enum (`school` = in-school, `clinical`/`learning` = in-office).
 There is no separate "office org"; a client created by the public intake form has

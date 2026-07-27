@@ -209,9 +209,10 @@ function isContinuationServicesSeason(now = new Date()) {
 function hasCompletedContinuationServices(raw) {
   const data = parseJsonMaybe(raw);
   if (!data || typeof data !== 'object') return false;
-  if (data.plan === 'not_continue_school') return !!data.notContinuingAction;
-  if (data.plan === 'unable_to_contact_parent') return !!data.unableToContactRecommendation;
+  if (data.plan === 'not_continue_school') return true;
+  if (data.plan === 'unable_to_contact_parent') return true;
   if (data.plan !== 'continue_school') return false;
+  if (Array.isArray(data.serviceDays) && data.serviceDays.length && data.continuationStartDate) return true;
   if (data.schoolChoice === 'current_school') return !!data.currentSchoolAction;
   if (data.schoolChoice === 'new_school') {
     const hasSchool = !!Number(data.newSchoolOrganizationId || 0) || !!String(data.newSchoolName || '').trim();
