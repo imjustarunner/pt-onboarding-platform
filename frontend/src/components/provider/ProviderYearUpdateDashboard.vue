@@ -91,8 +91,13 @@
           <section v-else-if="activeSection === 'school_events'" class="pyu__panel">
             <h2>School Events</h2>
             <p class="muted">
-              Check back-to-school dates for your schools. Add an event if you learn details. Sign up to staff events —
-              time is compensated via the kiosk.
+              <template v-if="props.mode === 'token'">
+                Review back-to-school dates for your schools. Event sign-up and adding new events are available after signing in to My Dashboard.
+              </template>
+              <template v-else>
+                Check back-to-school dates for your schools. Add an event if you learn details. Sign up to staff events —
+                time is compensated via the kiosk.
+              </template>
             </p>
             <div class="pyu__info">
               <strong>Kiosk check-in / out:</strong>
@@ -103,6 +108,7 @@
               <div class="pyu__school-head">
                 <h3>{{ school.schoolName }}</h3>
                 <button
+                  v-if="props.mode !== 'token'"
                   type="button"
                   class="btn btn-secondary btn-sm"
                   :disabled="isFinalized"
@@ -122,7 +128,7 @@
                     </div>
                   </div>
                   <button
-                    v-if="canSignUp(ev)"
+                    v-if="canSignUp(ev) && props.mode !== 'token'"
                     type="button"
                     class="btn btn-primary btn-sm"
                     :disabled="isFinalized || signingUpId === ev.id"
@@ -195,8 +201,9 @@
 
             <div class="pyu__avail">
               <h3>Request additional school days</h3>
-              <p class="muted tiny">Uses the same Additional School Hours request as My Dashboard.</p>
+              <p class="muted tiny">Additional school hours requests require signing in to My Dashboard.</p>
               <button
+                v-if="props.mode !== 'token'"
                 type="button"
                 class="btn btn-secondary"
                 :disabled="isFinalized"
@@ -204,7 +211,7 @@
               >
                 {{ showAvailability ? 'Hide availability form' : 'Open additional school availability' }}
               </button>
-              <AdditionalAvailabilitySubmit v-if="showAvailability" class="pyu__avail-embed" />
+              <AdditionalAvailabilitySubmit v-if="showAvailability && props.mode !== 'token'" class="pyu__avail-embed" />
             </div>
 
             <label class="pyu__check" style="margin-top: 16px;">
@@ -382,11 +389,6 @@ async function load() {
   try {
     if (props.mode === 'token' && props.token) {
       const res = await api.get(`/public/provider-year-update/${encodeURIComponent(props.token)}`);
-      if (res.data?.requiresLogin) {
-        emit('requires-login', res.data);
-        error.value = res.data.loginHint || 'Sign in to continue.';
-        return;
-      }
       applyPayload(res.data);
     } else {
       const agencyId = resolvedAgencyId.value;

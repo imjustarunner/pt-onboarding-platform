@@ -35,15 +35,41 @@ async function attachUserIfPresent(req) {
   }
 }
 
-function actorFromReq(req) {
+function providerDisplayName(row) {
+  return [row?.first_name, row?.last_name].filter(Boolean).join(' ') || row?.email || 'Provider';
+}
+
+function actorFromReq(req, body = {}, tokenRow = null) {
   const user = req.user;
-  if (!user?.id) return null;
-  const role = String(user.role || '').toLowerCase();
-  const actorType =
-    role === 'super_admin' || role === 'admin' || role === 'support' ? 'admin' : 'provider';
-  const displayName =
-    [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'User';
-  return { actorType, userId: user.id, displayName };
+  if (user?.id) {
+    const role = String(user.role || '').toLowerCase();
+    const isAdmin = role === 'super_admin' || role === 'admin' || role === 'support';
+    if (tokenRow && Number(user.id) !== Number(tokenRow.provider_user_id) && !isAdmin) {
+      // Magic link wins — possession of the token is sufficient.
+      return {
+        actorType: 'token_guest',
+        userId: Number(tokenRow.provider_user_id),
+        displayName: providerDisplayName(tokenRow),
+      };
+    }
+    const actorType = isAdmin ? 'admin' : 'provider';
+    return {
+      actorType,
+      userId: user.id,
+      displayName:
+        [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'User',
+    };
+  }
+  if (tokenRow) {
+    return {
+      actorType: 'token_guest',
+      userId: Number(tokenRow.provider_user_id),
+      displayName: providerDisplayName(tokenRow),
+    };
+  }
+  const displayName = String(body.displayName || '').trim();
+  if (!displayName) return null;
+  return { actorType: 'token_guest', userId: null, displayName };
 }
 
 async function assertAgencyAccess(req, agencyId) {
@@ -446,36 +472,16 @@ export async function finalizeMyCycle(req, res, next) {
 export async function getPublicByToken(req, res, next) {
   try {
     const { valid, reason, row } = await S.validateToken(req.params.token);
-    if (!valid) {
-      return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+    if (!valid && reason !== 'expired') {
+      if (!row || row.cycle_status !== 'finalized') {
+        return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+      }
     }
+    if (!row) return res.status(404).json({ error: { message: 'Invalid link' } });
 
-    await S.recordTokenClick(row);
-
-    const user = await attachUserIfPresent(req);
-
-    if (!user?.id) {
-      return res.json({
-        requiresLogin: true,
-        providerUserId: row.provider_user_id,
-        providerName: [row.first_name, row.last_name].filter(Boolean).join(' ') || row.email,
-        agencyId: row.agency_id,
-        agencyName: row.agency_name,
-        agencySlug: row.agency_slug || null,
-        schoolYear: row.school_year,
-        returnPath: `/provider-year-update/${row.token}`,
-        loginHint: 'Sign in with your provider account to continue your Year Update.',
-      });
-    }
-
-    if (Number(user.id) !== Number(row.provider_user_id) && !isAdminRole(user)) {
-      return res.status(403).json({
-        error: {
-          message: 'This link belongs to a different provider. Sign out and open the link again, or use your own Year Update from My Dashboard.',
-        },
-        wrongUser: true,
-      });
-    }
+    await S.recordTokenClick(row, providerDisplayName(row));
+    await attachUserIfPresent(req);
+    const user = req.user;
 
     const cycle = await S.getCycleById(row.cycle_id);
     const payload = await S.buildDashboardPayload(cycle);
@@ -483,14 +489,20 @@ export async function getPublicByToken(req, res, next) {
     await S.recordViewEvent({
       cycleId: cycle.id,
       tokenId: row.id,
-      userId: user.id,
-      actorDisplayName: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email,
+      userId: user?.id || Number(row.provider_user_id),
+      actorDisplayName: user
+        ? [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email
+        : providerDisplayName(row),
       eventType: 'view',
     });
     res.json({
       requiresLogin: false,
+      identityRequired: false,
+      actorType: 'token_guest',
+      providerName: providerDisplayName(row),
       ...payload,
       shareToken: tokenResponse(row, cycle),
+      tokenLocked: Boolean(row.locked_at) || cycle.status === 'finalized',
       campaign: campaign
         ? {
             status: campaign.status,
@@ -498,7 +510,6 @@ export async function getPublicByToken(req, res, next) {
             isPushed: S.campaignIsPushed(campaign),
           }
         : null,
-      actorType: Number(user.id) === Number(row.provider_user_id) ? 'provider' : 'admin',
     });
   } catch (e) {
     next(e);
@@ -509,15 +520,16 @@ export async function getPublicByToken(req, res, next) {
 export async function updatePublicSection(req, res, next) {
   try {
     const { valid, reason, row } = await S.validateToken(req.params.token);
-    if (!valid) {
-      return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+    if (!valid && reason !== 'expired') {
+      if (!row || row.cycle_status !== 'finalized') {
+        return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+      }
     }
+    if (!row) return res.status(404).json({ error: { message: 'Invalid link' } });
     await attachUserIfPresent(req);
-    if (!req.user?.id) {
-      return res.status(401).json({ error: { message: 'Sign in required' }, requiresLogin: true });
-    }
-    if (Number(req.user.id) !== Number(row.provider_user_id) && !isAdminRole(req.user)) {
-      return res.status(403).json({ error: { message: 'Forbidden' }, wrongUser: true });
+    const actor = actorFromReq(req, req.body, row);
+    if (!actor) {
+      return res.status(400).json({ error: { message: 'Could not identify provider for this link' } });
     }
     const cycle = await S.getCycleById(row.cycle_id);
     if (cycle.status === 'finalized' || row.locked_at) {
@@ -527,7 +539,6 @@ export async function updatePublicSection(req, res, next) {
     if (!S.SECTION_KEYS.includes(sectionKey)) {
       return res.status(400).json({ error: { message: 'Invalid section_key' } });
     }
-    const actor = actorFromReq(req);
     const sections = await S.upsertSectionProgress({
       cycleId: cycle.id,
       sectionKey,
@@ -546,17 +557,17 @@ export async function updatePublicSection(req, res, next) {
 export async function finalizePublic(req, res, next) {
   try {
     const { valid, reason, row } = await S.validateToken(req.params.token);
-    if (!valid) {
-      return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+    if (!valid && reason !== 'expired') {
+      if (!row || row.cycle_status !== 'finalized') {
+        return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+      }
     }
+    if (!row) return res.status(404).json({ error: { message: 'Invalid link' } });
     await attachUserIfPresent(req);
-    if (!req.user?.id) {
-      return res.status(401).json({ error: { message: 'Sign in required' }, requiresLogin: true });
+    const actor = actorFromReq(req, req.body, row);
+    if (!actor) {
+      return res.status(400).json({ error: { message: 'Could not identify provider for this link' } });
     }
-    if (Number(req.user.id) !== Number(row.provider_user_id) && !isAdminRole(req.user)) {
-      return res.status(403).json({ error: { message: 'Forbidden' }, wrongUser: true });
-    }
-    const actor = actorFromReq(req);
     const finalized = await S.finalizeCycle({ cycleId: row.cycle_id, actor });
     const payload = await S.buildDashboardPayload(finalized);
     res.json({ ok: true, ...payload });
