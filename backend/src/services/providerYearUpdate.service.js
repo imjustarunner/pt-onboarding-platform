@@ -566,7 +566,12 @@ export async function buildDashboardPayload(cycle) {
   const schedule = await loadProviderSchoolSchedule(cycle.provider_user_id, cycle.agency_id);
   const eventsBySchool = await loadProviderSchoolEvents(cycle.provider_user_id, cycle.agency_id);
   const [agencyRows] = await pool.execute(
-    `SELECT id, name, logo_url, slug, portal_url FROM agencies WHERE id = ? LIMIT 1`,
+    `SELECT a.id, a.name, a.logo_url, a.logo_path, a.color_palette, a.slug, a.portal_url,
+            i.file_path AS icon_file_path
+     FROM agencies a
+     LEFT JOIN icons i ON i.id = a.icon_id
+     WHERE a.id = ?
+     LIMIT 1`,
     [cycle.agency_id]
   );
   const [userRows] = await pool.execute(
@@ -592,6 +597,9 @@ export async function buildDashboardPayload(cycle) {
           id: agency.id,
           name: agency.name,
           logoUrl: agency.logo_url || null,
+          logoPath: agency.logo_path || null,
+          iconFilePath: agency.icon_file_path || null,
+          colorPalette: agency.color_palette || null,
           slug: agency.slug || agency.portal_url || null,
         }
       : null,

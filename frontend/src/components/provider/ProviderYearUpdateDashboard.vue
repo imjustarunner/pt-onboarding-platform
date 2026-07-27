@@ -7,18 +7,38 @@
       <button type="button" class="btn btn-secondary" @click="load">Retry</button>
     </div>
     <template v-else-if="payload">
-      <header class="pyu__top">
-        <div>
-          <p class="pyu__eyebrow">{{ payload.agency?.name || 'School Year' }} · {{ payload.cycle?.schoolYear }}</p>
-          <h1>Provider Year Update</h1>
-          <p class="pyu__sub">Complete each section below. Progress is saved as you go.</p>
+      <div class="pyu__header-shell">
+        <div class="pyu__accent" aria-hidden="true" />
+        <div class="pyu__top-inner">
+          <header class="pyu__top">
+            <div class="pyu__brand-block">
+              <img v-if="tenantLogo" :src="tenantLogo" :alt="tenantName" class="pyu__logo" />
+              <div class="pyu__brand-copy">
+                <span class="pyu__brand-name">{{ tenantName }}</span>
+                <span class="pyu__brand-year">{{ schoolYearDisplay }}</span>
+              </div>
+            </div>
+            <div class="pyu__title-block">
+              <h1>Provider Year Update</h1>
+              <p class="pyu__sub">
+                The school year is quickly approaching! Complete each section below — your progress is saved as you go.
+              </p>
+            </div>
+            <div class="pyu__user-block">
+              <p class="pyu__help">Questions? Contact your {{ tenantName }} team.</p>
+              <div v-if="providerLabel" class="pyu__user-chip">
+                <span class="pyu__avatar">{{ providerInitials }}</span>
+                <span>{{ providerLabel }}</span>
+              </div>
+              <div class="pyu__progress-wrap">
+                <div class="pyu__progress-label">{{ progressPct }}% complete</div>
+                <div class="pyu__progress-bar"><span :style="{ width: progressPct + '%' }" /></div>
+                <p v-if="isFinalized" class="pyu__finalized">Completed {{ formatDt(payload.cycle?.finalizedAt) }}</p>
+              </div>
+            </div>
+          </header>
         </div>
-        <div class="pyu__progress-wrap">
-          <div class="pyu__progress-label">{{ progressPct }}% complete</div>
-          <div class="pyu__progress-bar"><span :style="{ width: progressPct + '%' }" /></div>
-          <p v-if="isFinalized" class="pyu__finalized">Completed {{ formatDt(payload.cycle?.finalizedAt) }}</p>
-        </div>
-      </header>
+      </div>
 
       <div class="pyu__layout">
         <nav class="pyu__nav" aria-label="Year update sections">
@@ -234,6 +254,11 @@
           <p v-if="actionError" class="error-banner">{{ actionError }}</p>
         </main>
       </div>
+
+      <footer class="pyu__footer">
+        <img v-if="tenantLogo" :src="tenantLogo" :alt="tenantName" class="pyu__footer-logo" />
+        <span>{{ tenantName }} · Provider Year Update · {{ schoolYearDisplay }}</span>
+      </footer>
     </template>
 
     <PostSchoolEventModal
@@ -255,6 +280,12 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { SECTION_META } from '../../utils/providerYearUpdate';
+import {
+  agencyDisplayName,
+  formatSchoolYearLabel,
+  logoSrc,
+  parseAgencyPalette,
+} from '../../utils/schoolReinit';
 import AdditionalAvailabilitySubmit from '../AdditionalAvailabilitySubmit.vue';
 import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
 
@@ -296,10 +327,31 @@ const resolvedAgencyId = computed(() => {
   );
 });
 
-const brandStyle = computed(() => ({
-  '--pyu-primary': '#0c4a6e',
-  '--pyu-accent': '#c2410c',
-}));
+const tenantName = computed(() => agencyDisplayName(payload.value?.agency, 'Partner'));
+const tenantLogo = computed(() => {
+  const agency = payload.value?.agency;
+  const full = logoSrc(agency, { allowIcon: false });
+  if (full) return full;
+  return logoSrc(agency, { allowIcon: true });
+});
+const schoolYearDisplay = computed(() => formatSchoolYearLabel(payload.value?.cycle?.schoolYear));
+const providerLabel = computed(() => payload.value?.provider?.name || '');
+const providerInitials = computed(() => {
+  const p = payload.value?.provider;
+  if (!p) return '?';
+  const parts = [p.firstName, p.lastName].filter(Boolean);
+  if (parts.length) return parts.map((n) => n[0]).join('').slice(0, 2).toUpperCase();
+  const name = String(p.name || p.email || '?').trim();
+  return name.slice(0, 2).toUpperCase();
+});
+const brandStyle = computed(() => {
+  const p = parseAgencyPalette(payload.value?.agency);
+  return {
+    '--pyu-primary': p.primary || '#0c4a6e',
+    '--pyu-secondary': p.secondary || '#15803d',
+    '--pyu-accent': p.accent || '#c2410c',
+  };
+});
 
 const isFinalized = computed(() => payload.value?.cycle?.status === 'finalized');
 const schedule = computed(() => payload.value?.schedule || []);
@@ -592,6 +644,8 @@ defineExpose({ load, reload: load });
   min-height: 70vh;
   color: #0f172a;
   --pyu-primary: #0c4a6e;
+  --pyu-secondary: #15803d;
+  --pyu-accent: #c2410c;
 }
 .pyu__bg {
   position: absolute;
@@ -604,39 +658,118 @@ defineExpose({ load, reload: load });
 }
 .pyu__loading,
 .pyu__error,
-.pyu__top,
-.pyu__layout {
+.pyu__header-shell,
+.pyu__layout,
+.pyu__footer {
   position: relative;
   z-index: 1;
 }
-.pyu__top {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
-  padding: 20px 20px 8px;
+.pyu__header-shell {
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 4px;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
+}
+.pyu__accent {
+  height: 4px;
+  background: linear-gradient(90deg, var(--pyu-primary), var(--pyu-accent));
+}
+.pyu__top-inner {
   max-width: 1100px;
   margin: 0 auto;
 }
-.pyu__eyebrow {
-  margin: 0;
-  font-size: 0.8rem;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.pyu__top {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: 18px 20px 14px;
 }
-.pyu__top h1 {
-  margin: 4px 0;
+.pyu__brand-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.pyu__logo {
+  height: 42px;
+  width: auto;
+  max-width: 120px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.pyu__brand-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pyu__brand-name {
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   color: var(--pyu-primary);
-  font-size: 1.75rem;
+  line-height: 1.25;
+}
+.pyu__brand-year {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 2px;
+}
+.pyu__title-block h1 {
+  margin: 0 0 6px;
+  color: var(--pyu-secondary);
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 .pyu__sub {
   margin: 0;
   color: #475569;
   max-width: 36rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+.pyu__user-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 180px;
+}
+.pyu__help {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #64748b;
+  text-align: right;
+  max-width: 14rem;
+  line-height: 1.35;
+}
+.pyu__user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+}
+.pyu__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--pyu-primary);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
 }
 .pyu__progress-wrap {
-  min-width: 180px;
+  width: 100%;
 }
 .pyu__progress-label {
   font-size: 0.85rem;
@@ -825,10 +958,35 @@ defineExpose({ load, reload: load });
 .pill {
   font-size: 0.7rem;
   font-weight: 600;
-  background: #ffedd5;
-  color: #9a3412;
+  background: color-mix(in srgb, var(--pyu-accent) 15%, white);
+  color: var(--pyu-accent);
   padding: 2px 8px;
   border-radius: 999px;
+}
+.pyu__footer {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 20px 20px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+.pyu__footer-logo {
+  height: 22px;
+  width: auto;
+  object-fit: contain;
+  opacity: 0.85;
+}
+.pyu :deep(.btn-primary) {
+  background: var(--pyu-secondary);
+  border-color: var(--pyu-secondary);
+}
+.pyu :deep(.btn-primary:hover:not(:disabled)) {
+  filter: brightness(0.95);
 }
 .pyu__avail {
   margin-top: 18px;
@@ -856,6 +1014,17 @@ defineExpose({ load, reload: load });
 .muted { color: #64748b; }
 .tiny { font-size: 0.8rem; }
 @media (max-width: 800px) {
+  .pyu__top {
+    grid-template-columns: 1fr;
+  }
+  .pyu__user-block {
+    align-items: flex-start;
+    min-width: 0;
+  }
+  .pyu__help {
+    text-align: left;
+    max-width: none;
+  }
   .pyu__layout {
     grid-template-columns: 1fr;
   }
