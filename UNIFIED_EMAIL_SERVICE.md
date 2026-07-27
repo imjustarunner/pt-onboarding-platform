@@ -61,6 +61,8 @@ Optional:
 
 - `EMAIL_AGENT_MAX_MESSAGES=10`
 
+In production, Cloud Run also runs the inbound agent automatically every **5 minutes** from `server.js` (same pattern as SMS auto-replies / join reminders). Manual `npm run email-agent` is still useful for local testing.
+
 ## Sync school group emails onto schoolreply
 
 Creates/updates the agency `schoolreply` sender identity and attaches every affiliated school `itsco_email` as an inbound route (plus `schoolreply@itsco.health` / `schools@itsco.health`):

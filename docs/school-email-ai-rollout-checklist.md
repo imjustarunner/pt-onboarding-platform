@@ -9,6 +9,7 @@
 - Add school-level overrides only where needed.
 - Enable `EMAIL_AI_STATUS_DRAFTS_ENABLED=true` in staging first, then production.
 - Optional: set `EMAIL_AI_REINIT_ENABLED=false` to disable year-update extraction while keeping status drafts.
+- Production backend polls unread mail every 5 minutes via `server.js` (`scheduleInboundEmailAgent`). You can still run `npm run email-agent` manually for a one-shot test.
 
 ## Manual Verification
 

@@ -1758,6 +1758,49 @@ if (!isBootstrap) {
   scheduleJoinReminder();
   setInterval(scheduleJoinReminder, 5 * 60 * 1000);
 
+  // Inbound school email AI agent (poll Gmail unread every 5 minutes)
+  // Processes school group mail → support tickets / reinit intake when configured.
+  let inboundEmailAgentRunning = false;
+  const scheduleInboundEmailAgent = async () => {
+    if (inboundEmailAgentRunning) {
+      console.warn('[EmailAgent] previous run still in progress; skipping tick');
+      return;
+    }
+    inboundEmailAgentRunning = true;
+    try {
+      const { runInboundEmailAgentOnce } = await import('./services/unifiedEmail/inboundEmailAgent.service.js');
+      const maxMessages = process.env.EMAIL_AGENT_MAX_MESSAGES
+        ? Number(process.env.EMAIL_AGENT_MAX_MESSAGES)
+        : 10;
+      const result = await runInboundEmailAgentOnce({ maxMessages });
+      const scanned = Number(result?.scanned || 0);
+      if (scanned > 0) {
+        console.info('[EmailAgent] tick:', result);
+      }
+    } catch (error) {
+      const msg = String(error?.message || error || '');
+      const notConfigured =
+        msg.includes('GMAIL_IMPERSONATE_USER') ||
+        msg.includes('GOOGLE_WORKSPACE_IMPERSONATE_USER') ||
+        msg.includes('service account') ||
+        msg.includes('credentials') ||
+        msg.includes('ENOENT');
+      if (notConfigured) {
+        console.warn('[EmailAgent] skipped (Gmail not fully configured):', msg);
+      } else {
+        console.error('[EmailAgent] scheduler error:', error);
+      }
+    } finally {
+      inboundEmailAgentRunning = false;
+    }
+  };
+
+  // Delay first run slightly so startup migrations/health settle first.
+  setTimeout(() => {
+    scheduleInboundEmailAgent();
+    setInterval(scheduleInboundEmailAgent, 5 * 60 * 1000);
+  }, 30 * 1000);
+
   // Agency birthday/anniversary automation (runs hourly; deduped per agency/day/type)
   const scheduleAgencyAnnouncementAutomation = async () => {
     try {
