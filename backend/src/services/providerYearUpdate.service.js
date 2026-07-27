@@ -88,6 +88,23 @@ export function campaignIsEnabled(campaign) {
   return s === 'enabled' || s === 'pushed';
 }
 
+/** Provider sees Year Update on My Dashboard when campaign is bulk-pushed or this cycle was pushed. */
+export function cycleIsPushed(cycle, campaign = null) {
+  if (campaignIsPushed(campaign)) return true;
+  return Boolean(cycle?.pushed_at);
+}
+
+export async function markCyclePushed(cycleId, userId) {
+  await pool.execute(
+    `UPDATE provider_year_update_cycles
+     SET pushed_at = COALESCE(pushed_at, NOW()),
+         pushed_by_user_id = COALESCE(pushed_by_user_id, ?)
+     WHERE id = ?`,
+    [userId || null, cycleId]
+  );
+  return getCycleById(cycleId);
+}
+
 export async function getCampaign(agencyId, schoolYear) {
   const year = schoolYear || currentSchoolYear();
   const [rows] = await pool.execute(
@@ -340,12 +357,13 @@ export async function pushCampaign({ agencyId, schoolYear, userId }) {
   for (const p of providers) {
     const providerUserId = Number(p.provider_user_id);
     if (!providerUserId) continue;
-    const { created } = await ensureShareableToken({
+    const { cycle, created } = await ensureShareableToken({
       agencyId,
       providerUserId,
       schoolYear: year,
       createdByUserId: userId,
     });
+    if (cycle?.id) await markCyclePushed(cycle.id, userId);
     providersReady += 1;
     if (created) tokensCreated += 1;
   }
@@ -366,6 +384,52 @@ export async function pushCampaign({ agencyId, schoolYear, userId }) {
     providersReady,
     tokensCreated,
     providerCount: providers.length,
+  };
+}
+
+/**
+ * Push Year Update to a single provider (My Dashboard visible).
+ * Requires campaign enabled and an existing shareable link (Get link first).
+ */
+export async function pushProvider({ agencyId, providerUserId, schoolYear, userId }) {
+  const year = schoolYear || currentSchoolYear();
+  const campaign = await getCampaign(agencyId, year);
+  if (!campaignIsEnabled(campaign)) {
+    const err = new Error('Enable Provider Year Update first before pushing to a provider.');
+    err.status = 400;
+    throw err;
+  }
+
+  const cycle = await getOrCreateCycle({ agencyId, providerUserId, schoolYear: year });
+  const [tokRows] = await pool.execute(
+    `SELECT id FROM provider_year_update_tokens
+     WHERE cycle_id = ?
+       AND expires_at > NOW()
+     ORDER BY (locked_at IS NULL) DESC, id DESC
+     LIMIT 1`,
+    [cycle.id]
+  );
+  if (!tokRows?.[0]) {
+    const err = new Error('Generate a shareable link (Get link) before pushing to this provider.');
+    err.status = 400;
+    throw err;
+  }
+
+  if (cycle.pushed_at) {
+    return {
+      alreadyPushed: true,
+      cycle,
+      campaign,
+      tokenId: tokRows[0].id,
+    };
+  }
+
+  const updated = await markCyclePushed(cycle.id, userId);
+  return {
+    alreadyPushed: false,
+    cycle: updated,
+    campaign,
+    tokenId: tokRows[0].id,
   };
 }
 
@@ -782,6 +846,8 @@ export async function listAgencyReport(agencyId, schoolYear) {
       status: cycle?.status || 'not_started',
       started: Boolean(cycle && cycle.status !== 'not_started'),
       finalizedAt: cycle?.finalized_at || null,
+      pushedAt: cycle?.pushed_at || null,
+      isPushed: false, // filled below after campaign load
       sectionPercent: pct,
       reviewedCount,
       sectionTotal: SECTION_KEYS.length,
@@ -795,10 +861,17 @@ export async function listAgencyReport(agencyId, schoolYear) {
       remindersDone,
       remindersTotal: reminderItems.length || DEFAULT_REMINDER_ITEMS.length,
       markedSent: tokens.some((t) => t.marked_sent_at),
+      hasLink: tokens.some((t) => t.token && (!t.expires_at || new Date(t.expires_at) > new Date())),
     });
   }
 
   const campaign = await getOrCreateCampaign(agencyId, year);
+  for (const row of out) {
+    row.isPushed = cycleIsPushed({ pushed_at: row.pushedAt }, campaign);
+    if (campaignIsPushed(campaign) && !row.pushedAt) {
+      row.pushedAt = campaign.pushed_at || null;
+    }
+  }
   return {
     agencyId,
     schoolYear: year,
@@ -825,7 +898,18 @@ export async function listAgencyReport(agencyId, schoolYear) {
 export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
   const year = schoolYear || currentSchoolYear();
   const campaign = await getCampaign(agencyId, year);
-  if (!campaignIsPushed(campaign)) {
+  const schools = await loadProviderSchoolSchedule(providerUserId, agencyId);
+
+  const [cycleRows] = await pool.execute(
+    `SELECT * FROM provider_year_update_cycles
+     WHERE agency_id = ? AND provider_user_id = ? AND ${yearEq()}
+     LIMIT 1`,
+    [agencyId, providerUserId, year]
+  );
+  let cycle = cycleRows?.[0] || null;
+  const providerPushed = cycleIsPushed(cycle, campaign);
+
+  if (!providerPushed) {
     return {
       available: false,
       reason: 'not_pushed',
@@ -839,25 +923,31 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
     };
   }
 
-  const schools = await loadProviderSchoolSchedule(providerUserId, agencyId);
   if (!schools.length) {
     return {
       available: false,
       reason: 'no_school_assignments',
       campaign: {
-        status: campaign.status,
+        status: campaign?.status || 'pushed',
         isEnabled: true,
         isPushed: true,
-        pushedAt: campaign.pushed_at,
+        pushedAt: campaign?.pushed_at || cycle?.pushed_at || null,
       },
     };
   }
 
-  const { cycle, tokenRow } = await ensureShareableToken({
+  // Bulk-pushed campaigns may not have a cycle/token yet for this provider.
+  const ensured = await ensureShareableToken({
     agencyId,
     providerUserId,
     schoolYear: year,
   });
+  cycle = ensured.cycle;
+  const tokenRow = ensured.tokenRow;
+  if (campaignIsPushed(campaign) && !cycle.pushed_at) {
+    cycle = await markCyclePushed(cycle.id, null);
+  }
+
   const dismissal = await getDismissal(cycle.id, providerUserId);
   const dismissed =
     dismissal &&
@@ -871,16 +961,17 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
     showPulse: cycle.status !== 'finalized' && !dismissed,
     dismissed: Boolean(dismissed),
     campaign: {
-      status: campaign.status,
+      status: campaign?.status || 'enabled',
       isEnabled: true,
       isPushed: true,
-      pushedAt: campaign.pushed_at,
+      pushedAt: campaign?.pushed_at || cycle.pushed_at || null,
     },
     cycle: {
       id: cycle.id,
       status: cycle.status,
       schoolYear: cycle.school_year,
       finalizedAt: cycle.finalized_at || null,
+      pushedAt: cycle.pushed_at || null,
     },
     sectionPercent: Math.round((reviewedCount / SECTION_KEYS.length) * 100),
     reviewedCount,

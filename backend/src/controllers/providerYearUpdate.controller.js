@@ -215,6 +215,52 @@ export async function pushCampaign(req, res, next) {
   }
 }
 
+/** POST /api/provider-year-update/providers/:providerUserId/push */
+export async function pushProvider(req, res, next) {
+  try {
+    const providerUserId = safeInt(req.params.providerUserId);
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!agencyId || !providerUserId) {
+      return res.status(400).json({
+        error: { message: 'agencyId and providerUserId are required' },
+      });
+    }
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    try {
+      const result = await S.pushProvider({
+        agencyId,
+        providerUserId,
+        schoolYear,
+        userId: req.user?.id,
+      });
+      res.json({
+        ok: true,
+        alreadyPushed: Boolean(result.alreadyPushed),
+        providerUserId,
+        cycleId: result.cycle?.id || null,
+        pushedAt: result.cycle?.pushed_at || null,
+        isPushed: true,
+        campaign: {
+          status: result.campaign?.status,
+          isEnabled: S.campaignIsEnabled(result.campaign),
+          isPushed: S.campaignIsPushed(result.campaign),
+          pushedAt: result.campaign?.pushed_at || null,
+        },
+      });
+    } catch (err) {
+      if (err?.status === 400) {
+        return res.status(400).json({ error: { message: err.message } });
+      }
+      throw err;
+    }
+  } catch (e) {
+    next(e);
+  }
+}
+
 /** POST /api/provider-year-update/tokens */
 export async function generateToken(req, res, next) {
   try {
@@ -370,9 +416,20 @@ export async function ensureMyToken(req, res, next) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
     const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
-    const campaign = await S.getCampaign(agencyId, schoolYear);
-    if (!S.campaignIsPushed(campaign)) {
-      return res.status(400).json({ error: { message: 'Provider Year Update has not been pushed yet.' } });
+    const status = await S.getMyStatus({
+      agencyId,
+      providerUserId: req.user.id,
+      schoolYear,
+    });
+    if (!status.available) {
+      return res.status(400).json({
+        error: {
+          message:
+            status.reason === 'not_pushed'
+              ? 'Provider Year Update has not been pushed yet.'
+              : 'Provider Year Update is not available.',
+        },
+      });
     }
     const { cycle, tokenRow, created } = await S.ensureShareableToken({
       agencyId,

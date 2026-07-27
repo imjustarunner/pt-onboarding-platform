@@ -23,7 +23,7 @@
             Pushed {{ formatDt(campaign.pushedAt) }} — providers see Year Update on My Dashboard (dismissible) and shareable links work.
           </template>
           <template v-else-if="campaign.isEnabled">
-            Enabled — use <strong>Get link</strong> / <strong>Copy link</strong> to text providers, or Push to Providers to show Year Update on My Dashboard.
+            Enabled — use <strong>Get link</strong>, then <strong>Push</strong> per provider for My Dashboard, or Push to Providers for everyone.
           </template>
           <template v-else>Not started — Enable Provider Year Update for {{ schoolYear }}.</template>
         </span>
@@ -102,7 +102,7 @@
                 <th>Sections</th>
                 <th>Clicks</th>
                 <th>Last activity</th>
-                <th>Link</th>
+                <th>Link / Push</th>
               </tr>
             </thead>
             <tbody>
@@ -131,22 +131,39 @@
                 <td>{{ row.tokenClickCount || 0 }}</td>
                 <td class="muted small">{{ formatDt(row.lastActivityAt) || '—' }}</td>
                 <td @click.stop>
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="!campaign.isEnabled || linkBusy"
-                    @click="copyLink(row)"
-                  >
-                    {{ linkFor(row) ? 'Copy' : 'Get link' }}
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="!primaryToken(row) || linkBusy"
-                    @click="toggleMarkSent(row)"
-                  >
-                    {{ row.markedSent ? 'Sent ✓' : 'Mark sent' }}
-                  </button>
+                  <div class="pyu-admin__row-actions">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="!campaign.isEnabled || linkBusyId === row.providerUserId"
+                      @click="copyLink(row)"
+                    >
+                      {{ linkFor(row) ? 'Copy' : 'Get link' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-push btn-sm"
+                      :disabled="!canPushProvider(row) || pushBusyId === row.providerUserId"
+                      :title="pushTitle(row)"
+                      @click="pushOneProvider(row)"
+                    >
+                      {{
+                        pushBusyId === row.providerUserId
+                          ? 'Pushing…'
+                          : row.isPushed
+                            ? 'Pushed ✓'
+                            : 'Push'
+                      }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="!primaryToken(row) || linkBusyId === row.providerUserId"
+                      @click="toggleMarkSent(row)"
+                    >
+                      {{ row.markedSent ? 'Sent ✓' : 'Mark sent' }}
+                    </button>
+                  </div>
                 </td>
               </tr>
               <tr v-if="!filteredRows.length">
@@ -182,16 +199,39 @@
         <div class="detail-block">
           <strong>Share link</strong>
           <p class="link-box">
-            {{ linkFor(selectedRow) || (campaign.isEnabled ? 'Click “Copy link” to generate a shareable URL.' : 'Enable Provider Year Update to create links.') }}
+            {{ linkFor(selectedRow) || (campaign.isEnabled ? 'Click “Get link” to generate a shareable URL.' : 'Enable Provider Year Update to create links.') }}
           </p>
-          <button
-            type="button"
-            class="btn btn-primary btn-sm"
-            :disabled="!campaign.isEnabled || linkBusy"
-            @click="copyLink(selectedRow)"
-          >
-            {{ linkBusy ? 'Working…' : (linkFor(selectedRow) ? 'Copy link' : 'Generate link') }}
-          </button>
+          <div class="pyu-admin__row-actions">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="!campaign.isEnabled || linkBusyId === selectedRow.providerUserId"
+              @click="copyLink(selectedRow)"
+            >
+              {{
+                linkBusyId === selectedRow.providerUserId
+                  ? 'Working…'
+                  : linkFor(selectedRow)
+                    ? 'Copy link'
+                    : 'Get link'
+              }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-push btn-sm"
+              :disabled="!canPushProvider(selectedRow) || pushBusyId === selectedRow.providerUserId"
+              :title="pushTitle(selectedRow)"
+              @click="pushOneProvider(selectedRow)"
+            >
+              {{
+                pushBusyId === selectedRow.providerUserId
+                  ? 'Pushing…'
+                  : selectedRow.isPushed
+                    ? 'Pushed ✓'
+                    : 'Push to provider'
+              }}
+            </button>
+          </div>
         </div>
       </aside>
     </div>
@@ -217,7 +257,8 @@ const props = defineProps({
 const schoolYear = computed(() => props.schoolYear || currentSchoolYear());
 const loading = ref(false);
 const campaignBusy = ref(false);
-const linkBusy = ref(false);
+const linkBusyId = ref(null);
+const pushBusyId = ref(null);
 const error = ref('');
 const pushFlash = ref('');
 const rows = ref([]);
@@ -289,10 +330,23 @@ function linkFor(row) {
   return t?.token ? publicProviderYearUpdateUrl(t.token, props.organizationSlug) : '';
 }
 
+function canPushProvider(row) {
+  if (!row || !campaign.value.isEnabled) return false;
+  if (row.isPushed) return false;
+  return Boolean(linkFor(row));
+}
+
+function pushTitle(row) {
+  if (!campaign.value.isEnabled) return 'Enable Provider Year Update first';
+  if (row?.isPushed) return 'Already pushed — provider sees Year Update on My Dashboard';
+  if (!linkFor(row)) return 'Get link first, then push to this provider';
+  return 'Show Year Update on this provider’s My Dashboard';
+}
+
 async function ensureLink(row) {
   if (!row || linkFor(row)) return linkFor(row);
   if (!campaign.value.isEnabled) return '';
-  linkBusy.value = true;
+  linkBusyId.value = row.providerUserId;
   error.value = '';
   try {
     await api.post('/provider-year-update/tokens', {
@@ -308,7 +362,7 @@ async function ensureLink(row) {
     error.value = e?.response?.data?.error?.message || e.message || 'Failed to generate link';
     return '';
   } finally {
-    linkBusy.value = false;
+    linkBusyId.value = null;
   }
 }
 
@@ -326,9 +380,6 @@ async function copyLink(row) {
 
 async function selectRow(row) {
   selectedRow.value = row;
-  if (campaign.value.isEnabled && !linkFor(row) && !linkBusy.value) {
-    await ensureLink(row);
-  }
 }
 
 async function toggleMarkSent(row) {
@@ -338,6 +389,30 @@ async function toggleMarkSent(row) {
   await api.patch(`/provider-year-update/tokens/${t.id}/mark-sent`, { sent });
   row.markedSent = sent;
   if (t) t.marked_sent_at = sent ? new Date().toISOString() : null;
+}
+
+async function pushOneProvider(row) {
+  if (!row || !canPushProvider(row)) return;
+  pushBusyId.value = row.providerUserId;
+  error.value = '';
+  pushFlash.value = '';
+  try {
+    const res = await api.post(`/provider-year-update/providers/${row.providerUserId}/push`, {
+      agencyId: Number(props.agencyId),
+      schoolYear: schoolYear.value,
+    });
+    pushFlash.value = res.data?.alreadyPushed
+      ? `${row.providerName} was already pushed.`
+      : `Pushed Year Update to ${row.providerName}.`;
+    await load();
+    setTimeout(() => {
+      pushFlash.value = '';
+    }, 2500);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e.message || 'Push failed';
+  } finally {
+    pushBusyId.value = null;
+  }
 }
 
 async function load() {
@@ -486,6 +561,16 @@ onMounted(load);
   background: #0c4a6e;
   color: #fff;
   border: none;
+}
+.btn-push:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.pyu-admin__row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 .pill {
   display: inline-block;

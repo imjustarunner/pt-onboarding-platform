@@ -10,6 +10,7 @@ router.post('/campaign/enable', authenticate, ctrl.enableCampaign);
 router.post('/campaign/push', authenticate, ctrl.pushCampaign);
 router.post('/tokens', authenticate, ctrl.generateToken);
 router.patch('/tokens/:tokenId/mark-sent', authenticate, ctrl.markTokenSent);
+router.post('/providers/:providerUserId/push', authenticate, ctrl.pushProvider);
 router.get('/providers/:providerUserId', authenticate, ctrl.getProviderBundle);
 
 router.get('/me', authenticate, ctrl.getMyCycle);
