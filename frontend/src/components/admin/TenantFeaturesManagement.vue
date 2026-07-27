@@ -314,7 +314,7 @@
             <h3>Payroll options</h3>
             <p class="muted">
               Extra payroll settings for this {{ contextNoun }}. Save using the button on the feature panel above.
-              Set the default % and per service code under Settings → Company Profile → Payroll.
+              Set the default % and per service code under Settings → Pay &amp; workforce → Payroll.
             </p>
           </div>
         </div>

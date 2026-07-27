@@ -3,157 +3,21 @@
     <header class="hub-header">
       <h2 class="hub-title">Platform</h2>
       <p class="hub-subtitle">
-        Global tools and defaults — no tenant selected. Choose a tenant in the bar above for organization-specific
-        screens (profile, billing, per-tenant overview).
+        Operate the platform here (defaults, catalog, all orgs). Pick a tenant in the bar above to run that
+        organization’s Company setup hub — profile, booking types, features, team, and billing.
       </p>
     </header>
 
-    <section class="hub-section">
-      <h3 class="hub-section-title">Governance &amp; visibility</h3>
-      <p class="hub-section-hint">
-        Defaults that apply to every tenant until overridden, plus compliance-oriented views.
-      </p>
-      <div class="hub-cards">
-        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'platform-settings')">
-          <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('platform-settings')" :src="iconFor('platform-settings')" alt="" class="hub-card-icon-img" />
-            <span v-else>🔐</span>
-          </span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">Platform defaults</span>
-            <span class="hub-card-desc">
-              Feature visibility grid, school portal icons, and other settings that shape what tenants see in Company
-              Profile.
-            </span>
-          </span>
-        </button>
-        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'platform-billing')">
-          <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('platform-billing')" :src="iconFor('platform-billing')" alt="" class="hub-card-icon-img" />
-            <span v-else>💳</span>
-          </span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">Platform billing</span>
-            <span class="hub-card-desc">
-              Stripe and QuickBooks readiness for tenants that should pay the platform through your merchant account.
-            </span>
-          </span>
-        </button>
-        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'platform-feature-catalog')">
-          <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('platform-feature-catalog')" :src="iconFor('platform-feature-catalog')" alt="" class="hub-card-icon-img" />
-            <span v-else>🧮</span>
-          </span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">Feature Catalog &amp; Pricing</span>
-            <span class="hub-card-desc">
-              Set the platform default tenant and per-user monthly price for every feature, plus pro-ration rules.
-            </span>
-          </span>
-        </button>
-        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'platform-feature-audit')">
-          <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('platform-feature-audit')" :src="iconFor('platform-feature-audit')" alt="" class="hub-card-icon-img" />
-            <span v-else>📜</span>
-          </span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">Feature audit log</span>
-            <span class="hub-card-desc">
-              Every tenant- and user-level enable/disable event with actor, timestamp, and notes.
-            </span>
-          </span>
-        </button>
-        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'platform-all-agencies')">
-          <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('platform-all-agencies')" :src="iconFor('platform-all-agencies')" alt="" class="hub-card-icon-img" />
-            <span v-else>🗂️</span>
-          </span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">All organizations</span>
-            <span class="hub-card-desc">
-              Full directory of tenants and orgs: search, create agencies, jump into any company profile.
-            </span>
-          </span>
-        </button>
-        <button type="button" class="hub-card" @click="openArea('system', 'audit-center')">
-          <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('audit-center')" :src="iconFor('audit-center')" alt="" class="hub-card-icon-img" />
-            <span v-else>🛡️</span>
-          </span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">Audit center</span>
-            <span class="hub-card-desc">Review activity and access trails across the platform where enabled.</span>
-          </span>
-        </button>
-        <button type="button" class="hub-card" @click="openArea('system', 'viewport-preview')">
-          <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('viewport-preview')" :src="iconFor('viewport-preview')" alt="" class="hub-card-icon-img" />
-            <span v-else>📱</span>
-          </span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">Viewport preview</span>
-            <span class="hub-card-desc">Device framing and preview defaults for portal experiences.</span>
-          </span>
-        </button>
-      </div>
-    </section>
+    <p v-if="filterActive && !visibleSections.length" class="hub-filter-empty">
+      No settings match “{{ filterQuery.trim() }}”.
+    </p>
 
-    <section class="hub-section">
-      <h3 class="hub-section-title">General &amp; billing</h3>
-      <p class="hub-section-hint">
-        Company profile and billing often need a tenant — pick one above, or open the screen and choose from the
-        in-page selector when offered.
-      </p>
-      <div class="hub-cards">
-        <button type="button" class="hub-card" @click="openArea('general', 'company-profile')">
-          <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('company-profile')" :src="iconFor('company-profile')" alt="" class="hub-card-icon-img" />
-            <span v-else>🏢</span>
-          </span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">Company profile</span>
-            <span class="hub-card-desc">Branding, features, terminology, structure — scoped once a tenant is chosen.</span>
-          </span>
-        </button>
-        <button type="button" class="hub-card" @click="openArea('general', 'team-roles')">
-          <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('team-roles')" :src="iconFor('team-roles')" alt="" class="hub-card-icon-img" />
-            <span v-else>👥</span>
-          </span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">Team &amp; roles</span>
-            <span class="hub-card-desc">Who can access which areas inside a tenant.</span>
-          </span>
-        </button>
-        <button type="button" class="hub-card" @click="openArea('general', 'billing')">
-          <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('billing')" :src="iconFor('billing')" alt="" class="hub-card-icon-img" />
-            <span v-else>💳</span>
-          </span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">Billing</span>
-            <span class="hub-card-desc">Charges, invoices, receipts, payment methods, and billing history per tenant.</span>
-          </span>
-        </button>
-        <button type="button" class="hub-card" @click="openArea('general', 'tenant-features')">
-          <span class="hub-card-icon" aria-hidden="true">
-            <img v-if="iconFor('company-profile')" :src="iconFor('company-profile')" alt="" class="hub-card-icon-img" />
-            <span v-else>🎛️</span>
-          </span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">Features</span>
-            <span class="hub-card-desc">Open the dedicated feature matrix for enablement, pricing, and a-la-carte controls.</span>
-          </span>
-        </button>
-      </div>
-    </section>
-
-    <section v-for="block in secondaryBlocks" :key="block.title" class="hub-section">
-      <h3 class="hub-section-title">{{ block.title }}</h3>
-      <p v-if="block.hint" class="hub-section-hint">{{ block.hint }}</p>
+    <section v-for="section in visibleSections" :key="section.id" class="hub-section">
+      <h3 class="hub-section-title">{{ section.title }}</h3>
+      <p v-if="section.hint" class="hub-section-hint">{{ section.hint }}</p>
       <div class="hub-cards">
         <button
-          v-for="row in block.items"
+          v-for="row in section.items"
           :key="`${row.category}-${row.item}`"
           type="button"
           class="hub-card"
@@ -162,7 +26,7 @@
         >
           <span class="hub-card-icon" aria-hidden="true">
             <img v-if="iconFor(row.item)" :src="iconFor(row.item)" alt="" class="hub-card-icon-img" />
-            <span v-else>{{ row.icon || '⚙️' }}</span>
+            <span v-else>{{ row.fallbackIcon || '⚙️' }}</span>
           </span>
           <span class="hub-card-body">
             <span class="hub-card-label">{{ row.label }}</span>
@@ -175,17 +39,151 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { useBrandingStore } from '../../store/branding';
+import {
+  SETTINGS_SEARCH_DESCRIPTIONS,
+  settingsCardMatchesQuery
+} from '../../navigation/settingsSearchCatalog.js';
 
 const props = defineProps({
   /** { title: string, hint?: string, items: { category, item, label, icon?, description? }[] }[] */
   secondaryBlocks: { type: Array, default: () => [] },
   onOpenArea: { type: Function, required: true },
   /** (itemId) => url | null — from SettingsModal getSettingsIconUrl */
-  resolveItemIcon: { type: Function, default: null }
+  resolveItemIcon: { type: Function, default: null },
+  /** Live filter from Settings search — hides non-matching cards */
+  filterQuery: { type: String, default: '' }
 });
 
 const brandingStore = useBrandingStore();
+
+const primarySections = [
+  {
+    id: 'governance',
+    title: 'Platform operators',
+    hint: 'Global defaults, pricing, and the full tenant directory — manage every company from here.',
+    items: [
+      {
+        category: 'platform',
+        item: 'platform-settings',
+        label: 'Platform defaults',
+        fallbackIcon: '🔐',
+        superadminOnly: true,
+        description: SETTINGS_SEARCH_DESCRIPTIONS['platform-settings']
+      },
+      {
+        category: 'platform',
+        item: 'platform-billing',
+        label: 'Platform billing',
+        fallbackIcon: '💳',
+        superadminOnly: true,
+        description: SETTINGS_SEARCH_DESCRIPTIONS['platform-billing']
+      },
+      {
+        category: 'platform',
+        item: 'platform-feature-catalog',
+        label: 'Feature Catalog & Pricing',
+        fallbackIcon: '🧮',
+        superadminOnly: true,
+        description: SETTINGS_SEARCH_DESCRIPTIONS['platform-feature-catalog']
+      },
+      {
+        category: 'platform',
+        item: 'platform-feature-audit',
+        label: 'Feature audit log',
+        fallbackIcon: '📜',
+        superadminOnly: true,
+        description: SETTINGS_SEARCH_DESCRIPTIONS['platform-feature-audit']
+      },
+      {
+        category: 'platform',
+        item: 'platform-all-agencies',
+        label: 'All organizations',
+        fallbackIcon: '🗂️',
+        superadminOnly: true,
+        description: SETTINGS_SEARCH_DESCRIPTIONS['platform-all-agencies']
+      },
+      {
+        category: 'system',
+        item: 'audit-center',
+        label: 'Audit center',
+        fallbackIcon: '🛡️',
+        description: SETTINGS_SEARCH_DESCRIPTIONS['audit-center']
+      },
+      {
+        category: 'system',
+        item: 'viewport-preview',
+        label: 'Viewport preview',
+        fallbackIcon: '📱',
+        description: SETTINGS_SEARCH_DESCRIPTIONS['viewport-preview']
+      }
+    ]
+  },
+  {
+    id: 'general-billing',
+    title: 'Open with a tenant selected',
+    hint: 'These screens need a company context — pick a tenant in the bar above (recommended), or open and choose in-page.',
+    items: [
+      {
+        category: 'general',
+        item: 'company-profile',
+        label: 'Company profile',
+        fallbackIcon: '🏢',
+        description: SETTINGS_SEARCH_DESCRIPTIONS['company-profile']
+      },
+      {
+        category: 'general',
+        item: 'booking-service-types',
+        label: 'Booking & service types',
+        fallbackIcon: '📅',
+        description: SETTINGS_SEARCH_DESCRIPTIONS['booking-service-types']
+      },
+      {
+        category: 'general',
+        item: 'tenant-features',
+        label: 'Features',
+        fallbackIcon: '🎛️',
+        description: SETTINGS_SEARCH_DESCRIPTIONS['tenant-features']
+      },
+      {
+        category: 'general',
+        item: 'team-roles',
+        label: 'Team & roles',
+        fallbackIcon: '👥',
+        description: SETTINGS_SEARCH_DESCRIPTIONS['team-roles']
+      },
+      {
+        category: 'general',
+        item: 'billing',
+        label: 'Billing',
+        fallbackIcon: '💳',
+        description: SETTINGS_SEARCH_DESCRIPTIONS.billing
+      }
+    ]
+  }
+];
+
+const filterActive = computed(() => !!String(props.filterQuery || '').trim());
+
+const visibleSections = computed(() => {
+  const q = props.filterQuery;
+  const secondary = (props.secondaryBlocks || []).map((block, idx) => ({
+    id: `secondary-${idx}-${block.title}`,
+    title: block.title,
+    hint: block.hint || '',
+    items: (block.items || []).map((row) => ({
+      ...row,
+      fallbackIcon: row.icon || '⚙️'
+    }))
+  }));
+  return [...primarySections, ...secondary]
+    .map((section) => ({
+      ...section,
+      items: (section.items || []).filter((row) => settingsCardMatchesQuery(q, row))
+    }))
+    .filter((section) => section.items.length > 0);
+});
 
 const openArea = (category, item, agencyTab) => {
   props.onOpenArea({ category, item, agencyTab });
@@ -227,6 +225,12 @@ const iconFor = (itemId) => {
   font-size: 14px;
   line-height: 1.55;
   max-width: 52rem;
+}
+
+.hub-filter-empty {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--text-secondary);
 }
 
 .hub-section {

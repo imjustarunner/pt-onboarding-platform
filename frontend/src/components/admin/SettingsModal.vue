@@ -192,6 +192,51 @@
           </div>
         </div>
 
+        <div class="settings-search-bar" data-tour="settings-search">
+          <input
+            v-model="settingsSearchQuery"
+            type="search"
+            class="settings-search-input"
+            placeholder="Search settings, features, and sections…"
+            aria-label="Search settings"
+            autocomplete="off"
+            @focus="settingsSearchOpen = true"
+            @keydown.down.prevent="settingsSearchMove(1)"
+            @keydown.up.prevent="settingsSearchMove(-1)"
+            @keydown.enter.prevent="settingsSearchSelectHighlighted"
+            @keydown.esc="closeSettingsSearch"
+          />
+          <div
+            v-if="settingsSearchOpen && settingsSearchResults.length"
+            class="settings-search-dropdown"
+            role="listbox"
+          >
+            <button
+              v-for="(hit, idx) in settingsSearchResults"
+              :key="hit.id"
+              type="button"
+              class="settings-search-option"
+              :class="{ on: idx === settingsSearchHighlight }"
+              role="option"
+              @mousedown.prevent="jumpToSettingsHit(hit)"
+            >
+              <span class="settings-search-option-main">
+                <span class="settings-search-option-label">{{ hit.label }}</span>
+                <span v-if="hit.agencyTab ? hit.pathLabel : hit.description" class="settings-search-option-desc">
+                  {{ hit.agencyTab ? hit.pathLabel : hit.description }}
+                </span>
+              </span>
+              <span class="settings-search-option-cat">{{ hit.agencyTab ? 'Company profile' : hit.categoryLabel }}</span>
+            </button>
+          </div>
+          <p
+            v-else-if="settingsSearchOpen && settingsSearchQuery.trim() && !settingsSearchResults.length"
+            class="settings-search-empty"
+          >
+            No matching settings
+          </p>
+        </div>
+
         <div
           class="settings-main-row"
           :class="{
@@ -201,7 +246,7 @@
         >
         <div v-if="!platformSettingsCardHubActive && !tenantSettingsCardHubActive" class="settings-sidebar">
           <div
-            v-for="category in visibleCategories"
+            v-for="category in sidebarCategories"
             :key="category.id"
             class="category-section"
           >
@@ -235,6 +280,9 @@
               </button>
             </div>
           </div>
+          <p v-if="settingsSearchQuery.trim() && !sidebarCategories.length" class="settings-sidebar-empty">
+            No matching settings
+          </p>
         </div>
         
         <div class="settings-content" :class="{ 'settings-content--solo-hub': platformSettingsCardHubActive }">
@@ -293,7 +341,12 @@
               <p>Payroll settings are only available for agency organizations (not schools/programs).</p>
             </div>
 
-            <component v-else :is="selectedComponent" v-bind="componentProps" :key="`${selectedCategory}-${selectedItem}`" />
+            <component
+              v-else
+              :is="selectedComponent"
+              v-bind="componentProps"
+              :key="`${selectedCategory}-${selectedItem}-${route.query.agencyTab || ''}`"
+            />
           </div>
           <div v-else class="empty-state">
             <p>Select a setting category to get started</p>
@@ -306,7 +359,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
@@ -317,6 +370,11 @@ import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { trackPromise } from '../../utils/pageLoader';
 import { preloadImages } from '../../utils/preloadImages';
+import {
+  buildSettingsSearchTargets,
+  filterSettingsSearchTargets,
+  SETTINGS_SEARCH_DESCRIPTIONS
+} from '../../navigation/settingsSearchCatalog.js';
 
 // Import all existing components
 import AgencyManagement from './AgencyManagement.vue';
@@ -416,6 +474,9 @@ const selectedCategory = ref(null);
 const selectedItem = ref(null);
 const selectedAgencyId = ref(agencyStore.currentAgency?.id ? String(agencyStore.currentAgency.id) : '');
 const tenantPickerSearch = ref('');
+const settingsSearchQuery = ref('');
+const settingsSearchOpen = ref(false);
+const settingsSearchHighlight = ref(0);
 
 // Sidebar accordion state
 const expandedCategoryIds = ref(new Set());
@@ -1067,9 +1128,6 @@ const tenantHubSecondaryBlocks = computed(() => {
   if (workflow?.items?.length) {
     const byId = Object.fromEntries(workflow.items.map((i) => [i.id, i]));
     const pick = (ids) => ids.map((id) => byId[id]).filter(Boolean);
-    const peopleCatalog = pick(['client-settings', 'school-settings', 'provider-settings']);
-    const scheduling = pick(['provider-scheduling', 'availability-intake', 'shift-programs']);
-    const peopleOps = pick(['payroll-schedule', 'departments', 'hiring-prehire']);
     const onboarding = pick([
       'packages',
       'digital-forms',
@@ -1078,16 +1136,28 @@ const tenantHubSecondaryBlocks = computed(() => {
       'field-definitions',
       'field-definitions-agency'
     ]);
+    const peopleCatalog = pick(['client-settings', 'school-settings', 'provider-settings']);
+    const scheduling = pick(['provider-scheduling', 'availability-intake', 'shift-programs']);
+    // Promoted into Tenant hub “Pay & workforce”; still listed here so the hub can pull them.
+    const peopleOps = pick(['payroll-schedule', 'departments', 'hiring-prehire']);
     const programs = pick(['challenge-management']);
     const used = new Set(
-      [...peopleCatalog, ...scheduling, ...peopleOps, ...onboarding, ...programs].map((i) => i.id)
+      [...onboarding, ...peopleCatalog, ...scheduling, ...peopleOps, ...programs].map((i) => i.id)
     );
     const other = workflow.items.filter((i) => !used.has(i.id));
 
+    // Order matches company onboarding: bring people in → catalogs → schedule → pay → programs
+    if (onboarding.length) {
+      blocks.push({
+        title: 'Onboarding & forms',
+        hint: 'Packages, intake links, checklists, and profile fields — get new people into the system.',
+        items: mapItems(onboarding, 'workflow')
+      });
+    }
     if (peopleCatalog.length) {
       blocks.push({
         title: 'People & catalogs',
-        hint: 'Clients, schools, and providers for this tenant.',
+        hint: 'Clients, schools, and providers for this organization.',
         items: mapItems(peopleCatalog, 'workflow')
       });
     }
@@ -1100,16 +1170,9 @@ const tenantHubSecondaryBlocks = computed(() => {
     }
     if (peopleOps.length) {
       blocks.push({
-        title: 'People ops',
-        hint: 'Payroll, departments, and hiring — when enabled for this tenant.',
+        title: 'Pay & workforce',
+        hint: 'Payroll schedules/policies, departments, and hiring — when enabled.',
         items: mapItems(peopleOps, 'workflow')
-      });
-    }
-    if (onboarding.length) {
-      blocks.push({
-        title: 'Onboarding & forms',
-        hint: 'Packages, intake links, checklists, and profile fields.',
-        items: mapItems(onboarding, 'workflow')
       });
     }
     if (programs.length) {
@@ -1137,25 +1200,25 @@ const tenantHubSecondaryBlocks = computed(() => {
       items: mapItems(c.items, c.id)
     });
   };
-  pushWholeCategory('Theming', 'Brand look and shared creative assets.', 'theming');
+  pushWholeCategory('Look & brand', 'Colors, logos, templates, and shared creative assets.', 'theming');
   pushWholeCategory('AI tools', 'Note Aid and related AI configuration.', 'ai');
 
   const systemCat = roleFilteredCategories.value.find((x) => x.id === 'system');
   if (systemCat?.items?.length) {
     const supportItem = systemCat.items.find((i) => i.id === 'tenant-support');
     const rest = systemCat.items.filter((i) => i.id !== 'tenant-support');
-    if (supportItem) {
-      blocks.unshift({
-        title: 'Support',
-        hint: 'Organization help desk and direct Plot Twist HQ platform tickets.',
-        items: mapItems([supportItem], 'system')
-      });
-    }
     if (rest.length) {
       blocks.push({
         title: 'System & communications',
         hint: 'Email, SMS, integrations, and archive.',
         items: mapItems(rest, 'system')
+      });
+    }
+    if (supportItem) {
+      blocks.push({
+        title: 'Support',
+        hint: 'Organization help desk and Plot Twist HQ platform tickets.',
+        items: mapItems([supportItem], 'system')
       });
     }
   }
@@ -1180,7 +1243,7 @@ const HUB_CARD_DESC = computed(() => ({
   'provider-scheduling': `Scheduling templates and rules — ${contextNoun.value}-scoped.`,
   'availability-intake': `Provider availability and intake — agency ${contextPlural.value}.`,
   'shift-programs': `Shift programs and publishing — needs ${contextNoun.value} + feature flag.`,
-  'payroll-schedule': `Pay schedules and payroll — agency ${contextPlural.value} with Payroll enabled.`,
+  'payroll-schedule': `Pay schedules and payroll policies (PTO, mileage, Med Cancel, holidays) — preferred over Company Profile → Payroll.`,
   departments: `Org departments — ${contextNoun.value} with budget management.`,
   'hiring-prehire': `Hiring and pre-hire setup — requires Onboarding & Training.`,
   packages: `Onboarding packages — requires Onboarding & Training for this ${contextNoun.value}.`,
@@ -1254,6 +1317,133 @@ const visibleCategories = computed(() => {
   }
   return roleFilteredCategories.value;
 });
+
+/** Live search targets: standalone settings + nested Company Profile tabs/sections. */
+const settingsSearchTargets = computed(() => {
+  const catalogItems = [];
+  for (const cat of roleFilteredCategories.value || []) {
+    for (const item of cat.items || []) {
+      catalogItems.push({
+        id: item.id,
+        label: item.label,
+        categoryId: cat.id,
+        categoryLabel: cat.label,
+        description: HUB_CARD_DESC.value[item.id] || SETTINGS_SEARCH_DESCRIPTIONS[item.id] || ''
+      });
+    }
+  }
+
+  // Hub-only / quick-link surfaces that are filtered out of the sidebar tree.
+  if (isSuperAdmin.value) {
+    catalogItems.push({
+      id: 'platform-all-agencies',
+      label: 'All organizations',
+      categoryId: 'platform',
+      categoryLabel: 'PLATFORM',
+      description: SETTINGS_SEARCH_DESCRIPTIONS['platform-all-agencies']
+    });
+    if (tenantSettingsCardHubActive.value) {
+      catalogItems.push(
+        {
+          id: 'tenant-ws-org-directory',
+          label: 'Organizations / Affiliations / Programs / Schools',
+          categoryId: 'platform',
+          categoryLabel: 'PLATFORM',
+          description: SETTINGS_SEARCH_DESCRIPTIONS['tenant-ws-org-directory']
+        },
+        {
+          id: 'tenant-ws-global-platform',
+          label: 'Platform-wide defaults',
+          categoryId: 'platform',
+          categoryLabel: 'PLATFORM',
+          description: SETTINGS_SEARCH_DESCRIPTIONS['tenant-ws-global-platform']
+        }
+      );
+    }
+  }
+
+  return buildSettingsSearchTargets({
+    catalogItems,
+    isSuperAdmin: isSuperAdmin.value,
+    includeCompanyProfile: true
+  });
+});
+
+const settingsSearchResults = computed(() =>
+  filterSettingsSearchTargets(settingsSearchQuery.value, settingsSearchTargets.value)
+);
+
+/** Sidebar categories filtered by the active settings search query. */
+const sidebarCategories = computed(() => {
+  const q = String(settingsSearchQuery.value || '').trim();
+  const cats = visibleCategories.value || [];
+  if (!q) return cats;
+  const hitIds = new Set(filterSettingsSearchTargets(q, settingsSearchTargets.value, 200).map((h) => h.id));
+  return cats
+    .map((cat) => ({
+      ...cat,
+      items: (cat.items || []).filter((i) => hitIds.has(i.id))
+    }))
+    .filter((cat) => cat.items.length > 0);
+});
+
+watch(settingsSearchResults, () => {
+  settingsSearchHighlight.value = 0;
+});
+
+watch(settingsSearchQuery, (q) => {
+  if (String(q || '').trim()) {
+    settingsSearchOpen.value = true;
+    // Expand matching sidebar categories while filtering.
+    const next = new Set(expandedCategoryIds.value);
+    for (const cat of sidebarCategories.value) next.add(String(cat.id));
+    expandedCategoryIds.value = next;
+  }
+});
+
+function closeSettingsSearch() {
+  settingsSearchOpen.value = false;
+  settingsSearchHighlight.value = 0;
+}
+
+function settingsSearchMove(delta) {
+  const n = settingsSearchResults.value.length;
+  if (!n) return;
+  settingsSearchOpen.value = true;
+  settingsSearchHighlight.value = (settingsSearchHighlight.value + delta + n) % n;
+}
+
+function settingsSearchSelectHighlighted() {
+  const hit = settingsSearchResults.value[settingsSearchHighlight.value];
+  if (hit) jumpToSettingsHit(hit);
+}
+
+function jumpToSettingsHit(hit) {
+  if (!hit) return;
+  settingsSearchQuery.value = '';
+  closeSettingsSearch();
+  const agencyTab = hit.agencyTab || null;
+  // Company Profile nested jumps need a tenant when possible.
+  if (hit.itemId === 'company-profile' && agencyStore.currentAgency?.id) {
+    openTenantHubArea({ category: 'general', item: 'company-profile', agencyTab });
+    return;
+  }
+  if (platformSettingsCardHubActive.value) {
+    openPlatformHubArea({ category: hit.categoryId, item: hit.itemId, agencyTab });
+  } else if (tenantSettingsCardHubActive.value) {
+    openTenantHubArea({ category: hit.categoryId, item: hit.itemId, agencyTab });
+  } else {
+    selectItem(hit.categoryId, hit.itemId, { agencyTab });
+  }
+}
+
+function onSettingsSearchDocClick(e) {
+  const wraps = document.querySelectorAll('[data-tour="settings-search"]');
+  for (const wrap of wraps) {
+    if (wrap.contains(e.target)) return;
+  }
+  closeSettingsSearch();
+}
 
 const tenantHubDrillInActive = computed(() => {
   if (!tenantSettingsCardHubActive.value) return false;
@@ -1381,7 +1571,8 @@ const componentProps = computed(() => {
       ...base,
       secondaryBlocks: platformHubSecondaryBlocks.value,
       onOpenArea: openPlatformHubArea,
-      resolveItemIcon
+      resolveItemIcon,
+      filterQuery: settingsSearchQuery.value
     });
   }
   if (selectedCategory.value === 'platform' && selectedItem.value === 'tenant-ws-home') {
@@ -1390,7 +1581,8 @@ const componentProps = computed(() => {
       isSuperAdmin: isSuperAdmin.value,
       secondaryBlocks: tenantHubSecondaryBlocks.value,
       onOpenArea: openTenantHubArea,
-      resolveItemIcon
+      resolveItemIcon,
+      filterQuery: settingsSearchQuery.value
     });
   }
   if (selectedCategory.value === 'platform' && selectedItem.value === 'tenant-ws-org-directory') {
@@ -1775,7 +1967,7 @@ const handleAgencySelection = async () => {
 /** Platform settings screens that are never scoped to a tenant — URL must not carry agencyId or the route watch will restore the tenant and break platform mode + branding. */
 const PLATFORM_SOLO_ROUTE_ITEMS = new Set(['platform-ws-home', 'platform-settings', 'platform-billing', 'platform-feature-catalog', 'platform-feature-audit', 'platform-all-agencies']);
 
-const buildSettingsReplaceQuery = (categoryId, itemId) => {
+const buildSettingsReplaceQuery = (categoryId, itemId, { agencyTab = null } = {}) => {
   const q = { ...route.query, category: categoryId, item: itemId };
   if (categoryId === 'platform' && PLATFORM_SOLO_ROUTE_ITEMS.has(itemId)) {
     delete q.agencyId;
@@ -1784,15 +1976,20 @@ const buildSettingsReplaceQuery = (categoryId, itemId) => {
   if (isSuperAdmin.value && agencyStore.platformMode && !agencyStore.currentAgency?.id) {
     delete q.agencyId;
   }
+  if (agencyTab) q.agencyTab = agencyTab;
+  else delete q.agencyTab;
   return q;
 };
 
-const selectItem = (categoryId, itemId) => {
+const selectItem = (categoryId, itemId, { agencyTab = null } = {}) => {
   // Two-phase update: clear first, then set new selection on next tick.
   // Avoids Vue patch race (emitsOptions / __vnode errors when switching dynamic components).
   const prevCategory = selectedCategory.value;
   const prevItem = selectedItem.value;
-  if (prevCategory === categoryId && prevItem === itemId) return;
+  const prevTab = route.query.agencyTab || null;
+  const nextTab = agencyTab || null;
+  const sameSelection = prevCategory === categoryId && prevItem === itemId && String(prevTab || '') === String(nextTab || '');
+  if (sameSelection) return;
 
   selectedCategory.value = null;
   selectedItem.value = null;
@@ -1803,7 +2000,7 @@ const selectItem = (categoryId, itemId) => {
     expandedCategoryIds.value = new Set([String(categoryId)]);
     if (!props.disableRouteSync && showTenantContextUi.value) {
       router.replace({
-        query: buildSettingsReplaceQuery(categoryId, itemId)
+        query: buildSettingsReplaceQuery(categoryId, itemId, { agencyTab: nextTab })
       });
     }
   });
@@ -1879,7 +2076,7 @@ const openTenantHubArea = ({ category, item, agencyTab }) => {
   if (!props.disableRouteSync && showTenantContextUi.value) {
     router.replace({ query: q });
   }
-  selectItem(category, item);
+  selectItem(category, item, { agencyTab: agencyTab || null });
 };
 
 /** Platform hub navigation: no tenant in context — clear agencyId from the URL when jumping between areas. */
@@ -1891,7 +2088,7 @@ const openPlatformHubArea = ({ category, item, agencyTab }) => {
   if (!props.disableRouteSync && showTenantContextUi.value) {
     router.replace({ query: q });
   }
-  selectItem(category, item);
+  selectItem(category, item, { agencyTab: agencyTab || null });
 };
 
 const closeModal = () => {
@@ -1938,6 +2135,8 @@ onMounted(async () => {
     router.push('/admin');
     return;
   }
+
+  document.addEventListener('click', onSettingsSearchDocClick);
   
   // Fetch platform branding to get settings icons
   await brandingStore.fetchPlatformBranding();
@@ -2005,6 +2204,10 @@ onMounted(async () => {
 
   // Ensure icon IDs referenced by agency/platform can be resolved and preloaded.
   await trackPromise(prefetchSettingsSidebarIcons(), 'Loading…');
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', onSettingsSearchDocClick);
 });
 
 watch(() => agencyStore.currentAgency, (a) => {
@@ -2307,12 +2510,124 @@ const prefetchSettingsSidebarIcons = async () => {
 
 .modal-body {
   display: flex;
+  flex-direction: column;
   flex: 1;
   overflow: hidden;
 }
 
 .modal-body-with-tenant-shell {
   flex-direction: column;
+}
+
+.settings-search-bar {
+  position: relative;
+  flex-shrink: 0;
+  padding: 12px 16px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg, #fff);
+  z-index: 5;
+}
+
+.settings-search-input {
+  width: 100%;
+  max-width: 480px;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 8px;
+  font-size: 14px;
+  background: var(--bg-primary, #fff);
+  color: var(--text-primary, #111827);
+}
+
+.settings-search-input:focus {
+  outline: none;
+  border-color: var(--primary, #0f766e);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #0f766e) 18%, transparent);
+}
+
+.settings-search-dropdown {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% - 2px);
+  left: 16px;
+  right: 16px;
+  max-width: 560px;
+  max-height: min(420px, 55vh);
+  overflow-y: auto;
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+}
+
+.settings-search-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid var(--border, #f3f4f6);
+  background: var(--bg-primary, #fff);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.settings-search-option:last-child {
+  border-bottom: none;
+}
+
+.settings-search-option:hover,
+.settings-search-option.on {
+  background: color-mix(in srgb, var(--primary, #0f766e) 8%, var(--bg-primary, #fff));
+}
+
+.settings-search-option-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-search-option-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary, #111827);
+}
+
+.settings-search-option-desc {
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.settings-search-option-cat {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.settings-search-empty {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.settings-sidebar-empty {
+  margin: 12px 14px;
+  font-size: 13px;
+  color: var(--text-secondary, #9ca3af);
 }
 
 .settings-main-row {

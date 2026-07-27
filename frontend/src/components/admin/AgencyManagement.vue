@@ -1236,6 +1236,18 @@
             style="padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);"
           >
             <template v-if="activeTab === 'features'">
+            <div class="settings-migration-banner" role="note">
+              <p>
+                <strong>Preferred:</strong> Tenant home → <strong>Features</strong> for enablement, pricing, and
+                a-la-carte controls.
+                <button type="button" class="link-btn" @click="goToDedicatedSettings('general', 'tenant-features')">
+                  Open Features
+                </button>
+              </p>
+              <p class="settings-migration-banner-sub">
+                This legacy tab still has the full flag list while we finish moving everything out of Company Profile.
+              </p>
+            </div>
             <label style="margin-bottom: 8px; display: block;"><strong>Feature toggles (pricing / rollout)</strong></label>
 
             <div
@@ -3246,6 +3258,18 @@
 
           <!-- Payroll Tab (agency-only) -->
           <div v-show="activeTab === 'payroll'" class="tab-content">
+            <div class="settings-migration-banner" role="note">
+              <p>
+                <strong>Preferred:</strong> Tenant home → <strong>Pay &amp; workforce → Payroll</strong> for schedules
+                and policies (PTO, mileage, Med Cancel, holidays).
+                <button type="button" class="link-btn" @click="goToDedicatedSettings('workflow', 'payroll-schedule')">
+                  Open Payroll Settings
+                </button>
+              </p>
+              <p class="settings-migration-banner-sub">
+                This Company Profile tab remains temporarily during migration — prefer the dedicated Payroll screen.
+              </p>
+            </div>
             <div class="settings-section-divider">
               <h4>Med Cancel (Payroll)</h4>
               <p class="section-description">
@@ -4612,6 +4636,15 @@ const goToAgencyTab = (tabId) => {
     return;
   }
   activeTab.value = id;
+};
+
+/** Jump from legacy Company Profile tabs to dedicated Settings screens. */
+const goToDedicatedSettings = (category, item) => {
+  const agencyId = editingAgency.value?.id || agencyStore.currentAgency?.id;
+  const q = { ...route.query, category, item };
+  delete q.agencyTab;
+  if (agencyId) q.agencyId = String(agencyId);
+  router.replace({ query: q });
 };
 
 const tenantFeatureProfileOptions = computed(() => {
@@ -9484,7 +9517,7 @@ onMounted(async () => {
       if (agencies.value[0]) {
         editAgency(agencies.value[0]);
       }
-      if (props.embeddedTab) activeTab.value = String(props.embeddedTab);
+      if (props.embeddedTab) await applyEmbeddedTab(props.embeddedTab);
       navCollapsed.value = false;
     } catch (e) {
       error.value = e.response?.data?.error?.message || 'Failed to load organization';
@@ -9510,6 +9543,25 @@ onMounted(async () => {
   // Fetch platform branding for available agency features (controls which toggles agencies see)
   void brandingStore.fetchPlatformBranding();
 });
+
+/** Apply Company Profile deep-links from Settings search (`agencyTab` / embeddedTab). */
+const applyEmbeddedTab = async (tab) => {
+  const id = String(tab || '').trim().toLowerCase();
+  if (!id) return;
+  if (id === 'payroll') {
+    await openPayrollTab();
+    return;
+  }
+  activeTab.value = id;
+};
+
+watch(
+  () => props.embeddedTab,
+  (tab) => {
+    if (!tab) return;
+    void applyEmbeddedTab(tab);
+  }
+);
 </script>
 
 <style scoped>
@@ -9527,6 +9579,31 @@ onMounted(async () => {
 
 .link-btn:hover {
   opacity: 0.9;
+}
+
+.settings-migration-banner {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--primary, #059669) 35%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary, #059669) 8%, var(--bg-primary, #fff));
+}
+
+.settings-migration-banner p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+
+.settings-migration-banner-sub {
+  margin-top: 6px !important;
+  color: var(--text-secondary) !important;
+  font-size: 12px !important;
+}
+
+.settings-migration-banner .link-btn {
+  margin-left: 6px;
 }
 
 .master-detail {
