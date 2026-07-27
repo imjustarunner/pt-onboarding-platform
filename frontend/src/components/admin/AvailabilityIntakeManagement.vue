@@ -105,6 +105,7 @@
             <div v-for="r in schoolRequests" :key="r.id" class="row">
               <div class="main">
                 <div class="title">{{ r.providerName }}</div>
+                <div class="meta" v-if="r.createdAt">Submitted: {{ fmtDateTime(r.createdAt) }}</div>
                 <div class="meta" v-if="r.notes"><strong>Hoping to accomplish:</strong> {{ r.notes }}</div>
                 <div class="meta muted" v-else>No note left with this request.</div>
                 <div class="meta">

@@ -522,7 +522,7 @@ async function getSkillBuilderEligibilityForUser(userId) {
 
 export const getClients = async (req, res, next) => {
   try {
-    const { status, organization_id, provider_id, search, client_status_id, paperwork_status_id, insurance_type_id, skills, agency_id } = req.query;
+    const { status, organization_id, provider_id, search, client_status_id, paperwork_status_id, insurance_type_id, skills, agency_id, client_type } = req.query;
     const clientStatusKeyRaw = String(req.query.client_status_key || req.query.clientStatusKey || '').trim().toLowerCase();
     // agency_ids: comma-separated list of agency IDs for platform-mode filtered queries (super_admin only).
     const agencyIdsParam = req.query.agency_ids
@@ -583,7 +583,8 @@ export const getClients = async (req, res, next) => {
       client_status_id: client_status_id ? parseInt(client_status_id, 10) : undefined,
       paperwork_status_id: paperwork_status_id ? parseInt(paperwork_status_id, 10) : undefined,
       insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : undefined,
-      skills: skills === undefined ? undefined : (String(skills).toLowerCase() === 'true' || String(skills) === '1')
+      skills: skills === undefined ? undefined : (String(skills).toLowerCase() === 'true' || String(skills) === '1'),
+      client_type: client_type || undefined
     };
 
     // Get clients for all user's agencies

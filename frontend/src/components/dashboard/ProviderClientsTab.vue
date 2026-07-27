@@ -27,83 +27,139 @@
     <div class="section-header">
       <h2 style="margin: 0;">Clients</h2>
       <div class="filters">
-        <label>
-          <span class="label">School</span>
-          <select class="select" v-model="selectedSchoolOrgId">
-            <option value="all">All schools</option>
-            <option v-for="s in schools" :key="s.schoolOrganizationId" :value="Number(s.schoolOrganizationId)">
-              {{ s.name }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span class="label">Fiscal year</span>
-          <select class="select" v-model="selectedFiscalYearStart">
-            <option v-for="fy in fiscalYearOptions" :key="fy.startYmd" :value="fy.startYmd">
-              {{ fy.label }}
-            </option>
-          </select>
-        </label>
-        <button class="btn btn-secondary btn-sm" type="button" @click="toggleClientLabelMode" :disabled="loading">
+        <template v-if="caseloadScope === 'school'">
+          <label>
+            <span class="label">School</span>
+            <select class="select" v-model="selectedSchoolOrgId">
+              <option value="all">All schools</option>
+              <option v-for="s in schools" :key="s.schoolOrganizationId" :value="Number(s.schoolOrganizationId)">
+                {{ s.name }}
+              </option>
+            </select>
+          </label>
+          <label>
+            <span class="label">Fiscal year</span>
+            <select class="select" v-model="selectedFiscalYearStart">
+              <option v-for="fy in fiscalYearOptions" :key="fy.startYmd" :value="fy.startYmd">
+                {{ fy.label }}
+              </option>
+            </select>
+          </label>
+        </template>
+        <button class="btn btn-secondary btn-sm" type="button" @click="toggleFullNames" :disabled="loading">
+          {{ clientLabelMode === 'full_name' ? 'Show initials' : 'Show full names' }}
+        </button>
+        <button class="btn-link label-mode-secondary" type="button" @click="toggleCodesMode" :disabled="loading">
           {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
         </button>
-        <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">
-          {{ loading ? 'Loading…' : 'Refresh' }}
+        <button class="btn btn-secondary btn-sm" type="button" @click="refreshCurrentScope" :disabled="loading || officeLoading">
+          {{ (loading || officeLoading) ? 'Loading…' : 'Refresh' }}
         </button>
-        <label v-if="showSkillBuildersRosterToggle" class="sb-roster-toggle">
+        <label v-if="caseloadScope === 'school' && showSkillBuildersRosterToggle" class="sb-roster-toggle">
           <input v-model="skillBuildersOnlyFilter" type="checkbox" />
           <span>Skill Builders clients only</span>
         </label>
       </div>
     </div>
 
-    <div v-if="error" class="error">{{ error }}</div>
-    <div v-else-if="schools.length === 0 && !loading" class="muted">
-      No assigned schools found for this agency.
+    <div class="pct-scope-switcher" role="tablist" aria-label="Caseload scope">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="caseloadScope === 'school'"
+        :class="['pct-scope-btn', { 'is-active': caseloadScope === 'school' }]"
+        @click="caseloadScope = 'school'"
+      >
+        In-school
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="caseloadScope === 'office'"
+        :class="['pct-scope-btn', { 'is-active': caseloadScope === 'office' }]"
+        @click="caseloadScope = 'office'"
+      >
+        In-office
+      </button>
+      <router-link :to="clientExchangeRoute" class="pct-exchange-link">Client Exchange →</router-link>
     </div>
 
-    <div v-if="pendingError" class="error">{{ pendingError }}</div>
-    <div v-else-if="pendingClientsFiltered.length > 0" class="pending-strip">
-      <div class="pending-strip-head">
-        <strong>Pending school clients</strong>
-        <span class="pending-count-badge pulse">{{ pendingClientsFiltered.length }}</span>
+    <template v-if="caseloadScope === 'school'">
+      <div v-if="error" class="error">{{ error }}</div>
+      <div v-else-if="schools.length === 0 && !loading" class="muted">
+        No assigned schools found for this agency.
       </div>
-      <div class="pending-strip-table-wrap">
-        <table class="pending-strip-table">
+
+      <div v-if="pendingError" class="error">{{ pendingError }}</div>
+      <div v-else-if="pendingClientsFiltered.length > 0" class="pending-strip">
+        <div class="pending-strip-head">
+          <strong>Pending school clients</strong>
+          <span class="pending-count-badge pulse">{{ pendingClientsFiltered.length }}</span>
+        </div>
+        <div class="pending-strip-table-wrap">
+          <table class="pending-strip-table">
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>School</th>
+                <th>Stage</th>
+                <th>Days</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in pendingClientsFiltered" :key="`${row.client_id}-${row.organization_id}`">
+                <td>{{ formatPendingClientLabel(row) }}</td>
+                <td>{{ row.organization_name || '—' }}</td>
+                <td>{{ row.pending_stage === 'no_parent_contact' ? 'No parent contact date' : 'No first session date' }}</td>
+                <td class="mono">{{ Number(row.tracking_days || 0) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <ClientListGrid
+        v-if="selectedSchoolOrgId"
+        :organization-slug="organizationSlug"
+        :organization-id="Number(selectedSchoolOrgId) || null"
+        :organization-name="selectedSchoolName"
+        :clients-override="isAllSchools ? allClients : null"
+        roster-scope="provider"
+        :skill-builders-only="skillBuildersOnlyFilter"
+        :client-label-mode="clientLabelMode"
+        :psychotherapy-totals-by-client-id="psychotherapyTotalsByClientId"
+        :show-search="true"
+        search-placeholder="Search clients…"
+        @update:needsAttentionCount="(count) => emit('update:needsAttentionCount', count)"
+      />
+    </template>
+
+    <template v-else>
+      <div v-if="officeError" class="error">{{ officeError }}</div>
+      <div v-else-if="!officeLoading && officeClients.length === 0" class="muted empty-state">
+        No in-office clients assigned to you yet.
+      </div>
+      <div v-else class="office-clients-table-wrap">
+        <table class="office-clients-table">
           <thead>
             <tr>
               <th>Client</th>
-              <th>School</th>
-              <th>Stage</th>
-              <th>Days</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Since</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in pendingClientsFiltered" :key="`${row.client_id}-${row.organization_id}`">
-              <td>{{ formatPendingClientLabel(row) }}</td>
-              <td>{{ row.organization_name || '—' }}</td>
-              <td>{{ row.pending_stage === 'no_parent_contact' ? 'No parent contact date' : 'No first session date' }}</td>
-              <td class="mono">{{ Number(row.tracking_days || 0) }}</td>
+            <tr v-for="c in officeClients" :key="c.id">
+              <td>{{ formatOfficeClientLabel(c) }}</td>
+              <td>{{ c.client_type === 'clinical' ? 'Office / Clinical' : 'Learning' }}</td>
+              <td>{{ c.status }}</td>
+              <td>{{ c.submission_date || '—' }}</td>
             </tr>
           </tbody>
         </table>
       </div>
-    </div>
-
-    <ClientListGrid
-      v-if="selectedSchoolOrgId"
-      :organization-slug="organizationSlug"
-      :organization-id="Number(selectedSchoolOrgId) || null"
-      :organization-name="selectedSchoolName"
-      :clients-override="isAllSchools ? allClients : null"
-      roster-scope="provider"
-      :skill-builders-only="skillBuildersOnlyFilter"
-      :client-label-mode="clientLabelMode"
-      :psychotherapy-totals-by-client-id="psychotherapyTotalsByClientId"
-      :show-search="true"
-      search-placeholder="Search clients…"
-      @update:needsAttentionCount="(count) => emit('update:needsAttentionCount', count)"
-    />
+    </template>
     </template>
   </div>
 </template>
@@ -134,9 +190,19 @@ const agencyId = computed(() => {
 const schools = ref([]);
 const selectedSchoolOrgId = ref(null);
 const selectedFiscalYearStart = ref('');
-const clientLabelMode = ref('codes'); // 'codes' | 'initials'
+const clientLabelMode = ref('initials'); // 'initials' (default) | 'full_name' | 'codes' (secondary)
+const caseloadScope = ref('school'); // 'school' | 'office'
+const officeClients = ref([]);
+const officeLoading = ref(false);
+const officeError = ref('');
 
 const isAllSchools = computed(() => selectedSchoolOrgId.value === 'all');
+
+const clientExchangeRoute = computed(() =>
+  organizationSlug.value
+    ? { name: 'OrganizationClientExchange', params: { organizationSlug: organizationSlug.value } }
+    : { name: 'ClientExchange' }
+);
 
 const selectedSchoolName = computed(() => {
   const id = selectedSchoolOrgId.value;
@@ -189,13 +255,22 @@ const buildTotalsByClientId = (resp) => {
   return m;
 };
 
-const toggleClientLabelMode = () => {
-  clientLabelMode.value = clientLabelMode.value === 'initials' ? 'codes' : 'initials';
+const persistClientLabelMode = () => {
   try {
     window.localStorage.setItem('dashboardClientLabelMode', clientLabelMode.value);
   } catch {
     // ignore
   }
+};
+
+const toggleFullNames = () => {
+  clientLabelMode.value = clientLabelMode.value === 'full_name' ? 'initials' : 'full_name';
+  persistClientLabelMode();
+};
+
+const toggleCodesMode = () => {
+  clientLabelMode.value = clientLabelMode.value === 'codes' ? 'initials' : 'codes';
+  persistClientLabelMode();
 };
 
 const currentUserId = computed(() => Number(authStore.user?.id || 0) || null);
@@ -222,16 +297,51 @@ const emitPendingCount = () => {
 const formatPendingClientLabel = (row) => {
   const code = String(row?.client_identifier_code || '').trim();
   const initials = String(row?.client_initials || '').trim();
+  const fullName = String(row?.client_full_name || '').trim();
+  if (clientLabelMode.value === 'full_name') return fullName || initials || code || `Client #${row?.client_id || '?'}`;
   if (clientLabelMode.value === 'initials') return initials || code || `Client #${row?.client_id || '?'}`;
   return code || initials || `Client #${row?.client_id || '?'}`;
+};
+
+const formatOfficeClientLabel = (c) => {
+  if (clientLabelMode.value === 'full_name') return c?.full_name || c?.initials || `Client #${c?.id}`;
+  if (clientLabelMode.value === 'codes') return c?.identifier_code || c?.initials || `Client #${c?.id}`;
+  return c?.initials || c?.identifier_code || `Client #${c?.id}`;
+};
+
+const loadOfficeClients = async () => {
+  if (!agencyId.value || !currentUserId.value) {
+    officeClients.value = [];
+    return;
+  }
+  officeLoading.value = true;
+  officeError.value = '';
+  try {
+    const r = await api.get('/clients', {
+      params: {
+        agency_id: agencyId.value,
+        provider_id: currentUserId.value,
+        client_type: 'clinical,learning'
+      },
+      skipGlobalLoading: true
+    });
+    const rows = Array.isArray(r.data) ? r.data : (r.data?.items || []);
+    officeClients.value = rows.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+  } catch (e) {
+    officeClients.value = [];
+    officeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load in-office clients';
+  } finally {
+    officeLoading.value = false;
+  }
 };
 
 const loadSchools = async () => {
   if (!agencyId.value) return;
   const r = await api.get('/payroll/me/assigned-schools', { params: { agencyId: agencyId.value } });
   schools.value = Array.isArray(r.data) ? r.data : [];
-  if (!selectedSchoolOrgId.value && schools.value.length > 0) {
-    selectedSchoolOrgId.value = Number(schools.value[0].schoolOrganizationId);
+  // Default to "All schools" (not the first school) so providers see their whole caseload at a glance.
+  if (!selectedSchoolOrgId.value) {
+    selectedSchoolOrgId.value = 'all';
   }
 };
 
@@ -245,18 +355,27 @@ const loadAllRosters = async () => {
     const sbParams = skillBuildersOnlyFilter.value ? { skillBuildersOnly: true } : {};
     const results = await Promise.all(
       list.map((s) =>
-        api.get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, {
-          params: sbParams,
-          skipGlobalLoading: true
-        })
+        api
+          .get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, {
+            params: sbParams,
+            skipGlobalLoading: true
+          })
+          .then((r) => ({ school: s, rows: Array.isArray(r?.data) ? r.data : [] }))
+          .catch(() => ({ school: s, rows: [] }))
       )
     );
     const byId = new Map();
-    for (const r of results) {
-      const arr = Array.isArray(r?.data) ? r.data : [];
-      for (const c of arr) {
+    for (const { school, rows } of results) {
+      for (const c of rows) {
         const id = c?.id;
-        if (id && !byId.has(id)) byId.set(id, c);
+        if (!id || byId.has(id)) continue;
+        // my-roster doesn't include organization identity (it's fetched per-school) — attach it
+        // here so the merged "All schools" grid can show/sort by school and still open the client.
+        byId.set(id, {
+          ...c,
+          organization_id: c.organization_id ?? Number(school.schoolOrganizationId),
+          organization_name: c.organization_name ?? school.name
+        });
       }
     }
     allClients.value = Array.from(byId.values());
@@ -323,7 +442,7 @@ const load = async () => {
 onMounted(() => {
   try {
     const saved = window.localStorage.getItem('dashboardClientLabelMode');
-    if (saved === 'codes' || saved === 'initials') clientLabelMode.value = saved;
+    if (saved === 'codes' || saved === 'initials' || saved === 'full_name') clientLabelMode.value = saved;
   } catch {
     // ignore
   }
@@ -347,6 +466,18 @@ watch(
 watch(skillBuildersOnlyFilter, async () => {
   if (isAllSchools.value) await loadAllRosters();
 });
+
+const refreshCurrentScope = () => {
+  if (caseloadScope.value === 'office') return loadOfficeClients();
+  return load();
+};
+
+watch(caseloadScope, (scope) => {
+  if (scope === 'office') loadOfficeClients();
+});
+watch(currentUserId, () => {
+  if (caseloadScope.value === 'office') loadOfficeClients();
+});
 </script>
 
 <style scoped>
@@ -367,6 +498,20 @@ watch(skillBuildersOnlyFilter, async () => {
 }
 .sb-roster-toggle input {
   margin: 0;
+}
+.label-mode-secondary {
+  align-self: center;
+  border: none;
+  background: transparent;
+  padding: 0 4px;
+  color: var(--text-secondary, #64748b);
+  text-decoration: underline;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.label-mode-secondary:hover {
+  color: var(--primary, #4f46e5);
 }
 
 .section-header {
@@ -498,6 +643,60 @@ watch(skillBuildersOnlyFilter, async () => {
   background: var(--card-bg, #fff);
   color: var(--text, #111);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.pct-scope-switcher {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pct-scope-btn {
+  border: 1px solid var(--border, #e5e7eb);
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+}
+.pct-scope-btn.is-active {
+  background: var(--primary, #4f46e5);
+  border-color: var(--primary, #4f46e5);
+  color: #fff;
+}
+.pct-exchange-link {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1d4ed8;
+  text-decoration: none;
+  margin-left: auto;
+}
+.pct-exchange-link:hover {
+  text-decoration: underline;
+}
+.office-clients-table-wrap {
+  overflow-x: auto;
+}
+.office-clients-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+}
+.office-clients-table th,
+.office-clients-table td {
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+.empty-state {
+  border: 1px dashed var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
 }
 </style>
 

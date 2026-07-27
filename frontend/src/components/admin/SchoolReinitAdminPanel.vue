@@ -30,7 +30,10 @@
       <div class="reinit-admin__campaign-status">
         <span class="pill" :class="'pill--' + (campaign.status || 'draft')">{{ campaignLabel }}</span>
         <span class="muted">
-          <template v-if="campaign.isPushed">Pushed {{ formatDt(campaign.pushedAt) }} — school logins show the update (dismissible).</template>
+          <template v-if="campaign.isDisabled">
+            Disabled {{ formatDt(campaign.disabledAt) }} — splash and School Management tab are hidden. Re-enable to resume.
+          </template>
+          <template v-else-if="campaign.isPushed">Pushed {{ formatDt(campaign.pushedAt) }} — school logins show the update (dismissible).</template>
           <template v-else-if="campaign.isEnabled">Enabled — edit questions/slots, then Push to Schools when ready.</template>
           <template v-else>Not started — Enable Year Update to seed questions for {{ schoolYear }}.</template>
         </span>
@@ -39,10 +42,25 @@
         <button
           type="button"
           class="btn btn-primary"
-          :disabled="campaignBusy || campaign.isEnabled"
+          :disabled="campaignBusy || (campaign.isEnabled && !campaign.isDisabled)"
           @click="enableYearUpdate"
         >
-          {{ campaign.isEnabled ? 'Year Update Enabled' : 'Enable Year Update' }}
+          {{
+            campaign.isDisabled
+              ? 'Re-enable Year Update'
+              : campaign.isEnabled
+                ? 'Year Update Enabled'
+                : 'Enable Year Update'
+          }}
+        </button>
+        <button
+          v-if="campaign.isEnabled || campaign.isDisabled"
+          type="button"
+          class="btn btn-secondary"
+          :disabled="campaignBusy || campaign.isDisabled"
+          @click="disableYearUpdate"
+        >
+          {{ campaign.isDisabled ? 'Year Update Disabled' : 'Disable Year Update' }}
         </button>
         <button
           type="button"
@@ -652,6 +670,7 @@ const schoolYear = computed(() => props.schoolYear || currentSchoolYear());
 
 const campaignLabel = computed(() => {
   const s = campaign.value?.status || 'draft';
+  if (s === 'disabled' || campaign.value?.isDisabled) return 'Disabled';
   if (s === 'pushed') return 'Pushed';
   if (s === 'enabled') return 'Enabled';
   return 'Draft';
@@ -1030,6 +1049,33 @@ async function enableYearUpdate() {
     await load();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Enable failed';
+  } finally {
+    campaignBusy.value = false;
+  }
+}
+
+async function disableYearUpdate() {
+  if (campaignBusy.value || campaign.value.isDisabled) return;
+  if (
+    !window.confirm(
+      `Disable School Year Update for ${schoolYear.value}? School splash and the School Management tab will be hidden until re-enabled.`
+    )
+  ) {
+    return;
+  }
+  campaignBusy.value = true;
+  error.value = '';
+  pushFlash.value = '';
+  try {
+    const res = await api.post('/school-reinit/campaign/disable', {
+      agencyId: Number(props.agencyId),
+      schoolYear: schoolYear.value,
+    });
+    campaign.value = res.data.campaign;
+    pushFlash.value = 'School Year Update disabled for this school year.';
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Disable failed';
   } finally {
     campaignBusy.value = false;
   }

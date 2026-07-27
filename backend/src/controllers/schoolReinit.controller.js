@@ -380,8 +380,10 @@ function campaignPayload(campaign) {
     status: campaign?.status || 'draft',
     enabledAt: campaign?.enabled_at || null,
     pushedAt: campaign?.pushed_at || null,
+    disabledAt: campaign?.disabled_at || null,
     isEnabled: S.campaignIsEnabled(campaign),
     isPushed: S.campaignIsPushed(campaign),
+    isDisabled: S.campaignIsDisabled(campaign),
     checkin,
   };
 }
@@ -603,7 +605,7 @@ export async function getMyCycle(req, res, next) {
 
     const schoolYear = S.currentSchoolYear();
     const campaign = await S.getCampaign(agencyId, schoolYear);
-    const isPushed = S.campaignIsPushed(campaign);
+    const isPushed = S.campaignIsPushed(campaign) && !S.campaignIsDisabled(campaign);
 
     // Until the tenant pushes the year update, school staff do not get the splash/workflow.
     if (!isPushed) {
@@ -612,6 +614,7 @@ export async function getMyCycle(req, res, next) {
           status: campaign?.status || 'draft',
           isEnabled: S.campaignIsEnabled(campaign),
           isPushed: false,
+          isDisabled: S.campaignIsDisabled(campaign),
         },
         splashEnabled: false,
         windowOpen: false,
@@ -748,6 +751,38 @@ export async function enableCampaign(req, res, next) {
       alreadyEnabled: Boolean(result.alreadyEnabled),
       alreadyPushed: Boolean(result.alreadyPushed),
     });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/school-reinit/campaign/disable — Disable Year Update for the school year */
+export async function disableCampaign(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    try {
+      const result = await S.disableCampaign({
+        agencyId,
+        schoolYear,
+        userId: req.user?.id,
+      });
+      res.json({
+        agencyId,
+        schoolYear,
+        campaign: campaignPayload(result.campaign),
+        alreadyDisabled: Boolean(result.alreadyDisabled),
+      });
+    } catch (err) {
+      if (err?.status === 400) {
+        return res.status(400).json({ error: { message: err.message } });
+      }
+      throw err;
+    }
   } catch (e) {
     next(e);
   }

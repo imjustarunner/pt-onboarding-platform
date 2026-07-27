@@ -127,6 +127,16 @@
               Client Status
               <span class="sort-indicator" v-if="sortKey === 'status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
+            <th
+              v-if="rosterScope === 'provider'"
+              class="sortable"
+              @click="toggleSort('organization_name')"
+              role="button"
+              tabindex="0"
+            >
+              School
+              <span class="sort-indicator" v-if="sortKey === 'organization_name'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
             <th class="sortable" @click="toggleSort('document_status')" role="button" tabindex="0">
               Doc Status
               <span class="sort-indicator" v-if="sortKey === 'document_status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
@@ -340,6 +350,7 @@
                 </span>
               </div>
             </td>
+            <td v-if="rosterScope === 'provider'">{{ client.organization_name || organizationName || '—' }}</td>
             <td>{{ formatDocSummary(client) }}</td>
             <td v-if="rosterScope === 'school' && !isProviderUser">{{ client.provider_name || '—' }}</td>
             <td v-else>
@@ -579,7 +590,7 @@ const props = defineProps({
   },
   clientLabelMode: {
     type: String,
-    default: 'codes' // 'codes' | 'initials'
+    default: 'initials' // 'initials' (default) | 'full_name' | 'codes' (secondary)
   },
   editMode: {
     type: String,
@@ -1151,12 +1162,29 @@ const submitTerminate = async () => {
   if (!client?.id || !String(terminateReasonDraft.value || '').trim()) return;
   try {
     terminateSaving.value = true;
-    await api.post(`/clients/${client.id}/terminate`, {
-      termination_reason: String(terminateReasonDraft.value || '').trim()
+    const reason = String(terminateReasonDraft.value || '').trim();
+    const r = await api.post(`/clients/${client.id}/terminate`, {
+      termination_reason: reason
     });
     terminateModalClient.value = null;
     terminateReasonDraft.value = '';
-    await fetchClients();
+
+    // "All schools" merged roster uses clientsOverride, which fetchClients() can't refresh —
+    // patch the row locally so the terminated status/label show up immediately either way.
+    const updated = r?.data || {};
+    const patchRow = (rows) => {
+      if (!Array.isArray(rows)) return;
+      const row = rows.find((c) => Number(c?.id) === Number(client.id));
+      if (!row) return;
+      row.client_status_key = 'terminated';
+      row.client_status_label = updated.client_status_label || 'Terminated';
+      row.termination_reason = updated.termination_reason || reason;
+      row.service_day = null;
+      row.provider_day_pairs = null;
+    };
+    patchRow(clients.value);
+    if (Array.isArray(props.clientsOverride)) patchRow(props.clientsOverride);
+    if (!useClientsOverride()) await fetchClients();
   } catch (err) {
     alert(err.response?.data?.error?.message || err.message || 'Failed to terminate client');
   } finally {
@@ -1322,6 +1350,11 @@ const sortedClients = computed(() => {
     if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
     const cmp = String(av).localeCompare(String(bv));
     if (cmp !== 0) return cmp * dir;
+    // Secondary tie-break: sort by client label (e.g. "by school, then client").
+    if (key !== 'initials') {
+      const clientCmp = String(sortValue(a, 'initials')).localeCompare(String(sortValue(b, 'initials')));
+      if (clientCmp !== 0) return clientCmp;
+    }
     // Stable fallback
     return Number(a?.id || 0) - Number(b?.id || 0);
   });
@@ -1343,18 +1376,20 @@ const formatDateTime = (value) => {
 const formatRosterLabel = (client) => {
   const initials = String(client?.initials || '').replace(/\s+/g, '').toUpperCase();
   const code = String(client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
-  const mode = String(props.clientLabelMode || 'codes');
-  const src = mode === 'initials' ? (client?.initials || client?.identifier_code) : (client?.identifier_code || client?.initials);
-  let preferred = String(src || '').replace(/\s+/g, '');
-  if (mode !== 'initials') preferred = preferred.toUpperCase();
+  const fullName = String(client?.full_name || '').trim();
+  const mode = String(props.clientLabelMode || 'initials');
   const isLocked = client?.school_portal_force_placeholder === true || client?.school_portal_can_open === false;
   if (isLocked) {
-    // Locked rows still follow label mode so users can swap codes/initials consistently.
+    // Locked rows never reveal the full name — fall back to initials/codes label mode.
+    const src = mode === 'codes' ? (client?.identifier_code || client?.initials) : (client?.initials || client?.identifier_code);
+    let preferred = String(src || '').replace(/\s+/g, '');
+    if (mode === 'codes') preferred = preferred.toUpperCase();
     return preferred || String(client?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
   }
   if (client?.school_portal_force_code) return code || initials || '—';
-  if (mode === 'initials') return initials || code || '—';
-  return code || initials || '—';
+  if (mode === 'full_name') return fullName || initials || code || '—';
+  if (mode === 'codes') return code || initials || '—';
+  return initials || code || '—';
 };
 
 const formatClientStatusLabel = (client) => {
@@ -1435,7 +1470,11 @@ const continuationServicesSummary = (client) => {
 const rosterLabelTitle = (client) => {
   if (client?.school_portal_can_open === false) return '';
   if (client?.school_portal_force_code) return '';
-  if (props.clientLabelMode !== 'codes') return '';
+  const fullName = String(client?.full_name || '').trim();
+  if (fullName) {
+    // Already showing the full name as the label — a duplicate tooltip would be redundant.
+    return props.clientLabelMode === 'full_name' ? '' : fullName;
+  }
   const initials = String(client?.initials || '').replace(/\s+/g, '').toUpperCase();
   return initials || '';
 };
@@ -1737,8 +1776,9 @@ onMounted(() => {
     const hadStored = !!window?.localStorage?.getItem?.(PROVIDER_SORT_STORAGE_KEY);
     loadStoredSort();
     if (!hadStored) {
-      sortKey.value = 'provider_assigned_at';
-      sortDir.value = 'desc';
+      // Default: sort by school, then by client (see sortedClients' secondary tie-break).
+      sortKey.value = 'organization_name';
+      sortDir.value = 'asc';
       saveSort();
     }
   }

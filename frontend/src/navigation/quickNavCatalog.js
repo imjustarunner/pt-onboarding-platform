@@ -194,6 +194,39 @@ function buildAppEntries() {
       rolesAny: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin']
     },
     {
+      id: 'clients-exchange',
+      routeName: 'ClientExchange',
+      label: 'Client Exchange',
+      description: 'Post or request office clients that need a new provider.',
+      group: 'clients',
+      keywords: ['client exchange', 'office clients', 'reassign', 'transfer client', 'caseload swap'],
+      kind: 'path',
+      path: '/client-exchange',
+      rolesAny: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'clinical_practice_assistant',
+        'supervisor'
+      ]
+    },
+    {
+      id: 'admin-office-intake-queue',
+      routeName: 'OfficeIntakeQueue',
+      label: 'New Office Clients',
+      description: 'Office/clinical digital intakes awaiting provider assignment.',
+      group: 'admin',
+      keywords: ['office intake', 'office clients', 'digital intake', 'new clients', 'pending assignment'],
+      kind: 'path',
+      path: '/admin/office-intake-queue',
+      rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+    },
+    {
       id: 'learning-training',
       routeName: null,
       label: 'Assigned Training',

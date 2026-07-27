@@ -74,6 +74,19 @@ const SKILL_BUILDERS_PROGRAM_EVENTS_ROLES = [
   'clinical_practice_assistant'
 ];
 const PROVIDER_PLUS_EXPERIENCE_ROLES = ['provider_plus', 'clinical_practice_assistant'];
+/** Client Exchange (office clients): providers browse/post/request, admin/support resolve requests. */
+const CLIENT_EXCHANGE_ROLES = [
+  'admin',
+  'support',
+  'staff',
+  'super_admin',
+  'provider',
+  'provider_plus',
+  'intern',
+  'intern_plus',
+  'clinical_practice_assistant',
+  'supervisor'
+];
 const NOTE_AID_EMPLOYEE_ROLES = [
   'admin',
   'support',
@@ -1051,7 +1064,9 @@ const routes = [
     path: '/:organizationSlug/join/team-meeting/:eventId',
     name: 'OrganizationJoinTeamMeeting',
     component: () => import('../views/teamMeeting/JoinTeamMeetingView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    // Match supervision join: allow the view to hydrate session / redirect to login
+    // with ?redirect= so email & calendar app links do not force a hard logout loop.
+    meta: { requiresGuest: false, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/dashboard',
@@ -1732,6 +1747,34 @@ const routes = [
       allowSubCoordinator: true,
       organizationSlug: true
     }
+  },
+  {
+    path: '/:organizationSlug/client-exchange',
+    name: 'OrganizationClientExchange',
+    component: () => import('../views/ClientExchangeView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: CLIENT_EXCHANGE_ROLES,
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/office-intake-queue',
+    name: 'OrganizationOfficeIntakeQueue',
+    component: () => import('../views/admin/OfficeIntakeQueueView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/office-intake',
+    name: 'OrganizationPublicOfficeIntake',
+    component: () => import('../views/public/PublicOfficeIntakeView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/caseload-hub/schools-staff',
@@ -2841,6 +2884,32 @@ const routes = [
       requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
       allowSubCoordinator: true
     }
+  },
+  {
+    path: '/client-exchange',
+    name: 'ClientExchange',
+    component: () => import('../views/ClientExchangeView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: CLIENT_EXCHANGE_ROLES,
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/office-intake-queue',
+    name: 'OfficeIntakeQueue',
+    component: () => import('../views/admin/OfficeIntakeQueueView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/office-intake/:agencySlug',
+    name: 'PublicOfficeIntake',
+    component: () => import('../views/public/PublicOfficeIntakeView.vue'),
+    meta: { requiresGuest: false }
   },
   {
     path: '/admin/caseload-hub/schools-staff',

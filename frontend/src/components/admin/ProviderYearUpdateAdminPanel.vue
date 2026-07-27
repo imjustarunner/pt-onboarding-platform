@@ -19,7 +19,10 @@
       <div class="pyu-admin__campaign-status">
         <span class="pill" :class="'pill--' + (campaign.status || 'draft')">{{ campaignLabel }}</span>
         <span class="muted">
-          <template v-if="campaign.isPushed">
+          <template v-if="campaign.isDisabled">
+            Disabled {{ formatDt(campaign.disabledAt) }} — hidden from My Dashboard and School Management. Re-enable to resume.
+          </template>
+          <template v-else-if="campaign.isPushed">
             Pushed {{ formatDt(campaign.pushedAt) }} — providers see Year Update on My Dashboard (dismissible) and shareable links work.
           </template>
           <template v-else-if="campaign.isEnabled">
@@ -32,10 +35,25 @@
         <button
           type="button"
           class="btn btn-primary"
-          :disabled="campaignBusy || campaign.isEnabled"
+          :disabled="campaignBusy || (campaign.isEnabled && !campaign.isDisabled)"
           @click="enableYearUpdate"
         >
-          {{ campaign.isEnabled ? 'Year Update Enabled' : 'Enable Provider Year Update' }}
+          {{
+            campaign.isDisabled
+              ? 'Re-enable Year Update'
+              : campaign.isEnabled
+                ? 'Year Update Enabled'
+                : 'Enable Provider Year Update'
+          }}
+        </button>
+        <button
+          v-if="campaign.isEnabled || campaign.isDisabled"
+          type="button"
+          class="btn btn-secondary"
+          :disabled="campaignBusy || campaign.isDisabled"
+          @click="disableYearUpdate"
+        >
+          {{ campaign.isDisabled ? 'Year Update Disabled' : 'Disable Year Update' }}
         </button>
         <button
           type="button"
@@ -69,7 +87,7 @@
         <strong>{{ summary.notStarted || 0 }}</strong>
       </div>
       <div class="metric">
-        <span class="metric__label">Link Clicks</span>
+        <span class="metric__label">Views</span>
         <strong>{{ summary.totalTokenViews || 0 }}</strong>
       </div>
       <div class="metric">
@@ -100,7 +118,7 @@
                 <th>Status</th>
                 <th>Progress</th>
                 <th>Sections</th>
-                <th>Clicks</th>
+                <th>Views</th>
                 <th>Last activity</th>
                 <th>Link / Push</th>
               </tr>
@@ -162,6 +180,21 @@
                       @click="toggleMarkSent(row)"
                     >
                       {{ row.markedSent ? 'Sent ✓' : 'Mark sent' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-complete btn-sm"
+                      :disabled="!canMarkComplete(row) || completeBusyId === row.providerUserId"
+                      :title="markCompleteTitle(row)"
+                      @click="markComplete(row)"
+                    >
+                      {{
+                        completeBusyId === row.providerUserId
+                          ? 'Saving…'
+                          : row.status === 'finalized'
+                            ? 'Complete ✓'
+                            : 'Mark complete'
+                      }}
                     </button>
                   </div>
                 </td>
@@ -231,6 +264,21 @@
                     : 'Push to provider'
               }}
             </button>
+            <button
+              type="button"
+              class="btn btn-complete btn-sm"
+              :disabled="!canMarkComplete(selectedRow) || completeBusyId === selectedRow.providerUserId"
+              :title="markCompleteTitle(selectedRow)"
+              @click="markComplete(selectedRow)"
+            >
+              {{
+                completeBusyId === selectedRow.providerUserId
+                  ? 'Saving…'
+                  : selectedRow.status === 'finalized'
+                    ? 'Complete ✓'
+                    : 'Mark complete'
+              }}
+            </button>
           </div>
         </div>
       </aside>
@@ -259,11 +307,12 @@ const loading = ref(false);
 const campaignBusy = ref(false);
 const linkBusyId = ref(null);
 const pushBusyId = ref(null);
+const completeBusyId = ref(null);
 const error = ref('');
 const pushFlash = ref('');
 const rows = ref([]);
 const summary = ref({});
-const campaign = ref({ status: 'draft', isEnabled: false, isPushed: false });
+const campaign = ref({ status: 'draft', isEnabled: false, isPushed: false, isDisabled: false });
 const filterText = ref('');
 const filterStatus = ref('all');
 const filterCart = ref(false);
@@ -271,6 +320,7 @@ const selectedRow = ref(null);
 const sectionKeys = SECTION_META.map((m) => m.key);
 
 const campaignLabel = computed(() => {
+  if (campaign.value.isDisabled) return 'Disabled';
   if (campaign.value.isPushed) return 'Pushed';
   if (campaign.value.isEnabled) return 'Enabled';
   return 'Draft';
@@ -332,15 +382,29 @@ function linkFor(row) {
 
 function canPushProvider(row) {
   if (!row || !campaign.value.isEnabled) return false;
+  if (row.status === 'finalized') return false;
   if (row.isPushed) return false;
   return Boolean(linkFor(row));
 }
 
 function pushTitle(row) {
   if (!campaign.value.isEnabled) return 'Enable Provider Year Update first';
+  if (row?.status === 'finalized') return 'Already complete — provider no longer sees Year Update';
   if (row?.isPushed) return 'Already pushed — provider sees Year Update on My Dashboard';
   if (!linkFor(row)) return 'Get link first, then push to this provider';
   return 'Show Year Update on this provider’s My Dashboard';
+}
+
+function canMarkComplete(row) {
+  if (!row || !campaign.value.isEnabled) return false;
+  if (row.status === 'finalized') return false;
+  return Boolean(row.isPushed || row.cycleId || row.status === 'in_progress');
+}
+
+function markCompleteTitle(row) {
+  if (row?.status === 'finalized') return 'Already marked complete';
+  if (!canMarkComplete(row)) return 'Push or start this provider before marking complete';
+  return 'Mark complete and remove from My Dashboard / splash';
 }
 
 async function ensureLink(row) {
@@ -444,11 +508,67 @@ async function enableYearUpdate() {
       agencyId: Number(props.agencyId),
       schoolYear: schoolYear.value,
     });
+    pushFlash.value = campaign.value.isDisabled
+      ? 'Provider Year Update re-enabled.'
+      : 'Provider Year Update enabled.';
     await load();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e.message || 'Enable failed';
   } finally {
     campaignBusy.value = false;
+  }
+}
+
+async function disableYearUpdate() {
+  if (campaignBusy.value || campaign.value.isDisabled) return;
+  if (
+    !window.confirm(
+      `Disable Provider Year Update for ${schoolYear.value}? Providers will no longer see it on My Dashboard, and public links will stop working until re-enabled.`
+    )
+  ) {
+    return;
+  }
+  campaignBusy.value = true;
+  error.value = '';
+  try {
+    await api.post('/provider-year-update/campaign/disable', {
+      agencyId: Number(props.agencyId),
+      schoolYear: schoolYear.value,
+    });
+    pushFlash.value = 'Provider Year Update disabled for this school year.';
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e.message || 'Disable failed';
+  } finally {
+    campaignBusy.value = false;
+  }
+}
+
+async function markComplete(row) {
+  if (!row || !canMarkComplete(row)) return;
+  if (
+    !window.confirm(
+      `Mark ${row.providerName} complete? They will no longer see Provider Year Update on My Dashboard.`
+    )
+  ) {
+    return;
+  }
+  completeBusyId.value = row.providerUserId;
+  error.value = '';
+  try {
+    await api.post(`/provider-year-update/providers/${row.providerUserId}/mark-complete`, {
+      agencyId: Number(props.agencyId),
+      schoolYear: schoolYear.value,
+    });
+    pushFlash.value = `Marked ${row.providerName} complete.`;
+    await load();
+    setTimeout(() => {
+      pushFlash.value = '';
+    }, 2500);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e.message || 'Mark complete failed';
+  } finally {
+    completeBusyId.value = null;
   }
 }
 
@@ -566,6 +686,15 @@ onMounted(load);
   opacity: 0.45;
   cursor: not-allowed;
 }
+.btn-complete {
+  background: #166534;
+  color: #fff;
+  border: none;
+}
+.btn-complete:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .pyu-admin__row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -583,6 +712,7 @@ onMounted(load);
 .pill--draft { background: #e2e8f0; }
 .pill--enabled { background: #fef3c7; color: #92400e; }
 .pill--pushed { background: #dcfce7; color: #166534; }
+.pill--disabled { background: #fee2e2; color: #991b1b; }
 .pill--not_started { background: #e2e8f0; }
 .pill--in_progress { background: #dbeafe; color: #1e40af; }
 .pill--finalized { background: #dcfce7; color: #166534; }

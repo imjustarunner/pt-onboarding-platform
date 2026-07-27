@@ -8,6 +8,7 @@ const router = express.Router();
 router.get('/report', authenticate, ctrl.getReport);
 router.get('/campaign', authenticate, ctrl.getCampaignStatus);
 router.post('/campaign/enable', authenticate, ctrl.enableCampaign);
+router.post('/campaign/disable', authenticate, ctrl.disableCampaign);
 router.post('/campaign/push', authenticate, ctrl.pushCampaign);
 router.put('/campaign/checkin-settings', authenticate, ctrl.updateCheckinSettings);
 router.post('/tokens', authenticate, ctrl.generateToken);

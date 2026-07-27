@@ -59,6 +59,7 @@
           </div>
 
           <div v-if="actionError" class="error action-error">{{ actionError }}</div>
+          <div v-if="yearUpdateNotice" class="year-update-notice">{{ yearUpdateNotice }}</div>
 
           <div v-if="slotPrompt" class="slot-prompt" role="region" aria-label="Soft schedule slot">
             <div class="slot-prompt-title">
@@ -136,12 +137,15 @@ const slotPrompt = ref(null);
 const selectedSlotIndex = ref(null);
 const placingSlot = ref(false);
 const slotError = ref('');
+const yearUpdateNotice = ref('');
 
 const clientLabel = computed(() => {
   const initials = String(props.client?.initials || '').replace(/\s+/g, '').toUpperCase();
   const code = String(props.client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
-  if (props.clientLabelMode === 'initials') return initials || code || '—';
-  return code || initials || '—';
+  const fullName = String(props.client?.full_name || '').trim();
+  if (props.clientLabelMode === 'full_name') return fullName || initials || code || '—';
+  if (props.clientLabelMode === 'codes') return code || initials || '—';
+  return initials || code || '—';
 });
 
 const providerDisplayName = (prov) => {
@@ -217,6 +221,7 @@ const load = async () => {
   error.value = '';
   actionError.value = '';
   slotPrompt.value = null;
+  yearUpdateNotice.value = '';
   try {
     const params = {};
     if (props.providerUserId) params.providerUserId = Number(props.providerUserId);
@@ -249,6 +254,21 @@ const load = async () => {
   }
 };
 
+const describeClientStatusUpdate = (update) => {
+  if (!update) return '';
+  const parts = [];
+  if (update.year_advanced && update.school_year) {
+    parts.push(`Advanced to ${update.school_year}${update.grade ? ` (Grade ${update.grade})` : ''}`);
+  }
+  if (update.client_status_key === 'current') {
+    parts.push('Client promoted to Current');
+  } else if (update.client_status_key === 'pending' && update.doc_compliance_ok === false) {
+    const missing = (update.doc_status_missing || []).join(', ');
+    parts.push(`Client stayed Pending${missing ? ` — missing: ${missing}` : ' — documents needed'}`);
+  }
+  return parts.join(' · ');
+};
+
 const toggleDay = async (prov, day) => {
   const serviceDay = String(day?.day_of_week || '');
   const providerUserId = Number(prov?.provider_user_id || 0);
@@ -257,6 +277,7 @@ const toggleDay = async (prov, day) => {
   savingKey.value = saveKey(providerUserId, serviceDay);
   actionError.value = '';
   slotError.value = '';
+  yearUpdateNotice.value = '';
   try {
     const orgId = Number(props.organizationId);
     const clientId = Number(props.client?.id);
@@ -265,6 +286,7 @@ const toggleDay = async (prov, day) => {
       { providerUserId, serviceDay, assigned: nextAssigned },
       { skipGlobalLoading: true }
     );
+    yearUpdateNotice.value = describeClientStatusUpdate(r.data?.client_status_update);
     const nextDays = Array.isArray(r.data?.assigned_days)
       ? r.data.assigned_days
       : nextAssigned
@@ -335,7 +357,7 @@ const placeInSlot = async () => {
   try {
     const orgId = Number(props.organizationId);
     const clientId = Number(props.client?.id);
-    await api.post(
+    const r = await api.post(
       `/school-portal/${orgId}/clients/${clientId}/place-in-open-slot`,
       {
         providerUserId: Number(slotPrompt.value.providerUserId),
@@ -344,6 +366,8 @@ const placeInSlot = async () => {
       },
       { skipGlobalLoading: true }
     );
+    const notice = describeClientStatusUpdate(r.data?.client_status_update);
+    if (notice) yearUpdateNotice.value = notice;
     dismissSlotPrompt();
   } catch (e) {
     slotError.value = e.response?.data?.error?.message || 'Failed to place in soft schedule';
@@ -493,6 +517,16 @@ onMounted(load);
 }
 .action-error {
   margin-top: 10px;
+}
+.year-update-notice {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(31, 92, 69, 0.3);
+  background: rgba(31, 92, 69, 0.08);
+  color: #1f5c45;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 .slot-prompt {
   margin-top: 12px;

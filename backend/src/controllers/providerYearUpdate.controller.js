@@ -144,8 +144,10 @@ export async function getCampaignStatus(req, res, next) {
       status: campaign.status,
       enabledAt: campaign.enabled_at,
       pushedAt: campaign.pushed_at,
+      disabledAt: campaign.disabled_at || null,
       isEnabled: S.campaignIsEnabled(campaign),
       isPushed: S.campaignIsPushed(campaign),
+      isDisabled: S.campaignIsDisabled(campaign),
     });
   } catch (e) {
     next(e);
@@ -174,9 +176,84 @@ export async function enableCampaign(req, res, next) {
         status: result.campaign.status,
         enabledAt: result.campaign.enabled_at,
         pushedAt: result.campaign.pushed_at,
+        disabledAt: result.campaign.disabled_at || null,
         isEnabled: S.campaignIsEnabled(result.campaign),
         isPushed: S.campaignIsPushed(result.campaign),
+        isDisabled: S.campaignIsDisabled(result.campaign),
       },
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/provider-year-update/campaign/disable */
+export async function disableCampaign(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    try {
+      const result = await S.disableCampaign({
+        agencyId,
+        schoolYear,
+        userId: req.user?.id,
+      });
+      res.json({
+        ok: true,
+        alreadyDisabled: Boolean(result.alreadyDisabled),
+        campaign: {
+          status: result.campaign.status,
+          enabledAt: result.campaign.enabled_at,
+          pushedAt: result.campaign.pushed_at,
+          disabledAt: result.campaign.disabled_at || null,
+          isEnabled: S.campaignIsEnabled(result.campaign),
+          isPushed: S.campaignIsPushed(result.campaign),
+          isDisabled: S.campaignIsDisabled(result.campaign),
+        },
+      });
+    } catch (err) {
+      if (err?.status === 400) {
+        return res.status(400).json({ error: { message: err.message } });
+      }
+      throw err;
+    }
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/provider-year-update/providers/:providerUserId/mark-complete */
+export async function adminMarkComplete(req, res, next) {
+  try {
+    const providerUserId = safeInt(req.params.providerUserId);
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!agencyId || !providerUserId) {
+      return res.status(400).json({
+        error: { message: 'agencyId and providerUserId are required' },
+      });
+    }
+    if (!(await assertAgencyAccess(req, agencyId)) || !isAdminRole(req.user)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    const cycle = await S.adminMarkComplete({
+      agencyId,
+      providerUserId,
+      schoolYear,
+      userId: req.user?.id,
+    });
+    res.json({
+      ok: true,
+      providerUserId,
+      cycleId: cycle.id,
+      status: cycle.status,
+      finalizedAt: cycle.finalized_at,
+      adminCompletedAt: cycle.admin_completed_at,
+      isPushed: false,
     });
   } catch (e) {
     next(e);
@@ -377,6 +454,13 @@ export async function getMyCycle(req, res, next) {
     }
     const cycle = await S.getCycleById(status.cycle.id);
     const payload = await S.buildDashboardPayload(cycle);
+    await S.recordViewEvent({
+      cycleId: cycle.id,
+      userId: req.user.id,
+      actorDisplayName:
+        [req.user.first_name, req.user.last_name].filter(Boolean).join(' ') || req.user.email || null,
+      eventType: 'dashboard_view',
+    });
     res.json({
       ...status,
       ...payload,
@@ -536,13 +620,22 @@ export async function getPublicByToken(req, res, next) {
     }
     if (!row) return res.status(404).json({ error: { message: 'Invalid link' } });
 
+    const campaign = await S.getCampaign(row.agency_id, row.school_year);
+    if (S.campaignIsDisabled(campaign)) {
+      return res.status(410).json({
+        error: {
+          message: 'Provider Year Update is disabled for this school year.',
+          reason: 'campaign_disabled',
+        },
+      });
+    }
+
     await S.recordTokenClick(row, providerDisplayName(row));
     await attachUserIfPresent(req);
     const user = req.user;
 
     const cycle = await S.getCycleById(row.cycle_id);
     const payload = await S.buildDashboardPayload(cycle);
-    const campaign = await S.getCampaign(row.agency_id, row.school_year);
     await S.recordViewEvent({
       cycleId: cycle.id,
       tokenId: row.id,

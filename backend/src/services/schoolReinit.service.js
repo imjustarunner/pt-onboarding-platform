@@ -321,11 +321,38 @@ export async function enableCampaign({ agencyId, schoolYear, userId }) {
   }
   await pool.execute(
     `UPDATE school_reinit_campaigns
-     SET status = 'enabled', enabled_at = NOW(), enabled_by_user_id = ?
+     SET status = 'enabled',
+         enabled_at = NOW(),
+         enabled_by_user_id = ?,
+         disabled_at = NULL,
+         disabled_by_user_id = NULL
      WHERE id = ?`,
     [userId || null, campaign.id]
   );
   return { campaign: await getCampaign(agencyId, year), alreadyEnabled: false };
+}
+
+/** Disable School Year Update for the school year — hides splash and School Management tab. */
+export async function disableCampaign({ agencyId, schoolYear, userId }) {
+  const year = schoolYear || currentSchoolYear();
+  const campaign = await getOrCreateCampaign(agencyId, year);
+  if (campaign.status === 'disabled') {
+    return { campaign, alreadyDisabled: true };
+  }
+  if (campaign.status === 'draft') {
+    const err = new Error('Campaign is not enabled yet.');
+    err.status = 400;
+    throw err;
+  }
+  await pool.execute(
+    `UPDATE school_reinit_campaigns
+     SET status = 'disabled',
+         disabled_at = NOW(),
+         disabled_by_user_id = ?
+     WHERE id = ?`,
+    [userId || null, campaign.id]
+  );
+  return { campaign: await getCampaign(agencyId, year), alreadyDisabled: false };
 }
 
 /**
@@ -335,6 +362,11 @@ export async function enableCampaign({ agencyId, schoolYear, userId }) {
 export async function pushCampaign({ agencyId, schoolYear, userId }) {
   const year = schoolYear || currentSchoolYear();
   let campaign = await getCampaign(agencyId, year);
+  if (campaignIsDisabled(campaign)) {
+    const err = new Error('Re-enable School Year Update before pushing to schools.');
+    err.status = 400;
+    throw err;
+  }
   if (!campaign || campaign.status === 'draft') {
     const enabled = await enableCampaign({ agencyId, schoolYear: year, userId });
     campaign = enabled.campaign;
@@ -387,6 +419,10 @@ export async function pushCampaign({ agencyId, schoolYear, userId }) {
 
 export function campaignIsPushed(campaign) {
   return String(campaign?.status || '') === 'pushed';
+}
+
+export function campaignIsDisabled(campaign) {
+  return String(campaign?.status || '') === 'disabled';
 }
 
 export function campaignIsEnabled(campaign) {

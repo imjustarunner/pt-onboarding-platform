@@ -1,11 +1,17 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import Client from '../models/Client.model.js';
+import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
+import { bumpGradeCanonical } from '../utils/clientGrade.js';
+import { computeCurrentSchoolYearLabel, normalizeSchoolYearLabel } from '../utils/schoolYear.js';
+import { evaluateClientDocCompliance } from '../utils/clientDocCompliance.js';
+import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import {
   getSupervisorSuperviseeIds,
   isSupervisorActor,
@@ -221,6 +227,118 @@ function buildDefaultSlots({ slotCount, startTime, endTime }) {
     });
   }
   return out;
+}
+
+/**
+ * Assign-day write-path: when a client is placed on a provider's schedule, advance their
+ * school_year/grade for the current school year (once per year) and evaluate doc/compliance
+ * status — promoting `pending` → `current` when docs are complete, otherwise leaving them
+ * `pending` with a doc-status message. Never touches waitlist/terminated/other statuses.
+ */
+async function promoteClientForAssignedDay({ clientId, actorUserId }) {
+  const [rows] = await pool.execute(
+    `SELECT c.id, c.agency_id, c.school_year, c.grade, c.client_status_id,
+            cs.status_key AS client_status_key
+     FROM clients c
+     LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+     WHERE c.id = ?
+     LIMIT 1`,
+    [clientId]
+  );
+  const client = rows?.[0];
+  if (!client) return null;
+
+  const statusKey = String(client.client_status_key || '').toLowerCase();
+  const patch = {};
+
+  const currentYearLabel = computeCurrentSchoolYearLabel();
+  const yearIsStale = normalizeSchoolYearLabel(client.school_year) !== currentYearLabel;
+  if (yearIsStale) {
+    patch.school_year = currentYearLabel;
+    const bumpedGrade = bumpGradeCanonical(client.grade);
+    if (bumpedGrade !== null) patch.grade = bumpedGrade;
+  }
+
+  let compliance = null;
+  const eligibleForStatusUpdate = !statusKey || statusKey === 'pending';
+  if (eligibleForStatusUpdate) {
+    compliance = await evaluateClientDocCompliance({ clientId: client.id, agencyId: client.agency_id });
+    const targetKey = compliance.ok ? 'current' : 'pending';
+    if (targetKey !== statusKey) {
+      const targetStatusId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: targetKey });
+      if (targetStatusId && Number(targetStatusId) !== Number(client.client_status_id || 0)) {
+        patch.client_status_id = targetStatusId;
+      }
+    }
+  }
+
+  if (Object.keys(patch).length > 0) {
+    await Client.update(client.id, patch, actorUserId);
+    if (patch.client_status_id) {
+      await ClientStatusHistory.create({
+        client_id: client.id,
+        changed_by_user_id: actorUserId,
+        field_changed: 'client_status_id',
+        from_value: client.client_status_id ? String(client.client_status_id) : null,
+        to_value: String(patch.client_status_id),
+        note: compliance?.ok
+          ? 'Auto-promoted to current on day assignment (school year rollover)'
+          : `Auto-set to pending on day assignment — missing: ${(compliance?.missing || []).join(', ') || 'documents'}`
+      }).catch(() => {});
+    }
+  }
+
+  return {
+    school_year: patch.school_year || client.school_year || null,
+    grade: patch.grade !== undefined ? patch.grade : (client.grade || null),
+    client_status_key: patch.client_status_id ? (compliance?.ok ? 'current' : 'pending') : (statusKey || null),
+    doc_compliance_ok: compliance?.ok ?? null,
+    doc_status_missing: compliance?.missing ?? [],
+    year_advanced: yearIsStale
+  };
+}
+
+/**
+ * Un-assign-day write-path: when a client's last active day assignment (any provider/school)
+ * is removed, auto-set status to `pending` (skips waitlist/terminated/already-pending clients).
+ */
+async function demoteClientToPendingIfNoActiveDay({ clientId, actorUserId }) {
+  const [cntRows] = await pool.execute(
+    `SELECT COUNT(*) AS cnt FROM client_provider_assignments WHERE client_id = ? AND is_active = TRUE`,
+    [clientId]
+  );
+  if (Number(cntRows?.[0]?.cnt || 0) > 0) return null;
+
+  const [rows] = await pool.execute(
+    `SELECT c.id, c.agency_id, c.client_status_id, cs.status_key AS client_status_key
+     FROM clients c
+     LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+     WHERE c.id = ?
+     LIMIT 1`,
+    [clientId]
+  );
+  const client = rows?.[0];
+  if (!client) return null;
+
+  // Only auto-demote clients that were actively "current" (or never classified); never touch
+  // waitlist/terminated/archived/pending/other lifecycle stages.
+  const statusKey = String(client.client_status_key || '').toLowerCase();
+  if (statusKey !== 'current' && statusKey !== '') return null;
+
+  const pendingStatusId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: 'pending' });
+  if (!pendingStatusId || Number(pendingStatusId) === Number(client.client_status_id || 0)) return null;
+
+  await Client.update(client.id, { client_status_id: pendingStatusId }, actorUserId);
+  await ClientStatusHistory.create({
+    client_id: client.id,
+    changed_by_user_id: actorUserId,
+    field_changed: 'client_status_id',
+    from_value: client.client_status_id ? String(client.client_status_id) : null,
+    to_value: String(pendingStatusId),
+    note: 'Auto-set to pending — no assigned day remaining'
+  }).catch(() => {});
+
+  return { client_status_key: 'pending' };
 }
 
 export const listSchoolDays = async (req, res, next) => {
@@ -1125,6 +1243,15 @@ export const setClientAssignedDay = async (req, res, next) => {
 
     await connection.commit();
 
+    let clientStatusUpdate = null;
+    try {
+      clientStatusUpdate = assigned
+        ? await promoteClientForAssignedDay({ clientId, actorUserId })
+        : await demoteClientToPendingIfNoActiveDay({ clientId, actorUserId });
+    } catch {
+      // Best-effort — never block the day-assignment write on the school-year/compliance rollup.
+    }
+
     let soft = { persisted: false, slots: [] };
     if (assigned) {
       soft = await loadSoftSlotsOrDefaults({ schoolId, weekday: serviceDay, providerUserId });
@@ -1155,7 +1282,8 @@ export const setClientAssignedDay = async (req, res, next) => {
       service_day: serviceDay,
       assigned_days: assignedDays,
       soft_schedule: soft,
-      open_slots: openSlots
+      open_slots: openSlots,
+      client_status_update: clientStatusUpdate
     });
   } catch (e) {
     try {
@@ -1236,6 +1364,13 @@ export const placeClientInOpenSoftSlot = async (req, res, next) => {
       });
     }
 
+    let clientStatusUpdate = null;
+    try {
+      clientStatusUpdate = await promoteClientForAssignedDay({ clientId, actorUserId: req.user?.id });
+    } catch {
+      // Best-effort — never block the slot placement on the school-year/compliance rollup.
+    }
+
     const soft = await loadSoftSlotsOrDefaults({ schoolId, weekday: serviceDay, providerUserId });
     const slots = (soft.slots || []).map((s) => ({
       id: s.id || null,
@@ -1247,7 +1382,7 @@ export const placeClientInOpenSoftSlot = async (req, res, next) => {
 
     // If client already placed, treat as success.
     if (slots.some((s) => Number(s.client_id) === clientId)) {
-      return res.json({ ok: true, already_placed: true, slots });
+      return res.json({ ok: true, already_placed: true, slots, client_status_update: clientStatusUpdate });
     }
 
     let targetIdx = -1;
@@ -1332,7 +1467,8 @@ export const placeClientInOpenSoftSlot = async (req, res, next) => {
         ok: true,
         already_placed: false,
         slot_index: targetIdx + 1,
-        slots: outRows || []
+        slots: outRows || [],
+        client_status_update: clientStatusUpdate
       });
     } catch (e) {
       try {

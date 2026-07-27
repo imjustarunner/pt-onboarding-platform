@@ -111,12 +111,9 @@
           <section v-else-if="activeSection === 'school_events'" class="pyu__panel">
             <h2>School Events</h2>
             <p class="muted">
+              Back-to-school events for each of your assigned schools. Events refresh when you open this page.
               <template v-if="props.mode === 'token'">
-                Review back-to-school dates for your schools. Event sign-up and adding new events are available after signing in to My Dashboard.
-              </template>
-              <template v-else>
-                Check back-to-school dates for your schools. Add an event if you learn details. Sign up to staff events —
-                time is compensated via the kiosk.
+                Sign-up and adding events are available after signing in to My Dashboard.
               </template>
             </p>
             <div class="pyu__info">
@@ -128,41 +125,63 @@
               <div class="pyu__school-head">
                 <h3>{{ school.schoolName }}</h3>
                 <button
-                  v-if="props.mode !== 'token'"
+                  v-if="props.mode !== 'token' && !school.hasBackToSchool"
                   type="button"
                   class="btn btn-secondary btn-sm"
                   :disabled="isFinalized"
                   @click="openAddEvent(school)"
                 >
-                  + Add Event
+                  + Add Back-to-School Event
                 </button>
               </div>
-              <div v-if="!(school.events || []).length" class="muted">No events listed yet for this school.</div>
-              <ul v-else class="pyu__event-list">
-                <li v-for="ev in school.events" :key="ev.id">
-                  <div>
-                    <strong>{{ ev.title || categoryLabel(ev.category || ev.schoolEventCategory) }}</strong>
-                    <span class="muted"> · {{ formatEventWhen(ev) }}</span>
-                    <div v-if="ev.category === 'back_to_school' || ev.schoolEventCategory === 'back_to_school'" class="tiny">
-                      Back to School
+
+              <template v-if="school.hasBackToSchool">
+                <ul class="pyu__event-list">
+                  <li v-for="ev in school.backToSchoolEvents || []" :key="ev.id">
+                    <div>
+                      <strong>{{ ev.title || 'Back to School' }}</strong>
+                      <span class="muted"> · {{ formatEventWhen(ev) }}</span>
+                      <div class="tiny">{{ staffingStatusLabel(ev) }}</div>
                     </div>
-                  </div>
-                  <button
-                    v-if="canSignUp(ev) && props.mode !== 'token'"
-                    type="button"
-                    class="btn btn-primary btn-sm"
-                    :disabled="isFinalized || signingUpId === ev.id"
-                    @click="signUpForEvent(ev)"
-                  >
-                    {{ signingUpId === ev.id ? 'Signing up…' : 'Sign up' }}
-                  </button>
-                </li>
-              </ul>
+                    <button
+                      v-if="canRequestToWork(ev) && props.mode !== 'token'"
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="isFinalized || signingUpId === ev.id"
+                      @click="signUpForEvent(ev)"
+                    >
+                      {{ signingUpId === ev.id ? 'Requesting…' : 'Request to work' }}
+                    </button>
+                    <span v-else class="pill">{{ staffingStatusShort(ev) }}</span>
+                  </li>
+                </ul>
+              </template>
+              <template v-else>
+                <p class="muted">No back-to-school event on file for this school yet.</p>
+                <label class="pyu__check">
+                  <input
+                    type="checkbox"
+                    :checked="Boolean(unknownBts[school.schoolOrganizationId])"
+                    :disabled="isFinalized"
+                    @change="toggleUnknownBts(school, $event.target.checked)"
+                  />
+                  I do not know the date, time, etc. of the school event. I understand that it is important to work the back to school event for my assigned schools.
+                </label>
+              </template>
             </div>
 
             <div class="pyu__section-actions">
-              <button type="button" class="btn btn-primary" :disabled="isFinalized || saving" @click="markSectionDone('school_events')">
+              <button type="button" class="btn btn-primary" :disabled="isFinalized || saving" @click="saveEventsSection">
                 Mark events section complete
+              </button>
+              <button
+                v-if="props.mode !== 'token'"
+                type="button"
+                class="btn btn-secondary"
+                :disabled="saving"
+                @click="saveAndExit('school_events')"
+              >
+                Save &amp; exit
               </button>
             </div>
           </section>
@@ -170,11 +189,90 @@
           <!-- Materials -->
           <section v-else-if="activeSection === 'materials'" class="pyu__panel">
             <h2>Materials Request</h2>
-            <p class="muted">Let us know if you need a school cart for back-to-school events. More material options may be added later.</p>
-            <label class="pyu__check">
-              <input v-model="materialsForm.need_school_cart" type="checkbox" :disabled="isFinalized" />
-              I need a school cart
-            </label>
+            <p class="muted">School cart response is required. Optional ITSCO materials can be requested below.</p>
+
+            <fieldset class="pyu__fieldset" :disabled="isFinalized">
+              <legend>School Cart <span class="req">*</span></legend>
+              <label class="pyu__radio">
+                <input v-model="materialsForm.school_cart" type="radio" value="need" />
+                I do need a school cart for this school year
+              </label>
+              <label class="pyu__radio">
+                <input v-model="materialsForm.school_cart" type="radio" value="do_not_need" />
+                I do not need a school cart for this school year
+              </label>
+              <p class="pyu__disclaimer">{{ schoolCartDisclaimer }}</p>
+            </fieldset>
+
+            <fieldset class="pyu__fieldset" :disabled="isFinalized">
+              <legend>Name tags &amp; cards</legend>
+              <label class="pyu__check">
+                <input v-model="materialsForm.itsco_name_tag" type="checkbox" />
+                I need an ITSCO name tag or I need one updated
+              </label>
+              <div v-if="materialsForm.itsco_name_tag" class="pyu__nested">
+                <label class="field"><span>Preferred name</span>
+                  <input v-model="materialsForm.itsco_name_tag_name" type="text" />
+                </label>
+                <label class="field"><span>Title</span>
+                  <input v-model="materialsForm.itsco_name_tag_title" type="text" placeholder="e.g. LPC, School Therapist" />
+                </label>
+              </div>
+              <label class="pyu__check">
+                <input v-model="materialsForm.office_nametag" type="checkbox" />
+                I need an office nametag
+              </label>
+              <div v-if="materialsForm.office_nametag" class="pyu__nested">
+                <label class="field"><span>Preferred name</span>
+                  <input v-model="materialsForm.office_nametag_name" type="text" />
+                </label>
+              </div>
+              <label class="pyu__check">
+                <input v-model="materialsForm.itsco_lanyard" type="checkbox" />
+                I need an ITSCO lanyard (matches nametag and/or business cards)
+              </label>
+              <label class="pyu__check">
+                <input v-model="materialsForm.business_cards" type="checkbox" />
+                I need business cards (title, education, and current licensure)
+              </label>
+            </fieldset>
+
+            <fieldset class="pyu__fieldset" :disabled="isFinalized">
+              <legend>Apparel &amp; bag</legend>
+              <label class="pyu__check">
+                <input v-model="materialsForm.itsco_polo" type="checkbox" />
+                I need an ITSCO polo
+              </label>
+              <div v-if="materialsForm.itsco_polo" class="pyu__nested">
+                <p class="muted tiny">{{ poloInventory?.message || 'Coming soon' }}</p>
+                <label class="field"><span>Cut</span>
+                  <select v-model="materialsForm.polo_sex">
+                    <option value="">Select…</option>
+                    <option value="M">M</option>
+                    <option value="F">F</option>
+                  </select>
+                </label>
+                <label class="field"><span>Preferred size</span>
+                  <select v-model="materialsForm.polo_size">
+                    <option value="">Select…</option>
+                    <option v-for="sz in poloSizes" :key="sz" :value="sz">
+                      {{ sz }}{{ poloStockLabel(sz) }}
+                    </option>
+                  </select>
+                </label>
+                <label class="field"><span>Secondary size</span>
+                  <select v-model="materialsForm.polo_size_secondary">
+                    <option value="">Select…</option>
+                    <option v-for="sz in poloSizes" :key="'sec-' + sz" :value="sz">{{ sz }}</option>
+                  </select>
+                </label>
+              </div>
+              <label class="pyu__check">
+                <input v-model="materialsForm.itsco_canvas_bag" type="checkbox" />
+                I need an ITSCO canvas bag (beige bag with black straps)
+              </label>
+            </fieldset>
+
             <label class="field">
               <span>Notes (optional)</span>
               <textarea
@@ -185,8 +283,17 @@
               />
             </label>
             <div class="pyu__section-actions">
-              <button type="button" class="btn btn-primary" :disabled="isFinalized || saving" @click="saveMaterials">
+              <button type="button" class="btn btn-primary" :disabled="isFinalized || saving || !materialsForm.school_cart" @click="saveMaterials">
                 Save materials request
+              </button>
+              <button
+                v-if="props.mode !== 'token'"
+                type="button"
+                class="btn btn-secondary"
+                :disabled="saving || !materialsForm.school_cart"
+                @click="saveAndExit('materials')"
+              >
+                Save &amp; exit
               </button>
             </div>
           </section>
@@ -195,8 +302,8 @@
           <section v-else-if="activeSection === 'provider_schedule'" class="pyu__panel">
             <h2>Provider Schedule</h2>
             <p class="muted">
-              Review your days and clients at each school. Assume the same schools/days unless a change has been discussed.
-              Request additional school availability below if you need more days.
+              Review your days and times at each school. Use <strong>Adjust</strong> if something is wrong — that submits a change request to the team.
+              Request additional school days below if you need more coverage.
             </p>
             <div v-if="!(schedule || []).length" class="muted">No active school assignments found.</div>
             <div v-for="school in schedule" :key="school.schoolOrganizationId" class="pyu__school-block">
@@ -205,18 +312,52 @@
                 <thead>
                   <tr>
                     <th>Day</th>
+                    <th>Time in system</th>
                     <th>Slots</th>
                     <th>Clients</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="d in school.days || []" :key="d.assignmentId || d.dayOfWeek">
                     <td>{{ d.dayOfWeek }}</td>
+                    <td>{{ formatTimeRange(d.startTime, d.endTime) }}</td>
                     <td>{{ d.slotsTotal ?? '—' }}</td>
                     <td>{{ d.clientCount == null ? '—' : d.clientCount }}</td>
+                    <td>
+                      <button
+                        v-if="props.mode !== 'token'"
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="isFinalized"
+                        @click="openScheduleAdjust(school, d)"
+                      >
+                        Adjust
+                      </button>
+                    </td>
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            <div v-if="adjustTarget && props.mode !== 'token'" class="pyu__adjust-box">
+              <h3>Adjust {{ adjustTarget.day.dayOfWeek }} at {{ adjustTarget.school.schoolName }}</h3>
+              <p class="muted tiny">Current: {{ formatTimeRange(adjustTarget.day.startTime, adjustTarget.day.endTime) }}</p>
+              <label class="field"><span>Requested start</span>
+                <input v-model="adjustForm.startTime" type="time" />
+              </label>
+              <label class="field"><span>Requested end</span>
+                <input v-model="adjustForm.endTime" type="time" />
+              </label>
+              <label class="field"><span>Notes</span>
+                <textarea v-model="adjustForm.notes" rows="2" placeholder="What needs to change and why?" />
+              </label>
+              <div class="pyu__section-actions">
+                <button type="button" class="btn btn-primary" :disabled="saving" @click="submitScheduleAdjust">
+                  Submit adjustment
+                </button>
+                <button type="button" class="btn btn-secondary" @click="adjustTarget = null">Cancel</button>
+              </div>
             </div>
 
             <div class="pyu__avail">
@@ -236,7 +377,7 @@
 
             <label class="pyu__check" style="margin-top: 16px;">
               <input v-model="scheduleConfirmed" type="checkbox" :disabled="isFinalized" />
-              I reviewed my schools, days, and clients — this looks accurate (or I’ve requested needed changes).
+              I reviewed my schools, days, and times — this looks accurate (or I’ve requested needed changes).
             </label>
             <div class="pyu__section-actions">
               <button
@@ -246,6 +387,56 @@
                 @click="saveScheduleSection"
               >
                 Mark schedule section complete
+              </button>
+              <button
+                v-if="props.mode !== 'token'"
+                type="button"
+                class="btn btn-secondary"
+                :disabled="saving"
+                @click="saveAndExit('provider_schedule')"
+              >
+                Save &amp; exit
+              </button>
+            </div>
+          </section>
+
+          <!-- Clients without day -->
+          <section v-else-if="activeSection === 'clients'" class="pyu__panel">
+            <h2>Assigned Clients</h2>
+            <p class="muted">
+              These are the current clients (initials and grade) assigned to you at each school who do not yet have a service day.
+              Once you confirm they will be seen at the school and continue care, please add them to a day via the app so we know they are current.
+              Adding them to a day will mark them as current when other requirements are met. We may have further instructions in the future.
+            </p>
+            <div v-if="!(clientsWithoutDay || []).length" class="success-banner">
+              No assigned clients are missing a service day right now.
+            </div>
+            <div v-for="school in clientsWithoutDay" :key="school.schoolOrganizationId" class="pyu__school-block">
+              <h3>{{ school.schoolName }}</h3>
+              <ul class="pyu__client-list">
+                <li v-for="c in school.clients || []" :key="c.clientId">
+                  <strong>{{ c.initials }}</strong>
+                  <span class="muted">{{ c.grade ? `Grade ${c.grade}` : 'Grade —' }}</span>
+                </li>
+              </ul>
+            </div>
+            <div class="pyu__section-actions">
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="isFinalized || saving"
+                @click="markSectionDone('clients')"
+              >
+                Mark clients section reviewed
+              </button>
+              <button
+                v-if="props.mode !== 'token'"
+                type="button"
+                class="btn btn-secondary"
+                :disabled="saving"
+                @click="saveAndExit('clients')"
+              >
+                Save &amp; exit
               </button>
             </div>
           </section>
@@ -311,12 +502,31 @@ const saveFlash = ref('');
 const payload = ref(null);
 const activeSection = ref('reminders');
 const sectionMeta = SECTION_META;
-const materialsForm = reactive({ need_school_cart: false, materials_notes: '' });
+const materialsForm = reactive({
+  school_cart: null,
+  need_school_cart: false,
+  materials_notes: '',
+  itsco_name_tag: false,
+  itsco_name_tag_name: '',
+  itsco_name_tag_title: '',
+  office_nametag: false,
+  office_nametag_name: '',
+  itsco_lanyard: false,
+  business_cards: false,
+  itsco_polo: false,
+  polo_sex: '',
+  polo_size: '',
+  polo_size_secondary: '',
+  itsco_canvas_bag: false,
+});
 const scheduleConfirmed = ref(false);
 const showAvailability = ref(false);
 const addEventSchool = ref(null);
 const signingUpId = ref(0);
 const reminderItems = ref([]);
+const unknownBts = reactive({});
+const adjustTarget = ref(null);
+const adjustForm = reactive({ startTime: '', endTime: '', notes: '' });
 
 const resolvedAgencyId = computed(() => {
   return (
@@ -356,6 +566,17 @@ const brandStyle = computed(() => {
 const isFinalized = computed(() => payload.value?.cycle?.status === 'finalized');
 const schedule = computed(() => payload.value?.schedule || []);
 const eventsBySchool = computed(() => payload.value?.eventsBySchool || []);
+const clientsWithoutDay = computed(() => payload.value?.clientsWithoutDay || []);
+const schoolCartDisclaimer = computed(
+  () =>
+    payload.value?.schoolCartDisclaimer ||
+    'This cart is a rolling cart filled with basic supplies to help with school therapy sessions. It includes craft supplies, games, a timer, and other basic supplies to help with your session. The clinician is responsible for the cart and its contents, and will be required to return the cart at the end of the school year. If the cart is damaged, lost or stolen, the clinician is required to let Kaitlyn O’Connell and Megan CG know.'
+);
+const poloInventory = computed(() => payload.value?.poloInventory || null);
+const poloSizes = computed(() => {
+  const sizes = poloInventory.value?.sizes;
+  return Array.isArray(sizes) && sizes.length ? sizes : ['XS', 'S', 'M', 'L', 'XL', '2XL'];
+});
 
 const kioskUrl = computed(() => {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -428,8 +649,30 @@ function applyPayload(data) {
     completed: Boolean(item.completed),
   }));
   const mat = data.materials || {};
-  materialsForm.need_school_cart = Boolean(mat.need_school_cart || mat.needSchoolCart);
+  const cart =
+    mat.school_cart ||
+    (mat.need_school_cart || mat.needSchoolCart ? 'need' : null);
+  materialsForm.school_cart = cart;
+  materialsForm.need_school_cart = cart === 'need';
   materialsForm.materials_notes = mat.materials_notes || mat.materialsNotes || '';
+  materialsForm.itsco_name_tag = Boolean(mat.itsco_name_tag);
+  materialsForm.itsco_name_tag_name =
+    mat.itsco_name_tag_name || data.provider?.name || '';
+  materialsForm.itsco_name_tag_title = mat.itsco_name_tag_title || '';
+  materialsForm.office_nametag = Boolean(mat.office_nametag);
+  materialsForm.office_nametag_name =
+    mat.office_nametag_name || data.provider?.name || '';
+  materialsForm.itsco_lanyard = Boolean(mat.itsco_lanyard);
+  materialsForm.business_cards = Boolean(mat.business_cards);
+  materialsForm.itsco_polo = Boolean(mat.itsco_polo);
+  materialsForm.polo_sex = mat.polo_sex || '';
+  materialsForm.polo_size = mat.polo_size || '';
+  materialsForm.polo_size_secondary = mat.polo_size_secondary || '';
+  materialsForm.itsco_canvas_bag = Boolean(mat.itsco_canvas_bag);
+  const eventsData = (data.sections || []).find((s) => s.sectionKey === 'school_events')?.data || {};
+  const unknownMap = eventsData.unknownBts || {};
+  Object.keys(unknownBts).forEach((k) => delete unknownBts[k]);
+  Object.assign(unknownBts, unknownMap);
   const schedData = (data.sections || []).find((s) => s.sectionKey === 'provider_schedule')?.data;
   scheduleConfirmed.value = Boolean(schedData?.confirmed);
   emit('loaded', data);
@@ -530,15 +773,197 @@ async function completeReminders() {
   await saveSection('reminders', { items }, { reviewed: true, completed: true });
 }
 
+function materialsPayload() {
+  const cart = materialsForm.school_cart;
+  return {
+    school_cart: cart,
+    need_school_cart: cart === 'need',
+    materials_notes: String(materialsForm.materials_notes || ''),
+    itsco_name_tag: Boolean(materialsForm.itsco_name_tag),
+    itsco_name_tag_name: String(materialsForm.itsco_name_tag_name || ''),
+    itsco_name_tag_title: String(materialsForm.itsco_name_tag_title || ''),
+    office_nametag: Boolean(materialsForm.office_nametag),
+    office_nametag_name: String(materialsForm.office_nametag_name || ''),
+    itsco_lanyard: Boolean(materialsForm.itsco_lanyard),
+    business_cards: Boolean(materialsForm.business_cards),
+    itsco_polo: Boolean(materialsForm.itsco_polo),
+    polo_sex: String(materialsForm.polo_sex || ''),
+    polo_size: String(materialsForm.polo_size || ''),
+    polo_size_secondary: String(materialsForm.polo_size_secondary || ''),
+    itsco_canvas_bag: Boolean(materialsForm.itsco_canvas_bag),
+  };
+}
+
 async function saveMaterials() {
+  if (!materialsForm.school_cart) {
+    actionError.value = 'Please choose whether you need a school cart.';
+    return;
+  }
+  if (materialsForm.itsco_polo && (!materialsForm.polo_sex || !materialsForm.polo_size)) {
+    actionError.value = 'Please select polo cut (M/F) and preferred size.';
+    return;
+  }
+  await saveSection('materials', materialsPayload(), { reviewed: true, completed: true });
+}
+
+function poloStockLabel(sz) {
+  const n = poloInventory.value?.stockBySize?.[sz];
+  if (n == null) return '';
+  return ` (${n} in stock)`;
+}
+
+function formatTimeRange(start, end) {
+  const fmt = (t) => {
+    if (!t) return '';
+    const s = String(t).slice(0, 5);
+    const [h, m] = s.split(':').map(Number);
+    if (Number.isNaN(h)) return s;
+    const ap = h >= 12 ? 'PM' : 'AM';
+    const hh = ((h + 11) % 12) + 1;
+    return `${hh}:${String(m || 0).padStart(2, '0')} ${ap}`;
+  };
+  const a = fmt(start);
+  const b = fmt(end);
+  if (a && b) return `${a} – ${b}`;
+  return a || b || '—';
+}
+
+function staffingStatusLabel(ev) {
+  const st = String(ev.myRequestStatus || ev.viewerRequestStatus || ev.requestStatus || '').toLowerCase();
+  if (st === 'approved' || st === 'accepted' || ev.viewerApproved) return 'Approved to work this event';
+  if (st === 'pending' || st === 'requested' || ev.viewerRequested) return 'You have requested to work this event';
+  return 'You can request to work this event';
+}
+
+function staffingStatusShort(ev) {
+  const st = String(ev.myRequestStatus || ev.viewerRequestStatus || ev.requestStatus || '').toLowerCase();
+  if (st === 'approved' || st === 'accepted' || ev.viewerApproved) return 'Approved';
+  if (st === 'pending' || st === 'requested' || ev.viewerRequested) return 'Requested';
+  return 'Review';
+}
+
+function canRequestToWork(ev) {
+  const st = String(ev.myRequestStatus || ev.viewerRequestStatus || ev.requestStatus || '').toLowerCase();
+  if (st === 'approved' || st === 'accepted' || st === 'pending' || st === 'requested') return false;
+  if (ev.viewerApproved || ev.viewerRequested) return false;
+  return true;
+}
+
+async function toggleUnknownBts(school, checked) {
+  unknownBts[school.schoolOrganizationId] = Boolean(checked);
   await saveSection(
-    'materials',
-    {
-      need_school_cart: Boolean(materialsForm.need_school_cart),
-      materials_notes: String(materialsForm.materials_notes || ''),
-    },
+    'school_events',
+    { unknownBts: { ...unknownBts } },
+    { reviewed: false, completed: false }
+  );
+}
+
+async function saveEventsSection() {
+  await saveSection(
+    'school_events',
+    { unknownBts: { ...unknownBts } },
     { reviewed: true, completed: true }
   );
+}
+
+function openScheduleAdjust(school, day) {
+  adjustTarget.value = { school, day };
+  adjustForm.startTime = String(day.startTime || '').slice(0, 5);
+  adjustForm.endTime = String(day.endTime || '').slice(0, 5);
+  adjustForm.notes = '';
+}
+
+async function submitScheduleAdjust() {
+  if (!adjustTarget.value) return;
+  saving.value = true;
+  actionError.value = '';
+  try {
+    const { school, day } = adjustTarget.value;
+    const note = [
+      `Schedule adjustment request for ${school.schoolName}`,
+      `Day: ${day.dayOfWeek}`,
+      `Current: ${formatTimeRange(day.startTime, day.endTime)}`,
+      `Requested: ${formatTimeRange(adjustForm.startTime, adjustForm.endTime)}`,
+      adjustForm.notes ? `Notes: ${adjustForm.notes}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
+    await api.post('/availability/school-requests', {
+      agencyId: resolvedAgencyId.value,
+      notes: note,
+      blocks: [
+        {
+          dayOfWeek: day.dayOfWeek,
+          startTime: adjustForm.startTime,
+          endTime: adjustForm.endTime,
+          schoolOrganizationId: school.schoolOrganizationId,
+        },
+      ],
+    });
+    saveFlash.value = 'Adjustment submitted — thank you.';
+    adjustTarget.value = null;
+    setTimeout(() => {
+      saveFlash.value = '';
+    }, 2500);
+  } catch (e) {
+    // Fallback: persist on section data if dedicated endpoint shape differs
+    try {
+      const existing =
+        (payload.value?.sections || []).find((s) => s.sectionKey === 'provider_schedule')?.data || {};
+      const adjustments = Array.isArray(existing.adjustments) ? [...existing.adjustments] : [];
+      adjustments.push({
+        schoolOrganizationId: adjustTarget.value.school.schoolOrganizationId,
+        schoolName: adjustTarget.value.school.schoolName,
+        dayOfWeek: adjustTarget.value.day.dayOfWeek,
+        currentStart: adjustTarget.value.day.startTime,
+        currentEnd: adjustTarget.value.day.endTime,
+        requestedStart: adjustForm.startTime,
+        requestedEnd: adjustForm.endTime,
+        notes: adjustForm.notes,
+        submittedAt: new Date().toISOString(),
+      });
+      await saveSection('provider_schedule', { ...existing, adjustments }, { reviewed: false, completed: false });
+      saveFlash.value = 'Adjustment saved for the team to review.';
+      adjustTarget.value = null;
+    } catch (e2) {
+      actionError.value =
+        e?.response?.data?.error?.message || e2?.message || e.message || 'Could not submit adjustment';
+    }
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function saveAndExit(sectionKey) {
+  actionError.value = '';
+  try {
+    if (sectionKey === 'materials') {
+      if (!materialsForm.school_cart) {
+        actionError.value = 'Please choose whether you need a school cart before saving.';
+        return;
+      }
+      await saveSection('materials', materialsPayload(), { reviewed: false, completed: false });
+    } else if (sectionKey === 'school_events') {
+      await saveSection('school_events', { unknownBts: { ...unknownBts } }, { reviewed: false, completed: false });
+    } else if (sectionKey === 'provider_schedule') {
+      const existing =
+        (payload.value?.sections || []).find((s) => s.sectionKey === 'provider_schedule')?.data || {};
+      await saveSection('provider_schedule', existing, { reviewed: false, completed: false });
+    } else if (sectionKey === 'clients') {
+      await saveSection('clients', { reviewedAt: new Date().toISOString() }, { reviewed: false, completed: false });
+    }
+    saveFlash.value = 'Progress saved — return anytime.';
+    if (props.mode !== 'token') {
+      router.push({ path: `${orgPrefix()}/provider/year-update` }).catch(() => {});
+    }
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e.message || 'Save failed';
+  }
+}
+
+function orgPrefix() {
+  const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
+  return slug ? `/${slug}` : '';
 }
 
 async function markSectionDone(key) {
@@ -1013,6 +1438,58 @@ defineExpose({ load, reload: load });
 }
 .muted { color: #64748b; }
 .tiny { font-size: 0.8rem; }
+.pyu__fieldset {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px 14px;
+  margin: 14px 0;
+}
+.pyu__fieldset legend {
+  padding: 0 6px;
+  font-weight: 700;
+  color: var(--pyu-primary);
+}
+.req { color: #c2410c; }
+.pyu__radio {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 8px 0;
+  font-size: 0.95rem;
+}
+.pyu__disclaimer {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #9a3412;
+}
+.pyu__nested {
+  margin: 8px 0 12px 22px;
+  display: grid;
+  gap: 8px;
+}
+.pyu__adjust-box {
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid #fdba74;
+  background: #fffbeb;
+  border-radius: 12px;
+}
+.pyu__client-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pyu__client-list li {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid #f1f5f9;
+}
 @media (max-width: 800px) {
   .pyu__top {
     grid-template-columns: 1fr;

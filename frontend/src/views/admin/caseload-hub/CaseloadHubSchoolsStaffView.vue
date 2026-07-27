@@ -65,6 +65,21 @@
       />
     </div>
 
+    <div v-else-if="tab === 'provider-year-update'" class="full-panel" data-tour="provider-year-update-tab">
+      <ProviderYearUpdateAdminPanel
+        v-if="agencyId"
+        :agency-id="agencyId"
+        :organization-slug="organizationSlug"
+      />
+    </div>
+
+    <div v-else-if="tab === 'school-year-update'" class="full-panel" data-tour="school-year-update-tab">
+      <SchoolReinitAdminPanel
+        v-if="agencyId"
+        :agency-id="agencyId"
+      />
+    </div>
+
     <div v-else-if="loading && !schools.length && !providers.length" class="loading">Loading coverage…</div>
 
     <!-- By School -->
@@ -937,13 +952,15 @@ import api from '../../../services/api';
 import SchoolEventStaffingPanel from '../../../components/caseload-hub/SchoolEventStaffingPanel.vue';
 import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
 import AvailabilityIntakeManagement from '../../../components/admin/AvailabilityIntakeManagement.vue';
+import ProviderYearUpdateAdminPanel from '../../../components/admin/ProviderYearUpdateAdminPanel.vue';
+import SchoolReinitAdminPanel from '../../../components/admin/SchoolReinitAdminPanel.vue';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
-const tabs = [
+const baseTabs = [
   { id: 'by-school', label: 'By School' },
   { id: 'by-person', label: 'By Person' },
   { id: 'events', label: 'Events' },
@@ -952,10 +969,28 @@ const tabs = [
   { id: 'open-spots', label: 'Open School Spots' }
 ];
 
+const pyuCampaignEnabled = ref(false);
+const schoolReinitCampaignEnabled = ref(false);
+
+const tabs = computed(() => {
+  const list = [...baseTabs];
+  if (pyuCampaignEnabled.value) {
+    list.push({ id: 'provider-year-update', label: 'Provider Year Update' });
+  }
+  if (schoolReinitCampaignEnabled.value) {
+    list.push({ id: 'school-year-update', label: 'School Year Update' });
+  }
+  return list;
+});
+
 const tab = ref('by-school');
 const loading = ref(false);
 const error = ref('');
 const agencyId = ref(null);
+const organizationSlug = computed(() => {
+  const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
+  return slug || agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || 'itsco';
+});
 const role = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSuperAdmin = computed(() => role.value === 'super_admin');
 const agencies = computed(() =>
@@ -1801,6 +1836,25 @@ function onVisibilityChange() {
   }
 }
 
+async function loadYearUpdateCampaignFlags() {
+  if (!agencyId.value) {
+    pyuCampaignEnabled.value = false;
+    schoolReinitCampaignEnabled.value = false;
+    return;
+  }
+  const [pyu, reinit] = await Promise.all([
+    api.get('/provider-year-update/campaign', { params: { agencyId: agencyId.value } }).catch(() => null),
+    api.get('/school-reinit/campaign', { params: { agencyId: agencyId.value } }).catch(() => null),
+  ]);
+  pyuCampaignEnabled.value = Boolean(pyu?.data?.isEnabled && !pyu?.data?.isDisabled);
+  const reinitCamp = reinit?.data?.campaign || reinit?.data || null;
+  schoolReinitCampaignEnabled.value = Boolean(reinitCamp?.isEnabled && !reinitCamp?.isDisabled);
+  const tabIds = new Set(tabs.value.map((t) => t.id));
+  if (!tabIds.has(tab.value)) {
+    setTab('by-school');
+  }
+}
+
 async function reload() {
   if (!agencyId.value) return;
   loading.value = true;
@@ -1826,6 +1880,7 @@ async function reload() {
     openDaysSummary.value = open.summary || { total: 0, highUrgency: 0, schoolsAffected: 0 };
     suggestions.value = sug.suggestions || [];
     hubEvents.value = evts.events || [];
+    await loadYearUpdateCampaignFlags().catch(() => {});
     loadCoverage().catch(() => {});
 
     if (selectedSchoolId.value) await selectSchool(selectedSchoolId.value);

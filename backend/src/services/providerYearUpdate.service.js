@@ -7,7 +7,39 @@ import pool from '../config/database.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { listSchoolEventsForOrg } from './schoolPortalEvents.service.js';
 
-export const SECTION_KEYS = ['reminders', 'school_events', 'materials', 'provider_schedule'];
+export const SECTION_KEYS = [
+  'reminders',
+  'school_events',
+  'materials',
+  'provider_schedule',
+  'clients',
+];
+
+export const SCHOOL_CART_DISCLAIMER =
+  'This cart is a rolling cart filled with basic supplies to help with school therapy sessions. It includes craft supplies, games, a timer, and other basic supplies to help with your session. The clinician is responsible for the cart and its contents, and will be required to return the cart at the end of the school year. If the cart is damaged, lost or stolen, the clinician is required to let Kaitlyn O’Connell and Megan CG know.';
+
+export function defaultMaterialsData(provider = null) {
+  const first = provider?.firstName || provider?.first_name || '';
+  const last = provider?.lastName || provider?.last_name || '';
+  const full = [first, last].filter(Boolean).join(' ').trim();
+  return {
+    school_cart: null, // 'need' | 'do_not_need'
+    need_school_cart: false, // legacy mirror
+    materials_notes: '',
+    itsco_name_tag: false,
+    itsco_name_tag_name: full,
+    itsco_name_tag_title: '',
+    office_nametag: false,
+    office_nametag_name: full,
+    itsco_lanyard: false,
+    business_cards: false,
+    itsco_polo: false,
+    polo_sex: '',
+    polo_size: '',
+    polo_size_secondary: '',
+    itsco_canvas_bag: false,
+  };
+}
 
 export const DEFAULT_REMINDER_ITEMS = [
   {
@@ -83,6 +115,11 @@ export function campaignIsPushed(campaign) {
   return String(campaign?.status || '') === 'pushed';
 }
 
+export function campaignIsDisabled(campaign) {
+  return String(campaign?.status || '') === 'disabled';
+}
+
+/** Enabled for admin link/push work — not draft and not disabled. */
 export function campaignIsEnabled(campaign) {
   const s = String(campaign?.status || '');
   return s === 'enabled' || s === 'pushed';
@@ -90,8 +127,11 @@ export function campaignIsEnabled(campaign) {
 
 /** Provider sees Year Update on My Dashboard when campaign is bulk-pushed or this cycle was pushed. */
 export function cycleIsPushed(cycle, campaign = null) {
+  if (campaignIsDisabled(campaign)) return false;
+  if (String(cycle?.status || '') === 'finalized') return false;
+  if (cycle?.pushed_at) return true;
   if (campaignIsPushed(campaign)) return true;
-  return Boolean(cycle?.pushed_at);
+  return false;
 }
 
 export async function markCyclePushed(cycleId, userId) {
@@ -139,11 +179,95 @@ export async function enableCampaign({ agencyId, schoolYear, userId }) {
   if (campaign.status === 'enabled') return { campaign, alreadyEnabled: true };
   await pool.execute(
     `UPDATE provider_year_update_campaigns
-     SET status = 'enabled', enabled_at = NOW(), enabled_by_user_id = ?
+     SET status = 'enabled',
+         enabled_at = NOW(),
+         enabled_by_user_id = ?,
+         disabled_at = NULL,
+         disabled_by_user_id = NULL
      WHERE id = ?`,
     [userId || null, campaign.id]
   );
   return { campaign: await getCampaign(agencyId, year), alreadyEnabled: false };
+}
+
+/** Disable Year Update for the school year — hides dashboard entry and blocks public links. */
+export async function disableCampaign({ agencyId, schoolYear, userId }) {
+  const year = schoolYear || currentSchoolYear();
+  const campaign = await getOrCreateCampaign(agencyId, year);
+  if (campaign.status === 'disabled') {
+    return { campaign, alreadyDisabled: true };
+  }
+  if (campaign.status === 'draft') {
+    const err = new Error('Campaign is not enabled yet.');
+    err.status = 400;
+    throw err;
+  }
+  await pool.execute(
+    `UPDATE provider_year_update_campaigns
+     SET status = 'disabled',
+         disabled_at = NOW(),
+         disabled_by_user_id = ?
+     WHERE id = ?`,
+    [userId || null, campaign.id]
+  );
+  return { campaign: await getCampaign(agencyId, year), alreadyDisabled: false };
+}
+
+/**
+ * Admin mark complete: finalize cycle (bypass section checks) and clear push so
+ * My Dashboard / splash no longer show for this provider.
+ */
+export async function adminMarkComplete({ agencyId, providerUserId, schoolYear, userId }) {
+  const year = schoolYear || currentSchoolYear();
+  const cycle = await getOrCreateCycle({ agencyId, providerUserId, schoolYear: year });
+  const payload = await buildDashboardPayload(cycle);
+  const snapshot = {
+    schoolYear: year,
+    finalizedAt: new Date().toISOString(),
+    adminCompleted: true,
+    provider: payload.provider,
+    sections: payload.sections,
+    materials: payload.materials,
+    schedule: payload.schedule,
+  };
+  await pool.execute(
+    `UPDATE provider_year_update_cycles
+     SET status = 'finalized',
+         finalized_at = COALESCE(finalized_at, NOW()),
+         snapshot_json = ?,
+         admin_completed_at = NOW(),
+         admin_completed_by_user_id = ?,
+         pushed_at = NULL,
+         pushed_by_user_id = NULL
+     WHERE id = ?`,
+    [JSON.stringify(snapshot), userId || null, cycle.id]
+  );
+  await lockTokensForCycle(cycle.id);
+  return getCycleById(cycle.id);
+}
+
+/** Clear push visibility without finalizing (rarely used). */
+export async function unpushProvider({ agencyId, providerUserId, schoolYear }) {
+  const year = schoolYear || currentSchoolYear();
+  const [rows] = await pool.execute(
+    `SELECT * FROM provider_year_update_cycles
+     WHERE agency_id = ? AND provider_user_id = ? AND ${yearEq()}
+     LIMIT 1`,
+    [agencyId, providerUserId, year]
+  );
+  const cycle = rows?.[0];
+  if (!cycle) {
+    const err = new Error('Provider cycle not found');
+    err.status = 404;
+    throw err;
+  }
+  await pool.execute(
+    `UPDATE provider_year_update_cycles
+     SET pushed_at = NULL, pushed_by_user_id = NULL
+     WHERE id = ?`,
+    [cycle.id]
+  );
+  return getCycleById(cycle.id);
 }
 
 /** Providers with active school assignments tied to affiliated school orgs of this agency. */
@@ -263,14 +387,130 @@ export async function loadProviderSchoolEvents(providerUserId, agencyId) {
       events = [];
     }
     const list = Array.isArray(events) ? events : events?.events || [];
+    const bts = list.filter((e) => {
+      const cat = String(e.category || e.event_category || '').toLowerCase();
+      return cat === 'back_to_school' || /back[\s-]?to[\s-]?school/i.test(String(e.title || ''));
+    });
     out.push({
       schoolOrganizationId: school.schoolOrganizationId,
       schoolName: school.schoolName,
       schoolSlug: school.schoolSlug,
       events: list,
+      backToSchoolEvents: bts,
+      hasBackToSchool: bts.length > 0,
     });
   }
   return out;
+}
+
+/** Assigned school clients with no current service day (read-only for Year Update). */
+export async function loadProviderClientsWithoutDay(providerUserId, agencyId) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT c.id AS client_id,
+              c.client_code,
+              c.first_name,
+              c.last_name,
+              c.preferred_name,
+              c.grade,
+              c.status AS client_status,
+              sch.id AS school_organization_id,
+              sch.name AS school_name,
+              cpa.service_day
+       FROM client_provider_assignments cpa
+       JOIN clients c ON c.id = cpa.client_id
+       JOIN agencies sch ON sch.id = cpa.organization_id
+       JOIN organization_affiliations oa
+         ON oa.organization_id = cpa.organization_id
+        AND oa.agency_id = ?
+        AND (oa.is_active = 1 OR oa.is_active IS NULL)
+       WHERE cpa.provider_user_id = ?
+         AND (cpa.is_active = 1 OR cpa.is_active IS NULL)
+         AND (cpa.service_day IS NULL OR TRIM(cpa.service_day) = '')
+         AND LOWER(COALESCE(c.status, '')) NOT IN ('terminated', 'archived', 'inactive')
+       ORDER BY sch.name ASC, c.last_name ASC, c.first_name ASC`,
+      [agencyId, providerUserId]
+    );
+    const bySchool = new Map();
+    for (const r of rows || []) {
+      const sid = Number(r.school_organization_id);
+      if (!bySchool.has(sid)) {
+        bySchool.set(sid, {
+          schoolOrganizationId: sid,
+          schoolName: r.school_name,
+          clients: [],
+        });
+      }
+      const first = String(r.first_name || '').trim();
+      const last = String(r.last_name || '').trim();
+      const initials =
+        ((first[0] || '') + (last[0] || '')).toUpperCase() ||
+        String(r.client_code || '').slice(0, 6);
+      bySchool.get(sid).clients.push({
+        clientId: r.client_id,
+        initials,
+        grade: r.grade || null,
+        status: r.client_status || null,
+        clientCode: r.client_code || null,
+      });
+    }
+    return Array.from(bySchool.values());
+  } catch {
+    return [];
+  }
+}
+
+async function loadPoloInventoryHint(agencyId) {
+  try {
+    const [types] = await pool.execute(
+      `SELECT id, name, is_gendered, size_options_json
+       FROM gear_item_types
+       WHERE agency_id = ? AND is_active = 1
+         AND (LOWER(name) LIKE '%polo%' OR LOWER(COALESCE(category,'')) LIKE '%polo%')
+       ORDER BY id ASC
+       LIMIT 3`,
+      [agencyId]
+    );
+    if (!types?.length) {
+      return { available: false, message: 'Coming soon', sizes: [], stockBySize: {} };
+    }
+    const type = types[0];
+    let sizes = [];
+    try {
+      const parsed = typeof type.size_options_json === 'string'
+        ? JSON.parse(type.size_options_json)
+        : type.size_options_json;
+      if (Array.isArray(parsed)) sizes = parsed.map(String);
+      else if (parsed && typeof parsed === 'object') {
+        sizes = [...new Set([...(parsed.M || []), ...(parsed.F || []), ...(parsed.male || []), ...(parsed.female || [])].map(String))];
+      }
+    } catch {
+      sizes = [];
+    }
+    const [stockRows] = await pool.execute(
+      `SELECT size_label, quantity_on_hand
+       FROM gear_stock_levels
+       WHERE gear_item_type_id = ?`,
+      [type.id]
+    ).catch(() => [[]]);
+    const stockBySize = {};
+    for (const s of stockRows || []) {
+      const key = String(s.size_label || '');
+      if (key) stockBySize[key] = Number(s.quantity_on_hand || 0);
+    }
+    const hasStock = Object.values(stockBySize).some((n) => n > 0);
+    return {
+      available: hasStock || sizes.length > 0,
+      message: hasStock ? 'Current inventory shown below' : 'Coming soon — choose preferred cut and sizes',
+      typeId: type.id,
+      typeName: type.name,
+      isGendered: Boolean(type.is_gendered),
+      sizes: sizes.length ? sizes : ['XS', 'S', 'M', 'L', 'XL', '2XL'],
+      stockBySize,
+    };
+  } catch {
+    return { available: false, message: 'Coming soon', sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'], stockBySize: {} };
+  }
 }
 
 export async function getOrCreateCycle({ agencyId, providerUserId, schoolYear }) {
@@ -346,6 +586,11 @@ export async function ensureShareableToken({ agencyId, providerUserId, schoolYea
 export async function pushCampaign({ agencyId, schoolYear, userId }) {
   const year = schoolYear || currentSchoolYear();
   let campaign = await getCampaign(agencyId, year);
+  if (campaignIsDisabled(campaign)) {
+    const err = new Error('Re-enable Provider Year Update before pushing to providers.');
+    err.status = 400;
+    throw err;
+  }
   if (!campaign || campaign.status === 'draft') {
     const enabled = await enableCampaign({ agencyId, schoolYear: year, userId });
     campaign = enabled.campaign;
@@ -394,6 +639,11 @@ export async function pushCampaign({ agencyId, schoolYear, userId }) {
 export async function pushProvider({ agencyId, providerUserId, schoolYear, userId }) {
   const year = schoolYear || currentSchoolYear();
   const campaign = await getCampaign(agencyId, year);
+  if (campaignIsDisabled(campaign)) {
+    const err = new Error('Provider Year Update is disabled for this school year.');
+    err.status = 400;
+    throw err;
+  }
   if (!campaignIsEnabled(campaign)) {
     const err = new Error('Enable Provider Year Update first before pushing to a provider.');
     err.status = 400;
@@ -629,6 +879,11 @@ export async function buildDashboardPayload(cycle) {
   const sections = await getSectionProgress(cycle.id);
   const schedule = await loadProviderSchoolSchedule(cycle.provider_user_id, cycle.agency_id);
   const eventsBySchool = await loadProviderSchoolEvents(cycle.provider_user_id, cycle.agency_id);
+  const clientsWithoutDay = await loadProviderClientsWithoutDay(
+    cycle.provider_user_id,
+    cycle.agency_id
+  );
+  const poloInventory = await loadPoloInventoryHint(cycle.agency_id);
   const [agencyRows] = await pool.execute(
     `SELECT a.id, a.name, a.logo_url, a.logo_path, a.color_palette, a.slug, a.portal_url,
             i.file_path AS icon_file_path
@@ -681,12 +936,15 @@ export async function buildDashboardPayload(cycle) {
     sectionKeys: SECTION_KEYS,
     reminderDefaults: DEFAULT_REMINDER_ITEMS,
     reminders: byKey.reminders?.data || defaultRemindersData(),
-    materials: byKey.materials?.data || {
-      need_school_cart: false,
-      materials_notes: '',
+    materials: {
+      ...defaultMaterialsData(provider),
+      ...(byKey.materials?.data || {}),
     },
+    schoolCartDisclaimer: SCHOOL_CART_DISCLAIMER,
+    poloInventory,
     schedule,
     eventsBySchool,
+    clientsWithoutDay,
     kioskPath: '/itsco/school-events/kiosk',
   };
 }
@@ -732,7 +990,9 @@ export async function finalizeCycle({ cycleId, actor }) {
          finalized_by_actor_type = ?,
          finalized_by_user_id = ?,
          finalized_by_display_name = ?,
-         snapshot_json = ?
+         snapshot_json = ?,
+         pushed_at = NULL,
+         pushed_by_user_id = NULL
      WHERE id = ?`,
     [
       actor?.actorType || null,
@@ -794,7 +1054,15 @@ export async function listAgencyReport(agencyId, schoolYear) {
         [cycle.id]
       );
       tokens = tokRows || [];
-      clickCount = tokens.reduce((n, t) => n + Number(t.click_count || 0), 0);
+      const tokenClicks = tokens.reduce((n, t) => n + Number(t.click_count || 0), 0);
+      const [viewRows] = await pool.execute(
+        `SELECT COUNT(*) AS cnt FROM provider_year_update_view_events
+         WHERE cycle_id = ? AND event_type IN ('view', 'dashboard_view', 'token_click')`,
+        [cycle.id]
+      );
+      const viewEvents = Number(viewRows?.[0]?.cnt || 0);
+      // Prefer max so token_click rows do not double-count with click_count.
+      clickCount = Math.max(tokenClicks, viewEvents);
       for (const s of sections) {
         if (s.data) sectionData[s.sectionKey] = s.data;
       }
@@ -856,8 +1124,19 @@ export async function listAgencyReport(agencyId, schoolYear) {
       tokenClickCount: clickCount,
       tokens,
       lastActivityAt,
-      needSchoolCart: Boolean(materials.need_school_cart || materials.needSchoolCart),
+      needSchoolCart:
+        materials.school_cart === 'need' ||
+        Boolean(materials.need_school_cart || materials.needSchoolCart),
+      schoolCart: materials.school_cart || null,
       materialsNotes: materials.materials_notes || materials.materialsNotes || null,
+      materialsRequests: {
+        itscoNameTag: Boolean(materials.itsco_name_tag),
+        officeNametag: Boolean(materials.office_nametag),
+        itscoLanyard: Boolean(materials.itsco_lanyard),
+        businessCards: Boolean(materials.business_cards),
+        itscoPolo: Boolean(materials.itsco_polo),
+        itscoCanvasBag: Boolean(materials.itsco_canvas_bag),
+      },
       remindersDone,
       remindersTotal: reminderItems.length || DEFAULT_REMINDER_ITEMS.length,
       markedSent: tokens.some((t) => t.marked_sent_at),
@@ -867,8 +1146,9 @@ export async function listAgencyReport(agencyId, schoolYear) {
 
   const campaign = await getOrCreateCampaign(agencyId, year);
   for (const row of out) {
-    row.isPushed = cycleIsPushed({ pushed_at: row.pushedAt }, campaign);
-    if (campaignIsPushed(campaign) && !row.pushedAt) {
+    row.isPushed = cycleIsPushed({ pushed_at: row.pushedAt, status: row.status }, campaign);
+    row.adminCompletedAt = null;
+    if (campaignIsPushed(campaign) && !row.pushedAt && row.status !== 'finalized') {
       row.pushedAt = campaign.pushed_at || null;
     }
   }
@@ -888,8 +1168,10 @@ export async function listAgencyReport(agencyId, schoolYear) {
       status: campaign.status,
       enabledAt: campaign.enabled_at,
       pushedAt: campaign.pushed_at,
+      disabledAt: campaign.disabled_at || null,
       isEnabled: campaignIsEnabled(campaign),
       isPushed: campaignIsPushed(campaign),
+      isDisabled: campaignIsDisabled(campaign),
     },
   };
 }
@@ -900,6 +1182,25 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
   const campaign = await getCampaign(agencyId, year);
   const schools = await loadProviderSchoolSchedule(providerUserId, agencyId);
 
+  const campaignPayload = campaign
+    ? {
+        status: campaign.status,
+        isEnabled: campaignIsEnabled(campaign),
+        isPushed: campaignIsPushed(campaign),
+        isDisabled: campaignIsDisabled(campaign),
+        pushedAt: campaign.pushed_at || null,
+        disabledAt: campaign.disabled_at || null,
+      }
+    : null;
+
+  if (campaignIsDisabled(campaign)) {
+    return {
+      available: false,
+      reason: 'campaign_disabled',
+      campaign: campaignPayload,
+    };
+  }
+
   const [cycleRows] = await pool.execute(
     `SELECT * FROM provider_year_update_cycles
      WHERE agency_id = ? AND provider_user_id = ? AND ${yearEq()}
@@ -907,19 +1208,30 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
     [agencyId, providerUserId, year]
   );
   let cycle = cycleRows?.[0] || null;
+
+  if (cycle?.status === 'finalized') {
+    return {
+      available: false,
+      reason: 'completed',
+      campaign: campaignPayload,
+      cycle: {
+        id: cycle.id,
+        status: cycle.status,
+        schoolYear: cycle.school_year,
+        finalizedAt: cycle.finalized_at || null,
+        pushedAt: cycle.pushed_at || null,
+        adminCompletedAt: cycle.admin_completed_at || null,
+      },
+    };
+  }
+
   const providerPushed = cycleIsPushed(cycle, campaign);
 
   if (!providerPushed) {
     return {
       available: false,
       reason: 'not_pushed',
-      campaign: campaign
-        ? {
-            status: campaign.status,
-            isEnabled: campaignIsEnabled(campaign),
-            isPushed: false,
-          }
-        : null,
+      campaign: campaignPayload,
     };
   }
 
@@ -927,12 +1239,7 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
     return {
       available: false,
       reason: 'no_school_assignments',
-      campaign: {
-        status: campaign?.status || 'pushed',
-        isEnabled: true,
-        isPushed: true,
-        pushedAt: campaign?.pushed_at || cycle?.pushed_at || null,
-      },
+      campaign: campaignPayload,
     };
   }
 
@@ -955,12 +1262,20 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
 
   const sections = await getSectionProgress(cycle.id);
   const reviewedCount = sections.filter((s) => s.reviewed || s.completed).length;
+  const allSectionsDone =
+    sections.length >= SECTION_KEYS.length &&
+    SECTION_KEYS.every((key) => {
+      const s = sections.find((x) => x.sectionKey === key);
+      return Boolean(s?.reviewed || s?.completed);
+    });
 
   return {
     available: true,
-    showPulse: cycle.status !== 'finalized' && !dismissed,
+    showPulse: !allSectionsDone && !dismissed,
     dismissed: Boolean(dismissed),
+    allSectionsDone,
     campaign: {
+      ...campaignPayload,
       status: campaign?.status || 'enabled',
       isEnabled: true,
       isPushed: true,

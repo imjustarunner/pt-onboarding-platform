@@ -251,6 +251,7 @@ class Client {
       paperwork_status_id,
       insurance_type_id,
       skills,
+      client_type,
       includeSensitive = true
     } = options;
 
@@ -358,6 +359,13 @@ class Client {
       query += ' AND c.skills = ?';
       values.push(skills ? 1 : 0);
     }
+    const clientTypes = client_type
+      ? (Array.isArray(client_type) ? client_type : String(client_type).split(',')).map((t) => String(t).trim()).filter(Boolean)
+      : [];
+    if (clientTypes.length) {
+      query += ` AND c.client_type IN (${clientTypes.map(() => '?').join(',')})`;
+      values.push(...clientTypes);
+    }
 
     query += ' ORDER BY c.submission_date DESC, c.created_at DESC';
 
@@ -431,6 +439,10 @@ class Client {
       if (insurance_type_id) {
         legacyQuery += ' AND c.insurance_type_id = ?';
         legacyValues.push(insurance_type_id);
+      }
+      if (clientTypes.length) {
+        legacyQuery += ` AND c.client_type IN (${clientTypes.map(() => '?').join(',')})`;
+        legacyValues.push(...clientTypes);
       }
       legacyQuery += ' ORDER BY c.submission_date DESC, c.created_at DESC';
 

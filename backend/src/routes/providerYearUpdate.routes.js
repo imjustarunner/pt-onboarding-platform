@@ -7,10 +7,12 @@ const router = express.Router();
 router.get('/report', authenticate, ctrl.getReport);
 router.get('/campaign', authenticate, ctrl.getCampaignStatus);
 router.post('/campaign/enable', authenticate, ctrl.enableCampaign);
+router.post('/campaign/disable', authenticate, ctrl.disableCampaign);
 router.post('/campaign/push', authenticate, ctrl.pushCampaign);
 router.post('/tokens', authenticate, ctrl.generateToken);
 router.patch('/tokens/:tokenId/mark-sent', authenticate, ctrl.markTokenSent);
 router.post('/providers/:providerUserId/push', authenticate, ctrl.pushProvider);
+router.post('/providers/:providerUserId/mark-complete', authenticate, ctrl.adminMarkComplete);
 router.get('/providers/:providerUserId', authenticate, ctrl.getProviderBundle);
 
 router.get('/me', authenticate, ctrl.getMyCycle);

@@ -259,6 +259,7 @@
               'rail-card-submit': card.id === 'submit',
               'rail-card-pending-alert': card.id === 'clients' && providerPendingClientsCount > 0,
               'rail-card--pyu-pulse': card.id === 'provider_year_update' && card.pulse,
+              'rail-card--pyu-highlight': card.id === 'provider_year_update',
               'rail-card--nest': card.kind === 'nest',
               'rail-card--nested': !!card.nestedUnder
             }"
@@ -3326,6 +3327,20 @@ const portalsNestHubChildren = computed(() => {
   const children = [];
 
   if (!isLimitedAccessNonProvider) {
+    const pyu = providerYearUpdateStatus.value;
+    if (pyu?.available) {
+      children.push({
+        id: 'provider_year_update',
+        label: 'Provider Year Update',
+        kind: 'link',
+        to: '/provider/year-update',
+        badgeCount: pyu.showPulse ? 1 : 0,
+        pulse: Boolean(pyu.showPulse),
+        iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', iconOrg),
+        description: 'Fall reminders, school events, materials, and schedule review.',
+        highlight: true,
+      });
+    }
     if (isSkillBuilderEligible.value) {
       children.push({
         id: 'skill_builders_provider_hub',
@@ -3347,19 +3362,6 @@ const portalsNestHubChildren = computed(() => {
         badgeCount: 0,
         iconUrl: brandingStore.getAdminQuickActionIconUrl('program_overview', iconOrg),
         description: 'Programs you are assigned to — open one to access event portals.'
-      });
-    }
-    const pyu = providerYearUpdateStatus.value;
-    if (pyu?.available) {
-      children.push({
-        id: 'provider_year_update',
-        label: 'Provider Year Update',
-        kind: 'link',
-        to: '/provider/year-update',
-        badgeCount: pyu.showPulse ? 1 : 0,
-        pulse: Boolean(pyu.showPulse),
-        iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', iconOrg),
-        description: 'Fall reminders, school events, materials, and schedule review.'
       });
     }
   }
@@ -6051,9 +6053,18 @@ h1 {
 .rail-card-badge-pulse {
   animation: rail-card-badge-pulse 1.05s ease-in-out infinite;
 }
+.rail-card--pyu-highlight {
+  border-color: #c2410c;
+  background: linear-gradient(135deg, #fff7ed 0%, #ffffff 55%);
+  box-shadow: 0 0 0 1px rgba(194, 65, 12, 0.22), 0 6px 18px rgba(194, 65, 12, 0.12);
+}
+.rail-card--pyu-highlight .rail-card-title {
+  color: #9a3412;
+  font-weight: 800;
+}
 .rail-card--pyu-pulse {
   animation: rail-card-pulse 0.9s ease-in-out 5;
-  border-color: color-mix(in srgb, #c2410c 45%, var(--border, #e2e8f0));
+  border-color: #c2410c;
 }
 
 @keyframes rail-card-badge-pulse {
