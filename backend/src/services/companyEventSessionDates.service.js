@@ -141,7 +141,13 @@ function desiredOccurrencesFromEventRow(eventRow) {
   if (!startYmd) return [];
 
   const eventEndYmd = utcDateToZonedYmd(endsAt, timezone);
-  let lastYmd = recurrence.untilDate || eventEndYmd || startYmd;
+  // Prefer the later of recurrence.untilDate and the event ends_at calendar day.
+  // When admins extend the event window without updating untilDate, a stale untilDate
+  // would otherwise keep the kiosk in "preview mode" (no check-in) on the new days.
+  let lastYmd = eventEndYmd || recurrence.untilDate || startYmd;
+  if (recurrence.untilDate && parseYmd(recurrence.untilDate)) {
+    if (!lastYmd || recurrence.untilDate > lastYmd) lastYmd = recurrence.untilDate;
+  }
   if (!parseYmd(lastYmd)) lastYmd = startYmd;
   if (lastYmd < startYmd) lastYmd = startYmd;
 
