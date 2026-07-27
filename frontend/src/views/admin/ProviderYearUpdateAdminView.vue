@@ -1,11 +1,11 @@
 <template>
-  <div class="container pyu-admin-page">
+  <div class="pyu-admin-page">
     <header class="pyu-admin-page__head">
       <router-link class="muted back" :to="hubTo">← School Portals</router-link>
       <h1>Provider Year Update</h1>
     </header>
     <p v-if="!ready" class="muted">Loading agency context…</p>
-    <ProviderYearUpdateAdminPanel v-else-if="agencyId" :agency-id="agencyId" />
+    <ProviderYearUpdateAdminPanel v-else-if="agencyId" :agency-id="agencyId" :organization-slug="organizationSlug" />
     <p v-else class="muted">Select an agency context to manage Provider Year Update.</p>
   </div>
 </template>
@@ -19,6 +19,11 @@ import ProviderYearUpdateAdminPanel from '../../components/admin/ProviderYearUpd
 const route = useRoute();
 const agencyStore = useAgencyStore();
 const ready = ref(false);
+
+const organizationSlug = computed(() => {
+  const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
+  return slug || '';
+});
 
 const agencyId = computed(() => {
   const fromQuery = Number(route.query.agencyId || 0);
@@ -44,16 +49,18 @@ onMounted(async () => {
 });
 
 const hubTo = computed(() => {
-  const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
+  const slug = organizationSlug.value;
   return slug ? `/${slug}/admin/school-portals-hub` : '/admin/school-portals-hub';
 });
 </script>
 
 <style scoped>
 .pyu-admin-page {
-  padding-top: 1rem;
-  padding-bottom: 2.5rem;
-  max-width: 1200px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0.5rem clamp(12px, 1.5vw, 28px) 2.5rem;
+  box-sizing: border-box;
 }
 .pyu-admin-page__head h1 {
   margin: 4px 0 16px;

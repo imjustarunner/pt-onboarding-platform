@@ -40,10 +40,12 @@ export function currentSchoolYear(d = new Date()) {
   return `${y - 1}-${String(y).slice(-2)}`;
 }
 
-export function publicProviderYearUpdateUrl(token) {
+export function publicProviderYearUpdateUrl(token, orgSlug = '') {
   if (!token) return '';
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  return `${origin}/provider-year-update/${token}`;
+  const slug = String(orgSlug || '').trim().replace(/^\/+|\/+$/g, '');
+  const path = slug ? `/${slug}/provider-year-update/${token}` : `/provider-year-update/${token}`;
+  return `${origin}${path}`;
 }
 
 export async function copyTextToClipboard(text) {

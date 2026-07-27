@@ -23,7 +23,7 @@
             Pushed {{ formatDt(campaign.pushedAt) }} — providers see Year Update on My Dashboard (dismissible) and shareable links work.
           </template>
           <template v-else-if="campaign.isEnabled">
-            Enabled — Push to Providers when ready to create cycles and links.
+            Enabled — use <strong>Get link</strong> / <strong>Copy link</strong> to text providers, or Push to Providers to show Year Update on My Dashboard.
           </template>
           <template v-else>Not started — Enable Provider Year Update for {{ schoolYear }}.</template>
         </span>
@@ -110,7 +110,7 @@
                 v-for="row in filteredRows"
                 :key="row.providerUserId"
                 :class="{ selected: selectedRow?.providerUserId === row.providerUserId }"
-                @click="selectedRow = row"
+                @click="selectRow(row)"
               >
                 <td>
                   <strong>{{ row.providerName }}</strong>
@@ -131,13 +131,18 @@
                 <td>{{ row.tokenClickCount || 0 }}</td>
                 <td class="muted small">{{ formatDt(row.lastActivityAt) || '—' }}</td>
                 <td @click.stop>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="!row.tokens?.length" @click="copyLink(row)">
-                    Copy
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!campaign.isEnabled || linkBusy"
+                    @click="copyLink(row)"
+                  >
+                    {{ linkFor(row) ? 'Copy' : 'Get link' }}
                   </button>
                   <button
                     type="button"
                     class="btn btn-secondary btn-sm"
-                    :disabled="!primaryToken(row)"
+                    :disabled="!primaryToken(row) || linkBusy"
                     @click="toggleMarkSent(row)"
                   >
                     {{ row.markedSent ? 'Sent ✓' : 'Mark sent' }}
@@ -176,9 +181,16 @@
         </div>
         <div class="detail-block">
           <strong>Share link</strong>
-          <p class="link-box">{{ linkFor(selectedRow) || 'Enable & push to create a link' }}</p>
-          <button type="button" class="btn btn-primary btn-sm" :disabled="!linkFor(selectedRow)" @click="copyLink(selectedRow)">
-            Copy link
+          <p class="link-box">
+            {{ linkFor(selectedRow) || (campaign.isEnabled ? 'Click “Copy link” to generate a shareable URL.' : 'Enable Provider Year Update to create links.') }}
+          </p>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="!campaign.isEnabled || linkBusy"
+            @click="copyLink(selectedRow)"
+          >
+            {{ linkBusy ? 'Working…' : (linkFor(selectedRow) ? 'Copy link' : 'Generate link') }}
           </button>
         </div>
       </aside>
@@ -199,11 +211,13 @@ import {
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
   schoolYear: { type: String, default: '' },
+  organizationSlug: { type: String, default: '' },
 });
 
 const schoolYear = computed(() => props.schoolYear || currentSchoolYear());
 const loading = ref(false);
 const campaignBusy = ref(false);
+const linkBusy = ref(false);
 const error = ref('');
 const pushFlash = ref('');
 const rows = ref([]);
@@ -272,17 +286,49 @@ function primaryToken(row) {
 
 function linkFor(row) {
   const t = primaryToken(row);
-  return t?.token ? publicProviderYearUpdateUrl(t.token) : '';
+  return t?.token ? publicProviderYearUpdateUrl(t.token, props.organizationSlug) : '';
+}
+
+async function ensureLink(row) {
+  if (!row || linkFor(row)) return linkFor(row);
+  if (!campaign.value.isEnabled) return '';
+  linkBusy.value = true;
+  error.value = '';
+  try {
+    await api.post('/provider-year-update/tokens', {
+      agencyId: Number(props.agencyId),
+      providerUserId: Number(row.providerUserId),
+      schoolYear: schoolYear.value,
+    });
+    await load();
+    const refreshed = rows.value.find((r) => r.providerUserId === row.providerUserId) || row;
+    if (selectedRow.value?.providerUserId === row.providerUserId) selectedRow.value = refreshed;
+    return linkFor(refreshed);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e.message || 'Failed to generate link';
+    return '';
+  } finally {
+    linkBusy.value = false;
+  }
 }
 
 async function copyLink(row) {
-  const url = linkFor(row);
+  if (!row) return;
+  let url = linkFor(row);
+  if (!url) url = await ensureLink(row);
   if (!url) return;
   const ok = await copyTextToClipboard(url);
   pushFlash.value = ok ? `Copied link for ${row.providerName}` : 'Could not copy — select the link manually.';
   setTimeout(() => {
     pushFlash.value = '';
   }, 2500);
+}
+
+async function selectRow(row) {
+  selectedRow.value = row;
+  if (campaign.value.isEnabled && !linkFor(row) && !linkBusy.value) {
+    await ensureLink(row);
+  }
 }
 
 async function toggleMarkSent(row) {
@@ -396,7 +442,10 @@ onMounted(load);
 
 <style scoped>
 .pyu-admin {
+  width: 100%;
+  max-width: none;
   padding: 0 0 2rem;
+  box-sizing: border-box;
 }
 .pyu-admin__head {
   display: flex;
@@ -478,7 +527,7 @@ onMounted(load);
   gap: 16px;
 }
 .pyu-admin__workspace.has-detail {
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
 }
 .pyu-admin__filters {
   display: flex;
