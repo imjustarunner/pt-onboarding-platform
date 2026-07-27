@@ -3323,7 +3323,7 @@ async function loadProviderYearUpdateStatus() {
 }
 
 const showProviderYearUpdateSplash = computed(() => {
-  if (isClubContext.value || previewMode.value || providerYearUpdateSplashDismissed.value) return false;
+  if (isClubContext.value || props.previewMode || providerYearUpdateSplashDismissed.value) return false;
   const st = providerYearUpdateStatus.value;
   if (!st?.available || !st.showPulse) return false;
   if (st.dismissed) return false;
@@ -3396,7 +3396,10 @@ const portalsNestHubChildren = computed(() => {
         id: 'provider_year_update',
         label: 'Provider Year Update',
         kind: 'link',
-        to: '/provider/year-update',
+        to: (() => {
+          const slug = String(route.params.organizationSlug || '').trim();
+          return slug ? `/${slug}/provider/year-update` : '/provider/year-update';
+        })(),
         badgeCount: pyu.showPulse ? 1 : 0,
         pulse: Boolean(pyu.showPulse),
         iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', iconOrg),
