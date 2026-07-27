@@ -1036,7 +1036,7 @@
     </div>
 
     <div
-      v-if="!currentSplashAnnouncement && currentRoiReminderSplash && !mandatorySupervisionPrompt"
+      v-if="!currentSplashAnnouncement && currentRoiReminderSplash && !mandatorySupervisionPrompt && !showProviderYearUpdateSplash"
       class="blocking-splash"
       role="dialog"
       aria-modal="true"
@@ -1057,6 +1057,37 @@
           </button>
           <button type="button" class="btn btn-primary" @click="openRoiNotifications(currentRoiReminderSplash)">
             Open notifications
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="showProviderYearUpdateSplash && !currentSplashAnnouncement && !mandatorySupervisionPrompt"
+      class="blocking-splash pyu-login-splash"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Provider Year Update"
+    >
+      <div class="blocking-splash-card pyu-login-splash-card">
+        <div class="blocking-splash-head">
+          <BrandingLogo size="medium" class="blocking-splash-logo" />
+          <div class="blocking-splash-brand">{{ brandingStore.displayName || currentAgency?.name || 'Organization' }}</div>
+        </div>
+        <h3 class="blocking-splash-title">Provider Year Update</h3>
+        <p class="blocking-splash-message">
+          The school year is quickly approaching. Please complete your Provider Year Update —
+          reminders, school events, materials, schedule, and clients — so we are ready for the year ahead.
+        </p>
+        <p v-if="providerYearUpdateStatus?.sectionPercent != null" class="pyu-splash-progress">
+          {{ providerYearUpdateStatus.sectionPercent }}% complete
+        </p>
+        <div class="blocking-splash-actions">
+          <button type="button" class="btn btn-secondary" @click="dismissProviderYearUpdateSplash">
+            Complete later
+          </button>
+          <button type="button" class="btn btn-primary" @click="openProviderYearUpdateFromSplash">
+            Start Year Update
           </button>
         </div>
       </div>
@@ -3256,10 +3287,11 @@ const portalsNestLabel = computed(() => {
 });
 
 const portalsNestExpanded = ref(false);
-const toolsNestExpanded = ref(true);
+const toolsNestExpanded = ref(false);
 const toolsHubTab = ref('assessments');
 /** Provider Year Update status for portals-nest link + pulse */
 const providerYearUpdateStatus = ref(null);
+const providerYearUpdateSplashDismissed = ref(false);
 
 async function loadProviderYearUpdateStatus() {
   providerYearUpdateStatus.value = null;
@@ -3284,12 +3316,42 @@ async function loadProviderYearUpdateStatus() {
       skipGlobalLoading: true
     });
     providerYearUpdateStatus.value = res.data || null;
-    if (res.data?.showPulse) {
-      portalsNestExpanded.value = true;
-    }
+    // Do NOT auto-expand the portals nest — that crowds the rail. Splash handles the nudge.
   } catch {
     providerYearUpdateStatus.value = null;
   }
+}
+
+const showProviderYearUpdateSplash = computed(() => {
+  if (isClubContext.value || previewMode.value || providerYearUpdateSplashDismissed.value) return false;
+  const st = providerYearUpdateStatus.value;
+  if (!st?.available || !st.showPulse) return false;
+  if (st.dismissed) return false;
+  return true;
+});
+
+async function dismissProviderYearUpdateSplash() {
+  providerYearUpdateSplashDismissed.value = true;
+  try {
+    const agencyId = Number(currentAgencyId.value || 0);
+    if (agencyId) {
+      await api.post(
+        '/provider-year-update/me/dismiss',
+        { agencyId },
+        { skipGlobalLoading: true }
+      );
+    }
+  } catch {
+    /* session dismiss still applied */
+  }
+  await loadProviderYearUpdateStatus();
+}
+
+function openProviderYearUpdateFromSplash() {
+  providerYearUpdateSplashDismissed.value = true;
+  const slug = String(route.params.organizationSlug || '').trim();
+  const path = slug ? `/${slug}/provider/year-update` : '/provider/year-update';
+  router.push(path).catch(() => {});
 }
 
 function isNestExpanded(nestId) {
@@ -3427,7 +3489,11 @@ const portalsNestHubChildren = computed(() => {
 
 const portalsNestCard = computed(() => {
   if (isClubContext.value) return null;
-  const children = [...providerPortalCards.value, ...portalsNestHubChildren.value];
+  const hub = portalsNestHubChildren.value || [];
+  const pyuFirst = hub.filter((c) => c.id === 'provider_year_update');
+  const hubRest = hub.filter((c) => c.id !== 'provider_year_update');
+  // Provider Year Update always tops the nest when present; school/program portals follow.
+  const children = [...pyuFirst, ...providerPortalCards.value, ...hubRest];
   if (!children.length) return null;
   const totalBadgeCount = children.reduce((sum, child) => sum + (Number(child.badgeCount) || 0), 0);
 
@@ -6066,6 +6132,16 @@ h1 {
 .rail-card--pyu-pulse {
   animation: rail-card-pulse 0.9s ease-in-out 5;
   border-color: #c2410c;
+}
+.pyu-login-splash-card {
+  border-top: 4px solid #c2410c;
+  max-width: 480px;
+}
+.pyu-splash-progress {
+  margin: 0 0 8px;
+  font-weight: 800;
+  color: #9a3412;
+  font-size: 0.95rem;
 }
 
 @keyframes rail-card-badge-pulse {
