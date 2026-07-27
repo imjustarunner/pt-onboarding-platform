@@ -6,6 +6,20 @@
       <div v-if="isInLobby" class="join-lobby-banner">
         You’re in the waiting room. The host will admit you shortly.
       </div>
+      <div
+        v-if="showTranscriptionNotice"
+        class="join-transcript-banner"
+        role="status"
+      >
+        <span class="join-transcript-banner__dot" aria-hidden="true" />
+        <p>This meeting is being transcribed. Live speech may be captured and summarized for attendees with workspace access.</p>
+        <button
+          type="button"
+          class="join-transcript-banner__x"
+          aria-label="Dismiss transcription notice"
+          @click="transcriptionNoticeDismissed = true"
+        >×</button>
+      </div>
       <div class="join-toolbar">
         <button type="button" class="btn btn-danger btn-sm" @click="requestLeave">
           {{ isHost ? 'Leave / End meeting' : 'Leave meeting' }}
@@ -84,6 +98,7 @@
                 section="both"
                 :compact="false"
                 :meeting-subtype="meetingSubtype"
+                :live="true"
               />
             </section>
             <section v-if="showAttendanceTab" class="join-stack-section">
@@ -180,6 +195,7 @@ const videoRoomRef = ref(null);
 /** When the participant entered the main room (for chat/polls visibility). */
 const joinedMainAt = ref(null);
 const workspaceBannerVisible = ref(true);
+const transcriptionNoticeDismissed = ref(false);
 const videoConnected = ref(false);
 let admissionPollInterval = null;
 let presencePollInterval = null;
@@ -229,6 +245,13 @@ const {
   enabled: transcriptEnabled,
   displayName: localDisplayName
 });
+
+const showTranscriptionNotice = computed(() => (
+  !transcriptionNoticeDismissed.value
+  && !isInLobby.value
+  && !!token.value
+  && (transcriptCapturing.value || videoConnected.value)
+));
 
 const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase().trim());
 
@@ -667,16 +690,22 @@ onUnmounted(() => {
 <style scoped>
 .join-team-meeting-view {
   min-height: 100vh;
+  min-height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: 16px;
+  padding: 12px 16px 16px;
   background: var(--bg-primary, #0f0f0f);
-  gap: 12px;
+  gap: 10px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 .join-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 .join-completed-chip {
   font-size: 0.8rem;
@@ -687,13 +716,47 @@ onUnmounted(() => {
   border-radius: 999px;
   padding: 4px 10px;
 }
-.join-lobby-banner {
+.join-lobby-banner,
+.join-transcript-banner {
   background: rgba(59, 130, 246, 0.18);
   border: 1px solid rgba(147, 197, 253, 0.45);
   color: #dbeafe;
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 0.92rem;
+  flex-shrink: 0;
+}
+.join-transcript-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(6, 95, 70, 0.28);
+  border-color: rgba(52, 211, 153, 0.45);
+  color: #d1fae5;
+}
+.join-transcript-banner p {
+  margin: 0;
+  flex: 1;
+  line-height: 1.35;
+  font-size: 0.88rem;
+}
+.join-transcript-banner__dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.25);
+  flex-shrink: 0;
+}
+.join-transcript-banner__x {
+  border: 0;
+  background: transparent;
+  color: #a7f3d0;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
 }
 .join-session-layout {
   flex: 1;
@@ -702,16 +765,18 @@ onUnmounted(() => {
   gap: 14px;
   min-height: 0;
   align-items: stretch;
+  overflow: hidden;
 }
 .join-session-layout--chat-only {
   grid-template-columns: 1fr;
 }
 .join-video {
   min-width: 0;
-  min-height: 70vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow: auto;
 }
 .join-live-activity {
   border: 1px solid #e2e8f0;
@@ -721,7 +786,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-height: 280px;
+  min-height: 360px;
+  flex: 0 0 auto;
 }
 .join-live-activity__title {
   margin: 0;
@@ -731,26 +797,31 @@ onUnmounted(() => {
 }
 .join-video :deep(.supervision-video-room) {
   flex: 1 1 auto;
-  min-height: min(64vh, 720px);
+  min-height: min(42vh, 480px);
   display: flex;
   flex-direction: column;
 }
 .join-video :deep(.vsr) {
   flex: 1 1 auto;
-  min-height: min(58vh, 640px);
+  min-height: min(38vh, 420px);
   display: flex;
   flex-direction: column;
 }
 .join-video :deep(.vsr__stage:not(.vsr__stage--strip)) {
   flex: 1 1 0;
-  min-height: min(52vh, 560px) !important;
+  min-height: 0 !important;
   height: auto !important;
 }
 .join-video :deep(.vsr__stage--solo .vsr__tile),
 .join-video :deep(.vsr__stage--duo .vsr__tile),
 .join-video :deep(.vsr__stage--grid .vsr__tile) {
-  min-height: min(40vh, 420px) !important;
+  min-height: 140px !important;
   height: 100% !important;
+}
+.join-video :deep(.vsr__controls) {
+  position: relative;
+  z-index: 30;
+  flex-shrink: 0;
 }
 .join-video :deep(.vsr__tile video),
 .join-video :deep(.vsr__tile .OT_root),

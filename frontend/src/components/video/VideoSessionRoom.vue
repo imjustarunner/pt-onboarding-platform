@@ -158,6 +158,17 @@
         >
           {{ sharingScreen ? 'Stop share' : 'Share screen' }}
         </button>
+        <span
+          v-if="voiceIsolationStatus"
+          class="vsr__voice-iso"
+          :class="{
+            'vsr__voice-iso--on': voiceIsolationStatus === 'on',
+            'vsr__voice-iso--off': voiceIsolationStatus === 'unavailable'
+          }"
+          :title="voiceIsolationTitle"
+        >
+          {{ voiceIsolationLabel }}
+        </span>
         <slot name="extra-controls" />
       </div>
     </template>
@@ -213,6 +224,9 @@ const errorMeta = ref(null);
 const publishAudio = ref(true);
 const publishVideo = ref(true);
 const hideSelfView = ref(false);
+/** on | unavailable | unsupported — reflects what we actually applied to the published mic track */
+const voiceIsolationStatus = ref('');
+let ownedAudioTrack = null;
 /** @type {import('vue').Ref<Array<{ streamId: string, name: string, hasVideo: boolean, profilePhotoUrl: string }>>} */
 const remotes = ref([]);
 const sharingScreen = ref(false);
@@ -222,6 +236,72 @@ const sessionReady = ref(false);
 const remoteMediaEls = new Map();
 
 const hasRemote = computed(() => remotes.value.length > 0);
+
+const voiceIsolationLabel = computed(() => {
+  if (voiceIsolationStatus.value === 'on') return 'Voice isolation on';
+  if (voiceIsolationStatus.value === 'unavailable') return 'Voice isolation off';
+  if (voiceIsolationStatus.value === 'unsupported') return 'Voice isolation N/A';
+  return '';
+});
+const voiceIsolationTitle = computed(() => {
+  if (voiceIsolationStatus.value === 'on') {
+    return 'Browser voice isolation / noise suppression is applied to your published microphone';
+  }
+  if (voiceIsolationStatus.value === 'unavailable') {
+    return 'Could not enable voice isolation on this microphone; noise suppression may still be active';
+  }
+  if (voiceIsolationStatus.value === 'unsupported') {
+    return 'This browser does not expose a voiceIsolation constraint; echo cancellation and noise suppression are still requested';
+  }
+  return '';
+});
+
+async function acquireIsolatedAudioTrack() {
+  if (!navigator?.mediaDevices?.getUserMedia) {
+    voiceIsolationStatus.value = 'unsupported';
+    return null;
+  }
+  const supported = navigator.mediaDevices.getSupportedConstraints?.() || {};
+  const wantsVoiceIsolation = !!supported.voiceIsolation;
+  const audio = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true
+  };
+  if (wantsVoiceIsolation) audio.voiceIsolation = true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+    const track = stream.getAudioTracks()?.[0] || null;
+    if (!track) {
+      voiceIsolationStatus.value = wantsVoiceIsolation ? 'unavailable' : 'unsupported';
+      return null;
+    }
+    // Stop sibling tracks if any; we only pass one track to OT.
+    for (const t of stream.getTracks()) {
+      if (t !== track) t.stop();
+    }
+    const settings = typeof track.getSettings === 'function' ? (track.getSettings() || {}) : {};
+    if (wantsVoiceIsolation) {
+      voiceIsolationStatus.value = settings.voiceIsolation === true ? 'on' : 'unavailable';
+    } else {
+      // Still request noiseSuppression; report accurately that voiceIsolation isn't a supported constraint.
+      voiceIsolationStatus.value = settings.noiseSuppression === false ? 'unavailable' : 'unsupported';
+    }
+    ownedAudioTrack = track;
+    return track;
+  } catch (e) {
+    console.warn('[VideoSessionRoom] isolated mic capture failed; using default publisher audio', e?.message || e);
+    voiceIsolationStatus.value = wantsVoiceIsolation ? 'unavailable' : 'unsupported';
+    return null;
+  }
+}
+
+function releaseOwnedAudioTrack() {
+  try {
+    ownedAudioTrack?.stop?.();
+  } catch { /* ignore */ }
+  ownedAudioTrack = null;
+}
 
 const isSoloStage = computed(() =>
   props.promoteLocalWhenAlone
@@ -619,19 +699,25 @@ async function connect() {
 
     await nextTick();
     if (localMediaEl.value) localMediaEl.value.innerHTML = '';
+    releaseOwnedAudioTrack();
+    const audioTrack = await acquireIsolatedAudioTrack();
+    const publisherOpts = {
+      insertMode: 'append',
+      width: '100%',
+      height: '100%',
+      fitMode: 'cover',
+      publishAudio: publishAudio.value,
+      publishVideo: publishVideo.value,
+      name: props.localName,
+      mirror: true,
+      style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
+    };
+    // Prefer an explicit mic track so voiceIsolation / noiseSuppression actually apply.
+    // Chrome's PiP "Mic Mode" UI is not enough — OT must publish that constrained track.
+    if (audioTrack) publisherOpts.audioSource = audioTrack;
     publisher = OT.initPublisher(
       localMediaEl.value,
-      {
-        insertMode: 'append',
-        width: '100%',
-        height: '100%',
-        fitMode: 'cover',
-        publishAudio: publishAudio.value,
-        publishVideo: publishVideo.value,
-        name: props.localName,
-        mirror: true,
-        style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
-      },
+      publisherOpts,
       (err) => {
         if (err) console.error('[VideoSessionRoom] publisher error', err);
         else forceMediaFill(localMediaEl.value);
@@ -784,6 +870,8 @@ function disconnect(emitEvent = true) {
     }
     if (localMediaEl.value) localMediaEl.value.innerHTML = '';
     clearRemote();
+    releaseOwnedAudioTrack();
+    voiceIsolationStatus.value = '';
   } finally {
     connecting.value = false;
     if (emitEvent) emit('disconnected');
@@ -859,7 +947,7 @@ defineExpose({
 .vsr {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0;
   min-height: 180px;
   height: 100%;
   background: #12151c;
@@ -875,10 +963,11 @@ defineExpose({
   display: grid;
   grid-template-columns: 1fr;
   gap: 0.35rem;
-  flex: 1 1 auto;
-  min-height: 160px;
-  height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
   padding: 0.35rem;
+  overflow: hidden;
 }
 .vsr__stage--strip {
   grid-template-columns: 1fr 1fr;
@@ -960,23 +1049,23 @@ defineExpose({
   grid-template-columns: 1fr;
   grid-template-rows: 1fr;
   flex: 1 1 0;
-  min-height: min(52vh, 560px) !important;
-  height: 100%;
+  min-height: 0 !important;
+  height: auto;
 }
 .vsr__stage--duo {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr;
   flex: 1 1 0;
-  min-height: min(52vh, 560px) !important;
-  height: 100%;
+  min-height: 0 !important;
+  height: auto;
   align-items: stretch;
 }
 .vsr__stage--grid {
   grid-template-columns: 1fr 1fr;
-  grid-auto-rows: minmax(180px, 1fr);
+  grid-auto-rows: minmax(120px, 1fr);
   flex: 1 1 0;
-  min-height: min(52vh, 560px) !important;
-  height: 100%;
+  min-height: 0 !important;
+  height: auto;
   align-items: stretch;
 }
 .vsr__stage--grid.vsr__stage--count-3,
@@ -1006,7 +1095,7 @@ defineExpose({
   top: auto !important;
   width: 100% !important;
   max-width: none !important;
-  min-height: min(40vh, 420px) !important;
+  min-height: 120px !important;
   height: 100% !important;
   box-shadow: none !important;
   z-index: 1;
@@ -1014,7 +1103,7 @@ defineExpose({
 .vsr__stage--duo .vsr__tile--remote,
 .vsr__stage--grid .vsr__tile--remote {
   position: relative !important;
-  min-height: min(40vh, 420px) !important;
+  min-height: 120px !important;
   height: 100% !important;
   width: 100% !important;
 }
@@ -1135,9 +1224,36 @@ defineExpose({
 .vsr__controls {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.4rem;
   padding: 0.5rem 0.65rem 0.65rem;
   background: #0e1118;
+  position: relative;
+  z-index: 30;
+  flex: 0 0 auto;
+  isolation: isolate;
+}
+.vsr__voice-iso {
+  margin-left: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid #475569;
+  color: #cbd5e1;
+  background: #1e293b;
+  white-space: nowrap;
+}
+.vsr__voice-iso--on {
+  border-color: #34d399;
+  color: #a7f3d0;
+  background: rgba(6, 95, 70, 0.45);
+}
+.vsr__voice-iso--off {
+  border-color: #f59e0b;
+  color: #fde68a;
+  background: rgba(120, 53, 15, 0.4);
 }
 .vsr__ctrl,
 .vsr__btn {

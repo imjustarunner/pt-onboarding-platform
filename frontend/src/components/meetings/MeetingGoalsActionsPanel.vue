@@ -73,6 +73,7 @@
           </li>
           <li v-if="!goals.length" class="mgap__empty muted">No goals yet.</li>
         </ol>
+        <p v-if="live && section === 'goals'" class="mgap__live-hint muted">Live — updates for everyone</p>
       </section>
 
       <section v-if="section === 'actions' || section === 'both'" class="mgap__section">
@@ -175,6 +176,7 @@
           </li>
           <li v-if="!actionItems.length" class="mgap__empty muted">No action items yet.</li>
         </ol>
+        <p v-if="live" class="mgap__live-hint muted">Live — updates for everyone</p>
       </section>
 
       <div v-if="saveStatus || error" class="mgap__status" :class="`mgap__status--${saveStatus || 'error'}`" aria-live="polite">
@@ -211,7 +213,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -225,7 +227,10 @@ const props = defineProps({
   /** Force admin meeting UX even before workspace load */
   meetingSubtype: { type: String, default: '' },
   /** Preloaded participants; otherwise loaded from workspace */
-  participants: { type: Array, default: () => [] }
+  participants: { type: Array, default: () => [] },
+  /** Poll for shared goal/action updates during a live session (mirrors agenda) */
+  live: { type: Boolean, default: false },
+  pollMs: { type: Number, default: 8000 }
 });
 
 const emit = defineEmits(['saved', 'escalated']);
@@ -244,8 +249,11 @@ const editingGoalId = ref(null);
 const editingActionId = ref(null);
 let saveTimer = null;
 let flashTimer = null;
+let pollTimer = null;
 let loadedEventId = 0;
 let loadGeneration = 0;
+/** Bumped on local edits so quiet live reloads don't clobber in-flight typing. */
+let localDirtyAt = 0;
 
 const escalateItem = ref(null);
 const escalateForm = ref({
@@ -308,7 +316,7 @@ function finishGoalEdit() {
 }
 function cancelGoalEdit() {
   editingGoalId.value = null;
-  void load();
+  void load({ force: true });
 }
 
 function startActionEdit(action) {
@@ -321,12 +329,12 @@ function finishActionEdit() {
 }
 function cancelActionEdit() {
   editingActionId.value = null;
-  void load();
+  void load({ force: true });
 }
 
-async function load() {
+async function load({ quiet = false, force = false } = {}) {
   const eid = Number(props.eventId || 0);
-  error.value = '';
+  if (!quiet) error.value = '';
   if (!eid) {
     goals.value = [];
     actionItems.value = [];
@@ -334,24 +342,43 @@ async function load() {
     loadedEventId = 0;
     return;
   }
-  if (eid === loadedEventId && hasLoaded.value && !editingGoalId.value && !editingActionId.value) return;
+
+  // Skip quiet refresh while the user is mid-edit / mid-save, or recently typed.
+  if (quiet && !force) {
+    if (saving.value || pendingSave.value || saveTimer || editingGoalId.value || editingActionId.value) return;
+    if (Date.now() - localDirtyAt < 2500) return;
+  }
 
   const generation = ++loadGeneration;
   const isInitial = eid !== loadedEventId || !hasLoaded.value;
-  if (isInitial) loading.value = true;
+  if (isInitial && !quiet) loading.value = true;
   try {
-    const { data } = await api.get(`/team-meetings/${eid}/workspace`, { skipGlobalLoading: true });
+    const { data } = await api.get(`/team-meetings/${eid}/workspace`, {
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
     if (generation !== loadGeneration) return;
+    // Another local edit landed while the request was in flight.
+    if (quiet && (saving.value || pendingSave.value || Date.now() - localDirtyAt < 1500)) return;
+
     loadedSubtype.value = String(data?.meetingSubtype || 'general').toLowerCase();
     loadedParticipants.value = Array.isArray(data?.participants) ? data.participants : [];
     const workspace = data?.workspace || {};
-    goals.value = normalizeGoals(workspace.goals).filter((g) => String(g.text || '').trim());
-    actionItems.value = normalizeActions(workspace.actionItems).filter((a) => String(a.text || '').trim());
+    const serverGoals = normalizeGoals(workspace.goals).filter((g) => String(g.text || '').trim());
+    const serverActions = normalizeActions(workspace.actionItems).filter((a) => String(a.text || '').trim());
+    // Keep brand-new empty draft rows the user just added (not yet saved).
+    const draftGoals = goals.value.filter((g) => !String(g?.text || '').trim());
+    const draftActions = actionItems.value.filter((a) => !String(a?.text || '').trim());
+    goals.value = [...serverGoals, ...draftGoals];
+    actionItems.value = [...serverActions, ...draftActions];
     loadedEventId = eid;
     hasLoaded.value = true;
+    if (!quiet) error.value = '';
   } catch (e) {
     if (generation !== loadGeneration) return;
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load goals / action items';
+    if (!quiet || !hasLoaded.value) {
+      error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load goals / action items';
+    }
   } finally {
     if (generation === loadGeneration) loading.value = false;
   }
@@ -359,7 +386,14 @@ async function load() {
 
 async function saveNow() {
   const eid = Number(props.eventId || 0);
-  if (!eid || !hasLoaded.value || eid !== loadedEventId) return;
+  if (!eid) return;
+  // First save should work even if the initial GET failed (e.g. transient 403) —
+  // ensure we still attempt an upsert when the user has typed goals.
+  if (!hasLoaded.value) {
+    hasLoaded.value = true;
+    loadedEventId = eid;
+  }
+  if (eid !== loadedEventId) loadedEventId = eid;
   if (saving.value) {
     pendingSave.value = true;
     return;
@@ -383,9 +417,10 @@ async function saveNow() {
     await api.post(`/team-meetings/${eid}/workspace`, {
       goals: payloadGoals,
       actionItems: payloadActions
-    }, { skipGlobalLoading: true });
+    }, { skipGlobalLoading: true, skipAuthRedirect: true });
     emit('saved', { goals: goals.value, actionItems: actionItems.value });
     saveStatus.value = 'saved';
+    localDirtyAt = 0;
     if (flashTimer) clearTimeout(flashTimer);
     flashTimer = setTimeout(() => { saveStatus.value = ''; }, 2000);
   } catch (e) {
@@ -401,8 +436,12 @@ async function saveNow() {
 }
 
 function queueSave() {
+  localDirtyAt = Date.now();
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { void saveNow(); }, 900);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    void saveNow();
+  }, 900);
 }
 
 function moveInList(listRef, idx, delta) {
@@ -417,6 +456,7 @@ function moveInList(listRef, idx, delta) {
 function addGoal() {
   const row = { id: uid('g'), text: '', done: false };
   goals.value.push(row);
+  localDirtyAt = Date.now();
   if (props.compact) startGoalEdit(row);
 }
 function removeGoal(idx) {
@@ -438,6 +478,7 @@ function addAction() {
     escalationTicketId: null
   };
   actionItems.value.push(row);
+  localDirtyAt = Date.now();
   if (props.compact) startActionEdit(row);
 }
 function moveAction(idx, delta) {
@@ -510,9 +551,35 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
     loadedEventId = 0;
     editingGoalId.value = null;
     editingActionId.value = null;
+    localDirtyAt = 0;
   }
   void load();
+  startPoll();
 }, { immediate: true });
+
+watch(() => props.live, () => { startPoll(); });
+
+function stopPoll() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function startPoll() {
+  stopPoll();
+  if (!props.live) return;
+  const eid = Number(props.eventId || 0);
+  if (!eid) return;
+  pollTimer = setInterval(() => { void load({ quiet: true }); }, Math.max(3000, Number(props.pollMs || 8000)));
+}
+
+onMounted(() => { startPoll(); });
+onUnmounted(() => {
+  stopPoll();
+  if (saveTimer) clearTimeout(saveTimer);
+  if (flashTimer) clearTimeout(flashTimer);
+});
 </script>
 
 <style scoped>
@@ -682,9 +749,9 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
   width: 100%;
 }
 .mw-hover-wrap:hover .mgap__text {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: unset;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .mgap__hover-meta {
   display: none;
@@ -718,13 +785,10 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
   flex-shrink: 0;
   opacity: 0;
   transition: opacity 0.12s ease;
-  position: absolute;
-  right: 4px;
-  top: 0;
-  bottom: 0;
-  padding-left: 18px;
-  background: linear-gradient(90deg, transparent 0%, rgba(248, 250, 252, 0.92) 35%);
-  border-radius: 0 8px 8px 0;
+  position: static;
+  padding-left: 4px;
+  background: transparent;
+  border-radius: 0;
 }
 .mgap__list li:hover .mgap__actions,
 .mgap__row--editing .mgap__actions {
@@ -772,6 +836,11 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
   cursor: not-allowed;
 }
 .mgap__empty { font-size: 0.82rem; color: #64748b; }
+.mgap__live-hint {
+  margin: 6px 0 0;
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
 .mgap__status {
   font-size: 0.72rem;
   font-weight: 600;

@@ -2008,17 +2008,17 @@
         <router-view :key="route.path" />
       </main>
       <PublicTranslateWidget v-if="showPublicTranslateWidget" />
-      <MomentumStickiesOverlay v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
-      <AddStickyFab v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
+      <MomentumStickiesOverlay v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute && momentumListEnabled" />
+      <AddStickyFab v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute && momentumListEnabled" />
       <AddToStickyContextMenu v-if="isAuthenticated && momentumListEnabled" />
       <!-- <RegistrationPromoToastRail v-if="isAuthenticated" /> -->
-      <HelperWidget v-if="isAuthenticated" />
-      <BetaFeedbackWidget v-if="isAuthenticated && !isNative" />
+      <HelperWidget v-if="isAuthenticated && !isImmersiveJoinRoute" />
+      <BetaFeedbackWidget v-if="isAuthenticated && !isNative && !isImmersiveJoinRoute" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
       <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome" />
       <!-- School staff get DM-only Messages (no global nav); other hidden-chrome verticals stay without it. -->
       <PlatformChatDrawer
-        v-if="isAuthenticated && !isSscSstcTenant && (String(user?.role || '').toLowerCase() === 'school_staff' || !hideGlobalNavForSchoolStaff)"
+        v-if="isAuthenticated && !isImmersiveJoinRoute && !isSscSstcTenant && (String(user?.role || '').toLowerCase() === 'school_staff' || !hideGlobalNavForSchoolStaff)"
       />
       <SessionLockScreen
         v-if="isAuthenticated"
@@ -2041,7 +2041,7 @@
         :last-logout-at="loginSplashLastLogout"
         @dismiss="loginSplashVisible = false"
       />
-      <PoweredByFooter v-if="isAuthenticated" />
+      <PoweredByFooter v-if="isAuthenticated && !isImmersiveJoinRoute" />
       <Teleport to="body">
         <div
           v-if="showLoginNotificationsModal && !isOnNotificationsRoute"
@@ -3770,6 +3770,12 @@ const hideGlobalNavForSchoolStaff = computed(() => {
     if (onHqHome || onUnscopedHqSurface) return true;
   }
   return false;
+});
+
+/** Team-meeting / supervision join rooms — hide footer & helper chrome that cut off controls. */
+const isImmersiveJoinRoute = computed(() => {
+  const path = String(route.path || '');
+  return /\/join\/(?:team-meeting|supervision)\//.test(path);
 });
 
 /** Full-screen office booking / forfeit gate for clinical roles with pending assigned-available slots */

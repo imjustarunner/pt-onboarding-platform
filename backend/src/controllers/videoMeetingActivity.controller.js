@@ -52,7 +52,16 @@ async function canAccessTeamMeetingActivity(req, event) {
   const inAgency = (actorAgencies || []).some((a) => Number(a?.id) === Number(event?.agency_id || 0));
   if (!inAgency) return false;
   const role = String(req.user?.role || '').toLowerCase();
-  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+  return [
+    'super_admin',
+    'admin',
+    'support',
+    'staff',
+    'clinical_practice_assistant',
+    'provider_plus',
+    'schedule_manager',
+    'assistant_admin'
+  ].includes(role);
 }
 
 /** Host or non-provider staff can create polls / answer Q&A. Providers vote/chat/ask only. */

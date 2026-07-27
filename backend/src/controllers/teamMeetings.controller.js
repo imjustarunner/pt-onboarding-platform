@@ -76,7 +76,16 @@ async function canAccessTeamMeeting(req, event) {
   if (!inAgency) return false;
 
   const role = String(req.user?.role || '').toLowerCase();
-  if (['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role)) {
+  if ([
+    'super_admin',
+    'admin',
+    'support',
+    'staff',
+    'clinical_practice_assistant',
+    'provider_plus',
+    'schedule_manager',
+    'assistant_admin'
+  ].includes(role)) {
     return true;
   }
 

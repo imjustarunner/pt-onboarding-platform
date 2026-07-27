@@ -111,7 +111,7 @@
               </template>
               <template v-else>
                 <div class="mw-hover-wrap">
-                  <span class="agenda-item-title">{{ item.title }}</span>
+                  <span class="agenda-item-title" :title="item.title">{{ item.title }}</span>
                 </div>
                 <a
                   v-if="item.task_id"
@@ -589,7 +589,7 @@ onUnmounted(() => { stopPoll(); });
 }
 .agenda-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   padding: 6px 4px;
   border-radius: 8px;
@@ -674,17 +674,19 @@ onUnmounted(() => { stopPoll(); });
   flex-shrink: 0;
   opacity: 0;
   transition: opacity 0.12s ease;
-  position: absolute;
-  right: 4px;
-  top: 0;
-  bottom: 0;
-  padding-left: 18px;
-  background: linear-gradient(90deg, transparent 0%, rgba(248, 250, 252, 0.92) 35%);
-  border-radius: 0 8px 8px 0;
+  position: static;
+  padding-left: 4px;
+  background: transparent;
+  border-radius: 0;
 }
 .agenda-item:hover .agenda-item-actions,
 .agenda-item--editing .agenda-item-actions {
   opacity: 1;
+}
+.agenda-item:hover .agenda-item-title,
+.agenda-item--editing .agenda-item-title {
+  /* Keep a single line so actions never cover wrapped title text */
+  white-space: nowrap;
 }
 .mw-hover-wrap {
   position: relative;
@@ -693,9 +695,10 @@ onUnmounted(() => { stopPoll(); });
 }
 .mw-hover-wrap:hover .agenda-item-title,
 .mw-hover-wrap:hover .mgap__text {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: unset;
+  /* Title stays truncated; full text remains available via title attribute / edit */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .mgap__hover-meta {
   display: none;

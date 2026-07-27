@@ -126,11 +126,24 @@
           <div v-if="!qaItems.length" class="mlap__empty">No questions yet.</div>
           <div v-for="q in qaItems" :key="q.id" class="mlap__qa">
             <div><strong>Q:</strong> {{ q.text }}</div>
-            <div v-if="q.answer" class="mlap__qa-a"><strong>A:</strong> {{ q.answer }}</div>
-            <div v-else-if="canAnswerQuestions" class="mlap__qa-form">
-              <input v-model="q.answerDraft" type="text" class="mlap__input" placeholder="Type answer…" />
-              <button type="button" class="btn btn-primary btn-sm" :disabled="sending || !q.answerDraft?.trim()" @click="submitAnswer(q)">
-                Submit
+            <div v-if="q.answer" class="mlap__qa-a">
+              <strong>A:</strong> {{ q.answer }}
+              <span v-if="q.answeredBy" class="mlap__qa-by"> — {{ q.answeredBy }}</span>
+            </div>
+            <div v-if="canAnswerQuestions" class="mlap__qa-form">
+              <input
+                v-model="q.answerDraft"
+                type="text"
+                class="mlap__input"
+                :placeholder="q.answer ? 'Update answer…' : 'Type answer…'"
+              />
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="sending || !q.answerDraft?.trim()"
+                @click="submitAnswer(q)"
+              >
+                {{ q.answer ? 'Update' : 'Submit' }}
               </button>
             </div>
           </div>
@@ -202,6 +215,8 @@ const chatMessagesEl = ref(null);
 const toastText = ref('');
 const unread = reactive({ chat: 0, polls: 0, qa: 0 });
 const seenIds = new Set();
+/** Preserve Q&A answer drafts across activity reloads (poll every ~4s was wiping inputs). */
+const answerDraftById = new Map();
 let pollTimer = null;
 let toastTimer = null;
 let initialLoadDone = false;
@@ -326,13 +341,22 @@ function applyActivity(a) {
       id: qid,
       text: payload.text || '',
       answer: null,
-      answerDraft: ''
+      answeredBy: '',
+      answerDraft: answerDraftById.get(String(qid)) || ''
     });
     return { kind: 'qa', isNew: !isOwn };
   }
   if (type === 'answer') {
     const q = qaItems.value.find((x) => String(x.id) === String(payload.inReplyToId));
-    if (q) q.answer = payload.text || '';
+    if (q) {
+      q.answer = payload.text || '';
+      q.answeredBy = payload.authorName || senderLabel(a.participantIdentity, payload) || '';
+      // Keep any in-progress draft for a different update; clear only if it matched the submitted text.
+      if (String(q.answerDraft || '').trim() === String(q.answer || '').trim()) {
+        q.answerDraft = '';
+        answerDraftById.delete(String(q.id));
+      }
+    }
   }
   return { kind: null, isNew: false };
 }
@@ -365,6 +389,15 @@ async function loadActivity({ quiet = false } = {}) {
     const prevIds = new Set(seenIds);
     const newCounts = { chat: 0, polls: 0, qa: 0 };
 
+    // Snapshot drafts before rebuilding lists so typing survives quiet polls.
+    for (const q of qaItems.value) {
+      const id = String(q?.id || '');
+      if (!id) continue;
+      const draft = String(q.answerDraft || '');
+      if (draft.trim()) answerDraftById.set(id, draft);
+      else answerDraftById.delete(id);
+    }
+
     seenIds.clear();
     chatMessages.value = [];
     polls.value = [];
@@ -382,6 +415,14 @@ async function loadActivity({ quiet = false } = {}) {
     for (const a of list) {
       const t = String(a?.activityType || '').toLowerCase();
       if (t === 'poll_vote' || t === 'answer') applyActivity(a);
+    }
+
+    // Re-apply preserved drafts onto rebuilt question rows.
+    for (const q of qaItems.value) {
+      const preserved = answerDraftById.get(String(q.id));
+      if (preserved != null && !String(q.answerDraft || '').trim()) {
+        q.answerDraft = preserved;
+      }
     }
 
     if (initialLoadDone && quiet) {
@@ -509,7 +550,9 @@ async function submitAnswer(q) {
   try {
     const id = await persistActivity('answer', { inReplyToId: q.id, text });
     q.answer = text;
+    q.answeredBy = ownDisplayName.value;
     q.answerDraft = '';
+    answerDraftById.delete(String(q.id));
     if (id) seenIds.add(`id:${id}`);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to answer';
@@ -541,6 +584,7 @@ watch(
   () => [props.eventId, props.sessionId],
   () => {
     seenIds.clear();
+    answerDraftById.clear();
     initialLoadDone = false;
     chatMessages.value = [];
     polls.value = [];
@@ -673,11 +717,14 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   border-radius: 12px;
   background: #fff;
   overflow: hidden;
-  min-height: 280px;
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
 }
 .mlap--below-video .mlap__panel {
-  min-height: 260px;
-  max-height: min(36vh, 380px);
+  min-height: 340px;
+  max-height: min(52vh, 560px);
+  flex: 1;
 }
 .mlap--embedded .mlap__toggle {
   background: #ecfdf5;
@@ -692,6 +739,7 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
 .mlap__tabs {
   display: flex;
   border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  flex-shrink: 0;
 }
 .mlap__tab {
   flex: 1;
@@ -718,6 +766,7 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 .mlap__messages {
   flex: 1;
@@ -725,7 +774,8 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  min-height: 120px;
 }
 .mlap__empty {
   color: #94a3b8;
@@ -767,6 +817,7 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   gap: 8px;
   padding: 10px;
   border-top: 1px solid rgba(148, 163, 184, 0.35);
+  flex-shrink: 0;
 }
 .mlap__input {
   flex: 1;
@@ -791,11 +842,14 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   flex-direction: column;
   gap: 8px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  flex-shrink: 0;
+  background: inherit;
 }
 .mlap__poll {
-  padding: 10px;
+  padding: 12px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 8px;
+  flex-shrink: 0;
 }
 .mlap__poll-q {
   font-weight: 700;
@@ -804,17 +858,18 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
 .mlap__poll-opts {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 .mlap__opt {
   text-align: left;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-radius: 6px;
   border: 1px solid #475569;
   background: #1e293b;
   color: #f8fafc;
   cursor: pointer;
   font-size: 0.85rem;
+  min-height: 40px;
 }
 .mlap--embedded .mlap__opt,
 .mlap--below-video .mlap__opt,
@@ -827,6 +882,12 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   border-color: #38bdf8;
   background: rgba(56, 189, 248, 0.15);
 }
+.mlap--embedded .mlap__opt.selected,
+.mlap--below-video .mlap__opt.selected,
+.mlap--chrome-less .mlap__opt.selected {
+  border-color: #059669;
+  background: rgba(16, 185, 129, 0.12);
+}
 .mlap__qa {
   padding: 10px;
   border: 1px solid rgba(148, 163, 184, 0.35);
@@ -838,10 +899,16 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   margin-left: 10px;
   color: #94a3b8;
 }
+.mlap__qa-by {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
 .mlap__qa-form {
-  margin-top: 8px;
   display: flex;
   gap: 8px;
+  margin-top: 8px;
+  align-items: center;
 }
 .mlap__error {
   margin: 0;

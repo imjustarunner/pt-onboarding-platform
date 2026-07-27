@@ -14,7 +14,7 @@
       </template>
     </p>
     <p v-if="livePreview" class="mnp__live">
-      <span class="mnp__live-label">Live</span>
+      <span class="mnp__live-label">Caption</span>
       {{ livePreview }}
     </p>
     <label class="mnp__label">Transcript</label>
