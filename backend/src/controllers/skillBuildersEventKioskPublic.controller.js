@@ -34,6 +34,7 @@ import {
   saveEventKioskClientWaiverSection
 } from '../services/eventKioskClientCheckinWaiver.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { ensureKioskSkillBuildersEventSynced } from '../services/eventKioskDateSync.service.js';
 
 const TOKEN_TYPE = 'skill_builders_event_kiosk';
 
@@ -249,6 +250,8 @@ export const listSkillBuildersEventKioskSessions = async (req, res, next) => {
     if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
     const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
     if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    await ensureKioskSkillBuildersEventSynced({ agencyId: m.agencyId, eventId: m.eventId });
 
     const fromY = String(req.query.from || '').trim().slice(0, 10);
     const toY = String(req.query.to || '').trim().slice(0, 10);

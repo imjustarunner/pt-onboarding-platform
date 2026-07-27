@@ -22,6 +22,7 @@ import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import KioskModel from '../models/Kiosk.model.js';
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
+import { ensureProgramEventKioskSessionsSynced } from '../services/eventKioskDateSync.service.js';
 import {
   verifyKioskBearerForProgramEvent,
   assertKioskTokenMatchesSlugAndEvent
@@ -423,6 +424,16 @@ function normalizeDbDateToYmd(input) {
 async function resolveKioskDayContext(eventRow) {
   const tz = String(eventRow?.timezone || 'America/Denver').trim() || 'America/Denver';
   const todayYmd = utcDateToZonedYmd(new Date(), tz);
+
+  // Rebuild company_event_session_dates from current event recurrence when dates changed.
+  try {
+    await ensureProgramEventKioskSessionsSynced(eventRow.id);
+  } catch (err) {
+    console.error('[resolveKioskDayContext] session materialization failed', {
+      eventId: eventRow?.id,
+      message: err?.message
+    });
+  }
 
   let sessionDates = [];
   try {

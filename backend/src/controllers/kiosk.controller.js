@@ -22,6 +22,10 @@ import {
   recordSkillBuilderEventClockIn,
   recordSkillBuilderEventClockOut
 } from '../services/skillBuildersEventKioskPunch.service.js';
+import {
+  ensureKioskSkillBuildersEventSynced,
+  resyncStaleKioskSkillBuildersEventsAtOffice
+} from '../services/eventKioskDateSync.service.js';
 
 function normalizePin(pin) {
   const p = String(pin || '').trim();
@@ -1127,6 +1131,9 @@ export const listKioskSkillBuilderEvents = async (req, res, next) => {
     const loc = await OfficeLocation.findById(parseInt(locationId, 10));
     if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
 
+    // Self-heal when event dates were extended but skills_groups / sessions were not rebuilt.
+    await resyncStaleKioskSkillBuildersEventsAtOffice(parseInt(locationId, 10));
+
     const [rows] = await pool.execute(
       `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at,
               sg.agency_id, a.name AS agency_name, sg.name AS group_name
@@ -1210,6 +1217,8 @@ export const listKioskSkillBuilderEventSessions = async (req, res, next) => {
     if (!agencyId || !eid) return res.status(400).json({ error: { message: 'agencyId query and event id required' } });
     const a = await assertSkillBuilderKioskLocationAgency(locationId, agencyId);
     if (a.error) return res.status(a.error.status).json({ error: { message: a.error.message } });
+
+    await ensureKioskSkillBuildersEventSynced({ agencyId, eventId: eid });
 
     const fromY = String(req.query.from || '').trim().slice(0, 10);
     const toY = String(req.query.to || '').trim().slice(0, 10);
