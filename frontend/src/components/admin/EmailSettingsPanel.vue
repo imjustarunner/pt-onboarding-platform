@@ -78,7 +78,7 @@
         </div>
         <div class="hint">
           Key helper coverage currently includes:
-          <code>school_intake</code>, <code>intake</code>, <code>login_recovery</code>, <code>notifications</code>,
+          <code>schoolreply</code>, <code>school_intake</code>, <code>intake</code>, <code>login_recovery</code>, <code>notifications</code>,
           <code>hiring_references</code>, <code>job_applications</code>, <code>system</code>, <code>default</code>.
         </div>
 
@@ -93,6 +93,25 @@
             </select>
             <small v-if="lockToScopedTenant" class="hint">Locked to the tenant selected in Settings.</small>
             <small v-else-if="!canEditPlatform" class="hint">Sender identities are scoped to your agency.</small>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-label">School inbound sync</div>
+          <div class="settings-value">
+            <button
+              class="btn btn-secondary"
+              type="button"
+              :disabled="!canEditAgencies || senderLoading || schoolInboundSyncing || !senderAgencyId"
+              @click="syncSchoolInboundRoutes"
+            >
+              {{ schoolInboundSyncing ? 'Syncing…' : 'Sync school group emails → schoolreply' }}
+            </button>
+            <small class="hint">
+              Creates/updates the <code>schoolreply</code> identity for this agency, attaches every school portal group email
+              (<code>(itsco_email)</code> as an inbound route, and enables AI ticket drafting for status + year-update emails.
+              Replies send as <code>schoolreply@itsco.health</code> (reply-to <code>schools@itsco.health</code>).
+            </small>
           </div>
         </div>
 
@@ -520,11 +539,13 @@ const senderError = ref('');
 const senderSuccess = ref('');
 const senderSavingId = ref(null);
 const senderUploadingId = ref(null);
+const schoolInboundSyncing = ref(false);
 const includePlatformDefaults = ref(false);
 const testRecipient = ref('');
 const hiringRefSenderIdentityId = ref('');
 const hiringRefSenderSaving = ref(false);
 const SYSTEM_IDENTITY_KEYS = [
+  { value: 'schoolreply', label: 'School Reply (inbound school AI + ticket replies)' },
   { value: 'school_intake', label: 'School Intake (school packet + ROI sends)' },
   { value: 'intake', label: 'Intake (general intake sends)' },
   { value: 'login_recovery', label: 'Login Recovery (passwordless/reset help)' },
@@ -535,6 +556,10 @@ const SYSTEM_IDENTITY_KEYS = [
   { value: 'default', label: 'Default (legacy fallback)' }
 ];
 const IDENTITY_KEY_USAGE = {
+  schoolreply: {
+    usage: 'Inbound school staff email routing and outbound replies for school status / year-update tickets.',
+    refs: 'Used by the inbound email agent and support ticket email replies. Prefer from schoolreply@itsco.health with reply-to schools@itsco.health.'
+  },
   school_intake: {
     usage: 'Primary sender for school intake, school packet completion, and school ROI sharing flows.',
     refs: 'Used by public intake + client school ROI sender resolution.'
@@ -581,7 +606,7 @@ const newIdentity = ref({
 const schoolOverridesByAgency = ref({});
 const deletedSchoolOverrides = ref([]);
 const newOverrideByAgency = ref({});
-const KNOWN_INTENT_OPTIONS = ['school_status_request'];
+const KNOWN_INTENT_OPTIONS = ['school_status_request', 'school_reinit_update'];
 
 const senderIdentityKeyOptions = computed(() => {
   const byValue = new Map();
@@ -785,6 +810,34 @@ const loadSenderIdentities = async () => {
   } finally {
     senderLoading.value = false;
     await loadHiringRefSenderPreference();
+  }
+};
+
+const syncSchoolInboundRoutes = async () => {
+  if (!senderAgencyId.value) {
+    senderError.value = 'Select an agency before syncing school inbound routes.';
+    return;
+  }
+  schoolInboundSyncing.value = true;
+  senderError.value = '';
+  senderSuccess.value = '';
+  try {
+    const resp = await api.post('/email-senders/sync-school-inbound', {
+      agencyId: Number(senderAgencyId.value),
+      fromEmail: 'schoolreply@itsco.health',
+      replyTo: 'schools@itsco.health',
+      configureAiPolicy: true
+    });
+    const data = resp.data || {};
+    senderSuccess.value =
+      `Synced schoolreply inbound: ${data.schoolsRouted || 0} school group emails` +
+      `${data.missingGroupEmailCount ? `, ${data.missingGroupEmailCount} schools missing itsco_email` : ''}` +
+      `${data.cleanedOtherIdentities ? `, cleaned ${data.cleanedOtherIdentities} other identities` : ''}.`;
+    await loadSenderIdentities();
+  } catch (err) {
+    senderError.value = err?.response?.data?.error?.message || 'Failed to sync school inbound routes.';
+  } finally {
+    schoolInboundSyncing.value = false;
   }
 };
 

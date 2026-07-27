@@ -14,6 +14,10 @@ import {
   matchSchoolClient,
   normalizeEmailAiPolicyMode
 } from './inboundEmailPolicy.service.js';
+import {
+  applyReinitPatchesFromEmail,
+  classifyReinitIntent
+} from './schoolReinitEmailIntake.service.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -135,12 +139,15 @@ function isIntentAllowedByPolicy({ intentClass, allowedIntentClasses }) {
 async function routeSenderIdentityFromHeaders(hdrs) {
   const to = extractEmails(hdrs.get('to'));
   const cc = extractEmails(hdrs.get('cc'));
-  const all = [...to, ...cc];
+  const deliveredTo = extractEmails(hdrs.get('delivered-to'));
+  const xOriginalTo = extractEmails(hdrs.get('x-original-to'));
+  const envelopeTo = extractEmails(hdrs.get('envelope-to'));
+  const all = [...to, ...cc, ...deliveredTo, ...xOriginalTo, ...envelopeTo];
   for (const addr of all) {
     const identity = await EmailSenderIdentity.findByInboundAddress(addr);
-    if (identity?.id) return { senderIdentityId: identity.id, matchedAddress: addr, to, cc };
+    if (identity?.id) return { senderIdentityId: identity.id, matchedAddress: addr, to, cc, deliveredTo };
   }
-  return { senderIdentityId: null, matchedAddress: null, to, cc };
+  return { senderIdentityId: null, matchedAddress: null, to, cc, deliveredTo };
 }
 
 async function hasSupportTicketMessagesTable() {
@@ -562,10 +569,12 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
 
   const msgs = list.data?.messages || [];
   const statusDraftsEnabled = parseTruthy(process.env.EMAIL_AI_STATUS_DRAFTS_ENABLED);
+  const reinitIntakeEnabled = statusDraftsEnabled && String(process.env.EMAIL_AI_REINIT_ENABLED || 'true').toLowerCase() !== 'false';
   const results = {
     scanned: msgs.length,
     replied: 0,
     draftedToTickets: 0,
+    reinitUpdated: 0,
     needsHuman: 0,
     ignored: 0,
     unroutable: 0
@@ -626,7 +635,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     if (statusDraftsEnabled) {
       const schoolContext = await findSchoolContextByInboundAddresses({
         agencyId,
-        addresses: [routed.matchedAddress, ...routed.to, ...routed.cc]
+        addresses: [routed.matchedAddress, ...routed.to, ...routed.cc, ...(routed.deliveredTo || [])]
       });
       if (!schoolContext?.schoolOrganizationId) {
         results.needsHuman += 1;
@@ -689,12 +698,21 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       }
 
       const intent = await classifyStatusIntent({ subject, bodyText });
-      const intentClass = intent.isStatusIntent ? 'school_status_request' : 'other';
-      const intentAllowed = isIntentAllowedByPolicy({
-        intentClass,
-        allowedIntentClasses: policy.allowedIntentClasses
-      });
-      if (!intentAllowed) {
+      const reinitIntent = reinitIntakeEnabled
+        ? await classifyReinitIntent({ subject, bodyText })
+        : { isReinitIntent: false, confidence: 0, summary: null };
+
+      const detectedIntents = [];
+      if (intent.isStatusIntent) detectedIntents.push('school_status_request');
+      if (reinitIntent.isReinitIntent) detectedIntents.push('school_reinit_update');
+      const allowedDetected = detectedIntents.filter((intentClass) =>
+        isIntentAllowedByPolicy({
+          intentClass,
+          allowedIntentClasses: policy.allowedIntentClasses
+        })
+      );
+
+      if (!allowedDetected.length) {
         results.needsHuman += 1;
         await createEmailDraftSupportTicket({
           schoolOrganizationId: schoolContext.schoolOrganizationId,
@@ -708,14 +726,14 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
           matchedClient: null,
           draftResponse: null,
-          draftConfidence: intent.confidence,
+          draftConfidence: Math.max(Number(intent.confidence || 0), Number(reinitIntent.confidence || 0)),
           draftStatus: 'needs_review',
           escalationReason: 'intent_not_allowed_by_policy',
           metadata: {
             policyMode: policy.mode,
             policySource: policy.source,
             allowedIntentClasses: policy.allowedIntentClasses || [],
-            detectedIntentClass: intentClass
+            detectedIntentClasses: detectedIntents.length ? detectedIntents : ['other']
           }
         }).catch(() => {});
         await gmail.users.messages.modify({
@@ -725,19 +743,46 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         });
         continue;
       }
-      const clients = await listSchoolClientsForStatusReply({ schoolOrganizationId: schoolContext.schoolOrganizationId });
-      const match = intent.isStatusIntent ? matchSchoolClient({ query: intent.clientReference, clients }) : { match: null, confidence: 0, reason: 'not_status_intent', candidates: [] };
+
+      let reinitResult = null;
+      if (allowedDetected.includes('school_reinit_update')) {
+        reinitResult = await applyReinitPatchesFromEmail({
+          agencyId,
+          schoolOrganizationId: schoolContext.schoolOrganizationId,
+          subject,
+          bodyText,
+          schoolName: schoolContext.schoolName,
+          actorUserId: creatorUserId
+        }).catch((e) => ({
+          applied: false,
+          reason: `error:${e?.message || 'unknown'}`,
+          cycle: null,
+          patches: {},
+          updatedSections: []
+        }));
+        if (reinitResult?.applied) results.reinitUpdated += 1;
+      }
+
+      const statusAllowed = allowedDetected.includes('school_status_request');
+      const clients = statusAllowed
+        ? await listSchoolClientsForStatusReply({ schoolOrganizationId: schoolContext.schoolOrganizationId })
+        : [];
+      const match = statusAllowed && intent.isStatusIntent
+        ? matchSchoolClient({ query: intent.clientReference, clients })
+        : { match: null, confidence: 0, reason: 'not_status_intent', candidates: [] };
 
       let draftResponse = null;
       let draftStatus = 'needs_review';
-      let escalationReason = intent.isStatusIntent ? 'no_client_match' : 'not_status_intent';
+      let escalationReason = statusAllowed
+        ? (intent.isStatusIntent ? 'no_client_match' : 'not_status_intent')
+        : (reinitResult?.applied ? null : (reinitResult?.reason || 'reinit_only'));
       let checklistItems = [];
       const proposedReplyFrom = await resolvePreferredReplyAlias({
         agencyId,
-        fallbackFromEmail: identity?.from_email
+        fallbackFromEmail: identity?.from_email || 'schoolreply@itsco.health'
       });
 
-      if (intent.isStatusIntent && match.match) {
+      if (statusAllowed && intent.isStatusIntent && match.match) {
         const threshold = Number(policy.matchConfidenceThreshold || 0.75);
         if (Number(match.confidence || 0) < threshold) {
           draftStatus = 'needs_review';
@@ -765,10 +810,22 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
             escalationReason = 'draft_generation_failed';
           }
         }
-      } else if (intent.isStatusIntent) {
+      } else if (statusAllowed && intent.isStatusIntent) {
         if (match.reason === 'ambiguous') escalationReason = 'ambiguous_client_match';
         else if (match.reason === 'low_confidence') escalationReason = 'low_confidence_client_match';
         else escalationReason = 'no_client_match';
+      } else if (reinitResult?.applied) {
+        draftStatus = 'needs_review';
+        escalationReason = null;
+        draftResponse = [
+          `Thanks for the update${schoolContext.schoolName ? ` for ${schoolContext.schoolName}` : ''}.`,
+          reinitResult.updatedSections?.length
+            ? `We captured details for: ${reinitResult.updatedSections.join(', ').replace(/_/g, ' ')}.`
+            : 'We received your year-update information.',
+          'Our team will review this in the collaborative year update and follow up if anything else is needed.',
+          '',
+          `— ${proposedReplyFrom || 'schoolreply@itsco.health'}`
+        ].join('\n');
       }
 
       await createEmailDraftSupportTicket({
@@ -783,13 +840,19 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
         matchedClient: match.match,
         draftResponse,
-        draftConfidence: match.confidence || intent.confidence,
+        draftConfidence: Math.max(
+          Number(match.confidence || 0),
+          Number(intent.confidence || 0),
+          Number(reinitIntent.confidence || 0)
+        ),
         draftStatus,
         escalationReason,
         metadata: {
           policyMode: policy.mode,
           policySource: policy.source,
           allowedIntentClasses: policy.allowedIntentClasses || [],
+          detectedIntentClasses: detectedIntents,
+          allowedDetectedIntents: allowedDetected,
           matchConfidenceThreshold: policy.matchConfidenceThreshold || 0.75,
           allowedSenderIdentityKeys: policy.allowedSenderIdentityKeys || [],
           knownContact: sender.isKnownContact,
@@ -809,7 +872,19 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
             isNeeded: item.isNeeded,
             receivedAt: item.receivedAt
           })),
-          proposedReplyFrom
+          proposedReplyFrom,
+          reinit: reinitResult
+            ? {
+                applied: !!reinitResult.applied,
+                reason: reinitResult.reason || null,
+                cycleId: reinitResult.cycle?.id || null,
+                cycleStatus: reinitResult.cycle?.status || null,
+                schoolYear: reinitResult.cycle?.schoolYear || null,
+                updatedSections: reinitResult.updatedSections || [],
+                patches: reinitResult.patches || {},
+                summary: reinitIntent.summary || null
+              }
+            : null
         }
       }).catch(() => {});
 

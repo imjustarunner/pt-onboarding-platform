@@ -5,12 +5,28 @@ import {
   listEmailSenderIdentities,
   createEmailSenderIdentity,
   updateEmailSenderIdentity,
-  sendTestEmailFromIdentity
+  sendTestEmailFromIdentity,
+  syncSchoolEmailInbound
 } from '../controllers/emailSenderIdentity.controller.js';
 
 const router = express.Router();
 
 router.get('/', authenticate, requireBackofficeAdmin, listEmailSenderIdentities);
+
+router.post(
+  '/sync-school-inbound',
+  authenticate,
+  requireBackofficeAdmin,
+  [
+    body('agencyId').optional().custom((v) => v === null || v === '' || (Number.isFinite(Number(v)) && Number(v) >= 1)).withMessage('agencyId must be null or a positive integer'),
+    body('agencySlug').optional().isString(),
+    body('fromEmail').optional().isEmail(),
+    body('replyTo').optional().custom((v) => v === null || v === '' || /^\S+@\S+\.\S+$/.test(String(v))).withMessage('replyTo must be a valid email'),
+    body('displayName').optional().isString(),
+    body('configureAiPolicy').optional().isBoolean()
+  ],
+  syncSchoolEmailInbound
+);
 
 router.post(
   '/',

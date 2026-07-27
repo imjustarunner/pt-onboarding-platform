@@ -1,6 +1,7 @@
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import User from '../models/User.model.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import { syncSchoolEmailInboundForAgency } from '../services/unifiedEmail/schoolEmailInboundSync.service.js';
 import { validationResult } from 'express-validator';
 
 async function getAllowedAgencyIds(req) {
@@ -180,6 +181,44 @@ export const sendTestEmailFromIdentity = async (req, res, next) => {
     });
 
     res.json({ ok: true, result });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Bulk-create/update schoolreply identity and attach every affiliated school
+ * group email (school_profiles.itsco_email) as an inbound route.
+ */
+export const syncSchoolEmailInbound = async (req, res, next) => {
+  try {
+    const agencyIdRaw = req.body?.agencyId ?? req.query?.agencyId;
+    const agencySlug = String(req.body?.agencySlug || req.query?.agencySlug || 'itsco').trim() || 'itsco';
+    const agencyId = agencyIdRaw === undefined || agencyIdRaw === null || agencyIdRaw === ''
+      ? null
+      : Number(agencyIdRaw);
+
+    const allowedAgencyIds = await getAllowedAgencyIds(req);
+    const isSuperAdmin = req.user?.role === 'super_admin';
+    if (!isSuperAdmin && agencyId) {
+      ensureAgencyAccess({ agencyId, allowedIds: allowedAgencyIds, allowNull: false });
+    }
+
+    const result = await syncSchoolEmailInboundForAgency({
+      agencyId: Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null,
+      agencySlug,
+      fromEmail: req.body?.fromEmail || 'schoolreply@itsco.health',
+      replyTo: req.body?.replyTo || 'schools@itsco.health',
+      displayName: req.body?.displayName || 'ITSCO School Reply',
+      configureAiPolicy: req.body?.configureAiPolicy !== false,
+      actorUserId: req.user?.id || null
+    });
+
+    if (!isSuperAdmin && allowedAgencyIds && !allowedAgencyIds.includes(Number(result.agency.id))) {
+      return res.status(403).json({ error: { message: 'Access denied to this agency' } });
+    }
+
+    res.json(result);
   } catch (e) {
     next(e);
   }

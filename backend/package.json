@@ -8,6 +8,7 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "email-agent": "node src/scripts/runEmailAgent.js",
+    "sync-school-email-inbound": "node src/scripts/syncItscoSchoolEmailInbound.js",
     "create-admin": "node src/scripts/createAdmin.js",
     "create-super-admin": "node src/scripts/createSuperAdmin.js",
     "sync-form-spec": "node src/scripts/syncFormSpec.js",

@@ -51,7 +51,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
-import { useAgencyStore } from '../../stores/agency';
+import { useAgencyStore } from '../../store/agency';
 import { SECTION_META } from '../../utils/providerYearUpdate';
 
 const route = useRoute();

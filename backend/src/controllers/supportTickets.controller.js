@@ -8,7 +8,8 @@ import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
-import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import { sendNotificationEmail, sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
 import { isCategoryEnabledForUser } from '../services/notificationDispatcher.service.js';
 import {
@@ -2813,8 +2814,65 @@ export const answerSupportTicket = async (req, res, next) => {
       // best-effort only
     }
 
+    // For inbound email tickets, send the approved answer from schoolreply@ (or proposedReplyFrom).
+    let emailReply = null;
+    const sendEmailReply = req.body?.sendEmailReply !== false && req.body?.sendEmailReply !== 0 && req.body?.sendEmailReply !== '0';
+    if (sendEmailReply && String(ticket.source_channel || '').toLowerCase() === 'email' && ticket.source_email_from) {
+      try {
+        let meta = null;
+        try {
+          meta = typeof ticket.ai_draft_metadata_json === 'string'
+            ? JSON.parse(ticket.ai_draft_metadata_json)
+            : (ticket.ai_draft_metadata_json || null);
+        } catch {
+          meta = null;
+        }
+        const proposedFrom = String(meta?.proposedReplyFrom || '').trim().toLowerCase() || 'schoolreply@itsco.health';
+        let identity =
+          (await EmailSenderIdentity.findByAgencyAndIdentityKey(ticket.agency_id, 'schoolreply')) ||
+          (await EmailSenderIdentity.findByFromEmail(proposedFrom, { preferAgencyId: ticket.agency_id })) ||
+          (await EmailSenderIdentity.findByFromEmail('schoolreply@itsco.health', { preferAgencyId: ticket.agency_id }));
+
+        if (identity?.id) {
+          const subjectBase = String(ticket.source_email_subject || ticket.subject || 'Your school message').trim();
+          const replySubject = /^re:/i.test(subjectBase) ? subjectBase : `Re: ${subjectBase}`;
+          const sendResult = await sendEmailFromIdentity({
+            senderIdentityId: identity.id,
+            to: String(ticket.source_email_from).trim(),
+            subject: replySubject,
+            text: answer,
+            inReplyTo: ticket.source_email_message_id || null,
+            references: ticket.source_email_message_id || null,
+            threadId: ticket.source_email_thread_id || null,
+            source: 'manual'
+          });
+          emailReply = {
+            sent: !sendResult?.skipped,
+            skipped: !!sendResult?.skipped,
+            from: identity.from_email,
+            to: ticket.source_email_from,
+            result: sendResult || null
+          };
+          if (!sendResult?.skipped) {
+            await pool.execute(
+              `UPDATE support_tickets
+               SET sent_at = COALESCE(sent_at, CURRENT_TIMESTAMP),
+                   approved_by_user_id = COALESCE(approved_by_user_id, ?)
+               WHERE id = ?`,
+              [req.user.id, ticketId]
+            );
+          }
+        } else {
+          emailReply = { sent: false, skipped: true, reason: 'schoolreply_identity_missing' };
+        }
+      } catch (emailErr) {
+        emailReply = { sent: false, skipped: true, reason: emailErr?.message || 'email_send_failed' };
+      }
+    }
+
     const [rows2] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
-    res.json(enrichTicketForClient(rows2?.[0] || null));
+    const enriched = enrichTicketForClient(rows2?.[0] || null);
+    res.json(enriched ? { ...enriched, emailReply } : { emailReply });
   } catch (e) {
     next(e);
   }

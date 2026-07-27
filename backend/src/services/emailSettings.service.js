@@ -19,7 +19,7 @@ export function normalizeEmailAiPolicyMode(value) {
 
 export function normalizeEmailAiIntentClasses(value) {
   const raw = Array.isArray(value) ? value : [value];
-  const valid = new Set(['school_status_request']);
+  const valid = new Set(['school_status_request', 'school_reinit_update']);
   const out = raw
     .map((v) => String(v || '').trim().toLowerCase())
     .filter((v) => valid.has(v));

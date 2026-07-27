@@ -246,7 +246,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
-import { useAgencyStore } from '../../stores/agency';
+import { useAgencyStore } from '../../store/agency';
 import { SECTION_META } from '../../utils/providerYearUpdate';
 import AdditionalAvailabilitySubmit from '../AdditionalAvailabilitySubmit.vue';
 import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';

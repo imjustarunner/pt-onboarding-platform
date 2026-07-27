@@ -61,3 +61,14 @@ Optional:
 
 - `EMAIL_AGENT_MAX_MESSAGES=10`
 
+## Sync school group emails onto schoolreply
+
+Creates/updates the agency `schoolreply` sender identity and attaches every affiliated school `itsco_email` as an inbound route (plus `schoolreply@itsco.health` / `schools@itsco.health`):
+
+```bash
+npm run sync-school-email-inbound
+# or: npm run sync-school-email-inbound -- itsco
+```
+
+Also available in Admin → Email Settings → **Sync school group emails → schoolreply**.
+
