@@ -138,8 +138,9 @@ export async function listSchoolAssignedProviders(agencyId) {
         u.last_name,
         u.email,
         u.profile_photo_path,
-        u.phone,
-        u.phone_number
+        u.phone_number,
+        u.personal_phone,
+        u.work_phone
      FROM provider_school_assignments psa
      JOIN users u ON u.id = psa.provider_user_id
      JOIN organization_affiliations oa
@@ -761,7 +762,7 @@ export async function listAgencyReport(agencyId, schoolYear) {
       firstName: p.first_name,
       lastName: p.last_name,
       email: p.email,
-      phone: p.phone || p.phone_number || null,
+      phone: p.personal_phone || p.work_phone || p.phone_number || null,
       photoUrl: publicUploadsUrlFromStoredPath(p.profile_photo_path),
       schools: schools.map((s) => ({
         schoolOrganizationId: s.schoolOrganizationId,
