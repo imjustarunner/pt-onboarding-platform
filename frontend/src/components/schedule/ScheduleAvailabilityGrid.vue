@@ -1927,6 +1927,7 @@
           <div v-show="editorWorkspaceTab === 'notifications'" class="appt-workspace-panel appt-workspace-panel--flush">
             <AppointmentRemindersPanel
               :appointment-id="editorAppointmentId"
+              :schedule-event-id="editorNotificationsScheduleEventId"
               :loading="editorRemindersLoading"
               :error="editorRemindersError"
               :last-sent-label="editorReminderLastSent"
@@ -11224,6 +11225,11 @@ const editorIsMeeting = computed(() => (
   ['agency_meeting', 'huddle'].includes(String(requestType.value || ''))
   || (isScheduleEventEditMode.value && isMeetingStackItem(editingScheduleStackItem.value))
 ));
+const editorNotificationsScheduleEventId = computed(() => {
+  if (Number(editorAppointmentId.value || 0) > 0) return 0;
+  if (!editorIsMeeting.value) return 0;
+  return Number(scheduleEventEditId.value || 0) || 0;
+});
 const editorIsSupervision = computed(() => (
   String(requestType.value || '') === 'supervision' || isSupervisionEditMode.value
 ));
@@ -12519,35 +12525,62 @@ async function loadEditorTenantServices() {
 
 async function loadEditorReminders() {
   const apptId = Number(editorAppointmentId.value || 0);
-  if (!apptId) {
+  const meetingEventId = Number(editorNotificationsScheduleEventId.value || 0);
+  if (!apptId && !meetingEventId) {
     editorReminderPlan.value = [];
     editorReminderAttendees.value = [];
     editorCanPushExtraReminder.value = false;
+    editorReminderLastSent.value = '';
     return;
   }
   editorRemindersLoading.value = true;
   editorRemindersError.value = '';
   editorShowReminders.value = true;
   try {
-    const [planRes, timelineRes] = await Promise.all([
-      api.get(`/appointments/${apptId}/notification-plan`).catch(() => null),
-      api.get(`/appointments/${apptId}/timeline`).catch(() => null)
-    ]);
+    if (apptId) {
+      const [planRes, timelineRes] = await Promise.all([
+        api.get(`/appointments/${apptId}/notification-plan`).catch(() => null),
+        api.get(`/appointments/${apptId}/timeline`).catch(() => null)
+      ]);
+      const plan = planRes?.data?.plan || planRes?.data || {};
+      editorReminderPlan.value = Array.isArray(plan?.items)
+        ? plan.items
+        : (Array.isArray(plan?.reminders) ? plan.reminders : []);
+      editorReminderAttendees.value = Array.isArray(plan?.attendees)
+        ? plan.attendees
+        : (Array.isArray(plan?.participants) ? plan.participants : []);
+      editorCanPushExtraReminder.value = plan?.canSendAdditionalReminder !== false
+        && plan?.additionalReminderAllowed !== false;
+      const timeline = timelineRes?.data?.events || timelineRes?.data?.timeline || [];
+      const lastReminder = (Array.isArray(timeline) ? timeline : [])
+        .filter((e) => String(e?.kind || e?.type || '').toLowerCase().includes('reminder'))
+        .sort((a, b) => String(b?.at || b?.createdAt || '').localeCompare(String(a?.at || a?.createdAt || '')))[0];
+      const lastRaw = lastReminder
+        ? String(lastReminder.at || lastReminder.createdAt || lastReminder.sentAt || '')
+        : '';
+      editorReminderLastSent.value = lastRaw ? formatEditorDisplayDateTime(lastRaw) : '';
+      return;
+    }
+
+    const hostId = Number(
+      bookingTargetUserId.value
+      || props.userId
+      || authStore.user?.id
+      || 0
+    );
+    const agencyId = Number(editorAgencyId.value || selectedActionAgencyId.value || 0) || undefined;
+    const planRes = await api.get(`/users/${hostId}/schedule-events/${meetingEventId}/notification-plan`, {
+      params: agencyId ? { agencyId } : undefined
+    });
     const plan = planRes?.data?.plan || planRes?.data || {};
-    editorReminderPlan.value = Array.isArray(plan?.items)
-      ? plan.items
-      : (Array.isArray(plan?.reminders) ? plan.reminders : []);
-    editorReminderAttendees.value = Array.isArray(plan?.attendees)
-      ? plan.attendees
-      : (Array.isArray(plan?.participants) ? plan.participants : []);
-    editorCanPushExtraReminder.value = plan?.canSendAdditionalReminder !== false
-      && plan?.additionalReminderAllowed !== false;
-    const timeline = timelineRes?.data?.events || timelineRes?.data?.timeline || [];
-    const lastReminder = (Array.isArray(timeline) ? timeline : [])
-      .filter((e) => String(e?.kind || e?.type || '').toLowerCase().includes('reminder'))
-      .sort((a, b) => String(b?.at || b?.createdAt || '').localeCompare(String(a?.at || a?.createdAt || '')))[0];
-    const lastRaw = lastReminder
-      ? String(lastReminder.at || lastReminder.createdAt || lastReminder.sentAt || '')
+    editorReminderPlan.value = Array.isArray(plan?.items) ? plan.items : [];
+    editorReminderAttendees.value = Array.isArray(plan?.attendees) ? plan.attendees : [];
+    editorCanPushExtraReminder.value = false;
+    const sentItems = editorReminderPlan.value
+      .filter((item) => /sent|deliver/i.test(String(item?.status || '')))
+      .sort((a, b) => String(b?.sentAt || b?.at || '').localeCompare(String(a?.sentAt || a?.at || '')));
+    const lastRaw = sentItems[0]
+      ? String(sentItems[0].sentAt || sentItems[0].at || '')
       : '';
     editorReminderLastSent.value = lastRaw ? formatEditorDisplayDateTime(lastRaw) : '';
   } catch (e) {
@@ -12713,9 +12746,19 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   if (editorAppointmentId.value) {
     editorShowReminders.value = true;
     void loadEditorReminders();
+  } else if (editorIsMeeting.value && Number(scheduleEventEditId.value || 0) > 0) {
+    editorShowReminders.value = true;
+    void loadEditorReminders();
   }
   void loadEditorOfficeLocations();
 }
+
+watch(editorWorkspaceTab, (tab) => {
+  if (tab !== 'notifications') return;
+  if (Number(editorAppointmentId.value || 0) > 0 || Number(editorNotificationsScheduleEventId.value || 0) > 0) {
+    void loadEditorReminders();
+  }
+});
 
 async function loadEditorOfficeLocations() {
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
@@ -14600,7 +14643,8 @@ const patchScheduleEventInSummary = ({
   endAt = '',
   agencyId = null,
   isPrivate = false,
-  attendeeUserIds = null
+  attendeeUserIds = null,
+  waitingRoomEnabled = undefined
 } = {}) => {
   const eid = Number(eventId || 0);
   if (!eid || !summary.value) return;
@@ -14636,7 +14680,10 @@ const patchScheduleEventInSummary = ({
     isPrivate: isPrivate !== undefined ? !!isPrivate : prev.isPrivate,
     startAt: nextStart,
     endAt: nextEnd,
-    ...(Array.isArray(attendeeUserIds) ? { attendeeUserIds } : {})
+    ...(Array.isArray(attendeeUserIds) ? { attendeeUserIds } : {}),
+    ...(waitingRoomEnabled !== undefined && ['TEAM_MEETING', 'HUDDLE'].includes(String(prev?.kind || '').toUpperCase())
+      ? { waitingRoomEnabled: !!waitingRoomEnabled }
+      : {})
   };
   summary.value = { ...summary.value, scheduleEvents: list };
   const stackIdx = (stackDetailsItems.value || []).findIndex((it) => Number(it?.eventId || 0) === eid);
@@ -20439,6 +20486,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
         ? {
             attendeeUserIds: savedAttendeeIds,
             isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
+            waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
             ...(String(item?.eventKind || '').toUpperCase() === 'TEAM_MEETING'
               ? {
                   meetingSubtype: (canSetAdminMeetingSubtype.value
@@ -20460,7 +20508,12 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       endAt: savedEvent.endAt || endAt,
       agencyId: saveAgencyId,
       isPrivate: !!scheduleEventEditForm.value.isPrivate,
-      attendeeUserIds: isMeeting ? savedAttendeeIds : null
+      attendeeUserIds: isMeeting ? savedAttendeeIds : null,
+      waitingRoomEnabled: isMeeting
+        ? (savedEvent.waitingRoomEnabled !== undefined
+          ? savedEvent.waitingRoomEnabled !== false
+          : !!editorMeetingWaitingRoomEnabled.value)
+        : undefined
     });
     editTimingBaseline.value = {
       startAt: String(scheduleEventEditForm.value.startAt || '').trim(),
@@ -21170,6 +21223,9 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     isCancelled: cancelled,
     isTrainingPayEligible: !!ev?.isTrainingPayEligible,
     meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),
+    waitingRoomEnabled: ev?.waitingRoomEnabled !== false
+      && ev?.waiting_room_enabled !== false
+      && ev?.waiting_room_enabled !== 0,
     status: String(ev?.status || (cancelled ? 'CANCELLED' : 'ACTIVE')).trim().toUpperCase() || 'ACTIVE',
     isPrivate: !!ev?.isPrivate,
     allDay: !!ev?.allDay,
@@ -23802,7 +23858,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   gap: 14px;
 }
 .supv-info-layout--with-workspace {
-  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.95fr);
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 300px);
   align-items: start;
 }
 .meeting-info-side {

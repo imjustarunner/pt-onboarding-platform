@@ -110,7 +110,9 @@
                 />
               </template>
               <template v-else>
-                <span class="agenda-item-title">{{ item.title }}</span>
+                <div class="mw-hover-wrap">
+                  <span class="agenda-item-title">{{ item.title }}</span>
+                </div>
                 <a
                   v-if="item.task_id"
                   href="/tasks"
@@ -587,11 +589,12 @@ onUnmounted(() => { stopPoll(); });
 }
 .agenda-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 6px 4px;
   border-radius: 8px;
   min-height: 34px;
+  position: relative;
   transition: background 0.12s ease;
 }
 .agenda-item:hover {
@@ -607,6 +610,7 @@ onUnmounted(() => { stopPoll(); });
   font-weight: 600;
   color: #94a3b8;
   text-align: right;
+  padding-top: 2px;
 }
 .agenda-status-select {
   flex: 0 0 auto;
@@ -670,10 +674,38 @@ onUnmounted(() => { stopPoll(); });
   flex-shrink: 0;
   opacity: 0;
   transition: opacity 0.12s ease;
+  position: absolute;
+  right: 4px;
+  top: 0;
+  bottom: 0;
+  padding-left: 18px;
+  background: linear-gradient(90deg, transparent 0%, rgba(248, 250, 252, 0.92) 35%);
+  border-radius: 0 8px 8px 0;
 }
 .agenda-item:hover .agenda-item-actions,
 .agenda-item--editing .agenda-item-actions {
   opacity: 1;
+}
+.mw-hover-wrap {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+}
+.mw-hover-wrap:hover .agenda-item-title,
+.mw-hover-wrap:hover .mgap__text {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+.mgap__hover-meta {
+  display: none;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+}
+.mw-hover-wrap:hover .mgap__hover-meta {
+  display: block;
 }
 .agenda-action-btn {
   appearance: none;

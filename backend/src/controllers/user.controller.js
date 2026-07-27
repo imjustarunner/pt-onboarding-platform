@@ -5702,6 +5702,54 @@ export const createUserScheduleEvent = async (req, res, next) => {
   }
 };
 
+export const getUserScheduleEventNotificationPlan = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (!(await assertCanManageTargetSchedule({
+      actorUserId,
+      actorRole,
+      targetUserId: userId,
+      agencyId: Number(req.query?.agencyId || 0) || null
+    }))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    let target = await ProviderScheduleEvent.findByIdForProvider({ eventId, providerId: userId });
+    if (!target) {
+      const byId = await ProviderScheduleEvent.findById(eventId);
+      if (byId) {
+        const hostId = Number(byId.provider_id || 0);
+        if (hostId > 0 && (await assertCanManageTargetSchedule({
+          actorUserId,
+          actorRole,
+          targetUserId: hostId,
+          agencyId: Number(byId.agency_id || 0) || null
+        }))) {
+          target = byId;
+        }
+      }
+    }
+    if (!target) return res.status(404).json({ error: { message: 'Schedule event not found' } });
+
+    const kind = String(target.kind || '').trim().toUpperCase();
+    if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+      return res.status(400).json({ error: { message: 'Notification plan is only available for team meetings and huddles.' } });
+    }
+
+    const { buildScheduleEventNotificationPlan } = await import('../services/joinReminder.service.js');
+    const plan = await buildScheduleEventNotificationPlan(target);
+    res.json({ ok: true, plan });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const updateUserScheduleEvent = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.id, 10);
@@ -5912,6 +5960,18 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       }
     }
 
+    let nextWaitingRoomEnabled = undefined;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'waitingRoomEnabled')) {
+      if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+        return res.status(400).json({ error: { message: 'waitingRoomEnabled is only supported for TEAM_MEETING and HUDDLE.' } });
+      }
+      const raw = req.body.waitingRoomEnabled;
+      nextWaitingRoomEnabled = raw === true
+        || raw === 1
+        || raw === '1'
+        || raw === 'true';
+    }
+
     const scope = String(req.body?.scope || 'single').trim().toLowerCase();
     if (!['single', 'future'].includes(scope)) {
       return res.status(400).json({ error: { message: 'scope must be single or future' } });
@@ -5978,6 +6038,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         reasonCode: isPrimary && req.body?.reasonCode !== undefined ? req.body.reasonCode : undefined,
         isTrainingPayEligible: isPrimary ? nextTrainingPayEligible : undefined,
         meetingSubtype: isPrimary ? nextMeetingSubtype : (scope === 'future' ? nextMeetingSubtype : undefined),
+        waitingRoomEnabled: isPrimary ? nextWaitingRoomEnabled : undefined,
         updatedByUserId: actorUserId
       });
       if (isPrimary) updated = rowUpdated;
@@ -6111,6 +6172,11 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         endDate: updated?.end_date ? String(updated.end_date).slice(0, 10) : null,
         attendeeUserIds: Array.isArray(resolvedAttendeeUserIds) ? resolvedAttendeeUserIds : undefined,
         isTrainingPayEligible: Number(updated?.is_training_pay_eligible || 0) === 1,
+        waitingRoomEnabled: ['TEAM_MEETING', 'HUDDLE'].includes(kind)
+          ? !(updated?.waiting_room_enabled === 0
+            || updated?.waiting_room_enabled === false
+            || updated?.waiting_room_enabled === '0')
+          : null,
         recurrenceSeriesId: seriesId || null
       }
     });

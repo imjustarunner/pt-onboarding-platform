@@ -328,6 +328,7 @@ class ProviderScheduleEvent {
     reasonCode = undefined,
     isTrainingPayEligible = undefined,
     meetingSubtype = undefined,
+    waitingRoomEnabled = undefined,
     updatedByUserId = null
   }) {
     const eid = Number(eventId || 0);
@@ -391,6 +392,10 @@ class ProviderScheduleEvent {
       sets.push('meeting_subtype = ?');
       params.push(nextSubtype);
     }
+    if (waitingRoomEnabled !== undefined) {
+      sets.push('waiting_room_enabled = ?');
+      params.push(waitingRoomEnabled === false || waitingRoomEnabled === 0 ? 0 : 1);
+    }
     if (!sets.length) return this.findByIdForProvider({ eventId: eid, providerId: pid });
     sets.push('updated_by_user_id = ?');
     params.push(updatedByUserId ? Number(updatedByUserId) : null);
@@ -421,6 +426,7 @@ class ProviderScheduleEvent {
           clientId,
           reasonCode,
           isTrainingPayEligible,
+          waitingRoomEnabled,
           updatedByUserId
         });
       }

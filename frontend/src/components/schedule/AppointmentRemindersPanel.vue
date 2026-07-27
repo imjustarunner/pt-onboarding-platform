@@ -21,7 +21,7 @@
         <div v-if="loading" class="muted">Loading reminder plan…</div>
         <div v-else-if="error" class="error">{{ error }}</div>
         <template v-else>
-          <div v-if="!appointmentId" class="arp-empty muted">
+          <div v-if="!appointmentId && !scheduleEventId" class="arp-empty muted">
             Save this appointment to attach reminder permissions and notification history.
           </div>
           <ul v-else-if="visibleItems.length" class="arp-list">
@@ -39,7 +39,12 @@
             </li>
           </ul>
           <div v-else class="arp-empty muted">
-            {{ lastSentLabel ? `Last sent: ${lastSentLabel}` : 'No reminders scheduled yet.' }}
+            <template v-if="scheduleEventId">
+              {{ meetingEmptyLabel }}
+            </template>
+            <template v-else>
+              {{ lastSentLabel ? `Last sent: ${lastSentLabel}` : 'No reminders scheduled yet.' }}
+            </template>
           </div>
 
           <div class="arp-actions">
@@ -69,7 +74,12 @@
             </div>
           </div>
           <p v-else class="muted arp-side-hint">
-            Attendee channel permissions appear here after the appointment is saved.
+            <template v-if="scheduleEventId">
+              Participants receive join reminders by email or SMS based on their notification preferences.
+            </template>
+            <template v-else>
+              Attendee channel permissions appear here after the appointment is saved.
+            </template>
           </p>
         </section>
 
@@ -93,6 +103,7 @@ import { computed, ref } from 'vue';
 
 const props = defineProps({
   appointmentId: { type: [Number, String], default: 0 },
+  scheduleEventId: { type: [Number, String], default: 0 },
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
   lastSentLabel: { type: String, default: '' },
@@ -111,6 +122,11 @@ const filters = [
   { id: 'scheduled', label: 'Scheduled' },
   { id: 'sent', label: 'Sent' }
 ];
+
+const meetingEmptyLabel = computed(() => {
+  if (props.lastSentLabel) return `Last sent: ${props.lastSentLabel}`;
+  return 'No join reminders sent yet. Automatic reminders go out about 5 minutes before the meeting starts.';
+});
 
 function formatWhenLocal(value) {
   if (!value) return '';

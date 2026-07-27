@@ -40,7 +40,9 @@
                 @keydown.enter.prevent="finishGoalEdit(g)"
                 @keydown.escape.prevent="cancelGoalEdit"
               />
-              <span v-else class="mgap__text" :class="{ 'mgap__text--done': g.done }">{{ g.text }}</span>
+              <div v-else class="mw-hover-wrap">
+                <span class="mgap__text" :class="{ 'mgap__text--done': g.done }">{{ g.text }}</span>
+              </div>
             </div>
             <div class="mgap__actions">
               <template v-if="compact && editingGoalId === g.id">
@@ -103,7 +105,15 @@
                 @keydown.enter.prevent="finishActionEdit(a)"
                 @keydown.escape.prevent="cancelActionEdit"
               />
-              <span v-else class="mgap__text" :class="{ 'mgap__text--done': a.done }">{{ a.text }}</span>
+              <div v-else class="mw-hover-wrap">
+                <span class="mgap__text" :class="{ 'mgap__text--done': a.done }">{{ a.text }}</span>
+                <span
+                  v-if="Number(a.assigneeUserId || 0) > 0"
+                  class="mgap__hover-meta"
+                >
+                  Assigned to {{ assigneeLabel(a.assigneeUserId) }}
+                </span>
+              </div>
               <div
                 v-if="(!compact || editingActionId === a.id) && (allowAssignee || isAdminMeeting)"
                 class="mgap__action-meta"
@@ -134,9 +144,6 @@
                 <span v-if="a.escalationTicketId" class="mgap__esc-chip">
                   Escalation #{{ a.escalationTicketId }}
                 </span>
-              </div>
-              <div v-else-if="compact && a.assigneeUserId" class="mgap__assignee-chip">
-                {{ assigneeLabel(a.assigneeUserId) }}
               </div>
             </div>
             <div class="mgap__actions">
@@ -585,11 +592,12 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
 }
 .mgap__list li {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 6px 4px;
   border-radius: 8px;
   min-height: 34px;
+  position: relative;
   transition: background 0.12s ease;
 }
 .mgap__list li:hover {
@@ -609,6 +617,7 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
 .mgap__check {
   display: inline-flex;
   align-items: center;
+  padding-top: 2px;
 }
 .mgap__check input {
   width: 15px;
@@ -667,6 +676,26 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
   color: #64748b;
   font-weight: 600;
 }
+.mw-hover-wrap {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+.mw-hover-wrap:hover .mgap__text {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+.mgap__hover-meta {
+  display: none;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+}
+.mw-hover-wrap:hover .mgap__hover-meta {
+  display: block;
+}
 .mgap__esc-check {
   display: inline-flex;
   align-items: center;
@@ -689,6 +718,13 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
   flex-shrink: 0;
   opacity: 0;
   transition: opacity 0.12s ease;
+  position: absolute;
+  right: 4px;
+  top: 0;
+  bottom: 0;
+  padding-left: 18px;
+  background: linear-gradient(90deg, transparent 0%, rgba(248, 250, 252, 0.92) 35%);
+  border-radius: 0 8px 8px 0;
 }
 .mgap__list li:hover .mgap__actions,
 .mgap__row--editing .mgap__actions {

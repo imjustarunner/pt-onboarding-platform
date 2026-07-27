@@ -318,3 +318,143 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
     throw e;
   }
 }
+
+function sessionTypeForScheduleKind(kind) {
+  const k = String(kind || '').trim().toUpperCase();
+  if (k === 'HUDDLE') return 'team_meeting';
+  if (k === 'TEAM_MEETING') return 'team_meeting';
+  return null;
+}
+
+function reminderFireAtFromStart(startAt) {
+  const raw = String(startAt || '').trim();
+  if (!raw) return null;
+  const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+  if (Number.isNaN(d.getTime())) return null;
+  d.setMinutes(d.getMinutes() - WINDOW_START_MINUTES);
+  return toSqlDatetime(d);
+}
+
+/**
+ * Notification plan for TEAM_MEETING / HUDDLE schedule events (join reminders, not appointment session notifications).
+ */
+export async function buildScheduleEventNotificationPlan(eventRow) {
+  const eventId = Number(eventRow?.id || 0);
+  const kind = String(eventRow?.kind || '').trim().toUpperCase();
+  const sessionType = sessionTypeForScheduleKind(kind);
+  if (!eventId || !sessionType) {
+    return { items: [], attendees: [], canSendAdditionalReminder: false };
+  }
+
+  const hostId = Number(eventRow.provider_id || 0);
+  const title = String(eventRow.title || 'Team meeting').trim() || 'Team meeting';
+  const startAt = eventRow.start_at || null;
+  const fireAt = reminderFireAtFromStart(startAt);
+  const nowMs = Date.now();
+  const startMs = startAt ? new Date(String(startAt).replace(' ', 'T')).getTime() : NaN;
+  const meetingStarted = Number.isFinite(startMs) && startMs <= nowMs;
+
+  const userIds = new Set();
+  if (hostId > 0) userIds.add(hostId);
+
+  const [attendeeRows] = await pool.execute(
+    `SELECT user_id FROM provider_schedule_event_attendees WHERE event_id = ?`,
+    [eventId]
+  );
+  for (const row of attendeeRows || []) {
+    const uid = Number(row.user_id || 0);
+    if (uid > 0) userIds.add(uid);
+  }
+
+  const sentByUserId = new Map();
+  try {
+    const [sentRows] = await pool.execute(
+      `SELECT user_id, recipient_key, sent_at
+       FROM join_reminder_sent
+       WHERE session_type = ? AND session_id = ?`,
+      [sessionType, eventId]
+    );
+    for (const row of sentRows || []) {
+      const uid = Number(row.user_id || 0);
+      const key = String(row.recipient_key || '').trim();
+      const parsedUid = key.startsWith('u:') ? Number(key.slice(2)) : uid;
+      if (parsedUid > 0) {
+        sentByUserId.set(parsedUid, row.sent_at || null);
+      }
+    }
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+  }
+
+  const attendees = [];
+  const items = [];
+
+  for (const uid of userIds) {
+    const user = await User.findById(uid);
+    const name = user
+      ? `${String(user.first_name || '').trim()} ${String(user.last_name || '').trim()}`.trim() || user.email || `User #${uid}`
+      : `User #${uid}`;
+
+    let emailEnabled = false;
+    let smsEnabled = false;
+    try {
+      const decision = await NotificationGatekeeperService.decideChannels({
+        userId: uid,
+        context: { severity: 'info' }
+      });
+      emailEnabled = !!decision?.email;
+      smsEnabled = !!decision?.sms;
+    } catch {
+      emailEnabled = true;
+    }
+
+    attendees.push({
+      userId: uid,
+      name,
+      displayName: name,
+      emailEnabled,
+      smsEnabled,
+      inAppEnabled: emailEnabled
+    });
+
+    const sentAt = sentByUserId.get(uid);
+    if (sentAt) {
+      items.push({
+        id: `join-sent-${uid}`,
+        kind: 'join_reminder',
+        label: 'Join reminder',
+        status: 'Sent',
+        channel: smsEnabled && emailEnabled ? 'email_sms' : (smsEnabled ? 'sms' : 'email'),
+        recipientName: name,
+        at: sentAt,
+        sentAt
+      });
+    } else if (fireAt && !meetingStarted) {
+      items.push({
+        id: `join-scheduled-${uid}`,
+        kind: 'join_reminder',
+        label: 'Join reminder',
+        status: 'Scheduled',
+        channel: smsEnabled && emailEnabled ? 'email_sms' : (smsEnabled ? 'sms' : 'email'),
+        recipientName: name,
+        scheduledFor: fireAt,
+        fireAt,
+        bodyPreview: `${title} — automatic reminder about 5 minutes before start`
+      });
+    }
+  }
+
+  items.sort((a, b) => {
+    const aRaw = a.sentAt || a.scheduledFor || a.fireAt || '';
+    const bRaw = b.sentAt || b.scheduledFor || b.fireAt || '';
+    return String(aRaw).localeCompare(String(bRaw));
+  });
+
+  return {
+    items,
+    attendees,
+    canSendAdditionalReminder: false,
+    meetingTitle: title,
+    reminderWindowMinutes: WINDOW_START_MINUTES
+  };
+}
