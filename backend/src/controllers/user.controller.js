@@ -3475,6 +3475,97 @@ function toMysqlUtc(value) {
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
 }
 
+/**
+ * Interpret a wall-clock datetime string in `timeZone` and return MySQL UTC.
+ * Needed for Google-synced schedule events (DB stores UTC; Google API wants wall+TZ).
+ */
+function wallInTimeZoneToMysqlUtc(value, timeZone) {
+  const wall = toMysqlDateTimeWall(value);
+  const tz = String(timeZone || '').trim();
+  if (!wall) return null;
+  if (!tz) return toMysqlUtc(wall.replace(' ', 'T') + 'Z') || wall;
+
+  const m = wall.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return toMysqlUtc(wall);
+
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+  const second = Number(m[6]);
+  const desiredAsUtcMs = Date.UTC(year, month - 1, day, hour, minute, second);
+
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  });
+
+  let utcMs = desiredAsUtcMs;
+  for (let i = 0; i < 4; i += 1) {
+    const parts = dtf.formatToParts(new Date(utcMs));
+    const map = {};
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = p.value;
+    }
+    const asShownUtcMs = Date.UTC(
+      Number(map.year),
+      Number(map.month) - 1,
+      Number(map.day),
+      Number(map.hour) % 24,
+      Number(map.minute),
+      Number(map.second)
+    );
+    const delta = desiredAsUtcMs - asShownUtcMs;
+    if (delta === 0) break;
+    utcMs += delta;
+  }
+
+  return toMysqlUtc(new Date(utcMs));
+}
+
+/** Format a UTC MySQL/ISO instant as wall-clock `YYYY-MM-DD HH:mm:ss` in `timeZone`. */
+function utcMysqlToWallInTimeZone(value, timeZone) {
+  const tz = String(timeZone || '').trim() || 'America/Denver';
+  if (value == null) return null;
+  let d;
+  if (value instanceof Date) {
+    d = value;
+  } else {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(raw) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
+      d = new Date(raw.replace(' ', 'T') + 'Z');
+    } else {
+      d = new Date(raw);
+    }
+  }
+  if (Number.isNaN(d.getTime())) return null;
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  });
+  const parts = dtf.formatToParts(d);
+  const map = {};
+  for (const p of parts) {
+    if (p.type !== 'literal') map[p.type] = p.value;
+  }
+  const pad2 = (n) => String(n).padStart(2, '0');
+  return `${map.year}-${map.month}-${map.day} ${pad2(Number(map.hour) % 24)}:${map.minute}:${map.second}`;
+}
+
 /** Return ISO string with Z for schedule events so frontend parses as UTC and displays correctly in viewer's timezone. */
 function toIsoUtcForSchedule(value) {
   if (value === null || value === undefined) return null;
@@ -5663,6 +5754,14 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     let endAt = undefined;
     let startDate = undefined;
     let endDate = undefined;
+    /** Wall-clock values for Google Calendar (dateTime + timeZone). */
+    let googleStartWall = undefined;
+    let googleEndWall = undefined;
+    const updateTimeZone = String(
+      req.body?.timeZone
+      || req.body?.timezone
+      || ''
+    ).trim() || 'America/Denver';
     if (allDay) {
       startDate = req.body?.startDate != null
         ? String(req.body.startDate).slice(0, 10)
@@ -5679,12 +5778,25 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       startAt = null;
       endAt = null;
     } else if (req.body?.startAt != null || req.body?.endAt != null) {
-      startAt = toMysqlDateTimeWall(req.body?.startAt != null ? req.body.startAt : target.start_at);
-      endAt = toMysqlDateTimeWall(req.body?.endAt != null ? req.body.endAt : target.end_at);
+      const rawStart = req.body?.startAt != null ? req.body.startAt : target.start_at;
+      const rawEnd = req.body?.endAt != null ? req.body.endAt : target.end_at;
+      googleStartWall = toMysqlDateTimeWall(rawStart);
+      googleEndWall = toMysqlDateTimeWall(rawEnd);
+      const hasGoogleSync = !!String(target.google_event_id || '').trim();
+      // Google-linked rows are read as UTC. Store UTC so edit→refresh keeps MT wall time.
+      // Local-only events keep wall storage (no Z on read).
+      if (hasGoogleSync) {
+        startAt = wallInTimeZoneToMysqlUtc(googleStartWall, updateTimeZone);
+        endAt = wallInTimeZoneToMysqlUtc(googleEndWall, updateTimeZone);
+      } else {
+        startAt = googleStartWall;
+        endAt = googleEndWall;
+      }
       if (!startAt || !endAt) {
         return res.status(400).json({ error: { message: 'startAt and endAt are required' } });
       }
-      if (!(new Date(startAt).getTime() < new Date(endAt).getTime())) {
+      if (!(new Date(String(startAt).replace(' ', 'T')).getTime()
+        < new Date(String(endAt).replace(' ', 'T')).getTime())) {
         return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
       }
       startDate = null;
@@ -5947,7 +6059,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         attendeeEmails = undefined;
       }
     }
-    const tz = String(req.body?.timeZone || Intl?.DateTimeFormat?.().resolvedOptions?.().timeZone || 'America/Denver');
+    const tz = updateTimeZone;
     for (const occ of rowsToUpdate) {
       const occId = Number(occ.id || 0);
       if (!occId || !subjectEmail) continue;
@@ -5957,14 +6069,21 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const googleEventId = String(fresh?.google_event_id || '').trim();
       if (!googleEventId) continue;
       const occAllDay = Number(fresh.all_day || 0) === 1;
+      // Google dateTime+timeZone expects wall clock — never send stored UTC DATETIME as wall.
+      const gStart = occAllDay
+        ? null
+        : (googleStartWall || utcMysqlToWallInTimeZone(fresh.start_at, tz));
+      const gEnd = occAllDay
+        ? null
+        : (googleEndWall || utcMysqlToWallInTimeZone(fresh.end_at, tz));
       // eslint-disable-next-line no-await-in-loop
       await GoogleCalendarService.upsertProviderPrimaryCalendarEvent({
         subjectEmail,
         existingGoogleEventId: googleEventId,
         summary: String(fresh?.title || title || '').trim() || 'Schedule event',
         description: fresh?.description || null,
-        startAt: occAllDay ? null : fresh.start_at,
-        endAt: occAllDay ? null : fresh.end_at,
+        startAt: gStart,
+        endAt: gEnd,
         allDay: occAllDay,
         startDate: occAllDay && fresh.start_date ? String(fresh.start_date).slice(0, 10) : null,
         endDate: occAllDay && fresh.end_date ? String(fresh.end_date).slice(0, 10) : null,

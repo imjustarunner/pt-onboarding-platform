@@ -48,13 +48,14 @@
           </button>
         </div>
 
-        <ul class="agenda-items">
+        <ol class="agenda-items">
           <li
-            v-for="item in items"
+            v-for="(item, idx) in items"
             :key="item.id"
             class="agenda-item"
             :class="{ 'agenda-item-done': item.status === 'completed', 'agenda-item-discussed': item.status === 'discussed' }"
           >
+            <span class="agenda-item-num" aria-hidden="true">{{ idx + 1 }}</span>
             <select
               :value="item.status"
               :disabled="togglingId === item.id"
@@ -66,7 +67,15 @@
               <option value="completed">Completed</option>
             </select>
             <div class="agenda-item-content">
-              <span class="agenda-item-title">{{ item.title }}</span>
+              <input
+                v-if="canAddItem"
+                class="input agenda-item-title-input"
+                type="text"
+                :value="item.title"
+                :disabled="togglingId === item.id"
+                @change="updateItemTitle(item, $event.target.value)"
+              />
+              <span v-else class="agenda-item-title">{{ item.title }}</span>
               <a
                 v-if="item.task_id"
                 href="/tasks"
@@ -77,19 +86,34 @@
                 Open task
               </a>
             </div>
-            <button
-              v-if="canAddItem"
-              type="button"
-              class="agenda-icon"
-              aria-label="Remove"
-              :disabled="deletingId === item.id"
-              @click="removeItem(item)"
-            >
-              {{ deletingId === item.id ? '…' : '🗑' }}
-            </button>
+            <div v-if="canAddItem" class="agenda-item-move">
+              <button
+                type="button"
+                class="agenda-icon"
+                title="Move up"
+                :disabled="idx === 0 || togglingId === item.id"
+                @click="moveItem(idx, -1)"
+              >↑</button>
+              <button
+                type="button"
+                class="agenda-icon"
+                title="Move down"
+                :disabled="idx >= items.length - 1 || togglingId === item.id"
+                @click="moveItem(idx, 1)"
+              >↓</button>
+              <button
+                type="button"
+                class="agenda-icon"
+                aria-label="Remove"
+                :disabled="deletingId === item.id"
+                @click="removeItem(item)"
+              >
+                {{ deletingId === item.id ? '…' : '🗑' }}
+              </button>
+            </div>
           </li>
           <li v-if="!items.length" class="agenda-empty muted">No agenda items yet.</li>
-        </ul>
+        </ol>
         <p v-if="live" class="agenda-live-hint muted">Live — updates for everyone</p>
       </section>
     </template>
@@ -204,6 +228,49 @@ const updateItemStatus = async (item, status) => {
     emit('updated');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to update item';
+  } finally {
+    togglingId.value = null;
+  }
+};
+
+const updateItemTitle = async (item, title) => {
+  const next = String(title || '').trim();
+  if (!item?.id || !agenda.value?.id || !next || next === String(item.title || '').trim()) return;
+  togglingId.value = item.id;
+  try {
+    await api.patch(`/meeting-agendas/${agenda.value.id}/items/${item.id}`, { title: next });
+    const idx = items.value.findIndex((i) => i.id === item.id);
+    if (idx >= 0) items.value[idx] = { ...items.value[idx], title: next };
+    emit('updated');
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to update item';
+  } finally {
+    togglingId.value = null;
+  }
+};
+
+const moveItem = async (idx, delta) => {
+  const j = idx + delta;
+  if (!agenda.value?.id || j < 0 || j >= items.value.length) return;
+  const a = items.value[idx];
+  const b = items.value[j];
+  if (!a?.id || !b?.id) return;
+  const orderA = Number(a.sort_order ?? idx);
+  const orderB = Number(b.sort_order ?? j);
+  togglingId.value = a.id;
+  try {
+    await Promise.all([
+      api.patch(`/meeting-agendas/${agenda.value.id}/items/${a.id}`, { sort_order: orderB }),
+      api.patch(`/meeting-agendas/${agenda.value.id}/items/${b.id}`, { sort_order: orderA })
+    ]);
+    const next = [...items.value];
+    next[idx] = { ...b, sort_order: orderA };
+    next[j] = { ...a, sort_order: orderB };
+    items.value = next;
+    emit('updated');
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to reorder item';
+    await fetchAgenda({ silent: true });
   } finally {
     togglingId.value = null;
   }
@@ -346,6 +413,20 @@ onUnmounted(() => { stopPoll(); });
   align-items: flex-start;
   gap: 8px;
 }
+.agenda-item-num {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
 .agenda-status-select {
   flex: 0 0 auto;
   margin-top: 2px;
@@ -358,7 +439,18 @@ onUnmounted(() => { stopPoll(); });
 .agenda-item-content {
   flex: 1;
   min-width: 0;
-  padding-top: 4px;
+  padding-top: 0;
+}
+.agenda-item-title-input {
+  width: 100%;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 4px 8px;
+}
+.agenda-item-move {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .agenda-item-title {
   display: block;

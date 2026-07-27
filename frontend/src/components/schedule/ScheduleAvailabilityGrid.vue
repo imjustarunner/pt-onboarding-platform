@@ -1355,7 +1355,10 @@
           <div
             v-show="editorWorkspaceTab === 'info'"
             class="supv-info-layout"
-            :class="{ 'supv-info-layout--with-workspace': showIndividualSupervisionWorkspace }"
+            :class="{
+              'supv-info-layout--with-workspace': showIndividualSupervisionWorkspace
+                || (editorIsMeeting && Number(scheduleEventEditId || 0) > 0)
+            }"
           >
             <AppointmentInfoPanel
               :when-label="editorInfoWhenLabel"
@@ -1401,7 +1404,24 @@
               @open-note="editorWorkspaceTab = 'note'"
               @join="startTrackedSupvMeet"
             />
-            <!-- Meeting agenda/goals/actions live in dedicated workspace tabs (not duplicated here). -->
+            <aside
+              v-if="editorIsMeeting && Number(scheduleEventEditId || 0) > 0"
+              class="meeting-info-side"
+              aria-label="Meeting agenda, goals, and action items"
+            >
+              <MeetingAgendaPanel
+                meeting-type="provider_schedule_event"
+                :meeting-id="Number(scheduleEventEditId)"
+                :can-add-item="true"
+                :embedded="true"
+              />
+              <MeetingGoalsActionsPanel
+                :event-id="scheduleEventEditId"
+                section="both"
+                :meeting-subtype="meetingSubtype"
+                :participants="meetingDraftAssigneeOptions"
+              />
+            </aside>
             <SupervisionGoalsActionsPanel
               v-if="showIndividualSupervisionWorkspace"
               :session-id="selectedSupvSessionId"
@@ -1732,6 +1752,7 @@
             :show-virtual-options="false"
             :show-agenda-draft="!isScheduleEventEditMode"
             :show-goals-actions-draft="!isScheduleEventEditMode"
+            :assignee-options="meetingDraftAssigneeOptions"
             :show-participants="false"
             :title-missing="isMeetingTitleMissing"
             :disabled="submitting || scheduleEventSaving"
@@ -1839,6 +1860,7 @@
               :event-id="scheduleEventEditId"
               :section="editorWorkspaceTab === 'actions' ? 'actions' : 'goals'"
               :meeting-subtype="meetingSubtype"
+              :participants="meetingDraftAssigneeOptions"
             />
           </div>
 
@@ -14027,7 +14049,11 @@ async function postWorkspaceDraftForNewMeeting(eventId, { goals = [], actionItem
     .map((g) => ({ text: String(g?.text || g || '').trim(), done: !!g?.done }))
     .filter((g) => g.text);
   const cleanActions = (actionItems || [])
-    .map((a) => ({ text: String(a?.text || a || '').trim(), done: !!a?.done }))
+    .map((a) => ({
+      text: String(a?.text || a || '').trim(),
+      done: !!a?.done,
+      assigneeUserId: Number(a?.assigneeUserId || 0) || 0
+    }))
     .filter((a) => a.text);
   if (!cleanGoals.length && !cleanActions.length) return;
   try {
@@ -14154,6 +14180,35 @@ const selectedMeetingParticipantChips = computed(() => {
     }
     return { id, row: null };
   });
+});
+
+/** Host + selected participants for action-item assignment while scheduling/editing. */
+const meetingDraftAssigneeOptions = computed(() => {
+  const out = [];
+  const seen = new Set();
+  const pushPerson = (id, name, firstName = '', lastName = '') => {
+    const uid = Number(id || 0);
+    if (!uid || seen.has(uid)) return;
+    seen.add(uid);
+    const label = String(name || `${firstName || ''} ${lastName || ''}`.trim() || `User ${uid}`).trim();
+    out.push({
+      id: uid,
+      name: label,
+      firstName: firstName || label,
+      lastName: lastName || ''
+    });
+  };
+  const hostId = Number(bookingTargetUserId.value || props.userId || authStore.user?.id || 0);
+  const hostLabel = String(bookingTargetUserLabel.value || '').trim()
+    || `${authStore.user?.firstName || authStore.user?.first_name || ''} ${authStore.user?.lastName || authStore.user?.last_name || ''}`.trim()
+    || 'Host';
+  if (hostId) pushPerson(hostId, hostLabel);
+  for (const chip of selectedMeetingParticipantChips.value || []) {
+    const row = chip?.row || {};
+    const name = String(row.name || `${row.firstName || row.first_name || ''} ${row.lastName || row.last_name || ''}`.trim() || '').trim();
+    pushPerson(chip?.id || row.id, name, row.firstName || row.first_name, row.lastName || row.last_name);
+  }
+  return out;
 });
 const meetingParticipantBusyText = (userId) => {
   const id = Number(userId || 0);
@@ -20311,6 +20366,8 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       description,
       startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
       endAt: endAt.length === 16 ? `${endAt}:00` : endAt,
+      // Required so Google-synced meetings store UTC correctly (avoids 7:30 → 1:30 drift).
+      timeZone: bookingTimezoneIana.value || browserIanaTimeZone() || 'America/Denver',
       agencyId: saveAgencyId,
       isPrivate: !!scheduleEventEditForm.value.isPrivate,
       allDay: false,

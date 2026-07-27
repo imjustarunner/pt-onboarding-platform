@@ -14,8 +14,9 @@
             + Add goal
           </button>
         </div>
-        <ul class="mgap__list">
+        <ol class="mgap__list">
           <li v-for="(g, idx) in goals" :key="g.id">
+            <span class="mgap__num" aria-hidden="true">{{ idx + 1 }}</span>
             <label class="mgap__check">
               <input v-model="g.done" type="checkbox" :disabled="disabled" @change="queueSave" />
             </label>
@@ -27,10 +28,14 @@
               :disabled="disabled"
               @input="queueSave"
             />
-            <button type="button" class="mgap__icon" :disabled="disabled" title="Remove" @click="removeGoal(idx)">🗑</button>
+            <div class="mgap__move">
+              <button type="button" class="mgap__icon" :disabled="disabled || idx === 0" title="Move up" @click="moveGoal(idx, -1)">↑</button>
+              <button type="button" class="mgap__icon" :disabled="disabled || idx >= goals.length - 1" title="Move down" @click="moveGoal(idx, 1)">↓</button>
+              <button type="button" class="mgap__icon" :disabled="disabled" title="Remove" @click="removeGoal(idx)">🗑</button>
+            </div>
           </li>
           <li v-if="!goals.length" class="mgap__empty muted">No goals yet.</li>
-        </ul>
+        </ol>
       </section>
 
       <section v-if="section === 'actions' || section === 'both'" class="mgap__section">
@@ -40,8 +45,9 @@
             + Add action item
           </button>
         </div>
-        <ul class="mgap__list mgap__list--actions">
+        <ol class="mgap__list mgap__list--actions">
           <li v-for="(a, idx) in actionItems" :key="a.id" class="mgap__action-row">
+            <span class="mgap__num" aria-hidden="true">{{ idx + 1 }}</span>
             <label class="mgap__check">
               <input v-model="a.done" type="checkbox" :disabled="disabled" @change="queueSave" />
             </label>
@@ -83,10 +89,14 @@
                 </span>
               </div>
             </div>
-            <button type="button" class="mgap__icon" :disabled="disabled" title="Remove" @click="removeAction(idx)">🗑</button>
+            <div class="mgap__move">
+              <button type="button" class="mgap__icon" :disabled="disabled || idx === 0" title="Move up" @click="moveAction(idx, -1)">↑</button>
+              <button type="button" class="mgap__icon" :disabled="disabled || idx >= actionItems.length - 1" title="Move down" @click="moveAction(idx, 1)">↓</button>
+              <button type="button" class="mgap__icon" :disabled="disabled" title="Remove" @click="removeAction(idx)">🗑</button>
+            </div>
           </li>
           <li v-if="!actionItems.length" class="mgap__empty muted">No action items yet.</li>
-        </ul>
+        </ol>
       </section>
 
       <div v-if="saveStatus || error" class="mgap__status" :class="`mgap__status--${saveStatus || 'error'}`" aria-live="polite">
@@ -170,7 +180,7 @@ const isAdminMeeting = computed(() => {
   const sub = String(props.meetingSubtype || loadedSubtype.value || 'general').toLowerCase();
   return sub === 'admin';
 });
-const allowAssignee = computed(() => (participants.value || []).length > 1);
+const allowAssignee = computed(() => (participants.value || []).length > 0);
 
 function uid(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -280,12 +290,24 @@ function queueSave() {
   saveTimer = setTimeout(() => { void saveNow(); }, 900);
 }
 
+function moveInList(listRef, idx, delta) {
+  const j = idx + delta;
+  const list = listRef.value || [];
+  if (j < 0 || j >= list.length) return;
+  const tmp = list[idx];
+  list[idx] = list[j];
+  list[j] = tmp;
+  queueSave();
+}
 function addGoal() {
   goals.value.push({ id: uid('g'), text: '', done: false });
 }
 function removeGoal(idx) {
   goals.value.splice(idx, 1);
   queueSave();
+}
+function moveGoal(idx, delta) {
+  moveInList(goals, idx, delta);
 }
 function addAction() {
   actionItems.value.push({
@@ -296,6 +318,9 @@ function addAction() {
     isEscalation: false,
     escalationTicketId: null
   });
+}
+function moveAction(idx, delta) {
+  moveInList(actionItems, idx, delta);
 }
 function removeAction(idx) {
   actionItems.value.splice(idx, 1);
@@ -404,6 +429,25 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+}
+.mgap__num {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 28px;
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.mgap__move {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 .mgap__check {
   display: inline-flex;
