@@ -170,88 +170,137 @@
 
     <aside v-if="showWorkspaceSide" class="tmb-side" aria-label="Agenda, goals, and action items">
       <div v-if="showAgendaDraft" class="tmb-side-section">
-        <label class="tmb-label">Agenda</label>
-        <p class="muted">Numbered items carry into the live session.</p>
-        <div class="tmb-agenda-add">
+        <div class="tmb-side-head">
+          <label class="tmb-label">Agenda</label>
+          <button type="button" class="tmb-link-btn" :disabled="disabled" @click="focusAgendaAdd">+ Add item</button>
+        </div>
+        <div v-if="showAgendaAdd" class="tmb-agenda-add">
           <input
+            ref="agendaAddRef"
             v-model="draftAgenda"
-            class="tmb-input"
+            class="tmb-input tmb-input--compact"
             type="text"
             :disabled="disabled"
-            placeholder="Add agenda item…"
+            placeholder="Agenda item"
             @keydown.enter.prevent="addAgenda"
+            @keydown.escape.prevent="showAgendaAdd = false"
           />
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="addAgenda">Add</button>
+          <button type="button" class="tmb-link-btn tmb-link-btn--strong" :disabled="disabled" @click="addAgenda">Add</button>
+          <button type="button" class="tmb-link-btn tmb-link-btn--muted" :disabled="disabled" @click="showAgendaAdd = false">Cancel</button>
         </div>
         <ol v-if="agendaItems.length" class="tmb-item-list">
-          <li v-for="(it, idx) in agendaItems" :key="`ag-${idx}`" class="tmb-item">
+          <li
+            v-for="(it, idx) in agendaItems"
+            :key="`ag-${idx}`"
+            class="tmb-item"
+            :class="{ 'tmb-item--editing': editingAgendaIdx === idx }"
+          >
             <span class="tmb-item-num" aria-hidden="true">{{ idx + 1 }}</span>
             <input
-              class="tmb-input tmb-item-input"
+              v-if="editingAgendaIdx === idx"
+              ref="agendaEditRef"
+              class="tmb-input tmb-input--compact tmb-item-input"
               type="text"
-              :value="it.title || it"
+              :value="editDraft"
               :disabled="disabled"
-              @input="updateAgendaText(idx, $event.target.value)"
+              @input="editDraft = $event.target.value"
+              @keydown.enter.prevent="saveAgendaEdit(idx)"
+              @keydown.escape.prevent="cancelAgendaEdit"
             />
+            <span v-else class="tmb-item-text">{{ it.title || it }}</span>
             <div class="tmb-item-actions">
-              <button type="button" class="tmb-icon-btn" :disabled="disabled || idx === 0" title="Move up" @click="moveAgenda(idx, -1)">↑</button>
-              <button type="button" class="tmb-icon-btn" :disabled="disabled || idx >= agendaItems.length - 1" title="Move down" @click="moveAgenda(idx, 1)">↓</button>
-              <button type="button" class="tmb-icon-btn" :disabled="disabled" title="Remove" @click="removeAgenda(idx)">×</button>
+              <template v-if="editingAgendaIdx === idx">
+                <button type="button" class="tmb-text-btn" :disabled="disabled" @click="saveAgendaEdit(idx)">Save</button>
+                <button type="button" class="tmb-text-btn" :disabled="disabled" @click="cancelAgendaEdit">Cancel</button>
+              </template>
+              <template v-else>
+                <button type="button" class="tmb-text-btn" :disabled="disabled" @click="startAgendaEdit(idx, it)">Edit</button>
+                <button type="button" class="tmb-icon-btn" :disabled="disabled || idx === 0" title="Move up" @click="moveAgenda(idx, -1)">↑</button>
+                <button type="button" class="tmb-icon-btn" :disabled="disabled || idx >= agendaItems.length - 1" title="Move down" @click="moveAgenda(idx, 1)">↓</button>
+                <button type="button" class="tmb-icon-btn tmb-icon-btn--danger" :disabled="disabled" title="Remove" @click="removeAgenda(idx)">×</button>
+              </template>
             </div>
           </li>
         </ol>
+        <p v-else class="muted tmb-empty">No agenda items yet.</p>
       </div>
 
       <div v-if="showGoalsActionsDraft" class="tmb-side-section">
-        <label class="tmb-label">Goals</label>
-        <p class="muted">Goals carry into the meeting workspace.</p>
-        <div class="tmb-agenda-add">
+        <div class="tmb-side-head">
+          <label class="tmb-label">Goals</label>
+          <button type="button" class="tmb-link-btn" :disabled="disabled" @click="focusGoalAdd">+ Add goal</button>
+        </div>
+        <div v-if="showGoalAdd" class="tmb-agenda-add">
           <input
+            ref="goalAddRef"
             v-model="draftGoal"
-            class="tmb-input"
+            class="tmb-input tmb-input--compact"
             type="text"
             :disabled="disabled"
-            placeholder="Add a goal…"
+            placeholder="Goal"
             @keydown.enter.prevent="addGoal"
+            @keydown.escape.prevent="showGoalAdd = false"
           />
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="addGoal">Add</button>
+          <button type="button" class="tmb-link-btn tmb-link-btn--strong" :disabled="disabled" @click="addGoal">Add</button>
+          <button type="button" class="tmb-link-btn tmb-link-btn--muted" :disabled="disabled" @click="showGoalAdd = false">Cancel</button>
         </div>
         <ol v-if="goalDraftItems.length" class="tmb-item-list">
-          <li v-for="(it, idx) in goalDraftItems" :key="`gl-${idx}`" class="tmb-item">
+          <li
+            v-for="(it, idx) in goalDraftItems"
+            :key="`gl-${idx}`"
+            class="tmb-item"
+            :class="{ 'tmb-item--editing': editingGoalIdx === idx }"
+          >
             <span class="tmb-item-num" aria-hidden="true">{{ idx + 1 }}</span>
             <input
-              class="tmb-input tmb-item-input"
+              v-if="editingGoalIdx === idx"
+              class="tmb-input tmb-input--compact tmb-item-input"
               type="text"
-              :value="it.text || it"
+              :value="editDraft"
               :disabled="disabled"
-              @input="updateGoalText(idx, $event.target.value)"
+              @input="editDraft = $event.target.value"
+              @keydown.enter.prevent="saveGoalEdit(idx)"
+              @keydown.escape.prevent="cancelGoalEdit"
             />
+            <span v-else class="tmb-item-text">{{ it.text || it }}</span>
             <div class="tmb-item-actions">
-              <button type="button" class="tmb-icon-btn" :disabled="disabled || idx === 0" title="Move up" @click="moveGoal(idx, -1)">↑</button>
-              <button type="button" class="tmb-icon-btn" :disabled="disabled || idx >= goalDraftItems.length - 1" title="Move down" @click="moveGoal(idx, 1)">↓</button>
-              <button type="button" class="tmb-icon-btn" :disabled="disabled" title="Remove" @click="removeGoal(idx)">×</button>
+              <template v-if="editingGoalIdx === idx">
+                <button type="button" class="tmb-text-btn" :disabled="disabled" @click="saveGoalEdit(idx)">Save</button>
+                <button type="button" class="tmb-text-btn" :disabled="disabled" @click="cancelGoalEdit">Cancel</button>
+              </template>
+              <template v-else>
+                <button type="button" class="tmb-text-btn" :disabled="disabled" @click="startGoalEdit(idx, it)">Edit</button>
+                <button type="button" class="tmb-icon-btn" :disabled="disabled || idx === 0" title="Move up" @click="moveGoal(idx, -1)">↑</button>
+                <button type="button" class="tmb-icon-btn" :disabled="disabled || idx >= goalDraftItems.length - 1" title="Move down" @click="moveGoal(idx, 1)">↓</button>
+                <button type="button" class="tmb-icon-btn tmb-icon-btn--danger" :disabled="disabled" title="Remove" @click="removeGoal(idx)">×</button>
+              </template>
             </div>
           </li>
         </ol>
+        <p v-else class="muted tmb-empty">No goals yet.</p>
       </div>
 
       <div v-if="showGoalsActionsDraft" class="tmb-side-section">
-        <label class="tmb-label">Action items</label>
-        <p class="muted">Assign owners now; Admin Meetings can escalate later.</p>
-        <div class="tmb-agenda-add tmb-agenda-add--stack">
+        <div class="tmb-side-head">
+          <label class="tmb-label">Action items</label>
+          <button type="button" class="tmb-link-btn" :disabled="disabled" @click="focusActionAdd">+ Add action</button>
+        </div>
+        <div v-if="showActionAdd" class="tmb-agenda-add tmb-agenda-add--stack">
           <input
+            ref="actionAddRef"
             v-model="draftAction"
-            class="tmb-input"
+            class="tmb-input tmb-input--compact"
             type="text"
             :disabled="disabled"
-            placeholder="Add an action item…"
+            placeholder="Action item"
             @keydown.enter.prevent="addAction"
+            @keydown.escape.prevent="showActionAdd = false"
           />
           <div class="tmb-action-add-row">
             <select
               v-if="assigneeOptions.length"
               v-model.number="draftActionAssigneeId"
-              class="tmb-input tmb-assignee-select"
+              class="tmb-input tmb-input--compact tmb-assignee-select"
               :disabled="disabled"
               aria-label="Assign to"
             >
@@ -260,49 +309,72 @@
                 {{ p.name }}
               </option>
             </select>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="addAction">Add</button>
+            <button type="button" class="tmb-link-btn tmb-link-btn--strong" :disabled="disabled" @click="addAction">Add</button>
+            <button type="button" class="tmb-link-btn tmb-link-btn--muted" :disabled="disabled" @click="showActionAdd = false">Cancel</button>
           </div>
         </div>
         <ol v-if="actionDraftItems.length" class="tmb-item-list">
-          <li v-for="(it, idx) in actionDraftItems" :key="`ac-${idx}`" class="tmb-item tmb-item--action">
+          <li
+            v-for="(it, idx) in actionDraftItems"
+            :key="`ac-${idx}`"
+            class="tmb-item tmb-item--action"
+            :class="{ 'tmb-item--editing': editingActionIdx === idx }"
+          >
             <span class="tmb-item-num" aria-hidden="true">{{ idx + 1 }}</span>
             <div class="tmb-item-col">
               <input
-                class="tmb-input tmb-item-input"
+                v-if="editingActionIdx === idx"
+                class="tmb-input tmb-input--compact tmb-item-input"
                 type="text"
-                :value="it.text || it"
+                :value="editDraft"
                 :disabled="disabled"
-                @input="updateActionText(idx, $event.target.value)"
+                @input="editDraft = $event.target.value"
+                @keydown.enter.prevent="saveActionEdit(idx)"
+                @keydown.escape.prevent="cancelActionEdit"
               />
+              <span v-else class="tmb-item-text">{{ it.text || it }}</span>
               <select
-                v-if="assigneeOptions.length"
-                class="tmb-input tmb-assignee-select"
-                :value="Number(it.assigneeUserId || 0)"
+                v-if="editingActionIdx === idx && assigneeOptions.length"
+                class="tmb-input tmb-input--compact tmb-assignee-select"
+                :value="Number(editAssigneeId || 0)"
                 :disabled="disabled"
                 aria-label="Assign action item"
-                @change="updateActionAssignee(idx, $event.target.value)"
+                @change="editAssigneeId = Number($event.target.value || 0)"
               >
                 <option :value="0">Unassigned</option>
-                <option v-for="p in assigneeOptions" :key="`a-${idx}-${p.id}`" :value="p.id">
+                <option v-for="p in assigneeOptions" :key="`a-edit-${idx}-${p.id}`" :value="p.id">
                   {{ p.name }}
                 </option>
               </select>
-              <p v-else class="muted tmb-assign-hint">Select participants above to assign owners.</p>
+              <span
+                v-else-if="editingActionIdx !== idx && Number(it.assigneeUserId || 0) > 0"
+                class="tmb-assignee-chip"
+              >
+                {{ assigneeName(it.assigneeUserId) }}
+              </span>
             </div>
             <div class="tmb-item-actions">
-              <button type="button" class="tmb-icon-btn" :disabled="disabled || idx === 0" title="Move up" @click="moveAction(idx, -1)">↑</button>
-              <button type="button" class="tmb-icon-btn" :disabled="disabled || idx >= actionDraftItems.length - 1" title="Move down" @click="moveAction(idx, 1)">↓</button>
-              <button type="button" class="tmb-icon-btn" :disabled="disabled" title="Remove" @click="removeAction(idx)">×</button>
+              <template v-if="editingActionIdx === idx">
+                <button type="button" class="tmb-text-btn" :disabled="disabled" @click="saveActionEdit(idx)">Save</button>
+                <button type="button" class="tmb-text-btn" :disabled="disabled" @click="cancelActionEdit">Cancel</button>
+              </template>
+              <template v-else>
+                <button type="button" class="tmb-text-btn" :disabled="disabled" @click="startActionEdit(idx, it)">Edit</button>
+                <button type="button" class="tmb-icon-btn" :disabled="disabled || idx === 0" title="Move up" @click="moveAction(idx, -1)">↑</button>
+                <button type="button" class="tmb-icon-btn" :disabled="disabled || idx >= actionDraftItems.length - 1" title="Move down" @click="moveAction(idx, 1)">↓</button>
+                <button type="button" class="tmb-icon-btn tmb-icon-btn--danger" :disabled="disabled" title="Remove" @click="removeAction(idx)">×</button>
+              </template>
             </div>
           </li>
         </ol>
+        <p v-else class="muted tmb-empty">No action items yet.</p>
       </div>
     </aside>
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -358,6 +430,17 @@ const draftAgenda = ref('');
 const draftGoal = ref('');
 const draftAction = ref('');
 const draftActionAssigneeId = ref(0);
+const showAgendaAdd = ref(false);
+const showGoalAdd = ref(false);
+const showActionAdd = ref(false);
+const editingAgendaIdx = ref(-1);
+const editingGoalIdx = ref(-1);
+const editingActionIdx = ref(-1);
+const editDraft = ref('');
+const editAssigneeId = ref(0);
+const agendaAddRef = ref(null);
+const goalAddRef = ref(null);
+const actionAddRef = ref(null);
 
 const showWorkspaceSide = computed(() => !!(props.showAgendaDraft || props.showGoalsActionsDraft));
 
@@ -393,25 +476,76 @@ function moveInList(list, idx, delta) {
   return next;
 }
 
+function clearEdits() {
+  editingAgendaIdx.value = -1;
+  editingGoalIdx.value = -1;
+  editingActionIdx.value = -1;
+  editDraft.value = '';
+  editAssigneeId.value = 0;
+}
+
+function assigneeName(userId) {
+  const id = Number(userId || 0);
+  const p = (props.assigneeOptions || []).find((row) => Number(row?.id || 0) === id);
+  return p?.name || `User ${id}`;
+}
+
+async function focusAgendaAdd() {
+  clearEdits();
+  showAgendaAdd.value = true;
+  await nextTick();
+  agendaAddRef.value?.focus?.();
+}
+async function focusGoalAdd() {
+  clearEdits();
+  showGoalAdd.value = true;
+  await nextTick();
+  goalAddRef.value?.focus?.();
+}
+async function focusActionAdd() {
+  clearEdits();
+  showActionAdd.value = true;
+  await nextTick();
+  actionAddRef.value?.focus?.();
+}
+
 function addAgenda() {
   const t = String(draftAgenda.value || '').trim();
   if (!t) return;
-  emit('update:agendaItems', [...(props.agendaItems || []), { title: t }]);
+  const next = [...(props.agendaItems || []), { title: t }];
+  emit('update:agendaItems', next);
   draftAgenda.value = '';
+  showAgendaAdd.value = false;
 }
 
-function updateAgendaText(idx, value) {
+function startAgendaEdit(idx, it) {
+  clearEdits();
+  editingAgendaIdx.value = idx;
+  editDraft.value = String(it?.title || it || '');
+}
+
+function saveAgendaEdit(idx) {
+  const nextText = String(editDraft.value || '').trim();
+  if (!nextText) return;
   const next = [...(props.agendaItems || [])];
   const cur = next[idx];
-  next[idx] = typeof cur === 'string' ? { title: value } : { ...cur, title: value };
+  next[idx] = typeof cur === 'string' ? { title: nextText } : { ...cur, title: nextText };
   emit('update:agendaItems', next);
+  cancelAgendaEdit();
+}
+
+function cancelAgendaEdit() {
+  editingAgendaIdx.value = -1;
+  editDraft.value = '';
 }
 
 function moveAgenda(idx, delta) {
+  clearEdits();
   emit('update:agendaItems', moveInList(props.agendaItems, idx, delta));
 }
 
 function removeAgenda(idx) {
+  clearEdits();
   const next = [...(props.agendaItems || [])];
   next.splice(idx, 1);
   emit('update:agendaItems', next);
@@ -420,22 +554,40 @@ function removeAgenda(idx) {
 function addGoal() {
   const t = String(draftGoal.value || '').trim();
   if (!t) return;
-  emit('update:goalDraftItems', [...(props.goalDraftItems || []), { text: t, done: false }]);
+  const next = [...(props.goalDraftItems || []), { text: t, done: false }];
+  emit('update:goalDraftItems', next);
   draftGoal.value = '';
+  showGoalAdd.value = false;
 }
 
-function updateGoalText(idx, value) {
+function startGoalEdit(idx, it) {
+  clearEdits();
+  editingGoalIdx.value = idx;
+  editDraft.value = String(it?.text || it || '');
+}
+
+function saveGoalEdit(idx) {
+  const nextText = String(editDraft.value || '').trim();
+  if (!nextText) return;
   const next = [...(props.goalDraftItems || [])];
   const cur = next[idx];
-  next[idx] = typeof cur === 'string' ? { text: value, done: false } : { ...cur, text: value };
+  next[idx] = typeof cur === 'string' ? { text: nextText, done: false } : { ...cur, text: nextText };
   emit('update:goalDraftItems', next);
+  cancelGoalEdit();
+}
+
+function cancelGoalEdit() {
+  editingGoalIdx.value = -1;
+  editDraft.value = '';
 }
 
 function moveGoal(idx, delta) {
+  clearEdits();
   emit('update:goalDraftItems', moveInList(props.goalDraftItems, idx, delta));
 }
 
 function removeGoal(idx) {
+  clearEdits();
   const next = [...(props.goalDraftItems || [])];
   next.splice(idx, 1);
   emit('update:goalDraftItems', next);
@@ -444,35 +596,53 @@ function removeGoal(idx) {
 function addAction() {
   const t = String(draftAction.value || '').trim();
   if (!t) return;
-  emit('update:actionDraftItems', [
-    ...(props.actionDraftItems || []),
-    { text: t, done: false, assigneeUserId: Number(draftActionAssigneeId.value || 0) || 0 }
-  ]);
+  const row = {
+    text: t,
+    done: false,
+    assigneeUserId: Number(draftActionAssigneeId.value || 0) || 0
+  };
+  const next = [...(props.actionDraftItems || []), row];
+  emit('update:actionDraftItems', next);
   draftAction.value = '';
   draftActionAssigneeId.value = 0;
+  showActionAdd.value = false;
 }
 
-function updateActionText(idx, value) {
-  const next = [...(props.actionDraftItems || [])];
-  const cur = next[idx];
-  next[idx] = typeof cur === 'string'
-    ? { text: value, done: false, assigneeUserId: 0 }
-    : { ...cur, text: value };
-  emit('update:actionDraftItems', next);
+function startActionEdit(idx, it) {
+  clearEdits();
+  editingActionIdx.value = idx;
+  editDraft.value = String(it?.text || it || '');
+  editAssigneeId.value = Number(it?.assigneeUserId || 0) || 0;
 }
 
-function updateActionAssignee(idx, value) {
+function saveActionEdit(idx) {
+  const nextText = String(editDraft.value || '').trim();
+  if (!nextText) return;
   const next = [...(props.actionDraftItems || [])];
   const cur = next[idx] || {};
-  next[idx] = { ...cur, text: cur.text || '', done: !!cur.done, assigneeUserId: Number(value || 0) || 0 };
+  next[idx] = {
+    ...cur,
+    text: nextText,
+    done: !!cur.done,
+    assigneeUserId: Number(editAssigneeId.value || 0) || 0
+  };
   emit('update:actionDraftItems', next);
+  cancelActionEdit();
+}
+
+function cancelActionEdit() {
+  editingActionIdx.value = -1;
+  editDraft.value = '';
+  editAssigneeId.value = 0;
 }
 
 function moveAction(idx, delta) {
+  clearEdits();
   emit('update:actionDraftItems', moveInList(props.actionDraftItems, idx, delta));
 }
 
 function removeAction(idx) {
+  clearEdits();
   const next = [...(props.actionDraftItems || [])];
   next.splice(idx, 1);
   emit('update:actionDraftItems', next);
@@ -495,23 +665,56 @@ function removeAction(idx) {
   min-width: 0;
 }
 .tmb-side {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 12px;
+  background: linear-gradient(180deg, #fafbfc 0%, #f4f6f8 100%);
+  border: none;
+  border-radius: 14px;
+  padding: 14px 12px;
   max-height: min(70vh, 640px);
   overflow: auto;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
 }
 .tmb-side-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #e2e8f0;
+  gap: 4px;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 }
 .tmb-side-section:last-child {
   border-bottom: none;
+  margin-bottom: 0;
   padding-bottom: 0;
+}
+.tmb-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tmb-side-head .tmb-label {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+}
+.tmb-link-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #7c3aed;
+  cursor: pointer;
+}
+.tmb-link-btn:hover:not(:disabled) { color: #6d28d9; }
+.tmb-link-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.tmb-link-btn--strong { font-weight: 700; }
+.tmb-link-btn--muted { color: #94a3b8; font-weight: 500; }
+.tmb-link-btn--muted:hover:not(:disabled) { color: #64748b; }
+.tmb-empty {
+  margin: 0;
+  font-size: 0.82rem;
 }
 .tmb-row { display: flex; flex-direction: column; gap: 6px; }
 .tmb-label {
@@ -596,65 +799,131 @@ function removeAction(idx) {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
 }
 .tmb-switch input:checked + .tmb-switch-slider::before { transform: translateX(20px); }
-.tmb-agenda-add { display: flex; gap: 8px; }
-.tmb-agenda-add--stack { flex-direction: column; }
-.tmb-action-add-row { display: flex; gap: 8px; }
-.tmb-assignee-select { max-width: 100%; font-size: 0.85rem; }
+.tmb-input--compact {
+  padding: 7px 10px;
+  font-size: 0.84rem;
+  border: none;
+  background: #f1f5f9;
+  border-radius: 8px;
+}
+.tmb-input--compact:focus {
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.22);
+}
+.tmb-agenda-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tmb-agenda-add--stack { flex-direction: column; align-items: stretch; }
+.tmb-action-add-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tmb-assignee-select { max-width: 100%; font-size: 0.82rem; }
 .tmb-item-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 .tmb-item {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: start;
-}
-.tmb-item--action { align-items: start; }
-.tmb-item-num {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 32px;
+  gap: 6px;
+  padding: 4px 6px;
   border-radius: 8px;
-  background: #e2e8f0;
-  color: #334155;
+  min-height: 30px;
+}
+.tmb-item:hover { background: #f8fafc; }
+.tmb-item--editing { background: #f1f5f9; }
+.tmb-item--action { align-items: flex-start; }
+.tmb-item-num {
+  flex: 0 0 auto;
+  width: 1.1rem;
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 600;
+  color: #94a3b8;
+  text-align: right;
 }
 .tmb-item-col {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
+  flex: 1;
 }
-.tmb-item-input { padding: 6px 8px; }
+.tmb-item-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: #0f172a;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tmb-item-input { flex: 1; min-width: 0; }
+.tmb-assignee-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+}
 .tmb-item-actions {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.tmb-item:hover .tmb-item-actions,
+.tmb-item--editing .tmb-item-actions {
+  opacity: 1;
+}
+.tmb-text-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+  border-radius: 4px;
+}
+.tmb-text-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
 }
 .tmb-icon-btn {
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  color: #475569;
-  border-radius: 6px;
-  width: 28px;
-  height: 24px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  border-radius: 4px;
+  width: auto;
+  height: auto;
+  padding: 2px 4px;
   line-height: 1;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
 }
-.tmb-icon-btn:disabled {
-  opacity: 0.4;
+.tmb-icon-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #334155;
+}
+.tmb-icon-btn--danger:hover:not(:disabled) {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.tmb-icon-btn:disabled,
+.tmb-text-btn:disabled {
+  opacity: 0.35;
   cursor: not-allowed;
 }
-.tmb-assign-hint { font-size: 0.78rem; }
+.btn-ghost {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+}
 .muted { color: #64748b; font-size: 0.84rem; margin: 0; }
 @media (max-width: 980px) {
   .tmb--with-side {

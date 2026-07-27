@@ -1,5 +1,9 @@
 <template>
-  <div class="mgap" data-testid="meeting-goals-actions-panel">
+  <div
+    class="mgap"
+    :class="{ 'mgap--compact': compact, 'mgap--embedded': embedded }"
+    data-testid="meeting-goals-actions-panel"
+  >
     <p v-if="!eventId" class="muted mgap__hint">
       Save the meeting first, then you can add goals and action items.
     </p>
@@ -9,29 +13,60 @@
     <template v-if="eventId && (hasLoaded || !loading)">
       <section v-if="section === 'goals' || section === 'both'" class="mgap__section">
         <div class="mgap__head">
-          <h3>Goals for this meeting</h3>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="addGoal">
+          <h3>Goals</h3>
+          <button type="button" class="mw-link-btn" :disabled="disabled" @click="addGoal">
             + Add goal
           </button>
         </div>
         <ol class="mgap__list">
-          <li v-for="(g, idx) in goals" :key="g.id">
+          <li
+            v-for="(g, idx) in goals"
+            :key="g.id"
+            :class="{ 'mgap__row--editing': editingGoalId === g.id }"
+          >
             <span class="mgap__num" aria-hidden="true">{{ idx + 1 }}</span>
             <label class="mgap__check">
               <input v-model="g.done" type="checkbox" :disabled="disabled" @change="queueSave" />
             </label>
-            <input
-              v-model="g.text"
-              class="input"
-              type="text"
-              placeholder="Goal"
-              :disabled="disabled"
-              @input="queueSave"
-            />
-            <div class="mgap__move">
-              <button type="button" class="mgap__icon" :disabled="disabled || idx === 0" title="Move up" @click="moveGoal(idx, -1)">↑</button>
-              <button type="button" class="mgap__icon" :disabled="disabled || idx >= goals.length - 1" title="Move down" @click="moveGoal(idx, 1)">↓</button>
-              <button type="button" class="mgap__icon" :disabled="disabled" title="Remove" @click="removeGoal(idx)">🗑</button>
+            <div class="mgap__body">
+              <input
+                v-if="!compact || editingGoalId === g.id"
+                v-model="g.text"
+                class="mw-field mgap__input"
+                type="text"
+                placeholder="Goal"
+                :disabled="disabled"
+                @input="queueSave"
+                @keydown.enter.prevent="finishGoalEdit(g)"
+                @keydown.escape.prevent="cancelGoalEdit"
+              />
+              <span v-else class="mgap__text" :class="{ 'mgap__text--done': g.done }">{{ g.text }}</span>
+            </div>
+            <div class="mgap__actions">
+              <template v-if="compact && editingGoalId === g.id">
+                <button type="button" class="mgap__action" @click="finishGoalEdit(g)">Save</button>
+                <button type="button" class="mgap__action" @click="cancelGoalEdit">Cancel</button>
+              </template>
+              <template v-else>
+                <button
+                  v-if="compact"
+                  type="button"
+                  class="mgap__action"
+                  :disabled="disabled"
+                  @click="startGoalEdit(g)"
+                >
+                  Edit
+                </button>
+                <button type="button" class="mw-icon-btn" :disabled="disabled || idx === 0" title="Move up" aria-label="Move up" @click="moveGoal(idx, -1)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+                </button>
+                <button type="button" class="mw-icon-btn" :disabled="disabled || idx >= goals.length - 1" title="Move down" aria-label="Move down" @click="moveGoal(idx, 1)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                <button type="button" class="mw-icon-btn mw-icon-btn--danger" :disabled="disabled" title="Remove" aria-label="Remove" @click="removeGoal(idx)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </template>
             </div>
           </li>
           <li v-if="!goals.length" class="mgap__empty muted">No goals yet.</li>
@@ -41,31 +76,43 @@
       <section v-if="section === 'actions' || section === 'both'" class="mgap__section">
         <div class="mgap__head">
           <h3>Action items</h3>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="addAction">
-            + Add action item
+          <button type="button" class="mw-link-btn" :disabled="disabled" @click="addAction">
+            + Add action
           </button>
         </div>
         <ol class="mgap__list mgap__list--actions">
-          <li v-for="(a, idx) in actionItems" :key="a.id" class="mgap__action-row">
+          <li
+            v-for="(a, idx) in actionItems"
+            :key="a.id"
+            class="mgap__action-row"
+            :class="{ 'mgap__row--editing': editingActionId === a.id }"
+          >
             <span class="mgap__num" aria-hidden="true">{{ idx + 1 }}</span>
             <label class="mgap__check">
               <input v-model="a.done" type="checkbox" :disabled="disabled" @change="queueSave" />
             </label>
             <div class="mgap__action-body">
               <input
+                v-if="!compact || editingActionId === a.id"
                 v-model="a.text"
-                class="input"
+                class="mw-field mgap__input"
                 type="text"
                 placeholder="Action item"
                 :disabled="disabled"
                 @input="queueSave"
+                @keydown.enter.prevent="finishActionEdit(a)"
+                @keydown.escape.prevent="cancelActionEdit"
               />
-              <div class="mgap__action-meta">
+              <span v-else class="mgap__text" :class="{ 'mgap__text--done': a.done }">{{ a.text }}</span>
+              <div
+                v-if="(!compact || editingActionId === a.id) && (allowAssignee || isAdminMeeting)"
+                class="mgap__action-meta"
+              >
                 <label v-if="allowAssignee" class="mgap__assignee">
                   <span>Assign</span>
                   <select
                     v-model.number="a.assigneeUserId"
-                    class="input"
+                    class="mw-field mgap__select"
                     :disabled="disabled"
                     @change="queueSave"
                   >
@@ -88,11 +135,35 @@
                   Escalation #{{ a.escalationTicketId }}
                 </span>
               </div>
+              <div v-else-if="compact && a.assigneeUserId" class="mgap__assignee-chip">
+                {{ assigneeLabel(a.assigneeUserId) }}
+              </div>
             </div>
-            <div class="mgap__move">
-              <button type="button" class="mgap__icon" :disabled="disabled || idx === 0" title="Move up" @click="moveAction(idx, -1)">↑</button>
-              <button type="button" class="mgap__icon" :disabled="disabled || idx >= actionItems.length - 1" title="Move down" @click="moveAction(idx, 1)">↓</button>
-              <button type="button" class="mgap__icon" :disabled="disabled" title="Remove" @click="removeAction(idx)">🗑</button>
+            <div class="mgap__actions">
+              <template v-if="compact && editingActionId === a.id">
+                <button type="button" class="mgap__action" @click="finishActionEdit(a)">Save</button>
+                <button type="button" class="mgap__action" @click="cancelActionEdit">Cancel</button>
+              </template>
+              <template v-else>
+                <button
+                  v-if="compact"
+                  type="button"
+                  class="mgap__action"
+                  :disabled="disabled"
+                  @click="startActionEdit(a)"
+                >
+                  Edit
+                </button>
+                <button type="button" class="mw-icon-btn" :disabled="disabled || idx === 0" title="Move up" aria-label="Move up" @click="moveAction(idx, -1)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+                </button>
+                <button type="button" class="mw-icon-btn" :disabled="disabled || idx >= actionItems.length - 1" title="Move down" aria-label="Move down" @click="moveAction(idx, 1)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                <button type="button" class="mw-icon-btn mw-icon-btn--danger" :disabled="disabled" title="Remove" aria-label="Remove" @click="removeAction(idx)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </template>
             </div>
           </li>
           <li v-if="!actionItems.length" class="mgap__empty muted">No action items yet.</li>
@@ -140,6 +211,10 @@ const props = defineProps({
   eventId: { type: [Number, String], default: 0 },
   disabled: { type: Boolean, default: false },
   section: { type: String, default: 'both' },
+  /** Condensed view with Edit button per row */
+  compact: { type: Boolean, default: true },
+  /** Borderless sections for side rail */
+  embedded: { type: Boolean, default: false },
   /** Force admin meeting UX even before workspace load */
   meetingSubtype: { type: String, default: '' },
   /** Preloaded participants; otherwise loaded from workspace */
@@ -158,6 +233,8 @@ const saving = ref(false);
 const pendingSave = ref(false);
 const error = ref('');
 const saveStatus = ref('');
+const editingGoalId = ref(null);
+const editingActionId = ref(null);
 let saveTimer = null;
 let flashTimer = null;
 let loadedEventId = 0;
@@ -186,6 +263,13 @@ function uid(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function assigneeLabel(userId) {
+  const id = Number(userId || 0);
+  const p = (participants.value || []).find((row) => Number(row?.id || 0) === id);
+  if (!p) return `User ${id}`;
+  return p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || `User ${id}`;
+}
+
 function normalizeGoals(list) {
   if (!Array.isArray(list)) return [];
   return list.map((item, idx) => ({
@@ -207,6 +291,32 @@ function normalizeActions(list) {
   }));
 }
 
+function startGoalEdit(goal) {
+  editingGoalId.value = goal?.id || null;
+  editingActionId.value = null;
+}
+function finishGoalEdit() {
+  editingGoalId.value = null;
+  queueSave();
+}
+function cancelGoalEdit() {
+  editingGoalId.value = null;
+  void load();
+}
+
+function startActionEdit(action) {
+  editingActionId.value = action?.id || null;
+  editingGoalId.value = null;
+}
+function finishActionEdit() {
+  editingActionId.value = null;
+  queueSave();
+}
+function cancelActionEdit() {
+  editingActionId.value = null;
+  void load();
+}
+
 async function load() {
   const eid = Number(props.eventId || 0);
   error.value = '';
@@ -217,8 +327,7 @@ async function load() {
     loadedEventId = 0;
     return;
   }
-  // Same meeting already loaded — do not wipe the form (tab switches / parent re-renders).
-  if (eid === loadedEventId && hasLoaded.value) return;
+  if (eid === loadedEventId && hasLoaded.value && !editingGoalId.value && !editingActionId.value) return;
 
   const generation = ++loadGeneration;
   const isInitial = eid !== loadedEventId || !hasLoaded.value;
@@ -268,7 +377,6 @@ async function saveNow() {
       goals: payloadGoals,
       actionItems: payloadActions
     }, { skipGlobalLoading: true });
-    // Keep local rows as source of truth so typing/focus is never reset by the save response.
     emit('saved', { goals: goals.value, actionItems: actionItems.value });
     saveStatus.value = 'saved';
     if (flashTimer) clearTimeout(flashTimer);
@@ -300,37 +408,44 @@ function moveInList(listRef, idx, delta) {
   queueSave();
 }
 function addGoal() {
-  goals.value.push({ id: uid('g'), text: '', done: false });
+  const row = { id: uid('g'), text: '', done: false };
+  goals.value.push(row);
+  if (props.compact) startGoalEdit(row);
 }
 function removeGoal(idx) {
+  const row = goals.value[idx];
   goals.value.splice(idx, 1);
+  if (editingGoalId.value === row?.id) editingGoalId.value = null;
   queueSave();
 }
 function moveGoal(idx, delta) {
   moveInList(goals, idx, delta);
 }
 function addAction() {
-  actionItems.value.push({
+  const row = {
     id: uid('a'),
     text: '',
     done: false,
     assigneeUserId: 0,
     isEscalation: false,
     escalationTicketId: null
-  });
+  };
+  actionItems.value.push(row);
+  if (props.compact) startActionEdit(row);
 }
 function moveAction(idx, delta) {
   moveInList(actionItems, idx, delta);
 }
 function removeAction(idx) {
+  const row = actionItems.value[idx];
   actionItems.value.splice(idx, 1);
+  if (editingActionId.value === row?.id) editingActionId.value = null;
   queueSave();
 }
 
 function onEscalationToggle(item, evt) {
   const checked = !!evt?.target?.checked;
   if (!checked) {
-    // Keep linked escalations; unchecking only allowed before ticket exists.
     item.isEscalation = !!item.escalationTicketId;
     evt.target.checked = !!item.escalationTicketId;
     return;
@@ -357,7 +472,6 @@ async function submitEscalate() {
   escalating.value = true;
   escalateError.value = '';
   try {
-    // Persist text first so the item exists server-side.
     item.text = String(escalateForm.value.issue || item.text || '').trim();
     await saveNow();
     const { data } = await api.post(
@@ -387,6 +501,8 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
   if (Number(eid || 0) !== Number(prev || 0)) {
     hasLoaded.value = false;
     loadedEventId = 0;
+    editingGoalId.value = null;
+    editingActionId.value = null;
   }
   void load();
 }, { immediate: true });
@@ -396,15 +512,25 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
 .mgap {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 4px 2px 12px;
+  gap: 0;
+  padding: 0;
 }
-.mgap__hint { margin: 0; }
+.mgap__hint { margin: 0; font-size: 0.82rem; color: #64748b; }
 .mgap__section {
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 12px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.65);
+  padding: 0;
+  background: transparent;
+}
+.mgap:not(.mgap--embedded) .mgap__section {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+  margin-bottom: 12px;
+}
+.mgap--embedded .mgap__section + .mgap__section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
 }
 .mgap__head {
   display: flex;
@@ -415,7 +541,39 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
 }
 .mgap__head h3 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.mw-link-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #7c3aed;
+  cursor: pointer;
+}
+.mw-link-btn:hover:not(:disabled) { color: #6d28d9; }
+.mw-link-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.mw-field {
+  width: 100%;
+  border: none;
+  border-radius: 8px;
+  background: #f1f5f9;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 0.84rem;
+  color: #0f172a;
+  outline: none;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.mw-field:focus {
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.22);
 }
 .mgap__list {
   list-style: none;
@@ -423,88 +581,165 @@ watch(() => Number(props.eventId || 0), (eid, prev) => {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
 }
 .mgap__list li {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  min-height: 34px;
+  transition: background 0.12s ease;
+}
+.mgap__list li:hover {
+  background: rgba(148, 163, 184, 0.1);
+}
+.mgap__row--editing {
+  background: rgba(124, 58, 237, 0.06);
 }
 .mgap__num {
   flex: 0 0 auto;
-  width: 24px;
-  height: 28px;
-  margin-top: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  background: #e2e8f0;
-  color: #334155;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-.mgap__move {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
+  width: 1.1rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-align: right;
 }
 .mgap__check {
   display: inline-flex;
   align-items: center;
-  padding-top: 8px;
 }
+.mgap__check input {
+  width: 15px;
+  height: 15px;
+  accent-color: #7c3aed;
+  cursor: pointer;
+}
+.mgap__body,
 .mgap__action-body {
   flex: 1;
   min-width: 0;
+}
+.mgap__action-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+}
+.mgap__input,
+.mgap__select {
+  font-size: 0.84rem;
+}
+.mgap__select {
+  min-width: 0;
+  max-width: 100%;
+}
+.mgap__text {
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: #1e293b;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mgap__text--done {
+  text-decoration: line-through;
+  color: #94a3b8;
 }
 .mgap__action-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 .mgap__assignee {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
 }
-.mgap__assignee select {
-  min-width: 140px;
-  font-size: 12px;
-  padding: 4px 8px;
+.mgap__assignee-chip {
+  font-size: 0.72rem;
+  color: #64748b;
+  font-weight: 600;
 }
 .mgap__esc-check {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 .mgap__esc-chip {
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 0.68rem;
+  font-weight: 700;
   color: #92400e;
-  background: #fef3c7;
+  background: rgba(251, 191, 36, 0.2);
   border-radius: 999px;
   padding: 2px 8px;
 }
-.mgap__icon {
-  border: 0;
+.mgap__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.mgap__list li:hover .mgap__actions,
+.mgap__row--editing .mgap__actions {
+  opacity: 1;
+}
+.mgap__action {
+  appearance: none;
+  border: none;
   background: transparent;
   cursor: pointer;
-  opacity: 0.7;
-  padding: 6px 4px;
+  padding: 2px 8px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #64748b;
+  border-radius: 6px;
 }
-.mgap__empty { font-size: 13px; }
+.mgap__action:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.16);
+  color: #0f172a;
+}
+.mw-icon-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 0;
+  color: #94a3b8;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mw-icon-btn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.16);
+  color: #475569;
+}
+.mw-icon-btn--danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+}
+.mw-icon-btn:disabled,
+.mgap__action:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.mgap__empty { font-size: 0.82rem; color: #64748b; }
 .mgap__status {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-top: 6px;
 }
 .mgap__status--saving { color: #64748b; }
 .mgap__status--saved { color: #047857; }

@@ -1,5 +1,11 @@
 <template>
-  <div class="meeting-agenda-panel" :class="{ 'meeting-agenda-panel--embedded': embedded }">
+  <div
+    class="meeting-agenda-panel"
+    :class="{
+      'meeting-agenda-panel--embedded': embedded,
+      'meeting-agenda-panel--compact': compact
+    }"
+  >
     <div v-if="!embedded" class="agenda-header">
       <h3 class="agenda-title">Agenda for {{ meeting?.title || 'Meeting' }}</h3>
       <span v-if="meeting?.start_at" class="agenda-date">{{ formatMeetingDate(meeting.start_at) }}</span>
@@ -13,15 +19,26 @@
       <section class="agenda-section">
         <div class="agenda-section-head">
           <h3>{{ embedded ? 'Agenda' : 'Agenda items' }}</h3>
-          <button
-            v-if="canAddItem"
-            type="button"
-            class="btn btn-secondary btn-sm"
-            :disabled="adding"
-            @click="startAdd"
-          >
-            + Add agenda item
-          </button>
+          <div class="agenda-section-actions">
+            <button
+              v-if="compact && canAddItem"
+              type="button"
+              class="mw-pill-btn"
+              :class="{ 'mw-pill-btn--on': statusMode }"
+              @click="statusMode = !statusMode"
+            >
+              Status
+            </button>
+            <button
+              v-if="canAddItem"
+              type="button"
+              class="mw-link-btn"
+              :disabled="adding"
+              @click="startAdd"
+            >
+              + Add item
+            </button>
+          </div>
         </div>
 
         <div v-if="canAddItem && showAddRow" class="agenda-add-row">
@@ -29,7 +46,7 @@
             ref="addInputRef"
             v-model="newItemTitle"
             type="text"
-            class="input agenda-add-input"
+            class="mw-field agenda-add-input"
             placeholder="Agenda item"
             :disabled="adding"
             @keydown.enter.prevent="addFreeformItem"
@@ -37,13 +54,13 @@
           />
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="mw-link-btn mw-link-btn--strong"
             :disabled="!newItemTitle.trim() || adding"
             @click="addFreeformItem"
           >
             {{ adding ? '…' : 'Add' }}
           </button>
-          <button type="button" class="btn btn-ghost btn-sm" :disabled="adding" @click="cancelAdd">
+          <button type="button" class="mw-link-btn mw-link-btn--muted" :disabled="adding" @click="cancelAdd">
             Cancel
           </button>
         </div>
@@ -53,10 +70,16 @@
             v-for="(item, idx) in items"
             :key="item.id"
             class="agenda-item"
-            :class="{ 'agenda-item-done': item.status === 'completed', 'agenda-item-discussed': item.status === 'discussed' }"
+            :class="{
+              'agenda-item--editing': editingId === item.id,
+              'agenda-item-done': item.status === 'completed',
+              'agenda-item-discussed': item.status === 'discussed'
+            }"
           >
             <span class="agenda-item-num" aria-hidden="true">{{ idx + 1 }}</span>
+
             <select
+              v-if="showStatusSelect"
               :value="item.status"
               :disabled="togglingId === item.id"
               class="agenda-status-select"
@@ -66,50 +89,99 @@
               <option value="discussed">Discussed</option>
               <option value="completed">Completed</option>
             </select>
+            <span
+              v-else-if="compact && statusBadge(item.status)"
+              class="agenda-status-badge"
+              :class="`agenda-status-badge--${item.status}`"
+            >
+              {{ statusBadge(item.status) }}
+            </span>
+
             <div class="agenda-item-content">
-              <input
-                v-if="canAddItem"
-                class="input agenda-item-title-input"
-                type="text"
-                :value="item.title"
-                :disabled="togglingId === item.id"
-                @change="updateItemTitle(item, $event.target.value)"
-              />
-              <span v-else class="agenda-item-title">{{ item.title }}</span>
-              <a
-                v-if="item.task_id"
-                href="/tasks"
-                class="agenda-item-task-link"
-                target="_blank"
-                rel="noopener"
-              >
-                Open task
-              </a>
+              <template v-if="canAddItem && editingId === item.id">
+                <input
+                  ref="editInputRef"
+                  v-model="editDraft"
+                  class="mw-field agenda-item-title-input"
+                  type="text"
+                  :disabled="togglingId === item.id"
+                  @keydown.enter.prevent="saveEdit(item)"
+                  @keydown.escape.prevent="cancelEdit"
+                />
+              </template>
+              <template v-else>
+                <span class="agenda-item-title">{{ item.title }}</span>
+                <a
+                  v-if="item.task_id"
+                  href="/tasks"
+                  class="agenda-item-task-link"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  Open task
+                </a>
+              </template>
             </div>
-            <div v-if="canAddItem" class="agenda-item-move">
-              <button
-                type="button"
-                class="agenda-icon"
-                title="Move up"
-                :disabled="idx === 0 || togglingId === item.id"
-                @click="moveItem(idx, -1)"
-              >↑</button>
-              <button
-                type="button"
-                class="agenda-icon"
-                title="Move down"
-                :disabled="idx >= items.length - 1 || togglingId === item.id"
-                @click="moveItem(idx, 1)"
-              >↓</button>
-              <button
-                type="button"
-                class="agenda-icon"
-                aria-label="Remove"
-                :disabled="deletingId === item.id"
-                @click="removeItem(item)"
-              >
-                {{ deletingId === item.id ? '…' : '🗑' }}
-              </button>
+
+            <div v-if="canAddItem" class="agenda-item-actions">
+              <template v-if="editingId === item.id">
+                <button
+                  type="button"
+                  class="agenda-action-btn agenda-action-btn--primary"
+                  :disabled="!editDraft.trim() || togglingId === item.id"
+                  @click="saveEdit(item)"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  class="agenda-action-btn"
+                  :disabled="togglingId === item.id"
+                  @click="cancelEdit"
+                >
+                  Cancel
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  type="button"
+                  class="agenda-action-btn"
+                  title="Edit"
+                  :disabled="togglingId === item.id"
+                  @click="startEdit(item)"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  class="mw-icon-btn"
+                  title="Move up"
+                  aria-label="Move up"
+                  :disabled="idx === 0 || togglingId === item.id"
+                  @click="moveItem(idx, -1)"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+                </button>
+                <button
+                  type="button"
+                  class="mw-icon-btn"
+                  title="Move down"
+                  aria-label="Move down"
+                  :disabled="idx >= items.length - 1 || togglingId === item.id"
+                  @click="moveItem(idx, 1)"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                <button
+                  type="button"
+                  class="mw-icon-btn mw-icon-btn--danger"
+                  aria-label="Remove"
+                  :disabled="deletingId === item.id"
+                  @click="removeItem(item)"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </template>
             </div>
           </li>
           <li v-if="!items.length" class="agenda-empty muted">No agenda items yet.</li>
@@ -121,7 +193,7 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -130,12 +202,21 @@ const props = defineProps({
   canAddItem: { type: Boolean, default: true },
   /** Hide chrome close button; for embedding beside video / info rail */
   embedded: { type: Boolean, default: false },
+  /** Condensed rows with edit button; status hidden unless toggled (unless live). */
+  compact: { type: Boolean, default: null },
   /** Poll for shared updates during a live session */
   live: { type: Boolean, default: false },
   pollMs: { type: Number, default: 8000 }
 });
 
 const emit = defineEmits(['close', 'updated']);
+
+const compact = computed(() => (
+  props.compact != null ? !!props.compact : !!props.embedded
+));
+const showStatusSelect = computed(() => (
+  !compact.value || props.live || statusMode.value
+));
 
 const loading = ref(true);
 const hasLoaded = ref(false);
@@ -149,17 +230,27 @@ const adding = ref(false);
 const togglingId = ref(null);
 const deletingId = ref(null);
 const addInputRef = ref(null);
+const editInputRef = ref(null);
+const editingId = ref(null);
+const editDraft = ref('');
+const statusMode = ref(false);
 let pollTimer = null;
 let loadedKey = '';
 let fetchGeneration = 0;
 
 const meetingKey = () => `${String(props.meetingType || '')}:${String(props.meetingId || '')}`;
 
+function statusBadge(status) {
+  const s = String(status || 'pending').toLowerCase();
+  if (s === 'completed') return 'Done';
+  if (s === 'discussed') return 'Discussed';
+  return '';
+}
+
 const fetchAgenda = async ({ silent = false } = {}) => {
   if (!props.meetingType || !props.meetingId) return;
   const key = meetingKey();
   const generation = ++fetchGeneration;
-  // Already have data for this meeting — refresh quietly (no full-panel loading state).
   const quiet = silent || (hasLoaded.value && loadedKey === key);
   if (!quiet) {
     loading.value = true;
@@ -193,6 +284,31 @@ async function startAdd() {
 function cancelAdd() {
   showAddRow.value = false;
   newItemTitle.value = '';
+}
+
+function startEdit(item) {
+  editingId.value = item?.id || null;
+  editDraft.value = String(item?.title || '');
+  void nextTick(() => {
+    const el = Array.isArray(editInputRef.value) ? editInputRef.value[0] : editInputRef.value;
+    el?.focus?.();
+    el?.select?.();
+  });
+}
+
+function cancelEdit() {
+  editingId.value = null;
+  editDraft.value = '';
+}
+
+async function saveEdit(item) {
+  const next = String(editDraft.value || '').trim();
+  if (!next || next === String(item?.title || '').trim()) {
+    cancelEdit();
+    return;
+  }
+  await updateItemTitle(item, next);
+  cancelEdit();
 }
 
 const addFreeformItem = async () => {
@@ -282,6 +398,7 @@ const removeItem = async (item) => {
   try {
     await api.delete(`/meeting-agendas/${agenda.value.id}/items/${item.id}`);
     items.value = items.value.filter((i) => i.id !== item.id);
+    if (editingId.value === item.id) cancelEdit();
     emit('updated');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to remove item';
@@ -327,6 +444,8 @@ watch(
       loadedKey = '';
       items.value = [];
       agenda.value = null;
+      cancelEdit();
+      statusMode.value = false;
     }
     void fetchAgenda();
     startPoll();
@@ -344,16 +463,17 @@ onUnmounted(() => { stopPoll(); });
 .meeting-agenda-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
 }
 .meeting-agenda-panel--embedded {
-  padding: 4px 2px 0;
+  padding: 0;
 }
 .agenda-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  margin-bottom: 12px;
 }
 .agenda-title {
   margin: 0;
@@ -371,10 +491,14 @@ onUnmounted(() => { stopPoll(); });
   font-weight: 700;
 }
 .agenda-section {
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 12px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.65);
+  padding: 0;
+  background: transparent;
+}
+.meeting-agenda-panel:not(.meeting-agenda-panel--embedded) .agenda-section {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
 }
 .agenda-section-head {
   display: flex;
@@ -385,20 +509,73 @@ onUnmounted(() => { stopPoll(); });
 }
 .agenda-section-head h3 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.7rem;
   font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.agenda-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mw-link-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #7c3aed;
+  cursor: pointer;
+}
+.mw-link-btn:hover:not(:disabled) { color: #6d28d9; }
+.mw-link-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.mw-link-btn--strong { font-weight: 700; }
+.mw-link-btn--muted { color: #94a3b8; font-weight: 500; }
+.mw-link-btn--muted:hover:not(:disabled) { color: #64748b; }
+.mw-pill-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #94a3b8;
+  cursor: pointer;
+}
+.mw-pill-btn--on {
+  color: #6d28d9;
+  background: rgba(124, 58, 237, 0.1);
+}
+.mw-field {
+  width: 100%;
+  border: none;
+  border-radius: 8px;
+  background: #f1f5f9;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 0.84rem;
   color: #0f172a;
+  outline: none;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.mw-field:focus {
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.22);
 }
 .agenda-add-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   align-items: center;
 }
 .agenda-add-input {
   flex: 1;
-  min-width: 160px;
+  min-width: 120px;
 }
 .agenda-items {
   list-style: none;
@@ -406,97 +583,157 @@ onUnmounted(() => { stopPoll(); });
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
 }
 .agenda-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  min-height: 34px;
+  transition: background 0.12s ease;
+}
+.agenda-item:hover {
+  background: rgba(148, 163, 184, 0.1);
+}
+.agenda-item--editing {
+  background: rgba(124, 58, 237, 0.06);
 }
 .agenda-item-num {
   flex: 0 0 auto;
-  width: 24px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  background: #e2e8f0;
-  color: #334155;
-  font-size: 0.75rem;
-  font-weight: 700;
-  margin-top: 2px;
+  width: 1.1rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-align: right;
 }
 .agenda-status-select {
   flex: 0 0 auto;
-  margin-top: 2px;
   padding: 4px 8px;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  font-size: 12px;
-  background: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  background: #f1f5f9;
+  color: #475569;
+  max-width: 104px;
+}
+.agenda-status-badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.agenda-status-badge--discussed {
+  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.12);
+}
+.agenda-status-badge--completed {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
 }
 .agenda-item-content {
   flex: 1;
   min-width: 0;
-  padding-top: 0;
 }
 .agenda-item-title-input {
   width: 100%;
-  font-size: 0.9rem;
-  font-weight: 600;
-  padding: 4px 8px;
-}
-.agenda-item-move {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 .agenda-item-title {
   display: block;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #0f172a;
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: #1e293b;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.agenda-item-discussed .agenda-item-title { opacity: 0.8; }
+.agenda-item-discussed .agenda-item-title { color: #475569; }
 .agenda-item-done .agenda-item-title {
   text-decoration: line-through;
-  color: #64748b;
+  color: #94a3b8;
 }
 .agenda-item-task-link {
-  font-size: 12px;
-  color: var(--primary, #3b82f6);
-  margin-top: 4px;
+  font-size: 11px;
+  color: #7c3aed;
+  margin-top: 2px;
   display: inline-block;
 }
-.agenda-icon {
+.agenda-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.agenda-item:hover .agenda-item-actions,
+.agenda-item--editing .agenda-item-actions {
+  opacity: 1;
+}
+.agenda-action-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px 8px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #64748b;
+  border-radius: 6px;
+}
+.agenda-action-btn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.16);
+  color: #0f172a;
+}
+.agenda-action-btn--primary { color: #7c3aed; }
+.agenda-action-btn--primary:hover:not(:disabled) {
+  background: rgba(124, 58, 237, 0.1);
+}
+.mw-icon-btn {
   appearance: none;
   border: none;
   background: transparent;
   cursor: pointer;
   padding: 4px;
-  line-height: 1;
+  line-height: 0;
+  color: #94a3b8;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mw-icon-btn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.16);
+  color: #475569;
+}
+.mw-icon-btn--danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+}
+.mw-icon-btn:disabled,
+.agenda-action-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 .agenda-empty {
-  padding: 4px 0;
-  font-size: 0.88rem;
+  padding: 6px 4px;
+  font-size: 0.82rem;
 }
 .agenda-live-hint {
   margin: 8px 0 0;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
 }
 .agenda-loading,
 .agenda-error {
   padding: 8px 0;
   color: #64748b;
-  font-size: 0.88rem;
+  font-size: 0.84rem;
 }
 .agenda-error { color: #dc2626; }
 .muted { color: #64748b; }
-.btn-ghost {
-  border: none;
-  background: transparent;
-  color: #64748b;
-  cursor: pointer;
-}
 </style>

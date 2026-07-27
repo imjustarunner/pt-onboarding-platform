@@ -82,6 +82,7 @@
               <MeetingGoalsActionsPanel
                 :event-id="resolvedEventId"
                 section="both"
+                :compact="false"
                 :meeting-subtype="meetingSubtype"
               />
             </section>

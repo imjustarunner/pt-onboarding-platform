@@ -1418,6 +1418,8 @@
               <MeetingGoalsActionsPanel
                 :event-id="scheduleEventEditId"
                 section="both"
+                :compact="true"
+                :embedded="true"
                 :meeting-subtype="meetingSubtype"
                 :participants="meetingDraftAssigneeOptions"
               />
@@ -1859,6 +1861,8 @@
               v-if="editorIsMeeting && Number(scheduleEventEditId || 0) > 0"
               :event-id="scheduleEventEditId"
               :section="editorWorkspaceTab === 'actions' ? 'actions' : 'goals'"
+              :compact="true"
+              :embedded="true"
               :meeting-subtype="meetingSubtype"
               :participants="meetingDraftAssigneeOptions"
             />
@@ -14587,6 +14591,64 @@ const patchScheduleSummaryWithBookedEvent = ({
   summary.value = { ...base, scheduleEvents: list };
 };
 
+/** Keep the grid in sync immediately after PATCH (before schedule-summary refetch). */
+const patchScheduleEventInSummary = ({
+  eventId = 0,
+  title = '',
+  description = '',
+  startAt = '',
+  endAt = '',
+  agencyId = null,
+  isPrivate = false,
+  attendeeUserIds = null
+} = {}) => {
+  const eid = Number(eventId || 0);
+  if (!eid || !summary.value) return;
+  const normalizeWall = (raw) => {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    return s.includes('T') ? s.slice(0, 19) : s.replace(' ', 'T').slice(0, 19);
+  };
+  const toSummaryInstant = (raw, hasGoogle) => {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    if (hasGoogle) {
+      if (/[zZ]$/.test(s) || /[+-]\d{2}:?\d{2}$/.test(s)) return s;
+      const mysql = s.includes('T') ? s.replace('T', ' ').slice(0, 19) : s.slice(0, 19);
+      const d = new Date(`${mysql.replace(' ', 'T')}Z`);
+      return Number.isNaN(d.getTime()) ? normalizeWall(s) : d.toISOString();
+    }
+    return normalizeWall(s);
+  };
+  const list = Array.isArray(summary.value.scheduleEvents) ? [...summary.value.scheduleEvents] : [];
+  const idx = list.findIndex((row) => Number(row?.id || 0) === eid);
+  if (idx < 0) return;
+  const prev = list[idx];
+  const hasGoogle = !!String(prev?.googleEventId || '').trim();
+  const nextStart = toSummaryInstant(startAt, hasGoogle);
+  const nextEnd = toSummaryInstant(endAt, hasGoogle);
+  if (!nextStart || !nextEnd) return;
+  list[idx] = {
+    ...prev,
+    title: String(title || prev.title || '').trim() || prev.title,
+    description: description !== undefined ? String(description || '').trim() || null : prev.description,
+    agencyId: Number(agencyId || prev.agencyId || 0) || prev.agencyId || null,
+    isPrivate: isPrivate !== undefined ? !!isPrivate : prev.isPrivate,
+    startAt: nextStart,
+    endAt: nextEnd,
+    ...(Array.isArray(attendeeUserIds) ? { attendeeUserIds } : {})
+  };
+  summary.value = { ...summary.value, scheduleEvents: list };
+  const stackIdx = (stackDetailsItems.value || []).findIndex((it) => Number(it?.eventId || 0) === eid);
+  if (stackIdx >= 0) {
+    const nextStack = [...stackDetailsItems.value];
+    nextStack[stackIdx] = buildScheduleStackItemFromEvent(list[idx], {
+      id: nextStack[stackIdx]?.id || `sevt-${String(list[idx]?.kind || 'evt').toUpperCase()}-${eid}`
+    });
+    stackDetailsItems.value = nextStack;
+  }
+};
+
 const refreshScheduleSummaryInBackground = () => {
   invalidateScheduleSummaryCacheForUser(props.userId);
   void load({ forceRefresh: true });
@@ -20361,7 +20423,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     const savedAttendeeIds = isMeeting
       ? Array.from(selectedMeetingParticipantIdSet.value)
       : [];
-    await api.patch(`/users/${uid}/schedule-events/${eid}`, {
+    const patchResp = await api.patch(`/users/${uid}/schedule-events/${eid}`, {
       title,
       description,
       startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
@@ -20389,7 +20451,22 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
           }
         : {})
     }, { skipGlobalLoading: true });
-    scheduleEventEditId.value = 0;
+    const savedEvent = patchResp?.data?.event || {};
+    patchScheduleEventInSummary({
+      eventId: eid,
+      title: savedEvent.title || title,
+      description: savedEvent.description ?? description,
+      startAt: savedEvent.startAt || startAt,
+      endAt: savedEvent.endAt || endAt,
+      agencyId: saveAgencyId,
+      isPrivate: !!scheduleEventEditForm.value.isPrivate,
+      attendeeUserIds: isMeeting ? savedAttendeeIds : null
+    });
+    editTimingBaseline.value = {
+      startAt: String(scheduleEventEditForm.value.startAt || '').trim(),
+      endAt: String(scheduleEventEditForm.value.endAt || '').trim(),
+      recurrenceSeriesId: String(item?.recurrenceSeriesId || '').trim()
+    };
     // Bust host + attendee caches so participant chips / calendars update without a hard refresh.
     const priorAttendeeIds = Array.isArray(item?.attendeeUserIds)
       ? item.attendeeUserIds.map((n) => Number(n)).filter((n) => n > 0)
@@ -20399,12 +20476,12 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     for (const attendeeUid of new Set([...savedAttendeeIds, ...priorAttendeeIds])) {
       invalidateScheduleSummaryCacheForUser(attendeeUid);
     }
-    // Close editor immediately; refresh calendar in the background (no global Loading overlay).
+    // Refresh calendar before closing so the grid shows the new slot immediately.
+    await load({ forceRefresh: true });
+    scheduleEventEditId.value = 0;
     // Use closeModal() — requestCloseModal() prompts "Discard…" because the form is still dirty.
     const keepPicker = stackDetailsItems.value.length > 1 && stackDetailsDayName.value;
     if (keepPicker) {
-      // Refresh first so the picker list can rebuild; still skip global overlay.
-      await load({ forceRefresh: true });
       const refreshed = scheduleEventsInCell(
         stackDetailsDayName.value,
         Number(stackDetailsHour.value || 0),
@@ -20422,7 +20499,6 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     } else {
       closeStackDetailsModal();
       closeModal();
-      void load({ forceRefresh: true });
     }
   } catch (e) {
     scheduleEventEditError.value = e?.response?.data?.error?.message || e?.message || 'Failed to save changes';
@@ -23732,11 +23808,19 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .meeting-info-side {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
   min-width: 0;
   max-height: min(70vh, 640px);
   overflow: auto;
-  padding-right: 2px;
+  padding: 14px 12px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fafbfc 0%, #f4f6f8 100%);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+}
+.meeting-info-side :deep(.meeting-agenda-panel--embedded .agenda-section) {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 }
 @media (max-width: 980px) {
   .supv-info-layout--with-workspace {
