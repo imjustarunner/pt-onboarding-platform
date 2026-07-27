@@ -791,6 +791,7 @@
 
           <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab === 'clients'" class="my-panel">
             <ProviderClientsTab
+              :initial-section="String(route.query.clients || route.query.clientsSection || 'school')"
               @update:needsAttentionCount="clientsNeedsAttentionCount = $event"
               @update:pendingClientsCount="providerPendingClientsCount = $event"
             />

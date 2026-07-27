@@ -350,7 +350,13 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
   if (/\b(presence|team board|who is in|who's in)\b/.test(s)) return 'PresenceTeamBoard';
   if (/\b(audit center|audit log|audit activity)\b/.test(s)) return 'AuditCenter';
   if (/\b(referral|referrals|referral directory)\b/.test(s)) return 'ReferralDirectory';
-  if (/\b(client|clients|client management)\b/.test(s)) return 'ClientManagement';
+  if (/\b(client exchange|caseload (swap|exchange)|transfer client)\b/.test(s)) return 'ClientExchange';
+  if (/\b(new clients?|pending clients?)\b/.test(s)) return 'NewClients';
+  if (/\b(office clients?|in[- ]office clients?|clinical clients?)\b/.test(s)) return 'OfficeClients';
+  if (/\b(school clients?|school caseload|my school clients?)\b/.test(s)) return 'SchoolClients';
+  if (/\b(my clients?|my caseload)\b/.test(s)) return 'MyClients';
+  if (/\b(client management)\b/.test(s)) return 'ClientManagement';
+  if (/\b(client|clients)\b/.test(s)) return 'MyClients';
   if (/\b(school portal|school portals|portals hub|school-portals)\b/.test(s)) return 'SchoolPortalsHub';
   if (/\b(program events|program event|skill builders|events)\b/.test(s)) return 'SkillBuildersProgramsEvents';
   if (/\b(provider directory|provider list)\b/.test(s)) return 'ProviderDirectory';

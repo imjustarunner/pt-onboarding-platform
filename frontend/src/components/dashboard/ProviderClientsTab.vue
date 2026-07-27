@@ -2,20 +2,23 @@
   <div class="provider-clients-tab">
     <div class="pct-section-switcher" role="tablist" aria-label="Clients sections">
       <button
+        v-for="sec in primarySections"
+        :key="sec.id"
         type="button"
         role="tab"
-        :aria-selected="activeSection === 'caseload'"
-        :class="['pct-switch-btn', { 'is-active': activeSection === 'caseload' }]"
-        @click="activeSection = 'caseload'"
+        :aria-selected="activeSection === sec.id"
+        :class="['pct-switch-btn', { 'is-active': activeSection === sec.id }]"
+        @click="setSection(sec.id)"
       >
-        My caseload
+        {{ sec.label }}
+        <span v-if="sec.badge" class="pct-tab-badge">{{ sec.badge }}</span>
       </button>
       <button
         type="button"
         role="tab"
         :aria-selected="activeSection === 'referrals'"
         :class="['pct-switch-btn', { 'is-active': activeSection === 'referrals' }]"
-        @click="activeSection = 'referrals'"
+        @click="setSection('referrals')"
       >
         Referral directory
       </button>
@@ -23,163 +26,214 @@
 
     <ReferralDirectoryPanel v-if="activeSection === 'referrals'" embedded />
 
+    <ClientExchangePanel v-else-if="activeSection === 'exchange'" />
+
     <template v-else>
-    <div class="section-header">
-      <h2 style="margin: 0;">Clients</h2>
-      <div class="filters">
-        <template v-if="caseloadScope === 'school'">
-          <label>
-            <span class="label">School</span>
-            <select class="select" v-model="selectedSchoolOrgId">
-              <option value="all">All schools</option>
-              <option v-for="s in schools" :key="s.schoolOrganizationId" :value="Number(s.schoolOrganizationId)">
-                {{ s.name }}
-              </option>
-            </select>
-          </label>
-          <label>
-            <span class="label">Fiscal year</span>
-            <select class="select" v-model="selectedFiscalYearStart">
-              <option v-for="fy in fiscalYearOptions" :key="fy.startYmd" :value="fy.startYmd">
-                {{ fy.label }}
-              </option>
-            </select>
-          </label>
-        </template>
-        <button class="btn btn-secondary btn-sm" type="button" @click="toggleFullNames" :disabled="loading">
-          {{ clientLabelMode === 'full_name' ? 'Show initials' : 'Show full names' }}
-        </button>
-        <button class="btn-link label-mode-secondary" type="button" @click="toggleCodesMode" :disabled="loading">
-          {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
-        </button>
-        <button class="btn btn-secondary btn-sm" type="button" @click="refreshCurrentScope" :disabled="loading || officeLoading">
-          {{ (loading || officeLoading) ? 'Loading…' : 'Refresh' }}
-        </button>
-        <label v-if="caseloadScope === 'school' && showSkillBuildersRosterToggle" class="sb-roster-toggle">
-          <input v-model="skillBuildersOnlyFilter" type="checkbox" />
-          <span>Skill Builders clients only</span>
-        </label>
-      </div>
-    </div>
-
-    <div class="pct-scope-switcher" role="tablist" aria-label="Caseload scope">
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="caseloadScope === 'school'"
-        :class="['pct-scope-btn', { 'is-active': caseloadScope === 'school' }]"
-        @click="caseloadScope = 'school'"
-      >
-        In-school
-      </button>
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="caseloadScope === 'office'"
-        :class="['pct-scope-btn', { 'is-active': caseloadScope === 'office' }]"
-        @click="caseloadScope = 'office'"
-      >
-        In-office
-      </button>
-      <router-link :to="clientExchangeRoute" class="pct-exchange-link">Client Exchange →</router-link>
-    </div>
-
-    <template v-if="caseloadScope === 'school'">
-      <div v-if="error" class="error">{{ error }}</div>
-      <div v-else-if="schools.length === 0 && !loading" class="muted">
-        No assigned schools found for this agency.
-      </div>
-
-      <div v-if="pendingError" class="error">{{ pendingError }}</div>
-      <div v-else-if="pendingClientsFiltered.length > 0" class="pending-strip">
-        <div class="pending-strip-head">
-          <strong>Pending school clients</strong>
-          <span class="pending-count-badge pulse">{{ pendingClientsFiltered.length }}</span>
+      <div class="section-header">
+        <div>
+          <h2 style="margin: 0;">{{ sectionTitle }}</h2>
+          <p v-if="sectionHint" class="section-hint muted">{{ sectionHint }}</p>
         </div>
-        <div class="pending-strip-table-wrap">
-          <table class="pending-strip-table">
+        <div class="filters">
+          <template v-if="activeSection === 'school'">
+            <label>
+              <span class="label">School</span>
+              <select class="select" v-model="selectedSchoolOrgId">
+                <option value="all">All schools</option>
+                <option v-for="s in schools" :key="s.schoolOrganizationId" :value="Number(s.schoolOrganizationId)">
+                  {{ s.name }}
+                </option>
+              </select>
+            </label>
+            <label>
+              <span class="label">Fiscal year</span>
+              <select class="select" v-model="selectedFiscalYearStart">
+                <option v-for="fy in fiscalYearOptions" :key="fy.startYmd" :value="fy.startYmd">
+                  {{ fy.label }}
+                </option>
+              </select>
+            </label>
+          </template>
+          <button class="btn btn-secondary btn-sm" type="button" @click="toggleFullNames" :disabled="loading">
+            {{ clientLabelMode === 'full_name' ? 'Show initials' : 'Show full names' }}
+          </button>
+          <button class="btn-link label-mode-secondary" type="button" @click="toggleCodesMode" :disabled="loading">
+            {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
+          </button>
+          <button class="btn btn-secondary btn-sm" type="button" @click="refreshCurrentScope" :disabled="loading || officeLoading">
+            {{ (loading || officeLoading) ? 'Loading…' : 'Refresh' }}
+          </button>
+          <label v-if="activeSection === 'school' && showSkillBuildersRosterToggle" class="sb-roster-toggle">
+            <input v-model="skillBuildersOnlyFilter" type="checkbox" />
+            <span>Skill Builders clients only</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- School Clients -->
+      <template v-if="activeSection === 'school'">
+        <div v-if="error" class="error">{{ error }}</div>
+        <div v-else-if="schools.length === 0 && !loading" class="muted empty-state">
+          No assigned schools found for this agency. School Clients appears when you have school assignments.
+        </div>
+
+        <ClientListGrid
+          v-if="selectedSchoolOrgId && schools.length"
+          :organization-slug="organizationSlug"
+          :organization-id="Number(selectedSchoolOrgId) || null"
+          :organization-name="selectedSchoolName"
+          :clients-override="isAllSchools ? allClients : null"
+          roster-scope="provider"
+          :skill-builders-only="skillBuildersOnlyFilter"
+          :client-label-mode="clientLabelMode"
+          :psychotherapy-totals-by-client-id="psychotherapyTotalsByClientId"
+          :show-search="true"
+          search-placeholder="Search school clients…"
+          @update:needsAttentionCount="(count) => emit('update:needsAttentionCount', count)"
+        />
+      </template>
+
+      <!-- Office Clients -->
+      <template v-else-if="activeSection === 'office'">
+        <div v-if="officeError" class="error">{{ officeError }}</div>
+        <div v-else-if="!officeLoading && currentOfficeClients.length === 0" class="muted empty-state">
+          No office clients assigned to you yet (clinical, virtual, tutoring, and other non-school clients).
+        </div>
+        <div v-else class="office-clients-table-wrap">
+          <table class="office-clients-table">
             <thead>
               <tr>
                 <th>Client</th>
-                <th>School</th>
-                <th>Stage</th>
-                <th>Days</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Since</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in pendingClientsFiltered" :key="`${row.client_id}-${row.organization_id}`">
-                <td>{{ formatPendingClientLabel(row) }}</td>
-                <td>{{ row.organization_name || '—' }}</td>
-                <td>{{ row.pending_stage === 'no_parent_contact' ? 'No parent contact date' : 'No first session date' }}</td>
-                <td class="mono">{{ Number(row.tracking_days || 0) }}</td>
+              <tr v-for="c in currentOfficeClients" :key="c.id">
+                <td :title="officeHoverTitle(c)">{{ formatOfficeClientLabel(c) }}</td>
+                <td>{{ c.client_type === 'clinical' ? 'Office / Clinical' : 'Learning' }}</td>
+                <td>{{ c.status }}</td>
+                <td>{{ c.submission_date || '—' }}</td>
               </tr>
             </tbody>
           </table>
         </div>
-      </div>
+      </template>
 
-      <ClientListGrid
-        v-if="selectedSchoolOrgId"
-        :organization-slug="organizationSlug"
-        :organization-id="Number(selectedSchoolOrgId) || null"
-        :organization-name="selectedSchoolName"
-        :clients-override="isAllSchools ? allClients : null"
-        roster-scope="provider"
-        :skill-builders-only="skillBuildersOnlyFilter"
-        :client-label-mode="clientLabelMode"
-        :psychotherapy-totals-by-client-id="psychotherapyTotalsByClientId"
-        :show-search="true"
-        search-placeholder="Search clients…"
-        @update:needsAttentionCount="(count) => emit('update:needsAttentionCount', count)"
-      />
-    </template>
+      <!-- New Clients (pending school + pending office) -->
+      <template v-else-if="activeSection === 'new'">
+        <div v-if="pendingError" class="error">{{ pendingError }}</div>
+        <div v-if="officeError" class="error">{{ officeError }}</div>
 
-    <template v-else>
-      <div v-if="officeError" class="error">{{ officeError }}</div>
-      <div v-else-if="!officeLoading && officeClients.length === 0" class="muted empty-state">
-        No in-office clients assigned to you yet.
-      </div>
-      <div v-else class="office-clients-table-wrap">
-        <table class="office-clients-table">
-          <thead>
-            <tr>
-              <th>Client</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Since</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in officeClients" :key="c.id">
-              <td>{{ formatOfficeClientLabel(c) }}</td>
-              <td>{{ c.client_type === 'clinical' ? 'Office / Clinical' : 'Learning' }}</td>
-              <td>{{ c.status }}</td>
-              <td>{{ c.submission_date || '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </template>
+        <section class="new-block">
+          <div class="new-block-head">
+            <strong>Pending school clients</strong>
+            <span class="pending-count-badge" :class="{ pulse: pendingClientsFiltered.length }">
+              {{ pendingClientsFiltered.length }}
+            </span>
+          </div>
+          <p class="muted tiny">
+            School-assigned clients still needing attention (no day, missing first session, etc.). Assign a day on School Clients when ready.
+          </p>
+          <div v-if="!pendingClientsFiltered.length" class="muted empty-state compact">No pending school clients.</div>
+          <div v-else class="pending-strip-table-wrap">
+            <table class="pending-strip-table">
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>School</th>
+                  <th>Stage</th>
+                  <th>Days</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in pendingClientsFiltered" :key="`${row.client_id}-${row.organization_id}`">
+                  <td>{{ formatPendingClientLabel(row) }}</td>
+                  <td>{{ row.organization_name || '—' }}</td>
+                  <td>{{ pendingStageLabel(row) }}</td>
+                  <td class="mono">{{ Number(row.tracking_days || 0) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="new-block">
+          <div class="new-block-head">
+            <strong>Pending office clients</strong>
+            <span class="pending-count-badge" :class="{ pulse: pendingOfficeClients.length }">
+              {{ pendingOfficeClients.length }}
+            </span>
+          </div>
+          <p class="muted tiny">
+            New clinical / office intakes assigned to you that are still pending. Mark current after you accept them in your workflow.
+          </p>
+          <div v-if="officeLoading" class="muted">Loading…</div>
+          <div v-else-if="!pendingOfficeClients.length" class="muted empty-state compact">No pending office clients.</div>
+          <div v-else class="office-clients-table-wrap">
+            <table class="office-clients-table">
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>Type</th>
+                  <th>Preferred</th>
+                  <th>Since</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in pendingOfficeClients" :key="c.id">
+                  <td :title="officeHoverTitle(c)">{{ formatOfficeClientLabel(c) }}</td>
+                  <td>{{ c.client_type === 'clinical' ? 'Office / Clinical' : 'Learning' }}</td>
+                  <td>{{ formatPreferred(c) }}</td>
+                  <td>{{ c.submission_date || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </template>
     </template>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-
-const emit = defineEmits(['update:needsAttentionCount', 'update:pendingClientsCount']);
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import ClientListGrid from '../school/ClientListGrid.vue';
 import ReferralDirectoryPanel from '../referralDirectory/ReferralDirectoryPanel.vue';
+import ClientExchangePanel from '../clientExchange/ClientExchangePanel.vue';
 
-const activeSection = ref('caseload');
+const props = defineProps({
+  /** school | office | new | exchange | referrals */
+  initialSection: { type: String, default: '' },
+});
+
+const emit = defineEmits(['update:needsAttentionCount', 'update:pendingClientsCount']);
 
 const route = useRoute();
+const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+
+const VALID_SECTIONS = new Set(['school', 'office', 'new', 'exchange', 'referrals']);
+
+function normalizeSection(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'caseload' || s === 'in-school' || s === 'school-clients') return 'school';
+  if (s === 'in-office' || s === 'office-clients') return 'office';
+  if (s === 'new-clients' || s === 'pending') return 'new';
+  if (s === 'client-exchange') return 'exchange';
+  if (VALID_SECTIONS.has(s)) return s;
+  return 'school';
+}
+
+const activeSection = ref(
+  normalizeSection(props.initialSection || route.query.clients || route.query.clientsSection || 'school')
+);
 
 const organizationSlug = computed(() => String(route.params.organizationSlug || '').trim());
 const agencyId = computed(() => {
@@ -190,19 +244,12 @@ const agencyId = computed(() => {
 const schools = ref([]);
 const selectedSchoolOrgId = ref(null);
 const selectedFiscalYearStart = ref('');
-const clientLabelMode = ref('initials'); // 'initials' (default) | 'full_name' | 'codes' (secondary)
-const caseloadScope = ref('school'); // 'school' | 'office'
+const clientLabelMode = ref('initials');
 const officeClients = ref([]);
 const officeLoading = ref(false);
 const officeError = ref('');
 
 const isAllSchools = computed(() => selectedSchoolOrgId.value === 'all');
-
-const clientExchangeRoute = computed(() =>
-  organizationSlug.value
-    ? { name: 'OrganizationClientExchange', params: { organizationSlug: organizationSlug.value } }
-    : { name: 'ClientExchange' }
-);
 
 const selectedSchoolName = computed(() => {
   const id = selectedSchoolOrgId.value;
@@ -219,12 +266,91 @@ const pendingClients = ref([]);
 const pendingError = ref('');
 const MIN_PENDING_DATE = '2026-02-01';
 
+const currentUserId = computed(() => Number(authStore.user?.id || 0) || null);
+
+const showSkillBuildersRosterToggle = computed(() => {
+  const u = authStore.user;
+  return u?.skill_builder_eligible === true || u?.skill_builder_eligible === 1 || u?.skill_builder_eligible === '1';
+});
+
+const pendingClientsFiltered = computed(() => {
+  const selected = selectedSchoolOrgId.value;
+  const base = Array.isArray(pendingClients.value) ? pendingClients.value : [];
+  const rows =
+    !selected || selected === 'all'
+      ? base
+      : base.filter((r) => Number(r?.organization_id || 0) === Number(selected || 0));
+  return rows.slice().sort((a, b) => Number(b?.tracking_days || 0) - Number(a?.tracking_days || 0));
+});
+
+const isPendingStatus = (status) => {
+  const s = String(status || '').toLowerCase();
+  return s === 'pending' || s === 'packet' || s === 'prospective' || s === 'waitlist' || s === 'screener';
+};
+
+const currentOfficeClients = computed(() =>
+  (officeClients.value || []).filter((c) => !isPendingStatus(c.status))
+);
+
+const pendingOfficeClients = computed(() =>
+  (officeClients.value || []).filter((c) => isPendingStatus(c.status))
+);
+
+const newClientsCount = computed(
+  () => pendingClientsFiltered.value.length + pendingOfficeClients.value.length
+);
+
+const primarySections = computed(() => {
+  const list = [];
+  if (schools.value.length > 0) {
+    list.push({ id: 'school', label: 'School Clients', badge: 0 });
+  }
+  list.push({ id: 'office', label: 'Office Clients', badge: 0 });
+  list.push({ id: 'new', label: 'New Clients', badge: newClientsCount.value || 0 });
+  list.push({ id: 'exchange', label: 'Client Exchange', badge: 0 });
+  return list;
+});
+
+const sectionTitle = computed(() => {
+  if (activeSection.value === 'school') return 'School Clients';
+  if (activeSection.value === 'office') return 'Office Clients';
+  if (activeSection.value === 'new') return 'New Clients';
+  return 'Clients';
+});
+
+const sectionHint = computed(() => {
+  if (activeSection.value === 'school') {
+    return 'Clients assigned to you at your schools. Sorted by school when viewing All schools.';
+  }
+  if (activeSection.value === 'office') {
+    return 'In-office, virtual, tutoring, and other non-school clinical clients.';
+  }
+  if (activeSection.value === 'new') {
+    return 'Pending school and office clients that still need a day, acceptance, or paperwork progress.';
+  }
+  return '';
+});
+
+function setSection(id) {
+  const next = normalizeSection(id);
+  activeSection.value = next;
+  // Keep school tab selectable only when schools exist; otherwise fall back.
+  if (next === 'school' && !(schools.value || []).length) {
+    activeSection.value = 'office';
+  }
+  const q = { ...route.query, tab: 'clients', clients: activeSection.value };
+  router.replace({ query: q }).catch(() => {});
+  if (activeSection.value === 'office' || activeSection.value === 'new') {
+    loadOfficeClients();
+  }
+}
+
 const computeFiscalYearStartYmd = (d) => {
   const dt = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(dt.getTime())) return '';
   const y = dt.getFullYear();
   const m = dt.getMonth() + 1;
-  const startYear = m >= 7 ? y : (y - 1);
+  const startYear = m >= 7 ? y : y - 1;
   return `${startYear}-07-01`;
 };
 
@@ -235,7 +361,7 @@ const fiscalYearOptions = computed(() => {
   const years = [startYear, startYear - 1, startYear - 2];
   return years.map((y) => ({
     startYmd: `${y}-07-01`,
-    label: `${y}-${y + 1}`
+    label: `${y}-${y + 1}`,
   }));
 });
 
@@ -249,7 +375,7 @@ const buildTotalsByClientId = (resp) => {
       total: Number(r?.total || 0),
       per_code: r?.per_code || {},
       client_abbrev: r?.client_abbrev || null,
-      surpassed_24: !!r?.surpassed_24
+      surpassed_24: !!r?.surpassed_24,
     };
   }
   return m;
@@ -259,7 +385,7 @@ const persistClientLabelMode = () => {
   try {
     window.localStorage.setItem('dashboardClientLabelMode', clientLabelMode.value);
   } catch {
-    // ignore
+    /* ignore */
   }
 };
 
@@ -273,25 +399,8 @@ const toggleCodesMode = () => {
   persistClientLabelMode();
 };
 
-const currentUserId = computed(() => Number(authStore.user?.id || 0) || null);
-
-const showSkillBuildersRosterToggle = computed(() => {
-  const u = authStore.user;
-  return u?.skill_builder_eligible === true || u?.skill_builder_eligible === 1 || u?.skill_builder_eligible === '1';
-});
-
-const pendingClientsFiltered = computed(() => {
-  const selected = selectedSchoolOrgId.value;
-  const base = Array.isArray(pendingClients.value) ? pendingClients.value : [];
-  const rows = selected === 'all'
-    ? base
-    : base.filter((r) => Number(r?.organization_id || 0) === Number(selected || 0));
-  return rows.slice().sort((a, b) => Number(b?.tracking_days || 0) - Number(a?.tracking_days || 0));
-});
-
 const emitPendingCount = () => {
-  const count = Number((pendingClientsFiltered.value || []).length || 0);
-  emit('update:pendingClientsCount', count);
+  emit('update:pendingClientsCount', Number(newClientsCount.value || 0));
 };
 
 const formatPendingClientLabel = (row) => {
@@ -309,6 +418,34 @@ const formatOfficeClientLabel = (c) => {
   return c?.initials || c?.identifier_code || `Client #${c?.id}`;
 };
 
+const officeHoverTitle = (c) => {
+  const full = String(c?.full_name || '').trim();
+  const initials = String(c?.initials || '').trim();
+  return full || initials || '';
+};
+
+const pendingStageLabel = (row) => {
+  if (row.pending_stage === 'no_parent_contact') return 'No parent contact date';
+  if (row.pending_stage === 'no_first_session') return 'No first session date';
+  if (!row.service_day && row.no_service_day) return 'No assigned day';
+  return row.pending_stage || 'Pending';
+};
+
+const formatPreferred = (c) => {
+  const prefs = c?.intake_preferences || c?.intake_preferences_json || null;
+  let p = prefs;
+  if (typeof p === 'string') {
+    try {
+      p = JSON.parse(p);
+    } catch {
+      p = null;
+    }
+  }
+  if (!p || typeof p !== 'object') return '—';
+  const parts = [p.preferredDay || p.day, p.preferredTime || p.time, p.modality || p.place].filter(Boolean);
+  return parts.length ? parts.join(' · ') : '—';
+};
+
 const loadOfficeClients = async () => {
   if (!agencyId.value || !currentUserId.value) {
     officeClients.value = [];
@@ -321,17 +458,18 @@ const loadOfficeClients = async () => {
       params: {
         agency_id: agencyId.value,
         provider_id: currentUserId.value,
-        client_type: 'clinical,learning'
+        client_type: 'clinical,learning',
       },
-      skipGlobalLoading: true
+      skipGlobalLoading: true,
     });
-    const rows = Array.isArray(r.data) ? r.data : (r.data?.items || []);
+    const rows = Array.isArray(r.data) ? r.data : r.data?.items || [];
     officeClients.value = rows.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
   } catch (e) {
     officeClients.value = [];
-    officeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load in-office clients';
+    officeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load office clients';
   } finally {
     officeLoading.value = false;
+    emitPendingCount();
   }
 };
 
@@ -339,9 +477,11 @@ const loadSchools = async () => {
   if (!agencyId.value) return;
   const r = await api.get('/payroll/me/assigned-schools', { params: { agencyId: agencyId.value } });
   schools.value = Array.isArray(r.data) ? r.data : [];
-  // Default to "All schools" (not the first school) so providers see their whole caseload at a glance.
   if (!selectedSchoolOrgId.value) {
     selectedSchoolOrgId.value = 'all';
+  }
+  if (activeSection.value === 'school' && !schools.value.length) {
+    activeSection.value = 'office';
   }
 };
 
@@ -358,9 +498,9 @@ const loadAllRosters = async () => {
         api
           .get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, {
             params: sbParams,
-            skipGlobalLoading: true
+            skipGlobalLoading: true,
           })
-          .then((r) => ({ school: s, rows: Array.isArray(r?.data) ? r.data : [] }))
+          .then((res) => ({ school: s, rows: Array.isArray(res?.data) ? res.data : [] }))
           .catch(() => ({ school: s, rows: [] }))
       )
     );
@@ -369,12 +509,10 @@ const loadAllRosters = async () => {
       for (const c of rows) {
         const id = c?.id;
         if (!id || byId.has(id)) continue;
-        // my-roster doesn't include organization identity (it's fetched per-school) — attach it
-        // here so the merged "All schools" grid can show/sort by school and still open the client.
         byId.set(id, {
           ...c,
           organization_id: c.organization_id ?? Number(school.schoolOrganizationId),
-          organization_name: c.organization_name ?? school.name
+          organization_name: c.organization_name ?? school.name,
         });
       }
     }
@@ -387,7 +525,7 @@ const loadAllRosters = async () => {
 const loadCompliance = async () => {
   if (!agencyId.value) return;
   const r = await api.get('/psychotherapy-compliance/summary', {
-    params: { agencyId: agencyId.value, fiscalYearStart: selectedFiscalYearStart.value }
+    params: { agencyId: agencyId.value, fiscalYearStart: selectedFiscalYearStart.value },
   });
   psychotherapyTotalsByClientId.value = buildTotalsByClientId(r.data || {});
 };
@@ -396,7 +534,7 @@ const loadPendingClients = async () => {
   if (!agencyId.value || !currentUserId.value) {
     pendingClients.value = [];
     pendingError.value = '';
-    emit('update:pendingClientsCount', 0);
+    emitPendingCount();
     return;
   }
   try {
@@ -405,9 +543,9 @@ const loadPendingClients = async () => {
       params: {
         agencyId: Number(agencyId.value),
         providerUserId: Number(currentUserId.value),
-        minPendingEnteredAt: MIN_PENDING_DATE
+        minPendingEnteredAt: MIN_PENDING_DATE,
       },
-      skipGlobalLoading: true
+      skipGlobalLoading: true,
     });
     pendingClients.value = Array.isArray(r.data?.results) ? r.data.results : [];
   } catch (e) {
@@ -429,8 +567,7 @@ const load = async () => {
     }
 
     await loadSchools();
-    await loadCompliance();
-    await loadPendingClients();
+    await Promise.all([loadCompliance(), loadPendingClients(), loadOfficeClients()]);
     if (isAllSchools.value) await loadAllRosters();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load clients';
@@ -439,19 +576,45 @@ const load = async () => {
   }
 };
 
+const refreshCurrentScope = () => {
+  if (activeSection.value === 'office' || activeSection.value === 'new') {
+    return Promise.all([loadOfficeClients(), loadPendingClients()]);
+  }
+  if (activeSection.value === 'exchange') return Promise.resolve();
+  return load();
+};
+
 onMounted(() => {
   try {
     const saved = window.localStorage.getItem('dashboardClientLabelMode');
     if (saved === 'codes' || saved === 'initials' || saved === 'full_name') clientLabelMode.value = saved;
   } catch {
-    // ignore
+    /* ignore */
   }
+  const fromQuery = normalizeSection(route.query.clients || props.initialSection || 'school');
+  activeSection.value = fromQuery;
   load();
 });
+
 watch(() => agencyId.value, load);
+watch(
+  () => route.query.clients,
+  (v) => {
+    if (v) activeSection.value = normalizeSection(v);
+  }
+);
+watch(
+  () => props.initialSection,
+  (v) => {
+    if (v) activeSection.value = normalizeSection(v);
+  }
+);
 watch(() => selectedFiscalYearStart.value, () => loadCompliance().catch(() => {}));
-watch(() => currentUserId.value, () => loadPendingClients().catch(() => {}));
-watch(() => pendingClientsFiltered.value.length, () => emitPendingCount());
+watch(() => currentUserId.value, () => {
+  loadPendingClients().catch(() => {});
+  loadOfficeClients().catch(() => {});
+});
+watch(() => newClientsCount.value, () => emitPendingCount());
 
 watch(
   () => selectedSchoolOrgId.value,
@@ -466,18 +629,6 @@ watch(
 watch(skillBuildersOnlyFilter, async () => {
   if (isAllSchools.value) await loadAllRosters();
 });
-
-const refreshCurrentScope = () => {
-  if (caseloadScope.value === 'office') return loadOfficeClients();
-  return load();
-};
-
-watch(caseloadScope, (scope) => {
-  if (scope === 'office') loadOfficeClients();
-});
-watch(currentUserId, () => {
-  if (caseloadScope.value === 'office') loadOfficeClients();
-});
 </script>
 
 <style scoped>
@@ -487,6 +638,12 @@ watch(currentUserId, () => {
   min-width: 0;
   max-width: 100%;
 }
+.section-hint {
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+  max-width: 40rem;
+}
+.tiny { font-size: 0.8rem; }
 .sb-roster-toggle {
   display: inline-flex;
   align-items: center;
@@ -496,9 +653,7 @@ watch(currentUserId, () => {
   cursor: pointer;
   user-select: none;
 }
-.sb-roster-toggle input {
-  margin: 0;
-}
+.sb-roster-toggle input { margin: 0; }
 .label-mode-secondary {
   align-self: center;
   border: none;
@@ -510,9 +665,7 @@ watch(currentUserId, () => {
   font-weight: 600;
   cursor: pointer;
 }
-.label-mode-secondary:hover {
-  color: var(--primary, #4f46e5);
-}
+.label-mode-secondary:hover { color: var(--primary, #0c4a6e); }
 
 .section-header {
   display: flex;
@@ -542,18 +695,18 @@ watch(currentUserId, () => {
   min-width: 180px;
   min-height: 44px;
 }
-.pending-strip {
-  border: 1px solid rgba(245, 158, 11, 0.45);
-  background: rgba(245, 158, 11, 0.08);
+.new-block {
+  border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
+  background: #fff;
 }
-.pending-strip-head {
+.new-block-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .pending-count-badge {
   display: inline-flex;
@@ -567,14 +720,14 @@ watch(currentUserId, () => {
   background: rgba(217, 45, 32, 0.16);
   color: #9a1f14;
   font-weight: 900;
+  font-size: 12px;
 }
 .pending-count-badge.pulse {
   animation: pendingPulse 1.1s ease-in-out infinite;
 }
-.pending-strip-table-wrap {
-  overflow-x: auto;
-}
-.pending-strip-table {
+.pending-strip-table-wrap { overflow-x: auto; }
+.pending-strip-table,
+.office-clients-table {
   width: 100%;
   border-collapse: collapse;
   background: #fff;
@@ -582,7 +735,9 @@ watch(currentUserId, () => {
   border-radius: 10px;
 }
 .pending-strip-table th,
-.pending-strip-table td {
+.pending-strip-table td,
+.office-clients-table th,
+.office-clients-table td {
   border-bottom: 1px solid var(--border);
   padding: 8px 10px;
   text-align: left;
@@ -597,7 +752,55 @@ watch(currentUserId, () => {
   50% { transform: scale(1.06); opacity: 0.72; }
   100% { transform: scale(1); opacity: 1; }
 }
-
+.error { color: #c33; }
+.muted { color: var(--text-secondary); }
+.pct-section-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface-muted, #f3f4f6);
+  border-radius: 10px;
+}
+.pct-switch-btn {
+  background: transparent;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pct-switch-btn.is-active {
+  background: var(--card-bg, #fff);
+  color: var(--text, #111);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.pct-tab-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #c2410c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.office-clients-table-wrap { overflow-x: auto; }
+.empty-state {
+  border: 1px dashed var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
+}
+.empty-state.compact { padding: 12px; }
 @media (max-width: 640px) {
   .section-header {
     flex-direction: column;
@@ -611,92 +814,5 @@ watch(currentUserId, () => {
     min-width: 0;
     width: 100%;
   }
-  .filters .btn {
-    min-height: 44px;
-  }
-}
-.error {
-  color: #c33;
-}
-.muted {
-  color: var(--text-secondary);
-}
-.pct-section-switcher {
-  display: inline-flex;
-  gap: 4px;
-  padding: 4px;
-  background: var(--surface-muted, #f3f4f6);
-  border-radius: 8px;
-  margin-bottom: 12px;
-}
-.pct-switch-btn {
-  background: transparent;
-  border: none;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary, #6b7280);
-  cursor: pointer;
-}
-.pct-switch-btn.is-active {
-  background: var(--card-bg, #fff);
-  color: var(--text, #111);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-.pct-scope-switcher {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.pct-scope-btn {
-  border: 1px solid var(--border, #e5e7eb);
-  background: #fff;
-  border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-secondary, #6b7280);
-  cursor: pointer;
-}
-.pct-scope-btn.is-active {
-  background: var(--primary, #4f46e5);
-  border-color: var(--primary, #4f46e5);
-  color: #fff;
-}
-.pct-exchange-link {
-  font-size: 13px;
-  font-weight: 700;
-  color: #1d4ed8;
-  text-decoration: none;
-  margin-left: auto;
-}
-.pct-exchange-link:hover {
-  text-decoration: underline;
-}
-.office-clients-table-wrap {
-  overflow-x: auto;
-}
-.office-clients-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: #fff;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 10px;
-}
-.office-clients-table th,
-.office-clients-table td {
-  border-bottom: 1px solid var(--border, #e5e7eb);
-  padding: 8px 10px;
-  text-align: left;
-  font-size: 13px;
-}
-.empty-state {
-  border: 1px dashed var(--border, #e5e7eb);
-  border-radius: 10px;
-  padding: 20px;
-  text-align: center;
 }
 </style>
-

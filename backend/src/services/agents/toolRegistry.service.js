@@ -135,6 +135,28 @@ const NAVIGATION_ROUTE_WHITELIST = {
   LifeBalance: { path: '/dashboard?tab=my&my=life-balance', roles: null },
   Notifications: { path: '/dashboard?tab=notifications', roles: null },
 
+  // Provider Clients tab sections (My Dashboard)
+  MyClients: {
+    path: '/dashboard?tab=clients&clients=school',
+    roles: ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor', 'admin', 'super_admin', 'support', 'staff']
+  },
+  SchoolClients: {
+    path: '/dashboard?tab=clients&clients=school',
+    roles: ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor', 'admin', 'super_admin', 'support', 'staff']
+  },
+  OfficeClients: {
+    path: '/dashboard?tab=clients&clients=office',
+    roles: ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor', 'admin', 'super_admin', 'support', 'staff']
+  },
+  NewClients: {
+    path: '/dashboard?tab=clients&clients=new',
+    roles: ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor', 'admin', 'super_admin', 'support', 'staff']
+  },
+  ClientExchange: {
+    path: '/dashboard?tab=clients&clients=exchange',
+    roles: ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor', 'admin', 'super_admin', 'support', 'staff']
+  },
+
   // Admin surfaces (gated via requiresRole in router; tool checks role too)
   ClientManagement: { path: '/admin/clients', roles: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] },
   ReferralDirectory: { path: '/admin/referral-directory', roles: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] },

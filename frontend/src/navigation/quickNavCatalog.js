@@ -183,12 +183,78 @@ function buildAppEntries() {
       rolesAny: ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'admin', 'super_admin']
     },
     {
+      id: 'my-school-clients',
+      routeName: 'SchoolClients',
+      label: 'School Clients',
+      description: 'Your school-assigned caseload on My Dashboard.',
+      group: 'clients',
+      keywords: ['school clients', 'my clients', 'my caseload', 'school caseload'],
+      kind: 'path',
+      path: '/dashboard?tab=clients&clients=school',
+      rolesAny: [
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'clinical_practice_assistant',
+        'supervisor',
+        'admin',
+        'super_admin',
+        'support',
+        'staff'
+      ]
+    },
+    {
+      id: 'my-office-clients',
+      routeName: 'OfficeClients',
+      label: 'Office Clients',
+      description: 'In-office, virtual, and other non-school clinical clients.',
+      group: 'clients',
+      keywords: ['office clients', 'clinical clients', 'in-office', 'virtual clients'],
+      kind: 'path',
+      path: '/dashboard?tab=clients&clients=office',
+      rolesAny: [
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'clinical_practice_assistant',
+        'supervisor',
+        'admin',
+        'super_admin',
+        'support',
+        'staff'
+      ]
+    },
+    {
+      id: 'my-new-clients',
+      routeName: 'NewClients',
+      label: 'New Clients',
+      description: 'Pending school and office clients needing acceptance or a day.',
+      group: 'clients',
+      keywords: ['new clients', 'pending clients', 'new caseload'],
+      kind: 'path',
+      path: '/dashboard?tab=clients&clients=new',
+      rolesAny: [
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'clinical_practice_assistant',
+        'supervisor',
+        'admin',
+        'super_admin',
+        'support',
+        'staff'
+      ]
+    },
+    {
       id: 'clients-admin',
       routeName: 'ClientManagement',
       label: 'Client Management',
       description: 'Agency client directory and management.',
       group: 'clients',
-      keywords: ['clients', 'client management', 'caseload'],
+      keywords: ['client management', 'agency clients'],
       kind: 'path',
       path: '/admin/clients',
       rolesAny: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin']
@@ -199,9 +265,9 @@ function buildAppEntries() {
       label: 'Client Exchange',
       description: 'Post or request office clients that need a new provider.',
       group: 'clients',
-      keywords: ['client exchange', 'office clients', 'reassign', 'transfer client', 'caseload swap'],
+      keywords: ['client exchange', 'reassign', 'transfer client', 'caseload swap'],
       kind: 'path',
-      path: '/client-exchange',
+      path: '/dashboard?tab=clients&clients=exchange',
       rolesAny: [
         'admin',
         'support',
