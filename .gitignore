@@ -67,3 +67,6 @@ build/
 coverage/
 
 secrets/
+
+# Local DB recovery snapshots (PII — never commit)
+database/recovery_snapshots/
