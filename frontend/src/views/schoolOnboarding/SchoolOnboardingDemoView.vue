@@ -35,6 +35,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { useOrganizationStore } from '../../store/organization';
 import {
@@ -46,6 +47,7 @@ import SchoolPortalView from '../school/SchoolPortalView.vue';
 
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 const organizationStore = useOrganizationStore();
 const brandingStore = useBrandingStore();
 
@@ -56,10 +58,18 @@ const loading = ref(true);
 const ready = ref(false);
 const error = ref('');
 const schoolMeta = ref(null);
+let previousAuthUser = null;
+let injectedDemoAuth = false;
 
 const schoolName = computed(() => schoolMeta.value?.official_name || schoolMeta.value?.name || 'Hogwarts');
 
 function demoPortalThemeSlug(school) {
+  // Prefer affiliated tenant branding slug (ITSCO) so standalone matches onboarding shell.
+  const theme = school?.portal_theme;
+  if (theme?.brandingAgencyId && theme?.agencyName) {
+    // ITSCO portal_url is the branding source of truth for this demo.
+    return 'itsco';
+  }
   return String(school?.portal_url || school?.slug || 'hogwarts').trim().toLowerCase();
 }
 
@@ -73,7 +83,10 @@ function applyDemoPortalTheme(school) {
       portalOrganizationId: theme.portalOrganizationId || school?.id || null,
       agencyName: theme.agencyName || school?.official_name || school?.name || 'Hogwarts',
       colorPalette: theme.colorPalette || {},
-      themeSettings: theme.themeSettings || {},
+      themeSettings: {
+        ...(theme.themeSettings || {}),
+        useAffiliatedAgencyBranding: true
+      },
       terminologySettings: theme.terminologySettings || {},
       logoUrl: theme.logoUrl || school?.logo_url || school?.logo_path || null,
       iconUrl: theme.iconUrl || null
@@ -81,6 +94,37 @@ function applyDemoPortalTheme(school) {
     return;
   }
   return brandingStore.fetchAgencyTheme(slug);
+}
+
+function injectDemoSchoolAdmin(school) {
+  const demoUser = school?.demo_user || {
+    id: 1015,
+    firstName: 'Minerva',
+    lastName: 'McGonagall',
+    email: 'minerva.mcgonagall@hogwarts.edu',
+    role: 'school_staff',
+    isSchoolAdmin: true
+  };
+  previousAuthUser = authStore.user ? { ...authStore.user } : null;
+  authStore.user = {
+    id: demoUser.id,
+    first_name: demoUser.firstName || demoUser.first_name || 'Minerva',
+    last_name: demoUser.lastName || demoUser.last_name || 'McGonagall',
+    firstName: demoUser.firstName || demoUser.first_name || 'Minerva',
+    lastName: demoUser.lastName || demoUser.last_name || 'McGonagall',
+    email: demoUser.email || 'minerva.mcgonagall@hogwarts.edu',
+    role: demoUser.role || 'school_staff',
+    isSchoolAdmin: true,
+    username: demoUser.email || 'minerva.mcgonagall@hogwarts.edu'
+  };
+  injectedDemoAuth = true;
+}
+
+function restoreAuthUser() {
+  if (!injectedDemoAuth) return;
+  authStore.user = previousAuthUser;
+  previousAuthUser = null;
+  injectedDemoAuth = false;
 }
 
 function backToOnboarding() {
@@ -130,6 +174,7 @@ async function boot() {
       schoolId: school.id,
       standalone: standalone.value
     });
+    const theme = school.portal_theme || {};
     organizationStore.setCurrentOrganization({
       id: school.id,
       name: school.name,
@@ -138,15 +183,20 @@ async function boot() {
       portal_url: school.portal_url || school.slug || 'hogwarts',
       organization_type: 'school',
       is_active: true,
-      logo_url: school.logo_url || null,
+      logo_url: theme.logoUrl || school.logo_url || null,
       logo_path: school.logo_path || null,
-      color_palette: school.color_palette || null,
-      theme_settings: school.theme_settings || null,
-      terminology_settings: school.terminology_settings || null
+      color_palette: theme.colorPalette || school.color_palette || null,
+      theme_settings: {
+        ...(theme.themeSettings || school.theme_settings || {}),
+        useAffiliatedAgencyBranding: true
+      },
+      terminology_settings: theme.terminologySettings || school.terminology_settings || null
     });
+    injectDemoSchoolAdmin(school);
     await applyDemoPortalTheme(school);
     ready.value = true;
   } catch (e) {
+    restoreAuthUser();
     deactivateSchoolOnboardingDemo();
     error.value = e?.response?.data?.error?.message || e?.message || 'Unable to open demo';
     ready.value = false;
@@ -158,6 +208,7 @@ async function boot() {
 onMounted(boot);
 
 onUnmounted(() => {
+  restoreAuthUser();
   deactivateSchoolOnboardingDemo();
   brandingStore.setActiveRouteSlug('');
   brandingStore.clearPortalTheme();

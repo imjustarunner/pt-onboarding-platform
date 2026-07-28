@@ -42,8 +42,14 @@ export function buildSchoolOnboardingStandaloneDemoPath() {
   return '/school-onboarding/demo';
 }
 
+function demoPortalBase() {
+  return standaloneDemo
+    ? '/public/school-onboarding/demo/portal'
+    : `/public/school-onboarding/${encodeURIComponent(activeToken)}/demo/portal`;
+}
+
 /**
- * Rewrite authenticated school-portal URLs to public demo portal URLs.
+ * Rewrite authenticated school-portal URLs (and a few related APIs) to public demo portal URLs.
  * Returns null when no rewrite applies.
  */
 export function rewriteSchoolPortalUrlForDemo(url) {
@@ -51,21 +57,37 @@ export function rewriteSchoolPortalUrlForDemo(url) {
   const raw = String(url || '');
   const pathOnly = raw.split('?')[0];
   const query = raw.includes('?') ? raw.slice(raw.indexOf('?')) : '';
+  const base = demoPortalBase();
 
   // Match /school-portal/:orgId/... or /api/school-portal/:orgId/...
   const m = pathOnly.match(/^(?:\/api)?\/school-portal\/(\d+)(?:\/(.*))?$/i);
-  if (!m) return null;
-
-  const orgId = Number(m[1]);
-  if (activeSchoolId && orgId && orgId !== activeSchoolId) {
-    // Keep demo locked to Hogwarts only.
-    return null;
+  if (m) {
+    const orgId = Number(m[1]);
+    if (activeSchoolId && orgId && orgId !== activeSchoolId) {
+      // Keep demo locked to Hogwarts only.
+      return null;
+    }
+    const rest = String(m[2] || '').replace(/^\/+/, '');
+    if (!rest) return `${base}${query}`;
+    return `${base}/${rest}${query}`;
   }
 
-  const rest = String(m[2] || '').replace(/^\/+/, '');
-  const base = standaloneDemo
-    ? '/public/school-onboarding/demo/portal'
-    : `/public/school-onboarding/${encodeURIComponent(activeToken)}/demo/portal`;
-  if (!rest) return `${base}${query}`;
-  return `${base}/${rest}${query}`;
+  // Messages, Contact Admin, client tickets, and notification prefs are not under school-portal.
+  const chat = pathOnly.match(/^(?:\/api)?\/chat\/(.*)$/i);
+  if (chat) {
+    return `${base}/chat/${chat[1]}${query}`;
+  }
+
+  const tickets = pathOnly.match(/^(?:\/api)?\/support-tickets(?:\/(.*))?$/i);
+  if (tickets) {
+    const rest = String(tickets[1] || '').replace(/^\/+/, '');
+    return rest ? `${base}/support-tickets/${rest}${query}` : `${base}/support-tickets${query}`;
+  }
+
+  const prefs = pathOnly.match(/^(?:\/api)?\/users\/(\d+)\/preferences$/i);
+  if (prefs) {
+    return `${base}/users/${prefs[1]}/preferences${query}`;
+  }
+
+  return null;
 }

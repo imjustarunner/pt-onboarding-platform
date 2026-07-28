@@ -2680,6 +2680,8 @@ const onSchoolProviderAdded = async () => {
 };
 /** School staff, assigned providers, and agency managers can add/edit events on this portal. */
 const canManageSchoolEvents = computed(() => {
+  // Public onboarding demo: show the Add flow (mutations are no-ops server-side).
+  if (isPublicDemo.value) return !!authStore.user?.id;
   if (isPreviewOrDemo.value) return false;
   if (!authStore.user?.id) return false;
   return [

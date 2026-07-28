@@ -1,11 +1,20 @@
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import * as Onboarding from './schoolOnboarding.service.js';
+import {
+  listSchoolEventsForOrg,
+  getMissingCategoriesForOrg
+} from './schoolPortalEvents.service.js';
 
 export const PUBLIC_STANDALONE_DEMO_TOKEN = 'public';
+/** Demo "logged-in" school admin identity (Minerva McGonagall). */
+export const DEMO_SCHOOL_ADMIN_USER_ID = 1015;
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const REMOVED_DEMO_PROVIDER_IDS = new Set([595, 596, 601]);
+const REMOVED_DEMO_STAFF_EMAILS = new Set(['skyler@d11.org', 'filius.flitwick@hogwarts.edu']);
 
 export async function resolveHogwartsCore() {
   const [rows] = await pool.execute(
@@ -85,6 +94,7 @@ export async function getDemoPortalTheme(token) {
 export async function getDemoSchoolMeta(token) {
   const { demo, agency, schoolId } = await resolveHogwartsForInvite(token);
   const portalTheme = await getDemoPortalTheme(token);
+  // Prefer affiliated tenant branding (ITSCO) so standalone demo matches onboarding.
   return {
     id: schoolId,
     name: agency.name || demo.name || 'Hogwarts',
@@ -93,12 +103,20 @@ export async function getDemoSchoolMeta(token) {
     portal_url: agency.portal_url || agency.slug || 'hogwarts',
     organization_type: 'school',
     is_active: true,
-    logo_url: agency.logo_url || null,
+    logo_url: portalTheme.logoUrl || agency.logo_url || null,
     logo_path: agency.logo_path || null,
-    color_palette: parseFlags(agency.color_palette),
-    theme_settings: parseFlags(agency.theme_settings),
-    terminology_settings: parseFlags(agency.terminology_settings),
-    portal_theme: portalTheme
+    color_palette: portalTheme.colorPalette || parseFlags(agency.color_palette),
+    theme_settings: portalTheme.themeSettings || parseFlags(agency.theme_settings),
+    terminology_settings: portalTheme.terminologySettings || parseFlags(agency.terminology_settings),
+    portal_theme: portalTheme,
+    demo_user: {
+      id: DEMO_SCHOOL_ADMIN_USER_ID,
+      firstName: 'Minerva',
+      lastName: 'McGonagall',
+      email: 'minerva.mcgonagall@hogwarts.edu',
+      role: 'school_staff',
+      isSchoolAdmin: true
+    }
   };
 }
 
@@ -230,6 +248,7 @@ export async function getDemoDayProviders(token, weekdayRaw) {
             a.provider_user_id,
             u.first_name,
             u.last_name,
+            u.profile_photo_path,
             psa.slots_total,
             psa.slots_available,
             psa.start_time,
@@ -245,6 +264,7 @@ export async function getDemoDayProviders(token, weekdayRaw) {
      WHERE a.school_organization_id = ?
        AND a.weekday = ? COLLATE utf8mb4_unicode_ci
        AND a.is_active = TRUE
+       AND a.provider_user_id NOT IN (595, 596, 601)
      ORDER BY u.last_name ASC, u.first_name ASC`,
     [schoolId, weekday]
   ).catch(() => [[]]);
@@ -253,7 +273,8 @@ export async function getDemoDayProviders(token, weekdayRaw) {
     email: scrubEmail(),
     slots_used: Math.max(0, Number(r.slots_total || 0) - Number(r.slots_available || 0)),
     slots_available_calculated: Number(r.slots_available || 0),
-    profile_photo_url: null
+    profile_photo_path: r.profile_photo_path || null,
+    profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path || null)
   }));
 }
 
@@ -263,6 +284,7 @@ export async function getDemoSchedulingProviders(token) {
     `SELECT psa.provider_user_id,
             u.first_name,
             u.last_name,
+            u.profile_photo_path,
             psa.day_of_week,
             psa.slots_total,
             psa.slots_available,
@@ -273,6 +295,7 @@ export async function getDemoSchedulingProviders(token) {
      JOIN users u ON u.id = psa.provider_user_id
      JOIN user_agencies ua ON ua.user_id = psa.provider_user_id AND ua.agency_id = psa.school_organization_id
      WHERE psa.school_organization_id = ? AND psa.is_active = TRUE
+       AND psa.provider_user_id NOT IN (595, 596, 601)
      ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
     [schoolId]
   ).catch(() => [[]]);
@@ -280,6 +303,7 @@ export async function getDemoSchedulingProviders(token) {
   const byProvider = new Map();
   for (const r of rows || []) {
     const pid = Number(r.provider_user_id);
+    if (REMOVED_DEMO_PROVIDER_IDS.has(pid)) continue;
     if (!byProvider.has(pid)) {
       byProvider.set(pid, {
         provider_user_id: pid,
@@ -288,7 +312,8 @@ export async function getDemoSchedulingProviders(token) {
         email: scrubEmail(),
         accepting_new_clients: true,
         provider_accepting_new_clients: true,
-        profile_photo_url: null,
+        profile_photo_path: r.profile_photo_path || null,
+        profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path || null),
         school_info_blurb: null,
         leaveType: null,
         isOnLeave: false,
@@ -355,10 +380,10 @@ export async function getDemoClients(token) {
       paperwork_status_label: null,
       skills: false,
       unread_notes_count: 0,
-      unread_ticket_messages_count: 0,
+      unread_ticket_messages_count: [1181, 1326, 1331].includes(Number(r.id)) ? 1 : 0,
       unread_updates_count: 0,
-      open_ticket_count: 0,
-      answered_ticket_count: 0,
+      open_ticket_count: [1181, 1326].includes(Number(r.id)) ? 1 : 0,
+      answered_ticket_count: [1331].includes(Number(r.id)) ? 1 : 0,
       school_staff_access_level: 'full',
       school_staff_effective_access_state: 'active',
       school_portal_can_open: true,
@@ -374,9 +399,13 @@ export async function getDemoClients(token) {
 export async function getDemoSchoolStaff(token) {
   const { schoolId } = await resolveHogwartsForInvite(token);
   const [rows] = await pool.execute(
-    `SELECT u.id, u.first_name, u.last_name, u.status, u.created_at, u.profile_photo_path
+    `SELECT u.id, u.first_name, u.last_name, u.email, u.status, u.created_at, u.profile_photo_path,
+            sc.id AS school_contact_id, sc.is_primary, sc.is_school_admin, sc.is_scheduler
      FROM user_agencies ua
      JOIN users u ON u.id = ua.user_id
+     LEFT JOIN school_contacts sc
+       ON sc.school_organization_id = ua.agency_id
+      AND LOWER(sc.email) COLLATE utf8mb4_unicode_ci = LOWER(u.email) COLLATE utf8mb4_unicode_ci
      WHERE ua.agency_id = ?
        AND LOWER(COALESCE(u.role,'')) = 'school_staff'
        AND UPPER(COALESCE(u.status,'')) <> 'ARCHIVED'
@@ -384,23 +413,28 @@ export async function getDemoSchoolStaff(token) {
      LIMIT 100`,
     [schoolId]
   ).catch(() => [[]]);
-  return (rows || []).map((r, idx) => ({
-    id: r.id,
-    first_name: r.first_name,
-    last_name: r.last_name,
-    email: scrubEmail(),
-    status: r.status,
-    created_at: r.created_at,
-    last_login: null,
-    profile_photo_path: r.profile_photo_path || null,
-    profile_photo_url: null,
-    is_primary: idx === 0,
-    is_school_admin: idx === 0,
-    is_scheduler: false,
-    school_contact_id: null,
-    has_active_temporary_password: false,
-    password_reset_expires_at: null
-  }));
+  return (rows || [])
+    .filter((r) => !REMOVED_DEMO_STAFF_EMAILS.has(String(r.email || '').toLowerCase()))
+    .map((r) => {
+      const isDemoAdmin = Number(r.id) === DEMO_SCHOOL_ADMIN_USER_ID || !!r.is_school_admin;
+      return {
+        id: r.id,
+        first_name: r.first_name,
+        last_name: r.last_name,
+        email: scrubEmail(),
+        status: r.status,
+        created_at: r.created_at,
+        last_login: null,
+        profile_photo_path: r.profile_photo_path || null,
+        profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path || null),
+        is_primary: Number(r.id) === DEMO_SCHOOL_ADMIN_USER_ID || !!r.is_primary,
+        is_school_admin: isDemoAdmin,
+        is_scheduler: !!r.is_scheduler && Number(r.id) !== DEMO_SCHOOL_ADMIN_USER_ID,
+        school_contact_id: r.school_contact_id || null,
+        has_active_temporary_password: false,
+        password_reset_expires_at: null
+      };
+    });
 }
 
 const SCHOOL_PORTAL_ICON_ID_FIELDS = [
@@ -485,7 +519,9 @@ export async function getDemoAffiliation(token) {
     active_agency: activeAgency,
     user_has_school_access: true,
     user_has_agency_access: true,
-    can_edit_clients: false
+    can_edit_clients: true,
+    is_school_admin: true,
+    demo_user_id: DEMO_SCHOOL_ADMIN_USER_ID
   };
 }
 
@@ -524,9 +560,390 @@ export async function getDemoSoftSlots() {
   return { persisted: false, slots: [] };
 }
 
+export async function getDemoSchoolEvents(token) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  return listSchoolEventsForOrg(schoolId, { viewerUserId: DEMO_SCHOOL_ADMIN_USER_ID }).catch(() => []);
+}
+
+export async function getDemoSchoolEventsMissing(token) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  const missing = await getMissingCategoriesForOrg(schoolId).catch(() => []);
+  return { missing: missing || [], categories: missing || [] };
+}
+
+export async function getDemoPublicDocuments(token) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  const [rows] = await pool
+    .execute(
+      `SELECT id, school_organization_id, kind, title, category_key, file_path, link_url,
+              mime_type, original_filename, uploaded_by_user_id, created_at, updated_at
+       FROM school_public_documents
+       WHERE school_organization_id = ?
+       ORDER BY updated_at DESC, id DESC`,
+      [schoolId]
+    )
+    .catch(() => [[]]);
+  return { schoolOrganizationId: schoolId, documents: rows || [] };
+}
+
+export async function getDemoIntakeLinks(token) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  const [rows] = await pool
+    .execute(
+      `SELECT id, public_key, title, description, language_code, scope_type, organization_id,
+              program_id, is_active, created_at, updated_at
+       FROM intake_links
+       WHERE scope_type = 'school'
+         AND organization_id = ?
+         AND is_active = 1
+       ORDER BY updated_at DESC, id DESC`,
+      [schoolId]
+    )
+    .catch(() => [[]]);
+  return { scopeType: 'school', organizationId: schoolId, links: rows || [] };
+}
+
+export async function getDemoAnnouncementsBanner(token) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  const [rows] = await pool
+    .execute(
+      `SELECT id, title, message, display_type, audience, starts_at, ends_at, created_at
+       FROM school_portal_announcements
+       WHERE organization_id = ?
+         AND NOW() >= starts_at
+         AND NOW() <= ends_at
+       ORDER BY starts_at ASC, id DESC
+       LIMIT 20`,
+      [schoolId]
+    )
+    .catch(() => [[]]);
+  return (rows || []).map((r) => ({
+    id: r.id,
+    title: r.title || 'Announcement',
+    message: r.message || '',
+    display_type: r.display_type || 'announcement',
+    audience: r.audience || 'everyone',
+    starts_at: r.starts_at,
+    ends_at: r.ends_at,
+    created_at: r.created_at
+  }));
+}
+
+export async function getDemoNotificationsFeed(token) {
+  const banner = await getDemoAnnouncementsBanner(token);
+  const docs = await getDemoPublicDocuments(token);
+  const items = [];
+  for (const a of banner || []) {
+    items.push({
+      id: `announcement:${a.id}`,
+      kind: 'announcement',
+      title: a.title,
+      message: a.message,
+      created_at: a.created_at || a.starts_at,
+      actor_name: 'Minerva McGonagall'
+    });
+  }
+  for (const d of docs?.documents || []) {
+    const isLink = !!String(d.link_url || '').trim();
+    items.push({
+      id: `public_doc:${d.id}`,
+      kind: 'doc',
+      title: isLink ? 'New link added' : 'New document added',
+      message: String(d.title || '').trim() || (isLink ? 'Link added' : 'Document added'),
+      created_at: d.created_at,
+      actor_name: 'School Admin'
+    });
+  }
+  // Extra demo-only notifications so the panel looks populated even before migration seeds.
+  if (!items.length) {
+    const now = Date.now();
+    items.push(
+      {
+        id: 'demo:welcome',
+        kind: 'announcement',
+        title: 'Welcome to the Hogwarts school portal demo',
+        message: 'Browse freely — this is a view-only preview of what your school portal will look like.',
+        created_at: new Date(now - 2 * 86400000).toISOString(),
+        actor_name: 'Minerva McGonagall'
+      },
+      {
+        id: 'demo:schedule',
+        kind: 'announcement',
+        title: 'Provider schedule updated for this week',
+        message: 'Monday and Friday have two providers on campus. Wednesday has no school-based coverage.',
+        created_at: new Date(now - 86400000).toISOString(),
+        actor_name: 'Minerva McGonagall'
+      }
+    );
+  }
+  items.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  return items;
+}
+
+function demoIso(daysAgo = 0, hour = 10) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  d.setHours(hour, 15, 0, 0);
+  return d.toISOString();
+}
+
+export async function getDemoChatThreads(token) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  return [
+    {
+      thread_id: 90001,
+      agency_id: schoolId,
+      agency_name: 'Hogwarts',
+      organization_id: schoolId,
+      thread_type: 'direct',
+      updated_at: demoIso(0, 14),
+      unread_count: 1,
+      last_message: {
+        id: 900011,
+        body: 'Harry is doing well with fine motor work this week.',
+        created_at: demoIso(0, 14),
+        sender_user_id: 1007
+      },
+      other_participant: {
+        id: 1007,
+        first_name: 'Sirius',
+        last_name: 'Black',
+        email: null,
+        role: 'provider'
+      },
+      participants: [
+        { id: 1007, first_name: 'Sirius', last_name: 'Black', email: null, role: 'provider' }
+      ]
+    },
+    {
+      thread_id: 90002,
+      agency_id: schoolId,
+      agency_name: 'Hogwarts',
+      organization_id: schoolId,
+      thread_type: 'direct',
+      updated_at: demoIso(1, 11),
+      unread_count: 0,
+      last_message: {
+        id: 900021,
+        body: 'Can we confirm Thursday coverage for Hermione?',
+        created_at: demoIso(1, 11),
+        sender_user_id: DEMO_SCHOOL_ADMIN_USER_ID
+      },
+      other_participant: {
+        id: 1009,
+        first_name: 'Kingsley',
+        last_name: 'Shacklebolt',
+        email: null,
+        role: 'provider'
+      },
+      participants: [
+        { id: 1009, first_name: 'Kingsley', last_name: 'Shacklebolt', email: null, role: 'provider' }
+      ]
+    },
+    {
+      thread_id: 90003,
+      agency_id: schoolId,
+      agency_name: 'Hogwarts',
+      organization_id: schoolId,
+      thread_type: 'direct',
+      updated_at: demoIso(3, 9),
+      unread_count: 0,
+      last_message: {
+        id: 900031,
+        body: 'I updated Neville’s goal notes in the roster.',
+        created_at: demoIso(3, 9),
+        sender_user_id: 1017
+      },
+      other_participant: {
+        id: 1017,
+        first_name: 'Pomona',
+        last_name: 'Sprout',
+        email: null,
+        role: 'school_staff'
+      },
+      participants: [
+        { id: 1017, first_name: 'Pomona', last_name: 'Sprout', email: null, role: 'school_staff' }
+      ]
+    }
+  ];
+}
+
+export async function getDemoChatMessages(token, threadIdRaw) {
+  const threadId = Number(threadIdRaw || 0);
+  const me = DEMO_SCHOOL_ADMIN_USER_ID;
+  const byThread = {
+    90001: [
+      {
+        id: 900010,
+        thread_id: 90001,
+        sender_user_id: me,
+        sender_first_name: 'Minerva',
+        sender_last_name: 'McGonagall',
+        body: 'Hi Sirius — any updates on Harry this week?',
+        created_at: demoIso(1, 9),
+        is_read_by_other: true
+      },
+      {
+        id: 900011,
+        thread_id: 90001,
+        sender_user_id: 1007,
+        sender_first_name: 'Sirius',
+        sender_last_name: 'Black',
+        body: 'Harry is doing well with fine motor work this week.',
+        created_at: demoIso(0, 14),
+        is_read_by_other: false
+      }
+    ],
+    90002: [
+      {
+        id: 900020,
+        thread_id: 90002,
+        sender_user_id: 1009,
+        sender_first_name: 'Kingsley',
+        sender_last_name: 'Shacklebolt',
+        body: 'Thursday looks light — I can take one more student.',
+        created_at: demoIso(2, 10),
+        is_read_by_other: true
+      },
+      {
+        id: 900021,
+        thread_id: 90002,
+        sender_user_id: me,
+        sender_first_name: 'Minerva',
+        sender_last_name: 'McGonagall',
+        body: 'Can we confirm Thursday coverage for Hermione?',
+        created_at: demoIso(1, 11),
+        is_read_by_other: true
+      }
+    ],
+    90003: [
+      {
+        id: 900031,
+        thread_id: 90003,
+        sender_user_id: 1017,
+        sender_first_name: 'Pomona',
+        sender_last_name: 'Sprout',
+        body: 'I updated Neville’s goal notes in the roster.',
+        created_at: demoIso(3, 9),
+        is_read_by_other: true
+      },
+      {
+        id: 900032,
+        thread_id: 90003,
+        sender_user_id: me,
+        sender_first_name: 'Minerva',
+        sender_last_name: 'McGonagall',
+        body: 'Perfect — thank you!',
+        created_at: demoIso(3, 10),
+        is_read_by_other: true
+      }
+    ]
+  };
+  return byThread[threadId] || [];
+}
+
+const DEMO_TICKETS = [
+  {
+    id: 91001,
+    school_organization_id: 376,
+    client_id: 1181,
+    topic: 'scheduling',
+    subject: 'Make-up session request',
+    question: 'Harry missed Monday — can we schedule a make-up?',
+    status: 'open',
+    answer: null,
+    created_at: demoIso(2, 8),
+    updated_at: demoIso(2, 8),
+    created_by_user_id: DEMO_SCHOOL_ADMIN_USER_ID
+  },
+  {
+    id: 91002,
+    school_organization_id: 376,
+    client_id: 1326,
+    topic: 'general',
+    subject: 'IEP meeting notes',
+    question: 'Where should I upload Hermione’s latest IEP addendum?',
+    status: 'answered',
+    answer: 'Upload it under Docs / Links, or attach it on the client profile Messages tab.',
+    answered_at: demoIso(4, 15),
+    created_at: demoIso(5, 9),
+    updated_at: demoIso(4, 15),
+    created_by_user_id: DEMO_SCHOOL_ADMIN_USER_ID
+  },
+  {
+    id: 91003,
+    school_organization_id: 376,
+    client_id: 1331,
+    topic: 'general',
+    subject: 'Progress update',
+    question: 'Can we get a quick progress note for Ron before conferences?',
+    status: 'answered',
+    answer: 'Yes — Kingsley will add a note by Thursday.',
+    answered_at: demoIso(1, 16),
+    created_at: demoIso(3, 11),
+    updated_at: demoIso(1, 16),
+    created_by_user_id: DEMO_SCHOOL_ADMIN_USER_ID
+  }
+];
+
+export async function getDemoSupportTicketsMine(token) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  return DEMO_TICKETS.map((t) => ({ ...t, school_organization_id: schoolId }));
+}
+
+export async function getDemoClientTickets(token, query = {}) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  const clientId = Number(query.clientId || query.client_id || 0);
+  const tickets = DEMO_TICKETS.map((t) => ({ ...t, school_organization_id: schoolId })).filter(
+    (t) => !clientId || Number(t.client_id) === clientId
+  );
+  return { tickets };
+}
+
+export async function getDemoTicketMessages(token, ticketIdRaw) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  const ticketId = Number(ticketIdRaw || 0);
+  const ticket =
+    DEMO_TICKETS.map((t) => ({ ...t, school_organization_id: schoolId })).find(
+      (t) => Number(t.id) === ticketId
+    ) || null;
+  if (!ticket) return { ticket: null, messages: [] };
+  const messages = [];
+  if (ticket.status === 'answered' || ticket.answer) {
+    messages.push({
+      id: ticketId * 10 + 1,
+      ticket_id: ticketId,
+      author_user_id: 2,
+      body: ticket.answer || 'Thanks — we are looking into this.',
+      created_at: ticket.answered_at || ticket.updated_at
+    });
+  } else {
+    messages.push({
+      id: ticketId * 10 + 1,
+      ticket_id: ticketId,
+      author_user_id: 1007,
+      body: 'I can offer a Thursday afternoon make-up slot.',
+      created_at: demoIso(1, 13)
+    });
+  }
+  return { ticket, messages };
+}
+
+export async function getDemoUserPreferences() {
+  return {
+    school_portal_notifications_progress: {
+      by_org: {},
+      by_org_kind: {},
+      by_org_client_kind: {},
+      dismissed_by_org: {}
+    }
+  };
+}
+
 /**
  * Route a rewritten school-portal GET path to demo handlers.
  * pathRest examples: "stats", "days", "days/Monday/providers", "clients", "school-staff"
+ * Also handles rewritten chat / support-tickets / users preferences paths.
  */
 export async function handleDemoPortalGet(token, pathRest, query = {}) {
   const rest = String(pathRest || '').replace(/^\/+|\/+$/g, '');
@@ -559,16 +976,18 @@ export async function handleDemoPortalGet(token, pathRest, query = {}) {
   if (parts[0] === 'school-staff') return getDemoSchoolStaff(token);
   if (parts[0] === 'affiliation') return getDemoAffiliation(token);
   if (parts[0] === 'notifications' && parts[1] === 'feed') {
-    return { items: [], unread_count: 0 };
+    return getDemoNotificationsFeed(token);
   }
-  if (parts[0] === 'announcements' && parts[1] === 'banner') return [];
+  if (parts[0] === 'announcements' && parts[1] === 'banner') {
+    return getDemoAnnouncementsBanner(token);
+  }
   if (parts[0] === 'school-events' && parts[1] === 'missing') {
-    return { missing: [], categories: [] };
+    return getDemoSchoolEventsMissing(token);
   }
-  if (parts[0] === 'school-events') return [];
+  if (parts[0] === 'school-events') return getDemoSchoolEvents(token);
   if (parts[0] === 'faq') return [];
-  if (parts[0] === 'public-documents') return [];
-  if (parts[0] === 'intake-links') return [];
+  if (parts[0] === 'public-documents') return getDemoPublicDocuments(token);
+  if (parts[0] === 'intake-links') return getDemoIntakeLinks(token);
   if (parts[0] === 'school-staff-waiver' && parts[1] === 'status') {
     return { required: false, isSigned: true, taskId: null };
   }
@@ -576,6 +995,36 @@ export async function handleDemoPortalGet(token, pathRest, query = {}) {
   if (parts[0] === 'my-roster') return [];
   if (parts[0] === 'skill-builders-program') return { linked: false };
   if (parts[0] === 'skills-groups') return [];
+
+  // Rewritten non-school-portal APIs used by Messages / Contact Admin / notifications.
+  if (parts[0] === 'chat' && parts[1] === 'threads' && parts.length === 2) {
+    return getDemoChatThreads(token);
+  }
+  if (parts[0] === 'chat' && parts[1] === 'threads' && parts[3] === 'messages') {
+    return getDemoChatMessages(token, parts[2]);
+  }
+  if (parts[0] === 'chat' && parts[1] === 'threads' && parts[3] === 'meta') {
+    const threads = await getDemoChatThreads(token);
+    return threads.find((t) => Number(t.thread_id) === Number(parts[2])) || { thread_id: Number(parts[2]) };
+  }
+  if (parts[0] === 'support-tickets' && parts[1] === 'mine') {
+    return getDemoSupportTicketsMine(token);
+  }
+  if (parts[0] === 'support-tickets' && parts[1] === 'client-tickets') {
+    return getDemoClientTickets(token, query);
+  }
+  if (parts[0] === 'support-tickets' && parts[1] === 'client-thread') {
+    return getDemoClientTickets(token, query);
+  }
+  if (parts[0] === 'support-tickets' && parts[2] === 'messages') {
+    return getDemoTicketMessages(token, parts[1]);
+  }
+  if (parts[0] === 'support-tickets' && parts.length === 1) {
+    return getDemoSupportTicketsMine(token);
+  }
+  if (parts[0] === 'users' && parts[2] === 'preferences') {
+    return getDemoUserPreferences();
+  }
 
   // Unknown GET: empty-safe payload so panels still open.
   return [];
