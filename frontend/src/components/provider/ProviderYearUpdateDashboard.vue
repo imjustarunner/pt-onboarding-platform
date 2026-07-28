@@ -921,7 +921,8 @@ async function saveMaterials() {
     actionError.value = 'Please select polo cut (M/F) and preferred size.';
     return;
   }
-  await saveSection('materials', materialsPayload(), { reviewed: true, completed: true });
+  const ok = await saveSection('materials', materialsPayload(), { reviewed: true, completed: true });
+  if (ok) goToNextSection('materials');
 }
 
 function poloStockLabel(sz) {
@@ -1057,11 +1058,12 @@ async function toggleUnknownBts(school, checked) {
 }
 
 async function saveEventsSection() {
-  await saveSection(
+  const ok = await saveSection(
     'school_events',
     { unknownBts: { ...unknownBts } },
     { reviewed: true, completed: true }
   );
+  if (ok) goToNextSection('school_events');
 }
 
 const REMINDER_ACCENTS = ['#0c4a6e', '#15803d', '#b45309', '#7c3aed', '#be185d', '#0f766e', '#c2410c'];
@@ -1308,15 +1310,17 @@ function orgPrefix() {
 
 async function markSectionDone(key) {
   const existing = (payload.value?.sections || []).find((s) => s.sectionKey === key)?.data || {};
-  await saveSection(key, existing, { reviewed: true, completed: true });
+  const ok = await saveSection(key, existing, { reviewed: true, completed: true });
+  if (ok) goToNextSection(key);
 }
 
 async function saveScheduleSection() {
-  await saveSection(
+  const ok = await saveSection(
     'provider_schedule',
     { confirmed: true, confirmedAt: new Date().toISOString() },
     { reviewed: true, completed: true }
   );
+  if (ok) goToNextSection('provider_schedule');
 }
 
 function openAddEvent(school) {
