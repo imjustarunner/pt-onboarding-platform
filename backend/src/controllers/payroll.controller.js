@@ -5024,6 +5024,7 @@ async function buildResolvedSupervisionUnitsByUserCode({
          CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
        ))) AS participant_role,
        LOWER(TRIM(COALESCE(u.role, ''))) AS participant_user_role,
+       COALESCE(ssa.is_compensable_snapshot, 0) AS is_compensable_snapshot,
        SUM(COALESCE(ssar.total_seconds, 0)) AS total_seconds
      FROM supervision_session_attendance_rollups ssar
      JOIN supervision_sessions ss ON ss.id = ssar.session_id
@@ -5045,7 +5046,8 @@ async function buildResolvedSupervisionUnitsByUserCode({
        LOWER(TRIM(COALESCE(ssa.participant_role,
          CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
        ))),
-       LOWER(TRIM(COALESCE(u.role, '')))`;
+       LOWER(TRIM(COALESCE(u.role, ''))),
+       COALESCE(ssa.is_compensable_snapshot, 0)`;
   let appRows = [];
   try {
     const [rows] = await pool.execute(
@@ -5074,6 +5076,15 @@ async function buildResolvedSupervisionUnitsByUserCode({
     const uid = Number(r.user_id || 0);
     const serviceDate = String(r.service_date || '').slice(0, 10);
     if (!uid || !serviceDate) continue;
+    const sessionType = String(r.session_type || '').trim().toLowerCase();
+    const participantRole = String(r.participant_role || '').trim().toLowerCase();
+    if (
+      sessionType === 'group'
+      && participantRole === 'supervisee'
+      && Number(r.is_compensable_snapshot || 0) !== 1
+    ) {
+      continue;
+    }
     if (isInternRole(r.participant_user_role)) {
       // Interns are never paid for supervision/practice-support meetings.
       continue;

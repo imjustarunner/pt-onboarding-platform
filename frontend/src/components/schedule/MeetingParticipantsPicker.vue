@@ -32,11 +32,31 @@
         <button type="button" class="btn btn-secondary btn-sm" @click="emit('retry')">Retry</button>
       </div>
       <template v-else>
+        <div v-if="lockedGroups.length" class="mpp-groups">
+          <div class="mpp-section-label">Supervision groups <span class="mpp-locked-hint">(auto-updated)</span></div>
+          <div class="mpp-group-row">
+            <button
+              v-for="g in lockedGroups"
+              :key="g.key"
+              type="button"
+              class="mpp-group-btn mpp-group-btn--locked"
+              :class="{ on: isGroupFullySelected(g) }"
+              :title="`${(g.userIds || []).length} people`"
+              :disabled="disabled || !(g.userIds || []).length"
+              @click="emit('toggle-group', g)"
+            >
+              <span class="mpp-group-lock" aria-hidden="true">🔒</span>
+              <span class="mpp-group-name">{{ g.label }}</span>
+              <span class="mpp-group-count">{{ (g.userIds || []).length }}</span>
+            </button>
+          </div>
+        </div>
+
         <div class="mpp-groups">
           <div class="mpp-section-label">Teams &amp; groups</div>
           <div class="mpp-group-row">
             <button
-              v-for="g in groups"
+              v-for="g in openGroups"
               :key="g.key"
               type="button"
               class="mpp-group-btn"
@@ -200,6 +220,13 @@ const selectedIdSet = computed(
   () => new Set((props.selectedIds || []).map((n) => Number(n || 0)).filter((n) => n > 0))
 );
 
+const lockedGroups = computed(
+  () => (props.groups || []).filter((g) => g?.locked || String(g?.kind || '') === 'locked')
+);
+const openGroups = computed(
+  () => (props.groups || []).filter((g) => !g?.locked && String(g?.kind || '') !== 'locked')
+);
+
 const creatingGroup = ref(false);
 const newGroupName = ref('');
 const createGroupHint = ref('');
@@ -350,6 +377,28 @@ watch(
   border-color: #2563eb;
   background: #eff6ff;
   color: #1e3a8a;
+}
+.mpp-group-btn--locked {
+  border-style: dashed;
+}
+.mpp-group-btn--locked.on {
+  border-color: #0d9488;
+  background: #f0fdfa;
+  color: #115e59;
+}
+.mpp-group-btn--locked.on .mpp-group-count {
+  background: #99f6e4;
+  color: #115e59;
+}
+.mpp-group-lock {
+  font-size: 0.72rem;
+  line-height: 1;
+}
+.mpp-locked-hint {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #94a3b8;
 }
 .mpp-group-btn--create {
   border-style: dashed;

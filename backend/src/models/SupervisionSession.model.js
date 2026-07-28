@@ -29,7 +29,10 @@ class SupervisionSession {
     waitingRoomEnabled = true,
     recurrenceSeriesId = null,
     recurrenceFrequency = null,
-    recurrenceIndex = null
+    recurrenceIndex = null,
+    enrollmentMode = 'invited',
+    signupClosesAt = null,
+    autoCancelIfEmpty = false
   }) {
     const participantToken = String(joinToken || generateJoinToken()).slice(0, 64);
     const hostToken = generateJoinToken().slice(0, 64);
@@ -37,6 +40,52 @@ class SupervisionSession {
     const audienceGroupSupport = inviteAudienceGroupSupport ? 1 : 0;
     const coFacilitatorId = Number(coFacilitatorUserId || 0) > 0 ? Number(coFacilitatorUserId) : null;
     const waitingRoomFlag = waitingRoomEnabled === false || waitingRoomEnabled === 0 ? 0 : 1;
+    const enrollment = String(enrollmentMode || 'invited').trim().toLowerCase() === 'signup_only'
+      ? 'signup_only'
+      : (String(enrollmentMode || 'invited').trim().toLowerCase() === 'open_join' ? 'open_join' : 'invited');
+    const autoCancelFlag = autoCancelIfEmpty ? 1 : 0;
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO supervision_sessions
+          (join_token, host_join_token, participant_join_token, waiting_room_enabled,
+           agency_id, supervisor_user_id, co_facilitator_user_id, supervisee_user_id, session_type, invite_scope,
+           invite_audience_all_supervised, invite_audience_group_support,
+           enrollment_mode, signup_closes_at, auto_cancel_if_empty,
+           start_at, end_at, modality, location_text, notes, status,
+           recurrence_series_id, recurrence_frequency, recurrence_index, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
+        [
+          participantToken,
+          hostToken,
+          participantToken,
+          waitingRoomFlag,
+          Number(agencyId),
+          Number(supervisorUserId),
+          coFacilitatorId,
+          Number(superviseeUserId),
+          String(sessionType || 'individual'),
+          normalizeInviteScopeValue(inviteScope),
+          audienceAllSupervised,
+          audienceGroupSupport,
+          enrollment,
+          signupClosesAt || null,
+          autoCancelFlag,
+          startAt,
+          endAt,
+          modality,
+          locationText,
+          notes,
+          recurrenceSeriesId ? String(recurrenceSeriesId).trim().slice(0, 64) : null,
+          recurrenceFrequency ? String(recurrenceFrequency).trim().toUpperCase().slice(0, 16) : null,
+          recurrenceIndex == null ? null : Math.max(0, parseInt(recurrenceIndex, 10) || 0),
+          createdByUserId ? Number(createdByUserId) : null
+        ]
+      );
+      return this.findById(result.insertId);
+    } catch (e) {
+      const missingEnrollmentCols = /enrollment_mode|signup_closes_at|auto_cancel_if_empty/i.test(String(e?.message || ''));
+      if (!missingEnrollmentCols && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
     try {
       const [result] = await pool.execute(
         `INSERT INTO supervision_sessions
@@ -218,7 +267,7 @@ class SupervisionSession {
       normalized.push({
         userId,
         participantRole: String(row?.participantRole || 'supervisee'),
-        isRequired: row?.isRequired === false ? 0 : 1,
+        isRequired: (row?.isRequired === true || row?.isRequired === 1) ? 1 : 0,
         isCompensableSnapshot: row?.isCompensableSnapshot ? 1 : 0,
         status: String(row?.status || 'INVITED')
       });
@@ -991,6 +1040,74 @@ class SupervisionSession {
       [uId, uId, uId, ...agencyParams, uId, uId, uId, uId, windowEnd, windowStart]
     );
     return rows || [];
+  }
+
+  static async listSignupOfferingsForUserInWindow({
+    agencyId,
+    allAgencies = false,
+    userId,
+    windowStart,
+    windowEnd
+  }) {
+    const uId = parseInt(userId, 10);
+    if (!uId) return [];
+    const aId = parseInt(agencyId, 10);
+    let agencyClause = 'ss.agency_id = ?';
+    let agencyParams = [aId];
+    if (allAgencies) {
+      agencyClause = '1=1';
+      agencyParams = [];
+    } else if (!aId) {
+      return [];
+    }
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           ss.*,
+           DATE_FORMAT(ss.start_at, '%Y-%m-%d') AS start_date_ymd,
+           sup.first_name AS supervisor_first_name,
+           sup.last_name AS supervisor_last_name,
+           sup.email AS supervisor_email,
+           sv.first_name AS supervisee_first_name,
+           sv.last_name AS supervisee_last_name,
+           sv.email AS supervisee_email,
+           (
+             SELECT ssa.status
+             FROM supervision_session_attendees ssa
+             WHERE ssa.session_id = ss.id AND ssa.user_id = ?
+             LIMIT 1
+           ) AS viewer_attendee_status,
+           (
+             SELECT COUNT(*)
+             FROM supervision_session_attendees ssa2
+             WHERE ssa2.session_id = ss.id
+               AND ssa2.participant_role = 'supervisee'
+               AND UPPER(COALESCE(ssa2.status, '')) IN ('SIGNED_UP', 'JOINED', 'INVITED')
+           ) AS signup_count
+         FROM supervision_sessions ss
+         JOIN users sup ON sup.id = ss.supervisor_user_id
+         LEFT JOIN users sv ON sv.id = ss.supervisee_user_id
+         WHERE ${agencyClause}
+           AND LOWER(COALESCE(ss.enrollment_mode, 'invited')) = 'signup_only'
+           AND ss.start_at < ?
+           AND ss.end_at > ?
+           AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
+           AND NOT (
+             ss.supervisor_user_id = ?
+             OR ss.co_facilitator_user_id = ?
+             OR EXISTS (
+               SELECT 1 FROM supervision_session_attendees ssa0
+               WHERE ssa0.session_id = ss.id AND ssa0.user_id = ?
+             )
+           )
+         ORDER BY ss.start_at ASC`,
+        [uId, ...agencyParams, windowEnd, windowStart, uId, uId, uId]
+      );
+      return rows || [];
+    } catch (e) {
+      if (!/enrollment_mode/i.test(String(e?.message || ''))) throw e;
+      return [];
+    }
   }
 
   /**

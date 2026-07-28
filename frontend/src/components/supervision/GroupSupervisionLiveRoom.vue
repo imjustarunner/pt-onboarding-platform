@@ -25,6 +25,21 @@
       </div>
     </header>
 
+    <div
+      v-if="showTranscriptionNotice"
+      class="gsl__transcript-banner"
+      role="status"
+    >
+      <span class="gsl__transcript-dot" aria-hidden="true" />
+      <p>This session is being transcribed. Live speech may be captured and summarized for participants with access.</p>
+      <button
+        type="button"
+        class="gsl__transcript-x"
+        aria-label="Dismiss transcription notice"
+        @click="transcriptionNoticeDismissed = true"
+      >×</button>
+    </div>
+
     <SupervisionVideoLobbyPanel
       v-if="showLobbyPanel"
       :session-id="numericSessionId"
@@ -118,35 +133,67 @@
         </div>
       </section>
 
-      <SupervisionDiscussionSidebar
-        :roomy="showWaitingRoomStage"
-        v-model:side-tab="sideTab"
-        v-model:discussion-sub-tab="discussionSubTab"
-        v-model:topic-draft="topicDraft"
-        v-model:chat-draft="chatDraft"
-        v-model:personal-notes="personalNotes"
-        :topics="topics"
-        :chat-messages="chatMessages"
-        :error="discussionError"
-        :topic-busy="topicBusy"
-        :chat-busy="chatBusy"
-        :transcript-hint="transcriptHint"
-        :transcript-preview="transcriptCombined"
-        @post-topic="postTopic"
-        @post-chat="postChat"
-        @upvote="upvote"
-      />
+      <aside v-if="!showWaitingRoomStage" class="gsl__workspace">
+        <section class="gsl__workspace-section">
+          <MeetingAgendaPanel
+            meeting-type="supervision_session"
+            :meeting-id="numericSessionId || supervisionSessionId"
+            :can-add-item="canFacilitate"
+            :embedded="true"
+            :live="true"
+          />
+        </section>
+        <section class="gsl__workspace-section">
+          <MeetingGoalsActionsPanel
+            :session-id="numericSessionId || supervisionSessionId"
+            section="goals"
+            :compact="false"
+            :embedded="true"
+            :live="true"
+            :disabled="!canFacilitate"
+          />
+        </section>
+        <section class="gsl__workspace-section gsl__workspace-section--activity">
+          <h3 class="gsl__workspace-title">Chat, Polls &amp; Q&amp;A</h3>
+          <MeetingLiveActivityPanel
+            :session-id="numericSessionId || supervisionSessionId"
+            :join-token="joinToken"
+            :join-identity="joinIdentity"
+            :guest-display-name="localDisplayName"
+            :is-host="canFacilitate"
+            :can-create-polls="canFacilitate"
+            :can-answer-questions="canFacilitate"
+            :start-open="true"
+            :hide-chrome="true"
+          />
+        </section>
+        <section class="gsl__workspace-section gsl__workspace-section--transcript">
+          <h3 class="gsl__workspace-title">Transcript</h3>
+          <p v-if="transcriptHint" class="gsl__transcript-hint">{{ transcriptHint }}</p>
+          <pre v-if="transcriptCombined" class="gsl__transcript">{{ transcriptCombined }}</pre>
+          <p v-else class="gsl__transcript-empty">Transcript will appear here once speech is detected.</p>
+        </section>
+      </aside>
+
+      <aside v-else class="gsl__workspace gsl__workspace--lobby">
+        <section class="gsl__workspace-section gsl__workspace-section--activity">
+          <h3 class="gsl__workspace-title">Discussion</h3>
+          <p class="gsl__transcript-hint">Waiting room — full workspace unlocks when admitted.</p>
+        </section>
+      </aside>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import BrandingLogo from '../BrandingLogo.vue';
 import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
 import SupervisionWaitingRoomStage from './SupervisionWaitingRoomStage.vue';
-import SupervisionDiscussionSidebar from './SupervisionDiscussionSidebar.vue';
+import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
+import MeetingGoalsActionsPanel from '../meetings/MeetingGoalsActionsPanel.vue';
+import MeetingLiveActivityPanel from '../meetings/MeetingLiveActivityPanel.vue';
 import {
   supervisionLiveRoomProps,
   useSupervisionLiveSession
@@ -155,6 +202,8 @@ import {
 const props = defineProps(supervisionLiveRoomProps);
 const emit = defineEmits(['leave', 'connected']);
 
+const transcriptionNoticeDismissed = ref(false);
+
 const {
   numericSessionId,
   showLobbyPanel,
@@ -162,17 +211,8 @@ const {
   prioritizeSelfView,
   onSelfStageClick,
   viewAsAttendee,
-  sideTab,
-  discussionSubTab,
-  topicDraft,
-  chatDraft,
-  discussionError,
-  topicBusy,
-  chatBusy,
-  personalNotes,
-  topics,
-  chatMessages,
   transcriptHint,
+  transcriptCapturing,
   liveTranscriptPreview,
   sessionTranscriptPreview,
   currentSlide,
@@ -184,11 +224,19 @@ const {
   externalEmbedUrl,
   onVideoConnected,
   prevSlide,
-  nextSlide,
-  postTopic,
-  postChat,
-  upvote
-} = useSupervisionLiveSession(props, emit, { enablePresentation: true });
+  nextSlide
+} = useSupervisionLiveSession(props, emit, { enablePresentation: true, enableActivityFeed: false });
+
+const canFacilitate = computed(() => (
+  !viewAsAttendee.value && (props.isSupervisor || props.isPresenter)
+));
+
+const showTranscriptionNotice = computed(() => (
+  !transcriptionNoticeDismissed.value
+  && !props.isInLobby
+  && !!props.token
+  && transcriptCapturing.value
+));
 
 const transcriptCombined = computed(() => {
   const base = sessionTranscriptPreview.value;
@@ -297,9 +345,109 @@ const transcriptCombined = computed(() => {
   font-weight: 700;
   pointer-events: none;
 }
+.gsl__case dd {
+  margin: 2px 0 0;
+}
+.gsl__transcript-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(6, 95, 70, 0.28);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  color: #d1fae5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.gsl__transcript-banner p {
+  margin: 0;
+  flex: 1;
+  line-height: 1.35;
+  font-size: 0.88rem;
+}
+.gsl__transcript-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.25);
+  flex-shrink: 0;
+}
+.gsl__transcript-x {
+  border: 0;
+  background: transparent;
+  color: #a7f3d0;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.gsl__workspace {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  max-height: min(72vh, 760px);
+  overflow: auto;
+}
+.gsl__workspace--lobby {
+  max-height: none;
+}
+.gsl__workspace-section {
+  flex-shrink: 0;
+}
+.gsl__workspace-section--activity :deep(.mlap) {
+  min-height: min(42vh, 420px);
+}
+.gsl__workspace-section--activity :deep(.mlap__panel) {
+  min-height: min(38vh, 380px);
+}
+.gsl__workspace-title {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #e8edf5;
+}
+.gsl__transcript-hint {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  color: #93a0b8;
+}
+.gsl__transcript {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #d5deea;
+  max-height: 180px;
+  overflow: auto;
+}
+.gsl__transcript-empty {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #8893a8;
+}
+.gsl__workspace :deep(.meeting-agenda-panel),
+.gsl__workspace :deep(.mgap) {
+  color: #e8edf5;
+}
+.gsl__workspace :deep(.mw-field),
+.gsl__workspace :deep(.mlap__input) {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f3f6fb;
+}
+.gsl__workspace :deep(.muted) {
+  color: #93a0b8;
+}
 .gsl__main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
   gap: 14px;
   flex: 1;
   min-height: 0;

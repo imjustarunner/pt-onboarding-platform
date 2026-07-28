@@ -27,6 +27,27 @@
         </label>
       </div>
 
+      <div v-if="groupMode && canBookGroup" class="supb-row supb-switch-row">
+        <div class="supb-switch-copy">
+          <span class="supb-switch-title">Tenant signup session</span>
+          <p class="supb-hint muted">
+            Open to everyone in the agency. Appears on all schedules with a signup countdown.
+            Signup closes 1 hour before start; cancels automatically if no one signs up.
+          </p>
+        </div>
+        <label class="supb-switch" :class="{ disabled: disabled }">
+          <input
+            type="checkbox"
+            role="switch"
+            :checked="signupOnly"
+            :disabled="disabled"
+            :aria-checked="String(!!signupOnly)"
+            @change="emit('update:signupOnly', !!$event.target.checked)"
+          />
+          <span class="supb-switch-slider supb-switch-slider--signup" aria-hidden="true"></span>
+        </label>
+      </div>
+
       <div class="supb-row supb-switch-row">
         <div class="supb-switch-copy">
           <span class="supb-switch-title">Virtual</span>
@@ -67,7 +88,7 @@
     </div>
 
     <template v-if="showDetails">
-      <template v-if="groupMode && canBookGroup">
+      <template v-if="groupMode && canBookGroup && !signupOnly">
         <div class="supb-row">
           <label class="supb-label">Facilitator</label>
           <select
@@ -156,6 +177,7 @@ const props = defineProps({
   isVirtual: { type: Boolean, default: true },
   waitingRoomEnabled: { type: Boolean, default: true },
   groupMode: { type: Boolean, default: false },
+  signupOnly: { type: Boolean, default: false },
   canBookGroup: { type: Boolean, default: false },
   facilitatorUserId: { type: Number, default: 0 },
   coFacilitatorUserId: { type: Number, default: 0 },
@@ -174,6 +196,7 @@ const emit = defineEmits([
   'update:isVirtual',
   'update:waitingRoomEnabled',
   'update:groupMode',
+  'update:signupOnly',
   'update:facilitatorUserId',
   'update:coFacilitatorUserId',
   'update:inviteAudienceAllSupervised',
@@ -248,6 +271,7 @@ function onPresenterChange(event) {
   transition: background 0.2s;
 }
 .supb-switch input:checked + .supb-switch-slider { background: #7c3aed; }
+.supb-switch input:checked + .supb-switch-slider--signup { background: #0d9488; }
 .supb-switch-slider::before {
   content: '';
   position: absolute;

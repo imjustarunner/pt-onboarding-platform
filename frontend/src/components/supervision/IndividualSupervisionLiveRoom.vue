@@ -22,6 +22,21 @@
       </div>
     </header>
 
+    <div
+      v-if="showTranscriptionNotice"
+      class="isl__transcript-banner"
+      role="status"
+    >
+      <span class="isl__transcript-dot" aria-hidden="true" />
+      <p>This session is being transcribed. Live speech may be captured and summarized for participants with access.</p>
+      <button
+        type="button"
+        class="isl__transcript-x"
+        aria-label="Dismiss transcription notice"
+        @click="transcriptionNoticeDismissed = true"
+      >×</button>
+    </div>
+
     <SupervisionVideoLobbyPanel
       v-if="showLobbyPanel"
       :session-id="numericSessionId"
@@ -283,6 +298,8 @@ import {
 const props = defineProps(supervisionLiveRoomProps);
 const emit = defineEmits(['leave', 'connected']);
 
+const transcriptionNoticeDismissed = ref(false);
+
 const {
   numericSessionId,
   showLobbyPanel,
@@ -300,6 +317,7 @@ const {
   topics,
   chatMessages,
   transcriptHint,
+  transcriptCapturing,
   liveTranscriptPreview,
   sessionTranscriptPreview,
   onVideoConnected,
@@ -307,6 +325,13 @@ const {
   postChat,
   upvote
 } = useSupervisionLiveSession(props, emit, { enablePresentation: false });
+
+const showTranscriptionNotice = computed(() => (
+  !transcriptionNoticeDismissed.value
+  && !props.isInLobby
+  && !!props.token
+  && transcriptCapturing.value
+));
 
 const videoRoomRef = ref(null);
 const tileFocus = ref('equal');
@@ -532,6 +557,41 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 .isl--lobby { padding-bottom: 20px; }
+.isl__transcript-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(6, 95, 70, 0.28);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  color: #d1fae5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.isl__transcript-banner p {
+  margin: 0;
+  flex: 1;
+  line-height: 1.35;
+  font-size: 0.88rem;
+}
+.isl__transcript-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.25);
+  flex-shrink: 0;
+}
+.isl__transcript-x {
+  border: 0;
+  background: transparent;
+  color: #a7f3d0;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
 .isl__header {
   display: flex;
   justify-content: space-between;

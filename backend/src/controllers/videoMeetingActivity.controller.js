@@ -9,6 +9,35 @@ import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import VideoMeetingActivity from '../models/VideoMeetingActivity.model.js';
 
+async function isSupervisionPresenter(sessionId, userId) {
+  const sid = Number(sessionId || 0);
+  const uid = Number(userId || 0);
+  if (!sid || !uid) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
+      [sid, uid]
+    );
+    return !!rows?.length;
+  } catch {
+    return false;
+  }
+}
+
+/** Supervisor, co-facilitator, presenter, or agency admin staff — not general attendees. */
+async function canFacilitateSupervisionSession(req, session) {
+  const actorId = Number(req.user?.id || 0);
+  if (!actorId || !session) return false;
+  if (actorId === Number(session.supervisor_user_id || 0)) return true;
+  if (actorId === Number(session.co_facilitator_user_id || 0)) return true;
+  if (await isSupervisionPresenter(session.id, actorId)) return true;
+  const actorAgencies = await User.getAgencies(actorId);
+  const inAgency = (actorAgencies || []).some((a) => Number(a?.id) === Number(session?.agency_id || 0));
+  if (!inAgency) return false;
+  const role = String(req.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+}
+
 async function canAccessSupervisionActivity(req, session) {
   const actorId = Number(req.user?.id || 0);
   if (!actorId) return false;
@@ -17,20 +46,12 @@ async function canAccessSupervisionActivity(req, session) {
   const superviseeId = Number(session?.supervisee_user_id || 0);
   const coFacilitatorId = Number(session?.co_facilitator_user_id || 0);
   if (actorId === supervisorId || actorId === superviseeId || actorId === coFacilitatorId) return true;
+  if (await isSupervisionPresenter(sid, actorId)) return true;
   const [attendee] = await pool.execute(
     `SELECT 1 FROM supervision_session_attendees WHERE session_id = ? AND user_id = ? LIMIT 1`,
     [sid, actorId]
   );
   if (attendee?.length) return true;
-  try {
-    const [presenter] = await pool.execute(
-      `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
-      [sid, actorId]
-    );
-    if (presenter?.length) return true;
-  } catch {
-    /* optional table */
-  }
   const actorAgencies = await User.getAgencies(actorId);
   const inAgency = (actorAgencies || []).some((a) => Number(a?.id) === Number(session?.agency_id || 0));
   if (!inAgency) return false;
@@ -141,15 +162,22 @@ export const postSupervisionActivity = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const { activityType, payload } = req.body || {};
+    const type = String(activityType || 'chat').toLowerCase();
     const identity = String(req.user?.id ? `user-${req.user.id}` : req.body?.participantIdentity || '').trim();
     if (!identity) return res.status(400).json({ error: { message: 'Invalid participant identity' } });
+
+    if (['poll', 'answer'].includes(type) && !(await canFacilitateSupervisionSession(req, session))) {
+      return res.status(403).json({
+        error: { message: 'Only the facilitator can create polls or post official answers.' }
+      });
+    }
 
     const id = await VideoMeetingActivity.create({
       sessionId,
       eventId: null,
       userId: await parseUserIdFromIdentity(identity) || req.user?.id,
       participantIdentity: identity,
-      activityType: activityType || 'chat',
+      activityType: type,
       payload: payload || {}
     });
 

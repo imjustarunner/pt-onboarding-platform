@@ -27,6 +27,8 @@ import {
   getMyPresenterAssignments,
   getSessionPresenters,
   markSessionPresenterPresented,
+  signupForSupervisionSession,
+  withdrawFromSupervisionSession,
   getSupervisionJoinInfo,
   getSupervisionGuestJoin,
   getGuestAdmissionStatus,
@@ -112,6 +114,8 @@ router.put('/sessions/:id/personal-note', upsertSupervisionSessionPersonalNote);
 router.get('/sessions/:id/activity', getSupervisionActivity);
 router.post('/sessions/:id/activity', postSupervisionActivity);
 router.post('/sessions', createSupervisionSessionValidators, createSupervisionSession);
+router.post('/sessions/:id/signup', signupForSupervisionSession);
+router.delete('/sessions/:id/signup', withdrawFromSupervisionSession);
 router.patch('/sessions/:id', patchSupervisionSessionValidators, patchSupervisionSession);
 router.post('/sessions/:id/cancel', cancelSupervisionSession);
 

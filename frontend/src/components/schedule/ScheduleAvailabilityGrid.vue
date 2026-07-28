@@ -1104,7 +1104,8 @@
                     'cell-block-timed': !!b.timedSlice,
                     'cell-block-span': !!b.spanBlock && !!b.timedSlice,
                     'cell-block-draggable': isAppointmentBlockDraggable(b),
-                    'cell-block-dragging': isAppointmentBlockDragging(b)
+                    'cell-block-dragging': isAppointmentBlockDragging(b),
+                    'cell-block-supv-signup-pulse': b.kind === 'supv-signup' && b.signupOpen && !b.viewerSignedUp
                   }
                 ]"
                 :title="b.title"
@@ -1159,7 +1160,15 @@
                     <span v-if="b.officeEmpty && visibleDays.length === 1" class="cell-block-office-empty">No bookings</span>
                   </span>
                 </template>
-                <span v-else-if="b.shortLabel && b.kind !== 'peerbusy'" class="cell-block-text">{{ b.shortLabel }}</span>
+                <span v-else-if="b.shortLabel && b.kind !== 'peerbusy'" class="cell-block-text">
+                  <span>{{ b.shortLabel }}</span>
+                  <SupervisionSignupCountdown
+                    v-if="b.kind === 'supv-signup' && b.signupClosesAt && b.signupOpen"
+                    class="cell-block-signup-countdown"
+                    :closes-at="b.signupClosesAt"
+                    prefix="·"
+                  />
+                </span>
                 <span v-else-if="b.kind === 'peerbusy' && b.shortLabel" class="cell-block-text">{{ peerActivityShortFromBlock(b) }}</span>
                 <span
                   v-if="b.hasPendingRequest"
@@ -1474,7 +1483,7 @@
           :show-participant="editorShowParticipant"
           :participant-label="editorParticipantLabel"
           :participant-summary="editorParticipantSummary"
-          :participant-tray-open="(editorIsMeeting && meetingParticipantsExpanded) || (editorIsSupervision && supervisionParticipantsExpanded && !isSupervisionEditMode)"
+          :participant-tray-open="(editorIsMeeting && meetingParticipantsExpanded) || (editorIsSupervision && supervisionParticipantsExpanded && !isSupervisionEditMode && !supervisionSignupOnlyEnabled)"
           :status="editorStatus"
           :status-options="APPOINTMENT_EDITOR_STATUS_OPTIONS"
           :show-occurrence-count="editorShowOccurrenceCount"
@@ -1533,6 +1542,8 @@
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
               v-model:group-mode="supervisionGroupModeEnabled"
+            v-model:signup-only="supervisionSignupOnlyEnabled"
+              v-model:signup-only="supervisionSignupOnlyEnabled"
               :session-type-label="supervisionEffectiveSessionTypeLabel"
               :can-book-group="canBookGroupSupervisionFromGrid"
               :disabled="submitting || scheduleEventSaving"
@@ -1667,6 +1678,28 @@
               @update:includeAllAgencies="supervisionIncludeAllAgencies = $event"
               @create-group="createSupervisionInviteGroup"
             />
+            <div
+              v-if="supervisionGroupModeEnabled && canBookGroupSupervisionFromGrid && selectedSupervisionParticipantIds.length && !supervisionSignupOnlyEnabled"
+              class="supv-mandatory-actions"
+            >
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="submitting || scheduleEventSaving"
+                @click="supervisionMandatoryPanelOpen = !supervisionMandatoryPanelOpen"
+              >
+                Edit mandatory/optional status per participant
+              </button>
+              <SupervisionAttendeeMandatoryPanel
+                :open="supervisionMandatoryPanelOpen"
+                :participants="supervisionMandatoryParticipantRows"
+                :mandatory-ids="supervisionMandatoryAttendeeIds"
+                :presenter-ids="supervisionPresenterIds"
+                :disabled="submitting || scheduleEventSaving"
+                @update:mandatory-ids="supervisionMandatoryAttendeeIds = $event"
+                @close="supervisionMandatoryPanelOpen = false"
+              />
+            </div>
             <MeetingParticipantsPicker
               v-else-if="editorIsMeeting && meetingParticipantsExpanded"
               tray-mode
@@ -1767,6 +1800,7 @@
             section="details"
             v-model:is-virtual="editorSupervisionIsVirtual"
             v-model:group-mode="supervisionGroupModeEnabled"
+            v-model:signup-only="supervisionSignupOnlyEnabled"
             v-model:facilitator-user-id="supervisionFacilitatorUserId"
             v-model:co-facilitator-user-id="supervisionCoFacilitatorUserId"
             v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
@@ -2808,6 +2842,8 @@
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
               v-model:group-mode="supervisionGroupModeEnabled"
+            v-model:signup-only="supervisionSignupOnlyEnabled"
+              v-model:signup-only="supervisionSignupOnlyEnabled"
               :session-type-label="supervisionEffectiveSessionTypeLabel"
               :can-book-group="canBookGroupSupervisionFromGrid"
               :disabled="submitting"
@@ -2821,7 +2857,7 @@
             No eligible supervisees are available in the selected supervision scope.
           </div>
 
-          <div v-if="requestType === 'supervision' && availableSupervisionParticipants.length" style="margin-top: 10px;">
+          <div v-if="requestType === 'supervision' && availableSupervisionParticipants.length && !supervisionSignupOnlyEnabled" style="margin-top: 10px;">
             <div class="muted" style="margin-top: 6px;">
               {{ supervisionGroupModeEnabled
                 ? 'Group mode: select anyone in this agency or a saved practice group. Facilitator is set below.'
@@ -2856,10 +2892,35 @@
               @update:includeAllAgencies="supervisionIncludeAllAgencies = $event"
               @create-group="createSupervisionInviteGroup"
             />
+            <div
+              v-if="supervisionGroupModeEnabled && canBookGroupSupervisionFromGrid && selectedSupervisionParticipantIds.length && !supervisionSignupOnlyEnabled"
+              class="supv-mandatory-actions"
+              style="margin-top: 8px;"
+            >
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="submitting"
+                @click="supervisionMandatoryPanelOpen = !supervisionMandatoryPanelOpen"
+              >
+                Edit mandatory/optional status per participant
+              </button>
+              <SupervisionAttendeeMandatoryPanel
+                :open="supervisionMandatoryPanelOpen"
+                :participants="supervisionMandatoryParticipantRows"
+                :mandatory-ids="supervisionMandatoryAttendeeIds"
+                :presenter-ids="supervisionPresenterIds"
+                :disabled="submitting"
+                @update:mandatory-ids="supervisionMandatoryAttendeeIds = $event"
+                @close="supervisionMandatoryPanelOpen = false"
+              />
+            </div>
             <SupervisionBody
               section="details"
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:group-mode="supervisionGroupModeEnabled"
+            v-model:signup-only="supervisionSignupOnlyEnabled"
+              v-model:signup-only="supervisionSignupOnlyEnabled"
               v-model:facilitator-user-id="supervisionFacilitatorUserId"
               v-model:co-facilitator-user-id="supervisionCoFacilitatorUserId"
               v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
@@ -3802,6 +3863,39 @@
           v-else-if="isSupervisionEditMode"
           class="nr-footer nr-footer--supv"
         >
+          <div
+            v-if="isSelectedSupvSignupOffering && !isSelectedSupvSignupFacilitator"
+            class="supv-signup-footer"
+          >
+            <div class="supv-signup-footer__copy">
+              <strong>Tenant signup session</strong>
+              <SupervisionSignupCountdown
+                v-if="selectedSupvSession?.signupClosesAt"
+                :closes-at="selectedSupvSession.signupClosesAt"
+                prefix="Signup closes in"
+              />
+              <span v-if="selectedSupvSession?.viewerSignedUp" class="supv-signup-footer__badge">You are signed up</span>
+            </div>
+            <div v-if="supvSignupError" class="error">{{ supvSignupError }}</div>
+            <button
+              v-if="canSignupSelectedSupvSession"
+              type="button"
+              class="btn btn-primary btn-sm btn-join-pulse"
+              :disabled="supvSignupBusy"
+              @click="signupForSelectedSupvSession"
+            >
+              {{ supvSignupBusy ? 'Signing up…' : 'Sign up' }}
+            </button>
+            <button
+              v-else-if="canWithdrawSelectedSupvSession"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="supvSignupBusy"
+              @click="withdrawFromSelectedSupvSession"
+            >
+              {{ supvSignupBusy ? 'Updating…' : 'Withdraw signup' }}
+            </button>
+          </div>
           <button
             class="btn btn-danger"
             type="button"
@@ -4859,6 +4953,8 @@ import MeetingParticipantsPicker from './MeetingParticipantsPicker.vue';
 import TeamMeetingBody from './TeamMeetingBody.vue';
 import VirtualLinkControls from './VirtualLinkControls.vue';
 import SupervisionBody from './SupervisionBody.vue';
+import SupervisionAttendeeMandatoryPanel from './SupervisionAttendeeMandatoryPanel.vue';
+import SupervisionSignupCountdown from './SupervisionSignupCountdown.vue';
 import SupervisionNotePanel from './SupervisionNotePanel.vue';
 import SupervisionGoalsActionsPanel from './SupervisionGoalsActionsPanel.vue';
 import MeetingGoalsActionsPanel from '../meetings/MeetingGoalsActionsPanel.vue';
@@ -8706,8 +8802,35 @@ const runningAppointmentLabel = ({
   return clipBlockLabel(startClock ? `${startClock} · ${body}` : body, Math.max(max, 56));
 };
 
+const isSignupSupervisionEvent = (ev) => String(ev?.enrollmentMode || '').trim().toLowerCase() === 'signup_only';
+
+const isSignupSupervisionOpen = (ev) => {
+  if (!isSignupSupervisionEvent(ev)) return false;
+  const raw = ev?.signupClosesAt;
+  if (!raw) return false;
+  const closes = new Date(String(raw).includes('T') ? raw : String(raw).replace(' ', 'T'));
+  if (Number.isNaN(closes.getTime())) return false;
+  return Date.now() < closes.getTime();
+};
+
 const supervisionLabel = (dayName, hour, minute = 0, segmentClass = 'single', { multiline = false } = {}) => {
   const hits = supervisionSessionsInCell(dayName, hour, minute);
+  const signupHit = hits.find((ev) => isSignupSupervisionEvent(ev));
+  if (signupHit) {
+    const open = isSignupSupervisionOpen(signupHit);
+    const signedUp = !!signupHit.viewerSignedUp;
+    const type = signedUp ? 'Signed up' : (open ? 'Sign up' : 'Signup closed');
+    const who = String(signupHit.counterpartyName || signupHit.supervisorName || 'Group sup').trim();
+  return runningAppointmentLabel({
+      segmentClass,
+      startAt: signupHit?.startAt,
+      endAt: signupHit?.endAt,
+      typeLabel: type,
+      whoLabel: who,
+      max: 56,
+      multiline
+    });
+  }
   const names = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
   const hasPresenter = hits.some((ev) => String(ev?.presenterRole || '').trim().length > 0);
   const type = hasPresenter ? 'Presenting' : 'Supervision';
@@ -8727,6 +8850,13 @@ const supervisionLabel = (dayName, hour, minute = 0, segmentClass = 'single', { 
 
 const supervisionTitle = (dayName, hour, minute = 0) => {
   const hits = supervisionSessionsInCell(dayName, hour, minute);
+  const signupHit = hits.find((ev) => isSignupSupervisionEvent(ev));
+  if (signupHit) {
+    const who = String(signupHit.counterpartyName || signupHit.supervisorName || 'Facilitator').trim();
+    const timeText = clockRangeLabel(signupHit?.startAt, signupHit?.endAt) || hourLabel(hour);
+    const count = Number(signupHit?.signupCount || 0);
+    return `Signup group supervision — ${who} — ${dayName} ${timeText} — ${count} signed up`;
+  }
   const withNames = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
   const who = withNames.length ? withNames.join(', ') : '—';
   const presenterRows = hits.filter((ev) => String(ev?.presenterRole || '').trim().length > 0);
@@ -9735,9 +9865,11 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     // Paint once from the start cell as a continuous spanning block.
     if (segmentClass === 'middle' || segmentClass === 'end') continue;
     const timedSlice = appointmentSpanSlice(first?.startAt, last?.endAt || first?.endAt, dayName, hour, minute);
+    const isSignupBlock = isSignupSupervisionEvent(first);
+    const signupOpen = isSignupBlock && isSignupSupervisionOpen(first);
     blocks.push({
       key: `supv-${agencyId || 'x'}-${Number(first?.id || 0) || 'x'}`,
-      kind: 'supv',
+      kind: isSignupBlock ? 'supv-signup' : 'supv',
       shortLabel: supervisionLabel(dayName, hour, minute, 'start', { multiline: true }),
       title: supervisionTitle(dayName, hour, minute),
       agencyId,
@@ -9746,6 +9878,10 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       eventId: Number(first?.id || 0) || null,
       startAt: first?.startAt || null,
       endAt: first?.endAt || null,
+      signupClosesAt: first?.signupClosesAt || null,
+      viewerSignedUp: !!first?.viewerSignedUp,
+      signupOpen,
+      enrollmentMode: String(first?.enrollmentMode || '').trim() || null,
       recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim() || null,
       timedSlice,
       spanBlock: true,
@@ -13698,7 +13834,20 @@ const supervisionCoFacilitatorUserId = ref(0);
 const supervisionFacilitators = ref([]);
 const supervisionInviteAudienceAllSupervised = ref(false);
 const supervisionInviteAudienceGroupSupport = ref(false);
-const supervisionOptionalAttendeeIds = ref([]);
+const supervisionLockedGroups = ref([]);
+
+const supervisionGroupSupervisorUserId = computed(() => {
+  const groupMode = supervisionGroupModeEnabled.value && canBookGroupSupervisionFromGrid.value;
+  const facilitatorId = Number(supervisionFacilitatorUserId.value || 0);
+  const scheduleSubjectId = Number(props.userId || authStore.user?.id || 0);
+  if (groupMode && facilitatorId > 0) return facilitatorId;
+  return scheduleSubjectId;
+});
+const supervisionMandatoryAttendeeIds = ref([]);
+const supervisionMandatoryPanelOpen = ref(false);
+const supervisionSignupOnlyEnabled = ref(false);
+const supvSignupBusy = ref(false);
+const supvSignupError = ref('');
 const supervisionPresenterIds = ref([]);
 const supervisionCreateGroupBusy = ref(false);
 const supervisionCreateGroupError = ref('');
@@ -13783,6 +13932,11 @@ const supervisionFacilitatorOptions = computed(() => (
 ));
 const supervisionCanSubmit = computed(() => {
   if (supervisionProvidersLoading.value) return false;
+  if (supervisionSignupOnlyEnabled.value && supervisionGroupModeEnabled.value) {
+    if (!canBookGroupSupervisionFromGrid.value) return false;
+    if (!Number(supervisionFacilitatorUserId.value || 0)) return false;
+    return true;
+  }
   if ((availableSupervisionParticipants.value || []).length === 0 && !supervisionIsOpenInvite.value) return false;
   if (!Number(selectedSupervisionParticipantId.value || 0)) return false;
   if (supervisionGroupModeEnabled.value) {
@@ -13805,17 +13959,20 @@ const selectedSupervisionParticipantIds = computed(() => {
 });
 
 const supervisionInviteGroupsFiltered = computed(() => {
-  // Non-group: hide practice-wide chips; only keep custom groups that intersect assigned supervisees.
-  // Group mode: show all practice-shared groups filtered to agency candidates.
   const allowed = new Set((availableSupervisionParticipants.value || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
   const groupMode = supervisionGroupModeEnabled.value && canBookGroupSupervisionFromGrid.value;
-  return (meetingInviteGroups.value || [])
-    .filter((g) => groupMode || String(g?.kind || '') === 'custom')
-    .map((g) => ({
-      ...g,
-      userIds: (g.userIds || []).map((n) => Number(n || 0)).filter((id) => id > 0 && allowed.has(id))
-    }))
+  const mapGroup = (g) => ({
+    ...g,
+    userIds: (g.userIds || []).map((n) => Number(n || 0)).filter((id) => id > 0 && allowed.has(id))
+  });
+  const locked = (supervisionLockedGroups.value || [])
+    .map(mapGroup)
     .filter((g) => (g.userIds || []).length > 0);
+  const custom = (meetingInviteGroups.value || [])
+    .filter((g) => groupMode || String(g?.kind || '') === 'custom')
+    .map(mapGroup)
+    .filter((g) => (g.userIds || []).length > 0);
+  return [...locked, ...custom];
 });
 
 const editorSupervisionParticipantNames = computed(() => (
@@ -13824,6 +13981,21 @@ const editorSupervisionParticipantNames = computed(() => (
     return String(label || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || `User #${chip.id}`;
   }).filter(Boolean)
 ));
+
+const supervisionMandatoryParticipantRows = computed(() => (
+  (selectedSupervisionParticipantChips.value || []).map((chip) => ({
+    id: Number(chip?.id || 0),
+    kind: chip?.kind || 'additional',
+    label: supervisionParticipantLabel(chip.row || { id: chip.id })
+  })).filter((row) => row.id > 0)
+));
+
+const pruneSupervisionMandatoryAttendeeIds = () => {
+  const allowed = new Set((selectedSupervisionParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  supervisionMandatoryAttendeeIds.value = (supervisionMandatoryAttendeeIds.value || [])
+    .map((n) => Number(n || 0))
+    .filter((n) => allowed.has(n));
+};
 
 const supervisionPresenterCandidateOptions = computed(() => {
   const map = new Map();
@@ -14009,6 +14181,11 @@ const createSupervisionInviteGroup = async ({ name, userIds }) => {
         ...(meetingInviteGroups.value || []).filter((g) => g.key !== next.key),
         next
       ];
+      if (next.customGroupId) {
+        const gids = new Set(selectedMeetingInviteGroupIdSet.value);
+        gids.add(Number(next.customGroupId));
+        selectedMeetingInviteGroupIds.value = Array.from(gids.values());
+      }
     } else {
       await loadSupervisionInviteGroups();
     }
@@ -14038,6 +14215,7 @@ const meetingInviteGroups = ref([]);
 const meetingCandidatesError = ref('');
 const meetingParticipantSearch = ref('');
 const selectedMeetingParticipantIds = ref([]);
+const selectedMeetingInviteGroupIds = ref([]);
 const meetingParticipantNameById = ref({});
 const meetingParticipantsExpanded = ref(false);
 const meetingCreateGroupBusy = ref(false);
@@ -14143,6 +14321,9 @@ const filteredMeetingCandidates = computed(() => {
 });
 const selectedMeetingParticipantIdSet = computed(
   () => new Set((selectedMeetingParticipantIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0))
+);
+const selectedMeetingInviteGroupIdSet = computed(
+  () => new Set((selectedMeetingInviteGroupIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0))
 );
 const selectedMeetingOutOfAgencyCount = computed(() => {
   const agencyId = Number(
@@ -14307,6 +14488,7 @@ const selectAllAvailableMeetingParticipants = () => {
 };
 const clearMeetingParticipants = () => {
   selectedMeetingParticipantIds.value = [];
+  selectedMeetingInviteGroupIds.value = [];
 };
 const toggleMeetingInviteGroup = (group) => {
   const allowed = new Set((availableMeetingCandidates.value || []).map((r) => Number(r?.id || 0)).filter((n) => n > 0));
@@ -14322,8 +14504,51 @@ const toggleMeetingInviteGroup = (group) => {
     for (const id of ids) next.add(id);
   }
   selectedMeetingParticipantIds.value = Array.from(next.values());
+  const gid = Number(group?.customGroupId || 0);
+  if (gid > 0) {
+    const nextGroupIds = new Set(selectedMeetingInviteGroupIdSet.value);
+    if (allSelected) nextGroupIds.delete(gid);
+    else nextGroupIds.add(gid);
+    selectedMeetingInviteGroupIds.value = Array.from(nextGroupIds.values());
+  }
   meetingParticipantsExpanded.value = true;
 };
+async function syncToggledInviteGroupMemberships(agencyId) {
+  const aid = Number(agencyId || 0);
+  const uid = Number(props.userId || authStore.user?.id || 0);
+  const groupIds = Array.from(selectedMeetingInviteGroupIdSet.value.values());
+  if (!uid || !aid || !groupIds.length) return;
+  const selected = Array.from(selectedMeetingParticipantIdSet.value.values());
+  for (const gid of groupIds) {
+    const group = (meetingInviteGroups.value || []).find((g) => Number(g?.customGroupId || 0) === Number(gid));
+    const merged = Array.from(new Set([...(group?.userIds || []), ...selected].map((n) => Number(n || 0)).filter((n) => n > 0)));
+    const prev = Array.from(new Set((group?.userIds || []).map((n) => Number(n || 0)).filter((n) => n > 0))).sort((a, b) => a - b);
+    const next = [...merged].sort((a, b) => a - b);
+    if (prev.length === next.length && prev.every((v, i) => v === next[i])) continue;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const resp = await api.put(`/users/${uid}/meeting-invite-groups/${gid}/members`, {
+        agencyId: aid,
+        userIds: merged
+      });
+      const updated = resp?.data?.group;
+      if (updated?.key) {
+        meetingInviteGroups.value = [
+          ...(meetingInviteGroups.value || []).filter((g) => g.key !== updated.key),
+          {
+            key: String(updated.key),
+            label: String(updated.label || group?.label || '').trim(),
+            kind: 'custom',
+            customGroupId: Number(updated.customGroupId || gid),
+            userIds: Array.isArray(updated.userIds) ? updated.userIds : merged
+          }
+        ];
+      }
+    } catch (e) {
+      console.warn('[syncToggledInviteGroupMemberships] failed', gid, e?.message || e);
+    }
+  }
+}
 const createMeetingInviteGroup = async ({ name, userIds }) => {
   const uid = Number(props.userId || authStore.user?.id || 0);
   const agencyId = Number(
@@ -14360,6 +14585,11 @@ const createMeetingInviteGroup = async ({ name, userIds }) => {
         ...(meetingInviteGroups.value || []).filter((g) => g.key !== next.key),
         next
       ];
+      if (next.customGroupId) {
+        const gids = new Set(selectedMeetingInviteGroupIdSet.value);
+        gids.add(Number(next.customGroupId));
+        selectedMeetingInviteGroupIds.value = Array.from(gids.values());
+      }
     } else {
       await loadMeetingCandidates();
     }
@@ -15020,11 +15250,22 @@ const loadSupervisionProviders = async () => {
     const facParams = {
       mode: groupMode ? 'group' : 'individual',
       audience: groupMode ? 'all_supervised' : 'assigned',
-      allAgencies: supervisionUsingAllAgencies.value ? 'true' : 'false'
+      allAgencies: supervisionUsingAllAgencies.value ? 'true' : 'false',
+      supervisorUserId: supervisionGroupSupervisorUserId.value
     };
     if (!supervisionUsingAllAgencies.value) facParams.agencyId = agencyId;
     const facRes = await api.get('/supervision/providers', { params: facParams });
     supervisionFacilitators.value = Array.isArray(facRes?.data?.facilitators) ? facRes.data.facilitators : [];
+    supervisionLockedGroups.value = Array.isArray(facRes?.data?.supervisorGroups)
+      ? facRes.data.supervisorGroups.map((g) => ({
+        key: String(g?.key || ''),
+        label: String(g?.label || 'Group').trim() || 'Group',
+        kind: String(g?.kind || 'locked'),
+        locked: true,
+        supervisorType: String(g?.supervisorType || '').trim() || null,
+        userIds: Array.isArray(g?.userIds) ? g.userIds.map((n) => Number(n || 0)).filter((n) => n > 0) : []
+      })).filter((g) => g.key && g.userIds.length)
+      : [];
     if (!Number(supervisionFacilitatorUserId.value || 0)) {
       const facIds = new Set((supervisionFacilitators.value || []).map((r) => Number(r?.id || 0)).filter((n) => n > 0));
       if (facIds.has(actorId)) supervisionFacilitatorUserId.value = actorId;
@@ -15067,6 +15308,7 @@ const loadSupervisionProviders = async () => {
   } catch (e) {
     supervisionProviders.value = [];
     supervisionFacilitators.value = [];
+    supervisionLockedGroups.value = [];
     supervisionProvidersError.value = e?.response?.data?.error?.message
       || e?.message
       || 'Could not load supervisees.';
@@ -15381,13 +15623,19 @@ const openSlotActionModal = async ({
   supervisionFacilitators.value = [];
   supervisionInviteAudienceAllSupervised.value = false;
   supervisionInviteAudienceGroupSupport.value = false;
-  supervisionOptionalAttendeeIds.value = [];
+  supervisionMandatoryAttendeeIds.value = [];
+  supervisionMandatoryPanelOpen.value = false;
+  supervisionLockedGroups.value = [];
+  supervisionSignupOnlyEnabled.value = false;
+  supvSignupBusy.value = false;
+  supvSignupError.value = '';
   supervisionPresenterIds.value = [];
   supervisionParticipantsExpanded.value = false;
   supervisionCreateGroupError.value = '';
   createSupervisionMeetLink.value = true;
   meetingParticipantSearch.value = '';
   selectedMeetingParticipantIds.value = [];
+  selectedMeetingInviteGroupIds.value = [];
   meetingIncludeAllAgencies.value = false;
   meetingBusyByUserId.value = {};
   meetingBusyLabelByUserId.value = {};
@@ -16286,6 +16534,7 @@ const typeStyleToken = (b) => {
   if (kind === 'oa') return 'Assigned';
   if (kind === 'ot') return 'Temp';
   if (kind === 'supv') return 'Supv';
+  if (kind === 'supv-signup') return 'Signup sup';
   if (kind === 'school') return 'School';
   if (kind === 'request') return 'Req';
   if (kind === 'intake-ip') return 'IP';
@@ -16329,6 +16578,12 @@ const cellBlockStyle = (b) => {
     style['--blockFill'] = officeKindFillMap[kind].fill;
     style['--blockBorder'] = officeKindFillMap[kind].border;
   }
+  if (kind === 'supv-signup') {
+    style['--blockFill'] = dark ? 'rgba(45, 212, 191, 0.42)' : 'rgba(20, 184, 166, 0.24)';
+    style['--blockBorder'] = dark ? 'rgba(94, 234, 212, 0.92)' : 'rgba(13, 148, 136, 0.78)';
+    style['--blockBorderStyle'] = 'dashed';
+    style['--blockTypeStripe'] = dark ? 'rgba(94, 234, 212, 0.95)' : 'rgba(13, 148, 136, 0.92)';
+  }
   if (kind === 'sevt') {
     const eventKind = String(b?.eventKind || '').toUpperCase();
     if (eventKind === 'FALL_CHECKIN_PRESLOT') {
@@ -16368,6 +16623,7 @@ const cellBlockStyle = (b) => {
     if (border) style['--blockBorder'] = border;
     style['--blockTypeStripe'] = officeKindFillMap[kind]?.border
       || (kind === 'supv' ? (dark ? 'rgba(216, 180, 254, 0.92)' : 'rgba(147, 51, 234, 0.85)')
+        : kind === 'supv-signup' ? (dark ? 'rgba(94, 234, 212, 0.92)' : 'rgba(13, 148, 136, 0.88)')
         : kind === 'school' ? (dark ? 'rgba(147, 197, 253, 0.92)' : 'rgba(37, 99, 235, 0.85)')
           : kind === 'sevt' ? (dark ? 'rgba(110, 231, 183, 0.92)' : 'rgba(15, 118, 110, 0.85)')
             : (dark ? 'rgba(203, 213, 225, 0.85)' : 'rgba(100, 116, 139, 0.75)'));
@@ -17049,6 +17305,7 @@ const closeModal = () => {
   meetingParticipantNameById.value = {};
   meetingParticipantsExpanded.value = false;
   selectedMeetingParticipantIds.value = [];
+  selectedMeetingInviteGroupIds.value = [];
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'count';
   scheduleEventOccurrenceCount.value = 6;
@@ -17645,6 +17902,9 @@ const submitRequest = async () => {
       meetingAttendeeUserIds = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
         ? Array.from(selectedMeetingParticipantIdSet.value.values()).map((n) => Number(n || 0)).filter((n) => n > 0)
         : [];
+      const meetingInvitedGroupIds = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
+        ? Array.from(selectedMeetingInviteGroupIdSet.value.values()).map((n) => Number(n || 0)).filter((n) => n > 0)
+        : [];
       if (normalizedAction === 'agency_meeting' && !meetingAttendeeUserIds.length) {
         throw new Error('Select at least one participant.');
       }
@@ -17655,6 +17915,9 @@ const submitRequest = async () => {
       } else if (isAgencyOptionalScheduleEvent.value) {
         // 0 = all/none (null agency_id); specific id ties the event to that tenant.
         eventAgencyId = Number(scheduleEventAgencyScope.value || 0) || null;
+      }
+      if ((normalizedAction === 'agency_meeting' || normalizedAction === 'huddle') && eventAgencyId) {
+        await syncToggledInviteGroupMemberships(eventAgencyId);
       }
       if ((normalizedAction === 'agency_meeting' || normalizedAction === 'huddle') && !String(scheduleEventTitle.value || '').trim()) {
         throw new Error('Add a title before scheduling this meeting.');
@@ -17714,6 +17977,7 @@ const submitRequest = async () => {
             ...(isMeetingAction
               ? {
                   attendeeUserIds: meetingAttendeeUserIds,
+                  invitedGroupIds: meetingInvitedGroupIds,
                   createMeetLink,
                   createPlatformVideoLink,
                   waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
@@ -17756,6 +18020,7 @@ const submitRequest = async () => {
               ...(isMeetingAction
                 ? {
                     attendeeUserIds: meetingAttendeeUserIds,
+                  invitedGroupIds: meetingInvitedGroupIds,
                     createMeetLink,
                     createPlatformVideoLink,
                     waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
@@ -18323,36 +18588,45 @@ const submitRequest = async () => {
       });
     } else if (requestType.value === 'supervision') {
       if (supervisionProvidersLoading.value) throw new Error('Providers are still loading.');
-      const sessionType = supervisionEffectiveSessionType.value;
-      const participantId = Number(selectedSupervisionParticipantId.value || 0);
-      const additionalAttendeeUserIds = Array.from(
+      const signupOnly = !!supervisionSignupOnlyEnabled.value && supervisionGroupModeEnabled.value;
+      const sessionType = signupOnly ? 'group' : supervisionEffectiveSessionType.value;
+      const actorId = Number(authStore.user?.id || 0);
+      const facilitatorUserId = Number(supervisionFacilitatorUserId.value || 0) || actorId;
+      const participantId = signupOnly
+        ? facilitatorUserId
+        : Number(selectedSupervisionParticipantId.value || 0);
+      const additionalAttendeeUserIds = signupOnly ? [] : Array.from(
         new Set(
           (selectedSupervisionAdditionalParticipantIds.value || [])
             .map((n) => Number(n || 0))
             .filter((n) => n > 0 && n !== participantId)
         )
       );
-      const optionalAttendeeUserIds = Array.from(
+      const mandatoryAttendeeUserIds = signupOnly ? [] : Array.from(
         new Set(
-          (supervisionOptionalAttendeeIds.value || [])
+          (supervisionMandatoryAttendeeIds.value || [])
             .map((n) => Number(n || 0))
-            .filter((n) => n > 0 && n !== participantId && !additionalAttendeeUserIds.includes(n))
+            .filter((n) => n > 0)
         )
       );
-      const presenterUserIds = Array.from(
+      const requiredAttendeeUserIds = signupOnly ? [] : (sessionType === 'group'
+        ? mandatoryAttendeeUserIds
+        : Array.from(new Set([participantId, ...additionalAttendeeUserIds])));
+      const optionalAttendeeUserIds = signupOnly ? [] : (sessionType === 'group'
+        ? additionalAttendeeUserIds.filter((id) => !mandatoryAttendeeUserIds.includes(id))
+        : []);
+      const presenterUserIds = signupOnly ? [] : Array.from(
         new Set(
           (supervisionPresenterIds.value || [])
             .map((n) => Number(n || 0))
             .filter((n) => Number.isFinite(n) && n > 0)
         )
       ).slice(0, 2);
-      const inviteAudienceAllSupervised = !!supervisionInviteAudienceAllSupervised.value;
-      const inviteAudienceGroupSupport = !!supervisionInviteAudienceGroupSupport.value;
-      const actorId = Number(authStore.user?.id || 0);
-      const facilitatorUserId = Number(supervisionFacilitatorUserId.value || 0) || actorId;
+      const inviteAudienceAllSupervised = signupOnly ? false : !!supervisionInviteAudienceAllSupervised.value;
+      const inviteAudienceGroupSupport = signupOnly ? false : !!supervisionInviteAudienceGroupSupport.value;
       const coFacilitatorUserId = Number(supervisionCoFacilitatorUserId.value || 0) || null;
       if (!actorId) throw new Error('Not signed in.');
-      if (!participantId) throw new Error('Please select a primary supervisee.');
+      if (!signupOnly && !participantId) throw new Error('Please select a primary supervisee.');
       if (sessionType === 'group' && !canBookGroupSupervisionFromGrid.value) {
         throw new Error('Only admins, CPAs, support, or group-supervision-eligible supervisors can book group sessions.');
       }
@@ -18360,7 +18634,8 @@ const submitRequest = async () => {
         throw new Error('Select a group supervision facilitator.');
       }
       if (
-        sessionType === 'group'
+        !signupOnly
+        && sessionType === 'group'
         && additionalAttendeeUserIds.length < 2
         && !inviteAudienceAllSupervised
         && !inviteAudienceGroupSupport
@@ -18392,8 +18667,10 @@ const submitRequest = async () => {
           superviseeUserId: participantId,
           sessionType,
           additionalAttendeeUserIds,
+          requiredAttendeeUserIds,
           optionalAttendeeUserIds,
           presenterUserIds,
+          enrollmentMode: signupOnly ? 'signup_only' : 'invited',
           inviteAudienceAllSupervised: sessionType === 'group' ? inviteAudienceAllSupervised : false,
           inviteAudienceGroupSupport: sessionType === 'group' ? inviteAudienceGroupSupport : false,
           startAt,
@@ -18435,11 +18712,11 @@ const submitRequest = async () => {
       invalidateScheduleSummaryCacheForUser(participantId);
       invalidateScheduleSummaryCacheForUser(facilitatorUserId);
       if (coFacilitatorUserId) invalidateScheduleSummaryCacheForUser(coFacilitatorUserId);
-      for (const uid of [...additionalAttendeeUserIds, ...optionalAttendeeUserIds]) {
+      for (const uid of [...additionalAttendeeUserIds, ...optionalAttendeeUserIds, ...requiredAttendeeUserIds]) {
         invalidateScheduleSummaryCacheForUser(uid);
       }
       showBookingReceipt({
-        title: sessionType === 'group' ? 'Group supervision scheduled' : 'Supervision scheduled',
+        title: signupOnly ? 'Signup group supervision scheduled' : (sessionType === 'group' ? 'Group supervision scheduled' : 'Supervision scheduled'),
         when: formatBookingReceiptWhen({
           dateYmd,
           startHour: h,
@@ -18760,6 +19037,7 @@ watch(supervisionIncludeAllAgencies, () => {
 });
 
 watch(selectedSupervisionParticipantIds, () => {
+  pruneSupervisionMandatoryAttendeeIds();
   const allowed = new Set((supervisionPresenterCandidateOptions.value || []).map((p) => Number(p.id)));
   supervisionPresenterIds.value = (supervisionPresenterIds.value || [])
     .map((n) => Number(n))
@@ -18767,15 +19045,38 @@ watch(selectedSupervisionParticipantIds, () => {
     .slice(0, 2);
 }, { deep: true });
 
-watch(supervisionFacilitatorUserId, (facId) => {
-  if (Number(supervisionCoFacilitatorUserId.value || 0) === Number(facId || 0)) {
+watch(supervisionGroupModeEnabled, (enabled) => {
+  if (!enabled) {
+    supervisionMandatoryPanelOpen.value = false;
+    supervisionMandatoryAttendeeIds.value = [];
+    supervisionSignupOnlyEnabled.value = false;
+  }
+});
+
+watch(supervisionSignupOnlyEnabled, (enabled) => {
+  if (!enabled) return;
+  selectedSupervisionParticipantId.value = 0;
+  selectedSupervisionAdditionalParticipantIds.value = [];
+  supervisionMandatoryAttendeeIds.value = [];
+  supervisionMandatoryPanelOpen.value = false;
+  supervisionInviteAudienceAllSupervised.value = false;
+  supervisionInviteAudienceGroupSupport.value = false;
+  supervisionPresenterIds.value = [];
+});
+
+watch(supervisionFacilitatorUserId, () => {
+  if (Number(supervisionCoFacilitatorUserId.value || 0) === Number(supervisionFacilitatorUserId.value || 0)) {
     supervisionCoFacilitatorUserId.value = 0;
+  }
+  if (String(requestType.value || '') === 'supervision' && showRequestModal.value) {
+    void loadSupervisionProviders();
   }
 });
 
 watch(meetingIncludeAllAgencies, () => {
   if (!['agency_meeting', 'huddle'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
   selectedMeetingParticipantIds.value = [];
+  selectedMeetingInviteGroupIds.value = [];
   meetingParticipantSearch.value = '';
   void loadMeetingCandidates();
 });
@@ -18813,6 +19114,7 @@ watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agency
   const stayedOnMeeting = ['agency_meeting', 'huddle'].includes(String(prevType || '')) && isOpen === !!prevOpen;
   if (!agencyChanged || !stayedOnMeeting) return;
   selectedMeetingParticipantIds.value = [];
+  selectedMeetingInviteGroupIds.value = [];
   meetingParticipantSearch.value = '';
   meetingBusyByUserId.value = {};
   meetingBusyLabelByUserId.value = {};
@@ -19344,6 +19646,61 @@ const selectedSupvSession = computed(() => {
   const list = supervisionSessionsInCell(supvDayLabel.value, supvStartHour.value);
   return list.find((x) => Number(x?.id) === Number(selectedSupvSessionId.value)) || null;
 });
+
+const isSelectedSupvSignupOffering = computed(() => isSignupSupervisionEvent(selectedSupvSession.value));
+const isSelectedSupvSignupOpen = computed(() => isSignupSupervisionOpen(selectedSupvSession.value));
+const isSelectedSupvSignupFacilitator = computed(() => {
+  const actorId = Number(authStore.user?.id || 0);
+  const s = selectedSupvSession.value;
+  if (!actorId || !s) return false;
+  return actorId === Number(s.supervisorUserId || 0) || actorId === Number(s.coFacilitatorUserId || 0);
+});
+const canSignupSelectedSupvSession = computed(() => (
+  isSelectedSupvSignupOffering.value
+  && isSelectedSupvSignupOpen.value
+  && !selectedSupvSession.value?.viewerSignedUp
+  && !isSelectedSupvSignupFacilitator.value
+));
+const canWithdrawSelectedSupvSession = computed(() => (
+  isSelectedSupvSignupOffering.value
+  && isSelectedSupvSignupOpen.value
+  && !!selectedSupvSession.value?.viewerSignedUp
+  && !isSelectedSupvSignupFacilitator.value
+));
+
+async function signupForSelectedSupvSession() {
+  const sid = Number(selectedSupvSessionId.value || 0);
+  if (!sid) return;
+  supvSignupBusy.value = true;
+  supvSignupError.value = '';
+  try {
+    await api.post(`/supervision/sessions/${sid}/signup`);
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    invalidateScheduleSummaryCacheForUser(authStore.user?.id);
+    await load({ forceRefresh: true });
+  } catch (e) {
+    supvSignupError.value = e?.response?.data?.error?.message || e?.message || 'Signup failed';
+  } finally {
+    supvSignupBusy.value = false;
+  }
+}
+
+async function withdrawFromSelectedSupvSession() {
+  const sid = Number(selectedSupvSessionId.value || 0);
+  if (!sid) return;
+  supvSignupBusy.value = true;
+  supvSignupError.value = '';
+  try {
+    await api.delete(`/supervision/sessions/${sid}/signup`);
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    invalidateScheduleSummaryCacheForUser(authStore.user?.id);
+    await load({ forceRefresh: true });
+  } catch (e) {
+    supvSignupError.value = e?.response?.data?.error?.message || e?.message || 'Withdraw failed';
+  } finally {
+    supvSignupBusy.value = false;
+  }
+}
 
 const canJoinSelectedSupvSession = computed(() => {
   const s = selectedSupvSession.value;
@@ -20133,7 +20490,7 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
     }
     return;
   }
-  if (kind === 'supv') {
+  if (kind === 'supv' || kind === 'supv-signup') {
     openSupervisionEditInScheduleModal(dayName, hour);
     return;
   }
@@ -20357,6 +20714,9 @@ const beginEditScheduleStackItem = async (item) => {
     selectedMeetingParticipantIds.value = Array.isArray(item?.attendeeUserIds)
       ? item.attendeeUserIds.map((n) => Number(n)).filter((n) => n > 0)
       : [];
+    selectedMeetingInviteGroupIds.value = Array.isArray(item?.invitedGroupIds)
+      ? item.invitedGroupIds.map((n) => Number(n)).filter((n) => n > 0)
+      : [];
     rememberMeetingParticipantNames(Array.isArray(item?.attendees) ? item.attendees : []);
     meetingParticipantSearch.value = '';
     meetingParticipantsExpanded.value = false;
@@ -20470,6 +20830,9 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     const savedAttendeeIds = isMeeting
       ? Array.from(selectedMeetingParticipantIdSet.value)
       : [];
+    if (isMeeting && saveAgencyId > 0) {
+      await syncToggledInviteGroupMemberships(saveAgencyId);
+    }
     const patchResp = await api.patch(`/users/${uid}/schedule-events/${eid}`, {
       title,
       description,
@@ -20485,6 +20848,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       ...(isMeeting
         ? {
             attendeeUserIds: savedAttendeeIds,
+            invitedGroupIds: Array.from(selectedMeetingInviteGroupIdSet.value.values()),
             isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
             waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
             ...(String(item?.eventKind || '').toUpperCase() === 'TEAM_MEETING'
@@ -21218,6 +21582,9 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     providerId: Number(ev?.providerId || ev?.provider_id || props.userId || 0) || null,
     isHost: ev?.isHost !== undefined ? !!ev.isHost : null,
     attendeeUserIds,
+    invitedGroupIds: Array.isArray(ev?.invitedGroupIds)
+      ? ev.invitedGroupIds.map((n) => Number(n)).filter((n) => n > 0)
+      : [],
     attendees,
     canEdit: !cancelled && ev?.canEdit !== false,
     isCancelled: cancelled,
@@ -21363,7 +21730,7 @@ const stackItemActionLabel = (item) => {
 
 const buildStackDetailsForBlock = (block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
-  if (kind === 'supv') {
+  if (kind === 'supv' || kind === 'supv-signup') {
     const sessions = supervisionSessionsInCell(dayName, hour, minute);
     if (sessions.length <= 1) return null;
     return {
@@ -22395,6 +22762,40 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .sched-seg:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* Office reminder: pulse to draw attention */
+@keyframes sched-supv-signup-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(13, 148, 136, 0); }
+}
+.cell-block-supv-signup-pulse {
+  animation: sched-supv-signup-pulse 2.2s ease-in-out infinite;
+  border-style: dashed !important;
+}
+.cell-block-signup-countdown {
+  display: block;
+  margin-top: 2px;
+}
+.supv-signup-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed #14b8a6;
+  background: #f0fdfa;
+}
+.supv-signup-footer__copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.supv-signup-footer__badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f766e;
+}
 .sched-office-pulse {
   animation: sched-office-pulse 2s ease-in-out 3;
 }

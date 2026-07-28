@@ -1509,6 +1509,13 @@ export const archiveUser = async (req, res, next) => {
     const user = await User.findById(parseInt(id));
 
     try {
+      const { detachUserFromMeetingInvites } = await import('../services/meetingInviteGroupSync.service.js');
+      await detachUserFromMeetingInvites(parseInt(id, 10));
+    } catch (e) {
+      console.warn('[archiveUser] meeting invite detach failed', e?.message || e);
+    }
+
+    try {
       const agencyId = archivedByAgencyId ?? (await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role));
       if (agencyId) {
         await AdminAuditLog.logAction({
@@ -4247,22 +4254,54 @@ export const getUserScheduleSummary = async (req, res, next) => {
         windowStart,
         windowEnd
       });
-      supervisionSessions = await Promise.all((rows || []).map(async (r) => {
+      let signupRows = [];
+      try {
+        signupRows = await SupervisionSession.listSignupOfferingsForUserInWindow({
+          agencyId: includeAllAgencies ? null : agencyId,
+          allAgencies: includeAllAgencies,
+          userId: providerId,
+          windowStart,
+          windowEnd
+        });
+      } catch {
+        signupRows = [];
+      }
+      const mergedRows = [...(rows || [])];
+      const seenIds = new Set(mergedRows.map((r) => Number(r?.id || 0)).filter((n) => n > 0));
+      for (const row of signupRows || []) {
+        const id = Number(row?.id || 0);
+        if (id > 0 && !seenIds.has(id)) {
+          seenIds.add(id);
+          mergedRows.push(row);
+        }
+      }
+      supervisionSessions = await Promise.all((mergedRows || []).map(async (r) => {
         const gid = String(r?.google_event_id || '').trim();
         if (gid) supervisionGoogleEventIds.add(gid);
         const isSupervisor = Number(r.supervisor_user_id) === Number(providerId);
+        const enrollmentMode = String(r.enrollment_mode || 'invited').trim().toLowerCase();
+        const isSignupOffering = enrollmentMode === 'signup_only';
         const sessionType = String(r.session_type || 'individual').trim().toLowerCase();
         const superviseeNames = String(r.supervisee_names || '').trim();
         const oneToOneName = isSupervisor
           ? `${r.supervisee_first_name || ''} ${r.supervisee_last_name || ''}`.trim()
           : `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim();
-        const groupDisplay = isSupervisor
-          ? (superviseeNames || oneToOneName)
-          : `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim();
-        const otherName = sessionType === 'group' || sessionType === 'triadic' ? groupDisplay : oneToOneName;
+        const groupDisplay = isSignupOffering
+          ? `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim()
+          : (isSupervisor
+            ? (superviseeNames || oneToOneName)
+            : `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim());
+        const otherName = sessionType === 'group' || sessionType === 'triadic' || isSignupOffering
+          ? groupDisplay
+          : oneToOneName;
         const hasViewerRequired = r?.viewer_is_required !== null && r?.viewer_is_required !== undefined;
         const isPrimarySupervisee = Number(r?.supervisee_user_id || 0) === Number(providerId);
         const isRequired = hasViewerRequired ? Number(r.viewer_is_required) === 1 : isPrimarySupervisee;
+        const viewerAttendeeStatus = String(r?.viewer_attendee_status || '').trim().toUpperCase();
+        const viewerSignedUp = ['SIGNED_UP', 'JOINED', 'INVITED'].includes(viewerAttendeeStatus)
+          && viewerAttendeeStatus !== 'WITHDRAWN';
+        const signupClosesAt = toMysqlDateTimeWall(r.signup_closes_at) || r.signup_closes_at || null;
+        const signupCount = Number(r?.signup_count || 0);
         const startWall = toMysqlDateTimeWall(r.start_at) || r.start_at;
         const endWall = toMysqlDateTimeWall(r.end_at) || r.end_at;
         const startDateYmd = String(r?.start_date_ymd || '').trim() || (startWall ? String(startWall).slice(0, 10) : null);
@@ -4327,7 +4366,12 @@ export const getUserScheduleSummary = async (req, res, next) => {
           agencyId: Number(r.agency_id || agencyId || 0) || null,
           recurrenceSeriesId: String(r.recurrence_series_id || '').trim() || null,
           recurrenceFrequency: String(r.recurrence_frequency || '').trim().toUpperCase() || null,
-          recurrenceIndex: r.recurrence_index == null ? null : Number(r.recurrence_index)
+          recurrenceIndex: r.recurrence_index == null ? null : Number(r.recurrence_index),
+          enrollmentMode,
+          signupClosesAt,
+          signupCount,
+          viewerSignedUp,
+          cancelReason: String(r.cancel_reason || '').trim() || null
         };
       }));
     } catch (e) {
@@ -4460,6 +4504,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
         if (meetingEventIds.length) {
           const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
           const byEvent = await ProviderScheduleEventAttendee.listDetailsByEventIds(meetingEventIds);
+          let byEventGroups = new Map();
+          try {
+            const ProviderScheduleEventInviteGroup = (await import('../models/ProviderScheduleEventInviteGroup.model.js')).default;
+            byEventGroups = await ProviderScheduleEventInviteGroup.listGroupIdsByEventIds(meetingEventIds);
+          } catch {
+            /* optional until migration */
+          }
           scheduleEvents = (scheduleEvents || []).map((e) => {
             const kind = String(e?.kind || '').toUpperCase();
             if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) return e;
@@ -4468,6 +4519,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             return {
               ...e,
               attendeeUserIds: details.map((d) => Number(d.userId || 0)).filter((n) => n > 0),
+              invitedGroupIds: (byEventGroups.get(eid) || []).map((n) => Number(n)).filter((n) => n > 0),
               attendees: details.map((d) => ({
                 id: Number(d.userId || 0),
                 firstName: d.firstName || '',
@@ -5388,11 +5440,28 @@ export const createUserScheduleEvent = async (req, res, next) => {
     });
     const description = String(req.body?.description || '').trim() || null;
     const timeZone = String(req.body?.timeZone || 'America/New_York').trim() || 'America/New_York';
-    const attendeeUserIds = Array.from(
+    let attendeeUserIds = Array.from(
       new Set((Array.isArray(req.body?.attendeeUserIds) ? req.body.attendeeUserIds : [])
         .map((v) => Number(v || 0))
         .filter((n) => n > 0 && n !== userId))
     );
+    const invitedGroupIds = Array.from(
+      new Set((Array.isArray(req.body?.invitedGroupIds) ? req.body.invitedGroupIds : [])
+        .map((v) => Number(v || 0))
+        .filter((n) => n > 0))
+    );
+    if (invitedGroupIds.length && ['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+      try {
+        const { collectMemberUserIds } = await import('../services/meetingInviteGroupSync.service.js');
+        const fromGroups = await collectMemberUserIds(invitedGroupIds);
+        attendeeUserIds = Array.from(new Set([
+          ...attendeeUserIds,
+          ...fromGroups.filter((uid) => uid > 0 && uid !== userId)
+        ]));
+      } catch {
+        /* optional until migration */
+      }
+    }
     const recurrenceSeriesIdRaw = String(req.body?.recurrenceSeriesId || '').trim();
     const recurrenceSeriesId = recurrenceSeriesIdRaw ? recurrenceSeriesIdRaw.slice(0, 64) : null;
     const recurrenceFrequency = String(req.body?.recurrenceFrequency || '').trim().toUpperCase() || null;
@@ -5584,6 +5653,14 @@ export const createUserScheduleEvent = async (req, res, next) => {
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && attendeeUserIds?.length) {
         const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
         await ProviderScheduleEventAttendee.upsertForEvent(saved.id, attendeeUserIds);
+      }
+      if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && invitedGroupIds?.length) {
+        try {
+          const { linkGroupsToEvent } = await import('../services/meetingInviteGroupSync.service.js');
+          await linkGroupsToEvent(saved.id, invitedGroupIds);
+        } catch {
+          /* optional until migration */
+        }
       }
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && createPlatformVideoLink) {
         const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
@@ -5857,6 +5934,18 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     }
 
     const wantsAttendeeUpdate = Object.prototype.hasOwnProperty.call(req.body || {}, 'attendeeUserIds');
+    const wantsInvitedGroupUpdate = Object.prototype.hasOwnProperty.call(req.body || {}, 'invitedGroupIds');
+    let invitedGroupIds = null;
+    if (wantsInvitedGroupUpdate) {
+      if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+        return res.status(400).json({ error: { message: 'invitedGroupIds are only supported for TEAM_MEETING and HUDDLE.' } });
+      }
+      invitedGroupIds = Array.from(
+        new Set((Array.isArray(req.body?.invitedGroupIds) ? req.body.invitedGroupIds : [])
+          .map((n) => Number(n || 0))
+          .filter((n) => n > 0))
+      );
+    }
     let attendeeUserIds = null;
     if (wantsAttendeeUpdate) {
       if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
@@ -5869,6 +5958,18 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       );
       if (!attendeeUserIds.length) {
         return res.status(400).json({ error: { message: `${kind} requires at least one coworker attendee.` } });
+      }
+      if (invitedGroupIds?.length) {
+        try {
+          const { collectMemberUserIds } = await import('../services/meetingInviteGroupSync.service.js');
+          const fromGroups = await collectMemberUserIds(invitedGroupIds);
+          attendeeUserIds = Array.from(new Set([
+            ...attendeeUserIds,
+            ...fromGroups.filter((uid) => uid > 0 && uid !== Number(hostProviderId))
+          ]));
+        } catch {
+          /* optional until migration */
+        }
       }
       const eventAgencyId = Number(req.body?.agencyId || 0)
         || Number(target.agency_id || 0)
@@ -6050,6 +6151,15 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     if (wantsAttendeeUpdate && attendeeUserIds) {
       const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
       await ProviderScheduleEventAttendee.replaceForEvent(eventId, attendeeUserIds);
+    }
+
+    if (wantsInvitedGroupUpdate) {
+      try {
+        const { linkGroupsToEvent } = await import('../services/meetingInviteGroupSync.service.js');
+        await linkGroupsToEvent(eventId, invitedGroupIds || []);
+      } catch {
+        /* optional until migration */
+      }
     }
 
     if (updated && ['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
@@ -6659,6 +6769,96 @@ export const createUserMeetingInviteGroup = async (req, res, next) => {
         kind: 'custom',
         customGroupId: group.id,
         userIds: group.userIds
+      }
+    });
+  } catch (e) {
+    if (String(e?.code || '') === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({
+        error: { message: 'Meeting invite groups are not available yet. Run database migrations and try again.' }
+      });
+    }
+    next(e);
+  }
+};
+
+/**
+ * PUT /api/users/:id/meeting-invite-groups/:groupId/members
+ * Replace group membership and sync future linked schedule events.
+ */
+export const updateUserMeetingInviteGroupMembers = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const groupId = parseInt(req.params.groupId, 10);
+    if (!userId || !groupId) {
+      return res.status(400).json({ error: { message: 'Invalid user or group id' } });
+    }
+
+    const actorUserId = Number(req.user?.id || 0);
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const agencyId = Number(req.body?.agencyId || req.query?.agencyId || 0);
+    const userIds = Array.from(
+      new Set((Array.isArray(req.body?.userIds) ? req.body.userIds : [])
+        .map((n) => Number(n || 0))
+        .filter((n) => n > 0))
+    );
+
+    const AgencyMeetingInviteGroup = (await import('../models/AgencyMeetingInviteGroup.model.js')).default;
+    const group = await AgencyMeetingInviteGroup.findById(groupId);
+    if (!group) return res.status(404).json({ error: { message: 'Group not found' } });
+
+    const resolvedAgencyId = agencyId || Number(group.agencyId || 0);
+    if (!resolvedAgencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    if (!(await assertCanManageTargetSchedule({
+      actorUserId,
+      actorRole,
+      targetUserId: userId,
+      agencyId: resolvedAgencyId
+    }))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const actorAgencies = await User.getAgencies(actorUserId);
+    const actorAgencyIds = new Set((actorAgencies || []).map((a) => Number(a?.id || 0)).filter((n) => n > 0));
+    if (actorRole !== 'super_admin' && !actorAgencyIds.has(resolvedAgencyId)) {
+      return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+    }
+
+    const placeholders = userIds.length ? userIds.map(() => '?').join(',') : '';
+    let validIds = [];
+    if (userIds.length) {
+      const [memberRows] = await pool.execute(
+        `SELECT u.id
+         FROM users u
+         WHERE u.id IN (${placeholders})
+           AND EXISTS (
+             SELECT 1 FROM user_agencies ua
+             WHERE ua.user_id = u.id AND ua.agency_id = ?
+           )
+           AND COALESCE(u.is_active, 1) = 1
+           AND COALESCE(u.is_archived, 0) = 0
+           AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')`,
+        [...userIds, resolvedAgencyId]
+      );
+      validIds = (memberRows || []).map((r) => Number(r.id || 0)).filter((n) => n > 0);
+    }
+
+    const { replaceGroupMembersWithSync } = await import('../services/meetingInviteGroupSync.service.js');
+    const result = await replaceGroupMembersWithSync(groupId, validIds);
+    if (!result?.ok) return res.status(404).json({ error: { message: 'Group not found' } });
+
+    return res.json({
+      ok: true,
+      group: {
+        key: `custom:${groupId}`,
+        label: group.name,
+        kind: 'custom',
+        customGroupId: groupId,
+        userIds: result.userIds || validIds
+      },
+      synced: {
+        added: result.added || [],
+        removed: result.removed || []
       }
     });
   } catch (e) {
@@ -7661,6 +7861,14 @@ export const removeUserFromAgency = async (req, res, next) => {
     }
 
     await conn.commit();
+
+    try {
+      const { detachUserFromMeetingInvites } = await import('../services/meetingInviteGroupSync.service.js');
+      await detachUserFromMeetingInvites(uid, { agencyIds: [aid] });
+    } catch (e) {
+      console.warn('[removeUserFromAgency] meeting invite detach failed', e?.message || e);
+    }
+
     res.json({ message: 'User removed from agency successfully' });
   } catch (error) {
     if (conn) {

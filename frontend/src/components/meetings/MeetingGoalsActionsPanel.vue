@@ -4,13 +4,13 @@
     :class="{ 'mgap--compact': compact, 'mgap--embedded': embedded }"
     data-testid="meeting-goals-actions-panel"
   >
-    <p v-if="!eventId" class="muted mgap__hint">
+    <p v-if="!eventId && !sessionId" class="muted mgap__hint">
       Save the meeting first, then you can add goals and action items.
     </p>
     <p v-else-if="loading && !hasLoaded" class="muted">Loading goals and action items…</p>
     <p v-else-if="error && !hasLoaded" class="error">{{ error }}</p>
 
-    <template v-if="eventId && (hasLoaded || !loading)">
+    <template v-if="(eventId || sessionId) && (hasLoaded || !loading)">
       <section v-if="section === 'goals' || section === 'both'" class="mgap__section">
         <div class="mgap__head">
           <h3>Goals</h3>
@@ -218,6 +218,8 @@ import api from '../../services/api';
 
 const props = defineProps({
   eventId: { type: [Number, String], default: 0 },
+  /** Supervision session id — uses /supervision/sessions/:id/artifacts for goals. */
+  sessionId: { type: [Number, String], default: 0 },
   disabled: { type: Boolean, default: false },
   section: { type: String, default: 'both' },
   /** Condensed view with Edit button per row */
@@ -251,6 +253,7 @@ let saveTimer = null;
 let flashTimer = null;
 let pollTimer = null;
 let loadedEventId = 0;
+let loadedSessionId = 0;
 let loadGeneration = 0;
 /** Bumped on local edits so quiet live reloads don't clobber in-flight typing. */
 let localDirtyAt = 0;
@@ -332,14 +335,21 @@ function cancelActionEdit() {
   void load({ force: true });
 }
 
-async function load({ quiet = false, force = false } = {}) {
+function workspaceIds() {
   const eid = Number(props.eventId || 0);
+  const sid = Number(props.sessionId || 0);
+  return { eid, sid };
+}
+
+async function load({ quiet = false, force = false } = {}) {
+  const { eid, sid } = workspaceIds();
   if (!quiet) error.value = '';
-  if (!eid) {
+  if (!eid && !sid) {
     goals.value = [];
     actionItems.value = [];
     hasLoaded.value = false;
     loadedEventId = 0;
+    loadedSessionId = 0;
     return;
   }
 
@@ -350,20 +360,33 @@ async function load({ quiet = false, force = false } = {}) {
   }
 
   const generation = ++loadGeneration;
-  const isInitial = eid !== loadedEventId || !hasLoaded.value;
+  const isInitial = (eid && eid !== loadedEventId) || (sid && sid !== loadedSessionId) || !hasLoaded.value;
   if (isInitial && !quiet) loading.value = true;
   try {
-    const { data } = await api.get(`/team-meetings/${eid}/workspace`, {
-      skipGlobalLoading: true,
-      skipAuthRedirect: true
-    });
+    let workspace = {};
+    if (sid) {
+      const { data } = await api.get(`/supervision/sessions/${sid}/artifacts`, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      });
+      const artifact = data?.artifact || data || {};
+      workspace = {
+        goals: artifact.goals || artifact.goals_json || [],
+        actionItems: artifact.actionItems || artifact.action_items_json || []
+      };
+    } else {
+      const { data } = await api.get(`/team-meetings/${eid}/workspace`, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      });
+      loadedSubtype.value = String(data?.meetingSubtype || 'general').toLowerCase();
+      loadedParticipants.value = Array.isArray(data?.participants) ? data.participants : [];
+      workspace = data?.workspace || {};
+    }
     if (generation !== loadGeneration) return;
     // Another local edit landed while the request was in flight.
     if (quiet && (saving.value || pendingSave.value || Date.now() - localDirtyAt < 1500)) return;
 
-    loadedSubtype.value = String(data?.meetingSubtype || 'general').toLowerCase();
-    loadedParticipants.value = Array.isArray(data?.participants) ? data.participants : [];
-    const workspace = data?.workspace || {};
     const serverGoals = normalizeGoals(workspace.goals).filter((g) => String(g.text || '').trim());
     const serverActions = normalizeActions(workspace.actionItems).filter((a) => String(a.text || '').trim());
     // Keep brand-new empty draft rows the user just added (not yet saved).
@@ -372,6 +395,7 @@ async function load({ quiet = false, force = false } = {}) {
     goals.value = [...serverGoals, ...draftGoals];
     actionItems.value = [...serverActions, ...draftActions];
     loadedEventId = eid;
+    loadedSessionId = sid;
     hasLoaded.value = true;
     if (!quiet) error.value = '';
   } catch (e) {
@@ -385,15 +409,17 @@ async function load({ quiet = false, force = false } = {}) {
 }
 
 async function saveNow() {
-  const eid = Number(props.eventId || 0);
-  if (!eid) return;
+  const { eid, sid } = workspaceIds();
+  if (!eid && !sid) return;
   // First save should work even if the initial GET failed (e.g. transient 403) —
   // ensure we still attempt an upsert when the user has typed goals.
   if (!hasLoaded.value) {
     hasLoaded.value = true;
     loadedEventId = eid;
+    loadedSessionId = sid;
   }
-  if (eid !== loadedEventId) loadedEventId = eid;
+  if (eid) loadedEventId = eid;
+  if (sid) loadedSessionId = sid;
   if (saving.value) {
     pendingSave.value = true;
     return;
@@ -414,10 +440,19 @@ async function saveNow() {
   saveStatus.value = 'saving';
   error.value = '';
   try {
-    await api.post(`/team-meetings/${eid}/workspace`, {
-      goals: payloadGoals,
-      actionItems: payloadActions
-    }, { skipGlobalLoading: true, skipAuthRedirect: true });
+    if (sid) {
+      const body = { goals: payloadGoals };
+      if (props.section !== 'goals') body.actionItems = payloadActions;
+      await api.post(`/supervision/sessions/${sid}/artifacts`, body, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      });
+    } else {
+      await api.post(`/team-meetings/${eid}/workspace`, {
+        goals: payloadGoals,
+        actionItems: payloadActions
+      }, { skipGlobalLoading: true, skipAuthRedirect: true });
+    }
     emit('saved', { goals: goals.value, actionItems: actionItems.value });
     saveStatus.value = 'saved';
     localDirtyAt = 0;
@@ -545,10 +580,11 @@ async function submitEscalate() {
   }
 }
 
-watch(() => Number(props.eventId || 0), (eid, prev) => {
-  if (Number(eid || 0) !== Number(prev || 0)) {
+watch(() => [Number(props.eventId || 0), Number(props.sessionId || 0)], ([eid, sid], [prevEid, prevSid]) => {
+  if (Number(eid || 0) !== Number(prevEid || 0) || Number(sid || 0) !== Number(prevSid || 0)) {
     hasLoaded.value = false;
     loadedEventId = 0;
+    loadedSessionId = 0;
     editingGoalId.value = null;
     editingActionId.value = null;
     localDirtyAt = 0;
@@ -569,8 +605,8 @@ function stopPoll() {
 function startPoll() {
   stopPoll();
   if (!props.live) return;
-  const eid = Number(props.eventId || 0);
-  if (!eid) return;
+  const { eid, sid } = workspaceIds();
+  if (!eid && !sid) return;
   pollTimer = setInterval(() => { void load({ quiet: true }); }, Math.max(3000, Number(props.pollMs || 8000)));
 }
 

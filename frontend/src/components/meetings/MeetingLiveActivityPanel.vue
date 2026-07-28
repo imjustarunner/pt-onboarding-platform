@@ -189,6 +189,14 @@ const props = defineProps({
   isHost: { type: Boolean, default: false },
   /** Explicitly allow creating polls (host/admin). If null, derived from role. */
   canCreatePolls: { type: Boolean, default: null },
+  /** Explicitly allow posting official Q&A answers. If null, derived from isHost/staff roles. */
+  canAnswerQuestions: { type: Boolean, default: null },
+  /** Opaque supervision join token for guest activity endpoints. */
+  joinToken: { type: String, default: '' },
+  /** Guest identity (guest-*) when joining without login. */
+  joinIdentity: { type: String, default: '' },
+  /** Display name for guest activity posts. */
+  guestDisplayName: { type: String, default: '' },
   startOpen: { type: Boolean, default: true },
   embedded: { type: Boolean, default: false },
   hideChrome: { type: Boolean, default: false },
@@ -222,11 +230,15 @@ let toastTimer = null;
 let initialLoadDone = false;
 
 const ownIdentity = computed(() => {
+  const guest = String(props.joinIdentity || '').trim();
+  if (guest.startsWith('guest-')) return guest;
   const id = Number(authStore.user?.id || 0);
   return id ? `user-${id}` : '';
 });
 
 const ownDisplayName = computed(() => {
+  const guestName = String(props.guestDisplayName || '').trim();
+  if (guestName) return guestName;
   const u = authStore.user || {};
   return `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
     || u.email
@@ -241,7 +253,16 @@ const canCreatePolls = computed(() => {
   return POLL_CREATE_ROLES.has(actorRole.value);
 });
 
-const canAnswerQuestions = computed(() => props.isHost || POLL_CREATE_ROLES.has(actorRole.value));
+const canAnswerQuestions = computed(() => {
+  if (props.canAnswerQuestions != null) return !!props.canAnswerQuestions;
+  return props.isHost || POLL_CREATE_ROLES.has(actorRole.value);
+});
+
+const isGuestActivity = computed(() => {
+  const tok = String(props.joinToken || '').trim();
+  const ident = String(props.joinIdentity || '').trim();
+  return !!tok && ident.startsWith('guest-');
+});
 
 const totalUnread = computed(() => unread.chat + unread.polls + unread.qa);
 
@@ -251,6 +272,11 @@ function activityApiBase() {
   if (eid) return `/team-meetings/${eid}/activity`;
   if (sid) return `/supervision/sessions/${sid}/activity`;
   return null;
+}
+
+function guestActivityPath() {
+  const tok = String(props.joinToken || '').trim();
+  return tok ? `/supervision/guest-activity/${encodeURIComponent(tok)}` : null;
 }
 
 function senderLabel(identity, payload = {}) {
@@ -362,6 +388,24 @@ function applyActivity(a) {
 }
 
 async function persistActivity(activityType, payload) {
+  if (isGuestActivity.value) {
+    const path = guestActivityPath();
+    if (!path) return null;
+    const type = String(activityType || 'chat').toLowerCase();
+    if (!['chat', 'question'].includes(type)) {
+      throw new Error('Guests may only post chat or questions.');
+    }
+    const resp = await api.post(path, {
+      activityType: type,
+      joinIdentity: props.joinIdentity,
+      displayName: ownDisplayName.value,
+      payload: {
+        ...payload,
+        authorName: ownDisplayName.value
+      }
+    }, { skipGlobalLoading: true, skipAuthRedirect: true });
+    return resp?.data?.id ?? null;
+  }
   const base = activityApiBase();
   if (!base) return null;
   const resp = await api.post(base, {
@@ -375,7 +419,8 @@ async function persistActivity(activityType, payload) {
 }
 
 async function loadActivity({ quiet = false } = {}) {
-  const base = activityApiBase();
+  const guestPath = isGuestActivity.value ? guestActivityPath() : null;
+  const base = guestPath || activityApiBase();
   if (!base) return;
   if (!quiet) loading.value = true;
   error.value = '';
@@ -563,7 +608,7 @@ async function submitAnswer(q) {
 
 function startPolling() {
   stopPolling();
-  if (!activityApiBase()) return;
+  if (!activityApiBase() && !guestActivityPath()) return;
   pollTimer = setInterval(() => { void loadActivity({ quiet: true }); }, Math.max(2500, Number(props.pollMs) || 4000));
 }
 
@@ -581,7 +626,7 @@ watch(panelOpen, (open) => {
 watch(tab, (t) => { unread[t] = 0; });
 
 watch(
-  () => [props.eventId, props.sessionId],
+  () => [props.eventId, props.sessionId, props.joinToken, props.joinIdentity],
   () => {
     seenIds.clear();
     answerDraftById.clear();

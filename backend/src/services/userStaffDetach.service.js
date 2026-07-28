@@ -202,4 +202,10 @@ export async function detachUserGlobalLinks(conn, userId) {
   await execOptional(conn, 'DELETE FROM skills_group_providers WHERE provider_user_id = ?', [uid]);
   await execOptional(conn, 'DELETE FROM learning_class_provider_memberships WHERE provider_user_id = ?', [uid]);
   await execOptional(conn, 'DELETE FROM provider_school_profiles WHERE provider_user_id = ?', [uid]);
+  try {
+    const { detachUserFromMeetingInvites } = await import('./meetingInviteGroupSync.service.js');
+    await detachUserFromMeetingInvites(uid);
+  } catch {
+    /* optional until migration */
+  }
 }

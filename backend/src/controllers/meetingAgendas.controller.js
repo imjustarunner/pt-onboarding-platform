@@ -11,6 +11,37 @@ import Task from '../models/Task.model.js';
 
 const MEETING_TYPES = ['supervision_session', 'provider_schedule_event'];
 
+async function isSupervisionPresenter(sessionId, userId) {
+  const sid = Number(sessionId || 0);
+  const uid = Number(userId || 0);
+  if (!sid || !uid) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
+      [sid, uid]
+    );
+    return !!rows?.length;
+  } catch {
+    return false;
+  }
+}
+
+async function canFacilitateSupervisionSession(userId, session) {
+  const uid = Number(userId || 0);
+  if (!uid || !session) return false;
+  if (uid === Number(session.supervisor_user_id || 0)) return true;
+  if (uid === Number(session.co_facilitator_user_id || 0)) return true;
+  if (await isSupervisionPresenter(session.id, uid)) return true;
+  const user = await User.findById(uid);
+  const role = String(user?.role || '').toLowerCase();
+  const adminRoles = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'];
+  if (adminRoles.includes(role)) {
+    const agencies = await User.getAgencies(uid);
+    return (agencies || []).some((a) => Number(a?.id) === Number(session.agency_id));
+  }
+  return false;
+}
+
 async function canManageMeetingAgenda(userId, meetingType, meetingId) {
   const uid = Number(userId || 0);
   const mid = parseInt(meetingId, 10);
@@ -69,6 +100,25 @@ async function canManageMeetingAgenda(userId, meetingType, meetingId) {
   }
 
   return false;
+}
+
+/** Facilitator-only edits for live group supervision agendas; team meetings keep broader manage access. */
+async function canEditMeetingAgenda(userId, meetingType, meetingId) {
+  if (meetingType === 'supervision_session') {
+    const mid = parseInt(meetingId, 10);
+    if (!mid) return false;
+    const [rows] = await pool.execute(
+      `SELECT ss.id, ss.agency_id, ss.supervisor_user_id, ss.co_facilitator_user_id
+       FROM supervision_sessions ss
+       WHERE ss.id = ? AND ss.status != 'CANCELLED'
+       LIMIT 1`,
+      [mid]
+    );
+    const session = rows?.[0];
+    if (!session) return false;
+    return await canFacilitateSupervisionSession(userId, session);
+  }
+  return canManageMeetingAgenda(userId, meetingType, meetingId);
 }
 
 async function getMeetingInfo(meetingType, meetingId) {
@@ -172,7 +222,7 @@ export const createAgenda = async (req, res, next) => {
     }
 
     const userId = req.user?.id;
-    const canManage = await canManageMeetingAgenda(userId, meetingType, meetingId);
+    const canManage = await canEditMeetingAgenda(userId, meetingType, meetingId);
     if (!canManage) {
       return res.status(403).json({ error: { message: 'You do not have access to this meeting' } });
     }
@@ -207,7 +257,7 @@ export const addAgendaItem = async (req, res, next) => {
     if (!agenda) return res.status(404).json({ error: { message: 'Agenda not found' } });
 
     const userId = req.user?.id;
-    const canManage = await canManageMeetingAgenda(userId, agenda.meeting_type, agenda.meeting_id);
+    const canManage = await canEditMeetingAgenda(userId, agenda.meeting_type, agenda.meeting_id);
     if (!canManage) {
       return res.status(403).json({ error: { message: 'You do not have access to this meeting' } });
     }
@@ -248,7 +298,7 @@ export const addAgendaItemsBulk = async (req, res, next) => {
     if (!agenda) return res.status(404).json({ error: { message: 'Agenda not found' } });
 
     const userId = req.user?.id;
-    const canManage = await canManageMeetingAgenda(userId, agenda.meeting_type, agenda.meeting_id);
+    const canManage = await canEditMeetingAgenda(userId, agenda.meeting_type, agenda.meeting_id);
     if (!canManage) {
       return res.status(403).json({ error: { message: 'You do not have access to this meeting' } });
     }
@@ -274,7 +324,7 @@ export const updateAgendaItem = async (req, res, next) => {
     if (!agenda) return res.status(404).json({ error: { message: 'Agenda not found' } });
 
     const userId = req.user?.id;
-    const canManage = await canManageMeetingAgenda(userId, agenda.meeting_type, agenda.meeting_id);
+    const canManage = await canEditMeetingAgenda(userId, agenda.meeting_type, agenda.meeting_id);
     if (!canManage) {
       return res.status(403).json({ error: { message: 'You do not have access to this meeting' } });
     }
@@ -383,7 +433,7 @@ export const deleteAgendaItem = async (req, res, next) => {
     if (!agenda) return res.status(404).json({ error: { message: 'Agenda not found' } });
 
     const userId = req.user?.id;
-    const canManage = await canManageMeetingAgenda(userId, agenda.meeting_type, agenda.meeting_id);
+    const canManage = await canEditMeetingAgenda(userId, agenda.meeting_type, agenda.meeting_id);
     if (!canManage) {
       return res.status(403).json({ error: { message: 'You do not have access to this meeting' } });
     }

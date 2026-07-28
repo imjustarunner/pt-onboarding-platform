@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import { normalizeSupervisorType } from '../constants/supervisorTypes.js';
+import { normalizeSupervisorType, SUPERVISOR_TYPES, SUPERVISOR_TYPE_LABELS } from '../constants/supervisorTypes.js';
 
 class SupervisorAssignment {
   /**
@@ -320,6 +320,45 @@ class SupervisorAssignment {
   static async getSuperviseeIds(supervisorId, agencyId = null) {
     const assignments = await this.findBySupervisor(supervisorId, agencyId);
     return assignments.map(a => a.supervisee_id);
+  }
+
+  /**
+   * Locked participant groups for a supervisor, split by assignment type.
+   * Membership is derived live from supervisor_assignments (not stored separately).
+   */
+  static async listLockedGroupsForSupervisor(supervisorId, { agencyId = null, agencyIds = null } = {}) {
+    const supId = Number(supervisorId || 0);
+    if (!supId) return [];
+
+    let assignments = await this.findBySupervisor(supId, agencyId || null);
+    const allowedAgencyIds = Array.isArray(agencyIds)
+      ? agencyIds.map((n) => Number(n || 0)).filter((n) => n > 0)
+      : [];
+    if (!agencyId && allowedAgencyIds.length) {
+      assignments = (assignments || []).filter((row) => allowedAgencyIds.includes(Number(row?.agency_id || 0)));
+    }
+
+    const byType = Object.fromEntries(SUPERVISOR_TYPES.map((t) => [t, []]));
+    const seen = Object.fromEntries(SUPERVISOR_TYPES.map((t) => [t, new Set()]));
+
+    for (const row of assignments || []) {
+      const type = normalizeSupervisorType(row?.supervisor_type);
+      const uid = Number(row?.supervisee_id || 0);
+      if (!uid || seen[type].has(uid)) continue;
+      seen[type].add(uid);
+      byType[type].push(uid);
+    }
+
+    return SUPERVISOR_TYPES
+      .map((type) => ({
+        key: `supervision:${type}`,
+        label: `${SUPERVISOR_TYPE_LABELS[type]} supervisees`,
+        kind: 'locked',
+        supervisorType: type,
+        locked: true,
+        userIds: byType[type]
+      }))
+      .filter((g) => (g.userIds || []).length > 0);
   }
 
   /**

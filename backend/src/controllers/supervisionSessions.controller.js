@@ -336,6 +336,20 @@ function parseDateTimeLocalString(s) {
   return null;
 }
 
+function signupClosesAtFromStart(startAt) {
+  const wall = parseDateTimeLocalString(startAt);
+  if (!wall) return null;
+  const dt = new Date(wall.replace(' ', 'T'));
+  if (Number.isNaN(dt.getTime())) return null;
+  const closes = new Date(dt.getTime() - (60 * 60 * 1000));
+  const pad2 = (n) => String(n).padStart(2, '0');
+  return `${closes.getFullYear()}-${pad2(closes.getMonth() + 1)}-${pad2(closes.getDate())} ${pad2(closes.getHours())}:${pad2(closes.getMinutes())}:${pad2(closes.getSeconds())}`;
+}
+
+function isSignupOnlyEnrollment(raw) {
+  return String(raw || '').trim().toLowerCase() === 'signup_only';
+}
+
 async function buildSupervisionSessionTitle(sessionId, row) {
   if (!sessionId || !row) return null;
   const [nameRows] = await pool.execute(
@@ -463,6 +477,31 @@ async function isAssignedSuperviseeInAgency({ supervisorUserId, superviseeUserId
   if (!supId || !svId || !aId) return false;
   const assigned = await SupervisorAssignment.findBySupervisor(supId, aId);
   return (assigned || []).some((row) => Number(row?.supervisee_id) === svId);
+}
+
+async function canFacilitateSupervisionRow(req, row) {
+  const actorId = Number(req.user?.id || 0);
+  if (!actorId || !row) return false;
+  if (actorId === Number(row.supervisor_user_id || 0)) return true;
+  if (actorId === Number(row.co_facilitator_user_id || 0)) return true;
+  const sid = Number(row.id || 0);
+  if (sid) {
+    try {
+      const [presenter] = await pool.execute(
+        `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
+        [sid, actorId]
+      );
+      if (presenter?.length) return true;
+    } catch {
+      /* optional table */
+    }
+  }
+  const role = String(req.user?.role || '').toLowerCase();
+  if (['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role)) {
+    const actorAgencies = await User.getAgencies(actorId);
+    return (actorAgencies || []).some((a) => Number(a?.id) === Number(row.agency_id || 0));
+  }
+  return false;
 }
 
 async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeUserId, sessionId = null }) {
@@ -1036,6 +1075,22 @@ async function resolveSupervisionPayForParticipant({
   };
 }
 
+async function buildSupervisorLockedGroups(supervisorUserId, { agencyId, allAgencies = false, agencyIds = [] } = {}) {
+  const supId = Number(supervisorUserId || 0);
+  if (!supId) return [];
+  try {
+    if (allAgencies) {
+      const scoped = (agencyIds || []).map((n) => Number(n || 0)).filter((n) => n > 0);
+      return await SupervisorAssignment.listLockedGroupsForSupervisor(supId, { agencyIds: scoped });
+    }
+    const aid = Number(agencyId || 0);
+    if (!aid) return [];
+    return await SupervisorAssignment.listLockedGroupsForSupervisor(supId, { agencyId: aid });
+  } catch {
+    return [];
+  }
+}
+
 export const listSupervisionProviderCandidates = async (req, res, next) => {
   try {
     const actorId = Number(req.user?.id || 0);
@@ -1066,6 +1121,7 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
 
     const requestedAgencyId = Number(req.query?.agencyId || 0);
     const agencyId = requestedAgencyId > 0 ? requestedAgencyId : actorAgencyIds[0];
+    const supervisorUserId = Number(req.query?.supervisorUserId || 0) || actorId;
     if (!allAgencies && !actorAgencyIds.includes(agencyId)) {
       return res.status(403).json({ error: { message: 'Access denied for this agency' } });
     }
@@ -1144,7 +1200,8 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       } catch {
         facilitators = [];
       }
-      return res.json({ ok: true, agencyId, agencyIds: [agencyId], mode, audience, providers, facilitators });
+      const supervisorGroups = await buildSupervisorLockedGroups(supervisorUserId, { agencyId });
+      return res.json({ ok: true, agencyId, agencyIds: [agencyId], mode, audience, providers, facilitators, supervisorGroups });
     }
 
     if (mode === 'individual' && audience !== 'assigned') {
@@ -1218,6 +1275,12 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       facilitators = [];
     }
 
+    const supervisorGroups = await buildSupervisorLockedGroups(supervisorUserId, {
+      agencyId: allAgencies ? null : agencyId,
+      allAgencies,
+      agencyIds: scopedAgencyIds
+    });
+
     res.json({
       ok: true,
       agencyId: allAgencies ? null : agencyId,
@@ -1225,7 +1288,8 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       mode,
       audience,
       providers,
-      facilitators
+      facilitators,
+      supervisorGroups
     });
   } catch (e) {
     next(e);
@@ -2476,7 +2540,8 @@ export const getSupervisionSessionArtifacts = async (req, res, next) => {
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
       supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
@@ -2539,7 +2604,8 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
       supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
@@ -2550,6 +2616,14 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
     const focusTitleInput = req.body?.focusTitle ?? req.body?.focus_title;
     const goalsInput = req.body?.goals ?? req.body?.goalsJson ?? req.body?.goals_json;
     const actionItemsInput = req.body?.actionItems ?? req.body?.actionItemsJson ?? req.body?.action_items_json;
+
+    const sessionType = String(row.session_type || 'individual').trim().toLowerCase();
+    const isGroupSession = sessionType === 'group' || sessionType === 'triadic';
+    if (isGroupSession
+      && (goalsInput !== undefined || actionItemsInput !== undefined)
+      && !(await canFacilitateSupervisionRow(req, row))) {
+      return res.status(403).json({ error: { message: 'Only the facilitator can update session goals or action items.' } });
+    }
 
     const mayEditTranscript = canViewTranscript(role);
     const transcriptUrl = mayEditTranscript && transcriptUrlInput !== undefined
@@ -2718,7 +2792,8 @@ export const upsertSupervisionSessionPersonalNote = async (req, res, next) => {
 export const createSupervisionSessionValidators = [
   body('agencyId').isInt({ min: 1 }).withMessage('agencyId is required'),
   body('supervisorUserId').isInt({ min: 1 }).withMessage('supervisorUserId is required'),
-  body('superviseeUserId').isInt({ min: 1 }).withMessage('superviseeUserId is required'),
+  body('superviseeUserId').optional({ nullable: true }).isInt({ min: 1 }).withMessage('superviseeUserId must be a valid user id'),
+  body('enrollmentMode').optional().isIn(['invited', 'open_join', 'signup_only']).withMessage('enrollmentMode must be invited, open_join, or signup_only'),
   body('sessionType').optional().isIn(['individual', 'triadic', 'group']).withMessage('sessionType must be individual, triadic, or group'),
   body('additionalAttendeeUserIds').optional().isArray().withMessage('additionalAttendeeUserIds must be an array'),
   body('additionalAttendeeUserIds.*').optional().isInt({ min: 1 }).withMessage('additionalAttendeeUserIds must contain valid user ids'),
@@ -2759,8 +2834,13 @@ export const createSupervisionSession = async (req, res, next) => {
   try {
     if (!requireValid(req, res)) return;
     const agencyId = parseInt(req.body?.agencyId, 10);
+    const enrollmentMode = String(req.body?.enrollmentMode || 'invited').trim().toLowerCase();
+    const isSignupOnly = isSignupOnlyEnrollment(enrollmentMode);
     const supervisorUserId = parseInt(req.body?.supervisorUserId, 10);
-    const superviseeUserId = parseInt(req.body?.superviseeUserId, 10);
+    const superviseeUserIdRaw = parseInt(req.body?.superviseeUserId, 10);
+    const superviseeUserId = isSignupOnly
+      ? (Number.isFinite(superviseeUserIdRaw) && superviseeUserIdRaw > 0 ? superviseeUserIdRaw : supervisorUserId)
+      : superviseeUserIdRaw;
     const startAt = parseDateTimeLocalString(req.body?.startAt);
     const endAt = parseDateTimeLocalString(req.body?.endAt);
     const sessionType = String(req.body?.sessionType || 'individual').trim().toLowerCase();
@@ -2788,7 +2868,7 @@ export const createSupervisionSession = async (req, res, next) => {
       new Set(
         (Array.isArray(req.body?.requiredAttendeeUserIds) ? req.body.requiredAttendeeUserIds : [])
           .map((n) => parseInt(n, 10))
-          .filter((n) => Number.isFinite(n) && n > 0 && n !== supervisorUserId && n !== superviseeUserId)
+          .filter((n) => Number.isFinite(n) && n > 0 && n !== supervisorUserId)
       )
     );
     const optionalAttendeeUserIds = Array.from(
@@ -2808,6 +2888,12 @@ export const createSupervisionSession = async (req, res, next) => {
 
     if (!startAt || !endAt) return res.status(400).json({ error: { message: 'Invalid startAt/endAt' } });
     if (endAt <= startAt) return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
+    if (!isSignupOnly && (!Number.isFinite(superviseeUserId) || superviseeUserId <= 0)) {
+      return res.status(400).json({ error: { message: 'superviseeUserId is required' } });
+    }
+    if (isSignupOnly && sessionType !== 'group') {
+      return res.status(400).json({ error: { message: 'Signup-only supervision must be a group session' } });
+    }
 
     const ok = await canScheduleSession(req, { agencyId, supervisorUserId, superviseeUserId });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
@@ -2815,7 +2901,7 @@ export const createSupervisionSession = async (req, res, next) => {
 
     const { supOk, svOk } = await requireUsersInAgency({ agencyId, supervisorUserId, superviseeUserId });
     if (!supOk) return res.status(400).json({ error: { message: 'Supervisor does not belong to this agency' } });
-    if (!svOk) return res.status(400).json({ error: { message: 'Supervisee does not belong to this agency' } });
+    if (!isSignupOnly && !svOk) return res.status(400).json({ error: { message: 'Supervisee does not belong to this agency' } });
     if (coFacilitatorUserId) {
       const coMap = await getUsersInAgencyMap({ agencyId, userIds: [coFacilitatorUserId] });
       if (!coMap[coFacilitatorUserId]) {
@@ -2836,8 +2922,10 @@ export const createSupervisionSession = async (req, res, next) => {
     }
 
     const supervisor = await User.findById(supervisorUserId);
-    const supervisee = await User.findById(superviseeUserId);
-    if (!supervisor || !supervisee) return res.status(404).json({ error: { message: 'User not found' } });
+    const supervisee = isSignupOnly ? supervisor : await User.findById(superviseeUserId);
+    if (!supervisor || (!isSignupOnly && !supervisee)) return res.status(404).json({ error: { message: 'User not found' } });
+
+    const signupClosesAt = isSignupOnly ? signupClosesAtFromStart(startAt) : null;
 
     const recurrenceSeriesIdRaw = String(req.body?.recurrenceSeriesId || '').trim();
     const recurrenceSeriesId = recurrenceSeriesIdRaw ? recurrenceSeriesIdRaw.slice(0, 64) : null;
@@ -2876,21 +2964,61 @@ export const createSupervisionSession = async (req, res, next) => {
       waitingRoomEnabled,
       recurrenceSeriesId,
       recurrenceFrequency,
-      recurrenceIndex
+      recurrenceIndex,
+      enrollmentMode: isSignupOnly ? 'signup_only' : enrollmentMode,
+      signupClosesAt,
+      autoCancelIfEmpty: isSignupOnly
     });
 
     // Ensure newly scheduled sessions immediately appear in supervision rosters.
-    await SupervisorAssignment.ensure(
-      supervisorUserId,
-      superviseeUserId,
-      agencyId,
-      req.user.id,
-      { isPrimary: false }
-    );
+    if (!isSignupOnly) {
+      await SupervisorAssignment.ensure(
+        supervisorUserId,
+        superviseeUserId,
+        agencyId,
+        req.user.id,
+        { isPrimary: false }
+      );
+    }
 
-    const requiredSet = new Set([superviseeUserId, ...additionalAttendeeUserIds, ...requiredAttendeeUserIds]);
-    const optionalSet = new Set(optionalAttendeeUserIds.filter((uid) => !requiredSet.has(uid)));
+    if (isSignupOnly) {
+      await SupervisionSession.upsertAttendees(created.id, [
+        {
+          userId: supervisorUserId,
+          participantRole: 'supervisor',
+          isRequired: true,
+          isCompensableSnapshot: false,
+          status: 'INVITED'
+        },
+        ...(coFacilitatorUserId ? [{
+          userId: coFacilitatorUserId,
+          participantRole: 'co_facilitator',
+          isRequired: true,
+          isCompensableSnapshot: false,
+          status: 'INVITED'
+        }] : [])
+      ]);
+    } else {
+    const isGroupSession = String(sessionType || '').trim().toLowerCase() === 'group';
+    const allSuperviseeIds = Array.from(new Set([
+      superviseeUserId,
+      ...additionalAttendeeUserIds,
+      ...optionalAttendeeUserIds,
+      ...requiredAttendeeUserIds
+    ]));
+    let requiredSet;
+    let optionalSet;
+    if (isGroupSession) {
+      requiredSet = new Set(
+        requiredAttendeeUserIds.filter((uid) => allSuperviseeIds.includes(uid))
+      );
+      optionalSet = new Set(allSuperviseeIds.filter((uid) => !requiredSet.has(uid)));
+    } else {
+      requiredSet = new Set([superviseeUserId, ...additionalAttendeeUserIds, ...requiredAttendeeUserIds]);
+      optionalSet = new Set(optionalAttendeeUserIds.filter((uid) => !requiredSet.has(uid)));
+    }
     const superviseeIds = Array.from(new Set([...requiredSet, ...optionalSet]));
+    const validPresenterIds = presenterUserIds.filter((uid) => superviseeIds.includes(uid) || uid === superviseeUserId);
     const compensableMap = await User.getAgencySupervisionCompensableMap(agencyId, superviseeIds);
     await SupervisionSession.upsertAttendees(created.id, [
       {
@@ -2907,15 +3035,22 @@ export const createSupervisionSession = async (req, res, next) => {
         isCompensableSnapshot: false,
         status: 'INVITED'
       }] : []),
-      ...superviseeIds.map((uid) => ({
-        userId: uid,
-        participantRole: 'supervisee',
-        isRequired: !optionalSet.has(uid),
-        isCompensableSnapshot: !!compensableMap[uid],
-        status: 'INVITED'
-      }))
+      ...superviseeIds.map((uid) => {
+        const isRequired = requiredSet.has(uid);
+        const isPresenter = validPresenterIds.includes(uid);
+        const profileCompensable = !!compensableMap[uid];
+        const isCompensableSnapshot = profileCompensable && (
+          !isGroupSession || isRequired || isPresenter
+        );
+        return {
+          userId: uid,
+          participantRole: 'supervisee',
+          isRequired,
+          isCompensableSnapshot,
+          status: 'INVITED'
+        };
+      })
     ]);
-    const validPresenterIds = presenterUserIds.filter((uid) => superviseeIds.includes(uid) || uid === superviseeUserId);
     await SupervisionSession.setPresenters({
       sessionId: created.id,
       presenterUserIds: validPresenterIds,
@@ -2930,59 +3065,6 @@ export const createSupervisionSession = async (req, res, next) => {
     } catch (presErr) {
       console.warn('[supervision] Failed to seed case presentations:', presErr?.message || presErr);
     }
-
-    // Best-effort: sync to Google Calendar on supervisor calendar
-    const hostEmail = String(supervisor.email || '').trim().toLowerCase();
-    const attendeeEmail = String(supervisee.email || '').trim().toLowerCase();
-    const extraAttendeeEmails = [];
-    for (const uid of allExtraAttendees) {
-      // eslint-disable-next-line no-await-in-loop
-      const extraUser = await User.findById(uid);
-      const email = String(extraUser?.email || '').trim().toLowerCase();
-      if (email) extraAttendeeEmails.push(email);
-    }
-    const participantCount = 1 + extraAttendeeEmails.length;
-    const summary = sessionType === 'group'
-      ? `Group supervision (${participantCount})`
-      : `Supervision — ${(supervisee.first_name || '').trim()} ${(supervisee.last_name || '').trim()}`.trim();
-    const desc = notes ? String(notes) : null;
-    const useVideo = isVideoConfigured();
-    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    const appJoinUrl = useVideo ? supervisionAppJoinUrl(created) : null;
-    const sync = await GoogleCalendarService.upsertSupervisionSession({
-      supervisionSessionId: created.id,
-      hostEmail,
-      attendeeEmail,
-      additionalAttendeeEmails: extraAttendeeEmails,
-      startAt,
-      endAt,
-      summary,
-      description: desc,
-      createMeetLink: useVideo ? false : createMeetLink,
-      appJoinUrl
-    });
-
-    if (sync?.ok) {
-      await SupervisionSession.setGoogleSync(created.id, {
-        hostEmail,
-        calendarId: sync.calendarId,
-        eventId: sync.googleEventId,
-        meetLink: sync.meetLink,
-        status: 'SYNCED',
-        errorMessage: null
-      });
-    } else {
-      await SupervisionSession.setGoogleSync(created.id, {
-        hostEmail,
-        calendarId: 'primary',
-        eventId: null,
-        meetLink: null,
-        status: 'FAILED',
-        errorMessage: sync?.error || sync?.reason || 'Google sync failed'
-      });
-    }
-
-    const out = await SupervisionSession.resolveByJoinRef(created.id) || await SupervisionSession.findById(created.id);
 
     // Notify counterparts so their schedule can refresh / toast.
     try {
@@ -3022,6 +3104,64 @@ export const createSupervisionSession = async (req, res, next) => {
     } catch (notifyErr) {
       console.warn('[supervision] schedule notify skipped', notifyErr?.message || notifyErr);
     }
+    }
+
+    // Best-effort: sync to Google Calendar on supervisor calendar
+    const hostEmail = String(supervisor.email || '').trim().toLowerCase();
+    const attendeeEmail = isSignupOnly ? '' : String(supervisee.email || '').trim().toLowerCase();
+    const extraAttendeeEmails = [];
+    if (!isSignupOnly) {
+      for (const uid of allExtraAttendees) {
+        // eslint-disable-next-line no-await-in-loop
+        const extraUser = await User.findById(uid);
+        const email = String(extraUser?.email || '').trim().toLowerCase();
+        if (email) extraAttendeeEmails.push(email);
+      }
+    }
+    const participantCount = isSignupOnly ? 0 : (1 + extraAttendeeEmails.length);
+    const summary = isSignupOnly
+      ? 'Group supervision — signup open'
+      : (sessionType === 'group'
+        ? `Group supervision (${participantCount})`
+        : `Supervision — ${(supervisee.first_name || '').trim()} ${(supervisee.last_name || '').trim()}`.trim());
+    const desc = notes ? String(notes) : null;
+    const useVideo = isVideoConfigured();
+    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const appJoinUrl = useVideo ? supervisionAppJoinUrl(created) : null;
+    const sync = await GoogleCalendarService.upsertSupervisionSession({
+      supervisionSessionId: created.id,
+      hostEmail,
+      attendeeEmail,
+      additionalAttendeeEmails: extraAttendeeEmails,
+      startAt,
+      endAt,
+      summary,
+      description: desc,
+      createMeetLink: useVideo ? false : createMeetLink,
+      appJoinUrl
+    });
+
+    if (sync?.ok) {
+      await SupervisionSession.setGoogleSync(created.id, {
+        hostEmail,
+        calendarId: sync.calendarId,
+        eventId: sync.googleEventId,
+        meetLink: sync.meetLink,
+        status: 'SYNCED',
+        errorMessage: null
+      });
+    } else {
+      await SupervisionSession.setGoogleSync(created.id, {
+        hostEmail,
+        calendarId: 'primary',
+        eventId: null,
+        meetLink: null,
+        status: 'FAILED',
+        errorMessage: sync?.error || sync?.reason || 'Google sync failed'
+      });
+    }
+
+    const out = await SupervisionSession.resolveByJoinRef(created.id) || await SupervisionSession.findById(created.id);
 
     res.status(201).json({
       ok: true,
@@ -3677,6 +3817,50 @@ export const markSessionPresenterPresented = async (req, res, next) => {
 
     const presenters = await SupervisionSession.listPresentersForSession(id);
     res.json({ ok: true, presenters, status });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const signupForSupervisionSession = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const { signupForSession } = await import('../services/supervisionSignup.service.js');
+    try {
+      const result = await signupForSession({ sessionId: id, userId: actorId });
+      return res.json({ ok: true, ...result });
+    } catch (err) {
+      const code = String(err?.code || err?.message || '');
+      if (code === 'not_signup_session') return res.status(400).json({ error: { message: 'This session is not open for signup' } });
+      if (code === 'signup_closed') return res.status(400).json({ error: { message: 'Signup has closed for this session' } });
+      if (code === 'already_signed_up') return res.status(409).json({ error: { message: 'You are already signed up' } });
+      if (code === 'not_in_agency') return res.status(403).json({ error: { message: 'You are not a member of this agency' } });
+      if (code === 'facilitator') return res.status(400).json({ error: { message: 'Facilitators cannot sign up for their own session' } });
+      throw err;
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const withdrawFromSupervisionSession = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const { withdrawFromSession } = await import('../services/supervisionSignup.service.js');
+    try {
+      const result = await withdrawFromSession({ sessionId: id, userId: actorId });
+      return res.json({ ok: true, ...result });
+    } catch (err) {
+      const code = String(err?.code || err?.message || '');
+      if (code === 'signup_closed') return res.status(400).json({ error: { message: 'Signup changes are closed for this session' } });
+      throw err;
+    }
   } catch (e) {
     next(e);
   }

@@ -172,20 +172,39 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
 
   try {
     // Supervision sessions starting in 5-8 min
-    const [supvRows] = await pool.execute(
-      `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.supervisee_user_id,
-              ss.google_meet_link, ss.join_token,
-              CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name
-       FROM supervision_sessions ss
-       JOIN users sup ON sup.id = ss.supervisor_user_id
-       WHERE (ss.status IS NULL OR ss.status <> 'CANCELLED')
-         AND ss.start_at >= ? AND ss.start_at < ?
-       ORDER BY ss.start_at ASC`,
-      [startSql, endSql]
-    );
+    let supvRows = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.supervisee_user_id,
+                ss.google_meet_link, ss.join_token, ss.enrollment_mode,
+                CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name
+         FROM supervision_sessions ss
+         JOIN users sup ON sup.id = ss.supervisor_user_id
+         WHERE (ss.status IS NULL OR ss.status <> 'CANCELLED')
+           AND ss.start_at >= ? AND ss.start_at < ?
+         ORDER BY ss.start_at ASC`,
+        [startSql, endSql]
+      );
+      supvRows = rows || [];
+    } catch (e) {
+      if (!/enrollment_mode/i.test(String(e?.message || ''))) throw e;
+      const [rows] = await pool.execute(
+        `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.supervisee_user_id,
+                ss.google_meet_link, ss.join_token,
+                CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name
+         FROM supervision_sessions ss
+         JOIN users sup ON sup.id = ss.supervisor_user_id
+         WHERE (ss.status IS NULL OR ss.status <> 'CANCELLED')
+           AND ss.start_at >= ? AND ss.start_at < ?
+         ORDER BY ss.start_at ASC`,
+        [startSql, endSql]
+      );
+      supvRows = rows || [];
+    }
 
     for (const r of supvRows || []) {
       const sessionId = Number(r.id);
+      const isSignupOnly = String(r.enrollment_mode || '').trim().toLowerCase() === 'signup_only';
       const agencyId = Number(r.agency_id);
       const label = `Supervision with ${String(r.supervisor_name || '').trim() || 'supervisor'}`;
       const joinKey = String(r.join_token || sessionId || '').trim();
@@ -195,16 +214,26 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
       if (!joinUrl) continue;
 
       const userIds = new Set([
-        Number(r.supervisor_user_id || 0),
-        Number(r.supervisee_user_id || 0)
+        Number(r.supervisor_user_id || 0)
       ]);
+      if (!isSignupOnly) {
+        userIds.add(Number(r.supervisee_user_id || 0));
+      }
 
       const [attendees] = await pool.execute(
-        `SELECT user_id FROM supervision_session_attendees WHERE session_id = ?`,
+        `SELECT user_id, status FROM supervision_session_attendees WHERE session_id = ?`,
         [sessionId]
       );
-      for (const a of attendees || []) {
-        if (a.user_id) userIds.add(Number(a.user_id));
+      if (isSignupOnly) {
+        for (const a of attendees || []) {
+          const uid = Number(a.user_id || 0);
+          const st = String(a.status || '').trim().toUpperCase();
+          if (uid && ['SIGNED_UP', 'JOINED'].includes(st)) userIds.add(uid);
+        }
+      } else {
+        for (const a of attendees || []) {
+          if (a.user_id) userIds.add(Number(a.user_id));
+        }
       }
 
       for (const uid of userIds) {

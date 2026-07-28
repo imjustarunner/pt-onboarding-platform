@@ -7,7 +7,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../utils/activityTracker';
 
-export function useSupervisionLiveSession(props, emit, { enablePresentation = false } = {}) {
+export function useSupervisionLiveSession(props, emit, { enablePresentation = false, enableActivityFeed = true } = {}) {
   const authStore = useAuthStore();
 
   const sideTab = ref('discussion');
@@ -27,6 +27,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   const liveTranscriptChunks = ref([]);
   const sessionTranscriptText = ref('');
   const transcriptHint = ref('');
+  const transcriptCapturing = ref(false);
   const prioritizeSelfView = ref(false);
   const viewAsAttendee = ref(false);
   let speechRecognition = null;
@@ -204,6 +205,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       /* ignore */
     }
     speechRecognition = null;
+    transcriptCapturing.value = false;
   }
 
   function startLiveTranscriptCapture() {
@@ -214,6 +216,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       if (!SR) {
         transcriptHint.value = 'Live transcript needs Chrome/Safari speech recognition (mic permission).';
       }
+      transcriptCapturing.value = false;
       return;
     }
     try {
@@ -230,16 +233,20 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
           /* ignore */
         }
       };
-      speechRecognition.onerror = () => {};
+      speechRecognition.onerror = () => {
+        transcriptCapturing.value = false;
+      };
       speechRecognition.onend = () => {
         if (!speechRecognition) return;
+        transcriptCapturing.value = true;
         try {
           speechRecognition.start();
         } catch {
-          /* ignore */
+          transcriptCapturing.value = false;
         }
       };
       speechRecognition.start();
+      transcriptCapturing.value = true;
       transcriptHint.value = 'Listening for live transcript…';
       transcriptFlushTimer = setInterval(() => {
         void flushLiveTranscript({ final: false });
@@ -247,6 +254,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     } catch {
       transcriptHint.value = 'Could not start live transcript capture.';
       speechRecognition = null;
+      transcriptCapturing.value = false;
     }
   }
 
@@ -277,6 +285,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   }
 
   async function refreshActivity() {
+    if (!enableActivityFeed) return;
     const sid = numericSessionId.value || props.supervisionSessionId;
     if (!sid) return;
     try {
@@ -430,11 +439,11 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   onMounted(async () => {
     suspendInactivityTimeout();
     await refreshPresentation();
-    await refreshActivity();
+    if (enableActivityFeed) await refreshActivity();
     await loadSessionTranscript();
     pollTimer.value = setInterval(() => {
       refreshPresentation();
-      refreshActivity();
+      if (enableActivityFeed) refreshActivity();
       loadSessionTranscript();
     }, 5000);
   });
@@ -465,6 +474,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     topics,
     chatMessages,
     transcriptHint,
+    transcriptCapturing,
     liveTranscriptPreview,
     sessionTranscriptPreview,
     presentation,

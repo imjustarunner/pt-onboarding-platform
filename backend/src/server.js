@@ -1770,6 +1770,20 @@ if (!isBootstrap) {
   scheduleJoinReminder();
   setInterval(scheduleJoinReminder, 5 * 60 * 1000);
 
+  const scheduleSupervisionSignupAutoCancel = async () => {
+    try {
+      const { runSupervisionSignupAutoCancelTick } = await import('./services/supervisionSignupAutoCancel.service.js');
+      const result = await runSupervisionSignupAutoCancelTick();
+      if (Number(result?.cancelled || 0) > 0) {
+        console.info('[supervision-signup-auto-cancel] cancelled sessions:', result.cancelled);
+      }
+    } catch (error) {
+      console.error('Error in supervision signup auto-cancel scheduler:', error);
+    }
+  };
+  scheduleSupervisionSignupAutoCancel();
+  setInterval(scheduleSupervisionSignupAutoCancel, 5 * 60 * 1000);
+
   // Inbound school email AI agent (poll Gmail unread every 5 minutes)
   // Processes school group mail → support tickets / reinit intake when configured.
   let inboundEmailAgentRunning = false;
