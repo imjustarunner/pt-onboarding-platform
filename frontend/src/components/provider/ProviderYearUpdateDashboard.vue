@@ -43,7 +43,7 @@
       <div class="pyu__layout">
         <nav class="pyu__nav" aria-label="Year update sections">
           <button
-            v-for="meta in sectionMeta"
+            v-for="meta in visibleSectionMeta"
             :key="meta.key"
             type="button"
             class="pyu__nav-item"
@@ -361,6 +361,148 @@
             </div>
           </section>
 
+          <!-- Licenses & background check (licensed providers only) -->
+          <section v-else-if="activeSection === 'licenses'" class="pyu__panel">
+            <h2>Licenses &amp; Background Check</h2>
+            <p class="muted">
+              Review the license and federal background check information we have on file. This uses the same data as your profile
+              <strong>Clinical Information → License &amp; Certifications</strong> tab — add anything missing, then confirm it is accurate.
+            </p>
+
+            <div v-if="licenseContext?.credential" class="pyu__license-credential">
+              <span class="pyu__license-label">Credential</span>
+              <strong>{{ licenseContext.credential }}</strong>
+            </div>
+
+            <div class="pyu__license-card">
+              <div class="pyu__license-card-head">
+                <span class="pyu__license-badge">Active License</span>
+              </div>
+              <div class="pyu__license-grid">
+                <label class="field">
+                  <span>License type &amp; number</span>
+                  <input
+                    v-model="licensesForm.licenseTypeNumber"
+                    type="text"
+                    :disabled="isFinalized"
+                    placeholder="e.g. LPCC 12345"
+                  />
+                </label>
+                <label class="field">
+                  <span>Date issued</span>
+                  <input v-model="licensesForm.issuedDate" type="date" :disabled="isFinalized" />
+                </label>
+                <label class="field">
+                  <span>Expiration</span>
+                  <input v-model="licensesForm.expirationDate" type="date" :disabled="isFinalized" />
+                </label>
+              </div>
+            </div>
+
+            <div class="pyu__license-upload-row">
+              <div class="pyu__license-upload-status">
+                <template v-if="licenseContext?.hasPdf && licenseContext?.pdfUrl">
+                  <a :href="licenseContext.pdfUrl" target="_blank" rel="noopener" class="acct-link-btn">
+                    View license PDF
+                  </a>
+                  <span v-if="licenseContext.pdfUploadedAt" class="muted tiny">
+                    Uploaded {{ formatDt(licenseContext.pdfUploadedAt) }}
+                  </span>
+                </template>
+                <span v-else class="pyu__license-missing">No license PDF uploaded</span>
+              </div>
+              <div v-if="!isFinalized" class="pyu__license-upload-actions">
+                <input
+                  ref="licenseFileInput"
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  class="sr-only"
+                  @change="onLicenseFileChange"
+                />
+                <button
+                  v-if="props.mode !== 'token'"
+                  type="button"
+                  class="btn btn-secondary"
+                  :disabled="licenseUploading"
+                  @click="licenseFileInput?.click()"
+                >
+                  {{ licenseUploading ? 'Uploading…' : (licenseContext?.hasPdf ? 'Replace PDF' : 'Upload license PDF') }}
+                </button>
+                <p v-else class="muted tiny">
+                  Sign in to My Dashboard to upload your license PDF.
+                </p>
+              </div>
+            </div>
+            <p v-if="licenseUploadError" class="error-text">{{ licenseUploadError }}</p>
+
+            <label class="pyu__check" style="margin-top: 16px;">
+              <input v-model="licensesForm.licenseConfirmed" type="checkbox" :disabled="isFinalized" />
+              I confirm the license information above is accurate and complete.
+            </label>
+
+            <div class="pyu__license-bg">
+              <h3>Federal background check</h3>
+              <p class="muted tiny">
+                Expiration is calculated from your completion date and your agency’s current policy
+                ({{ licenseContext?.backgroundCheck?.expirationYears || 3 }}-year window as of when you opened this section).
+              </p>
+              <div class="pyu__license-bg-grid">
+                <div class="pyu__license-bg-item">
+                  <span class="pyu__license-label">Completed</span>
+                  <strong>{{ licenseContext?.backgroundCheck?.completedAt || '—' }}</strong>
+                </div>
+                <div class="pyu__license-bg-item">
+                  <span class="pyu__license-label">Expires</span>
+                  <strong>{{ licenseContext?.backgroundCheck?.expiresAt || '—' }}</strong>
+                  <span
+                    v-if="licenseContext?.backgroundCheck?.label"
+                    class="pill"
+                    :class="bgStatusPillClass"
+                  >
+                    {{ licenseContext.backgroundCheck.label }}
+                  </span>
+                </div>
+              </div>
+              <p v-if="bgCheckExpired" class="pyu__license-bg-warning">
+                Your federal background check appears expired under the current {{ licenseContext?.backgroundCheck?.expirationYears }}-year
+                policy. You will need to complete a new background check, pay out of pocket, and submit the expense for
+                reimbursement through the app (Payroll → reimbursements).
+              </p>
+              <label class="pyu__check">
+                <input v-model="licensesForm.backgroundCheckConfirmed" type="checkbox" :disabled="isFinalized" />
+                I confirm the background check expiration date shown above is accurate.
+              </label>
+              <label v-if="bgCheckExpired" class="pyu__check">
+                <input
+                  v-model="licensesForm.backgroundCheckRenewalAcknowledged"
+                  type="checkbox"
+                  :disabled="isFinalized"
+                />
+                I understand I need to complete a new background check and will submit reimbursement through the app.
+              </label>
+            </div>
+
+            <div class="pyu__section-actions">
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="isFinalized || saving || !canCompleteLicenses"
+                @click="saveLicensesSection"
+              >
+                Mark licenses section complete
+              </button>
+              <button
+                v-if="props.mode !== 'token'"
+                type="button"
+                class="btn btn-secondary"
+                :disabled="saving"
+                @click="saveAndExit('licenses')"
+              >
+                Save &amp; exit
+              </button>
+            </div>
+          </section>
+
           <!-- Schedule -->
           <section v-else-if="activeSection === 'provider_schedule'" class="pyu__panel">
             <h2>Provider Schedule</h2>
@@ -625,7 +767,17 @@ const actionError = ref('');
 const saveFlash = ref('');
 const payload = ref(null);
 const activeSection = ref('reminders');
-const sectionMeta = SECTION_META;
+const licenseFileInput = ref(null);
+const licenseUploading = ref(false);
+const licenseUploadError = ref('');
+const licensesForm = reactive({
+  licenseTypeNumber: '',
+  issuedDate: '',
+  expirationDate: '',
+  licenseConfirmed: false,
+  backgroundCheckConfirmed: false,
+  backgroundCheckRenewalAcknowledged: false,
+});
 const materialsForm = reactive({
   school_cart: null,
   need_school_cart: false,
@@ -713,6 +865,29 @@ const shirtInventory = computed(
   () => payload.value?.shirtInventory || payload.value?.poloInventory || null
 );
 const gearMaterialsContext = computed(() => payload.value?.gearMaterialsContext || null);
+const visibleSectionMeta = computed(() => {
+  const keys = payload.value?.sectionKeys;
+  if (Array.isArray(keys) && keys.length) {
+    return SECTION_META.filter((m) => keys.includes(m.key));
+  }
+  return SECTION_META.filter((m) => m.key !== 'licenses');
+});
+const licenseContext = computed(() => payload.value?.licenseContext || null);
+const bgCheckExpired = computed(() => licenseContext.value?.backgroundCheck?.status === 'expired');
+const bgStatusPillClass = computed(() => {
+  const status = licenseContext.value?.backgroundCheck?.status;
+  if (status === 'expired') return 'pill-danger';
+  if (status === 'soon') return 'pill-warn';
+  return 'pill-ok';
+});
+const canCompleteLicenses = computed(() => {
+  if (!String(licensesForm.licenseTypeNumber || '').trim()) return false;
+  if (!licensesForm.issuedDate || !licensesForm.expirationDate) return false;
+  if (!licenseContext.value?.hasPdf) return false;
+  if (!licensesForm.licenseConfirmed || !licensesForm.backgroundCheckConfirmed) return false;
+  if (bgCheckExpired.value && !licensesForm.backgroundCheckRenewalAcknowledged) return false;
+  return true;
+});
 const gearItems = computed(() => {
   const fromPayload = payload.value?.gearItems;
   if (fromPayload && typeof fromPayload === 'object') return fromPayload;
@@ -886,6 +1061,24 @@ function applyPayload(data) {
   Object.assign(unknownBts, unknownMap);
   const schedData = (data.sections || []).find((s) => s.sectionKey === 'provider_schedule')?.data;
   scheduleConfirmed.value = Boolean(schedData?.confirmed);
+  const licCtx = data.licenseContext || {};
+  const licSaved =
+    (data.sections || []).find((s) => s.sectionKey === 'licenses')?.data || {};
+  licensesForm.licenseTypeNumber =
+    licSaved.licenseTypeNumber || licCtx.licenseTypeNumber || '';
+  licensesForm.issuedDate = licSaved.issuedDate || licCtx.issuedDate || '';
+  licensesForm.expirationDate = licSaved.expirationDate || licCtx.expirationDate || '';
+  licensesForm.licenseConfirmed = Boolean(licSaved.licenseConfirmed);
+  licensesForm.backgroundCheckConfirmed = Boolean(licSaved.backgroundCheckConfirmed);
+  licensesForm.backgroundCheckRenewalAcknowledged = Boolean(
+    licSaved.backgroundCheckRenewalAcknowledged
+  );
+  if (
+    activeSection.value === 'licenses' &&
+    !visibleSectionMeta.value.some((m) => m.key === 'licenses')
+  ) {
+    activeSection.value = visibleSectionMeta.value[0]?.key || 'reminders';
+  }
   emit('loaded', data);
 }
 
@@ -910,7 +1103,7 @@ async function load() {
       applyPayload(res.data);
     }
     const fromQuery = String(props.initialSection || route.query.section || '').trim();
-    if (fromQuery && SECTION_META.some((m) => m.key === fromQuery)) {
+    if (fromQuery && visibleSectionMeta.value.some((m) => m.key === fromQuery)) {
       activeSection.value = fromQuery;
     }
   } catch (e) {
@@ -988,9 +1181,10 @@ async function completeReminders() {
 }
 
 function goToNextSection(currentKey) {
-  const idx = SECTION_META.findIndex((m) => m.key === currentKey);
-  if (idx < 0 || idx >= SECTION_META.length - 1) return;
-  activeSection.value = SECTION_META[idx + 1].key;
+  const meta = visibleSectionMeta.value;
+  const idx = meta.findIndex((m) => m.key === currentKey);
+  if (idx < 0 || idx >= meta.length - 1) return;
+  activeSection.value = meta[idx + 1].key;
 }
 
 function gearStatusHint(key) {
@@ -1095,6 +1289,73 @@ async function saveMaterials() {
   }
   const ok = await saveSection('materials', materialsPayload(), { reviewed: true, completed: true });
   if (ok) goToNextSection('materials');
+}
+
+function licensesPayload() {
+  return {
+    licenseTypeNumber: String(licensesForm.licenseTypeNumber || '').trim(),
+    issuedDate: licensesForm.issuedDate || '',
+    expirationDate: licensesForm.expirationDate || '',
+    licenseConfirmed: Boolean(licensesForm.licenseConfirmed),
+    backgroundCheckConfirmed: Boolean(licensesForm.backgroundCheckConfirmed),
+    backgroundCheckRenewalAcknowledged: Boolean(licensesForm.backgroundCheckRenewalAcknowledged),
+  };
+}
+
+async function refreshPayloadQuiet() {
+  try {
+    if (props.mode === 'token' && props.token) {
+      const res = await api.get(`/public/provider-year-update/${encodeURIComponent(props.token)}`);
+      applyPayload(res.data);
+    } else {
+      const agencyId = resolvedAgencyId.value;
+      if (!agencyId) return;
+      const res = await api.get('/provider-year-update/me', { params: { agencyId } });
+      applyPayload(res.data);
+    }
+  } catch {
+    /* ignore refresh errors */
+  }
+}
+
+function onLicenseFileChange(e) {
+  const file = e.target.files?.[0] || null;
+  if (file) uploadLicensePdf(file);
+  e.target.value = '';
+}
+
+async function uploadLicensePdf(file) {
+  if (!file || props.mode === 'token') return;
+  licenseUploading.value = true;
+  licenseUploadError.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('documentType', 'license');
+    if (licensesForm.expirationDate) fd.append('expirationDate', licensesForm.expirationDate);
+    fd.append('isBlocking', '0');
+    await api.post('/user-compliance-documents', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    await refreshPayloadQuiet();
+  } catch (e) {
+    licenseUploadError.value =
+      e?.response?.data?.error?.message || e.message || 'Failed to upload license PDF';
+  } finally {
+    licenseUploading.value = false;
+  }
+}
+
+async function saveLicensesSection() {
+  if (!canCompleteLicenses.value) {
+    actionError.value = 'Please complete all license fields, upload your PDF, and confirm the attestations.';
+    return;
+  }
+  const ok = await saveSection('licenses', licensesPayload(), { reviewed: true, completed: true });
+  if (ok) {
+    await refreshPayloadQuiet();
+    goToNextSection('licenses');
+  }
 }
 
 function shirtStockLabel(sz) {
@@ -1473,6 +1734,8 @@ async function saveAndExit(sectionKey) {
       await saveSection('provider_schedule', existing, { reviewed: false, completed: false });
     } else if (sectionKey === 'clients') {
       await saveSection('clients', { reviewedAt: new Date().toISOString() }, { reviewed: false, completed: false });
+    } else if (sectionKey === 'licenses') {
+      await saveSection('licenses', licensesPayload(), { reviewed: false, completed: false });
     }
     saveFlash.value = 'Progress saved — return anytime.';
     if (props.mode !== 'token') {
@@ -1565,7 +1828,7 @@ watch(
   () => route.query.section,
   (s) => {
     const key = String(s || '').trim();
-    if (key && SECTION_META.some((m) => m.key === key)) activeSection.value = key;
+    if (key && visibleSectionMeta.value.some((m) => m.key === key)) activeSection.value = key;
   }
 );
 
@@ -2047,6 +2310,113 @@ defineExpose({ load, reload: load });
 .pill--done {
   background: color-mix(in srgb, var(--pyu-secondary) 18%, white);
   color: var(--pyu-secondary);
+}
+.pill-danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.pill-warn {
+  background: #fef3c7;
+  color: #b45309;
+}
+.pill-ok {
+  background: color-mix(in srgb, var(--pyu-secondary) 18%, white);
+  color: var(--pyu-secondary);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.acct-link-btn {
+  color: var(--pyu-primary);
+  font-weight: 600;
+  text-decoration: underline;
+}
+.pyu__license-credential {
+  margin: 12px 0;
+}
+.pyu__license-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+.pyu__license-card {
+  background: color-mix(in srgb, var(--pyu-secondary) 10%, white);
+  border: 1px solid color-mix(in srgb, var(--pyu-secondary) 25%, #e2e8f0);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+.pyu__license-card-head {
+  margin-bottom: 10px;
+}
+.pyu__license-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--pyu-secondary);
+}
+.pyu__license-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.pyu__license-grid .field {
+  margin: 0;
+}
+.pyu__license-upload-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 12px 14px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+}
+.pyu__license-missing {
+  color: #c2410c;
+  font-weight: 600;
+}
+.pyu__license-bg {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+.pyu__license-bg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.pyu__license-bg-item strong {
+  display: block;
+  margin-top: 2px;
+}
+.pyu__license-bg-warning {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: #991b1b;
+  font-size: 0.92rem;
+  margin: 12px 0;
+}
+.error-text {
+  color: #b91c1c;
+  font-size: 0.9rem;
 }
 .pyu__footer {
   max-width: none;

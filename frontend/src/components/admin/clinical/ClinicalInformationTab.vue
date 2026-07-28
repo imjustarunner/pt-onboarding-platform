@@ -47,6 +47,28 @@
         </aside>
       </div>
 
+      <div v-else-if="activeSubTab === 'license_certifications'" class="ci-panel">
+        <ClinicalLicensePanel
+          :user-id="userId"
+          :fields="clinicalFields"
+          :can-edit="canEdit"
+          :user-credential="userCredential"
+          @refresh="refresh"
+        />
+      </div>
+
+      <div v-else-if="activeSubTab === 'supervision'" class="ci-panel">
+        <ClinicalSupervisionPanel
+          :user-id="userId"
+          :user="supervisionUser"
+          :can-manage-assignments="canManageSupervisorAssignments"
+          :supervisors="supervisors"
+          :supervisees="supervisees"
+          :supervisors-loading="supervisorsLoading"
+          :supervisees-loading="superviseesLoading"
+        />
+      </div>
+
       <div v-else class="ci-panel">
         <ProviderInfoTab
           :user-id="userId"
@@ -91,11 +113,20 @@ import {
 } from '../../../constants/clinicalProfileLayout.js';
 import { formatSnapshotValue } from '../../../utils/clinicalFieldDisplay.js';
 import ClinicalOverviewView from './ClinicalOverviewView.vue';
+import ClinicalLicensePanel from './ClinicalLicensePanel.vue';
+import ClinicalSupervisionPanel from './ClinicalSupervisionPanel.vue';
 import ProviderInfoTab from '../ProviderInfoTab.vue';
 import UserInformationTab from '../UserInformationTab.vue';
 
 const props = defineProps({
-  userId: { type: Number, required: true }
+  userId: { type: Number, required: true },
+  user: { type: Object, default: null },
+  userCredential: { type: String, default: '' },
+  canManageSupervisorAssignments: { type: Boolean, default: false },
+  supervisors: { type: Array, default: () => [] },
+  supervisees: { type: Array, default: () => [] },
+  supervisorsLoading: { type: Boolean, default: false },
+  superviseesLoading: { type: Boolean, default: false },
 });
 
 const authStore = useAuthStore();
@@ -127,6 +158,8 @@ const activeFieldKeys = computed(() => {
 const activeFieldGroups = computed(() => fieldGroupsForSubTab(activeSubTab.value));
 
 const activePanelHint = computed(() => panelHintForSubTab(activeSubTab.value));
+
+const supervisionUser = computed(() => props.user || null);
 
 const fieldByKey = computed(() => {
   const map = new Map();
@@ -179,9 +212,11 @@ const onClinicalSubtabJump = (event) => {
 
 onMounted(() => {
   window.addEventListener('pt-clinical-subtab', onClinicalSubtabJump);
+  window.addEventListener('pt-clinical-refresh', refresh);
 });
 onUnmounted(() => {
   window.removeEventListener('pt-clinical-subtab', onClinicalSubtabJump);
+  window.removeEventListener('pt-clinical-refresh', refresh);
 });
 </script>
 

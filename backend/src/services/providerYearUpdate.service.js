@@ -11,14 +11,40 @@ import {
   setUserPreferences,
 } from './gearInventory.service.js';
 import { listSchoolEventsForOrg } from './schoolPortalEvents.service.js';
+import { consolidateLicenseFieldAliasesForUser } from './licenseCredentialSync.service.js';
+import {
+  computeExpiresAt,
+  expirationStatus,
+  FEDERAL_BG_ITEM_KEY,
+  getExpirationYearsForUser,
+  syncFederalBackgroundExpiration,
+} from './federalBackgroundCheck.service.js';
+import { requiresProviderYearUpdateLicensesSection } from '../utils/credentialNormalization.js';
 
 export const SECTION_KEYS = [
   'reminders',
   'school_events',
   'materials',
+  'licenses',
   'provider_schedule',
   'clients',
 ];
+
+const LICENSE_INFO_FIELD_KEYS = {
+  typeNumber: ['provider_credential_license_type_number', 'license_type_number'],
+  issuedDate: [
+    'provider_credential_license_issued_date',
+    'license_issued',
+    'license_issued_date',
+  ],
+  expirationDate: [
+    'provider_credential_license_expiration_date',
+    'license_expires',
+    'license_expiration_date',
+    'license_expires_date',
+  ],
+  upload: ['license_upload'],
+};
 
 export const SCHOOL_CART_DISCLAIMER =
   'This cart is a rolling cart filled with basic supplies to help with school therapy sessions. It includes craft supplies, games, a timer, and other basic supplies to help with your session. The clinician is responsible for the cart and its contents, and will be required to return the cart at the end of the school year. If the cart is damaged, lost or stolen, the clinician is required to let Kaitlyn O’Connell and Megan CG know.';
@@ -1338,13 +1364,216 @@ function mergeRemindersWithDefaults(savedData) {
   };
 }
 
+function normalizeLicenseDateYmd(value) {
+  if (value == null || value === '') return '';
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = new Date(s);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
+async function loadUserInfoFieldsByKeys(userId, fieldKeys) {
+  const keys = [...new Set((fieldKeys || []).filter(Boolean))];
+  if (!keys.length) return new Map();
+  const placeholders = keys.map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT uifd.field_key, uiv.value
+     FROM user_info_values uiv
+     JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+     WHERE uiv.user_id = ? AND uifd.field_key IN (${placeholders})`,
+    [userId, ...keys]
+  );
+  return new Map((rows || []).map((r) => [r.field_key, r.value]));
+}
+
+function firstNonEmptyField(map, keys) {
+  for (const k of keys || []) {
+    const v = String(map.get(k) ?? '').trim();
+    if (v) return v;
+  }
+  return '';
+}
+
+export async function loadProviderCredentialContext(userId) {
+  const uid = Number(userId);
+  const [userRows] = await pool.execute(
+    `SELECT id, role, credential FROM users WHERE id = ? LIMIT 1`,
+    [uid]
+  );
+  const user = userRows?.[0];
+  const allKeys = [...new Set(Object.values(LICENSE_INFO_FIELD_KEYS).flat())];
+  const fields = await loadUserInfoFieldsByKeys(uid, allKeys);
+  return {
+    userId: uid,
+    role: user?.role || null,
+    credential: user?.credential || null,
+    licenseTypeNumber: firstNonEmptyField(fields, LICENSE_INFO_FIELD_KEYS.typeNumber),
+  };
+}
+
+export async function providerRequiresLicensesSection(userId, agencyId) {
+  const ctx = await loadProviderCredentialContext(userId);
+  return requiresProviderYearUpdateLicensesSection(ctx);
+}
+
+export async function effectiveSectionKeysForProvider(userId, agencyId) {
+  const required = await providerRequiresLicensesSection(userId, agencyId);
+  if (!required) return SECTION_KEYS.filter((k) => k !== 'licenses');
+  return [...SECTION_KEYS];
+}
+
+export async function loadLicenseContextForProvider(userId, agencyId) {
+  const ctx = await loadProviderCredentialContext(userId);
+  const required = requiresProviderYearUpdateLicensesSection(ctx);
+  if (!required) return { required: false };
+
+  const allKeys = [...new Set(Object.values(LICENSE_INFO_FIELD_KEYS).flat())];
+  const fieldMap = await loadUserInfoFieldsByKeys(userId, allKeys);
+  const licenseTypeNumber = firstNonEmptyField(fieldMap, LICENSE_INFO_FIELD_KEYS.typeNumber);
+  const issuedDate = normalizeLicenseDateYmd(
+    firstNonEmptyField(fieldMap, LICENSE_INFO_FIELD_KEYS.issuedDate)
+  );
+  const expirationDate = normalizeLicenseDateYmd(
+    firstNonEmptyField(fieldMap, LICENSE_INFO_FIELD_KEYS.expirationDate)
+  );
+  const uploadPath = firstNonEmptyField(fieldMap, LICENSE_INFO_FIELD_KEYS.upload);
+
+  const [docRows] = await pool.execute(
+    `SELECT id, file_path, expiration_date, created_at
+     FROM user_compliance_documents
+     WHERE user_id = ? AND LOWER(document_type) IN ('license', 'license_upload')
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+  const doc = docRows?.[0] || null;
+  const hasPdf = Boolean(doc?.file_path || uploadPath);
+  const pdfUrl = doc?.file_path
+    ? publicUploadsUrlFromStoredPath(doc.file_path)
+    : uploadPath
+      ? publicUploadsUrlFromStoredPath(uploadPath)
+      : null;
+
+  await syncFederalBackgroundExpiration(userId, { preferredAgencyId: agencyId }).catch(() => null);
+  const expirationYears = await getExpirationYearsForUser(userId, agencyId);
+  const [bgRows] = await pool.execute(
+    `SELECT ulci.is_completed, ulci.completed_at, ulci.expires_at
+     FROM user_lifecycle_checklist_items ulci
+     JOIN lifecycle_checklist_definitions lcd ON lcd.id = ulci.definition_id
+     WHERE ulci.user_id = ? AND lcd.item_key = ?
+     LIMIT 1`,
+    [userId, FEDERAL_BG_ITEM_KEY]
+  );
+  const bg = bgRows?.[0] || null;
+  const completedAt = bg?.completed_at ? normalizeLicenseDateYmd(bg.completed_at) : null;
+  let expiresAt = bg?.expires_at ? normalizeLicenseDateYmd(bg.expires_at) : null;
+  if (!expiresAt && completedAt) {
+    expiresAt = computeExpiresAt(completedAt, expirationYears);
+  }
+  const bgStatus = expirationStatus(expiresAt);
+
+  const missingFields = [];
+  if (!licenseTypeNumber) missingFields.push('license_type_number');
+  if (!issuedDate) missingFields.push('issued_date');
+  if (!expirationDate) missingFields.push('expiration_date');
+  if (!hasPdf) missingFields.push('license_pdf');
+
+  return {
+    required: true,
+    credential: ctx.credential || null,
+    licenseTypeNumber,
+    issuedDate,
+    expirationDate,
+    hasPdf,
+    pdfUrl,
+    pdfUploadedAt: doc?.created_at || null,
+    missingFields,
+    backgroundCheck: {
+      isCompleted: Boolean(bg?.is_completed),
+      completedAt,
+      expiresAt,
+      expirationYears,
+      status: bgStatus?.status || (expiresAt ? 'unknown' : 'missing'),
+      label: bgStatus?.label || (expiresAt ? '' : 'Not on file'),
+      daysUntilExpiration: bgStatus?.days ?? null,
+      capturedAt: new Date().toISOString(),
+    },
+  };
+}
+
+async function upsertUserInfoFieldByKey(userId, fieldKey, value) {
+  const [defRows] = await pool.execute(
+    `SELECT id FROM user_info_field_definitions WHERE field_key = ? AND agency_id IS NULL LIMIT 1`,
+    [fieldKey]
+  );
+  const defId = defRows?.[0]?.id;
+  if (!defId) return false;
+  await pool.execute(
+    `INSERT INTO user_info_values (user_id, field_definition_id, value)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE value = VALUES(value)`,
+    [userId, defId, String(value ?? '').trim()]
+  );
+  return true;
+}
+
+async function syncLicenseFieldsFromSectionData(userId, data) {
+  if (!data || typeof data !== 'object') return;
+  const writes = [];
+  if (data.licenseTypeNumber != null) {
+    writes.push(['provider_credential_license_type_number', data.licenseTypeNumber]);
+  }
+  if (data.issuedDate != null) {
+    writes.push(['provider_credential_license_issued_date', data.issuedDate]);
+  }
+  if (data.expirationDate != null) {
+    writes.push(['provider_credential_license_expiration_date', data.expirationDate]);
+  }
+  for (const [key, val] of writes) {
+    const v = key.includes('date') ? normalizeLicenseDateYmd(val) : String(val ?? '').trim();
+    if (!v) continue;
+    await upsertUserInfoFieldByKey(userId, key, v);
+  }
+  await consolidateLicenseFieldAliasesForUser(userId).catch(() => null);
+}
+
+function validateLicensesSectionCompletion(data, licenseContext) {
+  const errs = [];
+  const typeNumber = String(
+    data?.licenseTypeNumber ?? licenseContext.licenseTypeNumber ?? ''
+  ).trim();
+  const issued = normalizeLicenseDateYmd(data?.issuedDate ?? licenseContext.issuedDate);
+  const expires = normalizeLicenseDateYmd(data?.expirationDate ?? licenseContext.expirationDate);
+
+  if (!typeNumber) errs.push('License type and number are required.');
+  if (!issued) errs.push('License issued date is required.');
+  if (!expires) errs.push('License expiration date is required.');
+  if (!licenseContext.hasPdf) errs.push('License PDF must be uploaded.');
+  if (!data?.licenseConfirmed) {
+    errs.push('Please confirm your license information is accurate.');
+  }
+  if (!data?.backgroundCheckConfirmed) {
+    errs.push('Please confirm your federal background check expiration date.');
+  }
+  if (licenseContext.backgroundCheck?.status === 'expired' && !data?.backgroundCheckRenewalAcknowledged) {
+    errs.push(
+      'Please acknowledge that you will complete a new background check and submit reimbursement through the app.'
+    );
+  }
+  return errs;
+}
+
 export async function getSectionProgress(cycleId) {
+  const cycle = await getCycleById(cycleId);
+  if (!cycle) return [];
+  const keys = await effectiveSectionKeysForProvider(cycle.provider_user_id, cycle.agency_id);
   const [rows] = await pool.execute(
     `SELECT * FROM provider_year_update_section_progress WHERE cycle_id = ?`,
     [cycleId]
   );
   const byKey = new Map((rows || []).map((r) => [r.section_key, r]));
-  return SECTION_KEYS.map((key) => {
+  return keys.map((key) => {
     const row = byKey.get(key);
     let data = null;
     if (row?.data_json) {
@@ -1372,12 +1601,44 @@ export async function upsertSectionProgress({
   completed,
   actor,
 }) {
+  const cycle = await getCycleById(cycleId);
+  if (!cycle) throw new Error('Cycle not found');
+  const effectiveKeys = await effectiveSectionKeysForProvider(
+    cycle.provider_user_id,
+    cycle.agency_id
+  );
   if (!SECTION_KEYS.includes(sectionKey)) throw new Error('Invalid section_key');
+  if (!effectiveKeys.includes(sectionKey)) {
+    throw Object.assign(new Error('Section not applicable for this provider'), { status: 400 });
+  }
+
+  let sectionData = data;
+  if (sectionKey === 'licenses') {
+    const licenseContext = await loadLicenseContextForProvider(
+      cycle.provider_user_id,
+      cycle.agency_id
+    );
+    const markingDone = Boolean(reviewed || completed);
+    if (markingDone) {
+      const errs = validateLicensesSectionCompletion(data, licenseContext);
+      if (errs.length) {
+        throw Object.assign(new Error(errs[0]), { status: 400, details: errs });
+      }
+    }
+    if (sectionData && typeof sectionData === 'object') {
+      await syncLicenseFieldsFromSectionData(cycle.provider_user_id, sectionData);
+      sectionData = {
+        ...sectionData,
+        backgroundCheckSnapshot: licenseContext.backgroundCheck,
+      };
+    }
+  }
+
   const [existing] = await pool.execute(
     `SELECT id FROM provider_year_update_section_progress WHERE cycle_id = ? AND section_key = ? LIMIT 1`,
     [cycleId, sectionKey]
   );
-  const dataJson = data !== undefined ? JSON.stringify(data) : null;
+  const dataJson = sectionData !== undefined ? JSON.stringify(sectionData) : null;
   const reviewedVal = reviewed ? 1 : 0;
   const completedVal = completed !== undefined ? (completed ? 1 : 0) : reviewedVal;
 
@@ -1490,6 +1751,14 @@ export async function buildDashboardPayload(cycle) {
   }).catch(() => []);
   const gearItems = buildGearItemStatuses({ assignments: gearAssignments, materials });
   const gearContextWithItems = { ...gearMaterialsContext, gearItems };
+  const sectionKeys = await effectiveSectionKeysForProvider(
+    cycle.provider_user_id,
+    cycle.agency_id
+  );
+  const licenseContext = await loadLicenseContextForProvider(
+    cycle.provider_user_id,
+    cycle.agency_id
+  );
 
   return {
     cycle: {
@@ -1523,7 +1792,8 @@ export async function buildDashboardPayload(cycle) {
         }
       : null,
     sections,
-    sectionKeys: SECTION_KEYS,
+    sectionKeys,
+    licenseContext,
     reminderDefaults: DEFAULT_REMINDER_ITEMS,
     reminders: mergeRemindersWithDefaults(byKey.reminders?.data),
     materials,
@@ -1569,6 +1839,7 @@ export async function finalizeCycle({ cycleId, actor }) {
     finalizedAt: new Date().toISOString(),
     reminders: payload.reminders,
     materials: payload.materials,
+    licenseContext: payload.licenseContext,
     schedule: payload.schedule,
     eventsBySchool: payload.eventsBySchool,
     sections: Object.fromEntries(sections.map((s) => [s.sectionKey, s.data])),
@@ -1634,6 +1905,7 @@ export async function listAgencyReport(agencyId, schoolYear) {
     let clickCount = 0;
     let sectionData = {};
     let schools = [];
+    const effectiveKeys = await effectiveSectionKeysForProvider(providerUserId, agencyId);
 
     if (cycle) {
       sections = await getSectionProgress(cycle.id);
@@ -1661,9 +1933,8 @@ export async function listAgencyReport(agencyId, schoolYear) {
     }
 
     const reviewedCount = sections.filter((s) => s.reviewed || s.completed).length;
-    const pct = sections.length
-      ? Math.round((reviewedCount / SECTION_KEYS.length) * 100)
-      : 0;
+    const sectionTotal = effectiveKeys.length;
+    const pct = sectionTotal ? Math.round((reviewedCount / sectionTotal) * 100) : 0;
 
     const lastTokenView = tokens.reduce((max, t) => {
       if (!t.last_viewed_at) return max;
@@ -1707,9 +1978,9 @@ export async function listAgencyReport(agencyId, schoolYear) {
       isPushed: false, // filled below after campaign load
       sectionPercent: pct,
       reviewedCount,
-      sectionTotal: SECTION_KEYS.length,
+      sectionTotal,
       sections,
-      sectionKeys: SECTION_KEYS,
+      sectionKeys: effectiveKeys,
       tokenClickCount: clickCount,
       tokens,
       lastActivityAt,
@@ -1823,6 +2094,7 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
   const userFinalized = cycle?.status === 'finalized';
 
   if (userFinalized) {
+    const sectionTotal = (await effectiveSectionKeysForProvider(providerUserId, agencyId)).length;
     return {
       available: true,
       showPulse: false,
@@ -1840,8 +2112,8 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
         adminCompletedAt: null,
       },
       sectionPercent: 100,
-      reviewedCount: SECTION_KEYS.length,
-      sectionTotal: SECTION_KEYS.length,
+      reviewedCount: sectionTotal,
+      sectionTotal,
     };
   }
 
@@ -1881,11 +2153,12 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
     dismissal.dismiss_until &&
     new Date(dismissal.dismiss_until).getTime() > Date.now();
 
+  const effectiveKeys = await effectiveSectionKeysForProvider(providerUserId, agencyId);
   const sections = await getSectionProgress(cycle.id);
   const reviewedCount = sections.filter((s) => s.reviewed || s.completed).length;
   const allSectionsDone =
-    sections.length >= SECTION_KEYS.length &&
-    SECTION_KEYS.every((key) => {
+    sections.length >= effectiveKeys.length &&
+    effectiveKeys.every((key) => {
       const s = sections.find((x) => x.sectionKey === key);
       return Boolean(s?.reviewed || s?.completed);
     });
@@ -1911,9 +2184,11 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
       finalizedAt: cycle.finalized_at || null,
       pushedAt: cycle.pushed_at || null,
     },
-    sectionPercent: Math.round((reviewedCount / SECTION_KEYS.length) * 100),
+    sectionPercent: effectiveKeys.length
+      ? Math.round((reviewedCount / effectiveKeys.length) * 100)
+      : 0,
     reviewedCount,
-    sectionTotal: SECTION_KEYS.length,
+    sectionTotal: effectiveKeys.length,
     shareToken: tokenRow
       ? {
           token: tokenRow.token,

@@ -1,4 +1,9 @@
 import pool from '../config/database.js';
+import {
+  LICENSE_FIELD_ALIAS_GROUPS,
+  allKeysInLicenseAliasGroup,
+  pickBestLicenseGroupEntry,
+} from '../utils/licenseFieldAliases.js';
 import User from './User.model.js';
 import { parseUsAddressLoose } from '../utils/addressParsing.js';
 import { formOptionSources } from '../config/formOptionSources.js';
@@ -270,6 +275,28 @@ class UserInfoValue {
         continue;
       }
       // If both non-meaningful, keep current (doesn't matter).
+    }
+
+    // License fields: collapse legacy + canonical alias keys to the newest meaningful value.
+    for (const group of LICENSE_FIELD_ALIAS_GROUPS) {
+      const keys = allKeysInLicenseAliasGroup(group);
+      const best = pickBestLicenseGroupEntry(keys, {
+        valueByKey,
+        metaByKey,
+        isMeaningful,
+      });
+      if (!best) continue;
+      valueByFieldKey.set(group.canonical, best.value);
+      metaByFieldKey.set(group.canonical, {
+        updatedAtMs: best.updatedAtMs,
+        id: best.rowId,
+        fieldType: best.fieldType,
+        meaningful: true,
+      });
+      for (const alias of group.aliases || []) {
+        valueByFieldKey.delete(alias);
+        metaByFieldKey.delete(alias);
+      }
     }
 
     // Dedupe field definitions by field_key (prefer platform template, then lowest id).

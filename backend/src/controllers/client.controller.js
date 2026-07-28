@@ -652,10 +652,11 @@ export const getClients = async (req, res, next) => {
       new Map(allClients.map(c => [c.id, c])).values()
     );
 
-    // Provider view should only include their own contacts.
-    // "Own" means primary provider_id match OR an active multi-provider assignment.
+    // When filtering by provider_id (e.g. profile Clients tab), include CPA assignments for staff viewers.
     let providerScopedClients = uniqueClients;
-    if (String(userRole || '').toLowerCase() === 'provider') {
+    const filterProviderId = provider_id ? parseInt(provider_id, 10) : null;
+    const roleNorm = String(userRole || '').toLowerCase();
+    if (filterProviderId && roleNorm === 'provider') {
       const visibleClientIds = new Set((uniqueClients || [])
         .filter((c) => parseInt(c?.provider_id, 10) === parseInt(userId, 10))
         .map((c) => parseInt(c.id, 10)));
@@ -680,6 +681,36 @@ export const getClients = async (req, res, next) => {
       }
 
       providerScopedClients = (uniqueClients || []).filter((c) => visibleClientIds.has(parseInt(c?.id, 10)));
+    } else if (
+      filterProviderId &&
+      ['admin', 'super_admin', 'support', 'staff'].includes(roleNorm)
+    ) {
+      const visibleClientIds = new Set(
+        (uniqueClients || [])
+          .filter((c) => parseInt(c?.provider_id, 10) === filterProviderId)
+          .map((c) => parseInt(c.id, 10))
+      );
+      try {
+        const placeholders = agencyIds.map(() => '?').join(',');
+        const [assignmentRows] = await pool.execute(
+          `SELECT DISTINCT cpa.client_id
+           FROM client_provider_assignments cpa
+           JOIN clients c ON c.id = cpa.client_id
+           WHERE cpa.provider_user_id = ?
+             AND cpa.is_active = TRUE
+             AND c.agency_id IN (${placeholders})`,
+          [filterProviderId, ...agencyIds]
+        );
+        for (const row of assignmentRows || []) {
+          const id = parseInt(row?.client_id, 10);
+          if (id) visibleClientIds.add(id);
+        }
+      } catch {
+        // ignore
+      }
+      providerScopedClients = (uniqueClients || []).filter((c) =>
+        visibleClientIds.has(parseInt(c?.id, 10))
+      );
     }
 
     if (

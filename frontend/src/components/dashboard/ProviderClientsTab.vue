@@ -16,11 +16,11 @@
       </button>
     </nav>
 
-    <ReferralDirectoryPanel v-if="activeSection === 'referrals'" embedded />
+    <ReferralDirectoryPanel v-if="!profileEmbed && activeSection === 'referrals'" embedded />
 
-    <ClientExchangePanel v-else-if="activeSection === 'exchange'" />
+    <ClientExchangePanel v-else-if="!profileEmbed && activeSection === 'exchange'" />
 
-    <template v-else>
+    <template v-else-if="!profileEmbed || activeSection === 'school' || activeSection === 'office' || activeSection === 'new'">
       <header class="pct-page-header">
         <div class="pct-page-header__text">
           <h2 class="pct-page-title">{{ sectionTitle }}</h2>
@@ -92,6 +92,7 @@
           :organization-name="selectedSchoolName"
           :clients-override="isAllSchools ? allClients : null"
           roster-scope="provider"
+          :roster-provider-user-id="rosterProviderUserId"
           :skill-builders-only="skillBuildersOnlyFilter"
           :client-label-mode="clientLabelMode"
           :psychotherapy-totals-by-client-id="psychotherapyTotalsByClientId"
@@ -234,6 +235,11 @@ import ClientExchangePanel from '../clientExchange/ClientExchangePanel.vue';
 const props = defineProps({
   /** school | office | new | exchange | referrals */
   initialSection: { type: String, default: '' },
+  /** Profile tab: load caseload for this user instead of signed-in user */
+  subjectUserId: { type: Number, default: null },
+  subjectAgencyId: { type: Number, default: null },
+  /** Profile embed: only In School + In Office (no exchange/referrals/new) */
+  profileEmbed: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['update:needsAttentionCount', 'update:pendingClientsCount']);
@@ -261,6 +267,7 @@ const activeSection = ref(
 
 const organizationSlug = computed(() => String(route.params.organizationSlug || '').trim());
 const agencyId = computed(() => {
+  if (props.subjectAgencyId) return Number(props.subjectAgencyId);
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
   return a?.id || null;
 });
@@ -291,7 +298,19 @@ const pendingClients = ref([]);
 const pendingError = ref('');
 const MIN_PENDING_DATE = '2026-02-01';
 
-const currentUserId = computed(() => Number(authStore.user?.id || 0) || null);
+const currentUserId = computed(() => {
+  const subject = Number(props.subjectUserId || 0);
+  if (subject > 0) return subject;
+  return Number(authStore.user?.id || 0) || null;
+});
+
+const rosterProviderUserId = computed(() => {
+  const uid = Number(currentUserId.value || 0);
+  const me = Number(authStore.user?.id || 0);
+  if (!uid) return null;
+  if (props.profileEmbed || (me && uid !== me)) return uid;
+  return null;
+});
 
 const showSkillBuildersRosterToggle = computed(() => {
   const u = authStore.user;
@@ -344,14 +363,24 @@ const primarySections = computed(() => {
   return list;
 });
 
-const allSections = computed(() => [
-  ...primarySections.value,
-  { id: 'referrals', label: 'Referral directory', iconKey: 'referrals', badge: 0 },
-]);
+const allSections = computed(() => {
+  if (props.profileEmbed) {
+    const list = [];
+    if (schools.value.length > 0) {
+      list.push({ id: 'school', label: 'In School', iconKey: 'school', badge: 0 });
+    }
+    list.push({ id: 'office', label: 'In Office', iconKey: 'office', badge: 0 });
+    return list;
+  }
+  return [
+    ...primarySections.value,
+    { id: 'referrals', label: 'Referral directory', iconKey: 'referrals', badge: 0 },
+  ];
+});
 
 const sectionTitle = computed(() => {
-  if (activeSection.value === 'school') return 'School Clients';
-  if (activeSection.value === 'office') return 'Office Clients';
+  if (activeSection.value === 'school') return props.profileEmbed ? 'In School Clients' : 'School Clients';
+  if (activeSection.value === 'office') return props.profileEmbed ? 'In Office Clients' : 'Office Clients';
   if (activeSection.value === 'new') return 'New Clients';
   return 'Clients';
 });
@@ -377,7 +406,9 @@ function setSection(id) {
     activeSection.value = 'office';
   }
   const q = { ...route.query, tab: 'clients', clients: activeSection.value };
-  router.replace({ query: q }).catch(() => {});
+  if (!props.profileEmbed) {
+    router.replace({ query: q }).catch(() => {});
+  }
   if (activeSection.value === 'office' || activeSection.value === 'new') {
     loadOfficeClients();
   }
@@ -537,8 +568,11 @@ const loadOfficeClients = async () => {
 };
 
 const loadSchools = async () => {
-  if (!agencyId.value) return;
-  const r = await api.get('/payroll/me/assigned-schools', { params: { agencyId: agencyId.value } });
+  if (!agencyId.value || !currentUserId.value) return;
+  const params = { agencyId: agencyId.value };
+  const r = props.profileEmbed
+    ? await api.get(`/payroll/users/${currentUserId.value}/assigned-schools`, { params })
+    : await api.get('/payroll/me/assigned-schools', { params });
   schools.value = Array.isArray(r.data) ? r.data : [];
   if (!selectedSchoolOrgId.value) {
     selectedSchoolOrgId.value = 'all';
@@ -557,10 +591,13 @@ const loadAllRosters = async () => {
   try {
     const sbParams = skillBuildersOnlyFilter.value ? { skillBuildersOnly: true } : {};
     const results = await Promise.all(
-      list.map((s) =>
+        list.map((s) =>
         api
           .get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, {
-            params: sbParams,
+            params: {
+              ...sbParams,
+              ...(rosterProviderUserId.value ? { providerUserId: rosterProviderUserId.value } : {}),
+            },
             skipGlobalLoading: true,
           })
           .then((res) => ({ school: s, rows: Array.isArray(res?.data) ? res.data : [] }))
@@ -630,7 +667,11 @@ const load = async () => {
     }
 
     await loadSchools();
-    await Promise.all([loadCompliance(), loadPendingClients(), loadOfficeClients()]);
+    const tasks = [loadOfficeClients()];
+    if (!props.profileEmbed) {
+      tasks.push(loadCompliance(), loadPendingClients());
+    }
+    await Promise.all(tasks);
     if (isAllSchools.value) await loadAllRosters();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load clients';

@@ -32,11 +32,14 @@ export function expandFieldKeys(keys) {
 }
 
 export function findFieldByKeys(fieldByKey, keys) {
-  for (const key of expandFieldKeys(keys)) {
-    const f = fieldByKey?.get?.(key);
-    if (f) return f;
-  }
-  return null;
+  const candidates = findAllFieldsByKeys(fieldByKey, keys);
+  if (!candidates.length) return null;
+  return [...candidates].sort((a, b) => {
+    const ta = new Date(a?.updated_at || 0).getTime();
+    const tb = new Date(b?.updated_at || 0).getTime();
+    if (tb !== ta) return tb - ta;
+    return Number(b?.id || 0) - Number(a?.id || 0);
+  })[0];
 }
 
 export function findAllFieldsByKeys(fieldByKey, keys) {

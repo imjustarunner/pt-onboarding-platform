@@ -105,3 +105,40 @@ export function isFullyLicensedCredentialText(raw) {
   return false;
 }
 
+/** Licensed / pre-licensed credentials that require PYU license + background check review. */
+export const PROVIDER_YEAR_UPDATE_LICENSE_TOKENS = [
+  'LMFTC',
+  'LPCC',
+  'MFTC',
+  'LCSW',
+  'LMFT',
+  'LSW',
+  'SWC',
+  'LPC',
+  'MFT',
+  'LAC',
+];
+
+function containsWordToken(raw, token) {
+  const upper = safeText(raw).toUpperCase();
+  const t = String(token || '').toUpperCase();
+  if (!t) return false;
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escaped}\\b`).test(upper);
+}
+
+/**
+ * True when a provider should see the Licenses & Background Check PYU section.
+ */
+export function requiresProviderYearUpdateLicensesSection({
+  role,
+  credential,
+  licenseTypeNumber,
+} = {}) {
+  const r = String(role || '').trim().toLowerCase();
+  if (r === 'qbha' || r === 'clinical_practice_assistant') return false;
+  const text = [credential, licenseTypeNumber].filter(Boolean).join(' ');
+  if (!safeText(text)) return false;
+  return PROVIDER_YEAR_UPDATE_LICENSE_TOKENS.some((token) => containsWordToken(text, token));
+}
+

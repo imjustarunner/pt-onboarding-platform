@@ -1155,10 +1155,18 @@ export const getProviderMyRoster = async (req, res, next) => {
     const userRole = String(req.user?.role || '').toLowerCase();
 
     const providerRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'];
-    if (!providerRoles.includes(userRole)) {
+    const adminRoles = ['admin', 'super_admin', 'support', 'staff'];
+    const asProviderRaw = req.query.providerUserId || req.query.provider_user_id;
+    const asProviderId = parseInt(asProviderRaw, 10);
+
+    let providerUserId = null;
+    if (Number.isInteger(asProviderId) && asProviderId > 0 && adminRoles.includes(userRole)) {
+      providerUserId = asProviderId;
+    } else if (providerRoles.includes(userRole)) {
+      providerUserId = parseInt(userId, 10);
+    } else {
       return res.status(403).json({ error: { message: 'Provider access required' } });
     }
-    const providerUserId = parseInt(userId, 10);
     if (!providerUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     // First principles: the provider roster is defined by assignments, not by org metadata.

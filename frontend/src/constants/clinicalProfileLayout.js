@@ -106,9 +106,54 @@ export const CLINICAL_SUB_TABS = Object.freeze([
     fieldKeys: ['group_interest', 'provider_groups_programs']
   },
   {
-    id: 'supervision_notes',
-    label: 'Supervision & Notes',
-    fieldKeys: ['provider_clinician_notes', 'supervision_notes']
+    id: 'license_certifications',
+    label: 'License & Certifications',
+    panelHint:
+      'Professional license details and credential — shared with Provider Year Update and credentialing. Legacy duplicate fields are merged automatically (most recent value wins).',
+    fieldGroups: [
+      {
+        id: 'license_details',
+        label: 'License details',
+        fieldKeys: [
+          'provider_credential_license_type_number',
+          'provider_credential_license_issued_date',
+          'provider_credential_license_expiration_date',
+          'license_upload',
+          'provider_credential',
+        ],
+      },
+      {
+        id: 'certifications',
+        label: 'Certifications',
+        fieldKeys: ['certs_general', 'certs_clinical'],
+      },
+      {
+        id: 'npi',
+        label: 'NPI',
+        fieldKeys: ['npi_status', 'npi_number', 'taxonomy_code'],
+      },
+    ],
+    fieldKeys: [
+      'provider_credential_license_type_number',
+      'provider_credential_license_issued_date',
+      'provider_credential_license_expiration_date',
+      'license_upload',
+      'provider_credential',
+      'certs_general',
+      'certs_clinical',
+      'npi_status',
+      'npi_number',
+      'taxonomy_code',
+    ],
+    customPanel: 'license',
+  },
+  {
+    id: 'supervision',
+    label: 'Supervision',
+    panelHint:
+      'Clinical supervisor assignments and supervision notes used for matching and compliance.',
+    fieldKeys: ['provider_clinician_notes', 'supervision_notes'],
+    customPanel: 'supervision',
   },
   {
     id: 'specialties',
@@ -134,20 +179,6 @@ export const CLINICAL_SUB_TABS = Object.freeze([
       'mailing_address',
       'previous_addresses',
       'itsco_position',
-      // License & certifications (Edit from overview License card lands here)
-      'license_type_number',
-      'provider_credential_license_type_number',
-      'license_issued',
-      'provider_credential_license_issued_date',
-      'license_expires',
-      'provider_credential_license_expiration_date',
-      'license_upload',
-      'certs_general',
-      'certs_clinical',
-      'provider_credential',
-      'npi_status',
-      'npi_number',
-      'taxonomy_code',
       'research_past_topics',
       'research_interest',
       'availability_mon',
@@ -204,18 +235,17 @@ export const CLINICAL_OVERVIEW_CARDS = Object.freeze([
   {
     id: 'license_certs',
     title: 'License & Certifications',
-    editSubTab: 'administrative',
+    editSubTab: 'license_certifications',
     fieldKeys: [
-      'license_type_number',
       'provider_credential_license_type_number',
-      'license_issued',
-      'license_expires',
+      'provider_credential_license_issued_date',
+      'provider_credential_license_expiration_date',
       'license_upload',
       'certs_general',
       'certs_clinical',
       'provider_credential',
-      'npi_number'
-    ]
+      'npi_number',
+    ],
   },
   {
     id: 'specialties',
@@ -277,7 +307,7 @@ export const CLINICAL_SNAPSHOT_SPECS = Object.freeze([
   {
     id: 'credential',
     label: 'Credential',
-    fieldKeys: ['provider_credential', 'license_type_number', 'preferred_name_credentials']
+    fieldKeys: ['provider_credential', 'provider_credential_license_type_number', 'preferred_name_credentials']
   },
   {
     id: 'primary_modality',

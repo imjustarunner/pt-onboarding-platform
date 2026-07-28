@@ -24,6 +24,15 @@ export const SECTION_META = [
     icon: 'box',
   },
   {
+    key: 'licenses',
+    title: 'Licenses & Background Check',
+    shortTitle: 'Licenses',
+    hint: 'Confirm license details and background check',
+    description:
+      'Review your professional license and federal background check expiration for this school year.',
+    icon: 'badge',
+  },
+  {
     key: 'provider_schedule',
     title: 'Provider Schedule',
     shortTitle: 'Schedule',

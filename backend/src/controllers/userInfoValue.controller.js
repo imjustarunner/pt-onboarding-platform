@@ -101,6 +101,11 @@ export const getUserInfo = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     
+    const { consolidateLicenseFieldAliasesForUser } = await import(
+      '../services/licenseCredentialSync.service.js'
+    );
+    await consolidateLicenseFieldAliasesForUser(parseInt(userId, 10)).catch(() => null);
+
     const summary = await UserInfoValue.getUserInfoSummary(
       parseInt(userId),
       agencyId ? parseInt(agencyId) : null

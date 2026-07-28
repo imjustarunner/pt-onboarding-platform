@@ -301,7 +301,7 @@
                 <td>{{ row.sectionPercent || 0 }}%</td>
                 <td>
                   <span
-                    v-for="key in sectionKeys"
+                    v-for="key in rowSectionKeys(row)"
                     :key="key"
                     class="dot"
                     :class="sectionDotClass(row, key)"
@@ -657,6 +657,11 @@ function statusLabel(s) {
 
 function sectionTitle(key) {
   return SECTION_META.find((m) => m.key === key)?.shortTitle || key;
+}
+
+function rowSectionKeys(row) {
+  if (Array.isArray(row?.sectionKeys) && row.sectionKeys.length) return row.sectionKeys;
+  return sectionKeys;
 }
 
 function sectionDotClass(row, key) {

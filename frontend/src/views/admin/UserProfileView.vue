@@ -204,7 +204,7 @@
       <!-- Force full remount when switching tabs to avoid Vue patch edge-cases across radically different subtrees -->
       <div
         class="tab-content"
-        :class="{ 'tab-content--flush': activeTab === 'overview' || activeTab === 'account' || activeTab === 'benefits' || activeTab === 'provider_info' }"
+        :class="{ 'tab-content--flush': activeTab === 'overview' || activeTab === 'account' || activeTab === 'benefits' || activeTab === 'provider_info' || activeTab === 'clients' }"
         :key="activeTab"
         data-tour="user-profile-tab-content"
       >
@@ -1161,48 +1161,6 @@
               </AccountDashboardCard>
             </template>
 
-            <template #supervisor-assignments>
-              <AccountDashboardCard v-if="showAdditionalAccountSections" section-id="supervisor-assignments" title="Supervisor Assignments" :can-edit="false">
-                <div v-if="canManageAssignments" class="supervisor-assignments-section">
-                  <SupervisorAssignmentManager
-                    :supervisor-id="(user && (isSupervisor(user) || user.role === 'clinical_practice_assistant')) ? userId : null"
-                    :supervisee-id="(user && !((isSupervisor(user) || user.role === 'clinical_practice_assistant'))) ? userId : null"
-                  />
-                </div>
-                <div v-else class="supervisor-assignments-section">
-                  <div v-if="(user && isSupervisor(user)) || user?.role === 'clinical_practice_assistant'" class="assignments-info">
-                    <h4>Assigned Supervisees</h4>
-                    <div v-if="superviseesLoading" class="loading">Loading supervisees...</div>
-                    <div v-else-if="supervisees.length === 0" class="empty-state">
-                      <p>No supervisees assigned. Contact an administrator to assign supervisees.</p>
-                    </div>
-                    <div v-else class="supervisees-list">
-                      <div v-for="supervisee in supervisees" :key="supervisee.id" class="supervisee-item">
-                        <span>{{ supervisee.supervisee_first_name }} {{ supervisee.supervisee_last_name }}</span>
-                        <small style="color: var(--text-secondary);">{{ supervisee.supervisee_email }}</small>
-                      </div>
-                    </div>
-                  </div>
-                  <div v-else class="assignments-info">
-                    <h4>Assigned Supervisors</h4>
-                    <div v-if="supervisorsLoading" class="loading">Loading supervisors...</div>
-                    <div v-else-if="supervisors.length === 0" class="empty-state">
-                      <p>No supervisors assigned.</p>
-                    </div>
-                    <div v-else class="supervisors-list">
-                      <div v-for="supervisor in supervisors" :key="supervisor.id" class="supervisor-item">
-                        <span>
-                          {{ supervisor.supervisor_first_name }} {{ supervisor.supervisor_last_name }}
-                          <span class="supervisor-type-pill">{{ supervisorTypeLabel(supervisor.supervisor_type) }}</span>
-                          <span v-if="supervisor.is_primary" class="primary-pill">Primary</span>
-                        </span>
-                        <small style="color: var(--text-secondary);">{{ supervisor.supervisor_email }}</small>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </AccountDashboardCard>
-            </template>
 
             <template #building-offices>
               <AccountDashboardCard v-if="canManageAssignments && showAdditionalAccountSections" section-id="building-offices" title="Assigned Building Offices" subtitle="Office links for scheduling and school mileage mapping." :can-edit="canEditUser">
@@ -1744,8 +1702,26 @@
           </template>
         </div>
 
+        <div v-if="activeTab === 'clients' && isProviderLikeUser" class="tab-panel tab-panel--flush">
+          <ProviderClientsTab
+            :subject-user-id="userId"
+            :subject-agency-id="scheduleAgencyId"
+            profile-embed
+            initial-section="school"
+          />
+        </div>
+
         <div v-if="activeTab === 'provider_info'" class="tab-panel">
-          <ClinicalInformationTab :user-id="userId" />
+          <ClinicalInformationTab
+            :user-id="userId"
+            :user="user"
+            :user-credential="user?.credential || accountForm?.credential || ''"
+            :can-manage-supervisor-assignments="canManageAssignments"
+            :supervisors="supervisors"
+            :supervisees="supervisees"
+            :supervisors-loading="supervisorsLoading"
+            :supervisees-loading="superviseesLoading"
+          />
         </div>
 
         <div v-if="activeTab === 'credentialing'" class="tab-panel">
@@ -2501,6 +2477,7 @@ import AcceptedInsuranceBadges from '../../components/admin/AcceptedInsuranceBad
 import UserTrainingTab from '../../components/admin/UserTrainingTab.vue';
 import UserDocumentsTab from '../../components/admin/UserDocumentsTab.vue';
 import ClinicalInformationTab from '../../components/admin/clinical/ClinicalInformationTab.vue';
+import ProviderClientsTab from '../../components/dashboard/ProviderClientsTab.vue';
 import UserAccountDashboard from '../../components/admin/account/UserAccountDashboard.vue';
 import AccountDashboardCard from '../../components/admin/account/AccountDashboardCard.vue';
 import { USER_ACCOUNT_CONTEXT_KEY } from '../../composables/userAccountContext.js';
@@ -3517,6 +3494,7 @@ const tabs = computed(() => {
     ...(canViewSchoolAffiliation.value
       ? [{ id: 'affiliations', label: 'Affiliations' }]
       : []),
+    ...(isProviderLikeUser.value ? [{ id: 'clients', label: 'Clients' }] : []),
     ...(canViewProviderInfo.value ? [{ id: 'schedule_availability', label: 'Schedule & Availability' }] : []),
     { id: 'training', label: 'Training' },
     { id: 'documents', label: 'Documents' },
@@ -6400,7 +6378,9 @@ provide(USER_ACCOUNT_CONTEXT_KEY, {
   triggerPhotoUpload,
   saveAccount: () => saveAccount({ fromDashboard: true }),
   cancelEditAccount,
-  navigate: (tabId) => { activeTab.value = tabId; },
+  navigate: (tabId, sectionId = '', clinicalSubTab = '') => {
+    selectTab(tabId, sectionId, clinicalSubTab);
+  },
   getStatusLabel,
   api,
   canChangeRole,

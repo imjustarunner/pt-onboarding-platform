@@ -582,6 +582,9 @@ export async function updateMySection(req, res, next) {
     });
     res.json({ ok: true, sections });
   } catch (e) {
+    if (e?.status === 400) {
+      return res.status(400).json({ error: { message: e.message } });
+    }
     next(e);
   }
 }
@@ -700,6 +703,9 @@ export async function updatePublicSection(req, res, next) {
     });
     res.json({ ok: true, sections });
   } catch (e) {
+    if (e?.status === 400) {
+      return res.status(400).json({ error: { message: e.message } });
+    }
     next(e);
   }
 }

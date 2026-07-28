@@ -593,6 +593,11 @@ const props = defineProps({
     type: String,
     default: 'school' // 'school' | 'provider'
   },
+  /** When rosterScope is provider, load roster for this user (admin profile view). */
+  rosterProviderUserId: {
+    type: Number,
+    default: null
+  },
   clientLabelMode: {
     type: String,
     default: 'initials' // 'initials' (default) | 'full_name' | 'codes' (secondary)
@@ -847,6 +852,11 @@ const fetchClients = async () => {
     const params = {};
     if (props.rosterScope === 'provider' && props.skillBuildersOnly) {
       params.skillBuildersOnly = true;
+    }
+    const rosterUid = Number(props.rosterProviderUserId || 0);
+    const meId = Number(authStore.user?.id || 0);
+    if (props.rosterScope === 'provider' && rosterUid > 0 && rosterUid !== meId) {
+      params.providerUserId = rosterUid;
     }
     const response = await api.get(endpoint, { params });
     clients.value = response.data || [];
