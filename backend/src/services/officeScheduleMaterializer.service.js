@@ -1,7 +1,9 @@
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
+import OfficeLocation from '../models/OfficeLocation.model.js';
 import { dayDiffYmd } from './officeSlotSeries.service.js';
+import { mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned } from '../utils/officeEventDateTime.util.js';
 
 function parseYmdParts(dateStr) {
   const raw = String(dateStr || '').slice(0, 10);
@@ -80,15 +82,8 @@ function addDays(dateStr, days) {
   return ymdFromUtcDate(d);
 }
 
-function mysqlDateTimeForDateHour(dateStr, hour24) {
-  const p = parseYmdParts(dateStr);
-  if (!p) return null;
-  const base = new Date(Date.UTC(p.y, p.mo - 1, p.d));
-  const totalHours = Number(hour24 || 0);
-  const dayOffset = Math.floor(totalHours / 24);
-  const normalizedHour = ((totalHours % 24) + 24) % 24;
-  base.setUTCDate(base.getUTCDate() + dayOffset);
-  return `${ymdFromUtcDate(base)} ${String(normalizedHour).padStart(2, '0')}:00:00`;
+function mysqlDateTimeForDateHour(dateStr, hour24, timeZone) {
+  return mysqlDateTimeForDateHourZoned(dateStr, hour24, timeZone);
 }
 
 function weekIndexFromAnchor(dateStr, anchorStr) {
@@ -262,9 +257,11 @@ export class OfficeScheduleMaterializer {
     if (materializeInFlight.has(key)) return materializeInFlight.get(key);
 
     const runner = (async () => {
+      const loc = await OfficeLocation.findById(officeId);
+      const officeTz = loc?.timezone || 'America/Denver';
       const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-      const windowStart = `${weekStart} 00:00:00`;
-      const windowEnd = `${addDays(weekStart, 7)} 00:00:00`;
+      const windowStart = mysqlDateTimeForDateHour(weekStart, 0, officeTz) || `${weekStart} 00:00:00`;
+      const windowEnd = mysqlDateTimeForDateHour(addDays(weekStart, 7), 0, officeTz) || `${addDays(weekStart, 7)} 00:00:00`;
       let upsertedCount = 0;
       let cancelledCount = 0;
 
@@ -294,8 +291,8 @@ export class OfficeScheduleMaterializer {
           const weekday = weekdayIndexFromYmd(date);
           if (!Number.isInteger(weekday) || Number(weekday) !== Number(a.weekday)) continue;
           if (!isAssignmentActiveOnDate(a, date)) continue;
-          const startAt = mysqlDateTimeForDateHour(date, a.hour);
-          const endAt = mysqlDateTimeForDateHour(date, Number(a.hour) + 1);
+          const startAt = mysqlDateTimeForDateHour(date, a.hour, officeTz);
+          const endAt = mysqlDateTimeForDateHour(date, Number(a.hour) + 1, officeTz);
           const slotKey = `${Number(a.room_id || 0)}|${startAt}|${endAt}`;
           const existingRows = existingBySlot.get(slotKey) || [];
 

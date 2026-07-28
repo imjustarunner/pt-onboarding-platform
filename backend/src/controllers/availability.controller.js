@@ -3,6 +3,7 @@ import config from '../config/config.js';
 import User from '../models/User.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
+import { mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned } from '../utils/officeEventDateTime.util.js';
 import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
 import PublicAppointmentRequest from '../models/PublicAppointmentRequest.model.js';
 import ProviderAvailabilityService from '../services/providerAvailability.service.js';
@@ -85,15 +86,8 @@ function addDays(dateLike, days) {
   return d;
 }
 
-function mysqlDateTimeForDateHour(dateYmd, hour24) {
-  const m = String(dateYmd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]) - 1;
-  const d = Number(m[3]);
-  const hh = Number(hour24 || 0);
-  const dt = new Date(Date.UTC(y, mo, d, hh, 0, 0));
-  return dt.toISOString().slice(0, 19).replace('T', ' ');
+function mysqlDateTimeForDateHour(dateYmd, hour24, timeZone = 'America/Denver') {
+  return mysqlDateTimeForDateHourZoned(dateYmd, hour24, timeZone);
 }
 
 function normalizeMysqlDateTime(value) {
@@ -2370,9 +2364,23 @@ export const getOfficeRequestAssignmentOptions = async (req, res, next) => {
     const occurrenceOffsets = Array.from({ length: recurrence.occurrenceCount }, (_, i) => i * stepDays);
     const maxShiftWeeks = 26;
     const maxSpanDays = (maxShiftWeeks * 7) + Math.max(...occurrenceOffsets, 0);
-    const horizonStart = mysqlDateTimeForDateHour(requestStartDate, slot.startHour);
+    const [tzRows] = await pool.execute(
+      `SELECT id, timezone FROM office_locations WHERE id IN (${officeIds.map(() => '?').join(',')})`,
+      officeIds
+    );
+    const tzByOfficeId = new Map(
+      (tzRows || []).map((r) => [Number(r.id), String(r.timezone || '').trim() || 'America/Denver'])
+    );
+    const horizonStartCandidates = officeIds.map((id) =>
+      mysqlDateTimeForDateHour(requestStartDate, slot.startHour, tzByOfficeId.get(Number(id)) || 'America/Denver')
+    ).filter(Boolean);
     const horizonEndDate = addDaysYmd(requestStartDate, maxSpanDays + 1);
-    const horizonEnd = mysqlDateTimeForDateHour(horizonEndDate, slot.endHour);
+    const horizonEndCandidates = officeIds.map((id) =>
+      mysqlDateTimeForDateHour(horizonEndDate, slot.endHour, tzByOfficeId.get(Number(id)) || 'America/Denver')
+    ).filter(Boolean);
+    const horizonStart = horizonStartCandidates.sort()[0] || mysqlDateTimeForDateHour(requestStartDate, slot.startHour, 'America/Denver');
+    const horizonEnd = horizonEndCandidates.sort().slice(-1)[0]
+      || mysqlDateTimeForDateHour(horizonEndDate, slot.endHour, 'America/Denver');
 
     const [roomRows] = await pool.execute(
       `SELECT r.id, r.location_id, r.room_number, r.label, ol.name AS office_name
@@ -2442,13 +2450,17 @@ export const getOfficeRequestAssignmentOptions = async (req, res, next) => {
       if (until && dateYmd > until) return false;
       return true;
     };
+    const roomOfficeById = new Map(
+      (roomRows || []).map((r) => [Number(r.id), Number(r.location_id)])
+    );
     const isRoomAvailableForStartDate = (roomId, startDateYmd) => {
+      const officeTz = tzByOfficeId.get(Number(roomOfficeById.get(Number(roomId)))) || 'America/Denver';
       for (const offset of occurrenceOffsets) {
         const dateYmd = addDaysYmd(startDateYmd, offset);
         if (!dateYmd) return false;
         for (let h = slot.startHour; h < slot.endHour; h++) {
-          const startAt = mysqlDateTimeForDateHour(dateYmd, h);
-          const endAt = mysqlDateTimeForDateHour(dateYmd, h + 1);
+          const startAt = mysqlDateTimeForDateHour(dateYmd, h, officeTz);
+          const endAt = mysqlDateTimeForDateHour(dateYmd, h + 1, officeTz);
           const blockedByEvents = (eventRows || []).some((e) => Number(e.room_id) === Number(roomId) && overlaps(startAt, endAt, e.start_at, e.end_at));
           if (blockedByEvents) return false;
           const blockedByLegacy = (legacyRows || []).some((e) => Number(e.room_id) === Number(roomId) && overlaps(startAt, endAt, e.start_at, e.end_at));
@@ -2573,6 +2585,12 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     if (!(weekday >= 0 && weekday <= 6)) return res.status(400).json({ error: { message: 'weekday must be 0..6' } });
     if (!(hour >= 0 && hour <= 23)) return res.status(400).json({ error: { message: 'hour must be 0..23' } });
     if (!(endHour > hour && endHour <= 24)) return res.status(400).json({ error: { message: 'endHour must be greater than hour and at most 24' } });
+
+    const [officeTzRows] = await pool.execute(
+      `SELECT timezone FROM office_locations WHERE id = ? LIMIT 1`,
+      [officeId]
+    );
+    const officeTz = String(officeTzRows?.[0]?.timezone || '').trim() || 'America/Denver';
 
     // Ensure office belongs to agency (multi-agency office support)
     const okOffice = await OfficeLocationAgency.userHasAccess({ officeLocationId: officeId, agencyIds: [agencyId] });
@@ -2732,8 +2750,8 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
         last_forfeit_warning_at: null
       }) || standing;
 
-      const startAt = mysqlDateTimeForDateHour(requestStartDate, h);
-      const endAt = mysqlDateTimeForDateHour(requestStartDate, h + 1);
+      const startAt = mysqlDateTimeForDateHour(requestStartDate, h, officeTz);
+      const endAt = mysqlDateTimeForDateHour(requestStartDate, h + 1, officeTz);
       if (startAt && endAt) {
         // eslint-disable-next-line no-await-in-loop
         await pool.execute(

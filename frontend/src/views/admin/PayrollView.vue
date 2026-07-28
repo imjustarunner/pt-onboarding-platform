@@ -2976,14 +2976,21 @@
                       <td>{{ row.submission.providerName || nameForUserId(row.submission.userId) }}</td>
                       <td>{{ row.submission.eventTitle || '—' }}</td>
                       <td>
-                        {{ formatEventTimeIso(row.submission.clockInAt) }}
+                        {{ formatEventTimeIso(row.submission.clockInAt, row.submission.eventTimezone) }}
                         <span
                           v-if="row.bucket === 'direct' && row.lateMinutes > 0"
                           :title="`Expected report time on this date`"
                           style="margin-left:4px;background:#fef3c7;color:#92400e;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
                         >+{{ row.lateMinutes }}m late</span>
                       </td>
-                      <td>{{ formatEventTimeIso(row.submission.clockOutAt) }}</td>
+                      <td>
+                        {{ formatEventTimeIso(row.submission.clockOutAt, row.submission.eventTimezone) }}
+                        <span
+                          v-if="row.bucket === 'direct' && (row.submission.needsVerification || row.submission.autoClockOut)"
+                          title="Staff did not clock out at the kiosk — system filled this time. Verify or edit before approving."
+                          style="margin-left:4px;background:#fee2e2;color:#991b1b;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
+                        >Auto — verify</span>
+                      </td>
                       <td class="right">{{ row.submission.workedHours ?? '—' }}</td>
                       <td>{{ row.bucketLabel }}</td>
                       <td class="right">{{ row.bucketHours ?? '—' }}</td>
@@ -6136,8 +6143,8 @@
               <strong>⚠ Changed from auto-submitted</strong>
               ({{ eventTimeEditSubmission?.lastEditedByRole || 'unknown' }} edited{{ eventTimeEditSubmission?.lastEditedAt ? ' ' + new Date(eventTimeEditSubmission.lastEditedAt).toLocaleString() : '' }})<br>
               Original: Direct {{ eventTimeEditOriginal.directHours ?? '—' }} h · Indirect {{ eventTimeEditOriginal.indirectHours ?? '—' }} h ·
-              In {{ eventTimeEditOriginal.clockInAt ? new Date(eventTimeEditOriginal.clockInAt).toLocaleTimeString() : '—' }} ·
-              Out {{ eventTimeEditOriginal.clockOutAt ? new Date(eventTimeEditOriginal.clockOutAt).toLocaleTimeString() : '—' }}
+              In {{ eventTimeEditOriginal.clockInAt ? formatEventTimeIso(eventTimeEditOriginal.clockInAt, eventTimeEditSubmission?.eventTimezone) : '—' }} ·
+              Out {{ eventTimeEditOriginal.clockOutAt ? formatEventTimeIso(eventTimeEditOriginal.clockOutAt, eventTimeEditSubmission?.eventTimezone) : '—' }}
             </div>
             <!-- Late arrival warning -->
             <div
@@ -6460,6 +6467,12 @@ import PayrollPtoSheetModal from '../../components/admin/PayrollPtoSheetModal.vu
 import PayrollSupervisionSheetModal from '../../components/admin/PayrollSupervisionSheetModal.vue';
 import IndirectTimeClaimDetailFields from '../../components/payroll/IndirectTimeClaimDetailFields.vue';
 import { logTimeActivitiesSummary } from '../../utils/logTimeClaimDetails';
+import {
+  formatBusinessDateTime,
+  isoToZonedDatetimeLocal,
+  zonedDatetimeLocalToIso,
+  SCHOOL_EVENT_FALLBACK_TIMEZONE
+} from '../../utils/timezones';
 
 const router = useRouter();
 const route = useRoute();
@@ -8464,29 +8477,42 @@ const defaultBucketForTimeClaim = (c) => {
 const isSkillBuilderEventTimeClaim = (c) =>
   String(c?.claim_type || c?.claimType || '').toLowerCase() === 'skill_builder_event';
 
-const calcLateMinutes = (clockInAt, eventStartsAt, employeeReportTime) => {
+const calcLateMinutes = (clockInAt, eventStartsAt, employeeReportTime, eventTimezone) => {
   if (!clockInAt) return 0;
   const cin = new Date(clockInAt);
   if (!Number.isFinite(cin.getTime())) return 0;
+  const tz = eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
 
-  // Determine the expected time-of-day. Prefer the event's employee_report_time
-  // (a local "HH:MM:SS" value); otherwise use the time-of-day from starts_at.
-  let h = null, m = 0, s = 0;
+  // Prefer employee_report_time (wall HH:MM in event TZ); else starts_at wall time in event TZ.
+  let h = null;
+  let m = 0;
+  let s = 0;
   if (employeeReportTime) {
     const parts = String(employeeReportTime).split(':');
-    h = Number(parts[0]); m = Number(parts[1] || 0); s = Number(parts[2] || 0);
+    h = Number(parts[0]);
+    m = Number(parts[1] || 0);
+    s = Number(parts[2] || 0);
   } else if (eventStartsAt) {
-    const start = new Date(eventStartsAt);
-    if (Number.isFinite(start.getTime())) {
-      h = start.getHours(); m = start.getMinutes(); s = start.getSeconds();
+    const local = isoToZonedDatetimeLocal(eventStartsAt, tz);
+    const mm = String(local || '').match(/T(\d{2}):(\d{2})/);
+    if (mm) {
+      h = Number(mm[1]);
+      m = Number(mm[2]);
+      s = 0;
     }
   }
   if (h === null || !Number.isFinite(h)) return 0;
 
-  // Compare against the expected time on the clock-in's OWN date. This avoids
-  // huge bogus values when a recurring event's starts_at is the series' first
-  // occurrence (days/weeks before the actual session).
-  const expected = new Date(cin.getFullYear(), cin.getMonth(), cin.getDate(), h, m, s, 0);
+  const cinLocal = isoToZonedDatetimeLocal(clockInAt, tz);
+  const ymd = String(cinLocal || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return 0;
+  const expectedIso = zonedDatetimeLocalToIso(
+    `${ymd}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`,
+    tz
+  );
+  if (!expectedIso) return 0;
+  const expected = new Date(expectedIso);
+  if (!Number.isFinite(expected.getTime())) return 0;
   return Math.max(0, Math.round((cin.getTime() - expected.getTime()) / 60000));
 };
 
@@ -8496,7 +8522,12 @@ const eventTimeBucketRows = computed(() => {
     const pendingStatuses = new Set(['submitted', 'deferred']);
     const canApproveBucket = (claim) =>
       !!claim?.id && pendingStatuses.has(String(claim?.status || '').toLowerCase());
-    const lateMinutes = calcLateMinutes(s.clockInAt, s.eventStartsAt, s.eventEmployeeReportTime);
+    const lateMinutes = calcLateMinutes(
+      s.clockInAt,
+      s.eventStartsAt,
+      s.eventEmployeeReportTime,
+      s.eventTimezone
+    );
     rows.push({
       submission: s,
       rowKey: `${s.punchInId}-direct`,
@@ -8521,20 +8552,14 @@ const eventTimeBucketRows = computed(() => {
   return rows;
 });
 
-const isoToDatetimeLocalInput = (iso) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
+const eventTimeEditTz = () =>
+  eventTimeEditSubmission.value?.eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
 
-const datetimeLocalInputToIso = (value) => {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
-};
+const isoToDatetimeLocalInput = (iso, timezone) =>
+  isoToZonedDatetimeLocal(iso, timezone || eventTimeEditTz());
+
+const datetimeLocalInputToIso = (value, timezone) =>
+  zonedDatetimeLocalToIso(value, timezone || eventTimeEditTz());
 
 // Show original values only when this submission has been edited from its auto-generated state.
 const eventTimeEditOriginal = computed(() => {
@@ -8548,32 +8573,32 @@ const eventTimeEditOriginal = computed(() => {
 const eventTimeEditLateArrival = computed(() => {
   const sub = eventTimeEditSubmission.value;
   if (!sub?.clockInAt) return null;
-  const cin = new Date(sub.clockInAt);
-  if (!Number.isFinite(cin.getTime())) return null;
-
-  let h = null, m = 0, s = 0;
+  const lateMinutes = calcLateMinutes(
+    sub.clockInAt,
+    sub.eventStartsAt,
+    sub.eventEmployeeReportTime,
+    sub.eventTimezone
+  );
+  if (!(lateMinutes > 0)) return null;
+  const tz = sub.eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
+  let eventStartDisplay = '—';
   if (sub.eventEmployeeReportTime) {
     const parts = String(sub.eventEmployeeReportTime).split(':');
-    h = Number(parts[0]); m = Number(parts[1] || 0); s = Number(parts[2] || 0);
+    const h = Number(parts[0]);
+    const m = Number(parts[1] || 0);
+    if (Number.isFinite(h)) {
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      eventStartDisplay = `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+    }
   } else if (sub.eventStartsAt) {
-    const start = new Date(sub.eventStartsAt);
-    if (Number.isFinite(start.getTime())) { h = start.getHours(); m = start.getMinutes(); s = start.getSeconds(); }
+    eventStartDisplay = formatBusinessDateTime(sub.eventStartsAt, tz).replace(/^.*,\s*/, '');
   }
-  if (h === null || !Number.isFinite(h)) return null;
-
-  const expected = new Date(cin.getFullYear(), cin.getMonth(), cin.getDate(), h, m, s, 0);
-  const lateMs = cin.getTime() - expected.getTime();
-  if (lateMs <= 0) return null;
-  const lateMinutes = Math.round(lateMs / 60000);
   const cap = Number(eventTimeEditDirectCap.value);
   const adjustedCap = Number.isFinite(cap) && cap > 0
     ? Math.max(0, Math.round((cap - lateMinutes / 60) * 100) / 100)
     : null;
-  return {
-    lateMinutes,
-    eventStartDisplay: expected.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    adjustedCap
-  };
+  return { lateMinutes, eventStartDisplay, adjustedCap };
 });
 
 const applyLateArrivalDeduction = () => {
@@ -8918,14 +8943,8 @@ const reloadPendingTimeClaims = async () => {
   await loadEventTimeSubmissions();
 };
 
-const formatEventTimeIso = (iso) => {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return String(iso);
-  }
-};
+const formatEventTimeIso = (iso, timezone) =>
+  formatBusinessDateTime(iso, timezone || SCHOOL_EVENT_FALLBACK_TIMEZONE);
 
 const loadEventTimeSubmissions = async () => {
   if (!agencyId.value) return;
@@ -8996,8 +9015,9 @@ const eventTimePeriodLabel = (claim) => {
 const openEventTimeEdit = (submission) => {
   if (!submission?.punchInId) return;
   eventTimeEditSubmission.value = submission;
-  eventTimeEditClockIn.value = isoToDatetimeLocalInput(submission.clockInAt);
-  eventTimeEditClockOut.value = isoToDatetimeLocalInput(submission.clockOutAt);
+  const tz = submission.eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
+  eventTimeEditClockIn.value = isoToDatetimeLocalInput(submission.clockInAt, tz);
+  eventTimeEditClockOut.value = isoToDatetimeLocalInput(submission.clockOutAt, tz);
   eventTimeEditDirectCap.value = submission.directHoursCap != null ? String(submission.directHoursCap) : '';
   eventTimeEditError.value = '';
   eventTimeEditOpen.value = true;

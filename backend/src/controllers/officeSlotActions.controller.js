@@ -24,6 +24,28 @@ import { validateSchedulingSelection } from '../services/schedulingTaxonomy.serv
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
 import { upsertAppointmentForOfficeBook } from '../services/appointment.service.js';
 import pool from '../config/database.js';
+import { mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned } from '../utils/officeEventDateTime.util.js';
+
+async function resolveOfficeTimezone(officeLocationId) {
+  const id = Number(officeLocationId || 0);
+  if (!id) return 'America/Denver';
+  const loc = await OfficeLocation.findById(id);
+  return loc?.timezone || 'America/Denver';
+}
+
+async function resolveTimezoneForStandingAssignment(standingAssignmentId) {
+  const sid = Number(standingAssignmentId || 0);
+  if (!sid) return 'America/Denver';
+  const [rows] = await pool.execute(
+    `SELECT ol.timezone
+     FROM office_standing_assignments sa
+     INNER JOIN office_locations ol ON ol.id = sa.office_location_id
+     WHERE sa.id = ?
+     LIMIT 1`,
+    [sid]
+  );
+  return rows?.[0]?.timezone || 'America/Denver';
+}
 
 async function bestEffortUnifiedOfficeAppointment({
   req,
@@ -155,16 +177,8 @@ function weekdayHourInTz(dateLike, timeZone) {
   }
 }
 
-function mysqlDateTimeForDateHour(dateStr, hour24) {
-  const m = String(dateStr || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const base = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  const totalHours = Number(hour24 || 0);
-  const dayOffset = Math.floor(totalHours / 24);
-  const normalizedHour = ((totalHours % 24) + 24) % 24;
-  base.setUTCDate(base.getUTCDate() + dayOffset);
-  const ymd = base.toISOString().slice(0, 10);
-  return `${ymd} ${String(normalizedHour).padStart(2, '0')}:00:00`;
+function mysqlDateTimeForDateHour(dateStr, hour24, timeZone = 'America/Denver') {
+  return mysqlDateTimeForDateHourZoned(dateStr, hour24, timeZone);
 }
 
 function mysqlDateTimeFromValue(value) {
@@ -423,7 +437,8 @@ async function buildStandingSlotConflictDetail({ officeLocationId, roomId, weekd
 async function countFutureNonCancelledEventsForStandingAssignment(standingAssignmentId, fromDateYmd) {
   const sid = Number(standingAssignmentId || 0);
   if (!sid) return 0;
-  const rangeStart = mysqlDateTimeForDateHour(fromDateYmd, 0) || `${fromDateYmd} 00:00:00`;
+  const tz = await resolveTimezoneForStandingAssignment(sid);
+  const rangeStart = mysqlDateTimeForDateHour(fromDateYmd, 0, tz) || `${fromDateYmd} 00:00:00`;
   const [rows] = await pool.execute(
     `SELECT COUNT(*) AS cnt
      FROM office_events
@@ -573,7 +588,8 @@ async function resolveStandingAssignmentIdsForEvent(ev, officeLocationId, { appl
 async function cancelFutureEventsForStandingAssignment(standingAssignmentId, fromDateYmd) {
   const sid = Number(standingAssignmentId || 0);
   if (!sid) return [];
-  const rangeStart = mysqlDateTimeForDateHour(fromDateYmd, 0) || `${fromDateYmd} 00:00:00`;
+  const tz = await resolveTimezoneForStandingAssignment(sid);
+  const rangeStart = mysqlDateTimeForDateHour(fromDateYmd, 0, tz) || `${fromDateYmd} 00:00:00`;
   const [rows] = await pool.execute(
     `SELECT id
      FROM office_events
@@ -2407,7 +2423,8 @@ export const cancelAssignment = async (req, res, next) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(slotDate) || !Number.isInteger(slotHour) || slotHour < 0 || slotHour > 23) {
       return res.status(400).json({ error: { message: 'date (YYYY-MM-DD) and hour (0..23) are required' } });
     }
-    const startAt = mysqlDateTimeForDateHour(slotDate, slotHour);
+    const officeTz = await resolveOfficeTimezone(officeLocationId);
+    const startAt = mysqlDateTimeForDateHour(slotDate, slotHour, officeTz);
     const untilDateRaw = String(req.body?.untilDate || '').slice(0, 10);
     if (scope === 'until' && !/^\d{4}-\d{2}-\d{2}$/.test(untilDateRaw)) {
       return res.status(400).json({ error: { message: 'untilDate must be YYYY-MM-DD when scope=until' } });
@@ -2433,12 +2450,12 @@ export const cancelAssignment = async (req, res, next) => {
     let rangeEndExclusive = null;
     if (scope === 'occurrence') {
       rangeStart = startAt;
-      rangeEndExclusive = mysqlDateTimeForDateHour(slotDate, slotHour + 1);
+      rangeEndExclusive = mysqlDateTimeForDateHour(slotDate, slotHour + 1, officeTz);
     } else if (scope === 'week') {
       const ws = startOfWeekYmd(slotDate);
       const we = ws ? addDaysYmd(ws, 7) : null;
-      rangeStart = ws ? `${ws} 00:00:00` : startAt;
-      rangeEndExclusive = we ? `${we} 00:00:00` : null;
+      rangeStart = ws ? (mysqlDateTimeForDateHour(ws, 0, officeTz) || `${ws} 00:00:00`) : startAt;
+      rangeEndExclusive = we ? (mysqlDateTimeForDateHour(we, 0, officeTz) || `${we} 00:00:00`) : null;
     } else if (scope === 'until') {
       rangeStart = startAt;
       const untilNextDay = addDaysYmd(untilDateRaw, 1);
@@ -3056,10 +3073,11 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Room not found for this office' } });
     }
 
+    const officeTz = await resolveOfficeTimezone(officeLocationId);
     const startHour = Number(hour);
     const finalHour = Number(endHour !== null ? endHour : hour + 1);
-    const startAt = mysqlDateTimeForDateHour(date, hour);
-    const endAt = mysqlDateTimeForDateHour(date, finalHour);
+    const startAt = mysqlDateTimeForDateHour(date, hour, officeTz);
+    const endAt = mysqlDateTimeForDateHour(date, finalHour, officeTz);
 
     if (assignmentMode === 'COMPANY_HOLD') {
       if (recurrenceFrequency !== 'ONCE' && !recurrenceWeekdays.length) {
@@ -3117,8 +3135,8 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       const createdEvents = [];
       for (const holdDate of holdDates) {
         for (let h = startHour; h < finalHour; h++) {
-          const slotStartAt = mysqlDateTimeForDateHour(holdDate, h);
-          const slotEndAt = mysqlDateTimeForDateHour(holdDate, h + 1);
+          const slotStartAt = mysqlDateTimeForDateHour(holdDate, h, officeTz);
+          const slotEndAt = mysqlDateTimeForDateHour(holdDate, h + 1, officeTz);
           // eslint-disable-next-line no-await-in-loop
           const event = await OfficeEvent.upsertSlotState({
             officeLocationId,
@@ -3383,8 +3401,8 @@ export const staffAssignOpenSlot = async (req, res, next) => {
         for (let h = startHour; h < finalHour; h++) {
           const standingForClickedDay = standingAssignments.find((a) => Number(a.weekday) === Number(clickedWeekday) && Number(a.hour) === Number(h)) || null;
           if (standingForClickedDay?.id) {
-            const slotStartAt = mysqlDateTimeForDateHour(date, h);
-            const slotEndAt = mysqlDateTimeForDateHour(date, h + 1);
+            const slotStartAt = mysqlDateTimeForDateHour(date, h, officeTz);
+            const slotEndAt = mysqlDateTimeForDateHour(date, h + 1, officeTz);
             // eslint-disable-next-line no-await-in-loop
             const event = await OfficeEvent.upsertSlotState({
               officeLocationId,

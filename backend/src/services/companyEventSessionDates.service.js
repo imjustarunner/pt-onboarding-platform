@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import { normalizeRecurrence } from './companyEvents.service.js';
-import { utcDateToZonedYmd, zonedWallTimeToUtc } from '../utils/zonedWallTime.util.js';
+import { utcDateToZonedYmd, utcDateToZonedParts, zonedWallTimeToUtc } from '../utils/zonedWallTime.util.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -40,38 +40,6 @@ function toUtcMidnightDate(ymd) {
   const p = parseYmd(ymd);
   if (!p) return null;
   return new Date(Date.UTC(p.year, p.month - 1, p.day));
-}
-
-function zonedDateParts(date, timeZone) {
-  const d = date instanceof Date ? date : new Date(date || 0);
-  if (!Number.isFinite(d.getTime())) return null;
-  try {
-    const fmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: String(timeZone || 'UTC'),
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    });
-    const parts = fmt.formatToParts(d);
-    const map = {};
-    for (const p of parts) {
-      if (p.type !== 'literal') map[p.type] = p.value;
-    }
-    return {
-      year: Number(map.year),
-      month: Number(map.month),
-      day: Number(map.day),
-      hour: Number(map.hour),
-      minute: Number(map.minute),
-      second: Number(map.second || 0)
-    };
-  } catch {
-    return null;
-  }
 }
 
 function buildOccurrenceStartFromYmd(sessionDateYmd, startWall, timezone) {
@@ -134,8 +102,8 @@ function desiredOccurrencesFromEventRow(eventRow) {
     }
   })();
   const recurrence = normalizeRecurrence(recurrenceRaw);
-  const startWall = zonedDateParts(startsAt, timezone);
-  const endWall = zonedDateParts(endsAt, timezone);
+  const startWall = utcDateToZonedParts(startsAt, timezone);
+  const endWall = utcDateToZonedParts(endsAt, timezone);
   if (!startWall || !endWall) return [];
   const startYmd = utcDateToZonedYmd(startsAt, timezone);
   if (!startYmd) return [];

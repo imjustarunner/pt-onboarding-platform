@@ -38,6 +38,33 @@ import {
   listBookClubAudienceUserIds,
   listTenantEligibleBookClubUsers
 } from '../utils/bookClub.js';
+import { isValidTimeZone, zonedWallTimeToUtc } from '../utils/zonedWallTime.util.js';
+
+/**
+ * Parse an API instant. ISO with Z/offset → UTC Date.
+ * Naive wall (`YYYY-MM-DDTHH:mm`) → convert with the event IANA zone.
+ */
+function parseInstantWithTimezone(raw, timezone) {
+  if (raw == null || raw === '') return new Date(NaN);
+  if (raw instanceof Date) return raw;
+  const s = String(raw).trim();
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) {
+    return new Date(s);
+  }
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (m && isValidTimeZone(timezone)) {
+    return zonedWallTimeToUtc({
+      year: Number(m[1]),
+      month: Number(m[2]),
+      day: Number(m[3]),
+      hour: Number(m[4]),
+      minute: Number(m[5]),
+      second: Number(m[6] || 0),
+      timeZone: timezone
+    });
+  }
+  return new Date(s);
+}
 import { resolveScopedAgencyIdsForMyDashboard } from '../utils/meDashboardTenantScope.js';
 import {
   isSchoolPortalEventType,
@@ -572,11 +599,11 @@ function parseEventPayload(body = {}) {
   const description = String(body.description || '').trim();
   const splashContent = String(body.splashContent || body.splash_content || '').trim();
   const eventType = String(body.eventType || body.event_type || 'company_event').trim().toLowerCase();
+  const timezone = String(body.timezone || 'UTC').trim() || 'UTC';
   const startsAtRaw = body.startsAt || body.starts_at;
   const endsAtRaw = body.endsAt || body.ends_at;
-  const startsAt = new Date(startsAtRaw);
-  const endsAt = new Date(endsAtRaw);
-  const timezone = String(body.timezone || 'UTC').trim() || 'UTC';
+  const startsAt = parseInstantWithTimezone(startsAtRaw, timezone);
+  const endsAt = parseInstantWithTimezone(endsAtRaw, timezone);
   const recurrence = normalizeRecurrence(body.recurrence || body.recurrence_json || null);
   const audience = body.audience && typeof body.audience === 'object' ? body.audience : {};
   const isActive = body.isActive === undefined ? true : !!body.isActive;

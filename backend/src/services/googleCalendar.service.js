@@ -8,6 +8,7 @@ import {
   logGoogleUnauthorizedHint
 } from './googleWorkspaceAuth.service.js';
 import { ensureMeetAutoTranscriptionEnabled } from './googleMeetTranscript.service.js';
+import { utcToRfc3339Wall } from '../utils/officeEventDateTime.util.js';
 
 function parseServiceAccountJson() {
   const raw = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON;
@@ -22,9 +23,15 @@ function parseServiceAccountJson() {
   }
 }
 
-function toRfc3339Local(dateTime) {
-  // office_events stores DATETIME without TZ. We send it with a timeZone field.
-  // Convert "YYYY-MM-DD HH:MM:SS" -> "YYYY-MM-DDTHH:MM:SS"
+/**
+ * Convert a stored instant to RFC3339 wall time for Google Calendar.
+ * When timeZone is provided, treat DATETIME as UTC and project into that zone.
+ * Without timeZone, keep legacy digit pass-through (non-office callers).
+ */
+function toRfc3339Local(dateTime, timeZone = null) {
+  if (timeZone) {
+    return utcToRfc3339Wall(dateTime, timeZone);
+  }
   const s = String(dateTime || '').trim();
   if (!s) return null;
   return s.includes('T') ? s : s.replace(' ', 'T');
@@ -455,8 +462,8 @@ export class GoogleCalendarService {
             end: { date: String(endDate).slice(0, 10) }
           }
         : {
-            start: { dateTime: toRfc3339Local(startAt), timeZone },
-            end: { dateTime: toRfc3339Local(endAt), timeZone }
+            start: { dateTime: toRfc3339Local(startAt, timeZone), timeZone },
+            end: { dateTime: toRfc3339Local(endAt, timeZone), timeZone }
           }),
       extendedProperties: {
         private: {
@@ -571,8 +578,8 @@ export class GoogleCalendarService {
     const providerEmail = String(row.provider_email || '').trim().toLowerCase();
     const roomResourceEmail = String(row.room_google_resource_email || '').trim().toLowerCase();
     const timeZone = String(row.building_timezone || '').trim() || 'America/New_York';
-    const start = toRfc3339Local(row.start_at);
-    const end = toRfc3339Local(row.end_at);
+    const start = toRfc3339Local(row.start_at, timeZone);
+    const end = toRfc3339Local(row.end_at, timeZone);
 
     const missing = [];
     if (!this.isConfigured()) missing.push('service_account');
@@ -646,8 +653,8 @@ export class GoogleCalendarService {
       requestBody.start = { date: sDate };
       requestBody.end = { date: eDate };
     } else {
-      const start = toRfc3339Local(startAt);
-      const end = toRfc3339Local(endAt);
+      const start = toRfc3339Local(startAt, timeZone);
+      const end = toRfc3339Local(endAt, timeZone);
       if (!start || !end) return { ok: false, reason: 'missing_start_end' };
       requestBody.start = { dateTime: start, timeZone };
       requestBody.end = { dateTime: end, timeZone };
@@ -784,8 +791,8 @@ export class GoogleCalendarService {
     const summary = `${buildingName} • ${officeLabel} — ${summarySuffix}`;
 
     const timeZone = String(row.building_timezone || '').trim() || 'America/New_York';
-    const start = toRfc3339Local(row.start_at);
-    const end = toRfc3339Local(row.end_at);
+    const start = toRfc3339Local(row.start_at, timeZone);
+    const end = toRfc3339Local(row.end_at, timeZone);
     if (!start || !end) {
       await pool.execute(
         `UPDATE office_events
@@ -910,8 +917,8 @@ export class GoogleCalendarService {
     const requestBody = {
       summary: String(summary || 'Supervision').trim() || 'Supervision',
       description: finalDescription || undefined,
-      start: { dateTime: toRfc3339Local(startAt), timeZone },
-      end: { dateTime: toRfc3339Local(endAt), timeZone },
+      start: { dateTime: toRfc3339Local(startAt, timeZone), timeZone },
+      end: { dateTime: toRfc3339Local(endAt, timeZone), timeZone },
       attendees,
       extendedProperties: {
         private: {
@@ -991,8 +998,8 @@ export class GoogleCalendarService {
     const requestBody = {
       summary: String(summary || 'Meeting/Training').trim() || 'Meeting/Training',
       description: description ? String(description) : undefined,
-      start: { dateTime: toRfc3339Local(startAt), timeZone },
-      end: { dateTime: toRfc3339Local(endAt), timeZone }
+      start: { dateTime: toRfc3339Local(startAt, timeZone), timeZone },
+      end: { dateTime: toRfc3339Local(endAt, timeZone), timeZone }
     };
     requestBody.conferenceData = {
       createRequest: {

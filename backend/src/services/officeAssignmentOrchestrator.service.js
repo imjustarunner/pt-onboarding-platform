@@ -11,6 +11,7 @@ import pool from '../config/database.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
+import OfficeLocation from '../models/OfficeLocation.model.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
 import {
   normalizeYmd,
@@ -18,6 +19,7 @@ import {
   stepDaysForRecurrence,
   normalizeOfficeRequestRecurrence
 } from './officeSlotSeries.service.js';
+import { mysqlDateTimeForDateHour } from '../utils/officeEventDateTime.util.js';
 
 function parseYmdParts(dateStr) {
   const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -29,20 +31,6 @@ function weekdayIndexFromYmd(dateStr) {
   const p = parseYmdParts(dateStr);
   if (!p) return null;
   return new Date(Date.UTC(p.y, p.mo - 1, p.d)).getUTCDay();
-}
-
-function mysqlDateTimeForDateHour(dateStr, hour24) {
-  const p = parseYmdParts(dateStr);
-  if (!p) return null;
-  const base = new Date(Date.UTC(p.y, p.mo - 1, p.d));
-  const totalHours = Number(hour24 || 0);
-  const dayOffset = Math.floor(totalHours / 24);
-  const normalizedHour = ((totalHours % 24) + 24) % 24;
-  base.setUTCDate(base.getUTCDate() + dayOffset);
-  const y = base.getUTCFullYear();
-  const mo = String(base.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(base.getUTCDate()).padStart(2, '0');
-  return `${y}-${mo}-${d} ${String(normalizedHour).padStart(2, '0')}:00:00`;
 }
 
 /**
@@ -169,6 +157,8 @@ async function assignOneTimeOfficeBlock({
   if (!date) throw new Error('Invalid dateYmd');
   const weekday = weekdayIndexFromYmd(date);
   if (!Number.isInteger(weekday)) throw new Error('Invalid weekday for date');
+  const loc = await OfficeLocation.findById(officeLocationId);
+  const officeTz = loc?.timezone || 'America/Denver';
 
   const standingAssignments = [];
   const createdEvents = [];
@@ -205,8 +195,8 @@ async function assignOneTimeOfficeBlock({
       });
     }
 
-    const slotStartAt = mysqlDateTimeForDateHour(date, h);
-    const slotEndAt = mysqlDateTimeForDateHour(date, h + 1);
+    const slotStartAt = mysqlDateTimeForDateHour(date, h, officeTz);
+    const slotEndAt = mysqlDateTimeForDateHour(date, h + 1, officeTz);
     const slotState = markBooked ? 'ASSIGNED_BOOKED' : 'ASSIGNED_AVAILABLE';
     const extras = eventExtras && typeof eventExtras === 'object' ? eventExtras : {};
 

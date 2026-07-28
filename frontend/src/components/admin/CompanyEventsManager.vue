@@ -341,7 +341,7 @@
             </td>
             <td class="hint">{{ programLabelForEvent(event) }}</td>
             <td>
-              <div>{{ formatDate(event.startsAt) }} - {{ formatDate(event.endsAt) }}</div>
+              <div>{{ formatDate(event.startsAt, event.timezone) }} - {{ formatDate(event.endsAt, event.timezone) }}</div>
               <div class="hint">{{ recurrenceLabel(event.recurrence) }}</div>
             </td>
             <td class="hint">{{ audienceLabel(event.audience) }}</td>
@@ -390,6 +390,12 @@
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
+import {
+  formatBusinessDateTime,
+  isoToZonedDatetimeLocal,
+  zonedDatetimeLocalToIso,
+  SCHOOL_EVENT_FALLBACK_TIMEZONE
+} from '../../utils/timezones';
 
 const router = useRouter();
 const affiliateProgramOrgs = ref([]);
@@ -582,22 +588,16 @@ const isServiceProgramEventType = computed(() => {
   return t === 'guardian_program_class' || t === 'program_event' || t.startsWith('program_');
 });
 
-const formatDate = (dateLike) => {
-  const date = new Date(dateLike || 0);
-  if (!Number.isFinite(date.getTime())) return '-';
-  return date.toLocaleString();
+const draftTimezone = () =>
+  String(draft.value?.timezone || '').trim() || browserTimeZone() || SCHOOL_EVENT_FALLBACK_TIMEZONE;
+
+const formatDate = (dateLike, timezone) => {
+  const formatted = formatBusinessDateTime(dateLike, timezone || SCHOOL_EVENT_FALLBACK_TIMEZONE);
+  return formatted === '—' ? '-' : formatted;
 };
 
-const toLocalInput = (dateLike) => {
-  const date = new Date(dateLike || 0);
-  if (!Number.isFinite(date.getTime())) return '';
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const h = String(date.getHours()).padStart(2, '0');
-  const min = String(date.getMinutes()).padStart(2, '0');
-  return `${y}-${m}-${d}T${h}:${min}`;
-};
+const toLocalInput = (dateLike, timezone) =>
+  isoToZonedDatetimeLocal(dateLike, timezone || draftTimezone());
 
 const recurrenceLabel = (recurrence) => {
   const frequency = String(recurrence?.frequency || 'none');
@@ -723,8 +723,8 @@ const editEvent = (event) => {
     eventType: event.eventType || 'company_event',
     timezone: String(event.timezone || '').trim() || browserTimeZone(),
     splashContent: event.splashContent || '',
-    startsAtLocal: toLocalInput(event.startsAt),
-    endsAtLocal: toLocalInput(event.endsAt),
+    startsAtLocal: toLocalInput(event.startsAt, event.timezone),
+    endsAtLocal: toLocalInput(event.endsAt, event.timezone),
     recurrence: {
       frequency: String(event.recurrence?.frequency || 'none'),
       interval: Number(event.recurrence?.interval || 1),
@@ -799,13 +799,16 @@ const loadAffiliateProgramOrgs = async () => {
 
 const saveEvent = async () => {
   if (!props.agencyId) return;
-  const startsAt = new Date(draft.value.startsAtLocal);
-  const endsAt = new Date(draft.value.endsAtLocal);
+  const timezone = String(draft.value.timezone || '').trim() || browserTimeZone();
+  const startsAtIso = zonedDatetimeLocalToIso(draft.value.startsAtLocal, timezone);
+  const endsAtIso = zonedDatetimeLocalToIso(draft.value.endsAtLocal, timezone);
+  const startsAt = startsAtIso ? new Date(startsAtIso) : null;
+  const endsAt = endsAtIso ? new Date(endsAtIso) : null;
   if (!draft.value.title.trim()) {
     error.value = 'Title is required.';
     return;
   }
-  if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
+  if (!startsAt || !endsAt || !Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
     error.value = 'Start and end dates are required.';
     return;
   }
@@ -821,9 +824,9 @@ const saveEvent = async () => {
       description: draft.value.description,
       eventType: draft.value.eventType || 'company_event',
       splashContent: draft.value.splashContent,
-      startsAt: startsAt.toISOString(),
-      endsAt: endsAt.toISOString(),
-      timezone: String(draft.value.timezone || '').trim() || browserTimeZone(),
+      startsAt: startsAtIso,
+      endsAt: endsAtIso,
+      timezone,
       recurrence: normalizeRecurrenceForPayload(draft.value.recurrence),
       rsvpMode: isServiceProgramEventType.value ? 'none' : draft.value.rsvpMode,
       smsCode: draft.value.smsCode || null,

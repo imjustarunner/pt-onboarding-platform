@@ -26,6 +26,13 @@ import {
   ensureKioskSkillBuildersEventSynced,
   resyncStaleKioskSkillBuildersEventsAtOffice
 } from '../services/eventKioskDateSync.service.js';
+import {
+  mysqlDateTimeForDateHour,
+  officeTodayUtcBounds,
+  parseUtcDate,
+  utcToZonedMysqlWall
+} from '../utils/officeEventDateTime.util.js';
+import { zonedWallTimeToUtc, dateToMysqlUtcDateTime } from '../utils/zonedWallTime.util.js';
 
 function normalizePin(pin) {
   const p = String(pin || '').trim();
@@ -1371,23 +1378,14 @@ export const kioskSkillBuilderEventClockIn = async (req, res, next) => {
 };
 
 // ── Timezone helpers for office-local time ──────────────────────────────────
-// All office_events are stored as local datetime strings (no UTC offset).
-// These helpers let us compare them correctly against "now" in the office tz.
-
-// mysql2 (with timezone:'+00:00') returns DATETIME columns as JS Date objects
-// whose UTC components equal the original wall-clock value stored in MySQL
-// (e.g. "2026-06-22 08:00:00" → Date with getUTCHours()===8).
-// This helper extracts those UTC components back into a plain "YYYY-MM-DD HH:MM:SS"
-// naive local string so the rest of the timezone comparison logic works correctly.
+// office_events.start_at/end_at are true UTC DATETIME. Display/edit uses office TZ.
 const _pad2 = (n) => String(n).padStart(2, '0');
-function toNaiveStr(v) {
-  if (!v) return null;
-  const d = v instanceof Date ? v : new Date(String(v).replace(' ', 'T') + 'Z');
-  if (Number.isNaN(d.getTime())) return String(v).slice(0, 19);
-  return `${d.getUTCFullYear()}-${_pad2(d.getUTCMonth() + 1)}-${_pad2(d.getUTCDate())} ${_pad2(d.getUTCHours())}:${_pad2(d.getUTCMinutes())}:${_pad2(d.getUTCSeconds())}`;
+
+/** UTC DB instant → wall `YYYY-MM-DD HH:MM:SS` in office TZ (API display). */
+function toOfficeWallStr(v, timeZone) {
+  return utcToZonedMysqlWall(v, timeZone);
 }
 
-// Returns the YYYY-MM-DD date in the given IANA timezone
 function localYmdInTz(dateLike, timeZone) {
   try {
     const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
@@ -1398,40 +1396,42 @@ function localYmdInTz(dateLike, timeZone) {
   }
 }
 
-// Returns the "local-now" millisecond value for a given timezone so that
-// naive DB strings (e.g. "2026-06-22 10:00:00") can be compared against it
-// without needing a real UTC conversion.  Works by reading what time it is
-// right now in the target timezone, then building a synthetic ms value that
-// matches the same scale as `new Date(dbString).getTime()` when Node treats
-// the DB string as local-server time.
-//
-// In practice: format the current UTC instant in the target timezone, then
-// parse that local-time string back as if it were UTC (naively), giving a
-// consistent "local epoch" for comparisons.
+/** Synthetic "wall epoch" ms for free-window math (wall digits treated as UTC). */
 function localNowMs(tz) {
   const now = new Date();
   const localStr = new Intl.DateTimeFormat('sv-SE', {
     timeZone: tz,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit'
-  }).format(now); // "2026-06-22 10:16:00"
+  }).format(now);
   return new Date(localStr.replace(' ', 'T') + 'Z').getTime();
 }
 
-// Returns { startAt, endAt } as "YYYY-MM-DD HH:MM:SS" local strings for the
-// current day in the given IANA timezone — suitable for MySQL DATETIME comparisons
-// against event rows that are also stored as local strings.
+/** Today bounds as UTC MySQL DATETIME for querying office_events. */
 function localTodayBounds(tz) {
-  const now = new Date();
-  const ymd = localYmdInTz(now, tz);
-  if (!ymd) {
-    // Fallback: use midnight/end-of-day in server local time
-    const s = new Date(now); s.setHours(0, 0, 0, 0);
-    const e = new Date(now); e.setHours(23, 59, 59, 999);
-    const fmt = (d) => d.toISOString().replace('T', ' ').slice(0, 19);
-    return { startAt: fmt(s), endAt: fmt(e) };
-  }
-  return { startAt: `${ymd} 00:00:00`, endAt: `${ymd} 23:59:59` };
+  const bounds = officeTodayUtcBounds(tz);
+  if (bounds?.startAt && bounds?.endAt) return { startAt: bounds.startAt, endAt: bounds.endAt };
+  const ymd = localYmdInTz(new Date(), tz);
+  return {
+    startAt: mysqlDateTimeForDateHour(ymd, 0, tz) || `${ymd} 00:00:00`,
+    endAt: mysqlDateTimeForDateHour(ymd, 23, tz)?.replace(/:00:00$/, ':59:59') || `${ymd} 23:59:59`
+  };
+}
+
+/** Wall `YYYY-MM-DD HH:MM:SS` in office TZ → UTC MySQL DATETIME. */
+function wallStrToUtcMysql(wallStr, timeZone) {
+  const m = String(wallStr || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return null;
+  const utc = zonedWallTimeToUtc({
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour: Number(m[4]),
+    minute: Number(m[5]),
+    second: Number(m[6] || 0),
+    timeZone
+  });
+  return dateToMysqlUtcDateTime(utc);
 }
 
 // ─── Provider-First Welcome Kiosk ────────────────────────────────────────────
@@ -1446,7 +1446,7 @@ export const listProvidersToday = async (req, res, next) => {
     const now = new Date();
     const tz = loc.timezone || 'America/Denver';
     const { startAt, endAt } = localTodayBounds(tz);
-    const nowLocal = localNowMs(tz); // synthetic "local now" for DB string comparisons
+    const nowMs = now.getTime();
 
     const [rows] = await pool.execute(
       `SELECT
@@ -1523,8 +1523,10 @@ export const listProvidersToday = async (req, res, next) => {
         });
       }
       providerMap.get(pid).events.push({
-        startAt: toNaiveStr(row.start_at),
-        endAt: toNaiveStr(row.end_at),
+        startAt: toOfficeWallStr(row.start_at, tz),
+        endAt: toOfficeWallStr(row.end_at, tz),
+        startMs: parseUtcDate(row.start_at)?.getTime() ?? NaN,
+        endMs: parseUtcDate(row.end_at)?.getTime() ?? NaN,
         roomName: row.room_name,
         roomNumber: row.room_number
       });
@@ -1532,11 +1534,9 @@ export const listProvidersToday = async (req, res, next) => {
 
     const providers = [];
     for (const p of providerMap.values()) {
-      // Compare naive local strings against local-now using consistent "naive UTC" parsing
-      const toMs = (s) => new Date(s.replace(' ', 'T') + 'Z').getTime();
-      const activeEvent = p.events.find((e) => toMs(e.startAt) <= nowLocal && toMs(e.endAt) > nowLocal);
-      const futureEvents = p.events.filter((e) => toMs(e.startAt) > nowLocal);
-      const allDone = p.events.every((e) => toMs(e.endAt) <= nowLocal);
+      const activeEvent = p.events.find((e) => e.startMs <= nowMs && e.endMs > nowMs);
+      const futureEvents = p.events.filter((e) => e.startMs > nowMs).sort((a, b) => a.startMs - b.startMs);
+      const allDone = p.events.every((e) => e.endMs <= nowMs);
 
       if (allDone) continue; // Provider's day is done; omit from kiosk
 
@@ -1555,11 +1555,11 @@ export const listProvidersToday = async (req, res, next) => {
       providers.push(p);
     }
 
-    // Sort: active_now first, then upcoming by nextSlotAt
+    // Sort: active_now first, then upcoming by nextSlotAt (wall strings share a synthetic epoch)
     providers.sort((a, b) => {
       if (a.status === b.status) {
-        const ta = a.nextSlotAt ? new Date(a.nextSlotAt.replace(' ', 'T') + 'Z').getTime() : 0;
-        const tb = b.nextSlotAt ? new Date(b.nextSlotAt.replace(' ', 'T') + 'Z').getTime() : 0;
+        const ta = a.nextSlotAt ? new Date(String(a.nextSlotAt).replace(' ', 'T') + 'Z').getTime() : 0;
+        const tb = b.nextSlotAt ? new Date(String(b.nextSlotAt).replace(' ', 'T') + 'Z').getTime() : 0;
         return ta - tb;
       }
       return a.status === 'active_now' ? -1 : 1;
@@ -1608,8 +1608,8 @@ export const listProviderSlotsToday = async (req, res, next) => {
 
     const slots = (rows || []).map((r) => ({
       eventId: r.event_id,
-      startAt: toNaiveStr(r.start_at),
-      endAt: toNaiveStr(r.end_at),
+      startAt: toOfficeWallStr(r.start_at, tz),
+      endAt: toOfficeWallStr(r.end_at, tz),
       roomName: r.room_name,
       roomNumber: r.room_number,
       alreadyCheckedIn: r.checkin_id != null
@@ -1699,9 +1699,12 @@ export const listAvailableRooms = async (req, res, next) => {
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit'
     }).format(new Date());
-    const { endAt: dayEnd } = localTodayBounds(tz);
+    const { startAt: dayStartUtc, endAt: dayEndUtc } = localTodayBounds(tz);
+    const nowUtcMysql = dateToMysqlUtcDateTime(new Date());
+    const ymd = localYmdInTz(new Date(), tz);
+    const dayEndWall = `${ymd} 23:59:59`;
 
-    // Fetch all active rooms + any booked events remaining today
+    // Fetch all active rooms + any booked events remaining today (UTC bounds)
     const [rows] = await pool.execute(
       `SELECT r.id, r.name, r.room_number, r.label, r.sort_order,
               e.id AS event_id,
@@ -1715,10 +1718,10 @@ export const listAvailableRooms = async (req, res, next) => {
          AND e.start_at < ?
        WHERE r.location_id = ? AND r.is_active = TRUE
        ORDER BY r.sort_order ASC, r.name ASC, e.start_at ASC`,
-      [nowStr, dayEnd, parseInt(locationId)]
+      [nowUtcMysql || dayStartUtc, dayEndUtc, parseInt(locationId)]
     );
 
-    // Group rows by room
+    // Group rows by room — free-window math stays in office wall digits
     const roomMap = new Map();
     for (const row of (rows || [])) {
       if (!roomMap.has(row.id)) {
@@ -1726,15 +1729,15 @@ export const listAvailableRooms = async (req, res, next) => {
       }
       if (row.event_id) {
         roomMap.get(row.id).bookedIntervals.push({
-          start: toNaiveStr(row.booked_start),
-          end:   toNaiveStr(row.booked_end)
+          start: toOfficeWallStr(row.booked_start, tz),
+          end:   toOfficeWallStr(row.booked_end, tz)
         });
       }
     }
 
     const rooms = [];
     for (const room of roomMap.values()) {
-      const win = nextFreeWindow(room.bookedIntervals, nowStr, dayEnd);
+      const win = nextFreeWindow(room.bookedIntervals, nowStr, dayEndWall);
       if (!win) continue;
 
       const toMs  = (s) => new Date(s.replace(' ', 'T') + 'Z').getTime();
@@ -1817,14 +1820,19 @@ export const reserveRoomByPin = async (req, res, next) => {
       hour: '2-digit', minute: '2-digit', second: '2-digit'
     }).format(new Date());
 
-    const startAtStr = (windowStart && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(windowStart))
+    const startAtWall = (windowStart && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(windowStart))
       ? windowStart.slice(0, 16) + ':00'
       : nowStr.slice(0, 16) + ':00';
 
-    // Calculate endAt = startAt + hoursNum
-    const startMs = new Date(startAtStr.replace(' ', 'T') + 'Z').getTime();
+    // Calculate endAt = startAt + hoursNum (wall arithmetic), then store UTC
+    const startMs = new Date(startAtWall.replace(' ', 'T') + 'Z').getTime();
     const endMs   = startMs + hoursNum * 3600_000;
-    const endAtStr = msToNaiveStr(endMs);
+    const endAtWall = msToNaiveStr(endMs);
+    const startAtStr = wallStrToUtcMysql(startAtWall, tz);
+    const endAtStr = wallStrToUtcMysql(endAtWall, tz);
+    if (!startAtStr || !endAtStr) {
+      return res.status(400).json({ error: { message: 'Invalid reservation window' } });
+    }
 
     // Validate no conflict
     const [conflictRows] = await pool.execute(

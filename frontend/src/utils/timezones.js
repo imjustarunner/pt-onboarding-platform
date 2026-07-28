@@ -432,3 +432,109 @@ export function formatSchoolEventReportTime(reportTime, timezoneAbbrev = '') {
   const abbr = String(timezoneAbbrev || '').trim();
   return abbr ? `${label} ${abbr}` : label;
 }
+
+/**
+ * Format a UTC instant for payroll/event business UI in an explicit IANA zone.
+ */
+export function formatBusinessDateTime(iso, timezone = SCHOOL_EVENT_FALLBACK_TIMEZONE) {
+  if (!iso) return '—';
+  const d = iso instanceof Date ? iso : new Date(iso);
+  if (!Number.isFinite(d.getTime())) return String(iso);
+  const tz = schoolEventDisplayTimezone(timezone);
+  try {
+    return d.toLocaleString('en-US', {
+      timeZone: tz,
+      month: 'numeric',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+  } catch {
+    return d.toLocaleString();
+  }
+}
+
+function getTimeZoneOffsetMsClient(date, timeZone) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  const parts = dtf.formatToParts(date);
+  const map = {};
+  for (const p of parts) {
+    if (p.type !== 'literal') map[p.type] = p.value;
+  }
+  const asUtc = new Date(Date.UTC(
+    Number(map.year),
+    Number(map.month) - 1,
+    Number(map.day),
+    Number(map.hour),
+    Number(map.minute),
+    Number(map.second)
+  ));
+  return date.getTime() - asUtc.getTime();
+}
+
+function zonedWallTimeToUtcClient({ year, month, day, hour, minute, second = 0, timeZone }) {
+  const tz = schoolEventDisplayTimezone(timeZone);
+  let guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  for (let i = 0; i < 2; i += 1) {
+    const offset = getTimeZoneOffsetMsClient(guess, tz);
+    guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second) + offset);
+  }
+  return guess;
+}
+
+/** UTC ISO → `YYYY-MM-DDTHH:mm` in the given zone (for datetime-local inputs). */
+export function isoToZonedDatetimeLocal(iso, timezone = SCHOOL_EVENT_FALLBACK_TIMEZONE) {
+  if (!iso) return '';
+  const d = iso instanceof Date ? iso : new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  const tz = schoolEventDisplayTimezone(timezone);
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).formatToParts(d);
+    const map = {};
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = p.value;
+    }
+    let hour = String(map.hour || '00');
+    if (hour === '24') hour = '00';
+    return `${map.year}-${map.month}-${map.day}T${hour.padStart(2, '0')}:${String(map.minute || '00').padStart(2, '0')}`;
+  } catch {
+    return '';
+  }
+}
+
+/** `YYYY-MM-DDTHH:mm` wall time in zone → UTC ISO. */
+export function zonedDatetimeLocalToIso(value, timezone = SCHOOL_EVENT_FALLBACK_TIMEZONE) {
+  const raw = String(value || '').trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const utc = zonedWallTimeToUtcClient({
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour: Number(m[4]),
+    minute: Number(m[5]),
+    second: Number(m[6] || 0),
+    timeZone: timezone
+  });
+  return Number.isFinite(utc.getTime()) ? utc.toISOString() : null;
+}

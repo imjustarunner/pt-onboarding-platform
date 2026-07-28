@@ -1,14 +1,13 @@
 /**
  * Auto Employee Clock-Out
  *
- * Runs on a schedule (every 5 min). For any employee who is still clocked
- * in to an event, if every client at that event has checked out AND at
- * least AUTO_CLOCK_OUT_AFTER_MINUTES have elapsed since the last client's
- * checkout, the employee is automatically clocked out at
- * (last_client_checkout + AUTO_CLOCK_OUT_AFTER_MINUTES).
+ * DISABLED by default. Staff clock out themselves at the kiosk; inventing a
+ * shared checkout time (last client + 90 minutes) created confusing identical
+ * payroll rows. Re-enable only with ENABLE_AUTO_EMPLOYEE_CLOCK_OUT=1, and any
+ * auto clock-outs must set needsVerification on the claim payload.
  *
- * This handles staff who forget to clock out at the end of the day.
- * Employees can still edit the resulting time entry via My Payroll.
+ * When enabled: for employees still clocked in after all clients leave, clocks
+ * them out at (last_client_checkout + AUTO_CLOCK_OUT_AFTER_MINUTES).
  */
 
 import pool from '../config/database.js';
@@ -16,7 +15,16 @@ import { recordSkillBuilderEventClockOut } from './skillBuildersEventKioskPunch.
 
 const AUTO_CLOCK_OUT_AFTER_MINUTES = 90;
 
+function isAutoEmployeeClockOutEnabled() {
+  const raw = String(process.env.ENABLE_AUTO_EMPLOYEE_CLOCK_OUT || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
 export async function runAutoEmployeeClockOut() {
+  if (!isAutoEmployeeClockOutEnabled()) {
+    return { clockedOut: [], disabled: true };
+  }
+
   // Find all open clock-in punches from the last 2 days.
   // "Open" means no clock_out row with punched_at >= the clock_in's punched_at.
   const [openPunches] = await pool.execute(`

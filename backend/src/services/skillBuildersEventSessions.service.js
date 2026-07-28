@@ -94,7 +94,19 @@ export async function materializeSkillBuildersEventSessions(conn, { skillsGroupI
   }
 
   const agencyId = Number(g.agency_id);
-  const tz = await ProviderAvailabilityService.resolveAgencyTimeZone({ agencyId });
+  let tz = '';
+  try {
+    const [evTzRows] = await conn.execute(
+      `SELECT timezone FROM company_events WHERE id = ? LIMIT 1`,
+      [eventId]
+    );
+    tz = String(evTzRows?.[0]?.timezone || '').trim();
+  } catch {
+    tz = '';
+  }
+  if (!tz) {
+    tz = await ProviderAvailabilityService.resolveAgencyTimeZone({ agencyId });
+  }
 
   const [mRows] = await conn.execute(
     `SELECT id, weekday, start_time, end_time FROM skills_group_meetings WHERE skills_group_id = ? ORDER BY id ASC`,

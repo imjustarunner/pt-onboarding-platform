@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import { computeEventDirectIndirectHours, roundEventPayrollHours as round2 } from '../utils/eventPayrollHours.util.js';
+import { toUtcIso, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -171,7 +172,20 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
   outSessionId,
   source
 }) {
-  const claimDate = tOut.toISOString().slice(0, 10);
+  let eventTimezone = 'America/Denver';
+  try {
+    const [tzRows] = await poolConn.execute(
+      `SELECT timezone FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [eventId, agencyId]
+    );
+    const tz = String(tzRows?.[0]?.timezone || '').trim();
+    if (tz) eventTimezone = tz;
+  } catch {
+    // keep default
+  }
+
+  // Claim calendar day in the event timezone (not UTC midnight from toISOString).
+  const claimDate = utcDateToZonedYmd(tOut, eventTimezone) || tOut.toISOString().slice(0, 10);
   const [pRows] = await poolConn.execute(
     `SELECT id FROM payroll_periods
      WHERE agency_id = ? AND period_start <= ? AND period_end >= ?
@@ -180,19 +194,31 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
   );
   const suggestedPayrollPeriodId = pRows?.[0]?.id ? Number(pRows[0].id) : null;
 
+  const punchSource = source || 'portal';
+  const isAutoClockOut = punchSource === 'auto_all_clients_out' || punchSource === 'auto';
+  const clockInIso = toUtcIso(lastIn.punched_at) || toUtcIso(tIn);
+  const clockOutIso = toUtcIso(tOut);
   const basePayload = {
     companyEventId: eventId,
     companyEventSessionId: outSessionId,
     clientId: outClientId,
-    clockInAt: lastIn.punched_at,
-    clockOutAt: tOut.toISOString(),
+    clockInAt: clockInIso,
+    clockOutAt: clockOutIso,
+    eventTimezone,
     workedHours: round2(workedHours),
     directHours: round2(directHours),
     indirectHours: round2(indirectHours),
     directHoursCap: round2(directHoursCap),
     kioskPunchInId: lastIn.id,
     kioskPunchOutId: punchOutId,
-    source: source || 'portal'
+    source: punchSource,
+    ...(isAutoClockOut
+      ? {
+          autoClockOut: true,
+          needsVerification: true,
+          verificationReason: punchSource
+        }
+      : {})
   };
 
   let directClaimId = null;
@@ -526,7 +552,8 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
   if (claimIds.size) {
     const ph = [...claimIds].map(() => '?').join(',');
     const [claimRows] = await pool.execute(
-      `SELECT id, status, bucket, credits_hours, target_payroll_period_id FROM payroll_time_claims WHERE id IN (${ph})`,
+      `SELECT id, status, bucket, credits_hours, target_payroll_period_id, payload_json
+       FROM payroll_time_claims WHERE id IN (${ph})`,
       [...claimIds]
     );
     for (const c of claimRows || []) {
@@ -574,12 +601,25 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
 
     const directClaim = claimById.get(Number(p.payroll_time_claim_id || inPunch?.payroll_time_claim_id));
     const indirectClaim = claimById.get(Number(p.payroll_indirect_claim_id || inPunch?.payroll_indirect_claim_id));
+    let claimPayload = {};
+    try {
+      const raw = directClaim?.payload_json || indirectClaim?.payload_json;
+      claimPayload = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {});
+    } catch {
+      claimPayload = {};
+    }
+    const claimSource = String(claimPayload.source || 'kiosk_punch');
+    const autoClockOut = claimPayload.autoClockOut === true
+      || claimSource === 'auto_all_clients_out'
+      || claimSource === 'auto';
+    const needsVerification = claimPayload.needsVerification === true
+      || claimSource === 'auto_all_clients_out';
 
     paired.push({
       userId: uidKey,
       providerName: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
-      clockInAt: inPunch?.punched_at || null,
-      clockOutAt: p.punched_at,
+      clockInAt: toUtcIso(inPunch?.punched_at) || null,
+      clockOutAt: toUtcIso(p.punched_at),
       workedHours: round2(workedHours),
       directHours: round2(directHours),
       indirectHours: round2(indirectHours),
@@ -591,7 +631,9 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
       indirectClaimId: indirectClaim ? Number(indirectClaim.id) : (p.payroll_indirect_claim_id ? Number(p.payroll_indirect_claim_id) : null),
       directClaimStatus: claimStatusFromRow(directClaim),
       indirectClaimStatus: claimStatusFromRow(indirectClaim),
-      source: 'kiosk_punch'
+      source: claimSource,
+      autoClockOut,
+      needsVerification
     });
   }
 
@@ -599,7 +641,7 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
     paired.push({
       userId: uidKey,
       providerName: `${inPunch.first_name || ''} ${inPunch.last_name || ''}`.trim(),
-      clockInAt: inPunch.punched_at,
+      clockInAt: toUtcIso(inPunch.punched_at),
       clockOutAt: null,
       workedHours: null,
       directHours: null,

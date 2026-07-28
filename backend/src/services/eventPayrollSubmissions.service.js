@@ -41,6 +41,7 @@ function groupClaimsIntoSubmissions(claimRows, eventTitlesById, eventStartById =
         eventTitle: eventId ? (eventTitlesById.get(eventId) || `Event #${eventId}`) : '',
         eventStartsAt: evStart.startsAt || null,
         eventEmployeeReportTime: evStart.employeeReportTime || null,
+        eventTimezone: payload.eventTimezone || evStart.timezone || 'America/Denver',
         companyEventSessionId: payload.companyEventSessionId != null ? Number(payload.companyEventSessionId) : null,
         clockInAt: payload.clockInAt || null,
         clockOutAt: payload.clockOutAt || null,
@@ -49,6 +50,12 @@ function groupClaimsIntoSubmissions(claimRows, eventTitlesById, eventStartById =
         indirectHours: payload.indirectHours != null ? Number(payload.indirectHours) : null,
         directHoursCap: payload.directHoursCap != null ? Number(payload.directHoursCap) : null,
         source: payload.source || null,
+        autoClockOut: payload.autoClockOut === true
+          || String(payload.source || '') === 'auto_all_clients_out'
+          || String(payload.source || '') === 'auto',
+        needsVerification: payload.needsVerification === true
+          || String(payload.source || '') === 'auto_all_clients_out',
+        verificationReason: payload.verificationReason || null,
         wasEdited: payload.wasEdited === true,
         lastEditedByRole: payload.lastEditedByRole || null,
         lastEditedAt: payload.lastEditedAt || null,
@@ -146,7 +153,7 @@ export async function listEventTimeSubmissionsForAgency({
   if (eventIds.size) {
     const ph = [...eventIds].map(() => '?').join(',');
     const [evRows] = await pool.execute(
-      `SELECT id, title, starts_at, employee_report_time FROM company_events WHERE id IN (${ph})`,
+      `SELECT id, title, starts_at, employee_report_time, timezone FROM company_events WHERE id IN (${ph})`,
       [...eventIds]
     );
     for (const ev of evRows || []) {
@@ -156,7 +163,8 @@ export async function listEventTimeSubmissionsForAgency({
       const reportTime = ev.employee_report_time ? String(ev.employee_report_time).slice(0, 8) : null;
       eventStartById.set(Number(ev.id), {
         startsAt: ev.starts_at ? new Date(ev.starts_at).toISOString() : null,
-        employeeReportTime: reportTime
+        employeeReportTime: reportTime,
+        timezone: String(ev.timezone || '').trim() || 'America/Denver'
       });
     }
   }
@@ -186,9 +194,10 @@ export async function listMyEventTimeSessions({ agencyId, userId, limit = 50 }) 
   for (const ev of eventRows || []) {
     const eventId = Number(ev.id);
     const [titleRows] = await pool.execute(
-      `SELECT title, skill_builder_direct_hours FROM company_events WHERE id = ? LIMIT 1`,
+      `SELECT title, skill_builder_direct_hours, timezone FROM company_events WHERE id = ? LIMIT 1`,
       [eventId]
     );
+    const eventTimezone = String(titleRows?.[0]?.timezone || '').trim() || 'America/Denver';
     const paired = await listPairedEventProviderAttendance(eventId, {
       userId: uid,
       agencyId: aid
@@ -197,7 +206,8 @@ export async function listMyEventTimeSessions({ agencyId, userId, limit = 50 }) 
       sessions.push({
         ...row,
         companyEventId: eventId,
-        eventTitle: titleRows?.[0]?.title || `Event #${eventId}`
+        eventTitle: titleRows?.[0]?.title || `Event #${eventId}`,
+        eventTimezone
       });
     }
   }
@@ -286,7 +296,11 @@ export async function updateEventTimeSubmission({
     originalValues: original,
     wasEdited: true,
     lastEditedByRole: byRole,
-    lastEditedAt: new Date().toISOString()
+    lastEditedAt: new Date().toISOString(),
+    // Manual edit clears the auto-clock-out verification flag.
+    needsVerification: false,
+    autoClockOut: basePayload.autoClockOut === true
+      || String(basePayload.source || '') === 'auto_all_clients_out'
   };
 
   const punchOutId = parsePositiveInt(basePayload.kioskPunchOutId);

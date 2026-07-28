@@ -46,6 +46,11 @@ import {
   autoResolveIntegrityIssues
 } from '../services/officeScheduleIntegrity.service.js';
 import { hasPendingSoftHoldAt } from '../services/officeRequestSoftHold.service.js';
+import {
+  mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned,
+  parseUtcDate
+} from '../utils/officeEventDateTime.util.js';
+import { utcDateToZonedParts } from '../utils/zonedWallTime.util.js';
 
 const canManageSchedule = (role) =>
   role === 'clinical_practice_assistant' || role === 'provider_plus' || role === 'admin' || role === 'super_admin' || role === 'superadmin' || role === 'support' || role === 'staff';
@@ -54,13 +59,15 @@ const DELETE_EVENT_REQUEST_TYPE = 'DELETE_EVENT';
 const DROP_ASSIGNMENT_REQUEST_TYPE = 'DROP_ASSIGNMENT';
 
 function parseSlotEndHour(startAt, endAt, tz) {
-  const startWh = weekdayHourFromSqlDateTime(startAt) || weekdayHourInTz(startAt, tz);
-  const endWh = weekdayHourFromSqlDateTime(endAt) || weekdayHourInTz(endAt, tz);
+  // Prefer office-zone wall clock (UTC storage) over raw DATETIME digits.
+  const startWh = weekdayHourInTz(startAt, tz) || weekdayHourFromSqlDateTime(startAt);
+  const endWh = weekdayHourInTz(endAt, tz) || weekdayHourFromSqlDateTime(endAt);
   if (!startWh) return null;
   const startHour = Number(startWh.hour);
   let endHour = endWh ? Number(endWh.hour) : startHour + 1;
   if (endHour <= startHour) endHour = startHour + 1;
-  return { date: startWh.date, startHour, endHour };
+  const date = startWh.date || parseSlotDateHour(startAt, tz)?.date || null;
+  return { date, startHour, endHour };
 }
 
 function parseJsonSafely(value) {
@@ -243,16 +250,8 @@ function intervalsOverlap(startA, endA, startB, endB) {
     endA > startB && startA < endB;
 }
 
-function mysqlDateTimeForDateHour(dateStr, hour24) {
-  const m = String(dateStr || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const base = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  const totalHours = Number(hour24 || 0);
-  const dayOffset = Math.floor(totalHours / 24);
-  const normalizedHour = ((totalHours % 24) + 24) % 24;
-  base.setUTCDate(base.getUTCDate() + dayOffset);
-  const ymd = base.toISOString().slice(0, 10);
-  return `${ymd} ${String(normalizedHour).padStart(2, '0')}:00:00`;
+function mysqlDateTimeForDateHour(dateStr, hour24, timeZone = 'America/Denver') {
+  return mysqlDateTimeForDateHourZoned(dateStr, hour24, timeZone);
 }
 
 function normalizeMysqlDateTime(value) {
@@ -269,8 +268,19 @@ function normalizeMysqlDateTime(value) {
   return parsed.toISOString().slice(0, 19).replace('T', ' ');
 }
 
-function parseSlotDateHour(value) {
+function parseSlotDateHour(value, timeZone = null) {
   if (!value) return null;
+  if (timeZone) {
+    const d = value instanceof Date ? value : parseUtcDate(value);
+    const parts = d ? utcDateToZonedParts(d, timeZone) : null;
+    if (parts) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return {
+        date: `${parts.year}-${pad(parts.month)}-${pad(parts.day)}`,
+        hour: parts.hour
+      };
+    }
+  }
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) return null;
     return {
@@ -343,22 +353,31 @@ function recurrenceMatchesDate({ recurrence, occurrenceCount, startDateYmd, targ
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function weekdayHourInTz(dateLike, timeZone) {
-  const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
-  if (Number.isNaN(d.getTime())) return null;
+  const d = dateLike instanceof Date ? dateLike : (parseUtcDate(dateLike) || new Date(dateLike));
+  if (!d || Number.isNaN(d.getTime())) return null;
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone,
       weekday: 'long',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
       hour: '2-digit',
       hour12: false
     }).formatToParts(d);
-    const weekday = parts.find((p) => p.type === 'weekday')?.value || '';
-    const hourStr = parts.find((p) => p.type === 'hour')?.value || '';
-    const hour = parseInt(hourStr, 10);
+    const map = {};
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = p.value;
+    }
+    const weekday = map.weekday || '';
+    const hour = parseInt(map.hour || '', 10);
     const normalizedHour = hour === 24 ? 0 : hour;
     const idx = WEEKDAY_NAMES.indexOf(weekday);
     if (idx < 0 || !Number.isInteger(normalizedHour)) return null;
-    return { weekdayName: weekday, weekdayIndex: idx, hour: normalizedHour };
+    const date = map.year && map.month && map.day
+      ? `${map.year}-${String(map.month).padStart(2, '0')}-${String(map.day).padStart(2, '0')}`
+      : null;
+    return { weekdayName: weekday, weekdayIndex: idx, hour: normalizedHour, date };
   } catch {
     return null;
   }
@@ -964,8 +983,9 @@ export const getWeeklyGrid = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    const windowStart = `${weekStart} 00:00:00`;
-    const windowEnd = `${addDays(weekStart, 7)} 00:00:00`;
+    const officeTz = loc.timezone || 'America/Denver';
+    const windowStart = mysqlDateTimeForDateHour(weekStart, 0, officeTz) || `${weekStart} 00:00:00`;
+    const windowEnd = mysqlDateTimeForDateHour(addDays(weekStart, 7), 0, officeTz) || `${addDays(weekStart, 7)} 00:00:00`;
 
     // Normalize slots for each room/day/hour
     const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -1038,7 +1058,7 @@ export const getWeeklyGrid = async (req, res, next) => {
         [officeLocationIdNum, windowEnd, windowStart]
       );
       for (const row of cancelledRows || []) {
-        const slot = parseSlotDateHour(row.start_at);
+        const slot = parseSlotDateHour(row.start_at, officeTz);
         if (!slot) continue;
         const roomId = Number(row.room_id || 0);
         if (!roomId) continue;
@@ -1099,7 +1119,7 @@ export const getWeeklyGrid = async (req, res, next) => {
     const eventsBySlot = new Map();
     const conflictSlotsByKey = new Map();
     for (const e of events || []) {
-      const slot = parseSlotDateHour(e.start_at);
+      const slot = parseSlotDateHour(e.start_at, officeTz);
       if (!slot) continue;
       const date = slot.date;
       const hour = slot.hour;
@@ -1156,8 +1176,8 @@ export const getWeeklyGrid = async (req, res, next) => {
       if (!Number.isFinite(assignmentStartMs)) continue;
       for (const date of days) {
         for (const hour of hours) {
-          const slotStart = mysqlDateTimeForDateHour(date, hour);
-          const slotEnd = mysqlDateTimeForDateHour(date, Number(hour) + 1);
+          const slotStart = mysqlDateTimeForDateHour(date, hour, officeTz);
+          const slotEnd = mysqlDateTimeForDateHour(date, Number(hour) + 1, officeTz);
           const slotStartMs = timeMs(slotStart);
           const slotEndMs = timeMs(slotEnd);
           if (!Number.isFinite(slotStartMs) || !Number.isFinite(slotEndMs)) continue;
@@ -1321,8 +1341,8 @@ export const getWeeklyGrid = async (req, res, next) => {
             const bookedProviderName = bookedFirst || bookedLast ? formatClinicianName(bookedFirst, bookedLast) : '';
             const bookedProviderFullName = bookedFirst || bookedLast ? formatFullName(bookedFirst, bookedLast) : '';
             const displayInitials = bookedInitials || assignedInitials || standingInitials || null;
-            const slotStartAt = mysqlDateTimeForDateHour(date, hour);
-            const slotEndAt = mysqlDateTimeForDateHour(date, Number(hour) + 1);
+            const slotStartAt = mysqlDateTimeForDateHour(date, hour, officeTz);
+            const slotEndAt = mysqlDateTimeForDateHour(date, Number(hour) + 1, officeTz);
             const virtualIntakeEnabled =
               Boolean(effectiveProviderId) &&
               Boolean(slotStartAt) &&
@@ -5038,8 +5058,10 @@ export const debugEventsForWeek = async (req, res, next) => {
     const weekStart = normalizeYmd(weekStartRaw);
     if (!weekStart) return res.status(400).json({ error: 'weekStart must be YYYY-MM-DD' });
     const weekEnd = addDays(weekStart, 7);
-    const windowStart = `${weekStart} 00:00:00`;
-    const windowEnd = `${weekEnd} 00:00:00`;
+    const loc = await OfficeLocation.findById(locationId);
+    const officeTz = loc?.timezone || 'America/Denver';
+    const windowStart = mysqlDateTimeForDateHour(weekStart, 0, officeTz) || `${weekStart} 00:00:00`;
+    const windowEnd = mysqlDateTimeForDateHour(weekEnd, 0, officeTz) || `${weekEnd} 00:00:00`;
 
     const [assignments] = await pool.execute(
       `SELECT a.id, a.provider_id, a.room_id, a.weekday, a.hour,

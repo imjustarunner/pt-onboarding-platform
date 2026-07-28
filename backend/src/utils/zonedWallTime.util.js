@@ -84,3 +84,86 @@ export function utcDateToZonedYmd(date, timeZone) {
     return null;
   }
 }
+
+/** Normalize any Date/ISO/mysql value to ISO UTC string (or null). */
+export function toUtcIso(date) {
+  if (date == null || date === '') return null;
+  const d = date instanceof Date ? date : new Date(date);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d.toISOString();
+}
+
+/**
+ * Format a UTC instant as MySQL DATETIME digits in UTC (`YYYY-MM-DD HH:MM:SS`).
+ * Use when inserting/updating DATETIME under pool timezone +00:00.
+ */
+export function dateToMysqlUtcDateTime(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (!Number.isFinite(d.getTime())) return null;
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const mi = String(d.getUTCMinutes()).padStart(2, '0');
+  const s = String(d.getUTCSeconds()).padStart(2, '0');
+  return `${y}-${m}-${day} ${h}:${mi}:${s}`;
+}
+
+/**
+ * Wall-clock YMD + hour in a zone → MySQL UTC DATETIME string.
+ */
+export function zonedDateHourToMysqlUtc(dateYmd, hour24, timeZone) {
+  const ymd = String(dateYmd || '').slice(0, 10);
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const hour = Number(hour24);
+  if (!Number.isFinite(hour)) return null;
+  const utc = zonedWallTimeToUtc({
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour,
+    minute: 0,
+    second: 0,
+    timeZone
+  });
+  return dateToMysqlUtcDateTime(utc);
+}
+
+/**
+ * Parts of a UTC instant in an IANA zone (for datetime-local style fields).
+ */
+export function utcDateToZonedParts(date, timeZone) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (!Number.isFinite(d.getTime())) return null;
+  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : 'America/New_York';
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    const parts = dtf.formatToParts(d);
+    const map = {};
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = p.value;
+    }
+    let hour = Number(map.hour);
+    if (hour === 24) hour = 0;
+    return {
+      year: Number(map.year),
+      month: Number(map.month),
+      day: Number(map.day),
+      hour,
+      minute: Number(map.minute),
+      second: Number(map.second || 0)
+    };
+  } catch {
+    return null;
+  }
+}

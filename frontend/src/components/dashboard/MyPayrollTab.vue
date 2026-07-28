@@ -901,8 +901,15 @@
             <tbody>
               <tr v-for="(s, idx) in eventTimeSessions" :key="`et-${idx}`">
                 <td>{{ s.eventTitle || '—' }}</td>
-                <td>{{ fmtShortDateTime(s.clockInAt) }}</td>
-                <td>{{ s.clockOutAt ? fmtShortDateTime(s.clockOutAt) : '—' }}</td>
+                <td>{{ fmtShortDateTime(s.clockInAt, s.eventTimezone) }}</td>
+                <td>
+                  {{ s.clockOutAt ? fmtShortDateTime(s.clockOutAt, s.eventTimezone) : '—' }}
+                  <span
+                    v-if="s.needsVerification || s.autoClockOut || s.source === 'auto_all_clients_out'"
+                    title="System filled this checkout because no kiosk clock-out was recorded. Please edit if the time is wrong."
+                    style="margin-left:4px;background:#fee2e2;color:#991b1b;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
+                  >Auto — verify</span>
+                </td>
                 <td class="right">{{ s.workedHours ?? '—' }}</td>
                 <td class="right">{{ s.directHours ?? '—' }}</td>
                 <td class="right">{{ s.indirectHours ?? '—' }}</td>
@@ -2266,6 +2273,12 @@ import PayrollHubPanel from './PayrollHubPanel.vue';
 import PayrollHubSection from './PayrollHubSection.vue';
 import IndirectTimeClaimEditModal from './IndirectTimeClaimEditModal.vue';
 import { computePayrollHubStats, getPayrollActionRequired } from '../../utils/payrollUiHelpers';
+import {
+  formatBusinessDateTime,
+  isoToZonedDatetimeLocal,
+  zonedDatetimeLocalToIso,
+  SCHOOL_EVENT_FALLBACK_TIMEZONE
+} from '../../utils/timezones';
 
 const props = defineProps({
   /** When set, open mileage modal immediately on mount (e.g. from Submit panel). */
@@ -2561,19 +2574,14 @@ const eventTimeEditCap = ref(0);
 const eventTimeEditSaving = ref(false);
 const eventTimeEditError = ref('');
 
-const etIsoToLocalInput = (iso) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-const etLocalInputToIso = (value) => {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
-};
+const etSessionTz = (session) =>
+  session?.eventTimezone || eventTimeEditTarget.value?.eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
+
+const etIsoToLocalInput = (iso, timezone) =>
+  isoToZonedDatetimeLocal(iso, timezone || etSessionTz());
+
+const etLocalInputToIso = (value, timezone) =>
+  zonedDatetimeLocalToIso(value, timezone || etSessionTz());
 
 const EVENT_TIME_LOCKED_STATUSES = new Set(['approved', 'posted', 'paid', 'finalized']);
 const eventTimeSessionEditable = (s) => {
@@ -2605,8 +2613,8 @@ const openEventTimeEdit = (session) => {
     return;
   }
   eventTimeEditTarget.value = session;
-  eventTimeEditClockIn.value = etIsoToLocalInput(session.clockInAt);
-  eventTimeEditClockOut.value = etIsoToLocalInput(session.clockOutAt);
+  eventTimeEditClockIn.value = etIsoToLocalInput(session.clockInAt, session.eventTimezone);
+  eventTimeEditClockOut.value = etIsoToLocalInput(session.clockOutAt, session.eventTimezone);
   eventTimeEditCap.value = session.directHoursCap != null ? Number(session.directHoursCap) : 0;
   eventTimeEditError.value = '';
   showEventTimeEditModal.value = true;
@@ -4065,17 +4073,22 @@ const loadEventTimeSessions = async () => {
   }
 };
 
-const fmtShortDateTime = (iso) => {
+const fmtShortDateTime = (iso, timezone) => {
   if (!iso) return '—';
+  const full = formatBusinessDateTime(iso, timezone || SCHOOL_EVENT_FALLBACK_TIMEZONE);
+  if (full === '—') return full;
   try {
-    return new Date(iso).toLocaleString(undefined, {
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return full;
+    return d.toLocaleString('en-US', {
+      timeZone: timezone || SCHOOL_EVENT_FALLBACK_TIMEZONE,
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit'
     });
   } catch {
-    return String(iso);
+    return full;
   }
 };
 
