@@ -8,7 +8,7 @@
         <h2 class="itl-title">Time Submission</h2>
       </div>
       <div class="itl-top-right">
-        <div class="itl-date" aria-label="Submission date">
+        <div v-if="entryMethod !== 'manual'" class="itl-date" aria-label="Submission date">
           <IndirectTimeIcon name="calendar" :size="16" />
           <input v-model="claimDate" type="date" class="itl-date-input" :max="todayYmd" />
         </div>
@@ -157,6 +157,10 @@
           </div>
 
           <div v-if="entryMethod === 'manual'" class="itl-manual-times">
+            <label class="itl-field">
+              <span>Date worked</span>
+              <input v-model="claimDate" type="date" :max="todayYmd" required />
+            </label>
             <label class="itl-field">
               <span>Start time</span>
               <input v-model="manualStart" type="time" />
@@ -395,16 +399,27 @@ const indirectSessionStore = useIndirectTimeSessionStore();
 const router = useRouter();
 const route = useRoute();
 
+const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect']);
+
+function isExcludedIndirectType(t) {
+  const key = String(t?.typeKey || t?.type_key || '').toLowerCase();
+  return EXCLUDED_INDIRECT_TYPE_KEYS.has(key);
+}
+
 const dualRateEnabled = computed(() => isHourlyDualRateEnabled(authStore.user));
 const indirectServiceTypes = computed(() =>
-  (serviceTypes.value || []).filter((t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'indirect')
+  (serviceTypes.value || []).filter(
+    (t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'indirect' && !isExcludedIndirectType(t)
+  )
 );
 const other1ServiceTypes = computed(() =>
   (serviceTypes.value || []).filter((t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'other_1')
 );
 /** Non dual-rate workers only see Indirect types (Other 1 is dual-contract only). */
 const visibleServiceTypes = computed(() =>
-  dualRateEnabled.value ? (serviceTypes.value || []) : indirectServiceTypes.value
+  dualRateEnabled.value
+    ? (serviceTypes.value || []).filter((t) => !isExcludedIndirectType(t))
+    : indirectServiceTypes.value
 );
 
 const noteAidUsedDuringSession = computed(() => !!indirectSessionStore.noteAidUsedDuringSession);
@@ -707,6 +722,7 @@ const sessionEndIsLive = computed(() => {
 const canSubmit = computed(() => {
   if (!props.enabled || !agencyId.value) return false;
   if (!attestation.value) return false;
+  if (entryMethod.value === 'manual' && !/^\d{4}-\d{2}-\d{2}$/.test(String(claimDate.value || ''))) return false;
   if (!(sessionTotalMinutes.value >= 1)) return false;
   if (!selectedTypeIds.value.size) return false;
   return !!allocationValid.value;
@@ -833,7 +849,10 @@ function restoreSelectedTypes() {
     const ids = JSON.parse(raw);
     if (!Array.isArray(ids) || !ids.length) return;
     const valid = new Set(
-      (serviceTypes.value || []).map((t) => Number(t.id)).filter((n) => Number.isFinite(n))
+      (serviceTypes.value || [])
+        .filter((t) => !isExcludedIndirectType(t))
+        .map((t) => Number(t.id))
+        .filter((n) => Number.isFinite(n))
     );
     const next = new Set(ids.map(Number).filter((id) => valid.has(id)));
     if (next.size) selectedTypeIds.value = next;
@@ -876,7 +895,8 @@ async function loadTypes() {
   error.value = '';
   try {
     const resp = await api.get('/payroll/me/indirect-service-types', { params: { agencyId: agencyId.value } });
-    serviceTypes.value = Array.isArray(resp.data?.types) ? resp.data.types : [];
+    const raw = Array.isArray(resp.data?.types) ? resp.data.types : [];
+    serviceTypes.value = raw.filter((t) => !isExcludedIndirectType(t));
     if (indirectSessionStore.noteAidUsedDuringSession) {
       restoreSelectedTypes();
       ensureWritingNotesSelected();
@@ -1047,6 +1067,9 @@ async function submitTime() {
   error.value = '';
   success.value = '';
   try {
+    if (entryMethod.value === 'manual' && !/^\d{4}-\d{2}-\d{2}$/.test(String(claimDate.value || ''))) {
+      throw new Error('Date worked is required');
+    }
     if (entryMethod.value === 'clock' && isClockedIn.value) {
       await clockOut();
     }

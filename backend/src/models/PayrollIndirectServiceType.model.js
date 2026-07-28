@@ -14,7 +14,6 @@ export const DEFAULT_INDIRECT_SERVICE_TYPES = [
   { typeKey: 'documentation_emr', label: 'Documentation / EMR (Non-Billable)', description: 'Non-billable EMR and chart documentation', iconKey: 'monitor', payBucket: 'indirect', sortOrder: 90 },
   { typeKey: 'client_follow_up', label: 'Client Follow-Up (Non-Billable)', description: 'Non-billable client follow-up activities', iconKey: 'user-check', payBucket: 'indirect', sortOrder: 100 },
   { typeKey: 'resource_coordination', label: 'Resource Coordination (Non-Billable)', description: 'Coordinate resources and supports', iconKey: 'handshake', payBucket: 'indirect', sortOrder: 110 },
-  { typeKey: 'other_indirect', label: 'Other Indirect', description: 'Other approved indirect work', iconKey: 'more', payBucket: 'indirect', sortOrder: 120 },
   // Type 2 / Other 1
   { typeKey: 'training_meetings', label: 'Training Meetings', description: 'Staff training and development meetings', iconKey: 'users', payBucket: 'other_1', sortOrder: 210 },
   { typeKey: 'outreach_meetings', label: 'Outreach Meetings', description: 'Outreach planning and coordination meetings', iconKey: 'megaphone', payBucket: 'other_1', sortOrder: 220 },
