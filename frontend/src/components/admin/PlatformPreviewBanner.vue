@@ -1,8 +1,15 @@
 <template>
   <section class="platform-preview-banner" :class="[`platform-preview-banner--${tone}`]">
-    <div class="platform-preview-banner__eyebrow">Platform Preview</div>
-    <div class="platform-preview-banner__title">{{ title }}</div>
-    <div v-if="subtitle" class="platform-preview-banner__subtitle">{{ subtitle }}</div>
+    <div class="platform-preview-banner__body">
+      <div>
+        <div class="platform-preview-banner__eyebrow">{{ eyebrow }}</div>
+        <div class="platform-preview-banner__title">{{ title }}</div>
+        <div v-if="subtitle" class="platform-preview-banner__subtitle">{{ subtitle }}</div>
+      </div>
+      <div v-if="$slots.actions" class="platform-preview-banner__actions">
+        <slot name="actions" />
+      </div>
+    </div>
   </section>
 </template>
 
@@ -19,6 +26,10 @@ defineProps({
   tone: {
     type: String,
     default: 'default'
+  },
+  eyebrow: {
+    type: String,
+    default: 'Platform Preview'
   }
 });
 </script>
@@ -40,6 +51,20 @@ defineProps({
   background:
     linear-gradient(135deg, rgba(255, 190, 92, 0.14), rgba(255, 232, 176, 0.24)),
     #ffffff;
+}
+
+.platform-preview-banner__body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.platform-preview-banner__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .platform-preview-banner__eyebrow {

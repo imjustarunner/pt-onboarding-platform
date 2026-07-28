@@ -10,6 +10,13 @@ router.post('/qr/:token/start', ctrl.startFromQr);
 router.get('/:token', ctrl.getPublicByToken);
 router.post('/:token/password', ctrl.setPassword);
 router.put('/:token/steps/:stepKey', ctrl.saveStep);
+router.get('/:token/demo/snapshot', ctrl.getDemoSnapshot);
+router.get('/:token/demo/school', ctrl.getDemoSchoolMeta);
+router.use('/:token/demo/portal', (req, res, next) => {
+  const method = String(req.method || 'GET').toUpperCase();
+  if (method === 'GET' || method === 'HEAD') return ctrl.getDemoPortal(req, res, next);
+  return ctrl.mutateDemoPortal(req, res, next);
+});
 router.get('/:token/demo', ctrl.getDemo);
 router.post('/:token/submit', ctrl.submit);
 

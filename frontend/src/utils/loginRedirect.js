@@ -126,6 +126,8 @@ const NON_SLUG_SEGMENTS = [
   'initial-setup',
   'passwordless-login',
   'onboarding',
+  'school-onboarding',
+  'school-reinit',
   'on-demand-training',
   'account-info'
 ];

@@ -28,6 +28,8 @@ const REQUIRED_BEFORE_SUBMIT = [
   'explore_demo'
 ];
 
+const SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS = 24 * 7;
+
 function slugify(name) {
   const base = String(name || '')
     .trim()
@@ -154,10 +156,26 @@ async function setSchoolDraftFlag(schoolId, isDraft) {
   );
 }
 
+function resolveSchoolGroupEmailDomain(slug, portalUrl) {
+  const base = String(slug || portalUrl || 'itsco')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '');
+  return base ? `${base}.health` : 'itsco.health';
+}
+
+function resolveSchoolOnboardingSupportEmail(slug, portalUrl, fallback = null) {
+  const base = String(slug || portalUrl || 'itsco')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '');
+  if (base) return `support@${base}.health`;
+  return fallback || null;
+}
+
 async function upsertSchoolProfile(schoolId, updates = {}) {
   const {
     districtName = null,
     schoolNumber = null,
+    itscoEmail = null,
     schoolDaysTimes = null,
     schoolAddress = null,
     academicYear = null,
@@ -176,12 +194,13 @@ async function upsertSchoolProfile(schoolId, updates = {}) {
 
   await pool.execute(
     `INSERT INTO school_profiles
-      (school_organization_id, district_name, school_number, school_days_times, school_address,
+      (school_organization_id, district_name, school_number, itsco_email, school_days_times, school_address,
        primary_contact_name, primary_contact_email, primary_contact_role, secondary_contact_text)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        district_name = COALESCE(VALUES(district_name), district_name),
        school_number = COALESCE(VALUES(school_number), school_number),
+       itsco_email = COALESCE(VALUES(itsco_email), itsco_email),
        school_days_times = COALESCE(VALUES(school_days_times), school_days_times),
        school_address = COALESCE(VALUES(school_address), school_address),
        primary_contact_name = COALESCE(VALUES(primary_contact_name), primary_contact_name),
@@ -192,6 +211,7 @@ async function upsertSchoolProfile(schoolId, updates = {}) {
       schoolId,
       districtName,
       schoolNumber,
+      itscoEmail,
       combinedDays,
       schoolAddress,
       primaryContactName,
@@ -295,7 +315,7 @@ export async function createInvite({
   contactEmail,
   schoolName,
   invitedByUserId,
-  sendEmail = true,
+  sendEmail = false,
   source = 'invite',
   qrLinkId = null
 }) {
@@ -484,6 +504,25 @@ export async function resendInvite(inviteId, agencyId, invitedByUserId) {
   };
 }
 
+export async function sendInviteEmailOnly(inviteId, agencyId, invitedByUserId) {
+  const invite = await SchoolOnboardingInvite.findById(inviteId);
+  if (!invite || invite.agency_id !== agencyId) {
+    throw Object.assign(new Error('Invite not found'), { status: 404 });
+  }
+  if (invite.status === 'revoked' || invite.status === 'submitted') {
+    throw Object.assign(new Error('Cannot email a revoked or submitted invite'), { status: 400 });
+  }
+  const inviter = invitedByUserId ? await User.findById(invitedByUserId) : null;
+  const invitedByName = `${inviter?.first_name || ''} ${inviter?.last_name || ''}`.trim() || 'Our team';
+  const agency = await Agency.findById(agencyId);
+  const emailResult = await sendInviteEmail(invite, { agency, invitedByName });
+  return {
+    invite: serializeInvite(invite, { admin: true }),
+    link: buildOnboardingLink(invite.token),
+    emailSent: !!emailResult.sent
+  };
+}
+
 export async function revokeInvite(inviteId, agencyId) {
   const invite = await SchoolOnboardingInvite.findById(inviteId);
   if (!invite || invite.agency_id !== agencyId) {
@@ -497,9 +536,75 @@ function completedCount(progress) {
   return STEP_KEYS.filter((k) => progress?.[k] === 'complete').length;
 }
 
+function hasExplicitStepCompletion(body) {
+  return !!String(body?.completedAt || '').trim();
+}
+
+function stampStepPayload(stepKey, body, markComplete) {
+  const next = body && typeof body === 'object' ? { ...body } : {};
+  if (markComplete && stepKey !== 'review_submit') {
+    next.completedAt = new Date().toISOString();
+  }
+  return next;
+}
+
+function isStepEffectivelyComplete(stepKey, progress, payload) {
+  if (progress?.[stepKey] !== 'complete') return false;
+  const body = payload?.[stepKey];
+  switch (stepKey) {
+    case 'school_information': {
+      if (!body || typeof body !== 'object' || !hasExplicitStepCompletion(body)) return false;
+      const schoolName = String(body.schoolName || '').trim();
+      const itscoEmail = String(body.itscoEmail || '').trim();
+      return !!schoolName && !!itscoEmail && itscoEmail.includes('@');
+    }
+    case 'school_staff': {
+      if (!body || typeof body !== 'object' || !hasExplicitStepCompletion(body)) return false;
+      return true;
+    }
+    case 'preferred_days': {
+      if (!body || typeof body !== 'object' || !hasExplicitStepCompletion(body)) return false;
+      const preferredDays = Array.isArray(body.preferredDays) ? body.preferredDays : [];
+      const notes = String(body.notes || '').trim();
+      return preferredDays.length > 0 || !!notes;
+    }
+    case 'explore_demo':
+      return (
+        hasExplicitStepCompletion(body) ||
+        body?.completed === true ||
+        body?.skipped === true
+      );
+    case 'review_submit':
+      return progress?.review_submit === 'complete';
+    default:
+      return progress?.[stepKey] === 'complete';
+  }
+}
+
+function effectiveStepProgress(invite) {
+  const raw = invite?.step_progress || SchoolOnboardingInvite.defaultStepProgress();
+  const payload = invite?.step_payload || {};
+  const out = { ...raw };
+  for (const stepKey of STEP_KEYS) {
+    if (out[stepKey] === 'complete' && !isStepEffectivelyComplete(stepKey, raw, payload)) {
+      out[stepKey] = payload?.[stepKey] ? 'in_progress' : 'not_started';
+    }
+  }
+  return out;
+}
+
+async function reconcileStepProgress(invite) {
+  if (!invite?.id) return invite;
+  const raw = invite.step_progress || SchoolOnboardingInvite.defaultStepProgress();
+  const effective = effectiveStepProgress(invite);
+  const changed = STEP_KEYS.some((key) => raw[key] !== effective[key]);
+  if (!changed) return invite;
+  return SchoolOnboardingInvite.update(invite.id, { stepProgress: effective });
+}
+
 export function serializeInvite(invite, { admin = false, publicView = false } = {}) {
   if (!invite) return null;
-  const progress = invite.step_progress || SchoolOnboardingInvite.defaultStepProgress();
+  const progress = effectiveStepProgress(invite);
   const payload = invite.step_payload || {};
   const base = {
     id: invite.id,
@@ -516,7 +621,7 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
     totalSteps: STEP_KEYS.length,
     expiresAt: invite.expires_at,
     submittedAt: invite.submitted_at,
-    passwordSet: !!(invite.password_set_at || invite.primary_user_password_hash),
+    passwordSet: !!invite.password_set_at,
     createdAt: invite.created_at,
     lastViewedAt: invite.last_viewed_at
   };
@@ -545,8 +650,14 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
         logoUrl: invite.agency_logo_url || invite.agency_logo_path || null,
         colorPalette: palette,
         phone: invite.agency_phone || null,
-        supportEmail: invite.agency_onboarding_team_email || null
+        supportEmail: resolveSchoolOnboardingSupportEmail(
+          invite.agency_slug,
+          invite.agency_portal_url,
+          invite.agency_onboarding_team_email
+        ),
+        schoolGroupEmailDomain: resolveSchoolGroupEmailDomain(invite.agency_slug, invite.agency_portal_url)
       },
+      staffTempPasswordExpiresHours: SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS,
       school: {
         id: invite.school_organization_id,
         name: invite.school_org_name || invite.school_name,
@@ -571,7 +682,7 @@ export async function getPublicInvite(token) {
   if (invite.status === 'invited') {
     await SchoolOnboardingInvite.update(invite.id, { status: 'in_progress' });
   }
-  const fresh = await SchoolOnboardingInvite.findByToken(token);
+  const fresh = await reconcileStepProgress(await SchoolOnboardingInvite.findByToken(token));
   const profile = await getSchoolProfile(fresh.school_organization_id);
   const serialized = serializeInvite(fresh, { publicView: true });
   serialized.schoolProfile = profile;
@@ -579,7 +690,7 @@ export async function getPublicInvite(token) {
   return serialized;
 }
 
-export async function setPassword(token, password) {
+export async function setPassword(token, password, identity = {}) {
   const invite = await SchoolOnboardingInvite.findByToken(token);
   const usable = isInviteUsable(invite);
   if (!usable.ok) {
@@ -587,6 +698,46 @@ export async function setPassword(token, password) {
   }
   if (usable.submitted) {
     throw Object.assign(new Error('Onboarding already submitted. Please log in.'), { status: 400 });
+  }
+  if (identity?.identityConfirmed !== true) {
+    throw Object.assign(new Error('Please confirm your identity before setting your password'), { status: 400 });
+  }
+  const firstName = String(identity.contactFirstName || '').trim();
+  const lastName = String(identity.contactLastName || '').trim();
+  const email = String(identity.contactEmail || '').trim().toLowerCase();
+  const schoolName = String(identity.schoolName || '').trim();
+  if (!firstName || !lastName || !email || !schoolName) {
+    throw Object.assign(new Error('Please confirm your name, email, and school before setting your password'), {
+      status: 400
+    });
+  }
+  if (email !== String(invite.contact_email || '').trim().toLowerCase()) {
+    throw Object.assign(new Error('Email must match the address on this onboarding link'), { status: 400 });
+  }
+  if (invite.source === 'qr') {
+    await SchoolOnboardingInvite.update(invite.id, {
+      contactFirstName: firstName,
+      contactLastName: lastName,
+      schoolName
+    });
+    if (schoolName !== invite.school_name) {
+      await pool.execute(`UPDATE agencies SET name = ? WHERE id = ?`, [schoolName, invite.school_organization_id]);
+    }
+    try {
+      await User.update(invite.primary_user_id, { firstName, lastName });
+    } catch {
+      // ignore
+    }
+  } else {
+    const inviteFirst = String(invite.contact_first_name || '').trim().toLowerCase();
+    const inviteLast = String(invite.contact_last_name || '').trim().toLowerCase();
+    if (firstName.toLowerCase() !== inviteFirst || lastName.toLowerCase() !== inviteLast) {
+      throw Object.assign(new Error('Name does not match this invitation'), { status: 400 });
+    }
+    const inviteSchool = String(invite.school_name || '').trim().toLowerCase();
+    if (schoolName.toLowerCase() !== inviteSchool) {
+      throw Object.assign(new Error('School name does not match this invitation'), { status: 400 });
+    }
   }
   if (!password || password.length < 6) {
     throw Object.assign(new Error('Password must be at least 6 characters'), { status: 400 });
@@ -635,24 +786,50 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
   const body = payload && typeof payload === 'object' ? payload : {};
 
   if (stepKey === 'school_information') {
-    const schoolName = String(body.schoolName || invite.school_name).trim();
+    const schoolName = String(body.schoolName || (markComplete ? invite.school_name : '')).trim();
+    const itscoEmail = String(body.itscoEmail || '').trim().toLowerCase();
+    if (markComplete && !schoolName) {
+      throw Object.assign(new Error('School name is required before continuing'), { status: 400 });
+    }
+    if (markComplete && !itscoEmail) {
+      throw Object.assign(new Error('Preferred school group email is required before continuing'), {
+        status: 400
+      });
+    }
+    if (itscoEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(itscoEmail)) {
+      throw Object.assign(new Error('Please enter a valid school group email'), { status: 400 });
+    }
     if (schoolName && schoolName !== invite.school_name) {
       await pool.execute(`UPDATE agencies SET name = ? WHERE id = ?`, [schoolName, invite.school_organization_id]);
       await SchoolOnboardingInvite.update(invite.id, { schoolName });
     }
+    const contactName = String(body.primaryContactName || '').trim();
+    const contactEmail = String(body.primaryContactEmail || '').trim();
     await upsertSchoolProfile(invite.school_organization_id, {
       districtName: body.districtName || null,
       schoolNumber: body.schoolNumber || null,
+      itscoEmail: itscoEmail || null,
       schoolAddress: body.schoolAddress || null,
       academicYear: body.academicYear || null,
       gradeLevels: body.gradeLevels || null,
-      primaryContactName: body.primaryContactName || `${invite.contact_first_name} ${invite.contact_last_name}`,
-      primaryContactEmail: body.primaryContactEmail || invite.contact_email,
+      primaryContactName: markComplete
+        ? contactName || `${invite.contact_first_name} ${invite.contact_last_name}`
+        : contactName || null,
+      primaryContactEmail: markComplete ? contactEmail || invite.contact_email : contactEmail || null,
       primaryContactRole: body.primaryContactRole || 'Primary Contact',
       secondaryContactText: body.secondaryContactText || null,
       schoolDaysTimes: body.schoolDaysTimes || null
     });
-    stepPayload.school_information = body;
+    const filledBody = Object.fromEntries(
+      Object.entries({ ...body, ...(itscoEmail ? { itscoEmail } : {}) }).filter(
+        ([, value]) => String(value ?? '').trim() !== ''
+      )
+    );
+    const mergedBody = markComplete
+      ? filledBody
+      : { ...(stepPayload.school_information || {}), ...filledBody };
+    if (!markComplete && mergedBody.completedAt) delete mergedBody.completedAt;
+    stepPayload.school_information = stampStepPayload('school_information', mergedBody, markComplete);
   } else if (stepKey === 'school_staff') {
     const staff = Array.isArray(body.staff) ? body.staff : [];
     const sharedTempPassword = String(body.sharedTempPassword || body.temporaryPassword || '').trim();
@@ -707,7 +884,7 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
 
       // Shared temp password for every staff account (including re-saves)
       if (sharedTempPassword && !isPrimary) {
-        await User.setTemporaryPassword(user.id, sharedTempPassword, 24 * 7);
+        await User.setTemporaryPassword(user.id, sharedTempPassword, SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS);
       }
 
       await upsertSchoolContactRoleFlags({
@@ -746,20 +923,43 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
       isPrimary: true
     });
 
-    stepPayload.school_staff = {
-      staff: created,
-      sharedTempPasswordSet: !!sharedTempPassword
-    };
+    const staffExpiresAt = sharedTempPassword
+      ? new Date(Date.now() + SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS * 60 * 60 * 1000).toISOString()
+      : null;
+    stepPayload.school_staff = stampStepPayload(
+      'school_staff',
+      {
+        staff: created,
+        sharedTempPasswordSet: !!sharedTempPassword,
+        sharedTempPasswordExpiresAt: staffExpiresAt,
+        sharedTempPasswordExpiresHours: SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS
+      },
+      markComplete
+    );
   } else if (stepKey === 'preferred_days') {
     const preferredDays = Array.isArray(body.preferredDays) ? body.preferredDays : [];
     const notes = String(body.notes || '').trim();
+    if (markComplete && preferredDays.length === 0 && !notes) {
+      throw Object.assign(
+        new Error('Select at least one preferred day or add scheduling notes before continuing'),
+        { status: 400 }
+      );
+    }
     const daysLabel = preferredDays.length ? preferredDays.join(', ') : null;
     await upsertSchoolProfile(invite.school_organization_id, {
       schoolDaysTimes: [daysLabel, notes].filter(Boolean).join('\n') || null
     });
-    stepPayload.preferred_days = { preferredDays, notes };
+    stepPayload.preferred_days = stampStepPayload(
+      'preferred_days',
+      { preferredDays, notes },
+      markComplete
+    );
   } else if (stepKey === 'explore_demo') {
-    stepPayload.explore_demo = { viewedAt: new Date().toISOString(), ...(body || {}) };
+    stepPayload.explore_demo = stampStepPayload(
+      'explore_demo',
+      { viewedAt: new Date().toISOString(), ...(body || {}) },
+      markComplete
+    );
   } else if (stepKey === 'review_submit') {
     // handled by submitOnboarding
     stepPayload.review_submit = body;
@@ -776,7 +976,8 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
     stepPayload,
     status: 'in_progress'
   });
-  return serializeInvite(updated, { publicView: true });
+  const reconciled = await reconcileStepProgress(updated);
+  return serializeInvite(reconciled, { publicView: true });
 }
 
 export async function resolveDemoSchool(token) {
@@ -796,17 +997,140 @@ export async function resolveDemoSchool(token) {
     throw Object.assign(new Error('Demo school (Hogwarts) is not available in this environment'), { status: 404 });
   }
 
-  // Temporarily grant read access for authenticated onboarding users exploring the demo
-  try {
-    await User.assignToAgency(invite.primary_user_id, hogwarts.id);
-  } catch {
-    // ignore
-  }
-
   return {
     id: hogwarts.id,
     name: hogwarts.name || 'Hogwarts',
     slug: hogwarts.portal_url || hogwarts.slug || 'hogwarts',
+    viewOnly: true,
+    publicShell: true
+  };
+}
+
+function demoDisplayName(firstName, lastName, fallback = 'Demo User') {
+  const first = String(firstName || '').trim();
+  const last = String(lastName || '').trim();
+  const name = `${first} ${last}`.trim();
+  return name || fallback;
+}
+
+function demoInitials(firstName, lastName) {
+  const f = String(firstName || '').trim().charAt(0);
+  const l = String(lastName || '').trim().charAt(0);
+  const out = `${f}${l}`.toUpperCase();
+  return out || 'DU';
+}
+
+/**
+ * Public, sanitized Hogwarts snapshot for school-onboarding demo shell.
+ * No auth/permissions required beyond a valid invite token.
+ * Returns display copies only (no emails, phones, or real account handles).
+ */
+export async function getDemoSnapshot(token) {
+  const demo = await resolveDemoSchool(token);
+  const schoolId = demo.id;
+  const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+  const [providerRows] = await pool.execute(
+    `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+     FROM provider_school_assignments psa
+     INNER JOIN users u ON u.id = psa.provider_user_id
+     WHERE psa.school_organization_id = ?
+     ORDER BY u.last_name ASC, u.first_name ASC
+     LIMIT 40`,
+    [schoolId]
+  );
+
+  const [dayRows] = await pool.execute(
+    `SELECT weekday, provider_user_id
+     FROM school_day_provider_assignments
+     WHERE school_organization_id = ?
+       AND is_active = 1
+       AND weekday IN ('Monday','Tuesday','Wednesday','Thursday','Friday')`,
+    [schoolId]
+  );
+
+  const [clientRows] = await pool.execute(
+    `SELECT initials, identifier_code, status
+     FROM clients
+     WHERE organization_id = ?
+     ORDER BY initials ASC
+     LIMIT 60`,
+    [schoolId]
+  );
+
+  let staffRows = [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT u.first_name, u.last_name
+       FROM user_agencies ua
+       INNER JOIN users u ON u.id = ua.user_id
+       WHERE ua.agency_id = ?
+         AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+       ORDER BY u.last_name ASC, u.first_name ASC
+       LIMIT 40`,
+      [schoolId]
+    );
+    staffRows = rows || [];
+  } catch {
+    staffRows = [];
+  }
+
+  const providerById = new Map();
+  const providers = (providerRows || []).map((r, idx) => {
+    const item = {
+      demoId: `provider-${idx + 1}`,
+      displayName: demoDisplayName(r.first_name, r.last_name, `Provider ${idx + 1}`),
+      initials: demoInitials(r.first_name, r.last_name),
+      roleLabel: String(r.role || 'provider').replace(/_/g, ' ')
+    };
+    providerById.set(Number(r.id), item);
+    return item;
+  });
+
+  const days = weekdays.map((weekday) => {
+    const ids = (dayRows || [])
+      .filter((d) => String(d.weekday) === weekday)
+      .map((d) => Number(d.provider_user_id));
+    const dayProviders = ids
+      .map((id) => providerById.get(id))
+      .filter(Boolean);
+    return {
+      weekday,
+      providerCount: dayProviders.length,
+      providers: dayProviders
+    };
+  });
+
+  const clients = (clientRows || []).map((r, idx) => ({
+    demoId: `client-${idx + 1}`,
+    initials: String(r.initials || '').trim().toUpperCase() || 'XXXXXX',
+    code: String(r.identifier_code || '').trim() || null,
+    status: String(r.status || 'ACTIVE').toUpperCase()
+  }));
+
+  const staff = (staffRows || []).map((r, idx) => ({
+    demoId: `staff-${idx + 1}`,
+    displayName: demoDisplayName(r.first_name, r.last_name, `Staff ${idx + 1}`),
+    initials: demoInitials(r.first_name, r.last_name),
+    badges: idx === 0 ? ['School Admin'] : []
+  }));
+
+  return {
+    school: {
+      name: demo.name,
+      slug: demo.slug,
+      tagline: 'Demo school portal — browse freely. Nothing here is live.'
+    },
+    stats: {
+      providers: providers.length,
+      clients: clients.length,
+      staff: staff.length,
+      activeDays: days.filter((d) => d.providerCount > 0).length
+    },
+    providers,
+    days,
+    clients,
+    staff,
     viewOnly: true
   };
 }
@@ -826,11 +1150,11 @@ export async function submitOnboarding(token) {
     };
   }
 
-  if (!invite.password_set_at && !invite.primary_user_password_hash) {
-    throw Object.assign(new Error('Please set your password before submitting'), { status: 400 });
+  if (!invite.password_set_at) {
+    throw Object.assign(new Error('Please create your login password before submitting'), { status: 400 });
   }
 
-  const progress = { ...(invite.step_progress || SchoolOnboardingInvite.defaultStepProgress()) };
+  const progress = effectiveStepProgress(invite);
   const missing = REQUIRED_BEFORE_SUBMIT.filter((k) => progress[k] !== 'complete');
   if (missing.length) {
     throw Object.assign(new Error(`Please complete: ${missing.join(', ').replace(/_/g, ' ')}`), { status: 400 });
@@ -954,7 +1278,11 @@ export async function getPublicQrLink(token) {
       logoUrl: link.agency_logo_url || link.agency_logo_path || null,
       colorPalette: palette,
       phone: link.agency_phone || null,
-      supportEmail: link.agency_onboarding_team_email || null
+      supportEmail: resolveSchoolOnboardingSupportEmail(
+        link.agency_slug,
+        link.agency_portal_url,
+        link.agency_onboarding_team_email
+      )
     }
   };
 }
@@ -963,10 +1291,6 @@ export async function startFromQr(token, body = {}) {
   const link = await SchoolOnboardingQrLink.findByToken(token);
   if (!link || !link.is_active) {
     throw Object.assign(new Error('This QR onboarding link is not active'), { status: 410 });
-  }
-  const password = String(body.password || '').trim();
-  if (!password || password.length < 6) {
-    throw Object.assign(new Error('Password must be at least 6 characters'), { status: 400 });
   }
 
   const result = await createInvite({
@@ -981,14 +1305,10 @@ export async function startFromQr(token, body = {}) {
     qrLinkId: link.id
   });
 
-  const pwResult = await setPassword(result.invite.token, password);
   return {
     inviteToken: result.invite.token,
     link: buildOnboardingLink(result.invite.token),
-    school: result.school,
-    user: pwResult.user,
-    agencies: pwResult.agencies,
-    username: pwResult.username
+    school: result.school
   };
 }
 

@@ -6,6 +6,7 @@ const router = express.Router();
 
 router.get('/invites', authenticate, ctrl.listInvites);
 router.post('/invites', authenticate, ctrl.createInvite);
+router.post('/invites/:id/send-email', authenticate, ctrl.sendInviteEmail);
 router.post('/invites/:id/resend', authenticate, ctrl.resendInvite);
 router.post('/invites/:id/revoke', authenticate, ctrl.revokeInvite);
 

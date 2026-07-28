@@ -1,5 +1,9 @@
 import axios from 'axios';
 import { begin as beginGlobalLoading, end as endGlobalLoading } from '../utils/pageLoader';
+import {
+  isSchoolOnboardingDemoActive,
+  rewriteSchoolPortalUrlForDemo
+} from '../utils/schoolOnboardingDemoContext.js';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
@@ -128,6 +132,26 @@ api.interceptors.request.use(
     // so a tripped request never begins a loading overlay or touches the network.
     checkRequestStorm(config);
 
+    // School-onboarding Hogwarts demo: rewrite school-portal calls to public demo APIs
+    // so the real SchoolPortalView can render without a live login.
+    try {
+      if (isSchoolOnboardingDemoActive()) {
+        const method = String(config.method || 'get').toLowerCase();
+        const originalUrl = String(config.url || '');
+        const rewritten = rewriteSchoolPortalUrlForDemo(originalUrl);
+        if (rewritten) {
+          config.url = rewritten;
+          config.skipAuthRedirect = true;
+          // Mutations become no-ops against the public demo portal.
+          if (method !== 'get' && method !== 'head') {
+            config.__schoolOnboardingDemoMutation = true;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     // Global loading overlay tracking (opt-out via config.skipGlobalLoading = true)
     try {
       if (!config?.skipGlobalLoading) {
@@ -236,7 +260,18 @@ api.interceptors.response.use(
       reqUrl.includes('/members/directory/public') ||
       reqUrl.includes('/public-intake') ||
       reqUrl.startsWith('/public-intake');
-    const publicPathPrefixes = ['/intake/', '/schools', '/kiosk', '/p/', '/pre-hire/', '/school-events/kiosk', '/join/supervision', '/join/team-meeting'];
+    const publicPathPrefixes = [
+      '/intake/',
+      '/schools',
+      '/kiosk',
+      '/p/',
+      '/pre-hire/',
+      '/school-events/kiosk',
+      '/join/supervision',
+      '/join/team-meeting',
+      '/school-onboarding',
+      '/school-reinit'
+    ];
     const isBrandedKioskPath =
       /\/[^/]+\/kiosk\/?$/.test(path) ||
       path.includes('/skill-builders/kiosk/') ||

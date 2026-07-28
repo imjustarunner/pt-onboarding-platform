@@ -3744,6 +3744,11 @@ const onSstcSurfaceSelect = async (e) => {
 };
 
 const hideGlobalNavForSchoolStaff = computed(() => {
+  // School-onboarding Hogwarts demo mounts the real School Portal shell — hide platform chrome.
+  const path = String(route.path || '');
+  if (/^\/school-onboarding\/[^/]+\/demo\/?$/i.test(path) || route.name === 'SchoolOnboardingDemo') {
+    return true;
+  }
   if (!isAuthenticated.value) return false;
   const role = String(user.value?.role || '').toLowerCase();
   // School staff should only use the School Portal UX (no global nav / personal dashboard).

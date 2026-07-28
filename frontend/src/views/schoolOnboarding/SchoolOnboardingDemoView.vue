@@ -1,97 +1,168 @@
 <template>
-  <div class="so-demo">
-    <div class="so-demo-banner">
+  <div class="so-demo-portal">
+    <header class="so-demo-banner">
       <div>
-        <strong>Hogwarts demo — view only</strong>
-        <span class="muted">Browse the school portal. Changes are disabled.</span>
+        <strong>{{ schoolName }} demo</strong>
+        <span class="muted">Identical school portal UI — browse freely. Nothing here is live.</span>
       </div>
       <div class="so-demo-actions">
         <button type="button" class="btn ghost" @click="backToOnboarding">← Back to onboarding</button>
-        <button type="button" class="btn primary" :disabled="!ready" @click="continueReview">
-          Continue to review →
-        </button>
+        <button type="button" class="btn primary" @click="continueReview">Continue to review →</button>
       </div>
-    </div>
+    </header>
 
-    <div v-if="loading" class="so-demo-msg muted">Loading Hogwarts demo…</div>
-    <div v-else-if="error" class="so-demo-msg error">{{ error }}</div>
-    <SchoolPortalView v-else-if="ready" :preview-mode="true" />
+    <div v-if="loading" class="so-demo-msg muted">Opening Hogwarts school portal demo…</div>
+    <div v-else-if="error" class="so-demo-msg">
+      <p class="error">{{ error }}</p>
+      <button type="button" class="btn primary" @click="boot">Try again</button>
+      <button type="button" class="btn ghost" @click="continueReview">Skip demo →</button>
+    </div>
+    <SchoolPortalView
+      v-else-if="ready"
+      :preview-mode="true"
+      :public-demo-token="token"
+    />
   </div>
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { useBrandingStore } from '../../store/branding';
 import { useOrganizationStore } from '../../store/organization';
+import {
+  activateSchoolOnboardingDemo,
+  deactivateSchoolOnboardingDemo
+} from '../../utils/schoolOnboardingDemoContext.js';
 import SchoolPortalView from '../school/SchoolPortalView.vue';
 
 const route = useRoute();
 const router = useRouter();
 const organizationStore = useOrganizationStore();
+const brandingStore = useBrandingStore();
 
+const token = String(route.params.token || '').trim();
 const loading = ref(true);
 const ready = ref(false);
 const error = ref('');
-const token = String(route.params.token || '').trim();
+const schoolMeta = ref(null);
+
+const schoolName = computed(() => schoolMeta.value?.official_name || schoolMeta.value?.name || 'Hogwarts');
+
+function demoPortalThemeSlug(school) {
+  return String(school?.portal_url || school?.slug || 'hogwarts').trim().toLowerCase();
+}
+
+function applyDemoPortalTheme(school) {
+  const slug = demoPortalThemeSlug(school);
+  brandingStore.setActiveRouteSlug(slug);
+  const theme = school?.portal_theme;
+  if (theme?.colorPalette) {
+    brandingStore.setPortalThemeData({
+      brandingAgencyId: theme.brandingAgencyId || null,
+      portalOrganizationId: theme.portalOrganizationId || school?.id || null,
+      agencyName: theme.agencyName || school?.official_name || school?.name || 'Hogwarts',
+      colorPalette: theme.colorPalette || {},
+      themeSettings: theme.themeSettings || {},
+      terminologySettings: theme.terminologySettings || {},
+      logoUrl: theme.logoUrl || school?.logo_url || school?.logo_path || null,
+      iconUrl: theme.iconUrl || null
+    });
+    return;
+  }
+  return brandingStore.fetchAgencyTheme(slug);
+}
 
 function backToOnboarding() {
   router.push(`/school-onboarding/${token}/explore_demo`);
 }
 
 function continueReview() {
-  router.push(`/school-onboarding/${token}/review_submit`);
+  completeExploreDemo('review_submit');
 }
 
-onMounted(async () => {
+async function completeExploreDemo(nextStep = 'review_submit') {
+  try {
+    await api.put(
+      `/public/school-onboarding/${token}/steps/explore_demo`,
+      { payload: { completed: true }, markComplete: true },
+      { skipAuthRedirect: true }
+    );
+  } catch {
+    // Best-effort — still let them continue if save fails.
+  }
+  router.push(`/school-onboarding/${token}/${nextStep}`);
+}
+
+async function boot() {
+  if (!token) {
+    error.value = 'Missing onboarding invite token.';
+    loading.value = false;
+    ready.value = false;
+    return;
+  }
   loading.value = true;
   error.value = '';
+  ready.value = false;
   try {
-    const res = await api.get(`/public/school-onboarding/${token}/demo`);
-    const demo = res.data?.demo;
-    if (!demo?.id) {
-      throw new Error('Demo school not found');
-    }
+    const res = await api.get(`/public/school-onboarding/${token}/demo/school`, {
+      skipAuthRedirect: true
+    });
+    const school = res.data?.school;
+    if (!school?.id) throw new Error('Demo school unavailable');
+    schoolMeta.value = school;
+
+    activateSchoolOnboardingDemo({ token, schoolId: school.id });
     organizationStore.setCurrentOrganization({
-      id: demo.id,
-      name: demo.name || 'Hogwarts',
-      slug: demo.slug || 'hogwarts',
-      portal_url: demo.slug || 'hogwarts',
+      id: school.id,
+      name: school.name,
+      official_name: school.official_name || school.name,
+      slug: school.slug || 'hogwarts',
+      portal_url: school.portal_url || school.slug || 'hogwarts',
       organization_type: 'school',
       is_active: true,
-      logo_url: null,
-      color_palette: null,
-      theme_settings: null
+      logo_url: school.logo_url || null,
+      logo_path: school.logo_path || null,
+      color_palette: school.color_palette || null,
+      theme_settings: school.theme_settings || null,
+      terminology_settings: school.terminology_settings || null
     });
+    await applyDemoPortalTheme(school);
     ready.value = true;
   } catch (e) {
+    deactivateSchoolOnboardingDemo();
     error.value = e?.response?.data?.error?.message || e?.message || 'Unable to open demo';
     ready.value = false;
   } finally {
     loading.value = false;
   }
-});
+}
+
+onMounted(boot);
 
 onUnmounted(() => {
-  // Leave Hogwarts context; shell will reload draft school as needed.
+  deactivateSchoolOnboardingDemo();
+  brandingStore.setActiveRouteSlug('');
+  brandingStore.clearPortalTheme();
 });
 </script>
 
 <style scoped>
-.so-demo {
+.so-demo-portal {
   min-height: 100vh;
   background: #f8fafc;
 }
 .so-demo-banner {
   position: sticky;
   top: 0;
-  z-index: 40;
+  z-index: 60;
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   align-items: center;
   flex-wrap: wrap;
-  padding: 0.75rem 1rem;
+  padding: 0.7rem 1rem;
   background: #0f172a;
   color: #fff;
 }
@@ -113,11 +184,20 @@ onUnmounted(() => {
   font: inherit;
   cursor: pointer;
 }
-.btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn.primary { background: #3b82f6; color: #fff; }
 .btn.ghost { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.so-demo-msg .btn.ghost {
+  background: #e2e8f0;
+  color: #0f172a;
+  margin-left: 0.5rem;
+}
 .so-demo-msg {
-  padding: 2rem 1.25rem;
+  max-width: 560px;
+  margin: 2rem auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 1.5rem;
 }
 .error { color: #b91c1c; }
 .muted { color: #64748b; }

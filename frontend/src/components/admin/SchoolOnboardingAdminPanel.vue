@@ -4,12 +4,12 @@
       <router-link class="muted back" :to="hubTo">← School Portals</router-link>
       <h1>School Onboarding</h1>
       <p class="muted">
-        Invite a school contact by email, or print a QR code so schools can start onboarding themselves.
+        Invite a school contact to complete onboarding, or print a QR code so schools can start themselves.
         New schools automatically get English and Spanish digital intake forms copied from your most recent school.
       </p>
     </header>
     <p v-else class="muted so-embed-intro">
-      Invite a school by email, or print a QR for self-serve setup. New schools get English + Spanish digital intake forms
+      Invite a school to complete onboarding, or print a QR for self-serve setup. New schools get English + Spanish digital intake forms
       duplicated from your most recent school’s active forms.
     </p>
 
@@ -41,9 +41,9 @@
         <p v-if="qrError" class="error">{{ qrError }}</p>
       </section>
 
-      <section class="so-card">
-        <h2>Send a new invite</h2>
-        <form class="so-form" @submit.prevent="sendInvite">
+      <section v-if="!pendingInvite" class="so-card">
+        <h2>Create onboarding</h2>
+        <form class="so-form" @submit.prevent="createOnboarding">
           <div class="so-grid">
             <label>
               Contact first name
@@ -63,21 +63,36 @@
             </label>
           </div>
           <p v-if="formError" class="error">{{ formError }}</p>
-          <p v-if="formSuccess" class="success">{{ formSuccess }}</p>
           <div class="so-actions">
-            <button type="submit" class="btn primary" :disabled="sending">
-              {{ sending ? 'Sending…' : 'Send invite' }}
-            </button>
-            <button
-              v-if="lastLink"
-              type="button"
-              class="btn ghost"
-              @click="copyLink(lastLink)"
-            >
-              Copy last link
+            <button type="submit" class="btn primary" :disabled="creating">
+              {{ creating ? 'Creating…' : 'Create onboarding' }}
             </button>
           </div>
         </form>
+      </section>
+
+      <section v-else class="so-card so-share-card">
+        <h2>Share onboarding invite</h2>
+        <p class="muted">
+          Onboarding is ready for <strong>{{ pendingInvite.schoolName }}</strong>.
+          Share the link directly or send it by email to {{ pendingInvite.contactEmail }}.
+        </p>
+        <p v-if="pendingInvite.intakeNote" class="success">{{ pendingInvite.intakeNote }}</p>
+        <p v-if="shareError" class="error">{{ shareError }}</p>
+        <p v-if="shareSuccess" class="success">{{ shareSuccess }}</p>
+        <div class="so-actions">
+          <button type="button" class="btn primary" @click="copyPendingLink">
+            Copy invite link
+          </button>
+          <button
+            type="button"
+            class="btn ghost"
+            :disabled="emailingInvite"
+            @click="emailPendingInvite"
+          >
+            {{ emailingInvite ? 'Sending…' : 'Email invite' }}
+          </button>
+        </div>
       </section>
 
       <section class="so-card">
@@ -87,6 +102,7 @@
             Refresh
           </button>
         </div>
+        <p v-if="listMessage" class="success">{{ listMessage }}</p>
         <p v-if="loading" class="muted">Loading invites…</p>
         <p v-else-if="!invites.length" class="muted">No school onboarding invites yet.</p>
         <div v-else class="so-table-wrap">
@@ -122,9 +138,9 @@
                     type="button"
                     class="linkish"
                     :disabled="inv.status === 'revoked' || inv.status === 'submitted' || busyId === inv.id"
-                    @click="resend(inv)"
+                    @click="emailInvite(inv)"
                   >
-                    Resend
+                    Email invite
                   </button>
                   <button
                     type="button"
@@ -164,12 +180,15 @@ const route = useRoute();
 const agencyStore = useAgencyStore();
 const ready = ref(false);
 const loading = ref(false);
-const sending = ref(false);
+const creating = ref(false);
+const emailingInvite = ref(false);
 const busyId = ref(null);
 const invites = ref([]);
 const formError = ref('');
-const formSuccess = ref('');
-const lastLink = ref('');
+const listMessage = ref('');
+const shareError = ref('');
+const shareSuccess = ref('');
+const pendingInvite = ref(null);
 const qr = ref(null);
 const qrDataUrl = ref('');
 const qrLoading = ref(false);
@@ -222,9 +241,112 @@ async function copyLink(link) {
   if (!link) return;
   try {
     await navigator.clipboard.writeText(link);
-    formSuccess.value = 'Link copied to clipboard.';
+    listMessage.value = 'Link copied to clipboard.';
   } catch {
-    formSuccess.value = link;
+    listMessage.value = link;
+  }
+}
+
+function intakeBootstrapNote(bootstrap) {
+  const formsOk = bootstrap?.en && bootstrap?.es;
+  const formsPartial = bootstrap?.en || bootstrap?.es;
+  if (formsOk) return 'English + Spanish digital intake forms were copied and activated.';
+  if (formsPartial) return 'Some digital intake forms were copied (check Digital Forms if one language is missing).';
+  return 'No source digital intake forms were found to copy yet.';
+}
+
+function clearPendingInvite() {
+  pendingInvite.value = null;
+  shareError.value = '';
+  shareSuccess.value = '';
+}
+
+async function createOnboarding() {
+  formError.value = '';
+  listMessage.value = '';
+  creating.value = true;
+  try {
+    const res = await api.post('/school-onboarding/invites', {
+      agencyId: resolvedAgencyId.value,
+      contactFirstName: form.contactFirstName,
+      contactLastName: form.contactLastName,
+      contactEmail: form.contactEmail,
+      schoolName: form.schoolName,
+      sendEmail: false
+    });
+    pendingInvite.value = {
+      id: res.data?.invite?.id,
+      schoolName: form.schoolName,
+      contactEmail: form.contactEmail,
+      link: res.data?.link || res.data?.invite?.link || '',
+      intakeNote: intakeBootstrapNote(res.data?.intakeBootstrap)
+    };
+    form.contactFirstName = '';
+    form.contactLastName = '';
+    form.contactEmail = '';
+    form.schoolName = '';
+    emit('school-created', res.data?.school || null);
+    await loadInvites();
+  } catch (e) {
+    formError.value = e?.response?.data?.error?.message || 'Failed to create onboarding';
+  } finally {
+    creating.value = false;
+  }
+}
+
+async function copyPendingLink() {
+  if (!pendingInvite.value?.link) return;
+  shareError.value = '';
+  shareSuccess.value = '';
+  try {
+    await navigator.clipboard.writeText(pendingInvite.value.link);
+    shareSuccess.value = 'Invite link copied.';
+    clearPendingInvite();
+  } catch {
+    shareError.value = 'Could not copy automatically. Copy this link manually:';
+    shareSuccess.value = pendingInvite.value.link;
+  }
+}
+
+async function emailPendingInvite() {
+  if (!pendingInvite.value?.id) return;
+  shareError.value = '';
+  shareSuccess.value = '';
+  emailingInvite.value = true;
+  try {
+    const res = await api.post(`/school-onboarding/invites/${pendingInvite.value.id}/send-email`, {
+      agencyId: resolvedAgencyId.value
+    });
+    if (res.data?.emailSent) {
+      listMessage.value = `Invite emailed to ${pendingInvite.value.contactEmail}.`;
+    } else {
+      listMessage.value = 'Email could not be sent — use Copy link in the invites list below.';
+    }
+    clearPendingInvite();
+    await loadInvites();
+  } catch (e) {
+    shareError.value = e?.response?.data?.error?.message || 'Failed to send invite email';
+  } finally {
+    emailingInvite.value = false;
+  }
+}
+
+async function emailInvite(inv) {
+  busyId.value = inv.id;
+  listMessage.value = '';
+  formError.value = '';
+  try {
+    const res = await api.post(`/school-onboarding/invites/${inv.id}/send-email`, {
+      agencyId: resolvedAgencyId.value
+    });
+    listMessage.value = res.data?.emailSent
+      ? `Invite emailed to ${inv.contactEmail}.`
+      : 'Email could not be sent — copy the link instead.';
+    await loadInvites();
+  } catch (e) {
+    formError.value = e?.response?.data?.error?.message || 'Failed to send invite email';
+  } finally {
+    busyId.value = null;
   }
 }
 
@@ -241,65 +363,15 @@ async function loadInvites() {
   }
 }
 
-async function sendInvite() {
-  formError.value = '';
-  formSuccess.value = '';
-  sending.value = true;
-  try {
-    const res = await api.post('/school-onboarding/invites', {
-      agencyId: resolvedAgencyId.value,
-      contactFirstName: form.contactFirstName,
-      contactLastName: form.contactLastName,
-      contactEmail: form.contactEmail,
-      schoolName: form.schoolName
-    });
-    lastLink.value = res.data?.link || '';
-    const bootstrap = res.data?.intakeBootstrap;
-    const formsOk = bootstrap?.en && bootstrap?.es;
-    const formsPartial = bootstrap?.en || bootstrap?.es;
-    formSuccess.value = [
-      res.data?.emailSent ? 'Invite sent.' : 'Invite created (email may not have sent — copy the link).',
-      formsOk
-        ? 'English + Spanish digital intake forms were copied and activated.'
-        : formsPartial
-          ? 'Some digital intake forms were copied (check Digital Forms if one language is missing).'
-          : 'No source digital intake forms were found to copy yet.'
-    ].join(' ');
-    form.contactFirstName = '';
-    form.contactLastName = '';
-    form.contactEmail = '';
-    form.schoolName = '';
-    emit('school-created', res.data?.school || null);
-    await loadInvites();
-  } catch (e) {
-    formError.value = e?.response?.data?.error?.message || 'Failed to send invite';
-  } finally {
-    sending.value = false;
-  }
-}
-
-async function resend(inv) {
-  busyId.value = inv.id;
-  formError.value = '';
-  try {
-    const res = await api.post(`/school-onboarding/invites/${inv.id}/resend`, { agencyId: resolvedAgencyId.value });
-    lastLink.value = res.data?.link || inv.link;
-    formSuccess.value = res.data?.emailSent ? 'Invite resent.' : 'Invite refreshed — copy the link.';
-    await loadInvites();
-  } catch (e) {
-    formError.value = e?.response?.data?.error?.message || 'Failed to resend';
-  } finally {
-    busyId.value = null;
-  }
-}
 
 async function revoke(inv) {
   if (!confirm(`Revoke invite for ${inv.schoolName}?`)) return;
   busyId.value = inv.id;
-  formError.value = '';
-  try {
-    await api.post(`/school-onboarding/invites/${inv.id}/revoke`, { agencyId: resolvedAgencyId.value });
-    formSuccess.value = 'Invite revoked.';
+    formError.value = '';
+    listMessage.value = '';
+    try {
+      await api.post(`/school-onboarding/invites/${inv.id}/revoke`, { agencyId: resolvedAgencyId.value });
+      listMessage.value = 'Invite revoked.';
     await loadInvites();
   } catch (e) {
     formError.value = e?.response?.data?.error?.message || 'Failed to revoke';
@@ -343,7 +415,7 @@ async function rotateQr() {
     const res = await api.post('/school-onboarding/qr-link/rotate', { agencyId: resolvedAgencyId.value });
     qr.value = res.data?.qr || null;
     await renderQr(qr.value?.url);
-    formSuccess.value = 'QR code rotated.';
+    listMessage.value = 'QR code rotated.';
   } catch (e) {
     qrError.value = e?.response?.data?.error?.message || 'Failed to rotate QR';
   } finally {
@@ -543,6 +615,9 @@ onMounted(async () => {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #fff;
+}
+.so-share-card strong {
+  color: #0f172a;
 }
 .so-qr-meta { display: flex; flex-direction: column; gap: 0.75rem; min-width: 220px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }

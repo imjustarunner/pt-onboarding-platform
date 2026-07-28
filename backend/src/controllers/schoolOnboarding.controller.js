@@ -28,7 +28,8 @@ export async function createInvite(req, res, next) {
       contactLastName: req.body?.contactLastName,
       contactEmail: req.body?.contactEmail,
       schoolName: req.body?.schoolName,
-      invitedByUserId: req.user?.id || null
+      invitedByUserId: req.user?.id || null,
+      sendEmail: req.body?.sendEmail === true
     });
     res.status(201).json({
       invite: S.serializeInvite(result.invite, { admin: true }),
@@ -65,6 +66,19 @@ export async function resendInvite(req, res, next) {
   }
 }
 
+export async function sendInviteEmail(req, res, next) {
+  try {
+    const agencyId = agencyIdFromReq(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const inviteId = parseInt(req.params.id, 10);
+    if (!inviteId) return res.status(400).json({ error: { message: 'Invalid invite id' } });
+    const result = await S.sendInviteEmailOnly(inviteId, agencyId, req.user?.id || null);
+    res.json(result);
+  } catch (err) {
+    handleServiceError(err, res, next);
+  }
+}
+
 export async function revokeInvite(req, res, next) {
   try {
     const agencyId = agencyIdFromReq(req);
@@ -89,7 +103,13 @@ export async function getPublicByToken(req, res, next) {
 
 export async function setPassword(req, res, next) {
   try {
-    const result = await S.setPassword(req.params.token, req.body?.password);
+    const result = await S.setPassword(req.params.token, req.body?.password, {
+      identityConfirmed: req.body?.identityConfirmed === true,
+      contactFirstName: req.body?.contactFirstName,
+      contactLastName: req.body?.contactLastName,
+      contactEmail: req.body?.contactEmail,
+      schoolName: req.body?.schoolName
+    });
     const user = result.user;
     const sessionId = crypto.randomUUID();
     const jwtToken = jwt.sign(
@@ -144,13 +164,52 @@ export async function saveStep(req, res, next) {
 export async function getDemo(req, res, next) {
   try {
     const demo = await S.resolveDemoSchool(req.params.token);
-    // Mark explore_demo complete when they request demo details
-    try {
-      await S.saveStep(req.params.token, 'explore_demo', { opened: true }, true);
-    } catch {
-      // ignore if already submitted
-    }
     res.json({ demo });
+  } catch (err) {
+    handleServiceError(err, res, next);
+  }
+}
+
+export async function getDemoSnapshot(req, res, next) {
+  try {
+    const snapshot = await S.getDemoSnapshot(req.params.token);
+    res.json({ snapshot });
+  } catch (err) {
+    handleServiceError(err, res, next);
+  }
+}
+
+export async function getDemoPortal(req, res, next) {
+  try {
+    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
+    // When mounted at /:token/demo/portal, remaining path is req.url (e.g. /stats?x=1)
+    const pathRest = String(req.url || '/')
+      .split('?')[0]
+      .replace(/^\/+/, '');
+    const data = await DemoPortal.handleDemoPortalGet(req.params.token, pathRest, req.query || {});
+    res.json(data);
+  } catch (err) {
+    handleServiceError(err, res, next);
+  }
+}
+
+export async function mutateDemoPortal(req, res, next) {
+  try {
+    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
+    // Validate invite exists
+    await S.resolveDemoSchool(req.params.token);
+    const data = await DemoPortal.handleDemoPortalMutation();
+    res.json(data);
+  } catch (err) {
+    handleServiceError(err, res, next);
+  }
+}
+
+export async function getDemoSchoolMeta(req, res, next) {
+  try {
+    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
+    const school = await DemoPortal.getDemoSchoolMeta(req.params.token);
+    res.json({ school });
   } catch (err) {
     handleServiceError(err, res, next);
   }
@@ -210,38 +269,10 @@ export async function getPublicQr(req, res, next) {
 export async function startFromQr(req, res, next) {
   try {
     const result = await S.startFromQr(req.params.token, req.body || {});
-    const user = result.user;
-    const sessionId = crypto.randomUUID();
-    const jwtToken = jwt.sign(
-      {
-        id: user.id,
-        email: user.username || user.email,
-        role: user.role,
-        status: user.status,
-        sessionId,
-        schoolOnboarding: true
-      },
-      config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
-    );
-    res.cookie('authToken', jwtToken, config.authCookie.set());
     res.status(201).json({
       inviteToken: result.inviteToken,
       link: result.link,
-      school: result.school,
-      username: result.username,
-      token: jwtToken,
-      sessionId,
-      user: {
-        id: user.id,
-        email: user.username || user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        role: user.role,
-        status: user.status,
-        username: user.username || user.email
-      },
-      agencies: result.agencies || []
+      school: result.school
     });
   } catch (err) {
     handleServiceError(err, res, next);

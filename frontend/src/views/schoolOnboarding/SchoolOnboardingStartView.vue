@@ -14,7 +14,8 @@
       <div v-else-if="error" class="error">{{ error }}</div>
       <form v-else class="so-form" @submit.prevent="start">
         <p class="muted">
-          Enter your details and school name to create your draft portal. You’ll finish staff, preferred days, and a demo next.
+          Enter your details and school name to create your draft portal. You’ll choose your login password as the
+          last step.
         </p>
         <div class="so-grid">
           <label>
@@ -33,14 +34,6 @@
             School name
             <input v-model.trim="form.schoolName" required />
           </label>
-          <label>
-            Create your password
-            <input v-model="form.password" type="password" required minlength="6" autocomplete="new-password" />
-          </label>
-          <label>
-            Confirm password
-            <input v-model="form.passwordConfirm" type="password" required minlength="6" autocomplete="new-password" />
-          </label>
         </div>
         <p v-if="actionError" class="error">{{ actionError }}</p>
         <button type="submit" class="btn primary" :disabled="saving">
@@ -55,11 +48,9 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
-import { useAuthStore } from '../../store/auth';
 
 const route = useRoute();
 const router = useRouter();
-const authStore = useAuthStore();
 
 const token = computed(() => String(route.params.token || '').trim());
 const loading = ref(true);
@@ -72,9 +63,7 @@ const form = reactive({
   contactFirstName: '',
   contactLastName: '',
   contactEmail: '',
-  schoolName: '',
-  password: '',
-  passwordConfirm: ''
+  schoolName: ''
 });
 
 const agencyName = computed(() => meta.value?.agency?.name || 'School portal');
@@ -100,29 +89,14 @@ async function load() {
 
 async function start() {
   actionError.value = '';
-  if (form.password !== form.passwordConfirm) {
-    actionError.value = 'Passwords do not match';
-    return;
-  }
   saving.value = true;
   try {
     const res = await api.post(`/public/school-onboarding/qr/${token.value}/start`, {
       contactFirstName: form.contactFirstName,
       contactLastName: form.contactLastName,
       contactEmail: form.contactEmail,
-      schoolName: form.schoolName,
-      password: form.password
+      schoolName: form.schoolName
     });
-    if (res.data?.token && res.data?.user) {
-      authStore.setAuth(res.data.token, res.data.user, res.data.sessionId);
-      if (Array.isArray(res.data.agencies)) {
-        try {
-          localStorage.setItem('userAgencies', JSON.stringify(res.data.agencies));
-        } catch {
-          // ignore
-        }
-      }
-    }
     const inviteToken = res.data?.inviteToken;
     router.replace(`/school-onboarding/${inviteToken}/school_information`);
   } catch (e) {

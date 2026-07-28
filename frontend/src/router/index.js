@@ -611,6 +611,10 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/school-onboarding/login',
+    redirect: '/login'
+  },
+  {
     path: '/school-onboarding/:token/demo',
     name: 'SchoolOnboardingDemo',
     component: () => import('../views/schoolOnboarding/SchoolOnboardingDemoView.vue'),
@@ -4247,6 +4251,7 @@ router.beforeEach(async (to, from, next) => {
           const requiredTaskId = Number(waiverStatus?.taskId || 0) || null;
           if (requiresWaiver && !isSigned) {
             const queryMode = String(to.query?.sp || '').trim().toLowerCase();
+            const isOnboardingDemo = !!String(to.query?.soDemo || '').trim();
             const isDashboardDocuments =
               currentRouteName === 'OrganizationDashboard' &&
               String(to.params.organizationSlug || '') === String(slug) &&
@@ -4255,7 +4260,7 @@ router.beforeEach(async (to, from, next) => {
               exemptRouteNames.has(currentRouteName) &&
               requiredTaskId &&
               Number(to.params?.taskId || 0) === requiredTaskId;
-            if (!isDashboardDocuments && !isRequiredTaskSigningRoute) {
+            if (!isDashboardDocuments && !isRequiredTaskSigningRoute && !isOnboardingDemo) {
               next(`/${slug}/dashboard?sp=documents`);
               return;
             }

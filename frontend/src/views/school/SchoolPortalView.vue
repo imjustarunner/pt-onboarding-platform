@@ -7,10 +7,20 @@
     }"
   >
     <PlatformPreviewBanner
-      v-if="props.previewMode"
-      :title="`Previewing ${organizationDisplayName} portal`"
+      v-if="(props.previewMode || onboardingDemoToken) && !props.publicDemoToken"
+      :eyebrow="onboardingDemoToken ? 'School onboarding demo' : 'Platform Preview'"
+      :title="onboardingDemoToken ? 'Hogwarts demo — view only' : `Previewing ${organizationDisplayName} portal`"
       :subtitle="previewBannerSubtitle"
-    />
+    >
+      <template v-if="onboardingDemoToken" #actions>
+        <button type="button" class="so-demo-banner-btn ghost" @click="leaveOnboardingDemo('explore_demo')">
+          ← Back to onboarding
+        </button>
+        <button type="button" class="so-demo-banner-btn primary" @click="leaveOnboardingDemo('review_submit')">
+          Continue to review →
+        </button>
+      </template>
+    </PlatformPreviewBanner>
 
     <div
       v-if="sidebarMobileOpen"
@@ -440,7 +450,7 @@
               <div class="sp-user-role">{{ portalUserRoleLabel }}</div>
             </div>
             <button
-              v-if="isSchoolStaff && !props.previewMode"
+              v-if="isSchoolStaff && !isPreviewOrDemo"
               type="button"
               class="btn btn-secondary btn-sm"
               @click="authStore.logout()"
@@ -461,7 +471,7 @@
         @activate="openNotificationsPanel"
       />
 
-      <SurveyPromptCard v-if="authStore.user?.id && !props.previewMode" :splash="true" />
+      <SurveyPromptCard v-if="authStore.user?.id && !isPreviewOrDemo" :splash="true" />
 
       <div class="portal-content" :class="{ 'is-home': portalMode === 'home' }">
         <div class="top-row" data-tour="school-top-actions">
@@ -552,7 +562,7 @@
                 All schools
               </router-link>
               <button
-                v-if="authStore.user?.id && !props.previewMode"
+                v-if="authStore.user?.id && !isPreviewOrDemo"
                 class="btn btn-primary btn-sm"
                 type="button"
                 @click="openAnnouncementModal"
@@ -560,7 +570,7 @@
                 Create announcement
               </button>
               <button
-                v-if="isSuperAdmin && organizationId"
+                v-if="isSuperAdmin && organizationId && !isPreviewOrDemo"
                 class="btn btn-secondary btn-sm"
                 type="button"
                 @click="openAdminToolsModal"
@@ -1794,7 +1804,7 @@
     <!-- Providers are now shown in-page via ProvidersDirectoryPanel -->
 
     <SchoolMarketingSplash
-      v-if="!props.previewMode && organizationId"
+      v-if="!isPreviewOrDemo && organizationId"
       :school-id="organizationId"
     />
   </div>
@@ -1857,6 +1867,10 @@ const props = defineProps({
   previewMode: {
     type: Boolean,
     default: false
+  },
+  publicDemoToken: {
+    type: String,
+    default: ''
   }
 });
 
@@ -1869,12 +1883,31 @@ const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const tutorialStore = useTutorialStore();
 
+const onboardingDemoToken = computed(() =>
+  String(props.publicDemoToken || route.query?.soDemo || '').trim()
+);
+const isPublicDemo = computed(() => !!onboardingDemoToken.value);
+const isPreviewOrDemo = computed(() => props.previewMode || isPublicDemo.value);
+
 const previewBannerSubtitle = computed(() => {
+  if (onboardingDemoToken.value) {
+    return 'Browse the Hogwarts school portal. When you’re done, return to finish onboarding.';
+  }
   if (String(route.name || '') === 'SchoolOnboardingDemo') {
     return 'Demo school — view only. Browse freely; add/edit/delete actions are disabled.';
   }
   return 'This platform preview shows the tenant portal shell without acting like a live school staff session.';
 });
+
+function leaveOnboardingDemo(step = 'explore_demo') {
+  const token = onboardingDemoToken.value;
+  if (!token) return;
+  const path =
+    step === 'home' || !step
+      ? `/school-onboarding/${token}`
+      : `/school-onboarding/${token}/${step}`;
+  router.push(path);
+}
 
 const vClickOutside = {
   mounted(el, binding) {
@@ -2062,7 +2095,7 @@ const promptDismissKey = (orgId, category, year) =>
   `schoolEventPromptDismiss:${orgId}:${category}:${year}`;
 
 const loadSchoolEventsMissing = async () => {
-  if (!organizationId.value || !isSchoolStaff.value || props.previewMode) return;
+  if (!organizationId.value || !isSchoolStaff.value || isPreviewOrDemo.value) return;
   try {
     const res = await api.get(`/school-portal/${organizationId.value}/school-events/missing`);
     schoolEventsMissingCategories.value = Array.isArray(res.data?.missingCategories)
@@ -2075,7 +2108,7 @@ const loadSchoolEventsMissing = async () => {
 };
 
 const maybeShowSchoolEventPrompt = () => {
-  if (!isSchoolStaff.value || props.previewMode || !organizationId.value) return;
+  if (!isSchoolStaff.value || isPreviewOrDemo.value || !organizationId.value) return;
   const year = schoolEventPromptYear.value;
   const orgId = organizationId.value;
   const missing = schoolEventsMissingCategories.value || [];
@@ -2093,7 +2126,7 @@ const maybeShowSchoolEventPrompt = () => {
 };
 
 const applySchoolEventDeepLink = async () => {
-  if (!isSchoolStaff.value || props.previewMode) return;
+  if (!isSchoolStaff.value || isPreviewOrDemo.value) return;
   const categoryRaw = String(route.query?.postSchoolEvent || route.query?.post_school_event || '').trim().toLowerCase();
   const token = String(route.query?.setk || '').trim();
   if (!categoryRaw && !token) return;
@@ -2136,7 +2169,7 @@ const showFallReinitSummaryButton = computed(() => {
   return Boolean(fallReinitStatus.value?.showReceiptButton && c?.status === 'finalized');
 });
 const showFallReinitSplash = computed(() => {
-  if (!isSchoolStaff.value || props.previewMode || fallReinitSessionDismissed.value) return false;
+  if (!isSchoolStaff.value || isPreviewOrDemo.value || fallReinitSessionDismissed.value) return false;
   if (showFallReinitModal.value) return true;
   const data = fallReinitStatus.value;
   if (!data) return false;
@@ -2148,7 +2181,7 @@ const showFallReinitSplash = computed(() => {
   return true;
 });
 const loadFallReinitStatus = async () => {
-  if (!isSchoolStaff.value || props.previewMode || !organizationId.value) {
+  if (!isSchoolStaff.value || isPreviewOrDemo.value || !organizationId.value) {
     fallReinitStatus.value = null;
     return;
   }
@@ -2625,14 +2658,16 @@ const waitlistSchoolCount = computed(() => {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 });
 
-const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
-const isSuperAdmin = computed(() => roleNorm.value === 'super_admin');
-const hasSupervisorCapability = computed(() => isSupervisor(authStore.user));
+const roleNorm = computed(() =>
+  isPublicDemo.value ? 'school_staff' : String(authStore.user?.role || '').toLowerCase()
+);
+const isSuperAdmin = computed(() => !isPublicDemo.value && roleNorm.value === 'super_admin');
+const hasSupervisorCapability = computed(() => !isPublicDemo.value && isSupervisor(authStore.user));
 const isProvider = computed(() => roleNorm.value === 'provider' && !hasSupervisorCapability.value);
 const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && roleNorm.value === 'provider');
-const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
+const isSchoolStaff = computed(() => isPublicDemo.value || roleNorm.value === 'school_staff');
 const canAddSchoolProviders = computed(() =>
-  ['school_staff', 'admin', 'support', 'super_admin'].includes(roleNorm.value) && !props.previewMode
+  ['school_staff', 'admin', 'support', 'super_admin'].includes(roleNorm.value) && !isPreviewOrDemo.value
 );
 const onSchoolProviderAdded = async () => {
   try {
@@ -2645,7 +2680,7 @@ const onSchoolProviderAdded = async () => {
 };
 /** School staff, assigned providers, and agency managers can add/edit events on this portal. */
 const canManageSchoolEvents = computed(() => {
-  if (props.previewMode) return false;
+  if (isPreviewOrDemo.value) return false;
   if (!authStore.user?.id) return false;
   return [
     'school_staff',
@@ -2662,13 +2697,13 @@ const canManageSchoolEvents = computed(() => {
 });
 /** Admin / support / super_admin can permanently remove events from the portal. */
 const canDeleteSchoolEvents = computed(() => {
-  if (props.previewMode) return false;
+  if (isPreviewOrDemo.value) return false;
   return ['super_admin', 'admin', 'support'].includes(roleNorm.value);
 });
 const deletingSchoolEventId = ref(null);
 /** Providers (not school staff) can request assignment on attendable/staffable school events. */
 const canRequestSchoolEventAssignment = computed(() => {
-  if (props.previewMode) return false;
+  if (isPreviewOrDemo.value) return false;
   if (!authStore.user?.id) return false;
   if (isSchoolStaff.value) return false;
   return [
@@ -2738,12 +2773,14 @@ const onSchoolEventStaffingChanged = async () => {
   await schoolCalendarPanelRef.value?.reload?.();
 };
 const canManageMarketingCampaigns = computed(() => {
+  if (isPreviewOrDemo.value) return false;
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['admin', 'super_admin', 'support'].includes(r);
 });
 const waiverGateStatus = ref(null);
 const waiverGateLocked = computed(() => (
-  isSchoolStaff.value
+  !isPublicDemo.value
+  && isSchoolStaff.value
   && Boolean(waiverGateStatus.value?.required)
   && !Boolean(waiverGateStatus.value?.isSigned)
 ));
@@ -2764,7 +2801,9 @@ const schoolStaffSchools = computed(() => {
     .map((a) => ({ slug: pickSlug(a), name: pickName(a) }))
     .filter((s) => s.slug);
 });
-const showSchoolSelector = computed(() => isSchoolStaff.value && schoolStaffSchools.value.length > 1);
+const showSchoolSelector = computed(() =>
+  !isPublicDemo.value && isSchoolStaff.value && schoolStaffSchools.value.length > 1
+);
 const selectedSchoolSlug = ref('');
 const onSchoolSelect = () => {
   const slug = selectedSchoolSlug.value;
@@ -2818,6 +2857,7 @@ const backToSchoolsPath = computed(() => {
 });
 const canUseComplianceCorner = computed(() => ['super_admin', 'admin'].includes(roleNorm.value));
 const canAccessSchedulingPanels = computed(() => {
+  if (isPublicDemo.value) return true;
   if (!isSupervisorProviderContext.value) return true;
   if (!schedulingEligibilityResolved.value) return true;
   const superviseeIds = (supervisorSuperviseeIds.value || []).map((v) => Number(v)).filter(Boolean);
@@ -3613,13 +3653,18 @@ const ensureAffiliation = async () => {
     canEditClientActions.value = !!r?.data?.can_edit_clients;
 
     // Best-effort: load full affiliated agency record for icon overrides (cards + settings icon).
-    if (affiliatedAgencyId.value) {
+    // Public onboarding demo includes a sanitized active_agency payload (no /agencies auth).
+    if (isPublicDemo.value && r?.data?.active_agency) {
+      cardIconOrg.value = r.data.active_agency;
+    } else if (affiliatedAgencyId.value) {
       const a = await api.get(`/agencies/${affiliatedAgencyId.value}`);
       cardIconOrg.value = a.data || null;
     } else {
       cardIconOrg.value = null;
     }
-    await checkReviewPrompt();
+    if (!isPublicDemo.value) {
+      await checkReviewPrompt();
+    }
   } catch {
     affiliatedAgencyId.value = null;
     cardIconOrg.value = null;
@@ -3759,7 +3804,12 @@ const scrollToHomeRoster = () => {
   }
 };
 
-const organizationSlug = computed(() => route.params.organizationSlug);
+const organizationSlug = computed(() =>
+  route.params.organizationSlug
+  || organizationStore.currentOrganization?.slug
+  || organizationStore.currentOrganization?.portal_url
+  || null
+);
 const isFakeySchoolForSplashTest = computed(() => {
   const slug = String(organizationSlug.value || '').trim().toLowerCase();
   return slug === 'fakey-school' || slug === 'fakeyschool' || slug.includes('fakey');
@@ -3813,6 +3863,7 @@ const navigateSidebar = (action) => {
 };
 
 const portalUserFirstName = computed(() => {
+  if (isPublicDemo.value) return 'there';
   const u = authStore.user || {};
   const first = String(u.first_name || u.firstName || '').trim();
   if (first) return first;
@@ -4217,7 +4268,11 @@ onMounted(async () => {
     // ignore
   }
   // Ensure school staff have their agencies loaded for multi-school selector
-  if (isSchoolStaff.value && (!Array.isArray(agencyStore.userAgencies) || agencyStore.userAgencies.length === 0)) {
+  if (
+    !isPublicDemo.value &&
+    isSchoolStaff.value &&
+    (!Array.isArray(agencyStore.userAgencies) || agencyStore.userAgencies.length === 0)
+  ) {
     try {
       await agencyStore.fetchUserAgencies();
     } catch {
@@ -4225,7 +4280,7 @@ onMounted(async () => {
     }
   }
   // Load organization context if not already loaded
-  if (organizationSlug.value && !organizationStore.currentOrganization) {
+  if (!isPublicDemo.value && organizationSlug.value && !organizationStore.currentOrganization) {
     await organizationStore.fetchBySlug(organizationSlug.value);
   }
   if (organizationId.value) {
@@ -4242,21 +4297,33 @@ onMounted(async () => {
     await store.fetchPortalStats();
     // Preload provider list so home has useful info immediately.
     await store.fetchEligibleProviders();
-    await loadSupervisorScheduleEligibility();
+    if (!isPublicDemo.value) {
+      await loadSupervisorScheduleEligibility();
+    }
     // Preload announcements preview so the card badge/snippet is populated.
     await loadNotificationsPreview();
     await loadBannerAnnouncements();
-    await refreshWaiverGateStatus({ force: true });
-    await loadSchoolEventsMissing();
+    if (!isPublicDemo.value) {
+      await refreshWaiverGateStatus({ force: true });
+    }
+    if (!isPublicDemo.value) {
+      await loadSchoolEventsMissing();
+    }
     await loadSchoolPortalEvents();
-    await applySchoolEventDeepLink();
-    if (!showPostSchoolEvent.value) maybeShowSchoolEventPrompt();
+    if (!isPublicDemo.value) {
+      await applySchoolEventDeepLink();
+    }
+    if (!isPublicDemo.value && !showPostSchoolEvent.value) maybeShowSchoolEventPrompt();
     if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
     await openClientFromQuery();
-    await loadFallReinitStatus();
+    if (!isPublicDemo.value) {
+      await loadFallReinitStatus();
+    }
   }
 
-  await maybeOpenWeeklyAvailabilityPrompt();
+  if (!isPublicDemo.value) {
+    await maybeOpenWeeklyAvailabilityPrompt();
+  }
 });
 
 watch(organizationId, async (id) => {
@@ -4272,15 +4339,20 @@ watch(organizationId, async (id) => {
   await store.fetchDays();
   await store.fetchPortalStats();
   await store.fetchEligibleProviders();
-  await loadSupervisorScheduleEligibility();
+  if (!isPublicDemo.value) {
+    await loadSupervisorScheduleEligibility();
+  }
   await loadNotificationsPreview();
   await loadBannerAnnouncements();
-  await refreshWaiverGateStatus({ force: true });
+  if (!isPublicDemo.value) {
+    await refreshWaiverGateStatus({ force: true });
+  }
   if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
   await openClientFromQuery();
-  await loadFallReinitStatus();
-
-  await maybeOpenWeeklyAvailabilityPrompt();
+  if (!isPublicDemo.value) {
+    await loadFallReinitStatus();
+    await maybeOpenWeeklyAvailabilityPrompt();
+  }
 });
 
 watch(
@@ -5876,5 +5948,23 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 .admin-school-switcher .caret.open {
   transform: rotate(180deg);
+}
+
+.so-demo-banner-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 0.45rem 0.8rem;
+  font: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.so-demo-banner-btn.primary {
+  background: #1d4ed8;
+  color: #fff;
+}
+.so-demo-banner-btn.ghost {
+  background: #eef2ff;
+  color: #1e3a8a;
 }
 </style>
