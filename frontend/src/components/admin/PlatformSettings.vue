@@ -201,32 +201,52 @@
           <IconSelector v-model="schoolPortalIcons.rosterIconId" />
         </div>
         <div class="icon-setting-item">
-          <label>Skills Groups</label>
+          <label>Skill Builders</label>
           <IconSelector v-model="schoolPortalIcons.skillsGroupsIconId" />
         </div>
         <div class="icon-setting-item">
-          <label>Contact Admin</label>
-          <IconSelector v-model="schoolPortalIcons.contactAdminIconId" />
+          <label>Events</label>
+          <IconSelector v-model="schoolPortalIcons.eventsIconId" />
         </div>
         <div class="icon-setting-item">
-          <label>FAQ</label>
-          <IconSelector v-model="schoolPortalIcons.faqIconId" />
+          <label>School calendar</label>
+          <IconSelector v-model="schoolPortalIcons.calendarIconId" />
         </div>
         <div class="icon-setting-item">
           <label>School staff</label>
           <IconSelector v-model="schoolPortalIcons.schoolStaffIconId" />
         </div>
         <div class="icon-setting-item">
-          <label>Parent QR code</label>
-          <IconSelector v-model="schoolPortalIcons.parentQrIconId" />
+          <label>Docs / Links</label>
+          <IconSelector v-model="schoolPortalIcons.publicDocumentsIconId" />
         </div>
         <div class="icon-setting-item">
-          <label>Parent fill + sign</label>
-          <IconSelector v-model="schoolPortalIcons.parentSignIconId" />
+          <label>FAQ</label>
+          <IconSelector v-model="schoolPortalIcons.faqIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Notifications</label>
+          <IconSelector v-model="schoolPortalIcons.announcementsIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Contact Admin</label>
+          <IconSelector v-model="schoolPortalIcons.contactAdminIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Digital forms</label>
+          <IconSelector v-model="schoolPortalIcons.parentQrIconId" />
         </div>
         <div class="icon-setting-item">
           <label>Upload packet</label>
           <IconSelector v-model="schoolPortalIcons.uploadPacketIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Manage school digital forms</label>
+          <IconSelector v-model="schoolPortalIcons.digitalFormsIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Parent fill + sign</label>
+          <IconSelector v-model="schoolPortalIcons.parentSignIconId" />
         </div>
       </div>
 
@@ -371,12 +391,17 @@ const schoolPortalIcons = ref({
   daysIconId: null,
   rosterIconId: null,
   skillsGroupsIconId: null,
+  eventsIconId: null,
+  calendarIconId: null,
   contactAdminIconId: null,
   faqIconId: null,
   schoolStaffIconId: null,
+  publicDocumentsIconId: null,
+  announcementsIconId: null,
   parentQrIconId: null,
   parentSignIconId: null,
-  uploadPacketIconId: null
+  uploadPacketIconId: null,
+  digitalFormsIconId: null
 });
 
 // Platform name - use platform branding or fallback
@@ -415,12 +440,17 @@ const fetchSettings = async () => {
         daysIconId: pb.school_portal_days_icon_id ?? null,
         rosterIconId: pb.school_portal_roster_icon_id ?? null,
         skillsGroupsIconId: pb.school_portal_skills_groups_icon_id ?? null,
+        eventsIconId: pb.school_portal_events_icon_id ?? null,
+        calendarIconId: pb.school_portal_calendar_icon_id ?? null,
         contactAdminIconId: pb.school_portal_contact_admin_icon_id ?? null,
         faqIconId: pb.school_portal_faq_icon_id ?? null,
         schoolStaffIconId: pb.school_portal_school_staff_icon_id ?? null,
+        publicDocumentsIconId: pb.school_portal_public_documents_icon_id ?? null,
+        announcementsIconId: pb.school_portal_announcements_icon_id ?? null,
         parentQrIconId: pb.school_portal_parent_qr_icon_id ?? null,
         parentSignIconId: pb.school_portal_parent_sign_icon_id ?? null,
-        uploadPacketIconId: pb.school_portal_upload_packet_icon_id ?? null
+        uploadPacketIconId: pb.school_portal_upload_packet_icon_id ?? null,
+        digitalFormsIconId: pb.school_portal_digital_forms_icon_id ?? null
       };
     }
   } catch (err) {
@@ -534,12 +564,17 @@ const saveSchoolPortalIcons = async () => {
       schoolPortalDaysIconId: schoolPortalIcons.value.daysIconId,
       schoolPortalRosterIconId: schoolPortalIcons.value.rosterIconId,
       schoolPortalSkillsGroupsIconId: schoolPortalIcons.value.skillsGroupsIconId,
+      schoolPortalEventsIconId: schoolPortalIcons.value.eventsIconId,
+      schoolPortalCalendarIconId: schoolPortalIcons.value.calendarIconId,
       schoolPortalContactAdminIconId: schoolPortalIcons.value.contactAdminIconId,
       schoolPortalFaqIconId: schoolPortalIcons.value.faqIconId,
       schoolPortalSchoolStaffIconId: schoolPortalIcons.value.schoolStaffIconId,
+      schoolPortalPublicDocumentsIconId: schoolPortalIcons.value.publicDocumentsIconId,
+      schoolPortalAnnouncementsIconId: schoolPortalIcons.value.announcementsIconId,
       schoolPortalParentQrIconId: schoolPortalIcons.value.parentQrIconId,
       schoolPortalParentSignIconId: schoolPortalIcons.value.parentSignIconId,
-      schoolPortalUploadPacketIconId: schoolPortalIcons.value.uploadPacketIconId
+      schoolPortalUploadPacketIconId: schoolPortalIcons.value.uploadPacketIconId,
+      schoolPortalDigitalFormsIconId: schoolPortalIcons.value.digitalFormsIconId
     });
     await brandingStore.fetchPlatformBranding();
     alert('School Portal icons saved successfully!');

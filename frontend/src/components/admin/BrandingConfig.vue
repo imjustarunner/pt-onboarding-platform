@@ -1653,6 +1653,36 @@
             </div>
           </template>
 
+          <template v-if="showSchoolPortalIconsForSelectedAgency">
+            <div class="section-divider"></div>
+            <h4>School Portal Card Icons</h4>
+            <p class="section-description">
+              Icons for School Portal home cards (Providers, Events, School calendar, Digital Forms, etc.). Overrides platform defaults for affiliated schools.
+            </p>
+            <div class="icons-table">
+              <div
+                v-for="row in SCHOOL_PORTAL_ICON_ROWS"
+                :key="row.key"
+                class="icon-row"
+              >
+                <div class="icon-label">{{ row.label }}</div>
+                <div class="icon-selector-cell">
+                  <IconSelector v-model="agencyBrandingForm[row.key]" />
+                  <button
+                    v-if="agencyBrandingForm[row.key]"
+                    @click="agencyBrandingForm[row.key] = null"
+                    class="btn btn-sm btn-danger"
+                    type="button"
+                    title="Remove icon"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div class="icon-description">{{ row.description }}</div>
+              </div>
+            </div>
+          </template>
+
           <div class="section-divider"></div>
           <h4>Settings Navigation Icons</h4>
           <p class="section-description">Icons shown in the Settings sidebar navigation (overrides platform defaults).</p>
@@ -2115,6 +2145,36 @@
           </div>
         </div>
 
+        <template v-if="showSchoolPortalIconsForCurrentAgency">
+          <div class="section-divider"></div>
+          <h4>School Portal Card Icons</h4>
+          <p class="section-description">
+            Icons for School Portal home cards (Providers, Events, School calendar, Digital Forms, etc.). Overrides platform defaults for affiliated schools.
+          </p>
+          <div class="icons-table">
+            <div
+              v-for="row in SCHOOL_PORTAL_ICON_ROWS"
+              :key="row.key"
+              class="icon-row"
+            >
+              <div class="icon-label">{{ row.label }}</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="brandingForm[row.key]" />
+                <button
+                  v-if="brandingForm[row.key]"
+                  @click="brandingForm[row.key] = null"
+                  class="btn btn-sm btn-danger"
+                  type="button"
+                  title="Remove icon"
+                >
+                  Clear
+                </button>
+              </div>
+              <div class="icon-description">{{ row.description }}</div>
+            </div>
+          </div>
+        </template>
+
         <div class="section-divider"></div>
         <h4>Settings Navigation Icons</h4>
         <p class="section-description">Icons shown in the Settings sidebar navigation (overrides platform defaults).</p>
@@ -2383,6 +2443,64 @@ const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const router = useRouter();
+
+/** School Portal home-card icon slots (agency overrides + platform defaults). */
+const SCHOOL_PORTAL_ICON_FIELD_MAP = [
+  ['schoolPortalProvidersIconId', 'school_portal_providers_icon_id'],
+  ['schoolPortalDaysIconId', 'school_portal_days_icon_id'],
+  ['schoolPortalRosterIconId', 'school_portal_roster_icon_id'],
+  ['schoolPortalSkillsGroupsIconId', 'school_portal_skills_groups_icon_id'],
+  ['schoolPortalEventsIconId', 'school_portal_events_icon_id'],
+  ['schoolPortalCalendarIconId', 'school_portal_calendar_icon_id'],
+  ['schoolPortalSchoolStaffIconId', 'school_portal_school_staff_icon_id'],
+  ['schoolPortalPublicDocumentsIconId', 'school_portal_public_documents_icon_id'],
+  ['schoolPortalFaqIconId', 'school_portal_faq_icon_id'],
+  ['schoolPortalAnnouncementsIconId', 'school_portal_announcements_icon_id'],
+  ['schoolPortalContactAdminIconId', 'school_portal_contact_admin_icon_id'],
+  ['schoolPortalParentQrIconId', 'school_portal_parent_qr_icon_id'],
+  ['schoolPortalUploadPacketIconId', 'school_portal_upload_packet_icon_id'],
+  ['schoolPortalDigitalFormsIconId', 'school_portal_digital_forms_icon_id'],
+  ['schoolPortalParentSignIconId', 'school_portal_parent_sign_icon_id']
+];
+
+const SCHOOL_PORTAL_ICON_ROWS = [
+  { key: 'schoolPortalProvidersIconId', label: 'Providers', description: 'Icon for the "Providers" school portal card' },
+  { key: 'schoolPortalDaysIconId', label: 'Days', description: 'Icon for the "Days" school portal card' },
+  { key: 'schoolPortalRosterIconId', label: 'Roster', description: 'Icon for the "Roster" school portal card' },
+  { key: 'schoolPortalSkillsGroupsIconId', label: 'Skill Builders', description: 'Icon for the "Skill Builders" school portal card' },
+  { key: 'schoolPortalEventsIconId', label: 'Events', description: 'Icon for the "Events" school portal card' },
+  { key: 'schoolPortalCalendarIconId', label: 'School calendar', description: 'Icon for the "School calendar" school portal card' },
+  { key: 'schoolPortalSchoolStaffIconId', label: 'School staff', description: 'Icon for the "School staff" school portal card' },
+  { key: 'schoolPortalPublicDocumentsIconId', label: 'Docs / Links', description: 'Icon for the "Docs / Links" school portal card' },
+  { key: 'schoolPortalFaqIconId', label: 'FAQ', description: 'Icon for the "FAQ" school portal card' },
+  { key: 'schoolPortalAnnouncementsIconId', label: 'Notifications', description: 'Icon for the "Notifications" school portal card' },
+  { key: 'schoolPortalContactAdminIconId', label: 'Contact admin', description: 'Icon for the "Contact admin" school portal card' },
+  { key: 'schoolPortalParentQrIconId', label: 'Digital forms', description: 'Icon for the "Digital forms" (parent intake) school portal card' },
+  { key: 'schoolPortalUploadPacketIconId', label: 'Upload packet', description: 'Icon for the "Upload packet" school portal card' },
+  { key: 'schoolPortalDigitalFormsIconId', label: 'Manage school digital forms', description: 'Icon for the "Manage school digital forms" school portal card' },
+  { key: 'schoolPortalParentSignIconId', label: 'Parent fill + sign', description: 'Icon for the "Parent fill + sign" school portal card' }
+];
+
+function emptySchoolPortalIcons() {
+  return Object.fromEntries(SCHOOL_PORTAL_ICON_FIELD_MAP.map(([camel]) => [camel, null]));
+}
+
+function schoolPortalIconsFromAgency(agency) {
+  return Object.fromEntries(
+    SCHOOL_PORTAL_ICON_FIELD_MAP.map(([camel, snake]) => [camel, agency?.[snake] ?? null])
+  );
+}
+
+function schoolPortalIconsForRequest(form) {
+  return Object.fromEntries(
+    SCHOOL_PORTAL_ICON_FIELD_MAP.map(([camel]) => [camel, form?.[camel] ?? null])
+  );
+}
+
+function isAgencyOrgType(org) {
+  const t = String(org?.organization_type || org?.organizationType || 'agency').toLowerCase();
+  return t === 'agency';
+}
 
 function parseSummitStatsFooterLinksFromStore(raw) {
   if (raw == null) return [];
@@ -2663,7 +2781,10 @@ const agencyBrandingForm = ref({
   // Club quick action icons (affiliations only)
   clubAddMemberIconId: null,
   clubAddSeasonIconId: null,
-  clubSettingsIconId: null
+  clubSettingsIconId: null,
+
+  // School Portal home-card icon overrides
+  ...emptySchoolPortalIcons()
 });
 
 const selectedAgency = computed(() => {
@@ -2679,6 +2800,8 @@ const isClubAgency = computed(() => {
   return t === 'affiliation';
 });
 
+const showSchoolPortalIconsForSelectedAgency = computed(() => isAgencyOrgType(selectedAgency.value));
+
 const saving = ref(false);
 const error = ref('');
 const logoError = ref(false);
@@ -2687,6 +2810,7 @@ const uploadingPlatformLogo = ref(false);
 const platformLogoInputMethod = ref('url'); // 'url' or 'upload'
 
 const currentAgency = computed(() => agencyStore.currentAgency);
+const showSchoolPortalIconsForCurrentAgency = computed(() => isAgencyOrgType(currentAgency.value));
 
 const brandingForm = ref({
   logoUrl: '',
@@ -2730,7 +2854,10 @@ const brandingForm = ref({
   assetsIconId: null,
   communicationsIconId: null,
   integrationsIconId: null,
-  archiveIconId: null
+  archiveIconId: null,
+
+  // School Portal home-card icon overrides
+  ...emptySchoolPortalIcons()
 });
 
 const primaryColor = computed(() => {
@@ -2820,7 +2947,8 @@ watch(currentAgency, async (agency) => {
 
         clubAddMemberIconId: freshAgency.club_add_member_icon_id ?? null,
         clubAddSeasonIconId: freshAgency.club_add_season_icon_id ?? null,
-        clubSettingsIconId: freshAgency.club_settings_icon_id ?? null
+        clubSettingsIconId: freshAgency.club_settings_icon_id ?? null,
+        ...schoolPortalIconsFromAgency(freshAgency)
       };
     } catch (err) {
       console.error('Failed to fetch fresh agency data:', err);
@@ -2870,7 +2998,8 @@ watch(currentAgency, async (agency) => {
         assetsIconId: agency.assets_icon_id ?? null,
         communicationsIconId: agency.communications_icon_id ?? null,
         integrationsIconId: agency.integrations_icon_id ?? null,
-        archiveIconId: agency.archive_icon_id ?? null
+        archiveIconId: agency.archive_icon_id ?? null,
+        ...schoolPortalIconsFromAgency(agency)
       };
     }
   }
@@ -2900,11 +3029,15 @@ const onBrandingScopeChange = async () => {
         textSecondary: palette.textSecondary || palette.text_secondary || '',
         textMuted: palette.textMuted || palette.text_muted || '',
         certificateTemplateUrl: freshAgency.certificate_template_url || '',
+        masterIconId: freshAgency.icon_id ?? null,
         trainingFocusDefaultIconId: freshAgency.training_focus_default_icon_id ?? null,
         moduleDefaultIconId: freshAgency.module_default_icon_id ?? null,
         userDefaultIconId: freshAgency.user_default_icon_id ?? null,
         documentDefaultIconId: freshAgency.document_default_icon_id ?? null,
         progressDashboardIconId: freshAgency.progress_dashboard_icon_id ?? null,
+        programOverviewIconId: freshAgency.program_overview_icon_id ?? null,
+        providerAvailabilityDashboardIconId: freshAgency.provider_availability_dashboard_icon_id ?? null,
+        executiveReportIconId: freshAgency.executive_report_icon_id ?? null,
         manageClientsIconId: freshAgency.manage_clients_icon_id ?? null,
         manageModulesIconId: freshAgency.manage_modules_icon_id ?? null,
         manageDocumentsIconId: freshAgency.manage_documents_icon_id ?? null,
@@ -2913,6 +3046,9 @@ const onBrandingScopeChange = async () => {
         platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
         externalCalendarAuditIconId: freshAgency.external_calendar_audit_icon_id ?? null,
         skillBuildersAvailabilityIconId: freshAgency.skill_builders_availability_icon_id ?? null,
+        intakeLinksIconId: freshAgency.intake_links_icon_id ?? null,
+        auditCenterIconId: freshAgency.audit_center_icon_id ?? null,
+        marketingSocialIconId: freshAgency.marketing_social_icon_id ?? null,
         dashboardNotificationsIconId: freshAgency.dashboard_notifications_icon_id ?? null,
         dashboardCommunicationsIconId: freshAgency.dashboard_communications_icon_id ?? null,
         dashboardChatsIconId: freshAgency.dashboard_chats_icon_id ?? null,
@@ -2933,7 +3069,8 @@ const onBrandingScopeChange = async () => {
 
         clubAddMemberIconId: freshAgency.club_add_member_icon_id ?? null,
         clubAddSeasonIconId: freshAgency.club_add_season_icon_id ?? null,
-        clubSettingsIconId: freshAgency.club_settings_icon_id ?? null
+        clubSettingsIconId: freshAgency.club_settings_icon_id ?? null,
+        ...schoolPortalIconsFromAgency(freshAgency)
       };
     } catch (err) {
       console.error('Failed to fetch agency data:', err);
@@ -3030,7 +3167,8 @@ const saveAgencyBrandingForSuperAdmin = async () => {
 
       clubAddMemberIconId: agencyBrandingForm.value.clubAddMemberIconId ?? null,
       clubAddSeasonIconId: agencyBrandingForm.value.clubAddSeasonIconId ?? null,
-      clubSettingsIconId: agencyBrandingForm.value.clubSettingsIconId ?? null
+      clubSettingsIconId: agencyBrandingForm.value.clubSettingsIconId ?? null,
+      ...schoolPortalIconsForRequest(agencyBrandingForm.value)
     };
     
     console.log('Saving agency branding:', requestData);
@@ -3111,7 +3249,8 @@ const saveAgencyBrandingForSuperAdmin = async () => {
 
           clubAddMemberIconId: freshAgency.club_add_member_icon_id ?? null,
           clubAddSeasonIconId: freshAgency.club_add_season_icon_id ?? null,
-          clubSettingsIconId: freshAgency.club_settings_icon_id ?? null
+          clubSettingsIconId: freshAgency.club_settings_icon_id ?? null,
+          ...schoolPortalIconsFromAgency(freshAgency)
         };
       } catch (err) {
         console.error('Failed to refresh agency data:', err);
@@ -3181,7 +3320,8 @@ const saveBranding = async () => {
       assetsIconId: brandingForm.value.assetsIconId ?? null,
       communicationsIconId: brandingForm.value.communicationsIconId ?? null,
       integrationsIconId: brandingForm.value.integrationsIconId ?? null,
-      archiveIconId: brandingForm.value.archiveIconId ?? null
+      archiveIconId: brandingForm.value.archiveIconId ?? null,
+      ...schoolPortalIconsForRequest(brandingForm.value)
     });
     
     // Refresh agency data
@@ -3638,7 +3778,8 @@ const applySelectedTemplate = async (event) => {
               assetsIconId: agency.assets_icon_id ?? null,
               communicationsIconId: agency.communications_icon_id ?? null,
               integrationsIconId: agency.integrations_icon_id ?? null,
-              archiveIconId: agency.archive_icon_id ?? null
+              archiveIconId: agency.archive_icon_id ?? null,
+              ...schoolPortalIconsFromAgency(agency)
             };
           } else if (currentAgency.value?.id === targetAgencyId) {
             brandingForm.value = {
@@ -3674,7 +3815,8 @@ const applySelectedTemplate = async (event) => {
               assetsIconId: agency.assets_icon_id ?? null,
               communicationsIconId: agency.communications_icon_id ?? null,
               integrationsIconId: agency.integrations_icon_id ?? null,
-              archiveIconId: agency.archive_icon_id ?? null
+              archiveIconId: agency.archive_icon_id ?? null,
+              ...schoolPortalIconsFromAgency(agency)
             };
           }
         }
