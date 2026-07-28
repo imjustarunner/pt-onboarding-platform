@@ -13,6 +13,7 @@
       <div class="tabs">
         <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'">Office Requests</button>
         <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'">Additional school hours</button>
+        <button class="tab" :class="{ active: tab === 'schedule_adjustments' }" @click="tab = 'schedule_adjustments'">Schedule adjustments</button>
         <button class="tab" :class="{ active: tab === 'appointments' }" @click="tab = 'appointments'">Appointments</button>
         <button class="tab" :class="{ active: tab === 'search' }" @click="tab = 'search'">Search</button>
         <button class="tab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Skills</button>
@@ -133,6 +134,37 @@
                   <button class="btn btn-primary btn-sm" @click="assignSchool(r)" :disabled="saving">Accept &amp; Apply</button>
                   <button class="btn btn-secondary btn-sm" @click="denySchool(r)" :disabled="saving">Deny</button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Schedule adjustment requests (existing assignment time/slot changes) -->
+        <div v-else-if="tab === 'schedule_adjustments'">
+          <p class="muted" style="margin: 0 0 12px;">
+            Pending requests to change times or client spots on an <strong>existing</strong> school assignment.
+            Apply updates in Organization slots — these are not new-day assignments.
+          </p>
+          <div v-if="scheduleAdjustmentRequests.length === 0" class="muted">No pending schedule adjustment requests.</div>
+          <div v-else class="list">
+            <div v-for="r in scheduleAdjustmentRequests" :key="r.id" class="row">
+              <div class="main">
+                <div class="title">{{ r.providerName }}</div>
+                <div class="meta" v-if="r.createdAt">Submitted: {{ fmtDateTime(r.createdAt) }}</div>
+                <div class="meta" v-if="r.notes">{{ r.notes }}</div>
+                <div class="meta">
+                  Requested blocks:
+                  <span v-for="(b, idx) in r.blocks" :key="idx" class="pill">
+                    {{ b.dayOfWeek }} {{ formatTimeRange12h(b.startTime, b.endTime) }}
+                  </span>
+                </div>
+              </div>
+              <div class="assign">
+                <div class="lbl">Review</div>
+                <p class="muted tiny" style="margin: 0 0 8px;">
+                  Update the provider’s assignment in Organization slots, then dismiss this request.
+                </p>
+                <button class="btn btn-secondary btn-sm" @click="denySchool(r)" :disabled="saving">Dismiss</button>
               </div>
             </div>
           </div>
@@ -390,7 +422,7 @@ const agencyId = computed(() => {
   return agencyStore.currentAgency?.id || null;
 });
 
-const tab = ref('office'); // office | school | appointments | search | skills
+const tab = ref('office'); // office | school | schedule_adjustments | appointments | search | skills
 
 const bookingQueueLink = (queueTab) => {
   // Relative to current availability-intake route (org-scoped or bare).
@@ -412,6 +444,7 @@ const offices = ref([]);
 const schools = ref([]);
 const officeRequests = ref([]);
 const schoolRequests = ref([]);
+const scheduleAdjustmentRequests = ref([]);
 const publicRequests = ref([]);
 const publicLinkInfo = reactive({
   providerFinderUrl: '',
@@ -640,11 +673,12 @@ const reload = async () => {
     error.value = '';
     searchResult.value = null;
 
-    const [officesResp, schoolsResp, officeReqResp, schoolReqResp, publicReqResp, skillsResp, providersResp, publicLinkResp] = await Promise.all([
+    const [officesResp, schoolsResp, officeReqResp, schoolReqResp, scheduleAdjResp, publicReqResp, skillsResp, providersResp, publicLinkResp] = await Promise.all([
       api.get('/offices'),
       api.get(`/agencies/${agencyId.value}/affiliated-organizations`),
       api.get('/availability/admin/office-requests', { params: { agencyId: agencyId.value, status: 'PENDING' } }),
-      api.get('/availability/admin/school-requests', { params: { agencyId: agencyId.value, status: 'PENDING' } }),
+      api.get('/availability/admin/school-requests', { params: { agencyId: agencyId.value, status: 'PENDING', requestKind: 'additional_hours' } }),
+      api.get('/availability/admin/school-requests', { params: { agencyId: agencyId.value, status: 'PENDING', requestKind: 'schedule_adjustment' } }),
       api.get('/availability/admin/public-appointment-requests', { params: { agencyId: agencyId.value } }).catch(() => ({ data: { requests: [] } })),
       api.get('/availability/admin/skills', { params: { agencyId: agencyId.value } }),
       api.get('/availability/admin/providers', { params: { agencyId: agencyId.value } }),
@@ -655,6 +689,7 @@ const reload = async () => {
     schools.value = (schoolsResp.data || []).filter((o) => String(o.organization_type || 'agency').toLowerCase() !== 'agency');
     officeRequests.value = officeReqResp.data || [];
     schoolRequests.value = schoolReqResp.data || [];
+    scheduleAdjustmentRequests.value = scheduleAdjResp.data || [];
     publicRequests.value = publicReqResp.data?.requests || [];
     publicLinkInfo.providerFinderUrl = String(publicLinkResp.data?.providerFinderUrl || '');
     publicLinkInfo.publicAvailabilityEnabled = !!publicLinkResp.data?.publicAvailabilityEnabled;
@@ -927,7 +962,7 @@ const saveProviderSkills = async () => {
 
 onMounted(async () => {
   const initial = String(props.initialTab || '').trim().toLowerCase();
-  if (['office', 'school', 'appointments', 'search', 'skills'].includes(initial)) {
+  if (['office', 'school', 'schedule_adjustments', 'appointments', 'search', 'skills'].includes(initial)) {
     tab.value = initial;
   }
   await reload();
@@ -941,7 +976,7 @@ watch(
   () => props.initialTab,
   (next) => {
     const normalized = String(next || '').trim().toLowerCase();
-    if (['office', 'school', 'appointments', 'search', 'skills'].includes(normalized)) {
+    if (['office', 'school', 'schedule_adjustments', 'appointments', 'search', 'skills'].includes(normalized)) {
       tab.value = normalized;
     }
   }

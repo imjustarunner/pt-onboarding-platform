@@ -63,26 +63,23 @@ export const DEFAULT_REMINDER_ITEMS = [
   {
     key: 'review_days_clients',
     title: 'Review your days and clients',
-    body: 'On the school portal you will see your days in each school and how many clients on each day. Please review your days and clients and make sure this is the most up to date. Please make sure your client checklists are up to date! You should assume that you will work the same schools/days unless a change has been discussed or the school has communicated a change. Upon approval, please update any changes directly in the portal.',
-    mode: 'complete',
+    body:
+      'You will review your school days, times, client spots, and any needed adjustments in the Provider Schedule section of this Year Update (use the left menu when you get there). Assume your schools and days stay the same unless you have discussed a change or submit an adjustment request.',
+    mode: 'reviewed',
   },
   {
     key: 'bts_check_events',
     title: 'Back-to-school events',
-    body: 'Back to school events will be starting in August — a great way to connect with your school and parents/families and to start to build a caseload early. Check the portal for your school’s back-to-school date/time under the Events tab (My Dashboard → your school(s) → Events → School Events). If you don’t see a date, we haven’t found it yet. If you learn the details, add the event in the portal (+ Add Event).',
-    mode: 'complete',
-  },
-  {
-    key: 'bts_sign_up',
-    title: 'Sign up for back-to-school events',
-    body: 'If you’d like to work your back-to-school event, please sign up in the portal. We’ll also use the portal for checking in and checking out for these events — your time will be compensated. All time will be tracked on the app via the kiosk (app.itsco.health/itsco/school-events/kiosk). Sign-ups are first come / first serve; if we do not get sign-ups, people may be assigned.',
-    mode: 'complete',
+    body:
+      'Back-to-school events start in August — a great way to connect with your school and families. When you reach the School Events section in this Year Update, you can request to work your back-to-school event there (or via your school\'s portal > Events card). Time is tracked via the event kiosk. Sign-ups are first come, first served; if we do not get sign-ups, people may be assigned.',
+    mode: 'reviewed',
   },
   {
     key: 'materials_cart',
     title: 'Materials / school cart',
-    body: 'Megan will be putting together carts for back-to-school events. Use the Materials Request section to tell us if you need a school cart (and any other materials notes).',
-    mode: 'complete',
+    body:
+      'Megan will be putting together carts for back-to-school events. You will submit your school cart choice and any other materials requests in the Materials Request section of this Year Update (use the left menu when you get there).',
+    mode: 'reviewed',
   },
 ];
 
@@ -297,6 +294,54 @@ export async function listSchoolAssignedProviders(agencyId) {
     [agencyId]
   );
   return rows || [];
+}
+
+export async function loadProviderPendingScheduleAdjustments(providerUserId, agencyId) {
+  const [rows] = await pool.execute(
+    `SELECT r.id, r.notes, r.preferred_school_org_ids_json, r.created_at,
+            b.day_of_week, b.start_time, b.end_time
+     FROM provider_school_availability_requests r
+     INNER JOIN provider_school_availability_request_blocks b ON b.request_id = r.id
+     WHERE r.agency_id = ? AND r.provider_id = ? AND r.status = 'PENDING'
+       AND r.request_kind = 'schedule_adjustment'
+     ORDER BY r.created_at DESC`,
+    [agencyId, providerUserId]
+  );
+  const out = [];
+  for (const r of rows || []) {
+    let schoolOrganizationId = null;
+    try {
+      const ids = r.preferred_school_org_ids_json ? JSON.parse(r.preferred_school_org_ids_json) : [];
+      schoolOrganizationId = Number(ids[0]) || null;
+    } catch {
+      schoolOrganizationId = null;
+    }
+    const notesStr = String(r.notes || '');
+    if (!schoolOrganizationId) {
+      const schoolMatch = notesStr.match(/Schedule adjustment request for (.+?) \|/);
+      const schoolName = schoolMatch?.[1]?.trim();
+      if (schoolName) {
+        const [schRows] = await pool.execute(
+          `SELECT id FROM agencies WHERE name = ? LIMIT 1`,
+          [schoolName]
+        );
+        schoolOrganizationId = schRows?.[0]?.id ? Number(schRows[0].id) : null;
+      }
+    }
+    const slotsMatch = notesStr.match(/Requested slots total: (\d+)/);
+    const notesMatch = notesStr.match(/\| Notes: (.+)$/);
+    out.push({
+      id: Number(r.id),
+      schoolOrganizationId,
+      dayOfWeek: r.day_of_week,
+      requestedStart: String(r.start_time || '').slice(0, 5),
+      requestedEnd: String(r.end_time || '').slice(0, 5),
+      requestedSlots: slotsMatch ? Number(slotsMatch[1]) : null,
+      notes: notesMatch?.[1]?.trim() || '',
+      createdAt: r.created_at,
+    });
+  }
+  return out;
 }
 
 export async function loadProviderSchoolSchedule(providerUserId, agencyId) {
@@ -779,6 +824,33 @@ function defaultRemindersData() {
   };
 }
 
+/** Keep saved review state but always use current default copy/mode (e.g. BTS items → review-only). */
+function mergeRemindersWithDefaults(savedData) {
+  const savedItems = Array.isArray(savedData?.items) ? savedData.items : [];
+  const savedByKey = new Map(savedItems.map((item) => [item.key, item]));
+  const legacyBtsSignUp = savedByKey.get('bts_sign_up');
+  return {
+    items: DEFAULT_REMINDER_ITEMS.map((def) => {
+      const saved = savedByKey.get(def.key) || {};
+      let wasAcknowledged = Boolean(saved.reviewed || saved.completed);
+      if (def.key === 'bts_check_events' && legacyBtsSignUp) {
+        wasAcknowledged =
+          wasAcknowledged || Boolean(legacyBtsSignUp.reviewed || legacyBtsSignUp.completed);
+      }
+      return {
+        key: def.key,
+        title: def.title,
+        body: def.body,
+        mode: def.mode,
+        reviewed: def.mode === 'reviewed' ? wasAcknowledged : Boolean(saved.reviewed),
+        completed: def.mode === 'complete' ? Boolean(saved.completed) : false,
+        reviewedAt: saved.reviewedAt || null,
+        completedAt: saved.completedAt || null,
+      };
+    }),
+  };
+}
+
 export async function getSectionProgress(cycleId) {
   const [rows] = await pool.execute(
     `SELECT * FROM provider_year_update_section_progress WHERE cycle_id = ?`,
@@ -878,6 +950,10 @@ export async function upsertSectionProgress({
 export async function buildDashboardPayload(cycle) {
   const sections = await getSectionProgress(cycle.id);
   const schedule = await loadProviderSchoolSchedule(cycle.provider_user_id, cycle.agency_id);
+  const pendingScheduleAdjustments = await loadProviderPendingScheduleAdjustments(
+    cycle.provider_user_id,
+    cycle.agency_id
+  );
   const eventsBySchool = await loadProviderSchoolEvents(cycle.provider_user_id, cycle.agency_id);
   const clientsWithoutDay = await loadProviderClientsWithoutDay(
     cycle.provider_user_id,
@@ -935,7 +1011,7 @@ export async function buildDashboardPayload(cycle) {
     sections,
     sectionKeys: SECTION_KEYS,
     reminderDefaults: DEFAULT_REMINDER_ITEMS,
-    reminders: byKey.reminders?.data || defaultRemindersData(),
+    reminders: mergeRemindersWithDefaults(byKey.reminders?.data),
     materials: {
       ...defaultMaterialsData(provider),
       ...(byKey.materials?.data || {}),
@@ -943,6 +1019,7 @@ export async function buildDashboardPayload(cycle) {
     schoolCartDisclaimer: SCHOOL_CART_DISCLAIMER,
     poloInventory,
     schedule,
+    pendingScheduleAdjustments,
     eventsBySchool,
     clientsWithoutDay,
     kioskPath: '/itsco/school-events/kiosk',

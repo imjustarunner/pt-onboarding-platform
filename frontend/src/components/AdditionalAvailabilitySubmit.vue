@@ -548,6 +548,7 @@ const submitSchool = async () => {
     error.value = '';
     await api.post('/availability/school-requests', {
       agencyId: props.agencyId,
+      requestKind: 'additional_hours',
       notes: schoolForm.notes,
       blocks: schoolForm.blocks.map((b) => ({ dayOfWeek: b.dayOfWeek, startTime: b.startTime, endTime: b.endTime }))
     });

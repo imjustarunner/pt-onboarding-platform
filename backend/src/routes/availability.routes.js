@@ -21,6 +21,7 @@ import {
   assignTemporaryOfficeFromRequest,
   denyOfficeAvailabilityRequest,
   denySchoolAvailabilityRequest,
+  withdrawMySchoolAvailabilityRequest,
   unrequestAllMyAvailabilityRequests,
   listSchoolAvailabilityRequests,
   assignSchoolFromRequest,
@@ -56,6 +57,7 @@ router.put('/me/virtual-working-hours', putMyVirtualWorkingHours);
 router.get('/providers/:providerId/week', getProviderWeekAvailability);
 router.post('/office-requests', createMyOfficeAvailabilityRequest);
 router.post('/school-requests', createMySchoolAvailabilityRequest);
+router.post('/me/school-requests/:id/withdraw', withdrawMySchoolAvailabilityRequest);
 router.post('/me/requests/unrequest-all', unrequestAllMyAvailabilityRequests);
 router.post('/me/skill-builder/submit', requireSkillBuildersSchoolProgramForAgencyContext, submitMySkillBuilderAvailability);
 router.post('/me/skill-builder/confirm', requireSkillBuildersSchoolProgramForAgencyContext, confirmMySkillBuilderAvailability);

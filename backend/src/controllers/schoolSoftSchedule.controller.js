@@ -304,7 +304,9 @@ async function promoteClientForAssignedDay({ clientId, actorUserId }) {
  */
 async function demoteClientToPendingIfNoActiveDay({ clientId, actorUserId }) {
   const [cntRows] = await pool.execute(
-    `SELECT COUNT(*) AS cnt FROM client_provider_assignments WHERE client_id = ? AND is_active = TRUE`,
+    `SELECT COUNT(*) AS cnt
+     FROM client_provider_assignments
+     WHERE client_id = ? AND is_active = TRUE AND service_day IS NOT NULL`,
     [clientId]
   );
   if (Number(cntRows?.[0]?.cnt || 0) > 0) return null;
@@ -339,6 +341,66 @@ async function demoteClientToPendingIfNoActiveDay({ clientId, actorUserId }) {
   }).catch(() => {});
 
   return { client_status_key: 'pending' };
+}
+
+/**
+ * After removing a client's last weekday for a provider, keep the provider assignment
+ * on file with service_day NULL so roster/profile still show the provider.
+ */
+async function ensureProviderAssignmentWithoutDay(
+  connection,
+  { clientId, schoolId, providerUserId, actorUserId }
+) {
+  const [remaining] = await connection.execute(
+    `SELECT id
+     FROM client_provider_assignments
+     WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
+       AND is_active = TRUE AND service_day IS NOT NULL
+     LIMIT 1`,
+    [clientId, schoolId, providerUserId]
+  );
+  if (remaining?.length) return;
+
+  const [nullRows] = await connection.execute(
+    `SELECT id, is_active
+     FROM client_provider_assignments
+     WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
+       AND service_day IS NULL
+     ORDER BY is_active DESC, id DESC
+     LIMIT 1
+     FOR UPDATE`,
+    [clientId, schoolId, providerUserId]
+  );
+  const nullRow = nullRows?.[0] || null;
+  if (nullRow?.id) {
+    const active = nullRow.is_active === true || nullRow.is_active === 1 || nullRow.is_active === '1';
+    if (!active) {
+      await connection.execute(
+        `UPDATE client_provider_assignments
+         SET is_active = TRUE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [actorUserId, nullRow.id]
+      );
+    }
+  } else {
+    await connection.execute(
+      `INSERT INTO client_provider_assignments
+        (client_id, organization_id, provider_user_id, service_day, is_active, created_by_user_id, updated_by_user_id)
+       VALUES (?, ?, ?, NULL, TRUE, ?, ?)`,
+      [clientId, schoolId, providerUserId, actorUserId, actorUserId]
+    );
+  }
+
+  try {
+    await connection.execute(
+      `UPDATE clients
+       SET provider_id = ?, service_day = NULL, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [providerUserId, actorUserId, clientId]
+    );
+  } catch {
+    // ignore legacy column drift
+  }
 }
 
 export const listSchoolDays = async (req, res, next) => {
@@ -1239,6 +1301,12 @@ export const setClientAssignedDay = async (req, res, next) => {
       } catch {
         // ignore if soft schedule table missing
       }
+      await ensureProviderAssignmentWithoutDay(connection, {
+        clientId,
+        schoolId,
+        providerUserId,
+        actorUserId
+      });
     }
 
     await connection.commit();

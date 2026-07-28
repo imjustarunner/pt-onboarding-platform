@@ -72,33 +72,51 @@
           <!-- Reminders -->
           <section v-if="activeSection === 'reminders'" class="pyu__panel">
             <h2>Step-by-Step Reminders</h2>
-            <p class="muted">The school year is quickly approaching! Mark each item as reviewed or complete.</p>
-            <div v-for="(item, idx) in reminderItems" :key="item.key" class="pyu__check-item">
-              <div class="pyu__check-head">
-                <strong>{{ idx + 1 }}. {{ item.title }}</strong>
-                <span class="pill">{{ item.mode === 'reviewed' ? 'Review' : 'Complete' }}</span>
-              </div>
-              <p>{{ item.body }}</p>
-              <div class="pyu__check-actions">
-                <label v-if="item.mode === 'reviewed' || item.mode === 'complete'">
-                  <input
-                    type="checkbox"
-                    :checked="item.reviewed || item.completed"
-                    :disabled="isFinalized"
-                    @change="toggleReminder(item, 'reviewed', $event.target.checked)"
-                  />
-                  Marked as reviewed
-                </label>
-                <label v-if="item.mode === 'complete'">
-                  <input
-                    type="checkbox"
-                    :checked="item.completed"
-                    :disabled="isFinalized"
-                    @change="toggleReminder(item, 'completed', $event.target.checked)"
-                  />
-                  Marked complete
-                </label>
-              </div>
+            <p class="muted">The school year is quickly approaching! Read each item and attest that you understand before moving on.</p>
+            <div class="pyu__reminder-list">
+              <article
+                v-for="(item, idx) in reminderItems"
+                :key="item.key"
+                class="pyu__reminder-card"
+                :class="reminderCardClass(item)"
+                :style="reminderAccentStyle(idx, item)"
+              >
+                <div class="pyu__reminder-step" aria-hidden="true">{{ idx + 1 }}</div>
+                <div class="pyu__reminder-content">
+                  <div class="pyu__reminder-head">
+                    <h3 class="pyu__reminder-title">{{ item.title }}</h3>
+                    <div class="pyu__reminder-badges">
+                      <span class="pill" :class="reminderReviewPillClass(item)">
+                        {{ reminderReviewLabel(item) }}
+                      </span>
+                      <span v-if="item.mode === 'complete'" class="pill" :class="reminderCompletePillClass(item)">
+                        {{ reminderCompleteLabel(item) }}
+                      </span>
+                    </div>
+                  </div>
+                  <p class="pyu__reminder-text">{{ item.body }}</p>
+                  <div class="pyu__reminder-actions">
+                    <label v-if="item.mode === 'reviewed' || item.mode === 'complete'" class="pyu__reminder-check">
+                      <input
+                        type="checkbox"
+                        :checked="item.reviewed || item.completed"
+                        :disabled="isFinalized"
+                        @change="toggleReminder(item, 'reviewed', $event.target.checked)"
+                      />
+                      <span>{{ reminderCheckLabel(item) }}</span>
+                    </label>
+                    <label v-if="item.mode === 'complete'" class="pyu__reminder-check">
+                      <input
+                        type="checkbox"
+                        :checked="item.completed"
+                        :disabled="isFinalized"
+                        @change="toggleReminder(item, 'completed', $event.target.checked)"
+                      />
+                      <span>Marked complete</span>
+                    </label>
+                  </div>
+                </div>
+              </article>
             </div>
             <div class="pyu__section-actions">
               <button type="button" class="btn btn-primary" :disabled="isFinalized || saving" @click="completeReminders">
@@ -137,11 +155,33 @@
 
               <template v-if="school.hasBackToSchool">
                 <ul class="pyu__event-list">
-                  <li v-for="ev in school.backToSchoolEvents || []" :key="ev.id">
-                    <div>
+                  <li v-for="ev in school.backToSchoolEvents || []" :key="ev.id" class="pyu__event-row">
+                    <div class="pyu__event-copy">
                       <strong>{{ ev.title || 'Back to School' }}</strong>
                       <span class="muted"> · {{ formatEventWhen(ev) }}</span>
                       <div class="tiny">{{ staffingStatusLabel(ev) }}</div>
+                      <div
+                        v-if="eventSessions(ev).length > 1 && canRequestToWork(ev) && props.mode !== 'token'"
+                        class="pyu__event-session-pick"
+                      >
+                        <label class="tiny">
+                          Session
+                          <select
+                            class="pyu__event-session-select"
+                            :value="selectedSessionId(ev)"
+                            :disabled="isFinalized"
+                            @change="setSelectedSession(ev, Number($event.target.value))"
+                          >
+                            <option
+                              v-for="sess in eventSessions(ev)"
+                              :key="sess.sessionDateId"
+                              :value="sess.sessionDateId"
+                            >
+                              {{ formatSessionWhen(sess) }}
+                            </option>
+                          </select>
+                        </label>
+                      </div>
                     </div>
                     <button
                       v-if="canRequestToWork(ev) && props.mode !== 'token'"
@@ -324,9 +364,37 @@
                     <td>{{ formatTimeRange(d.startTime, d.endTime) }}</td>
                     <td>{{ d.slotsTotal ?? '—' }}</td>
                     <td>{{ d.clientCount == null ? '—' : d.clientCount }}</td>
-                    <td>
+                    <td class="pyu__sched-actions">
+                      <template v-if="pendingAdjustment(school, d)">
+                        <div class="pyu__adjust-status">
+                          <span class="pill pill--partial">Adjustment requested</span>
+                          <div class="tiny muted">
+                            {{ formatAdjustmentSummary(pendingAdjustment(school, d)) }}
+                          </div>
+                          <div class="pyu__sched-action-btns">
+                            <button
+                              v-if="props.mode !== 'token'"
+                              type="button"
+                              class="btn btn-secondary btn-sm"
+                              :disabled="isFinalized"
+                              @click="openScheduleAdjust(school, d, pendingAdjustment(school, d))"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              v-if="props.mode !== 'token'"
+                              type="button"
+                              class="btn btn-secondary btn-sm"
+                              :disabled="isFinalized || saving"
+                              @click="withdrawScheduleAdjustment(pendingAdjustment(school, d))"
+                            >
+                              Withdraw
+                            </button>
+                          </div>
+                        </div>
+                      </template>
                       <button
-                        v-if="props.mode !== 'token'"
+                        v-else-if="props.mode !== 'token'"
                         type="button"
                         class="btn btn-secondary btn-sm"
                         :disabled="isFinalized"
@@ -341,20 +409,36 @@
             </div>
 
             <div v-if="adjustTarget && props.mode !== 'token'" class="pyu__adjust-box">
-              <h3>Adjust {{ adjustTarget.day.dayOfWeek }} at {{ adjustTarget.school.schoolName }}</h3>
-              <p class="muted tiny">Current: {{ formatTimeRange(adjustTarget.day.startTime, adjustTarget.day.endTime) }}</p>
+              <h3>
+                {{ adjustTarget.existingRequestId ? 'Edit' : 'Adjust' }}
+                {{ adjustTarget.day.dayOfWeek }} at {{ adjustTarget.school.schoolName }}
+              </h3>
+              <p class="muted tiny">
+                Current: {{ formatTimeRange(adjustTarget.day.startTime, adjustTarget.day.endTime) }}
+                · {{ adjustTarget.day.clientCount ?? 0 }} client(s) assigned / {{ adjustTarget.day.slotsTotal ?? '—' }} slot(s)
+              </p>
               <label class="field"><span>Requested start</span>
                 <input v-model="adjustForm.startTime" type="time" />
               </label>
               <label class="field"><span>Requested end</span>
                 <input v-model="adjustForm.endTime" type="time" />
               </label>
+              <label class="field"><span>Requested client spots</span>
+                <input
+                  v-model.number="adjustForm.slotsTotal"
+                  type="number"
+                  min="0"
+                  max="40"
+                  step="1"
+                  placeholder="Total slots for this day"
+                />
+              </label>
               <label class="field"><span>Notes</span>
                 <textarea v-model="adjustForm.notes" rows="2" placeholder="What needs to change and why?" />
               </label>
               <div class="pyu__section-actions">
                 <button type="button" class="btn btn-primary" :disabled="saving" @click="submitScheduleAdjust">
-                  Submit adjustment
+                  {{ adjustTarget.existingRequestId ? 'Update adjustment' : 'Submit adjustment' }}
                 </button>
                 <button type="button" class="btn btn-secondary" @click="adjustTarget = null">Cancel</button>
               </div>
@@ -490,7 +574,10 @@ import {
   logoSrc,
   parseAgencyPalette,
 } from '../../utils/schoolReinit';
-import AdditionalAvailabilitySubmit from '../AdditionalAvailabilitySubmit.vue';
+import {
+  canRequestCompanyEventShift,
+  companyEventRequestStatusLabel,
+} from '../../utils/companyEventStaffing';
 import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
 import ProviderYearUpdateSchoolNeedsPanel from './ProviderYearUpdateSchoolNeedsPanel.vue';
 
@@ -537,10 +624,11 @@ const scheduleConfirmed = ref(false);
 const showAvailability = ref(false);
 const addEventSchool = ref(null);
 const signingUpId = ref(0);
+const selectedEventSessions = reactive({});
 const reminderItems = ref([]);
 const unknownBts = reactive({});
 const adjustTarget = ref(null);
-const adjustForm = reactive({ startTime: '', endTime: '', notes: '' });
+const adjustForm = reactive({ startTime: '', endTime: '', slotsTotal: null, notes: '' });
 
 const resolvedAgencyId = computed(() => {
   return (
@@ -580,6 +668,7 @@ const brandStyle = computed(() => {
 
 const isFinalized = computed(() => payload.value?.cycle?.status === 'finalized');
 const schedule = computed(() => payload.value?.schedule || []);
+const pendingScheduleAdjustments = computed(() => payload.value?.pendingScheduleAdjustments || []);
 const eventsBySchool = computed(() => payload.value?.eventsBySchool || []);
 const clientsWithoutDay = computed(() => payload.value?.clientsWithoutDay || []);
 const schoolCartDisclaimer = computed(
@@ -654,15 +743,20 @@ function canSignUp(ev) {
 
 function applyPayload(data) {
   payload.value = data;
-  const rem = data.reminders?.items || data.reminderDefaults || [];
-  reminderItems.value = rem.map((item) => ({
-    key: item.key,
-    title: item.title,
-    body: item.body,
-    mode: item.mode || 'complete',
-    reviewed: Boolean(item.reviewed),
-    completed: Boolean(item.completed),
-  }));
+  const defaults = Object.fromEntries((data.reminderDefaults || []).map((d) => [d.key, d]));
+  reminderItems.value = (data.reminders?.items || data.reminderDefaults || []).map((item) => {
+    const def = defaults[item.key] || {};
+    const mode = def.mode || item.mode || 'complete';
+    const wasAcknowledged = Boolean(item.reviewed || item.completed);
+    return {
+      key: item.key,
+      title: def.title || item.title,
+      body: def.body || item.body,
+      mode,
+      reviewed: mode === 'reviewed' ? wasAcknowledged : Boolean(item.reviewed),
+      completed: mode === 'complete' ? Boolean(item.completed) : false,
+    };
+  });
   const mat = data.materials || {};
   const cart =
     mat.school_cart ||
@@ -756,8 +850,10 @@ async function saveSection(sectionKey, data, { reviewed = true, completed = true
     setTimeout(() => {
       saveFlash.value = '';
     }, 2000);
+    return true;
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e.message || 'Save failed';
+    return false;
   } finally {
     saving.value = false;
   }
@@ -777,7 +873,7 @@ async function completeReminders() {
   const items = reminderItems.value;
   for (const item of items) {
     if (item.mode === 'reviewed' && !item.reviewed && !item.completed) {
-      actionError.value = `Please review: ${item.title}`;
+      actionError.value = `Please confirm you understand: ${item.title}`;
       return;
     }
     if (item.mode === 'complete' && !item.completed) {
@@ -785,7 +881,14 @@ async function completeReminders() {
       return;
     }
   }
-  await saveSection('reminders', { items }, { reviewed: true, completed: true });
+  const ok = await saveSection('reminders', { items }, { reviewed: true, completed: true });
+  if (ok) goToNextSection('reminders');
+}
+
+function goToNextSection(currentKey) {
+  const idx = SECTION_META.findIndex((m) => m.key === currentKey);
+  if (idx < 0 || idx >= SECTION_META.length - 1) return;
+  activeSection.value = SECTION_META[idx + 1].key;
 }
 
 function materialsPayload() {
@@ -843,25 +946,105 @@ function formatTimeRange(start, end) {
   return a || b || '—';
 }
 
+function eventSessions(ev) {
+  return Array.isArray(ev?.sessions) ? ev.sessions : [];
+}
+
+function selectedSessionForEvent(ev) {
+  const sessions = eventSessions(ev);
+  if (!sessions.length) return null;
+  const picked = Number(selectedEventSessions[ev.id] || 0);
+  if (picked && sessions.some((s) => Number(s.sessionDateId) === picked)) {
+    return sessions.find((s) => Number(s.sessionDateId) === picked) || sessions[0];
+  }
+  return sessions[0];
+}
+
+function selectedSessionId(ev) {
+  return selectedSessionForEvent(ev)?.sessionDateId || '';
+}
+
+function setSelectedSession(ev, sessionDateId) {
+  if (!ev?.id || !sessionDateId) return;
+  selectedEventSessions[ev.id] = sessionDateId;
+}
+
+function formatSessionWhen(sess) {
+  if (!sess) return 'Session';
+  const when = sess.startsAt || sess.sessionDate;
+  if (!when) return 'Session';
+  const d = new Date(when);
+  if (!Number.isFinite(d.getTime())) return 'Session';
+  return d.toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 function staffingStatusLabel(ev) {
-  const st = String(ev.myRequestStatus || ev.viewerRequestStatus || ev.requestStatus || '').toLowerCase();
-  if (st === 'approved' || st === 'accepted' || ev.viewerApproved) return 'Approved to work this event';
-  if (st === 'pending' || st === 'requested' || ev.viewerRequested) return 'You have requested to work this event';
+  const session = selectedSessionForEvent(ev);
+  const label = companyEventRequestStatusLabel(ev, session);
+  if (label) return label;
+  const st = String(ev.myRequestStatus || ev.currentUserRequestStatus || ev.requestStatus || '').toLowerCase();
+  if (st === 'approved' || st === 'accepted' || ev.viewerApproved || ev.currentUserAssigned) {
+    return 'Approved to work this event';
+  }
+  if (st === 'pending' || st === 'requested' || ev.viewerRequested) {
+    return 'You have requested to work this event';
+  }
   return 'You can request to work this event';
 }
 
 function staffingStatusShort(ev) {
-  const st = String(ev.myRequestStatus || ev.viewerRequestStatus || ev.requestStatus || '').toLowerCase();
-  if (st === 'approved' || st === 'accepted' || ev.viewerApproved) return 'Approved';
+  const session = selectedSessionForEvent(ev);
+  const label = companyEventRequestStatusLabel(ev, session);
+  if (label) return label;
+  const st = String(ev.myRequestStatus || ev.currentUserRequestStatus || ev.requestStatus || '').toLowerCase();
+  if (st === 'approved' || st === 'accepted' || ev.viewerApproved || ev.currentUserAssigned) return 'Approved';
   if (st === 'pending' || st === 'requested' || ev.viewerRequested) return 'Requested';
   return 'Review';
 }
 
 function canRequestToWork(ev) {
-  const st = String(ev.myRequestStatus || ev.viewerRequestStatus || ev.requestStatus || '').toLowerCase();
+  const session = selectedSessionForEvent(ev);
+  if (session) return canRequestCompanyEventShift(ev, session);
+  const st = String(ev.myRequestStatus || ev.currentUserRequestStatus || ev.requestStatus || '').toLowerCase();
   if (st === 'approved' || st === 'accepted' || st === 'pending' || st === 'requested') return false;
-  if (ev.viewerApproved || ev.viewerRequested) return false;
+  if (ev.viewerApproved || ev.viewerRequested || ev.currentUserAssigned) return false;
   return true;
+}
+
+async function resolveSessionDateId(ev) {
+  const session = selectedSessionForEvent(ev);
+  if (session?.sessionDateId) return Number(session.sessionDateId);
+  const agencyId = Number(ev.agencyId || resolvedAgencyId.value || 0);
+  if (!ev?.id || !agencyId) return null;
+  try {
+    const res = await api.get(`/company-events/${ev.id}/session-staffing-summary`, {
+      params: { agencyId },
+      skipGlobalLoading: true,
+    });
+    const sessions = Array.isArray(res.data?.sessions) ? res.data.sessions : [];
+    if (!sessions.length) return null;
+    ev.sessions = sessions.map((s) => ({
+      sessionDateId: s.sessionDateId,
+      sessionDate: s.sessionDate,
+      startsAt: s.startsAt,
+      endsAt: s.endsAt,
+      timezone: s.timezone,
+      requiredProviders: s.requiredProviders,
+      approvedProvidersCount: s.approvedProvidersCount,
+    }));
+    if (!selectedEventSessions[ev.id] && ev.sessions[0]?.sessionDateId) {
+      selectedEventSessions[ev.id] = ev.sessions[0].sessionDateId;
+    }
+    return Number(selectedSessionForEvent(ev)?.sessionDateId || 0) || null;
+  } catch {
+    return null;
+  }
 }
 
 async function toggleUnknownBts(school, checked) {
@@ -881,30 +1064,162 @@ async function saveEventsSection() {
   );
 }
 
-function openScheduleAdjust(school, day) {
-  adjustTarget.value = { school, day };
+const REMINDER_ACCENTS = ['#0c4a6e', '#15803d', '#b45309', '#7c3aed', '#be185d', '#0f766e', '#c2410c'];
+
+function reminderAccentStyle(idx, item) {
+  if (item.completed || (item.mode === 'reviewed' && item.reviewed)) {
+    return { '--reminder-accent': 'var(--pyu-secondary)' };
+  }
+  if (item.reviewed) {
+    return { '--reminder-accent': 'color-mix(in srgb, var(--pyu-secondary) 70%, var(--pyu-primary))' };
+  }
+  return { '--reminder-accent': REMINDER_ACCENTS[idx % REMINDER_ACCENTS.length] };
+}
+
+function reminderCardClass(item) {
+  if (item.mode === 'reviewed') {
+    return item.reviewed ? 'pyu__reminder-card--done' : '';
+  }
+  if (item.completed) return 'pyu__reminder-card--done';
+  if (item.reviewed) return 'pyu__reminder-card--partial';
+  return '';
+}
+
+function reminderCheckLabel(item) {
+  if (item.mode === 'reviewed') return 'I understand';
+  return 'Marked as reviewed';
+}
+
+function reminderReviewLabel(item) {
+  if (item.mode === 'reviewed') {
+    return item.reviewed || item.completed ? 'Understood' : 'Not yet';
+  }
+  return item.reviewed || item.completed ? 'Reviewed' : 'Not reviewed';
+}
+
+function reminderCompleteLabel(item) {
+  return item.completed ? 'Complete' : 'Not complete';
+}
+
+function reminderReviewPillClass(item) {
+  return item.reviewed || item.completed ? 'pill--done' : 'pill--pending';
+}
+
+function reminderCompletePillClass(item) {
+  return item.completed ? 'pill--done' : 'pill--pending';
+}
+
+function scheduleAdjustmentKey(schoolOrganizationId, dayOfWeek) {
+  return `${Number(schoolOrganizationId)}:${String(dayOfWeek || '').trim()}`;
+}
+
+const pendingAdjustmentsByKey = computed(() => {
+  const map = new Map();
+  for (const adj of pendingScheduleAdjustments.value || []) {
+    if (!adj?.schoolOrganizationId || !adj?.dayOfWeek) continue;
+    const key = scheduleAdjustmentKey(adj.schoolOrganizationId, adj.dayOfWeek);
+    if (!map.has(key)) map.set(key, adj);
+  }
+  return map;
+});
+
+function pendingAdjustment(school, day) {
+  const key = scheduleAdjustmentKey(school?.schoolOrganizationId, day?.dayOfWeek);
+  return pendingAdjustmentsByKey.value.get(key) || null;
+}
+
+function formatAdjustmentSummary(adj) {
+  if (!adj) return '';
+  const parts = [
+    formatTimeRange(adj.requestedStart, adj.requestedEnd),
+    adj.requestedSlots != null ? `${adj.requestedSlots} spot(s)` : null,
+  ].filter(Boolean);
+  return parts.length ? `Requested: ${parts.join(' · ')}` : 'Pending staff review';
+}
+
+function openScheduleAdjust(school, day, existing = null) {
+  adjustTarget.value = {
+    school,
+    day,
+    existingRequestId: existing?.id || null,
+  };
+  if (existing) {
+    adjustForm.startTime = String(existing.requestedStart || day.startTime || '').slice(0, 5);
+    adjustForm.endTime = String(existing.requestedEnd || day.endTime || '').slice(0, 5);
+    adjustForm.slotsTotal =
+      existing.requestedSlots == null ? (day.slotsTotal == null ? null : Number(day.slotsTotal)) : Number(existing.requestedSlots);
+    adjustForm.notes = existing.notes || '';
+    return;
+  }
   adjustForm.startTime = String(day.startTime || '').slice(0, 5);
   adjustForm.endTime = String(day.endTime || '').slice(0, 5);
+  adjustForm.slotsTotal = day.slotsTotal == null ? null : Number(day.slotsTotal);
   adjustForm.notes = '';
+}
+
+async function withdrawScheduleAdjustment(adj) {
+  if (!adj?.id) return;
+  if (!window.confirm('Withdraw this schedule adjustment request?')) return;
+  saving.value = true;
+  actionError.value = '';
+  try {
+    await api.post(`/availability/me/school-requests/${adj.id}/withdraw`, {
+      agencyId: resolvedAgencyId.value,
+    });
+    if (adjustTarget.value?.existingRequestId === adj.id) {
+      adjustTarget.value = null;
+    }
+    saveFlash.value = 'Adjustment withdrawn.';
+    await load();
+    setTimeout(() => {
+      saveFlash.value = '';
+    }, 2500);
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e.message || 'Could not withdraw adjustment';
+  } finally {
+    saving.value = false;
+  }
 }
 
 async function submitScheduleAdjust() {
   if (!adjustTarget.value) return;
   saving.value = true;
   actionError.value = '';
+  const { school, day } = adjustTarget.value;
+  const currentSlots = day.slotsTotal ?? null;
+  const currentUsed = day.clientCount ?? null;
+  const requestedSlots = Number(adjustForm.slotsTotal);
+  const slotsChanged =
+    Number.isFinite(requestedSlots) &&
+    currentSlots != null &&
+    requestedSlots !== Number(currentSlots);
   try {
-    const { school, day } = adjustTarget.value;
     const note = [
       `Schedule adjustment request for ${school.schoolName}`,
       `Day: ${day.dayOfWeek}`,
-      `Current: ${formatTimeRange(day.startTime, day.endTime)}`,
-      `Requested: ${formatTimeRange(adjustForm.startTime, adjustForm.endTime)}`,
+      `Current slots: ${
+        currentUsed != null && currentSlots != null
+          ? `${Number(currentUsed || 0)} assigned / ${Number(currentSlots)} total`
+          : currentSlots != null
+            ? `${Number(currentSlots)} total`
+            : '—'
+      }`,
+      Number.isFinite(requestedSlots)
+        ? `Requested slots total: ${requestedSlots}${
+            slotsChanged ? ` (delta ${requestedSlots - Number(currentSlots) >= 0 ? '+' : ''}${requestedSlots - Number(currentSlots)})` : ''
+          }`
+        : null,
+      `Current hours: ${formatTimeRange(day.startTime, day.endTime)}`,
+      `Requested hours: ${formatTimeRange(adjustForm.startTime, adjustForm.endTime)}`,
       adjustForm.notes ? `Notes: ${adjustForm.notes}` : '',
     ]
       .filter(Boolean)
       .join(' | ');
     await api.post('/availability/school-requests', {
       agencyId: resolvedAgencyId.value,
+      requestKind: 'schedule_adjustment',
+      preferredSchoolOrgIds: [school.schoolOrganizationId],
+      replaceRequestId: adjustTarget.value.existingRequestId || undefined,
       notes: note,
       blocks: [
         {
@@ -915,8 +1230,11 @@ async function submitScheduleAdjust() {
         },
       ],
     });
-    saveFlash.value = 'Adjustment submitted — thank you.';
+    saveFlash.value = adjustTarget.value.existingRequestId
+      ? 'Adjustment updated — thank you.'
+      : 'Adjustment submitted — thank you.';
     adjustTarget.value = null;
+    await load();
     setTimeout(() => {
       saveFlash.value = '';
     }, 2500);
@@ -932,8 +1250,10 @@ async function submitScheduleAdjust() {
         dayOfWeek: adjustTarget.value.day.dayOfWeek,
         currentStart: adjustTarget.value.day.startTime,
         currentEnd: adjustTarget.value.day.endTime,
+        currentSlots: adjustTarget.value.day.slotsTotal ?? null,
         requestedStart: adjustForm.startTime,
         requestedEnd: adjustForm.endTime,
+        requestedSlots: Number.isFinite(requestedSlots) ? requestedSlots : null,
         notes: adjustForm.notes,
         submittedAt: new Date().toISOString(),
       });
@@ -1012,32 +1332,25 @@ async function signUpForEvent(ev) {
   signingUpId.value = ev.id;
   actionError.value = '';
   try {
-    const sessions = ev.sessions || ev.sessionDates || ev.session_dates || [];
-    const sessionDateId =
-      sessions[0]?.sessionDateId ||
-      sessions[0]?.id ||
-      ev.sessionDateId ||
-      ev.primarySessionDateId ||
-      null;
+    const sessionDateId = await resolveSessionDateId(ev);
     if (!sessionDateId) {
-      // Open staffing panel path — try request without session if API allows, else guide user
-      actionError.value =
-        'Open this event from your school portal Events tab to pick a session and sign up.';
+      actionError.value = 'No event session is available to request yet. Try refreshing, or ask staff to enable staffing for this event.';
       return;
     }
+    const agencyId = Number(ev.agencyId || resolvedAgencyId.value || 0);
     await api.post(
       `/company-events/${ev.id}/session-requests`,
       {
-        agencyId: resolvedAgencyId.value,
+        agencyId,
         sessionDateId,
         requestType: 'regular',
       },
       { skipGlobalLoading: true }
     );
-    saveFlash.value = 'Sign-up submitted. An admin will review it.';
+    saveFlash.value = 'Request submitted — staff will review it.';
     await load();
   } catch (e) {
-    actionError.value = e?.response?.data?.error?.message || e.message || 'Could not sign up';
+    actionError.value = e?.response?.data?.error?.message || e.message || 'Could not submit request';
   } finally {
     signingUpId.value = 0;
   }
@@ -1314,6 +1627,96 @@ defineExpose({ load, reload: load });
   border-top: 1px solid #f1f5f9;
   padding: 14px 0;
 }
+.pyu__reminder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+}
+.pyu__reminder-card {
+  --reminder-accent: var(--pyu-primary);
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 14px;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  border-left: 4px solid var(--reminder-accent);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.pyu__reminder-card--partial {
+  background: color-mix(in srgb, var(--pyu-secondary) 5%, white);
+  box-shadow: 0 2px 10px rgba(21, 128, 61, 0.06);
+}
+.pyu__reminder-card--done {
+  background: color-mix(in srgb, var(--pyu-secondary) 9%, white);
+  box-shadow: 0 2px 10px rgba(21, 128, 61, 0.08);
+}
+.pyu__reminder-step {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--reminder-accent);
+  background: color-mix(in srgb, var(--reminder-accent) 14%, white);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.pyu__reminder-content {
+  min-width: 0;
+}
+.pyu__reminder-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.pyu__reminder-title {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.3;
+  color: var(--pyu-primary);
+}
+.pyu__reminder-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.pyu__reminder-text {
+  margin: 0 0 12px;
+  line-height: 1.55;
+  color: #475569;
+  font-size: 0.92rem;
+}
+.pyu__reminder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding-top: 10px;
+  border-top: 1px dashed #e2e8f0;
+}
+.pyu__reminder-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #334155;
+  cursor: pointer;
+}
+.pyu__reminder-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--pyu-secondary);
+}
 .pyu__check-head {
   display: flex;
   justify-content: space-between;
@@ -1371,13 +1774,32 @@ defineExpose({ load, reload: load });
   margin: 0;
   padding: 0;
 }
-.pyu__event-list li {
+.pyu__event-list li,
+.pyu__event-row {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   align-items: center;
   padding: 8px 0;
   border-top: 1px solid #f1f5f9;
+}
+.pyu__event-copy {
+  min-width: 0;
+  flex: 1;
+}
+.pyu__event-session-pick {
+  margin-top: 6px;
+}
+.pyu__event-session-select {
+  display: block;
+  margin-top: 4px;
+  min-width: 220px;
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+  background: #fff;
 }
 .pyu__sched-table {
   width: 100%;
@@ -1389,6 +1811,20 @@ defineExpose({ load, reload: load });
   text-align: left;
   padding: 6px 8px;
   border-bottom: 1px solid #f1f5f9;
+}
+.pyu__sched-actions {
+  min-width: 180px;
+}
+.pyu__adjust-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.pyu__sched-action-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .pyu__check {
   display: flex;
@@ -1415,6 +1851,18 @@ defineExpose({ load, reload: load });
   color: var(--pyu-accent);
   padding: 2px 8px;
   border-radius: 999px;
+}
+.pill--pending {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.pill--partial {
+  background: color-mix(in srgb, var(--pyu-secondary) 12%, white);
+  color: var(--pyu-secondary);
+}
+.pill--done {
+  background: color-mix(in srgb, var(--pyu-secondary) 18%, white);
+  color: var(--pyu-secondary);
 }
 .pyu__footer {
   max-width: none;

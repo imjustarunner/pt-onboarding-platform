@@ -3543,6 +3543,7 @@ const submitAvailabilityRequest = async () => {
 
     await api.post('/availability/school-requests', {
       agencyId: affiliatedAgencyId.value || undefined,
+      requestKind: 'schedule_adjustment',
       notes: requestNotes,
       blocks: [
         {

@@ -299,12 +299,14 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
   const directRaw = row.skill_builder_direct_hours;
   let minProvidersPerSession = 2;
   let staffingEnabled = false;
+  let staffingConfig = null;
   try {
     const cfg =
       typeof row.staffing_config_json === 'string'
         ? JSON.parse(row.staffing_config_json)
         : row.staffing_config_json || null;
     if (cfg && typeof cfg === 'object') {
+      staffingConfig = cfg;
       staffingEnabled = cfg.enabled !== false && !!row.staffing_config_json;
       const n = Number(cfg.minProvidersPerSession);
       if (Number.isFinite(n) && n >= 1) minProvidersPerSession = Math.min(99, Math.floor(n));
@@ -332,6 +334,7 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
         : 0,
     minProvidersPerSession,
     staffingEnabled,
+    staffingConfig,
     isActive: !!(row.is_active === 1 || row.is_active === true),
     outreachTableInvited: !!(row.outreach_table_invited === 1 || row.outreach_table_invited === true),
     eventImageUrl: row.event_image_url ? String(row.event_image_url).trim() : '',
@@ -1138,6 +1141,86 @@ export async function attachSchoolEventStaffingSummary(events, { viewerUserId = 
     }
   }
 
+  const sessionsByEvent = new Map();
+  const approvedBySession = new Map();
+  const myRequestBySession = new Map();
+  const myAssignmentBySession = new Map();
+  try {
+    const [sessionRows] = await pool.execute(
+      `SELECT id, company_event_id, session_date, starts_at, ends_at, timezone
+       FROM company_event_session_dates
+       WHERE company_event_id IN (${placeholders})
+       ORDER BY starts_at ASC, id ASC`,
+      ids
+    );
+    for (const s of sessionRows || []) {
+      const eid = Number(s.company_event_id);
+      const sid = Number(s.id);
+      const list = sessionsByEvent.get(eid) || [];
+      list.push({
+        sessionDateId: sid,
+        sessionDate: s.session_date,
+        startsAt: s.starts_at,
+        endsAt: s.ends_at,
+        timezone: s.timezone || 'UTC',
+      });
+      sessionsByEvent.set(eid, list);
+    }
+  } catch {
+    /* optional */
+  }
+  if (uid > 0 && sessionsByEvent.size) {
+    try {
+      const [requestRows] = await pool.execute(
+        `SELECT company_event_id, session_date_id, id, status, request_type
+         FROM company_event_session_provider_requests
+         WHERE company_event_id IN (${placeholders}) AND provider_user_id = ?`,
+        [...ids, uid]
+      );
+      for (const r of requestRows || []) {
+        myRequestBySession.set(`${Number(r.company_event_id)}:${Number(r.session_date_id)}`, {
+          id: Number(r.id),
+          status: String(r.status || 'pending'),
+          requestType: String(r.request_type || 'regular'),
+        });
+      }
+    } catch {
+      /* optional */
+    }
+    try {
+      const [assignmentRows] = await pool.execute(
+        `SELECT company_event_id, session_date_id, assignment_status
+         FROM company_event_session_providers
+         WHERE company_event_id IN (${placeholders}) AND provider_user_id = ?`,
+        [...ids, uid]
+      );
+      for (const r of assignmentRows || []) {
+        myAssignmentBySession.set(`${Number(r.company_event_id)}:${Number(r.session_date_id)}`, {
+          assignmentStatus: String(r.assignment_status || 'draft'),
+        });
+      }
+    } catch {
+      /* optional */
+    }
+  }
+  try {
+    const [providerRows] = await pool.execute(
+      `SELECT company_event_id, session_date_id, COUNT(*) AS approved_count
+       FROM company_event_session_providers
+       WHERE company_event_id IN (${placeholders})
+       GROUP BY company_event_id, session_date_id`,
+      ids
+    );
+    for (const r of providerRows || []) {
+      approvedBySession.set(
+        `${Number(r.company_event_id)}:${Number(r.session_date_id)}`,
+        Number(r.approved_count || 0)
+      );
+    }
+  } catch {
+    /* optional */
+  }
+
   return list.map((ev) => {
     const eid = Number(ev.id);
     const assignedProviders = assignedByEvent.get(eid) || [];
@@ -1153,6 +1236,30 @@ export async function attachSchoolEventStaffingSummary(events, { viewerUserId = 
       else if (providersAssigned > 0) staffingStatus = 'partially_staffed';
       else staffingStatus = 'needs_providers';
     }
+    const eventType = String(ev.eventType || '').toLowerCase();
+    const staffingRequestable =
+      eventType !== 'skills_group' &&
+      !!(ev.staffingConfig?.enabled && ev.staffingConfig?.providerSignup?.enabled !== false);
+    const minProviders = Number.isFinite(Number(ev.minProvidersPerSession))
+      ? Math.max(0, Number(ev.minProvidersPerSession))
+      : staffingRequestable || SCHOOL_PORTAL_EVENT_TYPES.has(eventType)
+        ? 1
+        : 0;
+    const sessions = (sessionsByEvent.get(eid) || []).map((sess) => {
+      const key = `${eid}:${sess.sessionDateId}`;
+      return {
+        ...sess,
+        requiredProviders: minProviders,
+        approvedProvidersCount: approvedBySession.get(key) || 0,
+        myRequest: myRequestBySession.get(key) || null,
+        myAssignment: myAssignmentBySession.get(key) || null,
+      };
+    });
+    const canRequestOutreachShift =
+      (SCHOOL_PORTAL_EVENT_TYPES.has(eventType) &&
+        (!!ev.outreachTableInvited ||
+          !!(ev.staffingConfig?.enabled && ev.staffingConfig?.providerSignup?.enabled !== false))) ||
+      staffingRequestable;
     return {
       ...ev,
       providersAssigned,
@@ -1161,7 +1268,9 @@ export async function attachSchoolEventStaffingSummary(events, { viewerUserId = 
       pendingRequests,
       currentUserAssigned,
       currentUserRequestStatus,
-      staffingStatus
+      staffingStatus,
+      sessions,
+      canRequestOutreachShift,
     };
   });
 }

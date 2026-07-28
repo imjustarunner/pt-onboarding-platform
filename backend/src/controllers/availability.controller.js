@@ -186,6 +186,12 @@ const canManageAvailability = (role) => {
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const WEEKDAY_SET = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
+const SCHOOL_REQUEST_KINDS = new Set(['additional_hours', 'schedule_adjustment']);
+
+function normalizeSchoolRequestKind(value) {
+  const kind = String(value || 'additional_hours').trim().toLowerCase();
+  return SCHOOL_REQUEST_KINDS.has(kind) ? kind : 'additional_hours';
+}
 const WEEKEND_SET = new Set(['Saturday', 'Sunday']);
 
 function canViewAvailabilityDashboard(role) {
@@ -986,7 +992,7 @@ export const getMyAvailabilityPending = async (req, res, next) => {
     const [schoolReqRows] = await pool.execute(
       `SELECT *
        FROM provider_school_availability_requests
-       WHERE agency_id = ? AND provider_id = ? AND status = 'PENDING'
+       WHERE agency_id = ? AND provider_id = ? AND status = 'PENDING' AND request_kind = 'additional_hours'
        ORDER BY created_at DESC`,
       [agencyId, providerId]
     );
@@ -1487,6 +1493,7 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
       )
     ].slice(0, 20);
     const notes = String(req.body?.notes || '').trim().slice(0, 2000);
+    const requestKind = normalizeSchoolRequestKind(req.body?.requestKind);
     const blocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
 
     const normalizedBlocks = [];
@@ -1501,6 +1508,10 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
       // Soft guard to keep this "daytime" (allow 06:00–18:00)
       if (startTime < '06:00:00') continue;
       if (endTime > '18:00:00') continue;
+      const blockSchoolOrgId = parseIntSafe(b?.schoolOrganizationId);
+      if (blockSchoolOrgId && !schoolOrgIds.includes(blockSchoolOrgId)) {
+        schoolOrgIds.push(blockSchoolOrgId);
+      }
       normalizedBlocks.push({ dayOfWeek, blockType: 'CUSTOM', startTime, endTime });
     }
     if (normalizedBlocks.length === 0) {
@@ -1510,39 +1521,114 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    // Replace any existing pending school request for this provider/agency so users can
-    // resubmit/update availability without a dead-end 409 after an earlier request.
-    const [existing] = await conn.execute(
-      `SELECT id FROM provider_school_availability_requests
-       WHERE agency_id = ? AND provider_id = ? AND status = 'PENDING'`,
-      [agencyId, providerId]
-    );
-    for (const row of existing || []) {
-      const prevId = Number(row?.id || 0);
-      if (!prevId) continue;
-      await conn.execute(
-        `UPDATE provider_school_availability_requests
-         SET status = 'CANCELLED',
-             resolved_at = NOW(),
-             resolved_by_user_id = ?,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ? AND status = 'PENDING'`,
-        [providerId, prevId]
+    // Replace any existing pending request of the same kind for this provider/agency so users can
+    // resubmit/update without a dead-end after an earlier request. Schedule adjustments may stack
+    // (multiple days/schools) — only additional-hours requests replace each other.
+    if (requestKind === 'additional_hours') {
+      const [existing] = await conn.execute(
+        `SELECT id FROM provider_school_availability_requests
+         WHERE agency_id = ? AND provider_id = ? AND status = 'PENDING' AND request_kind = 'additional_hours'`,
+        [agencyId, providerId]
       );
-      try {
-        await Notification.markAllAsResolvedForFilter(agencyId, {
-          relatedEntityType: 'provider_school_availability_request',
-          relatedEntityId: prevId
-        });
-      } catch { /* non-blocking */ }
+      for (const row of existing || []) {
+        const prevId = Number(row?.id || 0);
+        if (!prevId) continue;
+        await conn.execute(
+          `UPDATE provider_school_availability_requests
+           SET status = 'CANCELLED',
+               resolved_at = NOW(),
+               resolved_by_user_id = ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND status = 'PENDING'`,
+          [providerId, prevId]
+        );
+        try {
+          await Notification.markAllAsResolvedForFilter(agencyId, {
+            relatedEntityType: 'provider_school_availability_request',
+            relatedEntityId: prevId
+          });
+        } catch { /* non-blocking */ }
+      }
+    }
+
+    if (requestKind === 'schedule_adjustment') {
+      const replaceRequestId = parseIntSafe(req.body?.replaceRequestId);
+      const targetDay = normalizedBlocks[0]?.dayOfWeek || null;
+      const targetSchoolOrgId = schoolOrgIds[0] || null;
+      const [existingAdjustments] = await conn.execute(
+        `SELECT r.id, r.preferred_school_org_ids_json, r.notes
+         FROM provider_school_availability_requests r
+         INNER JOIN provider_school_availability_request_blocks b ON b.request_id = r.id
+         WHERE r.agency_id = ? AND r.provider_id = ? AND r.status = 'PENDING'
+           AND r.request_kind = 'schedule_adjustment'
+           AND b.day_of_week = ?`,
+        [agencyId, providerId, targetDay]
+      );
+      for (const row of existingAdjustments || []) {
+        const prevId = Number(row?.id || 0);
+        if (!prevId) continue;
+        if (replaceRequestId && prevId === replaceRequestId) {
+          await conn.execute(
+            `UPDATE provider_school_availability_requests
+             SET status = 'CANCELLED',
+                 resolved_at = NOW(),
+                 resolved_by_user_id = ?,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ? AND status = 'PENDING'`,
+            [providerId, prevId]
+          );
+          try {
+            await Notification.markAllAsResolvedForFilter(agencyId, {
+              relatedEntityType: 'provider_school_availability_request',
+              relatedEntityId: prevId
+            });
+          } catch { /* non-blocking */ }
+          continue;
+        }
+        if (!targetSchoolOrgId) continue;
+        let rowSchoolId = null;
+        try {
+          const ids = row.preferred_school_org_ids_json ? JSON.parse(row.preferred_school_org_ids_json) : [];
+          rowSchoolId = Number(ids[0]) || null;
+        } catch {
+          rowSchoolId = null;
+        }
+        if (!rowSchoolId) {
+          const m = String(row.notes || '').match(/Schedule adjustment request for (.+?) \|/);
+          const schoolName = m?.[1]?.trim();
+          if (schoolName) {
+            const [schRows] = await pool.execute(
+              `SELECT id FROM agencies WHERE name = ? LIMIT 1`,
+              [schoolName]
+            );
+            rowSchoolId = schRows?.[0]?.id ? Number(schRows[0].id) : null;
+          }
+        }
+        if (rowSchoolId !== targetSchoolOrgId) continue;
+        await conn.execute(
+          `UPDATE provider_school_availability_requests
+           SET status = 'CANCELLED',
+               resolved_at = NOW(),
+               resolved_by_user_id = ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND status = 'PENDING'`,
+          [providerId, prevId]
+        );
+        try {
+          await Notification.markAllAsResolvedForFilter(agencyId, {
+            relatedEntityType: 'provider_school_availability_request',
+            relatedEntityId: prevId
+          });
+        } catch { /* non-blocking */ }
+      }
     }
 
     const preferredJson = schoolOrgIds.length ? JSON.stringify(schoolOrgIds) : null;
     const [result] = await conn.execute(
       `INSERT INTO provider_school_availability_requests
-        (agency_id, provider_id, preferred_school_org_ids_json, notes, status)
-       VALUES (?, ?, ?, ?, 'PENDING')`,
-      [agencyId, providerId, preferredJson, notes || null]
+        (agency_id, provider_id, preferred_school_org_ids_json, notes, request_kind, status)
+       VALUES (?, ?, ?, ?, ?, 'PENDING')`,
+      [agencyId, providerId, preferredJson, notes || null, requestKind]
     );
     const requestId = result.insertId;
 
@@ -1571,8 +1657,11 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
       await Notification.create({
         type: 'school_availability_request_pending',
         severity: 'info',
-        title: 'School request pending',
-        message: `${providerName} requested school availability. Review in Availability Intake (School Requests).`,
+        title: requestKind === 'schedule_adjustment' ? 'Schedule adjustment pending' : 'School request pending',
+        message:
+          requestKind === 'schedule_adjustment'
+            ? `${providerName} requested a schedule adjustment. Review in Availability Intake (Schedule adjustments).`
+            : `${providerName} requested school availability. Review in Availability Intake (School Requests).`,
         audienceJson: { admin: true, clinicalPracticeAssistant: true, schoolStaff: false },
         userId: null,
         agencyId,
@@ -2996,6 +3085,55 @@ export const denySchoolAvailabilityRequest = async (req, res, next) => {
   }
 };
 
+export const withdrawMySchoolAvailabilityRequest = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    const providerId = Number(req.user?.id || 0);
+    if (!providerId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+
+    const requestId = parseIntSafe(req.params.id);
+    if (!requestId) return res.status(400).json({ error: { message: 'Request ID is required' } });
+
+    const [reqRows] = await pool.execute(
+      `SELECT id, status, provider_id, request_kind
+       FROM provider_school_availability_requests
+       WHERE id = ? AND agency_id = ?
+       LIMIT 1`,
+      [requestId, agencyId]
+    );
+    const reqRow = reqRows?.[0] || null;
+    if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
+    if (Number(reqRow.provider_id) !== providerId) {
+      return res.status(403).json({ error: { message: 'You can only withdraw your own requests' } });
+    }
+    if (String(reqRow.status || '').toUpperCase() !== 'PENDING') {
+      return res.status(409).json({ error: { message: 'Request is not pending' } });
+    }
+
+    await pool.execute(
+      `UPDATE provider_school_availability_requests
+       SET status = 'CANCELLED',
+           resolved_at = NOW(),
+           resolved_by_user_id = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [providerId, requestId]
+    );
+
+    try {
+      await Notification.markAllAsResolvedForFilter(agencyId, {
+        relatedEntityType: 'provider_school_availability_request',
+        relatedEntityId: requestId
+      });
+    } catch { /* non-blocking */ }
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const unrequestAllMyAvailabilityRequests = async (req, res, next) => {
   let conn = null;
   try {
@@ -3031,7 +3169,7 @@ export const unrequestAllMyAvailabilityRequests = async (req, res, next) => {
     }
     const [officeResult] = await conn.execute(officeSql, officeArgs);
 
-    let schoolIdsSql = `SELECT id, agency_id FROM provider_school_availability_requests WHERE provider_id = ? AND status = 'PENDING'`;
+    let schoolIdsSql = `SELECT id, agency_id FROM provider_school_availability_requests WHERE provider_id = ? AND status = 'PENDING' AND request_kind = 'additional_hours'`;
     const schoolIdArgs = [providerId];
     if (agencyId) {
       schoolIdsSql += ' AND agency_id = ?';
@@ -3047,6 +3185,7 @@ export const unrequestAllMyAvailabilityRequests = async (req, res, next) => {
           updated_at = CURRENT_TIMESTAMP
       WHERE provider_id = ?
         AND status = 'PENDING'
+        AND request_kind = 'additional_hours'
     `;
     const schoolArgs = [providerId, providerId];
     if (agencyId) {
@@ -3099,19 +3238,26 @@ export const listSchoolAvailabilityRequests = async (req, res, next) => {
     const status = String(req.query.status || 'PENDING').toUpperCase();
     const allowedStatus = new Set(['PENDING', 'ASSIGNED', 'CANCELLED']);
     const st = allowedStatus.has(status) ? status : 'PENDING';
+    const requestKind = req.query.requestKind
+      ? normalizeSchoolRequestKind(req.query.requestKind)
+      : null;
 
-    const [rows] = await pool.execute(
-      `SELECT r.*,
+    let sql = `
+      SELECT r.*,
               u.first_name AS provider_first_name,
               u.last_name AS provider_last_name
        FROM provider_school_availability_requests r
        JOIN users u ON u.id = r.provider_id
        WHERE r.agency_id = ?
-         AND r.status = ?
-       ORDER BY r.created_at DESC
-       LIMIT 500`,
-      [agencyId, st]
-    );
+         AND r.status = ?`;
+    const args = [agencyId, st];
+    if (requestKind) {
+      sql += ' AND r.request_kind = ?';
+      args.push(requestKind);
+    }
+    sql += ' ORDER BY r.created_at DESC LIMIT 500';
+
+    const [rows] = await pool.execute(sql, args);
 
     const out = [];
     for (const r of rows || []) {
@@ -3129,6 +3275,7 @@ export const listSchoolAvailabilityRequests = async (req, res, next) => {
         providerName: `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim(),
         preferredSchoolOrgIds: r.preferred_school_org_ids_json ? JSON.parse(r.preferred_school_org_ids_json) : [],
         notes: r.notes || '',
+        requestKind: r.request_kind || 'additional_hours',
         status: r.status,
         createdAt: r.created_at,
         blocks: (blockRows || []).map((b) => ({
@@ -3194,6 +3341,14 @@ export const assignSchoolFromRequest = async (req, res, next) => {
     if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
     if (String(reqRow.status || '').toUpperCase() !== 'PENDING') {
       return res.status(409).json({ error: { message: 'Request is not pending' } });
+    }
+    if (String(reqRow.request_kind || 'additional_hours') === 'schedule_adjustment') {
+      return res.status(400).json({
+        error: {
+          message:
+            'Schedule adjustment requests cannot be assigned as new school days. Update the provider’s existing assignment in Organization slots instead.'
+        }
+      });
     }
 
     // Enforce chosen day/time overlaps a submitted block
