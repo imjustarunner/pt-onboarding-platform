@@ -44,6 +44,11 @@ import {
   resetSchoolStaffWaiverForTesting
 } from '../services/schoolStaffWaiver.service.js';
 import {
+  enrichSchoolRosterClientProviders,
+  repairMissingProviderAssignmentsForSchool,
+  refreshSchoolRosterProviderFields
+} from '../services/clientProviderAssignmentSync.service.js';
+import {
   assertSkillBuildersSchoolProgramForRequest,
   isSkillBuildersSchoolProgramActiveForParentAgencyId
 } from '../utils/skillBuildersSchoolProgramFeature.js';
@@ -690,6 +695,10 @@ export const getSchoolClients = async (req, res, next) => {
            c.waitlist_started_at,
            c.grade,
            c.school_year,
+           c.provider_id AS legacy_provider_id,
+           c.service_day AS legacy_service_day,
+           legacy_u.first_name AS legacy_provider_first_name,
+           legacy_u.last_name AS legacy_provider_last_name,
            GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name) ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ', ') AS provider_name,
            GROUP_CONCAT(DISTINCT cpa.provider_user_id ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ',') AS provider_ids,
            GROUP_CONCAT(DISTINCT cpa.service_day ORDER BY FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday') SEPARATOR ', ') AS service_day,
@@ -703,7 +712,7 @@ export const getSchoolClients = async (req, res, next) => {
              ORDER BY u.last_name ASC, u.first_name ASC, FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday')
              SEPARATOR '|'
            ) AS provider_day_pairs,
-           MAX(CASE WHEN ? IS NOT NULL AND cpa.provider_user_id = ? THEN 1 ELSE 0 END) AS user_is_assigned_provider,
+           MAX(CASE WHEN ? IS NOT NULL AND (cpa.provider_user_id = ? OR c.provider_id = ?) THEN 1 ELSE 0 END) AS user_is_assigned_provider,
            c.submission_date,
            c.source,
            c.document_status,
@@ -735,16 +744,35 @@ export const getSchoolClients = async (req, res, next) => {
           AND cpa.organization_id = coa.organization_id
           AND cpa.is_active = TRUE
          LEFT JOIN users u ON u.id = cpa.provider_user_id
+         LEFT JOIN users legacy_u ON legacy_u.id = c.provider_id
          WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
            AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
            AND (? = 0 OR c.skills = TRUE)
            AND (? IS NULL OR c.id = ?)
-           AND (? IS NULL OR cpa.provider_user_id = ?)
+           AND (? IS NULL OR cpa.provider_user_id = ? OR c.provider_id = ?)
          GROUP BY c.id
          ORDER BY c.submission_date DESC, c.id DESC`,
-        [providerUserId, providerUserId, orgId, skillsOnly ? 1 : 0, clientIdFilter, clientIdFilter, providerUserId, providerUserId]
+        [
+          providerUserId,
+          providerUserId,
+          providerUserId,
+          orgId,
+          skillsOnly ? 1 : 0,
+          clientIdFilter,
+          clientIdFilter,
+          providerUserId,
+          providerUserId,
+          providerUserId
+        ]
       );
-      clients = rows || [];
+      clients = enrichSchoolRosterClientProviders(rows || []);
+      const repairResult = await repairMissingProviderAssignmentsForSchool(orgId, clients, req.user?.id).catch(() => ({
+        repaired: 0,
+        clientIds: []
+      }));
+      if (repairResult?.clientIds?.length) {
+        clients = await refreshSchoolRosterProviderFields(orgId, clients, repairResult.clientIds).catch(() => clients);
+      }
     } catch (e) {
       const msg = String(e?.message || '');
       const missing =
@@ -1051,7 +1079,7 @@ export const getSchoolClients = async (req, res, next) => {
             const first = parseInt(raw.split(',')[0], 10);
             if (Number.isFinite(first) && first > 0) return first;
           }
-          const legacy = parseInt(client?.provider_id, 10);
+          const legacy = parseInt(client?.legacy_provider_id ?? client?.provider_id, 10);
           return Number.isFinite(legacy) && legacy > 0 ? legacy : null;
         })(),
         provider_name: client.provider_name || null,
@@ -1239,7 +1267,7 @@ export const getProviderMyRoster = async (req, res, next) => {
     // Use the same restricted roster query but force provider filtering.
     let clients = [];
     try {
-      const rosterParams = [orgId, providerUserId];
+      const rosterParams = [orgId, providerUserId, providerUserId];
       if (useSkillBuildersRosterFilter) rosterParams.push(providerUserId);
       rosterParams.push(skillsFilterVal);
       const [rows] = await pool.execute(
@@ -1256,6 +1284,10 @@ export const getProviderMyRoster = async (req, res, next) => {
            c.waitlist_started_at,
            c.grade,
            c.school_year,
+           c.provider_id AS legacy_provider_id,
+           c.service_day AS legacy_service_day,
+           legacy_u.first_name AS legacy_provider_first_name,
+           legacy_u.last_name AS legacy_provider_last_name,
            GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name) ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ', ') AS provider_name,
            GROUP_CONCAT(DISTINCT cpa.provider_user_id ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ',') AS provider_ids,
            GROUP_CONCAT(DISTINCT cpa.service_day ORDER BY FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday') SEPARATOR ', ') AS service_day,
@@ -1293,24 +1325,33 @@ export const getProviderMyRoster = async (req, res, next) => {
            ON coa.client_id = c.id
           AND coa.organization_id = ?
           AND coa.is_active = TRUE
-         JOIN client_provider_assignments cpa
+         LEFT JOIN client_provider_assignments cpa
            ON cpa.client_id = c.id
           AND cpa.organization_id = coa.organization_id
           AND cpa.is_active = TRUE
           AND cpa.provider_user_id = ?
          LEFT JOIN users u ON u.id = cpa.provider_user_id
+         LEFT JOIN users legacy_u ON legacy_u.id = c.provider_id
          LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
          LEFT JOIN paperwork_statuses ps ON ps.id = c.paperwork_status_id
          LEFT JOIN paperwork_delivery_methods pdm ON pdm.id = c.paperwork_delivery_method_id
          WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
            AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
            AND (? = 0 OR c.skills = TRUE)
+           AND (cpa.id IS NOT NULL OR c.provider_id = ?)
            ${sbExistsSql}
          GROUP BY c.id, coa.organization_id
          ORDER BY c.submission_date DESC, c.id DESC`,
         rosterParams
       );
-      clients = rows || [];
+      clients = enrichSchoolRosterClientProviders(rows || []);
+      const repairResult = await repairMissingProviderAssignmentsForSchool(orgId, clients, req.user?.id).catch(() => ({
+        repaired: 0,
+        clientIds: []
+      }));
+      if (repairResult?.clientIds?.length) {
+        clients = await refreshSchoolRosterProviderFields(orgId, clients, repairResult.clientIds).catch(() => clients);
+      }
     } catch (e) {
       const msg = String(e?.message || '');
       const missing =

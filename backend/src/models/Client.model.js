@@ -547,6 +547,23 @@ class Client {
     const query = `UPDATE clients SET ${updates.join(', ')} WHERE id = ?`;
     await pool.execute(query, values);
 
+    if (clientData.provider_id !== undefined || clientData.service_day !== undefined) {
+      try {
+        const { afterLegacyProviderFieldsChanged } = await import(
+          '../services/clientProviderAssignmentSync.service.js'
+        );
+        await afterLegacyProviderFieldsChanged(pool, {
+          clientId: parseInt(id, 10),
+          userId: updated_by_user_id,
+          providerUserId: clientData.provider_id,
+          serviceDay: clientData.service_day,
+          isPrimary: true
+        });
+      } catch (e) {
+        console.warn('[Client.update] provider assignment sync failed:', e?.message || e);
+      }
+    }
+
     return this.findById(id);
   }
 

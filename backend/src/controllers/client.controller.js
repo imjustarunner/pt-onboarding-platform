@@ -3556,6 +3556,19 @@ export const assignProvider = async (req, res, next) => {
         [finalProviderId, finalDay, userId, parseInt(id, 10)]
       );
 
+      {
+        const { afterLegacyProviderFieldsChanged } = await import(
+          '../services/clientProviderAssignmentSync.service.js'
+        );
+        await afterLegacyProviderFieldsChanged(connection, {
+          clientId: parseInt(id, 10),
+          userId,
+          providerUserId: finalProviderId,
+          serviceDay: finalDay,
+          isPrimary: true
+        });
+      }
+
       // History entries
       if (oldProviderId !== finalProviderId) {
         await connection.execute(
@@ -7285,19 +7298,14 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
       const shouldNotifyAssignment =
         newConsumesSlot && (!existingSameDay || !wasActive || (moveSingleDayRow && String(singleActive?.service_day || '') !== String(serviceDay || '')));
 
-      // Keep legacy single-provider fields in sync with the primary provider.
-      if (requestedPrimary) {
-        try {
-          await connection.execute(
-            `UPDATE clients
-             SET provider_id = ?, service_day = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
-             WHERE id = ?`,
-            [providerUserId, serviceDay, userId, clientId]
-          );
-        } catch {
-          // ignore (best-effort)
-        }
-      }
+      const { afterScopedProviderAssignmentChanged } = await import(
+        '../services/clientProviderAssignmentSync.service.js'
+      );
+      await afterScopedProviderAssignmentChanged(connection, {
+        clientId,
+        userId,
+        forceLegacy: requestedPrimary
+      });
 
       await connection.commit();
 
@@ -7429,44 +7437,14 @@ export const removeClientProviderAssignment = async (req, res, next) => {
         [userId, assignmentId]
       );
 
-      // Keep legacy single-provider fields in sync (snap back to Not assigned when none remain).
-      // Prefer explicit primary if column exists, otherwise pick most recent active assignment.
-      let next = null;
-      try {
-        const [nextRows] = await connection.execute(
-          `SELECT provider_user_id, service_day
-           FROM client_provider_assignments
-           WHERE client_id = ? AND is_active = TRUE
-           ORDER BY (CASE WHEN is_primary = TRUE THEN 1 ELSE 0 END) DESC, updated_at DESC
-           LIMIT 1`,
-          [clientId]
-        );
-        next = nextRows?.[0] || null;
-      } catch (e) {
-        const msg = String(e?.message || '');
-        const missingIsPrimary = msg.includes('Unknown column') && msg.includes('is_primary');
-        if (!missingIsPrimary) throw e;
-        const [nextRows] = await connection.execute(
-          `SELECT provider_user_id, service_day
-           FROM client_provider_assignments
-           WHERE client_id = ? AND is_active = TRUE
-           ORDER BY updated_at DESC
-           LIMIT 1`,
-          [clientId]
-        );
-        next = nextRows?.[0] || null;
-      }
-
-      try {
-        await connection.execute(
-          `UPDATE clients
-           SET provider_id = ?, service_day = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [next?.provider_user_id || null, next?.service_day || null, userId, clientId]
-        );
-      } catch {
-        // best-effort
-      }
+      const { afterScopedProviderAssignmentChanged } = await import(
+        '../services/clientProviderAssignmentSync.service.js'
+      );
+      await afterScopedProviderAssignmentChanged(connection, {
+        clientId,
+        userId,
+        forceLegacy: true
+      });
 
       await connection.commit();
       res.json({ ok: true });

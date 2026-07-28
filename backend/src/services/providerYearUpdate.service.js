@@ -579,17 +579,29 @@ export async function listSchoolAssignedProviders(agencyId) {
         u.work_phone
      FROM provider_school_assignments psa
      JOIN users u ON u.id = psa.provider_user_id
-     JOIN organization_affiliations oa
-       ON oa.organization_id = psa.school_organization_id
-      AND oa.agency_id = ?
-      AND (oa.is_active = 1 OR oa.is_active IS NULL)
      JOIN agencies sch ON sch.id = psa.school_organization_id
      WHERE psa.is_active = 1
+       AND (
+         EXISTS (
+           SELECT 1
+           FROM organization_affiliations oa
+           WHERE oa.organization_id = psa.school_organization_id
+             AND oa.agency_id = ?
+             AND (oa.is_active = 1 OR oa.is_active IS NULL)
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM agency_schools asch
+           WHERE asch.school_organization_id = psa.school_organization_id
+             AND asch.agency_id = ?
+             AND asch.is_active = TRUE
+         )
+       )
        AND (u.is_archived IS NULL OR u.is_archived = 0)
        AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')
        AND LOWER(COALESCE(sch.organization_type, 'school')) IN ('school', 'program', 'learning', '')
      ORDER BY u.last_name ASC, u.first_name ASC`,
-    [agencyId]
+    [agencyId, agencyId]
   );
   return rows || [];
 }
@@ -658,14 +670,26 @@ export async function loadProviderSchoolSchedule(providerUserId, agencyId) {
             sch.logo_path
      FROM provider_school_assignments psa
      JOIN agencies sch ON sch.id = psa.school_organization_id
-     JOIN organization_affiliations oa
-       ON oa.organization_id = psa.school_organization_id
-      AND oa.agency_id = ?
-      AND (oa.is_active = 1 OR oa.is_active IS NULL)
      WHERE psa.provider_user_id = ?
        AND psa.is_active = 1
+       AND (
+         EXISTS (
+           SELECT 1
+           FROM organization_affiliations oa
+           WHERE oa.organization_id = psa.school_organization_id
+             AND oa.agency_id = ?
+             AND (oa.is_active = 1 OR oa.is_active IS NULL)
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM agency_schools asch
+           WHERE asch.school_organization_id = psa.school_organization_id
+             AND asch.agency_id = ?
+             AND asch.is_active = TRUE
+         )
+       )
      ORDER BY sch.name ASC, FIELD(psa.day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday'), psa.day_of_week`,
-    [agencyId, providerUserId]
+    [providerUserId, agencyId, agencyId]
   );
 
   const schoolIds = [...new Set((rows || []).map((r) => Number(r.school_organization_id)).filter(Boolean))];
@@ -765,13 +789,25 @@ export async function loadProviderClientsWithoutDay(providerUserId, agencyId) {
          ON coa.client_id = c.id
         AND coa.is_active = TRUE
        JOIN agencies sch ON sch.id = coa.organization_id
-       JOIN organization_affiliations oa
-         ON oa.organization_id = coa.organization_id
-        AND oa.agency_id = ?
-        AND (oa.is_active = 1 OR oa.is_active IS NULL)
        LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
        WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
          AND (cs.status_key IS NULL OR LOWER(cs.status_key) NOT IN ('terminated', 'archived'))
+         AND (
+           EXISTS (
+             SELECT 1
+             FROM organization_affiliations oa
+             WHERE oa.organization_id = coa.organization_id
+               AND oa.agency_id = ?
+               AND (oa.is_active = 1 OR oa.is_active IS NULL)
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM agency_schools asch
+             WHERE asch.school_organization_id = coa.organization_id
+               AND asch.agency_id = ?
+               AND asch.is_active = TRUE
+           )
+         )
          AND NOT EXISTS (
            SELECT 1
            FROM client_provider_assignments cpa_day
@@ -797,7 +833,7 @@ export async function loadProviderClientsWithoutDay(providerUserId, agencyId) {
            )
          )
        ORDER BY sch.name ASC, c.initials ASC, c.identifier_code ASC`,
-      [agencyId, providerUserId, providerUserId, providerUserId]
+      [agencyId, agencyId, providerUserId, providerUserId, providerUserId]
     );
     const bySchool = new Map();
     const seenClient = new Set();
