@@ -606,6 +606,24 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/school-onboarding/start/:token',
+    name: 'SchoolOnboardingStart',
+    component: () => import('../views/schoolOnboarding/SchoolOnboardingStartView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/school-onboarding/:token/demo',
+    name: 'SchoolOnboardingDemo',
+    component: () => import('../views/schoolOnboarding/SchoolOnboardingDemoView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/school-onboarding/:token/:step?',
+    name: 'SchoolOnboarding',
+    component: () => import('../views/schoolOnboarding/SchoolOnboardingShellView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/school-reinit/:token',
     name: 'SchoolReinitPublic',
     component: () => import('../views/public/SchoolReinitPublicView.vue'),
@@ -1749,6 +1767,17 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/school-onboarding',
+    name: 'OrganizationSchoolOnboardingAdmin',
+    component: () => import('../views/admin/SchoolOnboardingAdminView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/client-exchange',
     name: 'OrganizationClientExchange',
     component: () => import('../views/ClientExchangeView.vue'),
@@ -2858,6 +2887,16 @@ const routes = [
     path: '/admin/provider-year-update',
     name: 'ProviderYearUpdateAdmin',
     component: () => import('../views/admin/ProviderYearUpdateAdminView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/school-onboarding',
+    name: 'SchoolOnboardingAdmin',
+    component: () => import('../views/admin/SchoolOnboardingAdminView.vue'),
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
@@ -4169,7 +4208,10 @@ router.beforeEach(async (to, from, next) => {
     const allowedUnscopedRouteNames = new Set([
       'DocumentSigning',
       'DocumentReview',
-      'SchoolReinitPublic'
+      'SchoolReinitPublic',
+      'SchoolOnboarding',
+      'SchoolOnboardingDemo',
+      'SchoolOnboardingStart'
     ]);
 
     const allowed =
@@ -4195,37 +4237,42 @@ router.beforeEach(async (to, from, next) => {
       'DocumentSigning',
       'DocumentReview',
       'OrganizationDocumentSigning',
-      'OrganizationDocumentReview'
+      'OrganizationDocumentReview',
+      'SchoolOnboarding',
+      'SchoolOnboardingDemo',
+      'SchoolOnboardingStart'
     ]);
     const currentRouteName = String(to.name || '');
-    const slug = (typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) || getDefaultOrganizationSlug();
-    if (slug) {
-      try {
-        const waiverStatus = await getSchoolStaffWaiverStatus({
-          api,
-          authUser: authStore.user,
-          organizationSlug: slug
-        });
-        const requiresWaiver = Boolean(waiverStatus?.required);
-        const isSigned = Boolean(waiverStatus?.isSigned);
-        const requiredTaskId = Number(waiverStatus?.taskId || 0) || null;
-        if (requiresWaiver && !isSigned) {
-          const queryMode = String(to.query?.sp || '').trim().toLowerCase();
-          const isDashboardDocuments =
-            currentRouteName === 'OrganizationDashboard' &&
-            String(to.params.organizationSlug || '') === String(slug) &&
-            queryMode === 'documents';
-          const isRequiredTaskSigningRoute =
-            exemptRouteNames.has(currentRouteName) &&
-            requiredTaskId &&
-            Number(to.params?.taskId || 0) === requiredTaskId;
-          if (!isDashboardDocuments && !isRequiredTaskSigningRoute) {
-            next(`/${slug}/dashboard?sp=documents`);
-            return;
+    if (!exemptRouteNames.has(currentRouteName)) {
+      const slug = (typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) || getDefaultOrganizationSlug();
+      if (slug) {
+        try {
+          const waiverStatus = await getSchoolStaffWaiverStatus({
+            api,
+            authUser: authStore.user,
+            organizationSlug: slug
+          });
+          const requiresWaiver = Boolean(waiverStatus?.required);
+          const isSigned = Boolean(waiverStatus?.isSigned);
+          const requiredTaskId = Number(waiverStatus?.taskId || 0) || null;
+          if (requiresWaiver && !isSigned) {
+            const queryMode = String(to.query?.sp || '').trim().toLowerCase();
+            const isDashboardDocuments =
+              currentRouteName === 'OrganizationDashboard' &&
+              String(to.params.organizationSlug || '') === String(slug) &&
+              queryMode === 'documents';
+            const isRequiredTaskSigningRoute =
+              exemptRouteNames.has(currentRouteName) &&
+              requiredTaskId &&
+              Number(to.params?.taskId || 0) === requiredTaskId;
+            if (!isDashboardDocuments && !isRequiredTaskSigningRoute) {
+              next(`/${slug}/dashboard?sp=documents`);
+              return;
+            }
           }
+        } catch {
+          // Best-effort gate: if status lookup fails, do not hard-block navigation.
         }
-      } catch {
-        // Best-effort gate: if status lookup fails, do not hard-block navigation.
       }
     }
   }

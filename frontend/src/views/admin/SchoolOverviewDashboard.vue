@@ -49,6 +49,16 @@
             {{ showYearUpdatePanel ? 'School overview' : 'Year update' }}
           </button>
           <button
+            v-if="canManageSchoolsHere && orgType === 'school'"
+            type="button"
+            class="btn btn-sm"
+            :class="showOnboardingPanel ? 'btn-primary' : 'btn-secondary'"
+            title="Invite schools or print a self-serve onboarding QR"
+            @click="toggleOnboardingPanel"
+          >
+            {{ showOnboardingPanel ? 'School overview' : 'Onboarding' }}
+          </button>
+          <button
             v-if="canManageSchoolsHere"
             class="btn btn-primary btn-sm"
             type="button"
@@ -97,7 +107,7 @@
       </div>
     </div>
 
-    <div v-if="!showYearUpdatePanel" class="controls" data-tour="schools-overview-controls">
+    <div v-if="!showYearUpdatePanel && !showOnboardingPanel" class="controls" data-tour="schools-overview-controls">
       <div v-if="isSuperAdmin" class="control" data-tour="schools-overview-agency">
         <label class="control-label">Agency</label>
         <select v-model="selectedAgencyId" class="control-select">
@@ -163,7 +173,7 @@
     <div v-if="schoolEventRequestFlash" class="success-banner">{{ schoolEventRequestFlash }}</div>
 
     <div
-      v-if="canManageYearUpdate && !showYearUpdatePanel && selectedAgencyId"
+      v-if="canManageYearUpdate && !showYearUpdatePanel && !showOnboardingPanel && selectedAgencyId"
       class="year-update-hint"
     >
       <span>Collaborative year update — enable, push to schools, and track progress from the Year update button.</span>
@@ -185,7 +195,25 @@
       <SchoolReinitAdminPanel :agency-id="selectedAgencyId" />
     </div>
 
-    <template v-if="!showYearUpdatePanel">
+    <div
+      v-if="showOnboardingPanel && canManageSchoolsHere && selectedAgencyId"
+      id="school-onboarding-admin"
+      class="year-update-panel-wrap"
+    >
+      <div class="year-update-panel-bar">
+        <button type="button" class="btn btn-secondary btn-sm" @click="closeOnboardingPanel">
+          ← Back to {{ isAllPortalsPage ? 'school portals' : 'school overview' }}
+        </button>
+      </div>
+      <SchoolOnboardingAdminPanel
+        embedded
+        :agency-id="selectedAgencyId"
+        :organization-slug="orgSlug"
+        @school-created="onSchoolCreated"
+      />
+    </div>
+
+    <template v-if="!showYearUpdatePanel && !showOnboardingPanel">
     <div v-if="!isAllPortalsPage && schoolEventsOverview.events?.length" class="school-events-section">
       <div class="school-events-header">
         <strong>School events ({{ schoolEventsOverview.year }})</strong>
@@ -824,6 +852,7 @@ import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import AddSchoolScopedModal from '../../components/admin/AddSchoolScopedModal.vue';
 import SchoolReinitAdminPanel from '../../components/admin/SchoolReinitAdminPanel.vue';
+import SchoolOnboardingAdminPanel from '../../components/admin/SchoolOnboardingAdminPanel.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -1017,8 +1046,10 @@ const canManageYearUpdate = computed(() => {
 });
 
 function openYearUpdateSettings() {
+  showOnboardingPanel.value = false;
   showYearUpdatePanel.value = true;
   const q = { ...route.query, yearUpdate: '1' };
+  delete q.onboarding;
   router.replace({ query: q }).catch(() => {});
   nextTick(() => {
     document.getElementById('school-reinit-admin')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1035,6 +1066,29 @@ function closeYearUpdateSettings() {
 function toggleYearUpdateSettings() {
   if (showYearUpdatePanel.value) closeYearUpdateSettings();
   else openYearUpdateSettings();
+}
+
+function openOnboardingPanel() {
+  showYearUpdatePanel.value = false;
+  showOnboardingPanel.value = true;
+  const q = { ...route.query, onboarding: '1' };
+  delete q.yearUpdate;
+  router.replace({ query: q }).catch(() => {});
+  nextTick(() => {
+    document.getElementById('school-onboarding-admin')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+function closeOnboardingPanel() {
+  showOnboardingPanel.value = false;
+  const q = { ...route.query };
+  delete q.onboarding;
+  router.replace({ query: q }).catch(() => {});
+}
+
+function toggleOnboardingPanel() {
+  if (showOnboardingPanel.value) closeOnboardingPanel();
+  else openOnboardingPanel();
 }
 
 const isBackofficeManager = computed(() => {
@@ -1458,6 +1512,7 @@ const openSchool = (school) => {
 const tokenCopyFlashId = ref('');
 const tokenCopyBusy = ref(false);
 const showYearUpdatePanel = ref(false);
+const showOnboardingPanel = ref(false);
 
 const openSchoolReinit = (school) => {
   const schoolId = parseInt(String(school?.school_id || ''), 10);
@@ -1646,13 +1701,18 @@ onMounted(async () => {
   await agencyStore.fetchUserAgencies();
   await fetchAgenciesForPicker();
   selectedAgencyId.value = resolveDefaultAgencyId();
-  // Year update is a separate view toggled by the toolbar button (or ?yearUpdate=1).
+  // Year update / onboarding are separate views toggled by toolbar buttons (or query flags).
   // School overview / portals remain the default landing content.
   showYearUpdatePanel.value = String(route.query?.yearUpdate || '') === '1';
+  showOnboardingPanel.value = String(route.query?.onboarding || '') === '1' && !showYearUpdatePanel.value;
   await Promise.all([fetchOverview(), fetchBulkAnnouncements(), fetchSchoolEventsOverview()]);
   if (showYearUpdatePanel.value) {
     nextTick(() => {
       document.getElementById('school-reinit-admin')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  } else if (showOnboardingPanel.value) {
+    nextTick(() => {
+      document.getElementById('school-onboarding-admin')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }
 });

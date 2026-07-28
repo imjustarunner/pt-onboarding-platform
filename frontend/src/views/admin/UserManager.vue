@@ -230,7 +230,6 @@
                 <option value="support">Staff (Admin Tools)</option>
                 <option value="admin">Admin</option>
                 <option value="super_admin">Super Admin</option>
-                <option value="clinician">Clinician (legacy leftovers)</option>
               </select>
             </div>
           </div>

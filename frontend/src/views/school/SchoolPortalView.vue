@@ -9,7 +9,7 @@
     <PlatformPreviewBanner
       v-if="props.previewMode"
       :title="`Previewing ${organizationDisplayName} portal`"
-      subtitle="This platform preview shows the tenant portal shell without acting like a live school staff session."
+      :subtitle="previewBannerSubtitle"
     />
 
     <div
@@ -1863,6 +1863,13 @@ const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const tutorialStore = useTutorialStore();
+
+const previewBannerSubtitle = computed(() => {
+  if (String(route.name || '') === 'SchoolOnboardingDemo') {
+    return 'Demo school — view only. Browse freely; add/edit/delete actions are disabled.';
+  }
+  return 'This platform preview shows the tenant portal shell without acting like a live school staff session.';
+});
 
 const vClickOutside = {
   mounted(el, binding) {

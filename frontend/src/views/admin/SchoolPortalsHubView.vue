@@ -48,6 +48,15 @@
         </p>
         <span class="sph-card-cta">Open settings →</span>
       </router-link>
+
+      <router-link class="sph-card" :to="toSchoolOnboarding">
+        <div class="sph-card-icon" aria-hidden="true">🚀</div>
+        <h2 class="sph-card-title">School Onboarding</h2>
+        <p class="sph-card-desc muted">
+          Invite a new school contact by name, email, and school. They receive a secure link to set up their portal, password, and staff.
+        </p>
+        <span class="sph-card-cta">Open onboarding →</span>
+      </router-link>
     </div>
   </div>
 </template>
@@ -67,6 +76,7 @@ const toOverview = computed(() => `${orgPrefix.value}/admin/schools/overview?org
 const toAllPortals = computed(() => `${orgPrefix.value}/admin/school-portals`);
 const toYearUpdateSettings = computed(() => `${orgPrefix.value}/admin/schools/overview?orgType=school&yearUpdate=1`);
 const toProviderYearUpdate = computed(() => `${orgPrefix.value}/admin/provider-year-update`);
+const toSchoolOnboarding = computed(() => `${orgPrefix.value}/admin/schools/overview?orgType=school&onboarding=1`);
 </script>
 
 <style scoped>
