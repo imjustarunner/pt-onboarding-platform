@@ -215,6 +215,44 @@ export async function getDemoSchoolMeta(req, res, next) {
   }
 }
 
+export async function getPublicStandaloneDemo(req, res, next) {
+  try {
+    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
+    const { demo } = await DemoPortal.resolveHogwartsCore();
+    res.json({ demo });
+  } catch (err) {
+    handleServiceError(err, res, next);
+  }
+}
+
+export async function getPublicStandaloneDemoSchoolMeta(req, res, next) {
+  req.params = { ...(req.params || {}), token: 'public' };
+  return getDemoSchoolMeta(req, res, next);
+}
+
+export async function getPublicStandaloneDemoPortal(req, res, next) {
+  try {
+    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
+    const pathRest = String(req.url || '/')
+      .split('?')[0]
+      .replace(/^\/+/, '');
+    const data = await DemoPortal.handleDemoPortalGet('public', pathRest, req.query || {});
+    res.json(data);
+  } catch (err) {
+    handleServiceError(err, res, next);
+  }
+}
+
+export async function mutatePublicStandaloneDemoPortal(req, res, next) {
+  try {
+    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
+    const data = await DemoPortal.handleDemoPortalMutation();
+    res.json(data);
+  } catch (err) {
+    handleServiceError(err, res, next);
+  }
+}
+
 export async function submit(req, res, next) {
   try {
     const result = await S.submitOnboarding(req.params.token);

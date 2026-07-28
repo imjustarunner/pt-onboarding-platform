@@ -41,6 +41,26 @@
         <p v-if="qrError" class="error">{{ qrError }}</p>
       </section>
 
+      <section class="so-card">
+        <h2>Demo link only</h2>
+        <p class="muted">
+          Use this at initial meetings to show the school portal without login or onboarding. Share the link or QR
+          code — great when school Wi‑Fi is unreliable (load once while you have signal, then browse offline where
+          cached).
+        </p>
+        <div v-if="demoOnlyUrl" class="so-qr-box">
+          <img v-if="demoQrDataUrl" :src="demoQrDataUrl" alt="School portal demo QR code" class="so-qr-img" />
+          <div class="so-qr-meta">
+            <div class="mono tiny">{{ demoOnlyUrl }}</div>
+            <div class="so-actions">
+              <a class="btn primary" :href="demoOnlyUrl" target="_blank" rel="noopener noreferrer">Open demo</a>
+              <button type="button" class="btn ghost" @click="printDemoQr">Print QR</button>
+              <button type="button" class="btn ghost" @click="copyLink(demoOnlyUrl)">Copy link</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section v-if="!pendingInvite" class="so-card">
         <h2>Create onboarding</h2>
         <form class="so-form" @submit.prevent="createOnboarding">
@@ -167,6 +187,7 @@ import { useRoute } from 'vue-router';
 import QRCode from 'qrcode';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import { buildSchoolOnboardingStandaloneDemoPath } from '../../utils/schoolOnboardingDemoContext.js';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },
@@ -194,6 +215,12 @@ const qrDataUrl = ref('');
 const qrLoading = ref(false);
 const qrBusy = ref(false);
 const qrError = ref('');
+const demoQrDataUrl = ref('');
+
+const demoOnlyUrl = computed(() => {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.origin}${buildSchoolOnboardingStandaloneDemoPath()}`;
+});
 
 const form = reactive({
   contactFirstName: '',
@@ -380,6 +407,19 @@ async function revoke(inv) {
   }
 }
 
+async function renderDemoQr() {
+  const url = demoOnlyUrl.value;
+  if (!url) {
+    demoQrDataUrl.value = '';
+    return;
+  }
+  try {
+    demoQrDataUrl.value = await QRCode.toDataURL(url, { width: 280, margin: 1 });
+  } catch {
+    demoQrDataUrl.value = '';
+  }
+}
+
 async function renderQr(url) {
   if (!url) {
     qrDataUrl.value = '';
@@ -421,6 +461,34 @@ async function rotateQr() {
   } finally {
     qrBusy.value = false;
   }
+}
+
+function printDemoQr() {
+  if (!demoQrDataUrl.value || !demoOnlyUrl.value) return;
+  const w = window.open('', '_blank', 'noopener,noreferrer,width=720,height=840');
+  if (!w) return;
+  const agencyName =
+    agencyStore.currentAgency?.name ||
+    agencyStore.currentAgency?.value?.name ||
+    'School portal demo';
+  const doc = w.document;
+  doc.open();
+  doc.title = 'School portal demo QR';
+  doc.body.innerHTML = `
+    <div style="font-family:Segoe UI,system-ui,sans-serif;text-align:center;padding:32px;color:#0f172a">
+      <h1 style="font-size:22px;margin:0 0 8px"></h1>
+      <p style="margin:0;color:#475569">Scan to preview the school portal (no login)</p>
+      <img style="width:280px;height:280px;margin:16px auto;display:block" alt="QR code" />
+      <div class="url" style="font-size:12px;color:#64748b;word-break:break-all;margin-top:12px"></div>
+    </div>`;
+  doc.querySelector('h1').textContent = agencyName;
+  doc.querySelector('img').src = demoQrDataUrl.value;
+  doc.querySelector('.url').textContent = demoOnlyUrl.value;
+  doc.close();
+  w.focus();
+  setTimeout(() => {
+    try { w.print(); } catch { /* ignore */ }
+  }, 250);
 }
 
 function printQr() {
@@ -466,6 +534,7 @@ onMounted(async () => {
   } finally {
     ready.value = true;
   }
+  await renderDemoQr();
   if (resolvedAgencyId.value) {
     await Promise.all([loadInvites(), loadQr()]);
   }
@@ -558,6 +627,12 @@ onMounted(async () => {
 .btn.ghost {
   background: #f1f5f9;
   color: #0f172a;
+}
+a.btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .so-table-wrap { overflow-x: auto; }
 .so-table {

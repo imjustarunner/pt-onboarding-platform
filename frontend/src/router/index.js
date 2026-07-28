@@ -615,6 +615,12 @@ const routes = [
     redirect: '/login'
   },
   {
+    path: '/school-onboarding/demo',
+    name: 'SchoolOnboardingStandaloneDemo',
+    component: () => import('../views/schoolOnboarding/SchoolOnboardingDemoView.vue'),
+    meta: { requiresGuest: false, schoolOnboardingStandaloneDemo: true }
+  },
+  {
     path: '/school-onboarding/:token/demo',
     name: 'SchoolOnboardingDemo',
     component: () => import('../views/schoolOnboarding/SchoolOnboardingDemoView.vue'),

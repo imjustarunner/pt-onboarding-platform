@@ -3,9 +3,15 @@
     <header class="so-demo-banner">
       <div>
         <strong>{{ schoolName }} demo</strong>
-        <span class="muted">Identical school portal UI — browse freely. Nothing here is live.</span>
+        <span class="muted">
+          {{
+            standalone
+              ? 'School portal preview — browse freely. No login required.'
+              : 'Identical school portal UI — browse freely. Nothing here is live.'
+          }}
+        </span>
       </div>
-      <div class="so-demo-actions">
+      <div v-if="!standalone" class="so-demo-actions">
         <button type="button" class="btn ghost" @click="backToOnboarding">← Back to onboarding</button>
         <button type="button" class="btn primary" @click="continueReview">Continue to review →</button>
       </div>
@@ -20,7 +26,7 @@
     <SchoolPortalView
       v-else-if="ready"
       :preview-mode="true"
-      :public-demo-token="token"
+      :public-demo-token="demoApiToken"
     />
   </div>
 </template>
@@ -33,7 +39,8 @@ import { useBrandingStore } from '../../store/branding';
 import { useOrganizationStore } from '../../store/organization';
 import {
   activateSchoolOnboardingDemo,
-  deactivateSchoolOnboardingDemo
+  deactivateSchoolOnboardingDemo,
+  SCHOOL_ONBOARDING_PUBLIC_DEMO_TOKEN
 } from '../../utils/schoolOnboardingDemoContext.js';
 import SchoolPortalView from '../school/SchoolPortalView.vue';
 
@@ -43,6 +50,8 @@ const organizationStore = useOrganizationStore();
 const brandingStore = useBrandingStore();
 
 const token = String(route.params.token || '').trim();
+const standalone = computed(() => route.meta?.schoolOnboardingStandaloneDemo === true);
+const demoApiToken = computed(() => (standalone.value ? SCHOOL_ONBOARDING_PUBLIC_DEMO_TOKEN : token));
 const loading = ref(true);
 const ready = ref(false);
 const error = ref('');
@@ -96,7 +105,7 @@ async function completeExploreDemo(nextStep = 'review_submit') {
 }
 
 async function boot() {
-  if (!token) {
+  if (!standalone.value && !token) {
     error.value = 'Missing onboarding invite token.';
     loading.value = false;
     ready.value = false;
@@ -106,14 +115,21 @@ async function boot() {
   error.value = '';
   ready.value = false;
   try {
-    const res = await api.get(`/public/school-onboarding/${token}/demo/school`, {
+    const schoolMetaUrl = standalone.value
+      ? '/public/school-onboarding/demo/school'
+      : `/public/school-onboarding/${token}/demo/school`;
+    const res = await api.get(schoolMetaUrl, {
       skipAuthRedirect: true
     });
     const school = res.data?.school;
     if (!school?.id) throw new Error('Demo school unavailable');
     schoolMeta.value = school;
 
-    activateSchoolOnboardingDemo({ token, schoolId: school.id });
+    activateSchoolOnboardingDemo({
+      token: demoApiToken.value,
+      schoolId: school.id,
+      standalone: standalone.value
+    });
     organizationStore.setCurrentOrganization({
       id: school.id,
       name: school.name,

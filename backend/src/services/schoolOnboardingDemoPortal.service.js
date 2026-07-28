@@ -3,15 +3,41 @@ import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import * as Onboarding from './schoolOnboarding.service.js';
 
+export const PUBLIC_STANDALONE_DEMO_TOKEN = 'public';
+
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
-async function resolveHogwartsForInvite(token) {
-  const demo = await Onboarding.resolveDemoSchool(token);
-  const agency = await Agency.findById(demo.id);
+export async function resolveHogwartsCore() {
+  const [rows] = await pool.execute(
+    `SELECT id, name, slug, portal_url, organization_type
+     FROM agencies
+     WHERE slug = 'hogwarts' AND organization_type = 'school'
+     LIMIT 1`
+  );
+  const hogwarts = rows?.[0];
+  if (!hogwarts) {
+    throw Object.assign(new Error('Demo school (Hogwarts) is not available in this environment'), { status: 404 });
+  }
+  const agency = await Agency.findById(hogwarts.id);
   if (!agency) {
     throw Object.assign(new Error('Demo school not found'), { status: 404 });
   }
-  return { demo, agency, schoolId: Number(demo.id) };
+  const demo = {
+    id: hogwarts.id,
+    name: hogwarts.name || 'Hogwarts',
+    slug: hogwarts.portal_url || hogwarts.slug || 'hogwarts',
+    viewOnly: true,
+    publicShell: true
+  };
+  return { demo, agency, schoolId: Number(hogwarts.id) };
+}
+
+async function resolveHogwartsForInvite(token) {
+  const normalized = String(token || '').trim();
+  if (normalized && normalized !== PUBLIC_STANDALONE_DEMO_TOKEN) {
+    await Onboarding.resolveDemoSchool(normalized);
+  }
+  return resolveHogwartsCore();
 }
 
 function scrubEmail() {

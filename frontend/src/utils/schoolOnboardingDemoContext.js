@@ -4,17 +4,22 @@
  * so the real SchoolPortalView can render without a live login session.
  */
 
+export const SCHOOL_ONBOARDING_PUBLIC_DEMO_TOKEN = 'public';
+
 let activeToken = null;
 let activeSchoolId = null;
+let standaloneDemo = false;
 
-export function activateSchoolOnboardingDemo({ token, schoolId } = {}) {
+export function activateSchoolOnboardingDemo({ token, schoolId, standalone = false } = {}) {
   activeToken = String(token || '').trim() || null;
   activeSchoolId = Number(schoolId || 0) || null;
+  standaloneDemo = !!standalone;
 }
 
 export function deactivateSchoolOnboardingDemo() {
   activeToken = null;
   activeSchoolId = null;
+  standaloneDemo = false;
 }
 
 export function getSchoolOnboardingDemoToken() {
@@ -27,6 +32,14 @@ export function getSchoolOnboardingDemoSchoolId() {
 
 export function isSchoolOnboardingDemoActive() {
   return !!activeToken;
+}
+
+export function isSchoolOnboardingStandaloneDemo() {
+  return standaloneDemo;
+}
+
+export function buildSchoolOnboardingStandaloneDemoPath() {
+  return '/school-onboarding/demo';
 }
 
 /**
@@ -50,7 +63,9 @@ export function rewriteSchoolPortalUrlForDemo(url) {
   }
 
   const rest = String(m[2] || '').replace(/^\/+/, '');
-  const base = `/public/school-onboarding/${encodeURIComponent(activeToken)}/demo/portal`;
+  const base = standaloneDemo
+    ? '/public/school-onboarding/demo/portal'
+    : `/public/school-onboarding/${encodeURIComponent(activeToken)}/demo/portal`;
   if (!rest) return `${base}${query}`;
   return `${base}/${rest}${query}`;
 }
