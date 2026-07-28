@@ -987,7 +987,7 @@ const canEditAssignedDay = (client) => {
   const role = String(authStore.user?.role || '').toLowerCase();
   if (['super_admin', 'admin', 'support', 'staff', 'school_staff'].includes(role)) return true;
   if (canEditClients.value) return true;
-  if (role === 'provider' || role === 'provider_plus') {
+  if (role === 'provider' || role === 'provider_plus' || role === 'clinical_practice_assistant') {
     return (
       !!client.user_is_assigned_provider ||
       resolveProviderIdsForClient(client).includes(parseInt(authStore.user?.id, 10))

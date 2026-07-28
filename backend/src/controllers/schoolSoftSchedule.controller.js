@@ -51,6 +51,61 @@ const minutesToTime = (mins) => {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`;
 };
 
+async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId }) {
+  const uid = parseInt(providerUserId, 10);
+  const orgId = parseInt(schoolOrganizationId, 10);
+  if (!uid || !orgId) return false;
+
+  // Prefer provider/day assignment table; fall back to active client-provider assignments.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM provider_school_assignments psa
+       WHERE psa.school_organization_id = ?
+         AND psa.provider_user_id = ?
+         AND psa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, uid]
+    );
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_provider_assignments cpa
+       WHERE cpa.organization_id = ?
+         AND cpa.provider_user_id = ?
+         AND cpa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, uid]
+    );
+    return !!rows?.[0];
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (missing) return false;
+    throw e;
+  }
+}
+
+function isSelfProviderRole(role) {
+  const r = String(role || '').toLowerCase();
+  return r === 'provider' || r === 'provider_plus' || r === 'clinical_practice_assistant';
+}
+
 async function ensureSchoolAccess(req, schoolId) {
   const schoolOrgId = parseInt(schoolId, 10);
   if (!schoolOrgId) return { ok: false, status: 400, message: 'Invalid schoolId' };
@@ -65,6 +120,17 @@ async function ensureSchoolAccess(req, schoolId) {
     const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === schoolOrgId);
     if (!hasDirect) {
       const role = String(req.user?.role || '').toLowerCase();
+
+      // Providers often have school access via schedule/client assignments without user_agencies membership.
+      // Grant that path before supervisor-limited access so they can still edit their own assigned days.
+      if (isSelfProviderRole(role)) {
+        const hasProviderAccess = await providerHasSchoolAccess({
+          providerUserId: req.user?.id,
+          schoolOrganizationId: schoolOrgId
+        });
+        if (hasProviderAccess) return { ok: true, school };
+      }
+
       const hasSupervisorCapability = await isSupervisorActor({ userId: req.user?.id, role, user: req.user });
       if (hasSupervisorCapability) {
         const canSupervisorAccess = await supervisorHasSuperviseeInSchool(req.user?.id, schoolOrgId);
@@ -95,7 +161,7 @@ function canEditSoftSchedule(req, providerUserId) {
   const role = String(req.user?.role || '').toLowerCase();
   if (role === 'school_staff') return true;
   if (role === 'admin' || role === 'support' || role === 'super_admin') return true;
-  if (role === 'provider') return parseInt(req.user?.id, 10) === parseInt(providerUserId, 10);
+  if (isSelfProviderRole(role)) return parseInt(req.user?.id, 10) === parseInt(providerUserId, 10);
   return false;
 }
 
@@ -104,7 +170,7 @@ function canEditClientAssignedDay(req, providerUserId) {
   const role = String(req.user?.role || '').toLowerCase();
   if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff') return true;
   if (role === 'school_staff') return true;
-  if (role === 'provider' || role === 'provider_plus') {
+  if (isSelfProviderRole(role)) {
     return parseInt(req.user?.id, 10) === parseInt(providerUserId, 10);
   }
   return false;
@@ -177,8 +243,12 @@ async function loadSoftSlotsOrDefaults({ schoolId, weekday, providerUserId }) {
 
 async function ensureSupervisorCanAccessProvider({ req, access, providerUserId }) {
   if (!access?.supervisorLimited) return true;
+  const selfId = parseInt(req.user?.id, 10);
+  const targetId = parseInt(providerUserId, 10);
+  // Providers with supervisor privileges must still be able to edit their own schedule/days.
+  if (selfId && targetId && selfId === targetId) return true;
   const superviseeIds = await getSupervisorSuperviseeIds(req.user?.id, null);
-  return (superviseeIds || []).some((id) => parseInt(id, 10) === parseInt(providerUserId, 10));
+  return (superviseeIds || []).some((id) => parseInt(id, 10) === targetId);
 }
 
 async function ensureProviderAssignedToDay({ schoolId, weekday, providerUserId }) {
@@ -971,8 +1041,7 @@ export const getClientDayAssignmentContext = async (req, res, next) => {
     }
 
     const role = String(req.user?.role || '').toLowerCase();
-    const selfProviderId =
-      role === 'provider' || role === 'provider_plus' ? parseInt(req.user?.id, 10) : null;
+    const selfProviderId = isSelfProviderRole(role) ? parseInt(req.user?.id, 10) : null;
 
     // All active provider assignments for this client at this school.
     let assignRows = [];
