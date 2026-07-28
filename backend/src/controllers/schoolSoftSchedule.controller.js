@@ -1285,12 +1285,6 @@ export const setClientAssignedDay = async (req, res, next) => {
         dayOfWeek: serviceDay,
         delta: +1
       });
-      await connection.execute(
-        `UPDATE client_provider_assignments
-         SET is_active = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [actorUserId, existing.id]
-      );
       try {
         await connection.execute(
           `UPDATE soft_schedule_slots
@@ -1301,6 +1295,76 @@ export const setClientAssignedDay = async (req, res, next) => {
       } catch {
         // ignore if soft schedule table missing
       }
+
+      // If other weekdays remain for this provider, just deactivate this day.
+      // If this is the last weekday, keep the provider assignment as Unknown (service_day NULL).
+      const [remainingWeekdays] = await connection.execute(
+        `SELECT id
+         FROM client_provider_assignments
+         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
+           AND is_active = TRUE AND service_day IS NOT NULL AND id <> ?
+         LIMIT 1`,
+        [clientId, schoolId, providerUserId, existing.id]
+      );
+
+      if (remainingWeekdays?.length) {
+        await connection.execute(
+          `UPDATE client_provider_assignments
+           SET is_active = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [actorUserId, existing.id]
+        );
+      } else {
+        const [nullRows] = await connection.execute(
+          `SELECT id, is_active
+           FROM client_provider_assignments
+           WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
+             AND service_day IS NULL AND id <> ?
+           ORDER BY is_active DESC, id DESC
+           LIMIT 1
+           FOR UPDATE`,
+          [clientId, schoolId, providerUserId, existing.id]
+        );
+        const nullRow = nullRows?.[0] || null;
+        if (nullRow?.id) {
+          await connection.execute(
+            `UPDATE client_provider_assignments
+             SET is_active = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [actorUserId, existing.id]
+          );
+          const nullActive =
+            nullRow.is_active === true || nullRow.is_active === 1 || nullRow.is_active === '1';
+          if (!nullActive) {
+            await connection.execute(
+              `UPDATE client_provider_assignments
+               SET is_active = TRUE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE id = ?`,
+              [actorUserId, nullRow.id]
+            );
+          }
+        } else {
+          // Convert this weekday row in place → Unknown (keeps provider on roster/profile).
+          await connection.execute(
+            `UPDATE client_provider_assignments
+             SET service_day = NULL, is_active = TRUE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [actorUserId, existing.id]
+          );
+        }
+        try {
+          await connection.execute(
+            `UPDATE clients
+             SET provider_id = ?, service_day = NULL, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [providerUserId, actorUserId, clientId]
+          );
+        } catch {
+          // ignore legacy column drift
+        }
+      }
+
+      // Safety net if the in-place path above missed an edge case.
       await ensureProviderAssignmentWithoutDay(connection, {
         clientId,
         schoolId,

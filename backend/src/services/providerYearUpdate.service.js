@@ -451,34 +451,63 @@ export async function loadProviderSchoolEvents(providerUserId, agencyId) {
 /** Assigned school clients with no current service day (read-only for Year Update). */
 export async function loadProviderClientsWithoutDay(providerUserId, agencyId) {
   try {
+    // Active CPA with Unknown day (service_day NULL), plus legacy rows where
+    // clients.provider_id is set / service_day NULL but no active weekday CPA remains.
     const [rows] = await pool.execute(
       `SELECT c.id AS client_id,
-              c.client_code,
-              c.first_name,
-              c.last_name,
-              c.preferred_name,
+              c.initials,
+              c.identifier_code,
               c.grade,
               c.status AS client_status,
+              cs.status_key AS client_status_key,
               sch.id AS school_organization_id,
-              sch.name AS school_name,
-              cpa.service_day
-       FROM client_provider_assignments cpa
-       JOIN clients c ON c.id = cpa.client_id
-       JOIN agencies sch ON sch.id = cpa.organization_id
+              sch.name AS school_name
+       FROM clients c
+       JOIN client_organization_assignments coa
+         ON coa.client_id = c.id
+        AND coa.is_active = TRUE
+       JOIN agencies sch ON sch.id = coa.organization_id
        JOIN organization_affiliations oa
-         ON oa.organization_id = cpa.organization_id
+         ON oa.organization_id = coa.organization_id
         AND oa.agency_id = ?
         AND (oa.is_active = 1 OR oa.is_active IS NULL)
-       WHERE cpa.provider_user_id = ?
-         AND (cpa.is_active = 1 OR cpa.is_active IS NULL)
-         AND (cpa.service_day IS NULL OR TRIM(cpa.service_day) = '')
-         AND LOWER(COALESCE(c.status, '')) NOT IN ('terminated', 'archived', 'inactive')
-       ORDER BY sch.name ASC, c.last_name ASC, c.first_name ASC`,
-      [agencyId, providerUserId]
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+       WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
+         AND (cs.status_key IS NULL OR LOWER(cs.status_key) NOT IN ('terminated', 'archived'))
+         AND NOT EXISTS (
+           SELECT 1
+           FROM client_provider_assignments cpa_day
+           WHERE cpa_day.client_id = c.id
+             AND cpa_day.organization_id = coa.organization_id
+             AND cpa_day.provider_user_id = ?
+             AND (cpa_day.is_active = 1 OR cpa_day.is_active IS NULL)
+             AND cpa_day.service_day IS NOT NULL
+         )
+         AND (
+           EXISTS (
+             SELECT 1
+             FROM client_provider_assignments cpa_null
+             WHERE cpa_null.client_id = c.id
+               AND cpa_null.organization_id = coa.organization_id
+               AND cpa_null.provider_user_id = ?
+               AND (cpa_null.is_active = 1 OR cpa_null.is_active IS NULL)
+               AND cpa_null.service_day IS NULL
+           )
+           OR (
+             c.provider_id = ?
+             AND c.service_day IS NULL
+           )
+         )
+       ORDER BY sch.name ASC, c.initials ASC, c.identifier_code ASC`,
+      [agencyId, providerUserId, providerUserId, providerUserId]
     );
     const bySchool = new Map();
+    const seenClient = new Set();
     for (const r of rows || []) {
       const sid = Number(r.school_organization_id);
+      const clientId = Number(r.client_id);
+      if (!clientId || seenClient.has(`${sid}:${clientId}`)) continue;
+      seenClient.add(`${sid}:${clientId}`);
       if (!bySchool.has(sid)) {
         bySchool.set(sid, {
           schoolOrganizationId: sid,
@@ -486,21 +515,21 @@ export async function loadProviderClientsWithoutDay(providerUserId, agencyId) {
           clients: [],
         });
       }
-      const first = String(r.first_name || '').trim();
-      const last = String(r.last_name || '').trim();
       const initials =
-        ((first[0] || '') + (last[0] || '')).toUpperCase() ||
-        String(r.client_code || '').slice(0, 6);
+        String(r.initials || '').trim() ||
+        String(r.identifier_code || '').trim().slice(0, 6) ||
+        '—';
       bySchool.get(sid).clients.push({
-        clientId: r.client_id,
+        clientId,
         initials,
         grade: r.grade || null,
-        status: r.client_status || null,
-        clientCode: r.client_code || null,
+        status: r.client_status_key || r.client_status || null,
+        clientCode: r.identifier_code || null,
       });
     }
     return Array.from(bySchool.values());
-  } catch {
+  } catch (err) {
+    console.error('[providerYearUpdate] loadProviderClientsWithoutDay failed:', err?.message || err);
     return [];
   }
 }

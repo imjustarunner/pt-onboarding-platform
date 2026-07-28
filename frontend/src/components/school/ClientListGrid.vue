@@ -928,27 +928,30 @@ const parseProviderDayPairs = (client) => {
 };
 
 const formatAssignedDayLabel = (client) => {
+  const hasProvider =
+    Boolean(String(client?.provider_name || '').trim()) ||
+    resolveProviderIdsForClient(client).length > 0;
   const pairs = parseProviderDayPairs(client);
   if (pairs.length > 1) {
     return pairs
       .map((p) => {
         const first = String(p.name || '').split(/\s+/)[0] || 'Provider';
         const days = (p.days || []).map(shortDayToken).join(', ');
-        return `${first}: ${days || '—'}`;
+        return `${first}: ${days || 'Unknown'}`;
       })
       .join(' · ');
   }
   if (pairs.length === 1) {
     const days = (pairs[0].days || []).map(shortDayToken).join(', ');
-    return days || '—';
+    return days || 'Unknown';
   }
   const raw = String(client?.service_day || '').trim();
-  if (!raw) return '—';
+  if (!raw) return hasProvider ? 'Unknown' : '—';
   return raw
     .split(',')
     .map((d) => shortDayToken(d.trim()))
     .filter(Boolean)
-    .join(', ') || '—';
+    .join(', ') || (hasProvider ? 'Unknown' : '—');
 };
 
 const resolveProviderIdsForClient = (client) => {
@@ -1055,12 +1058,25 @@ const onAssignDayUpdated = async ({ clientId, providers: providerList }) => {
     .filter(Boolean)
     .join('|');
 
+  const providerIds = list
+    .map((p) => Number(p.provider_user_id || 0))
+    .filter(Boolean);
+  const providerName = list
+    .map((p) => [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || `Provider ${p.provider_user_id}`)
+    .filter(Boolean)
+    .join(', ');
+
   const apply = (rows) => {
     if (!Array.isArray(rows)) return;
     const row = rows.find((c) => Number(c?.id) === cid);
     if (!row) return;
     row.service_day = uniqueDays.length ? uniqueDays.join(', ') : null;
     row.provider_day_pairs = pairs || null;
+    // Keep provider visible after last weekday is cleared (Unknown day).
+    if (providerIds.length) {
+      row.provider_ids = providerIds.join(',');
+      row.provider_name = providerName || row.provider_name || null;
+    }
   };
   apply(clients.value);
   if (Array.isArray(props.clientsOverride)) apply(props.clientsOverride);
