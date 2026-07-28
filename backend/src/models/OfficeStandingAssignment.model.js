@@ -645,7 +645,7 @@ class OfficeStandingAssignment {
       const nextHour = ('hour' in updates) ? Number(updates.hour) : Number(existing.hour);
 
       // Historical unique key: same provider+slot+frequency (often an inactive twin).
-      if (nextFreq === 'WEEKLY' || nextFreq === 'BIWEEKLY') {
+      if (['WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'MONTHLY'].includes(nextFreq)) {
         await this.retireConflictingFrequencyRows({
           keepId: id,
           roomId: nextRoomId,

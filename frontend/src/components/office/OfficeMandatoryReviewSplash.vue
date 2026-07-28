@@ -48,8 +48,10 @@
                   <label class="office-mandatory-label">Book occurrences</label>
                   <select v-model="bookFreq[it.standingAssignmentId]" class="office-mandatory-select">
                     <option value="WEEKLY">Weekly</option>
-                    <option value="BIWEEKLY">Every other week</option>
-                    <option value="MONTHLY">Monthly</option>
+                    <option value="BIWEEKLY">Every 2 weeks</option>
+                    <option value="EVERY_3_WEEKS">Every 3 weeks</option>
+                    <option value="EVERY_4_WEEKS">Every 4 weeks</option>
+                    <option value="MONTHLY">Monthly (same day of month)</option>
                   </select>
                   <button
                     type="button"
@@ -239,9 +241,9 @@ async function load() {
     for (const it of list) {
       const id = it.standingAssignmentId;
       if (bookFreq.value[id] == null) {
-        const def =
-          String(it.assignedFrequency || '').toUpperCase() === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
-        bookFreq.value[id] = def;
+        const af = String(it.assignedFrequency || '').toUpperCase();
+        const allowed = ['WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'MONTHLY'];
+        bookFreq.value[id] = allowed.includes(af) ? af : 'WEEKLY';
       }
     }
   } catch (e) {

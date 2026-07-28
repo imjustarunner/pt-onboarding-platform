@@ -1222,7 +1222,7 @@
           <div class="slot-info-row" v-if="slotInfoModalData.slot?.assignedFrequency || slotInfoModalData.slot?.frequencyLabel || slotInfoModalData.slot?.bookedFrequency">
             <span class="slot-info-label">Booking</span>
             <span class="slot-info-value">
-              {{ slotInfoModalData.slot?.frequencyLabel || (slotInfoModalData.slot?.assignedFrequency === 'WEEKLY' ? 'Weekly' : slotInfoModalData.slot?.assignedFrequency === 'BIWEEKLY' ? 'Biweekly' : slotInfoModalData.slot?.assignedFrequency === 'MONTHLY' ? 'Monthly' : slotInfoModalData.slot?.assignedFrequency || '—') }}
+              {{ slotInfoModalData.slot?.frequencyLabel || RECURRENCE_LABELS[String(slotInfoModalData.slot?.assignedFrequency || '').toUpperCase()] || slotInfoModalData.slot?.assignedFrequency || '—' }}
             </span>
           </div>
           <div class="slot-info-row" v-if="slotInfoModalData.slot?.bookingActiveUntilDate || slotInfoModalData.slot?.assignmentTemporaryUntilDate">
@@ -2256,10 +2256,7 @@
                 class="nr-info-select"
                 :disabled="bookingStripSaving"
               >
-                <option value="ONCE">Once</option>
-                <option value="WEEKLY">Weekly</option>
-                <option value="BIWEEKLY">Biweekly</option>
-                <option value="MONTHLY">Monthly</option>
+                <option v-for="opt in RECURRENCE_OPTIONS" :key="`rec2-${opt.value}`" :value="opt.value">{{ opt.label }}</option>
               </select>
               <span v-else class="nr-info-value">{{ modalOccupiedSlotSummary.frequencyLabel || '—' }}</span>
             </div>
@@ -2962,20 +2959,17 @@
           <div v-if="requestType === 'supervision'" style="margin-top: 12px;">
             <label class="lbl">Frequency</label>
             <select v-model="supervisionRecurrence" class="input">
-              <option value="ONCE">Once</option>
-              <option value="WEEKLY">Weekly</option>
-              <option value="BIWEEKLY">Biweekly</option>
-              <option value="MONTHLY">Monthly</option>
+              <option v-for="opt in RECURRENCE_OPTIONS" :key="`rec-${opt.value}`" :value="opt.value">{{ opt.label }}</option>
             </select>
             <label
-              v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence)"
+              v-if="RECURRING_FREQUENCIES.includes(supervisionRecurrence)"
               class="lbl"
               style="margin-top: 10px;"
             >
               Recurrence ends
             </label>
             <select
-              v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence)"
+              v-if="RECURRING_FREQUENCIES.includes(supervisionRecurrence)"
               v-model="supervisionRecurrenceEndMode"
               class="input"
             >
@@ -2983,14 +2977,14 @@
               <option value="indefinite">Indefinite (prebuild future sessions)</option>
             </select>
             <label
-              v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence) && supervisionRecurrenceEndMode === 'count'"
+              v-if="RECURRING_FREQUENCIES.includes(supervisionRecurrence) && supervisionRecurrenceEndMode === 'count'"
               class="lbl"
               style="margin-top: 10px;"
             >
               Occurrences
             </label>
             <input
-              v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(supervisionRecurrence) && supervisionRecurrenceEndMode === 'count'"
+              v-if="RECURRING_FREQUENCIES.includes(supervisionRecurrence) && supervisionRecurrenceEndMode === 'count'"
               v-model.number="supervisionOccurrenceCount"
               type="number"
               min="1"
@@ -3163,17 +3157,14 @@
                 {{ requestType === 'office' ? 'How often?' : 'Frequency' }}
               </label>
               <select v-model="officeBookingRecurrence" class="input" :disabled="requestType === 'office' && modalIsOneTimeAssignedSlot">
-                <option value="ONCE">Once (this occurrence only)</option>
-                <option value="WEEKLY">Weekly</option>
-                <option value="BIWEEKLY">Biweekly</option>
-                <option value="MONTHLY">Monthly</option>
+                <option v-for="opt in RECURRENCE_OPTIONS" :key="`office-rec-${opt.value}`" :value="opt.value">{{ opt.value === 'ONCE' ? 'Once (this occurrence only)' : opt.label }}</option>
               </select>
 
-              <label v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)" class="lbl" style="margin-top: 10px;">
+              <label v-if="RECURRING_FREQUENCIES.includes(officeBookingRecurrence)" class="lbl" style="margin-top: 10px;">
                 Number of sessions
               </label>
               <input
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)"
+                v-if="RECURRING_FREQUENCIES.includes(officeBookingRecurrence)"
                 v-model.number="officeBookingOccurrenceCount"
                 type="number"
                 min="1"
@@ -3181,7 +3172,7 @@
                 class="input"
                 style="margin-top: 4px; width: 80px;"
               />
-              <div v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)" class="muted" style="margin-top: 4px; font-size: 12px;">
+              <div v-if="RECURRING_FREQUENCIES.includes(officeBookingRecurrence)" class="muted" style="margin-top: 4px; font-size: 12px;">
                 Default is 6 sessions. You can change this.
               </div>
 
@@ -3414,20 +3405,17 @@
             <div v-if="requestType === 'agency_meeting' || requestType === 'huddle'" style="margin-top: 10px;">
               <label class="lbl">Frequency</label>
               <select v-model="scheduleEventRecurrence" class="input">
-                <option value="ONCE">Once</option>
-                <option value="WEEKLY">Weekly</option>
-                <option value="BIWEEKLY">Biweekly</option>
-                <option value="MONTHLY">Monthly</option>
+                <option v-for="opt in RECURRENCE_OPTIONS" :key="`rec2-${opt.value}`" :value="opt.value">{{ opt.label }}</option>
               </select>
               <label
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence)"
+                v-if="RECURRING_FREQUENCIES.includes(scheduleEventRecurrence)"
                 class="lbl"
                 style="margin-top: 10px;"
               >
                 Recurrence ends
               </label>
               <select
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence)"
+                v-if="RECURRING_FREQUENCIES.includes(scheduleEventRecurrence)"
                 v-model="scheduleEventRecurrenceEndMode"
                 class="input"
               >
@@ -3435,14 +3423,14 @@
                 <option value="indefinite">Indefinite (prebuild future meetings)</option>
               </select>
               <label
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence) && scheduleEventRecurrenceEndMode === 'count'"
+                v-if="RECURRING_FREQUENCIES.includes(scheduleEventRecurrence) && scheduleEventRecurrenceEndMode === 'count'"
                 class="lbl"
                 style="margin-top: 10px;"
               >
                 Occurrences
               </label>
               <input
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence) && scheduleEventRecurrenceEndMode === 'count'"
+                v-if="RECURRING_FREQUENCIES.includes(scheduleEventRecurrence) && scheduleEventRecurrenceEndMode === 'count'"
                 v-model.number="scheduleEventOccurrenceCount"
                 type="number"
                 min="1"
@@ -3451,7 +3439,7 @@
                 style="margin-top: 4px; width: 80px;"
               />
               <div
-                v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(scheduleEventRecurrence) && scheduleEventRecurrenceEndMode === 'indefinite'"
+                v-if="RECURRING_FREQUENCIES.includes(scheduleEventRecurrence) && scheduleEventRecurrenceEndMode === 'indefinite'"
                 class="muted"
                 style="margin-top: 6px;"
               >
@@ -3755,9 +3743,7 @@
             <div class="aa-field">
               <label class="lbl">Recurrence</label>
               <select v-model="adminAssignRecurrence" class="input aa-input">
-                <option value="ONCE">Single occurrence</option>
-                <option value="WEEKLY">Weekly</option>
-                <option value="BIWEEKLY">Biweekly</option>
+                <option v-for="opt in RECURRENCE_OPTIONS" :key="`aa-rec-${opt.value}`" :value="opt.value">{{ opt.value === 'ONCE' ? 'Single occurrence' : opt.label }}</option>
               </select>
             </div>
 
@@ -4967,6 +4953,16 @@ import {
   appointmentEditorTitleForKind,
   expandRecurrenceDates
 } from './appointmentEditorShared.js';
+import {
+  RECURRENCE_OPTIONS,
+  RECURRENCE_LABELS,
+  RECURRING_FREQUENCIES,
+  ALL_RECURRENCE_FREQUENCIES,
+  isRecurringFrequency,
+  normalizeRecurrenceFrequency,
+  indefiniteOccurrenceCount,
+  occurrenceDatesSimple
+} from '../../utils/scheduleRecurrence.js';
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -10194,7 +10190,7 @@ const scheduleEventTitle = ref('');
 const scheduleEventAgencyScope = ref(0);
 const scheduleEventAllDay = ref(false);
 const scheduleEventPrivate = ref(false);
-const scheduleEventRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | MONTHLY (meeting/huddle only)
+const scheduleEventRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | EVERY_3_WEEKS | EVERY_4_WEEKS | MONTHLY
 const scheduleEventRecurrenceEndMode = ref('count'); // count | indefinite
 const scheduleEventOccurrenceCount = ref(6); // 1–104 for recurring meeting/huddle
 const supervisionRecurrence = ref('ONCE');
@@ -10219,7 +10215,7 @@ const holdReasonLabelToCode = (label) => {
 const DEFAULT_BOOKING_TYPE = 'SESSION';
 
 // Office booking request (office-schedule/booking-requests)
-const officeBookingRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | MONTHLY
+const officeBookingRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | EVERY_3_WEEKS | EVERY_4_WEEKS | MONTHLY
 const officeBookingOccurrenceCount = ref(6); // 1–104 when recurrence is WEEKLY/BIWEEKLY/MONTHLY
 const selectedOfficeRoomId = ref(0); // 0 = any open room
 const intakeConfirmStep = ref(null); // 'ask_inperson' | 'ask_virtual' | null – confirmation before intake submit
@@ -11462,16 +11458,41 @@ const editorShowRecurrence = computed(() => (
   editorIsMeeting.value || editorIsSupervision.value || editorIsClinical.value || editorIsOpenSlot.value
 ));
 const editorRecurrenceFrequency = computed({
-  get: () => String(scheduleEventRecurrence.value || 'ONCE').toUpperCase(),
-  set: (v) => { scheduleEventRecurrence.value = String(v || 'ONCE').toUpperCase(); }
+  get: () => {
+    if (editorIsSupervision.value) {
+      return normalizeRecurrenceFrequency(supervisionRecurrence.value);
+    }
+    return normalizeRecurrenceFrequency(scheduleEventRecurrence.value);
+  },
+  set: (v) => {
+    const next = normalizeRecurrenceFrequency(v);
+    scheduleEventRecurrence.value = next;
+    supervisionRecurrence.value = next;
+    officeBookingRecurrence.value = next === 'ONCE' ? 'ONCE' : next;
+  }
 });
 const editorRecurrenceEndMode = computed({
-  get: () => String(scheduleEventRecurrenceEndMode.value || 'count'),
-  set: (v) => { scheduleEventRecurrenceEndMode.value = String(v || 'count'); }
+  get: () => {
+    if (editorIsSupervision.value) return String(supervisionRecurrenceEndMode.value || 'count');
+    return String(scheduleEventRecurrenceEndMode.value || 'count');
+  },
+  set: (v) => {
+    const next = String(v || 'count');
+    scheduleEventRecurrenceEndMode.value = next;
+    supervisionRecurrenceEndMode.value = next;
+  }
 });
 const editorRecurrenceOccurrenceCount = computed({
-  get: () => Number(scheduleEventOccurrenceCount.value || 4),
-  set: (v) => { scheduleEventOccurrenceCount.value = Math.max(1, Number(v || 1)); }
+  get: () => {
+    if (editorIsSupervision.value) return Number(supervisionOccurrenceCount.value || 4);
+    return Number(scheduleEventOccurrenceCount.value || 4);
+  },
+  set: (v) => {
+    const next = Math.max(1, Number(v || 1));
+    scheduleEventOccurrenceCount.value = next;
+    supervisionOccurrenceCount.value = next;
+    officeBookingOccurrenceCount.value = next;
+  }
 });
 const formatEditorDateLabel = (ymd) => {
   const raw = String(ymd || '').slice(0, 10);
@@ -12401,7 +12422,7 @@ function onEditorCancelOfficeRequest() {
 
 function editorOfficeSeriesParams() {
   const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE').toUpperCase();
-  const recurring = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(recurrence);
+  const recurring = RECURRING_FREQUENCIES.includes(recurrence);
   const endMode = String(scheduleEventRecurrenceEndMode.value || 'count');
   let occurrenceCount = null;
   if (recurring) {
@@ -13538,8 +13559,10 @@ const modalOccupiedSlotSummary = computed(() => {
     || ({
       ONCE: 'Once',
       WEEKLY: 'Weekly',
-      BIWEEKLY: 'Biweekly',
-      MONTHLY: 'Monthly'
+      BIWEEKLY: 'Every 2 weeks',
+      EVERY_3_WEEKS: 'Every 3 weeks',
+      EVERY_4_WEEKS: 'Every 4 weeks',
+      MONTHLY: 'Monthly (same day of month)'
     }[String(ctx.bookedFrequency || ctx.assignedFrequency || '').toUpperCase()] || '');
   const untilYmd = String(ctx.bookingActiveUntilDate || ctx.assignmentTemporaryUntilDate || '').slice(0, 10);
   let bookedUntilLabel = '';
@@ -13575,10 +13598,12 @@ const modalOccupiedSlotSummary = computed(() => {
       const fromLabel = String(rawFreq || '').trim().toLowerCase();
       if (fromLabel === 'once' || fromLabel === 'one time' || fromLabel === '1x') return 'ONCE';
       if (fromLabel === 'weekly') return 'WEEKLY';
-      if (fromLabel === 'biweekly') return 'BIWEEKLY';
-      if (fromLabel === 'monthly') return 'MONTHLY';
+      if (fromLabel === 'biweekly' || fromLabel === 'every 2 weeks') return 'BIWEEKLY';
+      if (fromLabel === 'every 3 weeks') return 'EVERY_3_WEEKS';
+      if (fromLabel === 'every 4 weeks') return 'EVERY_4_WEEKS';
+      if (fromLabel === 'monthly' || fromLabel.includes('same day')) return 'MONTHLY';
       const fromCode = String(ctx.bookedFrequency || ctx.assignedFrequency || 'WEEKLY').toUpperCase();
-      return ['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(fromCode) ? fromCode : 'WEEKLY';
+      return ALL_RECURRENCE_FREQUENCIES.includes(fromCode) ? fromCode : 'WEEKLY';
     })(),
     assignmentModeLabel: mode === 'PERMANENT' ? 'Permanent' : (mode === 'TEMPORARY' ? 'Temporary' : ''),
     sessionTypeLabel: String(ctx.appointmentTypeLabel || '').trim() || '',
@@ -13619,7 +13644,7 @@ const syncBookingStripFromContext = () => {
   const freq = String(sum.frequencyKey || 'WEEKLY').toUpperCase();
   const status = String(sum.statusKey || 'ASSIGNED').toUpperCase();
   const until = String(sum.untilYmd || '').slice(0, 10);
-  bookingStripFrequency.value = ['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(freq) ? freq : 'WEEKLY';
+  bookingStripFrequency.value = ALL_RECURRENCE_FREQUENCIES.includes(freq) ? freq : 'WEEKLY';
   bookingStripStatus.value = ['BOOKED', 'ASSIGNED', 'TEMPORARY'].includes(status) ? status : 'ASSIGNED';
   bookingStripUntil.value = until;
   bookingStripError.value = '';
@@ -13692,7 +13717,7 @@ const saveBookingStripEdits = async () => {
         if (String(ctx.assignmentAvailabilityMode || '').toUpperCase() === 'TEMPORARY' || current === 'ASSIGNED_TEMPORARY') {
           await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/keep-available`, { acknowledged: true });
         }
-        if (freq === 'WEEKLY' || freq === 'BIWEEKLY') {
+        if (RECURRING_FREQUENCIES.includes(freq)) {
           await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/recurrence`, {
             recurrenceFrequency: freq
           });
@@ -13704,12 +13729,12 @@ const saveBookingStripEdits = async () => {
       } else if (status === 'BOOKED') {
         const bookedFreq = freq === 'ONCE' ? 'WEEKLY' : freq;
         await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/booking-plan`, {
-          bookedFrequency: ['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(bookedFreq) ? bookedFreq : 'WEEKLY',
+          bookedFrequency: RECURRING_FREQUENCIES.includes(bookedFreq) ? bookedFreq : 'WEEKLY',
           bookingStartDate: startYmd,
           recurringUntilDate: until || undefined,
           bookedOccurrenceCount: freq === 'ONCE' ? 1 : undefined
         });
-        if (freq === 'WEEKLY' || freq === 'BIWEEKLY') {
+        if (RECURRING_FREQUENCIES.includes(freq)) {
           await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/recurrence`, {
             recurrenceFrequency: freq
           });
@@ -13724,7 +13749,7 @@ const saveBookingStripEdits = async () => {
           bookedOccurrenceCount: freq === 'ONCE' ? 1 : undefined
         });
       }
-      if (freq === 'WEEKLY' || freq === 'BIWEEKLY') {
+      if (RECURRING_FREQUENCIES.includes(freq)) {
         await api.post(`/office-slots/${officeLocationId}/events/${eventId}/recurrence`, {
           recurrenceFrequency: freq
         });
@@ -13794,7 +13819,7 @@ const officeBookingHint = computed(() => {
   if (officeBookingRecurrence.value === 'ONCE') {
     return 'Same-day “Once” requests auto-book if an open room exists; otherwise they go to approvals.';
   }
-  return 'Weekly/Biweekly/Monthly requests go to approvals and will create a booking plan on approval.';
+  return 'Recurring requests go to approvals and will create a booking plan on approval.';
 });
 
 const officeRequestSummary = computed(() => {
@@ -17526,12 +17551,16 @@ const mergeSelectedSlotsByDay = ({ dayName, startHour, endHour }) => {
 const scheduleEventOccurrenceDates = (baseDateYmd, recurrence, occurrenceCount) => {
   const base = String(baseDateYmd || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return [];
-  const normalized = String(recurrence || 'ONCE').trim().toUpperCase();
-  if (!['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(normalized)) return [base];
+  const normalized = normalizeRecurrenceFrequency(recurrence);
+  if (!isRecurringFrequency(normalized)) return [base];
   // Prefer shared expander when multi-day / until-date controls are active.
-  const endMode = String(scheduleEventRecurrenceEndMode.value || 'count');
+  const endMode = String(
+    (editorIsSupervision.value
+      ? supervisionRecurrenceEndMode.value
+      : scheduleEventRecurrenceEndMode.value) || 'count'
+  );
   const weekdays = Array.isArray(editorRecurrenceWeekdays.value) ? editorRecurrenceWeekdays.value : [];
-  if (weekdays.length > 1 || endMode === 'until' || editorRecurrenceUntilDate.value) {
+  if (weekdays.length > 1 || endMode === 'until' || editorRecurrenceUntilDate.value || endMode === 'indefinite') {
     return expandRecurrenceDates({
       startYmd: base,
       frequency: normalized,
@@ -17541,27 +17570,14 @@ const scheduleEventOccurrenceDates = (baseDateYmd, recurrence, occurrenceCount) 
       weekdays
     });
   }
-  const count = Math.min(520, Math.max(1, Number(occurrenceCount || 1)));
-  const dates = [];
-  for (let i = 0; i < count; i += 1) {
-    if (normalized === 'WEEKLY') {
-      dates.push(addDaysYmd(base, i * 7));
-    } else if (normalized === 'BIWEEKLY') {
-      dates.push(addDaysYmd(base, i * 14));
-    } else {
-      dates.push(addMonthsYmd(base, i));
-    }
-  }
-  return dates;
+  return occurrenceDatesSimple(base, normalized, occurrenceCount);
 };
 
 const recurringMeetingOccurrenceCount = (recurrence, endMode, occurrenceCount) => {
-  const normalized = String(recurrence || 'ONCE').trim().toUpperCase();
-  if (!['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(normalized)) return 1;
+  const normalized = normalizeRecurrenceFrequency(recurrence);
+  if (!isRecurringFrequency(normalized)) return 1;
   if (String(endMode || 'count') === 'indefinite') {
-    if (normalized === 'WEEKLY') return 260; // ~5 years
-    if (normalized === 'BIWEEKLY') return 130; // ~5 years
-    return 60; // monthly ~5 years
+    return indefiniteOccurrenceCount(normalized);
   }
   return Math.min(104, Math.max(1, Number(occurrenceCount || 6) || 6));
 };
@@ -17930,7 +17946,7 @@ const submitRequest = async () => {
       const recurrence = isMeetingAction
         ? String(scheduleEventRecurrence.value || 'ONCE').trim().toUpperCase()
         : 'ONCE';
-      const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const recurringRecurrences = [...RECURRING_FREQUENCIES];
       const recurrenceEndMode = isMeetingAction ? String(scheduleEventRecurrenceEndMode.value || 'count') : 'count';
       const occurrenceCount = recurringRecurrences.includes(recurrence)
         ? recurringMeetingOccurrenceCount(recurrence, recurrenceEndMode, scheduleEventOccurrenceCount.value)
@@ -18102,7 +18118,7 @@ const submitRequest = async () => {
       const recurrence = modalIsOneTimeAssignedSlot.value
         ? 'ONCE'
         : String(officeBookingRecurrence.value || 'ONCE');
-      const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const recurringRecurrences = [...RECURRING_FREQUENCIES];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
         ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 6))
         : null;
@@ -18343,7 +18359,7 @@ const submitRequest = async () => {
         ? (Number(selectedOfficeRoomId.value || 0) || null)
         : null;
       const recurrence = String(officeBookingRecurrence.value || 'ONCE');
-      const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const recurringRecurrences = [...RECURRING_FREQUENCIES];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
         ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 6))
         : null;
@@ -18399,7 +18415,7 @@ const submitRequest = async () => {
       if (attachOffice) {
         const baseDateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
         const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE').toUpperCase();
-        const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+        const recurringRecurrences = [...RECURRING_FREQUENCIES];
         const endMode = String(scheduleEventRecurrenceEndMode.value || 'count');
         const occurrenceCount = recurringRecurrences.includes(recurrence)
           ? (endMode === 'indefinite'
@@ -18469,7 +18485,7 @@ const submitRequest = async () => {
       // Always use modal's hour range (End time dropdown) as source of truth; shift/drag select is unreliable in office layout
       // Prefer unified editor recurrence controls when present.
       const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE').toUpperCase();
-      const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const recurringRecurrences = [...RECURRING_FREQUENCIES];
       const endMode = String(scheduleEventRecurrenceEndMode.value || 'count');
       const occurrenceMax = recurrence === 'WEEKLY' ? 6 : 104;
       const occurrenceCount = recurringRecurrences.includes(recurrence)
@@ -18643,7 +18659,7 @@ const submitRequest = async () => {
       if (dayIdx < -1) throw new Error('Invalid day');
       const dateYmd = addDaysYmd(weekStart.value, dayIdx);
       const recurrence = String(supervisionRecurrence.value || 'ONCE').trim().toUpperCase();
-      const recurringRecurrences = ['WEEKLY', 'BIWEEKLY', 'MONTHLY'];
+      const recurringRecurrences = [...RECURRING_FREQUENCIES];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
         ? recurringMeetingOccurrenceCount(recurrence, supervisionRecurrenceEndMode.value, supervisionOccurrenceCount.value)
         : 1;
@@ -18909,7 +18925,7 @@ watch(requestType, (t) => {
     modalEndMinute.value = 0;
   }
   if (t === 'supervision') {
-    if (!['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(String(supervisionRecurrence.value || '').toUpperCase())) {
+    if (!ALL_RECURRENCE_FREQUENCIES.includes(String(supervisionRecurrence.value || '').toUpperCase())) {
       supervisionRecurrence.value = 'ONCE';
     }
     if (!['count', 'indefinite'].includes(String(supervisionRecurrenceEndMode.value || ''))) {
@@ -18920,7 +18936,7 @@ watch(requestType, (t) => {
   } else if (t === 'agency_meeting' || t === 'huddle') {
     createMeetingMeetLink.value = !scheduleVideoConfigured.value;
   linkMeetingPlatformVideo.value = scheduleVideoConfigured.value;
-    if (!['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(String(scheduleEventRecurrence.value || '').toUpperCase())) {
+    if (!ALL_RECURRENCE_FREQUENCIES.includes(String(scheduleEventRecurrence.value || '').toUpperCase())) {
       scheduleEventRecurrence.value = 'ONCE';
     }
     if (!['count', 'indefinite'].includes(String(scheduleEventRecurrenceEndMode.value || ''))) {

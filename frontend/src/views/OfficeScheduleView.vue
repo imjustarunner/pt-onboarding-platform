@@ -133,9 +133,9 @@
               :disabled="saving"
             />
             <select v-model="bulkAssignRecurrenceFreq" class="select">
-              <option value="ONCE">Single occurrence</option>
-              <option value="WEEKLY">Weekly</option>
-              <option value="BIWEEKLY">Biweekly</option>
+              <option v-for="opt in RECURRENCE_OPTIONS" :key="`bulk-assign-${opt.value}`" :value="opt.value">
+                {{ opt.value === 'ONCE' ? 'Single occurrence' : opt.label }}
+              </option>
             </select>
             <input v-if="bulkAssignRecurrenceFreq !== 'ONCE'" v-model="bulkAssignUntilDate" type="date" class="input" />
             <div v-if="bulkAssignRecurrenceFreq !== 'ONCE'" class="weekday-picker">
@@ -152,8 +152,13 @@
           <div class="bulk-col">
             <div class="muted">Edit/delete selected assigned slots</div>
             <select v-model="bulkEditRecurrenceFreq" class="select">
-              <option value="WEEKLY">Weekly</option>
-              <option value="BIWEEKLY">Biweekly</option>
+              <option
+                v-for="opt in RECURRENCE_OPTIONS.filter((o) => o.value !== 'ONCE')"
+                :key="`bulk-edit-${opt.value}`"
+                :value="opt.value"
+              >
+                {{ opt.label }}
+              </option>
             </select>
             <input v-model="bulkEditRecurrenceUntil" type="date" class="input" />
             <button class="btn btn-secondary" @click="bulkEditRecurrenceSelected" :disabled="saving || !selectedAssignedSlots.length">
@@ -391,9 +396,9 @@
               </select>
               <label style="font-weight: 700;">Recurrence</label>
               <select v-model="assignRecurrenceFreq" class="select" :disabled="!modalSlot">
-                <option value="ONCE">Single occurrence</option>
-                <option value="WEEKLY">Weekly</option>
-                <option value="BIWEEKLY">Biweekly</option>
+                <option v-for="opt in RECURRENCE_OPTIONS" :key="`assign-rec-${opt.value}`" :value="opt.value">
+                  {{ opt.value === 'ONCE' ? 'Single occurrence' : opt.label }}
+                </option>
               </select>
               <label class="check" style="align-self: center;" v-if="assignMode === 'provider'">
                 <input type="checkbox" v-model="assignTemporary4Weeks" :disabled="assignRecurrenceFreq === 'ONCE'" />
@@ -621,9 +626,13 @@
               <label style="font-weight: 700;">Book frequency</label>
               <select v-model="bookFreq">
                 <option value="">Select…</option>
-                <option value="WEEKLY">Weekly</option>
-                <option value="BIWEEKLY">Biweekly</option>
-                <option value="MONTHLY">Monthly</option>
+                <option
+                  v-for="opt in RECURRENCE_OPTIONS.filter((o) => o.value !== 'ONCE')"
+                  :key="`book-freq-${opt.value}`"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </option>
               </select>
               <label style="font-weight: 700;">Occurrences</label>
               <input v-model.number="bookOccurrenceCount" type="number" min="1" max="104" class="input" style="width: 90px;" />
@@ -730,8 +739,13 @@
               <label style="font-weight: 700;">Recurrence</label>
               <select v-model="editRecurrenceFreq" class="select" :disabled="saving || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)">
                 <option value="">Select…</option>
-                <option value="WEEKLY">Weekly</option>
-                <option value="BIWEEKLY">Biweekly</option>
+                <option
+                  v-for="opt in RECURRENCE_OPTIONS.filter((o) => o.value !== 'ONCE')"
+                  :key="`edit-rec-${opt.value}`"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </option>
               </select>
               <label style="font-weight: 700;">Until</label>
               <input
@@ -852,6 +866,7 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { timezoneLabelFor } from '../utils/timezones.js';
 import { isMedicalBillingEnabled } from '../config/medicalBillingAccess.js';
+import { RECURRENCE_OPTIONS, RECURRING_FREQUENCIES } from '../utils/scheduleRecurrence.js';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ClinicalArtifactRetentionPanel from '../components/clinical/ClinicalArtifactRetentionPanel.vue';
 const route = useRoute();
@@ -2065,7 +2080,7 @@ const bulkDeleteSelected = async () => {
     error.value = '';
     for (const s of selectedAssignedSlots.value) {
       const recurring = Boolean(s.standingAssignmentId)
-        || ['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(String(s.frequency || s.frequencyLabel || '').toUpperCase());
+        || RECURRING_FREQUENCIES.includes(String(s.frequency || s.frequencyLabel || '').toUpperCase());
       const scope = recurring ? 'future' : 'occurrence';
       const applyToSet = recurring;
       if (s.eventId) {
@@ -2148,7 +2163,7 @@ const isRecurringSlot = computed(() => {
   if (!s) return false;
   if (s.standingAssignmentId) return true;
   const f = String(s.frequency || '').toUpperCase();
-  return f === 'WEEKLY' || f === 'BIWEEKLY' || f === 'MONTHLY';
+  return RECURRING_FREQUENCIES.includes(f);
 });
 
 const isAssignedUnbooked = computed(() => {

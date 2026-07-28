@@ -112,10 +112,8 @@ function addDaysYmd(ymd, days) {
 }
 
 function recurrenceStepDays(recurrence) {
-  const r = String(recurrence || 'ONCE').toUpperCase();
-  if (r === 'BIWEEKLY') return 14;
-  if (r === 'MONTHLY') return 28;
-  return 7;
+  const step = officeSlotSeriesService.stepDaysForRecurrence(recurrence);
+  return step > 0 ? step : 7;
 }
 
 function hourLabel(hour24) {
@@ -2718,39 +2716,43 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       reqRow.requested_frequency != null
       || req.body?.requestedFrequency != null
       || req.body?.recurrence != null;
-    let freq = ['WEEKLY', 'BIWEEKLY'].includes(bodyFreq) ? bodyFreq : 'WEEKLY';
+    const recurringFreqs = officeSlotSeriesService.RECURRING_FREQUENCIES || [
+      'WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'MONTHLY'
+    ];
+    let freq = recurringFreqs.includes(bodyFreq) ? bodyFreq : 'WEEKLY';
     if (hasRequestRecurrence) {
-      if (requestRecurrence.recurrence === 'BIWEEKLY') {
-        freq = 'BIWEEKLY';
-      } else {
-        // ONCE / WEEKLY / MONTHLY standing rows use WEEKLY assigned_frequency;
-        // booking plan frequency + until-date control the actual cadence.
-        freq = 'WEEKLY';
-      }
+      const reqFreq = String(requestRecurrence.recurrence || 'ONCE').toUpperCase();
+      freq = recurringFreqs.includes(reqFreq) ? reqFreq : 'WEEKLY';
     }
     const requestStartDate = normalizeYmd(reqRow.requested_start_date) || toYmd(new Date());
     const recurrenceName = String(requestRecurrence.recurrence || 'ONCE').toUpperCase();
     // Weekly intake approvals are open-ended standing slots. The old UI defaulted
     // "weekly × 6" which wrote temporary_until_date and made Gini/Grace fall off
-    // the calendar after ~6 weeks. Keep finite cutoffs only for ONCE / BIWEEKLY / MONTHLY.
+    // the calendar after ~6 weeks. Keep finite cutoffs only for ONCE / non-weekly cadences.
     let requestOccurrenceCount = requestRecurrence.occurrenceCount == null
       ? null
       : Math.max(1, Number(requestRecurrence.occurrenceCount || 1));
     if (recurrenceName === 'WEEKLY') {
       requestOccurrenceCount = null;
     }
-    const stepDays = recurrenceName === 'BIWEEKLY' ? 14 : recurrenceName === 'MONTHLY' ? 28 : 7;
+    const stepDays = officeSlotSeriesService.stepDaysForRecurrence(recurrenceName) || 7;
     let untilDate = null;
     if (recurrenceName === 'ONCE') {
       untilDate = requestStartDate;
     } else if (recurrenceName !== 'WEEKLY' && requestOccurrenceCount != null) {
-      const lastOccurrenceOffsetDays = Math.max(0, requestOccurrenceCount - 1) * stepDays;
-      untilDate = toYmd(addDays(new Date(requestStartDate), lastOccurrenceOffsetDays));
+      if (recurrenceName === 'MONTHLY') {
+        untilDate = officeSlotSeriesService.addMonthsYmd(requestStartDate, Math.max(0, requestOccurrenceCount - 1));
+      } else {
+        const lastOccurrenceOffsetDays = Math.max(0, requestOccurrenceCount - 1) * stepDays;
+        untilDate = toYmd(addDays(new Date(requestStartDate), lastOccurrenceOffsetDays));
+      }
     }
     const materializeWeeks = recurrenceName === 'ONCE' ? 1
-      : recurrenceName === 'BIWEEKLY' ? 12
-        : recurrenceName === 'MONTHLY' ? Math.min(52, (requestOccurrenceCount || 6) * 5)
-          : 12;
+      : recurrenceName === 'EVERY_3_WEEKS' ? 36
+        : (recurrenceName === 'EVERY_4_WEEKS' || recurrenceName === 'MONTHLY')
+          ? Math.min(52, Math.max(12, (requestOccurrenceCount || 6) * 5))
+          : recurrenceName === 'BIWEEKLY' ? 24
+            : 12;
 
     const [submittedSlotRows] = await pool.execute(
       `SELECT weekday, start_hour, end_hour
@@ -2860,9 +2862,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
 
     // Booking plan + materialization is blocking. If this fails, leave the request
     // PENDING so staff can retry — a standing row without a plan was the Gini vanish loop.
-    const bookingFreq = recurrenceName === 'BIWEEKLY' ? 'BIWEEKLY'
-      : recurrenceName === 'MONTHLY' ? 'MONTHLY'
-        : 'WEEKLY';
+    const bookingFreq = recurringFreqs.includes(recurrenceName) ? recurrenceName : 'WEEKLY';
     try {
       for (const sid of assignmentIds) {
         // eslint-disable-next-line no-await-in-loop

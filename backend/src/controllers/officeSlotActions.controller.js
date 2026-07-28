@@ -24,6 +24,14 @@ import { validateSchedulingSelection } from '../services/schedulingTaxonomy.serv
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
 import { upsertAppointmentForOfficeBook } from '../services/appointment.service.js';
 import pool from '../config/database.js';
+import {
+  ALL_RECURRENCE_FREQUENCIES,
+  RECURRING_FREQUENCIES,
+  normalizeRecurrenceFrequency,
+  stepDaysForRecurrence,
+  generateOccurrenceDates,
+  isRecurringFrequency
+} from '../utils/scheduleRecurrence.js';
 import { mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned } from '../utils/officeEventDateTime.util.js';
 
 async function resolveOfficeTimezone(officeLocationId) {
@@ -319,16 +327,28 @@ function daysBetweenYmd(startYmd, endYmd) {
 }
 
 function collectCompanyHoldDates({ startDateYmd, recurrenceFrequency, weekdays, untilDateYmd }) {
-  if (recurrenceFrequency === 'ONCE') return [startDateYmd];
+  const freq = normalizeRecurrenceFrequency(recurrenceFrequency);
+  if (freq === 'ONCE') return [startDateYmd];
   const until = untilDateYmd || addDaysYmd(startDateYmd, 364);
   const dates = [];
+  if (freq === 'MONTHLY') {
+    for (const d of generateOccurrenceDates({
+      startDate: startDateYmd,
+      recurrence: 'MONTHLY',
+      occurrenceCount: 24
+    })) {
+      if (d > until) break;
+      dates.push(d);
+    }
+    return dates;
+  }
+  const stepDays = stepDaysForRecurrence(freq) || 7;
+  const stepWeeks = Math.max(1, Math.round(stepDays / 7));
   for (let d = startDateYmd; d <= until; d = addDaysYmd(d, 1)) {
     const wd = weekdayIndexFromYmd(d);
     if (!weekdays.includes(wd)) continue;
-    if (recurrenceFrequency === 'BIWEEKLY') {
-      const weekDiff = Math.floor(daysBetweenYmd(startDateYmd, d) / 7);
-      if (weekDiff % 2 !== 0) continue;
-    }
+    const weekDiff = Math.floor(daysBetweenYmd(startDateYmd, d) / 7);
+    if (weekDiff % stepWeeks !== 0) continue;
     dates.push(d);
     if (dates.length >= 104) break;
   }
@@ -627,8 +647,8 @@ export const setBookingPlan = async (req, res, next) => {
     }
 
     const freq = String(req.body?.bookedFrequency || '').toUpperCase();
-    if (!['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(freq)) {
-      return res.status(400).json({ error: { message: 'bookedFrequency must be WEEKLY, BIWEEKLY, or MONTHLY' } });
+    if (!RECURRING_FREQUENCIES.includes(freq)) {
+      return res.status(400).json({ error: { message: 'bookedFrequency must be a supported recurring frequency' } });
     }
     const bookingStartDate = String(req.body?.bookingStartDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(bookingStartDate)) {
@@ -737,8 +757,8 @@ export const setAssignmentRecurrence = async (req, res, next) => {
     }
 
     const recurrenceFrequency = String(req.body?.recurrenceFrequency || '').toUpperCase();
-    if (!['WEEKLY', 'BIWEEKLY'].includes(recurrenceFrequency)) {
-      return res.status(400).json({ error: { message: 'recurrenceFrequency must be WEEKLY or BIWEEKLY' } });
+    if (!RECURRING_FREQUENCIES.includes(recurrenceFrequency)) {
+      return res.status(400).json({ error: { message: 'recurrenceFrequency must be a supported recurring frequency' } });
     }
 
     const updated = await OfficeStandingAssignment.update(sid, {
@@ -1238,9 +1258,8 @@ export const staffBookEvent = async (req, res, next) => {
           ev.start_at,
           ymdFromDateLike(standing?.available_since_date, new Date().toISOString().slice(0, 10))
         );
-        const bookedFrequency = String(standing?.assigned_frequency || 'WEEKLY').toUpperCase() === 'BIWEEKLY'
-          ? 'BIWEEKLY'
-          : 'WEEKLY';
+        const standingFreq = String(standing?.assigned_frequency || 'WEEKLY').toUpperCase();
+        const bookedFrequency = RECURRING_FREQUENCIES.includes(standingFreq) ? standingFreq : 'WEEKLY';
         try {
           await upsertBookingPlanAndMaterialize({
             standingAssignmentId: standingId,
@@ -1579,8 +1598,8 @@ export const setEventBookingPlan = async (req, res, next) => {
     }
 
     const freq = String(req.body?.bookedFrequency || '').toUpperCase();
-    if (!['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(freq)) {
-      return res.status(400).json({ error: { message: 'bookedFrequency must be WEEKLY, BIWEEKLY, or MONTHLY' } });
+    if (!RECURRING_FREQUENCIES.includes(freq)) {
+      return res.status(400).json({ error: { message: 'bookedFrequency must be a supported recurring frequency' } });
     }
     const bookingStartDate = ymdFromDateLike(req.body?.bookingStartDate, ymdFromDateLike(ev.start_at));
     if (!/^\d{4}-\d{2}-\d{2}$/.test(bookingStartDate)) {
@@ -1606,7 +1625,7 @@ export const setEventBookingPlan = async (req, res, next) => {
       hour: wh.hour
     });
 
-    const assignedFrequency = freq === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
+    const assignedFrequency = RECURRING_FREQUENCIES.includes(freq) ? freq : 'WEEKLY';
     if (assignment?.id && Number(assignment.provider_id) !== providerId) {
       return res.status(409).json({ error: { message: 'That slot is already assigned to another provider.' } });
     }
@@ -1748,8 +1767,8 @@ export const setEventRecurrence = async (req, res, next) => {
     }
 
     const recurrenceFrequency = String(req.body?.recurrenceFrequency || '').toUpperCase();
-    if (!['WEEKLY', 'BIWEEKLY'].includes(recurrenceFrequency)) {
-      return res.status(400).json({ error: { message: 'recurrenceFrequency must be WEEKLY or BIWEEKLY' } });
+    if (!RECURRING_FREQUENCIES.includes(recurrenceFrequency)) {
+      return res.status(400).json({ error: { message: 'recurrenceFrequency must be a supported recurring frequency' } });
     }
 
     const providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
@@ -3042,7 +3061,7 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       ? null
       : parseInt(endHourRaw, 10);
     const recurrenceFrequencyRaw = String(req.body?.recurrenceFrequency || 'ONCE').trim().toUpperCase();
-    const recurrenceFrequency = ['ONCE', 'WEEKLY', 'BIWEEKLY'].includes(recurrenceFrequencyRaw) ? recurrenceFrequencyRaw : 'ONCE';
+    const recurrenceFrequency = ALL_RECURRENCE_FREQUENCIES.includes(recurrenceFrequencyRaw) ? recurrenceFrequencyRaw : 'ONCE';
     const temporaryWeeksRaw = parseInt(req.body?.temporaryWeeks, 10);
     const temporaryWeeks = Number.isInteger(temporaryWeeksRaw) && temporaryWeeksRaw > 0 ? Math.min(temporaryWeeksRaw, 12) : 0;
     const recurrenceWeekdays = uniqueWeekdays(req.body?.weekdays, date);
@@ -3263,7 +3282,7 @@ export const staffAssignOpenSlot = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'At least one weekday is required for recurring assignment' } });
       }
 
-      const assignedFrequency = recurrenceFrequency === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
+      const assignedFrequency = RECURRING_FREQUENCIES.includes(recurrenceFrequency) ? recurrenceFrequency : 'WEEKLY';
       const recurrenceGroupId = generateRecurrenceGroupId();
       const standingAssignments = [];
       const createdEvents = [];

@@ -59,7 +59,7 @@ export default {
       element: '[data-tour="my-schedule-grid"]',
       popover: {
         title: 'Open finder grid',
-        description: 'Click a day/hour cell to request or book time. You can set multi-hour ranges with the End time and choose Weekly/Biweekly/Monthly for office requests.',
+        description: 'Click a day/hour cell to request or book time. You can set multi-hour ranges with the End time and choose Weekly / Every 2–4 weeks / Monthly for office requests.',
         side: 'top',
         align: 'start'
       }
@@ -68,7 +68,7 @@ export default {
       element: '[data-tour="my-schedule-office-layout-panel"]',
       popover: {
         title: 'Office layout (room-by-room)',
-        description: 'Switch to Office layout to see each room’s week. Click a room/time cell to open the booking modal; multi-hour and Weekly/Biweekly/Monthly requests are supported.',
+        description: 'Switch to Office layout to see each room’s week. Click a room/time cell to open the booking modal; multi-hour and Weekly / Every 2–4 weeks / Monthly requests are supported.',
         side: 'top',
         align: 'start'
       }

@@ -38,6 +38,8 @@ function normSessionType(v) {
 function normFrequency(v) {
   const s = String(v || '').trim().toUpperCase();
   if (s === 'BIWEEKLY') return 'BIWEEKLY';
+  if (s === 'EVERY_3_WEEKS') return 'EVERY_3_WEEKS';
+  if (s === 'EVERY_4_WEEKS') return 'EVERY_4_WEEKS';
   if (s === 'EITHER') return 'EITHER';
   return 'WEEKLY';
 }

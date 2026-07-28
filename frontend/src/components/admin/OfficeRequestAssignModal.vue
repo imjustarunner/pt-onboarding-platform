@@ -106,9 +106,19 @@ const occurrenceDates = computed(() => {
   const freq = String(request.value?.requestedFrequency || 'ONCE').toUpperCase();
   const count = Math.max(1, Math.min(12, Number(request.value?.requestedOccurrenceCount || 1)));
   if (freq === 'ONCE') return [startDate];
-  const step = freq === 'BIWEEKLY' ? 14 : freq === 'MONTHLY' ? 28 : 7;
-  const base = new Date(startDate + 'T00:00:00');
   const dates = [];
+  if (freq === 'MONTHLY') {
+    const [y0, m0, d0] = String(startDate).split('-').map(Number);
+    for (let i = 0; i < count; i++) {
+      const dt = new Date(Date.UTC(y0, m0 - 1 + i, 1));
+      const last = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate();
+      const day = Math.min(d0, last);
+      dates.push(`${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+    }
+    return dates;
+  }
+  const step = freq === 'EVERY_4_WEEKS' ? 28 : freq === 'EVERY_3_WEEKS' ? 21 : freq === 'BIWEEKLY' ? 14 : 7;
+  const base = new Date(startDate + 'T00:00:00');
   for (let i = 0; i < count; i++) {
     const d = new Date(base);
     d.setDate(d.getDate() + i * step);
@@ -177,8 +187,10 @@ const needsAutoAssignableRoom = computed(() => {
 const requestedRecurrenceLabel = computed(() => {
   const f = String(request.value?.requestedFrequency || 'ONCE').toUpperCase();
   if (f === 'WEEKLY') return 'Weekly';
-  if (f === 'BIWEEKLY') return 'Biweekly';
-  if (f === 'MONTHLY') return 'Monthly';
+  if (f === 'BIWEEKLY') return 'Every 2 weeks';
+  if (f === 'EVERY_3_WEEKS') return 'Every 3 weeks';
+  if (f === 'EVERY_4_WEEKS') return 'Every 4 weeks';
+  if (f === 'MONTHLY') return 'Monthly (same day of month)';
   return 'Once';
 });
 
@@ -317,6 +329,10 @@ const assign = async () => {
     weeks = null;
   } else if (requestedFrequency === 'BIWEEKLY') {
     assignedFrequency = 'BIWEEKLY';
+  } else if (requestedFrequency === 'EVERY_3_WEEKS') {
+    assignedFrequency = 'EVERY_3_WEEKS';
+  } else if (requestedFrequency === 'EVERY_4_WEEKS') {
+    assignedFrequency = 'EVERY_4_WEEKS';
     weeks = Math.max(1, requestedOccurrenceCount) * 2;
   } else if (requestedFrequency === 'MONTHLY') {
     assignedFrequency = 'WEEKLY';

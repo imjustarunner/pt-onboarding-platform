@@ -37,6 +37,15 @@ import { createNotificationAndDispatch } from '../services/notificationDispatche
 import { OfficeScheduleWatchdogService } from '../services/officeScheduleWatchdog.service.js';
 import { validateOfficeSlotSeries, generateOccurrenceDates, recurrenceLabel as officeRecurrenceLabel, normalizeOfficeRequestRecurrence } from '../services/officeSlotSeries.service.js';
 import {
+  ALL_RECURRENCE_FREQUENCIES,
+  RECURRING_FREQUENCIES,
+  normalizeRecurrenceFrequency,
+  stepDaysForRecurrence,
+  recurrenceLabel as sharedRecurrenceLabel,
+  generateOccurrenceDates as sharedGenerateOccurrenceDates,
+  isRecurringFrequency
+} from '../utils/scheduleRecurrence.js';
+import {
   materializeOfficeWeeks,
   assignOneTimeOfficeBlock,
   upsertBookingPlanAndMaterialize
@@ -339,15 +348,15 @@ function dayDiffYmd(startYmd, endYmd) {
 }
 
 function recurrenceMatchesDate({ recurrence, occurrenceCount, startDateYmd, targetDateYmd }) {
-  const freq = String(recurrence || 'ONCE').trim().toUpperCase();
+  const freq = normalizeRecurrenceFrequency(recurrence);
   const count = Math.max(1, Number(occurrenceCount || 1));
-  const diffDays = dayDiffYmd(startDateYmd, targetDateYmd);
-  if (!Number.isFinite(diffDays) || diffDays < 0) return false;
-  if (freq === 'ONCE') return diffDays === 0;
-  if (freq === 'WEEKLY') return diffDays % 7 === 0 && (diffDays / 7) < count;
-  if (freq === 'BIWEEKLY') return diffDays % 14 === 0 && (diffDays / 14) < count;
-  if (freq === 'MONTHLY') return diffDays % 28 === 0 && (diffDays / 28) < count;
-  return false;
+  const dates = sharedGenerateOccurrenceDates({
+    startDate: startDateYmd,
+    recurrence: freq,
+    occurrenceCount: count
+  });
+  const target = normalizeYmd(targetDateYmd);
+  return dates.includes(target);
 }
 
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -522,25 +531,19 @@ function eventContextRow(e = {}) {
 }
 
 function recurrenceLabelForRequest(row = {}) {
-  const recurrence = String(row.recurrence || 'ONCE').toUpperCase();
-  if (recurrence === 'WEEKLY') return 'Weekly';
-  if (recurrence === 'BIWEEKLY') return 'Biweekly';
-  if (recurrence === 'MONTHLY') return 'Monthly';
-  return 'Once';
+  return sharedRecurrenceLabel(row.recurrence || 'ONCE');
 }
 
 function occurrencePreviewForRequest(row = {}) {
-  const recurrence = String(row.recurrence || 'ONCE').toUpperCase();
+  const recurrence = normalizeRecurrenceFrequency(row.recurrence || 'ONCE');
   const startYmd = normalizeYmd(row.start_at);
   const count = Math.max(1, Math.min(12, Number(row.booked_occurrence_count || (recurrence === 'ONCE' ? 1 : 6))));
   if (!startYmd) return [];
-  const step = recurrence === 'BIWEEKLY' ? 14 : recurrence === 'MONTHLY' ? 28 : recurrence === 'WEEKLY' ? 7 : 0;
-  const dates = [];
-  for (let i = 0; i < count; i += 1) {
-    dates.push(addDays(startYmd, i * step) || startYmd);
-    if (step === 0) break;
-  }
-  return dates;
+  return sharedGenerateOccurrenceDates({
+    startDate: startYmd,
+    recurrence,
+    occurrenceCount: count
+  });
 }
 
 async function buildRoomTimelineContext({ officeLocationId, roomId, startAt, endAt }) {
@@ -1608,7 +1611,9 @@ export const getWeeklyGrid = async (req, res, next) => {
       }
       const f = normalize(bookedFrequency) || normalize(assignedFrequency);
       if (f === 'WEEKLY') return { frequency: f, frequencyLabel: 'Weekly', frequencyBadge: 'W' };
-      if (f === 'BIWEEKLY') return { frequency: f, frequencyLabel: 'Biweekly', frequencyBadge: 'BW' };
+      if (f === 'BIWEEKLY') return { frequency: f, frequencyLabel: 'Every 2 weeks', frequencyBadge: '2W' };
+      if (f === 'EVERY_3_WEEKS') return { frequency: f, frequencyLabel: 'Every 3 weeks', frequencyBadge: '3W' };
+      if (f === 'EVERY_4_WEEKS') return { frequency: f, frequencyLabel: 'Every 4 weeks', frequencyBadge: '4W' };
       if (f === 'MONTHLY') return { frequency: f, frequencyLabel: 'Monthly', frequencyBadge: 'M' };
       // If a slot is booked/assigned but not tied to a standing assignment or booking plan,
       // treat it as a one-off occurrence for display purposes.
@@ -2352,9 +2357,9 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     const notes = String(req.body?.notes || req.body?.requesterNotes || '').trim().slice(0, 2000) || null;
     const rawSelection = bookingSelectionFromBody(req.body);
 
-    const allowedRecurrence = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']);
+    const allowedRecurrence = new Set([...ALL_RECURRENCE_FREQUENCIES]);
     const normalizedRecurrence = allowedRecurrence.has(recurrence) ? recurrence : 'ONCE';
-    const recurringRecurrences = new Set(['WEEKLY', 'BIWEEKLY', 'MONTHLY']);
+    const recurringRecurrences = new Set([...RECURRING_FREQUENCIES]);
     const rawOccurrenceCount = req.body?.bookedOccurrenceCount ?? req.body?.booked_occurrence_count;
     const bookedOccurrenceCount = recurringRecurrences.has(normalizedRecurrence)
       ? (Number.isInteger(Number(rawOccurrenceCount)) && Number(rawOccurrenceCount) > 0 ? Number(rawOccurrenceCount) : 6)
@@ -2999,7 +3004,7 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
     }
 
     const recurrence = String(reqRow.recurrence || 'ONCE').toUpperCase();
-    const allowedRecurrence = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']);
+    const allowedRecurrence = new Set([...ALL_RECURRENCE_FREQUENCIES]);
     const normalizedRecurrence = allowedRecurrence.has(recurrence) ? recurrence : 'ONCE';
     const requestedProvider = await User.findById(reqRow.requested_provider_id);
     if (!requestedProvider) {
@@ -3124,7 +3129,9 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
         }
       }
     } else {
-      const assignedFrequency = normalizedRecurrence === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
+      const assignedFrequency = RECURRING_FREQUENCIES.includes(String(normalizedRecurrence || '').toUpperCase())
+        ? String(normalizedRecurrence).toUpperCase()
+        : 'WEEKLY';
       createdStandingAssignment = await OfficeStandingAssignment.create({
         officeLocationId: loc.id,
         roomId: chosen.id,
@@ -3149,9 +3156,9 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
       await upsertBookingPlanAndMaterialize({
         standingAssignmentId: createdStandingAssignment.id,
         officeLocationId: loc.id,
-        bookedFrequency: normalizedRecurrence === 'MONTHLY' ? 'MONTHLY'
-          : normalizedRecurrence === 'BIWEEKLY' ? 'BIWEEKLY'
-            : 'WEEKLY',
+        bookedFrequency: RECURRING_FREQUENCIES.includes(String(normalizedRecurrence || '').toUpperCase())
+          ? String(normalizedRecurrence).toUpperCase()
+          : 'WEEKLY',
         bookingStartDate,
         bookedOccurrenceCount: openEndedWeekly ? null : reqOccurrenceCount,
         createdByUserId: req.user.id,
@@ -4448,7 +4455,7 @@ export const getCoverageFlags = async (req, res, next) => {
            AND e.ics_flag_cleared_at IS NULL
            AND (
              e.standing_assignment_id IS NULL
-             OR UPPER(COALESCE(osa.assigned_frequency, 'ONCE')) NOT IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY')
+             OR UPPER(COALESCE(osa.assigned_frequency, 'ONCE')) NOT IN ('WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'MONTHLY')
            )`
       );
     } catch {
@@ -4491,7 +4498,7 @@ export const getCoverageFlags = async (req, res, next) => {
 
     // Recurring series only, today → +4 weeks (same window as the audit).
     const windowDays = Number(ICS_COVERAGE_WINDOW_DAYS) || 28;
-    filters.push(`UPPER(COALESCE(osa.assigned_frequency, '')) IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY')`);
+    filters.push(`UPPER(COALESCE(osa.assigned_frequency, '')) IN ('WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'MONTHLY')`);
     filters.push('osa.is_active = TRUE');
     filters.push('e.start_at >= CURDATE()');
     filters.push(`e.start_at < DATE_ADD(CURDATE(), INTERVAL ${windowDays} DAY)`);
@@ -4640,7 +4647,9 @@ export const getCoverageFlags = async (req, res, next) => {
     const freqLabel = (f) => {
       const v = String(f || '').toUpperCase();
       if (v === 'WEEKLY') return 'Weekly';
-      if (v === 'BIWEEKLY') return 'Biweekly';
+      if (v === 'BIWEEKLY') return 'Every 2 weeks';
+      if (v === 'EVERY_3_WEEKS') return 'Every 3 weeks';
+      if (v === 'EVERY_4_WEEKS') return 'Every 4 weeks';
       if (v === 'MONTHLY') return 'Monthly';
       return v || 'Recurring';
     };
@@ -5187,7 +5196,10 @@ export const getProviderScheduleList = async (req, res, next) => {
     const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const freqLabel = (f) => {
       if (f === 'WEEKLY') return 'Weekly';
-      if (f === 'BIWEEKLY') return 'Biweekly';
+      if (f === 'BIWEEKLY') return 'Every 2 weeks';
+      if (f === 'EVERY_3_WEEKS') return 'Every 3 weeks';
+      if (f === 'EVERY_4_WEEKS') return 'Every 4 weeks';
+      if (f === 'MONTHLY') return 'Monthly';
       return f || '';
     };
     const hourToLabel = (h) => {

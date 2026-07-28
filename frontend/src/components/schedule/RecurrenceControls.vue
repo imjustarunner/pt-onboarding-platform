@@ -8,14 +8,13 @@
         :disabled="disabled"
         @change="emit('update:frequency', String($event.target.value || 'ONCE'))"
       >
-        <option value="ONCE">Does not repeat</option>
-        <option value="WEEKLY">Weekly</option>
-        <option value="BIWEEKLY">Biweekly</option>
-        <option value="MONTHLY">Monthly</option>
+        <option v-for="opt in recurrenceOptions" :key="opt.value" :value="opt.value">
+          {{ opt.label }}
+        </option>
       </select>
     </div>
 
-    <div v-if="isRecurring" class="rec-row rec-weekdays">
+    <div v-if="isWeekBased" class="rec-row rec-weekdays">
       <label class="rec-label">Days</label>
       <div class="rec-day-chips">
         <button
@@ -32,6 +31,10 @@
         </button>
       </div>
     </div>
+
+    <p v-if="isMonthly" class="rec-meta muted">
+      Repeats on the same day of each month (e.g. the 15th). Shorter months clamp to the last day.
+    </p>
 
     <div v-if="isRecurring" class="rec-row">
       <label class="rec-label">Ends</label>
@@ -79,6 +82,13 @@
 
 <script setup>
 import { computed } from 'vue';
+import {
+  RECURRENCE_OPTIONS,
+  isRecurringFrequency,
+  isWeekBasedFrequency,
+  normalizeRecurrenceFrequency,
+  RECURRENCE_MONTHLY
+} from '../../utils/scheduleRecurrence.js';
 
 const props = defineProps({
   frequency: { type: String, default: 'ONCE' },
@@ -98,6 +108,8 @@ const emit = defineEmits([
   'update:weekdays'
 ]);
 
+const recurrenceOptions = RECURRENCE_OPTIONS;
+
 const weekdayOptions = [
   { value: 'Mon', short: 'Mon' },
   { value: 'Tue', short: 'Tue' },
@@ -108,7 +120,11 @@ const weekdayOptions = [
   { value: 'Sun', short: 'Sun' }
 ];
 
-const isRecurring = computed(() => ['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(String(props.frequency || '').toUpperCase()));
+const isRecurring = computed(() => isRecurringFrequency(props.frequency));
+const isWeekBased = computed(() => isWeekBasedFrequency(props.frequency));
+const isMonthly = computed(
+  () => normalizeRecurrenceFrequency(props.frequency) === RECURRENCE_MONTHLY
+);
 const selectedDays = computed(() => (Array.isArray(props.weekdays) ? props.weekdays.map(String) : []));
 
 function toggleDay(day) {
@@ -178,6 +194,7 @@ function toggleDay(day) {
 }
 .rec-meta {
   font-size: 0.8rem;
+  margin: 0;
 }
 .muted { color: #64748b; }
 </style>

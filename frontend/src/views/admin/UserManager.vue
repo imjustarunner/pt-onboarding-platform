@@ -222,6 +222,7 @@
               <select id="roleSort" v-model="roleSort" class="filter-select">
                 <option value="">All roles</option>
                 <option value="provider">Provider</option>
+                <option value="athlete">Athlete</option>
                 <option value="kiosk">Kiosk</option>
                 <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
                 <option value="provider_plus">Provider Plus</option>
@@ -229,6 +230,7 @@
                 <option value="support">Staff (Admin Tools)</option>
                 <option value="admin">Admin</option>
                 <option value="super_admin">Super Admin</option>
+                <option value="clinician">Clinician (legacy leftovers)</option>
               </select>
             </div>
           </div>
@@ -836,11 +838,15 @@
                   <option value="provider_plus">Provider Plus</option>
                   <option value="staff">Staff</option>
                   <option value="provider">Provider</option>
+                  <option value="athlete">Athlete</option>
                   <option value="school_staff">School Staff</option>
                   <option value="client_guardian">Guardian</option>
                   <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="kiosk">Kiosk</option>
                 </select>
-                <small v-if="userForm.role === 'client_guardian'" class="form-help">
+                <small v-if="userForm.role === 'athlete'" class="form-help">
+                  Athletes are SSTC-native participants (non-clinical). SSTC participation still works for any role via club membership.
+                </small>
+                <small v-else-if="userForm.role === 'client_guardian'" class="form-help">
                   Guardians are portal users (non-employee). They don't receive onboarding packages.
                 </small>
                 <small v-else-if="userForm.role === 'school_staff'" class="form-help">
@@ -1155,10 +1161,14 @@
               <option value="client_guardian">Guardian</option>
               <option value="staff">Staff</option>
               <option value="provider">Provider</option>
+              <option value="athlete">Athlete</option>
               <option value="school_staff">School Staff</option>
               <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="kiosk">Kiosk</option>
             </select>
-            <small v-if="userForm.role === 'super_admin' && user?.role !== 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
+            <small v-if="userForm.role === 'athlete'" class="form-help">
+              Athletes are SSTC-native participants (non-clinical). If hired into a work tenant later, upgrade to Provider.
+            </small>
+            <small v-else-if="userForm.role === 'super_admin' && user?.role !== 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
             <small v-else-if="userForm.role === 'admin' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
             <small v-else-if="userForm.role === 'support' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the staff role</small>
           </div>
@@ -3638,7 +3648,9 @@ const formatRole = (role) => {
     'clinical_practice_assistant': 'CPA',
     'staff': 'Staff',
     'provider': 'Provider',
-    // 'clinician': 'Provider', // legacy (removed)
+    'athlete': 'Athlete',
+    'club_manager': 'Club Manager',
+    'clinician': 'Clinician (legacy)',
     'school_staff': 'School Staff',
     'client_guardian': 'Guardian',
     'facilitator': 'Provider',

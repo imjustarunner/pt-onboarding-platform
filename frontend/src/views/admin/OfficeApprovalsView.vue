@@ -81,8 +81,10 @@
                 <option value="">All recurrence</option>
                 <option value="ONCE">One-time</option>
                 <option value="WEEKLY">Weekly</option>
-                <option value="BIWEEKLY">Biweekly</option>
-                <option value="MONTHLY">Monthly</option>
+                <option value="BIWEEKLY">Every 2 weeks</option>
+                <option value="EVERY_3_WEEKS">Every 3 weeks</option>
+                <option value="EVERY_4_WEEKS">Every 4 weeks</option>
+                <option value="MONTHLY">Monthly (same day of month)</option>
               </select>
             </div>
           </div>
@@ -549,8 +551,10 @@ const roomDisplay = (room) =>
 const requestedRecurrenceLabel = (r) => {
   const f = String(r?.requestedFrequency || 'ONCE').toUpperCase();
   if (f === 'WEEKLY') return 'Weekly';
-  if (f === 'BIWEEKLY') return 'Biweekly';
-  if (f === 'MONTHLY') return 'Monthly';
+  if (f === 'BIWEEKLY') return 'Every 2 weeks';
+  if (f === 'EVERY_3_WEEKS') return 'Every 3 weeks';
+  if (f === 'EVERY_4_WEEKS') return 'Every 4 weeks';
+  if (f === 'MONTHLY') return 'Monthly (same day of month)';
   return 'One-time';
 };
 
@@ -1197,7 +1201,7 @@ const approveSelected = async () => {
     assignedFrequency = 'BIWEEKLY';
     weeks = Math.max(1, requestedOccurrenceCount) * 2;
   } else if (requestedFrequency === 'MONTHLY') {
-    assignedFrequency = 'WEEKLY';
+    assignedFrequency = 'MONTHLY';
     weeks = Math.max(1, requestedOccurrenceCount) * 4;
   }
   const parts = String(assignForm.value.slotKey).split(':').map((x) => Number(x));

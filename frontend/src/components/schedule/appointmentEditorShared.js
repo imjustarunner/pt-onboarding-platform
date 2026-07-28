@@ -1,5 +1,17 @@
 /** Shared helpers for the unified appointment editor. */
 
+export {
+  expandRecurrenceDates,
+  RECURRENCE_OPTIONS,
+  RECURRING_FREQUENCIES,
+  ALL_RECURRENCE_FREQUENCIES,
+  isRecurringFrequency,
+  normalizeRecurrenceFrequency,
+  recurrenceLabel,
+  occurrenceDatesSimple,
+  indefiniteOccurrenceCount
+} from '../../utils/scheduleRecurrence.js';
+
 export const APPOINTMENT_EDITOR_STATUS_OPTIONS = [
   { value: 'confirmed', label: 'Confirmed' },
   { value: 'draft', label: 'Draft' },
@@ -42,88 +54,3 @@ export function appointmentEditorTitleForKind(kind, { hideOfficeAndCalendarInteg
   return KIND_TITLES[k] || (k ? k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Appointment');
 }
 
-function addDaysYmd(ymd, days) {
-  const [y, m, d] = String(ymd || '').slice(0, 10).split('-').map((n) => Number(n));
-  if (!y || !m || !d) return '';
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + Number(days || 0));
-  const yy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getUTCDate()).padStart(2, '0');
-  return `${yy}-${mm}-${dd}`;
-}
-
-function weekdayShortFromYmd(ymd) {
-  const [y, m, d] = String(ymd || '').slice(0, 10).split('-').map((n) => Number(n));
-  if (!y || !m || !d) return '';
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dt.getUTCDay()];
-}
-
-/**
- * Expand a start date into occurrence dates for weekly/biweekly/monthly series.
- * Supports multi-weekday weekly series and until-date or occurrence count.
- */
-export function expandRecurrenceDates({
-  startYmd,
-  frequency = 'ONCE',
-  endMode = 'count',
-  occurrenceCount = 1,
-  untilDate = '',
-  weekdays = []
-} = {}) {
-  const start = String(startYmd || '').slice(0, 10);
-  if (!start) return [];
-  const freq = String(frequency || 'ONCE').toUpperCase();
-  if (freq === 'ONCE') return [start];
-
-  const maxCount = Math.min(52, Math.max(1, Number(occurrenceCount || 1) || 1));
-  const until = endMode === 'until' ? String(untilDate || '').slice(0, 10) : '';
-  // Cap: until-date and indefinite walk weeks; count mode stops at N occurrences.
-  const occurrenceCap = endMode === 'count' ? maxCount : (endMode === 'indefinite' ? 12 : 52);
-  const days = Array.isArray(weekdays) && weekdays.length
-    ? weekdays.map(String)
-    : [weekdayShortFromYmd(start)].filter(Boolean);
-
-  const out = [];
-  if (freq === 'MONTHLY') {
-    let cursor = start;
-    while (out.length < occurrenceCap) {
-      if (until && cursor > until) break;
-      out.push(cursor);
-      const [y, m, d] = cursor.split('-').map((n) => Number(n));
-      const next = new Date(Date.UTC(y, m - 1 + 1, d));
-      cursor = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
-      if (out.length > 60) break;
-    }
-    return out;
-  }
-
-  const stepWeeks = freq === 'BIWEEKLY' ? 2 : 1;
-  // Seed: walk forward from start across selected weekdays for enough weeks.
-  let weekOffset = 0;
-  while (out.length < occurrenceCap && weekOffset < 60) {
-    let hitPastUntil = false;
-    for (const day of days) {
-      // Find the date of `day` in the week that contains start + weekOffset*7
-      const base = addDaysYmd(start, weekOffset * 7);
-      const baseDow = weekdayShortFromYmd(base);
-      const order = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const baseIdx = order.indexOf(baseDow);
-      const wantIdx = order.indexOf(day);
-      if (baseIdx < 0 || wantIdx < 0) continue;
-      const delta = (wantIdx - baseIdx + 7) % 7;
-      const candidate = addDaysYmd(base, delta);
-      if (candidate < start) continue;
-      if (until && candidate > until) {
-        hitPastUntil = true;
-        continue;
-      }
-      if (!out.includes(candidate)) out.push(candidate);
-      if (out.length >= occurrenceCap) break;
-    }
-    if (hitPastUntil && until) break;
-    weekOffset += stepWeeks;
-  }
-  return out.sort().slice(0, occurrenceCap);
-}

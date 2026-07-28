@@ -130,7 +130,7 @@ export async function deactivateStaleStandingAssignments() {
        ON bp.standing_assignment_id = sa.id AND bp.is_active = TRUE
      WHERE sa.is_active = TRUE
        AND UPPER(COALESCE(sa.availability_mode, 'AVAILABLE')) <> 'TEMPORARY'
-       AND UPPER(COALESCE(sa.assigned_frequency, 'WEEKLY')) IN ('WEEKLY', 'BIWEEKLY')
+       AND UPPER(COALESCE(sa.assigned_frequency, 'WEEKLY')) IN ('WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'MONTHLY')
        AND (sa.available_since_date IS NULL OR sa.available_since_date < DATE_SUB(CURDATE(), INTERVAL 2 DAY))
        AND (sa.updated_at IS NULL OR sa.updated_at < DATE_SUB(NOW(), INTERVAL 48 HOUR))
        AND NOT EXISTS (

@@ -6,6 +6,17 @@
  * newer officeSchedule controller so that recurrence logic stays in one place.
  */
 
+import {
+  normalizeOfficeRequestRecurrence,
+  stepDaysForRecurrence,
+  recurrenceLabel,
+  generateOccurrenceDates as generateOccurrenceDatesShared,
+  isRecurringFrequency,
+  addMonthsYmd,
+  RECURRING_FREQUENCIES,
+  RECURRENCE_ONCE
+} from '../utils/scheduleRecurrence.js';
+
 // ---------------------------------------------------------------------------
 // Date helpers
 // ---------------------------------------------------------------------------
@@ -33,88 +44,26 @@ function addDays(dateLike, days) {
   return d;
 }
 
-// ---------------------------------------------------------------------------
-// Recurrence normalization
-// ---------------------------------------------------------------------------
-
-/**
- * Normalise a raw recurrence value + raw occurrence count into a validated
- * { recurrence, occurrenceCount } pair.
- */
-function normalizeOfficeRequestRecurrence({ recurrenceRaw, occurrenceCountRaw }) {
-  const allowed = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']);
-  const recurrence = String(recurrenceRaw || 'ONCE').trim().toUpperCase();
-  const normalizedRecurrence = allowed.has(recurrence) ? recurrence : 'ONCE';
-  if (normalizedRecurrence === 'ONCE') {
-    return { recurrence: 'ONCE', occurrenceCount: 1 };
-  }
-  // Weekly defaults to open-ended (null occurrence count). Callers that need a
-  // finite series can still pass an explicit count; cap at 52 to avoid runaway.
-  const max = normalizedRecurrence === 'WEEKLY' ? 52 : 104;
-  const parsed = parseInt(occurrenceCountRaw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return {
-      recurrence: normalizedRecurrence,
-      occurrenceCount: normalizedRecurrence === 'WEEKLY' ? null : 1
-    };
-  }
-  const occurrenceCount = Math.min(max, Math.max(1, parsed));
-  return { recurrence: normalizedRecurrence, occurrenceCount };
-}
-
-/**
- * Returns the number of days between occurrences for a given recurrence type.
- */
-function stepDaysForRecurrence(recurrence) {
-  const r = String(recurrence || 'ONCE').toUpperCase();
-  if (r === 'BIWEEKLY') return 14;
-  if (r === 'MONTHLY') return 28;
-  if (r === 'WEEKLY') return 7;
-  return 0; // ONCE
-}
-
-/**
- * Human-readable label for a recurrence + occurrence count.
- * e.g. recurrenceLabel('WEEKLY', 6) → 'Weekly × 6'
- */
-function recurrenceLabel(recurrence, occurrenceCount) {
-  const r = String(recurrence || 'ONCE').toUpperCase();
-  const labels = { ONCE: 'Once', WEEKLY: 'Weekly', BIWEEKLY: 'Biweekly', MONTHLY: 'Monthly' };
-  const base = labels[r] || r;
-  if (r === 'ONCE' || !occurrenceCount || Number(occurrenceCount) <= 1) return base;
-  return `${base} × ${occurrenceCount}`;
-}
-
-// ---------------------------------------------------------------------------
-// Occurrence generation
-// ---------------------------------------------------------------------------
-
 /**
  * Generate all YYYY-MM-DD occurrence dates for a slot series.
- *
- * @param {object} opts
- * @param {string} opts.startDate         YYYY-MM-DD of first occurrence
- * @param {string} opts.recurrence        'ONCE'|'WEEKLY'|'BIWEEKLY'|'MONTHLY'
- * @param {number} opts.occurrenceCount   how many occurrences (1 for ONCE)
- * @returns {string[]}  array of YYYY-MM-DD strings
+ * Monthly uses same day-of-month; week-based uses exact day steps.
  */
 function generateOccurrenceDates({ startDate, recurrence, occurrenceCount }) {
   if (!startDate) return [];
   const normalized = normalizeYmd(startDate);
   if (!normalized) return [];
-  const step = stepDaysForRecurrence(recurrence);
-  // Open-ended weekly/biweekly: validate a forward window (12 weeks) so approvals
-  // still catch near-term conflicts without inventing a hard end date.
+  // Open-ended weekly series: validate a forward window (12 weeks).
   const count = occurrenceCount == null
-    ? (step > 0 ? 12 : 1)
+    ? (isRecurringFrequency(recurrence) ? 12 : 1)
     : Math.max(1, Number(occurrenceCount || 1));
-  if (step === 0 || count === 1) return [normalized]; // ONCE or single occurrence
-  const base = new Date(normalized + 'T00:00:00');
-  const dates = [];
-  for (let i = 0; i < count; i++) {
-    dates.push(toYmd(addDays(base, i * step)));
+  if (!isRecurringFrequency(recurrence) || count === 1) {
+    return [normalized];
   }
-  return dates;
+  return generateOccurrenceDatesShared({
+    startDate: normalized,
+    recurrence,
+    occurrenceCount: count
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +85,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
  * @param {number}   opts.weekday            0=Sun … 6=Sat
  * @param {number}   opts.startHour          integer hour (0-23)
  * @param {number}   opts.endHour            integer hour (exclusive)
- * @param {string}   opts.recurrence         'ONCE'|'WEEKLY'|'BIWEEKLY'|'MONTHLY'
+ * @param {string}   opts.recurrence         ONCE|WEEKLY|BIWEEKLY|EVERY_3_WEEKS|EVERY_4_WEEKS|MONTHLY
  * @param {number}   opts.occurrenceCount
  *
  * @returns {Promise<{ ok: true }|{ ok: false, status: number, error: object }>}
@@ -302,10 +251,14 @@ export {
   normalizeYmd,
   toYmd,
   addDays,
+  addMonthsYmd,
   dayDiffYmd,
   normalizeOfficeRequestRecurrence,
   stepDaysForRecurrence,
   recurrenceLabel,
   generateOccurrenceDates,
-  validateOfficeSlotSeries
+  validateOfficeSlotSeries,
+  isRecurringFrequency,
+  RECURRING_FREQUENCIES,
+  RECURRENCE_ONCE
 };

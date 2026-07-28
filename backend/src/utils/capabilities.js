@@ -132,6 +132,21 @@ export function getUserCapabilities(user, { effectiveRole } = {}) {
   // Existing status-based access model, resolved with the effective role.
   const access = checkAccess(user, { effectiveRole });
 
+  // SSTC-native athletes: non-clinical participants. SSTC eligibility is membership-based;
+  // this role only sets home-identity capabilities (no clinical/provider defaults).
+  if (role === 'athlete') {
+    return {
+      ...base,
+      canAccessPlatform: !!access.canAccessDashboard,
+      canViewTraining: false,
+      canSignDocuments: !!access.canAccessDocuments,
+      canJoinProgramEvents: !!access.canAccessDashboard,
+      canUseChat: false,
+      canManageHiring: false,
+      canManageChallenges: false
+    };
+  }
+
   // NOTE: These are conservative defaults based on current platform behavior.
   // Future roles (e.g., client/participant) can be added here without changing callers.
   const isApprovedEmployee = role === 'approved_employee' || user?.type === 'approved_employee';

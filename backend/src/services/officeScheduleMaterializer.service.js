@@ -113,11 +113,16 @@ function isAssignmentActiveOnDate(assignment, dateStr) {
     const availableUntil = normalizeYmd(assignment.temporary_until_date);
     if (availableUntil && dateStr > availableUntil) return false;
   }
-  // Weekly always active; biweekly active on even week offset from available_since_date.
-  if (assignment.assigned_frequency === 'WEEKLY') return true;
+  // Weekly always active; other cadences use week offset from available_since_date.
+  // Office MONTHLY is weekday-bound ≈ every 4 weeks (meetings use calendar same-day).
+  const freq = String(assignment.assigned_frequency || 'WEEKLY').toUpperCase();
+  if (freq === 'WEEKLY') return true;
   const anchor = normalizeYmd(assignment.available_since_date) || new Date().toISOString().slice(0, 10);
   const wi = weekIndexFromAnchor(dateStr, anchor);
-  return wi % 2 === 0;
+  if (freq === 'BIWEEKLY') return wi % 2 === 0;
+  if (freq === 'EVERY_3_WEEKS') return wi % 3 === 0;
+  if (freq === 'EVERY_4_WEEKS' || freq === 'MONTHLY') return wi % 4 === 0;
+  return true;
 }
 
 /** Exported for use by isRoomOpenAt when checking if a standing assignment blocks a slot. */
@@ -152,19 +157,33 @@ export function shouldBookOnDate(plan, assignment, dateStr) {
   const configuredUntil = openEndedWeekly ? null : normalizeYmd(plan.active_until_date);
   if (configuredUntil && dateStr > configuredUntil) return false;
 
-  if (plan.booked_frequency === 'WEEKLY') return true;
+  const freq = String(plan.booked_frequency || '').toUpperCase();
+  if (freq === 'WEEKLY') return true;
 
-  if (plan.booked_frequency === 'BIWEEKLY') {
-    if (assignment.assigned_frequency === 'BIWEEKLY') return true;
+  if (freq === 'BIWEEKLY') {
+    if (String(assignment.assigned_frequency || '').toUpperCase() === 'BIWEEKLY') return true;
     const wi = weekIndexFromAnchor(dateStr, start);
     return wi % 2 === 0;
   }
 
-  if (plan.booked_frequency === 'MONTHLY') {
-    // Monthly cadence: every 28 days from booking_start_date (aligned with officeSlotSeries).
-    const diffDays = dayDiffYmd(start, dateStr);
-    if (!Number.isFinite(diffDays) || diffDays < 0) return false;
-    return diffDays % 28 === 0;
+  if (freq === 'EVERY_3_WEEKS') {
+    if (String(assignment.assigned_frequency || '').toUpperCase() === 'EVERY_3_WEEKS') return true;
+    const wi = weekIndexFromAnchor(dateStr, start);
+    return wi % 3 === 0;
+  }
+
+  if (freq === 'EVERY_4_WEEKS') {
+    if (String(assignment.assigned_frequency || '').toUpperCase() === 'EVERY_4_WEEKS') return true;
+    const wi = weekIndexFromAnchor(dateStr, start);
+    return wi % 4 === 0;
+  }
+
+  if (freq === 'MONTHLY') {
+    // Office slots are weekday-bound; monthly ≈ every 4 weeks on the same weekday
+    // from booking_start_date. Calendar same-day monthly is used for meetings/supervision.
+    if (String(assignment.assigned_frequency || '').toUpperCase() === 'MONTHLY') return true;
+    const wi = weekIndexFromAnchor(dateStr, start);
+    return wi % 4 === 0;
   }
 
   return false;

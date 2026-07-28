@@ -473,7 +473,10 @@ export async function refreshLocationBookingsFromEhr({ officeLocationId, actorUs
     for (const sid of assignmentIds) {
       const seed = planSeedByAssignmentId.get(sid);
       if (!seed?.startAt) continue;
-      const bookedFrequency = freqById.get(sid) === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
+      const standingFreq = String(freqById.get(sid) || 'WEEKLY').toUpperCase();
+      const bookedFrequency = ['WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'MONTHLY'].includes(standingFreq)
+        ? standingFreq
+        : 'WEEKLY';
       const activeUntilDate = OfficeScheduleMaterializer.addDays(seed.startAt, 42);
       // eslint-disable-next-line no-await-in-loop
       await OfficeBookingPlan.upsertActive({
@@ -731,7 +734,7 @@ export async function auditIcsCoverageForLocation({
          AND e.ics_flag_cleared_at IS NULL
          AND (
            e.standing_assignment_id IS NULL
-           OR UPPER(COALESCE(osa.assigned_frequency, 'ONCE')) NOT IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY')
+           OR UPPER(COALESCE(osa.assigned_frequency, 'ONCE')) NOT IN ('WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'MONTHLY')
          )`,
       [officeId]
     );
@@ -764,7 +767,7 @@ export async function auditIcsCoverageForLocation({
          AND e.slot_state = 'ASSIGNED_BOOKED'
          AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
          AND osa.is_active = TRUE
-         AND UPPER(COALESCE(osa.assigned_frequency, '')) IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY')
+         AND UPPER(COALESCE(osa.assigned_frequency, '')) IN ('WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'MONTHLY')
          AND e.start_at >= ?
          AND e.start_at < ?
          AND (osa.ics_coverage_keep_until IS NULL OR osa.ics_coverage_keep_until < ?)
@@ -791,7 +794,7 @@ export async function auditIcsCoverageForLocation({
              AND e.slot_state = 'ASSIGNED_BOOKED'
              AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
              AND osa.is_active = TRUE
-             AND UPPER(COALESCE(osa.assigned_frequency, '')) IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY')
+             AND UPPER(COALESCE(osa.assigned_frequency, '')) IN ('WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'MONTHLY')
              AND e.start_at >= ?
              AND e.start_at < ?
            ORDER BY e.assigned_provider_id ASC, e.standing_assignment_id ASC, e.start_at ASC`,

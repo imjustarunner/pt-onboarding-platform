@@ -33,7 +33,9 @@
           </label>
           <select class="select" v-model="r.frequency">
             <option value="WEEKLY">Weekly</option>
-            <option value="BIWEEKLY">Biweekly</option>
+            <option value="BIWEEKLY">Every 2 weeks</option>
+            <option value="EVERY_3_WEEKS">Every 3 weeks</option>
+            <option value="EVERY_4_WEEKS">Every 4 weeks</option>
             <option value="EITHER">Either</option>
           </select>
           <button type="button" class="btn btn-secondary btn-sm" @click="removeRow(idx)" :disabled="saving">Remove</button>

@@ -16,8 +16,11 @@ import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js'
 import {
   normalizeYmd,
   addDays,
+  addMonthsYmd,
   stepDaysForRecurrence,
-  normalizeOfficeRequestRecurrence
+  normalizeOfficeRequestRecurrence,
+  isRecurringFrequency,
+  RECURRING_FREQUENCIES
 } from './officeSlotSeries.service.js';
 import { mysqlDateTimeForDateHour } from '../utils/officeEventDateTime.util.js';
 
@@ -73,22 +76,27 @@ function resolveRecurrenceParams({ recurrenceRaw, occurrenceCountRaw, startDateY
   const startDate = normalizeYmd(startDateYmd) || normalizeYmd(new Date());
   const stepDays = stepDaysForRecurrence(recurrenceName);
   // Open-ended weekly: no temporary_until / active_until cutoff.
-  // Finite series (ONCE / explicit count / biweekly / monthly): compute until date.
+  // Finite series (ONCE / explicit count / non-weekly cadences): compute until date.
   let untilDate = null;
   if (recurrenceName === 'ONCE') {
     untilDate = startDate;
   } else if (occurrenceCount != null) {
-    const lastOccurrenceOffsetDays = Math.max(0, occurrenceCount - 1) * stepDays;
-    untilDate = toYmdSafe(addDays(new Date(startDate), lastOccurrenceOffsetDays));
+    if (recurrenceName === 'MONTHLY') {
+      untilDate = addMonthsYmd(startDate, Math.max(0, occurrenceCount - 1));
+    } else {
+      const lastOccurrenceOffsetDays = Math.max(0, occurrenceCount - 1) * (stepDays || 7);
+      untilDate = toYmdSafe(addDays(new Date(startDate), lastOccurrenceOffsetDays));
+    }
   }
 
-  const assignedFrequency = recurrenceName === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
-  const bookingFrequency = recurrenceName === 'BIWEEKLY' ? 'BIWEEKLY'
-    : recurrenceName === 'MONTHLY' ? 'MONTHLY'
-      : 'WEEKLY';
-  const materializeWeeks = recurrenceName === 'BIWEEKLY' ? 12
-    : recurrenceName === 'MONTHLY' ? Math.min(52, (occurrenceCount || 6) * 5)
-      : recurrenceName === 'ONCE' ? 1 : 12;
+  const assignedFrequency = isRecurringFrequency(recurrenceName) ? recurrenceName : 'WEEKLY';
+  const bookingFrequency = RECURRING_FREQUENCIES.includes(recurrenceName) ? recurrenceName : 'WEEKLY';
+  const materializeWeeks = recurrenceName === 'ONCE' ? 1
+    : recurrenceName === 'EVERY_3_WEEKS' ? 36
+      : (recurrenceName === 'EVERY_4_WEEKS' || recurrenceName === 'MONTHLY')
+        ? Math.min(52, Math.max(12, (occurrenceCount || 6) * 5))
+        : recurrenceName === 'BIWEEKLY' ? 24
+          : 12;
 
   return {
     recurrenceName,

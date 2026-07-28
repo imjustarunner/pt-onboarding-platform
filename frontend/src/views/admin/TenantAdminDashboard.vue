@@ -642,6 +642,7 @@ const userRoleLabel = computed(() => {
     admin: 'Agency Admin',
     support: 'Support',
     club_manager: 'Club Manager',
+    athlete: 'Athlete',
     provider_plus: 'Provider+',
     clinical_practice_assistant: 'Clinical Assistant'
   };

@@ -107,6 +107,19 @@ export function checkAccess(user, { effectiveRole } = {}) {
     };
   }
 
+  // SSTC-native athletes: non-clinical participants. Platform shell + dashboard only;
+  // clinical training/admin stay off. PENDING_SETUP still blocked via status switch below
+  // when status is not yet ready — athletes with usable statuses get SSTC surfaces.
+  if (userRole === 'athlete' && status !== 'ARCHIVED' && status !== 'INACTIVE_EMPLOYEE' && status !== 'PENDING_SETUP' && status !== 'PROSPECTIVE') {
+    return {
+      canAccessOnDemand: false,
+      canAccessDashboard: true,
+      canAccessTraining: false,
+      canAccessDocuments: true,
+      canAccessAdmin: false
+    };
+  }
+
   // Base access permissions based on status
   let canAccessOnDemand = false;
   let canAccessDashboard = false;

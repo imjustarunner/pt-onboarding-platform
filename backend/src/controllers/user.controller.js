@@ -2400,7 +2400,7 @@ export const updateUser = async (req, res, next) => {
     if (role) {
       // Note: we still accept legacy inputs (clinician/intern/facilitator/supervisor) via roleRaw,
       // but they are normalized above.
-      const validRoles = ['super_admin', 'admin', 'assistant_admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff', 'provider', 'school_staff', 'client_guardian'];
+      const validRoles = ['super_admin', 'admin', 'assistant_admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff', 'provider', 'school_staff', 'client_guardian', 'club_manager', 'athlete'];
       if (!validRoles.includes(role)) {
         return res.status(400).json({ error: { message: `Invalid role. Must be one of: ${validRoles.join(', ')}` } });
       }
@@ -3344,7 +3344,7 @@ export const updateUser = async (req, res, next) => {
     // Handle MySQL enum errors more gracefully
     if (error.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' || error.message?.includes('enum')) {
       console.error('Role enum error:', error.message);
-      return res.status(400).json({ error: { message: `Invalid role value. Valid roles are: super_admin, admin, support, supervisor, clinical_practice_assistant, provider_plus, staff, provider, facilitator, intern` } });
+      return res.status(400).json({ error: { message: `Invalid role value. Valid roles are: super_admin, admin, support, clinical_practice_assistant, provider_plus, staff, provider, school_staff, client_guardian, club_manager, athlete` } });
     }
     console.error('Error updating user:', error);
     next(error);
@@ -3984,8 +3984,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
       if (oneTimeByTemporaryWindow) {
         frequency = 'ONCE';
         frequencyLabel = 'Once';
-      } else if (frequency === 'WEEKLY') frequencyLabel = 'Weekly';
-      else if (frequency === 'BIWEEKLY') frequencyLabel = 'Biweekly';
+      }       else if (frequency === 'WEEKLY') frequencyLabel = 'Weekly';
+      else if (frequency === 'BIWEEKLY') frequencyLabel = 'Every 2 weeks';
+      else if (frequency === 'EVERY_3_WEEKS') frequencyLabel = 'Every 3 weeks';
+      else if (frequency === 'EVERY_4_WEEKS') frequencyLabel = 'Every 4 weeks';
       else if (frequency === 'MONTHLY') frequencyLabel = 'Monthly';
       else if (frequency === 'ONCE') frequencyLabel = 'Once';
       else if (assignedFrequency || bookedFrequency) {
