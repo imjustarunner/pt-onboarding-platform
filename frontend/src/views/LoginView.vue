@@ -1,5 +1,9 @@
 <template>
-  <div class="login-page" :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo, 'login-page--video-auth': useVideoAuthLayout }">
+  <div
+    class="login-page"
+    :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo, 'login-page--video-auth': useVideoAuthLayout }"
+    :style="tenantLoginPageStyle"
+  >
     <video
       v-if="isPlatformLogin"
       class="login-bg-video login-bg-video--wide login-bg-video--platform"
@@ -28,25 +32,31 @@
     </video>
     <video
       v-if="tenantLoginVideoWideSrc"
+      ref="tenantLoginVideoWideRef"
       class="login-bg-video login-bg-video--wide login-bg-video--tenant"
       autoplay
       muted
       loop
       playsinline
+      preload="auto"
       disablepictureinpicture
       aria-hidden="true"
+      :poster="tenantLoginPosterWide"
     >
       <source :src="tenantLoginVideoWideSrc" type="video/mp4" />
     </video>
     <video
       v-if="tenantLoginVideoNarrowSrc"
+      ref="tenantLoginVideoNarrowRef"
       class="login-bg-video login-bg-video--narrow login-bg-video--tenant"
       autoplay
       muted
       loop
       playsinline
+      preload="auto"
       disablepictureinpicture
       aria-hidden="true"
+      :poster="tenantLoginPosterNarrow"
     >
       <source :src="tenantLoginVideoNarrowSrc" type="video/mp4" />
     </video>
@@ -622,7 +632,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
@@ -991,16 +1001,24 @@ const TENANT_LOGIN_BG_VIDEOS = Object.freeze({
   plottwistco: {
     wide: '/branding/plottwistco-login-bg.mp4',
     narrow: '/branding/plottwistco-login-bg-mobile.mp4',
+    fallbackBg: '#08081a',
   },
   itsco: {
     wide: '/branding/itsco-login-bg.mp4',
     narrow: '/branding/itsco-login-bg-mobile.mp4',
+    fallbackBg: '#061018',
   },
   nlu: {
     wide: '/branding/nlu-login-bg.mp4',
     narrow: '/branding/nlu-login-bg-mobile.mp4',
+    posterWide: '/branding/nlu-login-bg.png',
+    posterNarrow: '/branding/nlu-login-bg-mobile.png',
+    fallbackBg: '#070b1a',
   },
 });
+
+const tenantLoginVideoWideRef = ref(null);
+const tenantLoginVideoNarrowRef = ref(null);
 
 const isMainTenantHubLogin = (portalSlug) => {
   if (isPlatformLogin.value) return false;
@@ -1034,6 +1052,36 @@ const tenantLoginVideoNarrowSrc = computed(() => {
 const showTenantLoginVideo = computed(
   () => !!(tenantLoginVideoWideSrc.value || tenantLoginVideoNarrowSrc.value)
 );
+
+const tenantLoginPosterWide = computed(() => activeTenantLoginVideos.value?.posterWide || '');
+const tenantLoginPosterNarrow = computed(() => activeTenantLoginVideos.value?.posterNarrow || '');
+
+const tenantLoginPageStyle = computed(() => {
+  const videos = activeTenantLoginVideos.value;
+  if (!showTenantLoginVideo.value || !videos) return {};
+  const fallbackBg = videos.fallbackBg || '#070b1a';
+  const posterWide = videos.posterWide || '';
+  const posterNarrow = videos.posterNarrow || posterWide;
+  return {
+    '--tenant-login-fallback-bg': fallbackBg,
+    '--tenant-login-poster-wide': posterWide ? `url('${posterWide}')` : 'none',
+    '--tenant-login-poster-narrow': posterNarrow ? `url('${posterNarrow}')` : 'none',
+  };
+});
+
+const playTenantLoginBgVideos = async () => {
+  if (!showTenantLoginVideo.value) return;
+  await nextTick();
+  for (const el of [tenantLoginVideoWideRef.value, tenantLoginVideoNarrowRef.value]) {
+    if (!el) continue;
+    try {
+      el.muted = true;
+      await el.play();
+    } catch {
+      // Autoplay may be blocked on mobile; poster + fallback background still show.
+    }
+  }
+};
 
 const useVideoAuthLayout = computed(() => isPlatformLogin.value || showTenantLoginVideo.value);
 
@@ -1262,6 +1310,12 @@ onMounted(async () => {
       username.value = rememberedGoogle.username;
     }
   }
+
+  await playTenantLoginBgVideos();
+});
+
+watch(showTenantLoginVideo, (active) => {
+  if (active) playTenantLoginBgVideos();
 });
 
 // If the org slug or parent path changes while this view is mounted, refresh the login theme
@@ -3112,6 +3166,21 @@ const handleLogoError = (event) => {
 @media (prefers-reduced-motion: reduce) {
   .login-bg-video {
     display: none !important;
+  }
+}
+
+/* Tenant login video: dark fallback + poster while mp4 loads (esp. iOS mobile) */
+.login-page--tenant-video {
+  background-color: var(--tenant-login-fallback-bg, #070b1a);
+  background-image: var(--tenant-login-poster-wide, none);
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: cover;
+}
+
+@media (max-width: 480px) {
+  .login-page--tenant-video {
+    background-image: var(--tenant-login-poster-narrow, var(--tenant-login-poster-wide, none));
   }
 }
 
