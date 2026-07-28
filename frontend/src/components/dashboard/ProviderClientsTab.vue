@@ -118,7 +118,7 @@
         </div>
         <div v-if="officeError" class="error">{{ officeError }}</div>
         <div v-else-if="!officeLoading && currentOfficeClients.length === 0" class="muted empty-state">
-          No office clients assigned to you yet (clinical, virtual, tutoring, and other non-school clients).
+          No in-office clients assigned to you yet (clients on a school affiliation appear under In School).
         </div>
         <div v-else class="office-clients-table-wrap">
           <table class="office-clients-table">
@@ -133,7 +133,7 @@
             <tbody>
               <tr v-for="c in currentOfficeClients" :key="c.id">
                 <td :title="officeHoverTitle(c)">{{ formatOfficeClientLabel(c) }}</td>
-                <td>{{ c.client_type === 'clinical' ? 'Office / Clinical' : 'Learning' }}</td>
+                <td>{{ formatClientTypeLabel(c) }}</td>
                 <td>{{ c.status }}</td>
                 <td>{{ c.submission_date || '—' }}</td>
               </tr>
@@ -188,7 +188,7 @@
             </span>
           </div>
           <p class="muted tiny">
-            New clinical / office intakes assigned to you that are still pending. Mark current after you accept them.
+            New intakes assigned to you outside school affiliations that are still pending. Mark current after you accept them.
             Posting to Client Exchange within 30 days of assignment counts as not accepting the referral.
             <template v-if="officeAcceptance?.acceptanceLabel">
               Your ratio: {{ officeAcceptance.acceptanceLabel }}.
@@ -209,7 +209,7 @@
               <tbody>
                 <tr v-for="c in pendingOfficeClients" :key="c.id">
                   <td :title="officeHoverTitle(c)">{{ formatOfficeClientLabel(c) }}</td>
-                  <td>{{ c.client_type === 'clinical' ? 'Office / Clinical' : 'Learning' }}</td>
+                  <td>{{ formatClientTypeLabel(c) }}</td>
                   <td>{{ formatPreferred(c) }}</td>
                   <td>{{ c.submission_date || '—' }}</td>
                 </tr>
@@ -273,6 +273,7 @@ const agencyId = computed(() => {
 });
 
 const schools = ref([]);
+const schoolAffiliatedClientIds = ref(new Set());
 const selectedSchoolOrgId = ref(null);
 const selectedFiscalYearStart = ref('');
 const clientLabelMode = ref('initials');
@@ -387,10 +388,14 @@ const sectionTitle = computed(() => {
 
 const sectionHint = computed(() => {
   if (activeSection.value === 'school') {
-    return 'Clients assigned to you at your schools. Sorted by school when viewing All schools.';
+    return props.profileEmbed
+      ? 'Clients assigned to you at school-affiliated organizations (any client type, including clinical).'
+      : 'Clients on your school affiliation rosters (any client type). Sorted by school when viewing All schools.';
   }
   if (activeSection.value === 'office') {
-    return 'In-office, virtual, tutoring, and other non-school clinical clients.';
+    return props.profileEmbed
+      ? 'Clients assigned to you outside school affiliations — office, virtual, tutoring, and other non-school settings.'
+      : 'In-office, virtual, tutoring, and other clients not on a school affiliation roster.';
   }
   if (activeSection.value === 'new') {
     return 'Pending school and office clients that still need a day, acceptance, or paperwork progress.';
@@ -493,6 +498,22 @@ const officeHoverTitle = (c) => {
   return full || initials || '';
 };
 
+const formatClientTypeLabel = (c) => {
+  const t = String(c?.client_type || '').toLowerCase();
+  if (t === 'clinical') return 'Clinical';
+  if (t === 'learning') return 'Learning';
+  if (t === 'school') return 'School';
+  if (t === 'basic_nonclinical') return 'Non-clinical';
+  return t ? t.replace(/_/g, ' ') : '—';
+};
+
+function isSchoolAffiliatedClient(client, schoolIds = schoolAffiliatedClientIds.value) {
+  const id = Number(client?.id);
+  if (id && schoolIds?.has?.(id)) return true;
+  const orgType = String(client?.organization_type || '').toLowerCase();
+  return orgType === 'school';
+}
+
 const pendingStageLabel = (row) => {
   if (row.pending_stage === 'no_parent_contact') return 'No parent contact date';
   if (row.pending_stage === 'no_first_session') return 'No first session date';
@@ -545,19 +566,23 @@ const loadOfficeClients = async () => {
   officeLoading.value = true;
   officeError.value = '';
   try {
+    await refreshSchoolAffiliatedClientIds();
     const [r] = await Promise.all([
       api.get('/clients', {
         params: {
           agency_id: agencyId.value,
           provider_id: currentUserId.value,
-          client_type: 'clinical,learning',
         },
         skipGlobalLoading: true,
       }),
       loadOfficeAcceptance(),
     ]);
     const rows = Array.isArray(r.data) ? r.data : r.data?.items || [];
-    officeClients.value = rows.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+    const schoolIds = schoolAffiliatedClientIds.value;
+    officeClients.value = rows.filter((c) => {
+      if (String(c?.status || '').toUpperCase() === 'ARCHIVED') return false;
+      return !isSchoolAffiliatedClient(c, schoolIds);
+    });
   } catch (e) {
     officeClients.value = [];
     officeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load office clients';
@@ -566,6 +591,37 @@ const loadOfficeClients = async () => {
     emitPendingCount();
   }
 };
+
+async function refreshSchoolAffiliatedClientIds() {
+  const ids = new Set();
+  const list = schools.value || [];
+  if (!list.length || !currentUserId.value) {
+    schoolAffiliatedClientIds.value = ids;
+    return ids;
+  }
+  const rosterParams = {
+    ...(rosterProviderUserId.value ? { providerUserId: rosterProviderUserId.value } : {}),
+  };
+  const results = await Promise.all(
+    list.map((s) =>
+      api
+        .get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, {
+          params: rosterParams,
+          skipGlobalLoading: true,
+        })
+        .then((res) => (Array.isArray(res?.data) ? res.data : []))
+        .catch(() => [])
+    )
+  );
+  for (const rows of results) {
+    for (const c of rows) {
+      const id = Number(c?.id);
+      if (id) ids.add(id);
+    }
+  }
+  schoolAffiliatedClientIds.value = ids;
+  return ids;
+}
 
 const loadSchools = async () => {
   if (!agencyId.value || !currentUserId.value) return;
