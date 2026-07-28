@@ -115,7 +115,8 @@ function injectDemoSchoolAdmin(school) {
     email: demoUser.email || 'minerva.mcgonagall@hogwarts.edu',
     role: demoUser.role || 'school_staff',
     isSchoolAdmin: true,
-    username: demoUser.email || 'minerva.mcgonagall@hogwarts.edu'
+    username: demoUser.email || 'minerva.mcgonagall@hogwarts.edu',
+    __schoolOnboardingDemoUser: true
   };
   injectedDemoAuth = true;
 }

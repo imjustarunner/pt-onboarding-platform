@@ -2201,6 +2201,7 @@ import { useCommunicationsCountsStore } from './store/communicationsCounts';
 import { useSessionLockStore } from './store/sessionLock';
 import { useUserPreferencesStore } from './store/userPreferences';
 import { useRouter, useRoute } from 'vue-router';
+import { isSchoolOnboardingDemoRoute } from './utils/schoolOnboardingDemoContext.js';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
 import { buildFormUrl } from './utils/publicIntakeUrl.js';
@@ -5704,6 +5705,7 @@ watch(notificationsUnreadCount, (next, prev) => {
 });
 
 watch(() => route.params.organizationSlug, async (newSlug) => {
+  if (isSchoolOnboardingDemoRoute(route)) return;
   if (newSlug) {
     await organizationStore.fetchBySlug(newSlug);
   } else if (!newSlug) {
@@ -5731,7 +5733,9 @@ onMounted(async () => {
     void loadNavActiveSeason();
     // Organization context from route
     const slug = route.params.organizationSlug;
-    if (slug) {
+    if (isSchoolOnboardingDemoRoute(route)) {
+      // Hogwarts demo sets organization + ITSCO branding in SchoolOnboardingDemoView.
+    } else if (slug) {
       organizationStore.fetchBySlug(slug);
     } else {
       organizationStore.clearOrganization();
@@ -5755,16 +5759,18 @@ onMounted(async () => {
   // Initialize portal host context on app load (for subdomain detection).
   // IMPORTANT: if we're already on a slug route (e.g. /nlu/admin/*), re-apply that slug theme
   // afterward so host-portal branding (e.g. app.itsco.health) does not override the active route branding.
-  await brandingStore.initializePortalTheme();
-  try {
-    const routeSlug = typeof route.params.organizationSlug === 'string'
-      ? String(route.params.organizationSlug).trim()
-      : '';
-    if (routeSlug) {
-      await brandingStore.fetchAgencyTheme(routeSlug);
+  if (!isSchoolOnboardingDemoRoute(route)) {
+    await brandingStore.initializePortalTheme();
+    try {
+      const routeSlug = typeof route.params.organizationSlug === 'string'
+        ? String(route.params.organizationSlug).trim()
+        : '';
+      if (routeSlug) {
+        await brandingStore.fetchAgencyTheme(routeSlug);
+      }
+    } catch {
+      // best effort
     }
-  } catch {
-    // best effort
   }
 
   // Super admin default: Platform context unless we're on a branded (slug) route.

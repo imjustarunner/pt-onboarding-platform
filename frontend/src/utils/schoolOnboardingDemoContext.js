@@ -38,6 +38,19 @@ export function isSchoolOnboardingStandaloneDemo() {
   return standaloneDemo;
 }
 
+/** True when the current route is a school-onboarding Hogwarts demo page. */
+export function isSchoolOnboardingDemoRoute(routeOrPath) {
+  if (!routeOrPath) return false;
+  const path = typeof routeOrPath === 'string' ? routeOrPath : String(routeOrPath?.path || '');
+  const name = typeof routeOrPath === 'string' ? '' : String(routeOrPath?.name || '');
+  return (
+    /^\/school-onboarding\/demo\/?$/i.test(path) ||
+    /^\/school-onboarding\/[^/]+\/demo\/?$/i.test(path) ||
+    name === 'SchoolOnboardingStandaloneDemo' ||
+    name === 'SchoolOnboardingDemo'
+  );
+}
+
 export function buildSchoolOnboardingStandaloneDemoPath() {
   return '/school-onboarding/demo';
 }
@@ -87,6 +100,11 @@ export function rewriteSchoolPortalUrlForDemo(url) {
   const prefs = pathOnly.match(/^(?:\/api)?\/users\/(\d+)\/preferences$/i);
   if (prefs) {
     return `${base}/users/${prefs[1]}/preferences${query}`;
+  }
+
+  const psychotherapy = pathOnly.match(/^(?:\/api)?\/psychotherapy-compliance\/summary$/i);
+  if (psychotherapy) {
+    return `${base}/psychotherapy-compliance/summary${query}`;
   }
 
   return null;

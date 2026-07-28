@@ -14,7 +14,66 @@ export const DEMO_SCHOOL_ADMIN_USER_ID = 1015;
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const REMOVED_DEMO_PROVIDER_IDS = new Set([595, 596, 601]);
-const REMOVED_DEMO_STAFF_EMAILS = new Set(['skyler@d11.org', 'filius.flitwick@hogwarts.edu']);
+const REMOVED_DEMO_STAFF_EMAILS = new Set([
+  'chuckie@d11.org',
+  'skyler@d11.org',
+  'filius.flitwick@hogwarts.edu'
+]);
+
+const normalizeWeekday = (d) => {
+  const s = String(d || '').trim();
+  return WEEKDAYS.includes(s) ? s : null;
+};
+
+const normalizeSoftTime = (t) => {
+  const s = String(t || '').trim();
+  if (!s) return null;
+  if (/^\d{2}:\d{2}$/.test(s)) return `${s}:00`;
+  if (/^\d{2}:\d{2}:\d{2}$/.test(s)) return s;
+  return null;
+};
+
+const timeToMinutes = (t) => {
+  const s = String(t || '').slice(0, 8);
+  const m = s.match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const hh = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  return hh * 60 + mm;
+};
+
+const minutesToTime = (mins) => {
+  const m = Number(mins);
+  if (!Number.isFinite(m)) return null;
+  const hh = Math.max(0, Math.min(23, Math.floor(m / 60)));
+  const mm = Math.max(0, Math.min(59, Math.floor(m % 60)));
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`;
+};
+
+function buildDefaultSoftSlots({ slotCount, startTime, endTime }) {
+  const count = Math.max(1, Math.min(50, parseInt(slotCount || 0, 10) || 7));
+  const startM = timeToMinutes(startTime);
+  const endM = timeToMinutes(endTime);
+  const hasRange = Number.isFinite(startM) && Number.isFinite(endM) && endM > startM;
+  const total = hasRange ? endM - startM : null;
+  const per = hasRange ? Math.max(5, Math.floor(total / count)) : null;
+  const out = [];
+  for (let i = 0; i < count; i += 1) {
+    const slotStart = hasRange ? minutesToTime(startM + per * i) : null;
+    const slotEnd = hasRange ? minutesToTime(i === count - 1 ? endM : (startM + per * (i + 1))) : null;
+    out.push({
+      id: null,
+      slot_index: i + 1,
+      start_time: slotStart,
+      end_time: slotEnd,
+      client_id: null,
+      note: null,
+      is_default: true
+    });
+  }
+  return out;
+}
 
 export async function resolveHogwartsCore() {
   const [rows] = await pool.execute(
@@ -334,7 +393,17 @@ export async function getDemoSchedulingProviders(token) {
       accepting_new_clients_effective: true
     });
   }
-  return [...byProvider.values()];
+  return [...byProvider.values()].map((p) => {
+    const extras = DEMO_PROVIDER_DETAILS[p.provider_user_id] || {};
+    return {
+      ...p,
+      title: extras.title || null,
+      credential: extras.credential || null,
+      service_focus: extras.service_focus || null,
+      languages_spoken: extras.languages_spoken || null,
+      school_info_blurb: extras.school_info_blurb || p.school_info_blurb || null
+    };
+  });
 }
 
 export async function getDemoClients(token) {
@@ -940,6 +1009,491 @@ export async function getDemoUserPreferences() {
   };
 }
 
+const DEMO_PROVIDER_THREAD_BY_USER_ID = {
+  1007: 90001,
+  1008: 90001,
+  1009: 90002,
+  1010: 90001,
+  1017: 90003
+};
+
+const DEMO_PROVIDER_DETAILS = {
+  1007: {
+    title: 'Occupational Therapist',
+    credential: 'OTR/L',
+    service_focus: 'Fine motor skills, sensory integration, and classroom participation',
+    languages_spoken: 'English',
+    school_info_blurb:
+      'Sirius supports students with handwriting, motor planning, and sensory regulation goals. He coordinates closely with classroom teachers on accommodations.',
+    tenant_contact_phone: '7195551007',
+    insurances_accepted: [
+      { insurance_key: 'medicaid', label: 'Medicaid', name: 'Medicaid' },
+      { insurance_key: 'chp', label: 'CHP+', name: 'Child Health Plan Plus' },
+      { insurance_key: 'tricare', label: 'TRICARE', name: 'TRICARE' }
+    ],
+    supervisors: [
+      {
+        id: 539,
+        first_name: 'Remus',
+        last_name: 'Lupin',
+        credential: 'OTR/L, Clinical Supervisor',
+        is_primary: true,
+        supervisor_type: 'clinical',
+        profile_photo_url: null
+      }
+    ]
+  },
+  1008: {
+    title: 'Speech-Language Pathologist',
+    credential: 'MS, CCC-SLP',
+    service_focus: 'Articulation, language, and social communication',
+    languages_spoken: 'English, French',
+    school_info_blurb:
+      'Tonks helps students build communication confidence in the classroom and during group work. She is especially skilled with pragmatic language goals.',
+    tenant_contact_phone: '7195551008',
+    insurances_accepted: [
+      { insurance_key: 'medicaid', label: 'Medicaid', name: 'Medicaid' },
+      { insurance_key: 'chp', label: 'CHP+', name: 'Child Health Plan Plus' }
+    ],
+    supervisors: [
+      {
+        id: 539,
+        first_name: 'Remus',
+        last_name: 'Lupin',
+        credential: 'OTR/L, Clinical Supervisor',
+        is_primary: true,
+        supervisor_type: 'clinical',
+        profile_photo_url: null
+      }
+    ]
+  },
+  1009: {
+    title: 'School-Based Counselor',
+    credential: 'LPC',
+    service_focus: 'Brief counseling, crisis support, and family coordination',
+    languages_spoken: 'English',
+    school_info_blurb:
+      'Kingsley provides short-term counseling and helps families navigate community resources. He partners with school staff on behavior support plans.',
+    tenant_contact_phone: '7195551009',
+    insurances_accepted: [
+      { insurance_key: 'medicaid', label: 'Medicaid', name: 'Medicaid' },
+      { insurance_key: 'private', label: 'Private pay', name: 'Private pay' }
+    ],
+    supervisors: [
+      {
+        id: 539,
+        first_name: 'Remus',
+        last_name: 'Lupin',
+        credential: 'OTR/L, Clinical Supervisor',
+        is_primary: true,
+        supervisor_type: 'clinical',
+        profile_photo_url: null
+      }
+    ]
+  },
+  1010: {
+    title: 'Physical Therapist',
+    credential: 'DPT',
+    service_focus: 'Mobility, balance, and adaptive equipment in the school setting',
+    languages_spoken: 'English',
+    school_info_blurb:
+      'Alastor focuses on safe movement, stair negotiation, and playground access. He collaborates with PE staff on inclusive activities.',
+    tenant_contact_phone: '7195551010',
+    insurances_accepted: [
+      { insurance_key: 'medicaid', label: 'Medicaid', name: 'Medicaid' },
+      { insurance_key: 'tricare', label: 'TRICARE', name: 'TRICARE' }
+    ],
+    supervisors: [
+      {
+        id: 539,
+        first_name: 'Remus',
+        last_name: 'Lupin',
+        credential: 'OTR/L, Clinical Supervisor',
+        is_primary: true,
+        supervisor_type: 'clinical',
+        profile_photo_url: null
+      }
+    ]
+  }
+};
+
+function mapDemoClientRow(r) {
+  return {
+    id: r.id,
+    initials: r.initials,
+    identifier_code: r.identifier_code,
+    status: r.status,
+    service_day: r.service_day,
+    document_status: r.document_status || null,
+    roi_expires_at: r.roi_expires_at || null,
+    unread_notes_count: 0,
+    school_staff_access_level: 'full',
+    school_staff_effective_access_state: 'active',
+    school_portal_can_open: true,
+    school_portal_gray: false,
+    school_portal_force_placeholder: false,
+    school_portal_locked_label: null
+  };
+}
+
+export async function getDemoProviderProfile(token, providerUserIdRaw) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  const providerUserId = Number(providerUserIdRaw || 0);
+  if (!providerUserId || REMOVED_DEMO_PROVIDER_IDS.has(providerUserId)) {
+    return { provider_user_id: providerUserId, first_name: 'Demo', last_name: 'Provider' };
+  }
+  const [rows] = await pool
+    .execute(
+      `SELECT id, first_name, last_name, title, service_focus, languages_spoken, profile_photo_path,
+              phone_number, work_phone, work_phone_extension
+       FROM users WHERE id = ? LIMIT 1`,
+      [providerUserId]
+    )
+    .catch(() => [[]]);
+  const u = rows?.[0] || {};
+  const extras = DEMO_PROVIDER_DETAILS[providerUserId] || {};
+  const supervisors = extras.supervisors || [];
+  return {
+    provider_user_id: providerUserId,
+    first_name: u.first_name || 'Demo',
+    last_name: u.last_name || 'Provider',
+    email: null,
+    title: extras.title || u.title || null,
+    credential: extras.credential || null,
+    service_focus: extras.service_focus || u.service_focus || null,
+    languages_spoken: extras.languages_spoken || u.languages_spoken || 'English',
+    tenant_contact_phone: extras.tenant_contact_phone || null,
+    tenant_contact_phone_extension: null,
+    phone_number: u.phone_number || null,
+    personal_phone: null,
+    work_phone: u.work_phone || null,
+    work_phone_extension: u.work_phone_extension || null,
+    profile_photo_url: publicUploadsUrlFromStoredPath(u.profile_photo_path || null),
+    school_info_blurb: extras.school_info_blurb || null,
+    insurances_accepted: extras.insurances_accepted || [],
+    accepts_tricare_override: null,
+    supervisors,
+    primary_supervisor_id: supervisors.find((s) => s.is_primary)?.id || supervisors[0]?.id || null,
+    leaveType: null,
+    isOnLeave: false,
+    leaveLabel: null,
+    school_organization_id: schoolId
+  };
+}
+
+export async function getDemoProviderCaseloadSlots(token, providerUserIdRaw) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  const providerUserId = Number(providerUserIdRaw || 0);
+  const [assignments] = await pool
+    .execute(
+      `SELECT day_of_week, slots_total, slots_available, start_time, end_time, is_active
+       FROM provider_school_assignments
+       WHERE school_organization_id = ? AND provider_user_id = ? AND is_active = TRUE
+       ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday') ASC`,
+      [schoolId, providerUserId]
+    )
+    .catch(() => [[]]);
+
+  const out = [];
+  for (const a of assignments || []) {
+    const day = String(a.day_of_week || '');
+    const clientRows = await getDemoAssignedClients(token, providerUserId, day);
+    const clients = (clientRows || []).map(mapDemoClientRow);
+    const slotsUsed = clients.length;
+    out.push({
+      day_of_week: day,
+      slots_total: Number(a.slots_total || 0),
+      slots_available: Number(a.slots_available || 0),
+      slots_used: slotsUsed,
+      start_time: a.start_time,
+      end_time: a.end_time,
+      is_active: !!a.is_active,
+      clients
+    });
+  }
+
+  return {
+    school_organization_id: schoolId,
+    provider_user_id: providerUserId,
+    assignments: out
+  };
+}
+
+export async function getDemoProviderSoftSlots(token, weekdayRaw, providerUserIdRaw) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  const providerUserId = Number(providerUserIdRaw || 0);
+  const weekday = normalizeWeekday(
+    WEEKDAYS.find((d) => d.toLowerCase() === String(weekdayRaw || '').toLowerCase()) || weekdayRaw
+  );
+  if (!weekday || !providerUserId || REMOVED_DEMO_PROVIDER_IDS.has(providerUserId)) {
+    return { persisted: false, slots: [] };
+  }
+
+  const [rows] = await pool
+    .execute(
+      `SELECT id, slot_index, start_time, end_time, client_id, note
+       FROM soft_schedule_slots
+       WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?
+       ORDER BY slot_index ASC`,
+      [schoolId, weekday, providerUserId]
+    )
+    .catch(() => [[]]);
+
+  if ((rows || []).length > 0) {
+    return { persisted: true, slots: rows || [] };
+  }
+
+  const [metaRows] = await pool
+    .execute(
+      `SELECT slots_total, start_time, end_time
+       FROM provider_school_assignments
+       WHERE school_organization_id = ? AND provider_user_id = ? AND day_of_week = ? AND is_active = TRUE
+       LIMIT 1`,
+      [schoolId, providerUserId, weekday]
+    )
+    .catch(() => [[]]);
+  const meta = metaRows?.[0];
+  if (!meta) return { persisted: false, slots: [] };
+
+  const slots = buildDefaultSoftSlots({
+    slotCount: meta.slots_total,
+    startTime: meta.start_time ? String(meta.start_time) : '08:00:00',
+    endTime: meta.end_time ? String(meta.end_time) : '15:00:00'
+  });
+  return { persisted: false, slots };
+}
+
+async function assertDemoClientEligibleForSoftSlot({ connection, schoolId, providerUserId, weekday, clientIds }) {
+  const unique = Array.from(new Set((clientIds || []).map((x) => parseInt(x, 10)).filter(Boolean)));
+  if (!unique.length) return;
+
+  const placeholders = unique.map(() => '?').join(',');
+  const [cpaRows] = await connection.execute(
+    `SELECT cpa.client_id AS id
+     FROM client_provider_assignments cpa
+     JOIN client_organization_assignments coa
+       ON coa.client_id = cpa.client_id
+      AND coa.organization_id = cpa.organization_id
+      AND coa.is_active = TRUE
+     WHERE cpa.client_id IN (${placeholders})
+       AND cpa.organization_id = ?
+       AND cpa.provider_user_id = ?
+       AND cpa.service_day = ?
+       AND cpa.is_active = TRUE`,
+    [...unique, schoolId, providerUserId, weekday]
+  );
+  const allowedByCpa = new Set((cpaRows || []).map((r) => Number(r.id)));
+  const [legacyRows] = await connection.execute(
+    `SELECT id, organization_id, provider_id, service_day
+     FROM clients
+     WHERE id IN (${placeholders})`,
+    unique
+  );
+  const legacyById = new Map((legacyRows || []).map((r) => [Number(r.id), r]));
+  for (const cid of unique) {
+    if (allowedByCpa.has(Number(cid))) continue;
+    const c = legacyById.get(Number(cid));
+    if (!c) throw Object.assign(new Error('Client not found'), { status: 404 });
+    if (parseInt(c.organization_id, 10) !== schoolId) {
+      throw Object.assign(new Error('Client does not belong to this school organization'), { status: 400 });
+    }
+    if (parseInt(c.provider_id || 0, 10) !== providerUserId || String(c.service_day || '') !== String(weekday)) {
+      throw Object.assign(new Error('Client is not assigned to this provider/day. Admin/support/provider must assign first.'), { status: 409 });
+    }
+  }
+}
+
+export async function putDemoProviderSoftSlots(token, weekdayRaw, providerUserIdRaw, body = {}) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  const weekday = normalizeWeekday(
+    WEEKDAYS.find((d) => d.toLowerCase() === String(weekdayRaw || '').toLowerCase()) || weekdayRaw
+  );
+  const providerUserId = Number(providerUserIdRaw || 0);
+  if (!weekday || !providerUserId) {
+    throw Object.assign(new Error('Invalid weekday or provider'), { status: 400 });
+  }
+
+  const slotsInput = Array.isArray(body?.slots) ? body.slots : (Array.isArray(body) ? body : []);
+  if (!Array.isArray(slotsInput) || slotsInput.length === 0) {
+    throw Object.assign(new Error('At least one slot is required'), { status: 400 });
+  }
+  if (slotsInput.length > 50) {
+    throw Object.assign(new Error('Too many slots (max 50)'), { status: 400 });
+  }
+
+  const requestedClientIds = [];
+  const normalizedSlots = slotsInput.map((s) => {
+    const id = s?.id ? parseInt(s.id, 10) : null;
+    const startTime = normalizeSoftTime(s?.start_time ?? s?.startTime ?? null);
+    const endTime = normalizeSoftTime(s?.end_time ?? s?.endTime ?? null);
+    const note = s?.note === undefined ? null : (s.note === null ? null : String(s.note));
+    const clientId = s?.client_id !== undefined
+      ? (s.client_id === null || s.client_id === '' ? null : parseInt(s.client_id, 10))
+      : (s?.clientId === null || s?.clientId === '' || s?.clientId === undefined ? null : parseInt(s.clientId, 10));
+
+    if ((startTime && !endTime) || (!startTime && endTime)) {
+      throw Object.assign(new Error('Both start_time and end_time are required when setting times.'), { status: 400 });
+    }
+    if (clientId) requestedClientIds.push(clientId);
+    return { id, start_time: startTime, end_time: endTime, note, client_id: clientId };
+  });
+
+  const connection = await pool.getConnection();
+  try {
+    await assertDemoClientEligibleForSoftSlot({
+      connection,
+      schoolId,
+      providerUserId,
+      weekday,
+      clientIds: requestedClientIds
+    });
+
+    await connection.beginTransaction();
+    const [existingRows] = await connection.execute(
+      `SELECT id
+       FROM soft_schedule_slots
+       WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?
+       FOR UPDATE`,
+      [schoolId, weekday, providerUserId]
+    );
+    const existingIds = new Set((existingRows || []).map((r) => Number(r.id)));
+    const keptIds = new Set();
+    const actorId = DEMO_SCHOOL_ADMIN_USER_ID;
+
+    for (let i = 0; i < normalizedSlots.length; i += 1) {
+      const slot = normalizedSlots[i];
+      const slotIndex = i + 1;
+      const isExisting = slot.id && existingIds.has(Number(slot.id));
+
+      if (isExisting) {
+        await connection.execute(
+          `UPDATE soft_schedule_slots
+           SET slot_index = ?, start_time = ?, end_time = ?, client_id = ?, note = ?, updated_by_user_id = ?
+           WHERE id = ?`,
+          [slotIndex, slot.start_time, slot.end_time, slot.client_id, slot.note, actorId, slot.id]
+        );
+        keptIds.add(Number(slot.id));
+      } else {
+        const [ins] = await connection.execute(
+          `INSERT INTO soft_schedule_slots
+            (school_organization_id, weekday, provider_user_id, slot_index, start_time, end_time, client_id, note, created_by_user_id, updated_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [schoolId, weekday, providerUserId, slotIndex, slot.start_time, slot.end_time, slot.client_id, slot.note, actorId, actorId]
+        );
+        keptIds.add(Number(ins.insertId));
+      }
+    }
+
+    const toDelete = Array.from(existingIds).filter((id) => !keptIds.has(id));
+    if (toDelete.length > 0) {
+      const placeholders = toDelete.map(() => '?').join(',');
+      await connection.execute(
+        `DELETE FROM soft_schedule_slots WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ? AND id IN (${placeholders})`,
+        [schoolId, weekday, providerUserId, ...toDelete]
+      );
+    }
+
+    await connection.commit();
+
+    const [outRows] = await pool.execute(
+      `SELECT id, slot_index, start_time, end_time, client_id, note
+       FROM soft_schedule_slots
+       WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?
+       ORDER BY slot_index ASC`,
+      [schoolId, weekday, providerUserId]
+    );
+    return { persisted: true, slots: outRows || [] };
+  } catch (e) {
+    try {
+      await connection.rollback();
+    } catch {
+      // ignore
+    }
+    throw e;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function moveDemoProviderSoftSlot(token, weekdayRaw, providerUserIdRaw, slotIdRaw, body = {}) {
+  const { schoolId } = await resolveHogwartsForInvite(token);
+  const weekday = normalizeWeekday(
+    WEEKDAYS.find((d) => d.toLowerCase() === String(weekdayRaw || '').toLowerCase()) || weekdayRaw
+  );
+  const providerUserId = Number(providerUserIdRaw || 0);
+  const slotId = Number(slotIdRaw || 0);
+  if (!weekday || !providerUserId || !slotId) {
+    throw Object.assign(new Error('Invalid weekday, provider, or slot'), { status: 400 });
+  }
+
+  const direction = String(body?.direction || '').trim().toLowerCase();
+  if (direction !== 'up' && direction !== 'down') {
+    throw Object.assign(new Error('direction must be up or down'), { status: 400 });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      `SELECT id, slot_index
+       FROM soft_schedule_slots
+       WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?
+       ORDER BY slot_index ASC
+       FOR UPDATE`,
+      [schoolId, weekday, providerUserId]
+    );
+    const list = rows || [];
+    const idx = list.findIndex((r) => Number(r.id) === Number(slotId));
+    if (idx < 0) {
+      await connection.rollback();
+      throw Object.assign(new Error('Slot not found'), { status: 404 });
+    }
+    const neighborIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (neighborIdx < 0 || neighborIdx >= list.length) {
+      await connection.commit();
+    } else {
+      const a = list[idx];
+      const b = list[neighborIdx];
+      const actorId = DEMO_SCHOOL_ADMIN_USER_ID;
+      await connection.execute(
+        `UPDATE soft_schedule_slots SET slot_index = ?, updated_by_user_id = ? WHERE id = ?`,
+        [b.slot_index, actorId, a.id]
+      );
+      await connection.execute(
+        `UPDATE soft_schedule_slots SET slot_index = ?, updated_by_user_id = ? WHERE id = ?`,
+        [a.slot_index, actorId, b.id]
+      );
+      await connection.commit();
+    }
+
+    const [outRows] = await pool.execute(
+      `SELECT id, slot_index, start_time, end_time, client_id, note
+       FROM soft_schedule_slots
+       WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?
+       ORDER BY slot_index ASC`,
+      [schoolId, weekday, providerUserId]
+    );
+    return { moved: neighborIdx >= 0 && neighborIdx < list.length, slots: outRows || [] };
+  } catch (e) {
+    try {
+      await connection.rollback();
+    } catch {
+      // ignore
+    }
+    throw e;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getDemoPsychotherapySummary() {
+  return { matched: [] };
+}
+
+export async function getDemoSkillsGroupMeetings() {
+  return [];
+}
+
 /**
  * Route a rewritten school-portal GET path to demo handlers.
  * pathRest examples: "stats", "days", "days/Monday/providers", "clients", "school-staff"
@@ -958,19 +1512,17 @@ export async function handleDemoPortalGet(token, pathRest, query = {}) {
     return getDemoDayProviders(token, parts[1]);
   }
   if (parts[0] === 'days' && parts[2] === 'providers' && parts[4] === 'soft-slots') {
-    return getDemoSoftSlots();
+    return getDemoProviderSoftSlots(token, parts[1], parts[3]);
   }
   if (parts[0] === 'providers' && parts[1] === 'scheduling') return getDemoSchedulingProviders(token);
   if (parts[0] === 'providers' && parts[2] === 'assigned-clients') {
     return getDemoAssignedClients(token, parts[1], query.dayOfWeek || query.day_of_week);
   }
   if (parts[0] === 'providers' && parts[2] === 'profile') {
-    const providers = await getDemoSchedulingProviders(token);
-    const p = providers.find((x) => Number(x.provider_user_id) === Number(parts[1]));
-    return p || { provider_user_id: Number(parts[1]), first_name: 'Demo', last_name: 'Provider', assignments: [] };
+    return getDemoProviderProfile(token, parts[1]);
   }
   if (parts[0] === 'providers' && parts[2] === 'caseload-slots') {
-    return { slots: [] };
+    return getDemoProviderCaseloadSlots(token, parts[1]);
   }
   if (parts[0] === 'clients') return getDemoClients(token);
   if (parts[0] === 'school-staff') return getDemoSchoolStaff(token);
@@ -995,6 +1547,10 @@ export async function handleDemoPortalGet(token, pathRest, query = {}) {
   if (parts[0] === 'my-roster') return [];
   if (parts[0] === 'skill-builders-program') return { linked: false };
   if (parts[0] === 'skills-groups') return [];
+  if (parts[0] === 'skills-group-meetings') return getDemoSkillsGroupMeetings();
+  if (parts[0] === 'psychotherapy-compliance' && parts[1] === 'summary') {
+    return getDemoPsychotherapySummary();
+  }
 
   // Rewritten non-school-portal APIs used by Messages / Contact Admin / notifications.
   if (parts[0] === 'chat' && parts[1] === 'threads' && parts.length === 2) {
@@ -1030,6 +1586,41 @@ export async function handleDemoPortalGet(token, pathRest, query = {}) {
   return [];
 }
 
-export async function handleDemoPortalMutation() {
+export async function handleDemoPortalMutation(method, pathRest, body = {}, token = 'public') {
+  const rest = String(pathRest || '').replace(/^\/+|\/+$/g, '');
+  const parts = rest ? rest.split('/') : [];
+  const verb = String(method || 'POST').toUpperCase();
+
+  if (verb === 'POST' && parts[0] === 'chat' && parts[1] === 'threads' && parts[2] === 'direct') {
+    const otherId = Number(body?.otherUserId || body?.other_user_id || 0);
+    return { threadId: DEMO_PROVIDER_THREAD_BY_USER_ID[otherId] || 90001 };
+  }
+  if (verb === 'POST' && parts[0] === 'chat' && parts[1] === 'threads' && parts[3] === 'messages') {
+    return { id: Date.now(), body: String(body?.body || ''), created_at: new Date().toISOString() };
+  }
+  if (verb === 'POST' && parts[0] === 'chat' && parts[1] === 'threads' && parts[3] === 'read') {
+    return { ok: true };
+  }
+
+  if (
+    parts[0] === 'days' &&
+    parts[2] === 'providers' &&
+    parts[4] === 'soft-slots' &&
+    parts.length === 5 &&
+    verb === 'PUT'
+  ) {
+    return putDemoProviderSoftSlots(token, parts[1], parts[3], body);
+  }
+  if (
+    parts[0] === 'days' &&
+    parts[2] === 'providers' &&
+    parts[4] === 'soft-slots' &&
+    parts[6] === 'move' &&
+    parts.length === 7 &&
+    verb === 'POST'
+  ) {
+    return moveDemoProviderSoftSlot(token, parts[1], parts[3], parts[5], body);
+  }
+
   return { ok: true, demo: true, message: 'Demo only — changes are not saved.' };
 }

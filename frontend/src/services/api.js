@@ -245,6 +245,10 @@ api.interceptors.response.use(
     const isInitialSetup = window.location.pathname.includes('/initial-setup');
     const justLoggedIn = sessionStorage.getItem('justLoggedIn') === 'true';
     const skipAuthRedirect = !!error?.config?.skipAuthRedirect;
+    const isSchoolOnboardingDemo =
+      isSchoolOnboardingDemoActive() ||
+      /^\/school-onboarding\/demo\/?$/i.test(path) ||
+      /^\/school-onboarding\/[^/]+\/demo\/?$/i.test(path);
     // Inactivity timeout → Session Ended must win over a bare /login hard redirect
     let isSessionEndedFlow = path.includes('/session-ended');
     try {
@@ -293,6 +297,7 @@ api.interceptors.response.use(
       !isInitialSetup &&
       !isSessionEndedFlow &&
       !skipAuthRedirect &&
+      !isSchoolOnboardingDemo &&
       !isPublicApi &&
       !isPublicPath &&
       !isPrehirePortalApi

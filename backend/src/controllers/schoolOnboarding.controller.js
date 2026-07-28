@@ -198,7 +198,10 @@ export async function mutateDemoPortal(req, res, next) {
     const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
     // Validate invite exists
     await S.resolveDemoSchool(req.params.token);
-    const data = await DemoPortal.handleDemoPortalMutation();
+    const pathRest = String(req.url || '/')
+      .split('?')[0]
+      .replace(/^\/+/, '');
+    const data = await DemoPortal.handleDemoPortalMutation(req.method, pathRest, req.body || {}, req.params.token);
     res.json(data);
   } catch (err) {
     handleServiceError(err, res, next);
@@ -246,7 +249,10 @@ export async function getPublicStandaloneDemoPortal(req, res, next) {
 export async function mutatePublicStandaloneDemoPortal(req, res, next) {
   try {
     const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
-    const data = await DemoPortal.handleDemoPortalMutation();
+    const pathRest = String(req.url || '/')
+      .split('?')[0]
+      .replace(/^\/+/, '');
+    const data = await DemoPortal.handleDemoPortalMutation(req.method, pathRest, req.body || {}, 'public');
     res.json(data);
   } catch (err) {
     handleServiceError(err, res, next);

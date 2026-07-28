@@ -176,6 +176,9 @@
                 {{ b.label }}
               </span>
             </div>
+            <div v-if="p.credential || p.title" class="line cred-line">
+              {{ [p.credential, p.title].filter(Boolean).join(' · ') }}
+            </div>
             <div v-if="p.email" class="line">{{ p.email }}</div>
             <div v-if="p.school_info_blurb" class="blurb">{{ p.school_info_blurb }}</div>
             <div class="badges">

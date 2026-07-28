@@ -174,7 +174,8 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     panel.loading = true;
     panel.error = '';
     try {
-      await Promise.all([fetchProviderCaseload(weekday, providerUserId), fetchSoftSlots(weekday, providerUserId)]);
+      const tasks = [fetchProviderCaseload(weekday, providerUserId), fetchSoftSlots(weekday, providerUserId)];
+      await Promise.all(tasks);
     } catch (e) {
       panel.error = e.response?.data?.error?.message || 'Failed to load provider panel';
     } finally {

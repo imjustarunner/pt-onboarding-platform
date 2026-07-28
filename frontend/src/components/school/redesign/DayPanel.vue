@@ -30,7 +30,7 @@
         </div>
       </div>
 
-      <div v-if="providers.length > 0" class="schedule-disclaimer schedule-disclaimer-left">
+      <div v-if="providers.length > 0 && !hideSoftSchedule" class="schedule-disclaimer schedule-disclaimer-left">
         <div class="schedule-disclaimer-title">Schedule Disclaimer</div>
         <div class="schedule-disclaimer-text">
           The schedules shown on this page are intended as a soft schedule for planning and communication purposes only. They do not update,
@@ -79,7 +79,9 @@
         <div class="spinner" aria-hidden="true"></div>
         <div>
           <div class="loading-title">Loading schedules…</div>
-          <div class="loading-sub">Pulling caseload + soft schedules for this day.</div>
+          <div class="loading-sub">
+            {{ hideSoftSchedule ? 'Pulling caseload for this day.' : 'Pulling caseload + soft schedules for this day.' }}
+          </div>
         </div>
       </div>
       <div v-else-if="providersError" class="error">{{ providersError }}</div>
@@ -104,6 +106,7 @@
             :current-user-role="currentUserRole"
             :highlight-client-id="highlightClientId"
             :highlight-provider-user-id="highlightProviderUserId"
+            :hide-soft-schedule="hideSoftSchedule"
             :caseload-clients="panelFor(p.provider_user_id)?.caseloadClients || []"
             :slots="panelFor(p.provider_user_id)?.slots || []"
             :loading="panelFor(p.provider_user_id)?.loading || false"
@@ -137,7 +140,8 @@ const props = defineProps({
   currentUserId: { type: [Number, String], default: null },
   currentUserRole: { type: String, default: '' },
   highlightClientId: { type: [Number, String], default: null },
-  highlightProviderUserId: { type: [Number, String], default: null }
+  highlightProviderUserId: { type: [Number, String], default: null },
+  hideSoftSchedule: { type: Boolean, default: false }
 });
 
 const emit = defineEmits([

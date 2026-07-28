@@ -163,10 +163,16 @@
           <div class="panel" data-tour="school-provider-daybar-panel">
             <div class="panel-title">Day</div>
             <SchoolDayBar v-model="selectedWeekday" :days="dayBarDays" />
-            <div v-if="!selectedWeekday" class="muted">Select a day to open the soft schedule.</div>
+            <div v-if="!selectedWeekday" class="muted">
+              Select a day to open the soft schedule.
+            </div>
           </div>
 
-          <div v-if="selectedWeekday" class="panel" data-tour="school-provider-soft-schedule-panel">
+          <div
+            v-if="selectedWeekday"
+            class="panel"
+            data-tour="school-provider-soft-schedule-panel"
+          >
             <div class="panel-title">Soft schedule ({{ selectedWeekday }})</div>
             <div v-if="messagesOpen" class="muted">
               Soft schedule is collapsed while messaging is open.
@@ -382,7 +388,9 @@ const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
   providerUserId: { type: Number, required: true },
   /** Display name for the school/program (shown in client list). */
-  schoolName: { type: String, default: '' }
+  schoolName: { type: String, default: '' },
+  /** Hogwarts public demo: back stays on /school-onboarding/demo instead of /:slug/dashboard */
+  publicDemoMode: { type: Boolean, default: false }
 });
 defineEmits(['open-client']);
 
@@ -403,6 +411,16 @@ const canViewPsychotherapyPanel = computed(() => (
 const profilePhotoUrl = computed(() => toUploadsUrl(profile.value?.profile_photo_url || null));
 
 const backToProviders = () => {
+  if (props.publicDemoMode) {
+    const q = { ...(route.query || {}) };
+    delete q.provider;
+    delete q.providerId;
+    delete q.provider_user_id;
+    delete q.chat;
+    if (!q.sp) q.sp = 'providers';
+    router.push({ path: route.path, query: q }).catch(() => {});
+    return;
+  }
   const slug = String(route.params.organizationSlug || '').trim();
   if (!slug) {
     router.back();

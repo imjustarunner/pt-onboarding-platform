@@ -11,6 +11,10 @@ import { isSupervisor } from '../utils/helpers';
 import { hasProviderMobileAccess } from '../utils/providerMobileAccess';
 import { isLikelyMobileViewport, isStandalonePwa } from '../utils/pwa';
 import { getSchoolStaffWaiverStatus } from '../utils/schoolStaffWaiverGate';
+import {
+  isSchoolOnboardingDemoActive,
+  isSchoolOnboardingDemoRoute
+} from '../utils/schoolOnboardingDemoContext.js';
 import api from '../services/api';
 import { isSummitPlatformRouteSlug, NATIVE_APP_ORG_SLUG } from '../utils/summitPlatformSlugs.js';
 import { userChoseWorkOverSummitFromStores } from '../utils/sstcSurfaceChoice.js';
@@ -4191,7 +4195,13 @@ router.beforeEach(async (to, from, next) => {
 
   // School staff are locked to a single school-portal experience.
   // They should not access platform admin sections or other org routes.
-  if (authStore.isAuthenticated && String(authStore.user?.role || '').toLowerCase() === 'school_staff') {
+  if (
+    authStore.isAuthenticated &&
+    String(authStore.user?.role || '').toLowerCase() === 'school_staff' &&
+    !authStore.user?.__schoolOnboardingDemoUser &&
+    !isSchoolOnboardingDemoActive() &&
+    !isSchoolOnboardingDemoRoute(to)
+  ) {
     const allowedSlugs = getSchoolStaffPortalSlugs(agencyStore, authStore);
     const targetSlug = allowedSlugs[0] || getDefaultOrganizationSlug();
     const toSlug = typeof to.params.organizationSlug === 'string' ? String(to.params.organizationSlug) : null;
@@ -4211,6 +4221,7 @@ router.beforeEach(async (to, from, next) => {
       'SchoolReinitPublic',
       'SchoolOnboarding',
       'SchoolOnboardingDemo',
+      'SchoolOnboardingStandaloneDemo',
       'SchoolOnboardingStart'
     ]);
 
@@ -4232,7 +4243,13 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
-  if (authStore.isAuthenticated && String(authStore.user?.role || '').toLowerCase() === 'school_staff') {
+  if (
+    authStore.isAuthenticated &&
+    String(authStore.user?.role || '').toLowerCase() === 'school_staff' &&
+    !authStore.user?.__schoolOnboardingDemoUser &&
+    !isSchoolOnboardingDemoActive() &&
+    !isSchoolOnboardingDemoRoute(to)
+  ) {
     const exemptRouteNames = new Set([
       'DocumentSigning',
       'DocumentReview',
@@ -4240,6 +4257,7 @@ router.beforeEach(async (to, from, next) => {
       'OrganizationDocumentReview',
       'SchoolOnboarding',
       'SchoolOnboardingDemo',
+      'SchoolOnboardingStandaloneDemo',
       'SchoolOnboardingStart'
     ]);
     const currentRouteName = String(to.name || '');

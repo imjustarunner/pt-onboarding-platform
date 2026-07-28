@@ -473,7 +473,16 @@
 
       <SurveyPromptCard v-if="authStore.user?.id && !isPreviewOrDemo" :splash="true" />
 
-      <div class="portal-content" :class="{ 'is-home': portalMode === 'home' }">
+      <ProviderSchoolProfile
+        v-if="demoProfileProviderId && organizationId"
+        :school-organization-id="organizationId"
+        :provider-user-id="demoProfileProviderId"
+        :school-name="organizationDisplayName"
+        public-demo-mode
+        @open-client="openClient"
+      />
+
+      <div v-else class="portal-content" :class="{ 'is-home': portalMode === 'home' }">
         <div class="top-row" data-tour="school-top-actions">
           <div class="top-left">
             <div class="section-kicker">{{ portalSectionLabel }}</div>
@@ -1837,6 +1846,7 @@ import DayPanel from '../../components/school/redesign/DayPanel.vue';
 import ClientModal from '../../components/school/redesign/ClientModal.vue';
 import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPanel.vue';
 import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersDirectoryPanel.vue';
+import ProviderSchoolProfile from '../../components/school/redesign/ProviderSchoolProfile.vue';
 import SchoolStaffPanel from '../../components/school/redesign/SchoolStaffPanel.vue';
 import SchoolPortalMessagesPanel from '../../components/school/redesign/SchoolPortalMessagesPanel.vue';
 import PublicDocumentsPanel from '../../components/school/redesign/PublicDocumentsPanel.vue';
@@ -1893,7 +1903,10 @@ const previewBannerSubtitle = computed(() => {
   if (onboardingDemoToken.value) {
     return 'Browse the Hogwarts school portal. When you’re done, return to finish onboarding.';
   }
-  if (String(route.name || '') === 'SchoolOnboardingDemo') {
+  if (
+    String(route.name || '') === 'SchoolOnboardingDemo' ||
+    String(route.name || '') === 'SchoolOnboardingStandaloneDemo'
+  ) {
     return 'Demo school — view only. Browse freely; add/edit/delete actions are disabled.';
   }
   return 'This platform preview shows the tenant portal shell without acting like a live school staff session.';
@@ -2470,6 +2483,32 @@ const daysHighlightProviderUserId = ref(null);
 let daysFindHighlightTimer = null;
 
 const requestedPortalMode = computed(() => String(route.query?.sp || '').trim().toLowerCase());
+
+const demoProviderIdFromRoute = () => {
+  const raw = route.query?.provider ?? route.query?.providerId ?? route.query?.provider_user_id ?? '';
+  const n = Number.parseInt(String(raw || ''), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+const clearPublicDemoProviderQueryKeys = (query = {}) => {
+  const q = { ...query };
+  delete q.provider;
+  delete q.providerId;
+  delete q.provider_user_id;
+  delete q.chat;
+  return q;
+};
+
+const closeDemoProviderProfile = async ({ replace = true } = {}) => {
+  if (!isPublicDemo.value || !demoProviderIdFromRoute()) return;
+  const q = clearPublicDemoProviderQueryKeys(route.query || {});
+  try {
+    const nav = replace ? router.replace.bind(router) : router.push.bind(router);
+    await nav({ path: route.path, query: q });
+  } catch {
+    // ignore navigation failures
+  }
+};
 const notificationsFilter = computed(() => String(route.query?.notif || '').trim().toLowerCase());
 const notificationsCreateOpen = computed(() => ['1', 'true', 'yes'].includes(String(route.query?.announcementCreate || '').trim().toLowerCase()));
 const skillsUnassignedOnly = computed(() => {
@@ -2501,7 +2540,11 @@ const syncPortalModeQuery = async (mode, { replace = false, queryExtras = null }
   const next = String(mode || 'home').trim().toLowerCase() || 'home';
   const currentSp = String(route.query?.sp || '').trim().toLowerCase();
   const desiredSp = next === 'home' || !PORTAL_MODES_WITH_SP.has(next) ? '' : next;
-  const q = { ...(route.query || {}) };
+  let q = { ...(route.query || {}) };
+
+  if (isPublicDemo.value) {
+    q = clearPublicDemoProviderQueryKeys(q);
+  }
 
   if (desiredSp) q.sp = desiredSp;
   else delete q.sp;
@@ -2521,7 +2564,10 @@ const syncPortalModeQuery = async (mode, { replace = false, queryExtras = null }
   const sameSp = (desiredSp || '') === (currentSp || '');
   const sameNotif = String(q.notif || '') === String(route.query?.notif || '');
   const sameCreate = String(q.announcementCreate || '') === String(route.query?.announcementCreate || '');
-  if (sameSp && sameNotif && sameCreate) return;
+  const demoProviderQueryChanged = isPublicDemo.value && ['provider', 'providerId', 'provider_user_id', 'chat'].some(
+    (key) => String(q[key] || '') !== String(route.query?.[key] || '')
+  );
+  if (sameSp && sameNotif && sameCreate && !demoProviderQueryChanged) return;
 
   try {
     const nav = replace ? router.replace.bind(router) : router.push.bind(router);
@@ -2567,7 +2613,13 @@ const setPortalMode = async (mode, { syncQuery = true, replace = false, queryExt
   }
   const changed = portalMode.value !== next;
   portalMode.value = next;
-  if (syncQuery && (changed || queryExtras || replace)) {
+  const shouldSyncQuery = syncQuery && (
+    changed ||
+    queryExtras ||
+    replace ||
+    (isPublicDemo.value && demoProviderIdFromRoute())
+  );
+  if (shouldSyncQuery) {
     await syncPortalModeQuery(next, { replace, queryExtras });
   }
 };
@@ -3859,13 +3911,21 @@ const toggleSidebarCollapsed = () => {
   }
 };
 
-const navigateSidebar = (action) => {
+const navigateSidebar = async (action) => {
   sidebarMobileOpen.value = false;
+  if (isPublicDemo.value && demoProviderIdFromRoute()) {
+    await closeDemoProviderProfile();
+  }
   if (typeof action === 'function') action();
 };
 
 const portalUserFirstName = computed(() => {
-  if (isPublicDemo.value) return 'there';
+  if (isPublicDemo.value) {
+    const u = authStore.user || {};
+    const first = String(u.first_name || u.firstName || '').trim();
+    if (first) return first;
+    return 'there';
+  }
   const u = authStore.user || {};
   const first = String(u.first_name || u.firstName || '').trim();
   if (first) return first;
@@ -3942,6 +4002,11 @@ const organizationId = computed(() => {
   return organizationStore.organizationContext?.id || 
          organizationStore.currentOrganization?.id || 
          null;
+});
+
+const demoProfileProviderId = computed(() => {
+  if (!isPublicDemo.value) return null;
+  return demoProviderIdFromRoute();
 });
 
 const manageSchoolDigitalIntakesTo = computed(() => {
@@ -4252,10 +4317,22 @@ const navigateAdminClient = async ({ direction }) => {
 };
 
 const goToProviderSchoolProfile = (providerUserId, query = {}) => {
+  const pid = Number(providerUserId || 0);
+  if (!pid) return;
+  if (isPublicDemo.value) {
+    const q = {
+      ...(route.query || {}),
+      provider: String(pid),
+      sp: String(portalMode.value || 'providers')
+    };
+    if (query?.chat) q.chat = '1';
+    router.push({ path: route.path, query: q }).catch(() => {});
+    return;
+  }
   const slug = organizationSlug.value;
-  if (!slug || !providerUserId) return;
+  if (!slug) return;
   const q = query && typeof query === 'object' ? query : {};
-  router.push({ path: `/${slug}/providers/${providerUserId}`, query: q });
+  router.push({ path: `/${slug}/providers/${pid}`, query: q });
 };
 
 const messageProvider = (providerUserId) => {

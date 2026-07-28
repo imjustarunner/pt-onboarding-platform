@@ -86,6 +86,7 @@
       </div>
 
       <SoftScheduleEditor
+        v-if="!hideSoftSchedule"
         class="schedule"
         :slots="slots"
         :caseload-clients="caseloadClients"
@@ -124,7 +125,9 @@ const props = defineProps({
   currentUserId: { type: [Number, String], default: null },
   currentUserRole: { type: String, default: '' },
   highlightClientId: { type: [Number, String], default: null },
-  highlightProviderUserId: { type: [Number, String], default: null }
+  highlightProviderUserId: { type: [Number, String], default: null },
+  /** Demo / view-only: hide non-functional soft schedule editor */
+  hideSoftSchedule: { type: Boolean, default: false }
 });
 
 const isHighlightedProvider = computed(() => {
