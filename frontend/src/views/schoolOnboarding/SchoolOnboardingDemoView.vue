@@ -1,5 +1,5 @@
 <template>
-  <div class="so-demo-portal">
+  <div class="so-demo-portal" :style="demoThemeVars">
     <header class="so-demo-banner">
       <div>
         <strong>{{ schoolName }} demo</strong>
@@ -63,38 +63,76 @@ let injectedDemoAuth = false;
 
 const schoolName = computed(() => schoolMeta.value?.official_name || schoolMeta.value?.name || 'Hogwarts');
 
-function demoPortalThemeSlug(school) {
-  // Prefer affiliated tenant branding slug (ITSCO) so standalone matches onboarding shell.
-  const theme = school?.portal_theme;
-  if (theme?.brandingAgencyId && theme?.agencyName) {
-    // ITSCO portal_url is the branding source of truth for this demo.
-    return 'itsco';
-  }
-  return String(school?.portal_url || school?.slug || 'hogwarts').trim().toLowerCase();
+/** Hard fallback so the demo never renders platform gold if theme fetch lags. */
+const ITSCO_DEMO_PALETTE = {
+  primary: '#669878',
+  secondary: '#5A9B58',
+  accent: '#145A3D'
+};
+
+function demoPortalThemeSlug() {
+  // Always brand the public demo with the affiliated tenant (ITSCO), never Hogwarts gold/red.
+  return 'itsco';
 }
 
-function applyDemoPortalTheme(school) {
-  const slug = demoPortalThemeSlug(school);
+function resolveDemoColorPalette(school) {
+  const theme = school?.portal_theme || {};
+  const fromTheme = theme.colorPalette && typeof theme.colorPalette === 'object' ? theme.colorPalette : null;
+  if (fromTheme && (fromTheme.primary || fromTheme.secondary)) return { ...ITSCO_DEMO_PALETTE, ...fromTheme };
+  return { ...ITSCO_DEMO_PALETTE };
+}
+
+const demoThemeVars = computed(() => {
+  const theme = schoolMeta.value?.portal_theme || {};
+  const palette = resolveDemoColorPalette(schoolMeta.value || {});
+  const primary = palette.primary || ITSCO_DEMO_PALETTE.primary;
+  const secondary = palette.secondary || ITSCO_DEMO_PALETTE.secondary;
+  const accent = palette.accent || primary;
+  return {
+    '--primary': primary,
+    '--primary-color': primary,
+    '--secondary': secondary,
+    '--secondary-color': secondary,
+    '--accent': accent,
+    '--accent-color': accent,
+    '--agency-primary-color': primary,
+    '--agency-secondary-color': secondary,
+    '--agency-accent-color': accent,
+    '--header-text-color': '#ffffff',
+    '--header-text-muted': 'rgba(255,255,255,0.85)',
+    '--border': accent,
+    ...(theme.themeSettings?.fontFamily
+      ? { '--agency-font-family': theme.themeSettings.fontFamily }
+      : {})
+  };
+});
+
+async function applyDemoPortalTheme(school) {
+  const slug = demoPortalThemeSlug();
   brandingStore.setActiveRouteSlug(slug);
-  const theme = school?.portal_theme;
-  if (theme?.colorPalette && Object.keys(theme.colorPalette).length) {
-    brandingStore.setPortalThemeData({
-      brandingAgencyId: theme.brandingAgencyId || null,
-      portalOrganizationId: theme.portalOrganizationId || school?.id || null,
-      agencyName: theme.agencyName || school?.official_name || school?.name || 'Hogwarts',
-      colorPalette: theme.colorPalette || {},
-      themeSettings: {
-        ...(theme.themeSettings || {}),
-        useAffiliatedAgencyBranding: true
-      },
-      terminologySettings: theme.terminologySettings || {},
-      logoUrl: theme.logoUrl || school?.logo_url || school?.logo_path || null,
-      iconUrl: theme.iconUrl || null,
-      slug
-    });
-    return;
+  const theme = school?.portal_theme || {};
+  const colorPalette = resolveDemoColorPalette(school);
+  brandingStore.setPortalThemeData({
+    brandingAgencyId: theme.brandingAgencyId || 2,
+    portalOrganizationId: theme.portalOrganizationId || school?.id || null,
+    agencyName: theme.agencyName || 'ITSCO',
+    colorPalette,
+    themeSettings: {
+      ...(theme.themeSettings || {}),
+      useAffiliatedAgencyBranding: true
+    },
+    terminologySettings: theme.terminologySettings || {},
+    logoUrl: theme.logoUrl || school?.logo_url || school?.logo_path || null,
+    iconUrl: theme.iconUrl || null,
+    slug
+  });
+  // Prefer live ITSCO theme when available (logo / fonts), but keep green palette already applied.
+  try {
+    await brandingStore.fetchAgencyTheme(slug);
+    brandingStore.setActiveRouteSlug(slug);
+  } catch {
+    // keep hard-applied ITSCO palette
   }
-  return brandingStore.fetchAgencyTheme(slug);
 }
 
 function injectDemoSchoolAdmin(school) {
@@ -177,6 +215,7 @@ async function boot() {
       standalone: standalone.value
     });
     const theme = school.portal_theme || {};
+    const colorPalette = resolveDemoColorPalette(school);
     organizationStore.setCurrentOrganization({
       id: school.id,
       name: school.name,
@@ -187,7 +226,8 @@ async function boot() {
       is_active: true,
       logo_url: theme.logoUrl || school.logo_url || null,
       logo_path: school.logo_path || null,
-      color_palette: theme.colorPalette || school.color_palette || null,
+      // Keep school identity as Hogwarts, but paint chrome with tenant (ITSCO) colors.
+      color_palette: colorPalette,
       theme_settings: {
         ...(theme.themeSettings || school.theme_settings || {}),
         useAffiliatedAgencyBranding: true

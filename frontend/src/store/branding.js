@@ -803,6 +803,25 @@ export const useBrandingStore = defineStore('branding', () => {
       return { palette: null, source: 'platform' };
     }
 
+    // Hogwarts school-onboarding demo: always use affiliated tenant (ITSCO) palette.
+    // BrandingProvider binds --primary from this computed; without this, platform gold wins
+    // even when applyTheme() already wrote ITSCO green onto :root.
+    if (isSchoolOnboardingDemoActive()) {
+      const demoSlug = String(activeRouteSlug.value || portalAgency.value?.slug || 'itsco').trim().toLowerCase();
+      const cachedDemo = demoSlug ? _palettesBySlug[demoSlug] : null;
+      if (cachedDemo && typeof cachedDemo === 'object' && Object.keys(cachedDemo).length > 0) {
+        return { palette: cachedDemo, source: 'portal' };
+      }
+      const portalCp = portalAgency.value?.colorPalette;
+      if (portalCp && typeof portalCp === 'object' && Object.keys(portalCp).length > 0) {
+        return { palette: portalCp, source: 'portal' };
+      }
+      const themeCp = portalTheme.value?.colorPalette;
+      if (themeCp && typeof themeCp === 'object' && Object.keys(themeCp).length > 0) {
+        return { palette: themeCp, source: 'portal' };
+      }
+    }
+
     const routeSlug = activeRouteSlug.value;
 
     // 1. Route-slug cached palette — reactive because _palettesBySlug is reactive().
