@@ -8,6 +8,7 @@ import { loadFont } from '../utils/fontLoader';
 import { getBackendBaseUrl, toUploadsUrl } from '../utils/uploadsUrl';
 import { trackPromise } from '../utils/pageLoader';
 import { preloadImages } from '../utils/preloadImages';
+import { isSchoolOnboardingDemoActive } from '../utils/schoolOnboardingDemoContext.js';
 
 // In-flight deduplication + short TTL cache for fetchAgencyTheme.
 // Prevents duplicate HTTP requests on redirect-chain navigations (/:slug → /:slug/login).
@@ -501,6 +502,7 @@ export const useBrandingStore = defineStore('branding', () => {
    */
   const syncDocumentThemeFromSelectedAgency = (options = {}) => {
     const skipRouteSlugGuard = options.skipRouteSlugGuard === true;
+    if (isSchoolOnboardingDemoActive()) return;
     if (!authStore.isAuthenticated) return;
     const a = agencyStore.currentAgency;
     if (!a?.id) return;
@@ -588,6 +590,13 @@ export const useBrandingStore = defineStore('branding', () => {
   const setPortalThemeData = (themeData) => {
     if (!themeData) return;
     portalTheme.value = themeData;
+    const slugKey = String(
+      themeData.slug ||
+      themeData.portalSlug ||
+      activeRouteSlug.value ||
+      portalHostPortalUrl.value ||
+      ''
+    ).trim().toLowerCase();
     portalAgency.value = {
       name: themeData.agencyName || themeData.name || portalAgency.value?.name || null,
       colorPalette: themeData.colorPalette || {},
@@ -595,8 +604,27 @@ export const useBrandingStore = defineStore('branding', () => {
       iconUrl: themeData.iconUrl || null,
       themeSettings: themeData.themeSettings || {},
       terminologySettings: themeData.terminologySettings || {},
-      slug: portalAgency.value?.slug || portalHostPortalUrl.value || null
+      slug: slugKey || portalAgency.value?.slug || portalHostPortalUrl.value || null
     };
+
+    if (slugKey) {
+      const cp = themeData.colorPalette || {};
+      if (Object.keys(cp).length > 0) {
+        _palettesBySlug[slugKey] = cp;
+      }
+      if (themeData.logoUrl) {
+        _logosBySlug[slugKey] = themeData.logoUrl;
+      }
+      if (themeData.iconUrl) {
+        _iconsBySlug[slugKey] = themeData.iconUrl;
+      } else {
+        delete _iconsBySlug[slugKey];
+      }
+      _themeSettingsBySlug[slugKey] = themeData.themeSettings && typeof themeData.themeSettings === 'object'
+        ? themeData.themeSettings
+        : {};
+    }
+
     applyTheme(themeData);
   };
 

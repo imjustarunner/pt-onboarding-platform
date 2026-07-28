@@ -36,8 +36,8 @@
       data-tour="school-nav-rail"
     >
       <div class="sp-sidebar-brand">
-        <div v-if="schoolLogoUrl" class="sp-sidebar-logo">
-          <img :src="schoolLogoUrl" alt="" />
+        <div v-if="sidebarBrandLogoUrl" class="sp-sidebar-logo">
+          <img :src="sidebarBrandLogoUrl" alt="" />
         </div>
         <div v-else class="sp-sidebar-logo sp-sidebar-logo-fallback" aria-hidden="true">
           {{ organizationDisplayName?.charAt(0) || 'S' }}
@@ -359,6 +359,7 @@
           </div>
           <div class="sp-sidebar-school-meta">
             <div class="sp-sidebar-school-name">{{ organizationDisplayName }}</div>
+            <div v-if="tenantBrandName" class="sp-sidebar-tenant-name">{{ tenantBrandName }}</div>
           </div>
         </div>
         <button
@@ -3887,6 +3888,27 @@ const schoolLogoUrl = computed(() => {
   return toUploadsUrl(raw);
 });
 
+const sidebarBrandLogoUrl = computed(() => {
+  if (isPublicDemo.value) {
+    const tenantLogo =
+      brandingStore.portalAgency?.logoUrl ||
+      cardIconOrg.value?.logo_url ||
+      cardIconOrg.value?.logo_path ||
+      null;
+    if (tenantLogo) return toUploadsUrl(tenantLogo);
+  }
+  return schoolLogoUrl.value;
+});
+
+const tenantBrandName = computed(() => {
+  if (!isPublicDemo.value) return '';
+  return String(
+    brandingStore.portalAgency?.name ||
+    cardIconOrg.value?.name ||
+    ''
+  ).trim();
+});
+
 const homeIconUrl = computed(() => {
   const a = cardIconOrg.value || null;
   const raw = a?.icon_file_path || a?.icon_path || null;
@@ -4698,6 +4720,14 @@ watch(() => store.selectedWeekday, async (weekday) => {
   font-weight: 800;
   font-size: 13px;
   line-height: 1.25;
+}
+
+.sp-sidebar-tenant-name {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  opacity: 0.82;
 }
 
 .school-portal.sidebar-collapsed .sp-sidebar-school-row,

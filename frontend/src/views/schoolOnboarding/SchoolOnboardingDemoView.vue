@@ -77,7 +77,7 @@ function applyDemoPortalTheme(school) {
   const slug = demoPortalThemeSlug(school);
   brandingStore.setActiveRouteSlug(slug);
   const theme = school?.portal_theme;
-  if (theme?.colorPalette) {
+  if (theme?.colorPalette && Object.keys(theme.colorPalette).length) {
     brandingStore.setPortalThemeData({
       brandingAgencyId: theme.brandingAgencyId || null,
       portalOrganizationId: theme.portalOrganizationId || school?.id || null,
@@ -89,7 +89,8 @@ function applyDemoPortalTheme(school) {
       },
       terminologySettings: theme.terminologySettings || {},
       logoUrl: theme.logoUrl || school?.logo_url || school?.logo_path || null,
-      iconUrl: theme.iconUrl || null
+      iconUrl: theme.iconUrl || null,
+      slug
     });
     return;
   }

@@ -11,6 +11,7 @@ import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import { loadAndApplyPlatformFonts } from '../utils/fontLoader';
+import { isSchoolOnboardingDemoRoute } from '../utils/schoolOnboardingDemoContext.js';
 
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
@@ -73,7 +74,12 @@ onMounted(async () => {
     }
     // Best-effort: full agency row + :root CSS vars when a selection already exists (e.g. persisted currentAgency).
     // SKIP when we're already on a different org's slug route — except Settings, where the picker is authoritative.
-    if (agencyStore.currentAgency?.id && (!isOnDifferentOrgRoute() || isAdminSettingsBrandingRoute.value)) {
+    // SKIP on Hogwarts school-onboarding demo — demo view applies affiliated tenant (ITSCO) branding explicitly.
+    if (
+      agencyStore.currentAgency?.id &&
+      (!isOnDifferentOrgRoute() || isAdminSettingsBrandingRoute.value) &&
+      !isSchoolOnboardingDemoRoute(route)
+    ) {
       try {
         await agencyStore.hydrateAgencyById(agencyStore.currentAgency.id);
         brandingStore.syncDocumentThemeFromSelectedAgency({
@@ -156,6 +162,7 @@ watch(
 
     if (newId) {
       if (isOnDifferentOrgRoute() && !isAdminSettingsBrandingRoute.value) return;
+      if (isSchoolOnboardingDemoRoute(route)) return;
       try {
         await agencyStore.hydrateAgencyById(newId);
         if (agencyStore.brandingContextGeneration !== myGen) return;
