@@ -873,22 +873,25 @@ async function syncEmployeeStationCheckin({ agencyId, eventId, userId, kioskDate
 }
 
 async function syncEmployeeStationCheckout({ agencyId, eventId, userId, kioskDate }) {
-  await pool.execute(
-    `UPDATE event_day_kiosk_checkins
-     SET action = 'check_out', checked_out_at = NOW(), updated_at = NOW()
-     WHERE company_event_id = ? AND user_id = ? AND kiosk_date = ? AND person_type = 'employee'`,
-    [eventId, userId, kioskDate]
-  ).catch(() => null);
-
+  const checkoutAt = new Date();
   const punch = await recordEventEmployeeClockOut(pool, {
     agencyId,
     eventId,
     userId,
+    clockOutAt: checkoutAt,
     source: 'event_station'
   });
   if (punch.error) {
     return { ok: false, error: punch.error };
   }
+
+  await pool.execute(
+    `UPDATE event_day_kiosk_checkins
+     SET action = 'check_out', checked_out_at = ?, updated_at = NOW()
+     WHERE company_event_id = ? AND user_id = ? AND kiosk_date = ? AND person_type = 'employee'`,
+    [checkoutAt, eventId, userId, kioskDate]
+  ).catch(() => null);
+
   return { ok: true, ...punch };
 }
 

@@ -6,12 +6,17 @@
  * payroll rows. Re-enable only with ENABLE_AUTO_EMPLOYEE_CLOCK_OUT=1, and any
  * auto clock-outs must set needsVerification on the claim payload.
  *
- * When enabled: for employees still clocked in after all clients leave, clocks
- * them out at (last_client_checkout + AUTO_CLOCK_OUT_AFTER_MINUTES).
+ * Payroll always trusts the earlier employee checkout. If the employee already
+ * tapped out on the event-day kiosk sheet, that time is used — never a later
+ * auto time. The last-client + 90 min formula runs only when there is no sheet
+ * checkout and all clients have left.
  */
 
 import pool from '../config/database.js';
-import { recordSkillBuilderEventClockOut } from './skillBuildersEventKioskPunch.service.js';
+import {
+  findEmployeeSheetCheckoutAt,
+  recordSkillBuilderEventClockOut
+} from './skillBuildersEventKioskPunch.service.js';
 
 const AUTO_CLOCK_OUT_AFTER_MINUTES = 90;
 
@@ -92,6 +97,38 @@ export async function runAutoEmployeeClockOut() {
     `, [company_event_id, event_date]);
 
     if (Number(total_clients) === 0) continue; // no clients ever checked in — skip
+
+    // ── Employee kiosk sheet checkout wins over any later auto time ───────────
+    const sheetCheckoutAt = await findEmployeeSheetCheckoutAt(pool, {
+      eventId: company_event_id,
+      userId: user_id,
+      kioskDate: event_date
+    });
+    if (sheetCheckoutAt) {
+      const clockInAt = new Date(punch.clocked_in_at);
+      if (sheetCheckoutAt >= clockInAt) {
+        const result = await recordSkillBuilderEventClockOut(pool, {
+          agencyId: agency_id,
+          eventId: company_event_id,
+          userId: user_id,
+          clockOutAt: sheetCheckoutAt,
+          source: 'event_station'
+        });
+        if (result?.ok) {
+          clockedOut.push({
+            userId: user_id,
+            eventId: company_event_id,
+            clockOutAt: sheetCheckoutAt,
+            fromSheetCheckout: true
+          });
+          console.log(
+            `[autoEmployeeClockOut] User ${user_id} clocked out of event ${company_event_id}` +
+            ` at kiosk sheet time ${sheetCheckoutAt.toISOString()}`
+          );
+        }
+      }
+      continue;
+    }
 
     // ── Find the time the last client left ────────────────────────────────────
     // Covers both Skill Builders (checked_out_at in event_day_kiosk_checkins)

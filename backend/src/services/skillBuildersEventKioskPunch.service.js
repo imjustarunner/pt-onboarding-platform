@@ -486,6 +486,32 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
   };
 }
 
+/** Employee kiosk sheet checkout for an event day, if recorded. */
+export async function findEmployeeSheetCheckoutAt(poolConn, { eventId, userId, kioskDate }) {
+  const eid = parsePositiveInt(eventId);
+  const uid = parsePositiveInt(userId);
+  const date = String(kioskDate || '').trim();
+  if (!eid || !uid || !date) return null;
+
+  const [rows] = await poolConn.execute(
+    `SELECT checked_out_at
+     FROM event_day_kiosk_checkins
+     WHERE company_event_id = ?
+       AND user_id = ?
+       AND kiosk_date = ?
+       AND person_type = 'employee'
+       AND action = 'check_out'
+       AND checked_out_at IS NOT NULL
+     ORDER BY checked_out_at DESC
+     LIMIT 1`,
+    [eid, uid, date]
+  );
+  const raw = rows?.[0]?.checked_out_at;
+  if (!raw) return null;
+  const dt = new Date(raw);
+  return Number.isFinite(dt.getTime()) ? dt : null;
+}
+
 /** Event-station employee check-out (also used by portal backup). */
 export async function recordEventEmployeeClockOut(poolConn, params) {
   return recordSkillBuilderEventClockOut(poolConn, {
