@@ -30,6 +30,7 @@
           </div>
         </div>
         <div class="lc-gear-prefs-label" style="margin-top:12px;">Preferred sizes</div>
+        <div class="lc-gear-prefs-row">
           <label class="lc-gear-pref">
             <span>Shirt</span>
             <input
