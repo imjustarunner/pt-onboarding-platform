@@ -2170,7 +2170,6 @@
           ×
         </button>
       </div>
-      <OfficeMandatoryReviewSplash v-if="showOfficeMandatorySplashHost" />
       <InterviewCapsuleSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       <TimeCapsuleRevealSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       <ToolsAssignModal
@@ -2249,7 +2248,6 @@ import UserAvatar from './components/common/UserAvatar.vue';
 import { usePresenceSessionStore } from './store/presenceSession';
 import { getStatusPromptMode, subscribeStatusPrompt } from './utils/statusPromptBridge';
 import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
-import OfficeMandatoryReviewSplash from './components/office/OfficeMandatoryReviewSplash.vue';
 import InterviewCapsuleSplashModal from './components/hiring/InterviewCapsuleSplashModal.vue';
 import TimeCapsuleRevealSplashModal from './components/hiring/TimeCapsuleRevealSplashModal.vue';
 import PublicTranslateWidget from './components/public/PublicTranslateWidget.vue';
@@ -3776,24 +3774,6 @@ const hideGlobalNavForSchoolStaff = computed(() => {
 const isImmersiveJoinRoute = computed(() => {
   const path = String(route.path || '');
   return /\/join\/(?:team-meeting|supervision)\//.test(path);
-});
-
-/** Full-screen office booking / forfeit gate for clinical roles with pending assigned-available slots */
-const showOfficeMandatorySplashHost = computed(() => {
-  if (!isAuthenticated.value) return false;
-  if (pageLoading.value) return false;
-  if (hideGlobalNavForSchoolStaff.value) return false;
-  const role = String(user.value?.role || '').toLowerCase();
-  if (role === 'super_admin') return false;
-  const allow = new Set([
-    'provider',
-    'provider_plus',
-    'intern',
-    'intern_plus',
-    'supervisor',
-    'clinical_practice_assistant'
-  ]);
-  return allow.has(role);
 });
 
 const capabilities = computed(() => user.value?.capabilities || null);

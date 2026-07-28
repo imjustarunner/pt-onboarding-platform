@@ -1,4 +1,5 @@
 <template>
+  <!-- Retired: full-screen blocking gate disabled; see getMyMandatoryOfficeReview (reason: retired). -->
   <Teleport to="body">
     <div
       v-if="showSplash"
@@ -125,7 +126,9 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
-import { officeMandatoryBlocking } from '../../utils/officeMandatoryGate';
+
+/** Local gate flag (was shared via officeMandatoryGate.js when splash was mounted in App.vue). */
+const officeMandatoryBlocking = ref(false);
 
 const authStore = useAuthStore();
 

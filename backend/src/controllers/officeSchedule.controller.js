@@ -1886,6 +1886,9 @@ export const refreshEhrAssignedRoomBookings = async (req, res, next) => {
  */
 export const getMyMandatoryOfficeReview = async (req, res, next) => {
   try {
+    // Retired: blocking provider splash was unreliable; admin review handles stale slots instead.
+    return res.json({ blocking: false, items: [], reason: 'retired' });
+
     const uid = req.user.id;
     const blocked = await userHasBlockingExpiredCredential(uid);
     if (blocked) {

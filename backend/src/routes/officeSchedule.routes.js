@@ -54,7 +54,7 @@ router.get('/board/:locationId', publicBoard);
 // Authenticated routes
 router.use(authenticate);
 
-// Current provider: blocking office actions (assigned available w/o booking plan, temporary expiring)
+// Retired provider blocking gate — endpoint kept for compatibility; always returns empty.
 router.get('/me/mandatory-review', getMyMandatoryOfficeReview);
 
 // Locations + rooms (read)

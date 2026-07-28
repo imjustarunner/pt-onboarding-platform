@@ -12,7 +12,6 @@ import { hasProviderMobileAccess } from '../utils/providerMobileAccess';
 import { isLikelyMobileViewport, isStandalonePwa } from '../utils/pwa';
 import { getSchoolStaffWaiverStatus } from '../utils/schoolStaffWaiverGate';
 import api from '../services/api';
-import { officeMandatoryBlocking } from '../utils/officeMandatoryGate';
 import { isSummitPlatformRouteSlug, NATIVE_APP_ORG_SLUG } from '../utils/summitPlatformSlugs.js';
 import { userChoseWorkOverSummitFromStores } from '../utils/sstcSurfaceChoice.js';
 import { isSstcTenantSlug } from '../config/tenantAppProfiles.js';
@@ -3682,15 +3681,6 @@ let _navBeforeEachHits = [];
 let _navLoopBrokenAt = 0;
 
 router.beforeEach(async (to, from, next) => {
-  if (officeMandatoryBlocking.value) {
-    const path = String(to.path || '');
-    if (path === '/login' || path.endsWith('/login') || path.includes('/logout')) {
-      return next();
-    }
-    if (to.fullPath === from.fullPath) return next();
-    return next(false);
-  }
-
   const authStore = useAuthStore();
   const brandingStore = useBrandingStore();
   const agencyStore = useAgencyStore();
