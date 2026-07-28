@@ -99,8 +99,9 @@ Entire column is grayed/disabled until `users.termination_date` is set.
 | item_key | Label | Integration |
 |----------|-------|-------------|
 | `background_check_ordered` | Background Check Ordered | user_info_field: `provider_background_check_status` |
-| `background_check_complete` | Background Check Complete | user_info_field: compound check on status value |
-| `fingerprints_complete` | Fingerprints Complete | manual |
+| `background_check_complete` | Federal Background/Fingerprint Check | user_info_field: date/status; expiration = completed_at + tenant years (3 or 5) |
+| `internal_background_check_complete` | Internal Background Check Complete | manual |
+| ~~`fingerprints_complete`~~ | removed (1089) | — |
 | `caqh_complete` | CAQH Complete | user_info_field: `caqh_provider_id` |
 | `medicaid_enrollment` | Medicaid Enrollment | manual |
 | `credentialing_submitted` | Credentialing Submitted | manual |

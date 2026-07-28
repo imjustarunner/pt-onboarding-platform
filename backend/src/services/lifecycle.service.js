@@ -18,6 +18,12 @@ import UserSeparationInfo from '../models/UserSeparationInfo.model.js';
 import UserLifecycleScopedItem from '../models/UserLifecycleScopedItem.model.js';
 import { getLeaveInfoForUserIds } from './leaveOfAbsence.service.js';
 import { backfillScopeFromExistingAssignments } from './lifecycleScope.service.js';
+import {
+  FEDERAL_BG_ITEM_KEY,
+  expirationStatus,
+  getExpirationYearsForUser,
+  syncFederalBackgroundExpiration,
+} from './federalBackgroundCheck.service.js';
 
 // Milestone date field keys we manage via user_info_values EAV
 const MILESTONE_FIELD_KEYS = [
@@ -264,6 +270,18 @@ export async function getLifecycleData(userId) {
   let onboardDone = 0;
   const missingItems = [];
 
+  const federalBgYears = await getExpirationYearsForUser(userId);
+  try {
+    await syncFederalBackgroundExpiration(userId);
+  } catch {
+    // non-fatal
+  }
+  // Re-read state after expiration sync so expires_at is current
+  const userItemsFresh = await UserLifecycleChecklistItem.findByUser(userId);
+  for (const row of userItemsFresh) {
+    stateByDefId.set(row.definition_id, row);
+  }
+
   // Pre-fetch completed document tasks for this user (used to attach download links below)
   let completedDocTasksByRef = new Map();
   try {
@@ -303,6 +321,9 @@ export async function getLifecycleData(userId) {
       continue;
     }
 
+    const expiresAt = toYmd(state.expires_at);
+    const expMeta = def.item_key === FEDERAL_BG_ITEM_KEY ? expirationStatus(expiresAt) : null;
+
     const item = {
       id: state.id || null,
       definitionId: def.id,
@@ -313,6 +334,9 @@ export async function getLifecycleData(userId) {
       isNotApplicable: !!state.is_not_applicable,
       notApplicableAt: state.not_applicable_at || null,
       completedAt: state.completed_at || null,
+      expiresAt: def.item_key === FEDERAL_BG_ITEM_KEY ? expiresAt : null,
+      expirationStatus: expMeta?.status || null,
+      expirationLabel: expMeta?.label || null,
       completionMethod: state.completion_method || 'manual',
       integrationTypeInfo: def.integration_type,
       integrationRef: def.integration_ref || null,
@@ -363,6 +387,33 @@ export async function getLifecycleData(userId) {
         };
       }
       onboardingGroups[def.category].items.push(item);
+
+      // Synthetic expiration row under Federal Background/Fingerprint Check
+      if (def.item_key === FEDERAL_BG_ITEM_KEY) {
+        onboardingGroups[def.category].items.push({
+          id: null,
+          definitionId: null,
+          itemKey: 'federal_background_fingerprint_expiration',
+          label: 'Federal Background/Fingerprint Check Expiration',
+          isRequired: false,
+          isCompleted: !!expiresAt,
+          isNotApplicable: false,
+          notApplicableAt: null,
+          completedAt: expiresAt,
+          expiresAt,
+          expirationStatus: expMeta?.status || null,
+          expirationLabel: expMeta?.label || null,
+          completionMethod: 'auto',
+          integrationTypeInfo: 'computed',
+          integrationRef: null,
+          documentTaskId: null,
+          hasSignedDocument: false,
+          supportsAttachment: false,
+          attachment: { hasAttachment: false },
+          isExpirationRow: true,
+          readOnly: true,
+        });
+      }
     } else if (def.phase === 'offboarding') {
       if (!offboardingGroups[def.category]) {
         offboardingGroups[def.category] = {
@@ -414,6 +465,10 @@ export async function getLifecycleData(userId) {
             leaveLabel: leaveInfo.leaveLabel,
           }
         : null,
+    },
+    federalBackgroundCheck: {
+      expirationYears: federalBgYears,
+      soonDays: 90,
     },
     onboarding: {
       progress: onboardingProgress,

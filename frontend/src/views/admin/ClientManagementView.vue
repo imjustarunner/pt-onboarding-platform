@@ -1,20 +1,27 @@
 <template>
-  <div class="container">
-    <div class="page-header" data-tour="clients-header">
-      <h1 data-tour="clients-title">Client Management</h1>
-      <div class="header-actions" data-tour="clients-actions">
-        <button @click="showBulkImportModal = true" class="btn btn-secondary">Bulk Import</button>
+  <div class="container client-mgmt-page">
+    <div class="page-header cm-page-header" data-tour="clients-header">
+      <div class="cm-header-copy">
+        <h1 data-tour="clients-title">Client Management</h1>
+        <p class="cm-subtitle">
+          Manage client submissions, documentation, and affiliations
+          <span v-if="usingServerPagination"> across all tenants</span>
+          <span v-else-if="scopedTenantLabel"> for {{ scopedTenantLabel }}</span>.
+        </p>
+      </div>
+      <div class="header-actions cm-header-actions" data-tour="clients-actions">
+        <button @click="showBulkImportModal = true" class="btn btn-secondary cm-action-btn">Bulk Import</button>
         <router-link
           v-if="canBackofficeEdit"
           :to="schoolOverviewLink"
-          class="btn btn-secondary"
+          class="btn btn-secondary cm-action-btn"
         >
           Show all schools
         </router-link>
         <button
           v-if="authStore.user?.role === 'super_admin'"
           @click="openDeleteImportedModal"
-          class="btn btn-secondary"
+          class="btn btn-secondary cm-action-btn cm-action-danger"
           :disabled="deleteImportedWorking"
         >
           Delete Imported Clients…
@@ -22,7 +29,7 @@
         <button
           v-if="authStore.user?.role !== 'school_staff'"
           @click="openRolloverModal('rollover')"
-          class="btn btn-secondary"
+          class="btn btn-secondary cm-action-btn"
           :disabled="rolloverWorking"
         >
           {{ rolloverWorking ? 'Rolling over…' : 'Rollover School Year…' }}
@@ -30,7 +37,7 @@
         <button
           v-if="authStore.user?.role !== 'school_staff'"
           @click="openRolloverModal('reset_docs')"
-          class="btn btn-secondary"
+          class="btn btn-secondary cm-action-btn"
           :disabled="rolloverWorking"
         >
           {{ rolloverWorking ? 'Working…' : 'Reset Documentation…' }}
@@ -38,7 +45,7 @@
         <button
           v-if="isSuperAdmin && usingServerPagination"
           @click="showHiddenTenantsModal = true"
-          class="btn btn-secondary btn-sm"
+          class="btn btn-secondary btn-sm cm-action-btn"
           title="Configure which tenants show in the platform-wide client list"
           type="button"
         >
@@ -47,29 +54,65 @@
         <router-link
           v-if="canSeeClientExchange"
           :to="clientExchangeLink"
-          class="btn btn-secondary"
+          class="btn btn-secondary cm-action-btn"
         >
           Client Exchange
         </router-link>
-        <button @click="openCreateClientModal" class="btn btn-primary">Create Client</button>
+        <button @click="openCreateClientModal" class="btn btn-primary cm-create-btn">+ Create Client</button>
+      </div>
+    </div>
+
+    <div v-if="!loading && !error" class="cm-summary-grid" data-tour="clients-summary">
+      <div class="cm-summary-card cm-summary-total">
+        <div class="cm-summary-icon">👥</div>
+        <div>
+          <div class="cm-summary-value">{{ clientSummary.total }}</div>
+          <div class="cm-summary-label">Total Clients</div>
+          <div class="cm-summary-meta">{{ summaryScopeLabel }}</div>
+        </div>
+      </div>
+      <div class="cm-summary-card cm-summary-completed">
+        <div class="cm-summary-icon">✓</div>
+        <div>
+          <div class="cm-summary-value">{{ clientSummary.completed }}</div>
+          <div class="cm-summary-label">Completed</div>
+          <div class="cm-summary-meta">{{ clientSummary.completedPct }}% of total</div>
+        </div>
+      </div>
+      <div class="cm-summary-card cm-summary-pending">
+        <div class="cm-summary-icon">⏳</div>
+        <div>
+          <div class="cm-summary-value">{{ clientSummary.pending }}</div>
+          <div class="cm-summary-label">Pending / Packet</div>
+          <div class="cm-summary-meta">{{ clientSummary.pendingPct }}% of total</div>
+        </div>
+      </div>
+      <div class="cm-summary-card cm-summary-attention">
+        <div class="cm-summary-icon">!</div>
+        <div>
+          <div class="cm-summary-value">{{ clientSummary.attention }}</div>
+          <div class="cm-summary-label">Needs Attention</div>
+          <div class="cm-summary-meta">{{ clientSummary.attentionPct }}% of total</div>
+        </div>
       </div>
     </div>
 
     <!-- Filters and Search -->
-    <!-- Keep mounted during loading so inputs don't lose focus -->
-    <div class="table-controls" v-show="clients.length > 0" data-tour="clients-filters">
-      <div class="filter-group">
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Search clients..."
-          class="search-input"
-          @input="onSearchInput"
-          @keydown.enter.prevent="applyFilters"
-          data-tour="clients-search"
-        />
-        <!-- Display mode toggle (hidden for school staff who must always see initials) -->
-        <div v-if="!isSchoolStaffRole" class="display-mode-toggle" title="Toggle how clients are identified in the table">
+    <div class="cm-toolbar-card" data-tour="clients-filters">
+      <div class="cm-search-row">
+        <div class="cm-search-wrap">
+          <span class="cm-search-icon" aria-hidden="true">⌕</span>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search clients, providers, schools, codes…"
+            class="search-input cm-search-input"
+            @input="onSearchInput"
+            @keydown.enter.prevent="applyFilters"
+            data-tour="clients-search"
+          />
+        </div>
+        <div v-if="!isSchoolStaffRole" class="display-mode-toggle cm-display-toggle" title="Toggle how clients are identified in the table">
           <button
             type="button"
             :class="['display-mode-btn', { active: displayMode === 'initials' }]"
@@ -89,6 +132,19 @@
             title="Show client code"
           >Code</button>
         </div>
+      </div>
+      <div class="cm-search-hints muted">
+        <span>Try:</span>
+        <button
+          v-for="hint in searchHints"
+          :key="hint"
+          type="button"
+          class="cm-search-hint"
+          @click="applySearchHint(hint)"
+        >{{ hint }}</button>
+      </div>
+
+      <div class="filter-group cm-filter-row">
         <select
           v-if="usingServerPagination"
           v-model="platformTenantFilter"
@@ -178,7 +234,7 @@
         </select>
 
         <div class="columns-control">
-          <button class="btn btn-secondary btn-sm" type="button" @click="columnsOpen = !columnsOpen">
+          <button class="btn btn-secondary btn-sm cm-columns-btn" type="button" @click="columnsOpen = !columnsOpen">
             Columns
           </button>
           <div v-if="columnsOpen" class="columns-menu" @click.stop>
@@ -214,7 +270,7 @@
         </div>
       </div>
 
-      <div class="pagination-bar" data-tour="clients-pagination">
+      <div class="pagination-bar cm-pagination-bar" data-tour="clients-pagination">
         <div class="pagination-left">
           <span class="pagination-meta">
             Showing {{ pagedClients.length }} of {{ totalCountForDisplay }}
@@ -310,13 +366,14 @@
           </div>
         </div>
       </div>
-      <table class="clients-table" data-tour="clients-table">
+      <table class="clients-table cm-clients-table" data-tour="clients-table">
         <thead>
           <tr>
             <th style="width: 34px;">
               <input type="checkbox" :checked="allPageSelected" @change.stop="toggleSelectAllPage($event)" />
             </th>
             <th>{{ clientDisplayLabel }}</th>
+            <th v-if="usingServerPagination && columnPrefs.affiliation">Tenant</th>
             <th v-if="columnPrefs.affiliation">Affiliation</th>
             <th v-if="columnPrefs.clientStatus">Client Status</th>
             <th v-if="columnPrefs.provider">Provider</th>
@@ -332,17 +389,26 @@
             v-for="client in pagedClients" 
             :key="client.id"
             @click="openClientDetail(client)"
-            class="client-row"
+            class="client-row cm-client-row"
+            :style="getClientRowStyle(client)"
           >
             <td class="select-cell" @click.stop>
               <input type="checkbox" :checked="selectedIds.has(client.id)" @change.stop="toggleSelected(client.id)" />
             </td>
-            <td class="initials-cell">{{ getClientDisplay(client) }}</td>
+            <td class="initials-cell">
+              <span class="cm-initials-badge" :style="getInitialsStyle(client)">{{ getClientDisplay(client) }}</span>
+            </td>
+            <td v-if="usingServerPagination && columnPrefs.affiliation">
+              <span class="cm-affiliation-badge" :style="getAffiliationBadgeStyle(client)">
+                {{ client.agency_name || '—' }}
+              </span>
+            </td>
             <td v-if="columnPrefs.affiliation">
               <button
                 v-if="client.organization_slug"
                 type="button"
-                class="link-button"
+                class="cm-affiliation-badge cm-affiliation-link"
+                :style="getAffiliationBadgeStyle(client)"
                 @click.stop="router.push({
                   path: `/${client.organization_slug}/dashboard`,
                   query: { focusClientId: String(client.id) }
@@ -350,28 +416,38 @@
               >
                 {{ client.organization_name || '-' }}
               </button>
-              <span v-else>{{ client.organization_name || '-' }}</span>
+              <span v-else class="cm-affiliation-badge" :style="getAffiliationBadgeStyle(client)">
+                {{ client.organization_name || '-' }}
+              </span>
             </td>
             <td v-if="columnPrefs.clientStatus">
-              {{ formatClientStatus(client) }}
+              <span class="cm-status-pill" :style="getStatusPillStyle(client)">
+                {{ formatClientStatus(client) }}
+              </span>
             </td>
             <td v-if="columnPrefs.provider">
-              {{ client.provider_name || 'Not assigned' }}
+              <span class="cm-provider-label" :style="getProviderLabelStyle(client)">
+                {{ client.provider_name || 'Not assigned' }}
+              </span>
             </td>
             <td v-if="columnPrefs.submissionDate">{{ formatDate(client.submission_date) }}</td>
             <td v-if="columnPrefs.paperwork">
-              {{ formatDocumentStatusSummary(client) }}
+              <span class="cm-doc-status" :class="`cm-doc-${getDocumentStatusTone(client)}`">
+                <span class="cm-doc-icon" aria-hidden="true">{{ getDocumentStatusIcon(client) }}</span>
+                {{ formatDocumentStatusSummary(client) }}
+              </span>
             </td>
             <td v-if="columnPrefs.insurance">{{ client.insurance_type_label || '-' }}</td>
             <td v-if="columnPrefs.lastActivity">{{ formatDate(client.last_activity_at) || '-' }}</td>
             <td class="actions-cell" @click.stop>
-              <button @click="openClientDetail(client)" class="btn btn-primary btn-sm">View</button>
+              <button @click="openClientDetail(client)" class="btn btn-primary btn-sm cm-view-btn">View</button>
               <button
                 v-if="canBackofficeEdit"
                 @click.stop="startEditStatus(client)" 
-                class="btn btn-secondary btn-sm"
+                class="btn btn-secondary btn-sm cm-kebab-btn"
+                title="More actions"
               >
-                Archive
+                ⋮
               </button>
             </td>
           </tr>
@@ -863,6 +939,18 @@ import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
 import { STANDARD_GRADE_SELECT_OPTIONS, normalizeGradeForSave } from '../../utils/clientGrade.js';
 import { useRouteTenantAgencyId } from '../../composables/useRouteTenantAgencyId.js';
 import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
+import {
+  rowAccentStyle,
+  affiliationBadgeStyle,
+  initialsStyle,
+  statusPillStyle,
+  documentStatusTone,
+  summarizeClients,
+  clientStatusTone,
+  hashHue,
+  colorFromHue
+} from '../../utils/clientManagementVisuals.js';
+import { parseClientManagementSearch, matchesParsedSearch, SEARCH_HINTS } from '../../utils/clientManagementSearch.js';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -871,6 +959,84 @@ const router = useRouter();
 
 const canSeeClientExchange = computed(() => canSeeClientExchangeNav(authStore.user?.role));
 const clientExchangeLink = computed(() => clientExchangePath(route.params?.organizationSlug));
+const searchHints = SEARCH_HINTS;
+const serverSummary = ref(null);
+const parsedSearch = ref({ freeText: '' });
+
+const scopedTenantLabel = computed(() => {
+  const id = effectiveAgencyScopeId.value;
+  if (!id) return '';
+  const row = (allTenantFilters.value || []).find((t) => Number(t.id) === Number(id));
+  return row?.name || '';
+});
+
+const summaryScopeLabel = computed(() => {
+  if (usingServerPagination.value && !effectiveAgencyScopeId.value) return 'Across all tenants';
+  if (scopedTenantLabel.value) return scopedTenantLabel.value;
+  return 'Current scope';
+});
+
+const clientSummary = computed(() => {
+  if (usingServerPagination.value && serverSummary.value) {
+    const s = serverSummary.value;
+    const total = Number(s.total || 0);
+    const pct = (n) => (total > 0 ? ((Number(n || 0) / total) * 100).toFixed(1) : '0.0');
+    return {
+      total,
+      completed: Number(s.completed || 0),
+      pending: Number(s.pending || 0),
+      attention: Number(s.attention || 0),
+      completedPct: pct(s.completed),
+      pendingPct: pct(s.pending),
+      attentionPct: pct(s.attention)
+    };
+  }
+  return summarizeClients(filteredClients.value);
+});
+
+const getClientRowStyle = (client) => rowAccentStyle(client, { platformMode: usingServerPagination.value });
+const getAffiliationBadgeStyle = (client) => affiliationBadgeStyle(client, { platformMode: usingServerPagination.value });
+const getInitialsStyle = (client) => initialsStyle(client, { platformMode: usingServerPagination.value });
+const getStatusPillStyle = (client) => statusPillStyle(client);
+const getDocumentStatusTone = (client) => documentStatusTone(client);
+const getDocumentStatusIcon = (client) => {
+  const tone = documentStatusTone(client);
+  if (tone === 'completed') return '✓';
+  if (tone === 'attention') return '⚠';
+  if (tone === 'pending') return '⏳';
+  return '•';
+};
+const getProviderLabelStyle = (client) => {
+  if (usingServerPagination.value) return {};
+  const hue = hashHue(client?.provider_id || client?.provider_name || 'unassigned');
+  return { color: colorFromHue(hue, { sat: 55, light: 34 }) };
+};
+
+const applySearchHint = (hint) => {
+  searchQuery.value = hint;
+  applyFilters();
+};
+
+const applyParsedSearchFilters = (parsed) => {
+  if (!parsed) return;
+  if (parsed.tenantId && usingServerPagination.value) {
+    platformTenantFilter.value = String(parsed.tenantId);
+  }
+  if (parsed.organizationId) {
+    organizationFilter.value = String(parsed.organizationId);
+  }
+  if (parsed.providerId) {
+    providerFilter.value = String(parsed.providerId);
+  } else if (parsed.providerQuery && !parsed.providerId) {
+    providerFilter.value = '';
+  }
+  if (parsed.clientStatusId) {
+    clientStatusFilter.value = String(parsed.clientStatusId);
+  }
+  if (parsed.workflowStatus) {
+    workflowStatusFilter.value = parsed.workflowStatus;
+  }
+};
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 const tenantSourceOrganizations = computed(() => (
   isSuperAdmin.value ? (agencyStore.agencies || []) : (agencyStore.userAgencies || [])
@@ -1160,11 +1326,31 @@ const markCreateDocsCompleted = () => {
   createDocsNeededIds.value = [];
 };
 
-// Search debounce (prevents fetch + focus loss while typing)
 let searchDebounceTimer = null;
+const applyFilters = () => {
+  if (String(searchQuery.value || '').includes(':')) {
+    parsedSearch.value = parseClientManagementSearch(searchQuery.value, {
+      providers: availableProviders.value,
+      organizations: availableAffiliations.value,
+      tenants: allTenantFilters.value,
+      clientStatuses: clientStatuses.value
+    });
+    applyParsedSearchFilters(parsedSearch.value);
+  } else {
+    parsedSearch.value = { freeText: String(searchQuery.value || '').trim() };
+  }
+  currentPage.value = 1;
+  fetchClients();
+};
+
 const onSearchInput = () => {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(() => {
+    if (String(searchQuery.value || '').includes(':')) {
+      applyFilters();
+      return;
+    }
+    parsedSearch.value = { freeText: String(searchQuery.value || '').trim() };
     currentPage.value = 1;
     fetchClients();
   }, 250);
@@ -1599,7 +1785,15 @@ const fetchClients = async () => {
     if (workflowStatusFilter.value) params.append('status', workflowStatusFilter.value);
     if (organizationFilter.value) params.append('organization_id', organizationFilter.value);
     if (providerFilter.value) params.append('provider_id', providerFilter.value);
-    if (searchQuery.value) params.append('search', searchQuery.value);
+    const parsed = parseClientManagementSearch(searchQuery.value, {
+      providers: availableProviders.value,
+      organizations: availableAffiliations.value,
+      tenants: allTenantFilters.value,
+      clientStatuses: clientStatuses.value
+    });
+    parsedSearch.value = parsed;
+    const searchForApi = parsed.freeText || (searchQuery.value.includes(':') ? '' : searchQuery.value);
+    if (searchForApi) params.append('search', searchForApi);
     if (skillsOnly.value) params.append('skills', 'true');
     if (usingServerPagination.value) {
       params.append('paginate', 'true');
@@ -1620,22 +1814,29 @@ const fetchClients = async () => {
     const response = await api.get(`/clients?${params.toString()}`);
     const payload = response.data || [];
     const raw = Array.isArray(payload) ? payload : (payload.items || []);
+    const tenantById = new Map((allTenantFilters.value || []).map((t) => [Number(t?.id), t]));
     const orgById = new Map((linkedOrganizations.value || []).map((o) => [Number(o?.id), o]));
     clients.value = (Array.isArray(raw) ? raw : [])
       .filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED')
+      .filter((c) => matchesParsedSearch(c, parsed))
       .map((c) => {
       const orgId = Number(c?.organization_id);
       const org = orgById.get(orgId) || null;
+      const agencyId = Number(c?.agency_id || 0);
+      const tenant = tenantById.get(agencyId) || null;
       return {
         ...c,
+        agency_name: tenant?.name || c.agency_name || null,
         // Used by client-table sort option "District"
         district_name: org?.district_name || ''
       };
     });
     if (usingServerPagination.value) {
       serverTotal.value = Number(payload?.total || 0);
+      serverSummary.value = payload?.summary || null;
     } else {
       serverTotal.value = clients.value.length;
+      serverSummary.value = null;
     }
   } catch (err) {
     console.error('Failed to fetch clients:', err);
@@ -1719,12 +1920,32 @@ const fetchDeliveryMethodsForSchool = async () => {
 const filteredClients = computed(() => {
   let filtered = [...clients.value];
 
+  // Group visually: platform = tenant then status; single tenant = provider then status.
+  const statusRank = (client) => {
+    const tone = clientStatusTone(client);
+    if (tone === 'attention') return 0;
+    if (tone === 'pending') return 1;
+    if (tone === 'completed') return 2;
+    return 3;
+  };
+
   // Apply sort
   const [sortField, sortOrder] = sortBy.value.split('-');
   filtered.sort((a, b) => {
+    if (usingServerPagination.value) {
+      const tenantCmp = String(a.agency_name || '').localeCompare(String(b.agency_name || ''));
+      if (tenantCmp !== 0) return tenantCmp;
+      const statusCmp = statusRank(a) - statusRank(b);
+      if (statusCmp !== 0) return statusCmp;
+    } else {
+      const providerCmp = String(a.provider_name || 'zzz').localeCompare(String(b.provider_name || 'zzz'));
+      if (providerCmp !== 0) return providerCmp;
+      const statusCmp = statusRank(a) - statusRank(b);
+      if (statusCmp !== 0) return statusCmp;
+    }
+
     let aVal, bVal;
     if (sortField === 'initials') {
-      // Sort by the active display field
       aVal = getClientDisplay(a);
       bVal = getClientDisplay(b);
     } else {
@@ -1742,9 +1963,8 @@ const filteredClients = computed(() => {
 
     if (sortOrder === 'asc') {
       return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-    } else {
-      return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
     }
+    return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
   });
 
   return filtered;
@@ -2046,11 +2266,6 @@ const bulkSetClientStatus = async () => {
   const csId = bulkClientStatusId.value ? parseInt(String(bulkClientStatusId.value), 10) : null;
   if (!csId) return;
   await runBulk((id) => api.put(`/clients/${id}`, { client_status_id: csId }));
-};
-
-const applyFilters = () => {
-  currentPage.value = 1;
-  fetchClients();
 };
 
 const handlePlatformTenantChange = async () => {
@@ -2463,6 +2678,332 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 </script>
 
 <style scoped>
+.client-mgmt-page {
+  --cm-purple: #7c3aed;
+  --cm-green: #12b76a;
+  --cm-amber: #f79009;
+  --cm-red: #f04438;
+  --cm-surface: #ffffff;
+  --cm-border: #e4e7ec;
+  --cm-muted: #667085;
+}
+
+.cm-page-header {
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.cm-header-copy h1 {
+  margin: 0 0 6px;
+  font-size: 1.75rem;
+  letter-spacing: -0.02em;
+}
+
+.cm-subtitle {
+  margin: 0;
+  color: var(--cm-muted);
+  font-size: 0.95rem;
+  max-width: 52rem;
+}
+
+.cm-header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.cm-action-btn {
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+}
+
+.cm-action-danger {
+  color: #b42318;
+}
+
+.cm-create-btn {
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+  border: none;
+  font-weight: 600;
+  box-shadow: 0 8px 18px rgba(234, 88, 12, 0.22);
+}
+
+.cm-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.cm-summary-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--cm-surface);
+  border: 1px solid var(--cm-border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.cm-summary-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.cm-summary-total .cm-summary-icon { background: #f4f3ff; color: var(--cm-purple); }
+.cm-summary-completed .cm-summary-icon { background: #ecfdf3; color: var(--cm-green); }
+.cm-summary-pending .cm-summary-icon { background: #fffaeb; color: var(--cm-amber); }
+.cm-summary-attention .cm-summary-icon { background: #fef3f2; color: var(--cm-red); }
+
+.cm-summary-value {
+  font-size: 1.65rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #101828;
+}
+
+.cm-summary-label {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #344054;
+  margin-top: 2px;
+}
+
+.cm-summary-meta {
+  font-size: 0.8rem;
+  color: var(--cm-muted);
+  margin-top: 2px;
+}
+
+.cm-toolbar-card {
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  background: var(--cm-surface);
+  border: 1px solid var(--cm-border);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.cm-search-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.cm-search-wrap {
+  position: relative;
+  flex: 1 1 320px;
+}
+
+.cm-search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--cm-muted);
+  font-size: 18px;
+  pointer-events: none;
+}
+
+.cm-search-input {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 14px 11px 40px;
+  border: 1px solid var(--cm-border);
+  border-radius: 12px;
+  font-size: 14px;
+  background: #fcfcfd;
+}
+
+.cm-search-input:focus {
+  outline: none;
+  border-color: #b692f6;
+  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.12);
+}
+
+.cm-display-toggle {
+  border-radius: 12px;
+  border-color: var(--cm-border);
+  overflow: hidden;
+}
+
+.cm-display-toggle .display-mode-btn.active {
+  background: var(--cm-purple);
+}
+
+.cm-search-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.cm-search-hint {
+  border: 1px solid var(--cm-border);
+  background: #f9fafb;
+  color: #475467;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cm-search-hint:hover {
+  background: #f4f3ff;
+  border-color: #d9d6fe;
+  color: #5925dc;
+}
+
+.cm-filter-row {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #f2f4f7;
+}
+
+.cm-pagination-bar {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #f2f4f7;
+}
+
+.cm-columns-btn {
+  border-radius: 10px;
+}
+
+.clients-table-container {
+  overflow-x: auto;
+  background: var(--cm-surface);
+  border-radius: 14px;
+  border: 1px solid var(--cm-border);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.cm-clients-table thead {
+  background: #f9fafb;
+}
+
+.cm-clients-table th {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #667085;
+  padding: 12px 14px;
+}
+
+.cm-clients-table td {
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+
+.cm-client-row {
+  border-left: 4px solid transparent;
+  background: linear-gradient(90deg, var(--cm-row-accent-soft, transparent) 0%, transparent 28%);
+}
+
+.cm-client-row:hover {
+  background: linear-gradient(90deg, var(--cm-row-accent-soft, #f9fafb) 0%, #f9fafb 28%);
+}
+
+.cm-initials-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.cm-affiliation-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-affiliation-link {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.cm-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cm-provider-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.cm-doc-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.cm-doc-completed { color: #027a48; }
+.cm-doc-pending { color: #b54708; }
+.cm-doc-attention { color: #b42318; }
+.cm-doc-neutral { color: #475467; }
+
+.cm-doc-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.cm-view-btn {
+  border-radius: 10px;
+}
+
+.cm-kebab-btn {
+  border-radius: 10px;
+  min-width: 34px;
+  padding-inline: 8px;
+}
+
+@media (max-width: 1100px) {
+  .cm-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .cm-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cm-page-header {
+    flex-direction: column;
+  }
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -2747,10 +3288,8 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 }
 
 .client-row .initials-cell {
-  color: var(--primary, #15803d);
   font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
 }
 
 .actions-cell {

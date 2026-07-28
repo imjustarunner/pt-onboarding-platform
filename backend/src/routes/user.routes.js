@@ -36,6 +36,8 @@ import {
   uploadLifecycleChecklistAttachment,
   downloadLifecycleChecklistAttachment,
   deleteLifecycleChecklistAttachment,
+  getFederalBackgroundExpirationYears,
+  updateFederalBackgroundExpirationYears,
 } from '../controllers/lifecycle.controller.js';
 
 const router = express.Router();
@@ -148,6 +150,8 @@ router.get('/:id/onboarding-document', authenticate, getOnboardingDocument);
 router.get('/:id/lifecycle', authenticate, requireBackofficeAdminOrCpa, getUserLifecycle);
 router.patch('/:id/lifecycle/dates', authenticate, requireBackofficeAdminOrCpa, updateLifecycleDates);
 router.patch('/:id/lifecycle/separation', authenticate, requireBackofficeAdminOrCpa, updateSeparationInfo);
+router.get('/:id/lifecycle/federal-background-expiration-years', authenticate, requireBackofficeAdminOrCpa, getFederalBackgroundExpirationYears);
+router.patch('/:id/lifecycle/federal-background-expiration-years', authenticate, requireBackofficeAdminOrCpa, updateFederalBackgroundExpirationYears);
 router.post('/:id/lifecycle/checklist/:definitionId/toggle', authenticate, requireBackofficeAdminOrCpa, toggleLifecycleChecklistItem);
 router.post('/:id/lifecycle/checklist/:definitionId/not-applicable', authenticate, requireBackofficeAdminOrCpa, setLifecycleChecklistNotApplicable);
 router.post('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, uploadLifecycleChecklistAttachment);

@@ -17,6 +17,8 @@ const SMS_CATEGORY_BY_TYPE = {
   survey_completed: 'surveys_survey_completed',
   credential_expiring: 'compliance_credential_expiration_reminders',
   credential_expired_blocking: 'compliance_access_restriction_warnings',
+  background_check_renewal_due: 'compliance_credential_expiration_reminders',
+  background_check_expired: 'compliance_access_restriction_warnings',
   program_reminder: 'program_reminders',
   client_assigned: 'client_assignments',
   shift_calloff_need_coverage: 'scheduling_shift_calloff',

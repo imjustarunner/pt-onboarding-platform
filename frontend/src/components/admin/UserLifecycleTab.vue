@@ -263,7 +263,55 @@
               :class="{ 'lc-section-anchor': group.category === 'equipment' }"
               :id="group.category === 'equipment' ? 'lifecycle-equipment' : undefined"
             >
-              <h4 class="lc-block-title">{{ group.label }}</h4>
+              <div class="lc-block-title-row">
+                <h4 class="lc-block-title">{{ group.label }}</h4>
+                <div
+                  v-if="group.category === 'background_credentialing' && !viewOnly"
+                  class="lc-exp-setting-wrap"
+                >
+                  <button
+                    type="button"
+                    class="lc-exp-setting-btn"
+                    title="Federal Background/Fingerprint Check expiration period (tenant-wide)"
+                    :aria-expanded="expSettingOpen"
+                    @click="expSettingOpen = !expSettingOpen"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                      <path d="M10 6.5a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM10 11.5a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" fill="currentColor"/>
+                      <circle cx="10" cy="10" r="7.25" stroke="currentColor" stroke-width="1.5"/>
+                      <path d="M10 3v1.5M10 15.5V17M3 10h1.5M15.5 10H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                  <div v-if="expSettingOpen" class="lc-exp-setting-popover">
+                    <div class="lc-exp-setting-title">Expiration period</div>
+                    <p class="lc-exp-setting-hint">
+                      Applies to every Federal Background/Fingerprint Check in this tenant.
+                    </p>
+                    <label class="lc-exp-radio">
+                      <input
+                        type="radio"
+                        name="fed-bg-years"
+                        :checked="Number(data.federalBackgroundCheck?.expirationYears) === 5"
+                        :disabled="expSettingSaving"
+                        @change="saveExpirationYears(5)"
+                      />
+                      5 years
+                    </label>
+                    <label class="lc-exp-radio">
+                      <input
+                        type="radio"
+                        name="fed-bg-years"
+                        :checked="Number(data.federalBackgroundCheck?.expirationYears) === 3"
+                        :disabled="expSettingSaving"
+                        @change="saveExpirationYears(3)"
+                      />
+                      3 years
+                    </label>
+                    <p v-if="expSettingError" class="lc-save-error">{{ expSettingError }}</p>
+                    <p v-if="expSettingSaved" class="lc-save-confirm">Updated for entire tenant.</p>
+                  </div>
+                </div>
+              </div>
               <LifecycleGearPanel
                 v-if="group.category === 'equipment'"
                 :user-id="userId"
@@ -288,27 +336,49 @@
                 </div>
                 <div
                   v-for="item in activeGroupItems(group)"
-                  :key="item.definitionId"
+                  :key="item.definitionId || item.itemKey"
                   :class="[
                     'lc-checklist-row',
                     group.category === 'compliance_documents' ? 'lc-checklist-row-docs' : '',
-                    !viewOnly ? 'lc-checklist-row-actions' : ''
+                    !viewOnly ? 'lc-checklist-row-actions' : '',
+                    item.expirationStatus === 'expired' ? 'lc-row-expired' : '',
+                    item.expirationStatus === 'soon' ? 'lc-row-soon' : ''
                   ]"
                 >
-                  <span class="lc-item-label">{{ item.label }}</span>
+                  <span class="lc-item-label">
+                    {{ item.label }}
+                    <span
+                      v-if="item.isExpirationRow && item.expirationLabel"
+                      :class="['lc-exp-badge', `lc-exp-badge--${item.expirationStatus || 'ok'}`]"
+                    >{{ item.expirationLabel }}</span>
+                  </span>
                   <span class="lc-item-check">
                     <input
                       type="checkbox"
                       :checked="item.isCompleted"
-                      :disabled="viewOnly"
-                      :title="item.completionMethod === 'auto' ? 'Auto-completed from app data' : ''"
+                      :disabled="viewOnly || item.isExpirationRow || item.readOnly"
+                      :title="item.isExpirationRow
+                        ? 'Calculated from completion date + tenant expiration years'
+                        : (item.completionMethod === 'auto' ? 'Auto-completed from app data' : '')"
                       @change="toggleItem(item, $event.target.checked)"
                     />
-                    <span v-if="item.completionMethod === 'auto'" class="lc-auto-badge" title="Auto-completed from app data">auto</span>
+                    <span
+                      v-if="item.completionMethod === 'auto' || item.isExpirationRow"
+                      class="lc-auto-badge"
+                      :title="item.isExpirationRow
+                        ? 'Calculated from completion date + tenant expiration years'
+                        : 'Auto-completed from app data'"
+                    >auto</span>
                   </span>
-                  <span class="lc-item-date">
+                  <span
+                    class="lc-item-date"
+                    :class="{
+                      'lc-date-expired': item.expirationStatus === 'expired',
+                      'lc-date-soon': item.expirationStatus === 'soon'
+                    }"
+                  >
                     <input
-                      v-if="item.isCompleted && !viewOnly"
+                      v-if="item.isCompleted && !viewOnly && !item.isExpirationRow && !item.readOnly"
                       type="date"
                       class="lc-item-date-input"
                       :value="toYmd(item.completedAt)"
@@ -362,6 +432,7 @@
                   </span>
                   <span v-if="!viewOnly" class="lc-item-action">
                     <button
+                      v-if="!item.isExpirationRow && !item.readOnly"
                       type="button"
                       class="lc-remove-btn"
                       title="Not needed for this person — exclude from completion"
@@ -637,6 +708,10 @@ const attachmentFileInput = ref(null);
 const attachmentUploadTarget = ref(null);
 const attachmentUploadingId = ref(null);
 const attachmentError = ref('');
+const expSettingOpen = ref(false);
+const expSettingSaving = ref(false);
+const expSettingSaved = ref(false);
+const expSettingError = ref('');
 
 const datesForm = ref({
   offer_accepted_date: null,
@@ -831,7 +906,7 @@ async function saveSeparation() {
 }
 
 async function toggleItem(item, checked) {
-  if (props.viewOnly) return;
+  if (props.viewOnly || item?.isExpirationRow || item?.readOnly || !item?.definitionId) return;
   const prev = item.isCompleted;
   // Optimistic update
   item.isCompleted = checked;
@@ -839,6 +914,7 @@ async function toggleItem(item, checked) {
   try {
     await api.post(`/users/${props.userId}/lifecycle/checklist/${item.definitionId}/toggle`, {
       completed: checked,
+      agencyId: props.agencyId || undefined,
     });
     await fetchLifecycle();
   } catch {
@@ -849,7 +925,7 @@ async function toggleItem(item, checked) {
 }
 
 async function updateItemDate(item, dateStr) {
-  if (props.viewOnly || !item.isCompleted) return;
+  if (props.viewOnly || !item.isCompleted || item?.isExpirationRow || item?.readOnly || !item?.definitionId) return;
   if (!dateStr) return;
   const prevDate = item.completedAt;
   item.completedAt = new Date(`${dateStr}T12:00:00Z`).toISOString();
@@ -857,10 +933,34 @@ async function updateItemDate(item, dateStr) {
     await api.post(`/users/${props.userId}/lifecycle/checklist/${item.definitionId}/toggle`, {
       completed: true,
       completedAt: item.completedAt,
+      agencyId: props.agencyId || undefined,
     });
     await fetchLifecycle();
   } catch {
     item.completedAt = prevDate;
+  }
+}
+
+async function saveExpirationYears(years) {
+  if (props.viewOnly) return;
+  expSettingSaving.value = true;
+  expSettingError.value = '';
+  expSettingSaved.value = false;
+  try {
+    await api.patch(`/users/${props.userId}/lifecycle/federal-background-expiration-years`, {
+      years,
+      agencyId: props.agencyId || undefined,
+    });
+    if (data.value?.federalBackgroundCheck) {
+      data.value.federalBackgroundCheck.expirationYears = years;
+    }
+    expSettingSaved.value = true;
+    setTimeout(() => { expSettingSaved.value = false; }, 2500);
+    await fetchLifecycle();
+  } catch (e) {
+    expSettingError.value = e?.response?.data?.error?.message || 'Failed to update expiration period';
+  } finally {
+    expSettingSaving.value = false;
   }
 }
 
@@ -1142,6 +1242,68 @@ watch(() => props.userId, () => {
 
 /* Checklist Tables */
 .lc-checklist-group { margin-bottom: 20px; }
+.lc-block-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.lc-block-title-row .lc-block-title { margin-bottom: 0; }
+.lc-exp-setting-wrap { position: relative; }
+.lc-exp-setting-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #4b5563;
+  cursor: pointer;
+}
+.lc-exp-setting-btn:hover { background: #f3f4f6; color: #111827; }
+.lc-exp-setting-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: 240px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+.lc-exp-setting-title { font-size: 13px; font-weight: 700; color: #111827; }
+.lc-exp-setting-hint { margin: 6px 0 10px; font-size: 12px; color: #6b7280; line-height: 1.35; }
+.lc-exp-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #374151;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.lc-exp-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+.lc-exp-badge--expired { background: #fee2e2; color: #b91c1c; }
+.lc-exp-badge--soon { background: #ffedd5; color: #c2410c; }
+.lc-exp-badge--ok { background: #dcfce7; color: #15803d; }
+.lc-row-expired { background: #fef2f2 !important; }
+.lc-row-soon { background: #fff7ed !important; }
+.lc-date-expired { color: #b91c1c; font-weight: 700; }
+.lc-date-soon { color: #c2410c; font-weight: 600; }
 .lc-section-anchor {
   scroll-margin-top: 96px;
 }

@@ -66,6 +66,7 @@ const TYPES_BY_CATEGORY = {
   onboarding_hiring: [
     'onboarding_completed', 'pending_completed', 'checklist_incomplete',
     'background_check_reimbursement_due', 'background_check_renewal_due',
+    'background_check_expired',
     'new_job_application_submitted', 'hiring_task_assigned',
     'training_assigned', 'training_due_soon'
   ],
@@ -134,6 +135,7 @@ const LABEL_OVERRIDES = {
   payroll_holiday_bonus_missing_approval: 'Holiday bonus needs approval',
   background_check_reimbursement_due: 'Background-check reimbursement due',
   background_check_renewal_due: 'Background-check renewal due',
+  background_check_expired: 'Federal Background/Fingerprint Check expired',
   training_assigned: 'Training assigned',
   training_due_soon: 'Training due soon',
   supervision_individual_50_reached: 'Individual supervision 50% milestone',
@@ -155,6 +157,7 @@ const WORKFORCE_RELEVANT = new Set([
   'medcancel_claim_approved', 'medcancel_claim_rejected', 'medcancel_claim_returned',
   'payroll_home_address_updated', 'checklist_incomplete',
   'background_check_reimbursement_due', 'background_check_renewal_due',
+  'background_check_expired',
   'hiring_task_assigned', 'training_assigned', 'training_due_soon',
   'supervision_presenter_reminder', 'program_reminder',
   'supervision_session_scheduled', 'team_meeting_scheduled',
@@ -365,6 +368,8 @@ const LEGACY_CATEGORY_BY_TYPE = {
   school_provider_slot_verification_completed: 'school_portal_provider_slots',
   credential_expiring: 'compliance_credential_expiration_reminders',
   credential_expired_blocking: 'compliance_access_restriction_warnings',
+  background_check_renewal_due: 'compliance_credential_expiration_reminders',
+  background_check_expired: 'compliance_access_restriction_warnings',
   kiosk_checkin: 'surveys_client_checked_in',
   survey_completed: 'surveys_survey_completed',
   emergency_broadcast: 'system_emergency_broadcasts'

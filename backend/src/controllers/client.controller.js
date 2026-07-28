@@ -775,11 +775,41 @@ export const getClients = async (req, res, next) => {
     const end = start + perPage;
     const items = (out || []).slice(start, end);
 
+    const classifySummaryTone = (client) => {
+      const workflow = String(client?.status || '').toUpperCase();
+      const statusKey = String(client?.client_status_key || '').toLowerCase();
+      const paperworkKey = String(client?.paperwork_status_key || '').toLowerCase();
+      const needed = Number(client?.paperwork_needed_count);
+      if (paperworkKey === 'completed' || (Number.isFinite(needed) && needed <= 0)) return 'completed';
+      if (
+        ['pending', 'packet', 'prospective', 'waitlist', 'screener'].includes(statusKey) ||
+        ['PACKET', 'SCREENER', 'PENDING_REVIEW', 'RETURNING'].includes(workflow)
+      ) return 'pending';
+      if ((Number.isFinite(needed) && needed > 1) || workflow === 'ON_HOLD' || paperworkKey === 'all_needed') return 'attention';
+      if (statusKey === 'current' || workflow === 'ACTIVE') return 'completed';
+      return 'neutral';
+    };
+    let completed = 0;
+    let pending = 0;
+    let attention = 0;
+    for (const c of out || []) {
+      const tone = classifySummaryTone(c);
+      if (tone === 'completed') completed += 1;
+      else if (tone === 'pending') pending += 1;
+      else if (tone === 'attention') attention += 1;
+    }
+
     return res.json({
       items,
       total,
       page,
-      per_page: perPage
+      per_page: perPage,
+      summary: {
+        total,
+        completed,
+        pending,
+        attention
+      }
     });
   } catch (error) {
     console.error('Get clients error:', error);

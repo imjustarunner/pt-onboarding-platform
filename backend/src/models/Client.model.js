@@ -335,11 +335,11 @@ class Client {
     if (search) {
       // Multi-field, multi-word search: every word must match at least one of initials/full_name/identifier_code/provider name.
       const terms = String(search).trim().split(/\s+/).filter(Boolean);
-      const fieldExpr = `(c.initials LIKE ? OR COALESCE(c.full_name,'') LIKE ? OR COALESCE(c.identifier_code,'') LIKE ? OR CONCAT(COALESCE(provider.first_name,''),' ',COALESCE(provider.last_name,'')) LIKE ?)`;
+      const fieldExpr = `(c.initials LIKE ? OR COALESCE(c.full_name,'') LIKE ? OR COALESCE(c.identifier_code,'') LIKE ? OR CONCAT(COALESCE(provider.first_name,''),' ',COALESCE(provider.last_name,'')) LIKE ? OR COALESCE(org.name,'') LIKE ? OR COALESCE(cs.label,'') LIKE ?)`;
       query += terms.map(() => ` AND ${fieldExpr}`).join('');
       for (const term of terms) {
         const s = `%${term}%`;
-        values.push(s, s, s, s);
+        values.push(s, s, s, s, s, s);
       }
     }
 
@@ -421,11 +421,11 @@ class Client {
       }
       if (search) {
         const terms = String(search).trim().split(/\s+/).filter(Boolean);
-        const fieldExpr = `(c.initials LIKE ? OR COALESCE(c.full_name,'') LIKE ? OR COALESCE(c.identifier_code,'') LIKE ? OR CONCAT(COALESCE(provider.first_name,''),' ',COALESCE(provider.last_name,'')) LIKE ?)`;
+        const fieldExpr = `(c.initials LIKE ? OR COALESCE(c.full_name,'') LIKE ? OR COALESCE(c.identifier_code,'') LIKE ? OR CONCAT(COALESCE(provider.first_name,''),' ',COALESCE(provider.last_name,'')) LIKE ? OR COALESCE(org.name,'') LIKE ? OR COALESCE(cs.label,'') LIKE ?)`;
         legacyQuery += terms.map(() => ` AND ${fieldExpr}`).join('');
         for (const term of terms) {
           const s = `%${term}%`;
-          legacyValues.push(s, s, s, s);
+          legacyValues.push(s, s, s, s, s, s);
         }
       }
       if (client_status_id) {

@@ -23,6 +23,15 @@ import { scopeLifecycleItem } from '../services/lifecycleScope.service.js';
 import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import { compressPdfBuffer } from '../services/pdfCompression.service.js';
+import {
+  FEDERAL_BG_ITEM_KEY,
+  getExpirationYearsForAgency,
+  getExpirationYearsForUser,
+  mirrorBackgroundCheckInfoFields,
+  resolveAgencyIdForUser,
+  setExpirationYearsForAgency,
+  syncFederalBackgroundExpiration,
+} from '../services/federalBackgroundCheck.service.js';
 
 const LIFECYCLE_PDF_MAX_STORED_BYTES = 15 * 1024 * 1024;
 const LIFECYCLE_PDF_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -242,8 +251,64 @@ export const toggleLifecycleChecklistItem = async (req, res, next) => {
 
     const item = await UserLifecycleChecklistItem.toggle(userId, definitionId, completed, req.user?.id, completedAt);
     await scopeLifecycleItem(userId, def.item_key, 'manual', definitionId);
+
+    if (def.item_key === FEDERAL_BG_ITEM_KEY) {
+      try {
+        await mirrorBackgroundCheckInfoFields(userId, {
+          completed,
+          completedAt: completed ? (completedAt || item?.completed_at || new Date()) : null,
+        });
+        await syncFederalBackgroundExpiration(userId, {
+          preferredAgencyId: req.body?.agencyId || req.query?.agencyId || null,
+        });
+      } catch {
+        // non-fatal
+      }
+    }
+
     res.json({ ok: true, item });
   } catch (err) {
+    next(err);
+  }
+};
+
+/** GET /users/:id/lifecycle/federal-background-expiration-years */
+export const getFederalBackgroundExpirationYears = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    const preferredAgencyId = req.query?.agencyId || req.body?.agencyId || null;
+    const agencyId = await resolveAgencyIdForUser(userId, preferredAgencyId);
+    const years = agencyId
+      ? await getExpirationYearsForAgency(agencyId)
+      : await getExpirationYearsForUser(userId, preferredAgencyId);
+    res.json({ agencyId, years });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * PATCH /users/:id/lifecycle/federal-background-expiration-years
+ * Updates the tenant-wide setting (3 or 5 years) for the user's agency and
+ * recalculates every federal background/fingerprint expiration in that tenant.
+ */
+export const updateFederalBackgroundExpirationYears = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    const years = parseInt(req.body?.years, 10);
+    const preferredAgencyId = req.body?.agencyId || req.query?.agencyId || null;
+    const agencyId = await resolveAgencyIdForUser(userId, preferredAgencyId);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'Could not resolve agency for this user' } });
+    }
+
+    const result = await setExpirationYearsForAgency(agencyId, years);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: { message: err.message } });
     next(err);
   }
 };

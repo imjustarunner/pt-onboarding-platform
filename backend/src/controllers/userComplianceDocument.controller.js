@@ -81,10 +81,17 @@ export const createComplianceDocument = async (req, res, next) => {
     const uploadedAt = new Date();
 
     let effectiveExpirationDate = expirationDate ? new Date(expirationDate) : null;
-    // Background check renews every 5 years (default expiration if not provided)
+    // Background check renews on the tenant setting (3 or 5 years; default 5)
     if (!effectiveExpirationDate && normalizedType.startsWith('background_check') && !normalizedType.startsWith('background_check_receipt')) {
+      let years = 5;
+      try {
+        const { getExpirationYearsForAgency } = await import('../services/federalBackgroundCheck.service.js');
+        if (agencyId) years = await getExpirationYearsForAgency(agencyId);
+      } catch {
+        years = 5;
+      }
       effectiveExpirationDate = new Date(uploadedAt);
-      effectiveExpirationDate.setFullYear(effectiveExpirationDate.getFullYear() + 5);
+      effectiveExpirationDate.setFullYear(effectiveExpirationDate.getFullYear() + years);
     }
 
     const doc = await UserComplianceDocument.create({

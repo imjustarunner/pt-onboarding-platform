@@ -179,7 +179,23 @@ async function resolveSupervisionSession(userId) {
 }
 
 async function resolveBackgroundCheck(userId) {
-  // background_check_status = 'complete' or 'passed' in user_info_values
+  // Prefer explicit background-check date; fall back to status containing complete/passed/cleared/approved
+  const [dateRows] = await pool.execute(
+    `SELECT uiv.value, uiv.updated_at
+     FROM user_info_values uiv
+     JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+     WHERE uiv.user_id = ? AND uifd.field_key IN (
+       'provider_background_check_date','background_check_date'
+     )
+     ORDER BY uiv.updated_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+  const dateVal = String(dateRows?.[0]?.value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateVal)) {
+    return { completed: true, completedAt: dateVal.slice(0, 10) };
+  }
+
   const [rows] = await pool.execute(
     `SELECT uiv.value, uiv.updated_at
      FROM user_info_values uiv
