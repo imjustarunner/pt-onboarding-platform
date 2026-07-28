@@ -229,10 +229,11 @@
           <!-- Materials -->
           <section v-else-if="activeSection === 'materials'" class="pyu__panel">
             <h2>Materials Request</h2>
-            <p class="muted">School cart response is required. Optional ITSCO materials can be requested below.</p>
+            <p class="muted">School cart response is required. All gear answers sync to your profile gear &amp; inventory when you save.</p>
 
             <fieldset class="pyu__fieldset" :disabled="isFinalized">
               <legend>School Cart <span class="req">*</span></legend>
+              <p v-if="gearStatusHint('school_cart')" class="pyu__gear-hint">{{ gearStatusHint('school_cart') }}</p>
               <label class="pyu__radio">
                 <input v-model="materialsForm.school_cart" type="radio" value="need" />
                 I do need a school cart for this school year
@@ -245,71 +246,93 @@
             </fieldset>
 
             <fieldset class="pyu__fieldset" :disabled="isFinalized">
-              <legend>Name tags &amp; cards</legend>
-              <label class="pyu__check">
-                <input v-model="materialsForm.itsco_name_tag" type="checkbox" />
-                I need an ITSCO name tag or I need one updated
+              <legend>Office access</legend>
+              <p class="muted tiny">Synced to your profile gear &amp; inventory when you save.</p>
+              <p v-if="gearStatusHint('office_key')" class="pyu__gear-hint">{{ gearStatusHint('office_key') }}</p>
+              <p class="pyu__field-label">Do you have an office key?</p>
+              <label class="pyu__radio">
+                <input v-model="materialsForm.has_office_key" type="radio" value="yes" />
+                Yes, I have an office key
               </label>
-              <div v-if="materialsForm.itsco_name_tag" class="pyu__nested">
-                <label class="field"><span>Preferred name</span>
-                  <input v-model="materialsForm.itsco_name_tag_name" type="text" />
-                </label>
-                <label class="field"><span>Title</span>
-                  <input v-model="materialsForm.itsco_name_tag_title" type="text" placeholder="e.g. LPC, School Therapist" />
-                </label>
-              </div>
-              <label class="pyu__check">
-                <input v-model="materialsForm.office_nametag" type="checkbox" />
-                I need an office nametag
-              </label>
-              <div v-if="materialsForm.office_nametag" class="pyu__nested">
-                <label class="field"><span>Preferred name</span>
-                  <input v-model="materialsForm.office_nametag_name" type="text" />
-                </label>
-              </div>
-              <label class="pyu__check">
-                <input v-model="materialsForm.itsco_lanyard" type="checkbox" />
-                I need an ITSCO lanyard (matches nametag and/or business cards)
-              </label>
-              <label class="pyu__check">
-                <input v-model="materialsForm.business_cards" type="checkbox" />
-                I need business cards (title, education, and current licensure)
+              <label class="pyu__radio">
+                <input v-model="materialsForm.has_office_key" type="radio" value="no" />
+                No, I need an office key
               </label>
             </fieldset>
 
             <fieldset class="pyu__fieldset" :disabled="isFinalized">
+              <legend>Name tags &amp; cards</legend>
+              <p class="muted tiny">Synced to your profile gear &amp; inventory when you save.</p>
+
+              <template v-for="block in nameTagGearBlocks" :key="block.key">
+                <p v-if="gearStatusHint(block.key)" class="pyu__gear-hint">{{ gearStatusHint(block.key) }}</p>
+                <p class="pyu__field-label">{{ block.question }}</p>
+                <label class="pyu__radio">
+                  <input v-model="materialsForm[block.hasField]" type="radio" value="yes" />
+                  Yes, I have one
+                </label>
+                <label class="pyu__radio">
+                  <input v-model="materialsForm[block.hasField]" type="radio" value="no" />
+                  No, I need one
+                </label>
+                <div v-if="materialsForm[block.hasField] === 'no' && block.nested" class="pyu__nested">
+                  <label v-for="field in block.nested" :key="field.model" class="field">
+                    <span>{{ field.label }}</span>
+                    <input
+                      v-model="materialsForm[field.model]"
+                      type="text"
+                      :placeholder="field.placeholder || ''"
+                    />
+                  </label>
+                </div>
+              </template>
+            </fieldset>
+
+            <fieldset class="pyu__fieldset" :disabled="isFinalized">
               <legend>Apparel &amp; bag</legend>
-              <label class="pyu__check">
-                <input v-model="materialsForm.itsco_polo" type="checkbox" />
-                I need an ITSCO polo
+              <p class="muted tiny">Synced to your profile gear &amp; inventory when you save.</p>
+              <p v-if="gearStatusHint('shirt')" class="pyu__gear-hint">{{ gearStatusHint('shirt') }}</p>
+              <p class="pyu__field-label">Do you have an ITSCO shirt?</p>
+              <label class="pyu__radio">
+                <input v-model="materialsForm.has_shirt" type="radio" value="yes" />
+                Yes, I already have a shirt
               </label>
-              <div v-if="materialsForm.itsco_polo" class="pyu__nested">
-                <p class="muted tiny">{{ poloInventory?.message || 'Coming soon' }}</p>
-                <label class="field"><span>Cut</span>
-                  <select v-model="materialsForm.polo_sex">
+              <label class="pyu__radio">
+                <input v-model="materialsForm.has_shirt" type="radio" value="no" />
+                No, I need a shirt
+              </label>
+              <div v-if="materialsForm.has_shirt === 'no'" class="pyu__nested">
+                <p class="muted tiny">{{ shirtInventoryLabel }}</p>
+                <label v-if="shirtInventory?.isGendered" class="field"><span>Cut</span>
+                  <select v-model="materialsForm.shirt_gender">
                     <option value="">Select…</option>
-                    <option value="M">M</option>
-                    <option value="F">F</option>
+                    <option v-for="g in shirtGenders" :key="g.value" :value="g.value">{{ g.label }}</option>
                   </select>
                 </label>
                 <label class="field"><span>Preferred size</span>
-                  <select v-model="materialsForm.polo_size">
+                  <select v-model="materialsForm.shirt_size" :disabled="shirtInventory?.isGendered && !materialsForm.shirt_gender">
                     <option value="">Select…</option>
-                    <option v-for="sz in poloSizes" :key="sz" :value="sz">
-                      {{ sz }}{{ poloStockLabel(sz) }}
+                    <option v-for="sz in shirtSizesForForm" :key="sz" :value="sz">
+                      {{ sz }}{{ shirtStockLabel(sz) }}
                     </option>
                   </select>
                 </label>
                 <label class="field"><span>Secondary size</span>
-                  <select v-model="materialsForm.polo_size_secondary">
+                  <select v-model="materialsForm.shirt_size_secondary" :disabled="shirtInventory?.isGendered && !materialsForm.shirt_gender">
                     <option value="">Select…</option>
-                    <option v-for="sz in poloSizes" :key="'sec-' + sz" :value="sz">{{ sz }}</option>
+                    <option v-for="sz in shirtSizesForForm" :key="'sec-' + sz" :value="sz">{{ sz }}</option>
                   </select>
                 </label>
               </div>
-              <label class="pyu__check">
-                <input v-model="materialsForm.itsco_canvas_bag" type="checkbox" />
-                I need an ITSCO canvas bag (beige bag with black straps)
+              <p v-if="gearStatusHint('canvas_bag')" class="pyu__gear-hint">{{ gearStatusHint('canvas_bag') }}</p>
+              <p class="pyu__field-label">Do you have an ITSCO canvas bag?</p>
+              <label class="pyu__radio">
+                <input v-model="materialsForm.has_canvas_bag" type="radio" value="yes" />
+                Yes, I already have a canvas bag
+              </label>
+              <label class="pyu__radio">
+                <input v-model="materialsForm.has_canvas_bag" type="radio" value="no" />
+                No, I need an ITSCO canvas bag (beige bag with black straps)
               </label>
             </fieldset>
 
@@ -614,6 +637,16 @@ const materialsForm = reactive({
   office_nametag_name: '',
   itsco_lanyard: false,
   business_cards: false,
+  has_office_key: null,
+  has_shirt: null,
+  has_itsco_name_tag: null,
+  has_office_nametag: null,
+  has_itsco_lanyard: null,
+  has_business_cards: null,
+  has_canvas_bag: null,
+  shirt_gender: '',
+  shirt_size: '',
+  shirt_size_secondary: '',
   itsco_polo: false,
   polo_sex: '',
   polo_size: '',
@@ -676,11 +709,65 @@ const schoolCartDisclaimer = computed(
     payload.value?.schoolCartDisclaimer ||
     'This cart is a rolling cart filled with basic supplies to help with school therapy sessions. It includes craft supplies, games, a timer, and other basic supplies to help with your session. The clinician is responsible for the cart and its contents, and will be required to return the cart at the end of the school year. If the cart is damaged, lost or stolen, the clinician is required to let Kaitlyn O’Connell and Megan CG know.'
 );
-const poloInventory = computed(() => payload.value?.poloInventory || null);
-const poloSizes = computed(() => {
-  const sizes = poloInventory.value?.sizes;
-  return Array.isArray(sizes) && sizes.length ? sizes : ['XS', 'S', 'M', 'L', 'XL', '2XL'];
+const shirtInventory = computed(
+  () => payload.value?.shirtInventory || payload.value?.poloInventory || null
+);
+const gearMaterialsContext = computed(() => payload.value?.gearMaterialsContext || null);
+const gearItems = computed(() => {
+  const fromPayload = payload.value?.gearItems;
+  if (fromPayload && typeof fromPayload === 'object') return fromPayload;
+  return gearMaterialsContext.value?.gearItems || {};
 });
+const nameTagGearBlocks = [
+  {
+    key: 'itsco_name_tag',
+    hasField: 'has_itsco_name_tag',
+    question: 'Do you have an ITSCO name tag?',
+    nested: [
+      { model: 'itsco_name_tag_name', label: 'Preferred name' },
+      { model: 'itsco_name_tag_title', label: 'Title', placeholder: 'e.g. LPC, School Therapist' },
+    ],
+  },
+  {
+    key: 'office_nametag',
+    hasField: 'has_office_nametag',
+    question: 'Do you have an office nametag?',
+    nested: [{ model: 'office_nametag_name', label: 'Preferred name' }],
+  },
+  {
+    key: 'itsco_lanyard',
+    hasField: 'has_itsco_lanyard',
+    question: 'Do you have an ITSCO lanyard?',
+    nested: null,
+  },
+  {
+    key: 'business_cards',
+    hasField: 'has_business_cards',
+    question: 'Do you have ITSCO business cards?',
+    nested: null,
+  },
+];
+const shirtGenders = computed(() => {
+  const g = shirtInventory.value?.genders;
+  if (Array.isArray(g) && g.length) return g;
+  return [
+    { value: 'women', label: "Women's" },
+    { value: 'men', label: "Men's" },
+  ];
+});
+const shirtSizesForForm = computed(() => {
+  const inv = shirtInventory.value;
+  const sizes = Array.isArray(inv?.sizes) && inv.sizes.length ? inv.sizes : ['XS', 'S', 'M', 'L', 'XL', '2XL'];
+  if (!inv?.isGendered || !materialsForm.shirt_gender) return sizes;
+  const gender = String(materialsForm.shirt_gender || '').toLowerCase();
+  const inStock = sizes.filter((sz) => {
+    const key = `${gender}:${sz}`;
+    const qty = inv.stockByGenderSize?.[key];
+    return qty == null || qty > 0;
+  });
+  return inStock.length ? inStock : sizes;
+});
+const shirtInventoryLabel = computed(() => shirtInventory.value?.message || 'Choose your preferred shirt size');
 
 const kioskUrl = computed(() => {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -773,10 +860,25 @@ function applyPayload(data) {
     mat.office_nametag_name || data.provider?.name || '';
   materialsForm.itsco_lanyard = Boolean(mat.itsco_lanyard);
   materialsForm.business_cards = Boolean(mat.business_cards);
-  materialsForm.itsco_polo = Boolean(mat.itsco_polo);
-  materialsForm.polo_sex = mat.polo_sex || '';
-  materialsForm.polo_size = mat.polo_size || '';
-  materialsForm.polo_size_secondary = mat.polo_size_secondary || '';
+  materialsForm.has_office_key = applyHasField(mat, 'has_office_key');
+  materialsForm.has_shirt = applyHasField(mat, 'has_shirt');
+  materialsForm.has_itsco_name_tag = applyHasField(mat, 'has_itsco_name_tag', 'itsco_name_tag');
+  materialsForm.has_office_nametag = applyHasField(mat, 'has_office_nametag', 'office_nametag');
+  materialsForm.has_itsco_lanyard = applyHasField(mat, 'has_itsco_lanyard', 'itsco_lanyard');
+  materialsForm.has_business_cards = applyHasField(mat, 'has_business_cards', 'business_cards');
+  materialsForm.has_canvas_bag = applyHasField(mat, 'has_canvas_bag', 'itsco_canvas_bag');
+  materialsForm.shirt_gender = legacyPoloGenderToShirt(mat.shirt_gender || mat.polo_sex || '');
+  materialsForm.shirt_size = mat.shirt_size || mat.polo_size || '';
+  materialsForm.shirt_size_secondary = mat.shirt_size_secondary || mat.polo_size_secondary || '';
+  materialsForm.itsco_name_tag = materialsForm.has_itsco_name_tag === 'no';
+  materialsForm.office_nametag = materialsForm.has_office_nametag === 'no';
+  materialsForm.itsco_lanyard = materialsForm.has_itsco_lanyard === 'no';
+  materialsForm.business_cards = materialsForm.has_business_cards === 'no';
+  materialsForm.itsco_canvas_bag = materialsForm.has_canvas_bag === 'no';
+  materialsForm.itsco_polo = materialsForm.has_shirt === 'no';
+  materialsForm.polo_sex = shirtGenderToLegacyPolo(materialsForm.shirt_gender) || mat.polo_sex || '';
+  materialsForm.polo_size = materialsForm.shirt_size;
+  materialsForm.polo_size_secondary = materialsForm.shirt_size_secondary;
   materialsForm.itsco_canvas_bag = Boolean(mat.itsco_canvas_bag);
   const eventsData = (data.sections || []).find((s) => s.sectionKey === 'school_events')?.data || {};
   const unknownMap = eventsData.unknownBts || {};
@@ -891,42 +993,120 @@ function goToNextSection(currentKey) {
   activeSection.value = SECTION_META[idx + 1].key;
 }
 
+function gearStatusHint(key) {
+  const item = gearItems.value?.[key];
+  if (!item || item.status === 'unknown') return '';
+  if (item.status === 'issued') return `On file (issued): ${item.detail || item.label}`;
+  if (item.status === 'has') return `On file: ${item.detail || 'Has one'}`;
+  if (item.status === 'requested') return `Requested: ${item.detail || item.label}`;
+  return '';
+}
+
+function applyHasField(mat, hasKey, legacyNeedKey) {
+  const direct = normalizeYesNoField(mat[hasKey]);
+  if (direct) return direct;
+  if (legacyNeedKey && mat[legacyNeedKey]) return 'no';
+  return null;
+}
+
+function normalizeYesNoField(value) {
+  const v = String(value ?? '').trim().toLowerCase();
+  if (v === 'yes' || v === 'true' || v === '1') return 'yes';
+  if (v === 'no' || v === 'false' || v === '0') return 'no';
+  return null;
+}
+
+function legacyPoloGenderToShirt(gender) {
+  const g = String(gender || '').trim().toUpperCase();
+  if (g === 'M') return 'men';
+  if (g === 'F') return 'women';
+  return String(gender || '').trim().toLowerCase();
+}
+
+function shirtGenderToLegacyPolo(gender) {
+  const g = String(gender || '').trim().toLowerCase();
+  if (g === 'men') return 'M';
+  if (g === 'women') return 'F';
+  return '';
+}
+
 function materialsPayload() {
   const cart = materialsForm.school_cart;
+  const needShirt = materialsForm.has_shirt === 'no';
   return {
     school_cart: cart,
     need_school_cart: cart === 'need',
     materials_notes: String(materialsForm.materials_notes || ''),
-    itsco_name_tag: Boolean(materialsForm.itsco_name_tag),
+    has_office_key: materialsForm.has_office_key,
+    has_shirt: materialsForm.has_shirt,
+    has_itsco_name_tag: materialsForm.has_itsco_name_tag,
+    has_office_nametag: materialsForm.has_office_nametag,
+    has_itsco_lanyard: materialsForm.has_itsco_lanyard,
+    has_business_cards: materialsForm.has_business_cards,
+    has_canvas_bag: materialsForm.has_canvas_bag,
+    shirt_gender: materialsForm.shirt_gender,
+    shirt_size: materialsForm.shirt_size,
+    shirt_size_secondary: materialsForm.shirt_size_secondary,
+    itsco_name_tag: materialsForm.has_itsco_name_tag === 'no',
     itsco_name_tag_name: String(materialsForm.itsco_name_tag_name || ''),
     itsco_name_tag_title: String(materialsForm.itsco_name_tag_title || ''),
-    office_nametag: Boolean(materialsForm.office_nametag),
+    office_nametag: materialsForm.has_office_nametag === 'no',
     office_nametag_name: String(materialsForm.office_nametag_name || ''),
-    itsco_lanyard: Boolean(materialsForm.itsco_lanyard),
-    business_cards: Boolean(materialsForm.business_cards),
-    itsco_polo: Boolean(materialsForm.itsco_polo),
-    polo_sex: String(materialsForm.polo_sex || ''),
-    polo_size: String(materialsForm.polo_size || ''),
-    polo_size_secondary: String(materialsForm.polo_size_secondary || ''),
-    itsco_canvas_bag: Boolean(materialsForm.itsco_canvas_bag),
+    itsco_lanyard: materialsForm.has_itsco_lanyard === 'no',
+    business_cards: materialsForm.has_business_cards === 'no',
+    itsco_polo: needShirt,
+    polo_sex: shirtGenderToLegacyPolo(materialsForm.shirt_gender),
+    polo_size: String(materialsForm.shirt_size || ''),
+    polo_size_secondary: String(materialsForm.shirt_size_secondary || ''),
+    itsco_canvas_bag: materialsForm.has_canvas_bag === 'no',
   };
 }
+
+const MATERIALS_HAS_FIELDS = [
+  { field: 'has_office_key', label: 'office key' },
+  { field: 'has_shirt', label: 'ITSCO shirt' },
+  { field: 'has_itsco_name_tag', label: 'ITSCO name tag' },
+  { field: 'has_office_nametag', label: 'office nametag' },
+  { field: 'has_itsco_lanyard', label: 'ITSCO lanyard' },
+  { field: 'has_business_cards', label: 'business cards' },
+  { field: 'has_canvas_bag', label: 'ITSCO canvas bag' },
+];
 
 async function saveMaterials() {
   if (!materialsForm.school_cart) {
     actionError.value = 'Please choose whether you need a school cart.';
     return;
   }
-  if (materialsForm.itsco_polo && (!materialsForm.polo_sex || !materialsForm.polo_size)) {
-    actionError.value = 'Please select polo cut (M/F) and preferred size.';
-    return;
+  for (const { field, label } of MATERIALS_HAS_FIELDS) {
+    if (!materialsForm[field]) {
+      actionError.value = `Please indicate whether you have an ${label}.`;
+      return;
+    }
+  }
+  if (materialsForm.has_shirt === 'no') {
+    if (shirtInventory.value?.isGendered && !materialsForm.shirt_gender) {
+      actionError.value = 'Please select shirt cut (Women\'s / Men\'s).';
+      return;
+    }
+    if (!materialsForm.shirt_size) {
+      actionError.value = 'Please select your preferred shirt size.';
+      return;
+    }
   }
   const ok = await saveSection('materials', materialsPayload(), { reviewed: true, completed: true });
   if (ok) goToNextSection('materials');
 }
 
-function poloStockLabel(sz) {
-  const n = poloInventory.value?.stockBySize?.[sz];
+function shirtStockLabel(sz) {
+  const inv = shirtInventory.value;
+  if (!inv) return '';
+  if (inv.isGendered && materialsForm.shirt_gender) {
+    const key = `${materialsForm.shirt_gender}:${sz}`;
+    const n = inv.stockByGenderSize?.[key];
+    if (n == null) return '';
+    return ` (${n} in stock)`;
+  }
+  const n = inv.stockBySize?.[sz];
   if (n == null) return '';
   return ` (${n} in stock)`;
 }
@@ -1938,6 +2118,21 @@ defineExpose({ load, reload: load });
   align-items: flex-start;
   margin: 8px 0;
   font-size: 0.95rem;
+}
+.pyu__field-label {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+.pyu__gear-hint {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--pyu-secondary) 10%, white);
+  border: 1px solid color-mix(in srgb, var(--pyu-secondary) 25%, #e5e7eb);
+  font-size: 13px;
+  color: #334155;
 }
 .pyu__disclaimer {
   margin: 10px 0 0;

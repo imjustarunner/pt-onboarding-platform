@@ -21,8 +21,15 @@
 
       <!-- Size preferences -->
       <div class="lc-gear-prefs">
-        <div class="lc-gear-prefs-label">Preferred sizes</div>
-        <div class="lc-gear-prefs-row">
+        <div class="lc-gear-prefs-label">Year Update gear status</div>
+        <div class="lc-gear-requests">
+          <div v-for="item in gearRequestRows" :key="item.key" class="lc-gear-request-row">
+            <span class="lc-gear-request-name">{{ item.label }}</span>
+            <span class="lc-gear-access-pill" :class="gearPillClass(item.status)">{{ item.statusLabel }}</span>
+            <span class="lc-gear-request-detail">{{ item.detail || '—' }}</span>
+          </div>
+        </div>
+        <div class="lc-gear-prefs-label" style="margin-top:12px;">Preferred sizes</div>
           <label class="lc-gear-pref">
             <span>Shirt</span>
             <input
@@ -159,7 +166,13 @@ const hasLoadedOnce = ref(false);
 const error = ref('');
 const assignments = ref([]);
 const types = ref([]);
-const prefs = ref({ shirt: '', hoodie: '', pants: '', other: '' });
+const prefs = ref({
+  shirt: '',
+  hoodie: '',
+  pants: '',
+  other: '',
+  gear_items: {},
+});
 const prefsSnapshot = ref('');
 const prefsSaved = ref(false);
 const prefsSaving = ref(false);
@@ -179,6 +192,89 @@ const filteredIssuableSizes = computed(() => {
   return sizes.filter((s) => String(s.gender || '') === g);
 });
 
+const GEAR_ITEM_ORDER = [
+  'school_cart',
+  'office_key',
+  'itsco_name_tag',
+  'office_nametag',
+  'itsco_lanyard',
+  'business_cards',
+  'shirt',
+  'canvas_bag',
+];
+
+const GEAR_ITEM_LABELS = {
+  school_cart: 'School cart',
+  office_key: 'Office key',
+  itsco_name_tag: 'ITSCO name tag',
+  office_nametag: 'Office nametag',
+  itsco_lanyard: 'ITSCO lanyard',
+  business_cards: 'Business cards',
+  shirt: 'ITSCO shirt',
+  canvas_bag: 'ITSCO canvas bag',
+};
+
+function gearPillClass(status) {
+  if (status === 'issued' || status === 'has') return 'lc-gear-access-pill--ok';
+  if (status === 'requested') return 'lc-gear-access-pill--need';
+  return '';
+}
+
+function assignmentMatchesGearKey(assignment, key) {
+  const hay = `${assignment?.typeName || ''} ${assignment?.assetCode || ''}`.toLowerCase();
+  switch (key) {
+    case 'school_cart': return /cart/.test(hay);
+    case 'office_key': return /key|badge/.test(hay);
+    case 'itsco_name_tag': return /name.?tag|nametag/.test(hay) && !/office/.test(hay);
+    case 'office_nametag': return /office/.test(hay) && /name|tag/.test(hay);
+    case 'itsco_lanyard': return /lanyard/.test(hay);
+    case 'business_cards': return /business/.test(hay) && /card/.test(hay);
+    case 'shirt': return /shirt|polo|t-?shirt/.test(hay);
+    case 'canvas_bag': return /bag|canvas/.test(hay);
+    default: return false;
+  }
+}
+
+function statusLabel(status) {
+  if (status === 'issued') return 'Issued';
+  if (status === 'has') return 'Has one';
+  if (status === 'requested') return 'Requested';
+  return 'Not set';
+}
+
+const gearRequestRows = computed(() => {
+  const items = prefs.value.gear_items || {};
+  return GEAR_ITEM_ORDER.map((key) => {
+    const issued = (assignments.value || []).find((a) => assignmentMatchesGearKey(a, key));
+    if (issued) {
+      return {
+        key,
+        label: GEAR_ITEM_LABELS[key] || key,
+        status: 'issued',
+        statusLabel: statusLabel('issued'),
+        detail: issued.displayLabel || issued.assetCode || issued.sizeLabel || issued.typeName || '',
+      };
+    }
+    const saved = items[key];
+    if (saved?.status && saved.status !== 'unknown') {
+      return {
+        key,
+        label: saved.label || GEAR_ITEM_LABELS[key] || key,
+        status: saved.status,
+        statusLabel: saved.statusLabel || statusLabel(saved.status),
+        detail: saved.detail || '',
+      };
+    }
+    return {
+      key,
+      label: GEAR_ITEM_LABELS[key] || key,
+      status: 'unknown',
+      statusLabel: statusLabel('unknown'),
+      detail: '',
+    };
+  }).filter((r) => r.status !== 'unknown');
+});
+
 const base = () => `/gear-inventory/${props.agencyId}`;
 
 function prefsKey(p = prefs.value) {
@@ -187,6 +283,12 @@ function prefsKey(p = prefs.value) {
     hoodie: String(p.hoodie || '').trim(),
     pants: String(p.pants || '').trim(),
     other: String(p.other || '').trim(),
+    has_office_key: String(p.has_office_key || '').trim(),
+    needs_office_key: Boolean(p.needs_office_key),
+    has_shirt: String(p.has_shirt || '').trim(),
+    needs_shirt: Boolean(p.needs_shirt),
+    shirt_gender: String(p.shirt_gender || '').trim(),
+    shirt_secondary: String(p.shirt_secondary || '').trim(),
   });
 }
 
@@ -215,6 +317,13 @@ async function load({ initial = false } = {}) {
       hoodie: p.hoodie || '',
       pants: p.pants || '',
       other: p.other || '',
+      gear_items: p.gear_items && typeof p.gear_items === 'object' ? p.gear_items : {},
+      has_office_key: p.has_office_key || '',
+      needs_office_key: Boolean(p.needs_office_key),
+      has_shirt: p.has_shirt || '',
+      needs_shirt: Boolean(p.needs_shirt),
+      shirt_gender: p.shirt_gender || '',
+      shirt_secondary: p.shirt_secondary || '',
     };
     prefsSnapshot.value = prefsKey();
     hasLoadedOnce.value = true;
@@ -350,6 +459,54 @@ onMounted(() => { void load({ initial: true }); });
   margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+.lc-gear-access-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.lc-gear-requests {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.lc-gear-request-row {
+  display: grid;
+  grid-template-columns: 1.2fr auto 1fr;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+.lc-gear-request-name {
+  font-weight: 500;
+  color: #374151;
+}
+.lc-gear-request-detail {
+  color: #6b7280;
+  font-size: 12px;
+}
+.lc-gear-access-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #f3f4f6;
+  color: #4b5563;
+}
+.lc-gear-access-pill--ok {
+  background: #dcfce7;
+  color: #166534;
+}
+.lc-gear-access-pill--need {
+  background: #fef3c7;
+  color: #92400e;
+}
+.lc-gear-access-pill--shirt {
+  background: #e0f2fe;
+  color: #075985;
 }
 .lc-gear-prefs-row {
   display: flex;

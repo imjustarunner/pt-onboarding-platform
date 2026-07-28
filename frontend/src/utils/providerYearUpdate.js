@@ -19,7 +19,7 @@ export const SECTION_META = [
     key: 'materials',
     title: 'Materials Request',
     shortTitle: 'Materials',
-    hint: 'School cart, name tags, polo, and more',
+    hint: 'School cart, office key, shirt sizes, and more',
     description: 'Required school cart choice plus optional ITSCO materials requests.',
     icon: 'box',
   },

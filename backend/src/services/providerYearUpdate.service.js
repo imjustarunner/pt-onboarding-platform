@@ -5,6 +5,11 @@
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import {
+  getUserPreferences,
+  listUserAssignments,
+  setUserPreferences,
+} from './gearInventory.service.js';
 import { listSchoolEventsForOrg } from './schoolPortalEvents.service.js';
 
 export const SECTION_KEYS = [
@@ -33,11 +38,278 @@ export function defaultMaterialsData(provider = null) {
     office_nametag_name: full,
     itsco_lanyard: false,
     business_cards: false,
-    itsco_polo: false,
+    has_office_key: null, // 'yes' | 'no'
+    has_shirt: null, // 'yes' | 'no'
+    has_itsco_name_tag: null,
+    has_office_nametag: null,
+    has_itsco_lanyard: null,
+    has_business_cards: null,
+    has_canvas_bag: null,
+    shirt_gender: '',
+    shirt_size: '',
+    shirt_size_secondary: '',
+    itsco_polo: false, // legacy mirror when has_shirt === 'no'
     polo_sex: '',
     polo_size: '',
     polo_size_secondary: '',
     itsco_canvas_bag: false,
+  };
+}
+
+const SHIRT_GEAR_NAME_SQL = `(
+  LOWER(t.name) LIKE '%shirt%'
+  OR LOWER(t.name) LIKE '%t-shirt%'
+  OR LOWER(t.name) LIKE '%tshirt%'
+  OR LOWER(COALESCE(t.category, '')) LIKE '%shirt%'
+  OR LOWER(t.name) LIKE '%polo%'
+  OR LOWER(COALESCE(t.category, '')) LIKE '%polo%'
+)`;
+
+function normalizeYesNo(value) {
+  const v = String(value ?? '').trim().toLowerCase();
+  if (v === 'yes' || v === 'true' || v === '1') return 'yes';
+  if (v === 'no' || v === 'false' || v === '0') return 'no';
+  return null;
+}
+
+function legacyPoloGenderToShirt(gender) {
+  const g = String(gender || '').trim().toUpperCase();
+  if (g === 'M') return 'men';
+  if (g === 'F') return 'women';
+  return String(gender || '').trim().toLowerCase();
+}
+
+function shirtGenderToLegacyPolo(gender) {
+  const g = String(gender || '').trim().toLowerCase();
+  if (g === 'men') return 'M';
+  if (g === 'women') return 'F';
+  return '';
+}
+
+function materialHasAnswer(materials, hasKey, legacyNeedKey = null) {
+  const direct = normalizeYesNo(materials?.[hasKey]);
+  if (direct) return direct;
+  if (legacyNeedKey && materials?.[legacyNeedKey]) return 'no';
+  return null;
+}
+
+function shirtSizeDetail(materials) {
+  const parts = [
+    materials.shirt_gender ? legacyPoloGenderToShirt(materials.shirt_gender) : '',
+    materials.shirt_size,
+    materials.shirt_size_secondary ? `alt ${materials.shirt_size_secondary}` : '',
+  ].filter(Boolean);
+  return parts.join(' · ') || null;
+}
+
+export const PYU_GEAR_ITEM_DEFS = [
+  { key: 'school_cart', label: 'School cart' },
+  { key: 'office_key', label: 'Office key' },
+  { key: 'itsco_name_tag', label: 'ITSCO name tag' },
+  { key: 'office_nametag', label: 'Office nametag' },
+  { key: 'itsco_lanyard', label: 'ITSCO lanyard' },
+  { key: 'business_cards', label: 'Business cards' },
+  { key: 'shirt', label: 'ITSCO shirt' },
+  { key: 'canvas_bag', label: 'ITSCO canvas bag' },
+];
+
+function assignmentMatchesGearKey(assignment, key) {
+  const name = String(assignment?.typeName || '').toLowerCase();
+  const asset = String(assignment?.assetCode || '').toLowerCase();
+  const hay = `${name} ${asset}`;
+  switch (key) {
+    case 'school_cart':
+      return /cart/.test(hay);
+    case 'office_key':
+      return /key|badge/.test(hay);
+    case 'itsco_name_tag':
+      return /name.?tag|nametag/.test(hay) && !/office/.test(hay);
+    case 'office_nametag':
+      return /office/.test(hay) && /name|tag/.test(hay);
+    case 'itsco_lanyard':
+      return /lanyard/.test(hay);
+    case 'business_cards':
+      return /business/.test(hay) && /card/.test(hay);
+    case 'shirt':
+      return /shirt|polo|t-?shirt/.test(hay);
+    case 'canvas_bag':
+      return /bag|canvas/.test(hay);
+    default:
+      return false;
+  }
+}
+
+function materialsStatusForGearKey(normalized, key) {
+  switch (key) {
+    case 'school_cart':
+      if (normalized.school_cart === 'need') {
+        return { status: 'requested', detail: 'Requested via Year Update' };
+      }
+      if (normalized.school_cart === 'do_not_need') {
+        return { status: 'has', detail: 'Does not need a cart' };
+      }
+      return { status: 'unknown', detail: null };
+    case 'office_key':
+      if (normalized.has_office_key === 'yes') return { status: 'has', detail: 'Self-reported' };
+      if (normalized.has_office_key === 'no') return { status: 'requested', detail: 'Needs office key' };
+      return { status: 'unknown', detail: null };
+    case 'shirt':
+      if (normalized.has_shirt === 'yes') return { status: 'has', detail: 'Self-reported' };
+      if (normalized.has_shirt === 'no') {
+        return {
+          status: 'requested',
+          detail: shirtSizeDetail(normalized) || 'Needs shirt',
+        };
+      }
+      return { status: 'unknown', detail: null };
+    case 'itsco_name_tag': {
+      const has = materialHasAnswer(normalized, 'has_itsco_name_tag', 'itsco_name_tag');
+      if (has === 'yes') return { status: 'has', detail: 'Self-reported' };
+      if (has === 'no') {
+        const name = String(normalized.itsco_name_tag_name || '').trim();
+        const title = String(normalized.itsco_name_tag_title || '').trim();
+        return {
+          status: 'requested',
+          detail: [name, title].filter(Boolean).join(' · ') || 'Needs name tag',
+        };
+      }
+      return { status: 'unknown', detail: null };
+    }
+    case 'office_nametag': {
+      const has = materialHasAnswer(normalized, 'has_office_nametag', 'office_nametag');
+      if (has === 'yes') return { status: 'has', detail: 'Self-reported' };
+      if (has === 'no') {
+        const name = String(normalized.office_nametag_name || '').trim();
+        return { status: 'requested', detail: name || 'Needs office nametag' };
+      }
+      return { status: 'unknown', detail: null };
+    }
+    case 'itsco_lanyard': {
+      const has = materialHasAnswer(normalized, 'has_itsco_lanyard', 'itsco_lanyard');
+      if (has === 'yes') return { status: 'has', detail: 'Self-reported' };
+      if (has === 'no') return { status: 'requested', detail: 'Needs lanyard' };
+      return { status: 'unknown', detail: null };
+    }
+    case 'business_cards': {
+      const has = materialHasAnswer(normalized, 'has_business_cards', 'business_cards');
+      if (has === 'yes') return { status: 'has', detail: 'Self-reported' };
+      if (has === 'no') return { status: 'requested', detail: 'Needs business cards' };
+      return { status: 'unknown', detail: null };
+    }
+    case 'canvas_bag': {
+      const has = materialHasAnswer(normalized, 'has_canvas_bag', 'itsco_canvas_bag');
+      if (has === 'yes') return { status: 'has', detail: 'Self-reported' };
+      if (has === 'no') return { status: 'requested', detail: 'Needs canvas bag' };
+      return { status: 'unknown', detail: null };
+    }
+    default:
+      return { status: 'unknown', detail: null };
+  }
+}
+
+function gearStatusLabel(status) {
+  switch (status) {
+    case 'issued':
+      return 'Issued';
+    case 'has':
+      return 'Has one';
+    case 'requested':
+      return 'Requested';
+    case 'not_needed':
+      return 'Not needed';
+    default:
+      return 'Not set';
+  }
+}
+
+export function buildGearItemStatuses({ assignments = [], materials = null, savedGearItems = null } = {}) {
+  const normalized = materials ? normalizeMaterialsPayload(materials) : null;
+  const byKey = {};
+  for (const def of PYU_GEAR_ITEM_DEFS) {
+    const issued = (assignments || []).find((a) => assignmentMatchesGearKey(a, def.key));
+    if (issued) {
+      byKey[def.key] = {
+        key: def.key,
+        label: def.label,
+        status: 'issued',
+        statusLabel: gearStatusLabel('issued'),
+        detail: issued.displayLabel || issued.assetCode || issued.sizeLabel || issued.typeName || null,
+        issuedAt: issued.issuedAt || null,
+      };
+      continue;
+    }
+    const saved = savedGearItems?.[def.key];
+    if (saved?.status && saved.status !== 'unknown') {
+      byKey[def.key] = {
+        key: def.key,
+        label: def.label,
+        status: saved.status,
+        statusLabel: gearStatusLabel(saved.status),
+        detail: saved.detail || null,
+        issuedAt: null,
+      };
+      continue;
+    }
+    if (normalized) {
+      const fromMaterials = materialsStatusForGearKey(normalized, def.key);
+      byKey[def.key] = {
+        key: def.key,
+        label: def.label,
+        status: fromMaterials.status,
+        statusLabel: gearStatusLabel(fromMaterials.status),
+        detail: fromMaterials.detail,
+        issuedAt: null,
+      };
+      continue;
+    }
+    byKey[def.key] = {
+      key: def.key,
+      label: def.label,
+      status: 'unknown',
+      statusLabel: gearStatusLabel('unknown'),
+      detail: null,
+      issuedAt: null,
+    };
+  }
+  return byKey;
+}
+
+function normalizeMaterialsPayload(materials = {}) {
+  const hasOfficeKey = normalizeYesNo(materials.has_office_key);
+  const hasShirt = normalizeYesNo(materials.has_shirt);
+  const hasItscoNameTag = materialHasAnswer(materials, 'has_itsco_name_tag', 'itsco_name_tag');
+  const hasOfficeNametag = materialHasAnswer(materials, 'has_office_nametag', 'office_nametag');
+  const hasLanyard = materialHasAnswer(materials, 'has_itsco_lanyard', 'itsco_lanyard');
+  const hasBusinessCards = materialHasAnswer(materials, 'has_business_cards', 'business_cards');
+  const hasCanvasBag = materialHasAnswer(materials, 'has_canvas_bag', 'itsco_canvas_bag');
+  const shirtGender =
+    legacyPoloGenderToShirt(materials.shirt_gender || materials.polo_sex || '') || '';
+  const shirtSize = String(materials.shirt_size || materials.polo_size || '').trim();
+  const shirtSizeSecondary = String(
+    materials.shirt_size_secondary || materials.polo_size_secondary || ''
+  ).trim();
+  const needShirt = hasShirt === 'no';
+  return {
+    ...materials,
+    has_office_key: hasOfficeKey,
+    has_shirt: hasShirt,
+    has_itsco_name_tag: hasItscoNameTag,
+    has_office_nametag: hasOfficeNametag,
+    has_itsco_lanyard: hasLanyard,
+    has_business_cards: hasBusinessCards,
+    has_canvas_bag: hasCanvasBag,
+    shirt_gender: shirtGender,
+    shirt_size: shirtSize,
+    shirt_size_secondary: shirtSizeSecondary,
+    itsco_name_tag: hasItscoNameTag === 'no' || Boolean(materials.itsco_name_tag),
+    office_nametag: hasOfficeNametag === 'no' || Boolean(materials.office_nametag),
+    itsco_lanyard: hasLanyard === 'no' || Boolean(materials.itsco_lanyard),
+    business_cards: hasBusinessCards === 'no' || Boolean(materials.business_cards),
+    itsco_canvas_bag: hasCanvasBag === 'no' || Boolean(materials.itsco_canvas_bag),
+    itsco_polo: needShirt || Boolean(materials.itsco_polo),
+    polo_sex: shirtGenderToLegacyPolo(shirtGender) || String(materials.polo_sex || '').trim(),
+    polo_size: shirtSize,
+    polo_size_secondary: shirtSizeSecondary,
   };
 }
 
@@ -534,57 +806,243 @@ export async function loadProviderClientsWithoutDay(providerUserId, agencyId) {
   }
 }
 
-async function loadPoloInventoryHint(agencyId) {
+async function loadShirtInventoryHint(agencyId) {
   try {
     const [types] = await pool.execute(
-      `SELECT id, name, is_gendered, size_options_json
-       FROM gear_item_types
+      `SELECT id, name, is_gendered, size_options_json, tracking_mode
+       FROM gear_item_types t
        WHERE agency_id = ? AND is_active = 1
-         AND (LOWER(name) LIKE '%polo%' OR LOWER(COALESCE(category,'')) LIKE '%polo%')
-       ORDER BY id ASC
-       LIMIT 3`,
+         AND tracking_mode = 'SIZED_STOCK'
+         AND ${SHIRT_GEAR_NAME_SQL}
+       ORDER BY
+         CASE
+           WHEN LOWER(name) LIKE '%shirt%' OR LOWER(name) LIKE '%t-shirt%' OR LOWER(name) LIKE '%tshirt%' THEN 0
+           WHEN LOWER(name) LIKE '%polo%' THEN 1
+           ELSE 2
+         END,
+         id ASC
+       LIMIT 1`,
       [agencyId]
     );
     if (!types?.length) {
-      return { available: false, message: 'Coming soon', sizes: [], stockBySize: {} };
+      return {
+        available: false,
+        message: 'Shirt inventory not configured yet — choose your preferred size',
+        sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],
+        stockBySize: {},
+        stockByGenderSize: {},
+        isGendered: false,
+        genders: [],
+      };
     }
     const type = types[0];
     let sizes = [];
+    let genders = [];
     try {
       const parsed = typeof type.size_options_json === 'string'
         ? JSON.parse(type.size_options_json)
         : type.size_options_json;
       if (Array.isArray(parsed)) sizes = parsed.map(String);
       else if (parsed && typeof parsed === 'object') {
-        sizes = [...new Set([...(parsed.M || []), ...(parsed.F || []), ...(parsed.male || []), ...(parsed.female || [])].map(String))];
+        genders = Object.keys(parsed).filter((k) => Array.isArray(parsed[k]) && parsed[k].length);
+        sizes = [...new Set(genders.flatMap((g) => (parsed[g] || []).map(String)))];
       }
     } catch {
       sizes = [];
     }
     const [stockRows] = await pool.execute(
-      `SELECT size_label, quantity_on_hand
+      `SELECT gender, size_label, quantity_on_hand
        FROM gear_stock_levels
        WHERE gear_item_type_id = ?`,
       [type.id]
     ).catch(() => [[]]);
     const stockBySize = {};
+    const stockByGenderSize = {};
     for (const s of stockRows || []) {
-      const key = String(s.size_label || '');
-      if (key) stockBySize[key] = Number(s.quantity_on_hand || 0);
+      const size = String(s.size_label || '');
+      const gender = String(s.gender || '').trim().toLowerCase();
+      const qty = Number(s.quantity_on_hand || 0);
+      if (!size) continue;
+      stockBySize[size] = (stockBySize[size] || 0) + qty;
+      if (gender) {
+        const key = `${gender}:${size}`;
+        stockByGenderSize[key] = qty;
+      }
     }
     const hasStock = Object.values(stockBySize).some((n) => n > 0);
+    const genderOptions = (type.is_gendered ? genders : [])
+      .filter((g) => ['women', 'men'].includes(String(g).toLowerCase()))
+      .map((g) => ({
+        value: String(g).toLowerCase(),
+        label: String(g).toLowerCase() === 'women' ? "Women's" : "Men's",
+      }));
     return {
       available: hasStock || sizes.length > 0,
-      message: hasStock ? 'Current inventory shown below' : 'Coming soon — choose preferred cut and sizes',
+      message: hasStock
+        ? `Current ${type.name} inventory shown below`
+        : `${type.name} — choose preferred cut and sizes (inventory may be restocked soon)`,
       typeId: type.id,
       typeName: type.name,
       isGendered: Boolean(type.is_gendered),
+      genders: genderOptions,
       sizes: sizes.length ? sizes : ['XS', 'S', 'M', 'L', 'XL', '2XL'],
       stockBySize,
+      stockByGenderSize,
     };
   } catch {
-    return { available: false, message: 'Coming soon', sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'], stockBySize: {} };
+    return {
+      available: false,
+      message: 'Shirt inventory unavailable — choose your preferred size',
+      sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],
+      stockBySize: {},
+      stockByGenderSize: {},
+      isGendered: false,
+      genders: [],
+    };
   }
+}
+
+async function loadUserGearMaterialsContext(agencyId, userId) {
+  try {
+    const [prefsRes, assignments] = await Promise.all([
+      getUserPreferences(agencyId, userId).catch(() => ({ preferences: {} })),
+      listUserAssignments(agencyId, userId, { activeOnly: true }).catch(() => []),
+    ]);
+    const prefs = prefsRes?.preferences || {};
+    const gearItems = buildGearItemStatuses({
+      assignments,
+      savedGearItems: prefs.gear_items || null,
+    });
+    const shirtItem = gearItems.shirt || null;
+    const keyItem = gearItems.office_key || null;
+    return {
+      preferences: prefs,
+      gearItems,
+      issuedShirt: shirtItem?.status === 'issued'
+        ? { typeName: shirtItem.label, displayLabel: shirtItem.detail }
+        : null,
+      issuedOfficeKey: keyItem?.status === 'issued'
+        ? { typeName: keyItem.label, displayLabel: keyItem.detail }
+        : null,
+      hasOfficeKey:
+        keyItem?.status === 'issued' || keyItem?.status === 'has'
+          ? 'yes'
+          : keyItem?.status === 'requested'
+            ? 'no'
+            : normalizeYesNo(prefs.has_office_key),
+      hasShirt:
+        shirtItem?.status === 'issued' || shirtItem?.status === 'has'
+          ? 'yes'
+          : shirtItem?.status === 'requested'
+            ? 'no'
+            : normalizeYesNo(prefs.has_shirt),
+      shirtGender: legacyPoloGenderToShirt(prefs.shirt_gender || prefs.shirtGender || ''),
+      shirtSize: String(prefs.shirt || '').trim(),
+      shirtSizeSecondary: String(prefs.shirt_secondary || prefs.shirtSecondary || '').trim(),
+    };
+  } catch {
+    return {
+      preferences: {},
+      gearItems: buildGearItemStatuses({}),
+      issuedShirt: null,
+      issuedOfficeKey: null,
+      hasOfficeKey: null,
+      hasShirt: null,
+      shirtGender: '',
+      shirtSize: '',
+      shirtSizeSecondary: '',
+    };
+  }
+}
+
+function inferMaterialsFromGearContext(gearContext = {}) {
+  const out = {};
+  const items = gearContext.gearItems || {};
+  const applyYesNo = (key, hasField) => {
+    const item = items[key];
+    if (!item || item.status === 'unknown') return;
+    if (item.status === 'issued' || item.status === 'has') out[hasField] = 'yes';
+    if (item.status === 'requested') out[hasField] = 'no';
+  };
+  applyYesNo('office_key', 'has_office_key');
+  applyYesNo('shirt', 'has_shirt');
+  applyYesNo('itsco_name_tag', 'has_itsco_name_tag');
+  applyYesNo('office_nametag', 'has_office_nametag');
+  applyYesNo('itsco_lanyard', 'has_itsco_lanyard');
+  applyYesNo('business_cards', 'has_business_cards');
+  applyYesNo('canvas_bag', 'has_canvas_bag');
+  const cart = items.school_cart;
+  if (cart?.status === 'requested') out.school_cart = 'need';
+  if (cart?.status === 'has' && String(cart.detail || '').includes('Does not need')) {
+    out.school_cart = 'do_not_need';
+  }
+  if (gearContext.shirtGender) out.shirt_gender = gearContext.shirtGender;
+  if (gearContext.shirtSize) out.shirt_size = gearContext.shirtSize;
+  if (gearContext.shirtSizeSecondary) out.shirt_size_secondary = gearContext.shirtSizeSecondary;
+  return out;
+}
+
+export async function syncMaterialsToUserGear({ agencyId, userId, materials, actorUserId }) {
+  const aid = Number(agencyId || 0);
+  const uid = Number(userId || 0);
+  if (!aid || !uid || !materials) return;
+  const normalized = normalizeMaterialsPayload(materials);
+  const existing = await getUserPreferences(aid, uid).catch(() => ({ preferences: {} }));
+  const assignments = await listUserAssignments(aid, uid, { activeOnly: true }).catch(() => []);
+  const gearItems = buildGearItemStatuses({ assignments, materials: normalized });
+  const prefs = { ...(existing.preferences || {}) };
+  const hasOfficeKey = normalizeYesNo(normalized.has_office_key);
+  const hasShirt = normalizeYesNo(normalized.has_shirt);
+  if (hasOfficeKey) {
+    prefs.has_office_key = hasOfficeKey;
+    prefs.needs_office_key = hasOfficeKey === 'no';
+  }
+  if (hasShirt) {
+    prefs.has_shirt = hasShirt;
+    prefs.needs_shirt = hasShirt === 'no';
+  }
+  if (hasShirt === 'no') {
+    if (normalized.shirt_size) prefs.shirt = normalized.shirt_size;
+    if (normalized.shirt_size_secondary) prefs.shirt_secondary = normalized.shirt_size_secondary;
+    if (normalized.shirt_gender) prefs.shirt_gender = normalized.shirt_gender;
+  }
+  prefs.has_itsco_name_tag = normalized.has_itsco_name_tag;
+  prefs.has_office_nametag = normalized.has_office_nametag;
+  prefs.has_itsco_lanyard = normalized.has_itsco_lanyard;
+  prefs.has_business_cards = normalized.has_business_cards;
+  prefs.has_canvas_bag = normalized.has_canvas_bag;
+  prefs.needs_itsco_name_tag = normalized.has_itsco_name_tag === 'no';
+  prefs.needs_office_nametag = normalized.has_office_nametag === 'no';
+  prefs.needs_itsco_lanyard = normalized.has_itsco_lanyard === 'no';
+  prefs.needs_business_cards = normalized.has_business_cards === 'no';
+  prefs.needs_canvas_bag = normalized.has_canvas_bag === 'no';
+  prefs.gear_items = gearItems;
+  prefs.pyu_materials = {
+    school_cart: normalized.school_cart || null,
+    has_office_key: hasOfficeKey,
+    has_shirt: hasShirt,
+    has_itsco_name_tag: normalized.has_itsco_name_tag,
+    has_office_nametag: normalized.has_office_nametag,
+    has_itsco_lanyard: normalized.has_itsco_lanyard,
+    has_business_cards: normalized.has_business_cards,
+    has_canvas_bag: normalized.has_canvas_bag,
+    shirt_gender: normalized.shirt_gender || null,
+    shirt_size: normalized.shirt_size || null,
+    shirt_size_secondary: normalized.shirt_size_secondary || null,
+    itsco_name_tag: Boolean(normalized.itsco_name_tag),
+    office_nametag: Boolean(normalized.office_nametag),
+    itsco_lanyard: Boolean(normalized.itsco_lanyard),
+    business_cards: Boolean(normalized.business_cards),
+    itsco_canvas_bag: Boolean(normalized.itsco_canvas_bag),
+    materials_notes: String(normalized.materials_notes || '').trim() || null,
+    updatedAt: new Date().toISOString(),
+  };
+  await setUserPreferences(aid, uid, prefs, actorUserId || uid);
+}
+
+/** @deprecated use loadShirtInventoryHint */
+async function loadPoloInventoryHint(agencyId) {
+  return loadShirtInventoryHint(agencyId);
 }
 
 export async function getOrCreateCycle({ agencyId, providerUserId, schoolYear }) {
@@ -973,6 +1431,19 @@ export async function upsertSectionProgress({
     [cycleId]
   );
 
+  if (sectionKey === 'materials' && data && typeof data === 'object') {
+    const cycle = await getCycleById(cycleId);
+    if (cycle?.agency_id && cycle?.provider_user_id) {
+      const normalized = normalizeMaterialsPayload(data);
+      await syncMaterialsToUserGear({
+        agencyId: cycle.agency_id,
+        userId: cycle.provider_user_id,
+        materials: normalized,
+        actorUserId: actor?.userId || cycle.provider_user_id,
+      });
+    }
+  }
+
   return getSectionProgress(cycleId);
 }
 
@@ -988,7 +1459,11 @@ export async function buildDashboardPayload(cycle) {
     cycle.provider_user_id,
     cycle.agency_id
   );
-  const poloInventory = await loadPoloInventoryHint(cycle.agency_id);
+  const poloInventory = await loadShirtInventoryHint(cycle.agency_id);
+  const gearMaterialsContext = await loadUserGearMaterialsContext(
+    cycle.agency_id,
+    cycle.provider_user_id
+  );
   const [agencyRows] = await pool.execute(
     `SELECT a.id, a.name, a.logo_url, a.logo_path, a.color_palette, a.slug, a.portal_url,
             i.file_path AS icon_file_path
@@ -1005,6 +1480,16 @@ export async function buildDashboardPayload(cycle) {
   const agency = agencyRows?.[0] || null;
   const provider = userRows?.[0] || null;
   const byKey = Object.fromEntries(sections.map((s) => [s.sectionKey, s]));
+  const materials = normalizeMaterialsPayload({
+    ...defaultMaterialsData(provider),
+    ...inferMaterialsFromGearContext(gearMaterialsContext),
+    ...(byKey.materials?.data || {}),
+  });
+  const gearAssignments = await listUserAssignments(cycle.agency_id, cycle.provider_user_id, {
+    activeOnly: true,
+  }).catch(() => []);
+  const gearItems = buildGearItemStatuses({ assignments: gearAssignments, materials });
+  const gearContextWithItems = { ...gearMaterialsContext, gearItems };
 
   return {
     cycle: {
@@ -1041,12 +1526,12 @@ export async function buildDashboardPayload(cycle) {
     sectionKeys: SECTION_KEYS,
     reminderDefaults: DEFAULT_REMINDER_ITEMS,
     reminders: mergeRemindersWithDefaults(byKey.reminders?.data),
-    materials: {
-      ...defaultMaterialsData(provider),
-      ...(byKey.materials?.data || {}),
-    },
+    materials,
     schoolCartDisclaimer: SCHOOL_CART_DISCLAIMER,
+    shirtInventory: poloInventory,
     poloInventory,
+    gearMaterialsContext: gearContextWithItems,
+    gearItems,
     schedule,
     pendingScheduleAdjustments,
     eventsBySchool,
@@ -1234,11 +1719,17 @@ export async function listAgencyReport(agencyId, schoolYear) {
       schoolCart: materials.school_cart || null,
       materialsNotes: materials.materials_notes || materials.materialsNotes || null,
       materialsRequests: {
+        hasOfficeKey: normalizeYesNo(materials.has_office_key),
+        needsOfficeKey: normalizeYesNo(materials.has_office_key) === 'no',
+        hasShirt: normalizeYesNo(materials.has_shirt),
+        needsShirt: normalizeYesNo(materials.has_shirt) === 'no',
+        shirtGender: materials.shirt_gender || materials.polo_sex || null,
+        shirtSize: materials.shirt_size || materials.polo_size || null,
         itscoNameTag: Boolean(materials.itsco_name_tag),
         officeNametag: Boolean(materials.office_nametag),
         itscoLanyard: Boolean(materials.itsco_lanyard),
         businessCards: Boolean(materials.business_cards),
-        itscoPolo: Boolean(materials.itsco_polo),
+        itscoPolo: Boolean(materials.itsco_polo) || normalizeYesNo(materials.has_shirt) === 'no',
         itscoCanvasBag: Boolean(materials.itsco_canvas_bag),
       },
       remindersDone,
