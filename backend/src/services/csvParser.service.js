@@ -1,4 +1,5 @@
 import { parse } from 'csv-parse/sync';
+import { deriveSchoolClientInitials } from '../utils/schoolClientInitials.js';
 
 /**
  * CSV Parser Service
@@ -28,22 +29,7 @@ class CSVParserService {
   }
 
   static deriveInitialsFromName(name) {
-    if (!name) return '';
-    const cleaned = String(name)
-      .replace(/[_\-]+/g, ' ')
-      .replace(/[^\p{L}\p{N} ]+/gu, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    if (!cleaned) return '';
-    const parts = cleaned.split(' ').filter(Boolean);
-    if (parts.length >= 2) {
-      const first = parts[0][0];
-      const last = parts[parts.length - 1][0];
-      return `${first}${last}`.toUpperCase();
-    }
-    // Single token fallback: take first 2 chars if possible
-    return cleaned.substring(0, 2).toUpperCase();
+    return deriveSchoolClientInitials(name);
   }
 
   /**

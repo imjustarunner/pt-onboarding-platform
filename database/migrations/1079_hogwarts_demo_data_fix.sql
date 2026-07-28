@@ -267,8 +267,8 @@ WHERE @hogwarts_id IS NOT NULL
 -- ---------------------------------------------------------------------------
 UPDATE clients c
 SET c.initials = UPPER(CONCAT(
-  LEFT(SUBSTRING_INDEX(TRIM(c.full_name), ' ', 1), 1),
-  LEFT(SUBSTRING_INDEX(TRIM(c.full_name), ' ', -1), 1)
+  LEFT(SUBSTRING_INDEX(TRIM(c.full_name), ' ', 1), 3),
+  LEFT(SUBSTRING_INDEX(TRIM(c.full_name), ' ', -1), 3)
 ))
 WHERE @hogwarts_id IS NOT NULL
   AND c.organization_id = @hogwarts_id

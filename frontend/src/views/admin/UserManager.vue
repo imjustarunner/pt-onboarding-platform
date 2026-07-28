@@ -775,7 +775,7 @@
         
         <div style="margin-bottom: 16px;">
           <label style="display: block; margin-bottom: 6px; font-weight: 500;">Supervisee</label>
-          <select v-model="newSuperviseeAssignment.superviseeId" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
+          <select v-model="newSuperviseeAssignment.superviseeId" @change="refreshSuperviseeTenantOptions" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
             <option value="">Select a user...</option>
             <option v-for="user in availableSupervisees" :key="user.id" :value="user.id">
               {{ user.first_name }} {{ user.last_name }} ({{ user.email }})
@@ -783,14 +783,28 @@
           </select>
         </div>
         
-        <div style="margin-bottom: 16px;">
-          <label style="display: block; margin-bottom: 6px; font-weight: 500;">Agency</label>
-          <select v-model="newSuperviseeAssignment.agencyId" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
-            <option value="">Select an agency...</option>
-            <option v-for="agency in availableAgenciesForAssignment" :key="agency.id" :value="agency.id">
-              {{ agency.name }}
-            </option>
-          </select>
+        <div v-if="newSuperviseeAssignment.superviseeId" style="margin-bottom: 16px;">
+          <label style="display: block; margin-bottom: 6px; font-weight: 500;">Tenant</label>
+          <template v-if="availableAgenciesForAssignment.length > 1">
+            <select v-model="newSuperviseeAssignment.agencyId" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
+              <option value="">Select a tenant...</option>
+              <option v-for="agency in availableAgenciesForAssignment" :key="agency.id" :value="agency.id">
+                {{ agency.name }}
+              </option>
+            </select>
+          </template>
+          <template v-else-if="availableAgenciesForAssignment.length === 1">
+            <input
+              type="text"
+              :value="availableAgenciesForAssignment[0].name"
+              readonly
+              style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: #f5f5f5;"
+            />
+          </template>
+          <div v-else style="padding: 10px 12px; border: 1px solid #f5c2c7; border-radius: 6px; background: #fff5f5; color: #842029; font-size: 13px;">
+            No shared tenant found for this supervisor and supervisee.
+          </div>
+          <small style="color: var(--text-secondary); font-size: 12px;">Supervision is scoped to the tenant, not individual schools.</small>
         </div>
         
         <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
@@ -3774,40 +3788,42 @@ const toggleSupervisorExpanded = async (supervisorId) => {
 const openAddSuperviseeModal = async (supervisor) => {
   selectedSupervisor.value = supervisor;
   showAddSuperviseeModal.value = true;
-  
-  // Fetch available supervisees and agencies
+  newSuperviseeAssignment.value = { superviseeId: '', agencyId: '' };
+
   try {
-    // Get supervisor's agencies
-    const agenciesResponse = await api.get(`/users/${supervisor.id}/agencies`);
-    availableAgenciesForAssignment.value = (agenciesResponse.data || []).filter(
-      (a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency'
-    );
-    
-    // Get all users that could be supervisees (providers/staff)
     const usersResponse = await api.get('/users');
-    let users = usersResponse.data.filter(u => 
-      ['provider', 'staff', 'facilitator', 'intern'].includes(u.role)
+    availableSupervisees.value = usersResponse.data.filter((u) =>
+      ['provider', 'staff', 'facilitator', 'intern'].includes(String(u?.role || '').toLowerCase())
     );
-    
-    // Filter by supervisor's agencies
-    if (availableAgenciesForAssignment.value.length > 0) {
-      const agencyIds = availableAgenciesForAssignment.value.map(a => a.id);
-      users = users.filter(user => {
-        if (user.agency_ids) {
-          const userAgencyIds = typeof user.agency_ids === 'string'
-            ? user.agency_ids.split(',').map(id => parseInt(id.trim()))
-            : user.agency_ids;
-          return userAgencyIds.some(id => agencyIds.includes(id));
-        }
-        return false;
-      });
-    }
-    
-    availableSupervisees.value = users;
+    availableAgenciesForAssignment.value = [];
   } catch (err) {
     console.error('Error fetching data for add supervisee modal:', err);
     availableSupervisees.value = [];
     availableAgenciesForAssignment.value = [];
+  }
+};
+
+const refreshSuperviseeTenantOptions = async () => {
+  if (!selectedSupervisor.value?.id || !newSuperviseeAssignment.value.superviseeId) {
+    availableAgenciesForAssignment.value = [];
+    newSuperviseeAssignment.value.agencyId = '';
+    return;
+  }
+  try {
+    const response = await api.get('/supervisor-assignments/tenant-options', {
+      params: {
+        supervisorId: selectedSupervisor.value.id,
+        superviseeId: newSuperviseeAssignment.value.superviseeId
+      }
+    });
+    availableAgenciesForAssignment.value = Array.isArray(response.data) ? response.data : [];
+    if (availableAgenciesForAssignment.value.length === 1) {
+      newSuperviseeAssignment.value.agencyId = availableAgenciesForAssignment.value[0].id;
+    }
+  } catch (err) {
+    console.error('Error fetching tenant options for supervisee assignment:', err);
+    availableAgenciesForAssignment.value = [];
+    newSuperviseeAssignment.value.agencyId = '';
   }
 };
 
@@ -3850,6 +3866,15 @@ watch(showSupervisorsModal, (isOpen) => {
     fetchSupervisorsList();
   }
 });
+
+watch(
+  () => newSuperviseeAssignment.value.superviseeId,
+  () => {
+    if (showAddSuperviseeModal.value) {
+      void refreshSuperviseeTenantOptions();
+    }
+  }
+);
 
 watch(
   [userSearch, agencySort, organizationSort, roleSort, statusSort, userTypeFilter, organizationSearch, directoryPersona],

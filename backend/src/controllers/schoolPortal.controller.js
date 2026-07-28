@@ -38,6 +38,7 @@ import {
   supervisorHasSuperviseeInSchool,
   supervisorCanAccessClientInOrg
 } from '../utils/supervisorSchoolAccess.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import {
   resolveSchoolStaffWaiverStatus,
   resetSchoolStaffWaiverForTesting
@@ -3033,6 +3034,9 @@ export const listSchoolStaff = async (req, res, next) => {
          u.email,
          u.status,
          u.created_at,
+         u.profile_photo_path,
+         u.temporary_password_hash,
+         u.temporary_password_expires_at,
          u.passwordless_token_expires_at,
          u.passwordless_token_purpose
        FROM user_agencies ua
@@ -3073,6 +3077,10 @@ export const listSchoolStaff = async (req, res, next) => {
       const now = new Date();
       const resetExpiresAt = hasResetToken ? new Date(r.passwordless_token_expires_at) : null;
       const resetExpired = resetExpiresAt ? resetExpiresAt.getTime() <= now.getTime() : true;
+      const tempExpiresAt = r.temporary_password_expires_at ? new Date(r.temporary_password_expires_at) : null;
+      const hasActiveTemporaryPassword =
+        !!r.temporary_password_hash &&
+        (!tempExpiresAt || tempExpiresAt.getTime() > now.getTime());
 
       return {
         id: r.id,
@@ -3081,8 +3089,12 @@ export const listSchoolStaff = async (req, res, next) => {
         email: r.email,
         status: r.status,
         created_at: r.created_at,
+        profile_photo_path: r.profile_photo_path || null,
+        profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path || null) || null,
         last_login: lastLoginByUser[r.id] || null,
         password_reset_expires_at: hasResetToken && !resetExpired ? r.passwordless_token_expires_at : null,
+        has_active_temporary_password: hasActiveTemporaryPassword,
+        temporary_password_expires_at: hasActiveTemporaryPassword ? r.temporary_password_expires_at : null,
         is_primary: flags.isPrimary,
         is_school_admin: flags.isSchoolAdmin,
         is_scheduler: flags.isScheduler,
@@ -3203,11 +3215,12 @@ export const removeSchoolStaff = async (req, res, next) => {
 };
 
 /**
- * Send password reset link for a school staff member.
-
+ * Generate a temporary password for a school staff member (school portal).
  * POST /api/school-portal/:organizationId/school-staff/:userId/send-reset-password
- * Only the primary school contact can send reset links via the portal.
- * Uses full reset password flow (48h expiry, etc.) and notifies agency admin.
+ * School Admins and agency backoffice roles (admin, super_admin, support, etc.) can reset
+ * passwords for school staff from the school portal.
+ * The plaintext temporary password is returned once for the admin to share privately.
+ * Staff must log in with it and will be prompted to set a new permanent password.
  */
 export const sendSchoolStaffResetPassword = async (req, res, next) => {
   try {
@@ -3231,14 +3244,15 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
       ? await getActorSchoolRoleFlags({ actorUserId: actorId, actorEmail, orgId })
       : { isSchoolAdmin: false };
     const isSchoolAdmin = actorRole === 'school_staff' && actorFlags.isSchoolAdmin === true;
+
     if (!isAgencyAdmin && !isSchoolAdmin) {
       return res.status(403).json({
-        error: { message: 'Only a School Admin or agency admin/staff can send password reset links from the portal' }
+        error: { message: 'Only a School Admin or agency admin/staff can reset school staff passwords from the portal' }
       });
     }
 
     if (!isAgencyAdmin) {
-        const ok = await userHasOrgOrAffiliatedAgencyAccess({
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({
         userId: actorId,
         role: actorRole,
         schoolOrganizationId: orgId
@@ -3246,10 +3260,14 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
+    if (targetUserId === actorId) {
+      return res.status(400).json({ error: { message: 'You cannot reset your own password from this screen. Use your account settings instead.' } });
+    }
+
     const user = await User.findById(targetUserId);
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
     if (String(user.role || '').toLowerCase() !== 'school_staff') {
-      return res.status(400).json({ error: { message: 'Only school_staff users can receive reset links via this endpoint' } });
+      return res.status(400).json({ error: { message: 'Only school_staff users can receive temporary passwords via this endpoint' } });
     }
 
     const membership = await User.getAgencyMembership(targetUserId, orgId);
@@ -3258,144 +3276,56 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
     }
 
     const statusLower = String(user.status || '').toLowerCase();
-    if (statusLower === 'pending' || statusLower === 'pending_setup') {
-      return res.status(400).json({
-        error: {
-          message: 'Use the setup link for pending users. Password reset links are for users who already have an account.'
-        }
-      });
+    if (statusLower === 'archived') {
+      return res.status(400).json({ error: { message: 'Cannot reset password for an archived user' } });
     }
 
-    const config = (await import('../config/config.js')).default;
-    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
-    const userAgencies = await User.getAgencies(targetUserId);
-    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
-    const buildResetLink = (token) =>
-      portalSlug ? `${frontendBase}/${portalSlug}/reset-password/${token}` : `${frontendBase}/reset-password/${token}`;
+    const expiresInHours = 48;
+    const temporaryPassword = await User.generateTemporaryPassword();
+    const temporaryPasswordResult = await User.setTemporaryPassword(targetUserId, temporaryPassword, expiresInHours);
 
-    const purpose = String(user.passwordless_token_purpose || '').toLowerCase();
-    const expiresAt = user.passwordless_token_expires_at ? new Date(user.passwordless_token_expires_at) : null;
-    const now = new Date();
-    const hasValidExistingReset =
-      user.passwordless_token &&
-      purpose === 'reset' &&
-      expiresAt &&
-      expiresAt.getTime() > now.getTime();
-
-    let tokenResult;
-    if (hasValidExistingReset) {
-      tokenResult = {
-        token: user.passwordless_token,
-        expiresAt: user.passwordless_token_expires_at
-      };
-      const hoursUntil = expiresAt ? Math.round((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60)) : 48;
-      tokenResult.expiresInHours = hoursUntil;
-    } else {
-      tokenResult = await User.generatePasswordlessToken(targetUserId, 48, 'reset');
-      tokenResult.expiresInHours = 48;
+    try {
+      await User.markTokenAsUsed(targetUserId);
+    } catch {
+      // best-effort — clear any outstanding passwordless setup/reset links
     }
-
-    const resetLink = buildResetLink(tokenResult.token);
 
     const ActivityLogService = (await import('../services/activityLog.service.js')).default;
     ActivityLogService.logActivity(
       {
-        actionType: 'password_reset_link_sent',
+        actionType: 'school_staff_temporary_password_set',
         userId: targetUserId,
         metadata: {
           performedByUserId: actorId,
           performedByEmail: actorEmail,
-          source: isSchoolAdmin ? 'school_portal_school_admin' : 'school_portal_agency_admin',
-          expiresAt: tokenResult.expiresAt,
-          expiresInHours: tokenResult.expiresInHours
+          source: isAgencyAdmin ? 'school_portal_agency_admin' : 'school_portal_school_admin',
+          expiresAt: temporaryPasswordResult.expiresAt,
+          expiresInHours
         }
       },
       req
     );
 
-    let emailSent = false;
-    const to = [user.email, user.username, user.work_email, user.personal_email]
-      .filter(Boolean)
-      .map((e) => String(e).trim().toLowerCase())
-      .find((e) => e.includes('@'));
-    if (to) {
-      const agencyId = userAgencies?.[0]?.id || null;
-      const agency = agencyId ? await Agency.findById(agencyId) : null;
-      const subject = 'Reset your password';
-      let body = `Reset your password using this link (expires in ${tokenResult.expiresInHours} hours):\n${resetLink}\n\nIf you did not request this, you can ignore this email.`;
-      try {
-        const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
-        const template =
-          (await EmailTemplateService.getTemplateForAgency(agencyId, 'admin_initiated_password_reset')) ||
-          (await EmailTemplateService.getTemplateForAgency(agencyId, 'password_reset'));
-        if (template?.body) {
-          const params = await EmailTemplateService.collectParameters(user, agency, {
-            passwordlessToken: tokenResult.token,
-            senderName: req.user.first_name || req.user.email || 'Primary Contact'
-          });
-          const rendered = EmailTemplateService.renderTemplate(template, params);
-          body = rendered.body || body;
-        }
-      } catch {
-        // keep default
-      }
-      try {
-        const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
-        const { resolvePreferredSenderIdentityForAgency } = await import('../services/emailSenderIdentityResolver.service.js');
-        const EmailService = (await import('../services/email.service.js')).default;
-        const CommunicationLoggingService = (await import('../services/communicationLogging.service.js')).default;
-
-        const identity = await resolvePreferredSenderIdentityForAgency({
-          agencyId: agencyId || null,
-          preferredKeys: ['login_recovery', 'system', 'default', 'notifications']
-        });
-        const sendResult = identity?.id
-          ? await sendEmailFromIdentity({
-              senderIdentityId: identity.id,
-              to,
-              subject,
-              text: body,
-              html: null,
-              source: 'auto'
-            })
-          : await EmailService.sendEmail({
-              to,
-              subject,
-              text: body,
-              html: null,
-              fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
-              fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-              replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-              source: 'auto',
-              agencyId: agencyId || null
-            });
-        emailSent = !!sendResult;
-      } catch (err) {
-        console.error('[sendSchoolStaffResetPassword] Failed to send email:', err);
-      }
-    }
-
     const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
     const org = await Agency.findById(orgId);
     const schoolName = org?.name || org?.display_name || `School #${orgId}`;
     logAuditEvent(req, {
-      actionType: 'school_portal_school_staff_password_reset_sent',
+      actionType: 'school_portal_school_staff_temporary_password_set',
       agencyId: activeAgencyId || undefined,
       targetType: 'user',
       targetId: targetUserId,
       metadata: {
         schoolOrganizationId: orgId,
         actorRole,
-        actorIsSchoolAdmin: isSchoolAdmin,
-        emailSent
+        expiresAt: temporaryPasswordResult.expiresAt,
+        expiresInHours
       }
     }).catch(() => {});
     if (activeAgencyId) {
       await notifyAgencyAdmins({
         agencyId: activeAgencyId,
-        title: 'School staff password reset sent',
-        message: `${isSchoolAdmin ? 'A School Admin' : 'Agency staff'} sent a password reset link for ${user.first_name || ''} ${user.last_name || ''} (${user.email || to}) in ${schoolName}.` +
-          (emailSent ? ' Email delivery succeeded.' : ' Email delivery failed; manual sharing may be needed.'),
+        title: 'School staff temporary password set',
+        message: `A temporary password was set for ${user.first_name || ''} ${user.last_name || ''} (${user.email || 'no email'}) at ${schoolName}. It expires in ${expiresInHours} hours.`,
         actorUserId: actorId,
         relatedEntityType: 'user',
         relatedEntityId: user.id
@@ -3404,11 +3334,17 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
 
     res.json({
       ok: true,
-      tokenLink: resetLink,
-      expiresAt: tokenResult.expiresAt,
-      expiresInHours: tokenResult.expiresInHours,
-      emailSent,
-      message: 'Password reset link generated and sent'
+      temporaryPassword,
+      expiresAt: temporaryPasswordResult.expiresAt,
+      expiresInHours,
+      message: 'Temporary password created. Share it privately with the staff member.',
+      instructions: [
+        'This temporary password replaces their current password immediately.',
+        'Share it privately (in person, phone, or secure message). Do not post it in a public channel.',
+        'They should sign in with their school email and this temporary password.',
+        'On first login they will be prompted to choose a new permanent password.',
+        `The temporary password expires in ${expiresInHours} hours.`
+      ]
     });
   } catch (e) {
     next(e);

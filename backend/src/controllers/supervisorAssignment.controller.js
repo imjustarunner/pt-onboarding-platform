@@ -1,8 +1,39 @@
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import User from '../models/User.model.js';
+import Agency from '../models/Agency.model.js';
 import { validationResult } from 'express-validator';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { normalizeSupervisorType, SUPERVISOR_TYPES } from '../constants/supervisorTypes.js';
+import { resolveTenantRootAgencyId } from '../utils/meDashboardTenantScope.js';
+import { isTenantOrganizationType } from '../utils/tenantOrganizations.js';
+
+async function collectTenantIdsForUser(userId) {
+  const agencies = await User.getAgencies(userId);
+  const tenantIds = new Set();
+  for (const agency of agencies || []) {
+    const rootId = await resolveTenantRootAgencyId(agency.id);
+    if (rootId) tenantIds.add(Number(rootId));
+  }
+  return tenantIds;
+}
+
+async function userBelongsToTenant(userId, tenantAgencyId) {
+  const tenantIds = await collectTenantIdsForUser(userId);
+  return tenantIds.has(Number(tenantAgencyId));
+}
+
+async function loadTenantAgencyRows(tenantIds) {
+  const ids = [...tenantIds].filter((id) => Number.isFinite(id) && id > 0);
+  if (!ids.length) return [];
+  const rows = [];
+  for (const id of ids) {
+    const agency = await Agency.findById(id);
+    if (agency && isTenantOrganizationType(agency.organization_type)) {
+      rows.push({ id: agency.id, name: agency.name, organization_type: agency.organization_type });
+    }
+  }
+  return rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+}
 
 /**
  * Create a new supervisor assignment
@@ -30,6 +61,13 @@ export const createAssignment = async (req, res, next) => {
       return res.status(400).json({ error: { message: `supervisorType must be one of: ${SUPERVISOR_TYPES.join(', ')}` } });
     }
 
+    const agency = await Agency.findById(agencyId);
+    if (!agency || !isTenantOrganizationType(agency.organization_type)) {
+      return res.status(400).json({
+        error: { message: 'Supervisor assignments must use a tenant organization, not a school or sub-organization' }
+      });
+    }
+
     // Verify supervisor exists and can be assigned as supervisor
     const supervisor = await User.findById(supervisorId);
     if (!supervisor) {
@@ -51,16 +89,13 @@ export const createAssignment = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Supervisee not found' } });
     }
 
-    // Verify both users belong to the agency
-    const supervisorAgencies = await User.getAgencies(supervisorId);
-    const superviseeAgencies = await User.getAgencies(superviseeId);
-
-    if (!supervisorAgencies.some(a => a.id === parseInt(agencyId))) {
-      return res.status(400).json({ error: { message: 'Supervisor does not belong to this agency' } });
+    // Verify both users belong to the tenant (directly or via affiliated schools/programs)
+    if (!(await userBelongsToTenant(supervisorId, agencyId))) {
+      return res.status(400).json({ error: { message: 'Supervisor does not belong to this tenant' } });
     }
 
-    if (!superviseeAgencies.some(a => a.id === parseInt(agencyId))) {
-      return res.status(400).json({ error: { message: 'Supervisee does not belong to this agency' } });
+    if (!(await userBelongsToTenant(superviseeId, agencyId))) {
+      return res.status(400).json({ error: { message: 'Supervisee does not belong to this tenant' } });
     }
 
     const existingForType = await SupervisorAssignment.findBySuperviseeAndType(superviseeId, agencyId, type);
@@ -222,6 +257,41 @@ export const getSupervisors = async (req, res, next) => {
 };
 
 /**
+ * List tenant-level agencies available for supervisor assignments.
+ * GET /api/supervisor-assignments/tenant-options?supervisorId=&superviseeId=
+ */
+export const getTenantOptions = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const supervisorId = parseInt(String(req.query?.supervisorId || ''), 10) || null;
+    const superviseeId = parseInt(String(req.query?.superviseeId || ''), 10) || null;
+
+    let tenantIds = null;
+    if (supervisorId && superviseeId) {
+      const [supervisorTenants, superviseeTenants] = await Promise.all([
+        collectTenantIdsForUser(supervisorId),
+        collectTenantIdsForUser(superviseeId)
+      ]);
+      tenantIds = [...supervisorTenants].filter((id) => superviseeTenants.has(id));
+    } else if (superviseeId) {
+      tenantIds = [...await collectTenantIdsForUser(superviseeId)];
+    } else if (supervisorId) {
+      tenantIds = [...await collectTenantIdsForUser(supervisorId)];
+    } else {
+      return res.status(400).json({ error: { message: 'supervisorId or superviseeId is required' } });
+    }
+
+    const tenants = await loadTenantAgencyRows(new Set(tenantIds));
+    res.json(tenants);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get all assignments in an agency
  */
 export const getAgencyAssignments = async (req, res, next) => {
@@ -233,13 +303,20 @@ export const getAgencyAssignments = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    // Verify agency access
+    // Verify agency access and tenant scope
     if (req.user.role !== 'super_admin') {
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
       if (!hasAccess) {
         return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
       }
+    }
+
+    const agency = await Agency.findById(agencyId);
+    if (!agency || !isTenantOrganizationType(agency.organization_type)) {
+      return res.status(400).json({
+        error: { message: 'Supervisor assignments are only available at the tenant level' }
+      });
     }
 
     const assignments = await SupervisorAssignment.findByAgency(agencyId);

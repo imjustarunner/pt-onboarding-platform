@@ -10,6 +10,7 @@ import User from '../models/User.model.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
 import { resolvePaperworkStatusId, seedClientAffiliations, seedClientPaperworkItems } from '../utils/clientProvisioning.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
+import { deriveSchoolClientInitials } from '../utils/schoolClientInitials.js';
 
 /**
  * Guardian accounts created through public intake were being inserted into
@@ -68,18 +69,8 @@ const usesExtendedRegistrationTempPasswordWindow = (link) => {
 };
 
 export const deriveInitials = (fullName) => {
-  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return 'TBD';
-  const formatTri = (value) => {
-    const cleaned = String(value || '').replace(/[^a-zA-Z]/g, '').slice(0, 3);
-    if (!cleaned) return '';
-    const lower = cleaned.toLowerCase();
-    return lower.charAt(0).toUpperCase() + lower.slice(1);
-  };
-  const first = formatTri(parts[0] || '');
-  const last = formatTri(parts.length > 1 ? parts[parts.length - 1] : '');
-  const combined = `${first}${last}`;
-  return combined || 'TBD';
+  const initials = deriveSchoolClientInitials(fullName);
+  return initials || 'TBD';
 };
 
 const resolveAgencyId = async (organizationId) => {

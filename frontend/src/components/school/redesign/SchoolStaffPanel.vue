@@ -1,173 +1,370 @@
 <template>
-  <div class="panel">
-    <div class="panel-header">
-      <div class="panel-title">
-        <div style="font-weight: 800;">School staff</div>
-        <div class="panel-subtitle">Accounts linked to this school portal</div>
+  <div class="ssp">
+    <header class="ssp-page-header">
+      <div class="ssp-page-title">
+        <h2>School Staff</h2>
+        <p>Manage staff accounts linked to this school portal.</p>
       </div>
-      <div class="panel-actions">
-        <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">
-          {{ loading ? 'Loading…' : 'Refresh' }}
+      <div class="ssp-page-actions">
+        <button
+          v-if="showCodesButton"
+          class="ssp-btn ssp-btn-outline"
+          type="button"
+          :title="codesPrivacyHelp"
+          @click="$emit('toggle-client-label-mode')"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Zm8.94-2.06a9 9 0 0 0 .06-1.88 9 9 0 0 0-.06-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a8.06 8.06 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.5.42l-.36 2.54a8.06 8.06 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.6 7.44a.5.5 0 0 0 .12.64l2.03 1.58a9 9 0 0 0-.06 1.88c0 .64.02 1.27.06 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.7 1.63.94l.36 2.54A.5.5 0 0 0 10 22h4a.5.5 0 0 0 .5-.42l.36-2.54c.58-.24 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58Z" fill="currentColor"/></svg>
+          Show codes
         </button>
-        <router-link v-if="canManageTickets" class="btn btn-secondary btn-sm" :to="ticketsPath">
+        <button
+          v-if="showSchoolSwitcher"
+          class="ssp-btn ssp-btn-outline"
+          type="button"
+          @click="$emit('open-school-switcher')"
+        >
+          Switch school
+          <svg class="ssp-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z" fill="currentColor"/></svg>
+        </button>
+        <button
+          v-if="canAdd"
+          class="ssp-btn ssp-btn-primary"
+          type="button"
+          @click="scrollToAddForm"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Add school staff
+        </button>
+        <router-link v-if="canManageTickets" class="ssp-btn ssp-btn-outline" :to="ticketsPath">
           Support tickets
         </router-link>
       </div>
+    </header>
+
+    <div v-if="error" class="ssp-alert ssp-alert-error">{{ error }}</div>
+    <div v-if="success" class="ssp-alert ssp-alert-success">{{ success }}</div>
+
+    <div class="ssp-toolbar">
+      <div class="ssp-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input
+          v-model="searchQuery"
+          type="search"
+          placeholder="Search staff..."
+          aria-label="Search staff"
+        />
+      </div>
+      <div class="ssp-toolbar-actions">
+        <div class="ssp-filter-wrap" v-click-outside="() => filterOpen = false">
+          <button class="ssp-icon-btn" type="button" :class="{ active: roleFilter !== 'all' }" @click="filterOpen = !filterOpen">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            Filter
+          </button>
+          <div v-if="filterOpen" class="ssp-filter-menu">
+            <button
+              v-for="opt in roleFilterOptions"
+              :key="opt.value"
+              type="button"
+              :class="{ active: roleFilter === opt.value }"
+              @click="setRoleFilter(opt.value)"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
+        <button
+          class="ssp-icon-btn"
+          type="button"
+          :class="{ active: viewMode === 'grid' }"
+          title="Grid view"
+          @click="viewMode = 'grid'"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1" fill="currentColor"/><rect x="14" y="4" width="6" height="6" rx="1" fill="currentColor"/><rect x="4" y="14" width="6" height="6" rx="1" fill="currentColor"/><rect x="14" y="14" width="6" height="6" rx="1" fill="currentColor"/></svg>
+        </button>
+        <button
+          class="ssp-icon-btn"
+          type="button"
+          :class="{ active: viewMode === 'list' }"
+          title="List view"
+          @click="viewMode = 'list'"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="ssp-icon-btn" type="button" title="Refresh" :disabled="loading" @click="load">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        </button>
+      </div>
     </div>
 
-    <div v-if="error" class="error">{{ error }}</div>
-    <div v-if="success" class="success">{{ success }}</div>
+    <div v-if="loading" class="ssp-empty">Loading staff…</div>
+    <div v-else-if="filteredStaff.length === 0" class="ssp-empty">
+      {{ staff.length === 0 ? 'No school staff users found.' : 'No staff match your search or filter.' }}
+    </div>
 
-    <div v-if="loading" class="muted">Loading…</div>
-    <div v-else-if="staff.length === 0" class="muted">No school staff users found.</div>
+    <div v-else :class="viewMode === 'grid' ? 'ssp-grid' : 'ssp-list'">
+      <article v-for="(u, idx) in paginatedStaff" :key="u.id" class="ssp-card">
+        <div class="ssp-card-head">
+          <div
+            class="ssp-avatar"
+            :class="[avatarToneClass(idx), { 'has-photo': !!staffPhotoUrl(u) }]"
+          >
+            <img
+              v-if="staffPhotoUrl(u)"
+              :src="staffPhotoUrl(u)"
+              :alt="`${displayName(u)} photo`"
+              class="ssp-avatar-img"
+              loading="lazy"
+              @error="markPhotoFailed(u.id)"
+            />
+            <span v-else class="ssp-avatar-initials">{{ staffInitials(u) }}</span>
+          </div>
+          <div class="ssp-card-identity">
+            <div class="ssp-name">{{ displayName(u) }}</div>
+            <div class="ssp-badges">
+              <span v-if="u.is_school_admin" class="ssp-badge ssp-badge-admin">School Admin</span>
+              <span v-if="u.is_scheduler" class="ssp-badge ssp-badge-scheduler">Scheduler</span>
+            </div>
+          </div>
+          <div class="ssp-menu-wrap" v-click-outside="() => closeMenu(u.id)">
+            <button class="ssp-menu-btn" type="button" aria-label="More actions" @click="toggleMenu(u.id)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="18" r="1.5" fill="currentColor"/></svg>
+            </button>
+            <div v-if="openMenuId === u.id" class="ssp-menu">
+              <button v-if="canEdit" type="button" @click="menuAction(() => openEdit(u))">Edit</button>
+              <button v-if="canToggleSchoolRoles(u)" type="button" @click="menuAction(() => openPermissions(u))">Permissions</button>
+              <button v-if="u.id !== currentUserId" type="button" @click="menuAction(() => openMessage(u))">Message</button>
+              <button v-if="canSendReset(u)" type="button" @click="menuAction(() => openResetPasswordModal(u))">Reset password</button>
+              <button v-if="canRemove(u)" type="button" class="danger" @click="menuAction(() => removeUser(u))">Remove</button>
+            </div>
+          </div>
+        </div>
 
-    <div v-else class="grid">
-      <div v-for="u in staff" :key="u.id" class="card">
-        <div class="card-top">
-          <div class="name-row">
-            <span class="name">{{ [u.first_name, u.last_name].filter(Boolean).join(' ') || 'School staff' }}</span>
-            <span v-if="u.is_school_admin" class="badge badge-primary">School Admin</span>
-            <span v-if="u.is_scheduler" class="badge badge-secondary">Scheduler</span>
-          </div>
-          <div class="meta">{{ u.email }}</div>
-          <div v-if="u.last_login" class="meta meta-detail">
-            Last login: {{ formatDate(u.last_login) }}
-          </div>
-          <div v-else class="meta meta-detail">Last login: Never</div>
-          <div v-if="u.password_reset_expires_at" class="meta meta-detail">
+        <div class="ssp-card-meta">
+          <div>{{ u.email }}</div>
+          <div>Last login: {{ u.last_login ? formatDate(u.last_login) : 'Never' }}</div>
+          <div v-if="u.password_reset_expires_at" class="ssp-meta-sub">
             Reset link expires: {{ formatDate(u.password_reset_expires_at) }}
           </div>
         </div>
 
-        <div class="card-actions">
-          <button
-            v-if="canEdit"
-            class="btn btn-secondary btn-sm"
-            type="button"
-            @click="openEdit(u)"
-          >
-            Edit
+        <div class="ssp-quick-actions">
+          <button v-if="canEdit" type="button" class="ssp-quick-btn" title="Edit" @click="openEdit(u)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="1.8"/></svg>
+            <span>Edit</span>
           </button>
           <button
             v-if="canToggleSchoolRoles(u)"
-            class="btn btn-secondary btn-sm"
             type="button"
-            @click="toggleSchoolAdmin(u)"
-            :disabled="settingPrimaryId === u.id"
+            class="ssp-quick-btn"
+            title="Permissions"
+            @click="openPermissions(u)"
           >
-            {{ settingPrimaryId === u.id ? 'Saving…' : (u.is_school_admin ? 'Remove School Admin' : 'Make School Admin') }}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 4v5c0 4.4-3 8.5-7 9-4-.5-7-4.6-7-9V7l7-4Z" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>
+            <span>Permissions</span>
           </button>
           <button
             v-if="canToggleSchoolRoles(u)"
-            class="btn btn-secondary btn-sm"
             type="button"
-            @click="toggleScheduler(u)"
+            class="ssp-quick-btn"
+            title="Scheduler role"
             :disabled="settingSchedulerId === u.id"
+            @click="toggleScheduler(u)"
           >
-            {{ settingSchedulerId === u.id ? 'Saving…' : (u.is_scheduler ? 'Remove Scheduler' : 'Make Scheduler') }}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M8 3v4M16 3v4M4 10h16" stroke="currentColor" stroke-width="1.8"/></svg>
+            <span>{{ settingSchedulerId === u.id ? 'Saving…' : (u.is_scheduler ? 'Scheduler' : 'Schedule') }}</span>
           </button>
           <button
             v-if="u.id !== currentUserId"
-            class="btn btn-secondary btn-sm"
             type="button"
+            class="ssp-quick-btn"
+            title="Message"
             @click="openMessage(u)"
           >
-            Message
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v10H8l-3 3V6Z" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>
+            <span>Message</span>
           </button>
+        </div>
 
+        <div class="ssp-card-footer">
           <button
             v-if="canRemove(u)"
-            class="btn btn-danger btn-sm"
             type="button"
-            @click="removeUser(u)"
+            class="ssp-footer-btn ssp-footer-danger"
             :disabled="removingId === u.id"
+            @click="removeUser(u)"
           >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M10 11v6M14 11v6M7 7l1 12h8l1-12" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
             {{ removingId === u.id ? 'Removing…' : 'Remove' }}
           </button>
-
           <button
             v-if="canSendReset(u)"
-            class="btn btn-secondary btn-sm"
             type="button"
-            @click="sendResetPassword(u)"
+            class="ssp-footer-btn"
+            :class="{ 'ssp-footer-temp': hasVisibleTempPassword(u) }"
             :disabled="sendingResetId === u.id"
+            :title="tempPasswordButtonTitle(u)"
+            @click="onTempPasswordButtonClick(u)"
           >
-            {{ sendingResetId === u.id ? 'Sending…' : 'Send reset password' }}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M8 11V8a4 4 0 1 1 8 0v3" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>
+            <span class="ssp-footer-temp-text">{{ tempPasswordButtonLabel(u) }}</span>
           </button>
-
           <button
             v-if="canRequest && !canRemove(u) && !canSendReset(u)"
-            class="btn btn-secondary btn-sm"
             type="button"
-            @click="requestDeletionFor(u)"
+            class="ssp-footer-btn"
             :disabled="submitting"
+            @click="requestDeletionFor(u)"
           >
             Request deletion
           </button>
         </div>
-      </div>
+      </article>
     </div>
 
-    <div v-if="canAdd" class="add-box">
-      <div style="font-weight: 800; margin-bottom: 8px;">Add school staff</div>
-      <div class="row">
-        <label class="field">
-          Name (optional)
-          <input v-model="addName" class="input" type="text" placeholder="e.g., Jane Doe" />
+    <nav v-if="totalPages > 1" class="ssp-pagination" aria-label="Staff pages">
+      <button type="button" class="ssp-page-btn" :disabled="currentPage === 1" @click="currentPage -= 1">‹</button>
+      <button
+        v-for="page in totalPages"
+        :key="page"
+        type="button"
+        class="ssp-page-btn"
+        :class="{ active: currentPage === page }"
+        @click="currentPage = page"
+      >
+        {{ page }}
+      </button>
+      <button type="button" class="ssp-page-btn" :disabled="currentPage === totalPages" @click="currentPage += 1">›</button>
+    </nav>
+
+    <section v-if="canAdd" ref="addFormRef" class="ssp-add-section">
+      <h3>Add School Staff</h3>
+      <div class="ssp-add-grid">
+        <label class="ssp-field">
+          <span>Name (optional)</span>
+          <div class="ssp-input-wrap">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M5 20c1.2-3.5 4-5.5 7-5.5s5.8 2 7 5.5" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>
+            <input v-model="addName" type="text" placeholder="e.g., Jane Doe" />
+          </div>
         </label>
-        <label class="field">
-          Email (required)
-          <input v-model="addEmail" class="input" type="email" placeholder="e.g., jane@school.org" />
+        <label class="ssp-field">
+          <span>Email (required)</span>
+          <div class="ssp-input-wrap">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M4 8l8 6 8-6" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>
+            <input v-model="addEmail" type="email" placeholder="e.g., jane@school.org" />
+          </div>
         </label>
-      </div>
-      <div class="add-role-row">
-        <label class="field add-role-field" style="margin: 0;">
-          Access role
-          <select v-model="addAccessRole" class="input role-select">
+        <label class="ssp-field ssp-field-role">
+          <span>Access role</span>
+          <select v-model="addAccessRole" class="ssp-select">
             <option value="standard">Standard account</option>
             <option value="school_admin">School Admin</option>
             <option value="scheduler">Scheduler</option>
             <option value="school_admin_scheduler">School Admin + Scheduler</option>
           </select>
         </label>
-        <div class="role-helper">
-          {{ addRoleHelperText }}
-        </div>
       </div>
-      <button class="btn btn-primary btn-sm" type="button" @click="addStaff" :disabled="adding">
-        {{ adding ? 'Adding…' : 'Add staff' }}
-      </button>
-      <div v-if="addSuccess" class="success">{{ addSuccess }}</div>
-    </div>
+      <p class="ssp-role-help">{{ addRoleHelperText }}</p>
+      <div class="ssp-add-actions">
+        <button class="ssp-btn ssp-btn-primary" type="button" :disabled="adding" @click="addStaff">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          {{ adding ? 'Adding…' : 'Add staff' }}
+        </button>
+      </div>
+      <div v-if="addSuccess" class="ssp-alert ssp-alert-success">{{ addSuccess }}</div>
+    </section>
 
-    <div v-if="isCurrentUserSchoolAdmin" class="request-box">
-      <div style="font-weight: 800; margin-bottom: 8px;">School Admin controls</div>
-      <button class="btn btn-secondary btn-sm" type="button" @click="forfeitSchoolAdmin" :disabled="forfeiting">
+    <section v-if="isCurrentUserSchoolAdmin" class="ssp-admin-box">
+      <h3>School Admin controls</h3>
+      <button class="ssp-btn ssp-btn-outline" type="button" :disabled="forfeiting" @click="forfeitSchoolAdmin">
         {{ forfeiting ? 'Saving…' : 'Forfeit School Admin (me)' }}
       </button>
+    </section>
+
+    <section v-if="canRequest && !canAdd" class="ssp-admin-box">
+      <h3>Request an additional account</h3>
+      <div class="ssp-add-grid">
+        <label class="ssp-field">
+          <span>Name (optional)</span>
+          <input v-model="requestName" class="ssp-plain-input" type="text" placeholder="e.g., Jane Doe" />
+        </label>
+        <label class="ssp-field">
+          <span>Email (optional)</span>
+          <input v-model="requestEmail" class="ssp-plain-input" type="email" placeholder="e.g., jane@school.org" />
+        </label>
+      </div>
+      <button class="ssp-btn ssp-btn-primary" type="button" :disabled="submitting" @click="submitNewAccountRequest">
+        {{ submitting ? 'Sending…' : 'Request additional login' }}
+      </button>
+    </section>
+
+    <div v-if="showResetModal" class="ssp-modal-overlay" @click.self="closeResetPasswordModal">
+      <div class="ssp-modal ssp-modal-wide" @click.stop>
+        <div class="ssp-modal-head">
+          <div>
+            <strong>Reset password</strong>
+            <p class="ssp-modal-sub">{{ resetTarget ? displayName(resetTarget) : '' }}</p>
+          </div>
+          <button class="ssp-btn ssp-btn-outline" type="button" @click="closeResetPasswordModal">Close</button>
+        </div>
+        <div class="ssp-modal-body">
+          <template v-if="!resetResult">
+            <p class="ssp-reset-lead">
+              This creates a <strong>temporary password</strong> for {{ resetTarget?.email || 'this staff member' }}.
+              It replaces their current password immediately.
+            </p>
+            <ol class="ssp-reset-steps">
+              <li>Confirm below to generate a random temporary password.</li>
+              <li>Share it privately with the staff member (in person, phone, or secure message).</li>
+              <li>They sign in with their school email and the temporary password.</li>
+              <li>On first login, they will be prompted to set a new permanent password.</li>
+              <li>The temporary password expires in 48 hours.</li>
+            </ol>
+            <div class="ssp-modal-actions">
+              <button class="ssp-btn ssp-btn-outline" type="button" @click="closeResetPasswordModal">Cancel</button>
+              <button class="ssp-btn ssp-btn-primary" type="button" :disabled="sendingResetId === resetTarget?.id" @click="confirmResetPassword">
+                {{ sendingResetId === resetTarget?.id ? 'Generating…' : 'Generate temporary password' }}
+              </button>
+            </div>
+          </template>
+          <template v-else>
+            <div class="ssp-reset-success">
+              <p>Temporary password created. Copy it now — you will not be able to view it again after leaving this screen unless you generate a new one.</p>
+              <button type="button" class="ssp-temp-password-display" @click="copyTempPassword(resetTarget)">
+                <span class="ssp-temp-password-value">{{ resetResult.temporaryPassword }}</span>
+                <span class="ssp-temp-password-meta">{{ formatTempPasswordExpiry(resetResult.expiresAt) }} · Click to copy</span>
+              </button>
+            </div>
+            <ul class="ssp-reset-steps ssp-reset-steps-compact">
+              <li v-for="(line, i) in resetResult.instructions" :key="i">{{ line }}</li>
+            </ul>
+            <div class="ssp-modal-actions">
+              <button class="ssp-btn ssp-btn-primary" type="button" @click="closeResetPasswordModal">Done</button>
+            </div>
+          </template>
+        </div>
+      </div>
     </div>
 
-    <div v-if="showEditModal" class="modal-overlay" @click.self="closeEdit">
-      <div class="modal" @click.stop>
-        <div class="modal-header">
+    <div v-if="showEditModal" class="ssp-modal-overlay" @click.self="closeEdit">
+      <div class="ssp-modal" @click.stop>
+        <div class="ssp-modal-head">
           <strong>Edit school staff</strong>
-          <button class="btn btn-secondary btn-sm" type="button" @click="closeEdit">Close</button>
+          <button class="ssp-btn ssp-btn-outline" type="button" @click="closeEdit">Close</button>
         </div>
-        <div class="modal-body">
-          <label class="field">
-            First name
-            <input v-model="editForm.firstName" class="input" type="text" placeholder="First name" />
+        <div class="ssp-modal-body">
+          <label class="ssp-field">
+            <span>First name</span>
+            <input v-model="editForm.firstName" class="ssp-plain-input" type="text" placeholder="First name" />
           </label>
-          <label class="field">
-            Last name
-            <input v-model="editForm.lastName" class="input" type="text" placeholder="Last name" />
+          <label class="ssp-field">
+            <span>Last name</span>
+            <input v-model="editForm.lastName" class="ssp-plain-input" type="text" placeholder="Last name" />
           </label>
-          <label class="field">
-            Email
-            <input v-model="editForm.email" class="input" type="email" placeholder="Email" />
+          <label class="ssp-field">
+            <span>Email</span>
+            <input v-model="editForm.email" class="ssp-plain-input" type="email" placeholder="Email" />
           </label>
-          <div class="modal-actions">
-            <button class="btn btn-primary" type="button" @click="saveEdit" :disabled="savingEdit">
+          <div class="ssp-modal-actions">
+            <button class="ssp-btn ssp-btn-primary" type="button" :disabled="savingEdit" @click="saveEdit">
               {{ savingEdit ? 'Saving…' : 'Save' }}
             </button>
           </div>
@@ -175,36 +372,68 @@
       </div>
     </div>
 
-    <div v-if="canRequest && !canAdd" class="request-box">
-      <div style="font-weight: 800; margin-bottom: 8px;">Request an additional account</div>
-      <div class="row">
-        <label class="field">
-          Name (optional)
-          <input v-model="requestName" class="input" type="text" placeholder="e.g., Jane Doe" />
-        </label>
-        <label class="field">
-          Email (optional)
-          <input v-model="requestEmail" class="input" type="email" placeholder="e.g., jane@school.org" />
-        </label>
+    <div v-if="showPermissionsModal" class="ssp-modal-overlay" @click.self="closePermissions">
+      <div class="ssp-modal" @click.stop>
+        <div class="ssp-modal-head">
+          <div>
+            <strong>Permissions</strong>
+            <p class="ssp-modal-sub">{{ permissionsTarget ? displayName(permissionsTarget) : '' }}</p>
+          </div>
+          <button class="ssp-btn ssp-btn-outline" type="button" @click="closePermissions">Close</button>
+        </div>
+        <div class="ssp-modal-body">
+          <div class="ssp-perm-row">
+            <div>
+              <div class="ssp-perm-title">School Admin</div>
+              <div class="ssp-perm-copy">Manage staff, resets, and role assignments for this school.</div>
+            </div>
+            <button
+              class="ssp-btn ssp-btn-outline"
+              type="button"
+              :disabled="!permissionsTarget || settingPrimaryId === permissionsTarget.id"
+              @click="toggleSchoolAdmin(permissionsTarget)"
+            >
+              {{ settingPrimaryId === permissionsTarget?.id ? 'Saving…' : (permissionsTarget?.is_school_admin ? 'Remove' : 'Assign') }}
+            </button>
+          </div>
+          <div class="ssp-perm-row">
+            <div>
+              <div class="ssp-perm-title">Scheduler</div>
+              <div class="ssp-perm-copy">Limited/own-only school access. Excluded from Smart School ROI lists.</div>
+            </div>
+            <button
+              class="ssp-btn ssp-btn-outline"
+              type="button"
+              :disabled="!permissionsTarget || settingSchedulerId === permissionsTarget.id"
+              @click="toggleScheduler(permissionsTarget)"
+            >
+              {{ settingSchedulerId === permissionsTarget?.id ? 'Saving…' : (permissionsTarget?.is_scheduler ? 'Remove' : 'Assign') }}
+            </button>
+          </div>
+        </div>
       </div>
-      <button class="btn btn-primary btn-sm" type="button" @click="submitNewAccountRequest" :disabled="submitting">
-        {{ submitting ? 'Sending…' : 'Request additional login' }}
-      </button>
-      <div v-if="success" class="success">{{ success }}</div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
+import { toUploadsUrl } from '../../../utils/uploadsUrl';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
-  schoolName: { type: String, default: '' }
+  schoolName: { type: String, default: '' },
+  showCodesButton: { type: Boolean, default: false },
+  showSchoolSwitcher: { type: Boolean, default: false },
+  codesPrivacyHelp: { type: String, default: '' }
 });
+
+defineEmits(['toggle-client-label-mode', 'open-school-switcher']);
+
+const PAGE_SIZE = 10;
 
 const authStore = useAuthStore();
 const route = useRoute();
@@ -226,7 +455,8 @@ const canRemove = (u) =>
   isAgencyAdmin.value ||
   (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value && u.id !== currentUserId.value);
 const canSendReset = (u) =>
-  (isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value)) && u.id !== currentUserId.value;
+  (isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value)) &&
+  u.id !== currentUserId.value;
 const canAdd = computed(
   () => isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value)
 );
@@ -258,6 +488,7 @@ const addName = ref('');
 const addEmail = ref('');
 const addAccessRole = ref('standard');
 const addSuccess = ref('');
+const addFormRef = ref(null);
 
 const showEditModal = ref(false);
 const editTarget = ref(null);
@@ -267,14 +498,257 @@ const settingPrimaryId = ref(null);
 const settingSchedulerId = ref(null);
 const forfeiting = ref(false);
 
+const searchQuery = ref('');
+const roleFilter = ref('all');
+const filterOpen = ref(false);
+const viewMode = ref('grid');
+const currentPage = ref(1);
+const openMenuId = ref(null);
+const photoLoadFailed = ref({});
+
+const showPermissionsModal = ref(false);
+const permissionsTarget = ref(null);
+
+const showResetModal = ref(false);
+const resetTarget = ref(null);
+const resetResult = ref(null);
+const issuedTempPasswords = ref({});
+
+const roleFilterOptions = [
+  { value: 'all', label: 'All roles' },
+  { value: 'school_admin', label: 'School Admin' },
+  { value: 'scheduler', label: 'Scheduler' },
+  { value: 'standard', label: 'Standard' }
+];
+
+const avatarTones = ['tone-green', 'tone-purple', 'tone-blue', 'tone-tan'];
+
+const displayName = (u) => [u?.first_name, u?.last_name].filter(Boolean).join(' ') || 'School staff';
+
+const staffInitials = (u) => {
+  const first = String(u?.first_name || '').trim();
+  const last = String(u?.last_name || '').trim();
+  if (first && last) return `${first[0]}${last[0]}`.toUpperCase();
+  if (first) return first.slice(0, 2).toUpperCase();
+  const email = String(u?.email || '').trim();
+  return email ? email.slice(0, 2).toUpperCase() : 'SS';
+};
+
+const staffPhotoUrl = (u) => {
+  if (!u?.id || photoLoadFailed.value[u.id]) return null;
+  const raw = u.profile_photo_url || u.profile_photo_path || null;
+  return toUploadsUrl(raw) || raw || null;
+};
+
+const markPhotoFailed = (userId) => {
+  if (!userId) return;
+  photoLoadFailed.value = { ...photoLoadFailed.value, [userId]: true };
+};
+
+const avatarToneClass = (idx) => avatarTones[idx % avatarTones.length];
+
+const tempPasswordStorageKey = () => `sspTempPasswords:${props.schoolOrganizationId}`;
+
+const loadIssuedTempPasswords = () => {
+  try {
+    const raw = window.sessionStorage.getItem(tempPasswordStorageKey());
+    issuedTempPasswords.value = raw ? JSON.parse(raw) : {};
+  } catch {
+    issuedTempPasswords.value = {};
+  }
+  pruneExpiredTempPasswords();
+};
+
+const saveIssuedTempPasswords = () => {
+  try {
+    window.sessionStorage.setItem(tempPasswordStorageKey(), JSON.stringify(issuedTempPasswords.value));
+  } catch {
+    // ignore quota errors
+  }
+};
+
+const pruneExpiredTempPasswords = () => {
+  const now = Date.now();
+  const next = {};
+  for (const [userId, entry] of Object.entries(issuedTempPasswords.value || {})) {
+    const expiresAt = entry?.expiresAt ? new Date(entry.expiresAt).getTime() : 0;
+    if (expiresAt > now) next[userId] = entry;
+  }
+  issuedTempPasswords.value = next;
+  saveIssuedTempPasswords();
+};
+
+const storeIssuedTempPassword = (userId, temporaryPassword, expiresAt) => {
+  if (!userId || !temporaryPassword) return;
+  issuedTempPasswords.value = {
+    ...issuedTempPasswords.value,
+    [String(userId)]: { password: temporaryPassword, expiresAt }
+  };
+  saveIssuedTempPasswords();
+};
+
+const getIssuedTempPassword = (u) => {
+  const entry = issuedTempPasswords.value?.[String(u?.id)];
+  if (!entry?.password) return null;
+  const expiresAt = entry.expiresAt ? new Date(entry.expiresAt).getTime() : 0;
+  if (expiresAt && expiresAt <= Date.now()) return null;
+  return entry;
+};
+
+const hasVisibleTempPassword = (u) => !!getIssuedTempPassword(u);
+
+const formatTempPasswordExpiry = (expiresAt) => {
+  if (!expiresAt) return 'Expires soon';
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (ms <= 0) return 'Expired';
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    return `Expires in ${days}d ${hours % 24}h`;
+  }
+  if (hours > 0) return `Expires in ${hours}h ${minutes}m`;
+  return `Expires in ${minutes}m`;
+};
+
+const tempPasswordButtonLabel = (u) => {
+  if (sendingResetId.value === u.id) return 'Generating…';
+  const issued = getIssuedTempPassword(u);
+  if (issued) return `${issued.password} · ${formatTempPasswordExpiry(issued.expiresAt)}`;
+  if (u.has_active_temporary_password) {
+    return `Temp active · ${formatTempPasswordExpiry(u.temporary_password_expires_at)}`;
+  }
+  return 'Reset Password';
+};
+
+const tempPasswordButtonTitle = (u) => {
+  const issued = getIssuedTempPassword(u);
+  if (issued) return 'Click to copy temporary password';
+  if (u.has_active_temporary_password) return 'A temporary password is active. Click to generate a new one.';
+  return 'Generate a temporary password for this staff member';
+};
+
+const onTempPasswordButtonClick = async (u) => {
+  const issued = getIssuedTempPassword(u);
+  if (issued) {
+    await copyTempPassword(u, issued.password);
+    return;
+  }
+  openResetPasswordModal(u);
+};
+
+const copyTempPassword = async (u, passwordOverride = null) => {
+  const issued = passwordOverride || getIssuedTempPassword(u)?.password || resetResult.value?.temporaryPassword;
+  if (!issued) return;
+  try {
+    await navigator.clipboard.writeText(issued);
+    success.value = `Temporary password copied for ${displayName(u)}.`;
+    setTimeout(() => { success.value = ''; }, 3500);
+  } catch {
+    success.value = `Temporary password: ${issued}`;
+    setTimeout(() => { success.value = ''; }, 6000);
+  }
+};
+
+const openResetPasswordModal = (u) => {
+  resetTarget.value = u;
+  resetResult.value = null;
+  showResetModal.value = true;
+};
+
+const closeResetPasswordModal = () => {
+  showResetModal.value = false;
+  resetTarget.value = null;
+  resetResult.value = null;
+};
+
+const confirmResetPassword = async () => {
+  const u = resetTarget.value;
+  const id = Number(u?.id);
+  if (!id) return;
+  try {
+    sendingResetId.value = id;
+    error.value = '';
+    const r = await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff/${id}/send-reset-password`);
+    const temporaryPassword = r.data?.temporaryPassword;
+    const expiresAt = r.data?.expiresAt;
+    resetResult.value = {
+      temporaryPassword,
+      expiresAt,
+      instructions: Array.isArray(r.data?.instructions) ? r.data.instructions : []
+    };
+    if (temporaryPassword) {
+      storeIssuedTempPassword(id, temporaryPassword, expiresAt);
+    }
+    await load();
+    success.value = 'Temporary password created. Share it privately with the staff member.';
+    setTimeout(() => { success.value = ''; }, 5000);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to reset password';
+  } finally {
+    sendingResetId.value = null;
+  }
+};
+
+const filteredStaff = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  return staff.value.filter((u) => {
+    const name = displayName(u).toLowerCase();
+    const email = String(u.email || '').toLowerCase();
+    const matchesSearch = !q || name.includes(q) || email.includes(q);
+    if (!matchesSearch) return false;
+
+    if (roleFilter.value === 'school_admin') return !!u.is_school_admin;
+    if (roleFilter.value === 'scheduler') return !!u.is_scheduler;
+    if (roleFilter.value === 'standard') return !u.is_school_admin && !u.is_scheduler;
+    return true;
+  });
+});
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredStaff.value.length / PAGE_SIZE)));
+
+const paginatedStaff = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE;
+  return filteredStaff.value.slice(start, start + PAGE_SIZE);
+});
+
+watch([searchQuery, roleFilter, filteredStaff], () => {
+  currentPage.value = 1;
+});
+
+watch(totalPages, (pages) => {
+  if (currentPage.value > pages) currentPage.value = pages;
+});
+
 const formatDate = (d) => {
   if (!d) return '—';
-  const dt = new Date(d);
-  return dt.toLocaleString();
+  return new Date(d).toLocaleString();
+};
+
+const setRoleFilter = (value) => {
+  roleFilter.value = value;
+  filterOpen.value = false;
+};
+
+const toggleMenu = (id) => {
+  openMenuId.value = openMenuId.value === id ? null : id;
+};
+
+const closeMenu = (id) => {
+  if (openMenuId.value === id) openMenuId.value = null;
+};
+
+const menuAction = (fn) => {
+  openMenuId.value = null;
+  fn();
+};
+
+const scrollToAddForm = () => {
+  addFormRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
 const openMessage = async (u) => {
-  const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || 'School staff';
+  const name = displayName(u);
   try {
     const aff = await api.get(`/school-portal/${props.schoolOrganizationId}/affiliation`);
     const parentAgencyId = aff.data?.active_agency_id ? Number(aff.data.active_agency_id) : null;
@@ -301,6 +775,7 @@ const load = async () => {
   try {
     loading.value = true;
     error.value = '';
+    photoLoadFailed.value = {};
     const r = await api.get(`/school-portal/${props.schoolOrganizationId}/school-staff`);
     staff.value = Array.isArray(r.data) ? r.data : [];
   } catch (e) {
@@ -324,6 +799,16 @@ const openEdit = (u) => {
 const closeEdit = () => {
   showEditModal.value = false;
   editTarget.value = null;
+};
+
+const openPermissions = (u) => {
+  permissionsTarget.value = u;
+  showPermissionsModal.value = true;
+};
+
+const closePermissions = () => {
+  showPermissionsModal.value = false;
+  permissionsTarget.value = null;
 };
 
 const saveEdit = async () => {
@@ -360,7 +845,7 @@ const saveEdit = async () => {
 const toggleSchoolAdmin = async (u) => {
   if (!u?.id) return;
   const next = !u.is_school_admin;
-  const label = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email || 'this user';
+  const label = displayName(u) || u.email || 'this user';
   const actionText = next
     ? `This will make ${label} a School Admin for this school. They will be able to add/edit school staff, reset passwords, remove access, and manage School Admin/Scheduler role assignments for this school.`
     : `This will remove School Admin access for ${label}. They will no longer be able to manage school staff or role assignments for this school unless another admin grants it again.`;
@@ -372,6 +857,9 @@ const toggleSchoolAdmin = async (u) => {
       isSchoolAdmin: next
     });
     await load();
+    if (permissionsTarget.value?.id === u.id) {
+      permissionsTarget.value = staff.value.find((s) => s.id === u.id) || null;
+    }
     success.value = next ? 'School Admin assigned.' : 'School Admin removed.';
     setTimeout(() => { success.value = ''; }, 3000);
   } catch (e) {
@@ -384,7 +872,7 @@ const toggleSchoolAdmin = async (u) => {
 const toggleScheduler = async (u) => {
   if (!u?.id) return;
   const next = !u.is_scheduler;
-  const label = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email || 'this user';
+  const label = displayName(u) || u.email || 'this user';
   const actionText = next
     ? `This will make ${label} a Scheduler for this school. Scheduler users get limited/own-only school access by default and will not appear in Smart School ROI assignment lists.`
     : `This will remove Scheduler from ${label}. They will return to standard school staff behavior unless other role flags are set.`;
@@ -396,6 +884,9 @@ const toggleScheduler = async (u) => {
       isScheduler: next
     });
     await load();
+    if (permissionsTarget.value?.id === u.id) {
+      permissionsTarget.value = staff.value.find((s) => s.id === u.id) || null;
+    }
     success.value = next ? 'Scheduler assigned.' : 'Scheduler removed.';
     setTimeout(() => { success.value = ''; }, 3000);
   } catch (e) {
@@ -434,24 +925,6 @@ const removeUser = async (u) => {
     error.value = e.response?.data?.error?.message || 'Failed to remove user';
   } finally {
     removingId.value = null;
-  }
-};
-
-const sendResetPassword = async (u) => {
-  const id = Number(u?.id);
-  if (!id) return;
-  if (!confirm(`Send a password reset link to ${u.email || 'this user'}? The link will expire in 48 hours.`)) return;
-  try {
-    sendingResetId.value = id;
-    error.value = '';
-    await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff/${id}/send-reset-password`);
-    await load();
-    success.value = 'Reset password link sent.';
-    setTimeout(() => { success.value = ''; }, 4000);
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to send reset password link';
-  } finally {
-    sendingResetId.value = null;
   }
 };
 
@@ -502,7 +975,6 @@ const submitNewAccountRequest = async () => {
     success.value = '';
     const name = requestName.value.trim();
     const email = requestEmail.value.trim();
-
     const subject = 'School staff request: additional account';
     const question = [
       `School: ${props.schoolName || props.schoolOrganizationId}`,
@@ -510,10 +982,7 @@ const submitNewAccountRequest = async () => {
       'Request: additional login/account',
       name ? `Name: ${name}` : null,
       email ? `Email: ${email}` : null
-    ]
-      .filter(Boolean)
-      .join('\n');
-
+    ].filter(Boolean).join('\n');
     await submitTicket({ subject, question });
     requestName.value = '';
     requestEmail.value = '';
@@ -537,7 +1006,7 @@ const requestDeletionFor = async (u) => {
       'Request: delete/remove school staff user',
       `User ID: ${u.id}`,
       `Email: ${u.email || 'Unknown'}`,
-      `Name: ${[u.first_name, u.last_name].filter(Boolean).join(' ') || 'Unknown'}`
+      `Name: ${displayName(u) || 'Unknown'}`
     ].join('\n');
     await submitTicket({ subject, question });
     success.value = 'Deletion request sent to agency staff.';
@@ -592,183 +1061,802 @@ const addRoleHelperText = computed(() => {
   return 'Standard account is the default. If this user does not need ROI scheduling limits or School Admin permissions, keep Standard.';
 });
 
-onMounted(load);
+onMounted(() => {
+  loadIssuedTempPasswords();
+  load();
+});
+</script>
+
+<script>
+export default {
+  directives: {
+    clickOutside: {
+      mounted(el, binding) {
+        el.__clickOutside__ = (event) => {
+          if (!el.contains(event.target)) binding.value(event);
+        };
+        document.addEventListener('mousedown', el.__clickOutside__, true);
+      },
+      unmounted(el) {
+        if (el.__clickOutside__) {
+          document.removeEventListener('mousedown', el.__clickOutside__, true);
+          el.__clickOutside__ = null;
+        }
+      }
+    }
+  }
+};
 </script>
 
 <style scoped>
-.panel {
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg);
-  padding: 14px;
+.ssp {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
-.panel-header {
+
+.ssp-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ssp-page-title h2 {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: var(--text-primary, #111827);
+}
+
+.ssp-page-title p {
+  margin: 4px 0 0;
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.92rem;
+}
+
+.ssp-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ssp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ssp-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.ssp-btn-primary {
+  background: var(--primary, #14532d);
+  color: #fff;
+}
+
+.ssp-btn-outline {
+  background: #fff;
+  color: var(--primary, #14532d);
+  border-color: color-mix(in srgb, var(--primary, #14532d) 25%, #d1d5db);
+}
+
+.ssp-caret {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+.ssp-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ssp-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: min(100%, 320px);
+  flex: 1;
+  max-width: 420px;
+  padding: 0 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  min-height: 44px;
+}
+
+.ssp-search svg {
+  width: 18px;
+  height: 18px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.ssp-search input {
+  border: 0;
+  outline: none;
+  width: 100%;
+  font-size: 0.92rem;
+  background: transparent;
+  color: var(--text-primary, #111827);
+}
+
+.ssp-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ssp-icon-btn,
+.ssp-filter-wrap .ssp-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ssp-icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ssp-icon-btn.active {
+  border-color: color-mix(in srgb, var(--primary, #14532d) 35%, #d1d5db);
+  color: var(--primary, #14532d);
+  background: color-mix(in srgb, var(--primary, #14532d) 6%, #fff);
+}
+
+.ssp-filter-wrap {
+  position: relative;
+}
+
+.ssp-filter-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+}
+
+.ssp-filter-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.ssp-filter-menu button:hover,
+.ssp-filter-menu button.active {
+  background: color-mix(in srgb, var(--primary, #14532d) 8%, #fff);
+  color: var(--primary, #14532d);
+}
+
+.ssp-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ssp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ssp-list .ssp-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.ssp-list .ssp-card-head,
+.ssp-list .ssp-card-meta,
+.ssp-list .ssp-quick-actions,
+.ssp-list .ssp-card-footer {
+  margin: 0;
+}
+
+.ssp-list .ssp-quick-actions {
+  justify-content: flex-end;
+}
+
+.ssp-list .ssp-card-footer {
+  border-top: 0;
+  padding-top: 0;
+  justify-content: flex-end;
+}
+
+.ssp-card {
+  border: 1px solid #e8edf2;
+  border-radius: 16px;
+  background: #fff;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ssp-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ssp-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 2px solid transparent;
+}
+
+.ssp-avatar.has-photo {
+  border-color: #e8edf2;
+  background: #f8fafc;
+}
+
+.ssp-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ssp-avatar-initials {
+  font-size: 1.45rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.ssp-avatar.tone-green { background: #d9ead3; color: #1f4d2d; }
+.ssp-avatar.tone-purple { background: #eadcf7; color: #5b2c88; }
+.ssp-avatar.tone-blue { background: #dbeafe; color: #1d4ed8; }
+.ssp-avatar.tone-tan { background: #f5e6d3; color: #8a5a2b; }
+
+.ssp-avatar.has-photo.tone-green,
+.ssp-avatar.has-photo.tone-purple,
+.ssp-avatar.has-photo.tone-blue,
+.ssp-avatar.has-photo.tone-tan {
+  background: #f8fafc;
+}
+
+.ssp-card-identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.ssp-name {
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #111827;
+  line-height: 1.2;
+}
+
+.ssp-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ssp-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ssp-badge-admin {
+  background: #d9ead3;
+  color: #1f4d2d;
+}
+
+.ssp-badge-scheduler {
+  background: #eadcf7;
+  color: #5b2c88;
+}
+
+.ssp-menu-wrap {
+  position: relative;
+}
+
+.ssp-menu-btn {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ssp-menu-btn:hover {
+  background: #f3f4f6;
+}
+
+.ssp-menu-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.ssp-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 170px;
+  padding: 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+}
+
+.ssp-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.ssp-menu button:hover {
+  background: #f3f4f6;
+}
+
+.ssp-menu button.danger {
+  color: #b91c1c;
+}
+
+.ssp-card-meta {
+  font-size: 0.8rem;
+  color: #6b7280;
+  line-height: 1.45;
+}
+
+.ssp-meta-sub {
+  margin-top: 2px;
+  font-size: 0.74rem;
+}
+
+.ssp-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ssp-quick-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 62px;
+  padding: 8px;
+  border: 1px solid #e8edf2;
+  border-radius: 12px;
+  background: #fff;
+  color: #374151;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ssp-quick-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.ssp-quick-btn:hover {
+  border-color: color-mix(in srgb, var(--primary, #14532d) 25%, #d1d5db);
+  color: var(--primary, #14532d);
+}
+
+.ssp-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.ssp-footer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: #111827;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.ssp-footer-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ssp-footer-danger {
+  color: #b91c1c;
+}
+
+.ssp-footer-temp {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 100%;
+}
+
+.ssp-footer-temp-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  text-align: left;
+  word-break: break-all;
+}
+
+.ssp-reset-lead {
+  margin: 0 0 12px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+.ssp-reset-steps {
+  margin: 0 0 16px;
+  padding-left: 1.2rem;
+  color: #4b5563;
+  line-height: 1.55;
+  font-size: 0.9rem;
+}
+
+.ssp-reset-steps-compact {
+  margin-top: 14px;
+}
+
+.ssp-reset-success {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ssp-temp-password-display {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--primary, #14532d) 25%, #d1d5db);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary, #14532d) 6%, #fff);
+  cursor: pointer;
+  text-align: left;
+}
+
+.ssp-temp-password-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #111827;
+  word-break: break-all;
+}
+
+.ssp-temp-password-meta {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.ssp-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.ssp-page-btn {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ssp-page-btn.active {
+  background: var(--primary, #14532d);
+  border-color: var(--primary, #14532d);
+  color: #fff;
+}
+
+.ssp-page-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ssp-add-section,
+.ssp-admin-box {
+  border: 1px solid #e8edf2;
+  border-radius: 16px;
+  background: #fff;
+  padding: 18px;
+}
+
+.ssp-add-section h3,
+.ssp-admin-box h3 {
+  margin: 0 0 14px;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.ssp-add-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1.2fr 0.9fr;
+  gap: 14px;
+}
+
+.ssp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #4b5563;
+}
+
+.ssp-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ssp-input-wrap svg {
+  width: 18px;
+  height: 18px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.ssp-input-wrap input,
+.ssp-plain-input,
+.ssp-select {
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary, #111827);
+  font-size: 0.92rem;
+}
+
+.ssp-plain-input,
+.ssp-select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ssp-role-help {
+  margin: 12px 0 0;
+  color: #6b7280;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.ssp-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.ssp-alert {
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+}
+
+.ssp-alert-error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.ssp-alert-success {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.ssp-empty {
+  padding: 28px 12px;
+  text-align: center;
+  color: #6b7280;
+}
+
+.ssp-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 16px;
+}
+
+.ssp-modal {
+  width: min(460px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+}
+
+.ssp-modal-wide {
+  width: min(560px, 100%);
+}
+
+.ssp-modal-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #f1f5f9;
 }
-.panel-subtitle {
-  color: var(--text-secondary);
-  font-size: 12px;
-  margin-top: 2px;
+
+.ssp-modal-sub {
+  margin: 4px 0 0;
+  color: #6b7280;
+  font-size: 0.84rem;
 }
-.panel-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+
+.ssp-modal-body {
+  padding: 18px;
 }
-.muted {
-  color: var(--text-secondary);
-}
-.error {
-  color: #b32727;
-  margin-bottom: 10px;
-}
-.success {
-  color: #1f7a2a;
-  margin-top: 10px;
-}
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 10px;
-  margin: 10px 0 14px;
-}
-.card {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
-  background: white;
-}
-.name-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.name {
-  font-weight: 800;
-}
-.badge {
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  font-weight: 600;
-}
-.badge-primary {
-  background: var(--primary-light, #e8f4fd);
-  color: var(--primary, #0d6efd);
-}
-.badge-secondary {
-  background: #ede9fe;
-  color: #5b21b6;
-}
-.meta {
-  color: var(--text-secondary);
-  font-size: 12px;
-  margin-top: 2px;
-}
-.meta-detail {
-  font-size: 11px;
-  margin-top: 1px;
-}
-.card-actions {
-  margin-top: 10px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.add-box,
-.request-box {
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-  margin-top: 12px;
-}
-.row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.add-role-row {
-  display: grid;
-  grid-template-columns: minmax(220px, 320px) 1fr;
-  align-items: end;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.add-role-field {
-  max-width: 320px;
-}
-.role-select {
-  margin-top: 4px;
-}
-.role-helper {
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.35;
-  padding-bottom: 8px;
-}
-.field {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--text-secondary);
-  display: block;
-}
-.input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg);
-  color: var(--text-primary);
-  margin-top: 6px;
-}
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.modal {
-  width: 400px;
-  max-width: 95vw;
-  background: white;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-.modal-header {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.modal-body {
-  padding: 16px;
-}
-.modal-body .field {
-  margin-bottom: 12px;
-}
-.modal-body .field:last-of-type {
-  margin-bottom: 16px;
-}
-.modal-actions {
+
+.ssp-modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  margin-top: 8px;
+}
+
+.ssp-perm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.ssp-perm-row:last-child {
+  border-bottom: 0;
+}
+
+.ssp-perm-title {
+  font-weight: 800;
+  color: #111827;
+}
+
+.ssp-perm-copy {
+  margin-top: 4px;
+  color: #6b7280;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 1400px) {
+  .ssp-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .ssp-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ssp-add-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .ssp-field-role {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 820px) {
-  .row { grid-template-columns: 1fr; }
-  .add-role-row { grid-template-columns: 1fr; }
-  .role-helper { padding-bottom: 0; }
+  .ssp-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ssp-list .ssp-card {
+    grid-template-columns: 1fr;
+  }
+
+  .ssp-add-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ssp-page-header {
+    flex-direction: column;
+  }
+
+  .ssp-page-actions {
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .ssp-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ssp-quick-actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ssp-quick-btn span {
+    display: none;
+  }
 }
 </style>
-

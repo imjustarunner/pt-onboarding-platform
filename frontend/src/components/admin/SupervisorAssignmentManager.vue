@@ -2,7 +2,7 @@
   <div class="supervisor-assignment-manager">
     <div class="section-header">
       <h3>Supervisor Assignments</h3>
-      <p class="section-description">Assign clinical, manager, and billing supervisors per agency. Each type holds one person; the same person may fill multiple types. Primary typically marks the main clinical supervisor.</p>
+      <p class="section-description">Assign clinical, manager, and billing supervisors at the <strong>tenant</strong> level only (not individual schools or sub-organizations). Each type holds one person; the same person may fill multiple types. Primary typically marks the main clinical supervisor.</p>
     </div>
 
     <div v-if="loading" class="loading">Loading assignments...</div>
@@ -10,9 +10,9 @@
     <div v-else>
       <!-- Filter by Agency -->
       <div class="filters" style="margin-bottom: 20px;">
-        <label style="display: block; margin-bottom: 8px; font-weight: 500;">Filter by Agency:</label>
+        <label style="display: block; margin-bottom: 8px; font-weight: 500;">Filter by tenant:</label>
         <select v-model="selectedAgencyId" @change="fetchAssignments" style="padding: 8px; border: 1px solid var(--border); border-radius: 6px; min-width: 200px;">
-          <option value="">All Agencies</option>
+          <option value="">All tenants</option>
           <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
             {{ agency.name }}
           </option>
@@ -31,7 +31,7 @@
               <tr>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Supervisor</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Supervisee</th>
-                <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Agency</th>
+                <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Tenant</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Type</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Primary</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Assigned</th>
@@ -119,14 +119,31 @@
               </select>
               <small style="color: var(--text-secondary); font-size: 12px;">One person per type (clinical, manager, billing). Same person may hold multiple types.</small>
             </div>
-            <div>
-              <label style="display: block; margin-bottom: 6px; font-weight: 500;">Agency</label>
+            <div v-if="tenantOptions.length > 1">
+              <label style="display: block; margin-bottom: 6px; font-weight: 500;">Tenant</label>
               <select v-model="newAssignment.agencyId" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
-                <option value="">Select an agency...</option>
-                <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
+                <option value="">Select a tenant...</option>
+                <option v-for="agency in tenantOptions" :key="agency.id" :value="agency.id">
                   {{ agency.name }}
                 </option>
               </select>
+              <small style="color: var(--text-secondary); font-size: 12px;">Supervision is scoped to the tenant, not individual schools.</small>
+            </div>
+            <div v-else-if="tenantOptions.length === 1">
+              <label style="display: block; margin-bottom: 6px; font-weight: 500;">Tenant</label>
+              <input
+                type="text"
+                :value="tenantOptions[0].name"
+                readonly
+                style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: #f5f5f5;"
+              />
+              <small style="color: var(--text-secondary); font-size: 12px;">Assignments apply at the tenant level for all affiliated schools.</small>
+            </div>
+            <div v-else>
+              <label style="display: block; margin-bottom: 6px; font-weight: 500;">Tenant</label>
+              <div style="padding: 10px 12px; border: 1px solid #f5c2c7; border-radius: 6px; background: #fff5f5; color: #842029; font-size: 13px;">
+                Select a supervisor and supervisee who share the same tenant membership.
+              </div>
             </div>
           </div>
           <button 
@@ -145,10 +162,10 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
-import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { isSupervisor } from '../../utils/helpers.js';
 import { SUPERVISOR_TYPES, supervisorTypeLabel } from '../../constants/supervisorTypes.js';
+import { isTenantOrganization } from '../../utils/tenantOrganizations.js';
 
 const props = defineProps({
   supervisorId: {
@@ -170,6 +187,7 @@ const loading = ref(true);
 const error = ref('');
 const assignments = ref([]);
 const agencies = ref([]);
+const tenantOptions = ref([]);
 const supervisors = ref([]);
 const availableUsers = ref([]);
 const selectedAgencyId = ref(props.agencyId || '');
@@ -204,27 +222,55 @@ const superviseeDisplayName = computed(() => {
 });
 
 const canCreateAssignment = computed(() => {
-  return newAssignment.value.supervisorId && 
-         newAssignment.value.superviseeId && 
-         newAssignment.value.agencyId;
+  return newAssignment.value.supervisorId &&
+         newAssignment.value.superviseeId &&
+         newAssignment.value.agencyId &&
+         tenantOptions.value.length > 0;
 });
+
+const syncAutoTenant = () => {
+  if (tenantOptions.value.length === 1) {
+    newAssignment.value.agencyId = tenantOptions.value[0].id;
+  } else if (!tenantOptions.value.some((t) => Number(t.id) === Number(newAssignment.value.agencyId))) {
+    newAssignment.value.agencyId = '';
+  }
+};
+
+const fetchTenantOptions = async () => {
+  const supervisorId = parseInt(newAssignment.value.supervisorId || props.supervisorId || '', 10) || null;
+  const superviseeId = parseInt(newAssignment.value.superviseeId || props.superviseeId || '', 10) || null;
+  if (!supervisorId && !superviseeId) {
+    tenantOptions.value = [];
+    return;
+  }
+  try {
+    const response = await api.get('/supervisor-assignments/tenant-options', {
+      params: {
+        supervisorId: supervisorId || undefined,
+        superviseeId: superviseeId || undefined
+      }
+    });
+    tenantOptions.value = Array.isArray(response.data) ? response.data : [];
+    syncAutoTenant();
+  } catch (err) {
+    console.error('Failed to fetch tenant options:', err);
+    tenantOptions.value = [];
+    newAssignment.value.agencyId = '';
+  }
+};
 
 const fetchAgencies = async () => {
   try {
-    // If a target user is provided (supervisee/supervisor), fetch that user's agencies.
-    // Otherwise, fall back to the current user's agencies.
     const targetUserId = props.superviseeId || props.supervisorId || null;
     if (targetUserId) {
       const response = await api.get(`/users/${targetUserId}/agencies`);
-      agencies.value = response.data || [];
-      // Auto-select first agency if only one
-      if (agencies.value.length === 1 && !newAssignment.value.agencyId) {
-        newAssignment.value.agencyId = agencies.value[0].id;
-      }
+      agencies.value = (response.data || []).filter(isTenantOrganization);
     } else {
-      // Fetch current user's agencies
       const response = await api.get('/users/me/agencies');
-      agencies.value = response.data || [];
+      agencies.value = (response.data || []).filter(isTenantOrganization);
+    }
+    if (agencies.value.length === 1 && !selectedAgencyId.value) {
+      selectedAgencyId.value = agencies.value[0].id;
     }
   } catch (err) {
     console.error('Failed to fetch agencies:', err);
@@ -397,6 +443,13 @@ watch(() => newAssignment.value.agencyId, async (newAgencyId) => {
   }
 });
 
+watch(
+  () => [newAssignment.value.supervisorId, newAssignment.value.superviseeId],
+  async () => {
+    await fetchTenantOptions();
+  }
+);
+
 // Watch for supervisee prop changes
 watch(() => props.superviseeId, async (newSuperviseeId) => {
   if (newSuperviseeId) {
@@ -409,6 +462,7 @@ watch(() => props.superviseeId, async (newSuperviseeId) => {
       console.error('Failed to fetch supervisee user:', err);
     }
     await fetchAgencies();
+    await fetchTenantOptions();
     await fetchAvailableUsers();
   }
 });
@@ -424,8 +478,8 @@ onMounted(async () => {
     }
   }
   
-  // Fetch agencies first (needed for filtering)
   await fetchAgencies();
+  await fetchTenantOptions();
   // Then fetch other data
   await Promise.all([
     fetchSupervisors(),

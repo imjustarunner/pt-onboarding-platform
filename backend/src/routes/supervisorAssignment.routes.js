@@ -6,6 +6,7 @@ import {
   getSupervisees,
   getSupervisors,
   getAgencyAssignments,
+  getTenantOptions,
   setPrimarySupervisor
 } from '../controllers/supervisorAssignment.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
@@ -47,6 +48,9 @@ router.get('/supervisor/:supervisorId', getSupervisees);
 
 // Get supervisors for a supervisee
 router.get('/supervisee/:superviseeId', getSupervisors);
+
+// Get tenant options for supervisor assignments
+router.get('/tenant-options', getTenantOptions);
 
 // Get all assignments in an agency
 router.get('/agency/:agencyId', getAgencyAssignments);

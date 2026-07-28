@@ -1176,6 +1176,11 @@
             v-else
             :school-organization-id="organizationId"
             :school-name="organizationName"
+            :show-codes-button="true"
+            :show-school-switcher="showAdminSchoolSwitcher"
+            :codes-privacy-help="codesPrivacyHelp"
+            @toggle-client-label-mode="toggleClientLabelMode"
+            @open-school-switcher="adminSchoolSwitcherOpen = true"
           />
         </div>
           </div>
