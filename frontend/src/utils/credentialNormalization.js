@@ -1,5 +1,22 @@
 /** @typedef {import('../../backend/src/utils/credentialNormalization.js')} */
 
+/** Licensed / pre-licensed credentials for PYU license section. */
+export const PROVIDER_YEAR_UPDATE_LICENSE_TOKENS = [
+  'LMFTC',
+  'LPCC',
+  'MFTC',
+  'LCSW',
+  'LMFT',
+  'LSW',
+  'SWC',
+  'LPC',
+  'MFT',
+  'LAC',
+];
+
+export const LICENSE_UPLOAD_ACCEPT =
+  '.pdf,application/pdf,image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif';
+
 function safeText(raw) {
   return String(raw ?? '').trim();
 }

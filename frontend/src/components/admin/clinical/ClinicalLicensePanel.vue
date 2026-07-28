@@ -21,20 +21,20 @@
     <div class="clp-upload-row">
       <div>
         <template v-if="licenseSummary.uploadUrl">
-          <a :href="licenseSummary.uploadUrl" target="_blank" rel="noopener" class="link-btn">View license PDF</a>
+          <a :href="licenseSummary.uploadUrl" target="_blank" rel="noopener" class="link-btn">View license file</a>
         </template>
-        <span v-else class="clp-missing">No license PDF uploaded</span>
+        <span v-else class="clp-missing">No license file uploaded</span>
       </div>
       <div v-if="canEdit">
         <input
           ref="fileInput"
           type="file"
-          accept=".pdf,application/pdf"
+          :accept="LICENSE_UPLOAD_ACCEPT"
           class="sr-only"
           @change="onFileChange"
         />
         <button type="button" class="btn btn-secondary btn-sm" :disabled="uploading" @click="fileInput?.click()">
-          {{ uploading ? 'Uploading…' : (licenseSummary.uploadUrl ? 'Replace PDF' : 'Upload license PDF') }}
+          {{ uploading ? 'Uploading…' : (licenseSummary.uploadUrl ? 'Replace file' : 'Upload license file') }}
         </button>
       </div>
     </div>
@@ -58,7 +58,7 @@ import api from '../../../services/api';
 import ProviderInfoTab from '../ProviderInfoTab.vue';
 import { findFieldByKeys, formatClinicalFieldValue } from '../../../utils/clinicalFieldDisplay.js';
 import { toUploadsUrl } from '../../../utils/uploadsUrl.js';
-import { isFullyLicensedCredentialText } from '../../../utils/credentialNormalization.js';
+import { isFullyLicensedCredentialText, LICENSE_UPLOAD_ACCEPT } from '../../../utils/credentialNormalization.js';
 
 const props = defineProps({
   userId: { type: Number, required: true },

@@ -1,24 +1,13 @@
-import multer from 'multer';
 import path from 'path';
 import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
 import StorageService from '../services/storage.service.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
 import UserChecklistAssignment from '../models/UserChecklistAssignment.model.js';
+import { licenseUpload } from '../middleware/licenseUpload.middleware.js';
+import { saveProviderLicenseUpload } from '../services/licenseCredentialSync.service.js';
 
-const storage = multer.memoryStorage();
-
-const fileFilter = (req, file, cb) => {
-  // Keep strict for MVP (plan assumes PDFs). Expand later if needed.
-  if (file.mimetype === 'application/pdf') cb(null, true);
-  else cb(new Error('Only PDF files are allowed'), false);
-};
-
-export const upload = multer({
-  storage,
-  fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
-});
+export const upload = licenseUpload;
 
 function canManageDoc(requestingUser, docUserId) {
   if (!requestingUser) return false;
@@ -61,7 +50,29 @@ export const createComplianceDocument = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     if (!req.file) {
-      return res.status(400).json({ error: { message: 'PDF file is required' } });
+      return res.status(400).json({ error: { message: 'License file is required' } });
+    }
+
+    const normalizedType = String(documentType).trim().toLowerCase();
+
+    if (normalizedType === 'license' || normalizedType === 'license_upload') {
+      let agencyId = null;
+      try {
+        const agencies = await User.getAgencies(targetUserId);
+        agencyId = agencies?.[0]?.id || null;
+      } catch {
+        agencyId = null;
+      }
+      const doc = await saveProviderLicenseUpload({
+        userId: targetUserId,
+        agencyId,
+        file: req.file,
+        expirationDate: expirationDate || null,
+        createdByUserId: req.user.id,
+        isBlocking: isBlocking === true || isBlocking === 'true' || isBlocking === 1 || isBlocking === '1',
+        notes: notes ?? null,
+      });
+      return res.status(201).json(doc);
     }
 
     // Attach to user's primary agency for notification grouping (best-effort)
@@ -77,7 +88,6 @@ export const createComplianceDocument = async (req, res, next) => {
     const filename = `credential-${targetUserId}-${uniqueSuffix}${path.extname(req.file.originalname || '.pdf')}`;
     const storageResult = await StorageService.saveComplianceDocument(req.file.buffer, filename, req.file.mimetype);
 
-    const normalizedType = String(documentType).trim().toLowerCase();
     const uploadedAt = new Date();
 
     let effectiveExpirationDate = expirationDate ? new Date(expirationDate) : null;
@@ -105,18 +115,6 @@ export const createComplianceDocument = async (req, res, next) => {
       uploadedAt,
       createdByUserId: req.user.id
     });
-
-    // License uploads from My Dashboard → mirror to profile license_upload + credential
-    if (normalizedType === 'license' || normalizedType === 'license_upload') {
-      try {
-        const { syncLicenseUploadToProfile } = await import('../services/licenseCredentialSync.service.js');
-        await syncLicenseUploadToProfile(targetUserId, storageResult.relativePath, {
-          expirationDate: effectiveExpirationDate
-        });
-      } catch {
-        // non-fatal
-      }
-    }
 
     // Best-effort: receipt upload marks a matching "Background Check" checklist item complete
     if (normalizedType.startsWith('background_check_receipt')) {

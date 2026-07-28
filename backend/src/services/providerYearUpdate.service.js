@@ -11,7 +11,10 @@ import {
   setUserPreferences,
 } from './gearInventory.service.js';
 import { listSchoolEventsForOrg } from './schoolPortalEvents.service.js';
-import { consolidateLicenseFieldAliasesForUser } from './licenseCredentialSync.service.js';
+import {
+  consolidateLicenseFieldAliasesForUser,
+  syncProviderCredentialValue,
+} from './licenseCredentialSync.service.js';
 import {
   computeExpiresAt,
   expirationStatus,
@@ -1557,6 +1560,10 @@ async function upsertUserInfoFieldByKey(userId, fieldKey, value) {
 async function syncLicenseFieldsFromSectionData(userId, data) {
   if (!data || typeof data !== 'object') return;
   const writes = [];
+  if (data.credential != null) {
+    const cred = String(data.credential || '').trim();
+    if (cred) await syncProviderCredentialValue(userId, cred);
+  }
   if (data.licenseTypeNumber != null) {
     writes.push(['provider_credential_license_type_number', data.licenseTypeNumber]);
   }
@@ -1576,16 +1583,18 @@ async function syncLicenseFieldsFromSectionData(userId, data) {
 
 function validateLicensesSectionCompletion(data, licenseContext) {
   const errs = [];
+  const credential = String(data?.credential ?? licenseContext.credential ?? '').trim();
   const typeNumber = String(
     data?.licenseTypeNumber ?? licenseContext.licenseTypeNumber ?? ''
   ).trim();
   const issued = normalizeLicenseDateYmd(data?.issuedDate ?? licenseContext.issuedDate);
   const expires = normalizeLicenseDateYmd(data?.expirationDate ?? licenseContext.expirationDate);
 
+  if (!credential) errs.push('License type (credential) is required.');
   if (!typeNumber) errs.push('License type and number are required.');
   if (!issued) errs.push('License issued date is required.');
   if (!expires) errs.push('License expiration date is required.');
-  if (!licenseContext.hasPdf) errs.push('License PDF must be uploaded.');
+  if (!licenseContext.hasPdf) errs.push('License document must be uploaded (PDF or image).');
   if (!data?.licenseConfirmed) {
     errs.push('Please confirm your license information is accurate.');
   }
@@ -1756,6 +1765,21 @@ export async function buildDashboardPayload(cycle) {
     cycle.provider_user_id,
     cycle.agency_id
   );
+  const daysBySchool = new Map(
+    (schedule || []).map((s) => [
+      Number(s.schoolOrganizationId),
+      (s.days || []).map((d) => ({
+        dayOfWeek: d.dayOfWeek,
+        startTime: d.startTime,
+        endTime: d.endTime,
+        slotsAvailable: d.slotsAvailable,
+      })),
+    ])
+  );
+  const clientsWithoutDayEnriched = (clientsWithoutDay || []).map((school) => ({
+    ...school,
+    availableDays: daysBySchool.get(Number(school.schoolOrganizationId)) || [],
+  }));
   const poloInventory = await loadShirtInventoryHint(cycle.agency_id);
   const gearMaterialsContext = await loadUserGearMaterialsContext(
     cycle.agency_id,
@@ -1841,7 +1865,7 @@ export async function buildDashboardPayload(cycle) {
     schedule,
     pendingScheduleAdjustments,
     eventsBySchool,
-    clientsWithoutDay,
+    clientsWithoutDay: clientsWithoutDayEnriched,
     kioskPath: '/itsco/school-events/kiosk',
   };
 }

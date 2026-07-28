@@ -3,6 +3,8 @@ import config from '../config/config.js';
 import User from '../models/User.model.js';
 import * as S from '../services/providerYearUpdate.service.js';
 import * as SchoolNeeds from '../services/providerYearUpdateSchoolNeeds.service.js';
+import { saveProviderLicenseUpload } from '../services/licenseCredentialSync.service.js';
+import { setClientAssignedDay } from './schoolSoftSchedule.controller.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -706,6 +708,68 @@ export async function updatePublicSection(req, res, next) {
     if (e?.status === 400) {
       return res.status(400).json({ error: { message: e.message } });
     }
+    next(e);
+  }
+}
+
+/** POST /api/public/provider-year-update/:token/license-upload */
+export async function uploadPublicLicense(req, res, next) {
+  try {
+    const { valid, reason, row } = await S.validateToken(req.params.token);
+    if (!valid && reason !== 'expired') {
+      if (!row || row.cycle_status !== 'finalized') {
+        return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+      }
+    }
+    if (!row) return res.status(404).json({ error: { message: 'Invalid link' } });
+    const cycle = await S.getCycleById(row.cycle_id);
+    if (cycle.status === 'finalized' || row.locked_at) {
+      return res.status(400).json({ error: { message: 'This Year Update is locked' } });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: { message: 'License file is required' } });
+    }
+    const doc = await saveProviderLicenseUpload({
+      userId: Number(row.provider_user_id),
+      agencyId: Number(row.agency_id) || null,
+      file: req.file,
+      expirationDate: req.body?.expirationDate || null,
+      createdByUserId: Number(row.provider_user_id),
+      isBlocking: false,
+      notes: 'Uploaded via Provider Year Update link',
+    });
+    res.status(201).json({ ok: true, document: doc });
+  } catch (e) {
+    if (e?.status === 400) {
+      return res.status(400).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+}
+
+/** POST /api/public/provider-year-update/:token/schools/:schoolId/clients/:clientId/assigned-day */
+export async function assignClientDayByToken(req, res, next) {
+  try {
+    const { valid, reason, row } = await S.validateToken(req.params.token);
+    if (!valid && reason !== 'expired') {
+      if (!row || row.cycle_status !== 'finalized') {
+        return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+      }
+    }
+    if (!row) return res.status(404).json({ error: { message: 'Invalid link' } });
+    const cycle = await S.getCycleById(row.cycle_id);
+    if (cycle.status === 'finalized' || row.locked_at) {
+      return res.status(400).json({ error: { message: 'This Year Update is locked' } });
+    }
+    const providerUserId = Number(row.provider_user_id);
+    req.user = { id: providerUserId, role: 'provider' };
+    req.body = {
+      ...(req.body || {}),
+      providerUserId,
+      provider_user_id: providerUserId,
+    };
+    return setClientAssignedDay(req, res, next);
+  } catch (e) {
     next(e);
   }
 }

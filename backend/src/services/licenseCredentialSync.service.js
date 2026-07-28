@@ -1,6 +1,10 @@
 import pool from '../config/database.js';
 import UserInfoValue from '../models/UserInfoValue.model.js';
 import User from '../models/User.model.js';
+import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
+import StorageService from '../services/storage.service.js';
+import path from 'path';
+import { isAllowedLicenseUploadMime } from '../utils/licenseUploadMime.js';
 import { isFullyLicensedCredentialText } from '../utils/credentialNormalization.js';
 import {
   LICENSE_FIELD_ALIAS_GROUPS,
@@ -31,6 +35,101 @@ function leadingLicenseToken(licenseTypeNumber) {
   if (!s) return '';
   const m = s.match(/^([A-Za-z][A-Za-z.\s-]{0,12})/);
   return m ? m[1].replace(/\s+/g, ' ').trim() : s.split(/[\s,#]/)[0] || '';
+}
+
+/**
+ * Persist users.credential and legacy provider_credential user-info field.
+ */
+export async function syncProviderCredentialValue(userId, rawCredential) {
+  const uid = Number(userId);
+  if (!Number.isInteger(uid) || uid <= 0) return { ok: false };
+  const v = rawCredential === null || rawCredential === undefined
+    ? null
+    : (String(rawCredential).trim() || null);
+  try {
+    await pool.execute('UPDATE users SET credential = ? WHERE id = ?', [v, uid]);
+  } catch {
+    // users.credential column may be absent on older DBs
+  }
+  try {
+    const [defs] = await pool.execute(
+      `SELECT id
+       FROM user_info_field_definitions
+       WHERE field_key = 'provider_credential'
+       ORDER BY (is_platform_template = TRUE) DESC, (agency_id IS NULL) DESC, id ASC
+       LIMIT 1`
+    );
+    const fieldDefinitionId = Number(defs?.[0]?.id || 0);
+    if (Number.isInteger(fieldDefinitionId) && fieldDefinitionId > 0) {
+      await UserInfoValue.createOrUpdate(uid, fieldDefinitionId, v);
+    }
+  } catch {
+    // non-fatal
+  }
+  return { ok: true };
+}
+
+/**
+ * Store a license PDF/image in compliance docs and mirror to profile license_upload.
+ */
+export async function saveProviderLicenseUpload({
+  userId,
+  agencyId = null,
+  file,
+  expirationDate = null,
+  createdByUserId = null,
+  isBlocking = false,
+  notes = null,
+  documentType = 'license',
+}) {
+  const uid = Number(userId);
+  if (!Number.isInteger(uid) || uid <= 0) {
+    throw Object.assign(new Error('Invalid user'), { status: 400 });
+  }
+  if (!file?.buffer) {
+    throw Object.assign(new Error('License file is required'), { status: 400 });
+  }
+  if (!isAllowedLicenseUploadMime(file.mimetype)) {
+    throw Object.assign(
+      new Error('Only PDF or image files (JPEG, PNG, WebP, HEIC) are allowed'),
+      { status: 400 }
+    );
+  }
+
+  let resolvedAgencyId = agencyId;
+  if (!resolvedAgencyId) {
+    try {
+      const agencies = await User.getAgencies(uid);
+      resolvedAgencyId = agencies?.[0]?.id || null;
+    } catch {
+      resolvedAgencyId = null;
+    }
+  }
+
+  const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const ext = path.extname(file.originalname || '') || (String(file.mimetype).includes('pdf') ? '.pdf' : '.jpg');
+  const filename = `credential-${uid}-${uniqueSuffix}${ext}`;
+  const storageResult = await StorageService.saveComplianceDocument(file.buffer, filename, file.mimetype);
+  const uploadedAt = new Date();
+  const effectiveExpirationDate = expirationDate ? new Date(expirationDate) : null;
+
+  const doc = await UserComplianceDocument.create({
+    userId: uid,
+    agencyId: resolvedAgencyId,
+    documentType: String(documentType || 'license').trim(),
+    expirationDate: effectiveExpirationDate,
+    isBlocking: Boolean(isBlocking),
+    filePath: storageResult.relativePath,
+    notes: notes ?? null,
+    uploadedAt,
+    createdByUserId: createdByUserId || uid,
+  });
+
+  await syncLicenseUploadToProfile(uid, storageResult.relativePath, {
+    expirationDate: effectiveExpirationDate,
+  });
+
+  return doc;
 }
 
 /**

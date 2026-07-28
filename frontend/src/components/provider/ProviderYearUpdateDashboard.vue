@@ -369,10 +369,13 @@
               <strong>Clinical Information → License &amp; Certifications</strong> tab — add anything missing, then confirm it is accurate.
             </p>
 
-            <div v-if="licenseContext?.credential" class="pyu__license-credential">
-              <span class="pyu__license-label">Credential</span>
-              <strong>{{ licenseContext.credential }}</strong>
-            </div>
+            <label class="field pyu__license-credential-field">
+              <span>License type (credential)</span>
+              <select v-model="licensesForm.credential" :disabled="isFinalized">
+                <option value="">Select license type…</option>
+                <option v-for="opt in licenseCredentialOptions" :key="opt" :value="opt">{{ opt }}</option>
+              </select>
+            </label>
 
             <div class="pyu__license-card">
               <div class="pyu__license-card-head">
@@ -403,34 +406,31 @@
               <div class="pyu__license-upload-status">
                 <template v-if="licenseContext?.hasPdf && licenseContext?.pdfUrl">
                   <a :href="licenseContext.pdfUrl" target="_blank" rel="noopener" class="acct-link-btn">
-                    View license PDF
+                    View license file
                   </a>
                   <span v-if="licenseContext.pdfUploadedAt" class="muted tiny">
                     Uploaded {{ formatDt(licenseContext.pdfUploadedAt) }}
                   </span>
                 </template>
-                <span v-else class="pyu__license-missing">No license PDF uploaded</span>
+                <span v-else class="pyu__license-missing">No license file uploaded</span>
               </div>
               <div v-if="!isFinalized" class="pyu__license-upload-actions">
                 <input
                   ref="licenseFileInput"
                   type="file"
-                  accept="application/pdf,.pdf"
+                  :accept="LICENSE_UPLOAD_ACCEPT"
                   class="sr-only"
                   @change="onLicenseFileChange"
                 />
                 <button
-                  v-if="props.mode !== 'token'"
                   type="button"
                   class="btn btn-secondary"
                   :disabled="licenseUploading"
                   @click="licenseFileInput?.click()"
                 >
-                  {{ licenseUploading ? 'Uploading…' : (licenseContext?.hasPdf ? 'Replace PDF' : 'Upload license PDF') }}
+                  {{ licenseUploading ? 'Uploading…' : (licenseContext?.hasPdf ? 'Replace file' : 'Upload license file') }}
                 </button>
-                <p v-else class="muted tiny">
-                  Sign in to My Dashboard to upload your license PDF.
-                </p>
+                <p class="muted tiny">PDF or image (JPEG, PNG, WebP, HEIC)</p>
               </div>
             </div>
             <p v-if="licenseUploadError" class="error-text">{{ licenseUploadError }}</p>
@@ -658,19 +658,44 @@
           <section v-else-if="activeSection === 'clients'" class="pyu__panel">
             <h2>Assigned Clients</h2>
             <p class="muted">
-              These are the current clients (initials and grade) assigned to you at each school who do not yet have a service day.
-              Once you confirm they will be seen at the school and continue care, please add them to a day via the app so we know they are current.
-              Adding them to a day will mark them as current when other requirements are met. We may have further instructions in the future.
+              These are clients assigned to you at each school who do not yet have a service day.
+              Choose a day below for each client — the same days you are scheduled at that school.
+              This updates their school affiliation the same way as the school portal.
             </p>
             <div v-if="!(clientsWithoutDay || []).length" class="success-banner">
               No assigned clients are missing a service day right now.
             </div>
             <div v-for="school in clientsWithoutDay" :key="school.schoolOrganizationId" class="pyu__school-block">
               <h3>{{ school.schoolName }}</h3>
+              <p v-if="!(school.availableDays || []).length" class="muted tiny pyu__client-day-hint">
+                No work days on your schedule at this school yet. Confirm your days in Provider Schedule first.
+              </p>
               <ul class="pyu__client-list">
-                <li v-for="c in school.clients || []" :key="c.clientId">
-                  <strong>{{ c.initials }}</strong>
-                  <span class="muted">{{ c.grade ? `Grade ${c.grade}` : 'Grade —' }}</span>
+                <li v-for="c in school.clients || []" :key="c.clientId" class="pyu__client-row">
+                  <div class="pyu__client-row-main">
+                    <strong>{{ c.initials }}</strong>
+                    <span class="muted">{{ c.grade ? `Grade ${c.grade}` : 'Grade —' }}</span>
+                  </div>
+                  <div v-if="!isFinalized" class="pyu__client-row-actions">
+                    <label class="pyu__client-day-field">
+                      <span class="sr-only">Assign service day for {{ c.initials }}</span>
+                      <select
+                        :disabled="isClientDaySaving(school, c) || !(school.availableDays || []).length"
+                        @change="onClientDaySelected(school, c, $event)"
+                      >
+                        <option value="">Assign to day…</option>
+                        <option
+                          v-for="d in school.availableDays || []"
+                          :key="d.dayOfWeek"
+                          :value="d.dayOfWeek"
+                        >
+                          {{ formatWorkDayLabel(d) }}
+                        </option>
+                      </select>
+                    </label>
+                    <span v-if="isClientDaySaving(school, c)" class="muted tiny">Saving…</span>
+                    <p v-if="clientDayError(school, c)" class="error-text tiny">{{ clientDayError(school, c) }}</p>
+                  </div>
                 </li>
               </ul>
             </div>
@@ -743,6 +768,10 @@ import {
   canRequestCompanyEventShift,
   companyEventRequestStatusLabel,
 } from '../../utils/companyEventStaffing';
+import {
+  LICENSE_UPLOAD_ACCEPT,
+  PROVIDER_YEAR_UPDATE_LICENSE_TOKENS,
+} from '../../utils/credentialNormalization.js';
 import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
 import ProviderYearUpdateSchoolNeedsPanel from './ProviderYearUpdateSchoolNeedsPanel.vue';
 
@@ -770,7 +799,10 @@ const activeSection = ref('reminders');
 const licenseFileInput = ref(null);
 const licenseUploading = ref(false);
 const licenseUploadError = ref('');
+const clientDaySavingKey = ref('');
+const clientDayErrors = ref({});
 const licensesForm = reactive({
+  credential: '',
   licenseTypeNumber: '',
   issuedDate: '',
   expirationDate: '',
@@ -834,6 +866,9 @@ const tenantLogo = computed(() => {
 const schoolYearKey = computed(() => String(payload.value?.cycle?.schoolYear || '').trim());
 const schoolYearDisplay = computed(() => formatSchoolYearLabel(payload.value?.cycle?.schoolYear));
 const providerLabel = computed(() => payload.value?.provider?.name || '');
+const providerUserId = computed(
+  () => Number(payload.value?.cycle?.providerUserId || payload.value?.provider?.id || 0)
+);
 const providerInitials = computed(() => {
   const p = payload.value?.provider;
   if (!p) return '?';
@@ -873,6 +908,12 @@ const visibleSectionMeta = computed(() => {
   return SECTION_META.filter((m) => m.key !== 'licenses');
 });
 const licenseContext = computed(() => payload.value?.licenseContext || null);
+const licenseCredentialOptions = computed(() => {
+  const current = String(licenseContext.value?.credential || licensesForm.credential || '').trim();
+  const base = [...PROVIDER_YEAR_UPDATE_LICENSE_TOKENS];
+  if (current && !base.includes(current)) base.unshift(current);
+  return base;
+});
 const bgCheckExpired = computed(() => licenseContext.value?.backgroundCheck?.status === 'expired');
 const bgStatusPillClass = computed(() => {
   const status = licenseContext.value?.backgroundCheck?.status;
@@ -881,6 +922,7 @@ const bgStatusPillClass = computed(() => {
   return 'pill-ok';
 });
 const canCompleteLicenses = computed(() => {
+  if (!String(licensesForm.credential || '').trim()) return false;
   if (!String(licensesForm.licenseTypeNumber || '').trim()) return false;
   if (!licensesForm.issuedDate || !licensesForm.expirationDate) return false;
   if (!licenseContext.value?.hasPdf) return false;
@@ -1064,6 +1106,7 @@ function applyPayload(data) {
   const licCtx = data.licenseContext || {};
   const licSaved =
     (data.sections || []).find((s) => s.sectionKey === 'licenses')?.data || {};
+  licensesForm.credential = licSaved.credential || licCtx.credential || '';
   licensesForm.licenseTypeNumber =
     licSaved.licenseTypeNumber || licCtx.licenseTypeNumber || '';
   licensesForm.issuedDate = licSaved.issuedDate || licCtx.issuedDate || '';
@@ -1293,6 +1336,7 @@ async function saveMaterials() {
 
 function licensesPayload() {
   return {
+    credential: String(licensesForm.credential || '').trim(),
     licenseTypeNumber: String(licensesForm.licenseTypeNumber || '').trim(),
     issuedDate: licensesForm.issuedDate || '',
     expirationDate: licensesForm.expirationDate || '',
@@ -1318,6 +1362,83 @@ async function refreshPayloadQuiet() {
   }
 }
 
+function clientDayKey(school, client) {
+  return `${school?.schoolOrganizationId}:${client?.clientId}`;
+}
+
+function isClientDaySaving(school, client) {
+  return clientDaySavingKey.value === clientDayKey(school, client);
+}
+
+function clientDayError(school, client) {
+  return clientDayErrors.value[clientDayKey(school, client)] || '';
+}
+
+function formatWorkDayLabel(day) {
+  const d = day?.dayOfWeek || day;
+  const short = {
+    Monday: 'Mon',
+    Tuesday: 'Tue',
+    Wednesday: 'Wed',
+    Thursday: 'Thu',
+    Friday: 'Fri',
+  };
+  const label = short[d] || d;
+  const fmt = (t) => {
+    const s = String(t || '').slice(0, 5);
+    const m = s.match(/^(\d{2}):(\d{2})/);
+    if (!m) return '';
+    let hh = parseInt(m[1], 10);
+    const ampm = hh >= 12 ? 'PM' : 'AM';
+    hh = hh % 12 || 12;
+    return `${hh}:${m[2]} ${ampm}`;
+  };
+  const a = fmt(day?.startTime);
+  const b = fmt(day?.endTime);
+  if (a && b) return `${label} (${a}–${b})`;
+  return String(label);
+}
+
+async function onClientDaySelected(school, client, event) {
+  const serviceDay = String(event?.target?.value || '').trim();
+  if (event?.target) event.target.value = '';
+  if (!serviceDay) return;
+  await assignClientToDay(school, client, serviceDay);
+}
+
+async function assignClientToDay(school, client, serviceDay) {
+  const schoolId = Number(school?.schoolOrganizationId);
+  const clientId = Number(client?.clientId);
+  const providerId = providerUserId.value;
+  if (!schoolId || !clientId || !providerId || !serviceDay) return;
+  const key = clientDayKey(school, client);
+  clientDaySavingKey.value = key;
+  clientDayErrors.value = { ...clientDayErrors.value, [key]: '' };
+  try {
+    const body = { providerUserId: providerId, serviceDay, assigned: true };
+    if (props.mode === 'token' && props.token) {
+      await api.post(
+        `/public/provider-year-update/${encodeURIComponent(props.token)}/schools/${schoolId}/clients/${clientId}/assigned-day`,
+        body,
+        { skipGlobalLoading: true }
+      );
+    } else {
+      await api.post(`/school-portal/${schoolId}/clients/${clientId}/assigned-day`, body, {
+        skipGlobalLoading: true,
+      });
+    }
+    await refreshPayloadQuiet();
+    saveFlash.value = `${client.initials} assigned to ${serviceDay}.`;
+  } catch (e) {
+    clientDayErrors.value = {
+      ...clientDayErrors.value,
+      [key]: e?.response?.data?.error?.message || e.message || 'Failed to assign day',
+    };
+  } finally {
+    clientDaySavingKey.value = '';
+  }
+}
+
 function onLicenseFileChange(e) {
   const file = e.target.files?.[0] || null;
   if (file) uploadLicensePdf(file);
@@ -1325,22 +1446,31 @@ function onLicenseFileChange(e) {
 }
 
 async function uploadLicensePdf(file) {
-  if (!file || props.mode === 'token') return;
+  if (!file) return;
   licenseUploading.value = true;
   licenseUploadError.value = '';
   try {
     const fd = new FormData();
     fd.append('file', file);
-    fd.append('documentType', 'license');
     if (licensesForm.expirationDate) fd.append('expirationDate', licensesForm.expirationDate);
-    fd.append('isBlocking', '0');
-    await api.post('/user-compliance-documents', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    if (props.mode === 'token' && props.token) {
+      fd.append('documentType', 'license');
+      await api.post(
+        `/public/provider-year-update/${encodeURIComponent(props.token)}/license-upload`,
+        fd,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+    } else {
+      fd.append('documentType', 'license');
+      fd.append('isBlocking', '0');
+      await api.post('/user-compliance-documents', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+    }
     await refreshPayloadQuiet();
   } catch (e) {
     licenseUploadError.value =
-      e?.response?.data?.error?.message || e.message || 'Failed to upload license PDF';
+      e?.response?.data?.error?.message || e.message || 'Failed to upload license file';
   } finally {
     licenseUploading.value = false;
   }
@@ -1348,7 +1478,7 @@ async function uploadLicensePdf(file) {
 
 async function saveLicensesSection() {
   if (!canCompleteLicenses.value) {
-    actionError.value = 'Please complete all license fields, upload your PDF, and confirm the attestations.';
+    actionError.value = 'Please complete all license fields, upload your license file, and confirm the attestations.';
     return;
   }
   const ok = await saveSection('licenses', licensesPayload(), { reviewed: true, completed: true });
@@ -2533,9 +2663,36 @@ defineExpose({ load, reload: load });
 }
 .pyu__client-list li {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
-  padding: 6px 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
   border-top: 1px solid #f1f5f9;
+}
+.pyu__client-row-main {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 140px;
+}
+.pyu__client-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: min(220px, 100%);
+}
+.pyu__client-day-field select {
+  min-width: 200px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  font-size: 14px;
+}
+.pyu__client-day-hint {
+  margin: 0 0 8px;
 }
 @media (max-width: 1100px) {
   .pyu__layout {
