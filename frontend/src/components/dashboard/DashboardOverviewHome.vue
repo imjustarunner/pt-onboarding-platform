@@ -217,7 +217,8 @@ const {
   agencyId: agencyIdRef,
   enabled: enabledRef,
   companyEvents: companyEventsRef,
-  supervisionPrompts: supervisionPromptsRef
+  supervisionPrompts: supervisionPromptsRef,
+  includeSubmissionUpdates: computed(() => props.showPayroll || props.showClaims || props.showLogTime)
 });
 
 const onEventsRequestChanged = () => {

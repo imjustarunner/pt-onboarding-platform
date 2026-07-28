@@ -234,3 +234,56 @@ export function groupSubmissionHistory(items, groupId, { pendingLimit = 4, histo
 
   return blocks;
 }
+
+const REVIEWED_SUBMISSION_STATUSES = new Set(['approved', 'paid', 'applied', 'rejected', 'deferred']);
+
+function submissionNavTarget() {
+  return 'payroll';
+}
+
+/** Recent payroll/submit claims with a decided status for dashboard Recent Activity. */
+export function buildRecentSubmissionActivityItems({
+  timeClaims = [],
+  mileageClaims = [],
+  ptoRequests = [],
+  reimbursementClaims = [],
+  companyCardExpenses = [],
+  medcancelClaims = [],
+  limit = 8,
+  maxAgeDays = 60,
+} = {}) {
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+  const normalized = [
+    ...normalizeTimeClaims(timeClaims),
+    ...normalizeMileageClaims(mileageClaims),
+    ...normalizePtoRequests(ptoRequests),
+    ...normalizeReimbursementClaims(reimbursementClaims),
+    ...normalizeCompanyCardExpenses(companyCardExpenses),
+    ...normalizeMedcancelClaims(medcancelClaims),
+  ].filter((item) => REVIEWED_SUBMISSION_STATUSES.has(item.status) && (item.sortMs || 0) >= cutoff);
+
+  return normalized
+    .sort((a, b) => (b.sortMs || 0) - (a.sortMs || 0))
+    .slice(0, limit)
+    .map((item) => {
+      const st = item.status;
+      let title = `${item.typeLabel} ${item.statusLabel}`;
+      let subtitle = item.dateLabel || '';
+      if (st === 'deferred') subtitle = `${subtitle ? `${subtitle} · ` : ''}Sent back — update and resubmit`;
+      else if (st === 'rejected') subtitle = `${subtitle ? `${subtitle} · ` : ''}See My Payroll for details`;
+      else if (st === 'approved' || st === 'paid' || st === 'applied') {
+        subtitle = `${subtitle ? `${subtitle} · ` : ''}Approved for payroll`;
+      }
+      return {
+        id: item.id,
+        type: item.type,
+        title,
+        subtitle,
+        sortMs: item.sortMs,
+        status: st,
+        statusClass: item.statusClass,
+        unread: st === 'rejected' || st === 'deferred',
+        navTarget: submissionNavTarget(item.type),
+      };
+    });
+}

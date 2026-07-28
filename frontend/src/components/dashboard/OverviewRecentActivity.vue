@@ -16,7 +16,7 @@
         @click="onClick(item)"
         @keydown.enter="onClick(item)"
       >
-        <span class="ov-icon" :class="`ov-icon--${item.kind}`" aria-hidden="true">{{ iconFor(item.kind) }}</span>
+        <span class="ov-icon" :class="iconClass(item)" aria-hidden="true">{{ iconFor(item.kind, item.status) }}</span>
         <div class="ov-body">
           <div class="ov-title" :class="{ unread: item.unread }">{{ item.title }}</div>
           <div v-if="item.subtitle" class="ov-sub">{{ item.subtitle }}</div>
@@ -34,7 +34,14 @@ defineProps({
 
 const emit = defineEmits(['navigate']);
 
-const iconFor = (kind) => {
+const iconFor = (kind, status) => {
+  if (kind === 'submission_update') {
+    const st = String(status || '').toLowerCase();
+    if (st === 'rejected') return '✕';
+    if (st === 'deferred') return '↩';
+    if (st === 'approved' || st === 'paid' || st === 'applied') return '✓';
+    return '📋';
+  }
   if (kind === 'tasks') return '✓';
   if (kind === 'tickets') return '🎫';
   if (kind === 'notes_to_sign') return '✍';
@@ -51,7 +58,22 @@ const formatWhen = (at) => {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
+const iconClass = (item) => {
+  if (item.kind === 'submission_update') {
+    const st = String(item.status || '').toLowerCase();
+    if (st === 'rejected') return 'ov-icon ov-icon--submission-rejected';
+    if (st === 'deferred') return 'ov-icon ov-icon--submission-deferred';
+    if (st === 'approved' || st === 'paid' || st === 'applied') return 'ov-icon ov-icon--submission-approved';
+    return 'ov-icon ov-icon--submission';
+  }
+  return `ov-icon ov-icon--${item.kind}`;
+};
+
 const onClick = (item) => {
+  if (item.kind === 'submission_update' && item.navTarget) {
+    emit('navigate', item.navTarget);
+    return;
+  }
   if (item.kind === 'notification') emit('navigate', 'notifications');
   else emit('navigate', 'checklist');
 };
@@ -120,6 +142,10 @@ const onClick = (item) => {
 .ov-icon--tasks { background: #dcfce7; }
 .ov-icon--tickets { background: #fef3c7; }
 .ov-icon--notes_to_sign { background: #f3e8ff; }
+.ov-icon--submission { background: #e0f2fe; }
+.ov-icon--submission-approved { background: #dcfce7; color: #166534; }
+.ov-icon--submission-rejected { background: #fee2e2; color: #b91c1c; }
+.ov-icon--submission-deferred { background: #fef3c7; color: #b45309; }
 .ov-body { flex: 1; min-width: 0; }
 .ov-title {
   font-size: 13px;

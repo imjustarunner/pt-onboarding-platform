@@ -117,7 +117,7 @@
           class="itl-tab"
           :class="{ active: mainTab === 'submissions' }"
           :aria-selected="mainTab === 'submissions'"
-          @click="mainTab = 'submissions'; loadSubmissions()"
+          @click="openSubmissionsTab"
         >
           <IndirectTimeIcon name="list" :size="16" />
           My Submissions
@@ -286,10 +286,18 @@
         />
 
         <div class="itl-submit-wrap">
-          <label class="itl-attest">
-            <input v-model="attestation" type="checkbox" />
-            <span>I certify this time is accurate, complete, and in compliance with workplace policies.</span>
-          </label>
+          <div class="itl-attest-card" :class="{ 'itl-attest-card--on': attestation }">
+            <div class="itl-attest-head">
+              <strong>I certify this time is accurate</strong>
+              <label class="itl-switch" aria-label="Certify time submission">
+                <input v-model="attestation" type="checkbox" />
+                <span class="itl-switch-slider" />
+              </label>
+            </div>
+            <p class="itl-attest-text">
+              I confirm this time is complete and in compliance with workplace policies before submitting for payroll.
+            </p>
+          </div>
           <button
             type="button"
             class="itl-submit"
@@ -307,10 +315,17 @@
 
       <template v-else>
         <section class="itl-card">
+          <div
+            v-if="submissionViewMode === 'recent' && highlightSubmissionIds.size"
+            class="itl-recent-only-banner"
+          >
+            <span>Showing the submission you just sent.</span>
+            <button type="button" class="itl-link-btn" @click="showAllSubmissions">View all submissions</button>
+          </div>
           <div v-if="subsLoading" class="itl-muted">Loading submissions…</div>
-          <div v-else-if="!submissions.length" class="itl-muted">No indirect time submissions yet.</div>
+          <div v-else-if="!displaySubmissions.length" class="itl-muted">No indirect time submissions yet.</div>
           <ul v-else class="itl-subs">
-            <li v-for="s in submissions" :key="s.id" class="itl-sub">
+            <li v-for="s in displaySubmissions" :key="s.id" class="itl-sub">
               <div class="itl-sub-main">
                 <strong>{{ formatDisplayDate(s.claim_date) }}</strong>
                 <span class="itl-sub-mins">{{ formatHm(Number(s.payload?.totalMinutes || 0)) }}</span>
@@ -615,6 +630,28 @@ const submitting = ref(false);
 const submissions = ref([]);
 const subsLoading = ref(false);
 const deletingId = ref(null);
+const submissionViewMode = ref('all'); // 'all' | 'recent'
+const highlightSubmissionIds = ref(new Set());
+
+const displaySubmissions = computed(() => {
+  if (submissionViewMode.value === 'recent' && highlightSubmissionIds.value.size) {
+    return submissions.value.filter((s) => highlightSubmissionIds.value.has(Number(s.id)));
+  }
+  return submissions.value;
+});
+
+function openSubmissionsTab() {
+  if (submissionViewMode.value !== 'recent') {
+    submissionViewMode.value = 'all';
+  }
+  mainTab.value = 'submissions';
+  loadSubmissions();
+}
+
+function showAllSubmissions() {
+  submissionViewMode.value = 'all';
+  highlightSubmissionIds.value = new Set();
+}
 
 const displayName = computed(() => {
   const u = authStore.user || {};
@@ -1048,7 +1085,7 @@ async function postIndirectTimeClaim({ totalMinutes, allocations, bucket, startT
         : {}),
       attestation: true
     }
-  });
+  }).then((r) => r.data);
 }
 
 async function submitTime() {
@@ -1078,6 +1115,7 @@ async function submitTime() {
     const endTime = sessionBoundsHm.value.end || manualEnd.value;
     const usedNoteAid = !!indirectSessionStore.noteAidUsedDuringSession;
     const allocationMode = unrefAllocationMode(panel);
+    const createdIds = [];
 
     if (dualRateEnabled.value) {
       const indirectAlloc = [];
@@ -1093,7 +1131,7 @@ async function submitTime() {
         throw new Error('Allocate minutes to at least one service type');
       }
       if (indirectMins >= 1) {
-        await postIndirectTimeClaim({
+        const created = await postIndirectTimeClaim({
           totalMinutes: indirectMins,
           allocations: indirectAlloc,
           bucket: 'indirect',
@@ -1102,9 +1140,10 @@ async function submitTime() {
           allocationMode,
           usedNoteAid
         });
+        if (created?.id) createdIds.push(Number(created.id));
       }
       if (other1Mins >= 1) {
-        await postIndirectTimeClaim({
+        const created = await postIndirectTimeClaim({
           totalMinutes: other1Mins,
           allocations: other1Alloc,
           bucket: 'other_1',
@@ -1113,6 +1152,7 @@ async function submitTime() {
           allocationMode,
           usedNoteAid
         });
+        if (created?.id) createdIds.push(Number(created.id));
       }
       const parts = [];
       if (indirectMins >= 1) parts.push(`${formatHm(indirectMins)} Indirect`);
@@ -1120,7 +1160,7 @@ async function submitTime() {
       success.value = `Submitted ${parts.join(' + ')} for payroll review.`;
     } else {
       const totalMinutes = sessionTotalMinutes.value;
-      await postIndirectTimeClaim({
+      const created = await postIndirectTimeClaim({
         totalMinutes,
         allocations,
         bucket: 'indirect',
@@ -1129,6 +1169,7 @@ async function submitTime() {
         allocationMode,
         usedNoteAid
       });
+      if (created?.id) createdIds.push(Number(created.id));
       success.value = 'Time submitted for payroll review. Use Edit in My Payroll if you need to change it (a reason is required).';
     }
 
@@ -1143,6 +1184,13 @@ async function submitTime() {
     indirectSessionStore.clearNoteAidSessionFlag();
     indirectSessionStore.clearClockOutAdjust();
     publishSession(null);
+    if (createdIds.length) {
+      highlightSubmissionIds.value = new Set(createdIds.filter((id) => Number.isFinite(id) && id > 0));
+      submissionViewMode.value = 'recent';
+    } else {
+      submissionViewMode.value = 'all';
+      highlightSubmissionIds.value = new Set();
+    }
     await loadSession();
     emit('submitted');
     mainTab.value = 'submissions';
@@ -1753,17 +1801,99 @@ onUnmounted(() => stopTick());
 }
 .itl-chip:hover { border-color: var(--itl-green); color: var(--itl-green); }
 .itl-warn { margin: 10px 0 0; color: #b45309; font-size: 0.85rem; }
-.itl-submit-wrap { display: flex; flex-direction: column; gap: 10px; }
-.itl-attest {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  font-size: 0.85rem;
-  color: #374151;
+.itl-submit-wrap { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+.itl-attest-card {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 14px 16px;
+  border: 2px solid var(--itl-border);
+  border-radius: 12px;
+  background: #fff;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
-.itl-attest input { margin-top: 2px; accent-color: var(--itl-green); }
+.itl-attest-card--on {
+  border-color: var(--itl-green);
+  background: #f0fdf4;
+  box-shadow: 0 0 0 3px rgba(22, 101, 52, 0.12);
+}
+.itl-attest-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.itl-attest-head strong {
+  font-size: 1rem;
+  color: #111827;
+}
+.itl-attest-text {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--itl-muted);
+  line-height: 1.45;
+}
+.itl-switch {
+  position: relative;
+  display: inline-flex;
+  width: 48px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.itl-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.itl-switch-slider {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  background: #d1d5db;
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+.itl-switch-slider::before {
+  content: '';
+  position: absolute;
+  height: 22px;
+  width: 22px;
+  left: 3px;
+  bottom: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.itl-switch input:checked + .itl-switch-slider {
+  background: var(--itl-green);
+}
+.itl-switch input:checked + .itl-switch-slider::before {
+  transform: translateX(20px);
+}
+.itl-switch input:focus-visible + .itl-switch-slider {
+  box-shadow: 0 0 0 3px rgba(22, 101, 52, 0.25);
+}
+.itl-recent-only-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  font-size: 0.9rem;
+  color: #166534;
+}
 .itl-submit {
   width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
   border: none;
   border-radius: 10px;
   background: var(--itl-green);

@@ -4,6 +4,7 @@
  */
 import { computed, ref, watch } from 'vue';
 import api from '../services/api';
+import { buildRecentSubmissionActivityItems } from '../utils/submitSubmissionHistory';
 
 function localYmd(d = new Date()) {
   const y = d.getFullYear();
@@ -90,6 +91,7 @@ export function useDashboardOverview(opts = {}) {
   const ticketCount = ref(0);
   const notesToSignCount = ref(0);
   const recentPayAmounts = ref([]); // last up to 10 posted paycheck totals (newest first)
+  const submissionActivityItems = ref([]);
 
   const todayYmd = computed(() => localYmd());
 
@@ -348,6 +350,19 @@ export function useDashboardOverview(opts = {}) {
 
   const recentActivityItems = computed(() => {
     const items = [];
+    for (const s of submissionActivityItems.value) {
+      items.push({
+        id: `sub-${s.id}`,
+        kind: 'submission_update',
+        title: s.title,
+        subtitle: s.subtitle,
+        at: s.sortMs ? new Date(s.sortMs).toISOString() : null,
+        unread: s.unread,
+        navTarget: s.navTarget,
+        status: s.status,
+        statusClass: s.statusClass,
+      });
+    }
     for (const n of notifications.value.slice(0, 8)) {
       items.push({
         id: `n-${n.id}`,
@@ -409,6 +424,7 @@ export function useDashboardOverview(opts = {}) {
     try {
       const weekStart = startOfWeekMondayYmd(new Date());
       const hasParentEvents = Array.isArray(resolve(opts.companyEvents));
+      const includeSubmissionUpdates = resolve(opts.includeSubmissionUpdates) !== false;
 
       const requests = [
         api.get('/payroll/me/dashboard-summary', { params: { agencyId: aid }, skipGlobalLoading: true })
@@ -476,6 +492,43 @@ export function useDashboardOverview(opts = {}) {
           })
           .catch(() => { recentPayAmounts.value = []; })
       ];
+
+      if (includeSubmissionUpdates) {
+        requests.push(
+          Promise.all([
+            api.get('/payroll/me/time-claims', { params: { agencyId: aid }, skipGlobalLoading: true })
+              .then((r) => (Array.isArray(r.data) ? r.data : []))
+              .catch(() => []),
+            api.get('/payroll/me/mileage-claims', { params: { agencyId: aid }, skipGlobalLoading: true })
+              .then((r) => (Array.isArray(r.data) ? r.data : []))
+              .catch(() => []),
+            api.get('/payroll/me/pto-requests', { params: { agencyId: aid }, skipGlobalLoading: true })
+              .then((r) => (Array.isArray(r.data) ? r.data : []))
+              .catch(() => []),
+            api.get('/payroll/me/reimbursement-claims', { params: { agencyId: aid }, skipGlobalLoading: true })
+              .then((r) => (Array.isArray(r.data) ? r.data : []))
+              .catch(() => []),
+            api.get('/payroll/me/company-card-expenses', { params: { agencyId: aid }, skipGlobalLoading: true })
+              .then((r) => (Array.isArray(r.data) ? r.data : []))
+              .catch(() => []),
+            api.get('/payroll/me/medcancel-claims', { params: { agencyId: aid }, skipGlobalLoading: true })
+              .then((r) => (Array.isArray(r.data) ? r.data : []))
+              .catch(() => []),
+          ]).then(([timeClaims, mileageClaims, ptoRequests, reimbursementClaims, companyCardExpenses, medcancelClaims]) => {
+            submissionActivityItems.value = buildRecentSubmissionActivityItems({
+              timeClaims,
+              mileageClaims,
+              ptoRequests,
+              reimbursementClaims,
+              companyCardExpenses,
+              medcancelClaims,
+              limit: 6,
+            });
+          }).catch(() => { submissionActivityItems.value = []; })
+        );
+      } else {
+        submissionActivityItems.value = [];
+      }
 
       if (!hasParentEvents) {
         requests.push(
