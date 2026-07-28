@@ -8,6 +8,13 @@
         </p>
       </div>
       <div class="header-actions" data-tour="avail-actions">
+        <router-link
+          v-if="canSeeClientExchange"
+          :to="clientExchangeLink"
+          class="btn btn-secondary"
+        >
+          Client Exchange
+        </router-link>
         <button class="btn btn-secondary" type="button" @click="tab = 'kudos'">Kudos</button>
         <button class="btn btn-secondary" type="button" @click="tab = 'tracker'">Provider App Tracker</button>
         <button class="btn btn-secondary" type="button" @click="reload" :disabled="loading">Refresh</button>
@@ -709,10 +716,13 @@ import { formatTimeHm12h, formatTimeRange12h } from '../../utils/timeFormat';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import AvailabilityIntakeManagement from '../../components/admin/AvailabilityIntakeManagement.vue';
+import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const route = useRoute();
+const canSeeClientExchange = computed(() => canSeeClientExchangeNav(authStore.user?.role));
+const clientExchangeLink = computed(() => clientExchangePath(route.params?.organizationSlug));
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
 const selectedAgencyId = ref(null);
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');

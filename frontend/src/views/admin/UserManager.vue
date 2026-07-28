@@ -14,6 +14,13 @@
         </p>
       </div>
       <div class="header-actions" data-tour="users-header-actions">
+        <router-link
+          v-if="canSeeClientExchange && !isSscSstcTenant && (directoryPersona === 'clients' || directoryPersona === 'employees')"
+          :to="clientExchangeLink"
+          class="btn btn-secondary"
+        >
+          Client Exchange
+        </router-link>
         <button v-if="!isSscSstcTenant && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'))" @click="showBulkAssignModal = true" class="btn btn-secondary">Assign Documents</button>
         <button v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant')" @click="showCreateModal = true" class="btn btn-primary um-add-user-btn">{{ isSscSstcTenant ? '+ Create member' : '+ Add user' }}</button>
         <button v-if="isSscSstcTenant" @click="openTempAddMembersModal" class="btn btn-secondary">Add Existing Members</button>
@@ -137,6 +144,10 @@
               <router-link to="/admin/guardians">Open full Guardians</router-link>
               <span>·</span>
               <router-link to="/admin/clients">Open Client Management</router-link>
+              <template v-if="canSeeClientExchange">
+                <span>·</span>
+                <router-link :to="clientExchangeLink">Client Exchange</router-link>
+              </template>
             </div>
           </div>
 
@@ -1741,9 +1752,12 @@ import { getStatusLabel, getStatusBadgeClass } from '../../utils/statusUtils.js'
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumentAssignmentDialog.vue';
 import AskAssistantPanel from '../../components/assistant/AskAssistantPanel.vue';
+import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
 
 const router = useRouter();
 const route = useRoute();
+const canSeeClientExchange = computed(() => canSeeClientExchangeNav(user.value?.role));
+const clientExchangeLink = computed(() => clientExchangePath(route.params?.organizationSlug));
 
 const userProfilePath = (userId) => {
   const slug = String(route.params.organizationSlug || '').trim();

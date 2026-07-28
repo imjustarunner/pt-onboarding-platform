@@ -758,7 +758,34 @@
                     <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" >Provider Management</router-link>
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
                     <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" >Guardians</router-link>
-                    <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
+                    <div
+                      v-if="canSeeClientsNavGroup"
+                      class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout"
+                      @mouseenter="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout('clients')"
+                      @mouseleave="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout(null)"
+                    >
+                      <button
+                        type="button"
+                        class="nav-dropdown-group-trigger"
+                        :aria-expanded="directoryClientsNavExpanded ? 'true' : 'false'"
+                        @click.stop="setDirectoryFlyout(directoryClientsNavExpanded ? null : 'clients')"
+                      >
+                        <span>Clients</span>
+                        <span class="nav-dropdown-group-caret" :class="{ open: directoryClientsNavExpanded }" aria-hidden="true">▸</span>
+                      </button>
+                      <div v-show="directoryClientsNavExpanded" class="nav-dropdown-group-items">
+                        <router-link
+                          v-if="canSeeClientsManagementNav"
+                          :to="orgTo('/admin/clients')"
+                          @click="closeAllNavMenus"
+                        >Client Management</router-link>
+                        <router-link
+                          v-if="canSeeClientExchangeNavLink"
+                          :to="orgTo('/client-exchange')"
+                          @click="closeAllNavMenus"
+                        >Client Exchange</router-link>
+                      </div>
+                    </div>
                     <router-link :to="orgTo('/admin/referral-directory')" v-if="canSeeReferralDirectoryNavLink" >Referral Directory</router-link>
                   </div>
                 </div>
@@ -855,7 +882,8 @@
 
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
                     <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" >Guardians</router-link>
-                    <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
+                    <router-link :to="orgTo('/admin/clients')" v-if="canSeeClientsManagementNav" >Clients</router-link>
+                    <router-link :to="orgTo('/client-exchange')" v-if="canSeeClientExchangeNavLink" >Client Exchange</router-link>
                     <router-link :to="orgTo('/admin/referral-directory')" v-if="canSeeReferralDirectoryNavLink" >Referral Directory</router-link>
                     <router-link :to="orgTo('/admin/credentialing')" v-if="canSeeCredentialing" >Credentialing</router-link>
                     <router-link
@@ -1829,7 +1857,31 @@
                   <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Provider Management</router-link>
                   <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
                   <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Guardians</router-link>
-                  <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
+                  <div v-if="canSeeClientsNavGroup" class="mobile-nav-group mobile-nav-group-collapsible">
+                    <button
+                      type="button"
+                      class="mobile-nav-group-trigger mobile-nav-link"
+                      :aria-expanded="directoryClientsNavExpanded ? 'true' : 'false'"
+                      @click.stop="directoryClientsNavExpanded = !directoryClientsNavExpanded"
+                    >
+                      <span>Clients</span>
+                      <span class="mobile-nav-group-caret" :class="{ open: directoryClientsNavExpanded }" aria-hidden="true">▸</span>
+                    </button>
+                    <template v-if="directoryClientsNavExpanded">
+                      <router-link
+                        v-if="canSeeClientsManagementNav"
+                        :to="orgTo('/admin/clients')"
+                        @click="closeMobileMenu"
+                        class="mobile-nav-link mobile-nav-sublink"
+                      >Client Management</router-link>
+                      <router-link
+                        v-if="canSeeClientExchangeNavLink"
+                        :to="orgTo('/client-exchange')"
+                        @click="closeMobileMenu"
+                        class="mobile-nav-link mobile-nav-sublink"
+                      >Client Exchange</router-link>
+                    </template>
+                  </div>
                   <router-link :to="orgTo('/admin/referral-directory')" v-if="canSeeReferralDirectoryNavLink" @click="closeMobileMenu" class="mobile-nav-link">Referral Directory</router-link>
                 </template>
               </div>
@@ -1881,7 +1933,8 @@
                   <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Availability</router-link>
                   <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
                   <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Guardians</router-link>
-                  <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Clients</router-link>
+                  <router-link :to="orgTo('/admin/clients')" v-if="canSeeClientsManagementNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Clients</router-link>
+                  <router-link :to="orgTo('/client-exchange')" v-if="canSeeClientExchangeNavLink" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Client Exchange</router-link>
                   <router-link :to="orgTo('/admin/referral-directory')" v-if="canSeeReferralDirectoryNavLink" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Referral Directory</router-link>
                   <router-link :to="orgTo('/admin/credentialing')" v-if="canSeeCredentialing" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Credentialing</router-link>
                   <router-link v-if="isSscSstcTenant && canSeeDigitalFormsNav" :to="orgTo('/admin/digital-forms')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Digital forms</router-link>
@@ -2204,6 +2257,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { isSchoolOnboardingDemoRoute } from './utils/schoolOnboardingDemoContext.js';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
+import { canSeeClientExchangeNav } from './utils/clientExchangeNav.js';
 import { buildFormUrl } from './utils/publicIntakeUrl.js';
 import { isMedicalBillingEnabled } from './config/medicalBillingAccess.js';
 import api from './services/api';
@@ -2822,6 +2876,7 @@ const directoryMenuOpen = ref(false);
 const directorySchedulesNavExpanded = ref(false);
 const directorySkillBuildersNavExpanded = ref(false);
 const directoryPublicLinksNavExpanded = ref(false);
+const directoryClientsNavExpanded = ref(false);
 const directorySchoolsNavExpanded = ref(false);
 const directorySchoolPortalsNavExpanded = ref(false);
 const affiliationsNavExpanded = ref(false);
@@ -3010,12 +3065,14 @@ function applyDirectorySubgroupStateFromRoute() {
     inSchoolPortals ||
     p.includes('/caseload-hub') ||
     p.includes('/school-clients');
+  const inClients = p.includes('/admin/clients') || p.includes('/client-exchange');
   // Desktop Directory uses right flyouts — don't auto-open a panel from the
   // route (keeps the main list scannable). Mobile accordion still syncs below.
   if (typeof window !== 'undefined' && window.matchMedia('(min-width: 769px)').matches) {
     directorySchedulesNavExpanded.value = false;
     directorySkillBuildersNavExpanded.value = false;
     directoryPublicLinksNavExpanded.value = false;
+    directoryClientsNavExpanded.value = false;
     directorySchoolsNavExpanded.value = false;
     directorySchoolPortalsNavExpanded.value = false;
     return;
@@ -3023,6 +3080,7 @@ function applyDirectorySubgroupStateFromRoute() {
   directorySchedulesNavExpanded.value = inSchedules;
   directorySkillBuildersNavExpanded.value = inSkillBuilders;
   directoryPublicLinksNavExpanded.value = inPublicLinks;
+  directoryClientsNavExpanded.value = inClients;
   directorySchoolsNavExpanded.value = inSchools;
   directorySchoolPortalsNavExpanded.value = inSchoolPortals;
 }
@@ -3032,6 +3090,7 @@ function setDirectoryFlyout(key) {
   directorySchedulesNavExpanded.value = key === 'schedules';
   directorySkillBuildersNavExpanded.value = key === 'events';
   directoryPublicLinksNavExpanded.value = key === 'public';
+  directoryClientsNavExpanded.value = key === 'clients';
   directoryAffiliationsNavExpanded.value = key === 'affiliations';
   directorySchoolsNavExpanded.value = key === 'schools';
   if (key !== 'schools') directorySchoolPortalsNavExpanded.value = false;
@@ -3824,6 +3883,16 @@ const isAffiliationContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
   return t === 'affiliation';
 });
+
+const canSeeClientsManagementNav = computed(
+  () => (isAdmin.value || user.value?.role === 'provider') && !isAffiliationContext.value
+);
+const canSeeClientExchangeNavLink = computed(
+  () => canSeeClientExchangeNav(user.value?.role) && !isAffiliationContext.value
+);
+const canSeeClientsNavGroup = computed(
+  () => canSeeClientsManagementNav.value || canSeeClientExchangeNavLink.value
+);
 
 const isSscSstcTenant = computed(() => {
   const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();

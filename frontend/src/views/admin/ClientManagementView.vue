@@ -44,6 +44,13 @@
         >
           Tenant Visibility
         </button>
+        <router-link
+          v-if="canSeeClientExchange"
+          :to="clientExchangeLink"
+          class="btn btn-secondary"
+        >
+          Client Exchange
+        </router-link>
         <button @click="openCreateClientModal" class="btn btn-primary">Create Client</button>
       </div>
     </div>
@@ -855,11 +862,15 @@ import api from '../../services/api';
 import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
 import { STANDARD_GRADE_SELECT_OPTIONS, normalizeGradeForSave } from '../../utils/clientGrade.js';
 import { useRouteTenantAgencyId } from '../../composables/useRouteTenantAgencyId.js';
+import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
-const router = useRouter();
 const route = useRoute();
+const router = useRouter();
+
+const canSeeClientExchange = computed(() => canSeeClientExchangeNav(authStore.user?.role));
+const clientExchangeLink = computed(() => clientExchangePath(route.params?.organizationSlug));
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 const tenantSourceOrganizations = computed(() => (
   isSuperAdmin.value ? (agencyStore.agencies || []) : (agencyStore.userAgencies || [])
