@@ -2128,9 +2128,7 @@ const loadDashboard = async () => {
       modules: modulesList.length
     };
 
-    lateNotes.value = countLateNoteNotifications();
-    unsignedDocs.value = countUnsignedNotifications();
-    await refreshDerivedGlanceCounts({ agencyId, personal: null, center: null });
+    await refreshDerivedGlanceCounts({ agencyId });
   } finally {
     scheduleLoading.value = false;
   }
@@ -2140,6 +2138,16 @@ onMounted(() => {
   nowTimer = setInterval(() => { nowTick.value = Date.now(); }, 30000);
   loadDashboard();
 });
+
+watch(
+  () => notificationStore.notifications,
+  () => {
+    const notificationLate = countLateNoteNotifications();
+    if (notificationLate > lateNotes.value) lateNotes.value = notificationLate;
+    unsignedDocs.value = countUnsignedNotifications();
+  },
+  { deep: true }
+);
 
 onUnmounted(() => {
   if (nowTimer) clearInterval(nowTimer);
@@ -2186,6 +2194,10 @@ const formatNotifTime = (notif) => {
   } catch {
     return String(raw);
   }
+};
+
+const openGlanceCustomizer = () => {
+  showCustomizeModal.value = true;
 };
 
 const openQuickActionsCustomizer = () => {
@@ -2620,6 +2632,18 @@ const logout = () => {
   margin: 0 0 12px;
   font-size: 13px;
   color: #64748b;
+}
+.modal-intro--tight {
+  margin-top: -4px;
+}
+.modal-subhead {
+  margin: 18px 0 6px;
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.toggle-label--static {
+  cursor: default;
 }
 .section-toggles {
   display: flex;
