@@ -875,7 +875,10 @@
                     >Facilitator Availability</router-link>
                     <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" >Expense/Reimbursements</router-link>
                     <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" >Budget Management</router-link>
-                    <router-link :to="orgTo('/admin/gear-inventory')" v-if="isAdmin && !isAffiliationContext" >Gear &amp; Inventory</router-link>
+                    <router-link
+                      :to="orgTo('/admin/gear-inventory')"
+                      v-if="(isAdmin || user?.role === 'clinical_practice_assistant' || user?.role === 'provider_plus') && !isAffiliationContext"
+                    >Gear &amp; Inventory</router-link>
                     <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" >Revenue</router-link>
                     <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" >Provider Availability</router-link>
 
@@ -1930,7 +1933,12 @@
                   <router-link :to="orgTo('/admin/facilitator-availability')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Facilitator Availability</router-link>
                   <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Expense/Reimbursements</router-link>
                   <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Budget Management</router-link>
-                  <router-link :to="orgTo('/admin/gear-inventory')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Gear &amp; Inventory</router-link>
+                  <router-link
+                    :to="orgTo('/admin/gear-inventory')"
+                    v-if="(isAdmin || user?.role === 'clinical_practice_assistant' || user?.role === 'provider_plus') && !isAffiliationContext"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >Gear &amp; Inventory</router-link>
                   <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Revenue</router-link>
                   <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Availability</router-link>
                   <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
@@ -2303,6 +2311,7 @@ import LogoutStatusSplit from './components/LogoutStatusSplit.vue';
 import LoginSplashModal from './components/LoginSplashModal.vue';
 import UserAvatar from './components/common/UserAvatar.vue';
 import { usePresenceSessionStore } from './store/presenceSession';
+import { availabilityBandForPerson } from './utils/presenceStatus';
 import { getStatusPromptMode, subscribeStatusPrompt } from './utils/statusPromptBridge';
 import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
 import InterviewCapsuleSplashModal from './components/hiring/InterviewCapsuleSplashModal.vue';
@@ -5555,6 +5564,28 @@ const showNewNotificationToast = async () => {
       return;
     }
     const candidates = [];
+    let localPresence = null;
+    let localPresenceLoaded = false;
+    const loadLocalPresenceOnce = async () => {
+      if (localPresenceLoaded) return localPresence;
+      localPresenceLoaded = true;
+      try {
+        localPresence = await presenceSessionStore.refreshFromServer();
+      } catch {
+        localPresence = null;
+      }
+      return localPresence;
+    };
+    const isLocallyAvailableForMeetingToast = async () => {
+      const presence = await loadLocalPresenceOnce();
+      const band = availabilityBandForPerson(presence || {
+        status: 'offline',
+        presence_reason: presenceSessionStore.myReason,
+        status_label: presenceSessionStore.myStatusLabel
+      });
+      const wire = String(presence?.status || '').toLowerCase();
+      return band === 'available' && (wire === 'online' || wire === 'active' || !wire);
+    };
     for (const item of items) {
       const key = String(item.id);
       if (seenNotificationToastIds.has(key)) continue;
@@ -5574,7 +5605,14 @@ const showNewNotificationToast = async () => {
           /* ignore */
         }
       }
-      if (item.notification_preference?.toast === true) candidates.push(item);
+      const wantsToast = item.notification_preference?.toast === true;
+      if (!wantsToast) continue;
+      // Meeting/supervision invites: toast only when the recipient is logged in and Available.
+      // Away / busy / offline still get the inbox notification.
+      if (type === 'team_meeting_scheduled' || type === 'supervision_session_scheduled') {
+        if (!(await isLocallyAvailableForMeetingToast())) continue;
+      }
+      candidates.push(item);
     }
     notificationToastQueue.value.push(...candidates);
     showNextNotificationToast();

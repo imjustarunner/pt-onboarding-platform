@@ -112,6 +112,7 @@
               class="nav-item"
             >Clients</router-link>
             <router-link :to="`/${slug}/admin/tools-aids`" class="nav-item">Tools &amp; Aids</router-link>
+            <router-link :to="`/${slug}/admin/gear-inventory`" class="nav-item">Gear &amp; Inventory</router-link>
             <router-link :to="{ path: `/${slug}/dashboard`, query: { tab: 'submit' } }" class="nav-item">Submit</router-link>
           </div>
           <div class="sidebar-section">
@@ -207,9 +208,8 @@
           </div>
 
           <div
-            v-if="isVisible('documentationAlerts') || isVisible('quickActions')"
-            class="dash-block dash-block--full mid-grid"
-            :class="{ 'mid-grid--qa-full': isOperationsMode || !isVisible('documentationAlerts') }"
+            v-if="showMidStack"
+            class="dash-block dash-block--full mid-stack"
             :style="midGridStyle"
           >
             <DocumentationAlertsCard
@@ -219,16 +219,34 @@
               @navigate="go"
             />
 
-            <div v-if="isVisible('quickActions')" class="qa-wrap panel">
-              <QuickActionsSection
-                ref="quickActionsRef"
-                title="Quick Actions"
-                :context-key="isOperationsMode ? 'operations-ops-v1' : 'tenant-ops-v5'"
-                compact
-                :actions="quickActionsCatalog"
-                :default-action-ids="defaultQuickActionIds"
-                :icon-resolver="resolveQuickActionIcon"
-                :badge-counts="quickActionBadges"
+            <div
+              v-if="showQaScheduleRow"
+              class="qa-schedule-row"
+              :class="{
+                'qa-schedule-row--qa-only': isVisible('quickActions') && !showInlineDaySchedule,
+                'qa-schedule-row--schedule-only': showInlineDaySchedule && !isVisible('quickActions')
+              }"
+            >
+              <div v-if="isVisible('quickActions')" class="qa-wrap panel qa-wrap--dense">
+                <QuickActionsSection
+                  ref="quickActionsRef"
+                  title="Quick Actions"
+                  :context-key="isOperationsMode ? 'operations-ops-v1' : 'tenant-ops-v5'"
+                  compact
+                  dense
+                  :actions="quickActionsCatalog"
+                  :default-action-ids="defaultQuickActionIds"
+                  :icon-resolver="resolveQuickActionIcon"
+                  :badge-counts="quickActionBadges"
+                />
+              </div>
+
+              <OpsDaySchedulePanel
+                v-if="showInlineDaySchedule"
+                :agency-id="currentAgencyId"
+                :user-id="currentUser?.id"
+                :schedule-path="`${prefix}/my-schedule`"
+                @navigate="go"
               />
             </div>
           </div>
@@ -285,7 +303,7 @@
             :show-communications="isVisible('communications')"
             :show-people-ops="isVisible('peopleOps')"
             :show-system-alerts="isVisible('systemAlerts')"
-            :show-todays-schedule="isVisible('todaysSchedule')"
+            :show-todays-schedule="isVisible('todaysSchedule') && !showInlineDaySchedule"
             :program-stats="programStats"
             :communications="commsSummary"
             :people-ops="peopleOpsSummary"
@@ -398,6 +416,7 @@ import { useDashboardLayout } from '../../composables/useDashboardLayout';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
+import OpsDaySchedulePanel from '../../components/admin/opsDashboard/OpsDaySchedulePanel.vue';
 import AtAGlanceRow from '../../components/admin/opsDashboard/AtAGlanceRow.vue';
 import DocumentationAlertsCard from '../../components/admin/opsDashboard/DocumentationAlertsCard.vue';
 import OpsSummaryCards from '../../components/admin/opsDashboard/OpsSummaryCards.vue';
@@ -524,6 +543,15 @@ const moveSectionUp = (id) => dashboardLayout.moveUp(id);
 const moveSectionDown = (id) => dashboardLayout.moveDown(id);
 
 /** Docs + Quick Actions share one row; use the earlier of the two section orders. */
+const showInlineDaySchedule = computed(() =>
+  isVisible('todaysSchedule') && isVisible('quickActions') && !!currentAgencyId.value
+);
+const showQaScheduleRow = computed(() =>
+  isVisible('quickActions') || showInlineDaySchedule.value
+);
+const showMidStack = computed(() =>
+  isVisible('documentationAlerts') || showQaScheduleRow.value
+);
 const midGridStyle = computed(() => {
   const docsOn = isVisible('documentationAlerts');
   const qaOn = isVisible('quickActions');
@@ -957,6 +985,7 @@ const defaultQuickActionIds = computed(() => {
       'program_events',
       'progress_dashboard',
       ...(clinicalNoteGeneratorEnabledForAgency.value ? ['tools_aids', 'clinical_note_generator'] : []),
+      'gear_inventory',
       ...(canSeeUsersNav.value ? ['manage_users'] : []),
       ...(canSeeClientsNav.value ? ['manage_clients'] : []),
       'notifications'
@@ -1425,6 +1454,17 @@ const quickActionsCatalog = computed(() => {
       iconKey: 'dashboard_billing',
       category: 'System',
       roles: ['admin', 'support', 'super_admin', 'staff'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'gear_inventory',
+      title: 'Gear & Inventory',
+      description: 'Catalog, stock levels, unique assets, and issue history',
+      to: `${p}/admin/gear-inventory`,
+      emoji: '📦',
+      iconKey: 'settings',
+      category: 'Operations',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'],
       capabilities: ['canAccessPlatform']
     },
     {
@@ -2378,53 +2418,53 @@ const logout = () => {
   }
 }
 
-.mid-grid {
-  display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.4fr);
-  gap: 14px;
+.mid-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin-bottom: 0;
+}
+.qa-schedule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 10px;
   align-items: start;
 }
-.mid-grid--qa-full {
-  grid-template-columns: 1fr;
-}
 @media (max-width: 1100px) {
-  .mid-grid { grid-template-columns: 1fr; }
+  .qa-schedule-row { grid-template-columns: 1fr; }
+}
+.qa-schedule-row--qa-only,
+.qa-schedule-row--schedule-only {
+  grid-template-columns: 1fr;
 }
 .qa-wrap.panel {
   background: #fff;
   border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, #e2e8f0);
-  border-radius: 16px;
+  border-radius: 12px;
   padding: 16px 18px;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
 }
-.qa-wrap :deep(.actions-grid) {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+.qa-wrap--dense.panel {
+  padding: 10px 12px;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
 }
-.mid-grid--qa-full .qa-wrap :deep(.actions-grid) {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+.qa-wrap--dense :deep(.actions-grid) {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
 }
 @media (max-width: 1200px) {
-  .mid-grid--qa-full .qa-wrap :deep(.actions-grid) {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .qa-wrap--dense :deep(.actions-grid) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 @media (max-width: 900px) {
-  .mid-grid--qa-full .qa-wrap :deep(.actions-grid) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .qa-wrap--dense :deep(.actions-grid) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
-@media (max-width: 700px) {
-  .qa-wrap :deep(.actions-grid),
-  .mid-grid--qa-full .qa-wrap :deep(.actions-grid) {
+@media (max-width: 600px) {
+  .qa-wrap--dense :deep(.actions-grid) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 480px) {
-  .mid-grid--qa-full .qa-wrap :deep(.actions-grid) {
-    grid-template-columns: 1fr;
   }
 }
 

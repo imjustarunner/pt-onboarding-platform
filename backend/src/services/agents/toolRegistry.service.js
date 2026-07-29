@@ -170,7 +170,7 @@ const NAVIGATION_ROUTE_WHITELIST = {
   ComplianceCorner: { path: '/admin/compliance-corner', roles: ['admin', 'super_admin'] },
   PresenceTeamBoard: { path: '/admin/presence', roles: ['admin', 'super_admin'] },
   AdminPayroll: { path: '/admin/payroll', roles: ['admin', 'super_admin', 'support', 'staff'] },
-  GearInventory: { path: '/admin/gear-inventory', roles: ['admin', 'super_admin', 'support', 'staff'] },
+  GearInventory: { path: '/admin/gear-inventory', roles: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'] },
   // Module Manager → Training Reference Docs modal (handbook / policies Google Doc link)
   ModuleManager: { path: '/admin/modules', roles: ['admin', 'support', 'super_admin'] },
   TrainingKnowledgeBase: {

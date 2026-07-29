@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, requireAgencyAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireAgencyAdminOrOperationsLead } from '../middleware/auth.middleware.js';
 import {
   getGearSummary,
   listGearTypes,
@@ -24,31 +24,31 @@ const router = express.Router();
 router.use(authenticate);
 
 // Catalog
-router.get('/:agencyId/summary', requireAgencyAdmin, getGearSummary);
-router.get('/:agencyId/types', requireAgencyAdmin, listGearTypes);
-router.post('/:agencyId/types', requireAgencyAdmin, createGearType);
-router.patch('/:agencyId/types/:typeId', requireAgencyAdmin, updateGearType);
+router.get('/:agencyId/summary', requireAgencyAdminOrOperationsLead, getGearSummary);
+router.get('/:agencyId/types', requireAgencyAdminOrOperationsLead, listGearTypes);
+router.post('/:agencyId/types', requireAgencyAdminOrOperationsLead, createGearType);
+router.patch('/:agencyId/types/:typeId', requireAgencyAdminOrOperationsLead, updateGearType);
 
 // Sized stock
-router.get('/:agencyId/stock', requireAgencyAdmin, listGearStock);
-router.post('/:agencyId/stock/adjust', requireAgencyAdmin, adjustGearStock);
+router.get('/:agencyId/stock', requireAgencyAdminOrOperationsLead, listGearStock);
+router.post('/:agencyId/stock/adjust', requireAgencyAdminOrOperationsLead, adjustGearStock);
 
 // Unique assets
-router.get('/:agencyId/assets', requireAgencyAdmin, listGearAssets);
-router.post('/:agencyId/assets', requireAgencyAdmin, createGearAsset);
-router.patch('/:agencyId/assets/:assetId', requireAgencyAdmin, updateGearAsset);
+router.get('/:agencyId/assets', requireAgencyAdminOrOperationsLead, listGearAssets);
+router.post('/:agencyId/assets', requireAgencyAdminOrOperationsLead, createGearAsset);
+router.patch('/:agencyId/assets/:assetId', requireAgencyAdminOrOperationsLead, updateGearAsset);
 
 // Movements
-router.get('/:agencyId/movements', requireAgencyAdmin, listGearMovements);
+router.get('/:agencyId/movements', requireAgencyAdminOrOperationsLead, listGearMovements);
 
 // Issuable options for a type
-router.get('/:agencyId/types/:typeId/issuable', requireAgencyAdmin, listIssuableOptions);
+router.get('/:agencyId/types/:typeId/issuable', requireAgencyAdminOrOperationsLead, listIssuableOptions);
 
 // Per-user assignments / preferences (profile Lifecycle Equipment)
-router.get('/:agencyId/users/:userId/assignments', requireAgencyAdmin, listUserGearAssignments);
-router.post('/:agencyId/users/:userId/issue', requireAgencyAdmin, issueUserGear);
-router.post('/:agencyId/assignments/:assignmentId/return', requireAgencyAdmin, returnUserGear);
-router.get('/:agencyId/users/:userId/preferences', requireAgencyAdmin, getUserGearPreferences);
-router.put('/:agencyId/users/:userId/preferences', requireAgencyAdmin, setUserGearPreferences);
+router.get('/:agencyId/users/:userId/assignments', requireAgencyAdminOrOperationsLead, listUserGearAssignments);
+router.post('/:agencyId/users/:userId/issue', requireAgencyAdminOrOperationsLead, issueUserGear);
+router.post('/:agencyId/assignments/:assignmentId/return', requireAgencyAdminOrOperationsLead, returnUserGear);
+router.get('/:agencyId/users/:userId/preferences', requireAgencyAdminOrOperationsLead, getUserGearPreferences);
+router.put('/:agencyId/users/:userId/preferences', requireAgencyAdminOrOperationsLead, setUserGearPreferences);
 
 export default router;

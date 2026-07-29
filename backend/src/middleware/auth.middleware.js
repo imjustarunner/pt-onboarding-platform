@@ -567,6 +567,11 @@ export const requireCapability = (required) => {
   };
 };
 
+function isAgencyOperationsLeadRole(role) {
+  const r = normalizeAuthRole(role);
+  return r === 'clinical_practice_assistant' || r === 'provider_plus';
+}
+
 export const requireAgencyAdmin = async (req, res, next) => {
   try {
     // Super Admin has access to all agencies
@@ -589,6 +594,50 @@ export const requireAgencyAdmin = async (req, res, next) => {
 
     // Must be admin/support/staff role (agency-side backoffice)
     if (req.user.role !== 'admin' && req.user.role !== 'support' && req.user.role !== 'staff') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const userAgencies = await User.getAgencies(req.user.id);
+    const hasAccess = userAgencies.some((a) => a.id === aid);
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: { message: 'You do not have admin access to this agency' } });
+    }
+
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Agency admin surfaces plus CPA / Provider+ for the same tenant (e.g. gear inventory).
+ */
+export const requireAgencyAdminOrOperationsLead = async (req, res, next) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      return next();
+    }
+
+    const agencyId = req.params.agencyId || req.body.agencyId || req.query.agencyId;
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'Agency ID required' } });
+    }
+    const aid = parseInt(agencyId, 10);
+
+    if (normalizeAuthRole(req.user.role) === 'club_manager') {
+      const ok = await canUserManageClub({ user: req.user, clubId: aid });
+      if (ok) return next();
+      return res.status(403).json({ error: { message: 'You do not have admin access to this agency' } });
+    }
+
+    const role = normalizeAuthRole(req.user.role);
+    if (
+      role !== 'admin' &&
+      role !== 'support' &&
+      role !== 'staff' &&
+      !isAgencyOperationsLeadRole(role)
+    ) {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
 

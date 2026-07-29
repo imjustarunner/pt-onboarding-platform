@@ -2228,7 +2228,11 @@ const routes = [
     path: '/:organizationSlug/admin/gear-inventory',
     name: 'OrganizationGearInventory',
     component: () => import('../views/admin/GearInventoryView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin', 'support', 'staff'], organizationSlug: true }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'],
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/event/:eventSlug',
@@ -3418,7 +3422,10 @@ const routes = [
     path: '/admin/gear-inventory',
     name: 'GearInventory',
     component: () => import('../views/admin/GearInventoryView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin', 'support', 'staff'] }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus']
+    }
   },
   {
     path: '/admin/providers',

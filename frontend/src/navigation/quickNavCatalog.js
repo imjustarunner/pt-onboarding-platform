@@ -436,7 +436,7 @@ function buildAppEntries() {
       keywords: ['gear', 'inventory', 'stock', 'assets', 'cart', 'hoodie', 'equipment'],
       kind: 'path',
       path: '/admin/gear-inventory',
-      rolesAny: ['admin', 'super_admin', 'support', 'staff']
+      rolesAny: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus']
     },
     {
       id: 'admin-users',
