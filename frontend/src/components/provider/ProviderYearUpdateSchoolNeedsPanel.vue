@@ -224,10 +224,6 @@ watch(
   border: 1px solid #e2e8f0;
   border-radius: 16px;
   padding: 16px;
-  position: sticky;
-  top: 12px;
-  max-height: calc(100vh - 24px);
-  overflow: auto;
 }
 .pyu-needs__head h2 {
   margin: 0 0 6px;

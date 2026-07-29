@@ -21,6 +21,8 @@ router.post(
   '/:token/availability/me/requests/unrequest-all',
   ctrl.unrequestAllAvailabilityByToken
 );
+router.post('/:token/support-tickets', ctrl.createSupportTicketByToken);
+router.get('/:token/support-tickets/mine', ctrl.listMySupportTicketsByToken);
 router.post('/:token/finalize', ctrl.finalizePublic);
 
 export default router;

@@ -6,7 +6,7 @@ const AUTHORIZED_REPRESENTATIVE = {
   organizationName: 'ITSCO',
   mailingAddress: '5373 N. Union Blvd. Suite 104. Colorado Springs, CO 80918',
   supportEmail: 'support@itsco.health',
-  supportPhone: '833-444-8726 extension 0'
+  supportPhone: '719-657-7444 Ext 0'
 };
 
 const PURPOSES = [

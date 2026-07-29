@@ -35,7 +35,7 @@
         <strong>Need help?</strong>
         <p class="muted">Questions about setup? Reach out to the team that invited you.</p>
         <a v-if="supportEmail" class="so-help-link" :href="`mailto:${supportEmail}`">Email support</a>
-        <a v-if="supportPhone" class="so-help-link" :href="`tel:${supportPhone}`">{{ supportPhone }}</a>
+        <a v-if="supportPhone" class="so-help-link" :href="supportPhoneTel">{{ supportPhone }}</a>
       </div>
     </aside>
 
@@ -488,6 +488,7 @@ import {
   parseSchoolGroupEmailLocal,
   resolveSchoolGroupEmailDomain,
   resolveSchoolOnboardingSupportEmail,
+  resolveSchoolOnboardingSupportPhone,
   suggestSchoolGroupEmails
 } from '../../utils/schoolGroupEmailSuggestions.js';
 import {
@@ -645,7 +646,15 @@ const identityReady = computed(() => {
   const inviteEmail = String(invite.value?.contactEmail || '').trim().toLowerCase();
   return identityForm.contactEmail.trim().toLowerCase() === inviteEmail;
 });
-const supportPhone = computed(() => invite.value?.agency?.phone || null);
+const supportPhoneInfo = computed(() =>
+  resolveSchoolOnboardingSupportPhone({
+    ...(invite.value?.agency || {}),
+    phone: invite.value?.agency?.phone,
+    phoneExtension: invite.value?.agency?.phoneExtension,
+  })
+);
+const supportPhone = computed(() => supportPhoneInfo.value.display || null);
+const supportPhoneTel = computed(() => supportPhoneInfo.value.tel || null);
 const groupEmailDomain = computed(() =>
   invite.value?.agency?.schoolGroupEmailDomain || resolveSchoolGroupEmailDomain(invite.value?.agency || {})
 );

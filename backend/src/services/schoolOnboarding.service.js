@@ -171,6 +171,54 @@ function resolveSchoolOnboardingSupportEmail(slug, portalUrl, fallback = null) {
   return fallback || null;
 }
 
+const SCHOOL_ONBOARDING_SUPPORT_PHONE = '719-657-7444 Ext 0';
+const SCHOOL_ONBOARDING_SUPPORT_PHONE_TEL = '+17196577444,0';
+
+function formatUsPhoneNumber(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (digits.length === 10) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `${digits.slice(1, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  return String(raw || '').trim();
+}
+
+function formatPhoneExtension(ext) {
+  const value = String(ext ?? '').trim();
+  if (!value) return '';
+  if (/^ext\.?\s*/i.test(value)) return value.replace(/^ext\.?\s*/i, 'Ext ');
+  return `Ext ${value}`;
+}
+
+function resolveSchoolOnboardingSupportPhone(phoneNumber, phoneExtension, slug, portalUrl) {
+  const base = String(slug || portalUrl || 'itsco')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '');
+  const digits = String(phoneNumber || '').replace(/\D/g, '');
+  const isTollFree = digits === '8334448726' || digits === '18334448726';
+  if (base === 'itsco' || isTollFree || !digits) {
+    return {
+      display: SCHOOL_ONBOARDING_SUPPORT_PHONE,
+      tel: SCHOOL_ONBOARDING_SUPPORT_PHONE_TEL,
+    };
+  }
+  const formatted = formatUsPhoneNumber(phoneNumber);
+  if (!formatted) {
+    return {
+      display: SCHOOL_ONBOARDING_SUPPORT_PHONE,
+      tel: SCHOOL_ONBOARDING_SUPPORT_PHONE_TEL,
+    };
+  }
+  const ext = formatPhoneExtension(phoneExtension);
+  const extDigits = String(phoneExtension || '').replace(/\D/g, '');
+  return {
+    display: ext ? `${formatted} ${ext}` : formatted,
+    tel: extDigits ? `+1${digits},${extDigits}` : `+1${digits}`,
+  };
+}
+
 async function upsertSchoolProfile(schoolId, updates = {}) {
   const {
     districtName = null,
@@ -649,7 +697,15 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
         slug: invite.agency_slug || invite.agency_portal_url,
         logoUrl: invite.agency_logo_url || invite.agency_logo_path || null,
         colorPalette: palette,
-        phone: invite.agency_phone || null,
+        ...(() => {
+          const phoneInfo = resolveSchoolOnboardingSupportPhone(
+            invite.agency_phone,
+            invite.agency_phone_extension,
+            invite.agency_slug,
+            invite.agency_portal_url
+          );
+          return { phone: phoneInfo.display, supportPhoneTel: phoneInfo.tel };
+        })(),
         supportEmail: resolveSchoolOnboardingSupportEmail(
           invite.agency_slug,
           invite.agency_portal_url,
@@ -1277,7 +1333,15 @@ export async function getPublicQrLink(token) {
       slug: link.agency_slug || link.agency_portal_url,
       logoUrl: link.agency_logo_url || link.agency_logo_path || null,
       colorPalette: palette,
-      phone: link.agency_phone || null,
+      ...(() => {
+        const phoneInfo = resolveSchoolOnboardingSupportPhone(
+          link.agency_phone,
+          link.agency_phone_extension,
+          link.agency_slug,
+          link.agency_portal_url
+        );
+        return { phone: phoneInfo.display, supportPhoneTel: phoneInfo.tel };
+      })(),
       supportEmail: resolveSchoolOnboardingSupportEmail(
         link.agency_slug,
         link.agency_portal_url,

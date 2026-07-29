@@ -724,13 +724,19 @@
           <p v-if="actionError" class="error-banner">{{ actionError }}</p>
         </main>
 
-        <ProviderYearUpdateSchoolNeedsPanel
-          v-if="resolvedAgencyId && schoolYearKey"
-          class="pyu__needs-rail"
-          :agency-id="resolvedAgencyId"
-          :school-year="schoolYearKey"
-          :can-apply="props.mode !== 'token'"
-        />
+        <aside v-if="resolvedAgencyId && schoolYearKey" class="pyu__right-rail">
+          <ProviderYearUpdateSchoolNeedsPanel
+            :agency-id="resolvedAgencyId"
+            :school-year="schoolYearKey"
+            :can-apply="props.mode !== 'token'"
+          />
+          <ProviderYearUpdateSupportPanel
+            :agency-id="resolvedAgencyId"
+            :school-year="schoolYearDisplay"
+            :active-section="activeSection"
+            :pyu-token="props.mode === 'token' ? props.token : ''"
+          />
+        </aside>
       </div>
 
       <footer class="pyu__footer">
@@ -774,6 +780,7 @@ import {
 } from '../../utils/credentialNormalization.js';
 import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
 import ProviderYearUpdateSchoolNeedsPanel from './ProviderYearUpdateSchoolNeedsPanel.vue';
+import ProviderYearUpdateSupportPanel from './ProviderYearUpdateSupportPanel.vue';
 
 const props = defineProps({
   mode: { type: String, default: 'provider' }, // provider | token | admin
@@ -2155,8 +2162,16 @@ defineExpose({ load, reload: load });
   padding: 12px 28px 40px;
   box-sizing: border-box;
 }
-.pyu__needs-rail {
+.pyu__right-rail {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
 }
 .pyu__nav {
   display: flex;
@@ -2712,7 +2727,7 @@ defineExpose({ load, reload: load });
   .pyu__layout {
     grid-template-columns: 220px minmax(0, 1fr);
   }
-  .pyu__needs-rail {
+  .pyu__right-rail {
     grid-column: 1 / -1;
     position: static;
     max-height: none;

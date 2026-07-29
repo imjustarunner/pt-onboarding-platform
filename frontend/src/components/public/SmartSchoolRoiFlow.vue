@@ -329,7 +329,7 @@
       <div class="info-panel">
         <ul>
           <li>{{ tr('This authorization is valid for 36 months from the date signed unless revoked earlier.', 'Esta autorizacion es valida por 36 meses desde la fecha de firma, salvo revocacion previa.') }}</li>
-          <li>{{ tr('Consent may be revoked at any time through support@itsco.health or 833-444-8726 extension 0.', 'El consentimiento puede revocarse en cualquier momento a traves de support@itsco.health o 833-444-8726 extension 0.') }}</li>
+          <li>{{ tr('Consent may be revoked at any time through support@itsco.health or 719-657-7444 Ext 0.', 'El consentimiento puede revocarse en cualquier momento a traves de support@itsco.health o 719-657-7444 Ext 0.') }}</li>
           <li>{{ tr('Actions already taken before revocation cannot be undone.', 'Las acciones tomadas antes de la revocacion no se pueden deshacer.') }}</li>
           <li>{{ tr('Information disclosed may be redistributed by the receiving party and may no longer be protected in the same way.', 'La informacion divulgada puede redistribuirse por la parte receptora y puede dejar de estar protegida de la misma manera.') }}</li>
         </ul>

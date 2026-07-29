@@ -3,6 +3,7 @@ import {
   buildSchoolGroupEmail,
   parseSchoolGroupEmailLocal,
   resolveSchoolOnboardingSupportEmail,
+  resolveSchoolOnboardingSupportPhone,
   suggestSchoolGroupEmailPrefixes,
   suggestSchoolGroupEmails
 } from '../schoolGroupEmailSuggestions.js';
@@ -41,5 +42,12 @@ describe('schoolGroupEmailSuggestions', () => {
 
   it('resolves school onboarding support email from agency slug', () => {
     expect(resolveSchoolOnboardingSupportEmail({ slug: 'itsco' })).toBe('support@itsco.health');
+  });
+
+  it('resolves school onboarding support phone to local ITSCO line', () => {
+    expect(resolveSchoolOnboardingSupportPhone({ slug: 'itsco', phone: '8334448726' }).display).toBe(
+      '719-657-7444 Ext 0'
+    );
+    expect(resolveSchoolOnboardingSupportPhone({ slug: 'itsco' }).tel).toBe('+17196577444,0');
   });
 });

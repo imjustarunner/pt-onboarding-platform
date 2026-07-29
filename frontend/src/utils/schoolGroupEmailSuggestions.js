@@ -58,6 +58,55 @@ export function resolveSchoolOnboardingSupportEmail(agency = {}) {
   return agency.supportEmail || agency.onboarding_team_email || null;
 }
 
+export const SCHOOL_ONBOARDING_SUPPORT_PHONE = '719-657-7444 Ext 0';
+export const SCHOOL_ONBOARDING_SUPPORT_PHONE_TEL = '+17196577444,0';
+
+function formatUsPhoneNumber(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (digits.length === 10) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `${digits.slice(1, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  return String(raw || '').trim();
+}
+
+function formatPhoneExtension(ext) {
+  const value = String(ext ?? '').trim();
+  if (!value) return '';
+  if (/^ext\.?\s*/i.test(value)) return value.replace(/^ext\.?\s*/i, 'Ext ');
+  return `Ext ${value}`;
+}
+
+/** Display + tel href for school onboarding help / footer contact. */
+export function resolveSchoolOnboardingSupportPhone(agency = {}) {
+  const slug = String(agency.slug || agency.portalUrl || agency.portal_url || 'itsco')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '');
+  const rawPhone = agency.phone || agency.phone_number || agency.supportPhone || '';
+  const digits = String(rawPhone).replace(/\D/g, '');
+  const isTollFree = digits === '8334448726' || digits === '18334448726';
+  if (slug === 'itsco' || isTollFree || !digits) {
+    return {
+      display: SCHOOL_ONBOARDING_SUPPORT_PHONE,
+      tel: SCHOOL_ONBOARDING_SUPPORT_PHONE_TEL,
+    };
+  }
+  const formatted = formatUsPhoneNumber(rawPhone);
+  if (!formatted) {
+    return {
+      display: SCHOOL_ONBOARDING_SUPPORT_PHONE,
+      tel: SCHOOL_ONBOARDING_SUPPORT_PHONE_TEL,
+    };
+  }
+  const ext = formatPhoneExtension(agency.phoneExtension || agency.phone_extension);
+  return {
+    display: ext ? `${formatted} ${ext}` : formatted,
+    tel: `+1${digits}${ext ? `,${String(agency.phoneExtension || agency.phone_extension).replace(/\D/g, '')}` : ''}`,
+  };
+}
+
 export function buildSchoolGroupEmail(prefix, domain) {
   const local = normalizePrefix(prefix);
   const host = String(domain || '')

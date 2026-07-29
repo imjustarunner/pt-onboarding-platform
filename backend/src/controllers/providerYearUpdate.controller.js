@@ -11,6 +11,10 @@ import {
   unrequestAllMyAvailabilityRequests,
   withdrawMySchoolAvailabilityRequest,
 } from './availability.controller.js';
+import {
+  createSupportTicket,
+  listMySupportTickets,
+} from './supportTickets.controller.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -820,6 +824,29 @@ export async function unrequestAllAvailabilityByToken(req, res, next) {
     const ctx = await prepareTokenProviderContext(req, res);
     if (!ctx) return;
     return unrequestAllMyAvailabilityRequests(req, res, next);
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/public/provider-year-update/:token/support-tickets */
+export async function createSupportTicketByToken(req, res, next) {
+  try {
+    const ctx = await prepareTokenProviderContext(req, res);
+    if (!ctx) return;
+    req.body.schoolOrganizationId = ctx.agencyId;
+    return createSupportTicket(req, res, next);
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** GET /api/public/provider-year-update/:token/support-tickets/mine */
+export async function listMySupportTicketsByToken(req, res, next) {
+  try {
+    const ctx = await prepareTokenProviderContext(req, res);
+    if (!ctx) return;
+    return listMySupportTickets(req, res, next);
   } catch (e) {
     next(e);
   }
