@@ -490,12 +490,21 @@ export async function getPublicReferenceMetaByRawToken(rawToken) {
   const ln = String(user?.last_name || '').trim();
   const candidateLabel = fn ? (ln ? `${fn} ${ln.charAt(0)}.` : fn) : 'Candidate';
 
+  let branding = null;
+  try {
+    const { buildPublicFormBranding } = await import('./publicFormBranding.service.js');
+    branding = await buildPublicFormBranding({ organization: agency, agency });
+  } catch {
+    branding = null;
+  }
+
   return {
     ok: true,
     expiresAt: exp.toISOString(),
     agencyName: String(agency?.name || agency?.official_name || '').trim() || null,
     candidateLabel,
     referenceName: String(row.reference_name || '').trim() || null,
+    branding,
     disclaimer:
       'This form is confidential: your answers are not shared with the applicant and are used only for hiring decisions. The form typically takes less than five minutes. Final wording is subject to legal review.'
   };

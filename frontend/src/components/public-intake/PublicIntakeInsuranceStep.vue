@@ -894,9 +894,9 @@ defineExpose({
   font-size: 14px;
 }
 .pi-ins-selfpay-row--active {
-  background: #ecfdf5;
+  background: color-mix(in srgb, var(--df-primary, #1e4d3b) 8%, #fff);
   border-style: solid;
-  border-color: #86efac;
+  border-color: var(--df-accent, var(--df-primary, #1e4d3b));
 }
 .pi-ins-selfpay-sub {
   color: var(--text-secondary, #64748b);
@@ -918,14 +918,16 @@ defineExpose({
   color: #1e3a5f;
 }
 .pi-ins-card {
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 10px;
+  border: 1px solid var(--df-border, var(--border, #e2e8f0));
+  border-radius: var(--df-radius, 14px);
   padding: 16px;
-  background: var(--bg, #fff);
+  background: var(--df-surface, var(--bg, #fff));
 }
 .pi-ins-card-title {
   margin: 0 0 12px;
-  font-size: 1rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--df-primary, #1e4d3b);
 }
 .pi-ins-card-tip {
   margin: 0 0 10px;

@@ -2827,6 +2827,17 @@ const updateNavLinksScrollState = () => {
 const onNavWheelScroll = (e) => {
   const el = navLinksWrapperEl.value;
   if (!el) return;
+
+  // Let wheel scroll inside open dropdown / flyout panels (e.g. long Digital forms list).
+  const scrollable = e.target?.closest?.('.nav-dropdown-menu, .nav-dropdown-group-items');
+  if (scrollable) {
+    const canScrollY = scrollable.scrollHeight > scrollable.clientHeight + 2;
+    const canScrollX = scrollable.scrollWidth > scrollable.clientWidth + 2;
+    if ((canScrollY && Math.abs(e.deltaY) > 0) || (canScrollX && Math.abs(e.deltaX) > 0)) {
+      return;
+    }
+  }
+
   // Only hijack when the nav actually overflows horizontally
   if (el.scrollWidth <= el.clientWidth + 2) return;
   // Prefer native horizontal trackpad gestures; convert vertical wheel to scroll-x.
@@ -3088,6 +3099,30 @@ function applyDirectorySubgroupStateFromRoute() {
 }
 
 /** Desktop Directory: exclusive right-side flyout (one subgroup open at a time). */
+function adjustDirectoryFlyoutPanels() {
+  if (typeof window === 'undefined') return;
+  nextTick(() => {
+    const margin = 12;
+    document
+      .querySelectorAll('.nav-dropdown-menu-wide .nav-dropdown-group-flyout > .nav-dropdown-group-items')
+      .forEach((panel) => {
+        panel.classList.remove('nav-flyout-flip-left');
+        panel.style.removeProperty('max-width');
+        if (!panel.offsetParent) return;
+        const rect = panel.getBoundingClientRect();
+        if (rect.width < 1 || rect.height < 1) return;
+        if (rect.right > window.innerWidth - margin) {
+          panel.classList.add('nav-flyout-flip-left');
+          const flipped = panel.getBoundingClientRect();
+          if (flipped.left < margin) {
+            panel.classList.remove('nav-flyout-flip-left');
+            panel.style.maxWidth = `${Math.max(280, window.innerWidth - margin * 2)}px`;
+          }
+        }
+      });
+  });
+}
+
 function setDirectoryFlyout(key) {
   directorySchedulesNavExpanded.value = key === 'schedules';
   directorySkillBuildersNavExpanded.value = key === 'events';
@@ -3097,6 +3132,7 @@ function setDirectoryFlyout(key) {
   directorySchoolsNavExpanded.value = key === 'schools';
   if (key !== 'schools') directorySchoolPortalsNavExpanded.value = false;
   if (key === 'public') loadDirectoryPublicLinks();
+  if (key) adjustDirectoryFlyoutPanels();
 }
 
 /** School Management row matches other Directory flyouts; click toggles the panel. */
@@ -3806,8 +3842,18 @@ const onSstcSurfaceSelect = async (e) => {
 };
 
 const hideGlobalNavForSchoolStaff = computed(() => {
-  // School-onboarding Hogwarts demo mounts the real School Portal shell — hide platform chrome.
   const path = String(route.path || '');
+  // Public digital forms — full-screen participant experience (guest or admin preview).
+  if (
+    /^\/(?:intake|i|preferences-form)\/[^/]+/.test(path) ||
+    /^\/registration-receipt\/[^/]+/.test(path) ||
+    /^\/public\/hiring\/reference\/[^/]+/.test(path) ||
+    /^\/office-intake\/[^/]+/.test(path) ||
+    /\/office-intake$/.test(path)
+  ) {
+    return true;
+  }
+  // School-onboarding Hogwarts demo mounts the real School Portal shell — hide platform chrome.
   if (/^\/school-onboarding\/demo\/?$/i.test(path) || route.name === 'SchoolOnboardingStandaloneDemo') {
     return true;
   }
@@ -4261,6 +4307,9 @@ const loadDirectoryPublicLinks = async () => {
     directoryPublicLinksData.value = { intakeLinks: [], marketingHubs: [], providerFinder: null, publicEventPages: [] };
   } finally {
     directoryPublicLinksLoading.value = false;
+    if (directoryPublicLinksNavExpanded.value) {
+      adjustDirectoryFlyoutPanels();
+    }
   }
 };
 
@@ -6502,11 +6551,16 @@ onUnmounted(() => {
   left: calc(100% - 6px);
   top: 0;
   z-index: 1200;
-  min-width: 240px;
-  max-width: min(360px, 46vw);
+  min-width: 280px;
+  max-width: min(560px, calc(100vw - 24px));
+  width: max-content;
   max-height: min(70vh, 520px);
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
   /* Override inline nested indent styles so the main Directory list stays flush */
   margin: 0 !important;
   padding: 8px !important;
@@ -6518,6 +6572,16 @@ onUnmounted(() => {
   gap: 2px;
   background: #fff;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+}
+
+.nav-dropdown-menu-wide .nav-dropdown-group-flyout > .nav-dropdown-group-items.nav-flyout-flip-left {
+  left: auto;
+  right: calc(100% - 6px);
+}
+
+.directory-public-links-items {
+  min-width: 320px;
+  max-width: min(640px, calc(100vw - 24px)) !important;
 }
 .nav-dropdown-menu-wide .nav-dropdown-group-flyout > .nav-dropdown-group-items a {
   padding-left: 10px;
@@ -6715,6 +6779,10 @@ button.nav-dropdown-button-link:hover {
   color: var(--text-primary);
   text-decoration: none;
   border-radius: 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.35;
 }
 .nav-dropdown-external-link:hover {
   background: #f8fafc;
@@ -6725,6 +6793,8 @@ button.nav-dropdown-button-link:hover {
   font-weight: 400;
   opacity: 0.72;
   margin-top: 2px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .mobile-nav-sublabel.nav-dropdown-group-label {
   padding: 10px 12px 4px 20px;

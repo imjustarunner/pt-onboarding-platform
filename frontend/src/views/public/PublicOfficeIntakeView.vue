@@ -1,91 +1,95 @@
 <template>
-  <div class="poi-page">
-    <div class="poi-card">
-      <template v-if="loadingAgency">
-        <p class="muted">Loading…</p>
-      </template>
-      <template v-else-if="agencyError">
-        <p class="error">{{ agencyError }}</p>
-      </template>
-      <template v-else-if="submitted">
-        <h1>Thanks, {{ form.firstName || 'friend' }}!</h1>
-        <p>
-          We received your request{{ confirmation?.identifierCode ? ` (reference #${confirmation.identifierCode})` : '' }}.
-          Someone from {{ agency?.name || 'our office' }} will reach out to confirm your appointment.
-        </p>
-      </template>
-      <template v-else>
-        <h1>Request an appointment{{ agency?.name ? ` — ${agency.name}` : '' }}</h1>
-        <p class="muted">Tell us a bit about what you're looking for and your preferred day/time — we'll follow up to schedule.</p>
+  <DigitalFormShell
+    class="poi-page"
+    :branding="formBranding"
+    :program-title-override="agency?.name || 'Office Intake'"
+    form-subtitle="Request an appointment"
+    :progress-steps="progressSteps"
+    :progress-index="progressIndex"
+    :cover-mode="loadingAgency || !!agencyError || submitted"
+  >
+    <div v-if="loadingAgency" class="df-loading">Loading…</div>
+    <div v-else-if="agencyError" class="df-banner df-banner--warn">{{ agencyError }}</div>
 
-        <form class="poi-form" @submit.prevent="submit">
-          <div class="field-row">
-            <label class="field">
-              <span class="label">First name</span>
-              <input v-model="form.firstName" class="input" required />
-            </label>
-            <label class="field">
-              <span class="label">Last name</span>
-              <input v-model="form.lastName" class="input" required />
-            </label>
-          </div>
+    <DigitalFormSuccess
+      v-else-if="submitted"
+      :title="`Thanks, ${form.firstName || 'friend'}!`"
+      :body="successBody"
+    />
 
-          <label class="field">
-            <span class="label">Phone number</span>
-            <input v-model="form.contactPhone" class="input" type="tel" required />
-          </label>
+    <template v-else>
+      <h1 class="df-title">Request an appointment{{ agency?.name ? ` — ${agency.name}` : '' }}</h1>
+      <p class="df-subtitle">
+        Tell us a bit about what you're looking for and your preferred day/time — we'll follow up to schedule.
+      </p>
 
-          <label class="field">
-            <span class="label">What brings you in?</span>
-            <textarea v-model="form.presentingConcern" rows="3" placeholder="A short description is helpful but optional"></textarea>
-          </label>
+      <form class="poi-form" @submit.prevent="submit">
+        <div class="field-row">
+          <DigitalFormField v-model="form.firstName" type="text" label="First name" required />
+          <DigitalFormField v-model="form.lastName" type="text" label="Last name" required />
+        </div>
 
-          <div class="field-row">
-            <label class="field">
-              <span class="label">Preferred time of day</span>
-              <select v-model="form.preferredTimeOfDay" class="select">
-                <option value="">No preference</option>
-                <option value="morning">Morning</option>
-                <option value="afternoon">Afternoon</option>
-                <option value="evening">Evening</option>
-              </select>
-            </label>
-            <label class="field">
-              <span class="label">Preferred format</span>
-              <select v-model="form.preferredModality" class="select">
-                <option value="">No preference</option>
-                <option value="in_person">In person</option>
-                <option value="virtual">Virtual</option>
-                <option value="either">Either</option>
-              </select>
-            </label>
-          </div>
+        <DigitalFormField v-model="form.contactPhone" type="tel" label="Phone number" required />
 
-          <label class="field">
-            <span class="label">Preferred days (optional)</span>
-            <input v-model="preferredDaysRaw" class="input" placeholder="e.g. Tuesdays, Thursday afternoons" />
-          </label>
+        <DigitalFormField
+          v-model="form.presentingConcern"
+          type="textarea"
+          label="What brings you in?"
+          placeholder="A short description is helpful but optional"
+          :rows="3"
+        />
 
-          <label class="field">
-            <span class="label">Insurance or payment method (optional)</span>
-            <input v-model="form.insuranceOrPayment" class="input" />
-          </label>
+        <div class="field-row">
+          <DigitalFormField
+            v-model="form.preferredTimeOfDay"
+            type="select"
+            label="Preferred time of day"
+            placeholder="No preference"
+            :options="timeOfDayOptions"
+          />
+          <DigitalFormField
+            v-model="form.preferredModality"
+            type="select"
+            label="Preferred format"
+            placeholder="No preference"
+            :options="modalityOptions"
+          />
+        </div>
 
-          <div v-if="submitError" class="error">{{ submitError }}</div>
+        <DigitalFormField
+          v-model="preferredDaysRaw"
+          type="text"
+          label="Preferred days (optional)"
+          placeholder="e.g. Tuesdays, Thursday afternoons"
+        />
 
-          <button type="submit" class="btn btn-primary" :disabled="submitting">
+        <DigitalFormField
+          v-model="form.insuranceOrPayment"
+          type="text"
+          label="Insurance or payment method (optional)"
+        />
+
+        <div v-if="submitError" class="df-banner df-banner--warn">{{ submitError }}</div>
+
+        <div class="df-actions df-actions--end">
+          <button type="submit" class="df-btn df-btn-primary" :disabled="submitting">
             {{ submitting ? 'Submitting…' : 'Request appointment' }}
           </button>
-        </form>
-      </template>
-    </div>
-  </div>
+        </div>
+      </form>
+    </template>
+  </DigitalFormShell>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import {
+  DigitalFormShell,
+  DigitalFormField,
+  DigitalFormSuccess
+} from '../../components/digital-form';
 
 const route = useRoute();
 const agencySlug = computed(() => String(route.params.organizationSlug || route.params.agencySlug || '').trim());
@@ -93,6 +97,13 @@ const agencySlug = computed(() => String(route.params.organizationSlug || route.
 const loadingAgency = ref(true);
 const agencyError = ref('');
 const agency = ref(null);
+const formBranding = ref(null);
+
+const progressSteps = [
+  { id: 'form', label: 'Request' },
+  { id: 'done', label: 'Done' }
+];
+const progressIndex = computed(() => (submitted.value ? 1 : 0));
 
 const form = reactive({
   firstName: '',
@@ -109,12 +120,33 @@ const submitError = ref('');
 const submitted = ref(false);
 const confirmation = ref(null);
 
+const timeOfDayOptions = [
+  { value: 'morning', label: 'Morning' },
+  { value: 'afternoon', label: 'Afternoon' },
+  { value: 'evening', label: 'Evening' }
+];
+
+const modalityOptions = [
+  { value: 'in_person', label: 'In person' },
+  { value: 'virtual', label: 'Virtual' },
+  { value: 'either', label: 'Either' }
+];
+
+const successBody = computed(() => {
+  const ref = confirmation.value?.identifierCode
+    ? ` (reference #${confirmation.value.identifierCode})`
+    : '';
+  const office = agency.value?.name || 'our office';
+  return `We received your request${ref}. Someone from ${office} will reach out to confirm your appointment.`;
+});
+
 async function loadAgency() {
   loadingAgency.value = true;
   agencyError.value = '';
   try {
     const res = await api.get(`/public/office-intake/${encodeURIComponent(agencySlug.value)}`);
     agency.value = res.data?.agency || null;
+    formBranding.value = res.data?.branding || null;
   } catch (e) {
     agencyError.value = e?.response?.data?.error?.message || 'This intake link is not available.';
   } finally {
@@ -146,58 +178,20 @@ onMounted(loadAgency);
 </script>
 
 <style scoped>
-.poi-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  background: var(--bg, #f8fafc);
-}
-.poi-card {
-  background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.08);
-  padding: 28px;
-  width: 100%;
-  max-width: 560px;
+.df-loading {
+  padding: 2rem 0;
+  color: var(--df-muted);
+  text-align: center;
 }
 .poi-form {
   display: grid;
-  gap: 14px;
-  margin-top: 16px;
+  gap: 4px;
+  margin-top: 8px;
 }
 .field-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-}
-.field {
-  display: grid;
-  gap: 6px;
-}
-.label {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--text-secondary, #64748b);
-}
-.input,
-.select,
-textarea {
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font: inherit;
-  width: 100%;
-}
-textarea {
-  resize: vertical;
-}
-.error {
-  color: #c33;
-}
-.muted {
-  color: var(--text-secondary, #64748b);
 }
 @media (max-width: 480px) {
   .field-row {

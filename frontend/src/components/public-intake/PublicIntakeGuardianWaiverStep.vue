@@ -461,21 +461,24 @@ function copyFromPreviousChild(cIdx, key) {
 .pi-gw-client-block {
   margin-bottom: 28px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border, #e2e8f0);
+  border-bottom: 1px solid var(--df-border, var(--border, #e2e8f0));
 }
 .pi-gw-client-title {
   margin: 0 0 12px;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--df-primary, #1e4d3b);
 }
 .pi-gw-card {
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 10px;
-  padding: 14px;
+  border: 1px solid var(--df-border, var(--border, #e2e8f0));
+  border-radius: var(--df-radius, 14px);
+  padding: 1rem 1.1rem;
   margin-bottom: 14px;
-  background: var(--bg, #fff);
+  background: var(--df-surface, var(--bg, #fff));
 }
 .pi-gw-card--notice {
-  background: var(--bg-alt, #f8fafc);
+  background: color-mix(in srgb, var(--df-primary, #1e4d3b) 6%, #fff);
+  border-left: 4px solid var(--df-primary, #1e4d3b);
 }
 .pi-gw-card--error {
   border-color: #dc2626;
@@ -495,6 +498,8 @@ function copyFromPreviousChild(cIdx, key) {
 .pi-gw-card-head h5 {
   margin: 0 0 6px;
   font-size: 1rem;
+  color: var(--df-primary, #1e4d3b);
+  font-weight: 700;
 }
 .small {
   font-size: 13px;

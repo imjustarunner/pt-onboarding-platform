@@ -1,5 +1,5 @@
 <template>
-  <div class="container spd-page">
+  <div class="container spd-page df-admin-page">
     <div v-if="loading" class="muted">Loading…</div>
     <div v-else-if="!hasSchoolPortalsAccess" class="error spd-banner">
       School Portals is not enabled for this tenant, or you do not have access to this page.
@@ -7,12 +7,13 @@
     </div>
     <div v-else-if="loadError" class="error">{{ loadError }}</div>
     <template v-else>
-      <header class="spd-header">
+      <header class="spd-header df-admin-header">
         <div>
           <h1>Digital intakes for this school</h1>
           <p class="muted spd-sub">
             Create or copy <strong>English</strong> and <strong>Spanish</strong> intake links scoped to
-            <strong>{{ schoolName }}</strong>. Full form builder remains under Digital Forms in settings.
+            <strong>{{ schoolName }}</strong>. Families see your school branding on the public form.
+            Full form builder remains under Digital Forms in settings.
           </p>
         </div>
         <div class="spd-header-actions">

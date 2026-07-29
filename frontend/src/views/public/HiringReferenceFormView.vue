@@ -1,60 +1,78 @@
 <template>
-  <div class="ref-root">
-    <div v-if="loading" class="muted">Loading…</div>
-    <div v-else-if="loadError" class="error-banner">{{ loadError }}</div>
-    <form v-else-if="meta" class="ref-card" @submit.prevent="submit">
+  <DigitalFormShell
+    class="ref-root"
+    :branding="formBranding"
+    :program-title-override="meta?.agencyName || 'Professional Reference'"
+    form-subtitle="Hiring reference"
+    :progress-steps="progressSteps"
+    :progress-index="progressIndex"
+    :cover-mode="loading || !!loadError || done"
+  >
+    <div v-if="loading" class="df-loading">Loading…</div>
+    <div v-else-if="loadError" class="df-banner df-banner--warn">{{ loadError }}</div>
+
+    <DigitalFormSuccess
+      v-else-if="done"
+      title="Thank you"
+      body="Your reference has been submitted."
+    />
+
+    <form v-else-if="meta" class="ref-form" @submit.prevent="submit">
       <p v-if="meta.agencyName" class="eyebrow">{{ meta.agencyName }}</p>
-      <h1>Professional reference</h1>
-      <p class="muted">Regarding: <strong>{{ meta.candidateLabel }}</strong></p>
-      <p v-if="meta.referenceName" class="muted">Your name on file: <strong>{{ meta.referenceName }}</strong></p>
-      <p class="disclaimer">{{ meta.disclaimer }}</p>
+      <h1 class="df-title">Professional reference</h1>
+      <p class="df-subtitle">
+        Regarding: <strong>{{ meta.candidateLabel }}</strong>
+      </p>
+      <p v-if="meta.referenceName" class="muted">
+        Your name on file: <strong>{{ meta.referenceName }}</strong>
+      </p>
+      <div class="df-notice">
+        <p class="df-notice-body">{{ meta.disclaimer }}</p>
+      </div>
       <p v-if="meta.expiresAt" class="muted small">Link expires: {{ formatExp(meta.expiresAt) }}</p>
 
-      <div class="form-group">
-        <label>Your name (confirm or edit)</label>
-        <input v-model="form.referenceName" type="text" required maxlength="255" class="input" />
-      </div>
+      <DigitalFormField
+        v-model="form.referenceName"
+        type="text"
+        label="Your name (confirm or edit)"
+        required
+      />
 
-      <div class="form-group">
-        <label>Relationship to candidate</label>
-        <select v-model="form.relationshipType" class="input" required>
-          <option value="manager">Manager</option>
-          <option value="coworker">Coworker</option>
-          <option value="direct_report">Direct report</option>
-          <option value="other">Other</option>
-        </select>
-      </div>
-      <div v-if="form.relationshipType === 'other'" class="form-group">
-        <label>Describe relationship</label>
-        <input v-model="form.relationshipOther" type="text" class="input" maxlength="500" />
-      </div>
+      <DigitalFormField
+        v-model="form.relationshipType"
+        type="select"
+        label="Relationship to candidate"
+        required
+        :options="relationshipOptions"
+      />
+      <DigitalFormField
+        v-if="form.relationshipType === 'other'"
+        v-model="form.relationshipOther"
+        type="text"
+        label="Describe relationship"
+      />
 
-      <div class="form-group">
-        <label>Did {{ meta.candidateLabel }} work with you in this capacity?</label>
-        <select v-model="form.workedTogether" class="input" required>
-          <option value="" disabled>Select…</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
-      </div>
+      <DigitalFormField
+        v-model="form.workedTogether"
+        type="select"
+        :label="`Did ${meta.candidateLabel} work with you in this capacity?`"
+        required
+        :options="yesNoOptions"
+      />
 
-      <div class="form-group">
-        <label>Overall rating</label>
-        <select v-model="form.overallRating" class="input" required>
-          <option value="" disabled>Select…</option>
-          <option value="excellent">Excellent</option>
-          <option value="good">Good</option>
-          <option value="average">Average</option>
-          <option value="below_average">Below average</option>
-          <option value="would_not_recommend">Would not recommend</option>
-        </select>
-      </div>
+      <DigitalFormField
+        v-model="form.overallRating"
+        type="select"
+        label="Overall rating"
+        required
+        :options="ratingOptions"
+      />
 
       <fieldset class="traits">
         <legend>Traits</legend>
-        <div v-for="t in traitDefs" :key="t.key" class="form-group trait-row">
+        <div v-for="t in traitDefs" :key="t.key" class="trait-row">
           <span class="trait-label">{{ t.label }}</span>
-          <select v-model="form.traits[t.key]" class="input" required>
+          <select v-model="form.traits[t.key]" class="df-select" required>
             <option value="" disabled>—</option>
             <option value="strong">Strong</option>
             <option value="average">Average</option>
@@ -63,42 +81,47 @@
         </div>
       </fieldset>
 
-      <div class="form-group">
-        <label>Anything else we should know? (optional)</label>
-        <textarea v-model="form.additionalComments" class="textarea" rows="3" maxlength="8000" />
-      </div>
+      <DigitalFormField
+        v-model="form.additionalComments"
+        type="textarea"
+        label="Anything else we should know? (optional)"
+        :rows="3"
+      />
 
-      <div class="form-group">
-        <label>Concerns</label>
-        <select v-model="form.concernsLevel" class="input" required>
-          <option value="" disabled>Select…</option>
-          <option value="no">No concerns</option>
-          <option value="minor">Minor concerns</option>
-          <option value="yes">Yes — concerns</option>
-        </select>
-      </div>
-      <div v-if="form.concernsLevel === 'yes' || form.concernsLevel === 'minor'" class="form-group">
-        <label>Comment (optional)</label>
-        <textarea v-model="form.concernsComment" class="textarea" rows="2" maxlength="4000" />
-      </div>
+      <DigitalFormField
+        v-model="form.concernsLevel"
+        type="select"
+        label="Concerns"
+        required
+        :options="concernsOptions"
+      />
+      <DigitalFormField
+        v-if="form.concernsLevel === 'yes' || form.concernsLevel === 'minor'"
+        v-model="form.concernsComment"
+        type="textarea"
+        label="Comment (optional)"
+        :rows="2"
+      />
 
-      <div v-if="submitError" class="error-banner">{{ submitError }}</div>
-      <button type="submit" class="btn btn-primary" :disabled="submitting">
-        {{ submitting ? 'Submitting…' : 'Submit reference' }}
-      </button>
+      <div v-if="submitError" class="df-banner df-banner--warn">{{ submitError }}</div>
+      <div class="df-actions df-actions--end">
+        <button type="submit" class="df-btn df-btn-primary" :disabled="submitting">
+          {{ submitting ? 'Submitting…' : 'Submit reference' }}
+        </button>
+      </div>
     </form>
-
-    <div v-if="done" class="ref-card success">
-      <h2>Thank you</h2>
-      <p>Your reference has been submitted.</p>
-    </div>
-  </div>
+  </DigitalFormShell>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import {
+  DigitalFormShell,
+  DigitalFormField,
+  DigitalFormSuccess
+} from '../../components/digital-form';
 
 const route = useRoute();
 const token = computed(() => String(route.params.token || '').trim());
@@ -106,9 +129,16 @@ const token = computed(() => String(route.params.token || '').trim());
 const loading = ref(true);
 const loadError = ref('');
 const meta = ref(null);
+const formBranding = ref(null);
 const submitError = ref('');
 const submitting = ref(false);
 const done = ref(false);
+
+const progressSteps = [
+  { id: 'form', label: 'Reference' },
+  { id: 'done', label: 'Done' }
+];
+const progressIndex = computed(() => (done.value ? 1 : 0));
 
 const traitDefs = [
   { key: 'reliability', label: 'Reliability' },
@@ -116,6 +146,32 @@ const traitDefs = [
   { key: 'workQuality', label: 'Work quality' },
   { key: 'teamwork', label: 'Teamwork' },
   { key: 'initiative', label: 'Initiative' }
+];
+
+const relationshipOptions = [
+  { value: 'manager', label: 'Manager' },
+  { value: 'coworker', label: 'Coworker' },
+  { value: 'direct_report', label: 'Direct report' },
+  { value: 'other', label: 'Other' }
+];
+
+const yesNoOptions = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' }
+];
+
+const ratingOptions = [
+  { value: 'excellent', label: 'Excellent' },
+  { value: 'good', label: 'Good' },
+  { value: 'average', label: 'Average' },
+  { value: 'below_average', label: 'Below average' },
+  { value: 'would_not_recommend', label: 'Would not recommend' }
+];
+
+const concernsOptions = [
+  { value: 'no', label: 'No concerns' },
+  { value: 'minor', label: 'Minor concerns' },
+  { value: 'yes', label: 'Yes — concerns' }
 ];
 
 const form = reactive({
@@ -150,6 +206,7 @@ onMounted(async () => {
   try {
     const r = await api.get(`/public/hiring/reference/${encodeURIComponent(token.value)}`);
     meta.value = r.data;
+    formBranding.value = r.data?.branding || null;
     form.referenceName = String(r.data?.referenceName || '').trim();
   } catch (e) {
     loadError.value = e.response?.data?.error?.message || 'Unable to load this reference form.';
@@ -188,68 +245,27 @@ const submit = async () => {
 </script>
 
 <style scoped>
-.ref-root {
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 24px 16px 48px;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-}
-.ref-card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 20px 20px 24px;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
-}
-.ref-card.success {
+.df-loading {
+  padding: 2rem 0;
+  color: var(--df-muted);
   text-align: center;
 }
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--df-muted);
   margin: 0 0 8px;
 }
-h1 {
-  font-size: 1.35rem;
-  margin: 0 0 12px;
-}
 .muted {
-  color: #4b5563;
+  color: var(--df-muted);
   margin: 6px 0;
 }
 .muted.small {
   font-size: 13px;
 }
-.disclaimer {
-  font-size: 13px;
-  color: #374151;
-  background: #f9fafb;
-  border-left: 3px solid #9ca3af;
-  padding: 10px 12px;
-  margin: 16px 0;
-}
-.form-group {
-  margin-bottom: 14px;
-}
-.form-group label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-.input,
-.textarea {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  font-size: 15px;
-}
 .traits {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--df-border, #e5e7eb);
   border-radius: 8px;
   padding: 12px 14px 4px;
   margin: 16px 0;
@@ -258,35 +274,14 @@ h1 {
   display: flex;
   align-items: center;
   gap: 12px;
+  margin-bottom: 14px;
 }
 .trait-label {
   flex: 1;
   font-size: 14px;
+  font-weight: 600;
 }
-.trait-row .input {
+.trait-row .df-select {
   max-width: 160px;
-}
-.btn {
-  margin-top: 8px;
-  padding: 10px 18px;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  font-size: 15px;
-}
-.btn-primary {
-  background: #2563eb;
-  color: #fff;
-}
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.error-banner {
-  background: #fef2f2;
-  color: #991b1b;
-  padding: 10px 12px;
-  border-radius: 8px;
-  margin: 8px 0;
 }
 </style>

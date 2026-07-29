@@ -1,11 +1,11 @@
 <template>
-  <div class="container">
-    <div class="page-header">
+  <div class="container df-admin-page">
+    <div class="page-header df-admin-header">
       <div>
         <h1>Digital Forms</h1>
-        <p class="subtitle">Configure digital forms, documents, and custom fields for your agency.</p>
+        <p class="subtitle">Configure digital forms, documents, and custom fields for your agency. Participant previews match the public branded experience.</p>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;">
+      <div class="df-admin-header-actions">
         <router-link class="btn btn-secondary" to="/admin/surveys">Surveys</router-link>
         <button class="btn btn-secondary" type="button" @click="showQuestionSetsPanel = !showQuestionSetsPanel">
           {{ showQuestionSetsPanel ? 'Hide Question Sets' : 'Question Sets' }}
@@ -1847,7 +1847,7 @@
 
   <Teleport to="body">
     <div v-if="showAddOnPreviewModal" class="modal-backdrop addon-preview-backdrop" @click.self="closeAddOnPreviewModal">
-      <div class="modal-box addon-preview-modal-box" style="max-width: 860px;">
+      <div class="modal-box addon-preview-modal-box" style="max-width: 980px;">
         <div class="modal-header">
           <h3 style="margin:0;">{{ previewingStep ? 'Step Preview' : 'Preview Add-Ons' }}</h3>
           <button class="btn btn-xs btn-secondary" type="button" @click="closeAddOnPreviewModal">✕</button>
@@ -1885,6 +1885,12 @@
               </div>
             </div>
 
+            <AdminParticipantPreviewFrame
+              class="addon-preview-shell"
+              :program-title="previewShellTitle"
+              :subtitle="previewShellSubtitle"
+              :step-label="previewingStep?.label || selectedAddOnPreview?.label || 'Preview'"
+            >
             <div v-if="selectedAddOnPreviewId === 'guardian_waiver'" class="addon-preview-form">
               <PublicIntakeGuardianWaiverStep
                 :model-value="previewGuardianWaivers"
@@ -2181,6 +2187,7 @@
                 </select>
               </div>
             </div>
+            </AdminParticipantPreviewFrame>
           </template>
         </div>
       </div>
@@ -2233,6 +2240,7 @@ import { buildPublicIntakeUrl, buildFormUrl } from '../../utils/publicIntakeUrl'
 import PublicIntakeGuardianWaiverStep from '../../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
 import PublicIntakeInsuranceStep from '../../components/public-intake/PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from '../../components/public-intake/PublicIntakePaymentStep.vue';
+import AdminParticipantPreviewFrame from '../../components/digital-form/AdminParticipantPreviewFrame.vue';
 import {
   collectSpanishTranslationTargets,
   isActuallyTranslated,
@@ -2371,6 +2379,12 @@ const editingId = ref(null);
 const autosaveTimer = ref(null);
 const lastAutosaveAt = ref(null);
 const showAddOnPreviewModal = ref(false);
+const previewShellTitle = computed(() => 'Digital Form Preview');
+const previewShellSubtitle = computed(() =>
+  previewingStep.value
+    ? 'Live preview — reflects your current customizations'
+    : 'Participant-facing preview'
+);
 const selectedAddOnPreviewId = ref('');
 const campaignExpanded = ref({});
 /** True while hydrateCompanyEventPickerForEdit is running so the clearing watcher does not
@@ -6473,10 +6487,32 @@ watch(
   margin-bottom: 12px;
 }
 .addon-preview-form {
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 10px;
-  padding: 12px;
-  background: #f8fafc;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+.addon-preview-shell {
+  margin-top: 4px;
+}
+.df-admin-header {
+  align-items: flex-start;
+  gap: 1rem;
+}
+.df-admin-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.df-admin-page .page-header h1 {
+  letter-spacing: -0.02em;
+}
+.addon-preview-item {
+  border-radius: 14px !important;
+}
+.addon-preview-item:hover {
+  border-color: var(--primary, #1e4d3b) !important;
 }
 .communications-campaign-card {
   border: 1px solid var(--border, #e5e7eb);

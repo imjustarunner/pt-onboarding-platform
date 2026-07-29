@@ -489,27 +489,30 @@ function skipForNow() {
 .pi-pay-amount {
   font-weight: 700;
   font-size: 1.2rem;
-  color: var(--primary, #0f766e);
+  color: var(--df-primary, var(--primary, #1e4d3b));
 }
 .pi-pay-notice {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  background: color-mix(in srgb, var(--df-primary, #1e4d3b) 6%, #fff);
+  border: 1px solid var(--df-border, #e2e8f0);
+  border-left: 4px solid var(--df-primary, #1e4d3b);
+  border-radius: var(--df-radius-sm, 10px);
   padding: 12px 16px;
   font-size: 13px;
   line-height: 1.55;
-  color: #475569;
+  color: var(--df-muted, #475569);
 }
 .pi-pay-notice p { margin: 0; }
 .pi-pay-card {
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 10px;
+  border: 1px solid var(--df-border, var(--border, #e2e8f0));
+  border-radius: var(--df-radius, 14px);
   padding: 16px;
-  background: #fff;
+  background: var(--df-surface, #fff);
 }
 .pi-pay-card-title {
   margin: 0 0 14px;
-  font-size: 1rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--df-primary, #1e4d3b);
 }
 .pi-pay-lbl {
   display: block;
@@ -520,12 +523,12 @@ function skipForNow() {
 .req { color: var(--danger, #dc2626); }
 .pi-pay-input {
   width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--df-border, var(--border, #e2e8f0));
+  border-radius: var(--df-radius-sm, 10px);
   font-size: 14px;
   box-sizing: border-box;
-  background: #fff;
+  background: var(--df-input-bg, #f4f6f5);
 }
 .pi-pay-input--card {
   font-family: monospace;

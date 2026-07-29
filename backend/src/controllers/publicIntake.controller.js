@@ -48,6 +48,10 @@ import {
   resolveIntakeFormLocale
 } from '../utils/intakeFieldLabels.js';
 import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
+import {
+  buildPublicFormBranding,
+  requestBaseUrl
+} from '../services/publicFormBranding.service.js';
 
 /** Fetch the Stripe Connect account ID for an agency (null if not connected). */
 async function getAgencyStripeConnectAccountId(agencyId) {
@@ -3797,7 +3801,9 @@ const toOrgPayload = (org) => {
     official_name: org.official_name || null,
     organization_type: org.organization_type || null,
     logo_url: org.logo_url || null,
-    logo_path: org.logo_path || null
+    logo_path: org.logo_path || null,
+    slug: org.slug || null,
+    portal_url: org.portal_url || null
   };
 };
 
@@ -4545,6 +4551,11 @@ export const getPublicIntakeLink = async (req, res, next) => {
         : { siteKey: null, useEnterprise: false, forceWidget: false },
       organization: toOrgPayload(organization),
       agency: toOrgPayload(agency),
+      branding: await buildPublicFormBranding({
+        organization,
+        agency,
+        baseUrl: requestBaseUrl(req)
+      }),
       issuedLink: issuedRoiLink ? {
         id: issuedRoiLink.id,
         status: issuedRoiLink.status || 'issued',
@@ -9187,6 +9198,11 @@ export const getPublicRegistrationReceipt = async (req, res) => {
     const subSnap = intakeData?.responses?.submission && typeof intakeData.responses.submission === 'object'
       ? intakeData.responses.submission
       : {};
+    const branding = await buildPublicFormBranding({
+      organization,
+      agency,
+      baseUrl: requestBaseUrl(req)
+    });
     return res.json({
       submissionId,
       signerName: sub.signer_name || '',
@@ -9194,6 +9210,7 @@ export const getPublicRegistrationReceipt = async (req, res) => {
       formTitle: link.title || '',
       organizationName: organization?.name || '',
       agencyName: agency?.name || '',
+      branding,
       fromAddress,
       event: eventPlaceholders,
       registrationSelections: intakeData?.responses?.submission?.registrationSelections || [],

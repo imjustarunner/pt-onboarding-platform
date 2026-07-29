@@ -1077,16 +1077,23 @@ const submitRoi = async () => {
 }
 
 .smart-roi-card {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: var(--shadow);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
+.smart-roi-card > h3 {
+  color: var(--df-primary, #1e4d3b);
+  font-weight: 750;
+  letter-spacing: -0.02em;
 }
 
 .progress-label {
-  color: var(--text-secondary);
+  color: var(--df-primary, var(--text-secondary));
   font-size: 13px;
+  font-weight: 700;
   margin-bottom: 6px;
 }
 
@@ -1125,8 +1132,14 @@ const submitRoi = async () => {
 
 .subject-choice-row {
   display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-top: 12px;
+}
+@media (max-width: 640px) {
+  .subject-choice-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .subject-choice-hint {
@@ -1138,6 +1151,10 @@ const submitRoi = async () => {
 
 .roi-input {
   width: 100%;
+  border: 1px solid var(--df-border, var(--border)) !important;
+  background: var(--df-input-bg, #f4f6f5) !important;
+  border-radius: var(--df-radius-sm, 10px) !important;
+  padding: 0.65rem 0.85rem !important;
 }
 
 .required-highlight {
@@ -1166,10 +1183,18 @@ const submitRoi = async () => {
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 14px;
-  background: white;
+  border: 1.5px solid var(--df-border, var(--border));
+  border-radius: var(--df-radius, 14px);
+  padding: 1rem 1.1rem;
+  background: var(--df-surface, white);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.choice-card:has(input:checked) {
+  border-color: var(--df-accent, var(--df-primary, #c4a574));
+  box-shadow: 0 0 0 1px var(--df-accent, var(--df-primary, #c4a574));
+  background: color-mix(in srgb, var(--df-accent, #c4a574) 10%, #fff);
 }
 
 .required-note {

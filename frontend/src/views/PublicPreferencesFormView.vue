@@ -1,59 +1,52 @@
 <template>
-  <div class="pref-form-container">
-    <!-- Header -->
-    <div class="pref-form-header">
-      <div class="pref-form-logo" v-if="agencyName">{{ agencyName }}</div>
-      <h1 class="pref-form-title">Communication &amp; Notification Preferences</h1>
-      <p class="pref-form-subtitle">Update your personal notification and communication settings below.</p>
-    </div>
+  <DigitalFormShell
+    class="pref-form"
+    :branding="formBranding"
+    :program-title-override="agencyName || 'Communication Preferences'"
+    form-subtitle="Communication & Notification Preferences"
+    :progress-steps="progressSteps"
+    :progress-index="progressIndex"
+    :cover-mode="loading || !!fatalError || step === 'done'"
+  >
+    <div v-if="loading" class="df-loading">Loading…</div>
 
-    <!-- Loading -->
-    <div v-if="loading" class="pref-loading">
-      <span class="pref-spinner" />
-      <span>Loading&hellip;</span>
-    </div>
-
-    <!-- Error -->
-    <div v-else-if="fatalError" class="pref-error-card">
-      <p>{{ fatalError }}</p>
-    </div>
+    <div v-else-if="fatalError" class="df-banner df-banner--warn">{{ fatalError }}</div>
 
     <!-- Step 1: Identify -->
-    <div v-else-if="step === 'identify'" class="pref-card">
-      <h2>Identify Yourself</h2>
-      <p class="pref-muted">Enter the email address associated with your account and we'll load your current preferences.</p>
-      <div class="pref-field">
-        <label for="pref-email">Work Email <span class="req">*</span></label>
-        <input
-          id="pref-email"
-          v-model="emailInput"
-          type="email"
-          placeholder="you@example.com"
-          autocomplete="email"
-          @keydown.enter="identify"
-        />
+    <form v-else-if="step === 'identify'" @submit.prevent="identify">
+      <h1 class="df-title">Identify Yourself</h1>
+      <p class="df-subtitle">
+        Enter the email address associated with your account and we'll load your current preferences.
+      </p>
+      <DigitalFormField
+        v-model="emailInput"
+        type="email"
+        label="Work Email"
+        placeholder="you@example.com"
+        required
+        :error="identifyError"
+      />
+      <div class="df-actions df-actions--end">
+        <button type="submit" class="df-btn df-btn-primary" :disabled="identifying">
+          {{ identifying ? 'Looking up…' : 'Continue' }}
+          <span v-if="!identifying" aria-hidden="true">→</span>
+        </button>
       </div>
-      <p v-if="identifyError" class="pref-inline-error">{{ identifyError }}</p>
-      <button class="btn btn-primary pref-btn" :disabled="identifying" @click="identify">
-        <span v-if="identifying" class="pref-spinner-sm" />
-        {{ identifying ? 'Looking up…' : 'Continue' }}
-      </button>
-    </div>
+    </form>
 
     <!-- Step 2: Preferences form -->
-    <div v-else-if="step === 'form'" class="pref-card">
+    <div v-else-if="step === 'form'" class="pref-form-body">
       <div class="pref-welcome-row">
         <span class="pref-avatar">{{ initials }}</span>
         <div>
           <p class="pref-welcome-name">{{ fullName }}</p>
-          <p class="pref-muted" style="font-size:0.85rem;">Editing preferences for this account</p>
+          <p class="df-subtitle" style="margin: 0; font-size: 0.85rem;">Editing preferences for this account</p>
         </div>
       </div>
 
-      <!-- Section: Core Channels -->
       <section class="pref-section">
-        <h3>Notification Channels</h3>
-        <p class="pref-muted">Choose which channels you'd like to receive notifications through.</p>
+        <h3 class="df-section-title">Notification Channels</h3>
+        <p class="df-section-help">Choose which channels you'd like to receive notifications through.</p>
 
         <div class="pref-toggle-row">
           <div class="pref-toggle-info">
@@ -100,12 +93,9 @@
         </div>
       </section>
 
-      <!-- Section: Campaign 4 — Internal Workforce SMS -->
       <section class="pref-section">
-        <h3>Internal Workforce SMS Notifications</h3>
-        <p class="pref-muted">
-          This preference applies to your participating tenant accounts below.
-        </p>
+        <h3 class="df-section-title">Internal Workforce SMS Notifications</h3>
+        <p class="df-section-help">This preference applies to your participating tenant accounts below.</p>
         <div class="pref-tenant-disclosures">
           <div v-for="tenant in campaign4Tenants" :key="tenant.key" class="pref-tenant-block">
             <p class="pref-muted pref-tenant-disclosure">
@@ -138,10 +128,9 @@
         </div>
       </section>
 
-      <!-- Section: Quiet Hours -->
       <section class="pref-section">
-        <h3>Quiet Hours</h3>
-        <p class="pref-muted">When quiet hours are active, non-urgent notifications will be held until the window ends.</p>
+        <h3 class="df-section-title">Quiet Hours</h3>
+        <p class="df-section-help">When quiet hours are active, non-urgent notifications will be held until the window ends.</p>
 
         <div class="pref-toggle-row">
           <div class="pref-toggle-info">
@@ -157,11 +146,11 @@
           <div class="pref-field-row">
             <div class="pref-field">
               <label>Start Time</label>
-              <input type="time" v-model="prefs.quiet_hours_start_time" />
+              <input type="time" v-model="prefs.quiet_hours_start_time" class="df-input" />
             </div>
             <div class="pref-field">
               <label>End Time</label>
-              <input type="time" v-model="prefs.quiet_hours_end_time" />
+              <input type="time" v-model="prefs.quiet_hours_end_time" class="df-input" />
             </div>
           </div>
           <div class="pref-field">
@@ -181,9 +170,8 @@
         </div>
       </section>
 
-      <!-- Section: Display -->
       <section class="pref-section">
-        <h3>Display Preferences</h3>
+        <h3 class="df-section-title">Display Preferences</h3>
 
         <div class="pref-toggle-row">
           <div class="pref-toggle-info">
@@ -197,53 +185,53 @@
         </div>
 
         <div class="pref-field">
-          <label>Timezone</label>
-          <select v-model="prefs.timezone">
-            <option value="">System Default</option>
-            <option value="America/New_York">Eastern Time (ET)</option>
-            <option value="America/Chicago">Central Time (CT)</option>
-            <option value="America/Denver">Mountain Time (MT)</option>
-            <option value="America/Los_Angeles">Pacific Time (PT)</option>
-            <option value="America/Anchorage">Alaska Time (AKT)</option>
-            <option value="Pacific/Honolulu">Hawaii Time (HT)</option>
+          <label for="pref-timezone">Timezone</label>
+          <select id="pref-timezone" v-model="prefs.timezone" class="df-select">
+            <option v-for="opt in timezoneOptions" :key="opt.value || 'default'" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
 
         <div class="pref-field">
-          <label>Layout Density</label>
-          <select v-model="prefs.layout_density">
-            <option value="standard">Standard</option>
-            <option value="compact">Compact</option>
-            <option value="comfortable">Comfortable</option>
+          <label for="pref-density">Layout Density</label>
+          <select id="pref-density" v-model="prefs.layout_density" class="df-select">
+            <option v-for="opt in densityOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
       </section>
 
-      <!-- Save error -->
       <p v-if="saveError" class="pref-inline-error">{{ saveError }}</p>
 
-      <button class="btn btn-primary pref-btn" :disabled="saving" @click="save">
-        <span v-if="saving" class="pref-spinner-sm" />
-        {{ saving ? 'Saving…' : 'Save My Preferences' }}
-      </button>
+      <DigitalFormActions
+        :primary-label="saving ? 'Saving…' : 'Save My Preferences'"
+        :primary-disabled="saving"
+        :show-arrow="!saving"
+        @primary="save"
+      />
     </div>
 
     <!-- Step 3: Success -->
-    <div v-else-if="step === 'done'" class="pref-card pref-success-card">
-      <div class="pref-success-icon">&#10003;</div>
-      <h2>Preferences Saved</h2>
-      <p>Your notification and communication preferences have been updated. These changes are now live in your account.</p>
-      <p class="pref-muted" style="margin-top: 12px; font-size: 0.85rem;">
-        You can update your preferences again any time you receive this link, or by logging in to your account.
-      </p>
-    </div>
-  </div>
+    <DigitalFormSuccess
+      v-else-if="step === 'done'"
+      title="Preferences Saved"
+      body="Your notification and communication preferences have been updated. These changes are now live in your account. You can update your preferences again any time you receive this link, or by logging in to your account."
+    />
+  </DigitalFormShell>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
+import {
+  DigitalFormShell,
+  DigitalFormField,
+  DigitalFormActions,
+  DigitalFormSuccess
+} from '../components/digital-form';
 
 const route = useRoute();
 const publicKey = computed(() => route.params.publicKey);
@@ -252,7 +240,19 @@ const step = ref('identify');
 const loading = ref(true);
 const fatalError = ref('');
 const agencyName = ref('');
+const formBranding = ref(null);
 const tenantOptions = ref([]);
+
+const progressSteps = [
+  { id: 'identify', label: 'Identify' },
+  { id: 'form', label: 'Preferences' },
+  { id: 'done', label: 'Done' }
+];
+const progressIndex = computed(() => {
+  if (step.value === 'form') return 1;
+  if (step.value === 'done') return 2;
+  return 0;
+});
 
 const emailInput = ref('');
 const identifyError = ref('');
@@ -282,6 +282,22 @@ const internalWorkforceByTenant = ref({});
 
 const allDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const quietDaysSelected = ref([]);
+
+const timezoneOptions = [
+  { value: '', label: 'System Default' },
+  { value: 'America/New_York', label: 'Eastern Time (ET)' },
+  { value: 'America/Chicago', label: 'Central Time (CT)' },
+  { value: 'America/Denver', label: 'Mountain Time (MT)' },
+  { value: 'America/Los_Angeles', label: 'Pacific Time (PT)' },
+  { value: 'America/Anchorage', label: 'Alaska Time (AKT)' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii Time (HT)' }
+];
+
+const densityOptions = [
+  { value: 'standard', label: 'Standard' },
+  { value: 'compact', label: 'Compact' },
+  { value: 'comfortable', label: 'Comfortable' }
+];
 
 const prefs = reactive({
   email_enabled: true,
@@ -328,7 +344,9 @@ const loadLinkMeta = async () => {
       fatalError.value = 'This link is not a valid Internal Preferences form.';
       return;
     }
+    formBranding.value = resp.data?.branding || null;
     agencyName.value =
+      resp.data?.branding?.agencyName ||
       resp.data?.agency?.official_name ||
       resp.data?.agency?.name ||
       resp.data?.organization?.official_name ||
@@ -364,7 +382,6 @@ const identify = async () => {
         .filter((t) => t.name)
       : [];
 
-    // Hydrate local prefs
     const p = data.preferences || {};
     Object.assign(prefs, {
       email_enabled: p.email_enabled ?? true,
@@ -385,7 +402,6 @@ const identify = async () => {
     });
     quietDaysSelected.value = Array.isArray(p.quiet_hours_allowed_days) ? [...p.quiet_hours_allowed_days] : [];
 
-    // Detect Campaign 4 opt-in from notification_categories
     const cats = p.notification_categories || {};
     const byTenant = (cats.internal_workforce_sms_by_tenant && typeof cats.internal_workforce_sms_by_tenant === 'object')
       ? cats.internal_workforce_sms_by_tenant
@@ -412,7 +428,6 @@ const save = async () => {
   saveError.value = '';
   saving.value = true;
   try {
-    // Merge Campaign 4 opt-in into notification_categories
     const categories = { ...(prefs.notification_categories || {}) };
     const perTenant = {};
     let anyOptedIn = false;
@@ -448,72 +463,14 @@ onMounted(loadLinkMeta);
 </script>
 
 <style scoped>
-.pref-form-container {
-  min-height: 100vh;
-  background: var(--bg-page, #f8fafc);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 32px 16px 64px;
-}
-
-.pref-form-header {
-  text-align: center;
-  margin-bottom: 28px;
-  max-width: 560px;
-  width: 100%;
-}
-.pref-form-logo {
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-primary, #4f46e5);
-  margin-bottom: 10px;
-}
-.pref-form-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--text-primary, #111827);
-  margin: 0 0 8px;
-}
-.pref-form-subtitle {
-  color: var(--text-secondary, #6b7280);
-  font-size: 0.95rem;
-  margin: 0;
-}
-
-.pref-card {
-  background: #fff;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 12px;
-  padding: 32px;
-  max-width: 560px;
-  width: 100%;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-}
-
-.pref-loading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--text-secondary, #6b7280);
-  padding: 48px;
-}
-
-.pref-error-card {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 10px;
-  padding: 24px 28px;
-  color: #b91c1c;
-  max-width: 480px;
-  width: 100%;
+.df-loading {
+  padding: 2rem 0;
+  color: var(--df-muted);
   text-align: center;
 }
 
 .pref-muted {
-  color: var(--text-secondary, #6b7280);
+  color: var(--df-muted);
   font-size: 0.9rem;
 }
 
@@ -526,16 +483,7 @@ onMounted(loadLinkMeta);
 .pref-field label {
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--text-primary, #111827);
-}
-.pref-field input,
-.pref-field select {
-  padding: 9px 12px;
-  border: 1px solid var(--border, #d1d5db);
-  border-radius: 8px;
-  font-size: 0.95rem;
-  background: #fff;
-  color: var(--text-primary, #111827);
+  color: var(--df-text);
 }
 .pref-field-row {
   display: grid;
@@ -548,7 +496,7 @@ onMounted(loadLinkMeta);
   gap: 16px;
 }
 .pref-tenant-block {
-  border: 1px solid var(--border, #e5e7eb);
+  border: 1px solid var(--df-border, #e5e7eb);
   border-radius: 10px;
   padding: 12px 14px;
   background: #fff;
@@ -559,7 +507,6 @@ onMounted(loadLinkMeta);
 .pref-radio-group-tenant {
   margin-top: 10px;
 }
-.req { color: #dc2626; }
 
 .pref-inline-error {
   color: #dc2626;
@@ -567,16 +514,6 @@ onMounted(loadLinkMeta);
   margin: -4px 0 12px;
 }
 
-.pref-btn {
-  margin-top: 8px;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-/* Toggle */
 .pref-toggle { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; }
 .pref-toggle input { opacity: 0; width: 0; height: 0; }
 .pref-toggle-track {
@@ -585,7 +522,7 @@ onMounted(loadLinkMeta);
   border-radius: 999px;
   transition: background 0.2s;
 }
-.pref-toggle input:checked + .pref-toggle-track { background: var(--color-primary, #4f46e5); }
+.pref-toggle input:checked + .pref-toggle-track { background: var(--df-primary); }
 .pref-toggle-track::after {
   content: '';
   position: absolute;
@@ -603,7 +540,7 @@ onMounted(loadLinkMeta);
   align-items: center;
   justify-content: space-between;
   padding: 12px 0;
-  border-bottom: 1px solid var(--border, #f0f0f0);
+  border-bottom: 1px solid var(--df-border, #f0f0f0);
   gap: 16px;
 }
 .pref-toggle-row:last-child { border-bottom: none; }
@@ -612,23 +549,14 @@ onMounted(loadLinkMeta);
   flex-direction: column;
   gap: 2px;
 }
-.pref-toggle-info strong { font-size: 0.9rem; color: var(--text-primary, #111827); }
+.pref-toggle-info strong { font-size: 0.9rem; color: var(--df-text); }
 .pref-toggle-info .pref-muted { font-size: 0.82rem; }
 
-/* Section */
 .pref-section {
   margin-top: 28px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border, #e5e7eb);
-}
-.pref-section h3 {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text-primary, #111827);
-  margin: 0 0 6px;
+  padding-top: 8px;
 }
 
-/* Radio group */
 .pref-radio-group { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .pref-radio-row {
   display: flex;
@@ -637,14 +565,13 @@ onMounted(loadLinkMeta);
   font-size: 0.9rem;
   cursor: pointer;
 }
-.pref-radio-row input[type="radio"] { accent-color: var(--color-primary, #4f46e5); }
+.pref-radio-row input[type="radio"] { accent-color: var(--df-primary); }
 
-/* Quiet hours */
 .pref-quiet-block { padding: 16px 0 0; }
 .pref-day-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .pref-day-chip {
   padding: 5px 12px;
-  border: 1px solid var(--border, #d1d5db);
+  border: 1px solid var(--df-border, #d1d5db);
   border-radius: 20px;
   font-size: 0.8rem;
   cursor: pointer;
@@ -652,21 +579,24 @@ onMounted(loadLinkMeta);
   transition: all 0.15s;
 }
 .pref-day-chip input { display: none; }
-.pref-day-chip.active { background: var(--color-primary, #4f46e5); color: #fff; border-color: var(--color-primary, #4f46e5); }
+.pref-day-chip.active {
+  background: var(--df-primary);
+  color: #fff;
+  border-color: var(--df-primary);
+}
 
-/* Welcome row */
 .pref-welcome-row {
   display: flex;
   align-items: center;
   gap: 14px;
   padding-bottom: 20px;
-  border-bottom: 1px solid var(--border, #e5e7eb);
+  border-bottom: 1px solid var(--df-border, #e5e7eb);
   margin-bottom: 4px;
 }
 .pref-avatar {
   width: 44px; height: 44px;
   border-radius: 50%;
-  background: var(--color-primary, #4f46e5);
+  background: var(--df-primary);
   color: #fff;
   font-weight: 700;
   font-size: 1rem;
@@ -675,38 +605,5 @@ onMounted(loadLinkMeta);
   justify-content: center;
   flex-shrink: 0;
 }
-.pref-welcome-name { font-weight: 700; font-size: 1rem; margin: 0; color: var(--text-primary, #111827); }
-
-/* Success */
-.pref-success-card { text-align: center; }
-.pref-success-icon {
-  width: 56px; height: 56px;
-  border-radius: 50%;
-  background: #d1fae5;
-  color: #065f46;
-  font-size: 1.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 20px;
-}
-
-/* Spinners */
-.pref-spinner {
-  width: 28px; height: 28px;
-  border: 3px solid #e5e7eb;
-  border-top-color: var(--color-primary, #4f46e5);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  display: inline-block;
-}
-.pref-spinner-sm {
-  width: 14px; height: 14px;
-  border: 2px solid rgba(255,255,255,0.4);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  display: inline-block;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
+.pref-welcome-name { font-weight: 700; font-size: 1rem; margin: 0; color: var(--df-text); }
 </style>

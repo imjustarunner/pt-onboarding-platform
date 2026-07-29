@@ -1,25 +1,36 @@
 <template>
-  <div class="lbw-page">
-    <div v-if="loading" class="lbw-state">Loading assessment…</div>
-    <div v-else-if="error" class="lbw-state error">{{ error }}</div>
+  <DigitalFormShell
+    class="lbw-page"
+    :branding="formBranding"
+    program-title-override="Life Balance Assessment"
+    form-subtitle="Life Balance Wheel"
+    :progress-steps="shellProgressSteps"
+    :progress-index="shellProgressIndex"
+    :cover-mode="loading || !!error || step === 'intro' || step === 'done'"
+    :hide-sidebar="!showShellChrome"
+    :wide="!showShellChrome"
+    :show-header="showShellChrome"
+  >
+    <div v-if="loading" class="df-loading">Loading assessment…</div>
+    <div v-else-if="error" class="df-banner df-banner--warn">{{ error }}</div>
     <template v-else-if="assessment">
       <!-- Intro -->
-      <section v-if="step === 'intro'" class="lbw-shell lbw-shell--narrow">
-        <h1 class="lbw-page-title">Explore Your Life Balance</h1>
-        <p class="lbw-lead">
+      <section v-if="step === 'intro'" class="lbw-chrome">
+        <h1 class="df-title">Explore Your Life Balance</h1>
+        <p class="df-subtitle">
           This assessment will help you reflect on ten important areas of your life.
           There are no right or wrong answers — a snapshot of how life feels right now.
         </p>
         <p class="lbw-helper">About 8–12 minutes</p>
         <div class="lbw-actions">
-          <button type="button" class="lbw-btn primary" @click="step = 'instructions'">Begin Assessment</button>
-          <button type="button" class="lbw-btn ghost" @click="step = 'instructions'">How it works</button>
+          <button type="button" class="df-btn df-btn-primary" @click="step = 'instructions'">Begin Assessment</button>
+          <button type="button" class="df-btn df-btn-secondary" @click="step = 'instructions'">How it works</button>
         </div>
       </section>
 
       <!-- Instructions -->
-      <section v-else-if="step === 'instructions'" class="lbw-shell lbw-shell--narrow">
-        <h1 class="lbw-page-title">How it works</h1>
+      <section v-else-if="step === 'instructions'" class="lbw-chrome">
+        <h1 class="df-title">How it works</h1>
         <ol class="lbw-steps">
           <li>Read each life area definition.</li>
           <li>Choose a satisfaction score from 1 to 10 and watch the wheel update.</li>
@@ -30,7 +41,7 @@
           Rate your current satisfaction over the past two to four weeks.
         </p>
         <div class="lbw-actions">
-          <button type="button" class="lbw-btn primary" @click="startCategories">Continue</button>
+          <button type="button" class="df-btn df-btn-primary" @click="startCategories">Continue</button>
         </div>
       </section>
 
@@ -376,49 +387,47 @@
       </section>
 
       <!-- Done -->
-      <section v-else-if="step === 'done'" class="lbw-shell lbw-shell--narrow lbw-shell--center lbw-print-results">
-        <h1 class="lbw-page-title">{{ isGuest ? 'Your Life Balance results' : 'Assessment complete' }}</h1>
-        <p class="lbw-lead">
-          <template v-if="isGuest">
-            Download or print your results for yourself. Nothing was linked to an account.
-          </template>
-          <template v-else>
-            Thank you. Your Life Balance Wheel is saved and ready for review.
-          </template>
-        </p>
-        <LifeBalanceWheel
-          :categories="wheelCategories"
-          :interactive="false"
-          compact
-          center-title="Life Balance"
-          :center-value="avgDisplay"
-          center-caption="Average"
-        />
-        <ul v-if="isGuest" class="lbw-guest-score-list">
-          <li v-for="c in wheelCategories" :key="c.key">
-            <span class="lbw-guest-score-swatch" :style="{ background: c.color }" />
-            <span>{{ c.label }}</span>
-            <strong>{{ c.score ?? '—' }}</strong>
-          </li>
-        </ul>
-        <p v-if="isGuest && priorities.length" class="lbw-guest-priorities">
-          Focus areas:
-          <strong>{{ priorities.map(labelFor).join(', ') }}</strong>
-        </p>
-        <div class="lbw-actions" style="justify-content: center;">
-          <template v-if="isGuest">
-            <button type="button" class="lbw-btn primary" @click="downloadResultsPdf">Download / print PDF</button>
-            <button type="button" class="lbw-btn ghost" @click="downloadResultsJson">Download JSON</button>
-            <button type="button" class="lbw-btn ghost" @click="resetGuestAssessment">Start over</button>
-          </template>
-          <template v-else>
-            <button v-if="returnTo" type="button" class="lbw-btn primary" @click="goReturn">Return</button>
-            <button v-else type="button" class="lbw-btn ghost" @click="step = 'review'">View snapshot</button>
-          </template>
-        </div>
+      <section v-else-if="step === 'done'" class="lbw-chrome lbw-chrome--center lbw-print-results">
+        <DigitalFormSuccess
+          :title="isGuest ? 'Your Life Balance results' : 'Assessment complete'"
+          :body="isGuest
+            ? 'Download or print your results for yourself. Nothing was linked to an account.'
+            : 'Thank you. Your Life Balance Wheel is saved and ready for review.'"
+        >
+          <LifeBalanceWheel
+            :categories="wheelCategories"
+            :interactive="false"
+            compact
+            center-title="Life Balance"
+            :center-value="avgDisplay"
+            center-caption="Average"
+          />
+          <ul v-if="isGuest" class="lbw-guest-score-list">
+            <li v-for="c in wheelCategories" :key="c.key">
+              <span class="lbw-guest-score-swatch" :style="{ background: c.color }" />
+              <span>{{ c.label }}</span>
+              <strong>{{ c.score ?? '—' }}</strong>
+            </li>
+          </ul>
+          <p v-if="isGuest && priorities.length" class="lbw-guest-priorities">
+            Focus areas:
+            <strong>{{ priorities.map(labelFor).join(', ') }}</strong>
+          </p>
+          <div class="lbw-actions" style="justify-content: center;">
+            <template v-if="isGuest">
+              <button type="button" class="df-btn df-btn-primary" @click="downloadResultsPdf">Download / print PDF</button>
+              <button type="button" class="df-btn df-btn-secondary" @click="downloadResultsJson">Download JSON</button>
+              <button type="button" class="df-btn df-btn-ghost" @click="resetGuestAssessment">Start over</button>
+            </template>
+            <template v-else>
+              <button v-if="returnTo" type="button" class="df-btn df-btn-primary" @click="goReturn">Return</button>
+              <button v-else type="button" class="df-btn df-btn-secondary" @click="step = 'review'">View snapshot</button>
+            </template>
+          </div>
+        </DigitalFormSuccess>
       </section>
     </template>
-  </div>
+  </DigitalFormShell>
 </template>
 
 <script setup>
@@ -427,6 +436,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import LifeBalanceWheel from '../../components/lifeBalance/LifeBalanceWheel.vue';
 import LifeBalanceCategoryIcon from '../../components/lifeBalance/LifeBalanceCategoryIcon.vue';
+import { DigitalFormShell, DigitalFormSuccess } from '../../components/digital-form';
 import { tintBackground, withAlpha } from '../../utils/lifeBalanceColors.js';
 import { averageScore } from '../../utils/lifeBalanceWheelGeometry.js';
 import { scoreEncouragement } from '../../utils/lifeBalanceIcons.js';
@@ -442,8 +452,29 @@ const router = useRouter();
 const loading = ref(true);
 const error = ref('');
 const assessment = ref(null);
+const formBranding = ref(null);
 const step = ref('intro');
 const categoryIndex = ref(0);
+
+const showShellChrome = computed(() =>
+  loading.value || !!error.value || ['intro', 'instructions', 'done'].includes(step.value)
+);
+const shellProgressSteps = computed(() =>
+  showShellChrome.value
+    ? [
+        { id: 'intro', label: 'Intro' },
+        { id: 'instructions', label: 'Instructions' },
+        { id: 'assess', label: 'Assessment' },
+        { id: 'done', label: 'Done' }
+      ]
+    : []
+);
+const shellProgressIndex = computed(() => {
+  if (step.value === 'instructions') return 1;
+  if (step.value === 'done') return 3;
+  if (['category', 'review', 'priorities', 'goals'].includes(step.value)) return 2;
+  return 0;
+});
 const saveStatus = ref('');
 const lastSavedAt = ref(null);
 const savingGoal = ref(false);
@@ -863,6 +894,14 @@ async function load() {
     }
 
     const intakeKey = String(route.params.publicKey || route.query.intakeKey || '').trim();
+    if (intakeKey && !formBranding.value) {
+      try {
+        const brandRes = await api.get(`/public-intake/${encodeURIComponent(intakeKey)}`, quiet);
+        formBranding.value = brandRes.data?.branding || null;
+      } catch {
+        // leave forest-green defaults when branding is unavailable
+      }
+    }
     if (intakeKey && !token.value && !authId.value) {
       const res = await api.post(
         `/life-balance/start/${encodeURIComponent(intakeKey)}`,
@@ -876,7 +915,10 @@ async function load() {
       if (assessment.value?.accessToken) {
         await router.replace({
           path: `/lbw/${encodeURIComponent(assessment.value.accessToken)}`,
-          query: { returnTo: route.query.returnTo || undefined }
+          query: {
+            returnTo: route.query.returnTo || undefined,
+            intakeKey: intakeKey || undefined
+          }
         });
         return;
       }
@@ -1228,33 +1270,37 @@ onMounted(load);
 
 <style scoped>
 .lbw-page {
-  --lbw-ink: #0f172a;
-  --lbw-muted: #64748b;
+  --lbw-ink: var(--df-text, #0f172a);
+  --lbw-muted: var(--df-muted, #64748b);
   --lbw-line: #e2e8f0;
   --lbw-soft: #f8fafc;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 1.25rem 1rem 1.75rem;
-  font-family: "Avenir Next", "Segoe UI", ui-sans-serif, sans-serif;
-  color: var(--lbw-ink);
+  --lbw-primary: var(--df-primary, #1e4d3b);
+}
+.lbw-page.df-shell--hide-sidebar {
   background:
-    radial-gradient(1200px 500px at 10% -10%, rgba(191, 217, 155, 0.22), transparent 55%),
+    radial-gradient(1200px 500px at 10% -10%, color-mix(in srgb, var(--lbw-primary) 18%, transparent), transparent 55%),
     radial-gradient(900px 420px at 90% 0%, rgba(159, 213, 212, 0.2), transparent 50%),
     linear-gradient(180deg, #f7f8f5 0%, #eef2f0 100%);
 }
-
-.lbw-state {
-  max-width: 40rem;
-  margin: 0 auto;
-  padding: 2.5rem 1.5rem;
-  text-align: center;
-  background: #fff;
-  border-radius: 20px;
-  border: 1px solid var(--lbw-line);
+.lbw-page.df-shell--hide-sidebar :deep(.df-main) {
+  background: transparent;
 }
-.lbw-state.error { color: #991b1b; }
+.lbw-page.df-shell--hide-sidebar :deep(.df-main-body--wide) {
+  max-width: 1240px;
+  padding-top: 1.25rem;
+}
+.df-loading {
+  padding: 2rem 0;
+  color: var(--df-muted);
+  text-align: center;
+}
+.lbw-chrome {
+  max-width: 40rem;
+}
+.lbw-chrome--center {
+  text-align: center;
+  max-width: none;
+}
 
 .lbw-shell {
   width: min(1240px, 100%);
@@ -1614,12 +1660,12 @@ onMounted(load);
   transition: transform 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
 }
 .lbw-btn.primary {
-  background: #166534;
-  border-color: #166534;
+  background: var(--df-primary, #166534);
+  border-color: var(--df-primary, #166534);
   color: #fff;
 }
 .lbw-btn.primary:hover:not(:disabled) {
-  box-shadow: 0 10px 22px rgba(22, 101, 52, 0.22);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--df-primary, #166534) 35%, transparent);
   transform: translateY(-1px);
 }
 .lbw-btn.ghost { background: #fff; color: #334155; }

@@ -305,7 +305,21 @@ export async function publicOfficeIntakeInfo(req, res, next) {
   try {
     const agency = await ClientExchange.getPublicOfficeIntakeAgency(req.params.agencySlug);
     if (!agency) return res.status(404).json({ error: { message: 'Organization not found' } });
-    res.json({ agency });
+    let branding = null;
+    try {
+      const {
+        buildPublicFormBranding,
+        requestBaseUrl
+      } = await import('../services/publicFormBranding.service.js');
+      branding = await buildPublicFormBranding({
+        organization: agency,
+        agency,
+        baseUrl: requestBaseUrl(req)
+      });
+    } catch {
+      branding = null;
+    }
+    res.json({ agency, branding });
   } catch (e) {
     next(e);
   }

@@ -1,11 +1,27 @@
 <template>
-  <div class="public-intake container">
-    <div v-if="loading" class="loading">{{ loadingText }}</div>
-    <div v-else-if="fatalError" class="error">{{ fatalError }}</div>
+  <DigitalFormShell
+    class="public-intake"
+    :branding="formBranding"
+    :program-title-override="shellProgramTitle"
+    :form-title-override="shellFormDocumentTitle"
+    :form-subtitle="shellFormSubtitle"
+    :progress-steps="dfProgressSteps"
+    :progress-index="dfProgressIndex"
+    :cover-mode="step < 1 || loading || !!fatalError"
+    :hide-sidebar="isJobApplication && step === -1"
+    :wide="isJobApplication && step === -1 || step === 2"
+    :show-language-toggle="hasLinkedLanguageToggle && !loading && !fatalError"
+    :language="currentFormLanguage"
+    :language-switching="linkedLanguageSwitching"
+    :language-disabled="linkedLanguageSwitching"
+    @update:language="switchLinkedLanguage"
+  >
+    <div v-if="loading" class="df-loading">{{ loadingText }}</div>
+    <div v-else-if="fatalError" class="df-fatal error">{{ fatalError }}</div>
 
     <div v-else class="intake-card" :class="{ 'intake-card--job-landing': isJobApplication && step === -1 }">
       <!-- Inline recoverable error banner — form stays fully visible and Back works -->
-      <div v-if="error" class="intake-inline-error-banner">
+      <div v-if="error" class="intake-inline-error-banner df-banner df-banner--warn">
         <span>{{ error }}</span>
         <button type="button" class="intake-inline-error-dismiss" @click="error = ''">&#10005;</button>
       </div>
@@ -17,28 +33,10 @@
       >
         Dev Fill
       </button>
-      <h2 v-if="!(isJobApplication && step === -1)">{{ tx(link?.title || defaultTitle) }}</h2>
-      <p v-if="link?.description && !(isJobApplication && step === -1)" class="muted">{{ tx(link.description) }}</p>
-      <div v-if="hasLinkedLanguageToggle" class="intake-language-toggle" role="group" aria-label="Form language">
-        <button
-          type="button"
-          class="intake-language-btn intake-language-btn--en"
-          :class="{ 'intake-language-btn--active': currentFormLanguage === 'en' }"
-          :aria-pressed="currentFormLanguage === 'en'"
-          :disabled="linkedLanguageSwitching || currentFormLanguage === 'en'"
-          @click="switchLinkedLanguage('en')"
-        >🇺🇸 English</button>
-        <button
-          type="button"
-          class="intake-language-btn intake-language-btn--es"
-          :class="{ 'intake-language-btn--active': currentFormLanguage === 'es' }"
-          :aria-pressed="currentFormLanguage === 'es'"
-          :disabled="linkedLanguageSwitching || currentFormLanguage === 'es'"
-          @click="switchLinkedLanguage('es')"
-        >🇲🇽 Español</button>
-        <span v-if="linkedLanguageSwitching" class="intake-language-status muted" aria-live="polite">…</span>
-      </div>
-      <div v-if="draftRestoredMessage" class="draft-restored-banner">{{ draftRestoredMessage }}</div>
+      <template v-if="!(isJobApplication && step === -1) && step >= 1 && link?.description">
+        <p class="df-form-lead">{{ tx(link.description) }}</p>
+      </template>
+      <div v-if="draftRestoredMessage" class="draft-restored-banner df-banner df-banner--info">{{ draftRestoredMessage }}</div>
 
       <div v-if="step === -1" class="step cover-step">
         <div v-if="isJobApplication" class="job-landing-shell">
@@ -142,14 +140,26 @@
           </section>
         </div>
 
-        <div v-else class="cover-card">
-          <div v-for="screen in introScreens" :key="screen.key" class="cover-logo">
-            <img v-if="screen.logoUrl" :src="screen.logoUrl" :alt="screen.altText" />
-            <div class="cover-title">{{ screen.displayName }}</div>
+        <div v-else class="df-cover">
+          <div class="df-cover-logos">
+            <div v-for="screen in introScreens" :key="screen.key" class="cover-logo">
+              <img v-if="screen.logoUrl" :src="screen.logoUrl" :alt="screen.altText" />
+            </div>
           </div>
-          <div class="cover-subtitle">
-            {{ beginSubtitleText }}
+          <p class="df-cover-welcome">{{ t('welcome') || 'Welcome to' }}</p>
+          <h1 class="df-cover-program">{{ shellProgramTitle }}</h1>
+          <div class="df-heart-divider" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 21s-6.5-4.35-9.33-8.1C.5 9.9 1.1 6.2 4.2 4.7c1.9-.9 4.1-.3 5.4 1.3C10.9 4.4 13.1 3.8 15 4.7c3.1 1.5 3.7 5.2 1.53 8.2C18.5 16.65 12 21 12 21z"/></svg>
           </div>
+          <p class="df-cover-lead">
+            {{ tx(link?.description) || beginSubtitleText }}
+          </p>
+
+          <DigitalFormNotice
+            v-if="link?.description"
+            :title="tx('Registration Notice') || 'Registration Notice'"
+            :body="tx(link.description)"
+          />
 
           <div v-if="showCaptchaGate" class="captcha-block captcha-block-start">
             <div class="muted">{{ t('protectedByRecaptcha') }}</div>
@@ -168,26 +178,22 @@
             </div>
           </div>
 
-          <div class="actions">
-            <button
-              class="btn btn-primary"
-              type="button"
-              :disabled="(requiresCaptchaAtStart && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
-              @click="beginIntakeSession"
-            >
-              {{ beginIntakeButtonText }}
-            </button>
-          </div>
+          <DigitalFormActions
+            :primary-label="beginIntakeButtonText"
+            :primary-disabled="(requiresCaptchaAtStart && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
+            :hint="tx('Press Enter ↵ to continue') || 'Press Enter ↵ to continue'"
+            @primary="beginIntakeSession"
+          />
           <div v-if="beginError" class="error" style="margin-top: 10px;">{{ beginError }}</div>
         </div>
       </div>
 
       <div v-else-if="step === 0" class="step cover-step">
-        <div class="cover-card">
-          <div class="cover-logo" v-if="currentIntro?.logoUrl">
+        <div class="df-cover">
+          <div class="df-cover-logos" v-if="currentIntro?.logoUrl">
             <img :src="currentIntro.logoUrl" :alt="currentIntro.altText" />
           </div>
-          <div class="cover-title">{{ currentIntro?.displayName || t('welcome') }}</div>
+          <div class="df-cover-program">{{ currentIntro?.displayName || t('welcome') }}</div>
           <div v-if="currentIntro?.subtitle" class="cover-subtitle">{{ currentIntro.subtitle }}</div>
           <div v-if="introIndex === 0" class="cover-subtitle">
             {{ t('formTimeLimit') }}
@@ -241,25 +247,33 @@
           :bound-client="boundClient"
           @completed="handleSmartRoiCompleted"
         />
-        <div v-else>
-        <h3>{{ t('questions') }}</h3>
+        <div v-else class="intake-step-body">
+        <h3 class="df-section-title">{{ t('questions') || "Welcome! Let's get started" }}</h3>
+        <p class="df-section-help">{{ tx('Tell us a bit about you so we can prepare the right forms.') || 'Tell us a bit about you so we can prepare the right forms.' }}</p>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
 
-        <div v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound" class="form-group">
-          <label>{{ t('whoIsIntakeFor') }}</label>
-          <div class="radio-group">
-            <label class="radio-row">
-              <input type="radio" name="intakeForSelf" :value="true" v-model="intakeForSelf" />
-              <span>{{ t('myself') }}</span>
-            </label>
-            <label class="radio-row">
-              <input type="radio" name="intakeForSelf" :value="false" v-model="intakeForSelf" />
-              <span>{{ t('myDependents') }}</span>
-            </label>
+        <div class="intake-section">
+        <div v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound">
+          <h3 class="df-section-title">{{ t('whoIsIntakeFor') }}</h3>
+          <div class="df-choice-grid">
+            <DigitalFormSelectionCard
+              :title="t('myself')"
+              :description="tx('I am completing this form for myself') || 'I am completing this form for myself'"
+              icon="👤"
+              :selected="intakeForSelf === true"
+              @select="intakeForSelf = true"
+            />
+            <DigitalFormSelectionCard
+              :title="t('myDependents')"
+              :description="tx('I am a parent or guardian submitting for my child(ren)') || 'I am a parent or guardian submitting for my child(ren)'"
+              icon="👨‍👩‍👧"
+              :selected="intakeForSelf === false"
+              @select="intakeForSelf = false"
+            />
           </div>
         </div>
-        <div class="form-grid">
-          <div class="form-group">
+        <div class="form-grid intake-identity-grid">
+          <div class="form-group form-group--span-4">
             <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourFirstName') : t('guardianFirstName') }}</label>
             <input
               id="guardianFirstName"
@@ -269,7 +283,7 @@
             />
             <div v-if="consentErrors.guardianFirstName" class="error-text">{{ consentErrors.guardianFirstName }}</div>
           </div>
-          <div class="form-group">
+          <div class="form-group form-group--span-4">
             <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourLastName') : t('guardianLastName') }}</label>
             <input
               id="guardianLastName"
@@ -279,7 +293,7 @@
             />
             <div v-if="consentErrors.guardianLastName" class="error-text">{{ consentErrors.guardianLastName }}</div>
           </div>
-          <div class="form-group">
+          <div class="form-group form-group--span-8">
             <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourEmail') : t('guardianEmail') }}</label>
             <input
               id="guardianEmail"
@@ -298,7 +312,7 @@
               Existing client record matched for this school (initials + affiliation). Some steps may be shortened.
             </div>
           </div>
-          <div class="form-group">
+          <div class="form-group form-group--span-4">
             <label>
               {{
                 isJobApplication
@@ -314,7 +328,7 @@
             />
             <div v-if="consentErrors.guardianPhone" class="error-text">{{ consentErrors.guardianPhone }}</div>
           </div>
-          <div v-if="isJobApplication" class="form-group" style="grid-column: 1 / -1;">
+          <div v-if="isJobApplication" class="form-group form-group--span-12">
             <label>Languages spoken fluently</label>
             <input
               v-model="fluentLanguagesInput"
@@ -323,16 +337,23 @@
             />
             <div class="muted small" style="margin-top:4px;">Add comma-separated languages.</div>
           </div>
-          <div v-if="!isMedicalRecordsRequest && !isJobApplication && !intakeForSelf" class="form-group">
+          <div v-if="!isMedicalRecordsRequest && !isJobApplication && !intakeForSelf" class="form-group form-group--span-4">
             <label>{{ t('relationship') }}</label>
             <input v-model="guardianRelationship" type="text" :placeholder="t('relationshipPlaceholder')" />
           </div>
         </div>
+        </div>
 
-        <div v-if="visibleGuardianFields.length" class="custom-fields">
+        <div v-if="isClientBound && !isMedicalRecordsRequest && !isJobApplication" class="bound-client-card">
+          <div class="bound-client-label">Client</div>
+          <div class="bound-client-name">{{ boundClientDisplayName }}</div>
+          <div class="muted">This signing link is already assigned to this client.</div>
+        </div>
+
+        <div v-if="visibleGuardianFields.length" class="custom-fields intake-section">
           <h4>{{ guardianSectionTitle }}</h4>
           <div class="form-grid">
-            <div v-for="field in visibleGuardianFields" :key="field.key" class="form-group">
+            <div v-for="field in visibleGuardianFields" :key="field.key" class="form-group" :class="intakeFieldGridSpan(field)">
               <div v-if="field.type === 'info'" class="info-block">
                 <div class="info-title">{{ txField(field) || t('notice') }}</div>
                 <div v-if="field.helperText" class="info-text">{{ txField(field, 'helperText') }}</div>
@@ -386,7 +407,7 @@
             {{ t('oneTimeQuestionsDesc') }}
           </div>
           <div class="form-grid">
-            <div v-for="field in visibleSubmissionFields" :key="field.key" class="form-group">
+            <div v-for="field in visibleSubmissionFields" :key="field.key" class="form-group" :class="intakeFieldGridSpan(field)">
               <div v-if="field.type === 'info'" class="info-block">
                 <div class="info-title">{{ txField(field) || t('notice') }}</div>
                 <div v-if="field.helperText" class="info-text">{{ txField(field, 'helperText') }}</div>
@@ -433,39 +454,27 @@
           </div>
         </div>
 
-        <div v-if="isClientBound && !isMedicalRecordsRequest && !isJobApplication" class="bound-client-card">
-          <div class="bound-client-label">Client</div>
-          <div class="bound-client-name">{{ boundClientDisplayName }}</div>
-          <div class="muted">This signing link is already assigned to this client.</div>
-        </div>
-
         <div
           v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound && !intakeForSelf"
-          class="multi-client-plan-block"
+          class="multi-client-plan-block intake-section"
         >
-          <h4>{{ t('multiClientPlanTitle') }}</h4>
-          <p class="muted multi-client-plan-desc">{{ t('multiClientPlanDesc') }}</p>
-          <div class="radio-group">
-            <label class="radio-row">
-              <input
-                type="radio"
-                name="multiClientPlan"
-                value="one"
-                :checked="multiClientPlanChoice === 'one'"
-                @change="onSelectMultiClientPlan('one')"
-              />
-              <span>{{ t('multiClientPlanOne') }}</span>
-            </label>
-            <label class="radio-row">
-              <input
-                type="radio"
-                name="multiClientPlan"
-                value="multiple"
-                :checked="multiClientPlanChoice === 'multiple'"
-                @change="onSelectMultiClientPlan('multiple')"
-              />
-              <span>{{ t('multiClientPlanMultiple') }}</span>
-            </label>
+          <h4 class="df-section-title">{{ t('multiClientPlanTitle') }}</h4>
+          <p class="df-section-help multi-client-plan-desc">{{ t('multiClientPlanDesc') }}</p>
+          <div class="df-choice-grid">
+            <DigitalFormSelectionCard
+              :title="t('multiClientPlanOne')"
+              :description="tx('Submit information for one child today') || 'Submit information for one child today'"
+              icon="🧒"
+              :selected="multiClientPlanChoice === 'one'"
+              @select="onSelectMultiClientPlan('one')"
+            />
+            <DigitalFormSelectionCard
+              :title="t('multiClientPlanMultiple')"
+              :description="tx('Submit for more than one child in this session') || 'Submit for more than one child in this session'"
+              icon="👥"
+              :selected="multiClientPlanChoice === 'multiple'"
+              @select="onSelectMultiClientPlan('multiple')"
+            />
           </div>
 
           <div
@@ -518,7 +527,7 @@
           </div>
         </div>
 
-        <div v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound && !intakeForSelf" class="clients-block">
+        <div v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound && !intakeForSelf" class="clients-block intake-section">
           <div class="clients-header">
             <h4>{{ intakeForSelf ? t('client') : t('clients') }}</h4>
           </div>
@@ -528,7 +537,7 @@
               <button v-if="clients.length > 1" class="btn btn-secondary btn-sm" type="button" @click="removeClient(idx)">{{ t('remove') }}</button>
             </div>
             <div class="form-grid">
-                <div v-if="!intakeForSelf" class="form-group">
+                <div v-if="!intakeForSelf" class="form-group form-group--span-4">
                   <label>{{ t('clientFirstName') }}</label>
                   <input
                     :id="`clientFirstName_${idx}`"
@@ -538,7 +547,7 @@
                   />
                   <div v-if="idx === 0 && consentErrors.clientFirstName" class="error-text">{{ consentErrors.clientFirstName }}</div>
                 </div>
-                <div v-if="!intakeForSelf" class="form-group">
+                <div v-if="!intakeForSelf" class="form-group form-group--span-4">
                   <label>{{ t('clientLastName') }}</label>
                   <input
                     :id="`clientLastName_${idx}`"
@@ -564,7 +573,7 @@
                 {{ t('clientQuestionsDesc') }}
               </div>
               <div class="form-grid">
-              <div v-for="field in visibleClientFields(idx)" :key="`${idx}-${field.key}`" class="form-group">
+              <div v-for="field in visibleClientFields(idx)" :key="`${idx}-${field.key}`" class="form-group" :class="intakeFieldGridSpan(field)">
                 <div v-if="field.type === 'info'" class="info-block">
                   <div class="info-title">{{ txField(field) || t('notice') }}</div>
                   <div v-if="field.helperText" class="info-text">{{ txField(field, 'helperText') }}</div>
@@ -639,11 +648,12 @@
 
         <div v-if="visibleQuestionFields.length" class="field-inputs">
           <h4>{{ t('additionalQuestions') }}</h4>
+          <div class="form-grid">
           <div
             v-for="field in visibleQuestionFields"
             :key="field.id"
             class="form-group"
-            :class="{ 'required-missing-glow': isQuestionFieldMissing(field) }"
+            :class="[intakeFieldGridSpan(field), { 'required-missing-glow': isQuestionFieldMissing(field) }]"
             :data-question-key="field.key"
           >
             <div v-if="field.type === 'info'" class="info-block">
@@ -689,6 +699,7 @@
               </div>
               <input v-else v-model="questionValues[field.key]" type="date" :class="{ 'input-error': isQuestionFieldMissing(field) }" />
             </template>
+          </div>
           </div>
         </div>
 
@@ -1705,7 +1716,7 @@
         </div>
       </div>
     </div>
-  </div>
+  </DigitalFormShell>
 
 </template>
 
@@ -1719,6 +1730,12 @@ import PDFPreview from '../components/documents/PDFPreview.vue';
 import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
 import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePaymentStep.vue';
+import {
+  DigitalFormShell,
+  DigitalFormSelectionCard,
+  DigitalFormNotice,
+  DigitalFormActions
+} from '../components/digital-form';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { isMedicaidInsurer } from '../utils/coloradoInsurances';
 import { useAuthStore } from '../store/auth';
@@ -2795,6 +2812,73 @@ const communicationsWorkforceNoLabel = computed(() =>
 const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);
+const formBranding = ref(null);
+
+const FLOW_STEP_PROGRESS_LABELS = {
+  document: 'Documents',
+  upload: 'Uploads',
+  registration: 'Registration',
+  school_roi: 'School ROI',
+  guardian_waiver: 'Waivers',
+  insurance_info: 'Insurance',
+  payment_collection: 'Payment',
+  communications: 'Communications',
+  references: 'References',
+  demographics: 'Demographics',
+  clinical_questions: 'Clinical'
+};
+
+const shellProgramTitle = computed(() => {
+  const branded = String(formBranding.value?.programTitle || '').trim();
+  if (branded) return branded;
+  const org = organizationInfo.value?.official_name || organizationInfo.value?.name || '';
+  const agency = agencyInfo.value?.official_name || agencyInfo.value?.name || '';
+  return String(org || agency || link.value?.title || 'Intake & Registration').trim();
+});
+
+const shellFormSubtitle = computed(() => {
+  const ft = formTypeKey.value;
+  if (ft === 'job_application') return 'Job Application';
+  if (ft === 'smart_school_roi') return 'Release of Information';
+  if (ft === 'smart_registration') return 'Registration';
+  if (ft === 'medical_records_request') return 'Medical Records Request';
+  if (ft === 'public_form') return 'Form';
+  return 'Intake & Registration';
+});
+
+const shellFormDocumentTitle = computed(() =>
+  String(tx(link.value?.title || defaultTitle.value) || '').trim()
+);
+
+const dfProgressSteps = computed(() => {
+  const steps = [{ id: 'about', label: 'About You' }];
+  const seen = new Set(['about']);
+  for (const s of flowSteps.value || []) {
+    const type = String(s?.type || '');
+    const id = String(s?.id || `${type}_${steps.length}`);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    steps.push({
+      id,
+      label: String(s?.label || FLOW_STEP_PROGRESS_LABELS[type] || type || 'Step').trim() || 'Step'
+    });
+  }
+  steps.push({ id: 'complete', label: 'Complete' });
+  return steps;
+});
+
+const dfProgressIndex = computed(() => {
+  const total = dfProgressSteps.value.length;
+  if (!total) return 0;
+  if (step.value <= 0) return 0;
+  if (step.value === 1) return 0;
+  if (step.value === 2) {
+    const idx = 1 + Number(currentFlowIndex.value || 0);
+    return Math.min(idx, total - 2);
+  }
+  if (step.value === 3) return total - 1;
+  return 0;
+});
 const introIndex = ref(0);
 const recaptchaSiteKey = ref(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '');
 const useEnterpriseRecaptcha = ref(
@@ -4620,6 +4704,70 @@ const visibleClientFields = (idx) =>
     .filter((f) => !reservedClientKeys.has(normalizeKey(f?.key)))
     .filter((f) => isIntakeFieldVisible(f, intakeResponses.clients[idx] || {}));
 
+/** Grid span for intake dynamic fields — keeps short answers (grade, zip) compact. */
+const intakeFieldGridSpan = (field) => {
+  if (!field) return 'form-group--span-6';
+  const type = String(field.type || 'text').toLowerCase();
+  const key = normalizeKey(field.key || field.id || '');
+  const label = normalizeKey(field.label || field.labelEn || field.label_es || '');
+  const token = `${key} ${label}`;
+
+  if (type === 'textarea' || type === 'info' || type === 'checkbox') {
+    return 'form-group--span-12';
+  }
+
+  if (type === 'radio') {
+    const opts = Array.isArray(field.options) ? field.options : [];
+    return opts.length <= 3 ? 'form-group--span-6' : 'form-group--span-12';
+  }
+
+  if (token.includes('grade')) return 'form-group--span-3';
+
+  const compactKeys = [
+    'zip',
+    'postal',
+    'state',
+    'sex',
+    'gender',
+    'dob',
+    'birth',
+    'phone',
+    'apt',
+    'apartment',
+    'unit',
+    'suffix',
+    'age',
+    'county',
+    'relationship',
+    'language'
+  ];
+  if (type === 'date' || compactKeys.some((part) => token.includes(part))) {
+    return 'form-group--span-4';
+  }
+
+  if (token.includes('city')) return 'form-group--span-4';
+
+  if (token.includes('street') || token.includes('address') || token.includes('line1') || token.includes('line2')) {
+    return 'form-group--span-8';
+  }
+
+  if (
+    token.includes('first') ||
+    token.includes('last') ||
+    token.includes('name') ||
+    token.includes('email') ||
+    token.includes('middle')
+  ) {
+    return 'form-group--span-6';
+  }
+
+  if (type === 'select' && Array.isArray(field.options) && field.options.length <= 8) {
+    return 'form-group--span-4';
+  }
+
+  return 'form-group--span-6';
+};
+
 const pickOption = (field) => {
   const options = Array.isArray(field?.options) ? field.options : [];
   if (!options.length) return '';
@@ -4735,6 +4883,7 @@ const loadLink = async () => {
     templates.value = resp.data?.templates || [];
     agencyInfo.value = resp.data?.agency || null;
     organizationInfo.value = resp.data?.organization || null;
+    formBranding.value = resp.data?.branding || null;
     jobDescriptionSummary.value = resp.data?.jobDescription || null;
     const recaptchaConfig = resp.data?.recaptcha || {};
     recaptchaSiteKey.value = String(recaptchaConfig.siteKey || '').trim();
@@ -7525,8 +7674,8 @@ onBeforeUnmount(() => {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 .bound-client-card {
   border: 1px solid var(--border);
@@ -7792,8 +7941,8 @@ onBeforeUnmount(() => {
   margin-top: 12px;
 }
 .field-inputs {
-  margin: 16px 0;
-  padding: 16px;
+  margin: 8px 0;
+  padding: 10px 12px;
   background: #f8f9fa;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -7802,7 +7951,8 @@ onBeforeUnmount(() => {
 .helper-text {
   color: var(--text-secondary);
   font-size: 12px;
-  margin-bottom: 6px;
+  margin-bottom: 3px;
+  line-height: 1.35;
 }
 .input-error {
   border-color: #dc3545;
@@ -7955,7 +8105,7 @@ onBeforeUnmount(() => {
 }
 .reg-event-banner {
   width: 100%;
-  background: var(--color-primary, #4db6ac);
+  background: var(--df-primary, var(--primary, #1e4d3b));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -7984,7 +8134,7 @@ onBeforeUnmount(() => {
 .reg-event-date {
   margin: 0 0 6px;
   font-weight: 600;
-  color: var(--color-primary, #4db6ac);
+  color: var(--df-primary, var(--primary, #1e4d3b));
   font-size: 14px;
 }
 .reg-event-summary {
@@ -7999,7 +8149,7 @@ onBeforeUnmount(() => {
 }
 .reg-event-link {
   font-size: 13px;
-  color: var(--color-primary, #4db6ac);
+  color: var(--df-primary, var(--primary, #1e4d3b));
   display: inline-block;
   margin-bottom: 4px;
 }
@@ -8091,7 +8241,7 @@ onBeforeUnmount(() => {
   color: var(--text-secondary, #475569);
 }
 .reg-success-event {
-  background: var(--color-primary, #4db6ac);
+  background: var(--df-primary, var(--primary, #1e4d3b));
   color: #fff;
   padding: 20px 20px 16px;
 }
@@ -8389,8 +8539,8 @@ onBeforeUnmount(() => {
 }
 
 .cover-logo img {
-  max-width: 240px;
-  max-height: 140px;
+  max-width: min(360px, 72vw);
+  max-height: clamp(140px, 22vh, 200px);
   object-fit: contain;
 }
 
@@ -8550,8 +8700,9 @@ onBeforeUnmount(() => {
     0 10px 30px -12px rgba(15, 23, 42, 0.12);
 }
 .form-grid {
-  gap: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 8px;
 }
 .form-group label {
   font-weight: 600;
@@ -8566,12 +8717,12 @@ onBeforeUnmount(() => {
 .field-inputs input,
 .field-inputs textarea,
 .field-inputs select {
-  padding: 11px 14px;
+  padding: 8px 11px;
   border-radius: 10px;
   border: 1px solid rgba(15, 23, 42, 0.14);
   background: #fff;
-  font-size: 15px;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1.35;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 .form-group input:hover,
@@ -8594,7 +8745,7 @@ onBeforeUnmount(() => {
 }
 .form-group input[type='date'],
 .field-inputs input[type='date'] {
-  min-height: 44px;
+  min-height: 38px;
 }
 .radio-group {
   display: flex;
@@ -8665,11 +8816,11 @@ onBeforeUnmount(() => {
   max-width: 100%;
 }
 .clients-block {
-  gap: 18px;
+  gap: 10px;
 }
 .client-card {
-  border-radius: 16px;
-  padding: 20px;
+  border-radius: 14px;
+  padding: 12px 14px;
   background: #fafbff;
   border: 1px solid rgba(15, 23, 42, 0.06);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
@@ -9306,6 +9457,144 @@ onBeforeUnmount(() => {
   }
   .job-landing-start-body h2 {
     font-size: 22px;
+  }
+}
+
+.df-loading,
+.df-fatal {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--df-muted, #5c6b63);
+}
+
+.public-intake :deep(.form-group) label,
+.public-intake :deep(.form-grid label) {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--df-text, #1a2e24);
+}
+
+.public-intake :deep(.form-grid) {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 0.4rem 0.65rem;
+  align-items: start;
+}
+
+.public-intake :deep(.form-group--span-12) {
+  grid-column: span 12;
+}
+
+.public-intake :deep(.form-group--span-8) {
+  grid-column: span 8;
+}
+
+.public-intake :deep(.form-group--span-6) {
+  grid-column: span 6;
+}
+
+.public-intake :deep(.form-group--span-4) {
+  grid-column: span 4;
+}
+
+.public-intake :deep(.form-group--span-3) {
+  grid-column: span 3;
+}
+
+.intake-step-body {
+  width: 100%;
+  max-width: 52rem;
+  margin: 0 auto;
+}
+
+.public-intake :deep(.intake-section) {
+  margin-bottom: 1.1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--df-border, #e2e6e3);
+}
+
+.public-intake :deep(.intake-section:last-child) {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.public-intake :deep(.custom-fields),
+.public-intake :deep(.clients-block),
+.public-intake :deep(.multi-client-plan-block) {
+  margin-bottom: 1.1rem;
+}
+
+.public-intake :deep(.form-group) {
+  margin-bottom: 0;
+}
+
+.public-intake :deep(.form-group label) {
+  margin-bottom: 3px;
+}
+
+.public-intake :deep(.field-inputs .form-grid) {
+  gap: 0.45rem 0.7rem;
+}
+
+.public-intake :deep(.field-inputs h4) {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.public-intake :deep(.radio-group) {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  margin-bottom: 0;
+}
+
+.public-intake :deep(.radio-group .radio-row) {
+  margin: 0;
+}
+
+.public-intake :deep(.client-card),
+.public-intake :deep(.bound-client-card),
+.public-intake :deep(.multi-client-plan-block),
+.public-intake :deep(.multi-client-consent-panel) {
+  border: 1px solid var(--df-border, #e2e6e3);
+  border-radius: var(--df-radius, 14px);
+  padding: 0.75rem 0.9rem;
+  background: var(--df-surface, #fff);
+  margin-bottom: 0.65rem;
+}
+
+.public-intake :deep(.step h3),
+.public-intake :deep(.step h4) {
+  color: var(--df-primary, #1e4d3b);
+}
+
+.public-intake :deep(.custom-fields h4),
+.public-intake :deep(.clients-header h4) {
+  margin: 0.45rem 0 0.15rem;
+  font-size: 1rem;
+}
+
+.public-intake :deep(.custom-fields .muted) {
+  margin-bottom: 0.35rem !important;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+@media (max-width: 700px) {
+  .intake-step-body {
+    max-width: none;
+  }
+
+  .public-intake :deep(.form-group--span-3),
+  .public-intake :deep(.form-group--span-4),
+  .public-intake :deep(.form-group--span-6),
+  .public-intake :deep(.form-group--span-8) {
+    grid-column: span 12;
+  }
+
+  .df-shell--form-mode .df-choice-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
