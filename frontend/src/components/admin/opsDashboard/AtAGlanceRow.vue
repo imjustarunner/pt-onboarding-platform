@@ -3,6 +3,14 @@
     <div class="ops-glance-header">
       <h2>At a Glance</h2>
       <span class="ops-glance-sub">Priority counts that need attention</span>
+      <button
+        v-if="reorderable"
+        type="button"
+        class="ops-glance-customize"
+        @click="$emit('customize')"
+      >
+        Reorder
+      </button>
     </div>
     <div class="ops-glance-row">
       <button
@@ -14,13 +22,15 @@
         @click="$emit('navigate', card.to)"
       >
         <span class="ops-metric-label">{{ card.label }}</span>
-        <div v-if="card.metrics?.length" class="ops-metric-stats">
-          <div v-for="m in card.metrics" :key="m.label" class="ops-metric-stat">
-            <span class="ops-metric-stat-label">{{ m.label }}</span>
-            <strong class="ops-metric-stat-value" :class="m.tone">{{ formatCount(m.value) }}</strong>
+        <div class="ops-metric-body">
+          <div v-if="card.metrics?.length" class="ops-metric-stats">
+            <div v-for="m in card.metrics" :key="m.label" class="ops-metric-stat">
+              <span class="ops-metric-stat-label">{{ m.label }}</span>
+              <strong class="ops-metric-stat-value" :class="m.tone">{{ formatCount(m.value) }}</strong>
+            </div>
           </div>
+          <strong v-else class="ops-metric-value">{{ formatCount(card.value) }}</strong>
         </div>
-        <strong v-else class="ops-metric-value">{{ formatCount(card.value) }}</strong>
         <span class="ops-metric-hint">{{ card.hint }}</span>
         <span class="ops-metric-cta">{{ card.cta }}</span>
       </button>
@@ -30,10 +40,11 @@
 
 <script setup>
 defineProps({
-  cards: { type: Array, default: () => [] }
+  cards: { type: Array, default: () => [] },
+  reorderable: { type: Boolean, default: false }
 });
 
-defineEmits(['navigate']);
+defineEmits(['navigate', 'customize']);
 
 const formatCount = (v) => {
   if (v == null || v === '') return '—';
@@ -68,6 +79,21 @@ const formatCount = (v) => {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
+  align-items: stretch;
+}
+.ops-glance-customize {
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 28%, #e2e8f0);
+  background: #fff;
+  color: var(--ops-primary, #1f6b4a);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ops-glance-customize:hover {
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
 }
 @media (max-width: 1200px) {
   .ops-glance-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -84,15 +110,21 @@ const formatCount = (v) => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-height: 118px;
+  min-height: 132px;
+  height: 100%;
   text-align: left;
   cursor: pointer;
   font: inherit;
   color: inherit;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
 }
-.ops-metric--multi {
-  min-height: 128px;
+.ops-metric-body {
+  min-height: 52px;
+  display: flex;
+  align-items: flex-end;
+}
+.ops-metric--multi .ops-metric-body {
+  align-items: flex-start;
 }
 .ops-metric:hover {
   border-color: color-mix(in srgb, var(--ops-primary, #1f6b4a) 45%, #e2e8f0);

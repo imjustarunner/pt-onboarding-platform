@@ -1,5 +1,5 @@
 <template>
-  <div class="quick-actions" :class="{ compact }">
+  <div class="quick-actions" :class="{ compact, dense }">
     <div class="header">
       <h2>{{ title }}</h2>
       <button v-if="canCustomize" class="btn-customize" type="button" @click="showCustomizer = true">
@@ -135,6 +135,7 @@ const props = defineProps({
   defaultActionIds: { type: Array, default: () => [] },
   iconResolver: { type: Function, default: null }, // (action) => url|null
   compact: { type: Boolean, default: false }, // icon + title only
+  dense: { type: Boolean, default: false }, // tighter admin dashboard tiles
   badgeCounts: { type: Object, default: () => ({}) } // { actionId: number } for badge display
 });
 
@@ -423,6 +424,73 @@ defineExpose({ openCustomizer });
   font-size: 14px;
   line-height: 1.3;
   margin-bottom: 0;
+}
+
+.quick-actions.dense .header {
+  margin-bottom: 8px;
+}
+.quick-actions.dense .header h2 {
+  font-size: 0.95rem;
+}
+.quick-actions.dense .btn-customize {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 8px;
+}
+.quick-actions.dense .actions-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.quick-actions.dense .action-card {
+  padding: 8px 10px;
+  gap: 8px;
+  border-radius: 10px;
+  box-shadow: none;
+}
+.quick-actions.dense .action-card:hover {
+  transform: none;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary, #1f6b4a) 12%, transparent);
+}
+.quick-actions.dense.compact .action-card {
+  padding: 7px 8px;
+  gap: 7px;
+}
+.quick-actions.dense.compact .action-icon,
+.quick-actions.dense.compact .action-icon-placeholder {
+  width: 28px;
+  height: 28px;
+}
+.quick-actions.dense.compact .action-icon-placeholder {
+  font-size: 15px;
+  border-radius: 6px;
+}
+.quick-actions.dense.compact .action-card h3 {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.quick-actions.dense .action-badge {
+  min-width: 16px;
+  height: 16px;
+  font-size: 9px;
+  top: -4px;
+  right: -4px;
+  border-width: 1px;
+}
+@media (max-width: 1200px) {
+  .quick-actions.dense .actions-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 900px) {
+  .quick-actions.dense .actions-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .quick-actions.dense .actions-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .action-card:hover {

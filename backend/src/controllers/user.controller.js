@@ -5014,9 +5014,21 @@ export const getUserScheduleSummary = async (req, res, next) => {
           let events = isAdminOrSuperAdmin(req)
             ? (r.events || [])
             : (r.events || []).map((event) => sanitizeGoogleEventForSchedule(event));
-          // Exclude Google events that correspond to app supervision sessions — show app's supervision block only
-          if (supervisionGoogleEventIds.size) {
-            events = events.filter((ev) => !supervisionGoogleEventIds.has(String(ev?.id || '').trim()));
+          // Exclude Google events that already have first-class app rows (supervision + schedule events).
+          // Keeps Google titles overlay for pure Google events only; app clicks open in-app editors.
+          const scheduleGoogleEventIds = new Set(
+            (scheduleEvents || [])
+              .map((e) => String(e?.googleEventId || e?.google_event_id || '').trim())
+              .filter(Boolean)
+          );
+          if (supervisionGoogleEventIds.size || scheduleGoogleEventIds.size) {
+            events = events.filter((ev) => {
+              const id = String(ev?.id || '').trim();
+              if (!id) return true;
+              if (supervisionGoogleEventIds.has(id)) return false;
+              if (scheduleGoogleEventIds.has(id)) return false;
+              return true;
+            });
           }
           googleEvents = events;
         }
@@ -5792,8 +5804,9 @@ export const createUserScheduleEvent = async (req, res, next) => {
         isTrainingPayEligible,
         attendeeUserIds,
         allDay,
-        startAt: allDay ? null : (result?.startAt ?? storedStartAt ?? startAt),
-        endAt: allDay ? null : (result?.endAt ?? storedEndAt ?? endAt),
+        // Prefer stored UTC instant (with Z) so clients render the same wall time everywhere.
+        startAt: allDay ? null : (toIsoUtcForSchedule(storedStartAt) || storedStartAt || startAt),
+        endAt: allDay ? null : (toIsoUtcForSchedule(storedEndAt) || storedEndAt || endAt),
         startDate: allDay ? startDate : null,
         endDate: allDay ? endDateExclusive : null,
         recurrenceSeriesId: saved?.recurrence_series_id || recurrenceSeriesId || null,

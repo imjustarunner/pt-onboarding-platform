@@ -4238,7 +4238,11 @@
             </span>
             <div class="nr-head-copy">
               <div class="nr-title">{{ stackDetailsTitle }}</div>
-              <div class="nr-subtitle">View or edit this calendar block</div>
+              <div class="nr-subtitle">
+                {{ stackDetailsItems.length > 1
+                  ? `${stackDetailsItems.length} items overlap — pick one to open`
+                  : 'Choose what to open' }}
+              </div>
             </div>
           </div>
           <div class="nr-head-context">
@@ -4256,15 +4260,33 @@
               v-if="stackDetailsItems.length > 1"
               class="stack-details-multi-hint"
             >
-              {{ stackDetailsItems.length }} items in this slot — use <strong>Edit / move</strong> on the one you want to change.
+              Tap a card to open it in the app. Google-only events open Google Calendar.
             </div>
             <div
               v-for="item in stackDetailsItems"
               :key="`stack-item-${item.id}`"
               class="stack-details-item-wrap"
-              :class="{ 'stack-details-item-wrap--editing': scheduleEventEditId === Number(item.eventId || 0) }"
+              :class="{
+                'stack-details-item-wrap--editing': scheduleEventEditId === Number(item.eventId || 0),
+                'stack-details-item-wrap--google': !!item.googleEvent && !item.eventId
+              }"
             >
-              <div class="stack-details-static">
+              <button
+                v-if="stackDetailsItems.length > 1 && scheduleEventEditId !== Number(item.eventId || 0)"
+                type="button"
+                class="stack-details-pick"
+                @click="openStackDetailsItem(item)"
+              >
+                <span class="stack-details-pick-main">
+                  <span v-if="item.kindLabel || item.googleEvent" class="stack-details-kind">
+                    {{ item.kindLabel || (item.googleEvent ? 'Google Calendar' : 'Item') }}
+                  </span>
+                  <span class="stack-details-label">{{ item.label }}</span>
+                  <span v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</span>
+                </span>
+                <span class="stack-details-pick-cta">{{ item.googleEvent && !item.eventId ? 'Open' : 'Open in app' }} →</span>
+              </button>
+              <div v-else class="stack-details-static">
                 <div v-if="item.kindLabel" class="stack-details-kind">{{ item.kindLabel }}</div>
                 <div class="stack-details-label">{{ item.label }}</div>
                 <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
@@ -4721,48 +4743,29 @@
               <div v-if="googleEventSaveError" class="error" style="margin-bottom: 10px;">{{ googleEventSaveError }}</div>
               <div v-if="googleEventFetching" class="muted">Loading…</div>
               <template v-else>
+                <p class="muted" style="margin: 0 0 8px; font-size: 12px;">Google Calendar event</p>
                 <div class="google-event-time">
                   {{ formatRangeFromRaw(selectedGoogleEvent.startAt, selectedGoogleEvent.endAt) }}
                 </div>
                 <div v-if="selectedGoogleEvent.location" class="google-event-location muted" style="margin-top: 6px;">
                   {{ selectedGoogleEvent.location }}
                 </div>
-                <div class="google-event-actions" style="margin-top: 12px;">
-                  <button
-                    v-if="linkedScheduleEventForGoogleModal?.appJoinUrl"
-                    type="button"
-                    class="btn btn-primary btn-sm"
-                    style="margin-right: 8px;"
-                    @click="window.location.href = linkedScheduleEventForGoogleModal.appJoinUrl"
-                  >
-                    Join in PT app
-                  </button>
-                  <button
-                    v-if="selectedGoogleEvent.meetLink"
-                    type="button"
-                    class="btn btn-primary btn-sm"
-                    style="margin-right: 8px;"
-                    @click="openMeetInPopup(selectedGoogleEvent.meetLink)"
-                  >
-                    Join meeting
-                  </button>
+                <div class="google-event-actions google-event-actions--stack" style="margin-top: 14px;">
                   <button
                     v-if="selectedGoogleEvent.htmlLink"
                     type="button"
-                    class="btn btn-secondary btn-sm"
-                    style="margin-right: 8px;"
+                    class="btn btn-primary"
                     @click="openGoogleEventInPopup(selectedGoogleEvent)"
                   >
                     Open in Google Calendar
                   </button>
                   <button
-                    v-if="canEditGoogleEvent"
+                    v-if="selectedGoogleEvent.meetLink"
                     type="button"
-                    class="btn btn-secondary btn-sm"
-                    style="margin-right: 8px;"
-                    @click="startEditGoogleEvent"
+                    class="btn btn-secondary"
+                    @click="openMeetInPopup(selectedGoogleEvent.meetLink)"
                   >
-                    Edit
+                    Join Google Meet
                   </button>
                   <button
                     v-if="canEditGoogleEvent"
@@ -4770,11 +4773,11 @@
                     class="btn btn-danger btn-sm"
                     @click="deleteGoogleEvent"
                   >
-                    Delete
+                    Delete from Google
                   </button>
                 </div>
-                <span v-if="selectedGoogleEvent.htmlLink && !canEditGoogleEvent" class="hint" style="margin-top: 8px; display: block;">
-                  Edit the event or join a meeting from Google Calendar. Opens in a popup so you stay in the app.
+                <span class="hint" style="margin-top: 10px; display: block;">
+                  This event lives in Google Calendar. App meetings and supervision open in PlotTwist instead.
                 </span>
               </template>
             </template>
@@ -8908,6 +8911,37 @@ const supervisionTitle = (dayName, hour, minute = 0) => {
   return `Supervision — ${who} — ${dayName} ${timeText}${presenterText}`;
 };
 
+/** Google event IDs already represented by first-class app schedule rows. */
+const knownAppGoogleEventIdSet = computed(() => {
+  const ids = new Set();
+  for (const ev of (summary.value?.scheduleEvents || [])) {
+    const gid = String(ev?.googleEventId || '').trim();
+    if (gid) ids.add(gid);
+  }
+  for (const s of (summary.value?.supervisionSessions || [])) {
+    const gid = String(s?.googleEventId || s?.google_event_id || '').trim();
+    if (gid) ids.add(gid);
+  }
+  return ids;
+});
+
+const findAppScheduleEventForGoogleId = (googleEventId) => {
+  const eventId = String(googleEventId || '').trim();
+  if (!eventId) return null;
+  const rows = Array.isArray(summary.value?.scheduleEvents) ? summary.value.scheduleEvents : [];
+  return rows.find((row) => String(row?.googleEventId || '').trim() === eventId) || null;
+};
+
+const findAppSupervisionForGoogleId = (googleEventId) => {
+  const eventId = String(googleEventId || '').trim();
+  if (!eventId) return null;
+  const rows = Array.isArray(summary.value?.supervisionSessions) ? summary.value.supervisionSessions : [];
+  return rows.find((row) => {
+    const gid = String(row?.googleEventId || row?.google_event_id || '').trim();
+    return gid === eventId;
+  }) || null;
+};
+
 const scheduleEventsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
@@ -8919,15 +8953,8 @@ const scheduleEventsInCell = (dayName, hour, minute = 0) => {
   const list = Array.isArray(s.scheduleEvents) ? s.scheduleEvents : [];
   const hits = [];
   for (const ev of list) {
-    // For most schedule events, avoid duplicate blocks when Google titles are enabled.
-    // Keep TEAM_MEETING/HUDDLE visible because they carry app/Twilio join behavior.
-    const eventKind = String(ev?.kind || '').trim().toUpperCase();
-    const isInternalMeeting =
-      eventKind === 'TEAM_MEETING'
-      || eventKind === 'HUDDLE'
-      || eventKind === 'FALL_CHECKIN_PRESLOT'
-      || eventKind === 'FALL_CHECKIN_BOOKED';
-    if (ev?.googleEventId && showGoogleEvents.value && !isInternalMeeting) continue;
+    // Always show app-native events. Google titles overlay is filtered separately so
+    // synced rows are not duplicated / steal clicks into the Google-only modal.
     if (ev?.allDay) {
       const startDate = String(ev?.startDate || '').slice(0, 10);
       const endDate = String(ev?.endDate || '').slice(0, 10);
@@ -9329,8 +9356,12 @@ const googleEventsInCell = (dayName, hour, minute = 0) => {
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
   const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
   const list = Array.isArray(s.googleEvents) ? s.googleEvents : [];
+  const knownAppIds = knownAppGoogleEventIdSet.value;
   const hits = [];
   for (const ev of list) {
+    const gid = String(ev?.id || '').trim();
+    // Hide Google copies of app-native events — open those in the app editor instead.
+    if (gid && knownAppIds.has(gid)) continue;
     const st = new Date(ev.startAt);
     const en = new Date(ev.endAt);
     if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) continue;
@@ -10107,8 +10138,130 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       { key: 'more', kind: 'more', shortLabel: `+${extra}`, title: `${extra} more items in this hour` }
     ];
   }
+  // Day view: stamp lane columns so overlapping timed blocks tile horizontally.
+  if (singleDayFocused) {
+    const layout = dayViewLaneLayout.value;
+    if (layout?.size) {
+      for (const b of displayBlocks) {
+        const lane = layout.get(b.key);
+        if (lane && lane.cols > 1) {
+          b.laneCol = lane.col;
+          b.laneCols = lane.cols;
+        }
+      }
+    }
+  }
   return displayBlocks;
 };
+
+/**
+ * Classic calendar column packing for overlapping timed events.
+ * Returns Map(key → { col, cols }) where cols is the cluster width.
+ */
+const assignOverlapLanes = (items) => {
+  const out = new Map();
+  if (!Array.isArray(items) || !items.length) return out;
+  const sorted = [...items].sort((a, b) => (
+    a.startMs - b.startMs
+    || a.endMs - b.endMs
+    || String(a.key).localeCompare(String(b.key))
+  ));
+  const colEndMs = [];
+  const colByKey = new Map();
+  for (const item of sorted) {
+    let col = 0;
+    while (col < colEndMs.length && colEndMs[col] > item.startMs) col += 1;
+    if (col === colEndMs.length) colEndMs.push(item.endMs);
+    else colEndMs[col] = item.endMs;
+    colByKey.set(item.key, col);
+  }
+  const parent = new Map(items.map((i) => [i.key, i.key]));
+  const find = (k) => {
+    let cur = k;
+    while (parent.get(cur) !== cur) {
+      parent.set(cur, parent.get(parent.get(cur)));
+      cur = parent.get(cur);
+    }
+    return cur;
+  };
+  const union = (a, b) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+  for (let i = 0; i < items.length; i += 1) {
+    for (let j = i + 1; j < items.length; j += 1) {
+      if (items[i].startMs < items[j].endMs && items[j].startMs < items[i].endMs) {
+        union(items[i].key, items[j].key);
+      }
+    }
+  }
+  const clusterMaxCol = new Map();
+  for (const item of items) {
+    const root = find(item.key);
+    const col = colByKey.get(item.key) || 0;
+    clusterMaxCol.set(root, Math.max(clusterMaxCol.get(root) || 0, col));
+  }
+  for (const item of items) {
+    const root = find(item.key);
+    out.set(item.key, {
+      col: colByKey.get(item.key) || 0,
+      cols: (clusterMaxCol.get(root) || 0) + 1
+    });
+  }
+  return out;
+};
+
+/** Day-view lane map for the focused day — packs overlapping span events side-by-side. */
+const dayViewLaneLayout = computed(() => {
+  if (visibleDays.value.length !== 1) return new Map();
+  const dayName = visibleDays.value[0];
+  const intervals = [];
+  const pushInterval = (key, startAt, endAt) => {
+    const startMs = Date.parse(String(startAt || ''));
+    const endMs = Date.parse(String(endAt || ''));
+    if (!key || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return;
+    intervals.push({ key, startMs, endMs });
+  };
+  const hourList = Array.isArray(hours.value) ? hours.value : [];
+  for (const hour of hourList) {
+    for (const minute of (showQuarterDetail.value ? [0, 15, 30, 45] : [0])) {
+      for (const ev of scheduleEventsInCell(dayName, hour, minute)) {
+        const segment = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
+        if (segment === 'middle' || segment === 'end') continue;
+        pushInterval(
+          `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
+          ev?.startAt,
+          ev?.endAt
+        );
+      }
+      if (showGoogleEvents.value) {
+        for (const ev of googleEventsInCell(dayName, hour, minute)) {
+          const segment = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
+          if (segment === 'middle' || segment === 'end') continue;
+          pushInterval(`gevt-${String(ev?.id || ev?.summary || 'event')}`, ev?.startAt, ev?.endAt);
+        }
+      }
+      const supvHits = supervisionSessionsInCell(dayName, hour, minute);
+      const seenSupv = new Set();
+      for (const ev of supvHits) {
+        const segment = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
+        if (segment === 'middle' || segment === 'end') continue;
+        const agencyId = Number(ev?.agencyId || ev?._agencyId || 0) || null;
+        const key = `supv-${agencyId || 'x'}-${Number(ev?.id || 0) || 'x'}`;
+        if (seenSupv.has(key)) continue;
+        seenSupv.add(key);
+        pushInterval(key, ev?.startAt, ev?.endAt);
+      }
+    }
+  }
+  // Dedupe by key (quarter loops can re-see the same start).
+  const byKey = new Map();
+  for (const row of intervals) {
+    if (!byKey.has(row.key)) byKey.set(row.key, row);
+  }
+  return assignOverlapLanes(Array.from(byKey.values()));
+});
 
 const isCellVisuallyBlank = (dayName, hour) => cellBlocks(dayName, hour).length === 0;
 
@@ -16703,24 +16856,38 @@ const cellBlockStyle = (b) => {
   if (b?.timedSlice && Number.isFinite(b.timedSlice.topPct) && Number.isFinite(b.timedSlice.heightPct)) {
     const hp = Number(b.timedSlice.heightPct);
     style.position = 'absolute';
-    style.left = '3px';
-    if (b?.shareRow) {
+    const laneCols = Number(b?.laneCols || 0);
+    const laneCol = Number(b?.laneCol || 0);
+    // Day view: tile overlapping events across the wide single-day column.
+    if (laneCols > 1 && Number.isFinite(laneCol)) {
+      const gapPx = 3;
+      const widthPct = 100 / laneCols;
+      style.left = `calc(${laneCol * widthPct}% + ${gapPx}px)`;
+      style.width = `calc(${widthPct}% - ${gapPx * 2}px)`;
+      style.right = 'auto';
+      style.zIndex = 6 + laneCol;
+    } else if (b?.shareRow) {
+      style.left = '3px';
       style.width = 'calc(52% - 4px)';
       style.right = 'auto';
+      style.zIndex = b?.spanBlock ? 6 : 3;
     } else {
+      style.left = '3px';
       style.right = '3px';
+      style.zIndex = b?.spanBlock ? 6 : 3;
     }
     style.top = `${b.timedSlice.topPct}%`;
     style.height = `${hp}%`;
-    style.zIndex = b?.spanBlock ? 6 : 3;
     style.flex = 'none';
     style.minHeight = '18px';
     style.alignItems = 'flex-start';
     style.paddingTop = '4px';
     // Fewer lines on short blocks so text stays inside the colored fill.
-    style['--block-line-clamp'] = hp >= 180 ? '6' : hp >= 100 ? '4' : '2';
+    style['--block-line-clamp'] = laneCols > 2
+      ? (hp >= 180 ? '5' : hp >= 100 ? '3' : '2')
+      : (hp >= 180 ? '6' : hp >= 100 ? '4' : '2');
   }
-  if (b?.shareRow && !b?.timedSlice) {
+  if (b?.shareRow && !b?.timedSlice && !(Number(b?.laneCols || 0) > 1)) {
     style.flex = '1 1 42%';
     style.minWidth = '0';
     style.maxWidth = '48%';
@@ -17408,6 +17575,10 @@ const closeModal = () => {
   adminAssignError.value = '';
   cancelBookingScope.value = 'occurrence';
   cancelBookingError.value = '';
+  // Independent office requests must not supersede each other across modal sessions
+  // (requesting 2pm then 3pm was cancelling the first pending request).
+  editorLastOfficeAvailabilityRequestId.value = 0;
+  editorLastOfficeBookingRequestId.value = 0;
 };
 
 const confirmIntakeInPerson = (enableBoth) => {
@@ -18492,7 +18663,6 @@ const submitRequest = async () => {
         const officeIds = officeId
           ? [officeId]
           : (editorOfficeLocations.value || []).map((l) => Number(l.id || 0)).filter((n) => n > 0).slice(0, 1);
-        const replaceAvailId = Number(editorLastOfficeAvailabilityRequestId.value || 0);
         await withdrawEditorPriorOfficeRequests();
         const reqRes = await api.post('/availability/office-requests', {
           agencyId,
@@ -18503,11 +18673,9 @@ const submitRequest = async () => {
           requestedStartDate: baseDateYmd,
           requestedUntilDate: endMode === 'until' ? (editorRecurrenceUntilDate.value || null) : null,
           slots,
-          preferredRoomId: Number(editorPreferredRoomId.value || 0) || undefined,
-          ...(replaceAvailId ? { supersedePrevious: true, replaceRequestId: replaceAvailId } : {})
+          preferredRoomId: Number(editorPreferredRoomId.value || 0) || undefined
         });
         linkedOfficeRequestId = Number(reqRes?.data?.request?.id || reqRes?.data?.id || 0) || null;
-        if (linkedOfficeRequestId) editorLastOfficeAvailabilityRequestId.value = linkedOfficeRequestId;
         needsOfficeRefresh = true;
         // Best-effort: link request onto a draft appointment row when catalog booking is available.
         if (linkedOfficeRequestId && Number(editorTenantServiceId.value || 0) > 0) {
@@ -18601,9 +18769,8 @@ const submitRequest = async () => {
           });
         }
       }
-      const replaceAvailId = Number(editorLastOfficeAvailabilityRequestId.value || 0);
       await withdrawEditorPriorOfficeRequests();
-      const officeReqRes = await api.post('/availability/office-requests', {
+      await api.post('/availability/office-requests', {
         agencyId: effectiveAgencyId.value,
         notes: requestNotes.value || '',
         officeLocationIds: Number(selectedOfficeLocationId.value || editorOfficeLocationId.value || 0)
@@ -18613,11 +18780,8 @@ const submitRequest = async () => {
         ...(occurrenceCount ? { bookedOccurrenceCount: occurrenceCount } : {}),
         requestedStartDate: baseDateYmd,
         slots,
-        preferredRoomId: Number(editorPreferredRoomId.value || singleRoomId || 0) || undefined,
-        ...(replaceAvailId ? { supersedePrevious: true, replaceRequestId: replaceAvailId } : {})
+        preferredRoomId: Number(editorPreferredRoomId.value || singleRoomId || 0) || undefined
       });
-      const newAvailId = Number(officeReqRes?.data?.id || officeReqRes?.data?.request?.id || 0);
-      if (newAvailId) editorLastOfficeAvailabilityRequestId.value = newAvailId;
       forceRefreshSummary = true;
       invalidateScheduleSummaryCacheForUser(props.userId);
       await loadSelectedOfficeGrid();
@@ -20549,6 +20713,27 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
     const events = googleEventsInCell(dayName, hour, minute);
     const ev = events.find((e) => block?.key === `gevt-${String(e?.id || e?.summary || '')}` || e?.htmlLink === block?.link) || events[0];
     if (ev) {
+      // Belt-and-suspenders: if this Google row maps to an app event, open the app editor.
+      const linkedSchedule = findAppScheduleEventForGoogleId(ev.id);
+      if (linkedSchedule) {
+        const stackItem = buildScheduleStackItemFromEvent(linkedSchedule, {
+          id: `sevt-linked-${String(linkedSchedule.id || '')}`
+        });
+        openStackDetailsModal({
+          title: String(linkedSchedule.title || 'Schedule item').trim() || 'Schedule item',
+          items: [stackItem],
+          dayName,
+          hour,
+          minute,
+          focusEventId: Number(stackItem.eventId || linkedSchedule.id || 0)
+        });
+        return;
+      }
+      const linkedSupv = findAppSupervisionForGoogleId(ev.id);
+      if (linkedSupv) {
+        openSupervisionEditInScheduleModal(dayName, hour);
+        return;
+      }
       openGoogleEventModal(ev);
     } else {
       const link = String(block?.link || '').trim();
@@ -21346,14 +21531,11 @@ const canEditGoogleEvent = computed(() => {
 const linkedScheduleEventForGoogleModal = computed(() => {
   const eventId = String(selectedGoogleEvent.value?.id || '').trim();
   if (!eventId) return null;
-  const rows = Array.isArray(summary.value?.scheduleEvents) ? summary.value.scheduleEvents : [];
-  const match = rows.find((row) => String(row?.googleEventId || '').trim() === eventId);
+  const match = findAppScheduleEventForGoogleId(eventId);
   if (!match) return null;
   const kind = String(match?.kind || '').trim().toUpperCase();
-  if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) return null;
   const appJoinUrl = String(match?.appJoinUrl || '').trim();
-  if (!appJoinUrl) return null;
-  return { appJoinUrl, kind };
+  return { appJoinUrl, kind, event: match };
 });
 
 const closeGoogleEventModal = () => {
@@ -21365,8 +21547,31 @@ const closeGoogleEventModal = () => {
   googleEventSaveError.value = '';
 };
 
-const openGoogleEventModal = (ev) => {
+const openGoogleEventModal = (ev, context = {}) => {
   if (!ev) return;
+  // App-native events should never land in the Google-only editor.
+  const linked = findAppScheduleEventForGoogleId(ev.id);
+  if (linked) {
+    const dayName = String(context.dayName || '').trim();
+    const hour = Number(context.hour || 0);
+    const minute = Number(context.minute || 0);
+    const stackItem = buildScheduleStackItemFromEvent(linked, {
+      id: `sevt-linked-${String(linked.id || '')}`
+    });
+    openStackDetailsModal({
+      title: String(linked.title || 'Schedule item').trim() || 'Schedule item',
+      items: [stackItem],
+      dayName,
+      hour,
+      minute,
+      focusEventId: Number(stackItem.eventId || linked.id || 0)
+    });
+    return;
+  }
+  if (findAppSupervisionForGoogleId(ev.id)) {
+    openSupervisionEditInScheduleModal(String(context.dayName || ''), Number(context.hour || 0));
+    return;
+  }
   selectedGoogleEvent.value = ev;
   googleEventEditMode.value = false;
   googleEventFetching.value = false;
@@ -21909,15 +22114,35 @@ const openInAppJoinUrl = (url) => {
 };
 
 const openStackDetailsItem = (item) => {
-  if (item?.googleEvent) {
+  // Pure Google Calendar row (no app event id).
+  if (item?.googleEvent && !Number(item?.eventId || 0)) {
     closeStackDetailsModal();
-    openGoogleEventModal(item.googleEvent);
+    openGoogleEventModal(item.googleEvent, {
+      dayName: stackDetailsDayName.value,
+      hour: stackDetailsHour.value,
+      minute: stackDetailsMinute.value
+    });
     return;
   }
-  const meetFromItem = String(item?.meetLink || '').trim();
-  if (meetFromItem) {
+  // App-native schedule / meeting / supervision → open in-app editor (not Google).
+  if (isEditableScheduleStackItem(item) || isMeetingStackItem(item) || Number(item?.eventId || 0) > 0) {
     closeStackDetailsModal();
-    window.open(meetFromItem, '_blank', 'noreferrer');
+    void openAppointmentEditInScheduleModal({
+      items: [item],
+      dayName: stackDetailsDayName.value,
+      hour: stackDetailsHour.value,
+      minute: stackDetailsMinute.value,
+      focusEventId: Number(item?.eventId || 0),
+      item
+    });
+    return;
+  }
+  if (Number(item?.sessionId || 0) > 0) {
+    closeStackDetailsModal();
+    openSupervisionEditInScheduleModal(
+      String(item?.dayName || stackDetailsDayName.value || ''),
+      Number(item?.hour || stackDetailsHour.value || 0)
+    );
     return;
   }
   const appJoinUrl = String(item?.appJoinUrl || '').trim();
@@ -21938,17 +22163,6 @@ const openStackDetailsItem = (item) => {
   const eid = Number(item?.eventId || 0);
   if (eid > 0) {
     const ev = findScheduleEventByIdAndKind(eid, item?.eventKind);
-    const meet = String(ev?.meetLink || '').trim();
-    if (meet) {
-      closeStackDetailsModal();
-      window.open(meet, '_blank', 'noreferrer');
-      return;
-    }
-    const html = String(ev?.htmlLink || '').trim();
-    if (html) {
-      window.open(html, '_blank', 'noreferrer');
-      return;
-    }
     const aj = String(ev?.appJoinUrl || '').trim();
     if (aj) {
       closeStackDetailsModal();
@@ -22508,9 +22722,20 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .sched-day-timeline__cards {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
   gap: 6px;
   min-width: 0;
+}
+.sched-day-timeline__cards .sched-day-card {
+  flex: 1 1 160px;
+  max-width: 100%;
+  min-width: min(160px, 100%);
+}
+.sched-day-timeline__cards .sched-day-timeline__add {
+  flex: 0 0 auto;
+  align-self: stretch;
 }
 .sched-day-card {
   display: flex;
@@ -23378,6 +23603,10 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   /* Clip label to the colored fill; cell stays overflow:visible so the block can span hours. */
   overflow: hidden;
 }
+/* Day-view lane tiles: keep labels readable in narrower columns. */
+.cell-block-span[style*="width: calc("] .cell-block-text {
+  font-size: 11px;
+}
 .cell-block-span .cell-block-text {
   white-space: pre-line;
   overflow: hidden;
@@ -23496,18 +23725,57 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .stack-details-multi-hint {
   margin-bottom: 4px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
-  color: #1e3a8a;
-  font-size: 0.85rem;
-  line-height: 1.4;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #c7d2fe;
+  background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%);
+  color: #312e81;
+  font-size: 0.86rem;
+  line-height: 1.45;
 }
 .stack-details-item-wrap {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.stack-details-pick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #dbe3ef;
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+.stack-details-pick:hover {
+  border-color: #6366f1;
+  box-shadow: 0 6px 18px rgba(79, 70, 229, 0.12);
+  transform: translateY(-1px);
+}
+.stack-details-item-wrap--google .stack-details-pick {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.stack-details-pick-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.stack-details-pick-cta {
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #4338ca;
+  white-space: nowrap;
+}
+.stack-details-item-wrap--google .stack-details-pick-cta {
+  color: #15803d;
 }
 .stack-details-item-wrap--editing .stack-details-static {
   border-color: #166534;
@@ -23689,7 +23957,11 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .google-event-modal .google-event-actions {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
+}
+.google-event-modal .google-event-actions--stack .btn {
+  width: 100%;
+  justify-content: center;
 }
 .stack-details-label {
   font-weight: 800;

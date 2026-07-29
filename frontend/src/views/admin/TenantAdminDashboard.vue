@@ -202,8 +202,10 @@
             :style="sectionStyle('atGlance')"
           >
             <AtAGlanceRow
-              :cards="glanceCards"
+              :cards="orderedGlanceCards"
+              reorderable
               @navigate="go"
+              @customize="openGlanceCustomizer"
             />
           </div>
 
@@ -391,6 +393,37 @@
               Customize Quick Actions…
             </button>
           </div>
+
+          <h4 class="modal-subhead">At a Glance cards</h4>
+          <p class="modal-intro modal-intro--tight">Reorder the metric cards shown at the top of your dashboard.</p>
+          <div class="section-toggles">
+            <div
+              v-for="item in glanceLabelsForCustomize"
+              :key="item.key"
+              class="toggle-row toggle-row--reorder"
+            >
+              <span class="toggle-label toggle-label--static">{{ item.label }}</span>
+              <div class="reorder-btns">
+                <button
+                  type="button"
+                  class="reorder-btn"
+                  :disabled="glanceIsFirst(item.key)"
+                  aria-label="Move up"
+                  @click="glanceMoveUp(item.key)"
+                >↑</button>
+                <button
+                  type="button"
+                  class="reorder-btn"
+                  :disabled="glanceIsLast(item.key)"
+                  aria-label="Move down"
+                  @click="glanceMoveDown(item.key)"
+                >↓</button>
+              </div>
+            </div>
+          </div>
+          <div class="modal-actions-row">
+            <button type="button" class="btn-secondary" @click="resetGlanceOrder">Reset At a Glance order</button>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn-primary" @click="showCustomizeModal = false">Done</button>
@@ -412,7 +445,13 @@ import {
   OPERATIONS_SECTION_VISIBILITY,
   DEFAULT_SECTION_ORDER
 } from '../../composables/useAdminDashboardPrefs';
+import {
+  useAdminGlancePrefs,
+  DEFAULT_TENANT_GLANCE_ORDER,
+  DEFAULT_OPERATIONS_GLANCE_ORDER
+} from '../../composables/useAdminGlancePrefs';
 import { useDashboardLayout } from '../../composables/useDashboardLayout';
+import { useCommunicationsCountsStore } from '../../store/communicationsCounts';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
@@ -496,6 +535,7 @@ const canSeeClientsNav = computed(() =>
 );
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id ?? null);
+const communicationsCountsStore = useCommunicationsCountsStore();
 
 const { isVisible, setSection, resetSections, sectionLabels } = useAdminDashboardPrefs({
   userId,
@@ -534,6 +574,22 @@ watch(defaultOrderForLayout, (next) => {
     if (!seen.has(id)) merged.push(id);
   });
   if (merged.join('|') !== current.join('|')) dashboardLayout.order.value = merged;
+});
+
+const {
+  applyOrder: applyGlanceOrder,
+  syncAvailableKeys: syncGlanceKeys,
+  moveUp: glanceMoveUp,
+  moveDown: glanceMoveDown,
+  resetOrder: resetGlanceOrder,
+  isFirst: glanceIsFirst,
+  isLast: glanceIsLast,
+  labelsForOrder: glanceLabelsForCustomizeRaw
+} = useAdminGlancePrefs({
+  userId,
+  agencyId: currentAgencyId,
+  namespace: isOperationsMode.value ? 'operations' : 'tenant',
+  defaults: isOperationsMode.value ? DEFAULT_OPERATIONS_GLANCE_ORDER : DEFAULT_TENANT_GLANCE_ORDER
 });
 
 const sectionStyle = (id) => dashboardLayout.orderStyle(id);
@@ -893,6 +949,19 @@ const glanceCards = computed(() => {
     }] : [])
   ];
 });
+
+const orderedGlanceCards = computed(() =>
+  applyGlanceOrder(glanceCards.value, { includeEscalations: canSeeEscalations.value })
+);
+
+const glanceLabelsForCustomize = computed(() => {
+  const keys = new Set((glanceCards.value || []).map((card) => card.key));
+  return (glanceLabelsForCustomizeRaw.value || []).filter((item) => keys.has(item.key));
+});
+
+watch(glanceCards, (cards) => {
+  syncGlanceKeys((cards || []).map((card) => card.key));
+}, { immediate: true });
 
 const docAlerts = computed(() => {
   const rows = [];
@@ -1528,6 +1597,41 @@ const countLateNoteNotifications = () => {
   }).length;
 };
 
+const countUnpaidLateNotesFromReport = (payload) => {
+  const periods = Array.isArray(payload?.report) ? payload.report : [];
+  for (const period of periods) {
+    const rows = Array.isArray(period?.rows) ? period.rows : [];
+    if (rows.length) return rows.length;
+  }
+  return 0;
+};
+
+const resolveUnreadMessagesCount = ({ personal, center } = {}) => {
+  const personalUnread = Number(personal?.cards?.unread || 0);
+  const teamUnread = Number(personal?.cards?.teamDiscussions || 0);
+  const centerUnread = Number(center?.messagesMode?.unread || 0);
+  const storeUnread = Number(communicationsCountsStore.unreadMessagesCount || 0);
+  return Math.max(personalUnread, teamUnread, centerUnread, storeUnread);
+};
+
+const refreshDerivedGlanceCounts = async ({ agencyId, personal, center } = {}) => {
+  unreadMessages.value = resolveUnreadMessagesCount({ personal, center });
+
+  const notificationLate = countLateNoteNotifications();
+  if (agencyId) {
+    const unpaidReport = await safeGet(
+      '/payroll/periods/unpaid-drafts-report',
+      { params: { agencyId, periods: 3 } },
+      8000
+    );
+    const payrollLate = countUnpaidLateNotesFromReport(unpaidReport);
+    lateNotes.value = Math.max(payrollLate, notificationLate);
+  } else {
+    lateNotes.value = notificationLate;
+  }
+  unsignedDocs.value = countUnsignedNotifications();
+};
+
 const countUnsignedNotifications = () => {
   return (notificationStore.notifications || []).filter((n) => {
     const t = String(n.type || n.notification_type || '').toLowerCase();
@@ -1565,7 +1669,7 @@ const applyGlanceFromPayloads = ({ center, personal, openCountRes, metrics, spec
   escalationNew.value = Number(escCounts.submitted ?? 0);
   escalationTotal.value = Number(escCounts.total ?? escCounts.open ?? 0);
   escalationAssignedToMe.value = Number(escCounts.assigned_to_me ?? 0);
-  unreadMessages.value = Number(personal?.cards?.unread || 0);
+  unreadMessages.value = resolveUnreadMessagesCount({ personal, center });
   clientMessages.value = Number(
     personal?.cards?.clientMessages
     ?? center?.messagesMode?.unread
@@ -1575,8 +1679,6 @@ const applyGlanceFromPayloads = ({ center, personal, openCountRes, metrics, spec
   deliveryQueue.value = Number(center?.kpis?.pendingInQueues || 0);
   activeEmployees.value = Number(specs?.activeEmployees || 0);
   pendingEmployees.value = Number(specs?.pendingEmployees || 0);
-  lateNotes.value = countLateNoteNotifications();
-  unsignedDocs.value = countUnsignedNotifications();
 };
 
 const refreshEscalationGlance = async () => {
@@ -1607,13 +1709,14 @@ const loadDashboard = async () => {
   });
 
   // Notifications are best-effort and must not block the first paint / global loader.
-  notificationStore
+  const notificationsPromise = notificationStore
     .fetchNotifications?.({
       agencyId: agencyId || undefined,
       limit: 200,
       skipGlobalLoading: true
     })
     .catch(() => {});
+  const commsCountsPromise = communicationsCountsStore.fetchCounts?.().catch(() => {});
   notificationStore.fetchCounts?.().catch(() => {});
 
   if (!agencyId) {
@@ -1634,6 +1737,8 @@ const loadDashboard = async () => {
         : Promise.resolve(null)
     ]);
     applyGlanceFromPayloads({ center, personal, openCountRes, metrics, specs, escalationSummary });
+    await Promise.allSettled([notificationsPromise, commsCountsPromise]);
+    await refreshDerivedGlanceCounts({ agencyId, personal, center });
   } finally {
     setLoading(false);
   }
@@ -2025,6 +2130,7 @@ const loadDashboard = async () => {
 
     lateNotes.value = countLateNoteNotifications();
     unsignedDocs.value = countUnsignedNotifications();
+    await refreshDerivedGlanceCounts({ agencyId, personal: null, center: null });
   } finally {
     scheduleLoading.value = false;
   }

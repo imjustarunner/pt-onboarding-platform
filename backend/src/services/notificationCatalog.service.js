@@ -236,7 +236,9 @@ const WORKFORCE_ESSENTIAL = new Set([
   'emergency_broadcast', 'task_overdue', 'chat_message', 'task_comment_mention',
   'voicemail_received', 'mileage_claim_rejected', 'mileage_claim_returned',
   'medcancel_claim_rejected', 'medcancel_claim_returned', 'checklist_incomplete',
-  'hiring_task_assigned', 'program_reminder'
+  'hiring_task_assigned', 'program_reminder',
+  // Always land in the inbox; live toast is gated client-side on Available presence.
+  'team_meeting_scheduled', 'supervision_session_scheduled'
 ]);
 
 const PROVIDER_ESSENTIAL = new Set([
