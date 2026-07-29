@@ -272,8 +272,12 @@ export function parseSchoolEventBody(body) {
   const timezone = body?.timezone;
   const statusRaw = body?.schoolEventStatus ?? body?.school_event_status ?? body?.status;
   const reportRaw = body?.employeeReportTime ?? body?.employee_report_time;
-  // School portal events are always paid as indirect — never accept a direct hours cap.
-  const skillBuilderDirectHours = 0;
+  const skillBuilderDirectRaw = body?.skillBuilderDirectHours ?? body?.skill_builder_direct_hours;
+  let skillBuilderDirectHours;
+  if (skillBuilderDirectRaw !== undefined && skillBuilderDirectRaw !== null && skillBuilderDirectRaw !== '') {
+    const n = Number(skillBuilderDirectRaw);
+    if (Number.isFinite(n) && n >= 0 && n <= 999) skillBuilderDirectHours = n;
+  }
   const minRaw = body?.minProvidersPerSession ?? body?.min_providers_per_session;
   let minProvidersPerSession;
   if (minRaw !== undefined && minRaw !== null && minRaw !== '') {
@@ -369,9 +373,11 @@ export const createSchoolPortalEventHandler = async (req, res, next) => {
     }
 
     const canEditPayroll = await userCanEditSchoolEventPayrollFields({ userId, role, agencyId });
-    if (parsed.skillBuilderDirectHours !== undefined && !canEditPayroll) {
+    const explicitDirectHoursRequest =
+      parsed.skillBuilderDirectHours !== undefined && Number(parsed.skillBuilderDirectHours) !== 0;
+    if (explicitDirectHoursRequest && !canEditPayroll) {
       return res.status(403).json({
-        error: { message: 'Only payroll or admin can set direct hours for school events' }
+        error: { message: 'Only payroll or admin can set direct pay hours for school events' }
       });
     }
 
@@ -423,9 +429,11 @@ export const updateSchoolPortalEventHandler = async (req, res, next) => {
     }
 
     const canEditPayroll = await userCanEditSchoolEventPayrollFields({ userId, role, agencyId });
-    if (parsed.skillBuilderDirectHours !== undefined && !canEditPayroll) {
+    const explicitDirectHoursRequest =
+      parsed.skillBuilderDirectHours !== undefined && Number(parsed.skillBuilderDirectHours) !== 0;
+    if (explicitDirectHoursRequest && !canEditPayroll) {
       return res.status(403).json({
-        error: { message: 'Only payroll or admin can set direct hours for school events' }
+        error: { message: 'Only payroll or admin can set direct pay hours for school events' }
       });
     }
 
@@ -567,9 +575,11 @@ export const updateDistrictSchoolEventHandler = async (req, res, next) => {
       role: req.user?.role,
       agencyId
     });
-    if (parsed.skillBuilderDirectHours !== undefined && !canEditPayroll) {
+    const explicitDirectHoursRequest =
+      parsed.skillBuilderDirectHours !== undefined && Number(parsed.skillBuilderDirectHours) !== 0;
+    if (explicitDirectHoursRequest && !canEditPayroll) {
       return res.status(403).json({
-        error: { message: 'Only payroll or admin can set direct hours for school events' }
+        error: { message: 'Only payroll or admin can set direct pay hours for school events' }
       });
     }
 
