@@ -475,15 +475,22 @@ export const listEscalations = async (req, res, next) => {
 
     res.json({
       escalations: (rows || []).map(mapEscalationRow),
-      counts: await countEscalations(agencyId)
+      counts: await countEscalations(agencyId, req.user?.id || null)
     });
   } catch (e) {
     next(e);
   }
 };
 
-async function countEscalations(agencyId) {
+async function countEscalations(agencyId, userId = null) {
   try {
+    let assignedToMeSql = '';
+    if (userId) {
+      assignedToMeSql = `,
+         SUM(CASE WHEN claimed_by_user_id = ?
+           AND LOWER(COALESCE(escalation_status, 'submitted')) NOT IN ('resolved', 'closed')
+           THEN 1 ELSE 0 END) AS assigned_to_me`;
+    }
     const [rows] = await pool.execute(
       `SELECT
          SUM(CASE WHEN LOWER(COALESCE(escalation_status, 'submitted')) NOT IN ('resolved', 'closed') THEN 1 ELSE 0 END) AS open_count,
@@ -492,23 +499,25 @@ async function countEscalations(agencyId) {
          SUM(CASE WHEN LOWER(COALESCE(escalation_status, '')) = 'assigned' THEN 1 ELSE 0 END) AS assigned,
          SUM(CASE WHEN LOWER(COALESCE(escalation_status, '')) = 'awaiting_information' THEN 1 ELSE 0 END) AS awaiting_information,
          SUM(CASE WHEN LOWER(COALESCE(escalation_status, '')) = 'resolved' THEN 1 ELSE 0 END) AS resolved,
-         SUM(CASE WHEN LOWER(COALESCE(escalation_status, '')) = 'closed' THEN 1 ELSE 0 END) AS closed
+         SUM(CASE WHEN LOWER(COALESCE(escalation_status, '')) = 'closed' THEN 1 ELSE 0 END) AS closed${assignedToMeSql}
        FROM support_tickets
        WHERE agency_id = ? AND COALESCE(ticket_kind, 'support') = 'escalation'`,
-      [agencyId]
+      userId ? [userId, agencyId] : [agencyId]
     );
     const r = rows?.[0] || {};
     return {
       open: Number(r.open_count || 0),
+      total: Number(r.open_count || 0),
       submitted: Number(r.submitted || 0),
       under_review: Number(r.under_review || 0),
       assigned: Number(r.assigned || 0),
       awaiting_information: Number(r.awaiting_information || 0),
       resolved: Number(r.resolved || 0),
-      closed: Number(r.closed || 0)
+      closed: Number(r.closed || 0),
+      assigned_to_me: Number(r.assigned_to_me || 0)
     };
   } catch {
-    return { open: 0 };
+    return { open: 0, total: 0, assigned_to_me: 0 };
   }
 }
 
@@ -1194,7 +1203,7 @@ export const getEscalationsSummary = async (req, res, next) => {
     const access = await ensureAgencyAccess(req, agencyId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    const counts = await countEscalations(agencyId);
+    const counts = await countEscalations(agencyId, req.user?.id || null);
     const [rows] = await pool.execute(
       `SELECT t.*,
               cb.first_name AS created_by_first_name,

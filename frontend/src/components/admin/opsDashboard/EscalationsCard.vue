@@ -56,7 +56,7 @@
         <div v-if="loading" class="empty">Loading…</div>
         <div v-else-if="error" class="empty error">{{ error }}</div>
         <ul v-else-if="items.length" class="esc-list">
-          <li v-for="e in items" :key="e.id">
+          <li v-for="e in items" :key="e.id" class="esc-item">
             <button type="button" class="esc-row" @click="$emit('navigate', `${deskPath}?id=${e.id}`)">
               <span class="esc-id">#{{ e.id }}</span>
               <span class="esc-main">
@@ -69,6 +69,19 @@
               </span>
               <i class="prio" :class="e.priority">{{ e.priority }}</i>
             </button>
+            <label v-if="canManage" class="esc-assign" @click.stop>
+              <span class="sr-only">Assign escalation #{{ e.id }}</span>
+              <select
+                :value="e.claimed_by_user_id ? String(e.claimed_by_user_id) : ''"
+                :disabled="assigningId === e.id"
+                @change="assignEscalation(e, $event)"
+              >
+                <option value="">Unassigned</option>
+                <option v-for="u in assignOptionsFor(e)" :key="u.id" :value="String(u.id)">
+                  {{ u.last_name }}, {{ u.first_name }}
+                </option>
+              </select>
+            </label>
           </li>
         </ul>
         <div v-else class="empty-state">
@@ -83,6 +96,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
+import { useAuthStore } from '../../../store/auth';
 import { ESCALATION_PRIORITIES, escalationStatusLabel } from '../../../utils/orgEscalations';
 
 const props = defineProps({
@@ -90,7 +104,11 @@ const props = defineProps({
   deskPath: { type: String, default: '/admin/escalations' }
 });
 
-defineEmits(['navigate']);
+const emit = defineEmits(['navigate', 'assigned']);
+
+const authStore = useAuthStore();
+const role = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canManage = computed(() => ['admin', 'support', 'super_admin', 'superadmin'].includes(role.value));
 
 const priorities = ESCALATION_PRIORITIES;
 const issue = ref('');
@@ -106,8 +124,64 @@ const loading = ref(true);
 const error = ref('');
 const items = ref([]);
 const counts = ref({ open: 0 });
+const assignees = ref([]);
+const assigningId = ref(null);
 
 const statusLabel = escalationStatusLabel;
+
+const assignOptionsFor = (escalation) => {
+  const list = Array.isArray(assignees.value) ? [...assignees.value] : [];
+  const ownerId = Number(escalation?.claimed_by_user_id || 0);
+  if (ownerId > 0 && !list.some((u) => Number(u.id) === ownerId)) {
+    const parts = String(escalation?.claimed_by_name || '').trim().split(/\s+/);
+    list.unshift({
+      id: ownerId,
+      first_name: parts[0] || 'Assigned',
+      last_name: parts.slice(1).join(' ') || 'user'
+    });
+  }
+  return list;
+};
+
+async function loadAssignees() {
+  if (!canManage.value || !agencyNum.value) {
+    assignees.value = [];
+    return;
+  }
+  try {
+    const res = await api.get('/escalations/assignees', {
+      params: { agencyId: agencyNum.value },
+      skipGlobalLoading: true
+    });
+    assignees.value = Array.isArray(res.data?.users) ? res.data.users : [];
+  } catch {
+    assignees.value = [];
+  }
+}
+
+async function assignEscalation(escalation, evt) {
+  if (!canManage.value || !escalation?.id) return;
+  const next = evt?.target?.value ? Number(evt.target.value) : null;
+  const prev = escalation.claimed_by_user_id ? Number(escalation.claimed_by_user_id) : null;
+  if ((next || null) === (prev || null)) return;
+
+  assigningId.value = escalation.id;
+  try {
+    const res = await api.post(`/escalations/${escalation.id}/assign`, {
+      assigneeUserId: next
+    }, { skipGlobalLoading: true });
+    const idx = items.value.findIndex((row) => row.id === escalation.id);
+    if (idx >= 0) items.value[idx] = { ...items.value[idx], ...res.data };
+    emit('assigned', res.data);
+    await loadList();
+  } catch (e) {
+    if (evt?.target) evt.target.value = prev ? String(prev) : '';
+    flashTone.value = 'err';
+    flash.value = e.response?.data?.error?.message || 'Assign failed';
+  } finally {
+    assigningId.value = null;
+  }
+}
 
 const agencyNum = computed(() => {
   const n = Number(props.agencyId);
@@ -172,8 +246,14 @@ async function submit() {
   }
 }
 
-watch(agencyNum, () => loadList());
-onMounted(loadList);
+watch(agencyNum, () => {
+  loadList();
+  loadAssignees();
+});
+onMounted(() => {
+  loadList();
+  loadAssignees();
+});
 </script>
 
 <style scoped>
@@ -323,6 +403,36 @@ onMounted(loadList);
   gap: 4px;
   flex: 1;
   overflow: auto;
+}
+.esc-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 4px;
+}
+.esc-assign select {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #fff;
+  font-family: inherit;
+}
+.esc-assign select:disabled { opacity: 0.6; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .esc-row {
   width: 100%;

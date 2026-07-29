@@ -265,6 +265,7 @@
             :desk-path="escalationsPath"
             :style="sectionStyle('escalations')"
             @navigate="go"
+            @assigned="refreshEscalationGlance"
           />
 
           <TenantContextCards
@@ -699,8 +700,11 @@ const contextPaths = computed(() => ({
 }));
 
 // Live metrics
-const newTickets = ref(0);
-const openTickets = ref(0);
+const supportTicketsNew = ref(0);
+const supportTicketsActive = ref(0);
+const escalationNew = ref(0);
+const escalationTotal = ref(0);
+const escalationAssignedToMe = ref(0);
 const unreadMessages = ref(0);
 const clientMessages = ref(0);
 const lateNotes = ref(0);
@@ -799,22 +803,16 @@ const glanceCards = computed(() => {
   }
   return [
     {
-      key: 'new_tickets',
-      label: 'New Tickets',
-      value: newTickets.value,
-      hint: 'Requires immediate attention',
-      cta: 'View All',
+      key: 'support_tickets',
+      label: 'Support Tickets',
+      metrics: [
+        { label: 'New', value: supportTicketsNew.value, tone: 'danger' },
+        { label: 'Need attention', value: supportTicketsActive.value, tone: 'warn' }
+      ],
+      hint: 'New unclaimed tickets and active support workload',
+      cta: 'View queue',
       tone: 'danger',
       to: `${ticketsPath.value}?status=open`
-    },
-    {
-      key: 'open_tickets',
-      label: 'Open Tickets',
-      value: openTickets.value,
-      hint: 'Active support tickets',
-      cta: 'View All',
-      tone: 'warn',
-      to: ticketsPath.value
     },
     {
       key: 'messages',
@@ -851,7 +849,20 @@ const glanceCards = computed(() => {
       cta: 'Review',
       tone: 'accent',
       to: `${prefix.value}/admin/payroll/pending`
-    }
+    },
+    ...(canSeeEscalations.value ? [{
+      key: 'escalations',
+      label: 'Escalations',
+      metrics: [
+        { label: 'New', value: escalationNew.value, tone: 'danger' },
+        { label: 'Total', value: escalationTotal.value, tone: 'warn' },
+        { label: 'Assigned to me', value: escalationAssignedToMe.value, tone: 'accent' }
+      ],
+      hint: 'Leadership escalations — assignable workflow',
+      cta: 'Open desk',
+      tone: 'warn',
+      to: escalationsPath.value
+    }] : [])
   ];
 });
 
@@ -893,7 +904,7 @@ const docAlerts = computed(() => {
 const commsSummary = computed(() => ({
   unread: unreadMessages.value,
   clientMessages: clientMessages.value,
-  openTickets: openTickets.value
+  openTickets: supportTicketsActive.value
 }));
 
 const peopleOpsSummary = computed(() => ({
@@ -1501,19 +1512,19 @@ const safeGet = (url, config = {}, ms = 7000) =>
     .then((r) => r?.data ?? null)
     .catch(() => null);
 
-const applyGlanceFromPayloads = ({ center, personal, openCountRes, metrics, specs }) => {
-  openTickets.value = Number(
+const applyGlanceFromPayloads = ({ center, personal, openCountRes, metrics, specs, escalationSummary }) => {
+  const unclaimed = Number(metrics?.open ?? center?.tickets?.open ?? openCountRes?.count ?? 0);
+  const inProgress = Number(metrics?.in_progress ?? center?.tickets?.in_progress ?? 0);
+  supportTicketsNew.value = unclaimed;
+  supportTicketsActive.value = Number(
     center?.kpis?.openTickets
-    ?? metrics?.open
-    ?? openCountRes?.count
-    ?? 0
+    ?? (unclaimed + inProgress)
+    ?? unclaimed
   );
-  newTickets.value = Number(
-    metrics?.open
-    ?? center?.tickets?.open
-    ?? openCountRes?.count
-    ?? openTickets.value
-  );
+  const escCounts = escalationSummary?.counts || {};
+  escalationNew.value = Number(escCounts.submitted ?? 0);
+  escalationTotal.value = Number(escCounts.total ?? escCounts.open ?? 0);
+  escalationAssignedToMe.value = Number(escCounts.assigned_to_me ?? 0);
   unreadMessages.value = Number(personal?.cards?.unread || 0);
   clientMessages.value = Number(
     personal?.cards?.clientMessages
@@ -1526,6 +1537,17 @@ const applyGlanceFromPayloads = ({ center, personal, openCountRes, metrics, spec
   pendingEmployees.value = Number(specs?.pendingEmployees || 0);
   lateNotes.value = countLateNoteNotifications();
   unsignedDocs.value = countUnsignedNotifications();
+};
+
+const refreshEscalationGlance = async () => {
+  const agencyId = agencyStore.currentAgency?.id
+    || (typeof agencyStore.currentAgency === 'object' ? agencyStore.currentAgency?.value?.id : null);
+  if (!agencyId || !canSeeEscalations.value) return;
+  const escalationSummary = await safeGet('/escalations/summary', { params: { agencyId } }, 6000);
+  const escCounts = escalationSummary?.counts || {};
+  escalationNew.value = Number(escCounts.submitted ?? 0);
+  escalationTotal.value = Number(escCounts.total ?? escCounts.open ?? 0);
+  escalationAssignedToMe.value = Number(escCounts.assigned_to_me ?? 0);
 };
 
 const loadDashboard = async () => {
@@ -1561,14 +1583,17 @@ const loadDashboard = async () => {
 
   try {
     // Phase 1 — glance metrics only (fast path)
-    const [center, personal, openCountRes, metrics, specs] = await Promise.all([
+    const [center, personal, openCountRes, metrics, specs, escalationSummary] = await Promise.all([
       safeGet('/communications/center-summary', { params }, 6000),
       safeGet('/messages/dashboard-summary', { params }, 6000),
       safeGet('/support-tickets/count', { params: { ...params, status: 'open' } }, 6000),
       safeGet('/support-tickets/metrics', { params }, 6000),
-      safeGet('/dashboard/agency-specs', { params }, 6000)
+      safeGet('/dashboard/agency-specs', { params }, 6000),
+      canSeeEscalations.value
+        ? safeGet('/escalations/summary', { params }, 6000)
+        : Promise.resolve(null)
     ]);
-    applyGlanceFromPayloads({ center, personal, openCountRes, metrics, specs });
+    applyGlanceFromPayloads({ center, personal, openCountRes, metrics, specs, escalationSummary });
   } finally {
     setLoading(false);
   }

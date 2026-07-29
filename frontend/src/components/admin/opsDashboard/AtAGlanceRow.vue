@@ -10,11 +10,17 @@
         :key="card.key"
         type="button"
         class="ops-metric"
-        :class="card.tone"
+        :class="[card.tone, { 'ops-metric--multi': card.metrics?.length }]"
         @click="$emit('navigate', card.to)"
       >
         <span class="ops-metric-label">{{ card.label }}</span>
-        <strong class="ops-metric-value">{{ formatCount(card.value) }}</strong>
+        <div v-if="card.metrics?.length" class="ops-metric-stats">
+          <div v-for="m in card.metrics" :key="m.label" class="ops-metric-stat">
+            <span class="ops-metric-stat-label">{{ m.label }}</span>
+            <strong class="ops-metric-stat-value" :class="m.tone">{{ formatCount(m.value) }}</strong>
+          </div>
+        </div>
+        <strong v-else class="ops-metric-value">{{ formatCount(card.value) }}</strong>
         <span class="ops-metric-hint">{{ card.hint }}</span>
         <span class="ops-metric-cta">{{ card.cta }}</span>
       </button>
@@ -85,6 +91,9 @@ const formatCount = (v) => {
   color: inherit;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
 }
+.ops-metric--multi {
+  min-height: 128px;
+}
 .ops-metric:hover {
   border-color: color-mix(in srgb, var(--ops-primary, #1f6b4a) 45%, #e2e8f0);
   box-shadow: 0 12px 28px color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, transparent);
@@ -133,6 +142,36 @@ const formatCount = (v) => {
 .ops-metric.info .ops-metric-value { color: #1d4ed8; }
 .ops-metric.purple .ops-metric-value { color: #6d28d9; }
 .ops-metric.success .ops-metric-value { color: #047857; }
+.ops-metric-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 2px 0 4px;
+}
+.ops-metric-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.ops-metric-stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #94a3b8;
+}
+.ops-metric-stat-value {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+  line-height: 1.1;
+}
+.ops-metric-stat-value.danger { color: #b91c1c; }
+.ops-metric-stat-value.warn { color: #c2410c; }
+.ops-metric-stat-value.accent { color: var(--ops-primary, #1f6b4a); }
+.ops-metric-stat-value.info { color: #1d4ed8; }
 .ops-metric-hint {
   font-size: 12px;
   color: #94a3b8;
