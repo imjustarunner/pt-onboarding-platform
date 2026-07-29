@@ -368,7 +368,19 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
 
     const projectId = resolveVideoProjectId();
     const tokenRole = ProviderScheduleEvent.classifyJoinTokenRole(row, ref);
-    const isHost = actorUserId === Number(row.provider_id);
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const privilegedHost = [
+      'super_admin',
+      'superadmin',
+      'admin',
+      'support',
+      'schedule_manager',
+      'assistant_admin'
+    ].includes(actorRole);
+    const createdByUserId = Number(row.created_by_user_id || row.createdByUserId || 0);
+    // Host link: calendar owner, meeting creator, or privileged scheduler (admin schedule).
+    const isHost = actorUserId === Number(row.provider_id)
+      || (tokenRole === 'host' && (actorUserId === createdByUserId || privilegedHost));
     if (tokenRole === 'host' && !isHost) {
       return res.status(403).json({
         error: { message: 'This is the host join link. Only the meeting host can use it.' }

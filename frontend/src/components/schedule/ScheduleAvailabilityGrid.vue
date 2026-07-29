@@ -1304,18 +1304,22 @@
           </div>
           <VirtualLinkControls
             v-if="meetingCreatedShare.hostJoinUrl"
+            label="Host link"
             :is-virtual="true"
             :link="meetingCreatedShare.hostJoinUrl"
             hint="Host join link — enters the main room immediately."
             compact
+            :same-tab="true"
           />
           <VirtualLinkControls
+            label="Participant link"
             :is-virtual="true"
             :link="meetingCreatedShare.joinUrl || meetingCreatedShare.meetLink"
             :meet-link="meetingCreatedShare.meetLink"
             :platform-link="meetingCreatedShare.joinUrl"
             hint="Participant join link — waiting room when enabled."
             compact
+            :same-tab="true"
             dismissible
             @dismiss="dismissMeetingCreatedShare"
           />
@@ -1770,6 +1774,7 @@
             v-model:use-platform-video="linkMeetingPlatformVideo"
             v-model:waiting-room-enabled="editorMeetingWaitingRoomEnabled"
             v-model:create-meet-link="createMeetingMeetLink"
+            v-model:notify-participants="notifyMeetingParticipants"
             v-model:agenda-items="createAgendaDraftItems"
             v-model:goal-draft-items="createGoalDraftItems"
             v-model:action-draft-items="createActionDraftItems"
@@ -3108,6 +3113,13 @@
               <input type="checkbox" v-model="createMeetingMeetLink" />
               <span>Create Google Meet link</span>
             </label>
+            <label class="sched-toggle" style="margin-top: 8px;">
+              <input type="checkbox" v-model="notifyMeetingParticipants" />
+              <span>Email calendar invites / notify participants</span>
+            </label>
+            <div class="muted nr-help" style="margin-top: 4px;">
+              Turn off to add the meeting to calendars without sending invite or notification emails.
+            </div>
             <div v-if="requestType === 'agency_meeting' || requestType === 'huddle'" class="agenda-draft-section" style="margin-top: 12px;">
               <label class="lbl">Agenda items (optional)</label>
               <div style="display: flex; gap: 8px; margin-bottom: 6px;">
@@ -6645,9 +6657,28 @@ const scheduleNowLineStyle = computed(() => {
   const colIdx = visibleDays.value.indexOf(todayDay);
   if (colIdx < 0) return null;
 
+  // Position against the schedule's booking timezone (office TZ), not a mismatched browser zone.
   const now = new Date(joinPromptNowMs.value || Date.now());
-  const hour = now.getHours();
-  const minute = now.getMinutes();
+  const tz = String(bookingTimezoneIana.value || '').trim() || browserIanaTimeZone() || undefined;
+  let hour;
+  let minute;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    }).formatToParts(now);
+    const map = {};
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = p.value;
+    }
+    hour = Number(map.hour) % 24;
+    minute = Number(map.minute);
+  } catch {
+    hour = now.getHours();
+    minute = now.getMinutes();
+  }
   const minH = Number(gridMinHour.value || 0);
   const maxH = Number(gridMaxHour.value || 24);
   if (hour < minH || hour >= maxH) return null;
@@ -6711,8 +6742,24 @@ const localYmd = (d) => {
   return `${yy}-${mm}-${dd}`;
 };
 
-const todayLocalYmd = computed(() => localYmd(new Date()));
+const todayLocalYmd = computed(() => {
+  const tz = String(bookingTimezoneIana.value || '').trim();
+  if (!tz) return localYmd(new Date());
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date());
+  } catch {
+    return localYmd(new Date());
+  }
+});
 const todayMmdd = computed(() => {
+  const ymd = String(todayLocalYmd.value || '').slice(0, 10);
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[2]}/${m[3]}`;
   const d = new Date();
   return `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`;
 });
@@ -14245,6 +14292,8 @@ const meetingCreateGroupError = ref('');
 const createMeetingMeetLink = ref(true);
 const linkMeetingPlatformVideo = ref(true);
 const editorMeetingWaitingRoomEnabled = ref(true);
+/** When false, calendar sync still happens but Google/in-app invite emails are suppressed. */
+const notifyMeetingParticipants = ref(true);
 const createGoalDraftItems = ref([]);
 const createActionDraftItems = ref([]);
 
@@ -17941,7 +17990,9 @@ const submitRequest = async () => {
         ? effectiveScheduleHoldReason()
         : (eventKind === 'PERSONAL_EVENT' ? effectivePersonalEventTypeCode() : null);
       const isPrivate = !!scheduleEventPrivate.value;
-      const meetingTimeZone = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle') ? browserIanaTimeZone() : null;
+      const meetingTimeZone = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
+        ? (bookingTimezoneIana.value || browserIanaTimeZone() || 'America/Denver')
+        : null;
       const isMeetingAction = normalizedAction === 'agency_meeting' || normalizedAction === 'huddle';
       const recurrence = isMeetingAction
         ? String(scheduleEventRecurrence.value || 'ONCE').trim().toUpperCase()
@@ -17994,6 +18045,7 @@ const submitRequest = async () => {
                   createMeetLink,
                   createPlatformVideoLink,
                   waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
+                  notifyParticipants: !!notifyMeetingParticipants.value,
                   allowLocalOnly: true,
                   isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                   meetingSubtype: meetingSubtypeForCreate,
@@ -18037,6 +18089,7 @@ const submitRequest = async () => {
                     createMeetLink,
                     createPlatformVideoLink,
                     waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
+                    notifyParticipants: !!notifyMeetingParticipants.value,
                     allowLocalOnly: true,
                     isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                     meetingSubtype: meetingSubtypeForCreate,
@@ -21835,6 +21888,26 @@ const buildStackDetailsForBlock = (block, dayName, hour, minute = 0) => {
   return null;
 };
 
+/** Prefer same-origin relative join paths so the current session cookie stays attached. */
+const toSameOriginJoinPath = (url) => {
+  const s = String(url || '').trim();
+  if (!s) return '';
+  if (s.startsWith('/')) return s;
+  try {
+    const u = new URL(s, window.location.origin);
+    if (u.origin === window.location.origin) return `${u.pathname}${u.search}${u.hash}`;
+  } catch {
+    /* keep absolute */
+  }
+  return s;
+};
+const isInAppJoinUrl = (url) => /\/join\/(team-meeting|supervision)\//i.test(String(url || ''));
+const openInAppJoinUrl = (url) => {
+  const href = toSameOriginJoinPath(url) || String(url || '').trim();
+  if (!href) return;
+  window.location.assign(href);
+};
+
 const openStackDetailsItem = (item) => {
   if (item?.googleEvent) {
     closeStackDetailsModal();
@@ -21850,11 +21923,15 @@ const openStackDetailsItem = (item) => {
   const appJoinUrl = String(item?.appJoinUrl || '').trim();
   if (appJoinUrl) {
     closeStackDetailsModal();
-    window.location.href = appJoinUrl;
+    openInAppJoinUrl(appJoinUrl);
     return;
   }
   const link = String(item?.link || '').trim();
   if (link) {
+    if (isInAppJoinUrl(link)) {
+      openInAppJoinUrl(link);
+      return;
+    }
     window.open(link, '_blank', 'noreferrer');
     return;
   }
@@ -21875,7 +21952,7 @@ const openStackDetailsItem = (item) => {
     const aj = String(ev?.appJoinUrl || '').trim();
     if (aj) {
       closeStackDetailsModal();
-      window.location.href = aj;
+      openInAppJoinUrl(aj);
       return;
     }
   }

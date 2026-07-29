@@ -4428,14 +4428,15 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const kind = String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT';
         const meetingJoinKey = String(r.participant_join_token || r.join_token || r.id || '').trim();
         const meetingHostKey = String(r.host_join_token || '').trim();
-        const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured && frontendUrl
+        const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured
+          && meetingJoinKey
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
-          ? joinUrlForTeamMeeting(frontendUrl, meetingJoinKey)
+          ? `/join/team-meeting/${encodeURIComponent(meetingJoinKey)}`
           : null;
-        const hostJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured && frontendUrl
+        const hostJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured
           && meetingHostKey
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
-          ? joinUrlForTeamMeeting(frontendUrl, meetingHostKey)
+          ? `/join/team-meeting/${encodeURIComponent(meetingHostKey)}`
           : null;
         const waitingRoomEnabled = r.waiting_room_enabled == null
           ? true
@@ -5441,7 +5442,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
       reasonCode: reasonCode ? reasonCode.replace(/_/g, ' ') : ''
     });
     const description = String(req.body?.description || '').trim() || null;
-    const timeZone = String(req.body?.timeZone || 'America/New_York').trim() || 'America/New_York';
+    const timeZone = String(req.body?.timeZone || 'America/Denver').trim() || 'America/Denver';
     let attendeeUserIds = Array.from(
       new Set((Array.isArray(req.body?.attendeeUserIds) ? req.body.attendeeUserIds : [])
         .map((v) => Number(v || 0))
@@ -5576,6 +5577,18 @@ export const createUserScheduleEvent = async (req, res, next) => {
       attendeeEmails = Array.from(new Set(attendeeEmails));
     }
 
+    // When false: add to calendars silently (no Google invite emails / in-app notify emails).
+    const notifyParticipants = !(
+      req.body?.notifyParticipants === false
+      || req.body?.notifyParticipants === 0
+      || req.body?.notifyParticipants === '0'
+      || req.body?.notifyParticipants === 'false'
+      || req.body?.sendCalendarInvites === false
+      || req.body?.sendCalendarInvites === 0
+      || req.body?.sendCalendarInvites === '0'
+      || req.body?.sendCalendarInvites === 'false'
+    );
+
     const result = await GoogleCalendarService.createProviderScheduleEvent({
       subjectEmail,
       startAt,
@@ -5590,7 +5603,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
       reasonCode,
       isPrivate,
       attendeeEmails,
-      createMeetLink
+      createMeetLink,
+      sendUpdates: notifyParticipants ? 'all' : 'none'
     });
 
     const googleOk = !!result?.ok;
@@ -5615,10 +5629,19 @@ export const createUserScheduleEvent = async (req, res, next) => {
       });
     }
 
-    // Use Google's canonical start/end (RFC3339) for storage to avoid timezone drift across viewers.
-    // Google returns the correct instant; we store as UTC so all timezones see the right day/time.
-    const storedStartAt = allDay ? null : (result?.startAt ? toMysqlUtc(result.startAt) : startAt);
-    const storedEndAt = allDay ? null : (result?.endAt ? toMysqlUtc(result.endAt) : endAt);
+    // Google-synced rows are stored as UTC instants. Convert from the wall clock the user
+    // picked in `timeZone` (do not re-project Google's dateTime through a second TZ shift).
+    // Local-only rows keep wall digits so summary APIs can return them without a Z suffix.
+    const storedStartAt = allDay
+      ? null
+      : (googleOk
+        ? (wallInTimeZoneToMysqlUtc(startAt, timeZone) || (result?.startAt ? toMysqlUtc(result.startAt) : startAt))
+        : startAt);
+    const storedEndAt = allDay
+      ? null
+      : (googleOk
+        ? (wallInTimeZoneToMysqlUtc(endAt, timeZone) || (result?.endAt ? toMysqlUtc(result.endAt) : endAt))
+        : endAt);
 
     let saved = null;
     let appJoinUrl = null;
@@ -5666,18 +5689,21 @@ export const createUserScheduleEvent = async (req, res, next) => {
       }
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && createPlatformVideoLink) {
         const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-        if (frontendUrl) {
-          const joinKey = String(saved.participant_join_token || saved.join_token || saved.id || '').trim();
-          const hostKey = String(saved.host_join_token || '').trim();
-          appJoinUrl = joinKey ? joinUrlForTeamMeeting(frontendUrl, joinKey) : null;
-          hostJoinUrl = hostKey ? joinUrlForTeamMeeting(frontendUrl, hostKey) : null;
-          if (result?.eventId && appJoinUrl) {
-            await GoogleCalendarService.appendToEventDescription({
-              subjectEmail,
-              googleEventId: result.eventId,
-              appendText: `Join with app: ${appJoinUrl}`
-            }).catch(() => {});
-          }
+        const joinKey = String(saved.participant_join_token || saved.join_token || saved.id || '').trim();
+        const hostKey = String(saved.host_join_token || '').trim();
+        // Prefer relative paths in the UI response so Join stays on the current origin
+        // (absolute FRONTEND_URL was opening a host that dropped the session cookie).
+        appJoinUrl = joinKey ? `/join/team-meeting/${encodeURIComponent(joinKey)}` : null;
+        hostJoinUrl = hostKey ? `/join/team-meeting/${encodeURIComponent(hostKey)}` : null;
+        const absoluteJoinForCalendar = (frontendUrl && joinKey)
+          ? joinUrlForTeamMeeting(frontendUrl, joinKey)
+          : null;
+        if (result?.eventId && absoluteJoinForCalendar) {
+          await GoogleCalendarService.appendToEventDescription({
+            subjectEmail,
+            googleEventId: result.eventId,
+            appendText: `Join with app: ${absoluteJoinForCalendar}`
+          }).catch(() => {});
         }
       }
       if (saved?.id && isTrainingPayEligible) {
@@ -5698,7 +5724,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
     }
 
     // Notify attendees / host counterparts so their schedule can refresh.
-    if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE')) {
+    if (notifyParticipants && saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE')) {
       try {
         const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
         const actorName = `${String(req.user?.first_name || req.user?.firstName || '').trim()} ${String(req.user?.last_name || req.user?.lastName || '').trim()}`.trim()

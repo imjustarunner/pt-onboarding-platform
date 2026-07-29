@@ -508,17 +508,23 @@ async function fetchTokenAndJoin() {
 }
 
 async function ensureAuthenticatedSession() {
-  if (authStore.isAuthenticated) return true;
+  // Always verify via cookie/API first so a fresh tab (or absolute join URL) hydrates
+  // the session before we send the user to login.
   try {
     const resp = await api.get('/users/me', { skipAuthRedirect: true, skipGlobalLoading: true });
     const u = resp?.data || null;
     if (u && (u.id || u.email)) {
-      authStore.setAuth(null, u, localStorage.getItem('sessionId') || null);
+      authStore.setAuth(
+        localStorage.getItem('authToken') || null,
+        u,
+        localStorage.getItem('sessionId') || null
+      );
       return true;
     }
   } catch {
-    // ignore and route to login below
+    /* fall through */
   }
+  if (authStore.isAuthenticated) return true;
   const slug = organizationSlug.value;
   if (slug) {
     router.replace(`/${slug}/login?redirect=${encodeURIComponent(route.fullPath)}`);

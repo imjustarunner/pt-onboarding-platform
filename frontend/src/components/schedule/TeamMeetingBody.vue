@@ -94,6 +94,27 @@
         </div>
       </div>
 
+      <div v-if="showNotifyOption" class="tmb-row">
+        <label class="tmb-label">Notifications</label>
+        <div class="tmb-switch-row">
+          <div class="tmb-switch-copy">
+            <span class="tmb-switch-title">Email invites</span>
+            <p class="muted">Send Google Calendar invite and in-app notification emails. Turn off to add silently.</p>
+          </div>
+          <label class="tmb-switch" :class="{ disabled }">
+            <input
+              type="checkbox"
+              role="switch"
+              :checked="notifyParticipants"
+              :disabled="disabled"
+              :aria-checked="String(!!notifyParticipants)"
+              @change="emit('update:notifyParticipants', !!$event.target.checked)"
+            />
+            <span class="tmb-switch-slider" aria-hidden="true"></span>
+          </label>
+        </div>
+      </div>
+
       <div v-if="showParticipants" class="tmb-row">
         <label class="tmb-label">
           Participants <span v-if="participantsRequired" aria-hidden="true">*</span>
@@ -383,6 +404,9 @@ const props = defineProps({
   waitingRoomEnabled: { type: Boolean, default: true },
   createMeetLink: { type: Boolean, default: false },
   videoConfigured: { type: Boolean, default: false },
+  /** When false, calendar/Google still sync but invite emails are suppressed. */
+  notifyParticipants: { type: Boolean, default: true },
+  showNotifyOption: { type: Boolean, default: true },
   /** When false, Virtual / platform / waiting-room switches live next to the join-link panel. */
   showVirtualOptions: { type: Boolean, default: true },
   agendaItems: { type: Array, default: () => [] },
@@ -417,6 +441,7 @@ const emit = defineEmits([
   'update:usePlatformVideo',
   'update:waitingRoomEnabled',
   'update:createMeetLink',
+  'update:notifyParticipants',
   'update:agendaItems',
   'update:goalDraftItems',
   'update:actionDraftItems',

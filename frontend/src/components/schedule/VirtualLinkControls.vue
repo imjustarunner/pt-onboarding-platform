@@ -11,7 +11,7 @@
     }"
   >
     <div class="vlc-top">
-      <div class="vlc-label">{{ showOptions ? 'Virtual meeting' : (displayLink ? 'Meeting link' : 'Virtual meeting') }}</div>
+      <div class="vlc-label">{{ labelText }}</div>
       <div class="vlc-top-actions">
         <button
           v-if="compact && displayLink"
@@ -131,16 +131,22 @@
         <a
           v-if="displayLink"
           class="btn btn-primary btn-sm"
-          :href="displayLink"
-          target="_blank"
-          rel="noopener noreferrer"
+          :href="joinHref"
+          :target="sameTab ? undefined : '_blank'"
+          :rel="sameTab ? undefined : 'noopener noreferrer'"
+          @click="onJoinClick"
         >
           Join
         </a>
       </div>
       <div v-if="(!compact || expanded) && secondaryLink && secondaryLink !== displayLink" class="vlc-secondary muted">
         Also:
-        <a :href="secondaryLink" target="_blank" rel="noopener noreferrer">{{ secondaryLink }}</a>
+        <a
+          :href="toSameOriginPath(secondaryLink)"
+          :target="sameTab ? undefined : '_blank'"
+          :rel="sameTab ? undefined : 'noopener noreferrer'"
+          @click="onSecondaryJoinClick"
+        >{{ secondaryLink }}</a>
         <button type="button" class="btn btn-ghost btn-xs" @click="copyText(secondaryLink)">Copy</button>
       </div>
       <p v-if="hint" class="vlc-hint muted">{{ hint }}</p>
@@ -157,6 +163,7 @@ const props = defineProps({
   platformLink: { type: String, default: '' },
   isVirtual: { type: Boolean, default: true },
   hint: { type: String, default: '' },
+  label: { type: String, default: '' },
   placeholder: { type: String, default: 'Link will appear after booking' },
   dismissible: { type: Boolean, default: false },
   /** When ready, default to Copy/Join only; expand to reveal the URL. */
@@ -167,11 +174,17 @@ const props = defineProps({
   waitingRoomEnabled: { type: Boolean, default: true },
   createMeetLink: { type: Boolean, default: false },
   videoConfigured: { type: Boolean, default: false },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  /**
+   * Prefer same-tab navigation for in-app join links so the HttpOnly session
+   * cookie / local auth state stay attached (new tabs were forcing re-login).
+   */
+  sameTab: { type: Boolean, default: true }
 });
 
 const emit = defineEmits([
   'dismiss',
+  'join',
   'update:isVirtual',
   'update:usePlatformVideo',
   'update:waitingRoomEnabled',
@@ -193,6 +206,29 @@ const secondaryLink = computed(() => {
   if (platform && platform !== primary) return platform;
   return '';
 });
+const labelText = computed(() => {
+  const custom = String(props.label || '').trim();
+  if (custom) return custom;
+  if (props.showOptions) return 'Virtual meeting';
+  return displayLink.value ? 'Meeting link' : 'Virtual meeting';
+});
+
+function toSameOriginPath(url) {
+  const s = String(url || '').trim();
+  if (!s) return '';
+  if (s.startsWith('/')) return s;
+  try {
+    const u = new URL(s, window.location.origin);
+    if (u.origin === window.location.origin) {
+      return `${u.pathname}${u.search}${u.hash}`;
+    }
+  } catch {
+    /* keep absolute */
+  }
+  return s;
+}
+
+const joinHref = computed(() => toSameOriginPath(displayLink.value) || displayLink.value);
 
 watch(displayLink, (next, prev) => {
   if (next && next !== prev) expanded.value = false;
@@ -212,6 +248,29 @@ async function copyText(text) {
 
 function copyLink() {
   void copyText(displayLink.value);
+}
+
+function navigateJoin(url) {
+  const href = toSameOriginPath(url) || String(url || '').trim();
+  if (!href) return;
+  emit('join', href);
+  if (props.sameTab) {
+    window.location.assign(href);
+    return;
+  }
+  window.open(href, '_blank', 'noopener,noreferrer');
+}
+
+function onJoinClick(e) {
+  if (!props.sameTab) return;
+  e.preventDefault();
+  navigateJoin(displayLink.value);
+}
+
+function onSecondaryJoinClick(e) {
+  if (!props.sameTab) return;
+  e.preventDefault();
+  navigateJoin(secondaryLink.value);
 }
 </script>
 

@@ -423,7 +423,9 @@ export class GoogleCalendarService {
     reasonCode = null,
     isPrivate = false,
     attendeeEmails = [],
-    createMeetLink = false
+    createMeetLink = false,
+    /** Google Calendar invite emails: 'all' | 'externalOnly' | 'none' */
+    sendUpdates = 'all'
   } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
@@ -451,6 +453,15 @@ export class GoogleCalendarService {
       .map((v) => String(v || '').trim().toLowerCase())
       .filter(Boolean)))
       .filter((email) => email !== subject);
+    const sendUpdatesMode = ['all', 'externalOnly', 'none'].includes(String(sendUpdates || ''))
+      ? String(sendUpdates)
+      : 'all';
+
+    // Provider schedule create payloads are already wall-clock in `timeZone`
+    // (e.g. "2026-07-29T11:00:00" meaning 11am Denver). Do NOT run them through
+    // utcToRfc3339Wall — that treats the digits as UTC and shifts Mountain times
+    // back by 6 hours (11am → 5am).
+    const wallDateTime = (value) => toRfc3339Local(value, null);
 
     const requestBody = {
       summary: normalizedSummary,
@@ -462,8 +473,8 @@ export class GoogleCalendarService {
             end: { date: String(endDate).slice(0, 10) }
           }
         : {
-            start: { dateTime: toRfc3339Local(startAt, timeZone), timeZone },
-            end: { dateTime: toRfc3339Local(endAt, timeZone), timeZone }
+            start: { dateTime: wallDateTime(startAt), timeZone },
+            end: { dateTime: wallDateTime(endAt), timeZone }
           }),
       extendedProperties: {
         private: {
@@ -487,6 +498,7 @@ export class GoogleCalendarService {
       const ins = await cal.events.insert({
         calendarId,
         requestBody,
+        sendUpdates: sendUpdatesMode,
         ...(createMeetLink ? { conferenceDataVersion: 1 } : {})
       });
       const data = ins?.data || {};
