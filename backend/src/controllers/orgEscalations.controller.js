@@ -572,6 +572,11 @@ export const updateEscalationStatus = async (req, res, next) => {
     const access = await ensureAgencyAccess(req, row.agency_id);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
+    const rawStatus = String(req.body?.status || req.body?.escalationStatus || '').trim().toLowerCase();
+    if (rawStatus === 'closed') {
+      return res.status(400).json({ error: { message: 'Escalations cannot be set to closed. Use resolved instead.' } });
+    }
+
     const nextStatus = normalizeEscalationStatus(req.body?.status || req.body?.escalationStatus, '');
     if (!nextStatus) return res.status(400).json({ error: { message: 'Valid escalation status is required' } });
 

@@ -4,9 +4,11 @@ export const ESCALATION_STATUSES = Object.freeze([
   'under_review',
   'assigned',
   'awaiting_information',
-  'resolved',
-  'closed'
+  'resolved'
 ]);
+
+/** Legacy terminal status still present on older rows; not assignable via API. */
+export const LEGACY_ESCALATION_STATUSES = Object.freeze(['closed']);
 
 export const ESCALATION_STATUS_LABELS = Object.freeze({
   submitted: 'Submitted',

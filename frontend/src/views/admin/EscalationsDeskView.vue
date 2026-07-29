@@ -89,7 +89,7 @@
 
       <main v-if="detail" class="detail-pane">
         <div class="detail-head">
-          <div>
+          <div class="detail-head-main">
             <h2>#{{ detail.id }} · {{ detail.subject }}</h2>
             <p class="meta">
               <span class="badge" :class="statusTone(detail.escalation_status)">
@@ -99,21 +99,31 @@
               · {{ formatTime(detail.created_at) }}
             </p>
           </div>
+          <div v-if="canEditDetails" class="detail-head-actions">
+            <template v-if="editingDetails">
+              <button type="button" class="btn secondary sm" :disabled="savingDetails" @click="cancelEditDetails">
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="btn primary sm"
+                :disabled="savingDetails || !detailsDraft.issue.trim() || !detailsDraft.recommended.trim()"
+                @click="saveDetails"
+              >
+                {{ savingDetails ? 'Saving…' : 'Save details' }}
+              </button>
+            </template>
+            <button v-else type="button" class="btn secondary sm" @click="startEditDetails">
+              Edit details
+            </button>
+          </div>
         </div>
+
+        <p v-if="detailsError" class="error details-error">{{ detailsError }}</p>
 
         <div class="fields-grid">
           <section>
-            <div class="section-head">
-              <h4>Issue</h4>
-              <button
-                v-if="canEditDetails && !editingDetails"
-                type="button"
-                class="btn secondary sm"
-                @click="startEditDetails"
-              >
-                Edit
-              </button>
-            </div>
+            <h4>Issue</h4>
             <textarea
               v-if="editingDetails"
               v-model="detailsDraft.issue"
@@ -170,15 +180,6 @@
               <li><span>Owner</span><strong>{{ detail.claimed_by_name || 'Unassigned' }}</strong></li>
               <li v-if="detail.resolution_outcome"><span>Outcome</span><strong>{{ detail.resolution_outcome }}</strong></li>
             </ul>
-            <div v-if="editingDetails" class="details-edit-actions">
-              <button type="button" class="btn secondary sm" :disabled="savingDetails" @click="cancelEditDetails">
-                Cancel
-              </button>
-              <button type="button" class="btn primary sm" :disabled="savingDetails || !detailsDraft.issue.trim() || !detailsDraft.recommended.trim()" @click="saveDetails">
-                {{ savingDetails ? 'Saving…' : 'Save details' }}
-              </button>
-            </div>
-            <p v-if="detailsError" class="error">{{ detailsError }}</p>
           </section>
           <section class="meeting-link-section">
             <h4>Admin Meeting</h4>
@@ -214,15 +215,15 @@
         </div>
 
         <div v-if="canManage" class="manage-bar">
-          <label>
+          <label v-if="!isResolved">
             Status
             <select v-model="statusDraft" @change="saveStatus">
-              <option v-for="s in statuses" :key="s.id" :value="s.id">{{ s.label }}</option>
+              <option v-for="s in workflowStatuses" :key="s.id" :value="s.id">{{ s.label }}</option>
             </select>
           </label>
           <label>
             Assign to
-            <select v-model="assignDraft" :disabled="savingAssign" @change="saveAssign">
+            <select v-model="assignDraft" :disabled="savingAssign || isResolved" @change="saveAssign">
               <option value="">Unassigned</option>
               <option
                 v-for="u in assignOptions"
@@ -233,11 +234,31 @@
               </option>
             </select>
           </label>
-          <label class="grow">
-            Resolution outcome
-            <input v-model="outcomeDraft" type="text" placeholder="Close the loop with the submitter…" />
+        </div>
+
+        <div v-if="canManage && !isResolved" class="resolve-panel">
+          <label class="resolve-notes">
+            Resolution notes
+            <span class="optional">(optional)</span>
+            <textarea
+              v-model="outcomeDraft"
+              rows="2"
+              placeholder="How was this resolved? Leave blank if nothing to add."
+            />
           </label>
-          <button type="button" class="btn secondary sm" @click="saveStatus">Save outcome</button>
+          <button
+            type="button"
+            class="btn primary resolve-btn"
+            :disabled="resolving"
+            @click="resolveEscalation"
+          >
+            {{ resolving ? 'Resolving…' : 'Resolved' }}
+          </button>
+        </div>
+
+        <div v-else-if="canManage && isResolved && detail.resolution_outcome" class="resolve-done">
+          <strong>Resolution notes</strong>
+          <p>{{ detail.resolution_outcome }}</p>
         </div>
 
         <div v-if="detail.attachments?.length" class="attachments">
@@ -324,7 +345,7 @@ import { useAgencyStore } from '../../store/agency';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
   ESCALATION_PRIORITIES,
-  ESCALATION_STATUSES,
+  ESCALATION_WORKFLOW_STATUSES,
   escalationStatusLabel,
   escalationStatusTone
 } from '../../utils/orgEscalations';
@@ -334,7 +355,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
-const statuses = ESCALATION_STATUSES;
+const workflowStatuses = ESCALATION_WORKFLOW_STATUSES;
 const priorities = ESCALATION_PRIORITIES;
 const statusLabel = escalationStatusLabel;
 const statusTone = escalationStatusTone;
@@ -345,6 +366,10 @@ const canEditDetails = computed(() => {
   if (!detail.value) return false;
   if (canManage.value) return true;
   return Number(detail.value.created_by_user_id || 0) === Number(authStore.user?.id || 0);
+});
+const isResolved = computed(() => {
+  const s = String(detail.value?.escalation_status || '').toLowerCase();
+  return s === 'resolved' || s === 'closed';
 });
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id) || null);
 
@@ -375,6 +400,7 @@ const adminMeetings = ref([]);
 const meetingLinkDraft = ref('');
 const savingMeetingLink = ref(false);
 const savingAssign = ref(false);
+const resolving = ref(false);
 const editingDetails = ref(false);
 const savingDetails = ref(false);
 const detailsError = ref('');
@@ -641,16 +667,35 @@ async function saveDetails() {
 }
 
 async function saveStatus() {
-  if (!detail.value || !canManage.value) return;
+  if (!detail.value || !canManage.value || isResolved.value) return;
   try {
     const res = await api.patch(`/escalations/${detail.value.id}/status`, {
-      status: statusDraft.value,
-      resolutionOutcome: outcomeDraft.value || undefined
+      status: statusDraft.value
     });
     detail.value = { ...detail.value, ...res.data };
     await refresh();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to update status';
+  }
+}
+
+async function resolveEscalation() {
+  if (!detail.value || !canManage.value || isResolved.value || resolving.value) return;
+  resolving.value = true;
+  error.value = '';
+  try {
+    const res = await api.patch(`/escalations/${detail.value.id}/status`, {
+      status: 'resolved',
+      resolutionOutcome: outcomeDraft.value.trim() || undefined
+    });
+    detail.value = { ...detail.value, ...res.data };
+    statusDraft.value = 'resolved';
+    outcomeDraft.value = res.data?.resolution_outcome || outcomeDraft.value;
+    await refresh();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to resolve escalation';
+  } finally {
+    resolving.value = false;
   }
 }
 
@@ -762,9 +807,12 @@ onMounted(async () => {
 
 <style scoped>
 .esc-desk {
-  padding: 20px 24px 40px;
-  max-width: 1280px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  min-height: calc(100vh - 120px);
+  margin: 0;
+  padding: 16px clamp(12px, 2vw, 28px) 28px;
+  box-sizing: border-box;
   color: #0f172a;
 }
 .desk-header {
@@ -840,12 +888,17 @@ onMounted(async () => {
 .metric strong { font-size: 1.2rem; }
 .desk-body {
   display: grid;
-  grid-template-columns: minmax(260px, 340px) 1fr;
-  gap: 14px;
-  min-height: 520px;
+  grid-template-columns: minmax(300px, 36%) minmax(0, 1fr);
+  gap: 16px;
+  min-height: calc(100vh - 280px);
+}
+@media (min-width: 1400px) {
+  .desk-body {
+    grid-template-columns: minmax(360px, 32%) minmax(0, 1fr);
+  }
 }
 @media (max-width: 900px) {
-  .desk-body { grid-template-columns: 1fr; }
+  .desk-body { grid-template-columns: 1fr; min-height: 0; }
 }
 .list-pane, .detail-pane {
   background: #fff;
@@ -860,21 +913,29 @@ onMounted(async () => {
   border-radius: 8px;
   padding: 8px 10px;
 }
-.list { list-style: none; margin: 0; padding: 0; overflow: auto; max-height: 70vh; }
+.list { list-style: none; margin: 0; padding: 0; overflow: auto; max-height: calc(100vh - 280px); }
 .list li {
   padding: 10px 12px;
   border-bottom: 1px solid #f1f5f9;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  min-width: 0;
 }
 .list li.on { background: color-mix(in srgb, #1f6b4a 8%, #fff); }
 .list li.urgent { border-left: 3px solid #b91c1c; }
 .li-top { display: flex; justify-content: space-between; }
 .mono { font-size: 11px; font-weight: 800; color: #1f6b4a; }
-.list strong { font-size: 13px; }
-.list small { font-size: 11px; color: #64748b; }
+.list strong {
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 700;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.list small { font-size: 11px; color: #64748b; line-height: 1.35; }
 .prio {
   font-style: normal;
   font-size: 10px;
@@ -893,7 +954,35 @@ onMounted(async () => {
   color: #94a3b8;
   font-size: 14px;
 }
-.detail-head h2 { margin: 0 0 6px; font-size: 1.15rem; }
+.detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.detail-head-main {
+  flex: 1;
+  min-width: 0;
+}
+.detail-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.details-error {
+  margin: 0 0 10px;
+}
+.detail-head h2 {
+  margin: 0 0 6px;
+  font-size: 1.15rem;
+  line-height: 1.35;
+  font-weight: 800;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
 .meta { margin: 0; font-size: 12px; color: #64748b; }
 .badge {
   display: inline-block;
@@ -922,14 +1011,6 @@ onMounted(async () => {
   padding: 10px 12px;
 }
 .fields-grid h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; color: #64748b; }
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.section-head h4 { margin: 0; }
 .fields-grid p { margin: 0; font-size: 13px; white-space: pre-wrap; }
 .field-input {
   width: 100%;
@@ -953,12 +1034,6 @@ onMounted(async () => {
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
-}
-.details-edit-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
 }
 .meeting-link-section { grid-column: 1 / -1; }
 .meeting-link-row {
@@ -1002,6 +1077,62 @@ onMounted(async () => {
   font-size: 11px;
   font-weight: 700;
   color: #475569;
+}
+.resolve-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 12px;
+}
+.resolve-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+.resolve-notes .optional {
+  font-weight: 500;
+  color: #94a3b8;
+}
+.resolve-notes textarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: 400;
+  resize: vertical;
+  min-height: 56px;
+}
+.resolve-btn {
+  width: 100%;
+  padding: 14px 20px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.resolve-done {
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  font-size: 14px;
+}
+.resolve-done strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #166534;
+}
+.resolve-done p {
+  margin: 0;
+  color: #334155;
+  white-space: pre-wrap;
 }
 .manage-bar select, .manage-bar input {
   border: 1px solid #e2e8f0;
