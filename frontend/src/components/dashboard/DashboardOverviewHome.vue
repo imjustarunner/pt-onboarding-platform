@@ -146,6 +146,7 @@
 
 <script setup>
 import { computed, ref, toRef } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useDashboardOverview } from '../../composables/useDashboardOverview';
 import OverviewMetricCards from './OverviewMetricCards.vue';
@@ -169,12 +170,16 @@ const props = defineProps({
   showSupervision: { type: Boolean, default: false },
   showMySupervision: { type: Boolean, default: false },
   showChats: { type: Boolean, default: false },
+  showAdminMeetings: { type: Boolean, default: false },
   isSupervisor: { type: Boolean, default: false },
   /** Show Book virtual → My Schedule calendar booking (Virtual modality) when org context exists. */
   showVirtualBook: { type: Boolean, default: false },
   kudosEnabled: { type: Boolean, default: false },
   enabled: { type: Boolean, default: true }
 });
+
+const router = useRouter();
+const route = useRoute();
 
 const emit = defineEmits([
   'navigate',
@@ -283,6 +288,18 @@ const quickActions = computed(() => {
       type: 'tab',
       tab: 'my_schedule'
     });
+    if (props.showAdminMeetings) {
+      list.push({
+        id: 'admin_meetings',
+        title: 'Admin Meetings',
+        description: 'Meeting log with attendance, transcript, and chat.',
+        icon: '📋',
+        iconBg: '#e0e7ff',
+        iconColor: '#3730a3',
+        type: 'route',
+        routeName: 'OrganizationAdminMeetingsLog'
+      });
+    }
   }
   if (props.showSupervision) {
     list.push({
@@ -373,6 +390,15 @@ const onJoinEvent = (ev) => {
 const onQuickAction = (action) => {
   if (action.type === 'submit') {
     emit('open-submit-action', { event: action.submitEvent, tab: 'submit' });
+    return;
+  }
+  if (action.type === 'route' && action.routeName) {
+    const slug = route.params.organizationSlug || authStore.user?.organization?.slug;
+    if (slug) {
+      router.push({ name: action.routeName, params: { organizationSlug: slug } });
+    } else {
+      router.push({ name: action.routeName });
+    }
     return;
   }
   if (action.tab) emit('navigate', action.tab);

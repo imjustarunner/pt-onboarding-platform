@@ -607,25 +607,42 @@ function canViewSessionArtifacts(roleRaw) {
   ].includes(role);
 }
 
-/** Transcript is admin-only; summary is visible to supervisor and supervisee. */
+/**
+ * Transcript visibility: agency admins/staff, plus supervisors/supervisees on the session
+ * (provider / provider_plus roles who participate via canScheduleSession).
+ */
 function canViewTranscript(roleRaw) {
   const role = String(roleRaw || '').toLowerCase();
-  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
+  return [
+    'super_admin',
+    'admin',
+    'support',
+    'staff',
+    'clinical_practice_assistant',
+    'provider',
+    'provider_plus',
+    'supervisor',
+    'supervisee'
+  ].includes(role);
 }
 
 function buildSupervisionSummaryPrompt(transcriptText) {
   const cleaned = String(transcriptText || '').trim().slice(0, 15000);
   return [
     'You are generating a supervision meeting summary for internal documentation.',
+    'Cover every topic discussed in the transcript (and any agenda/goals mentioned). Do not omit substantive threads.',
     'Return concise markdown with these sections only:',
     '- Key updates',
     '- Clinical/operational decisions',
-    '- Action items (with owner)',
+    '- Suggested action items by person',
     '- Risks/follow-ups',
     '',
     'Rules:',
     '- Be factual, no invented details.',
-    '- Keep each section to 2-5 bullets.',
+    '- Keep each section to 2-8 bullets as needed to cover all topics.',
+    '- In "Suggested action items by person", format bullets as "Name: action 1; action 2".',
+    '- Attribute ownership when speakers say phrases like "remind me", "add to my list", "I\'ll take", "I can own", "put that on my list", or similar — assign that item to the speaker (use their labeled name from the transcript when present).',
+    '- If a person is not named but the speaker clearly volunteers, use their speaker label.',
     '- If information is missing, state "Not discussed".',
     '',
     'Transcript:',
@@ -2237,9 +2254,25 @@ async function upsertSessionTranscriptText({
     : chunk;
 
   await SupervisionSessionArtifact.ensureTagged({ sessionId: sid });
+  const existing = await SupervisionSessionArtifact.findBySessionId(sid);
+  if (!replace) {
+    if (existing?.transcript_stopped_at) {
+      const err = new Error('Transcription was stopped for this session.');
+      err.status = 409;
+      err.transcriptStoppedAt = existing.transcript_stopped_at;
+      err.transcriptStoppedByName = existing.transcript_stopped_by_name || null;
+      throw err;
+    }
+    if (existing?.transcript_paused === 1 || existing?.transcript_paused === true) {
+      const err = new Error('Transcription is paused.');
+      err.status = 409;
+      err.transcriptPaused = true;
+      throw err;
+    }
+  }
+
   let nextText = stamped;
   if (!replace) {
-    const existing = await SupervisionSessionArtifact.findBySessionId(sid);
     const prev = String(existing?.transcript_text || '').trim();
     if (prev) {
       // Avoid duplicating the exact same chunk on repeated flush.
@@ -2290,6 +2323,103 @@ export const saveClientTranscript = async (req, res, next) => {
 
     res.json({ ok: true, sessionId: id, chars: out?.chars || 0 });
   } catch (e) {
+    if (e?.status === 409) {
+      return res.status(409).json({
+        error: { message: e.message },
+        transcriptPaused: !!e.transcriptPaused,
+        transcriptStoppedAt: e.transcriptStoppedAt || null,
+        transcriptStoppedByName: e.transcriptStoppedByName || null
+      });
+    }
+    next(e);
+  }
+};
+
+/** POST /api/supervision/sessions/:id/transcript-control — pause | resume | stop (supervisor) */
+export const postSupervisionTranscriptControl = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const canControl = await canFacilitateSupervisionRow(req, row);
+    if (!canControl) {
+      return res.status(403).json({ error: { message: 'Only the supervisor/facilitator can control transcription.' } });
+    }
+
+    const action = String(req.body?.action || '').trim().toLowerCase();
+    if (!['pause', 'resume', 'stop'].includes(action)) {
+      return res.status(400).json({ error: { message: "action must be 'pause', 'resume', or 'stop'" } });
+    }
+
+    await SupervisionSessionArtifact.ensureTagged({ sessionId: id, updatedByUserId: actorId });
+    const existing = await SupervisionSessionArtifact.findBySessionId(id);
+    if (existing?.transcript_stopped_at && action !== 'stop') {
+      return res.status(400).json({
+        error: { message: 'Transcription was stopped and cannot be resumed.' },
+        transcriptStoppedAt: existing.transcript_stopped_at,
+        transcriptStoppedByName: existing.transcript_stopped_by_name || null
+      });
+    }
+
+    const displayName = String(
+      req.body?.displayName
+        || `${req.user?.firstName || req.user?.first_name || ''} ${req.user?.lastName || req.user?.last_name || ''}`.trim()
+        || req.user?.email
+        || ''
+    ).trim().slice(0, 255) || `User ${actorId}`;
+
+    const now = mysqlNowDateTime();
+    if (action === 'pause') {
+      await pool.execute(
+        `UPDATE supervision_session_artifacts
+         SET transcript_paused = 1, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE session_id = ? LIMIT 1`,
+        [actorId, id]
+      );
+    } else if (action === 'resume') {
+      await pool.execute(
+        `UPDATE supervision_session_artifacts
+         SET transcript_paused = 0, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE session_id = ? LIMIT 1`,
+        [actorId, id]
+      );
+    } else {
+      await pool.execute(
+        `UPDATE supervision_session_artifacts
+         SET transcript_paused = 0,
+             transcript_stopped_at = COALESCE(transcript_stopped_at, ?),
+             transcript_stopped_by_user_id = COALESCE(transcript_stopped_by_user_id, ?),
+             transcript_stopped_by_name = COALESCE(transcript_stopped_by_name, ?),
+             updated_by_user_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE session_id = ? LIMIT 1`,
+        [now, actorId, displayName, actorId, id]
+      );
+    }
+
+    const artifact = await SupervisionSessionArtifact.findBySessionId(id);
+    res.json({
+      ok: true,
+      sessionId: id,
+      action,
+      transcriptPaused: !!(artifact?.transcript_paused === 1 || artifact?.transcript_paused === true),
+      transcriptStoppedAt: artifact?.transcript_stopped_at || null,
+      transcriptStoppedByUserId: artifact?.transcript_stopped_by_user_id
+        ? Number(artifact.transcript_stopped_by_user_id)
+        : null,
+      transcriptStoppedByName: artifact?.transcript_stopped_by_name || null
+    });
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({
+        error: { message: 'Transcript control requires migration 1095.' }
+      });
+    }
     next(e);
   }
 };
@@ -2326,6 +2456,14 @@ export const saveGuestTranscript = async (req, res, next) => {
     });
     res.json({ ok: true, sessionId: Number(row.id), chars: out?.chars || 0 });
   } catch (e) {
+    if (e?.status === 409) {
+      return res.status(409).json({
+        error: { message: e.message },
+        transcriptPaused: !!e.transcriptPaused,
+        transcriptStoppedAt: e.transcriptStoppedAt || null,
+        transcriptStoppedByName: e.transcriptStoppedByName || null
+      });
+    }
     next(e);
   }
 };
@@ -2583,7 +2721,19 @@ export const getSupervisionSessionArtifacts = async (req, res, next) => {
       }
     }
 
-    res.json({ ok: true, sessionId: id, artifact: artifact || null });
+    const payload = artifact
+      ? {
+        ...artifact,
+        transcriptPaused: !!(artifact.transcript_paused === 1 || artifact.transcript_paused === true),
+        transcriptStoppedAt: artifact.transcript_stopped_at || null,
+        transcriptStoppedByUserId: artifact.transcript_stopped_by_user_id
+          ? Number(artifact.transcript_stopped_by_user_id)
+          : null,
+        transcriptStoppedByName: artifact.transcript_stopped_by_name || null
+      }
+      : null;
+
+    res.json({ ok: true, sessionId: id, artifact: payload });
   } catch (e) {
     next(e);
   }
@@ -2644,7 +2794,7 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
       const summaryResp = await callGeminiText({
         prompt,
         temperature: 0.1,
-        maxOutputTokens: 900
+        maxOutputTokens: 1200
       });
       summaryText = String(summaryResp?.text || '').trim();
       summaryModel = String(summaryResp?.modelName || '').trim() || null;
@@ -3455,13 +3605,66 @@ export const getSuperviseeHoursSummary = async (req, res, next) => {
     await autoFinalizeOverdueSessions({ agencyId, actorUserId: requesterId });
 
     const summary = await SupervisionSession.getHoursSummaryForSupervisee(agencyId, superviseeId);
+
+    // Recent finalized sessions with hoursBefore / hoursAttended / hoursAfter snapshots.
+    let recentSessions = [];
+    try {
+      const [creditRows] = await pool.execute(
+        `SELECT
+           sshc.session_id,
+           sshc.individual_hours,
+           sshc.group_hours,
+           sshc.total_seconds,
+           sshc.source_json,
+           ss.start_at,
+           ss.end_at,
+           ss.session_type,
+           ss.status,
+           ss.finalized_at
+         FROM supervision_session_hour_credits sshc
+         JOIN supervision_sessions ss ON ss.id = sshc.session_id
+         WHERE sshc.agency_id = ?
+           AND sshc.user_id = ?
+         ORDER BY COALESCE(ss.finalized_at, ss.start_at) DESC
+         LIMIT 20`,
+        [agencyId, superviseeId]
+      );
+      recentSessions = (creditRows || []).map((r) => {
+        let src = r.source_json;
+        if (typeof src === 'string') {
+          try { src = JSON.parse(src); } catch { src = {}; }
+        }
+        if (!src || typeof src !== 'object') src = {};
+        const attended = Number(src.hoursAttended);
+        const before = Number(src.hoursBefore);
+        const after = Number(src.hoursAfter);
+        const fallbackAttended = Math.round(
+          ((Number(r.individual_hours || 0) + Number(r.group_hours || 0)) || (Number(r.total_seconds || 0) / 3600)) * 100
+        ) / 100;
+        return {
+          sessionId: Number(r.session_id),
+          startAt: r.start_at || null,
+          endAt: r.end_at || null,
+          sessionType: r.session_type || null,
+          status: r.status || null,
+          finalizedAt: r.finalized_at || null,
+          hoursBefore: Number.isFinite(before) ? before : null,
+          hoursAttended: Number.isFinite(attended) ? attended : fallbackAttended,
+          hoursAfter: Number.isFinite(after) ? after : null
+        };
+      });
+    } catch {
+      recentSessions = [];
+    }
+
     res.json({
       ok: true,
       agencyId,
       superviseeId,
       totalHours: summary.totalHours,
       totalSeconds: summary.totalSeconds,
-      sessionCount: summary.sessionCount
+      sessionCount: summary.sessionCount,
+      recentSessions
     });
   } catch (e) {
     next(e);

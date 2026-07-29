@@ -24,9 +24,24 @@
         <button type="button" class="btn btn-danger btn-sm" @click="requestLeave">
           {{ isHost ? 'Leave / End meeting' : 'Leave meeting' }}
         </button>
+        <div v-if="isAdminMeeting" class="join-tools">
+          <button type="button" class="btn btn-secondary btn-sm" @click="toolsOpen = !toolsOpen">Tools</button>
+          <div v-if="toolsOpen" class="join-tools__menu">
+            <button type="button" class="join-tools__item" @click="copyJoinLink">
+              {{ joinLinkCopied ? 'Copied!' : 'Copy join link' }}
+            </button>
+          </div>
+        </div>
+        <span v-if="raisedHandCount" class="join-hand-chip" title="Hands raised">✋ {{ raisedHandCount }}</span>
         <span v-if="meetingCompletedAt" class="join-completed-chip">Session completed</span>
       </div>
-      <div class="join-session-layout" :class="{ 'join-session-layout--chat-only': !canSeeFullWorkspace }">
+      <div
+        class="join-session-layout"
+        :class="{
+          'join-session-layout--chat-only': !canSeeFullWorkspace,
+          'join-session-layout--video-focus': !chatPanelOpen
+        }"
+      >
         <div class="join-video">
           <SupervisionVideoRoom
             ref="videoRoomRef"
@@ -37,6 +52,11 @@
             :diagnostics="diagnostics"
             :event-id="resolvedEventId || eventId"
             :is-host="isHost"
+            :is-host-or-cohost="isHost"
+            :mute-others-mode="muteOthersMode"
+            show-layout-controls
+            allow-tile-focus
+            v-model:tile-focus="tileFocus"
             layout="standard"
             :equal-tiles-when-remote="true"
             :local-display-name="localDisplayName"
@@ -45,6 +65,8 @@
             @connected="onVideoConnected"
             @disconnected="onDisconnected"
             @meeting-ended="onMeetingEnded"
+            @hands-map-change="onHandsMapChange"
+            @transcript-control="onRemoteTranscriptControl"
           />
           <SupervisionVideoLobbyPanel
             v-if="isHost && resolvedEventId && waitingRoomEnabled"
@@ -57,14 +79,13 @@
             class="join-live-activity"
             aria-label="Chat, polls, and Q&A"
           >
-            <h3 class="join-live-activity__title">Chat, Polls &amp; Q&A</h3>
             <MeetingLiveActivityPanel
               :event-id="resolvedEventId"
               :is-host="isHost"
               :can-create-polls="canCreatePolls"
               :start-open="true"
-              :hide-chrome="true"
               :below-video="true"
+              @update:open="chatPanelOpen = $event"
             />
           </section>
         </div>
@@ -95,16 +116,28 @@
             <section class="join-stack-section">
               <MeetingGoalsActionsPanel
                 :event-id="resolvedEventId"
-                section="both"
+                section="goals"
                 :compact="false"
                 :meeting-subtype="meetingSubtype"
                 :live="true"
+                embedded
+              />
+            </section>
+            <section class="join-stack-section">
+              <MeetingGoalsActionsPanel
+                :event-id="resolvedEventId"
+                section="actions"
+                :compact="false"
+                :meeting-subtype="meetingSubtype"
+                :live="true"
+                embedded
               />
             </section>
             <section v-if="showAttendanceTab" class="join-stack-section">
               <MeetingAttendancePanel
                 :event-id="resolvedEventId"
                 :live-poll="true"
+                :raised-hands="raisedHandCount"
               />
             </section>
             <section v-if="showNotesTab" class="join-stack-section">
@@ -114,6 +147,15 @@
                 :live-hint="transcriptHint"
                 :live-preview="transcriptLivePreview"
                 :auto-refresh="true"
+                :can-control-transcript="isAdminMeeting || isHost"
+                :can-stop-transcript="isHost"
+                :paused="transcriptPaused"
+                :room-stopped="transcriptRoomStopped"
+                :stop-meta="transcriptStopMeta"
+                @pause="onTranscriptPause"
+                @resume="onTranscriptResume"
+                @stop="onTranscriptStop"
+                @control="onTranscriptControlApi"
               />
             </section>
           </div>
@@ -239,12 +281,28 @@ const {
   capturing: transcriptCapturing,
   transcriptHint,
   livePreview: transcriptLivePreview,
+  paused: transcriptPaused,
+  roomStopped: transcriptRoomStopped,
+  stopMeta: transcriptStopMeta,
+  pause: pauseTranscriptLocal,
+  resume: resumeTranscriptLocal,
+  applyRoomStop: applyTranscriptRoomStop,
   stopAndFlush: stopTranscriptCapture
 } = useTeamMeetingLiveTranscript({
   eventId: resolvedEventId,
   enabled: transcriptEnabled,
   displayName: localDisplayName
 });
+
+const toolsOpen = ref(false);
+const joinLinkCopied = ref(false);
+const tileFocus = ref('equal');
+const chatPanelOpen = ref(true);
+const raisedHandCount = ref(0);
+const participantJoinUrl = ref('');
+
+const isAdminMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'admin');
+const muteOthersMode = computed(() => (isAdminMeeting.value ? 'everyone' : 'host'));
 
 const showTranscriptionNotice = computed(() => (
   !transcriptionNoticeDismissed.value
@@ -329,6 +387,14 @@ function applyTokenPayload(data) {
   if (data.meetingSubtype || data.meeting_subtype) {
     meetingSubtype.value = String(data.meetingSubtype || data.meeting_subtype || 'general').toLowerCase();
   }
+  const joinLink = String(
+    data.participantJoinUrl
+    || data.participant_join_url
+    || data.joinUrl
+    || data.join_url
+    || ''
+  ).trim();
+  if (joinLink) participantJoinUrl.value = joinLink;
 }
 
 function stopAdmissionPolling() {
@@ -534,12 +600,75 @@ async function ensureAuthenticatedSession() {
   return false;
 }
 
+function onHandsMapChange(map) {
+  raisedHandCount.value = Object.keys(map || {}).filter((k) => map[k]).length;
+}
+
+async function copyJoinLink() {
+  const url = String(participantJoinUrl.value || '').trim()
+    || (typeof window !== 'undefined' ? window.location.href : '');
+  try {
+    await navigator.clipboard.writeText(url);
+    joinLinkCopied.value = true;
+    setTimeout(() => { joinLinkCopied.value = false; }, 2000);
+  } catch {
+    /* ignore */
+  }
+  toolsOpen.value = false;
+}
+
+async function onTranscriptPause() {
+  await pauseTranscriptLocal();
+  videoRoomRef.value?.signalTranscriptControl?.({ action: 'pause', byName: localDisplayName.value });
+}
+
+async function onTranscriptResume() {
+  await resumeTranscriptLocal();
+  videoRoomRef.value?.signalTranscriptControl?.({ action: 'resume', byName: localDisplayName.value });
+}
+
+async function onTranscriptStop(data) {
+  await applyTranscriptRoomStop({
+    stoppedByName: data?.stoppedByName || localDisplayName.value || 'Host',
+    stoppedAt: data?.stoppedAt || new Date().toISOString()
+  });
+  videoRoomRef.value?.signalTranscriptControl?.({
+    action: 'stop',
+    stoppedByName: data?.stoppedByName || localDisplayName.value || 'Host',
+    stoppedAt: data?.stoppedAt || new Date().toISOString()
+  });
+}
+
+function onTranscriptControlApi(payload) {
+  const action = String(payload?.action || '');
+  if (action === 'pause') void pauseTranscriptLocal();
+  else if (action === 'resume') void resumeTranscriptLocal();
+  else if (action === 'stop') {
+    void applyTranscriptRoomStop({
+      stoppedByName: payload?.stoppedByName,
+      stoppedAt: payload?.stoppedAt
+    });
+  }
+}
+
+function onRemoteTranscriptControl(payload) {
+  const action = String(payload?.action || '');
+  if (action === 'pause') void pauseTranscriptLocal();
+  else if (action === 'resume') void resumeTranscriptLocal();
+  else if (action === 'stop') {
+    void applyTranscriptRoomStop({
+      stoppedByName: payload?.stoppedByName || payload?.byName,
+      stoppedAt: payload?.stoppedAt || new Date().toISOString()
+    });
+  }
+}
+
 function navigateAway() {
-  const slug = organizationSlug.value;
+  const slug = organizationSlug.value || authStore.user?.organization?.slug;
   if (slug) {
-    router.push(`/${slug}/dashboard`);
+    router.push({ path: `/${slug}/dashboard`, query: { focus: 'schedule', tab: 'my_schedule' } });
   } else {
-    router.push('/dashboard');
+    router.push({ path: '/dashboard', query: { focus: 'schedule', tab: 'my_schedule' } });
   }
 }
 
@@ -712,6 +841,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .join-completed-chip {
   font-size: 0.8rem;
@@ -775,6 +905,44 @@ onUnmounted(() => {
 }
 .join-session-layout--chat-only {
   grid-template-columns: 1fr;
+}
+.join-tools { position: relative; }
+.join-tools__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  min-width: 180px;
+  padding: 6px;
+}
+.join-tools__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+.join-tools__item:hover { background: #f1f5f9; }
+.join-hand-chip {
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+.join-session-layout--video-focus .join-live-activity {
+  min-height: 0;
 }
 .join-video {
   min-width: 0;

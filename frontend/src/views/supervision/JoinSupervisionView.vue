@@ -416,8 +416,8 @@ async function onDisconnected() {
   await leavePresence();
   const slug = organizationSlug.value;
   if (authStore.isAuthenticated) {
-    if (slug) router.push(`/${slug}/dashboard`);
-    else router.push('/dashboard');
+    if (slug) router.push({ path: `/${slug}/dashboard`, query: { focus: 'schedule', tab: 'my_schedule' } });
+    else router.push({ path: '/dashboard', query: { focus: 'schedule', tab: 'my_schedule' } });
     return;
   }
   // Guests: stay on a simple thank-you state instead of bouncing to login/dashboard.

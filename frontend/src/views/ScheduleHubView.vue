@@ -22,6 +22,17 @@
       <router-link
         v-if="canOpenPrivilegedScheduleTools"
         class="card"
+        :to="orgTo('/admin/admin-meetings')"
+        data-tour="schedule-hub-card-admin-meetings"
+      >
+        <div class="card-title">Admin Meetings</div>
+        <div class="card-desc">Log of admin meetings with attendance, transcript, summary, chat, and goals.</div>
+        <div class="card-cta">Open</div>
+      </router-link>
+
+      <router-link
+        v-if="canOpenPrivilegedScheduleTools"
+        class="card"
         :to="orgTo('/schedule/event-staffing')"
       >
         <div class="card-title">Event shift requests</div>

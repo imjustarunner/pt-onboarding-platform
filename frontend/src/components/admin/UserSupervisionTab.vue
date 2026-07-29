@@ -178,6 +178,14 @@
                   <span>Attended: <strong>{{ fmtDuration(session) }}</strong></span>
                   <span v-if="session.segmentCount">Segments: {{ session.segmentCount }}</span>
                 </div>
+                <div
+                  v-if="sessionHoursBreakdown(session)"
+                  class="session-hours-breakdown"
+                >
+                  <span>Before: <strong>{{ sessionHoursBreakdown(session).before }}</strong></span>
+                  <span>This session: <strong>{{ sessionHoursBreakdown(session).attended }}</strong></span>
+                  <span>After: <strong>{{ sessionHoursBreakdown(session).after }}</strong></span>
+                </div>
               </article>
             </div>
           </div>
@@ -443,6 +451,18 @@ function fmtDuration(session) {
   }
   const hours = Number(session?.totalHours || 0);
   return `${fmtHours(hours)} hrs`;
+}
+
+function sessionHoursBreakdown(session) {
+  const before = session?.hoursBefore ?? session?.hours_before;
+  const attended = session?.hoursAttended ?? session?.hours_attended ?? session?.totalHours;
+  const after = session?.hoursAfter ?? session?.hours_after;
+  if (before == null && after == null) return null;
+  return {
+    before: fmtHours(Number(before || 0)),
+    attended: fmtHours(Number(attended || 0)),
+    after: fmtHours(Number(after || 0))
+  };
 }
 
 function formatSessionDate(d) {
@@ -951,6 +971,19 @@ watch([() => props.userId, () => props.agencyId], fetchAll);
   margin-top: 10px;
   font-size: 0.85em;
   color: var(--text-secondary, #6b7280);
+}
+.session-hours-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 6px;
+  font-size: 0.78em;
+  color: #475569;
+}
+.session-hours-breakdown span {
+  background: #f1f5f9;
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 .artifact-content {
   margin: 0;

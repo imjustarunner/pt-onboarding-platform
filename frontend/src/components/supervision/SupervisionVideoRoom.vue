@@ -19,12 +19,20 @@
       :tile-focus="tileFocus"
       :hide-controls="hideControls"
       :allow-tile-focus="allowTileFocus"
+      :show-layout-controls="showLayoutControls"
+      :mute-others-mode="muteOthersMode"
+      :is-host-or-cohost="isHostOrCohost || isHost"
+      :play-join-tone="playJoinTone"
       @update:tile-focus="$emit('update:tileFocus', $event)"
       @disconnected="$emit('disconnected')"
       @connected="$emit('connected', $event)"
       @error="$emit('error', $event)"
       @recreate-room="$emit('recreate-room')"
       @meeting-ended="$emit('meeting-ended', $event)"
+      @hand-raised-change="$emit('hand-raised-change', $event)"
+      @hands-map-change="$emit('hands-map-change', $event)"
+      @reaction="$emit('reaction', $event)"
+      @transcript-control="$emit('transcript-control', $event)"
     >
       <template #extra-controls>
         <slot name="extra-controls" />
@@ -63,12 +71,27 @@ const props = defineProps({
   tileFocus: { type: String, default: 'equal' },
   hideControls: { type: Boolean, default: false },
   allowTileFocus: { type: Boolean, default: false },
+  showLayoutControls: { type: Boolean, default: false },
+  muteOthersMode: { type: String, default: 'host' },
+  isHostOrCohost: { type: Boolean, default: false },
+  playJoinTone: { type: Boolean, default: true },
   localDisplayName: { type: String, default: '' },
   localRoleLabel: { type: String, default: '' },
   localProfilePhotoUrl: { type: String, default: '' }
 });
 
-defineEmits(['disconnected', 'connected', 'error', 'recreate-room', 'update:tileFocus', 'meeting-ended']);
+defineEmits([
+  'disconnected',
+  'connected',
+  'error',
+  'recreate-room',
+  'update:tileFocus',
+  'meeting-ended',
+  'hand-raised-change',
+  'hands-map-change',
+  'reaction',
+  'transcript-control'
+]);
 
 const authStore = useAuthStore();
 
@@ -117,9 +140,14 @@ defineExpose({
   toggleMic: (...args) => videoRoomRef.value?.toggleMic?.(...args),
   toggleCamera: (...args) => videoRoomRef.value?.toggleCamera?.(...args),
   toggleScreenShare: (...args) => videoRoomRef.value?.toggleScreenShare?.(...args),
+  toggleRaiseHand: (...args) => videoRoomRef.value?.toggleRaiseHand?.(...args),
+  sendReaction: (...args) => videoRoomRef.value?.sendReaction?.(...args),
+  signalTranscriptControl: (...args) => videoRoomRef.value?.signalTranscriptControl?.(...args),
   get publishAudio() { return videoRoomRef.value?.publishAudio; },
   get publishVideo() { return videoRoomRef.value?.publishVideo; },
-  get sharingScreen() { return videoRoomRef.value?.sharingScreen; }
+  get sharingScreen() { return videoRoomRef.value?.sharingScreen; },
+  get localHandRaised() { return videoRoomRef.value?.localHandRaised; },
+  get handByConnection() { return videoRoomRef.value?.handByConnection; }
 });
 </script>
 

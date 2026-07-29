@@ -895,6 +895,21 @@ export const saveTeamMeetingClientTranscript = async (req, res, next) => {
     const stamped = label ? `[${label}] ${transcript}` : transcript;
 
     await ProviderScheduleEventArtifact.ensureTagged({ eventId });
+    try {
+      const control = await ProviderScheduleEventArtifact.findByEventId(eventId);
+      if (control?.transcript_stopped_at && !replace) {
+        return res.status(409).json({
+          error: { message: 'Transcription was stopped for this meeting.' },
+          transcriptStoppedAt: control.transcript_stopped_at,
+          transcriptStoppedByName: control.transcript_stopped_by_name || null
+        });
+      }
+      if ((control?.transcript_paused === 1 || control?.transcript_paused === true) && !replace) {
+        return res.status(409).json({ error: { message: 'Transcription is paused.' }, transcriptPaused: true });
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
     let nextText = stamped;
     if (!replace) {
       const existing = await ProviderScheduleEventArtifact.findByEventId(eventId);
@@ -1280,7 +1295,215 @@ export const completeTeamMeetingSession = async (req, res, next) => {
       }
     }
 
-    res.json({ ...result, videoEnd });
+    // End-of-meeting AI summary from whatever transcript was captured.
+    let summary = null;
+    try {
+      const { triggerTeamMeetingSummaryFromTranscript } = await import('../services/teamMeetingTranscriptSummary.service.js');
+      summary = await triggerTeamMeetingSummaryFromTranscript(eventId);
+    } catch (e) {
+      console.warn('[teamMeeting] summary after complete failed', e?.message || e);
+      summary = { ok: false, error: e?.message || 'summary_failed' };
+    }
+
+    res.json({ ...result, videoEnd, summary });
+  } catch (e) {
+    next(e);
+  }
+};
+
+function mysqlNowDateTimeLocal() {
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
+
+/** POST /api/team-meetings/:eventId/transcript-control — pause | resume | stop */
+export const postTeamMeetingTranscriptControl = async (req, res, next) => {
+  try {
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const event = await ProviderScheduleEvent.findById(eventId);
+    if (!event || !['TEAM_MEETING', 'HUDDLE'].includes(String(event.kind || '').toUpperCase())) {
+      return res.status(404).json({ error: { message: 'Meeting not found' } });
+    }
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    const isHost = actorId === Number(event.provider_id || 0) || actorId === Number(event.created_by_user_id || 0);
+    const isPrivileged = ['super_admin', 'superadmin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
+    if (!isHost && !isPrivileged) {
+      return res.status(403).json({ error: { message: 'Only the host or admin can control transcription.' } });
+    }
+
+    const action = String(req.body?.action || '').trim().toLowerCase();
+    if (!['pause', 'resume', 'stop'].includes(action)) {
+      return res.status(400).json({ error: { message: "action must be 'pause', 'resume', or 'stop'" } });
+    }
+
+    await ProviderScheduleEventArtifact.ensureTagged({ eventId, updatedByUserId: actorId });
+    const existing = await ProviderScheduleEventArtifact.findByEventId(eventId);
+    if (existing?.transcript_stopped_at && action !== 'stop') {
+      return res.status(400).json({
+        error: { message: 'Transcription was stopped and cannot be resumed.' },
+        transcriptStoppedAt: existing.transcript_stopped_at,
+        transcriptStoppedByName: existing.transcript_stopped_by_name || null
+      });
+    }
+
+    const displayName = String(req.body?.displayName || displayNameFromUser(req.user) || '').trim().slice(0, 255)
+      || `User ${actorId}`;
+
+    if (action === 'pause') {
+      await pool.execute(
+        `UPDATE provider_schedule_event_artifacts
+         SET transcript_paused = 1, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE event_id = ? LIMIT 1`,
+        [actorId, eventId]
+      );
+    } else if (action === 'resume') {
+      await pool.execute(
+        `UPDATE provider_schedule_event_artifacts
+         SET transcript_paused = 0, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE event_id = ? LIMIT 1`,
+        [actorId, eventId]
+      );
+    } else {
+      await pool.execute(
+        `UPDATE provider_schedule_event_artifacts
+         SET transcript_paused = 0,
+             transcript_stopped_at = COALESCE(transcript_stopped_at, ?),
+             transcript_stopped_by_user_id = COALESCE(transcript_stopped_by_user_id, ?),
+             transcript_stopped_by_name = COALESCE(transcript_stopped_by_name, ?),
+             updated_by_user_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE event_id = ? LIMIT 1`,
+        [mysqlNowDateTimeLocal(), actorId, displayName, actorId, eventId]
+      );
+    }
+
+    const artifact = await ProviderScheduleEventArtifact.findByEventId(eventId);
+    res.json({
+      ok: true,
+      eventId,
+      action,
+      transcriptPaused: !!(artifact?.transcript_paused === 1 || artifact?.transcript_paused === true),
+      transcriptStoppedAt: artifact?.transcript_stopped_at || null,
+      transcriptStoppedByUserId: artifact?.transcript_stopped_by_user_id
+        ? Number(artifact.transcript_stopped_by_user_id)
+        : null,
+      transcriptStoppedByName: artifact?.transcript_stopped_by_name || null
+    });
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({
+        error: { message: 'Transcript control requires migration 1095.' }
+      });
+    }
+    next(e);
+  }
+};
+
+/** GET /api/team-meetings/admin-log?agencyId= — admin-subtype meetings for agency */
+export const listAdminMeetingsLog = async (req, res, next) => {
+  try {
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const agencyId = Number(req.query?.agencyId || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const actorAgencies = await User.getAgencies(actorId);
+    const inAgency = (actorAgencies || []).some((a) => Number(a?.id) === agencyId);
+    if (!inAgency) return res.status(403).json({ error: { message: 'Access denied' } });
+    const allowed = [
+      'super_admin', 'superadmin', 'admin', 'support', 'staff',
+      'clinical_practice_assistant', 'provider_plus', 'assistant_admin'
+    ].includes(role);
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const limitRaw = Number(req.query?.limit || 100);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.floor(limitRaw), 1), 300) : 100;
+
+    const [rows] = await pool.execute(
+      `SELECT
+         pse.id,
+         pse.title,
+         pse.start_at,
+         pse.end_at,
+         pse.meeting_completed_at,
+         pse.provider_id,
+         pse.created_by_user_id,
+         pse.status,
+         pse.meeting_subtype,
+         CONCAT(COALESCE(host.first_name, ''), ' ', COALESCE(host.last_name, '')) AS host_name,
+         COALESCE(att.total_seconds, 0) AS attendance_total_seconds,
+         COALESCE(att.max_seconds, 0) AS attendance_max_seconds,
+         COALESCE(att.participant_count, 0) AS participant_count,
+         CASE
+           WHEN TRIM(COALESCE(a.transcript_text, '')) <> ''
+             OR TRIM(COALESCE(a.transcript_url, '')) <> '' THEN 1
+           ELSE 0
+         END AS has_transcript,
+         CASE WHEN TRIM(COALESCE(a.summary_text, '')) <> '' THEN 1 ELSE 0 END AS has_summary,
+         CASE WHEN EXISTS (
+           SELECT 1 FROM video_meeting_activity vma WHERE vma.event_id = pse.id LIMIT 1
+         ) THEN 1 ELSE 0 END AS has_activity,
+         CASE
+           WHEN TRIM(COALESCE(a.focus_title, '')) <> ''
+             OR a.goals_json IS NOT NULL
+             OR a.action_items_json IS NOT NULL THEN 1
+           ELSE 0
+         END AS has_workspace
+       FROM provider_schedule_events pse
+       LEFT JOIN users host ON host.id = pse.provider_id
+       LEFT JOIN provider_schedule_event_artifacts a ON a.event_id = pse.id
+       LEFT JOIN (
+         SELECT
+           event_id,
+           SUM(total_seconds) AS total_seconds,
+           MAX(total_seconds) AS max_seconds,
+           COUNT(*) AS participant_count
+         FROM agency_meeting_attendance_rollups
+         GROUP BY event_id
+       ) att ON att.event_id = pse.id
+       WHERE pse.agency_id = ?
+         AND UPPER(COALESCE(pse.kind, '')) = 'TEAM_MEETING'
+         AND LOWER(COALESCE(pse.meeting_subtype, 'general')) = 'admin'
+         AND UPPER(COALESCE(pse.status, 'ACTIVE')) <> 'CANCELLED'
+       ORDER BY pse.start_at DESC
+       LIMIT ${limit}`,
+      [agencyId]
+    );
+
+    const meetings = (rows || []).map((r) => {
+      const startMs = r.start_at ? new Date(r.start_at).getTime() : NaN;
+      const endRaw = r.meeting_completed_at || r.end_at;
+      const endMs = endRaw ? new Date(endRaw).getTime() : NaN;
+      const scheduledDurationSeconds = (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs)
+        ? Math.round((endMs - startMs) / 1000)
+        : 0;
+      return {
+        eventId: Number(r.id),
+        title: r.title || 'Admin Meeting',
+        startAt: r.start_at || null,
+        endAt: r.end_at || null,
+        meetingCompletedAt: r.meeting_completed_at || null,
+        status: r.status || null,
+        meetingSubtype: 'admin',
+        hostUserId: r.provider_id ? Number(r.provider_id) : null,
+        hostName: String(r.host_name || '').trim() || null,
+        attendanceDurationSeconds: Number(r.attendance_max_seconds || 0),
+        attendanceTotalPersonSeconds: Number(r.attendance_total_seconds || 0),
+        scheduledDurationSeconds,
+        participantCount: Number(r.participant_count || 0),
+        hasTranscript: Number(r.has_transcript || 0) === 1,
+        hasSummary: Number(r.has_summary || 0) === 1,
+        hasActivity: Number(r.has_activity || 0) === 1,
+        hasWorkspace: Number(r.has_workspace || 0) === 1
+      };
+    });
+
+    res.json({ ok: true, agencyId, meetings });
   } catch (e) {
     next(e);
   }
@@ -1498,7 +1721,13 @@ export const getTeamMeetingNotes = async (req, res, next) => {
       transcript: artifact?.transcript_text || '',
       summary: artifact?.summary_text || '',
       meetingSubtype: String(event.meeting_subtype || 'general').toLowerCase(),
-      kind: String(event.kind || '').toUpperCase()
+      kind: String(event.kind || '').toUpperCase(),
+      transcriptPaused: !!(artifact?.transcript_paused === 1 || artifact?.transcript_paused === true),
+      transcriptStoppedAt: artifact?.transcript_stopped_at || null,
+      transcriptStoppedByUserId: artifact?.transcript_stopped_by_user_id
+        ? Number(artifact.transcript_stopped_by_user_id)
+        : null,
+      transcriptStoppedByName: artifact?.transcript_stopped_by_name || null
     });
   } catch (e) {
     next(e);

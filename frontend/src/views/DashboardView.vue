@@ -381,6 +381,7 @@
               :show-supervision="overviewFlags.showSupervision"
               :show-my-supervision="overviewFlags.showMySupervision"
               :show-chats="overviewFlags.showChats"
+              :show-admin-meetings="overviewFlags.showAdminMeetings"
               :is-supervisor="overviewFlags.isSupervisor"
               :show-virtual-book="!!currentAgencyId && !isClubContext"
               :kudos-enabled="canSeeKudosWidget"
@@ -1531,6 +1532,11 @@ const overviewFlags = computed(() => {
   const club = isClubContext.value;
   const school = isSchoolStaff.value;
 
+  const canAdminMeetings = [
+    'super_admin', 'admin', 'support', 'staff', 'provider_plus',
+    'assistant_admin', 'clinical_practice_assistant'
+  ].includes(role);
+
   return {
     isSupervisor: isSup,
     showSchedule: !school && !club,
@@ -1539,7 +1545,8 @@ const overviewFlags = computed(() => {
     showClaims: !school && !club && !isLimitedAccessNonProvider && providerSurfacesEnabled.value,
     showSupervision: !club && isSup,
     showMySupervision: !club && !isSup && !isLimitedAccessNonProvider,
-    showChats: !isLimitedAccessNonProvider
+    showChats: !isLimitedAccessNonProvider,
+    showAdminMeetings: !school && !club && canAdminMeetings
   };
 });
 

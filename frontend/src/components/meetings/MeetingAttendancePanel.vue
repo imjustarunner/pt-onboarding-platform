@@ -1,7 +1,10 @@
 <template>
   <div class="map" data-testid="meeting-attendance-panel">
     <div class="map__head">
-      <h4>Attendance</h4>
+      <h4>
+        Attendance
+        <span v-if="raisedHands" class="map__hands" title="Hands raised">✋ {{ raisedHands }}</span>
+      </h4>
       <div class="map__actions">
         <button type="button" class="btn btn-secondary btn-sm" :disabled="!copyNames" @click="copy(copyNames)">
           Copy names
@@ -22,6 +25,7 @@
         <span class="map__name">
           {{ p.name }}
           <span v-if="p.isHost" class="map__host">Host</span>
+          <span v-if="raisedHands" class="map__hand-hint" title="Someone has a hand raised">✋</span>
         </span>
         <span class="map__mins">{{ formatMins(p.totalMinutes) }}</span>
       </li>
@@ -38,7 +42,9 @@ import api from '../../services/api';
 const props = defineProps({
   eventId: { type: [Number, String], required: true },
   /** When true, refresh totals every few seconds while the panel is mounted. */
-  livePoll: { type: Boolean, default: false }
+  livePoll: { type: Boolean, default: false },
+  /** Count of currently raised hands in the live room */
+  raisedHands: { type: Number, default: 0 }
 });
 
 const loading = ref(false);
@@ -129,7 +135,16 @@ defineExpose({ load });
 <style scoped>
 .map { display: flex; flex-direction: column; gap: 10px; }
 .map__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.map__head h4 { margin: 0; font-size: 0.95rem; }
+.map__head h4 { margin: 0; font-size: 0.95rem; display: flex; align-items: center; gap: 8px; }
+.map__hands {
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.map__hand-hint { margin-left: 4px; }
 .map__actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .map__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .map__list li { display: flex; justify-content: space-between; gap: 10px; font-size: 0.9rem; }

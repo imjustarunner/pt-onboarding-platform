@@ -7,57 +7,53 @@
 
     <div v-if="sideTab === 'discussion'" class="sds__discussion">
       <div class="sds__subtabs">
-        <button type="button" :class="{ active: discussionSubTab === 'topics' }" @click="$emit('update:discussionSubTab', 'topics')">Topics</button>
+        <button type="button" :class="{ active: discussionSubTab === 'agenda' || discussionSubTab === 'topics' }" @click="$emit('update:discussionSubTab', 'agenda')">Agenda</button>
         <button type="button" :class="{ active: discussionSubTab === 'chat' }" @click="$emit('update:discussionSubTab', 'chat')">Chat</button>
         <button type="button" :class="{ active: discussionSubTab === 'transcript' }" @click="$emit('update:discussionSubTab', 'transcript')">Transcript</button>
       </div>
 
-      <template v-if="discussionSubTab === 'topics'">
-        <p class="sds__lead">Share discussion points for the session.</p>
-        <p v-if="error" class="sds__error">{{ error }}</p>
-        <form class="sds__ask" @submit.prevent="$emit('post-topic')">
-          <input :value="topicDraft" type="text" class="input" placeholder="Add a topic or discussion point…" @input="$emit('update:topicDraft', $event.target.value)" />
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="!String(topicDraft || '').trim() || topicBusy">Add</button>
-        </form>
-        <ul class="sds__feed">
-          <li v-for="item in topics" :key="item.id">
-            <button type="button" class="sds__vote" title="Upvote" @click="$emit('upvote', item)">{{ item.upvotes || 0 }}</button>
-            <div>
-              <p>{{ item.text }}</p>
-              <small>{{ item.author }} · {{ item.timeLabel }}</small>
-              <span v-if="item.pinned" class="sds__pinned">Pinned by facilitator</span>
-            </div>
-          </li>
-          <li v-if="!topics.length" class="sds__empty">No discussion points yet. Add the first topic.</li>
-        </ul>
+      <template v-if="discussionSubTab === 'agenda' || discussionSubTab === 'topics'">
+        <MeetingAgendaPanel
+          v-if="sessionId"
+          meeting-type="supervision_session"
+          :meeting-id="sessionId"
+          :can-add-item="true"
+          :embedded="true"
+          :live="true"
+        />
+        <p v-else class="sds__empty">Agenda will appear once the session is ready.</p>
       </template>
 
       <template v-else-if="discussionSubTab === 'chat'">
-        <p class="sds__lead">Session chat</p>
-        <p v-if="error" class="sds__error">{{ error }}</p>
-        <ul class="sds__chat">
-          <li v-for="msg in chatMessages" :key="msg.id" class="sds__bubble">
-            <div class="sds__meta">
-              <strong>{{ msg.author }}</strong>
-              <span>{{ msg.timeLabel }}</span>
-            </div>
-            <p>{{ msg.text }}</p>
-          </li>
-          <li v-if="!chatMessages.length" class="sds__empty">No messages yet. Say hello.</li>
-        </ul>
-        <form class="sds__ask sds__ask--chat" @submit.prevent="$emit('post-chat')">
-          <input :value="chatDraft" type="text" class="input" placeholder="Write a message…" @input="$emit('update:chatDraft', $event.target.value)" />
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="!String(chatDraft || '').trim() || chatBusy">Send</button>
-        </form>
+        <MeetingLiveActivityPanel
+          v-if="sessionId || joinToken"
+          :session-id="sessionId"
+          :join-token="joinToken"
+          :join-identity="joinIdentity"
+          :guest-display-name="guestDisplayName"
+          :is-host="isSupervisor"
+          :start-open="true"
+          :below-video="true"
+        />
+        <p v-else class="sds__empty">Chat will appear once the session is ready.</p>
       </template>
 
       <template v-else>
-        <p v-if="transcriptHint" class="sds__hint">{{ transcriptHint }}</p>
-        <div v-if="transcriptPreview" class="sds__transcript">
-          <h4>Live transcript</h4>
-          <pre>{{ transcriptPreview }}</pre>
+        <button type="button" class="sds__collapse" @click="transcriptOpen = !transcriptOpen">
+          {{ transcriptOpen ? 'Collapse transcript' : 'Expand transcript' }}
+        </button>
+        <div v-if="canControlTranscript" class="sds__tx-controls">
+          <button type="button" class="btn btn-secondary btn-sm" @click="$emit('transcript-pause-resume')">
+            {{ transcriptPaused ? 'Resume' : 'Pause' }}
+          </button>
+          <button type="button" class="btn btn-danger btn-sm" @click="$emit('transcript-stop')">Stop</button>
         </div>
-        <p v-else class="sds__empty">Transcript will appear here once speech is detected.</p>
+        <p v-if="transcriptHint" class="sds__hint">{{ transcriptHint }}</p>
+        <div v-if="transcriptOpen && transcriptPreview" class="sds__transcript">
+          <h4>Live transcript (newest first)</h4>
+          <pre>{{ newestFirst(transcriptPreview) }}</pre>
+        </div>
+        <p v-else-if="transcriptOpen" class="sds__empty">Transcript will appear here once speech is detected.</p>
       </template>
     </div>
 
@@ -74,10 +70,27 @@
 </template>
 
 <script setup>
+import { ref } from 'vue';
+import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
+import MeetingLiveActivityPanel from '../meetings/MeetingLiveActivityPanel.vue';
+
+const transcriptOpen = ref(false);
+
+function newestFirst(text) {
+  return String(text || '').split('\n').reverse().join('\n');
+}
+
 defineProps({
   roomy: { type: Boolean, default: false },
   sideTab: { type: String, default: 'discussion' },
-  discussionSubTab: { type: String, default: 'topics' },
+  discussionSubTab: { type: String, default: 'agenda' },
+  sessionId: { type: [Number, String], default: null },
+  joinToken: { type: String, default: '' },
+  joinIdentity: { type: String, default: '' },
+  guestDisplayName: { type: String, default: '' },
+  isSupervisor: { type: Boolean, default: false },
+  canControlTranscript: { type: Boolean, default: false },
+  transcriptPaused: { type: Boolean, default: false },
   topicDraft: { type: String, default: '' },
   chatDraft: { type: String, default: '' },
   personalNotes: { type: String, default: '' },
@@ -98,7 +111,9 @@ defineEmits([
   'update:personalNotes',
   'post-topic',
   'post-chat',
-  'upvote'
+  'upvote',
+  'transcript-pause-resume',
+  'transcript-stop'
 ]);
 </script>
 
@@ -165,6 +180,23 @@ defineEmits([
   font-size: 0.82rem;
   color: rgba(226, 232, 240, 0.85);
   line-height: 1.4;
+}
+.sds__collapse {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+.sds__tx-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
 }
 .sds__error {
   margin: 0 0 8px;

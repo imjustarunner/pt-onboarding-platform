@@ -65,6 +65,11 @@
       </div>
 
       <div class="snp-artifacts">
+        <section v-if="attendanceLabel" class="snp-section">
+          <h4 class="snp-label">Attendance duration</h4>
+          <p class="snp-duration">{{ attendanceLabel }}</p>
+        </section>
+
         <section class="snp-section">
           <h4 class="snp-label">Session transcript</h4>
           <p v-if="loading" class="muted">Loading session transcript…</p>
@@ -86,6 +91,17 @@
             No summary yet. Summary is generated automatically after the session is finalized.
           </p>
         </section>
+
+        <section class="snp-section">
+          <h4 class="snp-label">Meeting chat</h4>
+          <p v-if="activityLoading" class="muted">Loading chat…</p>
+          <ul v-else-if="chatItems.length" class="snp-chat">
+            <li v-for="m in chatItems" :key="m.id">
+              <strong>{{ m.author }}:</strong> {{ m.text }}
+            </li>
+          </ul>
+          <p v-else class="muted snp-empty">No chat recorded for this session.</p>
+        </section>
       </div>
     </template>
 
@@ -94,7 +110,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -107,7 +123,9 @@ const props = defineProps({
   joinBusy: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  attendanceSeconds: { type: [Number, String], default: null },
+  scheduledDurationLabel: { type: String, default: '' }
 });
 
 const emit = defineEmits(['join', 'open-agenda']);
@@ -117,22 +135,50 @@ const noteLoading = ref(false);
 const noteSaving = ref(false);
 const noteError = ref('');
 const saveStatus = ref('');
+const activityLoading = ref(false);
+const chatItems = ref([]);
 let saveTimer = null;
 let flashTimer = null;
+
+const attendanceLabel = computed(() => {
+  const sec = Number(props.attendanceSeconds || 0);
+  if (sec > 0) {
+    const mins = Math.round(sec / 60);
+    if (mins < 60) return `${mins} minutes attended`;
+    const h = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return rem ? `${h}h ${rem}m attended` : `${h}h attended`;
+  }
+  return String(props.scheduledDurationLabel || '').trim();
+});
 
 async function loadNote() {
   const sid = Number(props.sessionId || 0);
   noteText.value = '';
   noteError.value = '';
+  chatItems.value = [];
   if (!sid) return;
   noteLoading.value = true;
+  activityLoading.value = true;
   try {
-    const { data } = await api.get(`/supervision/sessions/${sid}/personal-note`, { skipGlobalLoading: true });
+    const [{ data }, activityRes] = await Promise.all([
+      api.get(`/supervision/sessions/${sid}/personal-note`, { skipGlobalLoading: true }),
+      api.get(`/supervision/sessions/${sid}/activity`, { params: { limit: 200 }, skipGlobalLoading: true }).catch(() => ({ data: {} }))
+    ]);
     noteText.value = String(data?.note || '');
+    const activity = Array.isArray(activityRes?.data?.activity) ? activityRes.data.activity : [];
+    chatItems.value = activity
+      .filter((a) => String(a.activityType || '').toLowerCase() === 'chat')
+      .map((a) => ({
+        id: a.id,
+        author: a.payload?.authorName || String(a.participantIdentity || '').replace(/^user-/, 'User ') || 'Someone',
+        text: a.payload?.text || ''
+      }));
   } catch (e) {
     noteError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load your note';
   } finally {
     noteLoading.value = false;
+    activityLoading.value = false;
   }
 }
 
@@ -275,6 +321,18 @@ watch(() => Number(props.sessionId || 0), () => { void loadNote(); }, { immediat
 .markdown-body :deep(h3) { font-size: 1em; margin: 6px 0 4px; }
 .markdown-body :deep(h4) { font-size: 0.95em; margin: 4px 0 2px; }
 .snp-empty { margin: 0; font-size: 0.82rem; line-height: 1.4; }
+.snp-duration {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.snp-chat {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.88rem;
+  color: #334155;
+}
 .error { color: #b91c1c; font-size: 0.85rem; margin: 0; }
 .muted { color: #64748b; }
 </style>

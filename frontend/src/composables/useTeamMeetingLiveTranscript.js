@@ -1,6 +1,7 @@
 /**
  * Browser speech-to-text capture for team meetings / huddles.
  * Mirrors supervision live transcript: each participant flushes labeled chunks.
+ * Supports pause/resume and room-level stop (host).
  */
 import { computed, onUnmounted, ref, watch } from 'vue';
 import api from '../services/api';
@@ -15,6 +16,9 @@ export function useTeamMeetingLiveTranscript({
   const liveChunks = ref([]);
   const transcriptHint = ref('');
   const capturing = ref(false);
+  const paused = ref(false);
+  const roomStopped = ref(false);
+  const stopMeta = ref(null);
   let speechRecognition = null;
   let flushTimer = null;
 
@@ -55,7 +59,7 @@ export function useTeamMeetingLiveTranscript({
     }
   }
 
-  function stop() {
+  function stopRecognitionOnly() {
     if (flushTimer) {
       clearInterval(flushTimer);
       flushTimer = null;
@@ -69,8 +73,14 @@ export function useTeamMeetingLiveTranscript({
     capturing.value = false;
   }
 
+  function stop() {
+    stopRecognitionOnly();
+    paused.value = false;
+  }
+
   function start() {
     if (!isEnabled.value || !eid.value || speechRecognition) return;
+    if (paused.value || roomStopped.value) return;
     const SR = typeof window !== 'undefined'
       ? (window.SpeechRecognition || window.webkitSpeechRecognition)
       : null;
@@ -94,7 +104,7 @@ export function useTeamMeetingLiveTranscript({
       };
       speechRecognition.onerror = () => {};
       speechRecognition.onend = () => {
-        if (!speechRecognition || !isEnabled.value) return;
+        if (!speechRecognition || !isEnabled.value || paused.value || roomStopped.value) return;
         try {
           speechRecognition.start();
         } catch {
@@ -114,18 +124,46 @@ export function useTeamMeetingLiveTranscript({
     }
   }
 
+  async function pause() {
+    if (roomStopped.value) return;
+    paused.value = true;
+    stopRecognitionOnly();
+    await flush({ final: false });
+    transcriptHint.value = 'Transcript paused';
+  }
+
+  async function resume() {
+    if (roomStopped.value) return;
+    paused.value = false;
+    transcriptHint.value = 'Transcript resumed';
+    start();
+  }
+
+  async function applyRoomStop(meta = null) {
+    roomStopped.value = true;
+    paused.value = false;
+    stopMeta.value = meta || stopMeta.value;
+    stopRecognitionOnly();
+    await flush({ final: true });
+    const who = stopMeta.value?.stoppedByName || 'Host';
+    const when = stopMeta.value?.stoppedAt
+      ? new Date(stopMeta.value.stoppedAt).toLocaleString()
+      : 'now';
+    transcriptHint.value = `Transcription stopped by ${who} at ${when}`;
+  }
+
   async function stopAndFlush() {
     stop();
     await flush({ final: true });
   }
 
+  const livePreview = computed(() => (liveChunks.value || []).slice(-3).join(' '));
+
   watch(
-    () => [isEnabled.value, eid.value],
-    ([on, id]) => {
-      if (on && id) start();
-      else {
-        void stopAndFlush();
-      }
+    () => [isEnabled.value, eid.value, paused.value, roomStopped.value],
+    ([on]) => {
+      if (on && !paused.value && !roomStopped.value) start();
+      else if (!on) void stopAndFlush();
     },
     { immediate: true }
   );
@@ -136,13 +174,18 @@ export function useTeamMeetingLiveTranscript({
 
   return {
     capturing,
+    paused,
+    roomStopped,
+    stopMeta,
     transcriptHint,
-    livePreview: computed(() =>
-      (liveChunks.value || []).map((t) => String(t || '').trim()).filter(Boolean).join(' ')
-    ),
+    livePreview,
+    liveChunks,
     start,
     stop,
-    flush,
-    stopAndFlush
+    pause,
+    resume,
+    applyRoomStop,
+    stopAndFlush,
+    flush
   };
 }

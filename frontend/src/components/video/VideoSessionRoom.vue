@@ -61,6 +61,8 @@
           class="vsr__tile vsr__tile--remote"
           :class="{
             'vsr__tile--cam-off': !r.hasVideo,
+            'vsr__tile--muted': !r.hasAudio,
+            'vsr__tile--hand': !!handByConnection[r.connectionId],
             'vsr__tile--pip': hasScreenShare || tileFocus === 'local',
             'vsr__tile--featured': tileFocus === 'remote' && remotes.length === 1,
             'vsr__tile--mini': tileFocus === 'collapsed'
@@ -75,7 +77,26 @@
             <img v-if="r.profilePhotoUrl" :src="r.profilePhotoUrl" alt="" class="vsr__avatar-img" />
             <span v-else class="vsr__avatar-initials">{{ initialsFromLabel(r.name) }}</span>
           </div>
-          <span class="vsr__label">{{ r.name }}</span>
+          <span v-if="!r.hasAudio" class="vsr__mic-badge" title="Microphone off" aria-label="Microphone off">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" stroke="currentColor" stroke-width="2"/>
+              <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span v-if="handByConnection[r.connectionId]" class="vsr__hand-badge" title="Hand raised" aria-label="Hand raised">✋</span>
+          <span class="vsr__label">
+            {{ r.name }}
+            <span v-if="handByConnection[r.connectionId]" class="vsr__hand-inline">✋</span>
+          </span>
+          <button
+            v-if="canMuteOthers && r.connectionId"
+            type="button"
+            class="vsr__mute-other"
+            title="Mute this participant"
+            @click.stop="forceMuteRemote(r)"
+          >
+            Mute
+          </button>
         </div>
 
         <div
@@ -91,6 +112,7 @@
           :class="{
             'vsr__tile--muted': !publishAudio,
             'vsr__tile--cam-off': !publishVideo,
+            'vsr__tile--hand': localHandRaised,
             'vsr__tile--solo': isSoloStage && !hasScreenShare && tileFocus === 'equal',
             'vsr__tile--duo': isDuoStage && !hasScreenShare && tileFocus === 'equal',
             'vsr__tile--grid-local': isGridStage && !hasScreenShare && tileFocus === 'equal',
@@ -105,7 +127,17 @@
             <img v-if="localProfilePhotoUrl" :src="localProfilePhotoUrl" alt="" class="vsr__avatar-img" />
             <span v-else class="vsr__avatar-initials">{{ localInitials }}</span>
           </div>
-          <span class="vsr__label">{{ localName || 'You' }}</span>
+          <span v-if="!publishAudio" class="vsr__mic-badge" title="Microphone off" aria-label="Microphone off">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" stroke="currentColor" stroke-width="2"/>
+              <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span v-if="localHandRaised" class="vsr__hand-badge" title="Hand raised" aria-label="Hand raised">✋</span>
+          <span class="vsr__label">
+            {{ localName || 'You' }}
+            <span v-if="localHandRaised" class="vsr__hand-inline">✋</span>
+          </span>
           <button
             v-if="allowTileFocus"
             type="button"
@@ -115,6 +147,18 @@
           >
             {{ tileFocus === 'local' ? 'Shrink' : 'Expand' }}
           </button>
+        </div>
+
+        <div class="vsr__reactions" aria-live="polite">
+          <div
+            v-for="rx in floatingReactions"
+            :key="rx.id"
+            class="vsr__float-rx"
+            :style="{ left: rx.left, top: rx.top, animationDuration: rx.duration }"
+          >
+            <span class="vsr__float-rx-emoji">{{ rx.emoji }}</span>
+            <span class="vsr__float-rx-name">{{ rx.displayName }}</span>
+          </div>
         </div>
       </div>
 
@@ -162,13 +206,41 @@
           v-if="voiceIsolationStatus"
           class="vsr__voice-iso"
           :class="{
-            'vsr__voice-iso--on': voiceIsolationStatus === 'on',
+            'vsr__voice-iso--on': voiceIsolationStatus === 'on' || voiceIsolationStatus === 'processing',
             'vsr__voice-iso--off': voiceIsolationStatus === 'unavailable'
           }"
           :title="voiceIsolationTitle"
         >
           {{ voiceIsolationLabel }}
         </span>
+        <button
+          type="button"
+          class="vsr__ctrl"
+          :class="{ 'vsr__ctrl--active': localHandRaised }"
+          :aria-pressed="localHandRaised"
+          title="Raise hand"
+          @click="toggleRaiseHand"
+        >
+          {{ localHandRaised ? 'Hand up' : 'Raise hand' }}
+        </button>
+        <div class="vsr__react-group" title="Send a reaction">
+          <button
+            v-for="rx in reactionEmojis"
+            :key="rx"
+            type="button"
+            class="vsr__react-btn"
+            @click="sendReaction(rx)"
+          >{{ rx }}</button>
+        </div>
+        <button
+          v-if="allowTileFocus || showLayoutControls"
+          type="button"
+          class="vsr__ctrl"
+          title="Cycle video layout"
+          @click="cycleLayoutFocus"
+        >
+          Layout
+        </button>
         <slot name="extra-controls" />
       </div>
     </template>
@@ -202,7 +274,17 @@ const props = defineProps({
   /** Hide built-in control bar when parent renders its own dock */
   hideControls: { type: Boolean, default: false },
   /** Show Expand/Shrink controls on tiles */
-  allowTileFocus: { type: Boolean, default: false }
+  allowTileFocus: { type: Boolean, default: false },
+  /** Show Layout cycle button in controls */
+  showLayoutControls: { type: Boolean, default: false },
+  /** Who may force-mute others: 'everyone' | 'host' | 'none' */
+  muteOthersMode: { type: String, default: 'host' },
+  /** Local user is host or co-host (for mute-others when mode is host) */
+  isHostOrCohost: { type: Boolean, default: false },
+  /** Play a short tone when someone else joins */
+  playJoinTone: { type: Boolean, default: true },
+  /** Connection id / identity used for raise-hand map keys when known */
+  localConnectionKey: { type: String, default: '' }
 });
 
 const emit = defineEmits([
@@ -213,7 +295,11 @@ const emit = defineEmits([
   'stream-destroyed',
   'request-recreate-room',
   'update:tileFocus',
-  'meeting-ended'
+  'meeting-ended',
+  'hand-raised-change',
+  'hands-map-change',
+  'reaction',
+  'transcript-control'
 ]);
 
 const localMediaEl = ref(null);
@@ -224,31 +310,49 @@ const errorMeta = ref(null);
 const publishAudio = ref(true);
 const publishVideo = ref(true);
 const hideSelfView = ref(false);
-/** on | unavailable | unsupported — reflects what we actually applied to the published mic track */
+/** on | processing | unavailable | unsupported */
 const voiceIsolationStatus = ref('');
 let ownedAudioTrack = null;
-/** @type {import('vue').Ref<Array<{ streamId: string, name: string, hasVideo: boolean, profilePhotoUrl: string }>>} */
+/** @type {import('vue').Ref<Array<{ streamId: string, connectionId: string, name: string, hasVideo: boolean, hasAudio: boolean, profilePhotoUrl: string }>>} */
 const remotes = ref([]);
 const sharingScreen = ref(false);
 const hasScreenShare = ref(false);
 const screenShareLabel = ref('');
 const sessionReady = ref(false);
 const remoteMediaEls = new Map();
+const localHandRaised = ref(false);
+/** @type {import('vue').Ref<Record<string, boolean>>} */
+const handByConnection = ref({});
+/** @type {import('vue').Ref<Array<{ id: string, emoji: string, displayName: string, left: string, top: string, duration: string }>>} */
+const floatingReactions = ref([]);
+const reactionEmojis = ['👍', '❤️', '🎉', '👏', '💡'];
+let joinToneCtx = null;
+let reactionSeq = 0;
 
 const hasRemote = computed(() => remotes.value.length > 0);
+const canMuteOthers = computed(() => {
+  const mode = String(props.muteOthersMode || 'host').toLowerCase();
+  if (mode === 'everyone') return true;
+  if (mode === 'none') return false;
+  return !!props.isHostOrCohost;
+});
 
 const voiceIsolationLabel = computed(() => {
   if (voiceIsolationStatus.value === 'on') return 'Voice isolation on';
+  if (voiceIsolationStatus.value === 'processing') return 'Mic processing on';
   if (voiceIsolationStatus.value === 'unavailable') return 'Voice isolation off';
   if (voiceIsolationStatus.value === 'unsupported') return 'Voice isolation N/A';
   return '';
 });
 const voiceIsolationTitle = computed(() => {
   if (voiceIsolationStatus.value === 'on') {
-    return 'Browser voice isolation / noise suppression is applied to your published microphone';
+    return 'Browser voice isolation is applied to your published microphone';
+  }
+  if (voiceIsolationStatus.value === 'processing') {
+    return 'Noise suppression / echo cancellation is active on your mic. Chrome Mic Mode voice isolation may also be on at the OS level.';
   }
   if (voiceIsolationStatus.value === 'unavailable') {
-    return 'Could not enable voice isolation on this microphone; noise suppression may still be active';
+    return 'Could not enable mic processing on this device';
   }
   if (voiceIsolationStatus.value === 'unsupported') {
     return 'This browser does not expose a voiceIsolation constraint; echo cancellation and noise suppression are still requested';
@@ -273,27 +377,152 @@ async function acquireIsolatedAudioTrack() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
     const track = stream.getAudioTracks()?.[0] || null;
     if (!track) {
-      voiceIsolationStatus.value = wantsVoiceIsolation ? 'unavailable' : 'unsupported';
+      voiceIsolationStatus.value = 'unavailable';
       return null;
     }
-    // Stop sibling tracks if any; we only pass one track to OT.
     for (const t of stream.getTracks()) {
       if (t !== track) t.stop();
     }
     const settings = typeof track.getSettings === 'function' ? (track.getSettings() || {}) : {};
-    if (wantsVoiceIsolation) {
-      voiceIsolationStatus.value = settings.voiceIsolation === true ? 'on' : 'unavailable';
+    const nsOn = settings.noiseSuppression !== false;
+    const viOn = settings.voiceIsolation === true;
+    if (viOn) {
+      voiceIsolationStatus.value = 'on';
+    } else if (nsOn) {
+      // Chrome Mic Mode / OS VI often won't show in getSettings().voiceIsolation.
+      voiceIsolationStatus.value = wantsVoiceIsolation ? 'processing' : 'processing';
     } else {
-      // Still request noiseSuppression; report accurately that voiceIsolation isn't a supported constraint.
-      voiceIsolationStatus.value = settings.noiseSuppression === false ? 'unavailable' : 'unsupported';
+      voiceIsolationStatus.value = 'unavailable';
     }
     ownedAudioTrack = track;
     return track;
   } catch (e) {
     console.warn('[VideoSessionRoom] isolated mic capture failed; using default publisher audio', e?.message || e);
-    voiceIsolationStatus.value = wantsVoiceIsolation ? 'unavailable' : 'unsupported';
+    voiceIsolationStatus.value = 'unavailable';
     return null;
   }
+}
+
+function playJoinChime() {
+  if (!props.playJoinTone) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!joinToneCtx) joinToneCtx = new AC();
+    const ctx = joinToneCtx;
+    if (ctx.state === 'suspended') void ctx.resume();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(523.25, now);
+    osc.frequency.setValueAtTime(659.25, now + 0.08);
+    osc.frequency.setValueAtTime(783.99, now + 0.16);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.34);
+  } catch { /* ignore */ }
+}
+
+function localConnectionId() {
+  try {
+    return String(session?.connection?.connectionId || props.localConnectionKey || '').trim();
+  } catch {
+    return String(props.localConnectionKey || '').trim();
+  }
+}
+
+function sendSessionSignal(type, data, toConnection = null) {
+  if (!session || !sessionReady.value) return false;
+  try {
+    const payload = JSON.stringify(data || {});
+    const opts = { type: String(type || ''), data: payload };
+    if (toConnection) opts.to = toConnection;
+    session.signal(opts, (err) => {
+      if (err) console.warn('[VideoSessionRoom] signal failed', type, err?.message || err);
+    });
+    return true;
+  } catch (e) {
+    console.warn('[VideoSessionRoom] signal error', e);
+    return false;
+  }
+}
+
+function setHandState(connectionId, raised) {
+  const id = String(connectionId || '').trim();
+  if (!id) return;
+  const next = { ...handByConnection.value };
+  if (raised) next[id] = true;
+  else delete next[id];
+  handByConnection.value = next;
+  emit('hands-map-change', { ...next });
+}
+
+function toggleRaiseHand() {
+  const next = !localHandRaised.value;
+  localHandRaised.value = next;
+  const connId = localConnectionId();
+  if (connId) setHandState(connId, next);
+  sendSessionSignal('hand_raised', {
+    raised: next,
+    connectionId: connId,
+    displayName: props.localName || 'You'
+  });
+  emit('hand-raised-change', next);
+}
+
+function pushFloatingReaction({ emoji, displayName }) {
+  reactionSeq += 1;
+  const id = `rx-${Date.now()}-${reactionSeq}`;
+  const left = `${8 + Math.random() * 70}%`;
+  const top = `${55 + Math.random() * 30}%`;
+  const duration = `${2.8 + Math.random() * 0.8}s`;
+  floatingReactions.value = [
+    ...floatingReactions.value,
+    { id, emoji, displayName: displayName || 'Someone', left, top, duration }
+  ];
+  window.setTimeout(() => {
+    floatingReactions.value = floatingReactions.value.filter((r) => r.id !== id);
+  }, 3600);
+}
+
+function sendReaction(emoji) {
+  const payload = {
+    emoji: String(emoji || '').trim(),
+    displayName: String(props.localName || 'You').replace(/^You\s*[·|]\s*/i, '').trim() || 'You',
+    connectionId: localConnectionId()
+  };
+  if (!payload.emoji) return;
+  pushFloatingReaction(payload);
+  sendSessionSignal('reaction', payload);
+  emit('reaction', payload);
+}
+
+function forceMuteRemote(remote) {
+  if (!canMuteOthers.value || !remote?.connectionId) return;
+  sendSessionSignal('force_mute', {
+    targetConnectionId: remote.connectionId,
+    byName: props.localName || 'Someone'
+  });
+}
+
+function cycleLayoutFocus() {
+  const order = ['equal', 'local', 'remote', 'collapsed'];
+  const idx = order.indexOf(props.tileFocus);
+  const next = order[(idx + 1) % order.length];
+  emit('update:tileFocus', next);
+}
+
+function applyForceMuteLocal() {
+  if (!publishAudio.value) return;
+  publishAudio.value = false;
+  try {
+    publisher?.publishAudio?.(false);
+  } catch { /* ignore */ }
 }
 
 function releaseOwnedAudioTrack() {
@@ -303,23 +532,25 @@ function releaseOwnedAudioTrack() {
   ownedAudioTrack = null;
 }
 
+const visibleLocal = computed(() => !hideSelfView.value);
+const visibleTileCount = computed(() => remotes.value.length + (visibleLocal.value ? 1 : 0));
 const isSoloStage = computed(() =>
-  props.promoteLocalWhenAlone
-  && !hasRemote.value
-  && props.layout !== 'strip'
+  props.layout !== 'strip'
   && props.tileFocus === 'equal'
+  && visibleTileCount.value === 1
+  && (hasRemote.value || props.promoteLocalWhenAlone)
 );
 const isDuoStage = computed(() =>
   props.equalTilesWhenRemote
-  && remotes.value.length === 1
   && props.layout !== 'strip'
   && props.tileFocus === 'equal'
+  && visibleTileCount.value === 2
 );
 const isGridStage = computed(() =>
   props.equalTilesWhenRemote
-  && remotes.value.length >= 2
   && props.layout !== 'strip'
   && props.tileFocus === 'equal'
+  && visibleTileCount.value >= 3
 );
 
 function setRemoteMediaEl(streamId, el) {
@@ -400,8 +631,10 @@ function remoteMetaFromStream(stream) {
   } catch { /* keep defaults */ }
   return {
     streamId: String(stream.streamId || ''),
+    connectionId: String(stream?.connection?.connectionId || '').trim(),
     name,
     hasVideo: stream?.hasVideo !== false,
+    hasAudio: stream?.hasAudio !== false,
     profilePhotoUrl
   };
 }
@@ -514,6 +747,17 @@ async function subscribeToStream(stream) {
       r.streamId === streamId ? { ...r, hasVideo: false } : r
     ));
   });
+  sub.on?.('audioEnabled', () => {
+    remotes.value = remotes.value.map((r) => (
+      r.streamId === streamId ? { ...r, hasAudio: true } : r
+    ));
+  });
+  sub.on?.('audioDisabled', () => {
+    remotes.value = remotes.value.map((r) => (
+      r.streamId === streamId ? { ...r, hasAudio: false } : r
+    ));
+  });
+  playJoinChime();
 }
 
 function clearScreenShareTile() {
@@ -667,8 +911,10 @@ async function connect() {
           try { session?.unsubscribe(sub); } catch { /* ignore */ }
           subscribers.delete(streamId);
         }
+        const gone = remotes.value.find((r) => r.streamId === streamId);
         remotes.value = remotes.value.filter((r) => r.streamId !== streamId);
         remoteMediaEls.delete(streamId);
+        if (gone?.connectionId) setHandState(gone.connectionId, false);
       }
       emit('stream-destroyed', event);
     });
@@ -691,6 +937,43 @@ async function connect() {
         // Parent handles navigation via meeting-ended; avoid a second disconnected race.
         disconnect(false);
       } catch { /* ignore */ }
+    });
+
+    session.on('signal:hand_raised', (event) => {
+      let payload = {};
+      try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
+      const connId = String(payload.connectionId || event?.from?.connectionId || '').trim();
+      if (!connId) return;
+      const raised = !!payload.raised;
+      setHandState(connId, raised);
+      if (connId === localConnectionId()) localHandRaised.value = raised;
+    });
+
+    session.on('signal:reaction', (event) => {
+      let payload = {};
+      try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
+      const fromSelf = String(event?.from?.connectionId || '') === localConnectionId();
+      if (fromSelf) return;
+      if (!payload.emoji) return;
+      pushFloatingReaction({
+        emoji: payload.emoji,
+        displayName: payload.displayName || 'Someone'
+      });
+      emit('reaction', payload);
+    });
+
+    session.on('signal:force_mute', (event) => {
+      let payload = {};
+      try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
+      const target = String(payload.targetConnectionId || '').trim();
+      const me = localConnectionId();
+      if (target && me && target === me) applyForceMuteLocal();
+    });
+
+    session.on('signal:transcript_control', (event) => {
+      let payload = {};
+      try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
+      emit('transcript-control', payload);
     });
 
     await new Promise((resolve, reject) => {
@@ -931,15 +1214,26 @@ onBeforeUnmount(() => {
   disconnect(false);
 });
 
+function signalTranscriptControl(payload) {
+  return sendSessionSignal('transcript_control', payload || {});
+}
+
 defineExpose({
   connect,
   disconnect,
   toggleMic,
   toggleCamera,
   toggleScreenShare,
+  toggleRaiseHand,
+  sendReaction,
+  signalTranscriptControl,
+  sendSessionSignal,
   publishAudio,
   publishVideo,
-  sharingScreen
+  sharingScreen,
+  hideSelfView,
+  localHandRaised,
+  handByConnection
 });
 </script>
 
@@ -1015,25 +1309,127 @@ defineExpose({
   z-index: 1;
   pointer-events: none;
 }
-.vsr__avatar-img {
-  width: 72px;
-  height: 72px;
+.vsr__avatar-img,
+.vsr__avatar-initials {
+  width: min(62%, 220px);
+  height: min(62%, 220px);
+  aspect-ratio: 1;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid rgba(255, 255, 255, 0.35);
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }
 .vsr__avatar-initials {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
   display: grid;
   place-items: center;
   font-weight: 700;
-  font-size: 1.25rem;
+  font-size: clamp(1.5rem, 6vw, 3rem);
   letter-spacing: 0.02em;
-  background: rgba(124, 58, 237, 0.35);
+  background: rgba(30, 64, 120, 0.55);
   color: #f8fafc;
-  border: 2px solid rgba(255, 255, 255, 0.25);
+}
+.vsr__mic-badge {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 4;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(185, 28, 28, 0.9);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.vsr__hand-badge {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  z-index: 4;
+  font-size: 1.25rem;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
+}
+.vsr__hand-inline {
+  margin-left: 0.25rem;
+}
+.vsr__mute-other {
+  position: absolute;
+  bottom: 2.1rem;
+  right: 0.45rem;
+  z-index: 5;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.vsr__mute-other:hover {
+  background: rgba(185, 28, 28, 0.85);
+}
+.vsr__reactions {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  overflow: hidden;
+}
+.vsr__float-rx {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  animation-name: vsr-float-rx;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+.vsr__float-rx-emoji {
+  font-size: 2rem;
+  line-height: 1;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.35));
+}
+.vsr__float-rx-name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  white-space: nowrap;
+}
+@keyframes vsr-float-rx {
+  0% { transform: translateY(0) scale(0.85); opacity: 0; }
+  12% { opacity: 1; transform: translateY(-12px) scale(1); }
+  100% { transform: translateY(-140px) translateX(24px) scale(1.05); opacity: 0; }
+}
+.vsr__react-group {
+  display: inline-flex;
+  gap: 0.15rem;
+  align-items: center;
+}
+.vsr__react-btn {
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.2rem 0.3rem;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+.vsr__react-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.vsr__ctrl--active {
+  background: rgba(234, 179, 8, 0.35) !important;
+  border-color: rgba(234, 179, 8, 0.55) !important;
+}
+.vsr__voice-iso--on {
+  border-color: rgba(34, 197, 94, 0.55);
+  color: #bbf7d0;
 }
 .vsr__tile--local {
   position: absolute;
@@ -1083,6 +1479,7 @@ defineExpose({
   z-index: 0;
 }
 .vsr__stage--solo .vsr__tile--local,
+.vsr__stage--solo .vsr__tile--remote,
 .vsr__tile--solo,
 .vsr__stage--duo .vsr__tile--local,
 .vsr__tile--duo,

@@ -8,6 +8,7 @@
 import pool from '../config/database.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import PayrollIndirectServiceType from '../models/PayrollIndirectServiceType.model.js';
+import PayrollRate from '../models/PayrollRate.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import SupervisionSessionArtifact from '../models/SupervisionSessionArtifact.model.js';
 import { computeSubmissionWindow } from '../utils/payrollSubmissionWindow.js';
@@ -100,6 +101,73 @@ async function ensureSupervisionServiceType(agencyId) {
   return found;
 }
 
+async function readAccountTotalHours(agencyId, userId) {
+  const aid = Number(agencyId || 0);
+  const uid = Number(userId || 0);
+  if (!aid || !uid) return 0;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COALESCE(individual_hours, 0) + COALESCE(group_hours, 0) AS total_hours
+       FROM supervision_accounts
+       WHERE agency_id = ? AND user_id = ?
+       LIMIT 1`,
+      [aid, uid]
+    );
+    return clampHours(rows?.[0]?.total_hours || 0);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * S8: create supervision time claims only when the user is hourly OR has a
+ * positive compensation rate for one of the given service codes.
+ */
+export async function userEligibleForSupervisionTimeClaim({
+  agencyId,
+  userId,
+  serviceCodes = [],
+  asOf = null
+} = {}) {
+  const aid = Number(agencyId || 0);
+  const uid = Number(userId || 0);
+  if (!aid || !uid) return { ok: false, eligible: false, reason: 'missing_ids' };
+
+  try {
+    const [hwRows] = await pool.execute(
+      'SELECT is_hourly_worker FROM users WHERE id = ? LIMIT 1',
+      [uid]
+    );
+    const hw = hwRows?.[0]?.is_hourly_worker;
+    const isHourly = hw === 1 || hw === true || hw === '1';
+    if (isHourly) return { ok: true, eligible: true, reason: 'hourly' };
+  } catch {
+    /* continue to rate check */
+  }
+
+  const codes = (Array.isArray(serviceCodes) ? serviceCodes : [])
+    .map((c) => String(c || '').trim().toUpperCase())
+    .filter(Boolean);
+  for (const code of codes) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const rateRow = await PayrollRate.findBestRate({
+        agencyId: aid,
+        userId: uid,
+        serviceCode: code,
+        asOf: asOf ? String(asOf).slice(0, 10) : null
+      });
+      if (Number(rateRow?.rate_amount || 0) > 0) {
+        return { ok: true, eligible: true, reason: `rate_${code}` };
+      }
+    } catch {
+      /* keep checking */
+    }
+  }
+
+  return { ok: true, eligible: false, reason: 'not_hourly_and_no_rate' };
+}
+
 export async function creditSuperviseeHoursFromFinalizedSession({
   session,
   rollups = [],
@@ -154,6 +222,30 @@ export async function creditSuperviseeHoursFromFinalizedSession({
       continue;
     }
 
+    // Snapshot hours before/attended/after so supervisee UI can prove credit applied.
+    // Subtract any prior credit for this session so re-finalize snapshots stay accurate.
+    let priorSessionHours = 0;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const [priorRows] = await pool.execute(
+        `SELECT individual_hours, group_hours
+         FROM supervision_session_hour_credits
+         WHERE session_id = ? AND user_id = ?
+         LIMIT 1`,
+        [sid, userId]
+      );
+      priorSessionHours = clampHours(
+        Number(priorRows?.[0]?.individual_hours || 0) + Number(priorRows?.[0]?.group_hours || 0)
+      );
+    } catch {
+      priorSessionHours = 0;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const accountTotal = await readAccountTotalHours(agencyId, userId);
+    const hoursBefore = clampHours(accountTotal - priorSessionHours);
+    const hoursAttended = hours;
+    const hoursAfter = clampHours(hoursBefore + hoursAttended);
+
     // eslint-disable-next-line no-await-in-loop
     await pool.execute(
       `INSERT INTO supervision_session_hour_credits
@@ -179,14 +271,25 @@ export async function creditSuperviseeHoursFromFinalizedSession({
           source: 'session_finalize',
           sessionId: sid,
           sessionType,
-          totalSeconds
+          totalSeconds,
+          hoursBefore,
+          hoursAttended,
+          hoursAfter
         }),
         actorUserId ? Number(actorUserId) : null
       ]
     );
     // eslint-disable-next-line no-await-in-loop
     await recomputeSupervisionAccountForUser({ agencyId, userId });
-    credited.push({ userId, individualHours, groupHours, totalSeconds });
+    credited.push({
+      userId,
+      individualHours,
+      groupHours,
+      totalSeconds,
+      hoursBefore,
+      hoursAttended,
+      hoursAfter
+    });
   }
 
   return { ok: true, credited, cleared };
@@ -222,9 +325,19 @@ export async function createSupervisorSupervisionTimeClaim({
   if (!sid || !agencyId || !supervisorId) {
     return { ok: false, skipped: true, reason: 'missing_session' };
   }
-  // NOTE: Salaried supervisors are intentionally included. Finalize always creates a
-  // submitted indirect_time claim (99415/99416) regardless of users.is_hourly_worker.
-  // TEMP testing: keep this path open for salary + supervision compensation rates.
+
+  const sessionType = String(session?.session_type || 'individual').trim().toLowerCase() || 'individual';
+  const supervisorCodes = sessionType === 'group' ? ['99416', '99415'] : ['99415'];
+  const claimDate = mysqlDateYmd(session.start_at);
+  const eligibility = await userEligibleForSupervisionTimeClaim({
+    agencyId,
+    userId: supervisorId,
+    serviceCodes: supervisorCodes,
+    asOf: claimDate
+  });
+  if (!eligibility.eligible) {
+    return { ok: true, skipped: true, reason: eligibility.reason || 'not_eligible_for_claim' };
+  }
 
   const existingClaimId = Number(session?.supervisor_time_claim_id || 0);
   if (existingClaimId > 0) {
@@ -266,7 +379,6 @@ export async function createSupervisorSupervisionTimeClaim({
     return { ok: false, skipped: true, reason: 'no_duration' };
   }
 
-  const claimDate = mysqlDateYmd(session.start_at);
   if (!claimDate) return { ok: false, skipped: true, reason: 'missing_claim_date' };
 
   const serviceType = await ensureSupervisionServiceType(agencyId);
@@ -283,9 +395,9 @@ export async function createSupervisorSupervisionTimeClaim({
     return { ok: false, skipped: true, reason: win?.errorMessage || 'outside_submission_window' };
   }
 
-  const sessionType = String(session?.session_type || 'individual').trim().toLowerCase() || 'individual';
   const startTime = wallHm(session.start_at);
   const endTime = wallHm(session.end_at);
+  const serviceCode = sessionType === 'group' ? '99416' : '99415';
   const payload = {
     entryMethod: 'manual',
     allocationMode: 'duration',
@@ -295,7 +407,7 @@ export async function createSupervisorSupervisionTimeClaim({
     source: 'supervision_session_finalize',
     supervisionSessionId: sid,
     sessionType,
-    serviceCode: sessionType === 'group' ? '99416' : '99415',
+    serviceCode,
     allocations: [
       {
         serviceTypeId: Number(serviceType.id),
@@ -339,6 +451,49 @@ export async function createSupervisorSupervisionTimeClaim({
   }
 
   return { ok: true, claimId: claimId || null, created: true, minutes };
+}
+
+/**
+ * Optional 99414 supervisee claim path — same hourly-or-rate gate as supervisor claims.
+ * Currently unused by finalize (hours accrue via supervision_session_hour_credits), but
+ * kept so any future/manual 99414 claim creation shares S8 eligibility rules.
+ */
+export async function createSuperviseeSupervisionTimeClaim({
+  session,
+  userId,
+  rollups = [],
+  actorUserId = null
+} = {}) {
+  const sid = Number(session?.id || 0);
+  const agencyId = Number(session?.agency_id || 0);
+  const superviseeId = Number(userId || session?.supervisee_user_id || 0);
+  if (!sid || !agencyId || !superviseeId) {
+    return { ok: false, skipped: true, reason: 'missing_session' };
+  }
+
+  const sessionType = String(session?.session_type || 'individual').trim().toLowerCase() || 'individual';
+  const superviseeCodes = sessionType === 'group' ? ['99416', '99414'] : ['99414'];
+  const claimDate = mysqlDateYmd(session.start_at);
+  const eligibility = await userEligibleForSupervisionTimeClaim({
+    agencyId,
+    userId: superviseeId,
+    serviceCodes: superviseeCodes,
+    asOf: claimDate
+  });
+  if (!eligibility.eligible) {
+    return { ok: true, skipped: true, reason: eligibility.reason || 'not_eligible_for_claim' };
+  }
+
+  // No automatic claim creation yet — eligibility gate only.
+  return {
+    ok: true,
+    skipped: true,
+    reason: 'supervisee_claim_not_auto_created',
+    eligible: true,
+    eligibilityReason: eligibility.reason,
+    rollupSeconds: Number((rollups || []).find((r) => Number(r.user_id) === superviseeId)?.total_seconds || 0),
+    actorUserId: actorUserId ? Number(actorUserId) : null
+  };
 }
 
 export async function maybePullTranscriptAndSummarize({ session, actorUserId = null } = {}) {

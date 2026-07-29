@@ -1158,13 +1158,19 @@ class SupervisionSession {
          ss.finalized_at,
          ss.finalized_by_user_id,
          ss.finalize_source,
-         ss.final_total_seconds
+         ss.final_total_seconds,
+         sshc.source_json AS hour_credit_source_json,
+         sshc.individual_hours AS hour_credit_individual,
+         sshc.group_hours AS hour_credit_group
        FROM supervision_sessions ss
        JOIN users sup ON sup.id = ss.supervisor_user_id
        LEFT JOIN supervision_session_artifacts ssa2 ON ssa2.session_id = ss.id
        LEFT JOIN supervision_session_attendance_rollups ssar
          ON ssar.session_id = ss.id
         AND ssar.user_id = ${uid}
+       LEFT JOIN supervision_session_hour_credits sshc
+         ON sshc.session_id = ss.id
+        AND sshc.user_id = ${uid}
        WHERE (
           ss.supervisee_user_id = ${uid}
            OR EXISTS (
@@ -1178,44 +1184,61 @@ class SupervisionSession {
        LIMIT ${lim}`
     );
 
-    return (rows || []).map((r) => ({
-      id: Number(r.id),
-      agencyId: Number(r.agency_id),
-      sessionType: String(r.session_type || 'individual'),
-      startAt: r.start_at,
-      endAt: r.end_at,
-      status: r.status,
-      googleMeetLink: r.google_meet_link || null,
-      twilioRoomUniqueName: r.twilio_room_unique_name || null,
-      modality: r.modality || null,
-      notes: r.notes || null,
-      supervisorUserId: Number(r.supervisor_user_id || 0),
-      supervisorName: String(r.supervisor_name || '').trim() || null,
-      ...(() => {
-        const plain = resolveArtifactPlainFields(r);
-        return {
-          transcriptUrl: plain.transcriptUrl || null,
-          transcriptText: plain.transcriptText || null,
-          summaryText: plain.summaryText || null,
-          focusTitle: plain.focusTitle || null,
-          goals: Array.isArray(plain.goals) ? plain.goals : [],
-          actionItems: Array.isArray(plain.actionItems) ? plain.actionItems : [],
-          isEncrypted: !!plain.isEncrypted
-        };
-      })(),
-      summaryModel: r.summary_model || null,
-      summaryGeneratedAt: r.summary_generated_at || null,
-      firstJoinedAt: r.first_joined_at || null,
-      lastLeftAt: r.last_left_at || null,
-      totalSeconds: Number(r.total_seconds || 0),
-      totalHours: Math.round((Number(r.total_seconds || 0) / 3600) * 100) / 100,
-      segmentCount: Number(r.segment_count || 0),
-      isFinalized: Number(r.is_finalized || 0) === 1,
-      sessionFinalizedAt: r.finalized_at || null,
-      sessionFinalizeSource: r.finalize_source || null,
-      sessionFinalTotalSeconds: r.final_total_seconds == null ? null : Number(r.final_total_seconds || 0),
-      sessionFinalizedByUserId: r.finalized_by_user_id ? Number(r.finalized_by_user_id) : null
-    }));
+    return (rows || []).map((r) => {
+      let hourSrc = r.hour_credit_source_json;
+      if (typeof hourSrc === 'string') {
+        try { hourSrc = JSON.parse(hourSrc); } catch { hourSrc = {}; }
+      }
+      if (!hourSrc || typeof hourSrc !== 'object') hourSrc = {};
+      const attendedSnap = Number(hourSrc.hoursAttended);
+      const beforeSnap = Number(hourSrc.hoursBefore);
+      const afterSnap = Number(hourSrc.hoursAfter);
+      const fallbackAttended = Math.round(
+        ((Number(r.hour_credit_individual || 0) + Number(r.hour_credit_group || 0))
+          || (Number(r.total_seconds || 0) / 3600)) * 100
+      ) / 100;
+      return {
+        id: Number(r.id),
+        agencyId: Number(r.agency_id),
+        sessionType: String(r.session_type || 'individual'),
+        startAt: r.start_at,
+        endAt: r.end_at,
+        status: r.status,
+        googleMeetLink: r.google_meet_link || null,
+        twilioRoomUniqueName: r.twilio_room_unique_name || null,
+        modality: r.modality || null,
+        notes: r.notes || null,
+        supervisorUserId: Number(r.supervisor_user_id || 0),
+        supervisorName: String(r.supervisor_name || '').trim() || null,
+        ...(() => {
+          const plain = resolveArtifactPlainFields(r);
+          return {
+            transcriptUrl: plain.transcriptUrl || null,
+            transcriptText: plain.transcriptText || null,
+            summaryText: plain.summaryText || null,
+            focusTitle: plain.focusTitle || null,
+            goals: Array.isArray(plain.goals) ? plain.goals : [],
+            actionItems: Array.isArray(plain.actionItems) ? plain.actionItems : [],
+            isEncrypted: !!plain.isEncrypted
+          };
+        })(),
+        summaryModel: r.summary_model || null,
+        summaryGeneratedAt: r.summary_generated_at || null,
+        firstJoinedAt: r.first_joined_at || null,
+        lastLeftAt: r.last_left_at || null,
+        totalSeconds: Number(r.total_seconds || 0),
+        totalHours: Math.round((Number(r.total_seconds || 0) / 3600) * 100) / 100,
+        segmentCount: Number(r.segment_count || 0),
+        isFinalized: Number(r.is_finalized || 0) === 1,
+        sessionFinalizedAt: r.finalized_at || null,
+        sessionFinalizeSource: r.finalize_source || null,
+        sessionFinalTotalSeconds: r.final_total_seconds == null ? null : Number(r.final_total_seconds || 0),
+        sessionFinalizedByUserId: r.finalized_by_user_id ? Number(r.finalized_by_user_id) : null,
+        hoursBefore: Number.isFinite(beforeSnap) ? beforeSnap : null,
+        hoursAttended: Number.isFinite(attendedSnap) ? attendedSnap : (r.hour_credit_individual != null ? fallbackAttended : null),
+        hoursAfter: Number.isFinite(afterSnap) ? afterSnap : null
+      };
+    });
   }
 
   /**

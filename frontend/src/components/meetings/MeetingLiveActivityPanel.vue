@@ -10,7 +10,7 @@
   >
     <div v-if="toastText" class="mlap__toast" role="status">{{ toastText }}</div>
 
-    <div v-if="!hideChrome" class="mlap__bar">
+    <div class="mlap__bar">
       <button
         type="button"
         class="mlap__toggle"
@@ -18,7 +18,7 @@
         title="Chat, polls & Q&A"
         @click="openPanel"
       >
-        Chat &amp; polls
+        {{ panelOpen ? 'Hide chat' : 'Chat & polls' }}
         <span v-if="totalUnread > 0" class="mlap__badge">{{ totalUnread }}</span>
       </button>
       <button
@@ -32,7 +32,7 @@
       </button>
     </div>
 
-    <div v-if="panelOpen || hideChrome" class="mlap__panel">
+    <div v-if="panelOpen" class="mlap__panel">
       <div class="mlap__tabs">
         <button type="button" class="mlap__tab" :class="{ on: tab === 'chat' }" @click="setTab('chat')">
           Chat
@@ -58,12 +58,28 @@
             :key="m.id"
             class="mlap__msg"
             :class="{ own: m.isOwn }"
+            :style="{ '--mlap-user-color': m.color }"
           >
-            <span class="mlap__sender">{{ m.senderLabel }}</span>
-            <span class="mlap__text">{{ m.text }}</span>
+            <span class="mlap__sender" :style="{ color: m.color }">{{ m.senderLabel }}</span>
+            <img v-if="m.imageUrl" :src="m.imageUrl" alt="" class="mlap__img" />
+            <span v-if="m.text" class="mlap__text">{{ m.text }}</span>
           </div>
         </div>
-        <form class="mlap__form" @submit.prevent="sendChatMessage">
+        <div v-if="emojiOpen" class="mlap__emoji-tray">
+          <button
+            v-for="em in emojiList"
+            :key="em"
+            type="button"
+            class="mlap__emoji-btn"
+            @click="insertEmoji(em)"
+          >{{ em }}</button>
+        </div>
+        <form class="mlap__form mlap__form--rich" @submit.prevent="sendChatMessage">
+          <button type="button" class="mlap__icon-btn" title="Emoji" @click="emojiOpen = !emojiOpen">😊</button>
+          <label class="mlap__icon-btn" title="Share photo">
+            📷
+            <input type="file" accept="image/*" class="mlap__file" :disabled="sending" @change="onChatPhoto" />
+          </label>
           <input
             v-model="chatInput"
             type="text"
@@ -72,10 +88,14 @@
             maxlength="2000"
             :disabled="sending"
           />
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="sending || !chatInput.trim()">
+          <button type="submit" class="btn btn-primary btn-sm" :disabled="sending || (!chatInput.trim() && !pendingImageUrl)">
             Send
           </button>
         </form>
+        <p v-if="pendingImageUrl" class="mlap__pending-img">
+          Photo ready to send
+          <button type="button" class="mw-link-btn" @click="pendingImageUrl = ''">Remove</button>
+        </p>
       </div>
 
       <div v-else-if="tab === 'polls'" class="mlap__body">
@@ -125,30 +145,74 @@
         <div class="mlap__messages">
           <div v-if="!qaItems.length" class="mlap__empty">No questions yet.</div>
           <div v-for="q in qaItems" :key="q.id" class="mlap__qa">
-            <div><strong>Q:</strong> {{ q.text }}</div>
-            <div v-if="q.answer" class="mlap__qa-a">
-              <strong>A:</strong> {{ q.answer }}
-              <span v-if="q.answeredBy" class="mlap__qa-by"> — {{ q.answeredBy }}</span>
+            <div class="mlap__qa-head">
+              <strong>Q:</strong> {{ q.text }}
+              <span class="mlap__qa-mode">{{ qaModeLabel(q.answerMode) }}</span>
             </div>
-            <div v-if="canAnswerQuestions" class="mlap__qa-form">
-              <input
-                v-model="q.answerDraft"
-                type="text"
-                class="mlap__input"
-                :placeholder="q.answer ? 'Update answer…' : 'Type answer…'"
-              />
-              <button
-                type="button"
-                class="btn btn-primary btn-sm"
-                :disabled="sending || !q.answerDraft?.trim()"
-                @click="submitAnswer(q)"
-              >
-                {{ q.answer ? 'Update' : 'Submit' }}
-              </button>
-            </div>
+
+            <!-- one: shared official answer -->
+            <template v-if="q.answerMode === 'one'">
+              <div v-if="q.answer" class="mlap__qa-a">
+                <strong>A:</strong> {{ q.answer }}
+                <span v-if="q.answeredBy" class="mlap__qa-by"> — {{ q.answeredBy }}</span>
+              </div>
+              <div v-if="canAnswerQuestions" class="mlap__qa-form">
+                <input
+                  v-model="q.answerDraft"
+                  type="text"
+                  class="mlap__input"
+                  :placeholder="q.answer ? 'Update answer…' : 'Type answer…'"
+                />
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  :disabled="sending || !q.answerDraft?.trim()"
+                  @click="submitAnswer(q)"
+                >
+                  {{ q.answer ? 'Update' : 'Submit' }}
+                </button>
+              </div>
+            </template>
+
+            <!-- multi / expected: per-person answers -->
+            <template v-else>
+              <div v-if="!(q.answers || []).length" class="mlap__qa-empty muted">No answers yet.</div>
+              <div v-for="a in (q.answers || [])" :key="a.id" class="mlap__qa-a">
+                <strong>{{ a.authorName }}:</strong> {{ a.text }}
+                <button
+                  v-if="q.answerMode === 'multi' && a.isOwn"
+                  type="button"
+                  class="mlap__qa-del"
+                  :disabled="sending"
+                  @click="deleteOwnAnswer(q, a)"
+                >Delete</button>
+                <button
+                  v-if="a.isOwn"
+                  type="button"
+                  class="mlap__qa-edit"
+                  @click="q.answerDraft = a.text"
+                >Edit</button>
+              </div>
+              <div class="mlap__qa-form">
+                <input
+                  v-model="q.answerDraft"
+                  type="text"
+                  class="mlap__input"
+                  :placeholder="ownAnswerFor(q) ? 'Update your answer…' : 'Your answer…'"
+                />
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  :disabled="sending || !q.answerDraft?.trim()"
+                  @click="submitAnswer(q)"
+                >
+                  {{ ownAnswerFor(q) ? 'Update' : 'Post answer' }}
+                </button>
+              </div>
+            </template>
           </div>
         </div>
-        <form class="mlap__form" @submit.prevent="submitQuestion">
+        <form class="mlap__form mlap__form--qa" @submit.prevent="submitQuestion">
           <input
             v-model="questionInput"
             type="text"
@@ -157,6 +221,11 @@
             maxlength="500"
             :disabled="sending"
           />
+          <select v-model="questionAnswerMode" class="mlap__select" title="Answer mode">
+            <option value="one">One answer (shared)</option>
+            <option value="multi">Multiple answers (own delete OK)</option>
+            <option value="expected">Everyone answers (no delete)</option>
+          </select>
           <button type="submit" class="btn btn-primary btn-sm" :disabled="sending || !questionInput.trim()">
             Ask
           </button>
@@ -206,6 +275,7 @@ const props = defineProps({
   pollMs: { type: Number, default: 4000 }
 });
 
+const emit = defineEmits(['update:open']);
 const authStore = useAuthStore();
 const panelOpen = ref(!!props.startOpen);
 const tab = ref('chat');
@@ -218,16 +288,43 @@ const pollQuestion = ref('');
 const pollOptionsText = ref('');
 const polls = ref([]);
 const questionInput = ref('');
+const questionAnswerMode = ref('one');
 const qaItems = ref([]);
 const chatMessagesEl = ref(null);
 const toastText = ref('');
+const emojiOpen = ref(false);
+const pendingImageUrl = ref('');
 const unread = reactive({ chat: 0, polls: 0, qa: 0 });
 const seenIds = new Set();
 /** Preserve Q&A answer drafts across activity reloads (poll every ~4s was wiping inputs). */
 const answerDraftById = new Map();
+const emojiList = ['👍', '❤️', '😊', '🎉', '👏', '💡', '🙏', '🔥', '✅', '😅', '😮', '🎯'];
+const CHAT_COLORS = ['#2563eb', '#059669', '#d97706', '#db2777', '#7c3aed', '#0891b2', '#dc2626', '#4f46e5', '#0d9488', '#ca8a04'];
 let pollTimer = null;
 let toastTimer = null;
 let initialLoadDone = false;
+
+function colorForIdentity(identity) {
+  const s = String(identity || 'anon');
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = ((h << 5) - h) + s.charCodeAt(i);
+  return CHAT_COLORS[Math.abs(h) % CHAT_COLORS.length];
+}
+
+function qaModeLabel(mode) {
+  if (mode === 'multi') return 'Multiple answers';
+  if (mode === 'expected') return 'Everyone answers';
+  return 'One answer';
+}
+
+function ownAnswerFor(q) {
+  return (q?.answers || []).find((a) => a.isOwn) || null;
+}
+
+function insertEmoji(em) {
+  chatInput.value = `${chatInput.value || ''}${em}`;
+  emojiOpen.value = false;
+}
 
 const ownIdentity = computed(() => {
   const guest = String(props.joinIdentity || '').trim();
@@ -317,6 +414,7 @@ function setTab(next) {
 
 function openPanel() {
   panelOpen.value = !panelOpen.value;
+  emit('update:open', panelOpen.value);
   if (panelOpen.value) unread[tab.value] = 0;
 }
 
@@ -334,7 +432,9 @@ function applyActivity(a) {
     chatMessages.value.push({
       id: key || `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       text: payload.text || '',
+      imageUrl: payload.imageUrl || payload.image_url || '',
       senderLabel: senderLabel(a.participantIdentity, payload),
+      color: colorForIdentity(a.participantIdentity),
       isOwn
     });
     return { kind: 'chat', isNew: !isOwn };
@@ -363,11 +463,16 @@ function applyActivity(a) {
   if (type === 'question') {
     const qid = payload.id ?? a.id;
     if (qaItems.value.some((q) => String(q.id) === String(qid))) return { kind: null, isNew: false };
+    const mode = ['one', 'multi', 'expected'].includes(String(payload.answerMode || '').toLowerCase())
+      ? String(payload.answerMode).toLowerCase()
+      : 'one';
     qaItems.value.push({
       id: qid,
       text: payload.text || '',
+      answerMode: mode,
       answer: null,
       answeredBy: '',
+      answers: [],
       answerDraft: answerDraftById.get(String(qid)) || ''
     });
     return { kind: 'qa', isNew: !isOwn };
@@ -375,10 +480,28 @@ function applyActivity(a) {
   if (type === 'answer') {
     const q = qaItems.value.find((x) => String(x.id) === String(payload.inReplyToId));
     if (q) {
-      q.answer = payload.text || '';
-      q.answeredBy = payload.authorName || senderLabel(a.participantIdentity, payload) || '';
-      // Keep any in-progress draft for a different update; clear only if it matched the submitted text.
-      if (String(q.answerDraft || '').trim() === String(q.answer || '').trim()) {
+      const authorName = payload.authorName || senderLabel(a.participantIdentity, payload) || '';
+      const answerRow = {
+        id: key || `ans-${Date.now()}`,
+        text: payload.text || '',
+        authorName,
+        identity: String(a.participantIdentity || ''),
+        isOwn,
+        deleted: !!payload.deleted
+      };
+      if (q.answerMode === 'one') {
+        if (!payload.deleted) {
+          q.answer = answerRow.text;
+          q.answeredBy = authorName;
+        }
+      } else if (payload.deleted) {
+        q.answers = (q.answers || []).filter((x) => x.identity !== answerRow.identity);
+      } else {
+        const existing = (q.answers || []).findIndex((x) => x.identity === answerRow.identity);
+        if (existing >= 0) q.answers[existing] = answerRow;
+        else q.answers = [...(q.answers || []), answerRow];
+      }
+      if (String(q.answerDraft || '').trim() === String(answerRow.text || '').trim()) {
         q.answerDraft = '';
         answerDraftById.delete(String(q.id));
       }
@@ -471,7 +594,7 @@ async function loadActivity({ quiet = false } = {}) {
     }
 
     if (initialLoadDone && quiet) {
-      const viewing = panelOpen.value || props.hideChrome;
+      const viewing = panelOpen.value;
       for (const kind of ['chat', 'polls', 'qa']) {
         const n = newCounts[kind];
         if (!n) continue;
@@ -480,7 +603,7 @@ async function loadActivity({ quiet = false } = {}) {
       }
     }
 
-    if (panelOpen.value || props.hideChrome) {
+    if (panelOpen.value) {
       unread[tab.value] = 0;
     }
 
@@ -498,19 +621,41 @@ async function loadActivity({ quiet = false } = {}) {
   }
 }
 
-async function sendChatMessage() {
-  const text = String(chatInput.value || '').trim();
-  if (!text || sending.value) return;
+async function onChatPhoto(ev) {
+  const file = ev?.target?.files?.[0];
+  if (ev?.target) ev.target.value = '';
+  if (!file || sending.value) return;
   sending.value = true;
   error.value = '';
   try {
-    const id = await persistActivity('chat', { text });
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await api.post('/messages/upload-media', fd, { skipGlobalLoading: true });
+    const url = String(res?.data?.url || res?.data?.mediaUrl || res?.data?.path || '').trim();
+    if (!url) throw new Error('Upload did not return a URL');
+    pendingImageUrl.value = url;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to upload photo';
+  } finally {
+    sending.value = false;
+  }
+}
+
+async function sendChatMessage() {
+  const text = String(chatInput.value || '').trim();
+  const imageUrl = String(pendingImageUrl.value || '').trim();
+  if ((!text && !imageUrl) || sending.value) return;
+  sending.value = true;
+  error.value = '';
+  try {
+    const id = await persistActivity('chat', { text, imageUrl: imageUrl || undefined });
     chatInput.value = '';
+    pendingImageUrl.value = '';
     applyActivity({
       id: id || `local-chat-${Date.now()}`,
       participantIdentity: ownIdentity.value,
       activityType: 'chat',
-      payload: { text, authorName: ownDisplayName.value }
+      payload: { text, imageUrl, authorName: ownDisplayName.value }
     });
     await nextTick();
     if (chatMessagesEl.value) {
@@ -571,13 +716,14 @@ async function submitQuestion() {
   error.value = '';
   try {
     const localId = `q-${Date.now()}`;
-    const id = await persistActivity('question', { id: localId, text });
+    const answerMode = String(questionAnswerMode.value || 'one');
+    const id = await persistActivity('question', { id: localId, text, answerMode });
     questionInput.value = '';
     applyActivity({
       id: id || localId,
       participantIdentity: ownIdentity.value,
       activityType: 'question',
-      payload: { id: id || localId, text, authorName: ownDisplayName.value }
+      payload: { id: id || localId, text, answerMode, authorName: ownDisplayName.value }
     });
     tab.value = 'qa';
   } catch (e) {
@@ -590,17 +736,63 @@ async function submitQuestion() {
 async function submitAnswer(q) {
   const text = String(q?.answerDraft || '').trim();
   if (!text || !q || sending.value) return;
+  if (q.answerMode === 'one' && !canAnswerQuestions.value) {
+    error.value = 'Only hosts or staff can post the shared answer.';
+    return;
+  }
   sending.value = true;
   error.value = '';
   try {
-    const id = await persistActivity('answer', { inReplyToId: q.id, text });
-    q.answer = text;
-    q.answeredBy = ownDisplayName.value;
+    const id = await persistActivity('answer', {
+      inReplyToId: q.id,
+      text,
+      answerMode: q.answerMode || 'one'
+    });
+    applyActivity({
+      id: id || `local-ans-${Date.now()}`,
+      participantIdentity: ownIdentity.value,
+      activityType: 'answer',
+      payload: {
+        inReplyToId: q.id,
+        text,
+        authorName: ownDisplayName.value,
+        answerMode: q.answerMode || 'one'
+      }
+    });
     q.answerDraft = '';
     answerDraftById.delete(String(q.id));
-    if (id) seenIds.add(`id:${id}`);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to answer';
+  } finally {
+    sending.value = false;
+  }
+}
+
+async function deleteOwnAnswer(q, a) {
+  if (!q || !a?.isOwn || q.answerMode !== 'multi' || sending.value) return;
+  sending.value = true;
+  error.value = '';
+  try {
+    const id = await persistActivity('answer', {
+      inReplyToId: q.id,
+      text: a.text || '',
+      deleted: true,
+      answerMode: 'multi'
+    });
+    applyActivity({
+      id: id || `local-del-${Date.now()}`,
+      participantIdentity: ownIdentity.value,
+      activityType: 'answer',
+      payload: {
+        inReplyToId: q.id,
+        text: a.text || '',
+        deleted: true,
+        authorName: ownDisplayName.value,
+        answerMode: 'multi'
+      }
+    });
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to delete answer';
   } finally {
     sending.value = false;
   }
@@ -620,6 +812,7 @@ function stopPolling() {
 }
 
 watch(panelOpen, (open) => {
+  emit('update:open', open);
   if (open) unread[tab.value] = 0;
 });
 
@@ -643,15 +836,11 @@ watch(
 );
 
 watch(() => props.startOpen, (v) => {
-  if (v) panelOpen.value = true;
-});
-
-watch(() => props.hideChrome, (v) => {
-  if (v) panelOpen.value = true;
+  panelOpen.value = !!v;
 });
 
 onMounted(() => {
-  panelOpen.value = !!(props.startOpen || props.hideChrome);
+  panelOpen.value = !!props.startOpen;
   void loadActivity();
   startPolling();
 });
@@ -966,4 +1155,84 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
 .mlap--chrome-less .mlap__error {
   color: #b91c1c;
 }
+.mlap__sender { font-weight: 700; font-size: 0.78rem; display: block; margin-bottom: 2px; }
+.mlap__img {
+  display: block;
+  max-width: 220px;
+  max-height: 160px;
+  border-radius: 8px;
+  margin: 4px 0;
+  object-fit: cover;
+}
+.mlap__form--rich { align-items: center; }
+.mlap__form--qa { flex-wrap: wrap; }
+.mlap__icon-btn {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+.mlap__file {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.mlap__emoji-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 0;
+}
+.mlap__emoji-btn {
+  border: none;
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+.mlap__pending-img {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #64748b;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.mlap__select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  min-width: 160px;
+}
+.mlap__qa-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.mlap__qa-mode {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #6366f1;
+  background: #eef2ff;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.mlap__qa-del,
+.mlap__qa-edit {
+  margin-left: 8px;
+  border: none;
+  background: none;
+  color: #6366f1;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mlap__qa-del { color: #b91c1c; }
+.mlap__qa-empty { font-size: 0.8rem; margin-top: 6px; }
+.mlap__msg { border-left: 3px solid var(--mlap-user-color, #94a3b8); padding-left: 8px; }
 </style>

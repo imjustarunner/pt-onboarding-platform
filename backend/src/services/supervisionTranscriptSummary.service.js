@@ -10,15 +10,19 @@ function buildSupervisionSummaryPrompt(transcriptText) {
   const cleaned = String(transcriptText || '').trim().slice(0, 15000);
   return [
     'You are generating a supervision meeting summary for internal documentation.',
+    'Cover every topic discussed in the transcript (and any agenda/goals mentioned). Do not omit substantive threads.',
     'Return concise markdown with these sections only:',
     '- Key updates',
     '- Clinical/operational decisions',
-    '- Action items (with owner)',
+    '- Suggested action items by person',
     '- Risks/follow-ups',
     '',
     'Rules:',
     '- Be factual, no invented details.',
-    '- Keep each section to 2-5 bullets.',
+    '- Keep each section to 2-8 bullets as needed to cover all topics.',
+    '- In "Suggested action items by person", format bullets as "Name: action 1; action 2".',
+    '- Attribute ownership when speakers say phrases like "remind me", "add to my list", "I\'ll take", "I can own", "put that on my list", or similar — assign that item to the speaker (use their labeled name from the transcript when present).',
+    '- If a person is not named but the speaker clearly volunteers, use their speaker label.',
     '- If information is missing, state "Not discussed".',
     '',
     'Transcript:',
@@ -51,7 +55,7 @@ export async function triggerSupervisionSummaryFromTranscript(sessionId) {
   const summaryResp = await callGeminiText({
     prompt,
     temperature: 0.1,
-    maxOutputTokens: 900
+    maxOutputTokens: 1200
   });
   const summaryText = String(summaryResp?.text || '').trim();
   const summaryModel = String(summaryResp?.modelName || '').trim() || null;

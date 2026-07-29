@@ -448,10 +448,14 @@ async function saveNow() {
         skipAuthRedirect: true
       });
     } else {
-      await api.post(`/team-meetings/${eid}/workspace`, {
-        goals: payloadGoals,
-        actionItems: payloadActions
-      }, { skipGlobalLoading: true, skipAuthRedirect: true });
+      const body = {};
+      if (props.section === 'goals' || props.section === 'both') body.goals = payloadGoals;
+      if (props.section === 'actions' || props.section === 'both') body.actionItems = payloadActions;
+      // Partial section saves must not wipe the other list on the server.
+      await api.post(`/team-meetings/${eid}/workspace`, body, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      });
     }
     emit('saved', { goals: goals.value, actionItems: actionItems.value });
     saveStatus.value = 'saved';

@@ -11,7 +11,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   const authStore = useAuthStore();
 
   const sideTab = ref('discussion');
-  const discussionSubTab = ref('topics');
+  const discussionSubTab = ref('agenda');
   const topicDraft = ref('');
   const chatDraft = ref('');
   const discussionError = ref('');
@@ -194,6 +194,10 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     }
   }
 
+  const transcriptPaused = ref(false);
+  const transcriptRoomStopped = ref(false);
+  const transcriptStopMeta = ref(null);
+
   function stopLiveTranscriptCapture() {
     if (transcriptFlushTimer) {
       clearInterval(transcriptFlushTimer);
@@ -209,6 +213,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   }
 
   function startLiveTranscriptCapture() {
+    if (transcriptPaused.value || transcriptRoomStopped.value) return;
     const SR = typeof window !== 'undefined'
       ? (window.SpeechRecognition || window.webkitSpeechRecognition)
       : null;
@@ -237,7 +242,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
         transcriptCapturing.value = false;
       };
       speechRecognition.onend = () => {
-        if (!speechRecognition) return;
+        if (!speechRecognition || transcriptPaused.value || transcriptRoomStopped.value) return;
         transcriptCapturing.value = true;
         try {
           speechRecognition.start();
@@ -256,6 +261,34 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       speechRecognition = null;
       transcriptCapturing.value = false;
     }
+  }
+
+  async function pauseLiveTranscript() {
+    if (transcriptRoomStopped.value) return;
+    transcriptPaused.value = true;
+    stopLiveTranscriptCapture();
+    await flushLiveTranscript({ final: false });
+    transcriptHint.value = 'Transcript paused';
+  }
+
+  async function resumeLiveTranscript() {
+    if (transcriptRoomStopped.value) return;
+    transcriptPaused.value = false;
+    transcriptHint.value = 'Transcript resumed';
+    startLiveTranscriptCapture();
+  }
+
+  async function applyTranscriptRoomStop(meta = null) {
+    transcriptRoomStopped.value = true;
+    transcriptPaused.value = false;
+    transcriptStopMeta.value = meta || transcriptStopMeta.value;
+    stopLiveTranscriptCapture();
+    await flushLiveTranscript({ final: true });
+    const who = transcriptStopMeta.value?.stoppedByName || 'Supervisor';
+    const when = transcriptStopMeta.value?.stoppedAt
+      ? new Date(transcriptStopMeta.value.stoppedAt).toLocaleString()
+      : 'now';
+    transcriptHint.value = `Transcription stopped by ${who} at ${when}`;
   }
 
   function onVideoConnected() {
@@ -475,6 +508,12 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     chatMessages,
     transcriptHint,
     transcriptCapturing,
+    transcriptPaused,
+    transcriptRoomStopped,
+    transcriptStopMeta,
+    pauseLiveTranscript,
+    resumeLiveTranscript,
+    applyTranscriptRoomStop,
     liveTranscriptPreview,
     sessionTranscriptPreview,
     presentation,

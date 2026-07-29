@@ -107,16 +107,19 @@
             :api-key="applicationId"
             :session-id="supervisionSessionId"
             :is-host="isSupervisor"
+            :is-host-or-cohost="isSupervisor"
+            mute-others-mode="host"
             :diagnostics="diagnostics"
             :local-display-name="localDisplayName"
             :local-role-label="localRoleLabel"
             :local-profile-photo-url="localProfilePhotoUrl"
             layout="standard"
-            hide-controls
             allow-tile-focus
+            show-layout-controls
             v-model:tile-focus="tileFocus"
             @disconnected="$emit('leave')"
             @connected="onVideoConnected"
+            @hands-map-change="onHandsMapChange"
           />
         </div>
       </section>
@@ -230,6 +233,7 @@
         </section>
 
         <SupervisionDiscussionSidebar
+          v-show="discussionOpen"
           class="isl__sidebar"
           roomy
           v-model:side-tab="sideTab"
@@ -237,6 +241,10 @@
           v-model:topic-draft="topicDraft"
           v-model:chat-draft="chatDraft"
           v-model:personal-notes="sidebarNotes"
+          :session-id="numericSessionId || supervisionSessionId"
+          :is-supervisor="isSupervisor"
+          :can-control-transcript="isSupervisor"
+          :transcript-paused="transcriptPaused"
           :topics="topics"
           :chat-messages="chatMessages"
           :error="discussionError"
@@ -247,37 +255,24 @@
           @post-topic="postTopic"
           @post-chat="postChat"
           @upvote="upvote"
+          @transcript-pause-resume="onTranscriptPauseResume"
+          @transcript-stop="onTranscriptStop"
         />
       </div>
     </div>
 
     <footer v-if="!showWaitingRoomStage" class="isl__dock">
       <div class="isl__dock-left">
-        <button type="button" class="isl__dock-btn" :class="{ active: micOn }" @click="toggleMic">
-          {{ micOn ? 'Mic' : 'Muted' }}
+        <button type="button" class="isl__dock-btn" :class="{ active: discussionOpen }" @click="toggleDiscussion">
+          {{ discussionOpen ? 'Hide chat' : 'Chat' }}
         </button>
-        <button type="button" class="isl__dock-btn" :class="{ active: camOn }" @click="toggleCam">
-          {{ camOn ? 'Camera' : 'Cam off' }}
-        </button>
-        <button type="button" class="isl__dock-btn" :class="{ active: handRaised }" @click="handRaised = !handRaised">
-          {{ handRaised ? 'Hand raised' : 'Raise hand' }}
-        </button>
-      </div>
-      <div class="isl__dock-center">
-        <button
-          v-for="rx in reactions"
-          :key="rx"
-          type="button"
-          class="isl__react"
-          :title="rx"
-          @click="flashReaction(rx)"
-        >{{ rx }}</button>
-      </div>
-      <div class="isl__dock-right">
-        <button type="button" class="isl__dock-btn" @click="sideTab = 'discussion'; discussionSubTab = 'chat'">Chat</button>
         <button type="button" class="isl__dock-btn" @click="toggleSection('focus')">Session details</button>
       </div>
-      <div v-if="reactionToast" class="isl__reaction-toast">{{ reactionToast }}</div>
+      <div class="isl__dock-right">
+        <span v-if="raisedHandCount" class="isl__hands-pill" title="Hands raised">
+          ✋ {{ raisedHandCount }}
+        </span>
+      </div>
     </footer>
   </div>
 </template>
@@ -318,6 +313,10 @@ const {
   chatMessages,
   transcriptHint,
   transcriptCapturing,
+  transcriptPaused,
+  pauseLiveTranscript,
+  resumeLiveTranscript,
+  applyTranscriptRoomStop,
   liveTranscriptPreview,
   sessionTranscriptPreview,
   onVideoConnected,
@@ -336,12 +335,9 @@ const showTranscriptionNotice = computed(() => (
 const videoRoomRef = ref(null);
 const tileFocus = ref('equal');
 const editingGoals = ref(false);
-const handRaised = ref(false);
-const micOn = ref(true);
-const camOn = ref(true);
-const reactionToast = ref('');
+const discussionOpen = ref(true);
+const raisedHandCount = ref(0);
 const sidebarNotes = ref('');
-const reactions = ['👍', '❤️', '🎉', '👏', '💡'];
 
 const sectionState = reactive({
   video: 'default',
@@ -509,22 +505,53 @@ function appendSummaryNote() {
   persistWorkspace();
 }
 
-function toggleMic() {
-  videoRoomRef.value?.toggleMic?.();
-  micOn.value = !micOn.value;
-}
-function toggleCam() {
-  videoRoomRef.value?.toggleCamera?.();
-  camOn.value = !camOn.value;
+function toggleDiscussion() {
+  discussionOpen.value = !discussionOpen.value;
+  if (discussionOpen.value) {
+    sideTab.value = 'discussion';
+    discussionSubTab.value = 'chat';
+  }
 }
 
-let reactionTimer = null;
-function flashReaction(rx) {
-  reactionToast.value = rx;
-  if (reactionTimer) clearTimeout(reactionTimer);
-  reactionTimer = setTimeout(() => {
-    reactionToast.value = '';
-  }, 1600);
+function onHandsMapChange(map) {
+  raisedHandCount.value = Object.keys(map || {}).filter((k) => map[k]).length;
+}
+
+async function onTranscriptPauseResume() {
+  if (transcriptPaused.value) {
+    await resumeLiveTranscript();
+    videoRoomRef.value?.signalTranscriptControl?.({ action: 'resume' });
+    try {
+      await api.post(`/supervision/sessions/${numericSessionId.value || props.supervisionSessionId}/transcript-control`, {
+        action: 'resume'
+      }, { skipGlobalLoading: true });
+    } catch { /* ignore */ }
+  } else {
+    await pauseLiveTranscript();
+    videoRoomRef.value?.signalTranscriptControl?.({ action: 'pause' });
+    try {
+      await api.post(`/supervision/sessions/${numericSessionId.value || props.supervisionSessionId}/transcript-control`, {
+        action: 'pause'
+      }, { skipGlobalLoading: true });
+    } catch { /* ignore */ }
+  }
+}
+
+async function onTranscriptStop() {
+  const meta = {
+    stoppedByName: props.localDisplayName || 'Supervisor',
+    stoppedAt: new Date().toISOString()
+  };
+  try {
+    const { data } = await api.post(`/supervision/sessions/${numericSessionId.value || props.supervisionSessionId}/transcript-control`, {
+      action: 'stop',
+      displayName: meta.stoppedByName
+    }, { skipGlobalLoading: true });
+    if (data?.stoppedByName) meta.stoppedByName = data.stoppedByName;
+    if (data?.stoppedAt) meta.stoppedAt = data.stoppedAt;
+  } catch { /* ignore */ }
+  await applyTranscriptRoomStop(meta);
+  videoRoomRef.value?.signalTranscriptControl?.({ action: 'stop', ...meta });
 }
 
 watch(personalNotes, () => persistWorkspace());
@@ -883,6 +910,14 @@ onUnmounted(() => {
 .isl__dock-btn.active {
   background: rgba(167, 139, 250, 0.22);
   border-color: rgba(167, 139, 250, 0.5);
+}
+.isl__hands-pill {
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: rgba(234, 179, 8, 0.25);
+  color: #fde68a;
+  border-radius: 999px;
+  padding: 4px 10px;
 }
 .isl__react {
   width: 36px;

@@ -1,43 +1,73 @@
 <template>
   <div class="mnp" data-testid="meeting-notes-panel">
     <div class="mnp__head">
-      <h4>Meeting transcript</h4>
-      <button type="button" class="btn btn-ghost btn-sm" :disabled="loading" @click="load">Refresh</button>
-    </div>
-    <p v-if="error" class="error">{{ error }}</p>
-    <p class="muted mnp__hint">
-      <template v-if="liveCapturing || liveHint">
-        {{ liveHint || 'Capturing live speech from participants’ mics…' }}
-      </template>
-      <template v-else>
-        Live speech is captured automatically while people are in the video room (Chrome/Safari). You can also paste notes or import chat.
-      </template>
-    </p>
-    <p v-if="livePreview" class="mnp__live">
-      <span class="mnp__live-label">Caption</span>
-      {{ livePreview }}
-    </p>
-    <label class="mnp__label">Transcript</label>
-    <textarea
-      v-model="transcript"
-      class="mnp__textarea"
-      rows="8"
-      :disabled="loading || saving || importing"
-      placeholder="Live speech appears here as the meeting runs…"
-      @input="dirty = true"
-    />
-    <div class="mnp__actions">
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || saving || importing" @click="importChat">
-        {{ importing ? 'Importing…' : 'Import chat' }}
+      <button type="button" class="mnp__collapse" @click="expanded = !expanded">
+        <h4>Meeting transcript</h4>
+        <span class="mnp__chevron">{{ expanded ? '▾' : '▸' }}</span>
       </button>
-      <button type="button" class="btn btn-primary btn-sm" :disabled="loading || saving || !transcript.trim()" @click="save">
-        {{ saving ? 'Saving…' : 'Save & summarize' }}
+      <button type="button" class="btn btn-ghost btn-sm" :disabled="loading" @click="load({ force: true })">Refresh</button>
+    </div>
+
+    <p v-if="stopLabel" class="mnp__stop">{{ stopLabel }}</p>
+    <p v-else-if="paused || roomPaused" class="mnp__paused">Transcript paused</p>
+
+    <div v-if="canControlTranscript" class="mnp__controls">
+      <button
+        v-if="!roomStopped && !stopLabel"
+        type="button"
+        class="btn btn-secondary btn-sm"
+        :disabled="controlling"
+        @click="onPauseResume"
+      >
+        {{ (paused || roomPaused) ? 'Resume' : 'Pause' }}
+      </button>
+      <button
+        v-if="canStopTranscript && !roomStopped && !stopLabel"
+        type="button"
+        class="btn btn-danger btn-sm"
+        :disabled="controlling"
+        @click="onStop"
+      >
+        Stop transcription
       </button>
     </div>
-    <label class="mnp__label">Summary</label>
-    <div class="mnp__summary" v-html="summaryHtml"></div>
-    <p v-if="!summary && !loading && !transcript.trim()" class="muted">No transcript yet — join the video room to start capturing speech, or paste notes.</p>
-    <p v-else-if="!summary && !loading && transcript.trim()" class="muted">No summary yet. Click Save &amp; summarize when the meeting is done.</p>
+
+    <template v-if="expanded">
+      <p v-if="error" class="error">{{ error }}</p>
+      <p class="muted mnp__hint">
+        <template v-if="liveCapturing || liveHint">
+          {{ liveHint || 'Capturing live speech from participants’ mics…' }}
+        </template>
+        <template v-else>
+          Live speech is captured automatically while people are in the video room (Chrome/Safari). Newest lines appear first.
+        </template>
+      </p>
+      <p v-if="livePreview" class="mnp__live">
+        <span class="mnp__live-label">Caption</span>
+        {{ livePreview }}
+      </p>
+      <label class="mnp__label">Transcript (newest first)</label>
+      <textarea
+        v-model="transcriptDisplay"
+        class="mnp__textarea"
+        rows="8"
+        :disabled="loading || saving || importing"
+        placeholder="Live speech appears here as the meeting runs…"
+        @input="onDisplayInput"
+      />
+      <div class="mnp__actions">
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || saving || importing" @click="importChat">
+          {{ importing ? 'Importing…' : 'Import chat' }}
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" :disabled="loading || saving || !transcript.trim()" @click="save">
+          {{ saving ? 'Saving…' : 'Save & summarize' }}
+        </button>
+      </div>
+      <label class="mnp__label">Summary</label>
+      <div class="mnp__summary" v-html="summaryHtml"></div>
+      <p v-if="!summary && !loading && !transcript.trim()" class="muted">No transcript yet — join the video room to start capturing speech, or paste notes.</p>
+      <p v-else-if="!summary && !loading && transcript.trim()" class="muted">No summary yet. It is generated when the meeting is completed, or click Save &amp; summarize.</p>
+    </template>
   </div>
 </template>
 
@@ -46,21 +76,41 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  eventId: { type: [Number, String], required: true },
+  eventId: { type: [Number, String], default: null },
+  sessionId: { type: [Number, String], default: null },
   liveCapturing: { type: Boolean, default: false },
   liveHint: { type: String, default: '' },
   livePreview: { type: String, default: '' },
-  autoRefresh: { type: Boolean, default: false }
+  autoRefresh: { type: Boolean, default: false },
+  canControlTranscript: { type: Boolean, default: false },
+  canStopTranscript: { type: Boolean, default: false },
+  paused: { type: Boolean, default: false },
+  roomStopped: { type: Boolean, default: false },
+  stopMeta: { type: Object, default: null }
 });
+
+const emit = defineEmits(['pause', 'resume', 'stop', 'control']);
 
 const loading = ref(false);
 const saving = ref(false);
 const importing = ref(false);
+const controlling = ref(false);
 const error = ref('');
 const transcript = ref('');
 const summary = ref('');
 const dirty = ref(false);
+const expanded = ref(false);
+const roomPaused = ref(false);
+const localStopMeta = ref(null);
 let refreshTimer = null;
+
+const stopLabel = computed(() => {
+  const meta = props.stopMeta || localStopMeta.value;
+  if (!meta?.stoppedByName && !meta?.stoppedAt && !props.roomStopped) return '';
+  const who = meta?.stoppedByName || 'Host';
+  const when = meta?.stoppedAt ? new Date(meta.stoppedAt).toLocaleString() : '';
+  return when ? `Transcription stopped by ${who} at ${when}` : `Transcription stopped by ${who}`;
+});
 
 const summaryHtml = computed(() => {
   const s = String(summary.value || '').trim();
@@ -72,20 +122,64 @@ const summaryHtml = computed(() => {
     .replace(/\n/g, '<br>');
 });
 
-async function load({ force = false } = {}) {
+function reverseLines(text) {
+  const lines = String(text || '').split('\n');
+  return lines.reverse().join('\n');
+}
+
+const transcriptDisplay = computed({
+  get() {
+    return reverseLines(transcript.value);
+  },
+  set(v) {
+    transcript.value = reverseLines(v);
+    dirty.value = true;
+  }
+});
+
+function onDisplayInput() {
+  dirty.value = true;
+}
+
+function notesPath() {
   const eid = Number(props.eventId || 0);
-  if (!eid) return;
+  const sid = Number(props.sessionId || 0);
+  if (eid) return `/team-meetings/${eid}/notes`;
+  if (sid) return `/supervision/sessions/${sid}/artifacts`;
+  return null;
+}
+
+function controlPath() {
+  const eid = Number(props.eventId || 0);
+  const sid = Number(props.sessionId || 0);
+  if (eid) return `/team-meetings/${eid}/transcript-control`;
+  if (sid) return `/supervision/sessions/${sid}/transcript-control`;
+  return null;
+}
+
+async function load({ force = false } = {}) {
+  const path = notesPath();
+  if (!path) return;
   if (!force && dirty.value) return;
   loading.value = true;
   error.value = '';
   try {
-    const { data } = await api.get(`/team-meetings/${eid}/notes`, { skipGlobalLoading: true });
-    const next = String(data?.transcript || '');
+    const { data } = await api.get(path, { skipGlobalLoading: true });
+    const next = String(data?.transcript || data?.artifact?.transcript_text || data?.transcript_text || '');
     if (!dirty.value || force) {
       transcript.value = next;
       dirty.value = false;
     }
-    summary.value = String(data?.summary || '');
+    summary.value = String(data?.summary || data?.artifact?.summary_text || data?.summary_text || '');
+    const stoppedAt = data?.transcriptStoppedAt || data?.artifact?.transcript_stopped_at;
+    const stoppedBy = data?.transcriptStoppedByName || data?.artifact?.transcript_stopped_by_name;
+    if (stoppedAt || stoppedBy) {
+      localStopMeta.value = {
+        stoppedAt,
+        stoppedByName: stoppedBy
+      };
+    }
+    roomPaused.value = !!(data?.transcriptPaused ?? data?.artifact?.transcript_paused);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load notes';
   } finally {
@@ -99,29 +193,9 @@ async function importChat() {
   importing.value = true;
   error.value = '';
   try {
-    const { data } = await api.get(`/team-meetings/${eid}/activity`, {
-      params: { limit: 500 },
-      skipGlobalLoading: true
-    });
-    const list = Array.isArray(data?.activity) ? data.activity : [];
-    const lines = list
-      .filter((a) => String(a?.activityType || '').toLowerCase() === 'chat')
-      .map((a) => {
-        const name = a?.payload?.authorName
-          || String(a?.participantIdentity || '').replace(/^user-/, 'User ');
-        const text = String(a?.payload?.text || '').trim();
-        return text ? `${name}: ${text}` : '';
-      })
-      .filter(Boolean);
-    if (!lines.length) {
-      error.value = 'No chat messages to import yet.';
-      return;
-    }
-    const block = lines.join('\n');
-    transcript.value = transcript.value.trim()
-      ? `${transcript.value.trim()}\n\n${block}`
-      : block;
-    dirty.value = true;
+    await api.post(`/team-meetings/${eid}/notes/import-chat`, {}, { skipGlobalLoading: true });
+    dirty.value = false;
+    await load({ force: true });
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to import chat';
   } finally {
@@ -131,101 +205,155 @@ async function importChat() {
 
 async function save() {
   const eid = Number(props.eventId || 0);
-  const text = String(transcript.value || '').trim();
-  if (!eid || !text) return;
+  if (!eid) return;
   saving.value = true;
   error.value = '';
   try {
-    await api.post(
-      `/team-meetings/${eid}/client-transcript`,
-      { transcript: text, replace: true },
-      { skipGlobalLoading: true }
-    );
+    await api.post(`/team-meetings/${eid}/notes`, {
+      transcript: transcript.value
+    }, { skipGlobalLoading: true });
     dirty.value = false;
-    setTimeout(() => { load({ force: true }); }, 1200);
+    await load({ force: true });
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save transcript';
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save';
   } finally {
     saving.value = false;
   }
 }
 
-function startAutoRefresh() {
-  stopAutoRefresh();
-  if (!props.autoRefresh) return;
-  refreshTimer = setInterval(() => {
-    if (!dirty.value) void load();
-  }, 12000);
-}
-
-function stopAutoRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
+async function postControl(action) {
+  const path = controlPath();
+  if (!path) {
+    emit(action === 'pause' ? 'pause' : action === 'resume' ? 'resume' : 'stop');
+    return;
+  }
+  controlling.value = true;
+  try {
+    const { data } = await api.post(path, { action }, { skipGlobalLoading: true });
+    if (action === 'stop') {
+      localStopMeta.value = {
+        stoppedAt: data?.stoppedAt || new Date().toISOString(),
+        stoppedByName: data?.stoppedByName || 'Host'
+      };
+    }
+    if (action === 'pause') roomPaused.value = true;
+    if (action === 'resume') roomPaused.value = false;
+    emit('control', { action, ...(data || {}) });
+    emit(action === 'pause' ? 'pause' : action === 'resume' ? 'resume' : 'stop', data);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Transcript control failed';
+  } finally {
+    controlling.value = false;
   }
 }
 
-watch(() => props.eventId, () => {
-  dirty.value = false;
-  load({ force: true });
-});
-watch(() => props.autoRefresh, () => startAutoRefresh(), { immediate: true });
-onMounted(() => load({ force: true }));
-onUnmounted(stopAutoRefresh);
+function onPauseResume() {
+  void postControl((props.paused || roomPaused.value) ? 'resume' : 'pause');
+}
 
-defineExpose({ load });
+function onStop() {
+  void postControl('stop');
+}
+
+watch(() => [props.eventId, props.sessionId], () => {
+  dirty.value = false;
+  void load({ force: true });
+});
+
+onMounted(() => {
+  void load({ force: true });
+  if (props.autoRefresh) {
+    refreshTimer = setInterval(() => { void load(); }, 15000);
+  }
+});
+
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer);
+});
 </script>
 
 <style scoped>
-.mnp { display: flex; flex-direction: column; gap: 8px; }
-.mnp__head { display: flex; justify-content: space-between; align-items: center; }
-.mnp__head h4 { margin: 0; font-size: 0.95rem; }
-.mnp__hint { margin: 0; font-size: 0.8rem; line-height: 1.35; }
-.mnp__live {
-  margin: 0;
-  font-size: 0.82rem;
-  line-height: 1.4;
-  color: #0f172a;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  border-radius: 8px;
-  padding: 8px 10px;
+.mnp {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
 }
-.mnp__live-label {
-  display: inline-block;
-  margin-right: 6px;
-  font-size: 0.68rem;
+.mnp__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mnp__collapse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+}
+.mnp__collapse h4 {
+  margin: 0;
+  font-size: 0.85rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #047857;
+}
+.mnp__chevron { color: #64748b; font-size: 0.85rem; }
+.mnp__hint, .mnp__live { margin: 0; font-size: 0.8rem; }
+.mnp__live {
+  background: #f0f9ff;
+  border-radius: 8px;
+  padding: 8px;
+  color: #0c4a6e;
+}
+.mnp__live-label {
+  font-weight: 800;
+  margin-right: 6px;
+  text-transform: uppercase;
+  font-size: 0.7rem;
 }
 .mnp__label {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: #64748b;
 }
 .mnp__textarea {
   width: 100%;
+  box-sizing: border-box;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 8px;
   font: inherit;
+  min-height: 140px;
   resize: vertical;
-  min-height: 120px;
 }
-.mnp__actions { display: flex; gap: 8px; }
+.mnp__actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .mnp__summary {
-  font-size: 0.9rem;
-  line-height: 1.45;
-  color: #334155;
-  background: #f8fafc;
-  border-radius: 8px;
-  padding: 10px;
   min-height: 48px;
+  font-size: 0.88rem;
+  color: #334155;
+  line-height: 1.45;
 }
-.error { color: #b91c1c; margin: 0; font-size: 0.85rem; }
-.muted { color: #64748b; margin: 0; font-size: 0.85rem; }
+.mnp__controls { display: flex; gap: 8px; flex-wrap: wrap; }
+.mnp__stop {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #b91c1c;
+}
+.mnp__paused {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #b45309;
+}
+.muted { color: #64748b; font-size: 0.8rem; }
+.error { color: #b91c1c; font-size: 0.8rem; margin: 0; }
 </style>

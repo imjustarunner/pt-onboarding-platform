@@ -16,7 +16,9 @@ import {
   getTeamMeetingAttendance,
   getTeamMeetingTimeClaims,
   patchTeamMeetingTimeClaim,
-  getTeamMeetingNotes
+  getTeamMeetingNotes,
+  postTeamMeetingTranscriptControl,
+  listAdminMeetingsLog
 } from '../controllers/teamMeetings.controller.js';
 import { getTeamMeetingActivity, postTeamMeetingActivity } from '../controllers/videoMeetingActivity.controller.js';
 
@@ -29,12 +31,16 @@ router.post('/:eventId/join-presence', authenticateOptional, postTeamMeetingJoin
 
 router.use(authenticate);
 
+// Static paths before /:eventId
+router.get('/admin-log', listAdminMeetingsLog);
+
 router.get('/:eventId/video-token', getTeamMeetingVideoToken);
 router.get('/:eventId/lobby-participants', getTeamMeetingLobbyParticipants);
 router.get('/:eventId/admission-status', getTeamMeetingAdmissionStatus);
 router.post('/:eventId/admit/:userId', admitTeamMeetingParticipant);
 router.post('/:eventId/recording-rules', setTeamMeetingRecordingRules);
 router.post('/:eventId/client-transcript', saveTeamMeetingClientTranscript);
+router.post('/:eventId/transcript-control', postTeamMeetingTranscriptControl);
 router.get('/:eventId/activity', getTeamMeetingActivity);
 router.post('/:eventId/activity', postTeamMeetingActivity);
 router.get('/:eventId/workspace', getTeamMeetingWorkspace);

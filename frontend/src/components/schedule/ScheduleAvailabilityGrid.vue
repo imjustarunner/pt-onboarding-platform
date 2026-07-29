@@ -1940,6 +1940,8 @@
               :loading="supvArtifactLoading"
               :error="supvArtifactError"
               :disabled="submitting || scheduleEventSaving"
+              :attendance-seconds="supvAttendanceSeconds"
+              :scheduled-duration-label="modalDurationLabel"
               @join="startTrackedSupvMeet"
               @open-agenda="showAgendaPanel = true"
             />
@@ -19517,6 +19519,7 @@ const supvArtifactSaving = ref(false);
 const supvArtifactError = ref('');
 const supvTranscriptText = ref('');
 const supvSummaryText = ref('');
+const supvAttendanceSeconds = ref(null);
 const supvSuperviseeHoursLoading = ref(false);
 const supvSuperviseeHoursError = ref('');
 const supvSuperviseeHours = ref({
@@ -20008,16 +20011,30 @@ const loadSupvArtifact = async (sessionId) => {
   if (!sid) {
     supvTranscriptText.value = '';
     supvSummaryText.value = '';
+    supvAttendanceSeconds.value = null;
     supvArtifactError.value = '';
     return;
   }
   try {
     supvArtifactLoading.value = true;
     supvArtifactError.value = '';
-    const resp = await api.get(`/supervision/sessions/${sid}/artifacts`);
+    const [resp, sessionResp] = await Promise.all([
+      api.get(`/supervision/sessions/${sid}/artifacts`),
+      api.get(`/supervision/sessions/${sid}`, { skipGlobalLoading: true }).catch(() => ({ data: null }))
+    ]);
     const artifact = resp?.data?.artifact || null;
     supvTranscriptText.value = String(artifact?.transcript_text || '');
     supvSummaryText.value = String(artifact?.summary_text || '');
+    const session = sessionResp?.data?.session || sessionResp?.data || {};
+    const fromSession = Number(
+      session.totalSeconds
+      || session.total_seconds
+      || session.attendanceTotalSeconds
+      || session.attendance_total_seconds
+      || 0
+    );
+    const fromSelected = Number(selectedSupvSession.value?.totalSeconds || selectedSupvSession.value?.total_seconds || 0);
+    supvAttendanceSeconds.value = fromSession || fromSelected || null;
   } catch (e) {
     supvArtifactError.value = e.response?.data?.error?.message || e.message || 'Failed to load transcript/summary';
   } finally {

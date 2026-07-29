@@ -11,6 +11,7 @@ import {
   admitToMainRoom,
   getAdmissionStatus,
   saveClientTranscript,
+  postSupervisionTranscriptControl,
   getSupervisionSessionArtifacts,
   upsertSupervisionSessionArtifacts,
   getSupervisionSessionPersonalNote,
@@ -107,6 +108,7 @@ router.get('/sessions/:id/lobby-participants', getLobbyParticipants);
 router.get('/sessions/:id/admission-status', getAdmissionStatus);
 router.post('/sessions/:id/admit/:userId', admitToMainRoom);
 router.post('/sessions/:id/client-transcript', saveClientTranscript);
+router.post('/sessions/:id/transcript-control', postSupervisionTranscriptControl);
 router.get('/sessions/:id/artifacts', getSupervisionSessionArtifacts);
 router.post('/sessions/:id/artifacts', upsertSupervisionSessionArtifacts);
 router.get('/sessions/:id/personal-note', getSupervisionSessionPersonalNote);

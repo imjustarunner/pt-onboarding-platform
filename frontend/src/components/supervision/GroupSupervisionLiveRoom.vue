@@ -73,6 +73,9 @@
           :session-title="''"
           :session-id="supervisionSessionId"
           :is-host="isSupervisor"
+          :is-host-or-cohost="isSupervisor"
+          mute-others-mode="host"
+          show-layout-controls
           :diagnostics="diagnostics"
           :local-display-name="localDisplayName"
           :local-role-label="localRoleLabel"
@@ -154,7 +157,6 @@
           />
         </section>
         <section class="gsl__workspace-section gsl__workspace-section--activity">
-          <h3 class="gsl__workspace-title">Chat, Polls &amp; Q&amp;A</h3>
           <MeetingLiveActivityPanel
             :session-id="numericSessionId || supervisionSessionId"
             :join-token="joinToken"
@@ -164,7 +166,7 @@
             :can-create-polls="canFacilitate"
             :can-answer-questions="canFacilitate"
             :start-open="true"
-            :hide-chrome="true"
+            :below-video="true"
           />
         </section>
         <section class="gsl__workspace-section gsl__workspace-section--transcript">

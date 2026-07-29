@@ -1643,6 +1643,16 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/admin-meetings',
+    name: 'OrganizationAdminMeetingsLog',
+    component: () => import('../views/admin/AdminMeetingsLogView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'assistant_admin', 'clinical_practice_assistant'],
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/facilitator-availability',
     name: 'OrganizationFacilitatorAvailability',
     component: () => import('../views/admin/FacilitatorAvailabilityView.vue'),
