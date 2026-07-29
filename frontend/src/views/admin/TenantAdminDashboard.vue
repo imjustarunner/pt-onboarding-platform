@@ -786,6 +786,7 @@ const contextPaths = computed(() => ({
 // Live metrics
 const supportTicketsNew = ref(0);
 const supportTicketsActive = ref(0);
+const supportTicketsAssignedToMe = ref(0);
 const escalationNew = ref(0);
 const escalationTotal = ref(0);
 const escalationAssignedToMe = ref(0);
@@ -891,9 +892,10 @@ const glanceCards = computed(() => {
       label: 'Support Tickets',
       metrics: [
         { label: 'New', value: supportTicketsNew.value, tone: 'danger' },
-        { label: 'Need attention', value: supportTicketsActive.value, tone: 'warn' }
+        { label: 'Need attention', value: supportTicketsActive.value, tone: 'warn' },
+        { label: 'Assigned to me', value: supportTicketsAssignedToMe.value, tone: 'accent' }
       ],
-      hint: 'New unclaimed tickets and active support workload',
+      hint: 'Queue workload and tickets assigned to you',
       cta: 'View queue',
       tone: 'danger',
       to: `${ticketsPath.value}?status=open`
@@ -1665,6 +1667,7 @@ const applyGlanceFromPayloads = ({ center, personal, openCountRes, metrics, spec
     ?? (unclaimed + inProgress)
     ?? unclaimed
   );
+  supportTicketsAssignedToMe.value = Number(metrics?.mine ?? 0);
   const escCounts = escalationSummary?.counts || {};
   escalationNew.value = Number(escCounts.submitted ?? 0);
   escalationTotal.value = Number(escCounts.total ?? escCounts.open ?? 0);

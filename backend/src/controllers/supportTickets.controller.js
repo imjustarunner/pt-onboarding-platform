@@ -1282,22 +1282,30 @@ export const getSupportTicketsMetrics = async (req, res, next) => {
     await applyTopicAudienceVisibility({ req, where, params });
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const uid = Number(req.user?.id || 0);
     const [rows] = await pool.execute(
       `SELECT
          SUM(CASE WHEN LOWER(t.status) = 'open' AND t.claimed_by_user_id IS NULL THEN 1 ELSE 0 END) AS open_cnt,
          SUM(CASE WHEN LOWER(t.status) = 'open' AND t.claimed_by_user_id IS NOT NULL THEN 1 ELSE 0 END) AS in_progress_cnt,
          SUM(CASE WHEN LOWER(t.status) = 'answered' THEN 1 ELSE 0 END) AS waiting_cnt,
-         SUM(CASE WHEN LOWER(t.status) = 'closed' AND DATE(t.updated_at) = CURDATE() THEN 1 ELSE 0 END) AS closed_today_cnt
+         SUM(CASE WHEN LOWER(t.status) = 'closed' AND DATE(t.updated_at) = CURDATE() THEN 1 ELSE 0 END) AS closed_today_cnt,
+         SUM(
+           CASE
+             WHEN t.claimed_by_user_id = ? AND LOWER(COALESCE(t.status, '')) <> 'closed'
+             THEN 1 ELSE 0
+           END
+         ) AS mine_cnt
        FROM support_tickets t
        ${whereSql}`,
-      params
+      [uid, ...params]
     );
     const r = rows?.[0] || {};
     res.json({
       open: Number(r.open_cnt || 0),
       in_progress: Number(r.in_progress_cnt || 0),
       waiting: Number(r.waiting_cnt || 0),
-      closed_today: Number(r.closed_today_cnt || 0)
+      closed_today: Number(r.closed_today_cnt || 0),
+      mine: Number(r.mine_cnt || 0)
     });
   } catch (e) {
     next(e);
