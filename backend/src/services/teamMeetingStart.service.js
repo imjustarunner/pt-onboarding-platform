@@ -1,6 +1,7 @@
 import User from '../models/User.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ProviderScheduleEventAttendee from '../models/ProviderScheduleEventAttendee.model.js';
+import { toMysqlUtcDateTime } from '../utils/officeEventDateTime.util.js';
 import { sendMeetingInviteEmail } from './meetingCancellation.service.js';
 
 const MEETING_ROLES = new Set([
@@ -13,11 +14,6 @@ const MEETING_ROLES = new Set([
   'supervisor',
   'clinical_practice_assistant'
 ]);
-
-function toMysqlLocal(d) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
 
 export function canStartTeamMeeting(role) {
   return MEETING_ROLES.has(String(role || '').toLowerCase());
@@ -104,8 +100,8 @@ export async function startAdhocTeamMeeting({
     description: description || `Ad-hoc ${kindUpper === 'HUDDLE' ? 'huddle' : 'meeting'} from Messages.`,
     isPrivate: false,
     allDay: false,
-    startAt: toMysqlLocal(startAt),
-    endAt: toMysqlLocal(endAt),
+    startAt: toMysqlUtcDateTime(startAt),
+    endAt: toMysqlUtcDateTime(endAt),
     platformVideoLink: true,
     createdByUserId: actorId
   });
@@ -147,8 +143,8 @@ export async function startAdhocTeamMeeting({
     eventId: created.id,
     title: meetingTitle,
     kind: kindUpper,
-    startAt: toMysqlLocal(startAt),
-    endAt: toMysqlLocal(endAt),
+    startAt: toMysqlUtcDateTime(startAt),
+    endAt: toMysqlUtcDateTime(endAt),
     durationMinutes: mins,
     withUser: {
       id: otherId,

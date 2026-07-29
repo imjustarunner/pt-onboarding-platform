@@ -3576,7 +3576,17 @@ function utcMysqlToWallInTimeZone(value, timeZone) {
 /** Return ISO string with Z for schedule events so frontend parses as UTC and displays correctly in viewer's timezone. */
 function toIsoUtcForSchedule(value) {
   if (value === null || value === undefined) return null;
-  const d = value instanceof Date ? value : new Date(String(value || '').trim());
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  // Google-synced rows store UTC in MySQL DATETIME without a suffix — must not parse as server local.
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(raw) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
+    const d = new Date(raw.replace(' ', 'T') + 'Z');
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
 }
@@ -3588,14 +3598,22 @@ function toScheduleWallIso(value) {
   return wall.replace(' ', 'T');
 }
 
+const SCHEDULE_MEETING_KINDS = new Set(['TEAM_MEETING', 'HUDDLE']);
+
+/** Rows that store UTC instants in MySQL (meetings always; others when Google-linked). */
+function scheduleEventStoresUtc(row) {
+  const kind = String(row?.kind || '').trim().toUpperCase();
+  if (SCHEDULE_MEETING_KINDS.has(kind)) return true;
+  return !!String(row?.google_event_id || '').trim();
+}
+
 function scheduleEventStartEndForSummary(row) {
   const isAllDay = Number(row?.all_day || 0) === 1;
   if (isAllDay) return { startAt: null, endAt: null };
   const kind = String(row?.kind || '').trim().toUpperCase();
   const isFallCheckin = kind === 'FALL_CHECKIN_PRESLOT' || kind === 'FALL_CHECKIN_BOOKED';
-  const hasGoogleSync = !!String(row?.google_event_id || '').trim();
   // Fall check-in times are wall-clock in MySQL, not UTC instants — never apply Z conversion.
-  if (hasGoogleSync && !isFallCheckin) {
+  if (scheduleEventStoresUtc(row) && !isFallCheckin) {
     return {
       startAt: toIsoUtcForSchedule(row.start_at) || toScheduleWallIso(row.start_at) || row.start_at || null,
       endAt: toIsoUtcForSchedule(row.end_at) || toScheduleWallIso(row.end_at) || row.end_at || null
@@ -5641,17 +5659,17 @@ export const createUserScheduleEvent = async (req, res, next) => {
       });
     }
 
-    // Google-synced rows are stored as UTC instants. Convert from the wall clock the user
-    // picked in `timeZone` (do not re-project Google's dateTime through a second TZ shift).
-    // Local-only rows keep wall digits so summary APIs can return them without a Z suffix.
+    // Meetings and Google-synced rows store UTC instants. Convert from the wall clock the
+    // user picked in `timeZone` (do not re-project Google's dateTime through a second TZ shift).
+    const storesUtc = !allDay && (SCHEDULE_MEETING_KINDS.has(kind) || googleOk);
     const storedStartAt = allDay
       ? null
-      : (googleOk
+      : (storesUtc
         ? (wallInTimeZoneToMysqlUtc(startAt, timeZone) || (result?.startAt ? toMysqlUtc(result.startAt) : startAt))
         : startAt);
     const storedEndAt = allDay
       ? null
-      : (googleOk
+      : (storesUtc
         ? (wallInTimeZoneToMysqlUtc(endAt, timeZone) || (result?.endAt ? toMysqlUtc(result.endAt) : endAt))
         : endAt);
 
@@ -5948,10 +5966,9 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const rawEnd = req.body?.endAt != null ? req.body.endAt : target.end_at;
       googleStartWall = toMysqlDateTimeWall(rawStart);
       googleEndWall = toMysqlDateTimeWall(rawEnd);
-      const hasGoogleSync = !!String(target.google_event_id || '').trim();
-      // Google-linked rows are read as UTC. Store UTC so edit→refresh keeps MT wall time.
-      // Local-only events keep wall storage (no Z on read).
-      if (hasGoogleSync) {
+      const storesUtc = SCHEDULE_MEETING_KINDS.has(kind) || !!String(target.google_event_id || '').trim();
+      // Meetings and Google-linked rows store UTC so edit→refresh keeps the viewer's wall time.
+      if (storesUtc) {
         startAt = wallInTimeZoneToMysqlUtc(googleStartWall, updateTimeZone);
         endAt = wallInTimeZoneToMysqlUtc(googleEndWall, updateTimeZone);
       } else {
@@ -6317,8 +6334,8 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         clientId: Number(updated?.client_id || 0) || null,
         isPrivate: Number(updated?.is_private || 0) === 1,
         allDay: Number(updated?.all_day || 0) === 1,
-        startAt: updated?.start_at || null,
-        endAt: updated?.end_at || null,
+        startAt: allDay ? null : (scheduleEventStartEndForSummary(updated).startAt),
+        endAt: allDay ? null : (scheduleEventStartEndForSummary(updated).endAt),
         startDate: updated?.start_date ? String(updated.start_date).slice(0, 10) : null,
         endDate: updated?.end_date ? String(updated.end_date).slice(0, 10) : null,
         attendeeUserIds: Array.isArray(resolvedAttendeeUserIds) ? resolvedAttendeeUserIds : undefined,

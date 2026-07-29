@@ -4922,7 +4922,7 @@ import { createCounselingSession, openCounselingFromAppointment } from '../../se
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
 import api from '../../services/api';
 import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
-import { timezoneLabelFor } from '../../utils/timezones.js';
+import { timezoneLabelFor, isoToZonedDatetimeLocal } from '../../utils/timezones.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
@@ -12194,7 +12194,7 @@ const editorInfoWhenLabel = computed(() => {
   const d = formatEditorDisplayDate(editorDateYmd.value);
   const s = formatEditorDisplayTime(editorStartTime.value);
   const e = formatEditorDisplayTime(editorEndTime.value);
-  const tz = String(bookingTimezoneLabel.value || '').trim();
+  const tz = String(editorDisplayTimezoneLabel.value || '').trim();
   const range = [s, e].filter(Boolean).join(' – ');
   const bits = [];
   if (d) bits.push(d);
@@ -12206,9 +12206,15 @@ const editorInfoWhenDateLabel = computed(() => formatEditorDisplayDate(editorDat
 const editorInfoWhenTimeLabel = computed(() => {
   const s = formatEditorDisplayTime(editorStartTime.value);
   const e = formatEditorDisplayTime(editorEndTime.value);
-  const tz = String(bookingTimezoneLabel.value || '').trim();
+  const tz = String(editorDisplayTimezoneLabel.value || '').trim();
   const range = [s, e].filter(Boolean).join(' – ');
   return range ? (tz ? `${range} · ${tz}` : range) : (tz || '—');
+});
+const editorDisplayTimezoneLabel = computed(() => {
+  if (editorIsMeeting.value || (isScheduleEventEditMode.value && isMeetingStackItem(editingScheduleStackItem.value))) {
+    return timezoneLabelFor(scheduleMeetingTimeZone());
+  }
+  return bookingTimezoneLabel.value;
 });
 const editorInfoTypeLabel = computed(() => {
   if (editorIsClinical.value) {
@@ -15204,10 +15210,10 @@ const patchScheduleEventInSummary = ({
     if (!s) return '';
     return s.includes('T') ? s.slice(0, 19) : s.replace(' ', 'T').slice(0, 19);
   };
-  const toSummaryInstant = (raw, hasGoogle) => {
+  const toSummaryInstant = (raw, storesUtcInstant) => {
     const s = String(raw || '').trim();
     if (!s) return null;
-    if (hasGoogle) {
+    if (storesUtcInstant) {
       if (/[zZ]$/.test(s) || /[+-]\d{2}:?\d{2}$/.test(s)) return s;
       const mysql = s.includes('T') ? s.replace('T', ' ').slice(0, 19) : s.slice(0, 19);
       const d = new Date(`${mysql.replace(' ', 'T')}Z`);
@@ -15219,9 +15225,12 @@ const patchScheduleEventInSummary = ({
   const idx = list.findIndex((row) => Number(row?.id || 0) === eid);
   if (idx < 0) return;
   const prev = list[idx];
-  const hasGoogle = !!String(prev?.googleEventId || '').trim();
-  const nextStart = toSummaryInstant(startAt, hasGoogle);
-  const nextEnd = toSummaryInstant(endAt, hasGoogle);
+  const prevKind = String(prev?.kind || '').toUpperCase();
+  const storesUtcInstant = !!String(prev?.googleEventId || '').trim()
+    || prevKind === 'TEAM_MEETING'
+    || prevKind === 'HUDDLE';
+  const nextStart = toSummaryInstant(startAt, storesUtcInstant);
+  const nextEnd = toSummaryInstant(endAt, storesUtcInstant);
   if (!nextStart || !nextEnd) return;
   list[idx] = {
     ...prev,
@@ -18290,7 +18299,7 @@ const submitRequest = async () => {
         : (eventKind === 'PERSONAL_EVENT' ? effectivePersonalEventTypeCode() : null);
       const isPrivate = !!scheduleEventPrivate.value;
       const meetingTimeZone = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
-        ? (bookingTimezoneIana.value || browserIanaTimeZone() || 'America/Denver')
+        ? scheduleMeetingTimeZone()
         : null;
       const isMeetingAction = normalizedAction === 'agency_meeting' || normalizedAction === 'huddle';
       const recurrence = isMeetingAction
@@ -19909,11 +19918,18 @@ const parseMaybeDate = (raw) => {
   const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
   return Number.isNaN(d.getTime()) ? null : d;
 };
+/** IANA zone for meeting wall-clock (My Schedule = browser; admin views = office TZ). */
+const scheduleMeetingTimeZone = () => {
+  if (props.mode === 'self') {
+    return String(browserIanaTimeZone() || bookingTimezoneIana.value || 'America/Denver').trim();
+  }
+  return String(bookingTimezoneIana.value || browserIanaTimeZone() || 'America/Denver').trim();
+};
+
 const toDatetimeLocalValue = (raw) => {
   if (raw instanceof Date) {
     if (Number.isNaN(raw.getTime())) return '';
-    const p2 = (n) => String(n).padStart(2, '0');
-    return `${raw.getFullYear()}-${p2(raw.getMonth() + 1)}-${p2(raw.getDate())}T${p2(raw.getHours())}:${p2(raw.getMinutes())}`;
+    return isoToZonedDatetimeLocal(raw.toISOString(), scheduleMeetingTimeZone());
   }
   const s = String(raw || '').trim();
   if (!s) return '';
@@ -19922,6 +19938,8 @@ const toDatetimeLocalValue = (raw) => {
   if (wall && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) {
     return `${wall[1]}T${wall[2]}:${wall[3]}`;
   }
+  const zoned = isoToZonedDatetimeLocal(s, scheduleMeetingTimeZone());
+  if (zoned) return zoned;
   const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
   if (Number.isNaN(d.getTime())) return '';
   const p2 = (n) => String(n).padStart(2, '0');
@@ -21233,7 +21251,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
       endAt: endAt.length === 16 ? `${endAt}:00` : endAt,
       // Required so Google-synced meetings store UTC correctly (avoids 7:30 → 1:30 drift).
-      timeZone: bookingTimezoneIana.value || browserIanaTimeZone() || 'America/Denver',
+      timeZone: scheduleMeetingTimeZone(),
       agencyId: saveAgencyId,
       isPrivate: !!scheduleEventEditForm.value.isPrivate,
       allDay: false,
@@ -21835,8 +21853,10 @@ const formatRangeFromRaw = (startAt, endAt) => {
   const st = parseMaybeDate(startAt);
   const en = parseMaybeDate(endAt);
   if (!st || !en) return '';
-  const sLabel = st.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const eLabel = en.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const tz = scheduleMeetingTimeZone();
+  const opts = { hour: 'numeric', minute: '2-digit', timeZone: tz };
+  const sLabel = st.toLocaleTimeString([], opts);
+  const eLabel = en.toLocaleTimeString([], opts);
   return `${sLabel}-${eLabel}`;
 };
 
