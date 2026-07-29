@@ -809,7 +809,7 @@
                     <router-link :to="adminDashboardNavTo" v-if="isTrueAdmin" >Admin Dashboard</router-link>
                     <router-link
                       :to="operationsDashboardTo"
-                      v-if="showOperationsDashboardLink && !showOpsDashboardTopBarLink"
+                      v-if="showOperationsDashboardLink"
                     >Operations Dashboard</router-link>
                     <div class="nav-dropdown-sep" />
                     <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" >Executive Report</router-link>
@@ -1129,7 +1129,7 @@
                 :to="operationsDashboardTo"
                 class="nav-my-dashboard-link"
               >
-                Ops Dashboard
+                Operations Dashboard
               </router-link>
               <button
                 v-if="brandingStore.isSuperAdmin"
@@ -1494,7 +1494,7 @@
               @click="closeMobileMenu"
               class="mobile-nav-link"
             >
-              Ops Dashboard
+              Operations Dashboard
             </router-link>
             <router-link
               v-if="canSeeApplicantsTopNavLink"
@@ -1905,7 +1905,7 @@
                   <router-link :to="adminDashboardNavTo" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Admin Dashboard</router-link>
                   <router-link
                     :to="operationsDashboardTo"
-                    v-if="showOperationsDashboardLink && !showOpsDashboardTopBarLink"
+                    v-if="showOperationsDashboardLink"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
                   >Operations Dashboard</router-link>
@@ -5175,7 +5175,7 @@ const showOperationsDashboardLink = computed(() => {
   return role === 'provider_plus' || role === 'clinical_practice_assistant' || role === 'admin' || role === 'super_admin';
 });
 
-/** Direct Ops Dashboard link in the top bar + hamburger for CPA / Provider+ (admins use Management menu). */
+/** Direct Operations Dashboard link in the top bar for CPA / Provider+ (also in hamburger + Management menu). */
 const showOpsDashboardTopBarLink = computed(() => {
   if (!showOperationsDashboardLink.value) return false;
   const role = String(authStore.user?.role || '').toLowerCase();
