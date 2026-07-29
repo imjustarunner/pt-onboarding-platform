@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
+import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
@@ -569,7 +570,81 @@ export const requireCapability = (required) => {
 
 function isAgencyOperationsLeadRole(role) {
   const r = normalizeAuthRole(role);
-  return r === 'clinical_practice_assistant' || r === 'provider_plus';
+  return (
+    r === 'clinical_practice_assistant' ||
+    r === 'provider_plus' ||
+    r === 'provider+' ||
+    r === 'provider-plus' ||
+    r === 'provider plus'
+  );
+}
+
+function isAgencyBackofficeStaffRole(role) {
+  const r = normalizeAuthRole(role);
+  return r === 'admin' || r === 'support' || r === 'staff';
+}
+
+async function resolveAgencyActorRole(req) {
+  const candidates = [
+    normalizeAuthRole(req.user?.effectiveRole),
+    normalizeAuthRole(req.user?.role),
+  ];
+  for (const r of candidates) {
+    if (!r) continue;
+    if (r === 'super_admin' || isBackofficeAdminRole(r) || isAgencyBackofficeStaffRole(r)) return r;
+    if (isAgencyOperationsLeadRole(r)) {
+      return r === 'clinical_practice_assistant' ? 'clinical_practice_assistant' : 'provider_plus';
+    }
+  }
+
+  const uid = req.user?.id;
+  if (!uid) return normalizeAuthRole(req.user?.role);
+
+  try {
+    const row = await User.findById(uid);
+    const dbRole = normalizeAuthRole(row?.role);
+    if (dbRole) return dbRole;
+  } catch {
+    // ignore
+  }
+  return normalizeAuthRole(req.user?.role);
+}
+
+async function userBelongsToAgency(userId, agencyId) {
+  const aid = parseInt(agencyId, 10);
+  if (!userId || !Number.isFinite(aid) || aid <= 0) return false;
+
+  const userAgencies = await User.getAgencies(userId);
+  const memberIds = new Set(
+    (userAgencies || [])
+      .map((a) => parseInt(a.id, 10))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  );
+  if (memberIds.has(aid)) return true;
+
+  try {
+    const agency = await Agency.findById(aid);
+    if (!agency) return false;
+
+    const parentId = parseInt(agency.parent_id, 10);
+    if (Number.isFinite(parentId) && parentId > 0 && memberIds.has(parentId)) return true;
+
+    const orgType = String(agency.organization_type || '').toLowerCase();
+    if (['school', 'program', 'learning'].includes(orgType)) {
+      const [rows] = await pool.execute(
+        `SELECT agency_id FROM agency_schools
+         WHERE school_organization_id = ? AND is_active = TRUE
+         LIMIT 1`,
+        [aid]
+      );
+      const linkedParent = parseInt(rows?.[0]?.agency_id, 10);
+      if (Number.isFinite(linkedParent) && linkedParent > 0 && memberIds.has(linkedParent)) return true;
+    }
+  } catch (err) {
+    console.warn('[auth] userBelongsToAgency lookup failed:', err?.message || err);
+  }
+
+  return false;
 }
 
 export const requireAgencyAdmin = async (req, res, next) => {
@@ -615,7 +690,8 @@ export const requireAgencyAdmin = async (req, res, next) => {
  */
 export const requireAgencyAdminOrOperationsLead = async (req, res, next) => {
   try {
-    if (req.user.role === 'super_admin') {
+    const jwtRole = normalizeAuthRole(req.user?.role);
+    if (jwtRole === 'super_admin') {
       return next();
     }
 
@@ -631,19 +707,16 @@ export const requireAgencyAdminOrOperationsLead = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'You do not have admin access to this agency' } });
     }
 
-    const role = normalizeAuthRole(req.user.role);
+    const actorRole = await resolveAgencyActorRole(req);
     if (
-      role !== 'admin' &&
-      role !== 'support' &&
-      role !== 'staff' &&
-      !isAgencyOperationsLeadRole(role)
+      !isBackofficeAdminRole(actorRole) &&
+      !isAgencyBackofficeStaffRole(actorRole) &&
+      !isAgencyOperationsLeadRole(actorRole)
     ) {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
 
-    const userAgencies = await User.getAgencies(req.user.id);
-    const hasAccess = userAgencies.some((a) => a.id === aid);
-
+    const hasAccess = await userBelongsToAgency(req.user.id, aid);
     if (!hasAccess) {
       return res.status(403).json({ error: { message: 'You do not have admin access to this agency' } });
     }
