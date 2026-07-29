@@ -286,6 +286,25 @@ class ProviderScheduleEvent {
     return rows || [];
   }
 
+  /** Find active rows by Google Calendar event ids (any window). Used for inbound sync. */
+  static async listByGoogleEventIds({ providerId, googleEventIds = [] }) {
+    const pId = Number(providerId || 0);
+    const ids = Array.from(new Set(
+      (googleEventIds || []).map((v) => String(v || '').trim()).filter(Boolean)
+    ));
+    if (!pId || !ids.length) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM provider_schedule_events
+       WHERE provider_id = ?
+         AND google_event_id IN (${placeholders})
+         AND UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED'`,
+      [pId, ...ids]
+    );
+    return rows || [];
+  }
+
   static async setVideoRoom(eventId, { roomSid, uniqueName }) {
     const eid = parseInt(eventId, 10);
     if (!eid) return null;

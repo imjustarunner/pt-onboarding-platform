@@ -525,7 +525,7 @@ export class GoogleCalendarService {
   /**
    * Append text to a calendar event's description (e.g. app join URL for team meetings).
    */
-  static async appendToEventDescription({ subjectEmail, googleEventId, appendText }) {
+  static async appendToEventDescription({ subjectEmail, googleEventId, appendText, sendUpdates = 'none' }) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const gid = String(googleEventId || '').trim();
     const append = String(appendText || '').trim();
@@ -539,11 +539,14 @@ export class GoogleCalendarService {
       const currentDesc = String(data?.description || '').trim();
       const newDesc = currentDesc ? `${currentDesc}\n\n${append}` : append;
 
+      const sendUpdatesMode = ['all', 'externalOnly', 'none'].includes(String(sendUpdates || ''))
+        ? String(sendUpdates)
+        : 'none';
       await cal.events.patch({
         calendarId: 'primary',
         eventId: gid,
         requestBody: { description: newDesc },
-        sendUpdates: 'all'
+        sendUpdates: sendUpdatesMode
       });
       return { ok: true };
     } catch (e) {

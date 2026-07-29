@@ -4370,6 +4370,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           modality: r.modality,
           locationText: r.location_text,
           notes: r.notes,
+          googleEventId: gid || null,
           googleMeetLink: r.google_meet_link || null,
           joinToken: joinToken || null,
           hostJoinToken: hostJoinToken || null,
@@ -4402,6 +4403,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
     // 4c) Provider schedule events (personal/hold/indirect)
     // includeAllAgencies: return every tenant the provider is booked on (not just membership/current org).
     let scheduleEvents = [];
+    /** Re-read schedule events after inbound Google sync updates DB times. */
+    let rematerializeScheduleEventsAfterGoogleSync = null;
     try {
       try {
         const Checkin = await import('../services/schoolReinitCheckin.service.js');
@@ -4413,45 +4416,44 @@ export const getUserScheduleSummary = async (req, res, next) => {
       } catch (repairErr) {
         console.warn('[schedule-summary] check-in host calendar repair failed', repairErr?.message || repairErr);
       }
-      const rows = await ProviderScheduleEvent.listForUserInWindow({
+      const scheduleListArgs = {
         agencyId: includeAllAgencies ? null : agencyId,
         allAgencies: includeAllAgencies,
         providerId,
         windowStart,
         windowEnd
-      });
+      };
+      const rows = await ProviderScheduleEvent.listForUserInWindow(scheduleListArgs);
       const actorId = Number(req.user?.id || 0);
       const actorRoleForEvents = String(req.user?.role || '').toLowerCase();
       const canSeePrivateTitle = actorId === Number(providerId);
       const canEditScheduleEvents = canSeePrivateTitle
         || canCreateProviderScheduleEvent(actorRoleForEvents)
         || isSupervisorOfTarget;
-      let isVideoConfigured = false;
+      let isVideoConfiguredForSchedule = false;
       try {
         const { isVideoConfigured: videoOk } = await import('../services/video.service.js');
-        isVideoConfigured = videoOk();
+        isVideoConfiguredForSchedule = videoOk();
       } catch {
         // ignore
       }
-      const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
 
-      scheduleEvents = (rows || []).map((r) => {
+      const mapScheduleRows = (sourceRows) => (sourceRows || []).map((r) => {
         const isPrivate = Number(r.is_private || 0) === 1;
         const titleRaw = String(r.title || '').trim();
         const title = isPrivate && !canSeePrivateTitle
           ? 'Busy'
           : (titleRaw || (SCHEDULE_EVENT_KIND_LABELS[String(r.kind || '').toUpperCase()] || 'Schedule Event'));
-        const isAllDay = Number(r.all_day || 0) === 1;
         const { startAt: startAtOut, endAt: endAtOut } = scheduleEventStartEndForSummary(r);
         const kind = String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT';
         const meetingJoinKey = String(r.participant_join_token || r.join_token || r.id || '').trim();
         const meetingHostKey = String(r.host_join_token || '').trim();
-        const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured
+        const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfiguredForSchedule
           && meetingJoinKey
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
           ? `/join/team-meeting/${encodeURIComponent(meetingJoinKey)}`
           : null;
-        const hostJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured
+        const hostJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfiguredForSchedule
           && meetingHostKey
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
           ? `/join/team-meeting/${encodeURIComponent(meetingHostKey)}`
@@ -4509,53 +4511,65 @@ export const getUserScheduleSummary = async (req, res, next) => {
           canEdit: canEditThisEvent && String(r.status || '').trim().toUpperCase() !== 'CANCELLED'
         };
       });
-      try {
-        const { enrichScheduleEventsWithPackageContext } = await import(
-          '../services/practitionerPackage.service.js'
-        );
-        scheduleEvents = await enrichScheduleEventsWithPackageContext(scheduleEvents);
-      } catch {
-        /* package enrichment optional */
-      }
-      try {
-        const meetingEventIds = (scheduleEvents || [])
-          .filter((e) => ['TEAM_MEETING', 'HUDDLE'].includes(String(e?.kind || '').toUpperCase()))
-          .map((e) => Number(e?.id || 0))
-          .filter((n) => n > 0);
-        if (meetingEventIds.length) {
-          const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
-          const byEvent = await ProviderScheduleEventAttendee.listDetailsByEventIds(meetingEventIds);
-          let byEventGroups = new Map();
-          try {
-            const ProviderScheduleEventInviteGroup = (await import('../models/ProviderScheduleEventInviteGroup.model.js')).default;
-            byEventGroups = await ProviderScheduleEventInviteGroup.listGroupIdsByEventIds(meetingEventIds);
-          } catch {
-            /* optional until migration */
-          }
-          scheduleEvents = (scheduleEvents || []).map((e) => {
-            const kind = String(e?.kind || '').toUpperCase();
-            if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) return e;
-            const eid = Number(e?.id || 0);
-            const details = byEvent.get(eid) || [];
-            return {
-              ...e,
-              attendeeUserIds: details.map((d) => Number(d.userId || 0)).filter((n) => n > 0),
-              invitedGroupIds: (byEventGroups.get(eid) || []).map((n) => Number(n)).filter((n) => n > 0),
-              attendees: details.map((d) => ({
-                id: Number(d.userId || 0),
-                firstName: d.firstName || '',
-                lastName: d.lastName || '',
-                email: d.email || '',
-                name: [d.firstName, d.lastName].filter(Boolean).join(' ').trim()
-                  || d.email
-                  || `User #${d.userId}`
-              }))
-            };
-          });
+
+      const attachMeetingParticipants = async (events) => {
+        let next = events || [];
+        try {
+          const { enrichScheduleEventsWithPackageContext } = await import(
+            '../services/practitionerPackage.service.js'
+          );
+          next = await enrichScheduleEventsWithPackageContext(next);
+        } catch {
+          /* package enrichment optional */
         }
-      } catch {
-        /* attendees optional */
-      }
+        try {
+          const meetingEventIds = (next || [])
+            .filter((e) => ['TEAM_MEETING', 'HUDDLE'].includes(String(e?.kind || '').toUpperCase()))
+            .map((e) => Number(e?.id || 0))
+            .filter((n) => n > 0);
+          if (meetingEventIds.length) {
+            const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
+            const byEvent = await ProviderScheduleEventAttendee.listDetailsByEventIds(meetingEventIds);
+            let byEventGroups = new Map();
+            try {
+              const ProviderScheduleEventInviteGroup = (await import('../models/ProviderScheduleEventInviteGroup.model.js')).default;
+              byEventGroups = await ProviderScheduleEventInviteGroup.listGroupIdsByEventIds(meetingEventIds);
+            } catch {
+              /* optional until migration */
+            }
+            next = (next || []).map((e) => {
+              const kind = String(e?.kind || '').toUpperCase();
+              if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) return e;
+              const eid = Number(e?.id || 0);
+              const details = byEvent.get(eid) || [];
+              return {
+                ...e,
+                attendeeUserIds: details.map((d) => Number(d.userId || 0)).filter((n) => n > 0),
+                invitedGroupIds: (byEventGroups.get(eid) || []).map((n) => Number(n)).filter((n) => n > 0),
+                attendees: details.map((d) => ({
+                  id: Number(d.userId || 0),
+                  firstName: d.firstName || '',
+                  lastName: d.lastName || '',
+                  email: d.email || '',
+                  name: [d.firstName, d.lastName].filter(Boolean).join(' ').trim()
+                    || d.email
+                    || `User #${d.userId}`
+                }))
+              };
+            });
+          }
+        } catch {
+          /* attendees optional */
+        }
+        return next;
+      };
+
+      rematerializeScheduleEventsAfterGoogleSync = async () => {
+        const freshRows = await ProviderScheduleEvent.listForUserInWindow(scheduleListArgs);
+        return attachMeetingParticipants(mapScheduleRows(freshRows));
+      };
+
+      scheduleEvents = await attachMeetingParticipants(mapScheduleRows(rows));
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       scheduleEvents = [];
@@ -5018,7 +5032,15 @@ export const getUserScheduleSummary = async (req, res, next) => {
       }
     }
 
-    if (includeGoogleEvents) {
+    // Fetch Google events when the overlay is requested, OR when we have linked app rows
+    // to reconcile (inbound sync: move/cancel in Google → update app DB).
+    const scheduleGoogleEventIds = new Set(
+      (scheduleEvents || [])
+        .map((e) => String(e?.googleEventId || e?.google_event_id || '').trim())
+        .filter(Boolean)
+    );
+    const needsGoogleInboundSync = scheduleGoogleEventIds.size > 0 || supervisionGoogleEventIds.size > 0;
+    if (includeGoogleEvents || needsGoogleInboundSync) {
       try {
         const providerEmail = String(provider?.email || '').trim().toLowerCase();
         const r = await GoogleCalendarService.listEvents({
@@ -5028,32 +5050,74 @@ export const getUserScheduleSummary = async (req, res, next) => {
           calendarId: 'primary',
           maxItems: 250
         });
-        if (r?.ok) {
-          let events = isAdminOrSuperAdmin(req)
-            ? (r.events || [])
-            : (r.events || []).map((event) => sanitizeGoogleEventForSchedule(event));
-          // Exclude Google events that already have first-class app rows (supervision + schedule events).
-          // Keeps Google titles overlay for pure Google events only; app clicks open in-app editors.
-          const scheduleGoogleEventIds = new Set(
-            (scheduleEvents || [])
-              .map((e) => String(e?.googleEventId || e?.google_event_id || '').trim())
-              .filter(Boolean)
-          );
-          if (supervisionGoogleEventIds.size || scheduleGoogleEventIds.size) {
-            events = events.filter((ev) => {
-              const id = String(ev?.id || '').trim();
-              if (!id) return true;
-              if (supervisionGoogleEventIds.has(id)) return false;
-              if (scheduleGoogleEventIds.has(id)) return false;
-              return true;
-            });
+        if (r?.ok || needsGoogleInboundSync) {
+          const listed = r?.ok ? (r.events || []) : [];
+          // Inbound sync: pull Google start/end (and cancellations) into linked app rows.
+          // Must run before overlay dedupe so linked IDs are still present in `listed`.
+          // Also runs with an empty list so getEvent can still catch moves/cancels.
+          if (needsGoogleInboundSync) {
+            try {
+              const { reconcileGoogleLinkedSchedule } = await import(
+                '../services/googleScheduleInboundSync.service.js'
+              );
+              const reconciled = await reconcileGoogleLinkedSchedule({
+                viewedProviderId: providerId,
+                viewedProviderEmail: providerEmail,
+                scheduleEvents,
+                supervisionSessions,
+                googleEvents: listed,
+                windowStart,
+                windowEnd,
+                actorUserId: Number(req.user?.id || 0) || null
+              });
+              if (reconciled.rematerialize && typeof rematerializeScheduleEventsAfterGoogleSync === 'function') {
+                scheduleEvents = await rematerializeScheduleEventsAfterGoogleSync();
+              } else {
+                scheduleEvents = reconciled.scheduleEvents;
+              }
+              supervisionSessions = reconciled.supervisionSessions;
+              // Refresh linked-id set after cancels / updates.
+              scheduleGoogleEventIds.clear();
+              for (const e of scheduleEvents || []) {
+                const gid = String(e?.googleEventId || e?.google_event_id || '').trim();
+                if (gid) scheduleGoogleEventIds.add(gid);
+              }
+              supervisionGoogleEventIds.clear();
+              for (const s of supervisionSessions || []) {
+                const gid = String(s?.googleEventId || s?.google_event_id || '').trim();
+                if (gid) supervisionGoogleEventIds.add(gid);
+              }
+            } catch (syncErr) {
+              console.warn('[schedule-summary] google inbound sync failed', syncErr?.message || syncErr);
+            }
           }
-          googleEvents = events;
+
+          if (includeGoogleEvents && r?.ok) {
+            let events = isAdminOrSuperAdmin(req)
+              ? listed
+              : listed.map((event) => sanitizeGoogleEventForSchedule(event));
+            // Exclude Google events that already have first-class app rows.
+            if (supervisionGoogleEventIds.size || scheduleGoogleEventIds.size) {
+              events = events.filter((ev) => {
+                const id = String(ev?.id || '').trim();
+                if (!id) return true;
+                if (supervisionGoogleEventIds.has(id)) return false;
+                if (scheduleGoogleEventIds.has(id)) return false;
+                return true;
+              });
+            }
+            googleEvents = events;
+          } else if (includeGoogleEvents && !r?.ok) {
+            googleEventsError = r?.error || r?.reason || 'Google events are not available';
+          }
+        } else if (includeGoogleEvents) {
+          googleEventsError = r?.error || r?.reason || 'Google events are not available';
         }
-        else googleEventsError = r?.error || r?.reason || 'Google events are not available';
       } catch {
-        googleEvents = [];
-        googleEventsError = 'Google events lookup failed';
+        if (includeGoogleEvents) {
+          googleEvents = [];
+          googleEventsError = 'Google events lookup failed';
+        }
       }
     }
 
@@ -5732,7 +5796,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
           await GoogleCalendarService.appendToEventDescription({
             subjectEmail,
             googleEventId: result.eventId,
-            appendText: `Join with app: ${absoluteJoinForCalendar}`
+            appendText: `Join with app: ${absoluteJoinForCalendar}`,
+            sendUpdates: notifyParticipants ? 'all' : 'none'
           }).catch(() => {});
         }
       }
