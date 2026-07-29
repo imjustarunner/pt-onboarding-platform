@@ -2042,12 +2042,11 @@
                 <span class="nr-duration-under">All day</span>
                 <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
               </template>
-              <template v-else-if="canUseQuarterHourInput">
+              <template v-else-if="useModalQuarterHourTime">
                 <div class="nr-when-edit nr-when-edit--timed">
                   <select
                     v-model="modalDay"
                     class="nr-info-select nr-info-select--day"
-                    :disabled="!canManageOffices && !canSelectBookingProvider"
                     title="Day"
                     @change="onChooserWhenChanged"
                   >
@@ -2091,7 +2090,6 @@
                   <select
                     v-model="modalDay"
                     class="nr-info-select nr-info-select--day"
-                    :disabled="!canManageOffices && !canSelectBookingProvider"
                     title="Day"
                     @change="onChooserWhenChanged"
                   >
@@ -5347,9 +5345,18 @@ const mobileDayCardsForHour = (hour) => {
   return (cellBlocks(day, hour, 0) || []).filter((b) => b && b.kind !== 'more');
 };
 const openMobileDayHour = (hour) => {
+  let h = Number(hour);
+  if (!Number.isFinite(h)) h = 9;
+  if (h === 9 && isTodayDay(mobileTimelineDay.value)) {
+    const tz = browserIanaTimeZone() || bookingTimezoneIana.value || 'America/Denver';
+    const { hour: nowH } = wallClockPartsInTz(Date.now(), tz);
+    if (Number.isFinite(nowH) && nowH >= Number(gridMinHour.value || 0) && nowH < Number(gridMaxHour.value || 24)) {
+      h = nowH;
+    }
+  }
   openSlotActionModal({
     dayName: mobileTimelineDay.value,
-    hour: Number(hour),
+    hour: h,
     preserveSelectionRange: false,
     actionSource: 'plus_or_blank'
   });
@@ -6505,7 +6512,7 @@ onMounted(() => {
   joinPromptNowMs.value = Date.now();
   joinPromptTimer = setInterval(() => {
     joinPromptNowMs.value = Date.now();
-  }, 30000);
+  }, 60000);
   // Deep-link from dashboard overview Book / Book virtual CTAs.
   void consumeScheduleActionQuery();
   if (typeof document !== 'undefined') {
@@ -6655,6 +6662,34 @@ const gridStyle = computed(() => {
 });
 
 const SCHED_GRID_HEADER_PX = 48;
+
+const wallClockPartsInTz = (instant, timeZone) => {
+  const tz = String(timeZone || '').trim();
+  if (!tz) {
+    const d = new Date(instant);
+    return { hour: d.getHours(), minute: d.getMinutes() };
+  }
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    }).formatToParts(instant);
+    const map = {};
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = p.value;
+    }
+    return {
+      hour: Number(map.hour) % 24,
+      minute: Number(map.minute) || 0
+    };
+  } catch {
+    const d = new Date(instant);
+    return { hour: d.getHours(), minute: d.getMinutes() };
+  }
+};
+
 const scheduleNowLineStyle = computed(() => {
   if (props.mode !== 'self' || viewMode.value !== 'open_finder') return null;
   const todayDay = (visibleDays.value || []).find((d) => isTodayDay(d));
@@ -6662,40 +6697,35 @@ const scheduleNowLineStyle = computed(() => {
   const colIdx = visibleDays.value.indexOf(todayDay);
   if (colIdx < 0) return null;
 
-  // Position against the schedule's booking timezone (office TZ), not a mismatched browser zone.
+  // My Schedule: browser wall clock. Admin views: office/booking timezone.
   const now = new Date(joinPromptNowMs.value || Date.now());
-  const tz = String(bookingTimezoneIana.value || '').trim() || browserIanaTimeZone() || undefined;
-  let hour;
-  let minute;
-  try {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23'
-    }).formatToParts(now);
-    const map = {};
-    for (const p of parts) {
-      if (p.type !== 'literal') map[p.type] = p.value;
-    }
-    hour = Number(map.hour) % 24;
-    minute = Number(map.minute);
-  } catch {
-    hour = now.getHours();
-    minute = now.getMinutes();
-  }
+  const tz = props.mode === 'self'
+    ? (browserIanaTimeZone() || bookingTimezoneIana.value || 'America/Denver')
+    : (bookingTimezoneIana.value || browserIanaTimeZone() || 'America/Denver');
+  const { hour, minute } = wallClockPartsInTz(now, tz);
   const minH = Number(gridMinHour.value || 0);
   const maxH = Number(gridMaxHour.value || 24);
   if (hour < minH || hour >= maxH) return null;
 
   const slotH = Number(rowHeightPx.value || 48);
-  const slotsPerHour = showQuarterDetail.value ? 4 : 1;
-  const hourOffset = hour - minH;
-  const quarterIdx = showQuarterDetail.value ? Math.floor(minute / 15) : 0;
-  const fracInSlot = showQuarterDetail.value ? (minute % 15) / 15 : minute / 60;
-  const topPx = SCHED_GRID_HEADER_PX + (hourOffset * slotsPerHour + quarterIdx) * slotH + fracInSlot * slotH;
-  const colCount = Math.max(1, visibleDays.value.length);
+  const slots = displayTimeSlots.value || [];
+  const nowMins = hour * 60 + minute;
+  let topPx = null;
+  for (let i = 0; i < slots.length; i += 1) {
+    const slot = slots[i];
+    const next = slots[i + 1];
+    const startMins = Number(slot.hour) * 60 + Number(slot.minute || 0);
+    const endMins = next
+      ? Number(next.hour) * 60 + Number(next.minute || 0)
+      : startMins + (showQuarterDetail.value ? 15 : 60);
+    if (nowMins < startMins || nowMins >= endMins) continue;
+    const frac = (nowMins - startMins) / Math.max(1, endMins - startMins);
+    topPx = SCHED_GRID_HEADER_PX + i * slotH + frac * slotH;
+    break;
+  }
+  if (topPx == null) return null;
 
+  const colCount = Math.max(1, visibleDays.value.length);
   return {
     '--sched-now-col-idx': String(colIdx),
     '--sched-now-col-count': String(colCount),
@@ -10142,9 +10172,15 @@ const cellBlocks = (dayName, hour, minute = 0) => {
   }
   // Day view: stamp lane columns so overlapping timed blocks tile horizontally.
   if (singleDayFocused) {
+    const colTotal = dayViewColumnTotal.value;
+    for (const b of displayBlocks) {
+      b.dayViewCol = dayViewColumnIndexForKind(b?.kind);
+      b.dayViewColTotal = colTotal;
+    }
     const layout = dayViewLaneLayout.value;
     if (layout?.size) {
       for (const b of displayBlocks) {
+        if (Number(b.dayViewCol || 0) !== 0) continue;
         const lane = layout.get(b.key);
         if (lane && lane.cols > 1) {
           b.laneCol = lane.col;
@@ -10154,6 +10190,28 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     }
   }
   return displayBlocks;
+};
+
+/** Day view: overlay columns sit beside app events (never overlap them). */
+const dayViewOverlayColumnKinds = computed(() => {
+  if (visibleDays.value.length !== 1) return [];
+  const kinds = [];
+  if (showGoogleEvents.value || showGoogleBusy.value) kinds.push('google');
+  if (showExternalBusy.value && (selectedExternalCalendarIds.value || []).length > 0) kinds.push('ebusy');
+  return kinds;
+});
+const dayViewColumnTotal = computed(() => 1 + dayViewOverlayColumnKinds.value.length);
+const dayViewColumnIndexForKind = (kind) => {
+  const k = String(kind || '');
+  if (k === 'gevt' || k === 'gbusy') {
+    const idx = dayViewOverlayColumnKinds.value.indexOf('google');
+    return idx >= 0 ? idx + 1 : 0;
+  }
+  if (k === 'ebusy') {
+    const idx = dayViewOverlayColumnKinds.value.indexOf('ebusy');
+    return idx >= 0 ? idx + 1 : 0;
+  }
+  return 0;
 };
 
 /**
@@ -10236,13 +10294,6 @@ const dayViewLaneLayout = computed(() => {
           ev?.startAt,
           ev?.endAt
         );
-      }
-      if (showGoogleEvents.value) {
-        for (const ev of googleEventsInCell(dayName, hour, minute)) {
-          const segment = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
-          if (segment === 'middle' || segment === 'end') continue;
-          pushInterval(`gevt-${String(ev?.id || ev?.summary || 'event')}`, ev?.startAt, ev?.endAt);
-        }
       }
       const supvHits = supervisionSessionsInCell(dayName, hour, minute);
       const seenSupv = new Set();
@@ -10489,6 +10540,15 @@ const isQuarterHourRequestType = computed(() => {
 const canUseQuarterHourInput = computed(
   () => isQuarterHourRequestType.value && !isScheduleEventAllDayUi.value
 );
+/** Chooser step: user may change day/time before picking an action. */
+const modalChooserTimeEditable = computed(() => {
+  if (!showRequestModal.value) return false;
+  return !String(requestType.value || '').trim();
+});
+/** Quarter-hour WHEN controls in chooser + typed create/edit flows. */
+const useModalQuarterHourTime = computed(
+  () => modalChooserTimeEditable.value || canUseQuarterHourInput.value
+);
 const personalEventTypeOptions = computed(() => PERSONAL_EVENT_TYPE_OPTIONS);
 const pad2Clock = (n) => String(Math.max(0, Number(n) || 0)).padStart(2, '0');
 const snapQuarterMinute = (m) => {
@@ -10515,7 +10575,7 @@ const endMinuteOptions = computed(
 );
 const modalTimeRangeLabel = computed(() => {
   if (isScheduleEventAllDayUi.value) return 'All day';
-  if (canUseQuarterHourInput.value) {
+  if (useModalQuarterHourTime.value) {
     return `${hourMinuteLabel(effectiveModalStartHour.value, modalStartMinute.value)}-${hourMinuteLabel(modalEndHour.value, modalEndMinute.value)}`;
   }
   return `${hourLabel(modalHour.value)}-${hourLabel(modalEndHour.value)}`;
@@ -11310,6 +11370,41 @@ const onChooserWhenChanged = () => {
   officeAssignStartHour.value = start;
   officeAssignEndHour.value = end;
   officeAssignDay.value = String(modalDay.value || officeAssignDay.value || 'Monday');
+
+  // Keep grid selection aligned when the user adjusts WHEN in the chooser.
+  if (modalChooserTimeEditable.value) {
+    const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
+    const roomId = Number(selectedOfficeRoomId.value || modalContext.value?.roomId || 0);
+    const slots = [];
+    for (let h = start; h < end; h += 1) {
+      slots.push({
+        key: actionSlotKey({ dateYmd, hour: h, roomId }),
+        dateYmd,
+        dayName: modalDay.value,
+        hour: h,
+        roomId,
+        slot: modalContext.value?.slot || null
+      });
+    }
+    if (!slots.length) {
+      slots.push({
+        key: actionSlotKey({ dateYmd, hour: start, roomId }),
+        dateYmd,
+        dayName: modalDay.value,
+        hour: start,
+        roomId,
+        slot: modalContext.value?.slot || null
+      });
+    }
+    selectedActionSlots.value = slots;
+    modalContext.value = buildModalContext({
+      dayName: modalDay.value,
+      hour: start,
+      roomId,
+      slot: modalContext.value?.slot || null,
+      dateYmd
+    });
+  }
 };
 
 const moveChooserAction = (actionId, direction) => {
@@ -15544,31 +15639,34 @@ const loadSupervisionProviders = async () => {
 };
 
 const startHourOptions = computed(() => {
+  if (useModalQuarterHourTime.value) {
+    const minH = Number(gridMinHour.value || 0);
+    const maxH = Number(gridMaxHour.value || 24) - 1;
+    const out = [];
+    for (let h = minH; h <= maxH; h += 1) out.push(h);
+    return out;
+  }
   const clicked = Number(modalHour.value || 0);
-  if (!canUseQuarterHourInput.value) return [clicked];
-  const minH = Math.max(gridMinHour.value, clicked - 1);
-  const out = [];
-  for (let h = minH; h <= clicked; h++) out.push(h);
-  return out;
+  return [clicked];
 });
 const endHourOptions = computed(() => {
   const start = Number(effectiveModalStartHour.value || modalHour.value || 0);
   const maxEnd = modalGridMaxEnd.value;
   const out = [];
-  const first = canUseQuarterHourInput.value ? start : (start + 1);
+  const first = useModalQuarterHourTime.value ? start : (start + 1);
   for (let h = first; h <= maxEnd; h++) out.push(h);
   return out;
 });
 
 const ensureModalEndTimeValid = () => {
   const maxEnd = modalGridMaxEnd.value;
-  if (canUseQuarterHourInput.value) {
+  if (useModalQuarterHourTime.value) {
     const allowed = startHourOptions.value;
     let sh = Number(modalStartHour.value || modalHour.value || 0);
     if (!allowed.includes(sh)) modalStartHour.value = allowed[allowed.length - 1] ?? sh;
   }
   const startH = Number(effectiveModalStartHour.value || modalHour.value || 0);
-  const minEndH = canUseQuarterHourInput.value ? startH : (startH + 1);
+  const minEndH = useModalQuarterHourTime.value ? startH : (startH + 1);
   let endH = Number(modalEndHour.value || 0);
   if (endH < minEndH) endH = minEndH;
   if (endH > maxEnd) endH = maxEnd;
@@ -15589,10 +15687,10 @@ const ensureModalEndTimeValid = () => {
       : (allowedEndMinutes[0] ?? 0);
   }
 
-  const startTotal = startH * 60 + (canUseQuarterHourInput.value ? normalizedStartMinute : 0);
-  let endTotal = endH * 60 + (canUseQuarterHourInput.value ? endMinute : 0);
+  const startTotal = startH * 60 + (useModalQuarterHourTime.value ? normalizedStartMinute : 0);
+  let endTotal = endH * 60 + (useModalQuarterHourTime.value ? endMinute : 0);
   if (endTotal <= startTotal) {
-    if (canUseQuarterHourInput.value) {
+    if (useModalQuarterHourTime.value) {
       endTotal = Math.min(maxEnd * 60, startTotal + 15);
       modalEndHour.value = Math.floor(endTotal / 60);
       const rem = endTotal % 60;
@@ -15605,8 +15703,8 @@ const ensureModalEndTimeValid = () => {
     modalEndMinute.value = 0;
     return;
   }
-  modalEndMinute.value = canUseQuarterHourInput.value ? endMinute : 0;
-  if (!canUseQuarterHourInput.value) modalStartMinute.value = 0;
+  modalEndMinute.value = useModalQuarterHourTime.value ? endMinute : 0;
+  if (!useModalQuarterHourTime.value) modalStartMinute.value = 0;
 };
 
 const isWeekdayName = (dayName) => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(String(dayName || ''));
@@ -16860,9 +16958,25 @@ const cellBlockStyle = (b) => {
     style.position = 'absolute';
     const laneCols = Number(b?.laneCols || 0);
     const laneCol = Number(b?.laneCol || 0);
-    // Day view: tile overlapping events across the wide single-day column.
-    if (laneCols > 1 && Number.isFinite(laneCol)) {
-      const gapPx = 3;
+    const dayViewColTotal = Number(b?.dayViewColTotal || 0);
+    const dayViewCol = Number(b?.dayViewCol || 0);
+    const gapPx = 3;
+    // Day view: dedicated overlay columns for Google / Therapy Notes beside app events.
+    if (dayViewColTotal > 1) {
+      const colWidthPct = 100 / dayViewColTotal;
+      const baseLeftPct = dayViewCol * colWidthPct;
+      if (dayViewCol === 0 && laneCols > 1 && Number.isFinite(laneCol)) {
+        const innerWidthPct = colWidthPct / laneCols;
+        style.left = `calc(${baseLeftPct + laneCol * innerWidthPct}% + ${gapPx}px)`;
+        style.width = `calc(${innerWidthPct}% - ${gapPx * 2}px)`;
+        style.zIndex = 6 + laneCol;
+      } else {
+        style.left = `calc(${baseLeftPct}% + ${gapPx}px)`;
+        style.width = `calc(${colWidthPct}% - ${gapPx * 2}px)`;
+        style.zIndex = dayViewCol === 0 ? (6 + laneCol) : (4 + dayViewCol);
+      }
+      style.right = 'auto';
+    } else if (laneCols > 1 && Number.isFinite(laneCol)) {
       const widthPct = 100 / laneCols;
       style.left = `calc(${laneCol * widthPct}% + ${gapPx}px)`;
       style.width = `calc(${widthPct}% - ${gapPx * 2}px)`;
@@ -16885,9 +16999,21 @@ const cellBlockStyle = (b) => {
     style.alignItems = 'flex-start';
     style.paddingTop = '4px';
     // Fewer lines on short blocks so text stays inside the colored fill.
-    style['--block-line-clamp'] = laneCols > 2
+    style['--block-line-clamp'] = (dayViewColTotal > 1 && dayViewCol > 0) || laneCols > 2
       ? (hp >= 180 ? '5' : hp >= 100 ? '3' : '2')
       : (hp >= 180 ? '6' : hp >= 100 ? '4' : '2');
+  } else if (Number(b?.dayViewColTotal || 0) > 1) {
+    const dayViewColTotal = Number(b.dayViewColTotal);
+    const dayViewCol = Number(b?.dayViewCol || 0);
+    const gapPx = 3;
+    const colWidthPct = 100 / dayViewColTotal;
+    style.position = 'absolute';
+    style.left = `calc(${dayViewCol * colWidthPct}% + ${gapPx}px)`;
+    style.width = `calc(${colWidthPct}% - ${gapPx * 2}px)`;
+    style.right = 'auto';
+    style.top = '3px';
+    style.bottom = '3px';
+    style.zIndex = dayViewCol === 0 ? 3 : (4 + dayViewCol);
   }
   if (b?.shareRow && !b?.timedSlice && !(Number(b?.laneCols || 0) > 1)) {
     style.flex = '1 1 42%';
@@ -22210,7 +22336,7 @@ const onCellBlockDoubleClick = (e, block, dayName, hour, minute = 0) => {
   window.open(link, '_blank', 'noreferrer');
 };
 
-watch([modalHour, modalStartHour, modalEndHour, modalStartMinute, modalEndMinute, canUseQuarterHourInput, disableEndTimeInput], () => {
+watch([modalHour, modalStartHour, modalEndHour, modalStartMinute, modalEndMinute, useModalQuarterHourTime, disableEndTimeInput], () => {
   if (disableEndTimeInput.value) {
     modalStartMinute.value = 0;
     modalEndMinute.value = 0;
