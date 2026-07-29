@@ -30,6 +30,7 @@ import {
   getMedicalBillingReportCatalogWithAvailability as getBillingReportCatalog,
   runMedicalBillingReport as executeBillingReport
 } from '../services/medicalBillingReports.service.js';
+import { listBillingEncountersForClient } from '../services/billingReportIngest.service.js';
 
 function parseIntValue(v) {
   const n = Number(v);
@@ -155,12 +156,20 @@ export const listClientChart = async (req, res, next) => {
       [agencyId, clientId]
     );
 
+    let billingEncounters = [];
+    try {
+      billingEncounters = await listBillingEncountersForClient({ agencyId, clientId, limit: 200 });
+    } catch {
+      billingEncounters = [];
+    }
+
     return res.json({
       notes: notes || [],
       plans: plans || [],
       latestPlan: latestPlan || null,
       diagnoses: diagnoses || [],
-      sessions: sessions || []
+      sessions: sessions || [],
+      billingEncounters
     });
   } catch (e) {
     next(e);

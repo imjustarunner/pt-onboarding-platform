@@ -1707,7 +1707,7 @@
             :subject-user-id="userId"
             :subject-agency-id="scheduleAgencyId"
             profile-embed
-            initial-section="school"
+            initial-section="all"
           />
         </div>
 
@@ -3447,6 +3447,61 @@ const canEditUser = computed(() => {
   return !isSupervisor(user) && user.role !== 'clinical_practice_assistant';
 });
 
+const accountForm = ref({
+  firstName: '',
+  lastName: '',
+  preferredName: '',
+  email: '',
+  personalEmail: '',
+  title: '',
+  serviceFocus: '',
+  languagesSpoken: '',
+  phoneNumber: '',
+  personalPhone: '',
+  workPhone: '',
+  workPhoneExtension: '',
+  homeStreetAddress: '',
+  homeAddressLine2: '',
+  homeCity: '',
+  homeState: '',
+  homePostalCode: '',
+  medcancelRateSchedule: 'none',
+  companyCardEnabled: false,
+  companyCarSubmitAccess: false,
+  companyCarManageAccess: false,
+  skillBuilderEligible: false,
+  groupSupervisionEligible: false,
+  hasSkillBuilderCoordinatorAccess: false,
+  externalBusyIcsUrl: '',
+  role: '',
+  credential: '',
+  hasSupervisorPrivileges: false,
+  hasProviderAccess: false,
+  hasStaffAccess: false,
+  hasPayrollAccess: false,
+  hasBillingAccess: false,
+  isMarketingContact: false,
+  hasCredentialingAccess: false,
+  isHourlyWorker: false,
+  hasHiringAccess: false,
+  hasMedicalRecordsReleaseAccess: false,
+  hasGamesAccess: false,
+  providerStartDate: ''
+});
+
+const isProviderLikeUser = computed(() => {
+  // Prefer account form role while editing — user.value.role stays stale until save + fetchUser().
+  const role = String(accountForm.value?.role || user.value?.role || '').toLowerCase();
+  return (
+    role === 'provider' ||
+    role === 'supervisor' ||
+    role === 'intern' ||
+    role === 'facilitator' ||
+    role === 'provider_plus' ||
+    !!accountForm.value?.hasProviderAccess
+  );
+});
+
 const tabs = computed(() => {
   // Guardian accounts are portal-only (non-employee): show only basic account info.
   if (isViewingGuardian.value) {
@@ -3538,48 +3593,6 @@ watch(
   },
   { immediate: true }
 );
-
-const accountForm = ref({
-  firstName: '',
-  lastName: '',
-  preferredName: '',
-  email: '',
-  personalEmail: '',
-  title: '',
-  serviceFocus: '',
-  languagesSpoken: '',
-  phoneNumber: '',
-  personalPhone: '',
-  workPhone: '',
-  workPhoneExtension: '',
-  homeStreetAddress: '',
-  homeAddressLine2: '',
-  homeCity: '',
-  homeState: '',
-  homePostalCode: '',
-  medcancelRateSchedule: 'none',
-  companyCardEnabled: false,
-  companyCarSubmitAccess: false,
-  companyCarManageAccess: false,
-  skillBuilderEligible: false,
-  groupSupervisionEligible: false,
-  hasSkillBuilderCoordinatorAccess: false,
-  externalBusyIcsUrl: '',
-  role: '',
-  credential: '',
-  hasSupervisorPrivileges: false,
-  hasProviderAccess: false,
-  hasStaffAccess: false,
-  hasPayrollAccess: false,
-  hasBillingAccess: false,
-  isMarketingContact: false,
-  hasCredentialingAccess: false,
-  isHourlyWorker: false,
-  hasHiringAccess: false,
-  hasMedicalRecordsReleaseAccess: false,
-  hasGamesAccess: false,
-  providerStartDate: ''
-});
 
 /** Values for <input type="date"> must be yyyy-MM-dd; API may send Date objects or strings that stringify badly. */
 const toDateInputValue = (raw) => {
@@ -4484,19 +4497,6 @@ const providerSelfPayRateUsd = ref(null);
 const providerSelfPayRateNote = ref('');
 const agencyDefaultSelfPayRateUsd = ref(null);
 const agencyFinderIntroBlurb = ref('');
-
-const isProviderLikeUser = computed(() => {
-  // Prefer account form role while editing — user.value.role stays stale until save + fetchUser().
-  const role = String(accountForm.value?.role || user.value?.role || '').toLowerCase();
-  return (
-    role === 'provider' ||
-    role === 'supervisor' ||
-    role === 'intern' ||
-    role === 'facilitator' ||
-    role === 'provider_plus' ||
-    !!accountForm.value?.hasProviderAccess
-  );
-});
 
 const selectedProviderProfileAgency = computed(() => {
   const agencies = Array.isArray(userAgencies.value) ? userAgencies.value : [];

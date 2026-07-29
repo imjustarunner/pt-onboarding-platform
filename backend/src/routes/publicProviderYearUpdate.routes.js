@@ -11,6 +11,16 @@ router.post(
   '/:token/schools/:schoolId/clients/:clientId/assigned-day',
   ctrl.assignClientDayByToken
 );
+router.get('/:token/availability/me/pending', ctrl.getAvailabilityPendingByToken);
+router.post('/:token/availability/school-requests', ctrl.createSchoolAvailabilityByToken);
+router.post(
+  '/:token/availability/me/school-requests/:id/withdraw',
+  ctrl.withdrawSchoolAvailabilityByToken
+);
+router.post(
+  '/:token/availability/me/requests/unrequest-all',
+  ctrl.unrequestAllAvailabilityByToken
+);
 router.post('/:token/finalize', ctrl.finalizePublic);
 
 export default router;

@@ -2171,6 +2171,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/billing-reports',
+    name: 'OrganizationBillingReports',
+    component: () => import('../views/admin/BillingReportsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/learning-billing',
     name: 'OrganizationLearningBillingDesk',
     component: () => import('../views/admin/LearningBillingDeskView.vue'),
@@ -3352,6 +3358,12 @@ const routes = [
     path: '/admin/receivables',
     name: 'Receivables',
     component: () => import('../views/admin/ReceivablesView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
+  },
+  {
+    path: '/admin/billing-reports',
+    name: 'BillingReports',
+    component: () => import('../views/admin/BillingReportsView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
   },
   {

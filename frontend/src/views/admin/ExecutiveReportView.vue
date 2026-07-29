@@ -33,14 +33,21 @@
           <div class="value">{{ fmtMoney(snapshot?.revenue_latest_totals?.collected_total) }}</div>
         </div>
         <div class="metric">
-          <div class="label">Outstanding A/R (latest upload)</div>
-          <div class="value">{{ fmtMoney(snapshot?.revenue_latest_totals?.outstanding_total) }}</div>
+          <div class="label">Patient owed (billing lines)</div>
+          <div class="value">{{ fmtMoney(snapshot?.revenue_latest_totals?.patient_outstanding_total ?? snapshot?.revenue_latest_totals?.outstanding_total) }}</div>
         </div>
         <div class="metric">
-          <div class="label">Receivables A/R (ingested)</div>
+          <div class="label">Insurance owed (billing lines)</div>
+          <div class="value">{{ fmtMoney(snapshot?.revenue_latest_totals?.insurance_outstanding_total) }}</div>
+        </div>
+        <div class="metric">
+          <div class="label">Receivables A/R (projected)</div>
           <div class="value">{{ fmtMoney(snapshot?.receivables_ar_totals?.outstanding_total) }}</div>
           <div class="sub">
-            14–59: {{ fmtMoney(snapshot?.receivables_ar_totals?.outstanding_14_59_total) }} · 60+: {{ fmtMoney(snapshot?.receivables_ar_totals?.outstanding_60_plus_total) }}
+            Patient: {{ fmtMoney(snapshot?.receivables_ar_totals?.patient_outstanding_total) }}
+            · Insurance: {{ fmtMoney(snapshot?.receivables_ar_totals?.insurance_outstanding_total) }}
+            · 14–59: {{ fmtMoney(snapshot?.receivables_ar_totals?.outstanding_14_59_total) }}
+            · 60+: {{ fmtMoney(snapshot?.receivables_ar_totals?.outstanding_60_plus_total) }}
           </div>
         </div>
       </div>

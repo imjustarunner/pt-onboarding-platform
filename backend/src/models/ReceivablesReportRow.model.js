@@ -88,8 +88,11 @@ class ReceivablesReportRow {
   }) {
     const lim = Math.max(0, Math.min(1000, parseInt(limit, 10) || 200));
     const off = Math.max(0, parseInt(offset, 10) || 0);
-    const where = ['r.agency_id = ?', 'r.patient_outstanding_amount >= ?'];
-    const params = [agencyId, Number(minOutstanding || 0)];
+    const where = [
+      'r.agency_id = ?',
+      '(r.patient_outstanding_amount >= ? OR COALESCE(r.insurance_outstanding_amount, 0) >= ?)'
+    ];
+    const params = [agencyId, Number(minOutstanding || 0), Number(minOutstanding || 0)];
     if (startYmd) {
       where.push('r.service_date >= ?');
       params.push(String(startYmd).slice(0, 10));
@@ -118,6 +121,10 @@ class ReceivablesReportRow {
          r.patient_responsibility_amount,
          r.patient_amount_paid,
          r.patient_outstanding_amount,
+         r.insurance_amount,
+         r.insurance_amount_paid,
+         r.insurance_outstanding_amount,
+         r.billing_line_id,
          r.collections_status,
          r.managed_at,
          r.managed_by_user_id,

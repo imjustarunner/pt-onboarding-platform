@@ -598,12 +598,14 @@ const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
 const bookingContext = computed(() => {
   const officeEventId = Number(route.query?.officeEventId || route.query?.office_event_id || 0) || null;
   const clientId = Number(route.query?.clientId || route.query?.client_id || 0) || null;
+  const clinicalSessionId = Number(route.query?.clinicalSessionId || route.query?.clinical_session_id || 0) || null;
   const noteType = String(route.query?.noteType || route.query?.note_type || 'PROGRESS_NOTE').trim() || 'PROGRESS_NOTE';
   const templateVersion = String(route.query?.templateVersion || route.query?.template_version || 'v1').trim() || 'v1';
   const serviceCode = String(route.query?.serviceCode || route.query?.service_code || '').trim().toUpperCase();
   return {
     officeEventId,
     clientId,
+    clinicalSessionId,
     noteType,
     templateVersion,
     serviceCode
@@ -623,7 +625,10 @@ const therapyContext = computed(() => {
 });
 
 const canApproveToClinicalRecord = computed(
-  () => !!(bookingContext.value?.officeEventId && bookingContext.value?.clientId)
+  () => !!(
+    bookingContext.value?.clientId
+    && (bookingContext.value?.officeEventId || bookingContext.value?.clinicalSessionId)
+  )
 );
 const retentionClientId = computed(() => Number(bookingContext.value?.clientId || 0) || null);
 const retentionOfficeEventId = computed(() => Number(bookingContext.value?.officeEventId || 0) || null);
@@ -2076,11 +2081,14 @@ const buildApprovedPayloadText = () => {
 };
 
 const ensureClinicalSessionForApproval = async () => {
+  const existingSessionId = Number(bookingContext.value?.clinicalSessionId || 0);
+  if (existingSessionId) return existingSessionId;
+
   const agencyId = Number(currentAgencyId.value || 0);
   const officeEventId = Number(bookingContext.value.officeEventId || 0);
   const clientId = Number(bookingContext.value.clientId || 0);
   if (!agencyId || !officeEventId || !clientId) {
-    throw new Error('Missing appointment context (agencyId, officeEventId, or clientId). Open Note Aid from a booked schedule slot.');
+    throw new Error('Missing appointment context (agencyId, officeEventId, or clientId). Open Note Aid from a booked schedule slot or a billing medical-record session.');
   }
   const res = await api.post('/clinical-data/sessions/bootstrap', {
     agencyId,
@@ -2113,8 +2121,8 @@ const approveNoteOutput = async () => {
       noteType: bookingContext.value.noteType,
       templateVersion: bookingContext.value.templateVersion,
       serviceCode: serviceCodeForMetadata,
-      officeEventId: bookingContext.value.officeEventId,
-      source: 'note_aid_approval',
+      officeEventId: bookingContext.value.officeEventId || undefined,
+      source: bookingContext.value.officeEventId ? 'note_aid_approval' : 'billing_import_note_approval',
       metadata: {
         generatedBy: 'clinical_note_generator',
         model: outputObj.value?.meta?.model || null,

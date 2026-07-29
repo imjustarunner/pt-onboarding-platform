@@ -15,8 +15,11 @@
       :full-page="true"
       :initial-tab="initialTab"
       :initial-document-id="initialDocumentId"
+      :initial-encounter-id="initialEncounterId"
       @updated="handleUpdated"
       @close="goBack"
+      @tab-change="onTabChange"
+      @encounter-change="onEncounterChange"
     />
     <div v-else class="cpv-loading">Client not found.</div>
   </div>
@@ -41,6 +44,11 @@ const initialTab = computed(() => String(route.query?.tab || 'overview').trim())
 
 const initialDocumentId = computed(() => {
   const n = Number(route.query?.documentId);
+  return Number.isFinite(n) && n > 0 ? n : null;
+});
+
+const initialEncounterId = computed(() => {
+  const n = Number(route.query?.encounterId);
   return Number.isFinite(n) && n > 0 ? n : null;
 });
 
@@ -71,6 +79,32 @@ function handleUpdated({ client: updated } = {}) {
   if (updated) client.value = { ...updated };
 }
 
+function onTabChange(tab) {
+  const nextTab = String(tab || 'overview').trim() || 'overview';
+  const query = { ...route.query, tab: nextTab };
+  if (nextTab !== 'phi') delete query.documentId;
+  if (nextTab !== 'medical-record') delete query.encounterId;
+  const sameTab = String(route.query?.tab || '') === nextTab;
+  const sameDoc = !route.query?.documentId;
+  const sameEnc = !route.query?.encounterId;
+  if (sameTab && sameDoc && sameEnc) return;
+  router.replace({ query });
+}
+
+function onEncounterChange(encounterId) {
+  const n = Number(encounterId || 0);
+  const query = { ...route.query, tab: 'medical-record' };
+  if (n > 0) query.encounterId = String(n);
+  else delete query.encounterId;
+  if (
+    String(route.query?.tab || '') === 'medical-record'
+    && String(route.query?.encounterId || '') === String(query.encounterId || '')
+  ) {
+    return;
+  }
+  router.replace({ query });
+}
+
 function goBack() {
   const orgSlug = String(route.params?.organizationSlug || '').trim();
   const back = orgSlug ? `/${orgSlug}/admin/clients` : '/admin/clients';
@@ -94,9 +128,7 @@ watch(clientId, (id, prev) => {
   background: var(--bg-page, #f8fafc);
 }
 .cpv-breadcrumb {
-  padding: 14px 20px 0;
-  max-width: 1120px;
-  margin: 0 auto;
+  padding: 14px 24px 0;
 }
 .cpv-back-btn {
   background: none;
@@ -118,14 +150,10 @@ watch(clientId, (id, prev) => {
   padding: 40px 24px;
   color: var(--text-secondary, #64748b);
   font-size: 0.9rem;
-  max-width: 1120px;
-  margin: 0 auto;
 }
 .cpv-error {
   padding: 24px;
   color: #b91c1c;
   font-size: 0.9rem;
-  max-width: 1120px;
-  margin: 0 auto;
 }
 </style>

@@ -1,0 +1,411 @@
+/* Medical record + billing import tabs — master-detail & dashboard layouts */
+
+.cc-enc-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cc-enc-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cc-enc-toolbar__meta h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--cc-secondary, var(--secondary, #1d2633));
+}
+
+.cc-enc-toolbar__meta p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+}
+
+/* ── KPI row (billing) ── */
+.cc-enc-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.cc-enc-kpi {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--cc-card, #fff);
+  border: 1px solid color-mix(in srgb, var(--cc-accent, var(--accent)) 14%, var(--cc-border, #e2e8f0));
+}
+
+.cc-enc-kpi__label {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 6px;
+}
+
+.cc-enc-kpi__value {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--cc-secondary, var(--secondary, #1d2633));
+  line-height: 1.2;
+}
+
+.cc-enc-kpi__value--warn {
+  color: #b45309;
+}
+
+.cc-enc-kpi__value--ok {
+  color: #15803d;
+}
+
+/* ── Master-detail (medical record) ── */
+.cc-enc-master-detail {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  min-height: 420px;
+}
+
+@media (max-width: 900px) {
+  .cc-enc-master-detail {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cc-enc-list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--cc-card, #fff);
+  border: 1px solid color-mix(in srgb, var(--cc-accent, var(--accent)) 14%, var(--cc-border, #e2e8f0));
+  max-height: 560px;
+}
+
+.cc-enc-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cc-enc-filter-pill {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--cc-border, #e2e8f0);
+  background: #fff;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+}
+
+.cc-enc-filter-pill--active {
+  background: color-mix(in srgb, var(--primary) 14%, white);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--cc-border, #e2e8f0));
+  color: var(--cc-secondary, var(--secondary, #1d2633));
+}
+
+.cc-enc-search {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--cc-border, #e2e8f0);
+  font-size: 13px;
+}
+
+.cc-enc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.cc-enc-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.cc-enc-list-item:hover {
+  background: color-mix(in srgb, var(--primary) 6%, white);
+}
+
+.cc-enc-list-item--active {
+  background: color-mix(in srgb, var(--primary) 12%, white);
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--cc-border, #e2e8f0));
+}
+
+.cc-enc-list-item__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cc-enc-list-item__date {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--cc-secondary, var(--secondary, #1d2633));
+}
+
+.cc-enc-list-item__meta {
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+}
+
+.cc-enc-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--cc-card, #fff);
+  border: 1px solid color-mix(in srgb, var(--cc-accent, var(--accent)) 14%, var(--cc-border, #e2e8f0));
+  min-height: 320px;
+}
+
+.cc-enc-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cc-enc-detail-head h4 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--cc-secondary, var(--secondary, #1d2633));
+}
+
+.cc-enc-detail-subtabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--cc-border, #e2e8f0);
+  padding-bottom: 8px;
+}
+
+.cc-enc-detail-subtab {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+}
+
+.cc-enc-detail-subtab--active {
+  background: color-mix(in srgb, var(--primary) 12%, white);
+  color: var(--cc-secondary, var(--secondary, #1d2633));
+}
+
+.cc-enc-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.cc-enc-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px 16px;
+}
+
+.cc-enc-field__label {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 4px;
+}
+
+.cc-enc-field__value {
+  font-weight: 650;
+  color: var(--cc-secondary, var(--secondary, #1d2633));
+}
+
+/* ── Billing dashboard layout ── */
+.cc-enc-billing-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 280px);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .cc-enc-billing-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cc-enc-claims-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--cc-accent, var(--accent)) 14%, var(--cc-border, #e2e8f0));
+  background: var(--cc-card, #fff);
+}
+
+.cc-enc-claims-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.cc-enc-claims-table th,
+.cc-enc-claims-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--cc-border, #e2e8f0);
+  text-align: left;
+  vertical-align: top;
+}
+
+.cc-enc-claims-table th.num,
+.cc-enc-claims-table td.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cc-enc-claims-table thead th {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+  background: color-mix(in srgb, var(--cc-accent, var(--accent)) 5%, white);
+}
+
+.cc-enc-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cc-enc-sidebar-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--cc-card, #fff);
+  border: 1px solid color-mix(in srgb, var(--cc-accent, var(--accent)) 14%, var(--cc-border, #e2e8f0));
+}
+
+.cc-enc-sidebar-card h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+}
+
+.cc-enc-sidebar-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.cc-enc-sidebar-row__label {
+  color: var(--text-secondary, #64748b);
+}
+
+.cc-enc-sidebar-row__value {
+  font-weight: 700;
+  text-align: right;
+  color: var(--cc-secondary, var(--secondary, #1d2633));
+}
+
+.cc-enc-tool-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cc-enc-tool-link {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--cc-border, #e2e8f0);
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--primary);
+  text-decoration: none;
+  background: #fff;
+}
+
+.cc-enc-tool-link:hover {
+  background: color-mix(in srgb, var(--primary) 8%, white);
+}
+
+.cc-enc-payment-line {
+  font-size: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--cc-border, #e2e8f0);
+}
+
+.cc-enc-payment-line:last-child {
+  border-bottom: none;
+}
+
+/* ── Shared pills ── */
+.cc-enc-note-pill,
+.cc-enc-claim-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.cc-enc-note-pill--none { background: #f1f5f9; color: #64748b; }
+.cc-enc-note-pill--draft { background: #fef3c7; color: #92400e; }
+.cc-enc-note-pill--signed { background: #dcfce7; color: #166534; }
+
+.cc-enc-claim-pill--paid { background: #dcfce7; color: #166534; }
+.cc-enc-claim-pill--processed { background: #dbeafe; color: #1e40af; }
+.cc-enc-claim-pill--partial { background: #fef3c7; color: #92400e; }
+.cc-enc-claim-pill--patient_owed { background: #fee2e2; color: #991b1b; }
+.cc-enc-claim-pill--submitted { background: #f1f5f9; color: #475569; }
+
+.cc-enc-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.cc-enc-empty {
+  border: 1px dashed var(--cc-border, #e2e8f0);
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary, #64748b);
+  font-size: 13px;
+}
+
+.cc-enc-error {
+  color: #b91c1c;
+  font-size: 13px;
+}

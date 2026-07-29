@@ -39,7 +39,7 @@ async function loadAgencyBranding(agencyId) {
 
 async function assertClientInAgency({ clientId, agencyId }) {
   const [rows] = await pool.execute(
-    `SELECT id, agency_id, first_name, last_name, full_name
+    `SELECT id, agency_id, initials, full_name, identifier_code
      FROM clients WHERE id = ? LIMIT 1`,
     [Number(clientId)]
   );

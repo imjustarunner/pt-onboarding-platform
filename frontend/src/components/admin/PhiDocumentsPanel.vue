@@ -1,8 +1,15 @@
 <template>
-  <div class="panel">
-    <div class="header">
+  <div class="panel" :class="{ 'panel--embedded': embedded }">
+    <div v-if="!embedded" class="header">
       <h3>Documentation (PHI)</h3>
       <p class="hint">Opening documentation requires confirmation and will be audited.</p>
+    </div>
+
+    <div v-if="showFilesSection">
+      <div v-if="embedded" class="embedded-section-head">
+        <h4 class="embedded-section-title">Files (optional)</h4>
+        <p class="hint">Upload a PDF or image only when you need a stored copy.</p>
+      </div>
 
       <div v-if="canUpload" class="attach-panel">
         <div class="attach-panel-head">
@@ -61,13 +68,12 @@
           </div>
         </div>
       </div>
-    </div>
 
-    <div v-if="loading" class="loading">Loading…</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else-if="docs.length === 0" class="empty">No packets found.</div>
+      <div v-if="loading" class="loading">Loading…</div>
+      <div v-else-if="error" class="error">{{ error }}</div>
+      <div v-else-if="docs.length === 0" class="empty">No packets found.</div>
 
-    <div v-else class="table-wrap">
+      <div v-else class="table-wrap">
       <table class="table">
         <thead>
           <tr>
@@ -130,8 +136,12 @@
         </tbody>
       </table>
     </div>
+    </div>
 
-    <div class="intake-panel">
+    <div v-if="showIntakeSection" class="intake-panel">
+      <div v-if="embedded" class="embedded-section-head">
+        <h4 class="embedded-section-title">Intake responses</h4>
+      </div>
       <div class="intake-header">
         <h4>Intake Responses</h4>
         <div v-if="intakeLoading" class="muted">Loading…</div>
@@ -193,8 +203,10 @@
       </div>
     </div>
 
-    <div v-if="auditError" class="error">{{ auditError }}</div>
-    <div v-else-if="auditStatements.length" class="audit-panel">
+    <div v-if="showAuditSection && auditStatements.length" class="audit-panel">
+      <div v-if="embedded" class="embedded-section-head">
+        <h4 class="embedded-section-title">Document audit trail</h4>
+      </div>
       <div class="audit-title">Document audit statements</div>
       <div class="audit-list">
         <div v-for="s in auditStatements" :key="s.documentId" class="audit-item">
@@ -212,8 +224,12 @@
         </div>
       </div>
     </div>
+    <div v-if="showAuditSection && auditError" class="error">{{ auditError }}</div>
 
-    <div class="ocr-panel">
+    <div v-if="showOcrSection" class="ocr-panel">
+      <div v-if="embedded" class="embedded-section-head">
+        <h4 class="embedded-section-title">Extracted text (OCR)</h4>
+      </div>
       <div class="ocr-header">
         <h4>Extracted Text</h4>
         <div v-if="ocrLoading" class="muted">Loading…</div>
@@ -299,8 +315,28 @@ import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   clientId: { type: Number, required: true },
-  highlightDocumentId: { type: Number, default: null }
+  highlightDocumentId: { type: Number, default: null },
+  /** all | files | intake | audit | ocr */
+  section: { type: String, default: 'all' },
+  embedded: { type: Boolean, default: false }
 });
+
+const emit = defineEmits(['docs-loaded']);
+
+const showFilesSection = computed(() => ['all', 'files'].includes(String(props.section || 'all')));
+const showIntakeSection = computed(() => ['all', 'intake'].includes(String(props.section || 'all')));
+const showAuditSection = computed(() => ['all', 'audit'].includes(String(props.section || 'all')));
+const showOcrSection = computed(() => ['all', 'ocr'].includes(String(props.section || 'all')));
+
+function emitDocsLoaded() {
+  const activeDocs = (docs.value || []).filter((d) => !d?.removed_at);
+  emit('docs-loaded', {
+    fileCount: activeDocs.length,
+    intakeCount: (intakeSubmissions.value || []).length,
+    ocrCount: (ocrRequests.value || []).length,
+    latestUploadAt: activeDocs[0]?.uploaded_at || null
+  });
+}
 
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
@@ -407,6 +443,7 @@ const reloadIntakeResponses = async () => {
 
 const reload = async () => {
   await Promise.all([reloadDocs(), reloadOcr(), reloadAudit(), reloadIntakeResponses()]);
+  emitDocsLoaded();
 };
 
 const closeConfirmModal = () => {
@@ -711,6 +748,18 @@ watch(
 <style scoped>
 .panel {
   padding: 8px 0;
+}
+.panel--embedded {
+  padding: 0;
+}
+.embedded-section-head {
+  margin-bottom: 10px;
+}
+.embedded-section-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--cc-secondary, var(--secondary, #1d2633));
 }
 .attach-panel {
   margin-top: 10px;

@@ -78,7 +78,8 @@ class Client {
       cleared_to_start,
       client_type = 'basic_nonclinical',
       client_type_transitioned_at = null,
-      client_type_transitioned_by_user_id = null
+      client_type_transitioned_by_user_id = null,
+      date_of_birth = undefined
     } = clientData;
 
     // Build insert dynamically so older DBs won't break if a column doesn't exist yet.
@@ -130,7 +131,8 @@ class Client {
       ['cleared_to_start', cleared_to_start !== undefined ? (cleared_to_start ? 1 : 0) : undefined],
       ['client_type', client_type],
       ['client_type_transitioned_at', client_type_transitioned_at],
-      ['client_type_transitioned_by_user_id', client_type_transitioned_by_user_id]
+      ['client_type_transitioned_by_user_id', client_type_transitioned_by_user_id],
+      ['date_of_birth', date_of_birth]
     ];
 
     for (const [col, val] of optional) {
@@ -510,7 +512,8 @@ class Client {
       'termination_reason',
       'terminated_at',
       'terminated_by_user_id',
-      'last_returning_match_submission_id'
+      'last_returning_match_submission_id',
+      'date_of_birth'
     ];
 
     for (const field of allowedFields) {

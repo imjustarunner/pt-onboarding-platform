@@ -679,8 +679,8 @@ const computeFiscalYearStartYmd = (d) => {
   if (Number.isNaN(dt.getTime())) return '';
   const y = dt.getFullYear();
   const m = dt.getMonth() + 1;
-  const startYear = m >= 7 ? y : (y - 1);
-  return `${startYear}-07-01`;
+  const startYear = m >= 8 ? y : (y - 1);
+  return `${startYear}-08-01`;
 };
 
 const loadPsychotherapyCompliance = async () => {
@@ -699,25 +699,14 @@ const loadPsychotherapyCompliance = async () => {
     const aff = await api.get(`/school-portal/${props.schoolOrganizationId}/affiliation`);
     const agencyId = aff.data?.active_agency_id ? Number(aff.data.active_agency_id) : null;
     if (!agencyId) return;
-    const r = await api.get('/psychotherapy-compliance/summary', {
+    const r = await api.get('/billing-reports/session-totals', {
       params: {
         agencyId,
         fiscalYearStart: psychotherapyFiscalYearStart.value,
         providerUserId: Number(props.providerUserId)
       }
     });
-    const matched = Array.isArray(r.data?.matched) ? r.data.matched : [];
-    const m = {};
-    for (const row of matched) {
-      if (!row?.client_id) continue;
-      m[String(row.client_id)] = {
-        total: Number(row?.total || 0),
-        per_code: row?.per_code || {},
-        client_abbrev: row?.client_abbrev || null,
-        surpassed_24: !!row?.surpassed_24
-      };
-    }
-    psychotherapyTotalsByClientId.value = m;
+    psychotherapyTotalsByClientId.value = r.data?.byClientId || {};
   } catch (e) {
     // Non-blocking: if the agency context isn't available or access is denied, don't break the profile.
     psychotherapyError.value = e?.response?.data?.error?.message || '';

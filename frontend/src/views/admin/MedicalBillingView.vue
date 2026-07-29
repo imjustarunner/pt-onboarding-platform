@@ -34,12 +34,24 @@
           <button type="button" class="mb-btn" @click="loadChart">Load chart</button>
         </div>
         <div v-if="chart" class="mb-chart">
-          <p><strong>Notes:</strong> {{ chart.notes?.length || 0 }} · <strong>Plans:</strong> {{ chart.plans?.length || 0 }} · <strong>Diagnoses:</strong> {{ chart.diagnoses?.length || 0 }} · <strong>Encounters:</strong> {{ chart.sessions?.length || 0 }}</p>
+          <p>
+            <strong>Notes:</strong> {{ chart.notes?.length || 0 }}
+            · <strong>Plans:</strong> {{ chart.plans?.length || 0 }}
+            · <strong>Diagnoses:</strong> {{ chart.diagnoses?.length || 0 }}
+            · <strong>Schedule encounters:</strong> {{ chart.sessions?.length || 0 }}
+            · <strong>Billing encounters:</strong> {{ chart.billingEncounters?.length || 0 }}
+          </p>
           <ul class="mb-list">
             <li v-for="n in (chart.notes || []).slice(0, 8)" :key="'n'+n.id">
               Note #{{ n.id }} {{ n.title }}
               <span v-if="n.provider_signed_at"> · signed</span>
               <span v-if="n.supervisor_cosigned_at"> · cosigned</span>
+            </li>
+          </ul>
+          <ul v-if="(chart.billingEncounters || []).length" class="mb-list">
+            <li v-for="be in (chart.billingEncounters || []).slice(0, 12)" :key="'be'+be.id">
+              Billing #{{ be.id }} · {{ (be.service_date || '').toString().slice(0, 10) }}
+              · {{ be.service_code || '—' }} · POS {{ be.place_of_service || '—' }}
             </li>
           </ul>
         </div>

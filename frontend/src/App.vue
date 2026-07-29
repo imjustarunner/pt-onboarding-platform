@@ -858,6 +858,7 @@
                         </template>
                       </div>
                     </div>
+                    <router-link :to="orgTo('/admin/billing-reports')" v-if="canSeePayrollManagement" >Billing Reports</router-link>
                     <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" >Receivables</router-link>
                     <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" >Learning Billing</router-link>
                     <router-link :to="orgTo('/admin/medical-billing')" v-if="canSeeMedicalBilling" >Medical Billing</router-link>
@@ -1918,6 +1919,7 @@
                   >
                     Pending Submissions ({{ payrollPendingCount }})
                   </router-link>
+                  <router-link :to="orgTo('/admin/billing-reports')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Billing Reports</router-link>
                   <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Receivables</router-link>
                   <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Learning Billing</router-link>
                   <router-link :to="orgTo('/admin/medical-billing')" v-if="canSeeMedicalBilling" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Medical Billing</router-link>

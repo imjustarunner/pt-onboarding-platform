@@ -184,7 +184,7 @@
               role="button"
               tabindex="0"
             >
-              Psychotherapy FY
+              Sessions FY
               <span class="sort-indicator" v-if="sortKey === 'psychotherapy_total'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
             <th></th>
@@ -619,6 +619,11 @@ const props = defineProps({
     type: Object,
     default: null
   },
+  /** When true, hide clients with client_status_key === terminated */
+  hideTerminated: {
+    type: Boolean,
+    default: false
+  },
   /** Display name for the current school/program (shown instead of Assigned Provider). */
   organizationName: {
     type: String,
@@ -655,10 +660,15 @@ const props = defineProps({
   skillBuildersOnly: {
     type: Boolean,
     default: false
+  },
+  /** school-chat (default) opens SchoolClientChatModal; detail-panel emits open-profile for parent overlay. */
+  clientOpenMode: {
+    type: String,
+    default: 'school-chat'
   }
 });
 
-const emit = defineEmits(['edit-client', 'update:statusFilterKey', 'update:needsAttentionCount', 'open-availability-request']);
+const emit = defineEmits(['edit-client', 'update:statusFilterKey', 'update:needsAttentionCount', 'open-availability-request', 'open-profile']);
 
 const clients = ref([]);
 const loading = ref(false);
@@ -1336,7 +1346,10 @@ const activeStatusFilterLabel = computed(() => {
 });
 
 const statusFilteredClients = computed(() => {
-  const list = Array.isArray(clients.value) ? clients.value : [];
+  let list = Array.isArray(clients.value) ? clients.value : [];
+  if (props.hideTerminated) {
+    list = list.filter((c) => normalize(c?.client_status_key) !== 'terminated');
+  }
   if (attentionFilterActive.value) {
     return list.filter((c) => isNewlyAssigned(c) || c?.compliance_pending || Number(c?.open_ticket_count || 0) > 0);
   }
@@ -1644,15 +1657,16 @@ const psychotherapyCell = (client) => {
   const m = props.psychotherapyTotalsByClientId || null;
   if (!m || !client?.id) return { total: null, title: '' };
   const rec = m?.[String(client.id)] || m?.[Number(client.id)] || null;
-  if (!rec) return { total: 0, title: '' };
+  // Missing map entry → em dash (not fake zero)
+  if (!rec) return { total: null, title: '' };
   const per = rec?.per_code && typeof rec.per_code === 'object' ? rec.per_code : {};
   const parts = Object.entries(per)
     .filter(([, v]) => Number(v) > 0)
     .sort(([a], [b]) => String(a).localeCompare(String(b)))
     .map(([code, count]) => `${String(code).toUpperCase()} (${Number(count)})`);
   const total = Number(rec?.total ?? 0);
-  const title = parts.length ? `${parts.join('\n')}\nTotal (${total})` : '';
-  return { total: Number.isFinite(total) ? total : 0, title };
+  const title = parts.length ? `${parts.join('\n')}\nTotal (${total})` : `Total (${total})`;
+  return { total: Number.isFinite(total) ? total : null, title };
 };
 
 const updateClientCounts = (clientId, nextCounts) => {
@@ -1692,6 +1706,10 @@ const onClientUpdatedFromModal = (payload) => {
 
 const openClient = (client, initialPane = null) => {
   if (!canOpenSchoolClient(client)) return;
+  if (props.clientOpenMode === 'detail-panel') {
+    emit('open-profile', client);
+    return;
+  }
   selectedClient.value = client;
   selectedClientInitialPane.value = initialPane;
   if (initialPane === 'comments') {

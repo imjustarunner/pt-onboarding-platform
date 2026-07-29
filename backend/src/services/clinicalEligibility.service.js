@@ -2,6 +2,8 @@ import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import pool from '../config/database.js';
+import { getMedicalBillingFlags, parseFeatureFlags } from './medicalBillingFlags.service.js';
 
 const BACKOFFICE_ROLES = new Set(['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus']);
 
@@ -11,12 +13,20 @@ class ClinicalEligibilityService {
    */
   static async assertAgencyHasClinicalOrg(agencyId) {
     const has = await OrganizationAffiliation.agencyHasClinicalOrg(agencyId);
-    if (!has) {
-      const err = new Error('Clinical notes and billing are only available for agencies with a clinical organization attached');
-      err.status = 403;
-      throw err;
+    if (has) return true;
+
+    try {
+      const [rows] = await pool.execute(`SELECT feature_flags FROM agencies WHERE id = ? LIMIT 1`, [agencyId]);
+      if (getMedicalBillingFlags(parseFeatureFlags(rows?.[0]?.feature_flags)).medicalBillingEnabled) {
+        return true;
+      }
+    } catch {
+      // fall through
     }
-    return true;
+
+    const err = new Error('Clinical notes and billing are only available for agencies with a clinical organization attached');
+    err.status = 403;
+    throw err;
   }
   static isBackoffice(role) {
     return BACKOFFICE_ROLES.has(String(role || '').toLowerCase());
@@ -65,6 +75,38 @@ class ClinicalEligibilityService {
     }
 
     return { client, event };
+  }
+
+  static async assertSessionNoteEligible(session) {
+    if (!session) {
+      const err = new Error('Clinical session not found');
+      err.status = 404;
+      throw err;
+    }
+    const client = await Client.findById(session.client_id);
+    if (!client || Number(client.agency_id) !== Number(session.agency_id)) {
+      const err = new Error('Client not found for agency');
+      err.status = 404;
+      throw err;
+    }
+    if (String(client.client_type || '').toLowerCase() !== 'clinical') {
+      const err = new Error('Clinical data plane only supports clinical client type');
+      err.status = 409;
+      throw err;
+    }
+    if (Number(session.billing_encounter_id || 0) > 0) {
+      return { client, event: null, billingBacked: true };
+    }
+    if (!session.office_event_id) {
+      const err = new Error('Clinical session is not linked to a calendar appointment or billing encounter');
+      err.status = 409;
+      throw err;
+    }
+    return this.assertBookedClinicalSession({
+      agencyId: session.agency_id,
+      clientId: session.client_id,
+      officeEventId: session.office_event_id
+    });
   }
 }
 

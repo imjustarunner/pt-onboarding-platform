@@ -538,7 +538,6 @@
                           </div>
                           <div class="pyu__sched-action-btns">
                             <button
-                              v-if="props.mode !== 'token'"
                               type="button"
                               class="btn btn-secondary btn-sm"
                               :disabled="isFinalized"
@@ -547,7 +546,6 @@
                               Edit
                             </button>
                             <button
-                              v-if="props.mode !== 'token'"
                               type="button"
                               class="btn btn-secondary btn-sm"
                               :disabled="isFinalized || saving"
@@ -559,7 +557,7 @@
                         </div>
                       </template>
                       <button
-                        v-else-if="props.mode !== 'token'"
+                        v-else
                         type="button"
                         class="btn btn-secondary btn-sm"
                         :disabled="isFinalized"
@@ -573,7 +571,7 @@
               </table>
             </div>
 
-            <div v-if="adjustTarget && props.mode !== 'token'" class="pyu__adjust-box">
+            <div v-if="adjustTarget" class="pyu__adjust-box">
               <h3>
                 {{ adjustTarget.existingRequestId ? 'Edit' : 'Adjust' }}
                 {{ adjustTarget.day.dayOfWeek }} at {{ adjustTarget.school.schoolName }}
@@ -611,9 +609,10 @@
 
             <div class="pyu__avail">
               <h3>Request additional school days</h3>
-              <p class="muted tiny">Additional school hours requests require signing in to My Dashboard.</p>
+              <p class="muted tiny">
+                Open the form below to request more weekday hours at a school. Staff will review and assign you when appropriate.
+              </p>
               <button
-                v-if="props.mode !== 'token'"
                 type="button"
                 class="btn btn-secondary"
                 :disabled="isFinalized"
@@ -622,9 +621,10 @@
                 {{ showAvailability ? 'Hide availability form' : 'Open additional school availability' }}
               </button>
               <AdditionalAvailabilitySubmit
-                v-if="showAvailability && props.mode !== 'token'"
+                v-if="showAvailability"
                 class="pyu__avail-embed"
                 :agency-id="resolvedAgencyId"
+                :pyu-token="props.mode === 'token' ? props.token : ''"
                 school-only
               />
             </div>
@@ -1736,9 +1736,17 @@ async function withdrawScheduleAdjustment(adj) {
   saving.value = true;
   actionError.value = '';
   try {
-    await api.post(`/availability/me/school-requests/${adj.id}/withdraw`, {
-      agencyId: resolvedAgencyId.value,
-    });
+    if (props.mode === 'token' && props.token) {
+      await api.post(
+        `/public/provider-year-update/${encodeURIComponent(props.token)}/availability/me/school-requests/${adj.id}/withdraw`,
+        { agencyId: resolvedAgencyId.value },
+        { skipGlobalLoading: true }
+      );
+    } else {
+      await api.post(`/availability/me/school-requests/${adj.id}/withdraw`, {
+        agencyId: resolvedAgencyId.value,
+      });
+    }
     if (adjustTarget.value?.existingRequestId === adj.id) {
       adjustTarget.value = null;
     }
@@ -1788,21 +1796,27 @@ async function submitScheduleAdjust() {
     ]
       .filter(Boolean)
       .join(' | ');
-    await api.post('/availability/school-requests', {
-      agencyId: resolvedAgencyId.value,
-      requestKind: 'schedule_adjustment',
-      preferredSchoolOrgIds: [school.schoolOrganizationId],
-      replaceRequestId: adjustTarget.value.existingRequestId || undefined,
-      notes: note,
-      blocks: [
-        {
-          dayOfWeek: day.dayOfWeek,
-          startTime: adjustForm.startTime,
-          endTime: adjustForm.endTime,
-          schoolOrganizationId: school.schoolOrganizationId,
-        },
-      ],
-    });
+    await api.post(
+      props.mode === 'token' && props.token
+        ? `/public/provider-year-update/${encodeURIComponent(props.token)}/availability/school-requests`
+        : '/availability/school-requests',
+      {
+        agencyId: resolvedAgencyId.value,
+        requestKind: 'schedule_adjustment',
+        preferredSchoolOrgIds: [school.schoolOrganizationId],
+        replaceRequestId: adjustTarget.value.existingRequestId || undefined,
+        notes: note,
+        blocks: [
+          {
+            dayOfWeek: day.dayOfWeek,
+            startTime: adjustForm.startTime,
+            endTime: adjustForm.endTime,
+            schoolOrganizationId: school.schoolOrganizationId,
+          },
+        ],
+      },
+      props.mode === 'token' && props.token ? { skipGlobalLoading: true } : undefined
+    );
     saveFlash.value = adjustTarget.value.existingRequestId
       ? 'Adjustment updated — thank you.'
       : 'Adjustment submitted — thank you.';

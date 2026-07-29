@@ -242,6 +242,14 @@ const props = defineProps({
   agencyId: { type: Number, required: true },
   /** When true, only the school hours form is shown (used in Provider Year Update). */
   schoolOnly: { type: Boolean, default: false },
+  /** Magic-link PYU token — uses public availability proxy routes when set. */
+  pyuToken: { type: String, default: '' },
+});
+
+const availabilityApiBase = computed(() => {
+  const token = String(props.pyuToken || '').trim();
+  if (token) return `/public/provider-year-update/${encodeURIComponent(token)}/availability`;
+  return '/availability';
 });
 
 const showOfficeSection = computed(
@@ -474,7 +482,9 @@ const withdrawRequests = async () => {
   try {
     saving.value = true;
     error.value = '';
-    await api.post('/availability/me/requests/unrequest-all', { agencyId: props.agencyId });
+    await api.post(`${availabilityApiBase.value}/me/requests/unrequest-all`, {
+      agencyId: props.agencyId,
+    });
     await refresh();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to withdraw request';
@@ -488,7 +498,10 @@ const refresh = async () => {
     loading.value = true;
     error.value = '';
 
-    const pendingResp = await api.get('/availability/me/pending', { params: { agencyId: props.agencyId } });
+    const pendingResp = await api.get(`${availabilityApiBase.value}/me/pending`, {
+      params: { agencyId: props.agencyId },
+      ...(props.pyuToken ? { skipGlobalLoading: true } : {}),
+    });
     let officesResp = { data: [] };
     if (showOfficeSection.value) {
       officesResp = await api.get('/offices');
@@ -546,12 +559,12 @@ const submitSchool = async () => {
   try {
     saving.value = true;
     error.value = '';
-    await api.post('/availability/school-requests', {
+    await api.post(`${availabilityApiBase.value}/school-requests`, {
       agencyId: props.agencyId,
       requestKind: 'additional_hours',
       notes: schoolForm.notes,
-      blocks: schoolForm.blocks.map((b) => ({ dayOfWeek: b.dayOfWeek, startTime: b.startTime, endTime: b.endTime }))
-    });
+      blocks: schoolForm.blocks.map((b) => ({ dayOfWeek: b.dayOfWeek, startTime: b.startTime, endTime: b.endTime })),
+    }, props.pyuToken ? { skipGlobalLoading: true } : undefined);
     await refresh();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to submit school availability';

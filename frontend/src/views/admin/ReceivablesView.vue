@@ -2,7 +2,10 @@
   <div>
     <div class="card" style="margin-bottom: 12px;">
       <h2 class="card-title">Billing / Claims (Receivables)</h2>
-      <div class="hint">Upload billing reports to track outstanding balances and create draft invoice tasks.</div>
+      <div class="hint">
+        Outstanding balances from Billing Report Import (patient owed and insurance owed are tracked separately).
+        You can still upload a legacy receivables file below if needed.
+      </div>
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
@@ -191,7 +194,8 @@
                           <th>Paid</th>
                           <th class="right">Reimbursed %</th>
                           <th>Status</th>
-                          <th class="right">Outstanding</th>
+                          <th class="right">Patient owed</th>
+                          <th class="right">Insurance owed</th>
                           <th style="width: 420px;">Actions</th>
                         </tr>
                       </thead>
@@ -221,6 +225,7 @@
                           </td>
                           <td>{{ r.patient_balance_status || '—' }}</td>
                           <td class="right"><strong>{{ fmtMoney(r.patient_outstanding_amount) }}</strong></td>
+                          <td class="right"><strong>{{ fmtMoney(r.insurance_outstanding_amount) }}</strong></td>
                           <td>
                             <div class="actions" style="margin:0;">
                               <button class="btn btn-secondary btn-sm" type="button" :disabled="managingRowId === r.id" @click="setManagedStatus(r, 'managed')">Managed</button>
@@ -266,7 +271,8 @@
               <th>Payer</th>
               <th class="right">Responsibility</th>
               <th class="right">Paid</th>
-              <th class="right">Outstanding</th>
+              <th class="right">Patient owed</th>
+              <th class="right">Insurance owed</th>
               <th>Status</th>
               <th style="width: 420px;">Actions</th>
             </tr>
@@ -302,6 +308,7 @@
               <td class="right">{{ fmtMoney(r.patient_responsibility_amount) }}</td>
               <td class="right">{{ fmtMoney(r.patient_amount_paid) }}</td>
               <td class="right"><strong>{{ fmtMoney(r.patient_outstanding_amount) }}</strong></td>
+              <td class="right"><strong>{{ fmtMoney(r.insurance_outstanding_amount) }}</strong></td>
               <td>{{ r.patient_balance_status || '—' }}</td>
               <td>
                 <div class="actions" style="margin:0;">

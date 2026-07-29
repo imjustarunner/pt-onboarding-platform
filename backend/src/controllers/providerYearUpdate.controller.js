@@ -5,10 +5,44 @@ import * as S from '../services/providerYearUpdate.service.js';
 import * as SchoolNeeds from '../services/providerYearUpdateSchoolNeeds.service.js';
 import { saveProviderLicenseUpload } from '../services/licenseCredentialSync.service.js';
 import { setClientAssignedDay } from './schoolSoftSchedule.controller.js';
+import {
+  createMySchoolAvailabilityRequest,
+  getMyAvailabilityPending,
+  unrequestAllMyAvailabilityRequests,
+  withdrawMySchoolAvailabilityRequest,
+} from './availability.controller.js';
 
 function safeInt(v) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+}
+
+/** Validate PYU token and impersonate the linked provider for availability APIs. */
+async function prepareTokenProviderContext(req, res) {
+  const { valid, reason, row } = await S.validateToken(req.params.token);
+  if (!valid && reason !== 'expired') {
+    if (!row || row.cycle_status !== 'finalized') {
+      res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+      return null;
+    }
+  }
+  if (!row) {
+    res.status(404).json({ error: { message: 'Invalid link' } });
+    return null;
+  }
+  const cycle = await S.getCycleById(row.cycle_id);
+  if (cycle.status === 'finalized' || row.locked_at) {
+    res.status(400).json({ error: { message: 'This Year Update is locked' } });
+    return null;
+  }
+  const providerUserId = Number(row.provider_user_id);
+  const agencyId = Number(row.agency_id);
+  req.user = { id: providerUserId, role: 'provider' };
+  if (!req.body || typeof req.body !== 'object') req.body = {};
+  req.body.agencyId = agencyId;
+  if (!req.query || typeof req.query !== 'object') req.query = {};
+  req.query.agencyId = String(agencyId);
+  return { row, cycle, providerUserId, agencyId };
 }
 
 /** Soft-attach req.user from Bearer/cookie when present (public routes skip authenticate). */
@@ -743,6 +777,50 @@ export async function uploadPublicLicense(req, res, next) {
     if (e?.status === 400) {
       return res.status(400).json({ error: { message: e.message } });
     }
+    next(e);
+  }
+}
+
+/** GET /api/public/provider-year-update/:token/availability/me/pending */
+export async function getAvailabilityPendingByToken(req, res, next) {
+  try {
+    const ctx = await prepareTokenProviderContext(req, res);
+    if (!ctx) return;
+    return getMyAvailabilityPending(req, res, next);
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/public/provider-year-update/:token/availability/school-requests */
+export async function createSchoolAvailabilityByToken(req, res, next) {
+  try {
+    const ctx = await prepareTokenProviderContext(req, res);
+    if (!ctx) return;
+    return createMySchoolAvailabilityRequest(req, res, next);
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/public/provider-year-update/:token/availability/me/school-requests/:id/withdraw */
+export async function withdrawSchoolAvailabilityByToken(req, res, next) {
+  try {
+    const ctx = await prepareTokenProviderContext(req, res);
+    if (!ctx) return;
+    return withdrawMySchoolAvailabilityRequest(req, res, next);
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/public/provider-year-update/:token/availability/me/requests/unrequest-all */
+export async function unrequestAllAvailabilityByToken(req, res, next) {
+  try {
+    const ctx = await prepareTokenProviderContext(req, res);
+    if (!ctx) return;
+    return unrequestAllMyAvailabilityRequests(req, res, next);
+  } catch (e) {
     next(e);
   }
 }

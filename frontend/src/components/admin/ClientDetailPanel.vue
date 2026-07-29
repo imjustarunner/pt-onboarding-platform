@@ -1,13 +1,20 @@
 <template>
-  <div :class="props.fullPage ? 'cdp-page-shell' : 'modal-overlay'" @click.self="props.fullPage ? undefined : handleClose">
-    <div :class="props.fullPage ? 'cdp-page-body' : 'modal-content large'" @click.stop>
+  <ClientChartShell
+    :full-page="props.fullPage"
+    :tabs="tabs"
+    :active-tab="activeTab"
+    :alert-items="overviewAlertItems"
+    @close="handleClose"
+    @update:active-tab="activeTab = $event"
+    @alert-click="onOverviewAlertClick"
+  >
+    <template #header>
       <div class="modal-header cdp-header">
         <div class="cdp-header-main">
           <div class="cdp-avatar" :style="avatarColor" aria-hidden="true">
             {{ avatarText }}
           </div>
           <div class="cdp-header-info">
-            <div class="cdp-eyebrow">Client profile</div>
             <h2 class="cdp-title">
               <template v-if="canSeeClientFullName && client.full_name">
                 {{ client.full_name }}
@@ -15,11 +22,15 @@
               </template>
               <template v-else>{{ client.initials || '—' }}</template>
             </h2>
+            <div class="cdp-identity-line">
+              <span v-if="client.initials">Initials {{ client.initials }}</span>
+              <span v-if="clientAgeLabel">Age {{ clientAgeLabel }}</span>
+              <span v-if="client.identifier_code" class="mono">ID {{ client.identifier_code }}</span>
+              <span v-else-if="client.id" class="mono">ID {{ client.id }}</span>
+              <span v-if="clientDobLabel">DOB {{ clientDobLabel }}</span>
+              <span v-if="guardianIntakeName">Guardian: {{ guardianIntakeName }}</span>
+            </div>
             <div class="cdp-meta-row">
-              <span class="cdp-pill cdp-pill--type">
-                <span class="cdp-pill__dot"></span>
-                {{ clientTypeLabel }}
-              </span>
               <span
                 class="cdp-pill"
                 :class="statusPillClass"
@@ -27,72 +38,72 @@
               >
                 {{ isClientArchived ? 'Archived' : (client.client_status_label || 'No status') }}
               </span>
-            </div>
-
-            <div v-if="client.organization_name || client.identifier_code" class="cdp-submeta-row">
-              <span v-if="client.organization_name" class="cdp-submeta">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M3 21h18" />
-                  <path d="M5 21V7l7-4 7 4v14" />
-                  <path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01" />
-                </svg>
-                <span>{{ client.organization_name }}</span>
+              <span class="cdp-pill cdp-pill--type">
+                <span class="cdp-pill__dot"></span>
+                {{ clientTypeLabel }}
               </span>
-              <span v-if="client.identifier_code" class="cdp-submeta cdp-submeta--code" :title="`Client code ${client.identifier_code}`">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M7 7h.01M3 12l9 9 9-9-9-9-9 9z" />
-                </svg>
-                <span class="mono">{{ client.identifier_code }}</span>
+              <span v-if="client.organization_name" class="cdp-pill cdp-pill--org">
+                {{ client.organization_name }}
+              </span>
+              <span v-if="primaryInsuranceLabel" class="cdp-pill cdp-pill--success">
+                {{ primaryInsuranceLabel }}
               </span>
             </div>
 
-            <div v-if="canEditClientType" class="cdp-inline-controls">
-              <span class="cdp-inline-controls__label">Update type</span>
-              <select v-model="clientTypeDraft" class="inline-select cdp-inline-select" :disabled="savingClientType">
-                <option v-for="opt in clientTypeOptions" :key="opt.value" :value="opt.value">
-                  {{ opt.label }}
-                </option>
-              </select>
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm cdp-soft-button"
-                :disabled="savingClientType || !clientTypeDraft || clientTypeDraft === effectiveClientType"
-                @click="saveClientType"
-              >
-                {{ savingClientType ? 'Saving…' : 'Save type' }}
-              </button>
-            </div>
-
-            <div v-if="isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote)" class="cdp-inline-controls cdp-inline-controls--muted">
-              <template v-if="switchableAgencies.length > 1">
-                <span class="cdp-inline-controls__label">Agency</span>
-                <select
-                  v-model="selectedAgencyId"
-                  class="inline-select cdp-inline-select"
-                  :disabled="switchingAgency"
-                  @change="onSwitchAgency(true)"
-                >
-                  <option v-for="a in switchableAgencies" :key="a.id" :value="String(a.id)">
-                    {{ a.name }}
+            <details v-if="canEditClientType || (isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote))" class="cdp-admin-details">
+              <summary>Admin settings</summary>
+              <div v-if="canEditClientType" class="cdp-inline-controls">
+                <span class="cdp-inline-controls__label">Client type</span>
+                <select v-model="clientTypeDraft" class="inline-select cdp-inline-select" :disabled="savingClientType">
+                  <option v-for="opt in clientTypeOptions" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
                   </option>
                 </select>
-                <span v-if="switchingAgency" class="muted">Switching…</span>
-              </template>
-              <template v-else-if="clientAgenciesNote">
-                <span class="muted">{{ clientAgenciesNote }}</span>
-              </template>
-            </div>
+                <button
+                  type="button"
+                  class="btn btn-sm cdp-btn-ink"
+                  :disabled="savingClientType || !clientTypeDraft || clientTypeDraft === effectiveClientType"
+                  @click="saveClientType"
+                >
+                  {{ savingClientType ? 'Saving…' : 'Save type' }}
+                </button>
+              </div>
+              <div v-if="isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote)" class="cdp-inline-controls cdp-inline-controls--muted">
+                <template v-if="switchableAgencies.length > 1">
+                  <span class="cdp-inline-controls__label">Agency</span>
+                  <select
+                    v-model="selectedAgencyId"
+                    class="inline-select cdp-inline-select"
+                    :disabled="switchingAgency"
+                    @change="onSwitchAgency(true)"
+                  >
+                    <option v-for="a in switchableAgencies" :key="a.id" :value="String(a.id)">
+                      {{ a.name }}
+                    </option>
+                  </select>
+                  <span v-if="switchingAgency" class="muted">Switching…</span>
+                </template>
+                <template v-else-if="clientAgenciesNote">
+                  <span class="muted">{{ clientAgenciesNote }}</span>
+                </template>
+              </div>
+            </details>
           </div>
         </div>
 
         <div class="cdp-header-actions">
           <button
-            v-if="canOpenClientDirectoryProfile && !props.fullPage"
-            class="btn btn-secondary btn-sm cdp-soft-button"
+            v-if="!props.fullPage && props.client?.id"
+            class="cdp-btn-primary cdp-open-full"
             type="button"
-            @click="openClientDirectoryProfile"
+            @click="openFullClientRecord"
           >
-            Open in Client Directory
+            Open full client record
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
           </button>
           <div v-if="hasClientNavigation" class="cdp-nav-pill">
             <button class="cdp-nav-btn" type="button" :disabled="!canNavigatePrevious" @click="requestNavigate('previous')" aria-label="Previous client">
@@ -106,34 +117,117 @@
           <button v-if="!props.fullPage" @click="handleClose" class="btn-close" aria-label="Close">×</button>
         </div>
       </div>
+    </template>
 
-      <!-- Tab Navigation -->
-      <div class="modal-tabs">
-        <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          @click="activeTab = tab.id"
-          :class="['tab-button', { active: activeTab === tab.id }]"
-        >
-          {{ tab.label }}
-        </button>
-      </div>
-
-      <div class="tab-content">
         <!-- Overview Tab -->
-        <div v-if="activeTab === 'overview'" class="detail-section">
-          <div v-if="canEditAccount" class="form-actions" style="margin-top: 0; margin-bottom: 12px; justify-content: flex-start;">
-            <button v-if="!editingOverview" class="btn btn-secondary" type="button" @click="startEditOverview">
-              Edit client
-            </button>
-            <template v-else>
-              <button class="btn btn-primary" type="button" @click="saveOverview" :disabled="savingOverview">
-                {{ savingOverview ? 'Saving…' : 'Save' }}
+        <div v-if="activeTab === 'overview'" class="detail-section cdp-overview">
+          <div class="cdp-overview-layout">
+            <div class="cdp-overview-main">
+          <div class="cdp-overview-toolbar">
+            <div>
+              <h3 class="cdp-section-title">At a glance</h3>
+            </div>
+            <div v-if="canEditAccount" class="form-actions" style="margin: 0;">
+              <button v-if="!editingOverview" class="cdp-btn-soft" type="button" @click="startEditOverview">
+                Edit client
               </button>
-              <button class="btn btn-secondary" type="button" @click="cancelEditOverview" :disabled="savingOverview">
-                Cancel
+              <template v-else>
+                <button class="cdp-btn-primary" type="button" @click="saveOverview" :disabled="savingOverview">
+                  {{ savingOverview ? 'Saving…' : 'Save' }}
+                </button>
+                <button class="cdp-btn-soft" type="button" @click="cancelEditOverview" :disabled="savingOverview">
+                  Cancel
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <div class="cdp-glance-grid">
+            <article class="cdp-glance-card">
+              <div class="cdp-glance-label">Primary clinician</div>
+              <div class="cdp-glance-value">{{ primaryProviderLabel }}</div>
+              <div class="cdp-glance-meta">{{ client.organization_name || '—' }}</div>
+            </article>
+            <article class="cdp-glance-card">
+              <div class="cdp-glance-label">Program</div>
+              <div class="cdp-glance-value">{{ clientTypeLabel }}</div>
+              <div class="cdp-glance-meta">{{ client.organization_name || 'No organization' }}</div>
+            </article>
+            <article class="cdp-glance-card">
+              <div class="cdp-glance-label">Primary diagnosis</div>
+              <div class="cdp-glance-value mono">{{ primaryDiagnosisLabel }}</div>
+              <button v-if="canViewMedicalRecord" type="button" class="cdp-text-link" @click="activeTab = 'clinical'">
+                View clinical →
               </button>
-            </template>
+            </article>
+            <article class="cdp-glance-card">
+              <div class="cdp-glance-label">Since</div>
+              <div class="cdp-glance-value">{{ client.referral_date ? formatDate(client.referral_date) : (client.submission_date ? formatDate(client.submission_date) : '—') }}</div>
+              <div class="cdp-glance-meta">{{ client.source || '—' }}</div>
+            </article>
+            <article class="cdp-glance-card">
+              <div class="cdp-glance-label">Insurance</div>
+              <div class="cdp-glance-value">{{ primaryInsuranceLabel || 'Not on file' }}</div>
+              <div class="cdp-glance-meta">{{ client.insurance_type_label || '—' }}</div>
+            </article>
+            <article class="cdp-glance-card">
+              <div class="cdp-glance-label">Last session</div>
+              <div class="cdp-glance-value">{{ lastSessionLabel }}</div>
+              <div class="cdp-glance-meta">{{ lastSessionMeta }}</div>
+            </article>
+            <article class="cdp-glance-card">
+              <div class="cdp-glance-label">Sessions on file</div>
+              <div class="cdp-glance-value">{{ sessionCountLabel }}</div>
+              <button v-if="canViewMedicalRecord && sessionCount" type="button" class="cdp-text-link" @click="activeTab = 'medical-record'">
+                View medical record →
+              </button>
+            </article>
+            <article class="cdp-glance-card">
+              <div class="cdp-glance-label">Care team</div>
+              <div class="cdp-glance-value">{{ overviewProviders.length || (client.provider_name ? 1 : 0) }} assigned</div>
+              <button v-if="canEditAccount" type="button" class="cdp-text-link" @click="activeTab = 'assignments'">
+                Manage →
+              </button>
+            </article>
+          </div>
+
+          <div class="cdp-care-section">
+            <h3 class="cdp-section-title">Current care</h3>
+            <div class="cdp-care-grid">
+              <article class="cdp-care-card">
+                <div class="cdp-care-card__title">Status</div>
+                <div class="cdp-care-card__body">{{ isClientArchived ? 'Archived' : (client.client_status_label || '—') }}</div>
+                <div class="cdp-glance-meta">Client type: {{ clientTypeLabel }}</div>
+              </article>
+              <article class="cdp-care-card">
+                <div class="cdp-care-card__title">Clinical</div>
+                <div class="cdp-care-card__body">{{ primaryDiagnosisLabel !== '—' ? primaryDiagnosisLabel : 'No diagnosis on file' }}</div>
+                <button v-if="canViewMedicalRecord" type="button" class="cdp-text-link" @click="activeTab = 'clinical'">
+                  Open clinical →
+                </button>
+              </article>
+              <article class="cdp-care-card">
+                <div class="cdp-care-card__title">Medical record</div>
+                <div class="cdp-care-card__body">Imported sessions &amp; notes</div>
+                <button v-if="canViewMedicalRecord" type="button" class="cdp-text-link" @click="activeTab = 'medical-record'">
+                  Open medical record →
+                </button>
+              </article>
+              <article class="cdp-care-card">
+                <div class="cdp-care-card__title">Documents</div>
+                <div class="cdp-care-card__body">{{ formatDocumentStatus(client.document_status) }}</div>
+                <button type="button" class="cdp-text-link" @click="activeTab = 'phi'">
+                  View documents →
+                </button>
+              </article>
+              <article v-if="canViewClientBillingImport" class="cdp-care-card">
+                <div class="cdp-care-card__title">Billing</div>
+                <div class="cdp-care-card__body">Imported report balances</div>
+                <button type="button" class="cdp-text-link" @click="activeTab = 'client-billing'">
+                  Open billing →
+                </button>
+              </article>
+            </div>
           </div>
 
           <div
@@ -156,6 +250,32 @@
             </div>
           </div>
 
+          <div class="cdp-contacts-section">
+            <h3 class="cdp-section-title">Contacts &amp; relationships</h3>
+            <div class="cdp-contacts-grid">
+              <article class="cdp-contact-card">
+                <div class="cdp-contact-card__role">Guardian</div>
+                <div class="cdp-contact-card__name">{{ guardianIntakeName || 'No contact on file' }}</div>
+                <div class="cdp-glance-meta">{{ guardianIntakeEmail || guardianIntakePhone || '—' }}</div>
+              </article>
+              <article class="cdp-contact-card">
+                <div class="cdp-contact-card__role">Primary clinician</div>
+                <div class="cdp-contact-card__name">{{ primaryProviderLabel }}</div>
+                <div class="cdp-glance-meta">{{ client.organization_name || '—' }}</div>
+              </article>
+              <article class="cdp-contact-card">
+                <div class="cdp-contact-card__role">Organization</div>
+                <div class="cdp-contact-card__name">{{ client.organization_name || '—' }}</div>
+                <div class="cdp-glance-meta">{{ clientTypeLabel }}</div>
+              </article>
+            </div>
+          </div>
+
+          <details class="cdp-profile-details" :open="editingOverview || undefined">
+            <summary>
+              <span>Profile details</span>
+              <span class="cdp-profile-details__hint">Identity, status, education, languages</span>
+            </summary>
           <div class="ov-sections">
 
             <!-- Identity & Profile -->
@@ -669,6 +789,85 @@
               </template>
             </div>
           </div>
+          </details>
+            </div>
+
+            <aside class="cdp-overview-aside">
+              <section class="cdp-aside-card">
+                <h4>Quick actions</h4>
+                <div class="cdp-aside-actions">
+                  <button
+                    v-if="!props.fullPage && props.client?.id"
+                    type="button"
+                    class="cdp-btn-primary"
+                    @click="openFullClientRecord"
+                  >
+                    Open full client record
+                  </button>
+                  <button
+                    v-if="canViewMedicalRecord"
+                    type="button"
+                    class="cdp-btn-soft"
+                    @click="activeTab = 'medical-record'"
+                  >
+                    Start / view note
+                  </button>
+                  <button type="button" class="cdp-btn-soft" @click="activeTab = 'messages'">
+                    Send secure message
+                  </button>
+                  <button type="button" class="cdp-btn-soft" @click="activeTab = 'phi'">
+                    Upload document
+                  </button>
+                  <button
+                    v-if="isClinicalLikeClientType"
+                    type="button"
+                    class="cdp-btn-soft"
+                    @click="activeTab = 'clinical'"
+                  >
+                    Clinical chart
+                  </button>
+                  <button
+                    v-if="canViewClientBillingImport"
+                    type="button"
+                    class="cdp-btn-soft"
+                    @click="activeTab = 'client-billing'"
+                  >
+                    Billing
+                  </button>
+                </div>
+              </section>
+
+              <section class="cdp-aside-card">
+                <h4>Today</h4>
+                <div class="cdp-aside-timeline">
+                  <div class="cdp-aside-timeline__item">
+                    <strong>Status</strong>
+                    <span>{{ isClientArchived ? 'Archived' : (client.client_status_label || '—') }}</span>
+                  </div>
+                  <div class="cdp-aside-timeline__item">
+                    <strong>Clinician</strong>
+                    <span>{{ primaryProviderLabel }}</span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="cdp-aside-card">
+                <h4>Upcoming</h4>
+                <div class="cdp-aside-timeline">
+                  <button
+                    v-for="alert in overviewAlertItems.slice(0, 3)"
+                    :key="`side-${alert.id}`"
+                    type="button"
+                    class="cdp-aside-timeline__item cdp-aside-timeline__item--btn"
+                    @click="alert.tab ? (activeTab = alert.tab) : undefined"
+                  >
+                    <strong>{{ alert.label }}</strong>
+                  </button>
+                  <div v-if="!overviewAlertItems.length" class="cdp-glance-meta">No upcoming items flagged.</div>
+                </div>
+              </section>
+            </aside>
+          </div>
         </div>
 
         <!-- Skill Builders program (skills clients — integrated groups/events; see docs/SKILL_BUILDERS_PROGRAM_AND_AFFILIATIONS.md) -->
@@ -894,248 +1093,37 @@
         </div>
 
         <!-- Clinical Tab (provider/admin only) -->
-        <div v-if="activeTab === 'clinical'" class="detail-section">
-          <div v-if="clinicalLoading" class="loading">Loading clinical responses…</div>
-          <div v-else-if="clinicalError" class="error">{{ clinicalError }}</div>
-          <div v-else-if="!clinicalSections.length && clinicalEncryptionKeyMissing" class="empty-state">
-            <p><strong>Clinical answers are stored but can't be displayed right now.</strong></p>
-            <p class="muted" style="font-size: 13px; margin-top: 8px;">
-              This client's intake responses are saved in the database, but the backend is running
-              without the PHI encryption key set in its environment, so they can't be decrypted for
-              display. No data has been lost — setting
-              <code>INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64</code>
-              (or <code>GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64</code>) on the backend and restarting
-              will make them readable again.
-            </p>
-            <p v-if="isSuperAdmin" class="muted" style="font-size: 12px; margin-top: 8px;">
-              Please contact the platform admin / ops to restore the key.
-            </p>
-            <div v-if="isSuperAdmin" style="margin-top: 12px;">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                @click="loadClinicalDebug"
-                :disabled="clinicalDebugLoading"
-              >
-                {{ clinicalDebugLoading ? 'Investigating…' : 'Show diagnostics' }}
-              </button>
-              <pre
-                v-if="clinicalDebug"
-                style="margin-top: 12px; padding: 12px; background: var(--bg-alt, #f8fafc); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; max-height: 360px; overflow: auto; white-space: pre-wrap;"
-              >{{ clinicalDebug }}</pre>
-            </div>
-          </div>
-          <div v-else-if="!clinicalSections.length" class="empty-state">
-            <p>No clinical responses on file yet.</p>
-            <p class="muted" style="font-size: 13px; margin-top: 8px;">
-              <template v-if="isClinicalLikeClientType">
-                Clinical profile fields appear here for clinical and learning clients. Use Edit clinical info to add details manually.
-              </template>
-              <template v-else>
-                Clinical data appears here automatically from completed intakes —
-                including PSC-17 scores, trauma indicators, goals, and any Clinical Questions step data.
-              </template>
-            </p>
-            <div v-if="isSuperAdmin" style="margin-top: 12px;">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                @click="loadClinicalDebug"
-                :disabled="clinicalDebugLoading"
-              >
-                {{ clinicalDebugLoading ? 'Investigating…' : 'Why is this empty?' }}
-              </button>
-              <pre
-                v-if="clinicalDebug"
-                style="margin-top: 12px; padding: 12px; background: var(--bg-alt, #f8fafc); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; max-height: 360px; overflow: auto; white-space: pre-wrap;"
-              >{{ clinicalDebug }}</pre>
-            </div>
-          </div>
-          <div v-else>
-            <div class="tab-meta-bar">
-              <div class="muted" style="font-size: 13px;">
-                <span v-if="clinicalCapturedAt">
-                  From intake completed {{ new Date(clinicalCapturedAt).toLocaleDateString() }}.
-                </span>
-                <span v-else-if="clinicalTemplateMode">
-                  Showing the clinical profile template for this client type.
-                </span>
-                Visible only to the assigned provider and admin staff.
-              </div>
-              <div class="tab-meta-bar-spacer" />
-              <div v-if="canEditClinicalResponses" class="form-actions" style="margin: 0;">
-                <button
-                  v-if="!clinicalEditing"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  @click="startClinicalEdit"
-                >
-                  Edit clinical info
-                </button>
-                <template v-else>
-                  <button
-                    type="button"
-                    class="btn btn-primary btn-sm"
-                    :disabled="clinicalSaving"
-                    @click="saveClinicalResponses"
-                  >
-                    {{ clinicalSaving ? 'Saving…' : 'Save clinical info' }}
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="clinicalSaving"
-                    @click="cancelClinicalEdit"
-                  >
-                    Cancel
-                  </button>
-                </template>
-              </div>
-              <div class="muted" style="font-size: 12px;">
-                {{ clinicalTotalFieldCount }} responses across {{ clinicalSections.length }} {{ clinicalSections.length === 1 ? 'section' : 'sections' }}
-              </div>
-            </div>
+        <ClientClinicalTab
+          v-if="activeTab === 'clinical'"
+          :client="client"
+          :billing-diagnoses="billingDiagnoses"
+          :billing-diagnoses-loading="billingDiagnosesLoading"
+          :billing-diagnoses-error="billingDiagnosesError"
+          :is-super-admin="isSuperAdmin"
+          :is-clinical-like-client-type="isClinicalLikeClientType"
+          :is-backoffice-role="isBackofficeRole"
+          :has-agency-access="hasAgencyAccess"
+          :can-view-medical-record="canViewMedicalRecord"
+          @navigate="activeTab = $event"
+        />
 
-            <div class="ov-sections">
-              <section
-                v-for="section in clinicalSections"
-                :key="section.title"
-                class="ov-card"
-                :class="clinicalSectionCardClass(section)"
-              >
-                <header class="ov-card-header">
-                  <h3>{{ section.title }}</h3>
-                  <span class="muted" style="font-size: 12px;">
-                    {{ section.fields.length }} {{ section.fields.length === 1 ? 'item' : 'items' }}
-                  </span>
-                </header>
+        <!-- Billing import tab (financial — admin / support only) -->
+        <div v-if="activeTab === 'client-billing'" class="detail-section">
+          <ClientBillingImportTab
+            :agency-id="Number(props.client?.agency_id || 0) || null"
+            :client-id="Number(props.client?.id || 0) || null"
+            :client="client"
+          />
+        </div>
 
-                <!-- PSC-17: scored summary + collapsible item details -->
-                <div v-if="isPscSection(section)" class="ov-card-body">
-                  <div v-if="psc17Summary" class="psc-summary">
-                    <div class="psc-total-row">
-                      <div>
-                        <div class="psc-total-label">Total score</div>
-                        <div class="psc-total-value">
-                          {{ psc17Summary.total }}<span class="psc-out-of"> / {{ psc17Summary.totalMax }}</span>
-                        </div>
-                      </div>
-                      <span
-                        class="psc-flag"
-                        :class="psc17Summary.totalElevated ? 'psc-flag--elevated' : 'psc-flag--normal'"
-                      >
-                        {{ psc17Summary.totalElevated ? 'Elevated' : 'Within normal range' }}
-                        <span class="psc-flag-cutoff">cutoff &gt;= {{ psc17Summary.cutoffs.total }}</span>
-                      </span>
-                    </div>
-
-                    <div class="psc-subscale-grid">
-                      <div
-                        v-for="sub in psc17Summary.subscales"
-                        :key="sub.id"
-                        class="psc-subscale"
-                        :class="sub.elevated ? 'is-elevated' : 'is-normal'"
-                      >
-                        <div class="psc-subscale-header">
-                          <span class="psc-subscale-name">{{ sub.label }}</span>
-                          <span class="psc-subscale-flag">
-                            {{ sub.elevated ? 'Elevated' : 'Normal' }}
-                          </span>
-                        </div>
-                        <div class="psc-subscale-score">
-                          {{ sub.score }}<span class="psc-out-of"> / {{ sub.max }}</span>
-                          <span class="psc-subscale-cutoff">cutoff &gt;= {{ sub.cutoff }}</span>
-                        </div>
-                        <div class="psc-subscale-bar">
-                          <div
-                            class="psc-subscale-bar-fill"
-                            :style="{ width: Math.min(100, (sub.score / sub.max) * 100) + '%' }"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div v-if="psc17Summary.unscored" class="psc-warning muted small">
-                      {{ psc17Summary.unscored }} item{{ psc17Summary.unscored === 1 ? '' : 's' }}
-                      could not be scored (non-numeric or missing) — totals reflect only scored items.
-                    </div>
-
-                    <div class="psc-interpretation">
-                      <div class="psc-interpretation-title">Clinical interpretation</div>
-                      <p
-                        v-for="(para, idx) in psc17InterpretationParagraphs"
-                        :key="idx"
-                        class="psc-interpretation-body"
-                      >{{ para }}</p>
-                      <p class="psc-interpretation-disclaimer">
-                        Per PSC-17 scoring (Gardner et al., 1999): items scored Never=0, Sometimes=1,
-                        Often=2. Cutoffs are screening thresholds, not diagnostic — confirm with
-                        full clinical assessment.
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    class="psc-expand-btn"
-                    @click="pscExpanded = !pscExpanded"
-                    :aria-expanded="pscExpanded"
-                  >
-                    <span>{{ pscExpanded ? 'Hide' : 'Show' }} all {{ section.fields.length }} item responses</span>
-                    <span class="psc-expand-caret" :class="{ 'is-open': pscExpanded }">▾</span>
-                  </button>
-
-                  <div v-if="pscExpanded" class="psc-items">
-                    <div
-                      v-for="item in psc17ItemsOrdered(section)"
-                      :key="item.key"
-                      class="ov-row psc-item-row"
-                      :class="item.scoreClass"
-                    >
-                      <div class="ov-row-label">
-                        <span class="psc-item-num">{{ item.itemNumber || '?' }}</span>
-                        {{ item.label }}
-                      </div>
-                      <div class="ov-row-value">
-                        <span class="psc-item-value">{{ item.scoreLabel }}</span>
-                        <span v-if="item.subscaleLabel" class="psc-item-sub">· {{ item.subscaleLabel }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Generic clinical section -->
-                <div v-else class="ov-card-body">
-                  <div
-                    v-for="field in section.fields"
-                    :key="field.key"
-                    class="ov-row"
-                  >
-                    <div class="ov-row-label">{{ field.label }}</div>
-                    <div class="ov-row-value" style="white-space: pre-wrap;">
-                      <button
-                        v-if="isInsuranceCardField(field) && !clinicalEditing"
-                        type="button"
-                        class="btn btn-secondary btn-sm"
-                        @click="viewInsuranceCard(props.client.id, insuranceSlotFromFieldKey(field.key))"
-                      >
-                        View
-                      </button>
-                      <textarea
-                        v-else-if="clinicalEditing && canEditClinicalField(field)"
-                        v-model="clinicalEditForm[field.key]"
-                        class="inline-input"
-                        rows="3"
-                        style="width: 100%;"
-                        :placeholder="field.label"
-                      />
-                      <span v-else>{{ field.value || '—' }}</span>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </div>
+        <!-- Medical Record Tab (clinical notes on imported sessions) -->
+        <div v-if="activeTab === 'medical-record'" class="detail-section">
+          <ClientMedicalRecordsTab
+            :agency-id="Number(props.client?.agency_id || 0) || null"
+            :client-id="Number(props.client?.id || 0) || null"
+            :initial-encounter-id="medicalRecordEncounterId"
+            @encounter-change="onMedicalRecordEncounterChange"
+          />
         </div>
 
         <!-- Demographics Tab -->
@@ -1277,149 +1265,11 @@
         </div>
 
         <!-- Messages/Notes Tab -->
-        <div v-if="activeTab === 'messages'" class="detail-section">
-          <div v-if="notesLoading" class="loading">Loading messages…</div>
-          <div v-else-if="notesError" class="error">{{ notesError }}</div>
-          <div v-else class="messages-container">
-            <div class="phi-warning">
-              <strong>Reminder:</strong> Use initials only. Do not include PHI. This is not Therapy Notes.
-            </div>
-
-            <div class="messages-header-row">
-              <h3 style="margin:0;">Messages</h3>
-              <button class="btn btn-secondary btn-sm" type="button" @click="toggleMessagesCollapsed">
-                {{ messagesCollapsed ? 'Show' : 'Hide' }}
-              </button>
-            </div>
-
-            <div v-if="!messagesCollapsed" class="messages-list">
-              <div v-if="sharedMessages.length === 0" class="empty-state">
-                <p>No messages yet.</p>
-              </div>
-              <div
-                v-for="note in sharedMessages"
-                :key="note.id"
-                class="message-item"
-              >
-                <div class="message-header">
-                  <span class="message-author">{{ note.author_name || 'Unknown' }}</span>
-                  <span class="message-date">{{ formatDateTime(note.created_at) }}</span>
-                  <span v-if="note.category" class="category-badge">{{ formatCategory(note.category) }}</span>
-                </div>
-                <div class="message-content">{{ note.message }}</div>
-              </div>
-            </div>
-
-            <div class="add-message-form">
-              <h3>Add Message</h3>
-              <div class="message-options">
-                <label class="category-label">
-                  Category
-                  <select v-model="newNoteCategory" class="inline-select">
-                    <option value="general">General</option>
-                    <option value="status">Status update</option>
-                    <option value="administrative">Administrative</option>
-                    <option value="billing">Billing</option>
-                  </select>
-                </label>
-              </div>
-              <textarea
-                v-model="newNoteMessage"
-                placeholder="Enter your message (initials only)..."
-                rows="4"
-                class="message-input"
-              ></textarea>
-              <button
-                @click="createNote"
-                class="btn btn-primary"
-                :disabled="!newNoteMessage.trim() || creatingNote"
-              >
-                {{ creatingNote ? 'Sending...' : 'Send Message' }}
-              </button>
-            </div>
-
-            <div v-if="isBackofficeRole" class="internal-notes-panel">
-              <div class="messages-header-row" style="margin-top: 16px;">
-                <h3 style="margin:0;">Internal Notes (admin only)</h3>
-                <button class="btn btn-secondary btn-sm" type="button" @click="openAdminNoteModal">
-                  Admin Note
-                </button>
-              </div>
-              <div class="hint" style="margin-top: 6px;">
-                Internal notes are for backoffice staff only. They are not client-facing “messages”.
-              </div>
-
-              <div v-if="internalNotes.length === 0" class="empty-state" style="margin-top: 10px;">
-                <p>No internal notes yet.</p>
-              </div>
-              <div v-else class="messages-list" style="margin-top: 10px;">
-                <div v-for="note in internalNotes" :key="note.id" class="message-item internal-note">
-                  <div class="message-header">
-                    <span class="message-author">{{ note.author_name || 'Unknown' }}</span>
-                    <span class="message-date">{{ formatDateTime(note.created_at) }}</span>
-                    <span v-if="note.category" class="category-badge">{{ formatCategory(note.category) }}</span>
-                    <span class="internal-badge">Internal</span>
-                  </div>
-                  <div class="message-content">{{ note.message }}</div>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="hasAgencyAccess" class="daily-notes-panel" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-color, #ddd);">
-              <h3 style="margin:0;">Daily Notes</h3>
-              <p class="hint" style="margin-top: 6px;">Multiple staff can add notes throughout the day. Use initials only. Client/guardian can view notes for each date.</p>
-              <div style="display: flex; gap: 12px; align-items: flex-end; margin-top: 10px; flex-wrap: wrap;">
-                <div class="form-group">
-                  <label>Date</label>
-                  <input v-model="dailyNoteDate" type="date" class="input" @change="loadDailyNotes" />
-                </div>
-                <div class="form-group" style="flex: 1; min-width: 200px;">
-                  <label>Your note</label>
-                  <textarea v-model="dailyNoteMessage" class="input" rows="2" placeholder="Quick note for this day (initials only)…" />
-                </div>
-                <button class="btn btn-primary" :disabled="dailyNoteSaving || !dailyNoteDate" @click="saveDailyNote">
-                  {{ dailyNoteSaving ? 'Saving…' : 'Save' }}
-                </button>
-              </div>
-              <div v-if="dailyNotesForDate.length > 0" class="daily-notes-list" style="margin-top: 12px;">
-                <div v-for="n in dailyNotesForDate" :key="n.id" class="message-item daily-note-item">
-                  <span class="daily-note-initials">[{{ n.author_initials || '?' }}]</span>
-                  <span class="daily-note-message">{{ n.message }}</span>
-                  <span class="daily-note-time">{{ formatTime(n.created_at) }}</span>
-                </div>
-              </div>
-              <div v-else-if="dailyNoteDate && !dailyNotesLoading" class="empty-state" style="margin-top: 10px;">
-                <p>No notes for this date yet.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Admin Note Modal (internal-only) -->
-        <div v-if="showAdminNoteModal" class="modal-overlay" @click.self="closeAdminNoteModal">
-          <div class="modal-content" @click.stop style="max-width: 720px;">
-            <h3 style="margin-top:0;">Admin Note</h3>
-            <p class="hint" style="margin-top: 6px;">
-              Internal only (admin/support/staff). Not visible to school staff or providers.
-            </p>
-
-            <textarea v-model="adminNoteDraft" class="admin-note-textarea" rows="7" placeholder="Add an internal admin note…" />
-
-            <div class="modal-actions" style="margin-top: 12px;">
-              <button class="btn btn-secondary" type="button" @click="closeAdminNoteModal" :disabled="adminNoteSaving">
-                Close
-              </button>
-              <button
-                class="btn btn-primary"
-                type="button"
-                @click="saveAdminNote"
-                :disabled="adminNoteSaving || !String(adminNoteDraft || '').trim()"
-              >
-                {{ adminNoteSaving ? 'Saving…' : 'Save' }}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ClientMessagesTab
+          v-if="activeTab === 'messages'"
+          :client-id="Number(client.id)"
+          :is-backoffice-role="isBackofficeRole"
+        />
 
         <!-- Communications Tab -->
         <div v-if="activeTab === 'communications'" class="detail-section">
@@ -2112,161 +1962,53 @@
         </div>
 
         <!-- Documentation Tab -->
-        <div v-if="activeTab === 'phi'" class="detail-section detail-section-docs">
-          <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
-            <h3 style="margin:0;">Packet / documentation status (no upload required)</h3>
-            <div class="hint">
-              Use this to record what’s needed/what was received and when. Uploading a file is optional and handled separately below.
-            </div>
-          </div>
+        <ClientDocumentsTab
+          v-if="activeTab === 'phi'"
+          :client-id="Number(client.id)"
+          :can-edit-paperwork="canEditPaperwork"
+          :highlight-document-id="initialDocumentId"
+        />
 
-          <div class="panel" style="padding: 14px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 14px;">
-            <div style="display:flex; align-items:center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-              <div>
-                <h4 style="margin:0;">Document Status checklist</h4>
-                <div class="hint" style="margin-top: 4px;">
-                  Checked = <strong>Needed</strong>. Unchecked = <strong>Received</strong>. When all are received, status becomes <strong>Completed</strong>.
-                </div>
-              </div>
-              <div class="hint" v-if="docChecklistLoading">Loading…</div>
-              <div class="error" v-else-if="docChecklistError" style="margin:0;">{{ docChecklistError }}</div>
-            </div>
-
-            <div v-if="docChecklistItems.length" style="margin-top: 10px;">
-              <div v-for="it in docChecklistItems" :key="String(it.status_key || it.paperwork_status_id)" class="check-row">
-                <label class="check-left">
-                  <input
-                    v-if="it.status_key !== 'completed'"
-                    type="checkbox"
-                    :disabled="!canEditPaperwork || docChecklistSaving"
-                    :checked="!!it.is_needed"
-                    @change="onToggleDocNeeded(it, $event)"
-                  />
-                  <input
-                    v-else
-                    type="checkbox"
-                    :disabled="!canEditPaperwork || docChecklistSaving"
-                    :checked="!!it.is_completed"
-                    @change="onToggleDocCompleted($event)"
-                  />
-                  <span class="check-label">{{ it.label }}</span>
-                </label>
-                <div class="check-right">
-                  <span v-if="it.status_key === 'completed'" class="badge badge-success">Auto</span>
-                  <span v-else-if="it.is_needed" class="badge badge-warning">Needed</span>
-                  <span v-else class="badge badge-secondary">Received</span>
-                  <span v-if="it.received_at && !it.is_needed" class="hint" style="margin-left: 10px;">
-                    {{ formatDateTime(it.received_at) }}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div v-else-if="!docChecklistLoading" class="muted" style="margin-top: 10px;">
-              Checklist not available yet (missing migration) or no statuses configured.
-            </div>
-          </div>
-
-          <div class="info-grid" style="margin-bottom: 14px;">
-            <div class="info-item">
-              <label>Current status</label>
-              <div class="info-value">{{ currentPaperworkSummary.statusLabel }}</div>
-            </div>
-            <div class="info-item">
-              <label>Current delivery method</label>
-              <div class="info-value">{{ currentPaperworkSummary.deliveryLabel }}</div>
-            </div>
-            <div class="info-item">
-              <label>Effective date</label>
-              <div class="info-value">{{ currentPaperworkSummary.effectiveDateText }}</div>
-            </div>
-            <div class="info-item" v-if="currentPaperworkSummary.roiExpiresAtText">
-              <label>ROI expires</label>
-              <div class="info-value">
-                {{ currentPaperworkSummary.roiExpiresAtText }}
-                <span v-if="currentPaperworkSummary.roiExpired" style="color: var(--danger, #d92d20); font-weight: 800;">
-                  (Expired)
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="canEditPaperwork" class="panel" style="padding: 14px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 14px;">
-            <div class="filters-row" style="flex-wrap: wrap;">
-              <div class="filters-group" style="min-width: 220px; flex: 1;">
-                <label class="filters-label">Paperwork status *</label>
-                <select v-model="paperworkForm.paperworkStatusId" class="filters-select">
-                  <option value="">Select…</option>
-                  <option v-for="s in paperworkStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
-                </select>
-                <div v-if="paperworkStatuses.length === 0" class="hint" style="margin-top: 4px;">
-                  No statuses are configured for this agency yet.
-                </div>
-              </div>
-              <div class="filters-group" style="min-width: 220px; flex: 1;">
-                <label class="filters-label">Document delivery method</label>
-                <select v-model="paperworkForm.deliveryMethodId" class="filters-select" :disabled="!deliveryMethods.length">
-                  <option value="">—</option>
-                  <option v-for="m in deliveryMethods" :key="m.id" :value="String(m.id)">{{ m.label }}</option>
-                </select>
-              </div>
-              <div class="filters-group" style="min-width: 180px;">
-                <label class="filters-label">Effective date *</label>
-                <input v-model="paperworkForm.effectiveDate" type="date" class="filters-input" />
-              </div>
-            </div>
-            <div v-if="selectedPaperworkStatusKey === 'roi'" class="filters-row" style="margin-top: 10px;">
-              <div class="filters-group" style="min-width: 220px; flex: 1;">
-                <label class="filters-label">ROI expiration date *</label>
-                <input v-model="paperworkForm.roiExpiresAt" type="date" class="filters-input" />
-                <div class="hint" style="margin-top: 4px;">When this date passes, the client’s ROI is considered expired.</div>
-              </div>
-            </div>
-            <div class="filters-row" style="margin-top: 10px;">
-              <div class="filters-group" style="flex: 1;">
-                <label class="filters-label">Note</label>
-                <input v-model="paperworkForm.note" type="text" class="filters-input" placeholder="Optional note (e.g., sent home, provider scanned, etc.)" />
-              </div>
-              <div class="actions" style="align-self: end;">
-                <button class="btn btn-primary" type="button" @click="savePaperworkHistory" :disabled="savingPaperwork">
-                  {{ savingPaperwork ? 'Saving…' : 'Save status update' }}
-                </button>
-              </div>
-            </div>
-            <div v-if="paperworkError" class="error" style="margin-top: 10px; text-align: left;">{{ paperworkError }}</div>
-          </div>
-
-          <div v-if="paperworkHistoryLoading" class="loading">Loading document history…</div>
-          <div v-else-if="paperworkHistoryError" class="error">{{ paperworkHistoryError }}</div>
-          <div v-else-if="paperworkHistory.length === 0" class="empty-state" style="padding: 18px 12px;">
-            <p>No document history yet.</p>
-          </div>
-          <div v-else class="history-timeline" style="margin-bottom: 18px;">
-            <div v-for="h in paperworkHistory" :key="h.id" class="history-item">
-              <div class="history-time">{{ formatDate(h.effective_date) }}</div>
-              <div class="history-content">
-                <div class="history-field">
-                  <strong>{{ h.paperwork_status_label || '—' }}</strong>
-                </div>
-                <div class="hint" style="margin-top: 2px;">
-                  Delivery: {{ h.paperwork_delivery_method_label || '—' }}
-                  <span v-if="h.changed_by_name"> · by {{ h.changed_by_name }}</span>
-                </div>
-                <div v-if="h.roi_expires_at" class="hint" style="margin-top: 2px;">
-                  ROI expires: {{ formatDate(h.roi_expires_at) }}
-                </div>
-                <div v-if="h.note" class="history-note">Note: {{ h.note }}</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 10px;">
-            <h3 style="margin:0;">Files (optional)</h3>
-            <div class="hint">Upload a PDF/image only when you need a stored copy.</div>
-          </div>
-          <PhiDocumentsPanel :client-id="Number(client.id)" :highlight-document-id="initialDocumentId" />
+    <template v-if="!props.fullPage" #footer>
+      <footer class="cdp-footer">
+        <div class="cdp-footer-left">
+          <button
+            v-if="canTerminate && !isClientArchived"
+            type="button"
+            class="cdp-footer-link cdp-footer-link--danger"
+            @click="openTerminateModal"
+          >
+            Terminate client
+          </button>
+          <button
+            v-if="canEditAccount && !isClientArchived"
+            type="button"
+            class="cdp-footer-link"
+            @click="startEditOverview(); activeTab = 'overview'"
+          >
+            Edit profile
+          </button>
         </div>
-      </div>
+        <div class="cdp-footer-right">
+          <button type="button" class="cdp-btn-ghost" @click="handleClose">Close</button>
+          <button
+            v-if="props.client?.id"
+            type="button"
+            class="cdp-btn-primary"
+            @click="openFullClientRecord"
+          >
+            Open full client record
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+          </button>
+        </div>
+      </footer>
+    </template>
 
+    <template #modals>
       <!-- Terminate client modal -->
       <div v-if="terminateModalOpen" class="modal-overlay" style="z-index: 10000;" @click.self="closeTerminateModal">
         <div class="modal-content" style="max-width: 480px;" @click.stop>
@@ -2291,21 +2033,29 @@
           </div>
         </div>
       </div>
-    </div>
-  </div>
+    </template>
+  </ClientChartShell>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
-import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
 import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
 import ClientCommunicationsTab from './ClientCommunicationsTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
 import PractitionerClientPackagesTab from './PractitionerClientPackagesTab.vue';
 import ClientAssessmentsTab from './ClientAssessmentsTab.vue';
+import ClientMedicalRecordsTab from './ClientMedicalRecordsTab.vue';
+import ClientBillingImportTab from './ClientBillingImportTab.vue';
+import ClientChartShell from './clientChart/ClientChartShell.vue';
+import ClientClinicalTab from './clientChart/ClientClinicalTab.vue';
+import ClientDocumentsTab from './clientChart/ClientDocumentsTab.vue';
+import ClientMessagesTab from './clientChart/ClientMessagesTab.vue';
+import { useClientEncounters } from '../../composables/useClientEncounters.js';
+import { useClientBillingDiagnoses } from '../../composables/useClientBillingDiagnoses.js';
+import { useClientPaperwork } from '../../composables/useClientPaperwork.js';
 import { isPractitionerOrgType } from '../../utils/practitionerVertical';
 import ClientSkillBuildersProgramTab from '../skillBuilders/ClientSkillBuildersProgramTab.vue';
 import { isSkillsClientFlag } from '../../utils/skillsClientFlag.js';
@@ -2329,6 +2079,10 @@ const props = defineProps({
     type: Number,
     default: null
   },
+  initialEncounterId: {
+    type: Number,
+    default: null
+  },
   currentClientIndex: {
     type: Number,
     default: -1
@@ -2344,7 +2098,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['close', 'updated', 'navigate', 'tab-change']);
+const emit = defineEmits(['close', 'updated', 'navigate', 'tab-change', 'encounter-change']);
 
 const authStore = useAuthStore();
 const route = useRoute();
@@ -2368,6 +2122,13 @@ const onPractitionerPayPerSession = () => {
 };
 
 const activeTab = ref('overview');
+const medicalRecordEncounterId = ref(null);
+
+function onMedicalRecordEncounterChange(encounterId) {
+  const n = Number(encounterId || 0);
+  medicalRecordEncounterId.value = n > 0 ? n : null;
+  emit('encounter-change', medicalRecordEncounterId.value);
+}
 const hasClientNavigation = computed(() => Number(props.navigationCount || 0) > 1 && Number(props.currentClientIndex || -1) >= 0);
 const canNavigatePrevious = computed(() => Number(props.currentClientIndex || -1) > 0);
 const canNavigateNext = computed(() => {
@@ -2520,94 +2281,6 @@ const accessLog = ref([]);
 const accessLoading = ref(false);
 const accessError = ref('');
 
-// Messages tab state
-const notes = ref([]);
-const notesLoading = ref(false);
-const notesError = ref('');
-const newNoteMessage = ref('');
-const newNoteCategory = ref('general');
-const creatingNote = ref(false);
-
-// Split notes into "Messages" (shared) and "Internal Notes" (admin only)
-const sharedMessages = computed(() => (notes.value || []).filter((n) => !n?.is_internal_only));
-const internalNotes = computed(() => (notes.value || []).filter((n) => !!n?.is_internal_only));
-
-// Persisted collapse state for the messages list
-const messagesCollapsed = ref(false);
-const messagesCollapsedKey = computed(() => `client_messages_collapsed_v1_${authStore.user?.id || 'anon'}_${props.client?.id || '0'}`);
-const loadMessagesCollapsed = () => {
-  try {
-    const raw = localStorage.getItem(messagesCollapsedKey.value);
-    messagesCollapsed.value = raw === 'true';
-  } catch {
-    messagesCollapsed.value = false;
-  }
-};
-const toggleMessagesCollapsed = () => {
-  messagesCollapsed.value = !messagesCollapsed.value;
-  try {
-    localStorage.setItem(messagesCollapsedKey.value, String(messagesCollapsed.value));
-  } catch {
-    // ignore
-  }
-};
-
-const showAdminNoteModal = ref(false);
-
-// Daily notes (multi-author, per-day)
-const dailyNoteDate = ref('');
-const dailyNoteMessage = ref('');
-const dailyNoteSaving = ref(false);
-const dailyNotesForDate = ref([]);
-const dailyNotesLoading = ref(false);
-const loadDailyNotes = async () => {
-  if (!props.client?.id || !dailyNoteDate.value) return;
-  dailyNotesLoading.value = true;
-  dailyNotesForDate.value = [];
-  try {
-    const { data } = await api.get(`/clients/${props.client.id}/daily-notes`, {
-      params: { note_date: dailyNoteDate.value }
-    });
-    dailyNotesForDate.value = data?.notes ?? [];
-    const myNote = (data?.notes ?? []).find((n) => Number(n.author_id) === authStore.user?.id);
-    dailyNoteMessage.value = myNote?.message ?? '';
-  } catch {
-    dailyNotesForDate.value = [];
-    dailyNoteMessage.value = '';
-  } finally {
-    dailyNotesLoading.value = false;
-  }
-};
-const saveDailyNote = async () => {
-  if (!props.client?.id || !dailyNoteDate.value) return;
-  dailyNoteSaving.value = true;
-  try {
-    await api.post(`/clients/${props.client.id}/daily-notes`, {
-      noteDate: dailyNoteDate.value,
-      message: dailyNoteMessage.value ?? ''
-    });
-    await loadDailyNotes();
-  } catch (err) {
-    console.error('Failed to save daily note:', err);
-  } finally {
-    dailyNoteSaving.value = false;
-  }
-};
-const formatTime = (dt) => {
-  if (!dt) return '';
-  const d = new Date(dt);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-};
-
-const openAdminNoteModal = async () => {
-  if (!isBackofficeRole.value) return;
-  showAdminNoteModal.value = true;
-  await fetchAdminNote();
-};
-const closeAdminNoteModal = () => {
-  showAdminNoteModal.value = false;
-};
-
 const myAgencies = ref([]);
 
 // Multi-agency (client may be affiliated with multiple agencies)
@@ -2650,7 +2323,39 @@ const hasAgencyAccess = computed(() => {
 });
 
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
-const canOpenClientDirectoryProfile = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
+
+const clientDobLabel = computed(() => {
+  const raw = props.client?.date_of_birth;
+  if (!raw) return '';
+  return formatDate(raw);
+});
+
+const clientAgeLabel = computed(() => {
+  const raw = props.client?.date_of_birth;
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return '';
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
+  return age >= 0 && age < 130 ? String(age) : '';
+});
+
+const primaryInsuranceLabel = computed(() => {
+  const name = String(props.client?.primary_insurer_name || props.client?.insurance_type_label || '').trim();
+  return name || '';
+});
+
+const primaryProviderLabel = computed(() => {
+  const primary = (overviewProviders.value || []).find((p) => p?.is_primary) || (overviewProviders.value || [])[0];
+  if (primary) {
+    const last = String(primary.provider_last_name || '').trim();
+    const first = String(primary.provider_first_name || '').trim();
+    if (last || first) return `${last}${last && first ? ', ' : ''}${first}`;
+  }
+  return String(props.client?.provider_name || '').trim() || 'Not assigned';
+});
 
 const clientAgenciesNote = computed(() => {
   // If user isn't affiliated with the client’s agency (or the client is multi-agency),
@@ -2670,20 +2375,18 @@ const clientAgenciesNote = computed(() => {
   return 'Note: client is affiliated with another agency.';
 });
 
-const openClientDirectoryProfile = () => {
-  if (!canOpenClientDirectoryProfile.value || !props.client?.id) return;
+const openFullClientRecord = () => {
+  if (!props.client?.id) return;
   const orgSlug = String(route.params?.organizationSlug || '').trim();
   const tab = String(activeTab.value || 'overview');
   const path = orgSlug
     ? `/${orgSlug}/admin/clients/${props.client.id}`
     : `/admin/clients/${props.client.id}`;
   const query = tab && tab !== 'overview' ? { tab } : {};
-  const target = router.resolve({ path, query });
-  try {
-    window.open(target.href, '_blank', 'noopener');
-  } catch {
-    router.push(target);
-  }
+  // Navigate to the dedicated full-page profile; keep current tab in the query.
+  router.push({ path, query }).catch(() => {
+    window.location.assign(`${path}${query.tab ? `?tab=${encodeURIComponent(query.tab)}` : ''}`);
+  });
 };
 
 const addAgencyAffiliationId = ref('');
@@ -2729,145 +2432,7 @@ const removeAgencyAffiliation = async (agencyId) => {
   }
 };
 
-// Paperwork/document status history (dated)
-const paperworkHistory = ref([]);
-const paperworkHistoryLoading = ref(false);
-const paperworkHistoryError = ref('');
-const paperworkStatuses = ref([]);
-const deliveryMethods = ref([]);
-const paperworkError = ref('');
-const savingPaperwork = ref(false);
-const paperworkForm = ref({
-  paperworkStatusId: '',
-  deliveryMethodId: '',
-  effectiveDate: new Date().toISOString().split('T')[0],
-  roiExpiresAt: '',
-  note: ''
-});
-
-// Document Status checklist (Needed/Received)
-const docChecklistItems = ref([]);
-const docChecklistLoading = ref(false);
-const docChecklistSaving = ref(false);
-const docChecklistError = ref('');
 const docStatusDetailsEl = ref(null);
-
-const docChecklistAvailable = computed(() => Array.isArray(docChecklistItems.value) && docChecklistItems.value.length > 0);
-const docCompletedRow = computed(() => (docChecklistItems.value || []).find((x) => String(x?.status_key || '').toLowerCase() === 'completed') || null);
-const docIsCompleted = computed(() => {
-  const row = docCompletedRow.value;
-  return !!row?.is_completed;
-});
-const docNeededOptions = computed(() => {
-  return (docChecklistItems.value || []).filter((x) => String(x?.status_key || '').toLowerCase() !== 'completed');
-});
-
-const onMarkDocsCompletedFromOverview = async () => {
-  if (!canEditPaperwork.value) return;
-  const updated = await markAllDocsCompleted();
-  if (updated && docStatusDetailsEl.value) {
-    try {
-      docStatusDetailsEl.value.open = false;
-    } catch {
-      // ignore
-    }
-  }
-};
-
-const documentStatusSummaryText = computed(() => {
-  const statusKey = String(props.client?.paperwork_status_key || '').toLowerCase();
-  if (statusKey === 'all_needed') {
-    return props.client?.paperwork_status_label || 'All Needed';
-  }
-  const count = props.client?.paperwork_needed_count;
-  if (count === undefined || count === null) return '';
-  const n = Number(count);
-  if (!Number.isFinite(n)) return '';
-  if (n <= 0) return 'Completed';
-  if (n > 1) return 'Multiple Needed';
-  const base = props.client?.paperwork_status_label || props.client?.paperwork_status_key || 'Needed';
-  // If label is already something like 'New Docs', display 'New Docs Needed'
-  const lbl = String(base || 'Needed').trim();
-  return lbl ? `${lbl} Needed` : 'Needed';
-});
-
-const fetchDocChecklist = async () => {
-  try {
-    docChecklistLoading.value = true;
-    docChecklistError.value = '';
-    const r = await api.get(`/clients/${props.client.id}/document-status`);
-    docChecklistItems.value = Array.isArray(r.data?.items) ? r.data.items : [];
-  } catch (e) {
-    docChecklistItems.value = [];
-    docChecklistError.value = e?.response?.data?.error?.message || 'Failed to load document checklist';
-  } finally {
-    docChecklistLoading.value = false;
-  }
-};
-
-const markAllDocsCompleted = async () => {
-  if (!canEditPaperwork.value) return null;
-  try {
-    docChecklistSaving.value = true;
-    docChecklistError.value = '';
-    if (!docChecklistItems.value.length) {
-      await fetchDocChecklist();
-    }
-    const items = (docChecklistItems.value || [])
-      .filter((x) => String(x?.status_key || '').toLowerCase() !== 'completed')
-      .filter((x) => Number(x?.paperwork_status_id) > 0);
-    const updates = items.map((x) => ({
-      paperwork_status_id: Number(x.paperwork_status_id),
-      is_needed: false
-    }));
-    if (!updates.length) return null;
-
-    const r = await api.put(`/clients/${props.client.id}/document-status`, { updates });
-    await fetchDocChecklist();
-    const updatedClient = r.data?.client || null;
-    emit('updated', { keepOpen: true, client: updatedClient || undefined });
-    return updatedClient;
-  } catch (e) {
-    docChecklistError.value = e?.response?.data?.error?.message || 'Failed to mark completed';
-    return null;
-  } finally {
-    docChecklistSaving.value = false;
-  }
-};
-
-const onToggleDocCompleted = async (event) => {
-  if (!canEditPaperwork.value) return;
-  const checked = !!event?.target?.checked;
-  // "Completed" is derived from other items; allow only the "check" action which marks all received.
-  if (!checked) return;
-  await markAllDocsCompleted();
-};
-
-const onToggleDocNeeded = async (item, event) => {
-  if (!canEditPaperwork.value) return;
-  if (!item?.paperwork_status_id) return;
-  if (String(item.status_key || '').toLowerCase() === 'completed') return;
-  const checked = !!event?.target?.checked; // checked = Needed
-  try {
-    docChecklistSaving.value = true;
-    docChecklistError.value = '';
-    const r = await api.put(`/clients/${props.client.id}/document-status`, {
-      paperwork_status_id: item.paperwork_status_id,
-      is_needed: checked
-    });
-    // Refresh checklist and update the client summary in parent UI.
-    await fetchDocChecklist();
-    if (r.data?.client) {
-      emit('updated', { client: r.data.client, keepOpen: true });
-    } else {
-      emit('updated', { keepOpen: true });
-    }
-  } catch (e) {
-    docChecklistError.value = e?.response?.data?.error?.message || 'Failed to update document status';
-  } finally {
-    docChecklistSaving.value = false;
-  }
-};
 
 // Multi-org + multi-provider assignments (backoffice only)
 const affiliations = ref([]);
@@ -2973,6 +2538,96 @@ const canManageSchoolRoi = computed(
   () => isBackofficeRole.value && hasAgencyAccess.value && clientQualifiesForSchoolRoiTab.value
 );
 
+const canViewClientBillingImport = computed(() => {
+  if (!isClinicalLikeClientType.value) return false;
+  return ['super_admin', 'admin', 'support'].includes(roleNorm.value);
+});
+
+const canViewMedicalRecord = computed(() => {
+  if (!isClinicalLikeClientType.value) return false;
+  return [
+    'super_admin',
+    'admin',
+    'support',
+    'provider',
+    'provider_plus',
+    'supervisor',
+    'clinical_practice_assistant'
+  ].includes(roleNorm.value);
+});
+
+const clientAgencyId = computed(() => Number(props.client?.agency_id || 0) || null);
+const clientChartClientId = computed(() => Number(props.client?.id || 0) || null);
+
+const {
+  diagnoses: billingDiagnoses,
+  loading: billingDiagnosesLoading,
+  error: billingDiagnosesError,
+  load: fetchBillingDiagnoses,
+  primaryDiagnosisLabel
+} = useClientBillingDiagnoses(clientAgencyId, clientChartClientId, isClinicalLikeClientType);
+
+const {
+  lastSession,
+  sessionCount,
+  unsignedNotesCount
+} = useClientEncounters(clientAgencyId, clientChartClientId, {
+  medicalOnly: true,
+  enabled: computed(() => isClinicalLikeClientType.value && canViewMedicalRecord.value)
+});
+
+const lastSessionLabel = computed(() => {
+  const row = lastSession.value;
+  if (!row?.service_date) return '—';
+  const d = new Date(row.service_date);
+  if (!Number.isFinite(d.getTime())) return String(row.service_date);
+  return d.toLocaleDateString();
+});
+
+const lastSessionMeta = computed(() => {
+  const row = lastSession.value;
+  if (!row) return canViewMedicalRecord.value ? 'No sessions imported' : '—';
+  const code = row.service_code ? `CPT ${row.service_code}` : '';
+  const pos = row.place_of_service === '03' ? 'In school' : row.place_of_service ? `POS ${row.place_of_service}` : '';
+  return [code, pos].filter(Boolean).join(' · ') || 'Imported session';
+});
+
+const sessionCountLabel = computed(() => {
+  if (!canViewMedicalRecord.value || !isClinicalLikeClientType.value) return '—';
+  return String(sessionCount.value || 0);
+});
+
+const overviewAlertItems = computed(() => {
+  const items = [];
+  for (const b of intakeSafetyStaffBanners.value || []) {
+    items.push({
+      id: `safety-${b.key}`,
+      label: b.title || 'Safety flag',
+      tone: 'danger',
+      tab: 'clinical'
+    });
+  }
+  if (isClientTerminated.value) {
+    items.push({ id: 'terminated', label: 'Client terminated', tone: 'danger', tab: 'overview' });
+  }
+  if (!clientCodeIsValid.value && canManageClientCode.value) {
+    items.push({ id: 'missing-code', label: 'Client code missing', tone: 'warning', tab: 'overview' });
+  }
+  if (unsignedNotesCount.value > 0) {
+    const n = unsignedNotesCount.value;
+    items.push({
+      id: 'unsigned-notes',
+      label: `${n} unsigned note${n === 1 ? '' : 's'}`,
+      tone: 'warning',
+      tab: 'medical-record'
+    });
+  }
+  if (canViewMedicalRecord.value && isClinicalLikeClientType.value && !billingDiagnoses.value.length && !billingDiagnosesLoading.value) {
+    items.push({ id: 'no-dx', label: 'No billing diagnoses on file', tone: 'info', tab: 'clinical' });
+  }
+  return items.slice(0, 6);
+});
+
 const tabs = computed(() => {
   const base = [{ id: 'overview', label: 'Overview' }];
   if (isSchoolClientType.value && isSkillsClientFlag(props.client?.skills)) {
@@ -2987,7 +2642,7 @@ const tabs = computed(() => {
     { id: 'messages', label: 'Messages / Notes' },
     { id: 'communications', label: 'Communications' },
     { id: 'guardians', label: 'Guardians' },
-    { id: 'phi', label: 'Documentation' }
+    { id: 'phi', label: 'Documents' }
   );
   if (learningBillingEnabledForClient.value) {
     const idx = base.findIndex((t) => t.id === 'messages');
@@ -3005,13 +2660,26 @@ const tabs = computed(() => {
     const roiIdx = base.findIndex((t) => t.id === 'phi');
     base.splice(roiIdx < 0 ? base.length : roiIdx, 0, { id: 'school-roi', label: 'School ROI Access' });
   }
-  // Clinical tab: visible for clinical/learning clients to providers and backoffice
+  // Clinical tab: intake / profile clinical fields
   if (
     isClinicalLikeClientType.value
     && ['provider', 'provider_plus', 'admin', 'super_admin', 'support', 'staff'].includes(roleNorm.value)
   ) {
     const clinicalIdx = base.findIndex((t) => t.id === 'messages');
     base.splice(clinicalIdx < 0 ? base.length : clinicalIdx, 0, { id: 'clinical', label: 'Clinical' });
+  }
+  if (canViewMedicalRecord.value) {
+    const anchor = base.findIndex((t) => t.id === 'clinical');
+    const insertAt = anchor >= 0 ? anchor + 1 : base.findIndex((t) => t.id === 'messages');
+    base.splice(insertAt < 0 ? base.length : insertAt, 0, { id: 'medical-record', label: 'Medical Record' });
+  }
+  if (canViewClientBillingImport.value) {
+    const anchor = base.findIndex((t) => t.id === 'medical-record');
+    const insertAt = anchor >= 0 ? anchor + 1 : base.findIndex((t) => t.id === 'clinical');
+    base.splice(insertAt < 0 ? base.length : insertAt, 0, {
+      id: 'client-billing',
+      label: learningBillingEnabledForClient.value ? 'Billing (import)' : 'Billing'
+    });
   }
   // Demographics tab: visible to admin/support roles and providers
   if (['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus'].includes(roleNorm.value)) {
@@ -3324,12 +2992,40 @@ const canEditPaperwork = computed(() => {
   return ['super_admin', 'admin', 'support', 'staff'].includes(r) && hasAgencyAccess.value;
 });
 
-const selectedPaperworkStatusKey = computed(() => {
-  const id = paperworkForm.value.paperworkStatusId ? Number(paperworkForm.value.paperworkStatusId) : null;
-  if (!id) return '';
-  const row = (paperworkStatuses.value || []).find((s) => Number(s?.id) === id) || null;
-  return String(row?.status_key || row?.statusKey || '').toLowerCase();
-});
+const clientPaperwork = useClientPaperwork(
+  computed(() => props.client),
+  canEditPaperwork,
+  (payload) => emit('updated', payload)
+);
+provide('clientPaperwork', clientPaperwork);
+
+const {
+  docChecklistItems,
+  docChecklistLoading,
+  docChecklistSaving,
+  docChecklistError,
+  docChecklistAvailable,
+  docIsCompleted,
+  docNeededOptions,
+  documentStatusSummaryText,
+  onToggleDocNeeded,
+  onToggleDocCompleted,
+  markAllDocsCompleted,
+  fetchDocChecklist,
+  loadTabData: loadPaperworkTabData
+} = clientPaperwork;
+
+const onMarkDocsCompletedFromOverview = async () => {
+  if (!canEditPaperwork.value) return;
+  const updated = await markAllDocsCompleted();
+  if (updated && docStatusDetailsEl.value) {
+    try {
+      docStatusDetailsEl.value.open = false;
+    } catch {
+      // ignore
+    }
+  }
+};
 
 const selectedOverviewPaperworkStatusKey = computed(() => {
   return '';
@@ -3457,7 +3153,7 @@ const saveClientType = async () => {
     emit('updated', { keepOpen: true, client: refreshed.data || null });
     if (['clinical', 'learning'].includes(nextType)) {
       activeTab.value = 'clinical';
-      await fetchClinicalResponses(true);
+      await fetchBillingDiagnoses();
     }
   } catch (e) {
     alert(e.response?.data?.error?.message || 'Failed to update client type');
@@ -3615,7 +3311,6 @@ const saveAdminNote = async () => {
     // After a successful save, close any open admin-note UI.
     adminNoteSuppressOpenUntil.value = Date.now() + 800;
     adminNotePopoverOpen.value = false;
-    showAdminNoteModal.value = false;
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to save admin note');
   } finally {
@@ -3730,7 +3425,7 @@ const startEditOverview = () => {
   editingOverview.value = true;
   hydrateOverviewForm();
   loadOverviewOptions();
-  fetchPaperworkStatuses();
+  fetchDocChecklist();
 };
 
 const cancelEditOverview = () => {
@@ -3790,20 +3485,6 @@ const fetchHistory = async () => {
     historyError.value = err.response?.data?.error?.message || 'Failed to load history';
   } finally {
     historyLoading.value = false;
-  }
-};
-
-const fetchNotes = async () => {
-  try {
-    notesLoading.value = true;
-    notesError.value = '';
-    const response = await api.get(`/clients/${props.client.id}/notes`);
-    notes.value = response.data || [];
-  } catch (err) {
-    console.error('Failed to fetch notes:', err);
-    notesError.value = err.response?.data?.error?.message || 'Failed to load messages';
-  } finally {
-    notesLoading.value = false;
   }
 };
 
@@ -4067,65 +3748,8 @@ const onSwitchAgency = async (userInitiated = false) => {
 watch([hasAgencyAccess, activeTab], async ([has, tab]) => {
   if (!has) return;
   if (tab !== 'phi') return;
-  await fetchPaperworkStatuses();
-  await fetchDeliveryMethods();
-  await fetchPaperworkHistory();
+  await loadPaperworkTabData();
 });
-
-const fetchPaperworkStatuses = async () => {
-  if (!canEditPaperwork.value) {
-    paperworkStatuses.value = [];
-    return;
-  }
-  try {
-    const agencyId = props.client?.agency_id ? Number(props.client.agency_id) : null;
-    if (!agencyId) {
-      paperworkStatuses.value = [];
-      return;
-    }
-    const r = await api.get('/client-settings/paperwork-statuses', { params: { agencyId } });
-    paperworkStatuses.value = (r.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
-  } catch {
-    paperworkStatuses.value = [];
-  }
-};
-
-const fetchDeliveryMethods = async () => {
-  if (!canEditPaperwork.value) {
-    deliveryMethods.value = [];
-    return;
-  }
-  try {
-    const agencyId = props.client?.agency_id;
-    const schoolId = props.client?.organization_id;
-    if (!agencyId || !schoolId) {
-      deliveryMethods.value = [];
-      return;
-    }
-    const r = await api.get(`/school-settings/${schoolId}/paperwork-delivery-methods`, { params: { agencyId } });
-    deliveryMethods.value = (r.data || []).filter((m) => m && (m.is_active === 1 || m.is_active === true));
-  } catch {
-    deliveryMethods.value = [];
-  }
-};
-
-const fetchPaperworkHistory = async () => {
-  if (!canEditPaperwork.value) {
-    paperworkHistory.value = [];
-    return;
-  }
-  try {
-    paperworkHistoryLoading.value = true;
-    paperworkHistoryError.value = '';
-    const r = await api.get(`/clients/${props.client.id}/paperwork-history`);
-    paperworkHistory.value = r.data || [];
-  } catch (e) {
-    paperworkHistoryError.value = e.response?.data?.error?.message || 'Failed to load document history';
-    paperworkHistory.value = [];
-  } finally {
-    paperworkHistoryLoading.value = false;
-  }
-};
 
 const fetchAvailableAffiliations = async () => {
   if (!canEditAccount.value) return;
@@ -4622,56 +4246,6 @@ const makePrimaryProvider = async (pa) => {
   }
 };
 
-const savePaperworkHistory = async () => {
-  if (!canEditPaperwork.value) return;
-  const paperworkStatusId = paperworkForm.value.paperworkStatusId ? Number(paperworkForm.value.paperworkStatusId) : null;
-  const effectiveDate = String(paperworkForm.value.effectiveDate || '').trim();
-  if (!paperworkStatusId || !effectiveDate) return;
-  const deliveryId = paperworkForm.value.deliveryMethodId ? Number(paperworkForm.value.deliveryMethodId) : null;
-  const note = String(paperworkForm.value.note || '').trim() || null;
-  const roiExpiresAt = String(paperworkForm.value.roiExpiresAt || '').trim() || null;
-  try {
-    savingPaperwork.value = true;
-    paperworkError.value = '';
-    await api.post(`/clients/${props.client.id}/paperwork-history`, {
-      paperwork_status_id: paperworkStatusId,
-      paperwork_delivery_method_id: deliveryId,
-      effective_date: effectiveDate,
-      roi_expires_at: selectedPaperworkStatusKey.value === 'roi' ? roiExpiresAt : null,
-      note
-    });
-    paperworkForm.value.note = '';
-    await fetchPaperworkHistory();
-  } catch (e) {
-    paperworkError.value = e.response?.data?.error?.message || 'Failed to save';
-  } finally {
-    savingPaperwork.value = false;
-  }
-};
-
-const currentPaperworkSummary = computed(() => {
-  const h = (paperworkHistory.value || [])[0] || null;
-  const statusLabel = h?.paperwork_status_label || props.client?.paperwork_status_label || '—';
-  const deliveryLabel =
-    h?.paperwork_delivery_method_label ||
-    props.client?.paperwork_delivery_method_label ||
-    '—';
-  const dateVal = h?.effective_date || props.client?.doc_date || null;
-  const effectiveDateText = dateVal ? formatDate(dateVal) : '—';
-  const roiExpiresAt = h?.roi_expires_at || props.client?.roi_expires_at || null;
-  const statusKey = String(h?.paperwork_status_key || props.client?.paperwork_status_key || '').toLowerCase();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const roiExpired = statusKey === 'roi' && roiExpiresAt ? (new Date(String(roiExpiresAt)).getTime() < today.getTime()) : false;
-  return {
-    statusLabel: roiExpired ? 'ROI (Expired)' : statusLabel,
-    deliveryLabel,
-    effectiveDateText,
-    roiExpiresAtText: roiExpiresAt ? formatDate(roiExpiresAt) : '',
-    roiExpired
-  };
-});
-
 const fetchProviders = async () => {
   try {
     const response = await api.get('/users');
@@ -4684,41 +4258,12 @@ const fetchProviders = async () => {
   }
 };
 
-const createNote = async () => {
-  if (!newNoteMessage.value.trim()) return;
-
-  try {
-    creatingNote.value = true;
-    await api.post(`/clients/${props.client.id}/notes`, {
-      message: newNoteMessage.value.trim(),
-      is_internal_only: false,
-      category: newNoteCategory.value
-    });
-    newNoteMessage.value = '';
-    newNoteCategory.value = 'general';
-    await fetchNotes();
-  } catch (err) {
-    console.error('Failed to create note:', err);
-    alert(err.response?.data?.error?.message || 'Failed to send message');
-  } finally {
-    creatingNote.value = false;
-  }
-};
-
-const formatCategory = (c) => {
-  const map = {
-    general: 'General',
-    status: 'Status',
-    administrative: 'Admin',
-    billing: 'Billing',
-    packages: 'Packages',
-    clinical: 'Clinical'
-  };
-  return map[c] || c;
-};
-
 const handleClose = () => {
   emit('close');
+};
+
+const onOverviewAlertClick = (alert) => {
+  if (alert?.tab) activeTab.value = alert.tab;
 };
 
 const requestNavigate = (direction) => {
@@ -4734,18 +4279,16 @@ const requestNavigate = (direction) => {
 
 watch(() => activeTab.value, (newTab) => {
   emit('tab-change', newTab);
+  if (newTab !== 'medical-record' && medicalRecordEncounterId.value) {
+    medicalRecordEncounterId.value = null;
+    emit('encounter-change', null);
+  }
   if (newTab === 'history' && history.value.length === 0) {
     fetchHistory();
   } else if (newTab === 'access' && accessLog.value.length === 0) {
     fetchAccessLog();
   } else if (newTab === 'checklist') {
     hydrateChecklist();
-  } else if (newTab === 'messages') {
-    if (notes.value.length === 0) fetchNotes();
-    if (!dailyNoteDate.value) {
-      dailyNoteDate.value = new Date().toISOString().slice(0, 10);
-      loadDailyNotes();
-    }
   } else if (newTab === 'guardians' && guardians.value.length === 0) {
     fetchGuardians();
   } else if (newTab === 'assignments') {
@@ -4756,11 +4299,9 @@ watch(() => activeTab.value, (newTab) => {
     fetchEventAssignments();
   } else if (newTab === 'phi') {
     fetchDocChecklist();
-    fetchPaperworkStatuses();
-    fetchDeliveryMethods();
-    fetchPaperworkHistory();
+    loadPaperworkTabData();
   } else if (newTab === 'clinical') {
-    fetchClinicalResponses(true);
+    fetchBillingDiagnoses();
   } else if (newTab === 'demographics' && !demoProfileFields.value.length && !demoIntakeFields.value.length) {
     fetchDemographics();
   } else if (newTab === 'surveys' && clientSurveyResponses.value.length === 0) {
@@ -4787,15 +4328,15 @@ watch(() => props.client, async () => {
   await fetchAccess();
   await refreshOverviewProviders();
   await fetchAdminNote();
-  loadMessagesCollapsed();
+  if (activeTab.value === 'clinical') {
+    fetchBillingDiagnoses();
+  }
 }, { deep: true, immediate: true });
 
 watch(effectiveClientType, async (nextType, prevType) => {
   if (nextType === prevType) return;
-  clinicalSections.value = [];
-  clinicalEditing.value = false;
   if (activeTab.value === 'clinical' || ['clinical', 'learning'].includes(nextType)) {
-    await fetchClinicalResponses(true);
+    await fetchBillingDiagnoses();
   }
   const allowed = new Set((tabs.value || []).map((t) => t.id));
   if (!allowed.has(activeTab.value)) activeTab.value = 'overview';
@@ -4864,396 +4405,6 @@ const fetchAccessLog = async () => {
     accessError.value = e.response?.data?.error?.message || 'Failed to load access log';
   } finally {
     accessLoading.value = false;
-  }
-};
-
-// Clinical tab
-const clinicalSections = ref([]);
-const clinicalCapturedAt = ref(null);
-const clinicalLoading = ref(false);
-const clinicalError = ref('');
-const clinicalDebug = ref('');
-const clinicalDebugLoading = ref(false);
-const clinicalTemplateMode = ref(false);
-const clinicalEditable = ref(false);
-const clinicalEditing = ref(false);
-const clinicalEditForm = ref({});
-const clinicalSaving = ref(false);
-// True when the backend has intake rows with encrypted PHI but no decryption
-// key configured in the runtime env. In that state the data is physically
-// present but unreadable — the UI should say so instead of "no responses".
-const clinicalEncryptionKeyMissing = ref(false);
-
-const insuranceSlotFromFieldKey = (key) => {
-  const m = String(key || '').match(/^insurance__(primary|secondary)_(front|back)_url$/i);
-  return m ? `${m[1].toLowerCase()}_${m[2].toLowerCase()}` : null;
-};
-
-const isInsuranceCardField = (field) => {
-  const slot = insuranceSlotFromFieldKey(field?.key);
-  return !!slot && String(field?.value || '').trim().toLowerCase().startsWith('gs://');
-};
-
-const viewInsuranceCard = async (clientId, slot) => {
-  const cid = Number(clientId || 0);
-  if (!cid || !slot) return;
-  try {
-    const r = await api.get(`/clients/${cid}/insurance-card`, {
-      params: { slot },
-      responseType: 'blob'
-    });
-    const contentType = r?.headers?.['content-type'] || 'application/octet-stream';
-    const blob = new Blob([r.data], { type: contentType });
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank', 'noopener');
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  } catch (e) {
-    console.error('[client insurance] view failed', e?.response?.data?.error?.message || e?.message || e);
-  }
-};
-
-const clinicalTotalFieldCount = computed(() =>
-  (clinicalSections.value || []).reduce((acc, s) => acc + (s?.fields?.length || 0), 0)
-);
-
-const canEditClinicalResponses = computed(
-  () => clinicalEditable.value && isClinicalLikeClientType.value && isBackofficeRole.value && hasAgencyAccess.value
-);
-
-const canEditClinicalField = (field) => {
-  if (isInsuranceCardField(field)) return false;
-  return !!field?.key;
-};
-
-const hydrateClinicalEditForm = () => {
-  const next = {};
-  for (const section of clinicalSections.value || []) {
-    for (const field of section?.fields || []) {
-      if (!field?.key || isInsuranceCardField(field)) continue;
-      next[field.key] = field.value ?? '';
-    }
-  }
-  clinicalEditForm.value = next;
-};
-
-const startClinicalEdit = () => {
-  hydrateClinicalEditForm();
-  clinicalEditing.value = true;
-};
-
-const cancelClinicalEdit = () => {
-  clinicalEditing.value = false;
-  hydrateClinicalEditForm();
-};
-
-const saveClinicalResponses = async () => {
-  if (!canEditClinicalResponses.value || !props.client?.id) return;
-  try {
-    clinicalSaving.value = true;
-    clinicalError.value = '';
-    await api.put(`/clients/${props.client.id}/clinical-responses`, {
-      responses: clinicalEditForm.value,
-      reason: 'Admin updated clinical profile fields from client profile'
-    });
-    await fetchClinicalResponses(true);
-    clinicalEditing.value = false;
-  } catch (e) {
-    clinicalError.value = e.response?.data?.error?.message || 'Failed to save clinical responses';
-  } finally {
-    clinicalSaving.value = false;
-  }
-};
-
-// ─── PSC-17 scoring (Pediatric Symptom Checklist, 17-item) ────────────────
-// Items scored Never=0 / Sometimes=1 / Often=2. 17 items split across three
-// subscales. Standard screening cutoffs (Gardner et al., 1999):
-//   Total >= 15, Internalizing >= 5, Attention >= 7, Externalizing >= 7.
-const PSC17_CUTOFFS = { total: 15, internalizing: 5, attention: 7, externalizing: 7 };
-const PSC17_SUBSCALE_MAX = { internalizing: 10, attention: 10, externalizing: 14 };
-const PSC17_SUBSCALE_LABEL = {
-  internalizing: 'Internalizing',
-  attention: 'Attention',
-  externalizing: 'Externalizing'
-};
-
-// Canonical PSC-17 item → subscale mapping (item numbers are stable per the
-// published instrument).
-//   Attention:     1, 2, 3, 4, 7
-//   Internalizing: 5, 6, 9, 10, 11
-//   Externalizing: 8, 12, 13, 14, 15, 16, 17
-const PSC17_SUBSCALE_BY_ITEM = {
-  1: 'attention', 2: 'attention', 3: 'attention', 4: 'attention', 7: 'attention',
-  5: 'internalizing', 6: 'internalizing', 9: 'internalizing', 10: 'internalizing', 11: 'internalizing',
-  8: 'externalizing', 12: 'externalizing', 13: 'externalizing', 14: 'externalizing',
-  15: 'externalizing', 16: 'externalizing', 17: 'externalizing'
-};
-
-// Canonical labels — used as a friendly fallback when the intake form did
-// not carry symptom text into the `intake_fields` array (we'd otherwise
-// just see "PSC item N").
-const PSC17_CANONICAL_LABELS = {
-  1: 'Fidgety, unable to sit still',
-  2: 'Acts as if driven by a motor',
-  3: 'Daydreams too much',
-  4: 'Distracted easily',
-  5: 'Feels sad, unhappy',
-  6: 'Feels hopeless',
-  7: 'Has trouble concentrating',
-  8: 'Fights with others',
-  9: 'Is down on him or herself',
-  10: 'Worries a lot',
-  11: 'Seems to be having less fun',
-  12: 'Does not listen to rules',
-  13: "Does not understand other people's feelings",
-  14: 'Teases others',
-  15: 'Blames others for his or her troubles',
-  16: 'Takes things that do not belong to him or her',
-  17: 'Refuses to share'
-};
-
-const itemNumberFromPscKey = (key) => {
-  const m = String(key || '').match(/(\d{1,2})/);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return n >= 1 && n <= 17 ? n : null;
-};
-
-// Subscale lookup: item-number is primary (deterministic per published
-// instrument), label keyword is a fallback for non-standard forms.
-const PSC17_LABEL_RULES = [
-  { sub: 'internalizing', tests: [/feels?\s+sad/i, /unhappy/i, /hopeless/i, /down on (him|her|them)/i, /low\s+self/i, /less fun/i, /worri/i] },
-  { sub: 'attention', tests: [/fidget/i, /sit still/i, /driven by a motor/i, /daydream/i, /distract/i, /trouble concentrat/i, /(can'?t|cannot) concentrat/i] },
-  { sub: 'externalizing', tests: [/fights? with/i, /(does ?not|doesn'?t) listen/i, /listen to rules/i, /teases?/i, /blames? others/i, /takes? things/i, /refuses? to share/i, /(other people'?s|others'?) feelings/i] }
-];
-const subscaleForPscField = (field) => {
-  const item = itemNumberFromPscKey(field?.key);
-  if (item && PSC17_SUBSCALE_BY_ITEM[item]) return PSC17_SUBSCALE_BY_ITEM[item];
-  const label = String(field?.label || '');
-  for (const rule of PSC17_LABEL_RULES) {
-    if (rule.tests.some((re) => re.test(label))) return rule.sub;
-  }
-  return null;
-};
-
-// Tolerant value parser: 0/1/2, "Never"/"Sometimes"/"Often", or
-// "0 - Never" / "Often (2)" style answers.
-const parsePscScore = (raw) => {
-  if (raw === null || raw === undefined) return null;
-  const s = String(raw).trim().toLowerCase();
-  if (!s) return null;
-  if (/^[012]$/.test(s)) return Number(s);
-  const numMatch = s.match(/(?:^|[^0-9])([012])(?:[^0-9]|$)/);
-  if (/never/.test(s)) return 0;
-  if (/sometimes/.test(s)) return 1;
-  if (/(very )?often/.test(s)) return 2;
-  if (numMatch) return Number(numMatch[1]);
-  return null;
-};
-
-const PSC_SCORE_LABEL = ['Never (0)', 'Sometimes (1)', 'Often (2)'];
-
-const isPscSection = (section) =>
-  String(section?.title || '').toLowerCase().includes('psc');
-
-const psc17ItemsOrdered = (section) => {
-  const items = (section?.fields || []).map((f) => {
-    const score = parsePscScore(f.value);
-    const sub = subscaleForPscField(f);
-    const itemNumber = itemNumberFromPscKey(f.key);
-    // Prefer the form's own label, but fall back to the canonical PSC-17
-    // symptom text when the backend gave us a generic placeholder.
-    const rawLabel = String(f.label || '').trim();
-    const isPlaceholderLabel = !rawLabel || /^psc[ _-]?item\b/i.test(rawLabel);
-    const label = isPlaceholderLabel && itemNumber && PSC17_CANONICAL_LABELS[itemNumber]
-      ? PSC17_CANONICAL_LABELS[itemNumber]
-      : rawLabel || (itemNumber ? PSC17_CANONICAL_LABELS[itemNumber] : f.key);
-    return {
-      key: f.key,
-      label,
-      itemNumber,
-      score,
-      scoreLabel: score === null ? String(f.value ?? '—') : PSC_SCORE_LABEL[score],
-      subscaleLabel: sub ? PSC17_SUBSCALE_LABEL[sub] : null,
-      scoreClass:
-        score === 2 ? 'is-often' : score === 1 ? 'is-sometimes' : score === 0 ? 'is-never' : 'is-unscored'
-    };
-  });
-  items.sort((a, b) => (a.itemNumber || 99) - (b.itemNumber || 99));
-  return items;
-};
-
-const pscExpanded = ref(false);
-
-const psc17Summary = computed(() => {
-  const section = (clinicalSections.value || []).find(isPscSection);
-  if (!section || !section.fields?.length) return null;
-
-  const subTotals = { internalizing: 0, attention: 0, externalizing: 0 };
-  const subUnscored = { internalizing: 0, attention: 0, externalizing: 0 };
-  const subExpected = { internalizing: 5, attention: 5, externalizing: 7 };
-  let total = 0;
-  let scored = 0;
-  let unscored = 0;
-  for (const f of section.fields) {
-    const score = parsePscScore(f.value);
-    const sub = subscaleForPscField(f);
-    if (score === null) {
-      unscored += 1;
-      if (sub && subUnscored[sub] !== undefined) subUnscored[sub] += 1;
-      continue;
-    }
-    scored += 1;
-    total += score;
-    if (sub && subTotals[sub] !== undefined) subTotals[sub] += score;
-  }
-
-  const subscales = ['internalizing', 'attention', 'externalizing'].map((id) => ({
-    id,
-    label: PSC17_SUBSCALE_LABEL[id],
-    score: subTotals[id],
-    max: PSC17_SUBSCALE_MAX[id],
-    cutoff: PSC17_CUTOFFS[id],
-    expectedItems: subExpected[id],
-    unscoredItems: subUnscored[id],
-    elevated: subTotals[id] >= PSC17_CUTOFFS[id]
-  }));
-
-  const totalElevated = total >= PSC17_CUTOFFS.total;
-  const elevatedSubs = subscales.filter((s) => s.elevated);
-
-  // Required output format: a single text block with three narrative
-  // sections separated by blank lines. No headers, no bold, no bullets,
-  // and use plain ASCII for thresholds (e.g. >=15) — not unicode (≥).
-  let interpretation;
-  if (!scored) {
-    interpretation =
-      'No PSC-17 items could be scored from the submitted responses. '
-      + 'Verify that responses use Never/Sometimes/Often or 0/1/2 values.\n\n'
-      + 'Without scored items the screening cannot be interpreted.\n\n'
-      + 'Re-administer the PSC-17 with valid response options and rescore.';
-  } else {
-    const subSummary = subscales
-      .map((s) => `${s.label} ${s.score} of ${s.max} (cutoff >=${s.cutoff})`)
-      .join('; ');
-    const scoreSection =
-      `Total score: ${total} of 34 (cutoff >=${PSC17_CUTOFFS.total}). `
-      + `Subscale scores: ${subSummary}.`;
-
-    const interpParts = [];
-    if (totalElevated) {
-      interpParts.push(
-        `The total score is at or above the >=${PSC17_CUTOFFS.total} cutoff for overall psychosocial impairment.`
-      );
-    } else {
-      interpParts.push(
-        `The total score is below the >=${PSC17_CUTOFFS.total} cutoff for overall psychosocial impairment.`
-      );
-    }
-    if (elevatedSubs.length) {
-      const subText = elevatedSubs
-        .map((s) => `${s.label} (${s.score} of ${s.max}, cutoff >=${s.cutoff})`)
-        .join(', ');
-      interpParts.push(
-        `The following subscale${elevatedSubs.length > 1 ? 's are' : ' is'} at or above threshold and indicate${elevatedSubs.length > 1 ? '' : 's'} elevated risk: ${subText}.`
-      );
-    } else {
-      interpParts.push('No individual subscale is at or above its screening threshold.');
-    }
-    if (unscored) {
-      interpParts.push(
-        `Note: ${unscored} item${unscored === 1 ? ' was' : 's were'} not scored, which may underestimate the affected subscale totals.`
-      );
-    }
-    const interpretationSection = interpParts.join(' ');
-
-    let recommendationSection;
-    if (totalElevated || elevatedSubs.length) {
-      recommendationSection =
-        'Recommend follow-up clinical evaluation to confirm the screening signal, complete a comprehensive psychosocial assessment, and identify appropriate supports. '
-        + 'Cutoffs are screening thresholds and are not diagnostic; final determinations require a full clinical assessment.';
-    } else {
-      recommendationSection =
-        'No follow-up clinical evaluation is indicated by this screening at this time. Continue routine monitoring and rescreen if concerns arise. '
-        + 'Cutoffs are screening thresholds and are not diagnostic.';
-    }
-
-    interpretation = `${scoreSection}\n\n${interpretationSection}\n\n${recommendationSection}`;
-  }
-
-  return {
-    total,
-    totalMax: 34,
-    totalElevated,
-    cutoffs: PSC17_CUTOFFS,
-    subscales,
-    scored,
-    unscored,
-    interpretation
-  };
-});
-
-const psc17InterpretationParagraphs = computed(() => {
-  const text = psc17Summary.value?.interpretation || '';
-  return text
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-});
-
-// Visual treatment for known clinical sections so PSC/Trauma/Goals each get a
-// distinct tint without losing the unified card grid look.
-const CLINICAL_SECTION_CARD_VARIANT = new Map([
-  ['PSC-17 Behavioral Assessment', 'ov-card--clinical-psc'],
-  ['Clinical Questions', 'ov-card--clinical-questions'],
-  ['Clinical Intake Fields', 'ov-card--clinical-questions'],
-  ['Trauma / Abuse History', 'ov-card--clinical-trauma'],
-  ['Counseling Goals', 'ov-card--clinical-goals'],
-  ['Additional Notes & Medical', 'ov-card--clinical-notes'],
-  ['Additional Intake Responses', 'ov-card--clinical-other']
-]);
-const clinicalSectionCardClass = (section) =>
-  CLINICAL_SECTION_CARD_VARIANT.get(section?.title) || 'ov-card--clinical-other';
-
-const fetchClinicalResponses = async (force = false) => {
-  if (!props.client?.id) return;
-  if (!isClinicalLikeClientType.value) {
-    clinicalSections.value = [];
-    clinicalCapturedAt.value = null;
-    clinicalTemplateMode.value = false;
-    clinicalEditable.value = false;
-    clinicalEditing.value = false;
-    return;
-  }
-  if (!force && clinicalSections.value.length > 0) return;
-  try {
-    clinicalLoading.value = true;
-    clinicalError.value = '';
-    clinicalDebug.value = '';
-    const r = await api.get(`/clients/${props.client.id}/clinical-responses`);
-    // Backend returns { sections: [{title, fields}], capturedAt, encryptionKeyMissing }
-    clinicalSections.value = r.data?.sections || [];
-    clinicalCapturedAt.value = r.data?.capturedAt || null;
-    clinicalEncryptionKeyMissing.value = !!r.data?.encryptionKeyMissing;
-    clinicalTemplateMode.value = !!r.data?.templateMode;
-    clinicalEditable.value = !!r.data?.editable;
-    if (clinicalEditing.value) hydrateClinicalEditForm();
-  } catch (e) {
-    clinicalError.value = e.response?.data?.error?.message || 'Failed to load clinical responses';
-  } finally {
-    clinicalLoading.value = false;
-  }
-};
-
-const loadClinicalDebug = async () => {
-  if (!props.client?.id) return;
-  try {
-    clinicalDebugLoading.value = true;
-    const r = await api.get(`/clients/${props.client.id}/clinical-responses`, { params: { debug: 1 } });
-    clinicalDebug.value = JSON.stringify(r.data?._debug || r.data || {}, null, 2);
-  } catch (e) {
-    clinicalDebug.value = `Debug fetch failed: ${e.response?.data?.error?.message || e.message}`;
-  } finally {
-    clinicalDebugLoading.value = false;
   }
 };
 
@@ -5470,6 +4621,9 @@ onMounted(async () => {
   await fetchAccess();
   await refreshOverviewProviders();
   await fetchAdminNote();
+  if (isClinicalLikeClientType.value) {
+    fetchBillingDiagnoses();
+  }
   // Log that this profile was viewed (best-effort)
   if (props.client?.id) {
     api.post(`/clients/${props.client.id}/log-view`).catch(() => {});
@@ -5480,8 +4634,6 @@ onMounted(async () => {
     await fetchAccessLog();
   } else if (activeTab.value === 'checklist') {
     await hydrateChecklist();
-  } else if (activeTab.value === 'messages') {
-    await fetchNotes();
   } else if (activeTab.value === 'guardians') {
     await fetchGuardians();
   } else if (activeTab.value === 'assignments') {
@@ -5491,17 +4643,38 @@ onMounted(async () => {
     await reloadProviderAssignments();
     await fetchEventAssignments();
   } else if (activeTab.value === 'phi') {
-    await fetchPaperworkStatuses();
-    await fetchDeliveryMethods();
-    await fetchPaperworkHistory();
-  } else if (activeTab.value === 'clinical') {
-    await fetchClinicalResponses(true);
+    await loadPaperworkTabData();
   } else if (activeTab.value === 'demographics') {
     await fetchDemographics();
   } else if (activeTab.value === 'surveys') {
     await fetchClientSurveyResponses();
   }
 });
+
+watch(
+  () => props.initialDocumentId,
+  (id) => {
+    const n = Number(id || 0);
+    if (n > 0) {
+      const allowed = new Set((tabs.value || []).map((x) => x.id));
+      if (allowed.has('phi')) activeTab.value = 'phi';
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.initialEncounterId,
+  (id) => {
+    const n = Number(id || 0);
+    medicalRecordEncounterId.value = n > 0 ? n : null;
+    if (n > 0) {
+      const allowed = new Set((tabs.value || []).map((x) => x.id));
+      if (allowed.has('medical-record')) activeTab.value = 'medical-record';
+    }
+  },
+  { immediate: true }
+);
 
 // Open to a requested initial tab (e.g., ?tab=checklist)
 watch(
@@ -5557,9 +4730,10 @@ watch(
 </script>
 
 <style scoped>
+@import '../../styles/client-chart.css';
+
 .modal-content.large {
-  /* Give more room for wide headers/tabs */
-  width: min(1200px, 96vw);
+  width: min(1280px, 97vw);
 }
 
 .modal-tabs {
@@ -5640,28 +4814,39 @@ watch(
 }
 
 .modal-content.large {
-  background: white;
-  border-radius: 16px;
-  width: min(1200px, 96vw);
-  max-width: min(1200px, 96vw);
-  max-height: 92vh;
+  background: #fff;
+  border-radius: 18px;
+  width: min(1280px, 97vw);
+  max-width: min(1280px, 97vw);
+  max-height: 94vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 25px 60px -20px rgba(15, 23, 42, 0.45), 0 10px 25px -10px rgba(15, 23, 42, 0.25);
+  box-shadow:
+    0 28px 64px -24px rgba(29, 38, 51, 0.42),
+    0 10px 24px -12px rgba(29, 38, 51, 0.18);
   overflow: hidden;
+  border: 1px solid rgba(58, 76, 107, 0.12);
 }
 
-/* ───────────── Modern client header ───────────── */
+/* ───────────── Clinical chart shell (soft SaaS + PlotTwist accents) ───────────── */
 .modal-header.cdp-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 24px;
-  padding: 22px 28px 20px;
-  border-bottom: 1px solid var(--border);
-  background:
-    radial-gradient(ellipse 80% 120% at 100% 0%, rgba(58, 76, 107, 0.06), transparent 60%),
-    linear-gradient(180deg, #ffffff 0%, var(--bg-alt) 100%);
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid rgba(58, 76, 107, 0.10);
+  background: #fff;
+  position: relative;
+}
+.modal-header.cdp-header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--primary, #C69A2B);
 }
 
 .cdp-header-main {
@@ -5674,19 +4859,23 @@ watch(
 
 .cdp-avatar {
   flex: 0 0 auto;
-  width: 64px;
-  height: 64px;
-  border-radius: 18px;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-family: var(--font-display, var(--font-header));
   font-weight: 700;
-  font-size: 22px;
-  letter-spacing: 0.5px;
+  font-size: 18px;
+  letter-spacing: 0.4px;
   text-shadow: 0 1px 2px rgba(0,0,0,0.18);
   user-select: none;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 3px rgba(58, 76, 107, 0.16),
+    0 6px 14px -8px rgba(29, 38, 51, 0.35);
 }
 
 .cdp-header-info {
@@ -5697,23 +4886,28 @@ watch(
   flex: 1;
 }
 
-.cdp-eyebrow {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  opacity: 0.85;
-}
-
 .cdp-title {
   margin: 0;
   font-family: var(--font-display, var(--font-header));
   font-size: 28px;
-  line-height: 1.1;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
+  line-height: 1.12;
+  font-weight: 750;
+  color: var(--secondary, #1D2633);
+  letter-spacing: -0.02em;
+}
+
+.cdp-identity-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 13px;
+  color: var(--accent, #3A4C6B);
+  font-weight: 550;
+}
+.cdp-identity-line > span:not(:last-child)::after {
+  content: '·';
+  margin-left: 10px;
+  color: rgba(58, 76, 107, 0.35);
 }
 
 .cdp-title-initials {
@@ -5744,20 +4938,19 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
+  padding: 5px 11px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.1px;
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(8px);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
+  font-weight: 700;
+  letter-spacing: 0.15px;
+  background: #fff;
+  color: var(--secondary, #1D2633);
+  border: 1px solid rgba(58, 76, 107, 0.18);
   white-space: nowrap;
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 2px rgba(29, 38, 51, 0.05);
 }
 
 .cdp-pill svg { flex: 0 0 auto; opacity: 0.75; }
@@ -5767,26 +4960,75 @@ watch(
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: var(--primary);
-  box-shadow: 0 0 0 3px rgba(198, 154, 43, 0.18);
+  background: var(--primary, #C69A2B);
+  box-shadow: 0 0 0 3px rgba(198, 154, 43, 0.22);
 }
 
 .cdp-pill--type {
-  background: rgba(198, 154, 43, 0.10);
-  border-color: rgba(198, 154, 43, 0.35);
+  background: rgba(198, 154, 43, 0.14);
+  border-color: rgba(198, 154, 43, 0.42);
   color: #6b4d10;
 }
 
-.cdp-pill--success { background: #dcfce7; border-color: #bbf7d0; color: #166534; }
-.cdp-pill--success .cdp-pill__dot { background: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,0.20); }
+.cdp-pill--success {
+  background: rgba(47, 143, 131, 0.12);
+  border-color: rgba(47, 143, 131, 0.35);
+  color: #1f6b62;
+}
+.cdp-pill--success .cdp-pill__dot {
+  background: var(--success, #2F8F83);
+  box-shadow: 0 0 0 3px rgba(47, 143, 131, 0.22);
+}
 
-.cdp-pill--info { background: #e0f2fe; border-color: #bae6fd; color: #075985; }
-.cdp-pill--warning { background: #fef3c7; border-color: #fde68a; color: #92400e; }
-.cdp-pill--terminated { background: #fee2e2; border-color: #fecaca; color: #991b1b; }
-.cdp-pill--archived { background: #e2e8f0; border-color: #cbd5e1; color: #475569; }
-.cdp-pill--neutral { background: #f1f5f9; border-color: #e2e8f0; color: #475569; }
-.cdp-pill--org { background: #eef2ff; border-color: #c7d2fe; color: #3730a3; }
-.cdp-pill--code { background: #f8fafc; border-color: var(--border); color: var(--text-secondary); }
+.cdp-pill--info {
+  background: rgba(58, 76, 107, 0.10);
+  border-color: rgba(58, 76, 107, 0.28);
+  color: var(--accent, #3A4C6B);
+}
+.cdp-pill--warning {
+  background: rgba(230, 167, 0, 0.14);
+  border-color: rgba(230, 167, 0, 0.4);
+  color: #8a5b00;
+}
+.cdp-pill--terminated {
+  background: rgba(204, 61, 61, 0.10);
+  border-color: rgba(204, 61, 61, 0.35);
+  color: #9a1f1f;
+}
+.cdp-pill--archived { background: #eef2f6; border-color: #d5dde7; color: #475569; }
+.cdp-pill--neutral { background: #f3f6fa; border-color: #dbe3ee; color: #475569; }
+.cdp-pill--org {
+  background: rgba(58, 76, 107, 0.10);
+  border-color: rgba(58, 76, 107, 0.28);
+  color: var(--accent, #3A4C6B);
+}
+.cdp-pill--code {
+  background: rgba(198, 154, 43, 0.08);
+  border-color: rgba(198, 154, 43, 0.25);
+  color: #8a5b12;
+}
+
+.cdp-admin-details {
+  margin-top: 4px;
+  border-top: 1px dashed rgba(58, 76, 107, 0.18);
+  padding-top: 8px;
+}
+.cdp-admin-details > summary {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent, #3A4C6B);
+  list-style: none;
+  user-select: none;
+}
+.cdp-admin-details > summary::-webkit-details-marker { display: none; }
+.cdp-admin-details > summary::after {
+  content: ' ▾';
+  color: var(--primary, #C69A2B);
+}
+.cdp-admin-details[open] > summary::after { content: ' ▴'; }
 
 .cdp-submeta {
   display: inline-flex;
@@ -5812,11 +5054,11 @@ watch(
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 4px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--border);
+  margin-top: 8px;
+  padding-top: 0;
+  border-top: none;
 }
-.cdp-inline-controls--muted { border-top-color: transparent; padding-top: 0; }
+.cdp-inline-controls--muted { margin-top: 8px; }
 
 .cdp-inline-controls__label {
   font-size: 11px;
@@ -5891,6 +5133,417 @@ watch(
   border-color: rgba(198, 154, 43, 0.32);
 }
 
+.cdp-btn-primary,
+.cdp-open-full,
+.cdp-btn-gold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--primary, #C69A2B);
+  border: 1px solid rgba(155, 115, 20, 0.35);
+  color: #1D2633;
+  box-shadow: 0 1px 2px rgba(29, 38, 51, 0.08);
+  transition: background 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
+}
+.cdp-btn-primary:hover,
+.cdp-open-full:hover,
+.cdp-btn-gold:hover {
+  background: var(--primary-light, #D4B04A);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(198, 154, 43, 0.28);
+}
+.cdp-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.cdp-btn-soft {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid rgba(58, 76, 107, 0.16);
+  color: var(--secondary, #1D2633);
+  box-shadow: 0 1px 1px rgba(29, 38, 51, 0.03);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.cdp-btn-soft:hover {
+  background: #F7F9FC;
+  border-color: rgba(58, 76, 107, 0.28);
+}
+.cdp-overview-toolbar .cdp-btn-soft,
+.cdp-overview-toolbar .cdp-btn-primary {
+  width: auto;
+}
+
+.cdp-btn-ink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-weight: 700;
+  background: var(--secondary, #1D2633) !important;
+  border: 1px solid rgba(29, 38, 51, 0.85) !important;
+  color: #fff !important;
+  box-shadow: 0 1px 3px rgba(29, 38, 51, 0.22);
+}
+.cdp-btn-ink:hover:not(:disabled) {
+  background: var(--accent, #3A4C6B) !important;
+  border-color: var(--accent, #3A4C6B) !important;
+}
+.cdp-btn-ink:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cdp-alert-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 22px 10px 26px;
+  border-bottom: 1px solid rgba(58, 76, 107, 0.08);
+  background: #F7F9FC;
+}
+
+.cdp-alert-chip {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+  background: #fff;
+  color: var(--secondary, #1D2633);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.cdp-alert-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(29, 38, 51, 0.08);
+}
+.cdp-alert-chip--warning {
+  background: rgba(230, 167, 0, 0.12);
+  border-color: rgba(230, 167, 0, 0.45);
+  color: #8a5b00;
+}
+.cdp-alert-chip--danger {
+  background: rgba(204, 61, 61, 0.10);
+  border-color: rgba(204, 61, 61, 0.38);
+  color: #9a1f1f;
+}
+.cdp-alert-chip--info {
+  background: rgba(58, 76, 107, 0.10);
+  border-color: rgba(58, 76, 107, 0.32);
+  color: var(--accent, #3A4C6B);
+}
+.cdp-alert-chip--accent {
+  background: rgba(198, 154, 43, 0.14);
+  border-color: rgba(198, 154, 43, 0.45);
+  color: #6b4d10;
+}
+
+.cdp-overview-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 268px;
+  gap: 18px;
+  align-items: start;
+}
+.cdp-overview-main { min-width: 0; }
+.cdp-overview-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.cdp-section-title {
+  margin: 0 0 2px;
+  font-family: var(--font-display, var(--font-header));
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--secondary, #1D2633);
+  letter-spacing: -0.01em;
+}
+.cdp-section-sub {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--accent, #3A4C6B);
+}
+.cdp-glance-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.cdp-glance-card {
+  background: #fff;
+  border: 1px solid rgba(58, 76, 107, 0.10);
+  border-radius: 12px;
+  padding: 14px 14px 12px;
+  box-shadow: 0 1px 2px rgba(29, 38, 51, 0.03);
+}
+.cdp-glance-label {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+.cdp-glance-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--secondary, #1D2633);
+  margin-bottom: 4px;
+  line-height: 1.3;
+}
+.cdp-glance-meta {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.35;
+}
+.cdp-text-link {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin-top: 4px;
+  color: var(--accent, #3A4C6B);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+.cdp-text-link:hover {
+  color: var(--secondary, #1D2633);
+  text-decoration: underline;
+}
+
+.cdp-care-section,
+.cdp-contacts-section {
+  margin-bottom: 20px;
+}
+.cdp-care-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+.cdp-care-card,
+.cdp-contact-card {
+  background: #fff;
+  border: 1px solid rgba(58, 76, 107, 0.10);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 1px 2px rgba(29, 38, 51, 0.03);
+}
+.cdp-care-card__title,
+.cdp-contact-card__role {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+.cdp-care-card__body,
+.cdp-contact-card__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--secondary, #1D2633);
+  line-height: 1.35;
+  margin-bottom: 4px;
+}
+.cdp-contacts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.cdp-profile-details {
+  margin: 8px 0 4px;
+  border: 1px solid rgba(58, 76, 107, 0.10);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.cdp-profile-details > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--secondary, #1D2633);
+  user-select: none;
+}
+.cdp-profile-details > summary::-webkit-details-marker { display: none; }
+.cdp-profile-details > summary::after {
+  content: '▾';
+  color: #94a3b8;
+  font-weight: 600;
+}
+.cdp-profile-details[open] > summary {
+  border-bottom: 1px solid rgba(58, 76, 107, 0.08);
+}
+.cdp-profile-details[open] > summary::after { content: '▴'; }
+.cdp-profile-details__hint {
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+.cdp-profile-details .ov-sections {
+  padding: 14px;
+  margin-bottom: 0;
+}
+
+.cdp-overview-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+}
+.cdp-aside-card {
+  background: #fff;
+  border: 1px solid rgba(58, 76, 107, 0.10);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 1px 2px rgba(29, 38, 51, 0.03);
+}
+.cdp-aside-card h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.cdp-aside-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cdp-aside-actions .cdp-btn-primary { width: 100%; }
+.cdp-aside-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cdp-aside-timeline__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #F7F9FC;
+  border: 1px solid transparent;
+  text-align: left;
+}
+.cdp-aside-timeline__item strong {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--secondary, #1D2633);
+}
+.cdp-aside-timeline__item span {
+  font-size: 12px;
+  color: #64748b;
+}
+.cdp-aside-timeline__item--btn {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+}
+.cdp-aside-timeline__item--btn:hover {
+  border-color: rgba(58, 76, 107, 0.16);
+  background: #fff;
+}
+.cdp-aside-contact + .cdp-aside-contact {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(58, 76, 107, 0.10);
+}
+.cdp-aside-contact strong {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+.cdp-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 22px 12px 26px;
+  border-top: 1px solid rgba(58, 76, 107, 0.10);
+  background: #fff;
+}
+.cdp-footer-left,
+.cdp-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cdp-footer-right .cdp-btn-primary,
+.cdp-footer-right .cdp-btn-ghost {
+  width: auto;
+}
+.cdp-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid rgba(58, 76, 107, 0.22);
+  color: var(--secondary, #1D2633);
+}
+.cdp-btn-ghost:hover {
+  border-color: rgba(58, 76, 107, 0.35);
+  background: #F7F9FC;
+}
+.cdp-footer-link {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--accent, #3A4C6B);
+  cursor: pointer;
+}
+.cdp-footer-link:hover { color: var(--secondary, #1D2633); }
+.cdp-footer-link--danger { color: var(--error, #CC3D3D); }
+
 .btn-close {
   background: rgba(15, 23, 42, 0.04);
   border: 1px solid transparent;
@@ -5918,14 +5571,13 @@ watch(
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 4px;
-  padding: 10px 18px 10px;
-  border-bottom: 1px solid var(--border);
+  gap: 2px;
+  padding: 0 18px;
+  border-bottom: 1px solid rgba(58, 76, 107, 0.14);
   background: #fff;
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
-  /* Hide scrollbar on all browsers – content is still draggable/touch-scrollable */
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -5937,39 +5589,47 @@ watch(
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  padding: 8px 14px;
+  padding: 12px 13px 13px;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
   cursor: pointer;
   font-size: 13.5px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  transition: all 0.15s ease;
+  font-weight: 650;
+  color: var(--accent, #3A4C6B);
+  transition: color 0.15s ease, border-color 0.15s ease;
   margin: 0;
   white-space: nowrap;
 }
 
 .tab-button:hover {
-  color: var(--text-primary);
-  background: var(--bg-alt);
+  color: var(--secondary, #1D2633);
+  background: transparent;
 }
 
 .tab-button.active {
-  color: var(--primary);
-  background: linear-gradient(180deg, rgba(198, 154, 43, 0.12) 0%, rgba(198, 154, 43, 0.08) 100%);
-  border-color: rgba(198, 154, 43, 0.28);
-  font-weight: 700;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  color: var(--secondary, #1D2633);
+  background: transparent;
+  border-bottom-color: var(--primary, #C69A2B);
+  font-weight: 850;
+  box-shadow: none;
 }
 
 .tab-content {
   flex: 1;
   overflow-y: auto;
-  padding: 30px;
-  background: linear-gradient(180deg, var(--bg-page, #fafbfd) 0%, #f7f9fc 100%);
+  padding: 22px 26px;
+  background: #F7F9FC;
 }
 
+@media (max-width: 1100px) {
+  .cdp-overview-layout { grid-template-columns: 1fr; }
+  .cdp-overview-aside { position: static; }
+  .cdp-glance-grid,
+  .cdp-care-grid,
+  .cdp-contacts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 980px) {
   .modal-header.cdp-header {
     padding: 16px 18px;
@@ -5984,12 +5644,16 @@ watch(
     padding: 8px 12px;
   }
   .tab-button {
-    padding: 8px 12px;
+    padding: 8px 10px 10px;
     font-size: 13px;
   }
   .tab-content {
     padding: 18px 16px;
   }
+  .cdp-glance-grid,
+  .cdp-care-grid,
+  .cdp-contacts-grid { grid-template-columns: 1fr; }
+  .cdp-footer { padding: 12px 16px; }
 }
 
 .detail-section-docs {
@@ -6115,9 +5779,8 @@ watch(
 
 .ov-card {
   background: #fff;
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  border-top: 3px solid rgba(198, 154, 43, 0.32);
-  border-radius: 14px;
+  border: 1px solid rgba(58, 76, 107, 0.10);
+  border-radius: 12px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   overflow: hidden;
   display: flex;
@@ -6134,17 +5797,17 @@ watch(
   justify-content: space-between;
   gap: 10px;
   padding: 12px 16px;
-  background: linear-gradient(180deg, #fffaf0 0%, #fff 100%);
-  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+  background: #F7F9FC;
+  border-bottom: 1px solid rgba(58, 76, 107, 0.08);
 }
 
 .ov-card-header h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
-  color: #8a5b12;
+  color: #64748b;
   text-transform: uppercase;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.06em;
 }
 
 .ov-card-body {
@@ -6157,7 +5820,7 @@ watch(
   gap: 18px;
   align-items: start;
   padding: 10px 0;
-  border-bottom: 1px solid rgba(241, 235, 220, 0.85);
+  border-bottom: 1px solid rgba(241, 245, 249, 0.95);
 }
 
 .ov-row:last-child {
@@ -6172,9 +5835,9 @@ watch(
 .ov-row-label {
   font-size: 12px;
   font-weight: 700;
-  color: #8a5b12;
+  color: #64748b;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.45px;
   line-height: 1.4;
   padding-top: 2px;
   /* Long machine-style keys (REGISTRATIONSELECTIONIDSBYSTEP, etc.) were
@@ -6208,12 +5871,12 @@ watch(
 }
 
 .ov-card--guardian .ov-card-header {
-  background: linear-gradient(180deg, #f6f9ff 0%, #fff 100%);
-  border-bottom-color: rgba(214, 222, 238, 0.85);
+  background: #F7F9FC;
+  border-bottom-color: rgba(58, 76, 107, 0.08);
 }
 
 .ov-card--guardian {
-  border-top-color: rgba(89, 116, 188, 0.45);
+  border-color: rgba(58, 76, 107, 0.10);
 }
 
 .ov-card--cta .ov-card-body {
@@ -6263,6 +5926,23 @@ watch(
 .ov-card--clinical-goals .ov-card-header { background: linear-gradient(180deg, #f6f9ff 0%, #fff 100%); }
 .ov-card--clinical-notes      { border-top-color: rgba(168, 86, 196, 0.45); }
 .ov-card--clinical-notes .ov-card-header { background: linear-gradient(180deg, #faf3fc 0%, #fff 100%); }
+.billing-diagnosis-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.billing-diagnosis-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+.billing-diagnosis-item .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
 .ov-card--clinical-other      { border-top-color: rgba(100, 116, 139, 0.45); }
 
 /* Duplicate-row treatment inside demographics cards. */
@@ -6522,22 +6202,19 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 16px 17px 15px;
+  padding: 14px 16px;
   background: #fff;
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  border-top: 3px solid rgba(198, 154, 43, 0.18);
-  border-radius: 14px;
+  border: 1px solid rgba(58, 76, 107, 0.10);
+  border-radius: 12px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, border-top-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   position: relative;
   min-height: 82px;
 }
 
 .info-item:hover {
-  border-color: rgba(198, 154, 43, 0.26);
-  border-top-color: rgba(198, 154, 43, 0.38);
-  box-shadow: 0 8px 20px -14px rgba(15, 23, 42, 0.22);
-  transform: translateY(-1px);
+  border-color: rgba(58, 76, 107, 0.22);
+  box-shadow: 0 6px 16px -14px rgba(15, 23, 42, 0.22);
 }
 
 /* Don't lift the admin-note card while its popover is open — the lift
@@ -6552,9 +6229,9 @@ watch(
 .info-item label {
   font-size: 11px;
   font-weight: 700;
-  color: #8a5b12;
+  color: #64748b;
   text-transform: uppercase;
-  letter-spacing: 0.75px;
+  letter-spacing: 0.55px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -6566,7 +6243,7 @@ watch(
   width: 4px;
   height: 10px;
   border-radius: 2px;
-  background: linear-gradient(180deg, #e6b74b 0%, rgba(198, 154, 43, 0.45) 100%);
+  background: rgba(58, 76, 107, 0.35);
   flex: 0 0 auto;
 }
 
@@ -7135,38 +6812,40 @@ watch(
   padding: 16px 0 56px;
 }
 .cdp-page-body {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 0 20px;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 0 24px;
   background: transparent;
   display: flex;
   flex-direction: column;
 }
 /* When rendered in full-page mode, give the panel modal-like card chrome */
-.cdp-page-body > .modal-header,
-.cdp-page-body > .modal-tabs,
-.cdp-page-body > .tab-content {
+.cdp-page-body.client-chart .modal-header.cdp-header,
+.cdp-page-body.client-chart .modal-tabs,
+.cdp-page-body.client-chart .cc-alert-bar,
+.cdp-page-body.client-chart .tab-content {
   background: #ffffff;
 }
-.cdp-page-body > .modal-header.cdp-header {
+.cdp-page-body.client-chart .modal-header.cdp-header {
   border-radius: 16px 16px 0 0;
   border: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
 }
-.cdp-page-body > .modal-tabs {
+.cdp-page-body.client-chart .modal-tabs {
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
-.cdp-page-body > .tab-content {
+.cdp-page-body.client-chart .tab-content {
   border: 1px solid var(--border);
   border-top: none;
   border-radius: 0 0 16px 16px;
   box-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.18);
 }
 @media (max-width: 980px) {
-  .cdp-page-body { padding: 0 12px; }
+  .cdp-page-body.client-chart { padding: 0 12px; }
 }
 .continuation-checklist-section {
   margin-top: 16px;

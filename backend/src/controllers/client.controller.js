@@ -6851,7 +6851,17 @@ export const listClientProviderAssignments = async (req, res, next) => {
          ORDER BY org.name ASC, u.last_name ASC, u.first_name ASC`,
         vals
       );
-      return res.json(rows || []);
+      const deduped = [];
+      const seenNullDay = new Set();
+      for (const row of rows || []) {
+        if (row.service_day == null) {
+          const key = `${row.organization_id}:${row.provider_user_id}`;
+          if (seenNullDay.has(key)) continue;
+          seenNullDay.add(key);
+        }
+        deduped.push(row);
+      }
+      return res.json(deduped);
     } catch (e) {
       const msg = String(e?.message || '');
       const missingTable = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
@@ -6880,7 +6890,17 @@ export const listClientProviderAssignments = async (req, res, next) => {
          ORDER BY org.name ASC, u.last_name ASC, u.first_name ASC`,
         vals
       );
-      return res.json((rows || []).map((r) => ({ ...r, is_primary: false })));
+      const deduped = [];
+      const seenNullDay = new Set();
+      for (const row of rows || []) {
+        if (row.service_day == null) {
+          const key = `${row.organization_id}:${row.provider_user_id}`;
+          if (seenNullDay.has(key)) continue;
+          seenNullDay.add(key);
+        }
+        deduped.push({ ...row, is_primary: false });
+      }
+      return res.json(deduped);
     }
   } catch (e) {
     next(e);

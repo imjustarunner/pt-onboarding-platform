@@ -194,11 +194,7 @@ export const createSessionNote = async (req, res, next) => {
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
-    await ClinicalEligibilityService.assertBookedClinicalSession({
-      agencyId: session.agency_id,
-      clientId: session.client_id,
-      officeEventId: session.office_event_id
-    });
+    await ClinicalEligibilityService.assertSessionNoteEligible(session);
 
     const title = String(req.body?.title || '').trim();
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
@@ -229,14 +225,16 @@ export const createSessionNote = async (req, res, next) => {
       createdByUserId: req.user.id
     });
 
-    await ClinicalRecordRef.upsert({
-      agencyId: session.agency_id,
-      clientId: session.client_id,
-      officeEventId: session.office_event_id,
-      clinicalSessionId: session.id,
-      recordType: 'note',
-      clinicalRecordId: note.id
-    });
+    if (session.office_event_id) {
+      await ClinicalRecordRef.upsert({
+        agencyId: session.agency_id,
+        clientId: session.client_id,
+        officeEventId: session.office_event_id,
+        clinicalSessionId: session.id,
+        recordType: 'note',
+        clinicalRecordId: note.id
+      });
+    }
 
     await logAudit(req, {
       actionType: 'clinical_note_created',
@@ -282,11 +280,7 @@ export const createSessionClaim = async (req, res, next) => {
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
-    await ClinicalEligibilityService.assertBookedClinicalSession({
-      agencyId: session.agency_id,
-      clientId: session.client_id,
-      officeEventId: session.office_event_id
-    });
+    await ClinicalEligibilityService.assertSessionNoteEligible(session);
 
     const claim = await ClinicalClaim.create({
       clinicalSessionId: session.id,
@@ -301,14 +295,16 @@ export const createSessionClaim = async (req, res, next) => {
       createdByUserId: req.user.id
     });
 
-    await ClinicalRecordRef.upsert({
-      agencyId: session.agency_id,
-      clientId: session.client_id,
-      officeEventId: session.office_event_id,
-      clinicalSessionId: session.id,
-      recordType: 'claim',
-      clinicalRecordId: claim.id
-    });
+    if (session.office_event_id) {
+      await ClinicalRecordRef.upsert({
+        agencyId: session.agency_id,
+        clientId: session.client_id,
+        officeEventId: session.office_event_id,
+        clinicalSessionId: session.id,
+        recordType: 'claim',
+        clinicalRecordId: claim.id
+      });
+    }
 
     await logAudit(req, {
       actionType: 'clinical_claim_created',
@@ -338,11 +334,7 @@ export const createSessionDocument = async (req, res, next) => {
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
-    await ClinicalEligibilityService.assertBookedClinicalSession({
-      agencyId: session.agency_id,
-      clientId: session.client_id,
-      officeEventId: session.office_event_id
-    });
+    await ClinicalEligibilityService.assertSessionNoteEligible(session);
     const title = String(req.body?.title || '').trim();
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
 
@@ -359,14 +351,16 @@ export const createSessionDocument = async (req, res, next) => {
       createdByUserId: req.user.id
     });
 
-    await ClinicalRecordRef.upsert({
-      agencyId: session.agency_id,
-      clientId: session.client_id,
-      officeEventId: session.office_event_id,
-      clinicalSessionId: session.id,
-      recordType: 'document',
-      clinicalRecordId: doc.id
-    });
+    if (session.office_event_id) {
+      await ClinicalRecordRef.upsert({
+        agencyId: session.agency_id,
+        clientId: session.client_id,
+        officeEventId: session.office_event_id,
+        clinicalSessionId: session.id,
+        recordType: 'document',
+        clinicalRecordId: doc.id
+      });
+    }
 
     await logAudit(req, {
       actionType: 'clinical_document_created',

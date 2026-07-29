@@ -1,0 +1,6 @@
+Date,Patient,DOB,Patient Account Number or Member ID,Type of Charge or Payment,Place of Service Code,Clinician,Diagnosis,Primary Payer Name,Secondary Payer Name,Rate,Patient Amount,Patient Balance,Insurance Amount,Insurance Amount Paid,Insurance Status
+08/15/2025,"Potter, Harry",07/31/2010,MEM-HP-001,Charge,03,"Granger, Hermione",F41.1,Medicaid,,150.00,0,25.00,150.00,100.00,Partial
+09/01/2025,"Potter, Harry",07/31/2010,MEM-HP-001,Charge,11,"Granger, Hermione",F41.1,Medicaid,,150.00,25.00,0,150.00,150.00,Paid
+10/12/2025,"Granger, Hermione",09/19/1979,MEM-HG-003,Charge,11,"Lovegood, Luna",F41.9,Commercial,,200.00,0,50.00,200.00,0,Pending
+01/10/2026,"Weasley, Ron",03/01/2011,MEM-RW-002,Charge,11,"Lovegood, Luna",F32.1,Commercial,,175.00,0,40.00,175.00,0,Pending
+03/22/2026,"Longbottom, Neville",07/30/1980,MEM-NL-004,Charge,03,"Granger, Hermione",F90.0,Medicaid,,125.00,0,0,125.00,125.00,Paid
