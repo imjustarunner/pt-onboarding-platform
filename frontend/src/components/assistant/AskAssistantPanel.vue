@@ -10,7 +10,7 @@
     aria-label="Ask assistant"
   >
     <div v-if="!isEmbedded" class="aap-backdrop" @click="close" />
-    <aside class="aap-drawer" @click.stop>
+    <aside class="aap-drawer" @click.stop @mousedown.stop>
       <div class="aap-accent" aria-hidden="true" />
 
       <header class="aap-head">
@@ -398,12 +398,22 @@
             ref="textareaRef"
             rows="1"
             class="aap-input"
+            name="assistant-prompt"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            data-lpignore="true"
+            data-1p-ignore
+            data-protonpass-ignore="true"
+            data-form-type="other"
             placeholder="Ask anything… or type Payroll, Schedule, Submit…"
             role="combobox"
             :aria-expanded="quickNavPanelOpen ? 'true' : 'false'"
             aria-autocomplete="list"
             aria-controls="aap-quick-nav-listbox"
             :aria-activedescendant="quickNavActiveDescendantId"
+            @focus="onComposerFocus"
             @keydown="onComposerKeydown"
             @input="onComposerInput"
           />
@@ -453,6 +463,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useSpeechToText } from '../../composables/useSpeechToText';
 import { useAssistantAgencyContext } from '../../composables/useAssistantAgencyContext';
+import { useAskAssistant } from '../../composables/useAskAssistant';
 import { isSupervisor } from '../../utils/helpers.js';
 import { getDashboardRoute } from '../../utils/router.js';
 import {
@@ -494,6 +505,8 @@ const {
   tryAutoSelectSingleTenant,
   selectAgency
 } = useAssistantAgencyContext();
+
+const { interact: pinAssistantOpen } = useAskAssistant();
 
 const isEmbedded = computed(() => props.variant === 'embedded');
 const showCloseButton = computed(() =>
@@ -989,7 +1002,12 @@ function activateQuickNavSelection() {
 }
 
 function onComposerInput() {
+  pinAssistantOpen();
   autoGrow();
+}
+
+function onComposerFocus() {
+  pinAssistantOpen();
 }
 
 function onComposerKeydown(e) {
@@ -1502,6 +1520,7 @@ watch(
     resetSessionEngagement();
     loadCapabilities();
     if (!isEmbedded.value) {
+      pinAssistantOpen();
       ensureAgencyOptionsLoaded().then(() => tryAutoSelectSingleTenant());
     }
     nextTick(() => {
@@ -1625,7 +1644,7 @@ onUnmounted(() => {
   color: var(--aap-slate);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   min-height: 0;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.7) inset,
@@ -2470,6 +2489,8 @@ onUnmounted(() => {
   border-top: 1px solid var(--aap-line);
   background: rgba(255, 255, 255, 0.65);
   backdrop-filter: blur(10px);
+  position: relative;
+  z-index: 2;
 }
 
 .aap-help-action {
