@@ -1589,6 +1589,7 @@
           :room-id="Number(editorRoomId || 0)"
           :room-label="editorRoomLabel"
           :room-options="editorRoomOptions"
+          :can-edit-room="editorCanEditRoom"
           :show-booked-until="editorShowBookedUntil"
           :booked-until="editorLastOccurrenceYmd"
           :booked-until-label="editorBookedUntilLabel"
@@ -1615,7 +1616,7 @@
           @update:status="onEditorStatus"
           @update:locationAddress="editorLocationAddress = $event"
           @update:serviceLocationId="onEditorServiceLocationId"
-          @update:roomId="editorRoomId = $event"
+          @update:roomId="onEditorRoomId"
           @update:bookedUntil="onEditorBookedUntil"
           @update:officeLocationId="onEditorOfficeLocationId"
           @update:preferredRoomId="editorPreferredRoomId = $event"
@@ -1931,6 +1932,12 @@
             :room-options="editorPreferredOpenRoomOptions"
             :disabled="submitting"
           />
+          <p
+            v-if="editorIsOpenSlot && editorPreferredRoomsHint && !editorAttachOfficeRequest"
+            class="osorb-linked-room-hint muted"
+          >
+            {{ editorPreferredRoomsHint }}
+          </p>
         </AppointmentEditorShell>
 
           <div v-show="editorWorkspaceTab === 'billing'" class="appt-workspace-panel appt-workspace-panel--flush">
@@ -12745,8 +12752,9 @@ function onEditorTenantServiceId(id) {
 
 const editorPreferredOpenRoomOptions = computed(() => {
   const open = Array.isArray(editorOpenRooms.value) ? editorOpenRooms.value : [];
+  let rows;
   if (open.length) {
-    return open.map((r) => ({
+    rows = open.map((r) => ({
       id: Number(r.id || r.roomId || 0),
       roomId: Number(r.id || r.roomId || 0),
       roomNumber: r.roomNumber ?? r.room_number ?? null,
@@ -12755,15 +12763,17 @@ const editorPreferredOpenRoomOptions = computed(() => {
       stateLabel: r.stateLabel || (r.requestable === false ? 'Booked' : 'Open'),
       requestable: r.requestable !== false
     })).filter((r) => r.id > 0);
+  } else {
+    // Fallback: catalog rooms — mark as unchecked until live availability loads.
+    rows = (editorRoomOptions.value || []).map((r) => ({
+      ...r,
+      roomNumber: r.roomNumber ?? r.room_number ?? null,
+      photoUrl: String(r.photoUrl || r.photo_url || '').trim() || '',
+      stateLabel: 'Availability unknown',
+      requestable: true
+    }));
   }
-  // Fallback: catalog rooms — mark as unchecked until live availability loads.
-  return (editorRoomOptions.value || []).map((r) => ({
-    ...r,
-    roomNumber: r.roomNumber ?? r.room_number ?? null,
-    photoUrl: String(r.photoUrl || r.photo_url || '').trim() || '',
-    stateLabel: 'Availability unknown',
-    requestable: true
-  }));
+  return mergeEditorRoomOptionsWithBookings(rows);
 });
 
 function formatEditorDisplayDate(ymd) {
@@ -13075,13 +13085,15 @@ const editorSuperviseeDisplayName = computed(() => {
 
 const editorShowLocation = computed(() => !editorShowVirtual.value || editorIsOpenSlot.value);
 const editorShowRoom = computed(() => editorShowLocation.value || editorIsOpenSlot.value);
+const editorCanEditRoom = computed(() => !!editorIsOpenSlot.value);
 const editorRoomLabel = computed(() => String(modalOccupiedSlotSummary.value?.roomDisplay || '').trim());
 const editorRoomOptions = computed(() => {
   const rooms = Array.isArray(officeRooms.value) ? officeRooms.value : [];
-  return rooms.map((r) => ({
+  const base = rooms.map((r) => ({
     id: Number(r.id || r.roomId || 0),
     label: String(r.name || r.label || r.roomName || `Room #${r.id || r.roomId}`)
   })).filter((r) => r.id > 0);
+  return mergeEditorRoomOptionsWithBookings(base);
 });
 const editorShowBookedUntil = computed(() => (
   editorShowRecurrence.value && editorRecurrenceFrequency.value !== 'ONCE'
@@ -13298,6 +13310,13 @@ function onEditorStatus(value) {
   editorStatus.value = String(value || '');
   if (canEditBookingStrip.value) bookingStripStatus.value = String(value || '');
 }
+function onEditorRoomId(id) {
+  const rid = Number(id || 0);
+  editorRoomId.value = rid;
+  if (editorIsOpenSlot.value && rid > 0) {
+    editorPreferredRoomId.value = rid;
+  }
+}
 function onEditorBookedUntil(value) {
   editorBookedUntil.value = String(value || '');
   if (canEditBookingStrip.value) bookingStripUntil.value = String(value || '');
@@ -13428,6 +13447,110 @@ async function onEditorServiceLocationId(id) {
   }
 }
 
+function officeEventRoomLabel(ev) {
+  const num = String(ev?.roomNumber || '').trim();
+  const lbl = String(ev?.roomLabel || '').trim();
+  if (num) return `#${num}${lbl ? ` ${lbl}` : ''}`;
+  return lbl || `Room ${Number(ev?.roomId || 0) || ''}`.trim();
+}
+
+function findProviderOfficeBookingsForEditorWindow() {
+  const providerId = Number(bookingTargetUserId.value || props.userId || authStore.user?.id || 0);
+  if (!providerId) return [];
+  const dayName = String(modalDay.value || dayNameForDateYmd(editorDateYmd.value) || '');
+  if (!dayName) return [];
+  const startH = Number(modalHour.value ?? modalStartHour.value ?? 0);
+  const endH = Number(modalEndHour.value || startH + 1);
+  const minute = Number(modalStartMinute.value || 0);
+  const seen = new Map();
+  for (let h = startH; h < endH; h += 1) {
+    for (const ev of officeEventsInCell(dayName, h, minute)) {
+      const assignedId = Number(ev?.assignedProviderId || 0);
+      const bookedId = Number(ev?.bookedProviderId || 0);
+      if (assignedId !== providerId && bookedId !== providerId) continue;
+      const st = String(ev?.slotState || '').toUpperCase();
+      if (!['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'BOOKED'].includes(st)) continue;
+      const roomId = Number(ev?.roomId || 0);
+      const buildingId = Number(ev?.buildingId || 0);
+      if (!roomId || !buildingId) continue;
+      const key = `${buildingId}|${roomId}`;
+      if (!seen.has(key)) seen.set(key, ev);
+    }
+  }
+  return [...seen.values()];
+}
+
+function mapBookedOfficeRoomRow(ev) {
+  const roomId = Number(ev?.roomId || 0);
+  const label = officeEventRoomLabel(ev);
+  return {
+    id: roomId,
+    roomId,
+    roomNumber: ev?.roomNumber ?? null,
+    label,
+    name: label,
+    photoUrl: '',
+    stateLabel: 'Your office booking',
+    requestable: true,
+    linkedOfficeBooking: true,
+    buildingId: Number(ev?.buildingId || 0) || null
+  };
+}
+
+function mergeEditorRoomOptionsWithBookings(baseRooms = []) {
+  const bookings = findProviderOfficeBookingsForEditorWindow();
+  const byId = new Map((baseRooms || []).map((r) => [Number(r.id || r.roomId || 0), { ...r }]));
+  for (const ev of bookings) {
+    const rid = Number(ev?.roomId || 0);
+    if (!rid) continue;
+    const existing = byId.get(rid);
+    const bookedLabel = officeEventRoomLabel(ev);
+    if (existing) {
+      byId.set(rid, {
+        ...existing,
+        label: String(existing.label || bookedLabel).includes('Your booking')
+          ? existing.label
+          : `${existing.label || bookedLabel} · Your booking`,
+        stateLabel: 'Your office booking',
+        requestable: true,
+        linkedOfficeBooking: true,
+        buildingId: Number(ev?.buildingId || 0) || existing.buildingId || null
+      });
+    } else {
+      byId.set(rid, mapBookedOfficeRoomRow(ev));
+    }
+  }
+  return [...byId.values()]
+    .filter((r) => Number(r.id || r.roomId || 0) > 0)
+    .sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
+}
+
+async function syncEditorOfficeBookingLink() {
+  if (!editorIsOpenSlot.value) return;
+  const bookings = findProviderOfficeBookingsForEditorWindow();
+  if (!bookings.length) return;
+  const primary = bookings[0];
+  const buildingId = Number(primary?.buildingId || selectedOfficeLocationId.value || 0);
+  const roomId = Number(primary?.roomId || 0);
+  if (buildingId > 0 && !Number(editorOfficeLocationId.value || 0)) {
+    editorOfficeLocationId.value = buildingId;
+    await loadOfficeRooms(buildingId);
+  } else if (buildingId > 0 && Number(editorOfficeLocationId.value || 0) === buildingId) {
+    await loadOfficeRooms(buildingId);
+  }
+  if (roomId > 0 && !Number(editorRoomId.value || 0)) {
+    editorRoomId.value = roomId;
+  }
+  if (roomId > 0 && !Number(editorPreferredRoomId.value || 0)) {
+    editorPreferredRoomId.value = roomId;
+  }
+  if (bookings.length === 1) {
+    editorPreferredRoomsHint.value = `You already have ${officeEventRoomLabel(primary)} booked for this time — select it to link this open slot.`;
+  } else {
+    editorPreferredRoomsHint.value = `${bookings.length} office bookings overlap this window — pick which room to link.`;
+  }
+}
+
 function mapOpenRoomRow(r) {
   const id = Number(r.id || r.roomId || 0);
   const num = r.roomNumber ?? r.room_number ?? null;
@@ -13487,8 +13610,13 @@ async function loadEditorOpenRoomsForWindow() {
     const rooms = Array.isArray(resp?.data?.rooms) ? resp.data.rooms : [];
     const checked = Number(resp?.data?.checkedOccurrences || 1) || 1;
     if (rooms.length) {
-      editorOpenRooms.value = rooms.map(mapOpenRoomRow);
-      const stillOk = !priorRoomId || rooms.some((r) => Number(r.id || r.roomId) === priorRoomId);
+      editorOpenRooms.value = mergeEditorRoomOptionsWithBookings(rooms.map(mapOpenRoomRow));
+      const bookedRoomIds = new Set(
+        findProviderOfficeBookingsForEditorWindow().map((b) => Number(b?.roomId || 0)).filter((n) => n > 0)
+      );
+      const stillOk = !priorRoomId
+        || rooms.some((r) => Number(r.id || r.roomId) === priorRoomId)
+        || bookedRoomIds.has(priorRoomId);
       if (priorRoomId && !stillOk) {
         editorPreferredRoomId.value = 0;
         editorPreferredRoomsHint.value = `Your previously selected room is not open for the full series (${checked} occurrence${checked === 1 ? '' : 's'}). Pick another open room.`;
@@ -13510,10 +13638,16 @@ async function loadEditorOpenRoomsForWindow() {
       ? fromGrid.map(mapOpenRoomRow)
       : catalog.map(mapOpenRoomRow);
     if (fallback.length) {
-      editorOpenRooms.value = fallback;
+      editorOpenRooms.value = mergeEditorRoomOptionsWithBookings(fallback.map(mapOpenRoomRow));
       editorPreferredRoomsHint.value = fromGrid.length
         ? `${fallback.length} requestable room${fallback.length === 1 ? '' : 's'} from the office grid for this window.`
         : 'Could not verify live availability — showing location rooms. Confirm before requesting.';
+      return;
+    }
+    const bookedOnly = mergeEditorRoomOptionsWithBookings([]);
+    if (bookedOnly.length) {
+      editorOpenRooms.value = bookedOnly;
+      editorPreferredRoomsHint.value = 'Your office booking is available to link — pick it in the Room field above.';
       return;
     }
     editorOpenRooms.value = [];
@@ -13826,6 +13960,9 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
     void loadEditorReminders();
   }
   void loadEditorOfficeLocations();
+  if (k === 'portal_intake') {
+    void syncEditorOfficeBookingLink();
+  }
 }
 
 watch(editorWorkspaceTab, (tab) => {
@@ -13863,8 +14000,15 @@ async function loadEditorOfficeLocations() {
       if (filtered.length) rows = filtered;
     }
     editorOfficeLocations.value = rows;
-    if (!Number(editorOfficeLocationId.value || 0) && rows.length === 1) {
-      editorOfficeLocationId.value = Number(rows[0]?.id || 0);
+    if (!Number(editorOfficeLocationId.value || 0)) {
+      const booked = findProviderOfficeBookingsForEditorWindow()[0];
+      if (booked?.buildingId) {
+        editorOfficeLocationId.value = Number(booked.buildingId);
+      } else if (Number(selectedOfficeLocationId.value || 0) > 0) {
+        editorOfficeLocationId.value = Number(selectedOfficeLocationId.value);
+      } else if (rows.length === 1) {
+        editorOfficeLocationId.value = Number(rows[0]?.id || 0);
+      }
     }
     const locId = Number(editorOfficeLocationId.value || 0);
     if (locId > 0) await loadOfficeRooms(locId);
@@ -19658,11 +19802,15 @@ const submitRequest = async () => {
       if (editorOpenSlotEnabled.value !== false) {
         await ensureVirtualWorkingHoursForRange({ dayName: dn, startHour: h, endHour: endH });
       }
+      const linkedRoomId = Number(editorPreferredRoomId.value || editorRoomId.value || selectedOfficeRoomId.value || 0);
+      const existingBooking = linkedRoomId > 0
+        ? findProviderOfficeBookingsForEditorWindow().find((b) => Number(b?.roomId || 0) === linkedRoomId)
+        : null;
       // Attach office request for the same series when requested from the unified editor.
-      const officeId = Number(editorOfficeLocationId.value || selectedOfficeLocationId.value || 0);
+      const officeId = Number(editorOfficeLocationId.value || selectedOfficeLocationId.value || existingBooking?.buildingId || 0);
       const attachOffice = !!(editorAttachOfficeRequest.value || sessionAlsoRequestOffice.value);
       let linkedOfficeRequestId = null;
-      if (attachOffice) {
+      if (attachOffice && !(existingBooking && linkedRoomId)) {
         const baseDateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
         const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE').toUpperCase();
         const recurringRecurrences = [...RECURRING_FREQUENCIES];
@@ -19684,7 +19832,7 @@ const submitRequest = async () => {
           weekday: weekdayFromYmd(ymd),
           startHour: h,
           endHour: endH,
-          roomId: Number(editorPreferredRoomId.value || selectedOfficeRoomId.value || 0) || undefined
+          roomId: Number(editorPreferredRoomId.value || editorRoomId.value || selectedOfficeRoomId.value || 0) || undefined
         }));
         const officeIds = officeId
           ? [officeId]
@@ -19699,7 +19847,7 @@ const submitRequest = async () => {
           requestedStartDate: baseDateYmd,
           requestedUntilDate: endMode === 'until' ? (editorRecurrenceUntilDate.value || null) : null,
           slots,
-          preferredRoomId: Number(editorPreferredRoomId.value || 0) || undefined
+          preferredRoomId: Number(editorPreferredRoomId.value || editorRoomId.value || 0) || undefined
         });
         linkedOfficeRequestId = Number(reqRes?.data?.request?.id || reqRes?.data?.id || 0) || null;
         needsOfficeRefresh = true;
@@ -19724,9 +19872,16 @@ const submitRequest = async () => {
         }
       }
       forceRefreshSummary = true;
-      officeReminderToast.value = attachOffice
-        ? 'Open slot published and office request attached for the same series.'
-        : 'Portal intake hours published — not tied to an office. New clients can request this time online.';
+      const linkedRoomLabel = linkedRoomId && existingBooking ? officeEventRoomLabel(existingBooking) : '';
+      if (attachOffice && existingBooking && linkedRoomId) {
+        officeReminderToast.value = `Open slot published and linked to your existing office booking (${linkedRoomLabel}).`;
+      } else if (attachOffice) {
+        officeReminderToast.value = 'Open slot published and office request attached for the same series.';
+      } else if (linkedRoomId && existingBooking) {
+        officeReminderToast.value = `Open slot published and linked to your office booking (${linkedRoomLabel}).`;
+      } else {
+        officeReminderToast.value = 'Portal intake hours published — not tied to an office. New clients can request this time online.';
+      }
       setTimeout(() => { officeReminderToast.value = ''; }, 6000);
     } else if (requestType.value === 'office_request_only') {
       // Always use modal's hour range (End time dropdown) as source of truth; shift/drag select is unreliable in office layout
@@ -22172,17 +22327,22 @@ watch(
 
 watch(
   () => [
-    editorAttachOfficeRequest.value,
-    editorOfficeLocationId.value,
-    editorDateYmd.value,
-    editorStartTime.value,
-    editorEndTime.value,
-    scheduleEventRecurrence.value,
-    scheduleEventOccurrenceCount.value,
-    scheduleEventRecurrenceEndMode.value,
-    officeBookingRecurrence.value,
-    officeBookingOccurrenceCount.value
+    showRequestModal.value,
+    requestType.value,
+    modalDay.value,
+    modalHour.value,
+    modalEndHour.value,
+    bookingTargetUserId.value
   ],
+  ([show, type]) => {
+    if (!show || type !== 'portal_intake') return;
+    void syncEditorOfficeBookingLink();
+  },
+  { flush: 'post' }
+);
+
+watch(
+  () => [editorAttachOfficeRequest.value, editorOfficeLocationId.value, editorDateYmd.value, editorStartTime.value, editorEndTime.value, scheduleEventRecurrence.value, scheduleEventOccurrenceCount.value, scheduleEventRecurrenceEndMode.value, officeBookingRecurrence.value, officeBookingOccurrenceCount.value],
   ([active]) => {
     if (!active) return;
     void loadEditorOpenRoomsForWindow();
@@ -27845,6 +28005,19 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .sched-wrap--dark .cell-plus-btn {
   color: rgba(148, 163, 184, 0.55);
   background: rgba(15, 23, 42, 0.72);
+}
+.osorb-linked-room-hint {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  font-size: 12px;
+  line-height: 1.35;
+}
+  color: rgba(226, 232, 240, 0.95);
+  background: rgba(15, 23, 42, 0.88);
+  border-color: rgba(148, 163, 184, 0.35);
 }
 .sched-wrap--dark .sched-cell:hover .cell-plus-btn,
 .sched-wrap--dark .sched-cell-selected .cell-plus-btn {
