@@ -2084,12 +2084,21 @@
                     class="nr-info-select"
                     type="datetime-local"
                     :value="scheduleEventEditForm.startAt"
+                    :disabled="!canEditScheduleTiming"
+                    :title="canEditScheduleTiming ? 'Start' : 'Only the host can change the time'"
                     @change="onScheduleEventStartAtInput($event.target.value)"
                   />
                   <span class="nr-when-sep">–</span>
-                  <input v-model="scheduleEventEditForm.endAt" class="nr-info-select" type="datetime-local" />
+                  <input
+                    v-model="scheduleEventEditForm.endAt"
+                    class="nr-info-select"
+                    type="datetime-local"
+                    :disabled="!canEditScheduleTiming"
+                    :title="canEditScheduleTiming ? 'End' : 'Only the host can change the time'"
+                  />
                 </div>
                 <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
+                <span v-if="!canEditScheduleTiming" class="nr-tz-under muted">Only the host can change date &amp; time</span>
               </template>
               <template v-else-if="isSupervisionEditMode">
                 <div class="nr-when-edit nr-when-edit--datetime">
@@ -2097,12 +2106,21 @@
                     class="nr-info-select"
                     type="datetime-local"
                     :value="supvStartIsoLocal"
+                    :disabled="!canEditScheduleTiming"
+                    :title="canEditScheduleTiming ? 'Start' : 'Only the supervisor can change the time'"
                     @change="onSupvStartAtInput($event.target.value)"
                   />
                   <span class="nr-when-sep">–</span>
-                  <input v-model="supvEndIsoLocal" class="nr-info-select" type="datetime-local" />
+                  <input
+                    v-model="supvEndIsoLocal"
+                    class="nr-info-select"
+                    type="datetime-local"
+                    :disabled="!canEditScheduleTiming"
+                    :title="canEditScheduleTiming ? 'End' : 'Only the supervisor can change the time'"
+                  />
                 </div>
                 <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
+                <span v-if="!canEditScheduleTiming" class="nr-tz-under muted">Only the supervisor can change date &amp; time</span>
               </template>
               <template v-else-if="isScheduleEventAllDayUi">
                 <div class="nr-when-edit">
@@ -3945,7 +3963,7 @@
               Close
             </button>
             <button
-              v-if="isEditableScheduleStackItem(editingScheduleStackItem)"
+              v-if="isEditableScheduleStackItem(editingScheduleStackItem) || canRescheduleScheduleStackItem(editingScheduleStackItem)"
               class="btn nr-btn-submit"
               type="button"
               :disabled="scheduleEventSaving"
@@ -4410,10 +4428,16 @@
                           class="nr-info-select"
                           type="datetime-local"
                           :value="scheduleEventEditForm.startAt"
+                          :disabled="!canRescheduleScheduleStackItem(item)"
                           @change="onScheduleEventStartAtInput($event.target.value)"
                         />
                         <span class="nr-when-sep">–</span>
-                        <input v-model="scheduleEventEditForm.endAt" class="nr-info-select" type="datetime-local" />
+                        <input
+                          v-model="scheduleEventEditForm.endAt"
+                          class="nr-info-select"
+                          type="datetime-local"
+                          :disabled="!canRescheduleScheduleStackItem(item)"
+                        />
                       </div>
                     </div>
                     <div class="nr-info-cell">
@@ -7849,6 +7873,42 @@ const bookingProviderPickerOptions = computed(() => {
   const filtered = aid
     ? mapped.filter((u) => !u.agencyIds.length || u.agencyIds.includes(aid) || u.id === me || u.id === Number(props.userId || 0))
     : mapped;
+  /** Prefer host names from the open event / summary over inventing "Provider" + id. */
+  const hostNameFallbackForId = (id) => {
+    const n = Number(id || 0);
+    if (!n) return null;
+    const item = editingScheduleStackItem.value
+      || (stackDetailsItems.value || []).find((it) => Number(it?.providerId || 0) === n)
+      || null;
+    if (item && Number(item?.providerId || 0) === n) {
+      const hf = String(item?.hostFirstName || item?.host_first_name || '').trim();
+      const hl = String(item?.hostLastName || item?.host_last_name || '').trim();
+      if (hf || hl) return { first_name: hf, last_name: hl };
+      const hn = String(item?.hostName || item?.host_name || '').trim();
+      if (hn) {
+        const parts = hn.split(/\s+/).filter(Boolean);
+        if (parts.length >= 2) {
+          return { first_name: parts.slice(0, -1).join(' '), last_name: parts[parts.length - 1] };
+        }
+        return { first_name: hn, last_name: '' };
+      }
+    }
+    for (const ev of summary.value?.scheduleEvents || []) {
+      if (Number(ev?.providerId || ev?.provider_id || 0) !== n) continue;
+      const hf = String(ev?.hostFirstName || '').trim();
+      const hl = String(ev?.hostLastName || '').trim();
+      if (hf || hl) return { first_name: hf, last_name: hl };
+      const hn = String(ev?.hostName || '').trim();
+      if (hn) {
+        const parts = hn.split(/\s+/).filter(Boolean);
+        if (parts.length >= 2) {
+          return { first_name: parts.slice(0, -1).join(' '), last_name: parts[parts.length - 1] };
+        }
+        return { first_name: hn, last_name: '' };
+      }
+    }
+    return null;
+  };
   // Always include current actor + selected target even if directory is still loading.
   const ensure = (id, fallback = null) => {
     const n = Number(id || 0);
@@ -7867,9 +7927,19 @@ const bookingProviderPickerOptions = computed(() => {
         agencyIds: []
       });
     } else {
-      filtered.unshift({
-        id: n, first_name: 'Provider', last_name: String(n), email: '', role: '', photoUrl: '', agencyIds: []
-      });
+      const fromHost = hostNameFallbackForId(n);
+      if (fromHost && (fromHost.first_name || fromHost.last_name)) {
+        filtered.unshift({
+          id: n,
+          first_name: fromHost.first_name,
+          last_name: fromHost.last_name,
+          email: '',
+          role: '',
+          photoUrl: '',
+          agencyIds: []
+        });
+      }
+      // No synthetic "Provider" / id placeholder — label falls back to a clean name below.
     }
   };
   ensure(props.userId);
@@ -7891,23 +7961,62 @@ const assignedProviderFace = computed(() => {
   return bookingProviderPickerOptions.value.find((u) => Number(u.id) === id) || null;
 });
 
+const formatPersonLastFirst = (firstName, lastName) => {
+  const fn = String(firstName || '').trim();
+  const ln = String(lastName || '').trim();
+  if (ln && fn) return `${ln}, ${fn}`;
+  return `${fn} ${ln}`.trim();
+};
+
+const looksLikePlaceholderPersonName = (firstName, lastName) => {
+  const fn = String(firstName || '').trim().toLowerCase();
+  const ln = String(lastName || '').trim();
+  if (fn === 'provider' && /^\d+$/.test(ln)) return true;
+  if (fn === 'user' && /^\d+$/.test(ln)) return true;
+  if (!fn && /^\d+$/.test(ln)) return true;
+  return false;
+};
+
 const bookingTargetUserLabel = computed(() => {
   const id = Number(bookingTargetUserId.value || scheduleActorUserId.value || props.userId || 0);
   const opt = bookingProviderPickerOptions.value.find((u) => Number(u.id) === id);
-  if (opt) {
-    const ln = String(opt.last_name || '').trim();
-    const fn = String(opt.first_name || '').trim();
-    if (ln && fn) return `${ln}, ${fn}`;
-    const name = `${fn} ${ln}`.trim();
-    return name || opt.email || `User ${id}`;
+  if (opt && !looksLikePlaceholderPersonName(opt.first_name, opt.last_name)) {
+    const formatted = formatPersonLastFirst(opt.first_name, opt.last_name);
+    if (formatted) return formatted;
+  }
+  const item = editingScheduleStackItem.value;
+  if (item && Number(item?.providerId || 0) === id) {
+    const fromHost = formatPersonLastFirst(item.hostFirstName, item.hostLastName)
+      || String(item.hostName || '').trim();
+    if (fromHost) return fromHost.includes(',') ? fromHost : (
+      (() => {
+        const parts = fromHost.split(/\s+/).filter(Boolean);
+        if (parts.length >= 2) return `${parts[parts.length - 1]}, ${parts.slice(0, -1).join(' ')}`;
+        return fromHost;
+      })()
+    );
+  }
+  for (const ev of summary.value?.scheduleEvents || []) {
+    if (Number(ev?.providerId || 0) !== id) continue;
+    const formatted = formatPersonLastFirst(ev.hostFirstName, ev.hostLastName);
+    if (formatted) return formatted;
+    const hn = String(ev?.hostName || '').trim();
+    if (hn) {
+      const parts = hn.split(/\s+/).filter(Boolean);
+      if (parts.length >= 2) return `${parts[parts.length - 1]}, ${parts.slice(0, -1).join(' ')}`;
+      return hn;
+    }
   }
   if (id && id === Number(authStore.user?.id || 0)) {
-    const meLn = String(authStore.user?.last_name || authStore.user?.lastName || '').trim();
-    const meFn = String(authStore.user?.first_name || authStore.user?.firstName || '').trim();
-    if (meLn && meFn) return `${meLn}, ${meFn}`;
+    const meFormatted = formatPersonLastFirst(
+      authStore.user?.first_name || authStore.user?.firstName,
+      authStore.user?.last_name || authStore.user?.lastName
+    );
+    if (meFormatted) return meFormatted;
     return 'Me';
   }
-  return id ? `User ${id}` : '—';
+  // Never show bare user id / role as "Booked for".
+  return '—';
 });
 
 /**
@@ -10207,6 +10316,9 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       timedSlice,
       spanBlock: true,
       shareRow: hasSchoolBlocks,
+      canEdit: first?.canEdit === true || (first?.canEdit == null && String(first?.role || '') === 'supervisor'),
+      canReschedule: first?.canReschedule === true
+        || (first?.canReschedule == null && (first?.canEdit === true || String(first?.role || '') === 'supervisor')),
       draggable: !isScheduleEventCancelled(first) && Number(first?.id || 0) > 0
     });
   }
@@ -10219,6 +10331,11 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const timedSlice = appointmentSpanSlice(ev?.startAt, ev?.endAt, dayName, hour, minute);
     const attendeeCount = meetingBookedParticipantCount(ev);
     const isGroupMeeting = isMultiParticipantMeeting(ev);
+    const canEditEv = ev?.canEdit !== false && !isScheduleEventCancelled(ev);
+    const canRescheduleEv = !isScheduleEventCancelled(ev) && (
+      ev?.canReschedule === true
+      || (ev?.canReschedule !== false && canEditEv)
+    );
     blocks.push({
       key: `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
       kind: 'sevt',
@@ -10242,12 +10359,19 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       endAt: ev?.endAt || null,
       recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || null,
       providerId: resolveBookedProviderIdForEvent(ev),
+      isHost: ev?.isHost !== undefined ? !!ev.isHost : null,
+      canEdit: canEditEv,
+      canReschedule: canRescheduleEv,
+      hostFirstName: String(ev?.hostFirstName || '').trim() || null,
+      hostLastName: String(ev?.hostLastName || '').trim() || null,
+      hostName: String(ev?.hostName || '').trim() || null,
       attendeeCount,
       isGroupMeeting,
       attendees: Array.isArray(ev?.attendees) ? ev.attendees : [],
       attendeeUserIds: Array.isArray(ev?.attendeeUserIds) ? ev.attendeeUserIds : [],
       timedSlice,
       spanBlock: true,
+      // Allow drag gesture for snap-back UX; permission checked on drop.
       draggable: !isScheduleEventCancelled(ev) && Number(ev?.id || 0) > 0
     });
   }
@@ -21302,7 +21426,33 @@ const isAppointmentBlockDraggable = (block) => {
   if (block?.isCancelled || block?.draggable === false) return false;
   const kind = String(block?.kind || '');
   if (!['supv', 'sevt'].includes(kind)) return false;
+  // Allow the drag gesture for everyone who can book; permission is enforced on drop (snap-back).
   return Number(block?.eventId || 0) > 0 && !!block?.startAt && !!block?.endAt;
+};
+
+const blockAllowsReschedule = (block) => {
+  if (!block || block?.isCancelled) return false;
+  if (block?.canReschedule === true) return true;
+  if (block?.canReschedule === false) return false;
+  if (block?.canEdit === true) return true;
+  if (block?.canEdit === false) return false;
+  // Admin meetings: any booked invitee may move time/date.
+  const subtype = normalizeMeetingSubtype(block?.meetingSubtype);
+  if (String(block?.eventKind || '').toUpperCase() === 'TEAM_MEETING' && subtype === 'admin') {
+    const me = Number(authStore.user?.id || 0);
+    if (me && Number(block?.providerId || 0) === me) return true;
+    const ids = Array.isArray(block?.attendeeUserIds) ? block.attendeeUserIds : [];
+    if (me && ids.some((n) => Number(n) === me)) return true;
+  }
+  return false;
+};
+
+const flashScheduleToast = (message, ms = 4500) => {
+  officeReminderToast.value = String(message || '').trim();
+  if (!officeReminderToast.value) return;
+  setTimeout(() => {
+    if (officeReminderToast.value === message) officeReminderToast.value = '';
+  }, ms);
 };
 
 const isAppointmentBlockDragging = (block) => {
@@ -21360,7 +21510,10 @@ const onAppointmentPointerDown = (e, block, dayName, hour, minute = 0) => {
     fromMinute: Number(minute || 0),
     originX: Number(e?.clientX || 0),
     originY: Number(e?.clientY || 0),
-    pointerId: e?.pointerId
+    pointerId: e?.pointerId,
+    canReschedule: blockAllowsReschedule(block),
+    eventKind: String(block.eventKind || '').toUpperCase(),
+    meetingSubtype: normalizeMeetingSubtype(block.meetingSubtype)
   };
   appointmentDragTarget.value = null;
   try {
@@ -21503,7 +21656,14 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
     invalidateScheduleSummaryCacheForUser(props.userId);
     void load({ forceRefresh: true });
   } catch (e) {
-    appointmentMoveError.value = e?.response?.data?.error?.message || e?.message || 'Failed to move appointment';
+    const msg = e?.response?.data?.error?.message || e?.message || 'Failed to move appointment';
+    appointmentMoveError.value = msg;
+    if (e?.response?.status === 403) {
+      flashScheduleToast(msg || 'Only the host can change the time. Your move was not saved.');
+      showAppointmentMoveModal.value = false;
+      appointmentMoveDraft.value = null;
+      return;
+    }
     if (!scope) showAppointmentMoveModal.value = true;
     throw e;
   } finally {
@@ -21528,6 +21688,11 @@ const onAppointmentPointerUp = (e) => {
   if (!st) return;
   if (st.moved && st.active && target) {
     suppressNextAppointmentClick = true;
+    if (!st.canReschedule) {
+      // Snap-back: block never moved optimistically; just tell the invitee why.
+      flashScheduleToast('Only the host can change the time. Your move was not saved.');
+      return;
+    }
     openAppointmentMoveConfirm(st, target);
     return;
   }
@@ -21850,6 +22015,37 @@ const isEditableScheduleStackItem = (item) => {
   return Number(item?.eventId || 0) > 0;
 };
 
+/** Host (or admin-meeting invitee) may change time/date. */
+const canRescheduleScheduleStackItem = (item) => {
+  if (!item || item?.isCancelled) return false;
+  if (Number(item?.eventId || 0) <= 0) return false;
+  if (item?.canReschedule === true) return true;
+  if (item?.canReschedule === false) return false;
+  if (isEditableScheduleStackItem(item)) return true;
+  const kind = String(item?.eventKind || '').trim().toUpperCase();
+  if (kind === 'TEAM_MEETING' && normalizeMeetingSubtype(item?.meetingSubtype) === 'admin') {
+    const me = Number(authStore.user?.id || 0);
+    if (me && Number(item?.providerId || 0) === me) return true;
+    const ids = Array.isArray(item?.attendeeUserIds) ? item.attendeeUserIds : [];
+    return !!(me && ids.some((n) => Number(n) === me));
+  }
+  return false;
+};
+
+const canEditScheduleTiming = computed(() => {
+  if (isScheduleEventEditMode.value && editingScheduleStackItem.value) {
+    return canRescheduleScheduleStackItem(editingScheduleStackItem.value);
+  }
+  if (isSupervisionEditMode.value) {
+    const sid = Number(selectedSupvSessionId.value || 0);
+    const hit = (summary.value?.supervisionSessions || []).find((s) => Number(s?.id || 0) === sid);
+    if (!hit) return false;
+    if (hit?.canReschedule === true || hit?.canEdit === true) return true;
+    return String(hit?.role || '') === 'supervisor';
+  }
+  return true;
+});
+
 const beginEditScheduleStackItem = async (item) => {
   const eid = Number(item?.eventId || 0);
   if (!eid) return;
@@ -21927,8 +22123,14 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     || 0
   );
   if (!eid || !uid) return;
+  const canFullEdit = isEditableScheduleStackItem(item);
+  const canRescheduleOnly = !canFullEdit && canRescheduleScheduleStackItem(item);
+  if (!canFullEdit && !canRescheduleOnly) {
+    scheduleEventEditError.value = 'Only the host can edit this meeting.';
+    return;
+  }
   let title = String(scheduleEventEditForm.value.title || '').trim();
-  if (!title) {
+  if (!title && canFullEdit) {
     scheduleEventEditError.value = 'Title is required.';
     return;
   }
@@ -21940,14 +22142,14 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
   }
   const isMeeting = isMeetingStackItem(item);
   const isHuddleEvent = String(item?.eventKind || '').toUpperCase() === 'HUDDLE';
-  if (isMeeting && !isHuddleEvent && selectedMeetingParticipantIdSet.value.size === 0) {
+  if (canFullEdit && isMeeting && !isHuddleEvent && selectedMeetingParticipantIdSet.value.size === 0) {
     scheduleEventEditError.value = 'Add at least one participant before saving.';
     meetingParticipantsExpanded.value = true;
     return;
   }
   const clientId = isMeeting ? null : (Number(scheduleEventEditForm.value.clientId || 0) || null);
   let description = String(scheduleEventEditForm.value.description || '').trim();
-  if (!isMeeting && clientId) {
+  if (canFullEdit && !isMeeting && clientId) {
     if (/Client\s*id:\s*\d+/i.test(description)) {
       description = description.replace(/Client\s*id:\s*\d+/i, `Client id: ${clientId}`);
     } else {
@@ -21961,11 +22163,11 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     || Number(editorAgencyId.value || 0)
     || Number(effectiveAgencyId.value || 0)
     || null;
-  if (isMeeting && !saveAgencyId) {
+  if (canFullEdit && isMeeting && !saveAgencyId) {
     scheduleEventEditError.value = 'Select a tenant before saving meeting participants.';
     return;
   }
-  if (isMeeting && selectedMeetingOutOfAgencyCount.value > 0) {
+  if (canFullEdit && isMeeting && selectedMeetingOutOfAgencyCount.value > 0) {
     scheduleEventEditError.value = 'Remove participants who are not in the selected tenant, or switch tenant.';
     meetingParticipantsExpanded.value = true;
     return;
@@ -21999,40 +22201,49 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     const savedAttendeeIds = isMeeting
       ? Array.from(selectedMeetingParticipantIdSet.value)
       : [];
-    if (isMeeting && saveAgencyId > 0) {
+    if (canFullEdit && isMeeting && saveAgencyId > 0) {
       await syncToggledInviteGroupMemberships(saveAgencyId);
     }
-    const patchResp = await api.patch(`/users/${uid}/schedule-events/${eid}`, {
-      title,
-      description,
-      startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
-      endAt: endAt.length === 16 ? `${endAt}:00` : endAt,
-      // Required so Google-synced meetings store UTC correctly (avoids 7:30 → 1:30 drift).
-      timeZone: scheduleMeetingTimeZone(),
-      agencyId: saveAgencyId,
-      isPrivate: !!scheduleEventEditForm.value.isPrivate,
-      allDay: false,
-      clientId,
-      ...(scope ? { scope } : {}),
-      ...(isMeeting
-        ? {
-            attendeeUserIds: savedAttendeeIds,
-            invitedGroupIds: Array.from(selectedMeetingInviteGroupIdSet.value.values()),
-            isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
-            waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
-            notifyParticipants: !!notifyMeetingParticipants.value,
-            ...(String(item?.eventKind || '').toUpperCase() === 'TEAM_MEETING'
-              ? {
-                  meetingSubtype: (canSetAdminMeetingSubtype.value
-                    || meetingSubtype.value === 'admin'
-                    || meetingSubtype.value === 'town_hall')
-                    ? normalizeMeetingSubtype(meetingSubtype.value)
-                    : 'general'
-                }
-              : {})
-          }
-        : {})
-    }, { skipGlobalLoading: true });
+    // Admin-meeting invitees may PATCH time only; hosts keep full edit payload.
+    const patchBody = canRescheduleOnly
+      ? {
+          startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
+          endAt: endAt.length === 16 ? `${endAt}:00` : endAt,
+          timeZone: scheduleMeetingTimeZone(),
+          ...(scope ? { scope } : {})
+        }
+      : {
+          title,
+          description,
+          startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
+          endAt: endAt.length === 16 ? `${endAt}:00` : endAt,
+          // Required so Google-synced meetings store UTC correctly (avoids 7:30 → 1:30 drift).
+          timeZone: scheduleMeetingTimeZone(),
+          agencyId: saveAgencyId,
+          isPrivate: !!scheduleEventEditForm.value.isPrivate,
+          allDay: false,
+          clientId,
+          ...(scope ? { scope } : {}),
+          ...(isMeeting
+            ? {
+                attendeeUserIds: savedAttendeeIds,
+                invitedGroupIds: Array.from(selectedMeetingInviteGroupIdSet.value.values()),
+                isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
+                waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
+                notifyParticipants: !!notifyMeetingParticipants.value,
+                ...(String(item?.eventKind || '').toUpperCase() === 'TEAM_MEETING'
+                  ? {
+                      meetingSubtype: (canSetAdminMeetingSubtype.value
+                        || meetingSubtype.value === 'admin'
+                        || meetingSubtype.value === 'town_hall')
+                        ? normalizeMeetingSubtype(meetingSubtype.value)
+                        : 'general'
+                    }
+                  : {})
+              }
+            : {})
+        };
+    const patchResp = await api.patch(`/users/${uid}/schedule-events/${eid}`, patchBody, { skipGlobalLoading: true });
     const savedEvent = patchResp?.data?.event || {};
     patchScheduleEventInSummary({
       eventId: eid,
@@ -22781,12 +22992,19 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     clientId: clientId || null,
     providerId: Number(ev?.providerId || ev?.provider_id || props.userId || 0) || null,
     isHost: ev?.isHost !== undefined ? !!ev.isHost : null,
+    hostFirstName: String(ev?.hostFirstName || '').trim() || null,
+    hostLastName: String(ev?.hostLastName || '').trim() || null,
+    hostName: String(ev?.hostName || '').trim() || null,
     attendeeUserIds,
     invitedGroupIds: Array.isArray(ev?.invitedGroupIds)
       ? ev.invitedGroupIds.map((n) => Number(n)).filter((n) => n > 0)
       : [],
     attendees,
     canEdit: !cancelled && ev?.canEdit !== false,
+    canReschedule: !cancelled && (
+      ev?.canReschedule === true
+      || (ev?.canReschedule !== false && ev?.canEdit !== false)
+    ),
     isCancelled: cancelled,
     isTrainingPayEligible: !!ev?.isTrainingPayEligible,
     meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),

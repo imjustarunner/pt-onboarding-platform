@@ -3660,6 +3660,52 @@ async function assertCanManageTargetSchedule({ actorUserId, actorRole, targetUse
   return actorIsSupervisorOfTarget(actorUserId, targetUserId, agencyId);
 }
 
+/** Admin-meeting invitees may reschedule time/date; other edits stay host-only. */
+async function actorIsAdminMeetingAttendee(actorUserId, eventRow) {
+  const uid = Number(actorUserId || 0);
+  const eid = Number(eventRow?.id || 0);
+  if (!uid || !eid) return false;
+  const kind = String(eventRow?.kind || '').trim().toUpperCase();
+  const subtype = String(eventRow?.meeting_subtype || eventRow?.meetingSubtype || 'general').trim().toLowerCase();
+  if (kind !== 'TEAM_MEETING' || subtype !== 'admin') return false;
+  if (Number(eventRow?.provider_id || 0) === uid) return true;
+  try {
+    const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
+    const rows = await ProviderScheduleEventAttendee.listByEventId(eid);
+    return (rows || []).some((r) => Number(r?.user_id || r?.userId || 0) === uid);
+  } catch {
+    return false;
+  }
+}
+
+async function loadHostDisplayNamesByUserIds(userIds = []) {
+  const ids = Array.from(new Set((userIds || []).map((n) => Number(n || 0)).filter((n) => n > 0)));
+  const out = new Map();
+  if (!ids.length) return out;
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT id, first_name, last_name, email
+       FROM users
+       WHERE id IN (${placeholders})`,
+      ids
+    );
+    for (const r of rows || []) {
+      const id = Number(r.id || 0);
+      if (!id) continue;
+      const firstName = String(r.first_name || '').trim();
+      const lastName = String(r.last_name || '').trim();
+      const name = [firstName, lastName].filter(Boolean).join(' ').trim()
+        || String(r.email || '').trim()
+        || '';
+      out.set(id, { firstName, lastName, name });
+    }
+  } catch {
+    /* optional */
+  }
+  return out;
+}
+
 const canListAllAgencyClientsForSchedule = (role) => {
   const r = String(role || '').toLowerCase();
   return ['super_admin', 'superadmin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(r);
@@ -4397,7 +4443,12 @@ export const getUserScheduleSummary = async (req, res, next) => {
           signupClosesAt,
           signupCount,
           viewerSignedUp,
-          cancelReason: String(r.cancel_reason || '').trim() || null
+          cancelReason: String(r.cancel_reason || '').trim() || null,
+          // Only the supervisor (host) reschedules; supervisees may view/join.
+          canReschedule: isSupervisor
+            || canCreateProviderScheduleEvent(String(req.user?.role || '').toLowerCase()),
+          canEdit: isSupervisor
+            || canCreateProviderScheduleEvent(String(req.user?.role || '').toLowerCase())
         };
       }));
     } catch (e) {
@@ -4473,17 +4524,27 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const createdByUserId = Number(r.created_by_user_id || 0) || null;
         const isHost = !!eventProviderId && eventProviderId === Number(providerId);
         // Attendee-only copies on your calendar are viewable, but edits must target the host provider.
+        // Host (or creator / privileged scheduler) may fully edit; invitees may not change time/date.
         const canEditThisEvent = !!canEditScheduleEvents && (
           isHost
           || (createdByUserId != null && createdByUserId === actorId)
           || canCreateProviderScheduleEvent(actorRoleForEvents)
         );
+        const meetingSubtypeNorm = (() => {
+          const subtype = String(r.meeting_subtype || 'general').trim().toLowerCase();
+          if (subtype === 'admin' || subtype === 'town_hall') return subtype;
+          return 'general';
+        })();
+        const cancelled = String(r.status || '').trim().toUpperCase() === 'CANCELLED';
         return {
           id: Number(r.id || 0),
           agencyId: Number(r.agency_id || 0) || null,
           providerId: eventProviderId,
           createdByUserId,
           isHost,
+          hostFirstName: null,
+          hostLastName: null,
+          hostName: null,
           kind,
           title,
           description: isPrivate && !canSeePrivateTitle
@@ -4512,18 +4573,15 @@ export const getUserScheduleSummary = async (req, res, next) => {
           status: String(r.status || 'ACTIVE').trim().toUpperCase() || 'ACTIVE',
           isCancelled: String(r.status || '').trim().toUpperCase() === 'CANCELLED',
           isTrainingPayEligible: Number(r.is_training_pay_eligible || 0) === 1,
-          meetingSubtype: (() => {
-            const subtype = String(r.meeting_subtype || 'general').trim().toLowerCase();
-            if (subtype === 'admin' || subtype === 'town_hall') return subtype;
-            return 'general';
-          })(),
+          meetingSubtype: meetingSubtypeNorm,
           attendanceTrackingEnabled: (() => {
             if (kind === 'HUDDLE') return true;
-            const subtype = String(r.meeting_subtype || 'general').trim().toLowerCase();
-            if (subtype === 'admin' || subtype === 'town_hall') return true;
+            if (meetingSubtypeNorm === 'admin' || meetingSubtypeNorm === 'town_hall') return true;
             return Number(r.attendance_tracking_enabled || 0) === 1;
           })(),
-          canEdit: canEditThisEvent && String(r.status || '').trim().toUpperCase() !== 'CANCELLED'
+          canEdit: canEditThisEvent && !cancelled,
+          // Default; refined after attendees + host names attach (admin-meeting invitees can reschedule).
+          canReschedule: canEditThisEvent && !cancelled
         };
       });
 
@@ -4536,6 +4594,23 @@ export const getUserScheduleSummary = async (req, res, next) => {
           next = await enrichScheduleEventsWithPackageContext(next);
         } catch {
           /* package enrichment optional */
+        }
+        try {
+          const hostIds = (next || []).map((e) => Number(e?.providerId || 0)).filter((n) => n > 0);
+          const hostNames = await loadHostDisplayNamesByUserIds(hostIds);
+          next = (next || []).map((e) => {
+            const hid = Number(e?.providerId || 0);
+            const host = hostNames.get(hid);
+            if (!host) return e;
+            return {
+              ...e,
+              hostFirstName: host.firstName || null,
+              hostLastName: host.lastName || null,
+              hostName: host.name || null
+            };
+          });
+        } catch {
+          /* host names optional */
         }
         try {
           const meetingEventIds = (next || [])
@@ -4557,25 +4632,46 @@ export const getUserScheduleSummary = async (req, res, next) => {
               if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) return e;
               const eid = Number(e?.id || 0);
               const details = byEvent.get(eid) || [];
+              const attendeeUserIds = details.map((d) => Number(d.userId || 0)).filter((n) => n > 0);
+              const isAdminMeeting = kind === 'TEAM_MEETING'
+                && String(e?.meetingSubtype || '').toLowerCase() === 'admin';
+              const cancelled = !!e?.isCancelled
+                || String(e?.status || '').trim().toUpperCase() === 'CANCELLED';
+              const actorIsInvitee = attendeeUserIds.includes(actorId)
+                || Number(e?.providerId || 0) === actorId;
+              const canReschedule = !cancelled && (
+                !!e?.canEdit
+                || (isAdminMeeting && actorIsInvitee)
+              );
               return {
                 ...e,
-                attendeeUserIds: details.map((d) => Number(d.userId || 0)).filter((n) => n > 0),
+                attendeeUserIds,
                 invitedGroupIds: (byEventGroups.get(eid) || []).map((n) => Number(n)).filter((n) => n > 0),
-                attendees: details.map((d) => ({
-                  id: Number(d.userId || 0),
-                  firstName: d.firstName || '',
-                  lastName: d.lastName || '',
-                  email: d.email || '',
-                  name: [d.firstName, d.lastName].filter(Boolean).join(' ').trim()
-                    || d.email
-                    || `User #${d.userId}`
-                }))
+                attendees: details.map((d) => {
+                  const firstName = String(d.firstName || '').trim();
+                  const lastName = String(d.lastName || '').trim();
+                  const name = [firstName, lastName].filter(Boolean).join(' ').trim();
+                  return {
+                    id: Number(d.userId || 0),
+                    firstName,
+                    lastName,
+                    email: d.email || '',
+                    // Prefer real names — never surface role labels or bare ids as the primary label.
+                    name: name || `User #${d.userId}`
+                  };
+                }),
+                canReschedule
               };
             });
           }
         } catch {
           /* attendees optional */
         }
+        // Non-meeting events: canReschedule follows canEdit.
+        next = (next || []).map((e) => {
+          if (e?.canReschedule != null) return e;
+          return { ...e, canReschedule: !!e?.canEdit };
+        });
         return next;
       };
 
@@ -5979,32 +6075,11 @@ export const updateUserScheduleEvent = async (req, res, next) => {
 
     const actorUserId = Number(req.user?.id || 0);
     const actorRole = String(req.user?.role || '').toLowerCase();
-    const isSelf = actorUserId === userId;
-    if (!(await assertCanManageTargetSchedule({
-      actorUserId,
-      actorRole,
-      targetUserId: userId,
-      agencyId: Number(req.body?.agencyId || 0) || null
-    }))) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
 
+    // Resolve the event first (path user may be an invitee calendar, not the host).
     let target = await ProviderScheduleEvent.findByIdForProvider({ eventId, providerId: userId });
-    // If the client posted the wrong user path (common for meetings seen as an attendee),
-    // resolve by event id and re-check manage access against the real host.
     if (!target) {
-      const byId = await ProviderScheduleEvent.findById(eventId);
-      if (byId) {
-        const hostId = Number(byId.provider_id || 0);
-        if (hostId > 0 && (await assertCanManageTargetSchedule({
-          actorUserId,
-          actorRole,
-          targetUserId: hostId,
-          agencyId: Number(req.body?.agencyId || byId.agency_id || 0) || null
-        }))) {
-          target = byId;
-        }
-      }
+      target = await ProviderScheduleEvent.findById(eventId);
     }
     if (!target) return res.status(404).json({ error: { message: 'Schedule event not found' } });
     if (String(target.status || '').trim().toUpperCase() === 'CANCELLED') {
@@ -6016,6 +6091,38 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'This event type cannot be edited here' } });
     }
     const hostProviderId = Number(target.provider_id || userId) || userId;
+    const agencyForAccess = Number(req.body?.agencyId || target.agency_id || 0) || null;
+    const canManageHost = await assertCanManageTargetSchedule({
+      actorUserId,
+      actorRole,
+      targetUserId: hostProviderId,
+      agencyId: agencyForAccess
+    });
+    const wantsTimeChange = req.body?.startAt != null
+      || req.body?.endAt != null
+      || req.body?.startDate != null
+      || req.body?.endDate != null
+      || req.body?.allDay !== undefined;
+    const adminAttendeeReschedule = !canManageHost
+      && wantsTimeChange
+      && await actorIsAdminMeetingAttendee(actorUserId, target);
+    if (!canManageHost && !adminAttendeeReschedule) {
+      return res.status(403).json({ error: { message: 'Only the host can change this meeting’s time' } });
+    }
+    // Admin-meeting invitees may move time/date only — not title, roster, or other fields.
+    if (adminAttendeeReschedule && !canManageHost) {
+      const disallowedKeys = [
+        'title', 'description', 'attendeeUserIds', 'invitedGroupIds', 'clientId',
+        'isPrivate', 'meetingSubtype', 'meeting_subtype', 'isTrainingPayEligible',
+        'waitingRoomEnabled', 'notifyParticipants', 'agencyId'
+      ];
+      const attempted = disallowedKeys.filter((k) => Object.prototype.hasOwnProperty.call(req.body || {}, k));
+      if (attempted.length) {
+        return res.status(403).json({
+          error: { message: 'Only the host can edit meeting details. Invitees may reschedule the time.' }
+        });
+      }
+    }
 
     const allDay = req.body?.allDay === undefined ? Number(target.all_day || 0) === 1 : req.body.allDay === true;
     let startAt = undefined;

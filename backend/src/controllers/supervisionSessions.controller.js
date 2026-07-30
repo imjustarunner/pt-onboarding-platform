@@ -4101,6 +4101,18 @@ export const patchSupervisionSession = async (req, res, next) => {
 
     const startAt = req.body?.startAt !== undefined ? parseDateTimeLocalString(req.body?.startAt) : undefined;
     const endAt = req.body?.endAt !== undefined ? parseDateTimeLocalString(req.body?.endAt) : undefined;
+    const wantsTimeChange = startAt !== undefined || endAt !== undefined;
+    if (wantsTimeChange) {
+      const actorId = Number(req.user?.id || 0);
+      const role = String(req.user?.role || '').toLowerCase();
+      const isSupervisorHost = actorId > 0 && actorId === Number(row.supervisor_user_id || 0);
+      const privileged = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+      if (!isSupervisorHost && !privileged) {
+        return res.status(403).json({
+          error: { message: 'Only the supervisor can change this session’s time' }
+        });
+      }
+    }
     const sessionType = req.body?.sessionType !== undefined ? String(req.body?.sessionType || '').trim().toLowerCase() : undefined;
     if (!(await assertCanManageGroupSupervision(req, res, {
       sessionType,
