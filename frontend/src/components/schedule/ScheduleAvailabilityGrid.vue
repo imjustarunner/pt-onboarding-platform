@@ -993,7 +993,20 @@
                 />
                 <div class="sched-day-card__body">
                   <div class="sched-day-card__title">
-                    {{ b.isOfficeBlock ? (b.officeRoomLabel || b.shortLabel) : (b.shortLabel || b.title) }}
+                    <template v-if="b.kind === 'supv-signup'">
+                      <span class="cell-block-signup-headline">OPEN GROUP SUPERVISION</span>
+                      <SupervisionSignupCountdown
+                        v-if="b.signupClosesAt && b.signupOpen && !b.viewerSignedUp"
+                        class="cell-block-signup-countdown"
+                        :closes-at="b.signupClosesAt"
+                        prefix="Signup now"
+                        format="clock"
+                      />
+                      <span v-else-if="b.viewerSignedUp" class="cell-block-signup-status cell-block-signup-status--ok">Signed up</span>
+                    </template>
+                    <template v-else>
+                      {{ b.isOfficeBlock ? (b.officeRoomLabel || b.shortLabel) : (b.shortLabel || b.title) }}
+                    </template>
                   </div>
                   <div v-if="b.isOfficeBlock" class="sched-day-card__meta cell-block-office-status">
                     <svg class="cell-block-door-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
@@ -1195,15 +1208,23 @@
                     <span v-if="b.officeEmpty && visibleDays.length === 1" class="cell-block-office-empty">No bookings</span>
                   </span>
                 </template>
+                <span v-else-if="b.kind === 'supv-signup'" class="cell-block-text cell-block-text--signup-supv">
+                  <span v-if="b.signupTimeRange" class="cell-block-signup-range">{{ b.signupTimeRange }}</span>
+                  <span class="cell-block-signup-headline" title="Open group supervision — agency signup session">OPEN GROUP SUPERVISION</span>
+                  <span v-if="b.signupHostName" class="cell-block-signup-host">{{ b.signupHostName }}</span>
+                  <SupervisionSignupCountdown
+                    v-if="b.signupClosesAt && b.signupOpen && !b.viewerSignedUp"
+                    class="cell-block-signup-countdown"
+                    :closes-at="b.signupClosesAt"
+                    prefix="Signup now"
+                    format="clock"
+                  />
+                  <span v-else-if="b.viewerSignedUp" class="cell-block-signup-status cell-block-signup-status--ok">Signed up</span>
+                  <span v-else class="cell-block-signup-status">Signup closed</span>
+                </span>
                 <span v-else-if="b.shortLabel && b.kind !== 'peerbusy'" class="cell-block-text">
                   <span v-if="b.viewerIsPresenter" class="cell-block-presenter-badge">PRESENTER</span>
                   <span>{{ b.shortLabel }}</span>
-                  <SupervisionSignupCountdown
-                    v-if="b.kind === 'supv-signup' && b.signupClosesAt && b.signupOpen"
-                    class="cell-block-signup-countdown"
-                    :closes-at="b.signupClosesAt"
-                    prefix="·"
-                  />
                 </span>
                 <span v-else-if="b.kind === 'peerbusy' && b.shortLabel" class="cell-block-text">{{ peerActivityShortFromBlock(b) }}</span>
                 <span
@@ -9150,23 +9171,29 @@ const isSignupSupervisionOpen = (ev) => {
   return Date.now() < closes.getTime();
 };
 
+const OPEN_GROUP_SUPERVISION_LABEL = 'Open group supervision';
+const OPEN_GROUP_SUPERVISION_HEADLINE = 'OPEN GROUP SUPERVISION';
+
 const supervisionLabel = (dayName, hour, minute = 0, segmentClass = 'single', { multiline = false } = {}) => {
   const hits = supervisionSessionsInCell(dayName, hour, minute);
   const signupHit = hits.find((ev) => isSignupSupervisionEvent(ev));
   if (signupHit) {
-    const open = isSignupSupervisionOpen(signupHit);
+    const who = String(signupHit.counterpartyName || signupHit.supervisorName || '').trim();
     const signedUp = !!signupHit.viewerSignedUp;
-    const type = signedUp ? 'Signed up' : (open ? 'Sign up' : 'Signup closed');
-    const who = String(signupHit.counterpartyName || signupHit.supervisorName || 'Group sup').trim();
-  return runningAppointmentLabel({
-      segmentClass,
-      startAt: signupHit?.startAt,
-      endAt: signupHit?.endAt,
-      typeLabel: type,
-      whoLabel: who,
-      max: 56,
-      multiline
-    });
+    const seg = String(segmentClass || 'single');
+    if (seg === 'middle' || seg === 'end') {
+      return clipBlockLabel(OPEN_GROUP_SUPERVISION_LABEL, 48);
+    }
+    if (multiline && seg !== 'middle' && seg !== 'end') {
+      const range = clockRangeLabel(signupHit?.startAt, signupHit?.endAt) || '';
+      const lines = [];
+      if (range) lines.push(range);
+      lines.push(OPEN_GROUP_SUPERVISION_HEADLINE);
+      if (who) lines.push(who);
+      if (signedUp) lines.push('Signed up');
+      return lines.filter(Boolean).join('\n');
+    }
+    return clipBlockLabel(OPEN_GROUP_SUPERVISION_HEADLINE, 56);
   }
   const names = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
   const isGroup = hits.some((ev) => String(ev?.sessionType || '').trim().toLowerCase() === 'group');
@@ -9192,7 +9219,9 @@ const supervisionTitle = (dayName, hour, minute = 0) => {
     const who = String(signupHit.counterpartyName || signupHit.supervisorName || 'Facilitator').trim();
     const timeText = clockRangeLabel(signupHit?.startAt, signupHit?.endAt) || hourLabel(hour);
     const count = Number(signupHit?.signupCount || 0);
-    return `Signup group supervision — ${who} — ${dayName} ${timeText} — ${count} signed up`;
+    const open = isSignupSupervisionOpen(signupHit);
+    const status = signupHit.viewerSignedUp ? 'You are signed up' : (open ? 'Signup open' : 'Signup closed');
+    return `Open group supervision — ${who} — ${dayName} ${timeText} — ${count} signed up — ${status}`;
   }
   const withNames = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
   const who = withNames.length ? withNames.join(', ') : '—';
@@ -10311,6 +10340,8 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       signupClosesAt: first?.signupClosesAt || null,
       viewerSignedUp: !!first?.viewerSignedUp,
       signupOpen,
+      signupTimeRange: clockRangeLabel(first?.startAt, first?.endAt) || '',
+      signupHostName: String(first?.counterpartyName || first?.supervisorName || '').trim(),
       enrollmentMode: String(first?.enrollmentMode || '').trim() || null,
       recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim() || null,
       timedSlice,
@@ -17412,7 +17443,7 @@ const typeStyleToken = (b) => {
     if (st === 'triadic') return 'Triadic';
     return 'Indiv. sup';
   }
-  if (kind === 'supv-signup') return 'Signup sup';
+  if (kind === 'supv-signup') return 'Open grp supv';
   if (kind === 'school') return 'School';
   if (kind === 'request') return 'Req';
   if (kind === 'intake-ip') return 'IP';
@@ -24269,6 +24300,59 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .cell-block-signup-countdown {
   display: block;
   margin-top: 2px;
+}
+.cell-block-text--signup-supv {
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.2;
+  max-width: 100%;
+  min-width: 0;
+}
+.cell-block-signup-range {
+  font-size: 0.68rem;
+  font-weight: 600;
+  opacity: 0.88;
+}
+.cell-block-signup-headline {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.cell-block-signup-host {
+  font-size: 0.68rem;
+  font-weight: 600;
+  opacity: 0.92;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cell-block-signup-status {
+  font-size: 0.68rem;
+  font-weight: 700;
+  opacity: 0.85;
+}
+.cell-block-signup-status--ok {
+  color: #0f766e;
+}
+.sched-wrap-quarter .cell-block-signup-headline {
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  -webkit-line-clamp: 3;
+}
+.cell-block-span .cell-block-text.cell-block-text--signup-supv {
+  display: flex;
+  flex-direction: column;
+  -webkit-line-clamp: unset;
+  white-space: normal;
 }
 .supv-signup-footer {
   display: flex;

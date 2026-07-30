@@ -7,7 +7,9 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 const props = defineProps({
   closesAt: { type: [String, Date, Number], default: null },
-  prefix: { type: String, default: 'Sign up by' }
+  prefix: { type: String, default: 'Sign up by' },
+  /** duration = "2h 47m"; clock = "2:47" (hours:minutes left). */
+  format: { type: String, default: 'duration' }
 });
 
 const nowMs = ref(Date.now());
@@ -40,8 +42,11 @@ const label = computed(() => {
   const totalMins = Math.floor(diff / 60000);
   const hrs = Math.floor(totalMins / 60);
   const mins = totalMins % 60;
-  const body = hrs > 0 ? `${hrs}h ${mins}m` : `${Math.max(mins, 1)}m`;
-  return `${props.prefix} ${body}`;
+  const body = String(props.format || '').toLowerCase() === 'clock'
+    ? (hrs > 0 ? `${hrs}:${String(mins).padStart(2, '0')}` : `${Math.max(mins, 1)}m`)
+    : (hrs > 0 ? `${hrs}h ${mins}m` : `${Math.max(mins, 1)}m`);
+  const pre = String(props.prefix || '').trim();
+  return pre ? `${pre} ${body}` : body;
 });
 
 const closed = computed(() => label.value === 'Signup closed');
