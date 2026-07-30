@@ -956,6 +956,10 @@ watch(quickNavFlat, (list) => {
   }
 });
 
+function quickNavOptionId(item) {
+  return `aap-qnav-opt-${item.id}`;
+}
+
 function dashboardPathForQuickNav() {
   const raw = getDashboardRoute();
   return typeof raw === 'string' ? raw : String(raw?.path || '/dashboard');
@@ -989,7 +993,7 @@ function moveQuickNavActive(delta) {
   const next = idx < 0 ? 0 : (idx + delta + list.length) % list.length;
   quickNavActiveId.value = list[next].id;
   nextTick(() => {
-    document.getElementById(`aap-qnav-opt-${list[next].id}`)?.scrollIntoView?.({ block: 'nearest' });
+    document.getElementById(quickNavOptionId(list[next]))?.scrollIntoView?.({ block: 'nearest' });
   });
 }
 
