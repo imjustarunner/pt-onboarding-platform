@@ -37,7 +37,12 @@
           <span v-else-if="p.leftAt" class="map__status map__status--left">Left {{ formatWhen(p.leftAt) }}</span>
           <span v-else class="map__status map__status--away">Away</span>
         </span>
-        <span class="map__mins">{{ formatMins(p.totalMinutes) }}</span>
+        <span class="map__mins">
+          {{ formatMins(p.totalMinutes) }}
+          <small v-if="Number(p.waitMinutes || 0) > 0" class="map__wait" title="Waiting-room time (not counted toward session pay)">
+            wait {{ formatMins(p.waitMinutes) }}
+          </small>
+        </span>
       </li>
     </ul>
     <p v-else class="muted">No attendance recorded yet.</p>
@@ -92,18 +97,26 @@ function formatWhen(raw) {
 }
 
 function normalizeParticipantName(name) {
-  return String(name || '')
-    .replace(/^You\s*[·|]\s*/i, '')
-    .replace(/^(Host|Participant|Supervisor|Supervisee|Guest)\s*[·|]\s*/gi, '')
-    .trim()
-    .toLowerCase();
+  const parts = String(name || '')
+    .split(/[·|]/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .filter((p) => !/^(you|host|participant|supervisor|supervisee|guest|co-?host)$/i.test(p));
+  const core = parts.length ? parts[parts.length - 1] : String(name || '').trim();
+  return core.toLowerCase();
 }
 
 function namesMatch(participantName, signalName) {
   const left = normalizeParticipantName(participantName);
   const right = normalizeParticipantName(signalName);
   if (!left || !right) return false;
-  return left === right || right.endsWith(left) || left.endsWith(right);
+  if (left === right || right.endsWith(left) || left.endsWith(right)) return true;
+  // Email vs display-name: compare local-part before @.
+  const leftLocal = left.includes('@') ? left.split('@')[0] : left;
+  const rightLocal = right.includes('@') ? right.split('@')[0] : right;
+  return !!leftLocal && !!rightLocal && (leftLocal === rightLocal
+    || rightLocal.endsWith(leftLocal)
+    || leftLocal.endsWith(rightLocal));
 }
 
 function participantHasRaisedHand(participant) {
@@ -257,6 +270,20 @@ defineExpose({ load });
 .map__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .map__list li { display: flex; justify-content: space-between; gap: 10px; font-size: 0.9rem; align-items: flex-start; }
 .map__list-item--away .map__mins { color: #94a3b8; }
+.map__mins {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 0.82rem;
+}
+.map__wait {
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: #94a3b8;
+}
 .map__host {
   margin-left: 6px;
   font-size: 0.68rem;

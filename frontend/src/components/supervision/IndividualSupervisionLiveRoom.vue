@@ -14,8 +14,36 @@
       <div class="isl__header-right">
         <span v-if="workspaceSaving" class="isl__save-pill">Saving…</span>
         <span v-else-if="workspaceError" class="isl__save-pill isl__save-pill--err" :title="workspaceError">Save issue</span>
-        <button type="button" class="isl__ghost" @click="cycleVideoFocus">
-          {{ videoFocusLabel }}
+        <div class="isl__menu-wrap">
+          <button type="button" class="isl__ghost" :aria-expanded="viewOptionsOpen" @click="viewOptionsOpen = !viewOptionsOpen">
+            {{ videoFocusLabel }}
+          </button>
+          <div v-if="viewOptionsOpen" class="isl__menu" role="menu">
+            <button type="button" class="isl__menu-item" :class="{ on: tileFocus === 'equal' && !videoFullscreen }" role="menuitem" @click="applyViewOption('equal')">Equal tiles</button>
+            <button type="button" class="isl__menu-item" :class="{ on: tileFocus === 'speaker' }" role="menuitem" @click="applyViewOption('speaker')">Speaker only</button>
+            <button type="button" class="isl__menu-item" :class="{ on: tileFocus === 'remote' }" role="menuitem" @click="applyViewOption('remote')">Focus: peer</button>
+            <button type="button" class="isl__menu-item" :class="{ on: tileFocus === 'local' }" role="menuitem" @click="applyViewOption('local')">Focus: you</button>
+            <button type="button" class="isl__menu-item" :class="{ on: !!videoFullscreen }" role="menuitem" @click="applyViewOption('fullscreen')">Full screen videos</button>
+          </div>
+        </div>
+        <div v-if="isSupervisor" class="isl__menu-wrap">
+          <button type="button" class="isl__ghost" :class="{ on: attendanceOpen }" @click="toggleAttendance">
+            Attendance
+          </button>
+          <div v-if="attendanceOpen" class="isl__menu isl__menu--wide" role="dialog" aria-label="Attendance">
+            <MeetingAttendancePanel
+              ref="attendancePanelRef"
+              meeting-kind="supervision"
+              :event-id="numericSessionId || supervisionSessionId"
+              :live-poll="true"
+              :raised-hands="raisedHandCount"
+              :raised-hand-names="raisedHandNames"
+              :muted-names="mutedParticipantNames"
+            />
+          </div>
+        </div>
+        <button type="button" class="isl__ghost" :class="{ on: transcriptOpen }" @click="toggleTranscript">
+          Transcript
         </button>
         <span class="isl__count" title="Participants">{{ participantHint || '2' }}</span>
         <button type="button" class="btn btn-danger btn-sm" @click="$emit('leave', { endForAll: isSupervisor })">End session</button>
@@ -53,7 +81,6 @@
         :host-status-label="hostStatusLabel"
         :goals="waitingRoomGoals"
         :agenda="waitingRoomAgenda"
-        :action-items="waitingRoomActions"
         @show-waiting-room="prioritizeSelfView = false"
       />
       <aside
@@ -79,6 +106,7 @@
             :local-role-label="localRoleLabel"
             :local-profile-photo-url="localProfilePhotoUrl"
             layout="standard"
+            :promote-local-when-alone="true"
             @disconnected="$emit('disconnected')"
             @connected="onVideoConnected"
             @meeting-ended="$emit('meeting-ended', $event)"
@@ -165,13 +193,17 @@
         </div>
       </section>
 
-      <div v-show="!videoFullscreen" class="isl__main-grid">
+      <div
+        v-show="!videoFullscreen"
+        class="isl__main-grid"
+        :class="{
+          'isl__main-grid--video-only': !sessionDetailsOpen && !discussionOpen,
+          'isl__main-grid--single': (sessionDetailsOpen && !discussionOpen) || (!sessionDetailsOpen && discussionOpen)
+        }"
+      >
         <section
+          v-if="sessionDetailsOpen"
           class="isl__card isl__card--focus"
-          :class="{
-            'isl__card--collapsed': sectionState.focus === 'collapsed',
-            'isl__card--expanded': sectionState.focus === 'expanded'
-          }"
         >
           <div class="isl__card-head">
             <h2>Session Focus</h2>
@@ -179,12 +211,12 @@
               <button type="button" class="isl__ghost" @click="editingGoals = !editingGoals">
                 {{ editingGoals ? 'Done' : 'Edit goals' }}
               </button>
-              <button type="button" class="isl__ghost" @click="toggleSection('focus')">
-                {{ sectionState.focus === 'collapsed' ? 'Expand' : 'Collapse' }}
+              <button type="button" class="isl__ghost" @click="sessionDetailsOpen = false">
+                Collapse
               </button>
             </div>
           </div>
-          <div v-show="sectionState.focus !== 'collapsed'" class="isl__card-body">
+          <div class="isl__card-body">
             <input
               v-if="editingGoals"
               v-model="focusTitle"
@@ -194,109 +226,52 @@
               @change="persistWorkspace"
             />
             <h3 v-else>{{ focusTitle || 'Case Consultation & Clinical Support' }}</h3>
-            <p class="isl__label">Goals for today</p>
-            <ul class="isl__checklist">
-              <li v-for="goal in goals" :key="goal.id">
-                <label>
-                  <input v-model="goal.done" type="checkbox" @change="persistWorkspace" />
+            <div class="isl__focus-split">
+              <div class="isl__focus-col">
+                <p class="isl__label">Goals for today</p>
+                <ul class="isl__checklist">
+                  <li v-for="goal in goals" :key="goal.id">
+                    <label>
+                      <input v-model="goal.done" type="checkbox" @change="persistWorkspace" />
                   <input
                     v-if="editingGoals"
                     v-model="goal.text"
                     class="isl__inline-input"
                     type="text"
+                    placeholder="Goal"
+                    @input="persistWorkspace"
                     @change="persistWorkspace"
                   />
-                  <span v-else :class="{ 'isl__done': goal.done }">{{ goal.text }}</span>
-                </label>
-                <button v-if="editingGoals" type="button" class="isl__icon-btn" @click="removeGoal(goal.id)">×</button>
-              </li>
-            </ul>
-            <button v-if="editingGoals" type="button" class="isl__link" @click="addGoal">+ Add goal</button>
-          </div>
-        </section>
-
-        <section
-          class="isl__card isl__card--summary"
-          :class="{
-            'isl__card--collapsed': sectionState.summary === 'collapsed',
-            'isl__card--expanded': sectionState.summary === 'expanded'
-          }"
-        >
-          <div class="isl__card-head">
-            <h2>Session Summary <small>(private)</small></h2>
-            <button type="button" class="isl__ghost" @click="toggleSection('summary')">
-              {{ sectionState.summary === 'collapsed' ? 'Expand' : 'Collapse' }}
-            </button>
-          </div>
-          <div v-show="sectionState.summary !== 'collapsed'" class="isl__card-body">
-            <textarea
-              v-model="personalNotes"
-              class="isl__textarea"
-              rows="5"
-              placeholder="Use this space to capture key takeaways, insights, or action items from your supervision."
-              @change="persistWorkspace"
-            />
-            <button type="button" class="isl__link" @click="appendSummaryNote">+ Add note</button>
-          </div>
-        </section>
-
-        <section
-          v-if="isSupervisor"
-          class="isl__card isl__card--attendance"
-        >
-          <div class="isl__card-head">
-            <h2>Attendance</h2>
-          </div>
-          <div class="isl__card-body">
-            <MeetingAttendancePanel
-              ref="attendancePanelRef"
-              meeting-kind="supervision"
-              :event-id="numericSessionId || supervisionSessionId"
-              :live-poll="true"
-              :raised-hands="raisedHandCount"
-              :raised-hand-names="raisedHandNames"
-              :muted-names="mutedParticipantNames"
-            />
-          </div>
-        </section>
-
-        <section
-          class="isl__card isl__card--actions"
-          :class="{
-            'isl__card--collapsed': sectionState.actions === 'collapsed',
-            'isl__card--expanded': sectionState.actions === 'expanded'
-          }"
-        >
-          <div class="isl__card-head">
-            <h2>Action Items</h2>
-            <button type="button" class="isl__ghost" @click="toggleSection('actions')">
-              {{ sectionState.actions === 'collapsed' ? 'Expand' : 'Collapse' }}
-            </button>
-          </div>
-          <div v-show="sectionState.actions !== 'collapsed'" class="isl__card-body">
-            <ul class="isl__checklist isl__checklist--actions">
-              <li v-for="item in actionItems" :key="item.id">
-                <label>
-                  <input v-model="item.done" type="checkbox" @change="persistWorkspace" />
-                  <input
-                    v-model="item.text"
-                    class="isl__inline-input"
-                    type="text"
-                    placeholder="Action item"
-                    @change="persistWorkspace"
-                  />
-                </label>
-                <button type="button" class="isl__icon-btn" @click="removeAction(item.id)">×</button>
-              </li>
-            </ul>
-            <button type="button" class="isl__link" @click="addAction">+ Add action item</button>
+                  <span v-else :class="{ 'isl__done': goal.done }">{{ goal.text || 'Untitled goal' }}</span>
+                    </label>
+                    <button v-if="editingGoals" type="button" class="isl__icon-btn" @click="removeGoal(goal.id)">×</button>
+                  </li>
+                </ul>
+                <button v-if="editingGoals" type="button" class="isl__link" @click="addGoal">+ Add goal</button>
+              </div>
+              <div class="isl__focus-col isl__focus-col--agenda">
+                <p class="isl__label">Agenda</p>
+                <MeetingAgendaPanel
+                  v-if="numericSessionId || supervisionSessionId"
+                  meeting-type="supervision_session"
+                  :meeting-id="numericSessionId || supervisionSessionId"
+                  :can-add-item="true"
+                  :embedded="true"
+                  :live="true"
+                  theme="dark"
+                />
+              </div>
+            </div>
           </div>
         </section>
 
         <SupervisionDiscussionSidebar
-          v-show="discussionOpen"
+          v-if="discussionOpen"
           class="isl__sidebar"
           roomy
+          hide-agenda
+          hide-transcript
+          theme="dark"
           v-model:side-tab="sideTab"
           v-model:discussion-sub-tab="discussionSubTab"
           v-model:topic-draft="topicDraft"
@@ -304,7 +279,7 @@
           v-model:personal-notes="sidebarNotes"
           :session-id="numericSessionId || supervisionSessionId"
           :is-supervisor="isSupervisor"
-          :can-control-transcript="isSupervisor"
+          :can-control-transcript="false"
           :transcript-paused="transcriptPaused"
           :topics="topics"
           :chat-messages="chatMessages"
@@ -316,18 +291,36 @@
           @post-topic="postTopic"
           @post-chat="postChat"
           @upvote="upvote"
-          @transcript-pause-resume="onTranscriptPauseResume"
-          @transcript-stop="onTranscriptStop"
         />
       </div>
     </div>
 
-    <footer v-if="!showWaitingRoomStage" class="isl__dock">
+    <aside v-if="transcriptOpen && !showWaitingRoomStage" class="isl__transcript-drawer" aria-label="Live transcript">
+      <div class="isl__transcript-drawer-head">
+        <h2>Transcript</h2>
+        <div class="isl__card-actions">
+          <template v-if="isSupervisor">
+            <button type="button" class="isl__ghost" @click="onTranscriptPauseResume">
+              {{ transcriptPaused ? 'Resume' : 'Pause' }}
+            </button>
+            <button type="button" class="isl__ghost" @click="onTranscriptStop">Stop</button>
+          </template>
+          <button type="button" class="isl__ghost" @click="transcriptOpen = false">Close</button>
+        </div>
+      </div>
+      <p v-if="transcriptHint" class="isl__label">{{ transcriptHint }}</p>
+      <pre v-if="transcriptCombined" class="isl__transcript-pre">{{ transcriptCombined }}</pre>
+      <p v-else class="isl__label">Transcript will appear here once speech is detected.</p>
+    </aside>
+
+    <footer v-if="!showWaitingRoomStage && !videoFullscreen" class="isl__dock">
       <div class="isl__dock-left">
         <button type="button" class="isl__dock-btn" :class="{ active: discussionOpen }" @click="toggleDiscussion">
-          {{ discussionOpen ? 'Hide chat' : 'Chat' }}
+          {{ discussionOpen ? 'Hide discussion' : 'Discussion' }}
         </button>
-        <button type="button" class="isl__dock-btn" @click="toggleSection('focus')">Session details</button>
+        <button type="button" class="isl__dock-btn" :class="{ active: sessionDetailsOpen }" @click="sessionDetailsOpen = !sessionDetailsOpen">
+          {{ sessionDetailsOpen ? 'Hide session details' : 'Session details' }}
+        </button>
       </div>
       <div class="isl__dock-right">
         <span v-if="raisedHandCount" class="isl__hands-pill" title="Hands raised">
@@ -347,6 +340,7 @@ import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
 import SupervisionWaitingRoomStage from './SupervisionWaitingRoomStage.vue';
 import SupervisionDiscussionSidebar from './SupervisionDiscussionSidebar.vue';
 import MeetingAttendancePanel from '../meetings/MeetingAttendancePanel.vue';
+import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import {
   supervisionLiveRoomProps,
   useSupervisionLiveSession
@@ -401,6 +395,10 @@ const videoFullscreenActivityNotice = ref('');
 let fullscreenNoticeTimer = null;
 const editingGoals = ref(false);
 const discussionOpen = ref(true);
+const sessionDetailsOpen = ref(true);
+const viewOptionsOpen = ref(false);
+const attendanceOpen = ref(false);
+const transcriptOpen = ref(false);
 const raisedHandCount = ref(0);
 const raisedHandNames = ref([]);
 const mutedParticipantNames = ref([]);
@@ -409,9 +407,7 @@ const sidebarNotes = ref('');
 
 const sectionState = reactive({
   video: 'default',
-  focus: 'default',
-  summary: 'default',
-  actions: 'default'
+  focus: 'default'
 });
 
 const focusTitle = ref('Case Consultation & Clinical Support');
@@ -422,6 +418,10 @@ const workspaceSaving = ref(false);
 const workspaceError = ref('');
 const workspaceReady = ref(false);
 let workspaceSaveTimer = null;
+
+// Discussion defaults to chat / polls / Q&A (agenda lives in Session Focus).
+discussionSubTab.value = 'chat';
+sideTab.value = 'discussion';
 
 const transcriptCombined = computed(() => {
   const base = sessionTranscriptPreview.value;
@@ -442,12 +442,6 @@ const waitingRoomAgenda = computed(() => {
   if (fromProps.length) return fromProps;
   return waitingAgendaItems.value || [];
 });
-const waitingRoomActions = computed(() => {
-  const fromProps = Array.isArray(props.waitingActionItems) ? props.waitingActionItems : [];
-  if (fromProps.length) return fromProps;
-  return actionItems.value || [];
-});
-
 async function loadWaitingAgenda() {
   const sid = numericSessionId.value || Number(props.supervisionSessionId || 0);
   if (!sid) return;
@@ -470,12 +464,50 @@ const scheduleLabel = computed(() => {
 });
 
 const videoFocusLabel = computed(() => {
+  if (videoFullscreen.value) return 'Full screen';
   if (tileFocus.value === 'speaker') return 'Speaker only';
   if (tileFocus.value === 'local') return 'Focus: you';
   if (tileFocus.value === 'remote') return 'Focus: peer';
   if (tileFocus.value === 'collapsed') return 'Videos collapsed';
   return 'View options';
 });
+
+function cleanParticipantLabel(raw) {
+  const parts = String(raw || '')
+    .split(/[·|]/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .filter((p) => !/^(you|host|participant|supervisor|supervisee|guest|co-?host)$/i.test(p));
+  return parts.length ? parts[parts.length - 1] : String(raw || '').trim();
+}
+
+function applyViewOption(opt) {
+  viewOptionsOpen.value = false;
+  if (opt === 'fullscreen') {
+    videoFullscreen.value = true;
+    if (tileFocus.value === 'collapsed') tileFocus.value = 'equal';
+    return;
+  }
+  videoFullscreen.value = false;
+  setVideoFocus(opt);
+}
+
+function toggleAttendance() {
+  attendanceOpen.value = !attendanceOpen.value;
+  if (attendanceOpen.value) {
+    viewOptionsOpen.value = false;
+    transcriptOpen.value = false;
+    attendancePanelRef.value?.load?.({ quiet: true });
+  }
+}
+
+function toggleTranscript() {
+  transcriptOpen.value = !transcriptOpen.value;
+  if (transcriptOpen.value) {
+    viewOptionsOpen.value = false;
+    attendanceOpen.value = false;
+  }
+}
 
 const videoFullscreenHandsNotice = computed(() => {
   if (!raisedHandCount.value) return '';
@@ -544,19 +576,32 @@ async function loadWorkspace() {
 async function saveWorkspaceNow() {
   const sid = numericSessionId.value || Number(props.supervisionSessionId || 0);
   if (!sid || !workspaceReady.value) return;
+  const payloadGoals = (goals.value || [])
+    .map((g) => ({
+      id: String(g?.id || ''),
+      text: String(g?.text || '').trim(),
+      done: !!g?.done
+    }))
+    .filter((g) => g.text);
+  const emptyGoalDrafts = (goals.value || []).filter((g) => !String(g?.text || '').trim());
   workspaceSaving.value = true;
   workspaceError.value = '';
   try {
     await Promise.all([
       api.post(`/supervision/sessions/${sid}/artifacts`, {
         focusTitle: focusTitle.value || '',
-        goals: goals.value,
-        actionItems: actionItems.value
+        goals: payloadGoals
       }, { skipGlobalLoading: true, skipAuthRedirect: true }),
       api.put(`/supervision/sessions/${sid}/personal-note`, {
         noteText: personalNotes.value || ''
       }, { skipGlobalLoading: true, skipAuthRedirect: true })
     ]);
+    // Keep in-progress empty rows so "+ Add goal" doesn't wipe the draft.
+    if (emptyGoalDrafts.length) {
+      goals.value = [...payloadGoals, ...emptyGoalDrafts];
+    } else {
+      goals.value = payloadGoals;
+    }
   } catch (e) {
     workspaceError.value = e?.response?.data?.error?.message || e?.message || 'Could not save session workspace.';
   } finally {
@@ -579,18 +624,11 @@ function toggleSection(key) {
   else if (key === 'video' && cur === 'default') sectionState[key] = 'expanded';
   else sectionState[key] = 'collapsed';
 
-  // Expanding one content card collapses the others a bit for focus.
-  if (sectionState[key] === 'expanded' && key !== 'video') {
-    ['focus', 'summary', 'actions'].forEach((k) => {
-      if (k !== key && sectionState[k] === 'expanded') sectionState[k] = 'default';
-    });
-  }
   if (key === 'video' && sectionState.video === 'collapsed') {
     tileFocus.value = 'collapsed';
   } else if (key === 'video' && tileFocus.value === 'collapsed') {
     tileFocus.value = 'equal';
   }
-  persistWorkspace();
 }
 
 function setVideoFocus(mode) {
@@ -599,32 +637,13 @@ function setVideoFocus(mode) {
   else if (sectionState.video === 'collapsed') sectionState.video = 'default';
 }
 
-function cycleVideoFocus() {
-  const order = ['equal', 'speaker', 'remote', 'local', 'collapsed'];
-  const idx = order.indexOf(tileFocus.value);
-  setVideoFocus(order[(idx + 1) % order.length]);
-}
-
 function addGoal() {
-  goals.value.push({ id: `g-${Date.now()}`, text: 'New goal', done: false });
-  persistWorkspace();
+  editingGoals.value = true;
+  goals.value.push({ id: `g-${Date.now()}`, text: '', done: false });
+  // Don't autosave empty drafts — persist when the supervisee types.
 }
 function removeGoal(id) {
   goals.value = goals.value.filter((g) => g.id !== id);
-  persistWorkspace();
-}
-function addAction() {
-  actionItems.value.push({ id: `a-${Date.now()}`, text: '', done: false });
-  persistWorkspace();
-}
-function removeAction(id) {
-  actionItems.value = actionItems.value.filter((a) => a.id !== id);
-  persistWorkspace();
-}
-function appendSummaryNote() {
-  const stamp = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const prefix = personalNotes.value?.trim() ? `${personalNotes.value.trim()}\n\n` : '';
-  personalNotes.value = `${prefix}• [${stamp}] `;
   persistWorkspace();
 }
 
@@ -651,7 +670,7 @@ function onAudioMapChange(payload) {
   const names = payload?.nameByConnection || {};
   mutedParticipantNames.value = Object.keys(map)
     .filter((k) => map[k])
-    .map((k) => names[k])
+    .map((k) => cleanParticipantLabel(names[k]))
     .filter(Boolean);
 }
 
@@ -827,7 +846,42 @@ defineExpose({
   font-weight: 650;
   cursor: pointer;
 }
-.isl__ghost:hover { background: rgba(255, 255, 255, 0.1); }
+.isl__ghost:hover,
+.isl__ghost.on { background: rgba(255, 255, 255, 0.1); }
+.isl__menu-wrap { position: relative; }
+.isl__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 180px;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(18, 22, 32, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+  display: grid;
+  gap: 2px;
+}
+.isl__menu--wide {
+  min-width: min(520px, calc(100vw - 32px));
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  padding: 10px;
+}
+.isl__menu-item {
+  border: 0;
+  background: transparent;
+  color: #e2e8f0;
+  text-align: left;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.isl__menu-item:hover,
+.isl__menu-item.on { background: rgba(167, 139, 250, 0.22); }
 
 .isl__lobby-stage {
   position: relative;
@@ -839,11 +893,11 @@ defineExpose({
 }
 .isl__lobby-rail {
   position: absolute;
-  top: 14px;
-  right: 14px;
-  bottom: 14px;
+  top: 18px;
+  right: 18px;
+  bottom: 18px;
   z-index: 5;
-  width: min(38%, 280px);
+  width: min(46%, 420px);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -899,24 +953,52 @@ defineExpose({
 .isl__self--pip {
   position: relative;
   width: 100%;
-  height: auto;
-  min-height: 0;
-  aspect-ratio: 1;
-  border-radius: 14px;
+  height: min(58vh, 480px);
+  min-height: 280px;
+  border-radius: 16px;
   overflow: hidden;
   cursor: pointer;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
   border: 2px solid rgba(255, 255, 255, 0.4);
   z-index: 5;
   pointer-events: auto;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  background: #0f1117;
 }
 .isl__self--pip :deep(.supervision-video-room),
-.isl__self--pip :deep(.vsr),
-.isl__self--pip :deep(.vsr__stage),
-.isl__self--pip :deep(.vsr__tile) {
+.isl__self--pip :deep(.vsr) {
   min-height: 0 !important;
   height: 100%;
+}
+.isl__self--pip :deep(.vsr__viewport),
+.isl__self--pip :deep(.vsr__stage),
+.isl__self--pip :deep(.vsr__tile),
+.isl__self--pip :deep(.vsr__tile--local),
+.isl__self--pip :deep(.vsr__tile--solo) {
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: none !important;
+}
+.isl__self--pip :deep(.vsr__controls) {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 8;
+  width: auto;
+  max-width: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  background: rgba(10, 14, 22, 0.82);
+  border-radius: 12px;
+}
+.isl__self--pip :deep(.vsr__ctrl),
+.isl__self--pip :deep(.vsr__voice-iso),
+.isl__self--pip :deep(.vsr__react-btn) {
+  font-size: 0.72rem;
+  padding: 0.35rem 0.55rem;
 }
 .isl__self--featured { position: absolute; inset: 0; z-index: 2; }
 .isl__pip-label {
@@ -933,11 +1015,15 @@ defineExpose({
 }
 @media (max-width: 900px) {
   .isl__lobby-rail {
-    width: min(46%, 200px);
+    width: min(72%, 320px);
     top: auto;
     bottom: 10px;
     right: 10px;
-    max-height: 55%;
+    max-height: 62%;
+  }
+  .isl__self--pip {
+    height: min(42vh, 320px);
+    min-height: 220px;
   }
   .isl__lobby-prep { max-height: 36%; }
 }
@@ -1012,27 +1098,76 @@ defineExpose({
 
 .isl__main-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.9fr) minmax(280px, 0.95fr);
-  grid-template-areas:
-    "focus focus sidebar"
-    "summary actions sidebar";
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.95fr);
+  grid-template-areas: "focus sidebar";
   gap: 12px;
   flex: 1;
   min-height: 0;
-  align-items: start;
+  align-items: stretch;
+}
+.isl__main-grid--video-only {
+  display: none;
+}
+.isl__main-grid--single {
+  grid-template-columns: 1fr;
+  grid-template-areas: "focus";
+}
+.isl__main-grid--single .isl__sidebar {
+  grid-area: focus;
 }
 .isl__card--focus { grid-area: focus; }
-.isl__card--summary { grid-area: summary; }
-.isl__card--actions { grid-area: actions; }
 .isl__sidebar {
   grid-area: sidebar;
-  min-height: 420px;
+  min-height: 320px;
   align-self: stretch;
 }
-.isl__card--focus.isl__card--expanded,
-.isl__card--summary.isl__card--expanded,
-.isl__card--actions.isl__card--expanded {
-  grid-column: 1 / 3;
+.isl__focus-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.isl__focus-col--agenda :deep(.agenda-item-title),
+.isl__focus-col--agenda :deep(.agenda-empty),
+.isl__focus-col--agenda :deep(.muted),
+.isl__focus-col--agenda :deep(.agenda-section-head h3) {
+  color: #e2e8f0 !important;
+}
+.isl__focus-col--agenda :deep(.agenda-item) {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.isl__transcript-drawer {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  z-index: 55;
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(70vh, 560px);
+  overflow: auto;
+  background: rgba(18, 22, 32, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+.isl__transcript-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.isl__transcript-drawer-head h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.isl__transcript-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #e2e8f0;
+  font-family: inherit;
 }
 
 .isl__checklist {
@@ -1177,28 +1312,15 @@ defineExpose({
 
 @media (max-width: 1100px) {
   .isl__main-grid {
-    grid-template-columns: 1fr 1fr;
-    grid-template-areas:
-      "focus focus"
-      "summary actions"
-      "sidebar sidebar";
-  }
-}
-@media (max-width: 760px) {
-  .isl { padding-bottom: 120px; }
-  .isl__main-grid {
     grid-template-columns: 1fr;
     grid-template-areas:
       "focus"
-      "summary"
-      "actions"
       "sidebar";
   }
-  .isl__card--focus.isl__card--expanded,
-  .isl__card--summary.isl__card--expanded,
-  .isl__card--actions.isl__card--expanded {
-    grid-column: auto;
-  }
+  .isl__focus-split { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .isl { padding-bottom: 120px; }
   .isl__dock {
     grid-template-columns: 1fr;
     width: calc(100vw - 16px);

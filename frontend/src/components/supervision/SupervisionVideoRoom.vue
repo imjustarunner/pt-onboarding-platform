@@ -120,14 +120,22 @@ const localName = computed(() => {
   const role = String(props.localRoleLabel || (props.isHost ? 'Supervisor' : '')).trim();
   const fromProp = String(props.localDisplayName || '').trim();
   const u = authStore.user || {};
-  const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
-    || u.email
-    || '';
+  const authPerson = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim();
+  const authName = authPerson || u.email || '';
   const authenticated = !!(authStore.isAuthenticated || u.id || authName);
-  // Prefer real auth name over a stale "Guest" label from a prior guest fallthrough.
-  const name = (fromProp && fromProp.toLowerCase() !== 'guest')
-    ? fromProp
-    : (authName || (fromProp.toLowerCase() === 'guest' ? '' : fromProp) || '');
+  const preferName = (...cands) => {
+    for (const c of cands) {
+      const t = String(c || '').trim();
+      if (t && !t.includes('@') && t.toLowerCase() !== 'guest') return t;
+    }
+    for (const c of cands) {
+      const t = String(c || '').trim();
+      if (t && t.toLowerCase() !== 'guest') return t;
+    }
+    return '';
+  };
+  // Prefer real person name over email / stale "Guest" labels.
+  const name = preferName(authPerson, fromProp, authName);
   let roleSafe = role;
   // Prefer an explicit role label (e.g. Host / Participant for team meetings).
   if (props.isHost && !roleSafe) roleSafe = 'Supervisor';

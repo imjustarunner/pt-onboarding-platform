@@ -38,7 +38,10 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     return Number.isFinite(n) && n > 0 ? n : 0;
   });
 
-  const showLobbyPanel = computed(() => props.isSupervisor && props.lobbyEnabledForSession);
+  const showLobbyPanel = computed(() => (
+    props.isSupervisor
+    && props.lobbyEnabledForSession !== false
+  ));
   const showWaitingRoomStage = computed(() => props.isInLobby && !props.isSupervisor);
 
   const liveTranscriptPreview = computed(() =>

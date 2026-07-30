@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isSupervisor && sessionId" class="lobby-panel">
+  <div v-if="isSupervisor && sessionId && waitingRoomEnabled" class="lobby-panel">
     <div class="lobby-panel-head">
       <h4 class="lobby-panel-title">Waiting room — Admit participants</h4>
       <div class="lobby-panel-actions">
@@ -13,7 +13,6 @@
           {{ admittingAll ? 'Admitting all…' : `Admit all (${participants.length})` }}
         </button>
         <button
-          v-if="waitingRoomEnabled"
           type="button"
           class="btn btn-secondary btn-sm"
           :disabled="disablingWaitingRoom || admittingAll || !!admittingKey"

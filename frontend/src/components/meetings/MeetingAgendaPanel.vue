@@ -3,7 +3,8 @@
     class="meeting-agenda-panel"
     :class="{
       'meeting-agenda-panel--embedded': embedded,
-      'meeting-agenda-panel--compact': compact
+      'meeting-agenda-panel--compact': compact,
+      'meeting-agenda-panel--dark': theme === 'dark'
     }"
   >
     <div v-if="!embedded" class="agenda-header">
@@ -64,6 +65,7 @@
             Cancel
           </button>
         </div>
+        <p v-if="error && hasLoaded" class="agenda-error">{{ error }}</p>
 
         <ol class="agenda-items">
           <li
@@ -208,7 +210,9 @@ const props = defineProps({
   compact: { type: Boolean, default: null },
   /** Poll for shared updates during a live session */
   live: { type: Boolean, default: false },
-  pollMs: { type: Number, default: 8000 }
+  pollMs: { type: Number, default: 8000 },
+  /** light (default) | dark — for live supervision workspace */
+  theme: { type: String, default: 'light' }
 });
 
 const emit = defineEmits(['close', 'updated']);
@@ -655,6 +659,37 @@ onUnmounted(() => { stopPoll(); });
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.meeting-agenda-panel--dark .agenda-title,
+.meeting-agenda-panel--dark .agenda-item-title,
+.meeting-agenda-panel--dark .agenda-section-head h3,
+.meeting-agenda-panel--dark .agenda-empty,
+.meeting-agenda-panel--dark .muted,
+.meeting-agenda-panel--dark .agenda-live-hint {
+  color: #e2e8f0 !important;
+}
+.meeting-agenda-panel--dark .agenda-item-discussed .agenda-item-title {
+  color: #cbd5e1 !important;
+}
+.meeting-agenda-panel--dark .agenda-item-done .agenda-item-title {
+  color: #94a3b8 !important;
+}
+.meeting-agenda-panel--dark .mw-field,
+.meeting-agenda-panel--dark .agenda-status-select {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f5f9;
+}
+.meeting-agenda-panel--dark .mw-field:focus {
+  background: rgba(255, 255, 255, 0.12);
+}
+.meeting-agenda-panel--dark .mw-link-btn {
+  color: #c4b5fd;
+}
+.meeting-agenda-panel--dark .agenda-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.meeting-agenda-panel--dark .agenda-item-num {
+  color: #94a3b8;
 }
 .agenda-item-discussed .agenda-item-title { color: #475569; }
 .agenda-item-done .agenda-item-title {

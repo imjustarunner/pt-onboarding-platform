@@ -87,7 +87,11 @@ async function recordSupervisionPresenceAttendanceEvent({
     userId: uid,
     status: evType === 'joined' ? 'JOINED' : 'LEFT'
   });
-  return recomputeAttendanceRollupForUser({ sessionId: sid, userId: uid });
+  return recomputeAttendanceRollupForUser({
+    sessionId: sid,
+    userId: uid,
+    sessionStartAt: sessionRow?.start_at
+  });
 }
 
 async function loadSupervisionPresenceByUser(sessionId, {
@@ -271,6 +275,14 @@ async function syncSupervisionAttendanceWithPresence(sessionId, { sessionRow = n
           joinIdentity: `user-${uid}`,
           eventType: 'joined'
         });
+      } else if (admitted) {
+        // Keep open-segment totals fresh while present.
+        // eslint-disable-next-line no-await-in-loop
+        await recomputeAttendanceRollupForUser({
+          sessionId: sid,
+          userId: uid,
+          sessionStartAt: row.start_at
+        });
       }
     } else if (lastType === 'joined') {
       // eslint-disable-next-line no-await-in-loop
@@ -283,7 +295,11 @@ async function syncSupervisionAttendanceWithPresence(sessionId, { sessionRow = n
       });
     } else {
       // eslint-disable-next-line no-await-in-loop
-      await recomputeAttendanceRollupForUser({ sessionId: sid, userId: uid });
+      await recomputeAttendanceRollupForUser({
+        sessionId: sid,
+        userId: uid,
+        sessionStartAt: row.start_at
+      });
     }
   }
   return { ok: true, activeCount: activeIds.length };
@@ -483,13 +499,14 @@ async function listWaitingLobbyPresence(sessionId) {
   await pruneStaleJoinPresence(sid);
   // Looser than attendance stale so brief heartbeat jitter doesn’t hide waiters.
   const lobbyStaleSeconds = Math.max(JOIN_PRESENCE_STALE_SECONDS, 45);
+  // Avoid CONCAT(...) = join_identity — MySQL collation mix (0900_ai_ci vs unicode_ci) fails.
   const [rows] = await pool.execute(
     `SELECT p.join_identity, p.display_name, p.is_guest, p.joined_at, p.last_seen_at,
             u.first_name, u.last_name, u.email
      FROM supervision_session_join_presence p
      LEFT JOIN users u
-       ON u.id = CAST(SUBSTRING(p.join_identity, 6) AS UNSIGNED)
-      AND p.join_identity LIKE 'user-%'
+       ON p.join_identity LIKE 'user-%'
+      AND u.id = CAST(SUBSTRING(p.join_identity, 6) AS UNSIGNED)
      WHERE p.session_id = ?
        AND p.left_at IS NULL
        AND p.last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${lobbyStaleSeconds} SECOND)
@@ -497,8 +514,13 @@ async function listWaitingLobbyPresence(sessionId) {
          SELECT 1 FROM supervision_session_video_admissions a
          WHERE a.session_id = p.session_id
            AND (
-             a.join_identity = p.join_identity
-             OR (a.user_id IS NOT NULL AND CONCAT('user-', a.user_id) = p.join_identity)
+             a.join_identity COLLATE utf8mb4_unicode_ci
+               = p.join_identity COLLATE utf8mb4_unicode_ci
+             OR (
+               a.user_id IS NOT NULL
+               AND p.join_identity LIKE 'user-%'
+               AND a.user_id = CAST(SUBSTRING(p.join_identity, 6) AS UNSIGNED)
+             )
            )
        )
      ORDER BY p.joined_at ASC`,
@@ -525,8 +547,7 @@ async function buildWaitingRoomPrepPayload(sessionId, { sessionTitle = null } = 
   const out = {
     sessionTitle: sessionTitle || null,
     goals: [],
-    agenda: [],
-    actionItems: []
+    agenda: []
   };
   if (!sid) return out;
   try {
@@ -544,19 +565,12 @@ async function buildWaitingRoomPrepPayload(sessionId, { sessionTitle = null } = 
       return [];
     };
     const goals = parseList(artifact?.goals_json ?? artifact?.goals);
-    const actions = parseList(artifact?.action_items_json ?? artifact?.actionItems);
     out.goals = goals
       .map((g, idx) => ({
         id: String(g?.id || `g-${idx + 1}`),
         text: String(g?.text || '').trim()
       }))
       .filter((g) => g.text);
-    out.actionItems = actions
-      .map((a, idx) => ({
-        id: String(a?.id || `a-${idx + 1}`),
-        text: String(a?.text || '').trim()
-      }))
-      .filter((a) => a.text);
     if (!out.sessionTitle && (artifact?.focus_title || artifact?.focusTitle)) {
       out.sessionTitle = String(artifact.focus_title || artifact.focusTitle || '').trim() || null;
     }
@@ -1004,7 +1018,8 @@ async function recomputeAttendanceRollupForUser({
   sessionId,
   userId,
   closeOpenAt = null,
-  forceFinalize = false
+  forceFinalize = false,
+  sessionStartAt = null
 } = {}) {
   const sid = Number(sessionId || 0);
   const uid = Number(userId || 0);
@@ -1018,6 +1033,18 @@ async function recomputeAttendanceRollupForUser({
   let segmentCount = 0;
   const nowMs = Date.now();
   const closeCapMs = closeOpenAt ? parseAsDate(closeOpenAt)?.getTime() : null;
+  // Payable / supervision time only accrues at or after the scheduled session start.
+  const sessionStartMs = parseAsDate(sessionStartAt)?.getTime();
+
+  function creditSegment(rawOpenMs, rawEndMs) {
+    if (!Number.isFinite(rawOpenMs) || !Number.isFinite(rawEndMs)) return;
+    let openMs = rawOpenMs;
+    if (Number.isFinite(sessionStartMs)) openMs = Math.max(openMs, sessionStartMs);
+    if (rawEndMs <= openMs) return;
+    totalSeconds += Math.round((rawEndMs - openMs) / 1000);
+    segmentCount += 1;
+    if (!lastLeftAt || rawEndMs > lastLeftAt.getTime()) lastLeftAt = new Date(rawEndMs);
+  }
 
   for (const ev of events || []) {
     const evType = String(ev?.event_type || '').trim().toLowerCase();
@@ -1028,11 +1055,7 @@ async function recomputeAttendanceRollupForUser({
       // unmatched opens that ballooned hours until finalize. Auto-close prior open first.
       if (openedStack.length) {
         const prevOpenMs = openedStack.pop();
-        if (atMs > prevOpenMs) {
-          totalSeconds += Math.round((atMs - prevOpenMs) / 1000);
-          segmentCount += 1;
-          if (!lastLeftAt || atMs > lastLeftAt.getTime()) lastLeftAt = new Date(atMs);
-        }
+        creditSegment(prevOpenMs, atMs);
       }
       openedStack.push(atMs);
       if (!firstJoinedAt || atMs < firstJoinedAt.getTime()) firstJoinedAt = new Date(atMs);
@@ -1040,11 +1063,7 @@ async function recomputeAttendanceRollupForUser({
     }
     if ((evType === 'left' || evType === 'closed') && openedStack.length) {
       const openedAtMs = openedStack.pop();
-      if (atMs > openedAtMs) {
-        totalSeconds += Math.round((atMs - openedAtMs) / 1000);
-        segmentCount += 1;
-        if (!lastLeftAt || atMs > lastLeftAt.getTime()) lastLeftAt = new Date(atMs);
-      }
+      creditSegment(openedAtMs, atMs);
     }
   }
 
@@ -1053,11 +1072,7 @@ async function recomputeAttendanceRollupForUser({
     const endMs = Number.isFinite(closeCapMs)
       ? Math.min(nowMs, closeCapMs)
       : nowMs;
-    if (endMs > openedAtMs) {
-      totalSeconds += Math.round((endMs - openedAtMs) / 1000);
-      segmentCount += 1;
-      if (!lastLeftAt || endMs > lastLeftAt.getTime()) lastLeftAt = new Date(endMs);
-    }
+    creditSegment(openedAtMs, endMs);
   }
   if (forceFinalize) openedStack.length = 0;
 
@@ -1135,7 +1150,8 @@ async function finalizeSupervisionSession({
       sessionId: sid,
       userId: uid,
       closeOpenAt,
-      forceFinalize: true
+      forceFinalize: true,
+      sessionStartAt: row.start_at
     });
   }
 
@@ -1710,7 +1726,11 @@ export const markSupervisionMeetingLifecycle = async (req, res, next) => {
       });
     }
 
-    const rollup = await recomputeAttendanceRollupForUser({ sessionId: id, userId: actorUserId });
+    const rollup = await recomputeAttendanceRollupForUser({
+      sessionId: id,
+      userId: actorUserId,
+      sessionStartAt: row.start_at
+    });
 
     // Keep overdue sessions finalized when users revisit supervision flows.
     await autoFinalizeOverdueSessions({ agencyId: Number(row.agency_id || 0), actorUserId });
@@ -2144,11 +2164,40 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
 
     await syncSupervisionAttendanceWithPresence(id, { sessionRow: row });
 
-    const [presenceByUser, rollups, attendees] = await Promise.all([
-      loadSupervisionPresenceByUser(id),
+    let presenceByUser = await loadSupervisionPresenceByUser(id);
+    // Refresh open-segment totals for everyone currently present so the panel ticks live.
+    for (const [uid, presence] of presenceByUser.entries()) {
+      if (!presence?.isPresent) continue;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await recomputeAttendanceRollupForUser({
+          sessionId: id,
+          userId: uid,
+          sessionStartAt: row.start_at
+        });
+      } catch { /* ignore */ }
+    }
+
+    const [rollups, attendees, admissionRows] = await Promise.all([
       SupervisionSession.listAttendanceRollupsForSession(id),
-      SupervisionSession.listAttendees(id)
+      SupervisionSession.listAttendees(id),
+      pool.execute(
+        `SELECT user_id, join_identity, admitted_at
+         FROM supervision_session_video_admissions
+         WHERE session_id = ?`,
+        [id]
+      ).then(([rows]) => rows || []).catch(() => [])
     ]);
+    presenceByUser = await loadSupervisionPresenceByUser(id);
+    const admittedAtByUser = new Map();
+    for (const a of admissionRows || []) {
+      const uid = Number(a.user_id || 0) || userIdFromSupervisionJoinIdentity(a.join_identity);
+      if (!uid || !a.admitted_at) continue;
+      const prev = admittedAtByUser.get(uid);
+      const at = parseAsDate(a.admitted_at);
+      if (!at) continue;
+      if (!prev || at.getTime() < prev.getTime()) admittedAtByUser.set(uid, at);
+    }
 
     const byUser = new Map();
     for (const att of attendees || []) {
@@ -2207,12 +2256,25 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
       } catch { /* ignore */ }
     }
 
+    const nowMs = Date.now();
     const participants = Array.from(byUser.values()).map((p) => {
       const name = [p.firstName, p.lastName].filter(Boolean).join(' ').trim()
         || p.email
         || `User #${p.userId}`;
       const totalMinutes = Math.round((Number(p.totalSeconds || 0) / 60) * 100) / 100;
       const presence = presenceByUser.get(p.userId) || {};
+      const presenceJoined = parseAsDate(presence.joinedAt);
+      const admittedAt = admittedAtByUser.get(p.userId) || null;
+      let waitSeconds = 0;
+      if (presenceJoined) {
+        const waitEndMs = admittedAt
+          ? admittedAt.getTime()
+          : (presence.isPresent ? nowMs : (parseAsDate(presence.leftAt)?.getTime() || nowMs));
+        if (Number.isFinite(waitEndMs) && waitEndMs > presenceJoined.getTime()) {
+          waitSeconds = Math.round((waitEndMs - presenceJoined.getTime()) / 1000);
+        }
+      }
+      const waitMinutes = Math.round((waitSeconds / 60) * 100) / 100;
       return {
         userId: p.userId,
         name,
@@ -2223,6 +2285,9 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
         isHost: !!p.isHost,
         totalSeconds: Number(p.totalSeconds || 0),
         totalMinutes,
+        waitSeconds,
+        waitMinutes,
+        admittedAt: admittedAt ? admittedAt.toISOString() : null,
         segmentCount: Number(p.segmentCount || 0),
         isPresent: !!presence.isPresent,
         leftAt: presence.leftAt || null,
@@ -2242,6 +2307,7 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
 
     res.json({
       sessionId: id,
+      sessionStartAt: row.start_at || null,
       participants,
       copyNamesCsv: namesCsv,
       copyNamesWithTimeCsv: namesWithTimeCsv
@@ -4379,7 +4445,8 @@ async function repairInflatedSessionAttendance(sessions, { userId } = {}) {
         sessionId: sid,
         userId: uid,
         closeOpenAt: s.endAt || null,
-        forceFinalize: ['FINALIZED', 'MISSED'].includes(status)
+        forceFinalize: ['FINALIZED', 'MISSED'].includes(status),
+        sessionStartAt: s.startAt || s.start_at || null
       });
       totalSeconds = Number(fixed?.totalSeconds || 0);
       repaired = true;

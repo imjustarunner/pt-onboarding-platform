@@ -1040,8 +1040,19 @@
         </div>
 
         <template v-for="slot in displayTimeSlots" :key="`h-${slot.key}`">
-          <div class="sched-hour" :class="{ 'sched-hour-quarter': slot.minute !== 0 }">
+          <div
+            class="sched-hour"
+            :class="{
+              'sched-hour-quarter': slot.minute !== 0,
+              'sched-hour--now': isScheduleNowSlot(slot)
+            }"
+          >
             {{ slot.label }}
+            <span
+              v-if="isScheduleNowSlot(slot)"
+              class="sched-hour-now-tick"
+              aria-hidden="true"
+            ></span>
           </div>
 
           <div
@@ -1068,6 +1079,14 @@
             @keydown.enter.prevent="slot.minute === 0 && onCellClick(d, slot.hour, $event)"
             @keydown.space.prevent="slot.minute === 0 && onCellClick(d, slot.hour, $event)"
           >
+            <div
+              v-if="showScheduleNowInCell(slot, d)"
+              class="sched-now-line"
+              :style="{ top: `${scheduleNowOffsetPct(slot)}%` }"
+              aria-hidden="true"
+            >
+              <span class="sched-now-line__dot" aria-hidden="true"></span>
+            </div>
             <button
               v-if="canBookFromGrid && slot.minute === 0"
               type="button"
@@ -1179,14 +1198,6 @@
             </div>
           </div>
         </template>
-        <div
-          v-if="scheduleNowLineStyle"
-          class="sched-now-line"
-          :style="scheduleNowLineStyle"
-          aria-hidden="true"
-        >
-          <span class="sched-now-line__dot" aria-hidden="true"></span>
-        </div>
       </div>
       </div>
     </template>
@@ -1437,12 +1448,23 @@
                 :participants="meetingDraftAssigneeOptions"
               />
             </aside>
-            <SupervisionGoalsActionsPanel
+            <aside
               v-if="showIndividualSupervisionWorkspace"
-              :session-id="selectedSupvSessionId"
-              section="both"
-              lock-position="bottom"
-            />
+              class="meeting-info-side"
+              aria-label="Supervision agenda and goals"
+            >
+              <MeetingAgendaPanel
+                meeting-type="supervision_session"
+                :meeting-id="Number(selectedSupvSessionId)"
+                :can-add-item="true"
+                :embedded="true"
+              />
+              <SupervisionGoalsActionsPanel
+                :session-id="selectedSupvSessionId"
+                section="goals"
+                lock-position="bottom"
+              />
+            </aside>
           </div>
 
         <AppointmentEditorShell
@@ -1874,23 +1896,30 @@
           </div>
 
           <div
-            v-if="(editorWorkspaceTab === 'goals' || editorWorkspaceTab === 'actions') && showIndividualSupervisionWorkspace"
+            v-if="editorWorkspaceTab === 'goals' && showIndividualSupervisionWorkspace"
             class="appt-workspace-panel appt-workspace-panel--flush"
           >
             <SupervisionGoalsActionsPanel
               :session-id="selectedSupvSessionId"
-              :section="editorWorkspaceTab"
+              section="goals"
             />
           </div>
 
           <div
-            v-show="editorWorkspaceTab === 'agenda' && editorIsMeeting && scheduleEventEditId"
+            v-show="editorWorkspaceTab === 'agenda' && ((editorIsMeeting && scheduleEventEditId) || showIndividualSupervisionWorkspace)"
             class="appt-workspace-panel appt-workspace-panel--flush"
           >
             <MeetingAgendaPanel
               v-if="editorIsMeeting && Number(scheduleEventEditId || 0) > 0"
               meeting-type="provider_schedule_event"
               :meeting-id="Number(scheduleEventEditId)"
+              :can-add-item="true"
+              :embedded="true"
+            />
+            <MeetingAgendaPanel
+              v-else-if="showIndividualSupervisionWorkspace && selectedSupvSessionId"
+              meeting-type="supervision_session"
+              :meeting-id="Number(selectedSupvSessionId)"
               :can-add-item="true"
               :embedded="true"
             />
@@ -6521,7 +6550,7 @@ onMounted(() => {
   joinPromptNowMs.value = Date.now();
   joinPromptTimer = setInterval(() => {
     joinPromptNowMs.value = Date.now();
-  }, 60000);
+  }, 15000);
   // Deep-link from dashboard overview Book / Book virtual CTAs.
   void consumeScheduleActionQuery();
   if (typeof document !== 'undefined') {
@@ -6680,8 +6709,6 @@ const gridStyle = computed(() => {
   };
 });
 
-const SCHED_GRID_HEADER_PX = 48;
-
 const wallClockPartsInTz = (instant, timeZone) => {
   const tz = String(timeZone || '').trim();
   if (!tz) {
@@ -6689,18 +6716,23 @@ const wallClockPartsInTz = (instant, timeZone) => {
     return { hour: d.getHours(), minute: d.getMinutes() };
   }
   try {
+    // Prefer hour12:false — more reliable than hourCycle across browsers.
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
       hour: '2-digit',
       minute: '2-digit',
-      hourCycle: 'h23'
+      hour12: false
     }).formatToParts(instant);
     const map = {};
     for (const p of parts) {
       if (p.type !== 'literal') map[p.type] = p.value;
     }
+    let hour = Number(map.hour);
+    // Some engines still emit "24" for midnight.
+    if (hour === 24) hour = 0;
+    if (!Number.isFinite(hour)) hour = new Date(instant).getHours();
     return {
-      hour: Number(map.hour) % 24,
+      hour: ((hour % 24) + 24) % 24,
       minute: Number(map.minute) || 0
     };
   } catch {
@@ -6709,27 +6741,24 @@ const wallClockPartsInTz = (instant, timeZone) => {
   }
 };
 
-const scheduleNowLineStyle = computed(() => {
-  if (props.mode !== 'self' || viewMode.value !== 'open_finder') return null;
+/** Live wall-clock parts in the same TZ appointments use on this grid. */
+const scheduleNowParts = computed(() => {
+  // Depend on the tick so the red line advances without a full reload.
+  const now = new Date(joinPromptNowMs.value || Date.now());
+  const tz = scheduleMeetingTimeZone();
+  return { ...wallClockPartsInTz(now, tz), tz };
+});
+
+const scheduleNowSlotMeta = computed(() => {
+  if (viewMode.value !== 'open_finder') return null;
   const todayDay = (visibleDays.value || []).find((d) => isTodayDay(d));
   if (!todayDay) return null;
-  const colIdx = visibleDays.value.indexOf(todayDay);
-  if (colIdx < 0) return null;
-
-  // My Schedule: browser wall clock. Admin views: office/booking timezone.
-  const now = new Date(joinPromptNowMs.value || Date.now());
-  const tz = props.mode === 'self'
-    ? (browserIanaTimeZone() || bookingTimezoneIana.value || 'America/Denver')
-    : (bookingTimezoneIana.value || browserIanaTimeZone() || 'America/Denver');
-  const { hour, minute } = wallClockPartsInTz(now, tz);
+  const { hour, minute } = scheduleNowParts.value;
   const minH = Number(gridMinHour.value || 0);
   const maxH = Number(gridMaxHour.value || 24);
   if (hour < minH || hour >= maxH) return null;
-
-  const slotH = Number(rowHeightPx.value || 48);
   const slots = displayTimeSlots.value || [];
   const nowMins = hour * 60 + minute;
-  let topPx = null;
   for (let i = 0; i < slots.length; i += 1) {
     const slot = slots[i];
     const next = slots[i + 1];
@@ -6739,18 +6768,34 @@ const scheduleNowLineStyle = computed(() => {
       : startMins + (showQuarterDetail.value ? 15 : 60);
     if (nowMins < startMins || nowMins >= endMins) continue;
     const frac = (nowMins - startMins) / Math.max(1, endMins - startMins);
-    topPx = SCHED_GRID_HEADER_PX + i * slotH + frac * slotH;
-    break;
+    return {
+      dayName: todayDay,
+      slotKey: slot.key,
+      hour: Number(slot.hour),
+      minute: Number(slot.minute || 0),
+      offsetPct: Math.min(99, Math.max(0, frac * 100))
+    };
   }
-  if (topPx == null) return null;
-
-  const colCount = Math.max(1, visibleDays.value.length);
-  return {
-    '--sched-now-col-idx': String(colIdx),
-    '--sched-now-col-count': String(colCount),
-    top: `${topPx}px`
-  };
+  return null;
 });
+
+function isScheduleNowSlot(slot) {
+  const meta = scheduleNowSlotMeta.value;
+  if (!meta || !slot) return false;
+  return String(meta.slotKey) === String(slot.key);
+}
+
+function showScheduleNowInCell(slot, dayName) {
+  const meta = scheduleNowSlotMeta.value;
+  if (!meta || !slot) return false;
+  return String(meta.slotKey) === String(slot.key) && String(dayName) === String(meta.dayName);
+}
+
+function scheduleNowOffsetPct(slot) {
+  const meta = scheduleNowSlotMeta.value;
+  if (!meta || !isScheduleNowSlot(slot)) return 0;
+  return meta.offsetPct;
+}
 
 const toggleFocusedDay = (dayName, evt = null) => {
   const day = String(dayName || '');
@@ -6797,7 +6842,9 @@ const localYmd = (d) => {
 };
 
 const todayLocalYmd = computed(() => {
-  const tz = String(bookingTimezoneIana.value || '').trim();
+  // Keep "today" aligned with the same TZ used for appointments + the red now line.
+  void joinPromptNowMs.value;
+  const tz = String(scheduleMeetingTimeZone() || bookingTimezoneIana.value || '').trim();
   if (!tz) return localYmd(new Date());
   try {
     return new Intl.DateTimeFormat('en-CA', {
@@ -12010,8 +12057,8 @@ const editorWorkspaceTabs = computed(() => {
   if (editorIsSupervision.value) {
     if (showIndividualSupervisionWorkspace.value) {
       tabs.splice(1, 0,
-        { id: 'goals', label: 'Goals', icon: '◎' },
-        { id: 'actions', label: 'Action Items', icon: '☑' }
+        { id: 'agenda', label: 'Agenda', icon: '☰' },
+        { id: 'goals', label: 'Goals', icon: '◎' }
       );
     }
     tabs.push({ id: 'note', label: 'Note', icon: '✎' });
@@ -19228,12 +19275,11 @@ const submitRequest = async () => {
         }
         createAgendaDraftItems.value = [];
       }
-      if (createdSessionIds.length && (createGoalDraftItems.value.length || createActionDraftItems.value.length)) {
+      if (createdSessionIds.length && createGoalDraftItems.value.length) {
         const goals = [...(createGoalDraftItems.value || [])];
-        const actions = [...(createActionDraftItems.value || [])];
         for (const sessionId of createdSessionIds) {
           // eslint-disable-next-line no-await-in-loop
-          await postSupervisionWorkspaceDraft(sessionId, { goals, actionItems: actions });
+          await postSupervisionWorkspaceDraft(sessionId, { goals });
         }
         createGoalDraftItems.value = [];
         createActionDraftItems.value = [];
@@ -23875,8 +23921,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .sched-now-line {
   position: absolute;
-  left: calc(90px + ((100% - 90px) * var(--sched-now-col-idx) / var(--sched-now-col-count)));
-  width: calc((100% - 90px) / var(--sched-now-col-count));
+  left: 0;
+  right: 0;
+  width: auto;
   height: 2px;
   background: #ef4444;
   pointer-events: none;
@@ -23892,6 +23939,19 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border-radius: 50%;
   background: #ef4444;
   box-shadow: 0 0 0 2px #fff;
+}
+.sched-hour--now {
+  color: #dc2626;
+  font-weight: 800;
+}
+.sched-hour-now-tick {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 2px;
+  background: #ef4444;
 }
 .sched-head-cell {
   padding: 12px 10px;
@@ -23944,6 +24004,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   color: var(--text-secondary);
 }
 .sched-hour {
+  position: relative;
   padding: 8px 10px;
   font-weight: 650;
   font-size: 12px;

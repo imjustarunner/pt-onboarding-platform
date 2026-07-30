@@ -5,7 +5,8 @@
       'mlap--embedded': embedded,
       'mlap--open': panelOpen,
       'mlap--chrome-less': hideChrome,
-      'mlap--below-video': belowVideo
+      'mlap--below-video': belowVideo,
+      'mlap--dark': theme === 'dark'
     }"
   >
     <div v-if="toastText" class="mlap__toast" role="status">{{ toastText }}</div>
@@ -270,6 +271,8 @@ const props = defineProps({
   embedded: { type: Boolean, default: false },
   hideChrome: { type: Boolean, default: false },
   belowVideo: { type: Boolean, default: false },
+  /** light (default) | dark — for live supervision workspace */
+  theme: { type: String, default: 'light' },
   /** @deprecated Providers now see full history; kept for API compatibility. */
   sinceJoinedAt: { type: [String, Date, Number], default: null },
   pollMs: { type: Number, default: 4000 }
@@ -1248,4 +1251,34 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
 .mlap__qa-del { color: #b91c1c; }
 .mlap__qa-empty { font-size: 0.8rem; margin-top: 6px; }
 .mlap__msg { border-left: 3px solid var(--mlap-user-color, #94a3b8); padding-left: 8px; }
+.mlap--dark,
+.mlap--dark .mlap__panel,
+.mlap--dark .mlap__body,
+.mlap--dark .mlap__messages,
+.mlap--dark .mlap__form,
+.mlap--dark .mlap__input {
+  background: #121722 !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+.mlap--dark .mlap__bar,
+.mlap--dark .mlap__tabs {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+.mlap--dark .mlap__tab,
+.mlap--dark .mlap__toggle,
+.mlap--dark .mlap__refresh,
+.mlap--dark .mlap__empty,
+.mlap--dark .mlap__text,
+.mlap--dark .mlap__sender {
+  color: #e2e8f0 !important;
+}
+.mlap--dark .mlap__tab.on,
+.mlap--dark .mlap__toggle.on {
+  background: rgba(167, 139, 250, 0.25) !important;
+  color: #fff !important;
+}
+.mlap--dark .mlap__msg {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
 </style>

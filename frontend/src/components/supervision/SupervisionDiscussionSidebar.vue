@@ -1,18 +1,28 @@
 <template>
-  <aside class="sds" :class="{ 'sds--roomy': roomy }">
+  <aside class="sds" :class="{ 'sds--roomy': roomy, 'sds--dark': theme === 'dark' }">
     <div class="sds__tabs">
       <button type="button" :class="{ active: sideTab === 'discussion' }" @click="$emit('update:sideTab', 'discussion')">Discussion</button>
       <button type="button" :class="{ active: sideTab === 'notes' }" @click="$emit('update:sideTab', 'notes')">Notes</button>
     </div>
 
     <div v-if="sideTab === 'discussion'" class="sds__discussion">
-      <div class="sds__subtabs">
-        <button type="button" :class="{ active: discussionSubTab === 'agenda' || discussionSubTab === 'topics' }" @click="$emit('update:discussionSubTab', 'agenda')">Agenda</button>
-        <button type="button" :class="{ active: discussionSubTab === 'chat' }" @click="$emit('update:discussionSubTab', 'chat')">Chat</button>
-        <button type="button" :class="{ active: discussionSubTab === 'transcript' }" @click="$emit('update:discussionSubTab', 'transcript')">Transcript</button>
+      <div v-if="!hideAgenda || !hideTranscript" class="sds__subtabs">
+        <button
+          v-if="!hideAgenda"
+          type="button"
+          :class="{ active: discussionSubTab === 'agenda' || discussionSubTab === 'topics' }"
+          @click="$emit('update:discussionSubTab', 'agenda')"
+        >Agenda</button>
+        <button type="button" :class="{ active: discussionSubTab === 'chat' || (hideAgenda && hideTranscript) }" @click="$emit('update:discussionSubTab', 'chat')">Chat</button>
+        <button
+          v-if="!hideTranscript"
+          type="button"
+          :class="{ active: discussionSubTab === 'transcript' }"
+          @click="$emit('update:discussionSubTab', 'transcript')"
+        >Transcript</button>
       </div>
 
-      <template v-if="discussionSubTab === 'agenda' || discussionSubTab === 'topics'">
+      <template v-if="!hideAgenda && (discussionSubTab === 'agenda' || discussionSubTab === 'topics')">
         <MeetingAgendaPanel
           v-if="sessionId"
           meeting-type="supervision_session"
@@ -20,11 +30,12 @@
           :can-add-item="true"
           :embedded="true"
           :live="true"
+          :theme="theme"
         />
         <p v-else class="sds__empty">Agenda will appear once the session is ready.</p>
       </template>
 
-      <template v-else-if="discussionSubTab === 'chat'">
+      <template v-else-if="discussionSubTab === 'chat' || (hideAgenda && hideTranscript) || (hideAgenda && discussionSubTab !== 'transcript')">
         <MeetingLiveActivityPanel
           v-if="sessionId || joinToken"
           :session-id="sessionId"
@@ -34,11 +45,13 @@
           :is-host="isSupervisor"
           :start-open="true"
           :below-video="true"
+          :embedded="true"
+          :theme="theme"
         />
         <p v-else class="sds__empty">Chat will appear once the session is ready.</p>
       </template>
 
-      <template v-else>
+      <template v-else-if="!hideTranscript">
         <button type="button" class="sds__collapse" @click="transcriptOpen = !transcriptOpen">
           {{ transcriptOpen ? 'Collapse transcript' : 'Expand transcript' }}
         </button>
@@ -82,8 +95,11 @@ function newestFirst(text) {
 
 defineProps({
   roomy: { type: Boolean, default: false },
+  theme: { type: String, default: 'dark' },
+  hideAgenda: { type: Boolean, default: false },
+  hideTranscript: { type: Boolean, default: false },
   sideTab: { type: String, default: 'discussion' },
-  discussionSubTab: { type: String, default: 'agenda' },
+  discussionSubTab: { type: String, default: 'chat' },
   sessionId: { type: [Number, String], default: null },
   joinToken: { type: String, default: '' },
   joinIdentity: { type: String, default: '' },
@@ -126,8 +142,40 @@ defineEmits([
   display: flex;
   flex-direction: column;
   min-height: 0;
+  color: #eef2f8;
+}
+.sds--dark {
+  background: rgba(12, 16, 24, 0.92);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 .sds--roomy { min-height: min(62vh, 560px); }
+.sds--dark :deep(.mlap),
+.sds--dark :deep(.mlap__panel),
+.sds--dark :deep(.mlap__body),
+.sds--dark :deep(.mlap__messages) {
+  background: transparent !important;
+  color: #e2e8f0 !important;
+}
+.sds--dark :deep(.mlap__bar),
+.sds--dark :deep(.mlap__tabs),
+.sds--dark :deep(.mlap__form),
+.sds--dark :deep(.mlap__input),
+.sds--dark :deep(.mlap__msg),
+.sds--dark :deep(.mlap__empty) {
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+.sds--dark :deep(.mlap__tab),
+.sds--dark :deep(.mlap__toggle),
+.sds--dark :deep(.mlap__refresh) {
+  color: #cbd5e1 !important;
+}
+.sds--dark :deep(.mlap__tab.on),
+.sds--dark :deep(.mlap__toggle.on) {
+  color: #fff !important;
+  background: rgba(167, 139, 250, 0.22) !important;
+}
 .sds__tabs {
   display: flex;
   gap: 8px;

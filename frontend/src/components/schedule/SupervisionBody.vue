@@ -227,7 +227,7 @@
         <p v-else class="muted supb-empty">No goals yet.</p>
       </div>
 
-      <div v-if="showGoalsActionsDraft" class="supb-side-section">
+      <div v-if="showGoalsActionsDraft && showActionDraft" class="supb-side-section">
         <div class="supb-side-head">
           <label class="supb-label">Action items</label>
           <button type="button" class="supb-link-btn" :disabled="disabled" @click="showActionAdd = true">+ Add action</button>
@@ -280,6 +280,8 @@ const props = defineProps({
   section: { type: String, default: 'all' },
   showAgendaDraft: { type: Boolean, default: false },
   showGoalsActionsDraft: { type: Boolean, default: false },
+  /** Action items are not part of individual supervision planning. */
+  showActionDraft: { type: Boolean, default: false },
   agendaItems: { type: Array, default: () => [] },
   goalDraftItems: { type: Array, default: () => [] },
   actionDraftItems: { type: Array, default: () => [] }

@@ -154,13 +154,22 @@ function applyTokenPayload(data) {
   joinIdentity.value = String(data.identity || '').trim();
   isGuestJoin.value = !!data.guest || String(data.identity || '').startsWith('guest-');
   const u = authStore.user || {};
-  const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
-    || u.email
-    || '';
+  const authPerson = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim();
+  const authName = authPerson || u.email || '';
   const fromApi = String(data.displayName || '').trim();
-  localDisplayName.value = (fromApi && fromApi.toLowerCase() !== 'guest')
-    ? fromApi
-    : (authName || (fromApi.toLowerCase() === 'guest' ? '' : fromApi) || '');
+  // Prefer a real person name over an email (API sometimes falls back to email).
+  const preferName = (...cands) => {
+    for (const c of cands) {
+      const t = String(c || '').trim();
+      if (t && !t.includes('@') && t.toLowerCase() !== 'guest') return t;
+    }
+    for (const c of cands) {
+      const t = String(c || '').trim();
+      if (t && t.toLowerCase() !== 'guest') return t;
+    }
+    return '';
+  };
+  localDisplayName.value = preferName(authPerson, fromApi, authName);
   const roleFromApi = String(data.roleLabel || '').trim();
   localRoleLabel.value = (roleFromApi && roleFromApi.toLowerCase() !== 'guest')
     ? roleFromApi

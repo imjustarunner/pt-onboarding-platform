@@ -5,9 +5,9 @@
       All supervision data is encrypted and accessible only to you and your supervisee for training and development purposes.
     </p>
     <p v-if="!sessionId" class="muted sgap__hint">
-      Save the session first, then you can add goals and action items.
+      Save the session first, then you can add goals.
     </p>
-    <p v-else-if="loading" class="muted">Loading goals and action items…</p>
+    <p v-else-if="loading" class="muted">Loading goals…</p>
     <p v-else-if="error" class="error">{{ error }}</p>
 
     <template v-if="sessionId && !loading">
@@ -156,14 +156,18 @@ async function saveNow() {
   saveStatus.value = 'saving';
   error.value = '';
   try {
-    await api.post(`/supervision/sessions/${sid}/artifacts`, {
-      goals: cleanGoals,
-      actionItems: cleanActions
-    }, { skipGlobalLoading: true });
+    const body = { goals: cleanGoals };
+    // Only touch action items when that section is visible — supervision planning no longer uses them.
+    if (props.section === 'actions' || props.section === 'both') {
+      body.actionItems = cleanActions;
+    }
+    await api.post(`/supervision/sessions/${sid}/artifacts`, body, { skipGlobalLoading: true });
     // Keep empty draft rows the user just added; never wipe in-progress inputs.
     if (!pendingSave) {
       goals.value = [...cleanGoals, ...emptyGoalDrafts];
-      actionItems.value = [...cleanActions, ...emptyActionDrafts];
+      if (props.section === 'actions' || props.section === 'both') {
+        actionItems.value = [...cleanActions, ...emptyActionDrafts];
+      }
     }
     emit('saved', { goals: goals.value, actionItems: actionItems.value });
     saveStatus.value = 'saved';

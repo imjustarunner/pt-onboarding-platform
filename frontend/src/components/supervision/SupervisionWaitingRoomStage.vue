@@ -60,8 +60,7 @@ const props = defineProps({
   hostRoleLabel: { type: String, default: 'Host' },
   hostStatusLabel: { type: String, default: '' },
   goals: { type: Array, default: () => [] },
-  agenda: { type: Array, default: () => [] },
-  actionItems: { type: Array, default: () => [] }
+  agenda: { type: Array, default: () => [] }
 });
 defineEmits(['show-waiting-room']);
 
@@ -98,11 +97,6 @@ const prepItems = computed(() => {
     const text = String(a?.text || a?.title || '').trim();
     if (!text) continue;
     out.push({ id: `agenda-${a.id || text}`, kind: 'Agenda', text });
-  }
-  for (const a of props.actionItems || []) {
-    const text = String(a?.text || '').trim();
-    if (!text) continue;
-    out.push({ id: `action-${a.id || text}`, kind: 'Action', text });
   }
   return out.slice(0, 10);
 });
@@ -148,7 +142,7 @@ const prepItems = computed(() => {
   flex-direction: column;
   justify-content: flex-end;
   padding: clamp(18px, 4vw, 36px);
-  max-width: min(560px, calc(100% - min(38%, 280px) - 28px));
+  max-width: min(560px, calc(100% - min(46%, 420px) - 36px));
 }
 .swr__kicker {
   margin: 0 0 6px;
@@ -234,7 +228,11 @@ const prepItems = computed(() => {
   align-items: start;
   font-size: 0.86rem;
   line-height: 1.35;
-  color: #134e3a;
+  color: #0f3d2e;
+}
+.swr__prep-list li > span:last-child {
+  color: #0f3d2e;
+  font-weight: 600;
 }
 .swr__prep-tag {
   font-size: 0.68rem;

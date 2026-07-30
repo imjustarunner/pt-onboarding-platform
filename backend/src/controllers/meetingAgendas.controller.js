@@ -102,13 +102,20 @@ async function canManageMeetingAgenda(userId, meetingType, meetingId) {
   return false;
 }
 
-/** Facilitator-only edits for live group supervision agendas; team meetings keep broader manage access. */
+/**
+ * Who can add/edit agenda items:
+ * - Team meetings: anyone who can manage the meeting (host + invited attendees)
+ * - Individual supervision: supervisor/facilitators + the named supervisee
+ * - Group/triadic supervision: facilitators only (keeps large-room agenda from getting noisy)
+ */
 async function canEditMeetingAgenda(userId, meetingType, meetingId) {
   if (meetingType === 'supervision_session') {
     const mid = parseInt(meetingId, 10);
-    if (!mid) return false;
+    const uid = Number(userId || 0);
+    if (!mid || !uid) return false;
     const [rows] = await pool.execute(
-      `SELECT ss.id, ss.agency_id, ss.supervisor_user_id, ss.co_facilitator_user_id
+      `SELECT ss.id, ss.agency_id, ss.supervisor_user_id, ss.co_facilitator_user_id,
+              ss.supervisee_user_id, ss.session_type
        FROM supervision_sessions ss
        WHERE ss.id = ? AND ss.status != 'CANCELLED'
        LIMIT 1`,
@@ -116,7 +123,12 @@ async function canEditMeetingAgenda(userId, meetingType, meetingId) {
     );
     const session = rows?.[0];
     if (!session) return false;
-    return await canFacilitateSupervisionSession(userId, session);
+    if (await canFacilitateSupervisionSession(uid, session)) return true;
+
+    const sessionType = String(session.session_type || 'individual').toLowerCase();
+    const isGroupLike = sessionType.includes('group') || sessionType.includes('triadic');
+    if (!isGroupLike && uid === Number(session.supervisee_user_id || 0)) return true;
+    return false;
   }
   return canManageMeetingAgenda(userId, meetingType, meetingId);
 }
