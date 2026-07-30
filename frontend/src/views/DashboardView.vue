@@ -1094,8 +1094,14 @@
       </div>
     </div>
 
-    <div v-if="!isClubContext && mandatorySupervisionPrompt" class="supervision-splash" role="dialog" aria-modal="true" aria-label="Join group supervision">
-      <div class="supervision-splash-card">
+    <div
+      v-if="!isClubContext && mandatorySupervisionPrompt"
+      class="blocking-splash supervision-join-splash"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Join group supervision"
+    >
+      <div class="blocking-splash-card supervision-join-splash-card">
         <button
           type="button"
           class="supervision-splash-dismiss"
@@ -1104,12 +1110,17 @@
         >
           ×
         </button>
-        <h3>Join Group Supervision Now</h3>
-        <p>
+        <div class="blocking-splash-head">
+          <BrandingLogo size="medium" class="blocking-splash-logo" />
+          <div class="blocking-splash-brand">{{ brandingStore.displayName || currentAgency?.name || 'Organization' }}</div>
+        </div>
+        <p class="blocking-splash-eyebrow">Live now</p>
+        <h3 class="blocking-splash-title">Join Group Supervision Now</h3>
+        <p class="blocking-splash-message">
           {{ mandatorySupervisionPrompt.sessionTypeLabel }} with {{ mandatorySupervisionPrompt.supervisorName || 'your supervisor' }} is active.
           ({{ mandatorySupervisionPrompt.timeLabel }})
         </p>
-        <div class="supervision-splash-actions">
+        <div class="blocking-splash-actions supervision-splash-actions">
           <button type="button" class="btn btn-secondary btn-sm" @click="activeTab = 'my_schedule'">Open Schedule</button>
           <button type="button" class="btn btn-primary btn-sm btn-join-pulse" @click="joinSupervisionPrompt(mandatorySupervisionPrompt)">Join now</button>
           <button type="button" class="btn btn-outline btn-sm" @click="dismissMandatorySupervisionPrompt(mandatorySupervisionPrompt?.id)">Dismiss</button>
@@ -7093,24 +7104,15 @@ h1 {
   gap: 8px;
 }
 
-.supervision-splash {
-  position: fixed;
-  inset: 0;
+.supervision-join-splash {
   z-index: 1200;
-  background: rgba(15, 23, 42, 0.55);
-  display: grid;
-  place-items: center;
-  padding: 20px;
 }
 
-.supervision-splash-card {
+.supervision-join-splash-card {
   position: relative;
   width: min(560px, 94vw);
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  padding: 18px;
-  box-shadow: var(--shadow-lg);
+  max-width: 560px;
+  border-top: 4px solid var(--success, #2f8f83);
 }
 
 .supervision-splash-dismiss {
@@ -7134,23 +7136,21 @@ h1 {
 
 .supervision-splash-dismiss:hover {
   color: var(--text-primary);
-  background: var(--bg-hover);
-}
-
-.supervision-splash-card h3 {
-  margin: 0 0 8px 0;
-  color: var(--primary);
-}
-
-.supervision-splash-card p {
-  margin: 0;
+  background: var(--bg-hover, rgba(0, 0, 0, 0.06));
 }
 
 .supervision-splash-actions {
-  margin-top: 12px;
-  display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.blocking-splash-eyebrow {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--success, #2f8f83);
 }
 
 .blocking-splash {
@@ -7186,15 +7186,17 @@ h1 {
 
 .blocking-splash-title {
   margin: 0 0 8px 0;
-  color: var(--primary);
+  color: var(--text-primary);
   font-size: 28px;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
 .blocking-splash-message {
   margin: 0;
   color: var(--text-primary);
   font-size: 18px;
-  line-height: 1.4;
+  line-height: 1.45;
   white-space: pre-wrap;
 }
 
@@ -7208,6 +7210,8 @@ h1 {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 @keyframes agencyBannerMarquee {
