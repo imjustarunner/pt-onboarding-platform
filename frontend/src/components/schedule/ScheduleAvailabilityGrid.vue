@@ -28015,6 +28015,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   font-size: 12px;
   line-height: 1.35;
 }
+.sched-wrap--dark .cell-multi-pick-badge {
   color: rgba(226, 232, 240, 0.95);
   background: rgba(15, 23, 42, 0.88);
   border-color: rgba(148, 163, 184, 0.35);
