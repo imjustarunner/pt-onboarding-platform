@@ -6,6 +6,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
+import ProviderScheduleEventAttendee from '../models/ProviderScheduleEventAttendee.model.js';
 import ProviderScheduleEventArtifact from '../models/ProviderScheduleEventArtifact.model.js';
 import { joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
@@ -240,8 +241,17 @@ async function buildTeamMeetingWaitingPrep(eventId, { sessionTitle = null, kind 
     actionItems: []
   };
   if (!eid) return out;
-  // Huddles are agenda-only (group-supervision style) — skip goals/actions prep.
-  if (!isHuddle) {
+  // Group huddles (2+ invitees): agenda-only. Individual huddles: goals (no actions). Meetings: goals + actions.
+  let isGroupHuddle = false;
+  if (isHuddle) {
+    try {
+      const attendees = await ProviderScheduleEventAttendee.listByEventId(eid);
+      isGroupHuddle = (attendees || []).length >= 2;
+    } catch { /* treat as individual */ }
+  }
+  const loadGoals = !isGroupHuddle;
+  const loadActions = !isHuddle;
+  if (loadGoals || loadActions) {
     try {
       const artifact = await ProviderScheduleEventArtifact.findByEventId(eid);
       const parseList = (raw) => {
@@ -254,10 +264,14 @@ async function buildTeamMeetingWaitingPrep(eventId, { sessionTitle = null, kind 
         }
         return [];
       };
-      const goals = parseList(artifact?.goals_json ?? artifact?.goals);
-      const actions = parseList(artifact?.action_items_json ?? artifact?.actionItems);
-      out.goals = goals.map((g, i) => ({ id: String(g?.id || `g-${i + 1}`), text: String(g?.text || '').trim() })).filter((g) => g.text);
-      out.actionItems = actions.map((a, i) => ({ id: String(a?.id || `a-${i + 1}`), text: String(a?.text || '').trim() })).filter((a) => a.text);
+      if (loadGoals) {
+        const goals = parseList(artifact?.goals_json ?? artifact?.goals);
+        out.goals = goals.map((g, i) => ({ id: String(g?.id || `g-${i + 1}`), text: String(g?.text || '').trim() })).filter((g) => g.text);
+      }
+      if (loadActions) {
+        const actions = parseList(artifact?.action_items_json ?? artifact?.actionItems);
+        out.actionItems = actions.map((a, i) => ({ id: String(a?.id || `a-${i + 1}`), text: String(a?.text || '').trim() })).filter((a) => a.text);
+      }
     } catch { /* ignore */ }
   }
   try {

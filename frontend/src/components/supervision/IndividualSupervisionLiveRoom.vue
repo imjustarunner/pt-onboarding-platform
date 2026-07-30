@@ -743,9 +743,12 @@ defineExpose({
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background:
-    radial-gradient(1200px 500px at 10% -10%, rgba(88, 68, 140, 0.22), transparent 55%),
-    linear-gradient(180deg, #171b26 0%, #12151d 45%, #0e1118 100%);
+  /* Match group supervision: tenant secondary wash → deep base. */
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--agency-secondary-color, #1d2633) 88%, #000),
+    #0c1018
+  );
   color: #eef2f8;
   padding: 12px 16px 84px;
   box-sizing: border-box;
@@ -820,7 +823,7 @@ defineExpose({
   align-items: center;
 }
 .isl__live {
-  color: #3dce7a;
+  color: color-mix(in srgb, var(--agency-primary-color, #3dce7a) 70%, #3dce7a);
   font-weight: 700;
 }
 .isl__count {
@@ -881,7 +884,9 @@ defineExpose({
   cursor: pointer;
 }
 .isl__menu-item:hover,
-.isl__menu-item.on { background: rgba(167, 139, 250, 0.22); }
+.isl__menu-item.on {
+  background: color-mix(in srgb, var(--agency-primary-color, #3dce7a) 28%, transparent);
+}
 
 .isl__lobby-stage {
   position: relative;
@@ -1047,7 +1052,7 @@ defineExpose({
   opacity: 0.88;
 }
 .isl__card--expanded {
-  border-color: rgba(167, 139, 250, 0.45);
+  border-color: color-mix(in srgb, var(--agency-primary-color, #3dce7a) 55%, transparent);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
 }
 .isl__card-head {
@@ -1224,7 +1229,7 @@ defineExpose({
   margin-top: 10px;
   border: 0;
   background: none;
-  color: #a78bfa;
+  color: var(--agency-primary-color, #3dce7a);
   font-weight: 700;
   font-size: 0.85rem;
   cursor: pointer;
@@ -1276,8 +1281,8 @@ defineExpose({
   cursor: pointer;
 }
 .isl__dock-btn.active {
-  background: rgba(167, 139, 250, 0.22);
-  border-color: rgba(167, 139, 250, 0.5);
+  background: color-mix(in srgb, var(--agency-primary-color, #3dce7a) 28%, transparent);
+  border-color: color-mix(in srgb, var(--agency-primary-color, #3dce7a) 55%, transparent);
 }
 .isl__hands-pill {
   font-size: 0.78rem;

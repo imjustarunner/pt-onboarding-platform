@@ -1449,9 +1449,9 @@
                 :embedded="true"
               />
               <MeetingGoalsActionsPanel
-                v-if="String(editingScheduleStackItem?.eventKind || '').toUpperCase() !== 'HUDDLE'"
+                v-if="String(editingScheduleStackItem?.eventKind || '').toUpperCase() !== 'HUDDLE' || isIndividualHuddleEditor"
                 :event-id="scheduleEventEditId"
-                section="both"
+                :section="String(editingScheduleStackItem?.eventKind || '').toUpperCase() === 'HUDDLE' ? 'goals' : 'both'"
                 :compact="true"
                 :embedded="true"
                 :meeting-subtype="meetingSubtype"
@@ -1831,7 +1831,8 @@
             :video-configured="scheduleVideoConfigured"
             :show-virtual-options="false"
             :show-agenda-draft="!isScheduleEventEditMode"
-            :show-goals-actions-draft="!isScheduleEventEditMode && editorMeetingKind !== 'huddle'"
+            :show-goals-actions-draft="!isScheduleEventEditMode && (editorMeetingKind !== 'huddle' || isIndividualHuddleEditor)"
+            :show-action-draft="editorMeetingKind !== 'huddle'"
             :assignee-options="meetingDraftAssigneeOptions"
             :show-participants="false"
             :title-missing="isMeetingTitleMissing"
@@ -8119,13 +8120,25 @@ const editorMeetingKind = computed(() => {
   }
   return String(requestType.value || '') === 'huddle' ? 'huddle' : 'agency_meeting';
 });
+/** Solo or 1:1 huddle — keeps goals like individual supervision; group huddles (2+ invitees) do not. */
+const isIndividualHuddleEditor = computed(() => {
+  if (editorMeetingKind.value !== 'huddle'
+    && String(editingScheduleStackItem.value?.eventKind || '').toUpperCase() !== 'HUDDLE') {
+    return false;
+  }
+  if (isScheduleEventEditMode.value || isAppointmentEditMode.value) {
+    const item = editingScheduleStackItem.value;
+    return !isMultiParticipantMeeting(item || {});
+  }
+  return selectedMeetingParticipantIdSet.value.size < 2;
+});
 function onEditorMeetingKind(value) {
   const v = String(value || '').trim().toLowerCase();
   if (v !== 'agency_meeting' && v !== 'huddle') return;
   if (isAppointmentEditMode.value) return;
   if (v === 'huddle') {
-    createGoalDraftItems.value = [];
     createActionDraftItems.value = [];
+    // Keep goals for individual huddles; clear only when switching into group-huddle territory later.
   }
   if (String(requestType.value || '') === v) return;
   onEditorAppointmentType(v);
@@ -9354,7 +9367,7 @@ const meetingBookedParticipantNames = (ev) => {
   return names;
 };
 
-/** Invitee count — host is separate; ≥1 invitee means multi-person (group) meeting/huddle. */
+/** Invitee count — host is separate. */
 const meetingBookedParticipantCount = (ev) => {
   const names = meetingBookedParticipantNames(ev);
   if (names.length) return names.length;
@@ -9363,11 +9376,12 @@ const meetingBookedParticipantCount = (ev) => {
   }
   const explicit = Number(ev?.attendeeCount || 0);
   if (explicit > 0) return explicit;
-  if (ev?.isGroupMeeting) return 1;
+  if (ev?.isGroupMeeting) return 2;
   return 0;
 };
 
-const isMultiParticipantMeeting = (ev) => meetingBookedParticipantCount(ev) >= 1;
+/** Group huddle/meeting when 2+ invitees (3+ people total). Solo/1:1 stay individual (goals like individual supervision). */
+const isMultiParticipantMeeting = (ev) => meetingBookedParticipantCount(ev) >= 2;
 
 /** Kind-aware type label: Group Huddle / Group Meeting when multi-invitee. */
 const meetingTypeDisplayLabel = (ev) => {
@@ -12224,8 +12238,13 @@ const editorWorkspaceTabs = computed(() => {
   }
   if (editorIsMeeting.value && Number(scheduleEventEditId.value || 0) > 0) {
     const eventKind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
-    // Huddles: agenda only (group-supervision style). Team meetings keep goals + actions.
-    if (eventKind === 'HUDDLE') {
+    // Individual huddle (solo/1:1): agenda + goals. Group huddle: agenda only. Team meetings: all three.
+    if (eventKind === 'HUDDLE' && isIndividualHuddleEditor.value) {
+      tabs.splice(1, 0,
+        { id: 'agenda', label: 'Agenda', icon: '☰' },
+        { id: 'goals', label: 'Goals', icon: '◎' }
+      );
+    } else if (eventKind === 'HUDDLE') {
       tabs.splice(1, 0, { id: 'agenda', label: 'Agenda', icon: '☰' });
     } else {
       tabs.splice(1, 0,
@@ -17250,7 +17269,7 @@ const typeStyleToken = (b) => {
         attendeeUserIds: b?.attendeeUserIds,
         attendeeCount: b?.attendeeCount
       });
-      if (eventKind === 'HUDDLE') return b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 1 ? 'Grp huddle' : 'Huddle';
+      if (eventKind === 'HUDDLE') return b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 2 ? 'Grp huddle' : 'Huddle';
       if (label === 'Admin Meeting') return 'Admin';
       if (label === 'Town Hall') return 'Town Hall';
       if (label === 'Group Meeting') return 'Grp mtg';
@@ -17322,7 +17341,7 @@ function meetingTypePalette(b, dark) {
       : { fill: 'rgba(16, 185, 129, 0.24)', border: 'rgba(5, 150, 105, 0.78)', stripe: 'rgba(5, 150, 105, 0.92)', text: 'rgba(6, 78, 59, 0.98)' };
   }
   if (eventKind === 'HUDDLE') {
-    const isGroup = !!b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 1;
+    const isGroup = !!b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 2;
     if (isGroup) {
       // Group huddle — deeper teal to distinguish from solo cyan huddle
       return dark
@@ -17345,7 +17364,7 @@ function meetingTypePalette(b, dark) {
         ? { fill: 'rgba(129, 140, 248, 0.45)', border: 'rgba(165, 180, 252, 0.90)', stripe: 'rgba(199, 210, 254, 0.95)', text: 'rgba(224, 231, 255, 0.98)' }
         : { fill: 'rgba(79, 70, 229, 0.24)', border: 'rgba(67, 56, 202, 0.55)', stripe: 'rgba(79, 70, 229, 0.90)', text: 'rgba(49, 46, 129, 0.98)' };
     }
-    const isGroup = !!b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 1;
+    const isGroup = !!b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 2;
     if (isGroup) {
       // Group meeting — slightly stronger blue than solo meeting
       return dark

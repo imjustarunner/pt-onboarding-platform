@@ -153,8 +153,8 @@
           </option>
         </select>
         <p v-if="meetingKind === 'huddle'" class="muted">
-          Agency-internal huddle — agenda only (no goals or action items). Solo or with invited participants.
-          Host (CPA / Provider Plus) is paid at the Individual Meeting rate when they have one; attendees use MEETING time.
+          Agency-internal huddle. Solo / 1:1 includes goals (like individual supervision); group huddles (2+ invitees) are agenda-only.
+          No action items. Host (CPA / Provider Plus) is paid at the Individual Meeting rate when they have one; attendees use MEETING time.
         </p>
         <p v-else-if="!canSetAdminSubtype && showMeetingSubtype" class="muted">
           Only admin, support, or super admin can create Admin Meetings or Town Halls.
@@ -250,7 +250,7 @@
         <p v-else class="muted tmb-empty">No agenda items yet.</p>
       </div>
 
-      <div v-if="showGoalsActionsDraft" class="tmb-side-section">
+      <div v-if="showGoalsActionsDraft" class="tmb-side-section" data-testid="tmb-goals-draft">
         <div class="tmb-side-head">
           <label class="tmb-label">Goals</label>
           <button type="button" class="tmb-link-btn" :disabled="disabled" @click="focusGoalAdd">+ Add goal</button>
@@ -305,7 +305,7 @@
         <p v-else class="muted tmb-empty">No goals yet.</p>
       </div>
 
-      <div v-if="showGoalsActionsDraft" class="tmb-side-section">
+      <div v-if="showGoalsActionsDraft && showActionDraft" class="tmb-side-section" data-testid="tmb-actions-draft">
         <div class="tmb-side-head">
           <label class="tmb-label">Action items</label>
           <button type="button" class="tmb-link-btn" :disabled="disabled" @click="focusActionAdd">+ Add action</button>
@@ -422,6 +422,8 @@ const props = defineProps({
   /** When false (edit mode), agenda is managed in the live meeting panel instead */
   showAgendaDraft: { type: Boolean, default: true },
   showGoalsActionsDraft: { type: Boolean, default: false },
+  /** When false, hide action-item draft even if goals are shown (individual huddles). */
+  showActionDraft: { type: Boolean, default: true },
   /** When false, participants are chosen in the header tray instead */
   showParticipants: { type: Boolean, default: true },
   titleMissing: { type: Boolean, default: false },

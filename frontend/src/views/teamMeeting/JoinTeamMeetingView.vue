@@ -1,5 +1,8 @@
 <template>
-  <div class="join-team-meeting-view" :class="{ 'join-team-meeting-view--video-fs': videoFullscreen }">
+  <div
+    class="join-team-meeting-view join-team-meeting-view--branded"
+    :class="{ 'join-team-meeting-view--video-fs': videoFullscreen }"
+  >
     <MeetingSessionExitPanel
       v-if="sessionExit"
       :variant="sessionExit.variant"
@@ -80,7 +83,7 @@
             :host-present="hostPresent"
             :host-role-label="hostRoleLabel"
             :host-status-label="hostStatusLabel"
-            :goals="isHuddle ? [] : waitingGoals"
+            :goals="isGroupHuddle ? [] : waitingGoals"
             :agenda="waitingAgenda"
             :action-items="isHuddle ? [] : waitingActionItems"
           />
@@ -173,7 +176,7 @@
                 theme="dark"
               />
             </section>
-            <section v-if="!isHuddle" class="join-stack-section">
+            <section v-if="!isGroupHuddle" class="join-stack-section">
               <MeetingGoalsActionsPanel
                 :event-id="resolvedEventId"
                 section="goals"
@@ -429,12 +432,15 @@ watch(videoFullscreen, (on) => {
 
 const isAdminMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'admin');
 const isHuddle = computed(() => String(meetingKind.value || '').toUpperCase() === 'HUDDLE');
-const isMultiParticipant = computed(() => Number(bookedParticipantCount.value || 0) >= 1);
+/** 2+ invitees → group (3+ people). Solo/1:1 stay individual. */
+const isMultiParticipant = computed(() => Number(bookedParticipantCount.value || 0) >= 2);
+const isGroupHuddle = computed(() => isHuddle.value && isMultiParticipant.value);
+const isIndividualHuddle = computed(() => isHuddle.value && !isMultiParticipant.value);
 
 const displayMeetingTitle = computed(() => {
   const kind = String(meetingKind.value || '').toUpperCase();
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  if (kind === 'HUDDLE') return isMultiParticipant.value ? 'Group Huddle' : 'Huddle';
+  if (kind === 'HUDDLE') return isGroupHuddle.value ? 'Group Huddle' : 'Huddle';
   if (subtype === 'admin') return 'Admin Meeting';
   if (subtype === 'town_hall') return 'Town Hall';
   if (kind === 'TEAM_MEETING') return isMultiParticipant.value ? 'Group Meeting' : 'Meeting';
@@ -502,11 +508,15 @@ const canCreatePolls = computed(() => {
   return POLL_CREATE_ROLES.has(role);
 });
 
-const workspaceBannerText = computed(() => (
-  isHuddle.value
-    ? 'Huddle workspace — agenda, attendance, and notes stay with this session. Chat & polls are under the video.'
-    : 'Meeting workspace — agenda, goals, attendance, and transcript stay with this session. Chat & polls are under the video.'
-));
+const workspaceBannerText = computed(() => {
+  if (isGroupHuddle.value) {
+    return 'Group huddle workspace — agenda, attendance, and notes stay with this session. Chat & polls are under the video.';
+  }
+  if (isIndividualHuddle.value) {
+    return 'Huddle workspace — agenda, goals, attendance, and notes stay with this session. Chat & polls are under the video.';
+  }
+  return 'Meeting workspace — agenda, goals, attendance, and transcript stay with this session. Chat & polls are under the video.';
+});
 
 watch(isInLobby, (lobby, wasLobby) => {
   if (wasLobby && !lobby && !joinedMainAt.value) {
@@ -1097,6 +1107,21 @@ onUnmounted(() => {
   gap: 10px;
   box-sizing: border-box;
   overflow: hidden;
+}
+/* Match group-supervision brand wash (tenant secondary → deep base). */
+.join-team-meeting-view--branded {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--agency-secondary-color, #1d2633) 88%, #000),
+    #0c1018
+  );
+  color: #eef2f8;
+}
+.join-team-meeting-view--branded .join-header h1 {
+  color: #f4faf6;
+}
+.join-team-meeting-view--branded .join-header__live {
+  color: color-mix(in srgb, var(--agency-primary-color, #3dce7a) 70%, #3dce7a);
 }
 .join-header {
   display: flex;
