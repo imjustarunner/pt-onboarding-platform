@@ -1140,7 +1140,20 @@
             >
               {{ officeOverlay(d, slot.hour) }}
             </div>
-            <div class="cell-blocks">
+            <div
+              class="cell-blocks"
+              :class="{
+                'cell-blocks--multi-pick': cellBlocksNeedPickOnClick(d, slot.hour, slot.minute),
+                'cell-blocks--pick-expanded': isCellPickExpanded(d, slot.hour, slot.minute)
+              }"
+              @mouseenter="hoveredPickCellKey = cellPickKey(d, slot.hour, slot.minute)"
+              @mouseleave="hoveredPickCellKey = ''"
+            >
+              <span
+                v-if="cellBlocksNeedPickOnClick(d, slot.hour, slot.minute) && !isCellPickExpanded(d, slot.hour, slot.minute)"
+                class="cell-multi-pick-badge"
+                :title="`${cellPickableBlocks(d, slot.hour, slot.minute).length} items overlap — hover to see each`"
+              >{{ cellPickableBlocks(d, slot.hour, slot.minute).length }}</span>
               <div
                 v-for="b in cellBlocks(d, slot.hour, slot.minute)"
                 :key="b.key"
@@ -1161,11 +1174,13 @@
                     'cell-block-dragging': isAppointmentBlockDragging(b),
                     'cell-block-supv-signup-pulse': b.kind === 'supv-signup' && b.signupOpen && !b.viewerSignedUp,
                     'cell-block-supv-signup-enrolled': b.kind === 'supv-signup' && b.viewerSignedUp && !b.sessionLive,
-                    'cell-block-supv-signup-occurring': b.kind === 'supv-signup' && b.sessionLive
+                    'cell-block-supv-signup-occurring': b.kind === 'supv-signup' && b.sessionLive,
+                    'cell-block-pick-expanded': isCellPickExpanded(d, slot.hour, slot.minute)
+                      && cellPickableBlocks(d, slot.hour, slot.minute).some((pb) => pb.key === b.key)
                   }
                 ]"
                 :title="b.title"
-                :style="cellBlockStyle(b)"
+                :style="{ ...cellBlockStyle(b), ...cellBlockPickHoverStyle(d, slot.hour, slot.minute, b) }"
                 @mouseenter="hoveredBlockKey = blockKey(d, slot.hour, b)"
                 @mouseleave="hoveredBlockKey = ''"
                 @mousedown.stop
@@ -10798,6 +10813,109 @@ const isActionCellSelected = (dayName, hour) => {
 
 const blockKey = (dayName, hour, block) => `${String(dayName || '')}|${Number(hour)}|${String(block?.key || '')}`;
 const isBlockHovered = (dayName, hour, block) => hoveredBlockKey.value === blockKey(dayName, hour, block);
+const hoveredPickCellKey = ref('');
+
+const CELL_PICKABLE_KINDS = new Set([
+  'oa', 'ot', 'ob', 'intake-ip', 'intake-vi',
+  'portal', 'school', 'request',
+  'sevt', 'supv', 'supv-signup', 'gevt', 'ebusy'
+]);
+
+const cellPickKey = (dayName, hour, minute = 0) =>
+  `${String(dayName || '')}|${Number(hour)}|${Number(minute || 0)}`;
+
+const cellPickableBlocks = (dayName, hour, minute = 0) => (
+  (cellBlocks(dayName, hour, minute) || []).filter((b) => {
+    const kind = String(b?.kind || '');
+    if (!b || kind === 'more') return false;
+    if (!CELL_PICKABLE_KINDS.has(kind)) return false;
+    if (b.segmentClass === 'middle' || b.segmentClass === 'end') return false;
+    return true;
+  })
+);
+
+const cellBlocksNeedPickOnClick = (dayName, hour, minute = 0) => {
+  const pickables = cellPickableBlocks(dayName, hour, minute);
+  if (pickables.length <= 1) return false;
+  if (pickables.length === 2 && pickables.every((b) => b.shareRow)) return false;
+  return true;
+};
+
+const isCellPickExpanded = (dayName, hour, minute) => (
+  hoveredPickCellKey.value === cellPickKey(dayName, hour, minute)
+  && cellBlocksNeedPickOnClick(dayName, hour, minute)
+);
+
+const cellBlockKindLabel = (block) => {
+  const kind = String(block?.kind || '');
+  if (block?.isOfficeBlock) return 'Office booking';
+  if (kind === 'portal') return 'Open slot for booking';
+  if (kind === 'school') return 'School assignment';
+  if (kind === 'request') return 'Office request';
+  if (kind === 'supv-signup') return 'Open group supervision';
+  if (kind === 'supv') return 'Supervision';
+  if (kind === 'sevt') return scheduleKindLabel(block?.eventKind, block) || 'Schedule event';
+  if (kind === 'gevt') return 'Google Calendar';
+  if (kind === 'ebusy') return 'Therapy session';
+  if (kind === 'intake-ip') return 'In-person intake';
+  if (kind === 'intake-vi') return 'Virtual intake';
+  return 'Schedule item';
+};
+
+const buildCellBlockStackItem = (block, dayName, hour, minute = 0) => {
+  const kind = String(block?.kind || '');
+  let label = String(block?.shortLabel || block?.officeRoomLabel || block?.title || '').trim()
+    || cellBlockKindLabel(block);
+  let subLabel = '';
+  if (block?.isOfficeBlock) {
+    label = String(block?.officeRoomLabel || block?.shortLabel || 'Office').trim();
+    subLabel = String(block?.officeStatusLabel || '').trim();
+  } else if (kind === 'portal') {
+    label = String(block?.shortLabel || 'Open for new clients').trim();
+    const st = String(block?.startTime || '').slice(0, 5);
+    const et = String(block?.endTime || '').slice(0, 5);
+    if (st && et) subLabel = `${st}–${et}`;
+  } else if (kind === 'school') {
+    subLabel = 'Assigned school hours';
+  } else if (kind === 'request') {
+    subLabel = 'Pending office request';
+  } else if (kind === 'sevt' || kind === 'gevt') {
+    subLabel = clockRangeLabel(block?.startAt, block?.endAt) || hourLabel(hour);
+  }
+  return {
+    id: `cell-block-${String(block?.key || kind)}`,
+    kindLabel: cellBlockKindLabel(block),
+    label,
+    subLabel,
+    cellBlock: block,
+    dayName,
+    hour,
+    minute
+  };
+};
+
+const cellBlockPickHoverStyle = (dayName, hour, minute, block) => {
+  if (!isCellPickExpanded(dayName, hour, minute)) return {};
+  const pickables = cellPickableBlocks(dayName, hour, minute);
+  const idx = pickables.findIndex((b) => b.key === block.key);
+  if (idx < 0) return {};
+  const n = pickables.length;
+  const gapPx = 3;
+  const slicePct = 100 / n;
+  const plusReserve = canBookFromGrid.value ? CELL_PLUS_HIT_RESERVE_PX : 0;
+  return {
+    position: 'absolute',
+    left: '3px',
+    right: `${3 + plusReserve}px`,
+    top: `calc(${idx * slicePct}% + ${Math.max(0, idx) * gapPx}px)`,
+    height: `calc(${slicePct}% - ${gapPx}px)`,
+    zIndex: 20 + idx,
+    flex: 'none',
+    minHeight: '20px',
+    width: 'auto',
+    boxShadow: '0 1px 3px rgba(15, 23, 42, 0.15)'
+  };
+};
 const clearSelectedActionSlots = () => {
   selectedActionSlots.value = [];
   selectedBlockKey.value = '';
@@ -21820,21 +21938,8 @@ const onAppointmentPointerUp = (e) => {
   // Click (no drag) — let the normal click handler run.
 };
 
-const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
-  if (suppressNextAppointmentClick) {
-    suppressNextAppointmentClick = false;
-    e?.preventDefault?.();
-    e?.stopPropagation?.();
-    return;
-  }
+const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
-  e?.preventDefault?.();
-  e?.stopPropagation?.();
-  if (kind === 'peerbusy') {
-    openPeerActivityModal(block, dayName, hour, minute);
-    return;
-  }
-  if (block?.peerOnly) return;
   if (kind === 'ebusy') {
     const stackDetails = buildStackDetailsForBlock(block, dayName, hour, minute);
     if (stackDetails) openStackDetailsModal(stackDetails);
@@ -21868,16 +21973,6 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
     slot: null
   }];
   lastSelectedActionKey.value = selectedActionSlots.value[0]?.key || '';
-  const stackDetails = buildStackDetailsForBlock(block, dayName, hour, minute);
-  if (stackDetails) {
-    const focusEventId = kind === 'sevt' ? Number(block?.eventId || 0) : 0;
-    openStackDetailsModal({
-      ...stackDetails,
-      autoEdit: focusEventId > 0,
-      focusEventId
-    });
-    return;
-  }
   if (kind === 'sevt') {
     const bid = Number(block?.eventId || 0);
     const bKind = String(block?.eventKind || '').trim().toUpperCase();
@@ -21914,7 +22009,6 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
     const events = googleEventsInCell(dayName, hour, minute);
     const ev = events.find((e) => block?.key === `gevt-${String(e?.id || e?.summary || '')}` || e?.htmlLink === block?.link) || events[0];
     if (ev) {
-      // Belt-and-suspenders: if this Google row maps to an app event, open the app editor.
       const linkedSchedule = findAppScheduleEventForGoogleId(ev.id);
       if (linkedSchedule) {
         const stackItem = buildScheduleStackItemFromEvent(linkedSchedule, {
@@ -21951,7 +22045,6 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
     if (officeLocationId > 0 && Number(selectedOfficeLocationId.value || 0) !== officeLocationId) {
       selectedOfficeLocationId.value = officeLocationId;
     }
-    // Clicking the colored block (not empty cell) — prompt to expand multi-hour blocks.
     openOfficeOccupiedHourAction({
       key: actionSlotKey({
         dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName)),
@@ -21986,6 +22079,34 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
       actionSource: 'other_block'
     });
   }
+};
+
+const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
+  if (suppressNextAppointmentClick) {
+    suppressNextAppointmentClick = false;
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    return;
+  }
+  const kind = String(block?.kind || '');
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  if (kind === 'peerbusy') {
+    openPeerActivityModal(block, dayName, hour, minute);
+    return;
+  }
+  if (block?.peerOnly) return;
+  const overlapStack = buildCellOverlapStackDetails(block, dayName, hour, minute);
+  if (overlapStack) {
+    openStackDetailsModal({
+      ...overlapStack,
+      autoEdit: kind === 'sevt' && Number(block?.eventId || 0) > 0,
+      focusEventId: kind === 'sevt' ? Number(block?.eventId || 0) : 0,
+      forceLegacy: !!overlapStack.items?.some((it) => it?.cellBlock)
+    });
+    return;
+  }
+  dispatchCellBlockAction(block, dayName, hour, minute);
 };
 
 const gevtClickTimer = ref(null);
@@ -23270,6 +23391,20 @@ const stackItemActionLabel = (item) => {
   return 'Open';
 };
 
+const buildCellOverlapStackDetails = (block, dayName, hour, minute = 0) => {
+  if (cellBlocksNeedPickOnClick(dayName, hour, minute)) {
+    const timeSuffix = showQuarterDetail.value ? slotClockLabel(dayName, hour, minute) : hourLabel(hour);
+    return {
+      title: `Choose item — ${dayName} ${timeSuffix}`,
+      dayName,
+      hour,
+      minute,
+      items: cellPickableBlocks(dayName, hour, minute).map((b) => buildCellBlockStackItem(b, dayName, hour, minute))
+    };
+  }
+  return buildStackDetailsForBlock(block, dayName, hour, minute);
+};
+
 const buildStackDetailsForBlock = (block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
   if (kind === 'supv' || kind === 'supv-signup') {
@@ -23385,6 +23520,16 @@ const openInAppJoinUrl = (url) => {
 };
 
 const openStackDetailsItem = (item) => {
+  if (item?.cellBlock) {
+    closeStackDetailsModal();
+    dispatchCellBlockAction(
+      item.cellBlock,
+      String(item?.dayName || stackDetailsDayName.value || ''),
+      Number(item?.hour ?? stackDetailsHour.value ?? 0),
+      Number(item?.minute ?? stackDetailsMinute.value ?? 0)
+    );
+    return;
+  }
   // Pure Google Calendar row (no app event id).
   if (item?.googleEvent && !Number(item?.eventId || 0)) {
     closeStackDetailsModal();
@@ -24983,6 +25128,10 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   overflow: visible;
   z-index: 5;
 }
+.sched-cell:has(.cell-blocks--pick-expanded) {
+  overflow: visible;
+  z-index: 12;
+}
 .cell-blocks:has(.cell-block-span) {
   overflow: visible;
 }
@@ -25379,6 +25528,34 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   height: 100%;
   position: relative;
   z-index: 1;
+}
+.cell-blocks--multi-pick {
+  overflow: visible;
+}
+.cell-blocks--pick-expanded {
+  z-index: 16;
+}
+.cell-multi-pick-badge {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  z-index: 18;
+  pointer-events: none;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: rgba(30, 41, 59, 0.92);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+.cell-block-pick-expanded {
+  cursor: pointer;
+}
+.cell-blocks--pick-expanded .cell-block-pick-expanded {
+  outline: 1px solid rgba(37, 99, 235, 0.35);
 }
 .sched-cell-drop-target {
   outline: 2px solid rgba(59, 130, 246, 0.85);
