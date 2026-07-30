@@ -1130,6 +1130,115 @@ class SupervisionSession {
   }
 
   /**
+   * Hybrid open-join group sessions: invite_audience_* flags allow matching agency members
+   * who were not named invitees to see/join from My Schedule.
+   */
+  static async listOpenJoinOfferingsForUserInWindow({
+    agencyId,
+    allAgencies = false,
+    userId,
+    windowStart,
+    windowEnd
+  }) {
+    const uId = parseInt(userId, 10);
+    if (!uId) return [];
+    const aId = parseInt(agencyId, 10);
+    let agencyClause = 'ss.agency_id = ?';
+    let agencyParams = [aId];
+    if (allAgencies) {
+      agencyClause = '1=1';
+      agencyParams = [];
+    } else if (!aId) {
+      return [];
+    }
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           ss.*,
+           DATE_FORMAT(ss.start_at, '%Y-%m-%d') AS start_date_ymd,
+           sup.first_name AS supervisor_first_name,
+           sup.last_name AS supervisor_last_name,
+           sup.email AS supervisor_email,
+           sv.first_name AS supervisee_first_name,
+           sv.last_name AS supervisee_last_name,
+           sv.email AS supervisee_email,
+           (
+             SELECT ssa.status
+             FROM supervision_session_attendees ssa
+             WHERE ssa.session_id = ss.id AND ssa.user_id = ?
+             LIMIT 1
+           ) AS viewer_attendee_status,
+           (
+             SELECT COUNT(*)
+             FROM supervision_session_attendees ssa2
+             WHERE ssa2.session_id = ss.id
+               AND ssa2.participant_role = 'supervisee'
+               AND UPPER(COALESCE(ssa2.status, '')) IN ('SIGNED_UP', 'JOINED', 'INVITED')
+           ) AS signup_count,
+           1 AS is_open_join_offering
+         FROM supervision_sessions ss
+         JOIN users sup ON sup.id = ss.supervisor_user_id
+         LEFT JOIN users sv ON sv.id = ss.supervisee_user_id
+         JOIN user_agencies ua
+           ON ua.agency_id = ss.agency_id
+          AND ua.user_id = ?
+         WHERE ${agencyClause}
+           AND LOWER(COALESCE(ss.session_type, '')) = 'group'
+           AND LOWER(COALESCE(ss.enrollment_mode, 'invited')) <> 'signup_only'
+           AND (
+             ss.invite_audience_all_supervised = 1
+             OR ss.invite_audience_group_support = 1
+             OR LOWER(COALESCE(ss.invite_scope, '')) IN ('open_to_all', 'open_and_invited')
+           )
+           AND (
+             (
+               ss.invite_audience_all_supervised = 1
+               AND ua.supervision_is_prelicensed = 1
+             )
+             OR (
+               ss.invite_audience_group_support = 1
+               AND ua.supervision_is_prelicensed = 1
+               AND COALESCE(ua.supervision_start_group_hours, 0) > 0
+             )
+             OR (
+               ss.invite_audience_all_supervised <> 1
+               AND ss.invite_audience_group_support <> 1
+               AND LOWER(COALESCE(ss.invite_scope, '')) IN ('open_to_all', 'open_and_invited')
+               AND EXISTS (
+                 SELECT 1
+                 FROM supervisor_assignments sa
+                 WHERE sa.supervisor_id = ss.supervisor_user_id
+                   AND sa.supervisee_id = ?
+                   AND sa.agency_id = ss.agency_id
+               )
+             )
+           )
+           AND ss.start_at < ?
+           AND ss.end_at > ?
+           AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
+           AND NOT (
+             ss.supervisor_user_id = ?
+             OR ss.co_facilitator_user_id = ?
+             OR ss.supervisee_user_id = ?
+             OR EXISTS (
+               SELECT 1 FROM supervision_session_attendees ssa0
+               WHERE ssa0.session_id = ss.id AND ssa0.user_id = ?
+             )
+           )
+         ORDER BY ss.start_at ASC`,
+        [uId, uId, ...agencyParams, uId, windowEnd, windowStart, uId, uId, uId, uId]
+      );
+      return rows || [];
+    } catch (e) {
+      // Older schemas may lack audience columns — treat as no open-join offerings.
+      if (/invite_audience|invite_scope|enrollment_mode|Unknown column/i.test(String(e?.message || ''))) {
+        return [];
+      }
+      throw e;
+    }
+  }
+
+  /**
    * List supervision sessions for a supervisee (past and upcoming) with artifacts.
    * Used for "My supervision" tab and dashboard.
    */

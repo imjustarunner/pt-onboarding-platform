@@ -2287,35 +2287,75 @@
             </div>
             <div class="nr-info-cell nr-info-cell--tenant">
               <span class="nr-info-label">Tenant</span>
-              <div class="nr-tenant-row">
-                <img
-                  v-if="agencyIconUrlById(isScheduleEventEditMode ? scheduleEventEditForm.agencyId : (selectedActionAgencyId || effectiveAgencyId))"
-                  class="nr-tenant-logo"
-                  :src="agencyIconUrlById(isScheduleEventEditMode ? scheduleEventEditForm.agencyId : (selectedActionAgencyId || effectiveAgencyId))"
-                  alt=""
-                />
-                <select
-                  v-if="isScheduleEventEditMode"
-                  v-model.number="scheduleEventEditForm.agencyId"
-                  class="nr-info-select"
-                  @change="onScheduleEventEditAgencyChange"
+              <div class="nr-tenant-stack">
+                <div class="nr-tenant-row">
+                  <img
+                    v-if="agencyIconUrlById(isScheduleEventEditMode ? scheduleEventEditForm.agencyId : (selectedActionAgencyId || effectiveAgencyId))"
+                    class="nr-tenant-logo"
+                    :src="agencyIconUrlById(isScheduleEventEditMode ? scheduleEventEditForm.agencyId : (selectedActionAgencyId || effectiveAgencyId))"
+                    alt=""
+                  />
+                  <select
+                    v-if="isScheduleEventEditMode"
+                    v-model.number="scheduleEventEditForm.agencyId"
+                    class="nr-info-select"
+                    @change="onScheduleEventEditAgencyChange"
+                  >
+                    <option :value="0">{{ scheduleEventOrgNoneLabel }}</option>
+                    <option v-for="opt in scheduleEventOrgOptions" :key="`nr-edit-org-${opt.id}`" :value="Number(opt.id)">
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                  <select
+                    v-else-if="headerTenantOptions.length > 1"
+                    v-model.number="selectedActionAgencyId"
+                    class="nr-info-select"
+                    @change="onBookingAgencyChange"
+                  >
+                    <option v-for="opt in headerTenantOptions" :key="`nr-info-tenant-${opt.id}`" :value="Number(opt.id)">
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                  <span v-else class="nr-info-value">{{ modalTenantLabel }}</span>
+                </div>
+                <div
+                  v-if="!isScheduleEventEditMode && modalAdditionalTenantChips.length"
+                  class="nr-tenant-extra-chips"
                 >
-                  <option :value="0">{{ scheduleEventOrgNoneLabel }}</option>
-                  <option v-for="opt in scheduleEventOrgOptions" :key="`nr-edit-org-${opt.id}`" :value="Number(opt.id)">
+                  <button
+                    v-for="chip in modalAdditionalTenantChips"
+                    :key="`nr-extra-tenant-${chip.id}`"
+                    type="button"
+                    class="nr-tenant-chip"
+                    :title="`Remove ${chip.label} from this session`"
+                    @click="removeModalAdditionalTenant(chip.id)"
+                  >
+                    <img
+                      v-if="agencyIconUrlById(chip.id)"
+                      class="nr-tenant-chip-logo"
+                      :src="agencyIconUrlById(chip.id)"
+                      alt=""
+                    />
+                    <span>{{ chip.label }}</span>
+                    <span class="nr-tenant-chip-x" aria-hidden="true">×</span>
+                  </button>
+                </div>
+                <select
+                  v-if="!isScheduleEventEditMode && canAddAdditionalModalTenants && addableModalTenantOptions.length"
+                  class="nr-info-select nr-info-select--add-tenant"
+                  :value="0"
+                  title="Add another tenant to this scheduling session"
+                  @change="onAddModalTenantSelect($event)"
+                >
+                  <option :value="0">+ Add additional tenant…</option>
+                  <option
+                    v-for="opt in addableModalTenantOptions"
+                    :key="`nr-add-tenant-${opt.id}`"
+                    :value="Number(opt.id)"
+                  >
                     {{ opt.label }}
                   </option>
                 </select>
-                <select
-                  v-else-if="headerTenantOptions.length > 1"
-                  v-model.number="selectedActionAgencyId"
-                  class="nr-info-select"
-                  @change="onBookingAgencyChange"
-                >
-                  <option v-for="opt in headerTenantOptions" :key="`nr-info-tenant-${opt.id}`" :value="Number(opt.id)">
-                    {{ opt.label }}
-                  </option>
-                </select>
-                <span v-else class="nr-info-value">{{ modalTenantLabel }}</span>
               </div>
             </div>
             <div class="nr-info-cell nr-info-cell--provider">
@@ -2711,7 +2751,7 @@
               Choose the tenant and provider before continuing.
             </p>
             <div class="nr-context-card-grid">
-              <div v-if="headerTenantOptions.length" class="nr-field">
+              <div v-if="headerTenantOptions.length" class="nr-field nr-field--tenant">
                 <label class="lbl">Tenant</label>
                 <select
                   v-model.number="selectedActionAgencyId"
@@ -2720,6 +2760,34 @@
                   @change="onBookingAgencyChange"
                 >
                   <option v-for="opt in headerTenantOptions" :key="`nr-body-tenant-${opt.id}`" :value="Number(opt.id)">
+                    {{ opt.label }}
+                  </option>
+                </select>
+                <div v-if="modalAdditionalTenantChips.length" class="nr-tenant-extra-chips">
+                  <button
+                    v-for="chip in modalAdditionalTenantChips"
+                    :key="`nr-body-extra-tenant-${chip.id}`"
+                    type="button"
+                    class="nr-tenant-chip"
+                    :title="`Remove ${chip.label} from this session`"
+                    @click="removeModalAdditionalTenant(chip.id)"
+                  >
+                    <span>{{ chip.label }}</span>
+                    <span class="nr-tenant-chip-x" aria-hidden="true">×</span>
+                  </button>
+                </div>
+                <select
+                  v-if="canAddAdditionalModalTenants && addableModalTenantOptions.length"
+                  class="input nr-info-select--add-tenant"
+                  :value="0"
+                  @change="onAddModalTenantSelect($event)"
+                >
+                  <option :value="0">+ Add additional tenant…</option>
+                  <option
+                    v-for="opt in addableModalTenantOptions"
+                    :key="`nr-body-add-tenant-${opt.id}`"
+                    :value="Number(opt.id)"
+                  >
                     {{ opt.label }}
                   </option>
                 </select>
@@ -7603,6 +7671,8 @@ const propAgencyIds = computed(() => {
 const selfScheduleAgencyOptions = ref([]);
 const activeScheduleAgencyIds = ref([]);
 const selectedActionAgencyId = ref(0);
+/** Extra tenants in scope for this modal session (primary is selectedActionAgencyId). */
+const modalAdditionalTenantIds = ref([]);
 const selfScheduleAgenciesLoaded = ref(false);
 
 const isAdminMode = computed(() => props.mode === 'admin');
@@ -7769,7 +7839,11 @@ const onScheduleOrganizationChange = (event) => {
 };
 
 const onBookingAgencyChange = () => {
-  applySelectedBookingAgency(selectedActionAgencyId.value);
+  const id = Number(selectedActionAgencyId.value || 0);
+  if (id > 0) {
+    modalAdditionalTenantIds.value = (modalAdditionalTenantIds.value || []).filter((n) => Number(n || 0) !== id);
+  }
+  applySelectedBookingAgency(id);
 };
 
 // NOTE: actionAgencyOptions is declared later (after officeLocations / requestType / modalContext)
@@ -8175,6 +8249,16 @@ const headerTenantOptions = computed(() => {
       if (filtered.length) rows = filtered;
     }
   }
+  const activeModalIds = new Set([
+    Number(selectedActionAgencyId.value || 0),
+    ...(modalAdditionalTenantIds.value || []).map((n) => Number(n || 0))
+  ].filter((n) => n > 0));
+  for (const id of activeModalIds) {
+    if (rows.some((r) => Number(r?.id || 0) === id)) continue;
+    const opt = (bookingAgencyOptions.value || []).find((r) => Number(r?.id || 0) === id);
+    if (opt) rows.push(opt);
+  }
+  rows.sort((a, b) => String(a?.label || '').localeCompare(String(b?.label || '')));
   return rows;
 });
 
@@ -9149,7 +9233,12 @@ const unrequestAllPendingRequests = async ({ keepModalOpen = false } = {}) => {
   }
 };
 
+/** Local calendar date for a supervision session (never prefer UTC startDateYmd — evening MT sessions become the next UTC day). */
 const supervisionDateYmd = (ev) => {
+  const startLocal = parseScheduleInstant(ev?.startAt);
+  if (startLocal) {
+    return `${startLocal.getFullYear()}-${pad2(startLocal.getMonth() + 1)}-${pad2(startLocal.getDate())}`;
+  }
   const fromApi = String(ev?.startDateYmd || '').trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(fromApi)) return fromApi;
   const raw = String(ev?.startAt || '').trim();
@@ -9157,6 +9246,11 @@ const supervisionDateYmd = (ev) => {
   return m ? m[1] : null;
 };
 const supervisionDayName = (ev) => {
+  const startLocal = parseScheduleInstant(ev?.startAt);
+  if (startLocal) {
+    const dayNamesSunFirst = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return dayNamesSunFirst[startLocal.getDay()] || null;
+  }
   const ymd = supervisionDateYmd(ev);
   if (!ymd) return null;
   const d = new Date(`${ymd}T12:00:00`);
@@ -9165,26 +9259,7 @@ const supervisionDayName = (ev) => {
   return dayNamesSunFirst[d.getDay()] || null;
 };
 
-const hasSupervision = (dayName, hour) => {
-  const s = summary.value;
-  if (!s) return false;
-  const list = s.supervisionSessions || [];
-  for (const ev of list) {
-    const startRaw = String(ev.startAt || '').trim();
-    const endRaw = String(ev.endAt || '').trim();
-    if (!startRaw || !endRaw) continue;
-    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
-    const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
-    if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
-    const dn = supervisionDayName(ev);
-    if (dn !== dayName) continue;
-    const cellDate = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
-    const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
-    const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
-    if (endLocal > cellStart && startLocal < cellEnd) return true;
-  }
-  return false;
-};
+const hasSupervision = (dayName, hour) => supervisionSessionsInCell(dayName, hour).length > 0;
 
 const clipBlockLabel = (text, max = 28) => {
   const s = String(text || '').trim();
@@ -9233,20 +9308,31 @@ const runningAppointmentLabel = ({
   return clipBlockLabel(startClock ? `${startClock} · ${body}` : body, Math.max(max, 56));
 };
 
-const isSignupSupervisionEvent = (ev) => String(ev?.enrollmentMode || '').trim().toLowerCase() === 'signup_only';
+const isSignupSupervisionEvent = (ev) => {
+  const mode = String(ev?.enrollmentMode || '').trim().toLowerCase();
+  if (mode === 'signup_only') return true;
+  // Hybrid open-join offerings (audience flags) also appear as claimable open group blocks.
+  return !!ev?.isOpenJoinOffering;
+};
 
 const isSignupSupervisionOpen = (ev) => {
   if (!isSignupSupervisionEvent(ev)) return false;
   const raw = ev?.signupClosesAt;
-  if (!raw) return false;
-  const text = String(raw).trim();
-  // UTC ISO (preferred) or naked UTC DATETIME digits.
-  const normalized = (/^\d{4}-\d{2}-\d{2}[ ]\d{2}:\d{2}:\d{2}$/.test(text))
-    ? `${text.replace(' ', 'T')}Z`
-    : (text.includes('T') ? text : text.replace(' ', 'T'));
-  const closes = new Date(normalized);
-  if (Number.isNaN(closes.getTime())) return false;
-  return Date.now() < closes.getTime();
+  if (raw) {
+    const text = String(raw).trim();
+    // UTC ISO (preferred) or naked UTC DATETIME digits.
+    const normalized = (/^\d{4}-\d{2}-\d{2}[ ]\d{2}:\d{2}:\d{2}$/.test(text))
+      ? `${text.replace(' ', 'T')}Z`
+      : (text.includes('T') ? text : text.replace(' ', 'T'));
+    const closes = new Date(normalized);
+    if (!Number.isNaN(closes.getTime())) return Date.now() < closes.getTime();
+  }
+  // Hybrid open-join offerings: claimable until the session ends.
+  if (ev?.isOpenJoinOffering) {
+    const end = parseScheduleInstant(ev?.endAt);
+    return !!(end && Date.now() < end.getTime());
+  }
+  return false;
 };
 
 const isSupervisionSessionLive = (ev) => {
@@ -10055,17 +10141,10 @@ const supervisionSessionsInCell = (dayName, hour, minute = 0) => {
     const startLocal = parseScheduleInstant(startRaw);
     const endLocal = parseScheduleInstant(endRaw);
     if (!startLocal || !endLocal) continue;
-    const dateYmd = supervisionDateYmd(ev);
-    if (!dateYmd) continue;
-    const sessionDay = supervisionDayName(ev);
-    if (sessionDay !== dayName && typeof window !== 'undefined') {
-      const key = `supv-day-mismatch-${String(ev?.id || 'x')}-${dayName}-${hour}-${minute}`;
-      window.__supvDayMismatchLogOnce = window.__supvDayMismatchLogOnce || {};
-      if (!window.__supvDayMismatchLogOnce[key]) {
-        window.__supvDayMismatchLogOnce[key] = true;
-      }
-    }
-    if (sessionDay !== dayName) continue;
+    // Match overlay: time overlap against the cell wall-clock. Do not gate on UTC startDateYmd
+    // (evening Mountain sessions can land on the next UTC calendar day).
+    const localYmd = `${startLocal.getFullYear()}-${pad2(startLocal.getMonth() + 1)}-${pad2(startLocal.getDate())}`;
+    if (localYmd !== cellDate) continue;
     if (endLocal > cellStart && startLocal < cellEnd) hits.push(ev);
   }
   return hits;
@@ -16832,6 +16911,7 @@ const openSlotActionModal = async ({
   scheduleHoldReasonCode.value = 'DOCUMENTATION';
   scheduleHoldCustomReason.value = '';
   modalError.value = '';
+  modalAdditionalTenantIds.value = [];
   forfeitScope.value = 'occurrence';
   ackForfeit.value = false;
   officeBookingRecurrence.value = 'ONCE';
@@ -17340,6 +17420,61 @@ const isScheduleSuperAdmin = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return role === 'super_admin' || role === 'superadmin';
 });
+
+const modalActiveTenantIdSet = computed(
+  () => new Set([
+    Number(selectedActionAgencyId.value || 0),
+    ...(modalAdditionalTenantIds.value || []).map((n) => Number(n || 0))
+  ].filter((n) => n > 0))
+);
+
+const canAddAdditionalModalTenants = computed(() => {
+  if (isScheduleSuperAdmin.value) return true;
+  if (agencyStore.shouldShowTenantDropdown) return true;
+  const userTenantCount = (agencyStore.userAgencies || []).filter((row) =>
+    isTenantOrganizationType(String(row?.organization_type || row?.organizationType || 'agency'))
+  ).length;
+  if (userTenantCount > 1) return true;
+  return (bookingAgencyOptions.value || []).length > 1;
+});
+
+const addableModalTenantOptions = computed(() => {
+  if (!canAddAdditionalModalTenants.value) return [];
+  const selected = modalActiveTenantIdSet.value;
+  return (bookingAgencyOptions.value || []).filter((opt) => !selected.has(Number(opt?.id || 0)));
+});
+
+const modalAdditionalTenantChips = computed(() => (
+  (modalAdditionalTenantIds.value || [])
+    .map((id) => Number(id || 0))
+    .filter((id) => id > 0 && id !== Number(selectedActionAgencyId.value || 0))
+    .map((id) => {
+      const opt = (bookingAgencyOptions.value || []).find((r) => Number(r?.id || 0) === id);
+      return {
+        id,
+        label: String(opt?.label || agencyLabel(id) || `Agency ${id}`).trim()
+      };
+    })
+));
+
+const addModalTenant = (agencyId) => {
+  const id = Number(agencyId || 0);
+  if (!id || modalActiveTenantIdSet.value.has(id)) return;
+  modalAdditionalTenantIds.value = [...(modalAdditionalTenantIds.value || []), id];
+  ensureScheduleAgencyVisible(id);
+};
+
+const removeModalAdditionalTenant = (agencyId) => {
+  const id = Number(agencyId || 0);
+  if (!id || id === Number(selectedActionAgencyId.value || 0)) return;
+  modalAdditionalTenantIds.value = (modalAdditionalTenantIds.value || []).filter((n) => Number(n || 0) !== id);
+};
+
+const onAddModalTenantSelect = (event) => {
+  const id = Number(event?.target?.value || 0);
+  if (id > 0) addModalTenant(id);
+  if (event?.target) event.target.value = '0';
+};
 
 const actionAgencyOptions = computed(() => {
   const t = String(requestType.value || '');
@@ -18725,6 +18860,7 @@ const closeModal = () => {
   meetingCreatedShare.value = null;
   modalActionSource.value = 'general';
   requestType.value = '';
+  modalAdditionalTenantIds.value = [];
   scheduleEventEditId.value = 0;
   scheduleEventEditError.value = '';
   scheduleEventSaving.value = false;
@@ -20135,6 +20271,9 @@ const submitRequest = async () => {
         const startAt = `${String(occYmd).slice(0, 10)}T${pad2(h)}:${pad2(startMinute)}:00`;
         const endAt = `${String(occYmd).slice(0, 10)}T${pad2(endH)}:${pad2(endMinute)}:00`;
         const supervisionTimeZone = scheduleMeetingTimeZone();
+        // Presenters are per-occurrence: only tag the first booking in a series.
+        // Later weeks stay open so a different presenter can be chosen per session.
+        const occPresenterUserIds = supervisionRecurrenceIndex === 0 ? presenterUserIds : [];
         // eslint-disable-next-line no-await-in-loop
         const supvRes = await api.post('/supervision/sessions', {
           agencyId: effectiveAgencyId.value,
@@ -20145,7 +20284,7 @@ const submitRequest = async () => {
           additionalAttendeeUserIds,
           requiredAttendeeUserIds,
           optionalAttendeeUserIds,
-          presenterUserIds,
+          presenterUserIds: occPresenterUserIds,
           enrollmentMode: signupOnly ? 'signup_only' : 'invited',
           inviteAudienceAllSupervised: sessionType === 'group' ? inviteAudienceAllSupervised : false,
           inviteAudienceGroupSupport: sessionType === 'group' ? inviteAudienceGroupSupport : false,

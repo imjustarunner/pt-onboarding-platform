@@ -4327,9 +4327,21 @@ export const getUserScheduleSummary = async (req, res, next) => {
       } catch {
         signupRows = [];
       }
+      let openJoinRows = [];
+      try {
+        openJoinRows = await SupervisionSession.listOpenJoinOfferingsForUserInWindow({
+          agencyId: includeAllAgencies ? null : agencyId,
+          allAgencies: includeAllAgencies,
+          userId: providerId,
+          windowStart,
+          windowEnd
+        });
+      } catch {
+        openJoinRows = [];
+      }
       const mergedRows = [...(rows || [])];
       const seenIds = new Set(mergedRows.map((r) => Number(r?.id || 0)).filter((n) => n > 0));
-      for (const row of signupRows || []) {
+      for (const row of [...(signupRows || []), ...(openJoinRows || [])]) {
         const id = Number(row?.id || 0);
         if (id > 0 && !seenIds.has(id)) {
           seenIds.add(id);
@@ -4362,17 +4374,21 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const isSupervisor = Number(r.supervisor_user_id) === Number(providerId);
         const enrollmentMode = String(r.enrollment_mode || 'invited').trim().toLowerCase();
         const isSignupOffering = enrollmentMode === 'signup_only';
+        const isOpenJoinOffering = !isSignupOffering && (
+          Number(r.is_open_join_offering) === 1
+          || r.is_open_join_offering === true
+        );
         const sessionType = String(r.session_type || 'individual').trim().toLowerCase();
         const superviseeNames = String(r.supervisee_names || '').trim();
         const oneToOneName = isSupervisor
           ? `${r.supervisee_first_name || ''} ${r.supervisee_last_name || ''}`.trim()
           : `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim();
-        const groupDisplay = isSignupOffering
+        const groupDisplay = (isSignupOffering || isOpenJoinOffering)
           ? `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim()
           : (isSupervisor
             ? (superviseeNames || oneToOneName)
             : `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim());
-        const otherName = sessionType === 'group' || sessionType === 'triadic' || isSignupOffering
+        const otherName = sessionType === 'group' || sessionType === 'triadic' || isSignupOffering || isOpenJoinOffering
           ? groupDisplay
           : oneToOneName;
         const hasViewerRequired = r?.viewer_is_required !== null && r?.viewer_is_required !== undefined;
@@ -4457,6 +4473,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
           recurrenceFrequency: String(r.recurrence_frequency || '').trim().toUpperCase() || null,
           recurrenceIndex: r.recurrence_index == null ? null : Number(r.recurrence_index),
           enrollmentMode,
+          isOpenJoinOffering,
+          inviteAudienceAllSupervised: !!(r.invite_audience_all_supervised === 1 || r.invite_audience_all_supervised === true),
+          inviteAudienceGroupSupport: !!(r.invite_audience_group_support === 1 || r.invite_audience_group_support === true),
           signupClosesAt,
           signupCount,
           viewerSignedUp,
