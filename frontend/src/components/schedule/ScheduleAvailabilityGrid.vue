@@ -17613,13 +17613,26 @@ const quickGlanceRows = computed(() => {
   if (!g || !date || !Number.isFinite(hour)) return [];
   const rooms = Array.isArray(g.rooms) ? g.rooms : [];
   const slots = Array.isArray(g.slots) ? g.slots : [];
+  const roomNumVal = (r) => {
+    const n = r?.roomNumber ?? r?.room_number ?? null;
+    const parsed = parseInt(n, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const sortedRooms = [...rooms].sort((a, b) => {
+    const an = roomNumVal(a);
+    const bn = roomNumVal(b);
+    if (an !== null && bn !== null && an !== bn) return an - bn;
+    if (an !== null && bn === null) return -1;
+    if (an === null && bn !== null) return 1;
+    return String(a?.label || a?.name || '').localeCompare(String(b?.label || b?.name || ''));
+  });
   const byRoom = new Map();
   for (const s of slots) {
     if (String(s?.date || '').slice(0, 10) !== date) continue;
     if (Number(s?.hour || -1) !== hour) continue;
     byRoom.set(Number(s.roomId), s);
   }
-  const out = rooms.map((r) => {
+  const out = sortedRooms.map((r) => {
     const slot = byRoom.get(Number(r.id)) || null;
     const st = String(slot?.state || 'open');
     const pending = Number(slot?.pendingRequestCount || 0) || 0;
@@ -17655,7 +17668,6 @@ const quickGlanceRows = computed(() => {
     if (filter === 'requested') return row.hasPendingRequest;
     return true;
   });
-  filtered.sort((a, b) => String(a.roomLabel).localeCompare(String(b.roomLabel)));
   return filtered;
 });
 
