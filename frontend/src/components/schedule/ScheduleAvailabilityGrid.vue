@@ -617,9 +617,6 @@
       <div v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGridError" class="error" style="margin-top: 10px;">
         {{ officeGridError }}
       </div>
-      <div v-else-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGridLoading" class="loading" style="margin-top: 10px;">
-        Loading office availability…
-      </div>
 
       <details
         v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGrid && !officeGridLoading"
@@ -721,8 +718,7 @@
         Choose a specific office (not All / Off) to view the room-by-room weekly layout.
       </div>
       <div v-else-if="officeGridError" class="error" style="margin-top: 10px;">{{ officeGridError }}</div>
-      <div v-else-if="officeGridLoading && !officeGrid" class="loading" style="margin-top: 10px;">Loading office availability…</div>
-      <template v-else-if="officeGrid">
+      <template v-else-if="officeGrid || officeGridLoading">
         <div v-if="canViewIcsCoverage" class="ics-gaps-toolbar">
           <button
             type="button"
@@ -751,7 +747,6 @@
     <!-- Open finder view (existing personal grid) -->
     <template v-else>
       <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
-      <div v-if="loading" class="loading" style="margin-top: 10px;">Loading schedule…</div>
       <div v-if="!hideOfficeAndCalendarIntegration && googleBusyDisabledHint" class="hint" style="margin-top: 10px;">
         {{ googleBusyDisabledHint }}
       </div>
@@ -1051,9 +1046,20 @@
         Schedule is not loaded yet. Try refreshing, or open My Schedule from My Dashboard.
       </div>
 
-      <div v-else-if="summary" class="sched-grid-wrap" :class="{ 'sched-grid-wrap--hidden-mobile-day': false }">
+      <div v-else-if="summary || loading" class="sched-grid-wrap" :class="{ 'sched-grid-wrap--hidden-mobile-day': false }">
       <div class="sched-grid" :style="gridStyle">
-        <div class="sched-head-cell"></div>
+        <div class="sched-head-cell sched-head-cell-corner" :class="{ 'sched-head-cell-corner--loading': !!scheduleCornerLoadingLabel }">
+          <span
+            v-if="scheduleCornerLoadingLabel"
+            class="sched-corner-loading"
+            role="status"
+            aria-live="polite"
+            :title="scheduleCornerLoadingLabel"
+          >
+            <span class="sched-corner-loading__spinner" aria-hidden="true"></span>
+            <span class="sched-corner-loading__text">{{ scheduleCornerLoadingShortLabel }}</span>
+          </span>
+        </div>
         <div
           v-for="d in visibleDays"
           :key="d"
@@ -17207,6 +17213,26 @@ const selectedOfficeLocationId = ref(OFFICE_SCOPE_ALL);
 const isOfficeScopeSpecific = computed(() => Number(selectedOfficeLocationId.value) > 0);
 const isOfficeScopeAll = computed(() => Number(selectedOfficeLocationId.value) === OFFICE_SCOPE_ALL);
 const officeGridLoading = ref(false);
+const scheduleCornerLoadingLabel = computed(() => {
+  const scheduleBusy = !!loading.value;
+  const officeBusy = !hideOfficeAndCalendarIntegration.value
+    && isOfficeScopeSpecific.value
+    && !!officeGridLoading.value;
+  if (scheduleBusy && officeBusy) return 'Refreshing schedule and office availability…';
+  if (scheduleBusy) return 'Refreshing schedule…';
+  if (officeBusy) return 'Loading office availability…';
+  return '';
+});
+const scheduleCornerLoadingShortLabel = computed(() => {
+  const scheduleBusy = !!loading.value;
+  const officeBusy = !hideOfficeAndCalendarIntegration.value
+    && isOfficeScopeSpecific.value
+    && !!officeGridLoading.value;
+  if (scheduleBusy && officeBusy) return 'Refreshing';
+  if (scheduleBusy) return 'Refreshing';
+  if (officeBusy) return 'Office';
+  return '';
+});
 const officeGridError = ref('');
 const officeGrid = ref(null); // { location, weekStart, days, hours, rooms, slots }
 
@@ -25217,6 +25243,42 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   align-items: center;
   justify-content: center;
 }
+.sched-head-cell-corner {
+  padding: 8px 6px;
+  min-height: 44px;
+}
+.sched-head-cell-corner--loading {
+  background: rgba(248, 250, 252, 0.96);
+}
+.sched-corner-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  max-width: 100%;
+}
+.sched-corner-loading__spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(100, 116, 139, 0.22);
+  border-top-color: #6366f1;
+  animation: sched-corner-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+.sched-corner-loading__text {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+  line-height: 1.1;
+  text-align: center;
+}
+@keyframes sched-corner-spin {
+  to { transform: rotate(360deg); }
+}
 .sched-head-cell-day {
   cursor: pointer;
 }
@@ -27974,6 +28036,16 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .sched-wrap--dark .sched-hour,
 .sched-wrap--dark .sched-cell {
   background: rgba(17, 24, 39, 0.92);
+}
+.sched-wrap--dark .sched-head-cell-corner--loading {
+  background: rgba(15, 23, 42, 0.96);
+}
+.sched-wrap--dark .sched-corner-loading__text {
+  color: rgba(148, 163, 184, 0.92);
+}
+.sched-wrap--dark .sched-corner-loading__spinner {
+  border-color: rgba(148, 163, 184, 0.22);
+  border-top-color: #a78bfa;
 }
 .sched-wrap--dark .sched-head-cell-day:hover {
   background: rgba(139, 92, 246, 0.12);
