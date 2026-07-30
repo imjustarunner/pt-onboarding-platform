@@ -4003,11 +4003,12 @@
             class="supv-signup-footer"
           >
             <div class="supv-signup-footer__copy">
-              <strong>Agency signup session</strong>
+              <strong>Open group supervision</strong>
               <SupervisionSignupCountdown
                 v-if="selectedSupvSession?.signupClosesAt"
                 :closes-at="selectedSupvSession.signupClosesAt"
-                prefix="Signup closes in"
+                prefix="Signup now"
+                format="clock"
               />
               <span v-if="selectedSupvSession?.viewerSignedUp" class="supv-signup-footer__badge">You are signed up</span>
             </div>
