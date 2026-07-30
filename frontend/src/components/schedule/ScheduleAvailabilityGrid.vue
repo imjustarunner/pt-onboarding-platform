@@ -1026,7 +1026,9 @@
                 type="button"
                 class="sched-day-timeline__add"
                 title="Add or edit this hour"
-                @click="openMobileDayHour(h)"
+                @mousedown.stop
+                @pointerdown.stop
+                @click.stop="openMobileDayHour(h)"
               >+</button>
             </div>
           </div>
@@ -1122,7 +1124,10 @@
               type="button"
               class="cell-plus-btn"
               title="Add or edit this hour"
-              @click.stop="openSlotActionModal({ dayName: d, hour: slot.hour, preserveSelectionRange: false, actionSource: 'plus_or_blank' })"
+              aria-label="Add or edit this hour"
+              @mousedown.stop
+              @pointerdown.stop
+              @click.stop="onScheduleCellPlusClick(d, slot.hour, $event)"
             >
               +
             </button>
@@ -5505,6 +5510,21 @@ const mobileDayCardsForHour = (hour) => {
   if (!day) return [];
   return (cellBlocks(day, hour, 0) || []).filter((b) => b && b.kind !== 'more');
 };
+const CELL_PLUS_HIT_RESERVE_PX = 24;
+
+const onScheduleCellPlusClick = (dayName, hour, event) => {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  selectedBlockKey.value = '';
+  selectedActionSlots.value = [];
+  openSlotActionModal({
+    dayName,
+    hour,
+    preserveSelectionRange: false,
+    actionSource: 'plus_or_blank'
+  });
+};
+
 const openMobileDayHour = (hour) => {
   let h = Number(hour);
   if (!Number.isFinite(h)) h = 9;
@@ -17680,12 +17700,14 @@ const cellBlockStyle = (b) => {
   // Continuous appointment: top/height % of the start cell (height may exceed 100%).
   if (b?.timedSlice && Number.isFinite(b.timedSlice.topPct) && Number.isFinite(b.timedSlice.heightPct)) {
     const hp = Number(b.timedSlice.heightPct);
+    const plusReserve = canBookFromGrid.value ? CELL_PLUS_HIT_RESERVE_PX : 0;
     style.position = 'absolute';
     const laneCols = Number(b?.laneCols || 0);
     const laneCol = Number(b?.laneCol || 0);
     const dayViewColTotal = Number(b?.dayViewColTotal || 0);
     const dayViewCol = Number(b?.dayViewCol || 0);
     const gapPx = 3;
+    const edgeInset = 3;
     // Day view: dedicated overlay columns for Google / Therapy Notes beside app events.
     if (dayViewColTotal > 1) {
       const colWidthPct = 100 / dayViewColTotal;
@@ -17708,13 +17730,13 @@ const cellBlockStyle = (b) => {
       style.right = 'auto';
       style.zIndex = 6 + laneCol;
     } else if (b?.shareRow) {
-      style.left = '3px';
+      style.left = `${edgeInset}px`;
       style.width = 'calc(52% - 4px)';
       style.right = 'auto';
       style.zIndex = b?.spanBlock ? 6 : 3;
     } else {
-      style.left = '3px';
-      style.right = '3px';
+      style.left = `${edgeInset}px`;
+      style.right = `${edgeInset + plusReserve}px`;
       style.zIndex = b?.spanBlock ? 6 : 3;
     }
     style.top = `${b.timedSlice.topPct}%`;
@@ -25019,11 +25041,11 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   top: 50%;
   right: 6px;
   transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   border-radius: 6px;
   border: none;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.72);
   color: #cbd5e1;
   font-weight: 600;
   font-size: 16px;
@@ -25035,7 +25057,12 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   cursor: pointer;
   opacity: 0.55;
   transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
-  z-index: 3;
+  z-index: 12;
+  pointer-events: auto;
+}
+.sched-cell:has(.cell-plus-btn) .cell-blocks {
+  padding-right: 22px;
+  box-sizing: border-box;
 }
 .sched-cell:hover .cell-plus-btn,
 .sched-cell-selected .cell-plus-btn {
@@ -25043,9 +25070,10 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   color: #94a3b8;
 }
 .cell-plus-btn:hover {
-  background: rgba(226, 232, 240, 0.7);
+  background: rgba(255, 255, 255, 0.95);
   color: #64748b;
   transform: translateY(-50%);
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.35);
 }
 .selection-toolbar {
   margin-top: 10px;
@@ -27639,6 +27667,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .sched-wrap--dark .cell-plus-btn {
   color: rgba(148, 163, 184, 0.55);
+  background: rgba(15, 23, 42, 0.72);
 }
 .sched-wrap--dark .sched-cell:hover .cell-plus-btn,
 .sched-wrap--dark .sched-cell-selected .cell-plus-btn {
