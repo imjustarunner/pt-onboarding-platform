@@ -1154,7 +1154,9 @@
                     'cell-block-span': !!b.spanBlock && !!b.timedSlice,
                     'cell-block-draggable': isAppointmentBlockDraggable(b),
                     'cell-block-dragging': isAppointmentBlockDragging(b),
-                    'cell-block-supv-signup-pulse': b.kind === 'supv-signup' && b.signupOpen && !b.viewerSignedUp
+                    'cell-block-supv-signup-pulse': b.kind === 'supv-signup' && b.signupOpen && !b.viewerSignedUp,
+                    'cell-block-supv-signup-enrolled': b.kind === 'supv-signup' && b.viewerSignedUp && !b.sessionLive,
+                    'cell-block-supv-signup-occurring': b.kind === 'supv-signup' && b.sessionLive
                   }
                 ]"
                 :title="b.title"
@@ -4003,11 +4005,12 @@
           <div
             v-if="isSelectedSupvSignupOffering && !isSelectedSupvSignupFacilitator"
             class="supv-signup-footer"
+            :class="{ 'supv-signup-footer--enrolled': selectedSupvSession?.viewerSignedUp }"
           >
             <div class="supv-signup-footer__copy">
               <strong>Open group supervision</strong>
               <SupervisionSignupCountdown
-                v-if="selectedSupvSession?.signupClosesAt"
+                v-if="selectedSupvSession?.signupClosesAt && isSelectedSupvSignupOpen && !selectedSupvSession?.viewerSignedUp"
                 :closes-at="selectedSupvSession.signupClosesAt"
                 :timezone="bookingTimezoneIana"
                 prefix="Signup now"
@@ -9180,6 +9183,14 @@ const isSignupSupervisionOpen = (ev) => {
   return Date.now() < closes.getTime();
 };
 
+const isSupervisionSessionLive = (ev) => {
+  const start = parseScheduleInstant(ev?.startAt);
+  const end = parseScheduleInstant(ev?.endAt);
+  if (!start || !end) return false;
+  const now = Date.now();
+  return now >= start.getTime() && now <= end.getTime();
+};
+
 const OPEN_GROUP_SUPERVISION_LABEL = 'Open group supervision';
 const OPEN_GROUP_SUPERVISION_HEADLINE = 'OPEN GROUP SUPERVISION';
 
@@ -9189,6 +9200,8 @@ const supervisionLabel = (dayName, hour, minute = 0, segmentClass = 'single', { 
   if (signupHit) {
     const who = String(signupHit.counterpartyName || signupHit.supervisorName || '').trim();
     const signedUp = !!signupHit.viewerSignedUp;
+    const open = isSignupSupervisionOpen(signupHit);
+    const live = isSupervisionSessionLive(signupHit);
     const seg = String(segmentClass || 'single');
     if (seg === 'middle' || seg === 'end') {
       return clipBlockLabel(OPEN_GROUP_SUPERVISION_LABEL, 48);
@@ -9199,22 +9212,29 @@ const supervisionLabel = (dayName, hour, minute = 0, segmentClass = 'single', { 
       if (range) lines.push(range);
       lines.push(OPEN_GROUP_SUPERVISION_HEADLINE);
       if (who) lines.push(who);
-      if (signedUp) lines.push('Signed up');
+      if (live) lines.push('Occurring');
+      else if (signedUp) lines.push('Signed up');
+      else if (!open) lines.push('Signup closed');
       return lines.filter(Boolean).join('\n');
     }
     return clipBlockLabel(OPEN_GROUP_SUPERVISION_HEADLINE, 56);
   }
   const names = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
-  const isGroup = hits.some((ev) => String(ev?.sessionType || '').trim().toLowerCase() === 'group');
+  const isGroup = hits.some((ev) => {
+    const st = String(ev?.sessionType || '').trim().toLowerCase();
+    return st === 'group' || isSignupSupervisionEvent(ev);
+  });
   const type = isGroup ? 'Group Supervision' : 'Supervision';
+  const live = hits.some((ev) => isSupervisionSessionLive(ev));
   let who = '';
   if (names.length === 1) who = names[0];
   else if (names.length > 1) who = `${names[0]}+${names.length - 1}`;
+  const typeLabel = live ? `${type} · Occurring` : type;
   return runningAppointmentLabel({
     segmentClass,
     startAt: hits[0]?.startAt,
     endAt: hits[0]?.endAt,
-    typeLabel: type,
+    typeLabel,
     whoLabel: who,
     max: 56,
     multiline
@@ -9229,13 +9249,21 @@ const supervisionTitle = (dayName, hour, minute = 0) => {
     const timeText = clockRangeLabel(signupHit?.startAt, signupHit?.endAt) || hourLabel(hour);
     const count = Number(signupHit?.signupCount || 0);
     const open = isSignupSupervisionOpen(signupHit);
-    const status = signupHit.viewerSignedUp ? 'You are signed up' : (open ? 'Signup open' : 'Signup closed');
+    const live = isSupervisionSessionLive(signupHit);
+    let status = open ? 'Signup open' : 'Signup closed';
+    if (signupHit.viewerSignedUp) {
+      status = live ? 'Occurring — you are signed up' : 'You are signed up';
+    }
     return `Open group supervision — ${who} — ${dayName} ${timeText} — ${count} signed up — ${status}`;
   }
   const withNames = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
   const who = withNames.length ? withNames.join(', ') : '—';
-  const isGroup = hits.some((ev) => String(ev?.sessionType || '').trim().toLowerCase() === 'group');
+  const isGroup = hits.some((ev) => {
+    const st = String(ev?.sessionType || '').trim().toLowerCase();
+    return st === 'group' || isSignupSupervisionEvent(ev);
+  });
   const type = isGroup ? 'Group Supervision' : 'Supervision';
+  const live = hits.some((ev) => isSupervisionSessionLive(ev));
   const presenterNames = Array.from(new Set(
     hits.flatMap((ev) => String(ev?.presenterNames || '').split(',').map((s) => s.trim()).filter(Boolean))
   ));
@@ -9245,7 +9273,8 @@ const supervisionTitle = (dayName, hour, minute = 0) => {
     : (viewerIsPresenter ? ' • PRESENTER' : '');
   const first = hits[0] || null;
   const timeText = clockRangeLabel(first?.startAt, first?.endAt) || hourLabel(hour);
-  return `${type} — ${who} — ${dayName} ${timeText}${presenterText}`;
+  const liveSuffix = live ? ' — Occurring now' : '';
+  return `${type} — ${who} — ${dayName} ${timeText}${presenterText}${liveSuffix}`;
 };
 
 /** Google event IDs already represented by first-class app schedule rows. */
@@ -10332,7 +10361,9 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     if (segmentClass === 'middle' || segmentClass === 'end') continue;
     const timedSlice = appointmentSpanSlice(first?.startAt, last?.endAt || first?.endAt, dayName, hour, minute);
     const isSignupBlock = isSignupSupervisionEvent(first);
+    const viewerSignedUp = !!first?.viewerSignedUp;
     const signupOpen = isSignupBlock && isSignupSupervisionOpen(first);
+    const sessionLive = isSignupBlock && isSupervisionSessionLive(first);
     blocks.push({
       key: `supv-${agencyId || 'x'}-${Number(first?.id || 0) || 'x'}`,
       kind: isSignupBlock ? 'supv-signup' : 'supv',
@@ -10342,13 +10373,15 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       segmentClass: 'single',
       hideAgencyDot: false,
       eventId: Number(first?.id || 0) || null,
-      sessionType: String(first?.sessionType || 'individual').trim().toLowerCase() || 'individual',
+      sessionType: isSignupBlock ? 'group' : (String(first?.sessionType || 'individual').trim().toLowerCase() || 'individual'),
       viewerIsPresenter: sortedEvents.some((ev) => String(ev?.presenterRole || '').trim().length > 0),
       startAt: first?.startAt || null,
       endAt: first?.endAt || null,
       signupClosesAt: first?.signupClosesAt || null,
-      viewerSignedUp: !!first?.viewerSignedUp,
+      viewerSignedUp,
       signupOpen,
+      sessionLive,
+      isSignupOffering: isSignupBlock,
       signupTimeRange: clockRangeLabel(first?.startAt, first?.endAt) || '',
       signupHostName: String(first?.counterpartyName || first?.supervisorName || '').trim(),
       enrollmentMode: String(first?.enrollmentMode || '').trim() || null,
@@ -17514,9 +17547,11 @@ function applyTypeFillVars(style, palette) {
 function meetingTypePalette(b, dark) {
   const kind = String(b?.kind || '');
   if (kind === 'supv-signup') {
+    const enrolled = !!b?.viewerSignedUp || !!b?.sessionLive;
+    const borderStyle = enrolled ? 'solid' : 'dashed';
     return dark
-      ? { fill: 'rgba(45, 212, 191, 0.42)', border: 'rgba(94, 234, 212, 0.92)', stripe: 'rgba(94, 234, 212, 0.95)', text: 'rgba(204, 251, 241, 0.98)', borderStyle: 'dashed' }
-      : { fill: 'rgba(20, 184, 166, 0.28)', border: 'rgba(13, 148, 136, 0.78)', stripe: 'rgba(13, 148, 136, 0.92)', text: 'rgba(19, 78, 74, 0.98)', borderStyle: 'dashed' };
+      ? { fill: 'rgba(45, 212, 191, 0.42)', border: 'rgba(94, 234, 212, 0.92)', stripe: 'rgba(94, 234, 212, 0.95)', text: 'rgba(204, 251, 241, 0.98)', borderStyle }
+      : { fill: 'rgba(20, 184, 166, 0.28)', border: 'rgba(13, 148, 136, 0.78)', stripe: 'rgba(13, 148, 136, 0.92)', text: 'rgba(19, 78, 74, 0.98)', borderStyle };
   }
   if (kind === 'supv') {
     const st = String(b?.sessionType || 'individual').toLowerCase();
@@ -24330,6 +24365,13 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   animation: sched-supv-signup-pulse 2.2s ease-in-out infinite;
   border-style: dashed !important;
 }
+.cell-block-supv-signup-enrolled {
+  border-style: solid !important;
+}
+.cell-block-supv-signup-occurring {
+  border-style: solid !important;
+  box-shadow: inset 4px 0 0 var(--blockTypeStripe, rgba(13, 148, 136, 0.92)), 0 0 0 1px rgba(13, 148, 136, 0.35);
+}
 .cell-block-signup-countdown {
   display: block;
   margin-top: 2px;
@@ -24402,6 +24444,14 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border-radius: 10px;
   border: 1px dashed #14b8a6;
   background: #f0fdfa;
+}
+.supv-signup-footer--enrolled {
+  border-style: solid;
+  border-color: #0f766e;
+  background: #ecfdf5;
+}
+.supv-signup-footer--enrolled .supv-signup-footer__badge {
+  color: #0f766e;
 }
 .supv-signup-footer__copy {
   display: flex;
