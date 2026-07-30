@@ -419,9 +419,9 @@
       </div>
 
       <details class="sched-more-tools" data-tour="my-schedule-more-tools">
-        <summary class="sched-more-tools__summary" title="Therapy Notes feeds, organization filters, and programs">
+        <summary class="sched-more-tools__summary" title="Therapy Notes feeds, organization filters, programs, and color key">
           <span class="sched-more-tools__title">More tools</span>
-          <span class="sched-more-tools__hint muted">feeds · organization · programs</span>
+          <span class="sched-more-tools__hint muted">feeds · organization · programs · key</span>
           <span class="sched-more-tools__chev" aria-hidden="true">▾</span>
         </summary>
         <div class="sched-more-tools__body">
@@ -544,6 +544,73 @@
               </template>
             </div>
           </div>
+
+          <details class="sched-color-key" data-testid="my-schedule-color-key">
+            <summary class="sched-color-key__summary" title="What calendar colors and icons mean">
+              <span class="sched-tool-cluster__label">Color key</span>
+              <span class="sched-more-tools__hint muted">{{
+                colorBlocksByTenant
+                  ? 'Fill = organization · label = appointment type'
+                  : 'appointment type colors'
+              }}</span>
+              <span class="sched-more-tools__chev" aria-hidden="true">▾</span>
+            </summary>
+            <div class="sched-legend sched-legend--in-tools" aria-label="Schedule legend">
+              <template v-if="colorBlocksByTenant">
+                <span
+                  v-for="opt in activeScheduleAgencyLegend"
+                  :key="`legend-org-${opt.id}`"
+                  class="sched-legend-chip"
+                >
+                  <span
+                    v-if="agencyIconUrlById(opt.id, { preferSchoolOwn: true })"
+                    class="sched-legend-icon-wrap"
+                    aria-hidden="true"
+                  >
+                    <img
+                      class="sched-legend-icon"
+                      :src="agencyIconUrlById(opt.id, { preferSchoolOwn: true })"
+                      alt=""
+                    />
+                  </span>
+                  <span
+                    v-else
+                    class="sched-legend-dot"
+                    :style="{ background: agencyBadgeColorById(opt.id) || '#64748b' }"
+                    aria-hidden="true"
+                  ></span>
+                  {{ opt.label }}
+                </span>
+                <span class="sched-legend-chip muted sched-legend-chip--note">Fill = organization · label = appointment type</span>
+              </template>
+              <template v-else-if="hideOfficeAndCalendarIntegration">
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--huddle" aria-hidden="true"></span> Huddle</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--group-huddle" aria-hidden="true"></span> Group huddle</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--meeting" aria-hidden="true"></span> Meeting</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--request" aria-hidden="true"></span> Pending</span>
+              </template>
+              <template v-else>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--request" aria-hidden="true"></span> Requested (pending)</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--school" aria-hidden="true"></span> School assigned</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--supv sched-legend-dot--ring" aria-hidden="true"></span> Supervision</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--huddle" aria-hidden="true"></span> Huddle</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--group-huddle" aria-hidden="true"></span> Group huddle</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--meeting" aria-hidden="true"></span> Meeting</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--sevt" aria-hidden="true"></span> Schedule event</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--oa sched-legend-dot--dashed" aria-hidden="true"></span> Office reserved (empty)</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ot sched-legend-dot--ring" aria-hidden="true"></span> Temp hold</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ob" aria-hidden="true"></span> Office reserved (booked)</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-ip sched-legend-dot--ring" aria-hidden="true"></span> In-person intake</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-vi sched-legend-dot--ring" aria-hidden="true"></span> Virtual intake</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--portal sched-legend-dot--ring" aria-hidden="true"></span> Open for new clients</span>
+                <span v-if="showGoogleBusy" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gbusy" aria-hidden="true"></span> Google busy</span>
+                <span v-if="showGoogleEvents" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gevt" aria-hidden="true"></span> Google event</span>
+                <span v-if="showExternalBusy && selectedExternalCalendarIds.length" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ebusy" aria-hidden="true"></span> Therapy Notes busy</span>
+                <span v-if="showPeerBusyOverlay" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--peerbusy" aria-hidden="true"></span> Peer activity (color = person)</span>
+                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--agency" aria-hidden="true"></span> Agency</span>
+              </template>
+            </div>
+          </details>
         </div>
       </details>
 
@@ -969,62 +1036,6 @@
       </div>
 
       <div v-else-if="summary" class="sched-grid-wrap" :class="{ 'sched-grid-wrap--hidden-mobile-day': false }">
-      <div class="sched-legend" aria-label="Schedule legend">
-        <template v-if="colorBlocksByTenant">
-          <span
-            v-for="opt in activeScheduleAgencyLegend"
-            :key="`legend-org-${opt.id}`"
-            class="sched-legend-chip"
-          >
-            <span
-              v-if="agencyIconUrlById(opt.id)"
-              class="sched-legend-icon-wrap"
-              aria-hidden="true"
-            >
-              <img
-                class="sched-legend-icon"
-                :src="agencyIconUrlById(opt.id)"
-                alt=""
-              />
-            </span>
-            <span
-              v-else
-              class="sched-legend-dot"
-              :style="{ background: agencyBadgeColorById(opt.id) || '#64748b' }"
-              aria-hidden="true"
-            ></span>
-            {{ opt.label }}
-          </span>
-          <span class="sched-legend-chip muted" style="font-size: 11px;">Fill = organization · label = appointment type</span>
-        </template>
-        <template v-else-if="hideOfficeAndCalendarIntegration">
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--huddle" aria-hidden="true"></span> Huddle</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--group-huddle" aria-hidden="true"></span> Group huddle</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--meeting" aria-hidden="true"></span> Meeting</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--request" aria-hidden="true"></span> Pending</span>
-        </template>
-        <template v-else>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--request" aria-hidden="true"></span> Requested (pending)</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--school" aria-hidden="true"></span> School assigned</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--supv sched-legend-dot--ring" aria-hidden="true"></span> Supervision</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--huddle" aria-hidden="true"></span> Huddle</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--group-huddle" aria-hidden="true"></span> Group huddle</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--meeting" aria-hidden="true"></span> Meeting</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--sevt" aria-hidden="true"></span> Schedule event</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--oa sched-legend-dot--dashed" aria-hidden="true"></span> Office reserved (empty)</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ot sched-legend-dot--ring" aria-hidden="true"></span> Temp hold</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ob" aria-hidden="true"></span> Office reserved (booked)</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-ip sched-legend-dot--ring" aria-hidden="true"></span> In-person intake</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-vi sched-legend-dot--ring" aria-hidden="true"></span> Virtual intake</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--portal sched-legend-dot--ring" aria-hidden="true"></span> Open for new clients</span>
-          <span v-if="showGoogleBusy" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gbusy" aria-hidden="true"></span> Google busy</span>
-          <span v-if="showGoogleEvents" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gevt" aria-hidden="true"></span> Google event</span>
-          <span v-if="showExternalBusy && selectedExternalCalendarIds.length" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ebusy" aria-hidden="true"></span> Therapy Notes busy</span>
-          <span v-if="showPeerBusyOverlay" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--peerbusy" aria-hidden="true"></span> Peer activity (color = person)</span>
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--agency" aria-hidden="true"></span> Agency</span>
-        </template>
-      </div>
-
       <div class="sched-grid" :style="gridStyle">
         <div class="sched-head-cell"></div>
         <div
@@ -5029,7 +5040,10 @@ import {
   practiceCategoryForBusinessType,
   practiceCategoryLabel
 } from '../../config/practiceCategories.js';
-import { isTenantOrganizationType as isTenantOrganizationTypeShared } from '../../utils/organizationTypes.js';
+import {
+  isNestedOrganizationType,
+  isTenantOrganizationType as isTenantOrganizationTypeShared
+} from '../../utils/organizationTypes.js';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import SupervisionLiveRoom from '../supervision/SupervisionLiveRoom.vue';
@@ -16951,6 +16965,16 @@ const scheduleAgencyIconUrls = computed(() => {
   void agencyStore.agencies;
   void brandingStore.iconFilePathCache;
 
+  const resolveOrgRow = (agencyId) => {
+    const n = Number(agencyId || 0);
+    if (!n) return null;
+    if (Number(agencyStore.currentAgency?.id || 0) === n) return agencyStore.currentAgency;
+    return (agencyStore.userAgencies || []).find((a) => Number(a?.id || 0) === n)
+      || (agencyStore.agencies || []).find((a) => Number(a?.id || 0) === n)
+      || (selfScheduleAgencyOptions.value || []).find((a) => Number(a?.id || 0) === n)
+      || null;
+  };
+
   const out = {};
   for (const id of ids) {
     if (!Number.isFinite(id) || id <= 0) continue;
@@ -16961,10 +16985,21 @@ const scheduleAgencyIconUrls = computed(() => {
         : toUploadsUrl(apiLogo);
       continue;
     }
-    const url = bookedSchoolAgencyIds.has(id)
-      ? brandingStore.getOrganizationOwnIconUrl(id)
-      : brandingStore.getOrganizationChromeIconUrl(id);
-    if (url) out[id] = url;
+    const orgRow = resolveOrgRow(id);
+    const nested = isNestedOrganizationType(orgRow)
+      || isNestedOrganizationType(
+        (agencyFilterOptions.value || []).find((r) => Number(r?.id || 0) === id)?.organizationType
+      );
+    // Schools/programs/etc.: use their own logo — never inherit the parent tenant chrome icon.
+    const own = orgRow
+      ? brandingStore.getOrganizationOwnIconUrl(orgRow)
+      : brandingStore.getOrganizationOwnIconUrl(id);
+    if (nested || bookedSchoolAgencyIds.has(id)) {
+      if (own) out[id] = own;
+      continue;
+    }
+    const chrome = brandingStore.getOrganizationChromeIconUrl(orgRow || id);
+    if (chrome || own) out[id] = chrome || own;
   }
   return out;
 });
@@ -16979,9 +17014,9 @@ const agencyIconUrlById = (agencyId, { preferSchoolOwn = false, schoolLogoUrl = 
       : toUploadsUrl(apiLogo);
   }
   if (scheduleAgencyIconUrls.value[id]) return scheduleAgencyIconUrls.value[id];
-  return preferSchoolOwn
-    ? (brandingStore.getOrganizationOwnIconUrl(id) || brandingStore.getOrganizationChromeIconUrl(id))
-    : (brandingStore.getOrganizationChromeIconUrl(id) || null);
+  const own = brandingStore.getOrganizationOwnIconUrl(id);
+  if (preferSchoolOwn) return own || null;
+  return brandingStore.getOrganizationChromeIconUrl(id) || own || null;
 };
 
 const blockAgencyIconUrl = (block) => {
@@ -23235,6 +23270,37 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   flex-direction: column;
   gap: 8px;
 }
+.sched-color-key {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--bg-primary, #fff);
+  padding: 0;
+}
+.sched-color-key[open] {
+  padding: 0 0 8px;
+}
+.sched-color-key__summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  user-select: none;
+}
+.sched-color-key__summary::-webkit-details-marker { display: none; }
+.sched-color-key[open] .sched-more-tools__chev {
+  transform: rotate(-180deg);
+}
+.sched-legend--in-tools {
+  margin: 0;
+  padding: 0 10px;
+}
+.sched-legend-chip--note {
+  font-size: 11px;
+  font-weight: 600;
+}
 .sched-chrome-top {
   display: flex;
   justify-content: space-between;
@@ -27118,6 +27184,10 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .sched-wrap--dark .sched-more-tools[open] {
   border-color: rgba(148, 163, 184, 0.22);
   background: rgba(15, 23, 42, 0.72);
+}
+.sched-wrap--dark .sched-color-key {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.55);
 }
 .sched-wrap--dark .sched-select--compact,
 .sched-wrap--dark select,
