@@ -909,6 +909,11 @@
                     title="System filled this checkout because no kiosk clock-out was recorded. Please edit if the time is wrong."
                     style="margin-left:4px;background:#fee2e2;color:#991b1b;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
                   >Auto — verify</span>
+                  <span
+                    v-if="s.adminAdded"
+                    title="An administrator added these times — please verify and update if needed."
+                    style="margin-left:4px;background:#fef3c7;color:#92400e;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
+                  >Added by Admin</span>
                 </td>
                 <td class="right">{{ s.workedHours ?? '—' }}</td>
                 <td class="right">{{ s.directHours ?? '—' }}</td>

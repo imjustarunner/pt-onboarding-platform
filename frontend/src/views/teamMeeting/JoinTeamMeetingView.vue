@@ -1,13 +1,24 @@
 <template>
-  <div class="join-team-meeting-view">
-    <div v-if="resolving" class="join-placeholder">Resolving meeting…</div>
+  <div class="join-team-meeting-view" :class="{ 'join-team-meeting-view--video-fs': videoFullscreen }">
+    <MeetingSessionExitPanel
+      v-if="sessionExit"
+      :variant="sessionExit.variant"
+      :can-rejoin="sessionExit.canRejoin"
+      meeting-label="meeting"
+      session-kind="team-meeting"
+      :banner-dismissed="exitBannerDismissed"
+      @rejoin="rejoinMeeting"
+      @go-to-schedule="goToScheduleFromExit"
+      @dismiss-banner="dismissHostEndedBanner"
+    />
+    <div v-else-if="resolving" class="join-placeholder">Resolving meeting…</div>
     <div v-else-if="error && !token" class="join-error">{{ error }}</div>
     <template v-else-if="token && (vonageSessionId || roomName)">
-      <div v-if="isInLobby" class="join-lobby-banner">
+      <div v-if="isInLobby && !videoFullscreen" class="join-lobby-banner">
         You’re in the waiting room. The host will admit you shortly.
       </div>
       <div
-        v-if="showTranscriptionNotice"
+        v-if="showTranscriptionNotice && !videoFullscreen"
         class="join-transcript-banner"
         role="status"
       >
@@ -20,10 +31,20 @@
           @click="transcriptionNoticeDismissed = true"
         >×</button>
       </div>
-      <div class="join-toolbar">
+      <div v-if="!videoFullscreen" class="join-toolbar">
         <button type="button" class="btn btn-danger btn-sm" @click="requestLeave">
           {{ isHost ? 'Leave / End meeting' : 'Leave meeting' }}
         </button>
+        <button
+          v-if="showEnableTrackingButton"
+          type="button"
+          class="btn btn-primary btn-sm"
+          :disabled="enablingTracking"
+          @click="enableAttendanceTracking"
+        >
+          {{ enablingTracking ? 'Enabling…' : 'Enable transcription & attendance' }}
+        </button>
+        <span v-if="enableTrackingError" class="join-tracking-error">{{ enableTrackingError }}</span>
         <div v-if="isAdminMeeting" class="join-tools">
           <button type="button" class="btn btn-secondary btn-sm" @click="toolsOpen = !toolsOpen">Tools</button>
           <div v-if="toolsOpen" class="join-tools__menu">
@@ -39,7 +60,8 @@
         class="join-session-layout"
         :class="{
           'join-session-layout--chat-only': !canSeeFullWorkspace,
-          'join-session-layout--video-focus': !chatPanelOpen
+          'join-session-layout--video-focus': !chatPanelOpen || videoFullscreen,
+          'join-session-layout--video-fs': videoFullscreen
         }"
       >
         <div class="join-video">
@@ -57,6 +79,9 @@
             show-layout-controls
             allow-tile-focus
             v-model:tile-focus="tileFocus"
+            v-model:video-fullscreen="videoFullscreen"
+            :activity-notice="videoFullscreenActivityNotice"
+            :raised-hands-notice="videoFullscreenHandsNotice"
             layout="standard"
             :equal-tiles-when-remote="true"
             :local-display-name="localDisplayName"
@@ -66,10 +91,13 @@
             @disconnected="onDisconnected"
             @meeting-ended="onMeetingEnded"
             @hands-map-change="onHandsMapChange"
+            @audio-map-change="onAudioMapChange"
             @transcript-control="onRemoteTranscriptControl"
+            @participant-left="onParticipantLeft"
+            @activity-notice-click="onFullscreenActivityClick"
           />
           <SupervisionVideoLobbyPanel
-            v-if="isHost && resolvedEventId && waitingRoomEnabled"
+            v-if="isHost && resolvedEventId && waitingRoomEnabled && !videoFullscreen"
             :session-id="resolvedEventId"
             :is-supervisor="isHost"
             meeting-kind="team-meeting"
@@ -77,7 +105,12 @@
           <section
             v-if="resolvedEventId && !isInLobby"
             class="join-live-activity"
+            :class="{
+              'join-live-activity--collapsed': !chatPanelOpen || videoFullscreen,
+              'join-live-activity--fs-probe': videoFullscreen
+            }"
             aria-label="Chat, polls, and Q&A"
+            :aria-hidden="videoFullscreen ? 'true' : undefined"
           >
             <MeetingLiveActivityPanel
               :event-id="resolvedEventId"
@@ -86,10 +119,11 @@
               :start-open="true"
               :below-video="true"
               @update:open="chatPanelOpen = $event"
+              @activity-notice="onLiveActivityNotice"
             />
           </section>
         </div>
-        <aside v-if="resolvedEventId && !isInLobby && canSeeFullWorkspace" class="join-workspace">
+        <aside v-if="resolvedEventId && !isInLobby && canSeeFullWorkspace && !videoFullscreen" class="join-workspace">
           <div v-if="workspaceBannerVisible" class="join-workspace__banner">
             <span class="join-workspace__lock" aria-hidden="true">🔒</span>
             <p>
@@ -135,9 +169,12 @@
             </section>
             <section v-if="showAttendanceTab" class="join-stack-section">
               <MeetingAttendancePanel
+                ref="attendancePanelRef"
                 :event-id="resolvedEventId"
                 :live-poll="true"
                 :raised-hands="raisedHandCount"
+                :raised-hand-names="raisedHandNames"
+                :muted-names="mutedParticipantNames"
               />
             </section>
             <section v-if="showNotesTab" class="join-stack-section">
@@ -201,6 +238,7 @@ import MeetingGoalsActionsPanel from '../../components/meetings/MeetingGoalsActi
 import MeetingAttendancePanel from '../../components/meetings/MeetingAttendancePanel.vue';
 import MeetingNotesPanel from '../../components/meetings/MeetingNotesPanel.vue';
 import MeetingLiveActivityPanel from '../../components/meetings/MeetingLiveActivityPanel.vue';
+import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
 import api from '../../services/api';
 
 const router = useRouter();
@@ -218,6 +256,9 @@ const applicationId = ref('');
 const diagnostics = ref(null);
 const meetingSubtype = ref('general');
 const meetingKind = ref('TEAM_MEETING');
+const attendanceTrackingEnabled = ref(false);
+const enablingTracking = ref(false);
+const enableTrackingError = ref('');
 const meetingCompletedAt = ref(null);
 const roomName = ref('');
 const isHost = ref(false);
@@ -233,7 +274,10 @@ const showHostLeaveModal = ref(false);
 const completing = ref(false);
 const completeError = ref('');
 const intentionalLeave = ref(false);
+const sessionExit = ref(null);
+const exitBannerDismissed = ref(false);
 const videoRoomRef = ref(null);
+const attendancePanelRef = ref(null);
 /** When the participant entered the main room (for chat/polls visibility). */
 const joinedMainAt = ref(null);
 const workspaceBannerVisible = ref(true);
@@ -269,12 +313,21 @@ const POLL_CREATE_ROLES = new Set([
 
 const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
 
+const isAttendanceTrackingActive = computed(() => {
+  const kind = String(meetingKind.value || '').toUpperCase();
+  if (kind === 'HUDDLE') return true;
+  const subtype = String(meetingSubtype.value || '').toLowerCase();
+  if (subtype === 'admin' || subtype === 'town_hall') return true;
+  return attendanceTrackingEnabled.value;
+});
+
 const transcriptEnabled = computed(() => (
   videoConnected.value
   && !!token.value
   && !isInLobby.value
   && !!Number(resolvedEventId.value || 0)
   && !intentionalLeave.value
+  && isAttendanceTrackingActive.value
 ));
 
 const {
@@ -297,9 +350,45 @@ const {
 const toolsOpen = ref(false);
 const joinLinkCopied = ref(false);
 const tileFocus = ref('equal');
+const videoFullscreen = ref(false);
+const videoFullscreenActivityNotice = ref('');
+let fullscreenNoticeTimer = null;
 const chatPanelOpen = ref(true);
 const raisedHandCount = ref(0);
+const raisedHandNames = ref([]);
+const mutedParticipantNames = ref([]);
 const participantJoinUrl = ref('');
+
+const videoFullscreenHandsNotice = computed(() => {
+  if (!raisedHandCount.value) return '';
+  const names = (raisedHandNames.value || []).filter(Boolean).slice(0, 2).join(', ');
+  if (names && raisedHandCount.value <= 2) return names;
+  if (names) return `${names} +${raisedHandCount.value - 2}`;
+  return `${raisedHandCount.value} hand${raisedHandCount.value === 1 ? '' : 's'} raised`;
+});
+
+function onLiveActivityNotice(payload) {
+  const text = String(payload?.text || '').trim();
+  if (!text) return;
+  if (!videoFullscreen.value) return;
+  videoFullscreenActivityNotice.value = text;
+  if (fullscreenNoticeTimer) clearTimeout(fullscreenNoticeTimer);
+  fullscreenNoticeTimer = setTimeout(() => {
+    videoFullscreenActivityNotice.value = '';
+  }, 8000);
+}
+
+function onFullscreenActivityClick() {
+  videoFullscreen.value = false;
+  videoFullscreenActivityNotice.value = '';
+  chatPanelOpen.value = true;
+}
+
+watch(videoFullscreen, (on) => {
+  if (typeof document === 'undefined') return;
+  document.body.classList.toggle('meeting-video-fullscreen', !!on);
+  if (!on) videoFullscreenActivityNotice.value = '';
+});
 
 const isAdminMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'admin');
 const muteOthersMode = computed(() => (isAdminMeeting.value ? 'everyone' : 'host'));
@@ -308,7 +397,18 @@ const showTranscriptionNotice = computed(() => (
   !transcriptionNoticeDismissed.value
   && !isInLobby.value
   && !!token.value
+  && isAttendanceTrackingActive.value
   && (transcriptCapturing.value || videoConnected.value)
+));
+
+const showEnableTrackingButton = computed(() => (
+  isHost.value
+  && !isInLobby.value
+  && !!token.value
+  && String(meetingKind.value || '').toUpperCase() === 'TEAM_MEETING'
+  && String(meetingSubtype.value || 'general').toLowerCase() === 'general'
+  && !attendanceTrackingEnabled.value
+  && !meetingCompletedAt.value
 ));
 
 const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase().trim());
@@ -321,18 +421,19 @@ const canSeeFullWorkspace = computed(() => {
 
 const showAttendanceTab = computed(() => {
   if (!canSeeFullWorkspace.value) return false;
+  if (!isAttendanceTrackingActive.value) return false;
   const kind = String(meetingKind.value || '').toUpperCase();
-  if (kind === 'HUDDLE' || kind === 'TEAM_MEETING') return true;
-  const subtype = String(meetingSubtype.value || '').toLowerCase();
-  return subtype === 'admin' || subtype === 'town_hall' || subtype === 'general';
+  return kind === 'HUDDLE' || kind === 'TEAM_MEETING';
 });
 
 const showNotesTab = computed(() => {
   if (!canSeeFullWorkspace.value) return false;
   const kind = String(meetingKind.value || '').toUpperCase();
-  if (kind === 'HUDDLE' || kind === 'TEAM_MEETING') return true;
+  if (kind === 'HUDDLE') return true;
+  if (kind !== 'TEAM_MEETING') return false;
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  return subtype === 'admin' || subtype === 'town_hall';
+  if (subtype === 'admin' || subtype === 'town_hall') return true;
+  return attendanceTrackingEnabled.value;
 });
 
 /** Host or non-provider staff can create polls (providers vote / chat / ask). */
@@ -386,6 +487,9 @@ function applyTokenPayload(data) {
   if (data.kind) meetingKind.value = String(data.kind).toUpperCase();
   if (data.meetingSubtype || data.meeting_subtype) {
     meetingSubtype.value = String(data.meetingSubtype || data.meeting_subtype || 'general').toLowerCase();
+  }
+  if (data.attendanceTrackingEnabled != null) {
+    attendanceTrackingEnabled.value = !!data.attendanceTrackingEnabled;
   }
   const joinLink = String(
     data.participantJoinUrl
@@ -600,8 +704,27 @@ async function ensureAuthenticatedSession() {
   return false;
 }
 
-function onHandsMapChange(map) {
-  raisedHandCount.value = Object.keys(map || {}).filter((k) => map[k]).length;
+function onHandsMapChange(payload) {
+  const map = payload?.byConnection || payload || {};
+  const names = payload?.nameByConnection || {};
+  raisedHandCount.value = Object.keys(map).filter((k) => map[k]).length;
+  raisedHandNames.value = Object.keys(map)
+    .filter((k) => map[k])
+    .map((k) => names[k])
+    .filter(Boolean);
+}
+
+function onAudioMapChange(payload) {
+  const map = payload?.mutedByConnection || {};
+  const names = payload?.nameByConnection || {};
+  mutedParticipantNames.value = Object.keys(map)
+    .filter((k) => map[k])
+    .map((k) => names[k])
+    .filter(Boolean);
+}
+
+function onParticipantLeft() {
+  attendancePanelRef.value?.load?.({ quiet: true });
 }
 
 async function copyJoinLink() {
@@ -615,6 +738,22 @@ async function copyJoinLink() {
     /* ignore */
   }
   toolsOpen.value = false;
+}
+
+async function enableAttendanceTracking() {
+  const eid = Number(resolvedEventId.value || 0);
+  if (!eid || !isHost.value) return;
+  enablingTracking.value = true;
+  enableTrackingError.value = '';
+  try {
+    const { data } = await api.post(`/team-meetings/${encodeURIComponent(eid)}/enable-attendance-tracking`);
+    attendanceTrackingEnabled.value = !!data?.attendanceTrackingEnabled;
+    await attendancePanelRef.value?.load?.();
+  } catch (e) {
+    enableTrackingError.value = e?.response?.data?.error?.message || 'Could not enable transcription and attendance.';
+  } finally {
+    enablingTracking.value = false;
+  }
 }
 
 async function onTranscriptPause() {
@@ -663,6 +802,53 @@ function onRemoteTranscriptControl(payload) {
   }
 }
 
+async function teardownLiveSession() {
+  stopAdmissionPolling();
+  stopPresenceHeartbeat();
+  stopCompletionPolling();
+  try {
+    await stopTranscriptCapture();
+  } catch { /* ignore */ }
+  try {
+    videoRoomRef.value?.disconnect?.();
+  } catch { /* ignore */ }
+  sendPresence('leave');
+  token.value = '';
+  vonageSessionId.value = '';
+  roomName.value = '';
+  videoConnected.value = false;
+}
+
+function showSessionExit({ variant = 'left', canRejoin = true } = {}) {
+  const ended = !!meetingCompletedAt.value || variant === 'host-ended' || variant === 'ended-by-you';
+  sessionExit.value = {
+    variant,
+    canRejoin: !!canRejoin && !ended
+  };
+  exitBannerDismissed.value = false;
+}
+
+function dismissHostEndedBanner() {
+  exitBannerDismissed.value = true;
+  goToScheduleFromExit();
+}
+
+function goToScheduleFromExit() {
+  sessionExit.value = null;
+  exitBannerDismissed.value = false;
+  navigateAway();
+}
+
+async function rejoinMeeting() {
+  sessionExit.value = null;
+  exitBannerDismissed.value = false;
+  intentionalLeave.value = false;
+  meetingCompletedAt.value = null;
+  joinAttemptedForPath.value = '';
+  error.value = '';
+  await fetchTokenAndJoin();
+}
+
 function navigateAway() {
   const slug = organizationSlug.value || authStore.user?.organization?.slug;
   if (slug) {
@@ -676,18 +862,11 @@ function onVideoConnected() {
   videoConnected.value = true;
 }
 
-async function finishLeave() {
+async function finishLeave({ variant = 'left', canRejoin = true } = {}) {
   intentionalLeave.value = true;
-  videoConnected.value = false;
-  stopAdmissionPolling();
-  stopPresenceHeartbeat();
-  stopCompletionPolling();
-  try {
-    await stopTranscriptCapture();
-  } catch { /* ignore */ }
-  sendPresence('leave');
-  token.value = '';
-  navigateAway();
+  await teardownLiveSession();
+  showHostLeaveModal.value = false;
+  showSessionExit({ variant, canRejoin });
 }
 
 function requestLeave() {
@@ -696,7 +875,7 @@ function requestLeave() {
     completeError.value = '';
     return;
   }
-  finishLeave();
+  void finishLeave({ variant: 'left', canRejoin: true });
 }
 
 async function markCompletedAndLeave() {
@@ -710,7 +889,7 @@ async function markCompletedAndLeave() {
     const { data } = await api.post(`/team-meetings/${encodeURIComponent(eid)}/complete`, {}, { skipGlobalLoading: true });
     meetingCompletedAt.value = data?.meetingCompletedAt || new Date().toISOString();
     showHostLeaveModal.value = false;
-    finishLeave();
+    void finishLeave({ variant: 'ended-by-you', canRejoin: false });
   } catch (e) {
     intentionalLeave.value = false;
     completeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to complete meeting';
@@ -721,30 +900,27 @@ async function markCompletedAndLeave() {
 
 function leaveWithoutClosing() {
   showHostLeaveModal.value = false;
-  finishLeave();
+  void finishLeave({ variant: 'left', canRejoin: true });
 }
 
 function onMeetingEnded() {
-  if (intentionalLeave.value) return;
+  if (sessionExit.value || intentionalLeave.value) return;
   meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
-  showHostLeaveModal.value = false;
-  finishLeave();
+  void finishLeave({ variant: 'host-ended', canRejoin: false });
 }
 
 function onDisconnected() {
-  if (intentionalLeave.value) return;
+  if (intentionalLeave.value || sessionExit.value) return;
   videoConnected.value = false;
-  // Force-kick after host completed the meeting.
   if (meetingCompletedAt.value) {
-    finishLeave();
+    void finishLeave({ variant: 'host-ended', canRejoin: false });
     return;
   }
-  // Unexpected disconnect — still close this user's attendance segment.
   if (isHost.value) {
     showHostLeaveModal.value = true;
     return;
   }
-  finishLeave();
+  void finishLeave({ variant: 'left', canRejoin: true });
 }
 
 async function runJoinFlowForCurrentRoute() {
@@ -791,6 +967,9 @@ watch(
       const subtype = String(data?.meetingSubtype || 'general').toLowerCase();
       meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall') ? subtype : 'general';
       if (data?.kind) meetingKind.value = String(data.kind).toUpperCase();
+      if (data?.attendanceTrackingEnabled != null) {
+        attendanceTrackingEnabled.value = !!data.attendanceTrackingEnabled;
+      }
     } catch {
       meetingSubtype.value = 'general';
     }
@@ -804,6 +983,9 @@ watch(
       if (att?.meetingSubtype) {
         const subtype = String(att.meetingSubtype).toLowerCase();
         meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall') ? subtype : meetingSubtype.value;
+      }
+      if (att?.attendanceTrackingEnabled != null) {
+        attendanceTrackingEnabled.value = !!att.attendanceTrackingEnabled;
       }
     } catch { /* ignore */ }
   }
@@ -819,6 +1001,10 @@ onUnmounted(() => {
   stopAdmissionPolling();
   stopPresenceHeartbeat();
   stopCompletionPolling();
+  if (fullscreenNoticeTimer) clearTimeout(fullscreenNoticeTimer);
+  if (typeof document !== 'undefined') {
+    document.body.classList.remove('meeting-video-fullscreen');
+  }
 });
 </script>
 
@@ -842,6 +1028,10 @@ onUnmounted(() => {
   gap: 10px;
   flex-shrink: 0;
   flex-wrap: wrap;
+}
+.join-tracking-error {
+  font-size: 0.8rem;
+  color: #fecaca;
 }
 .join-completed-chip {
   font-size: 0.8rem;
@@ -906,6 +1096,26 @@ onUnmounted(() => {
 .join-session-layout--chat-only {
   grid-template-columns: 1fr;
 }
+.join-session-layout--video-fs {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+.join-team-meeting-view--video-fs {
+  padding: 0;
+  background: #070a10;
+}
+.join-live-activity--fs-probe {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0);
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
 .join-tools { position: relative; }
 .join-tools__menu {
   position: absolute;
@@ -941,16 +1151,25 @@ onUnmounted(() => {
   border-radius: 999px;
   padding: 4px 8px;
 }
-.join-session-layout--video-focus .join-live-activity {
-  min-height: 0;
-}
 .join-video {
   min-width: 0;
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 10px;
   overflow: auto;
+}
+.join-session-layout--video-focus .join-video {
+  overflow: hidden;
+}
+.join-session-layout--video-focus .join-video :deep(.supervision-video-room) {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.join-session-layout--video-focus .join-video :deep(.vsr) {
+  flex: 1 1 0;
+  min-height: 0;
 }
 .join-live-activity {
   border: 1px solid #e2e8f0;
@@ -962,6 +1181,14 @@ onUnmounted(() => {
   gap: 6px;
   min-height: 360px;
   flex: 0 0 auto;
+}
+.join-live-activity--collapsed,
+.join-session-layout--video-focus .join-live-activity {
+  min-height: 0;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 .join-live-activity__title {
   margin: 0;

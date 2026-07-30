@@ -2438,6 +2438,15 @@
 
               <h3 class="sbep-att-subhead">Employee kiosk check-in</h3>
               <p class="muted small">Staff arrivals and departures recorded at the event station kiosk.</p>
+              <div v-if="viewerCaps.canManageCompanyEvent" class="actions" style="margin-bottom: 10px;">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="openAdminManualEmployeeTimeModal"
+                >
+                  Add check-in / check-out
+                </button>
+              </div>
               <div v-if="kioskEmployeeRowsFiltered.length" class="table-wrap">
                 <table class="table">
                   <thead>
@@ -2503,6 +2512,11 @@
                         <span v-if="row.directClaimStatus">D: {{ row.directClaimStatus }}</span>
                         <span v-if="row.indirectClaimStatus"> · I: {{ row.indirectClaimStatus }}</span>
                         <span v-if="!row.directClaimStatus && !row.indirectClaimStatus" class="muted">Open</span>
+                        <span
+                          v-if="row.adminAdded"
+                          title="Times were added by an administrator — employee must verify and update."
+                          style="margin-left:4px;background:#fef3c7;color:#92400e;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
+                        >Added by Admin</span>
                       </td>
                     </tr>
                   </tbody>
@@ -2545,6 +2559,58 @@
                     <img v-else-if="kioskReleasePhotoUrl" :src="kioskReleasePhotoUrl" alt="Release photo" class="sbep-release-photo" />
                   </div>
                 </template>
+              </div>
+            </div>
+
+            <div v-if="adminManualEmployeeModalOpen" class="sbep-modal-overlay" @click.self="closeAdminManualEmployeeTimeModal">
+              <div class="sbep-modal-card">
+                <header class="sbep-modal-hdr">
+                  <div>
+                    <h3 class="sbep-modal-title">Add employee check-in / check-out</h3>
+                    <p class="muted small">Creates event time for payroll and sends it back to the employee to verify.</p>
+                  </div>
+                  <button type="button" class="btn btn-text" @click="closeAdminManualEmployeeTimeModal">Close</button>
+                </header>
+                <div v-if="adminManualEmployeeError" class="error-box" style="margin-bottom: 10px;">{{ adminManualEmployeeError }}</div>
+                <label class="sbep-label">Employee</label>
+                <select v-model="adminManualEmployeeForm.userId" class="input sbep-kiosk-field">
+                  <option value="">Select employee…</option>
+                  <option v-for="p in rosterProviderOptions" :key="p.id" :value="String(p.id)">
+                    {{ `${p.firstName || ''} ${p.lastName || ''}`.trim() || `#${p.id}` }}
+                  </option>
+                </select>
+                <label class="sbep-label" style="margin-top: 10px;">Event day</label>
+                <input
+                  v-model="adminManualEmployeeForm.kioskDate"
+                  type="date"
+                  class="input sbep-kiosk-field"
+                />
+                <label class="sbep-label" style="margin-top: 10px;">Check-in</label>
+                <input
+                  v-model="adminManualEmployeeForm.clockInLocal"
+                  type="datetime-local"
+                  class="input sbep-kiosk-field"
+                />
+                <label class="sbep-label" style="margin-top: 10px;">Check-out</label>
+                <input
+                  v-model="adminManualEmployeeForm.clockOutLocal"
+                  type="datetime-local"
+                  class="input sbep-kiosk-field"
+                />
+                <p class="muted small" style="margin-top: 10px;">
+                  Payroll will show this as <strong>Added by Admin</strong> and the employee must confirm or update the times.
+                </p>
+                <div class="actions" style="margin-top: 14px;">
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    :disabled="adminManualEmployeeSaving"
+                    @click="submitAdminManualEmployeeTime"
+                  >
+                    {{ adminManualEmployeeSaving ? 'Saving…' : 'Save times' }}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="closeAdminManualEmployeeTimeModal">Cancel</button>
+                </div>
               </div>
             </div>
 
@@ -4952,6 +5018,15 @@ const kioskAttendanceClients = ref([]);
 const kioskAttendanceEmployees = ref([]);
 const kioskAttendanceDates = ref([]);
 const kioskAttDateFilter = ref('');
+const adminManualEmployeeModalOpen = ref(false);
+const adminManualEmployeeSaving = ref(false);
+const adminManualEmployeeError = ref('');
+const adminManualEmployeeForm = reactive({
+  userId: '',
+  kioskDate: '',
+  clockInLocal: '',
+  clockOutLocal: ''
+});
 const kioskReleaseDetailOpen = ref(false);
 const kioskReleaseDetailRow = ref(null);
 const kioskReleasePhotoUrl = ref('');
@@ -5450,6 +5525,79 @@ async function confirmResetAttendanceDay(sessionDate) {
     planError.value = e.response?.data?.error?.message || e.message || 'Could not reset attendance for this day';
   } finally {
     attendanceResetLoading.value = false;
+  }
+}
+
+function defaultAdminManualKioskDate() {
+  const fromFilter = String(kioskAttDateFilter.value || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fromFilter)) return fromFilter;
+  const sessionsList = sessions.value || [];
+  if (sessionsList.length) {
+    const ymd = String(sessionsList[0].sessionDate || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+  }
+  return ymdToday();
+}
+
+function openAdminManualEmployeeTimeModal() {
+  const ymd = defaultAdminManualKioskDate();
+  adminManualEmployeeForm.userId = '';
+  adminManualEmployeeForm.kioskDate = ymd;
+  adminManualEmployeeForm.clockInLocal = `${ymd}T09:00`;
+  adminManualEmployeeForm.clockOutLocal = `${ymd}T17:00`;
+  adminManualEmployeeError.value = '';
+  adminManualEmployeeModalOpen.value = true;
+}
+
+function closeAdminManualEmployeeTimeModal() {
+  if (adminManualEmployeeSaving.value) return;
+  adminManualEmployeeModalOpen.value = false;
+  adminManualEmployeeError.value = '';
+}
+
+async function submitAdminManualEmployeeTime() {
+  const uid = Number(adminManualEmployeeForm.userId);
+  const kioskDate = String(adminManualEmployeeForm.kioskDate || '').slice(0, 10);
+  if (!Number.isFinite(uid) || uid <= 0) {
+    adminManualEmployeeError.value = 'Select an employee.';
+    return;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(kioskDate)) {
+    adminManualEmployeeError.value = 'Select a valid event day.';
+    return;
+  }
+  const clockInAt = new Date(adminManualEmployeeForm.clockInLocal);
+  const clockOutAt = new Date(adminManualEmployeeForm.clockOutLocal);
+  if (!Number.isFinite(clockInAt.getTime()) || !Number.isFinite(clockOutAt.getTime())) {
+    adminManualEmployeeError.value = 'Enter valid check-in and check-out times.';
+    return;
+  }
+  if (clockOutAt <= clockInAt) {
+    adminManualEmployeeError.value = 'Check-out must be after check-in.';
+    return;
+  }
+  if (!eventBillingAgencyId.value || !eventId.value) return;
+
+  adminManualEmployeeSaving.value = true;
+  adminManualEmployeeError.value = '';
+  try {
+    await api.post(
+      `/skill-builders/events/${eventId.value}/attendance/employee-manual-time`,
+      {
+        agencyId: eventBillingAgencyId.value,
+        userId: uid,
+        kioskDate,
+        clockInAt: clockInAt.toISOString(),
+        clockOutAt: clockOutAt.toISOString()
+      },
+      { skipGlobalLoading: true }
+    );
+    adminManualEmployeeModalOpen.value = false;
+    await loadAttendance();
+  } catch (e) {
+    adminManualEmployeeError.value = e.response?.data?.error?.message || e.message || 'Could not save manual times';
+  } finally {
+    adminManualEmployeeSaving.value = false;
   }
 }
 

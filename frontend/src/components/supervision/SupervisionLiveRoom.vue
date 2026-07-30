@@ -1,20 +1,26 @@
 <template>
   <IndividualSupervisionLiveRoom
     v-if="isIndividual"
+    ref="activeRoomRef"
     v-bind="roomProps"
-    @leave="$emit('leave')"
+    @leave="$emit('leave', $event)"
     @connected="$emit('connected', $event)"
+    @meeting-ended="$emit('meeting-ended', $event)"
+    @disconnected="$emit('disconnected')"
   />
   <GroupSupervisionLiveRoom
     v-else
+    ref="activeRoomRef"
     v-bind="roomProps"
-    @leave="$emit('leave')"
+    @leave="$emit('leave', $event)"
     @connected="$emit('connected', $event)"
+    @meeting-ended="$emit('meeting-ended', $event)"
+    @disconnected="$emit('disconnected')"
   />
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, defineExpose } from 'vue';
 import IndividualSupervisionLiveRoom from './IndividualSupervisionLiveRoom.vue';
 import GroupSupervisionLiveRoom from './GroupSupervisionLiveRoom.vue';
 import {
@@ -23,7 +29,13 @@ import {
 } from '../../composables/useSupervisionLiveSession';
 
 const props = defineProps(supervisionLiveRoomProps);
-defineEmits(['leave', 'connected']);
+defineEmits(['leave', 'connected', 'meeting-ended', 'disconnected']);
+
+const activeRoomRef = ref(null);
+
+defineExpose({
+  disconnect: (...args) => activeRoomRef.value?.disconnect?.(...args)
+});
 
 const isIndividual = computed(() => isIndividualSupervisionType(props.sessionMeta));
 

@@ -48,9 +48,174 @@ function parseMysqlDate(raw) {
   };
 }
 
+export const JOIN_PRESENCE_STALE_SECONDS = 45;
+
 function userIdFromJoinIdentity(joinIdentity) {
   const m = /^user-(\d+)$/i.exec(String(joinIdentity || '').trim());
   return m ? Number(m[1]) : 0;
+}
+
+export { userIdFromJoinIdentity };
+
+/** Huddles, admin meetings, and town halls always track; general team meetings opt in. */
+export function isAttendanceTrackingEnabledForEvent(event) {
+  const kind = String(event?.kind || '').toUpperCase();
+  if (kind === 'HUDDLE') return true;
+  if (kind !== 'TEAM_MEETING') return false;
+  const subtype = String(event?.meeting_subtype || 'general').trim().toLowerCase();
+  if (subtype === 'admin' || subtype === 'town_hall') return true;
+  return Number(event?.attendance_tracking_enabled || 0) === 1;
+}
+
+export async function enableAttendanceTrackingForEvent(eventId, { actorUserId = null } = {}) {
+  const eid = Number(eventId || 0);
+  if (!eid) return { ok: false, error: 'invalid_event' };
+  const event = await loadMeetingEvent(eid);
+  if (!event) return { ok: false, error: 'event_not_found' };
+  const kind = String(event.kind || '').toUpperCase();
+  if (kind !== 'TEAM_MEETING' && kind !== 'HUDDLE') {
+    return { ok: false, error: 'not_a_meeting' };
+  }
+  if (isAttendanceTrackingEnabledForEvent(event)) {
+    return { ok: true, alreadyEnabled: true, eventId: eid };
+  }
+  await pool.execute(
+    `UPDATE provider_schedule_events
+     SET attendance_tracking_enabled = 1,
+         updated_by_user_id = COALESCE(?, updated_by_user_id),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [actorUserId ? Number(actorUserId) : null, eid]
+  );
+  return { ok: true, enabled: true, eventId: eid };
+}
+
+export async function pruneStaleJoinPresenceForEvent(eventId, {
+  staleSeconds = JOIN_PRESENCE_STALE_SECONDS
+} = {}) {
+  const eid = Number(eventId || 0);
+  if (!eid) return { pruned: 0 };
+  try {
+    const [stale] = await pool.execute(
+      `SELECT join_identity
+       FROM provider_schedule_event_join_presence
+       WHERE event_id = ?
+         AND left_at IS NULL
+         AND last_seen_at < (UTC_TIMESTAMP() - INTERVAL ${Number(staleSeconds)} SECOND)`,
+      [eid]
+    );
+    if (!stale?.length) return { pruned: 0 };
+    await pool.execute(
+      `UPDATE provider_schedule_event_join_presence
+       SET left_at = UTC_TIMESTAMP()
+       WHERE event_id = ?
+         AND left_at IS NULL
+         AND last_seen_at < (UTC_TIMESTAMP() - INTERVAL ${Number(staleSeconds)} SECOND)`,
+      [eid]
+    );
+    for (const row of stale) {
+      const identity = String(row.join_identity || '').trim();
+      if (!identity) continue;
+      // eslint-disable-next-line no-await-in-loop
+      await closeAttendanceSegment({ eventId: eid, joinIdentity: identity });
+    }
+    return { pruned: stale.length };
+  } catch {
+    return { pruned: 0 };
+  }
+}
+
+export async function getActivePresenceUserIds(eventId, {
+  staleSeconds = JOIN_PRESENCE_STALE_SECONDS
+} = {}) {
+  const eid = Number(eventId || 0);
+  if (!eid) return [];
+  const [rows] = await pool.execute(
+    `SELECT join_identity
+     FROM provider_schedule_event_join_presence
+     WHERE event_id = ?
+       AND left_at IS NULL
+       AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${Number(staleSeconds)} SECOND)`,
+    [eid]
+  );
+  const ids = [];
+  for (const row of rows || []) {
+    const uid = userIdFromJoinIdentity(row.join_identity);
+    if (uid) ids.push(uid);
+  }
+  return ids;
+}
+
+export async function loadJoinPresenceByUser(eventId, {
+  staleSeconds = JOIN_PRESENCE_STALE_SECONDS
+} = {}) {
+  const eid = Number(eventId || 0);
+  if (!eid) return new Map();
+  const [rows] = await pool.execute(
+    `SELECT join_identity, joined_at, last_seen_at, left_at
+     FROM provider_schedule_event_join_presence
+     WHERE event_id = ?`,
+    [eid]
+  );
+  const out = new Map();
+  const staleMs = Number(staleSeconds) * 1000;
+  const now = Date.now();
+  for (const row of rows || []) {
+    const uid = userIdFromJoinIdentity(row.join_identity);
+    if (!uid) continue;
+    const lastSeen = parseMysqlDate(row.last_seen_at)?.date?.getTime();
+    const isFresh = Number.isFinite(lastSeen) && (now - lastSeen) <= staleMs;
+    const isPresent = !row.left_at && isFresh;
+    out.set(uid, {
+      isPresent,
+      leftAt: row.left_at || null,
+      joinedAt: row.joined_at || null,
+      lastSeenAt: row.last_seen_at || null
+    });
+  }
+  return out;
+}
+
+/**
+ * Keep payable segments aligned with live join presence: close when someone leaves,
+ * open when they return, stop accruing while away.
+ */
+export async function syncAttendanceSegmentsWithPresence(eventId, {
+  staleSeconds = JOIN_PRESENCE_STALE_SECONDS
+} = {}) {
+  const eid = Number(eventId || 0);
+  if (!eid) return { ok: false };
+  const event = await loadMeetingEvent(eid);
+  if (!event || !isAttendanceTrackingEnabledForEvent(event)) {
+    return { ok: true, skipped: true, reason: 'tracking_disabled' };
+  }
+  await pruneStaleJoinPresenceForEvent(eid, { staleSeconds });
+  const activeIds = await getActivePresenceUserIds(eid, { staleSeconds });
+  const activeSet = new Set(activeIds);
+  for (const uid of activeIds) {
+    // eslint-disable-next-line no-await-in-loop
+    await openAttendanceSegment({
+      eventId: eid,
+      userId: uid,
+      source: 'platform',
+      force: true
+    });
+  }
+  const [openRows] = await pool.execute(
+    `SELECT DISTINCT user_id
+     FROM provider_schedule_event_attendance_segments
+     WHERE event_id = ? AND ended_at IS NULL`,
+    [eid]
+  );
+  for (const row of openRows || []) {
+    const uid = Number(row.user_id || 0);
+    if (uid && !activeSet.has(uid)) {
+      // eslint-disable-next-line no-await-in-loop
+      await closeAttendanceSegment({ eventId: eid, userId: uid });
+    }
+  }
+  await rebuildAttendanceRollupsFromSegments(eid, { syncClaims: false });
+  return { ok: true, activeCount: activeIds.length };
 }
 
 export async function loadMeetingEvent(eventId) {
@@ -58,7 +223,8 @@ export async function loadMeetingEvent(eventId) {
   if (!eid) return null;
   const [rows] = await pool.execute(
     `SELECT id, agency_id, provider_id, kind, meeting_subtype, start_at, end_at,
-            meeting_completed_at, status, google_meet_link, platform_video_link, title
+            meeting_completed_at, status, google_meet_link, platform_video_link, title,
+            attendance_tracking_enabled
      FROM provider_schedule_events
      WHERE id = ?
      LIMIT 1`,
@@ -103,6 +269,9 @@ export async function openAttendanceSegment({
   }
   if (event.meeting_completed_at) {
     return { ok: true, skipped: true, error: 'already_completed' };
+  }
+  if (!isAttendanceTrackingEnabledForEvent(event)) {
+    return { ok: true, skipped: true, error: 'tracking_disabled' };
   }
 
   const now = at instanceof Date ? at : new Date();
@@ -387,12 +556,15 @@ export async function listAttendanceSummary(eventId) {
     }
   } catch { /* ignore */ }
 
+  const presenceByUser = await loadJoinPresenceByUser(eid);
+
   const participants = Array.from(byUser.values()).map((p) => {
     const totalSeconds = computeSegmentSeconds(p.segments, event);
     const name = [p.firstName, p.lastName].filter(Boolean).join(' ').trim()
       || p.email
       || `User #${p.userId}`;
     const totalMinutes = Math.round((totalSeconds / 60) * 100) / 100;
+    const presence = presenceByUser.get(p.userId) || {};
     return {
       userId: p.userId,
       name,
@@ -403,7 +575,12 @@ export async function listAttendanceSummary(eventId) {
       isHost: Number(p.userId) === Number(event.provider_id || 0),
       totalSeconds,
       totalMinutes,
-      segmentCount: (p.segments || []).length
+      segmentCount: (p.segments || []).length,
+      isPresent: !!presence.isPresent,
+      leftAt: presence.leftAt || null,
+      joinedAt: presence.joinedAt || null,
+      lastSeenAt: presence.lastSeenAt || null,
+      presenceStatus: presence.isPresent ? 'active' : (presence.leftAt ? 'left' : 'away')
     };
   }).sort((a, b) => {
     if (a.isHost !== b.isHost) return a.isHost ? -1 : 1;
@@ -419,6 +596,7 @@ export async function listAttendanceSummary(eventId) {
     eventId: eid,
     kind: event.kind,
     meetingSubtype: event.meeting_subtype || 'general',
+    attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(event),
     meetingCompletedAt: event.meeting_completed_at || null,
     startAt: event.start_at || null,
     endAt: event.end_at || null,

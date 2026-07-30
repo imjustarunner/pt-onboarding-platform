@@ -11360,8 +11360,9 @@ const participantPhotoUrl = (row) => String(
 ).trim() || '';
 
 const onChooserWhenChanged = () => {
-  const start = Number(modalHour.value || 0);
+  const start = Number(effectiveModalStartHour.value ?? modalHour.value ?? 0);
   let end = Number(modalEndHour.value || 0);
+  modalHour.value = start;
   modalStartHour.value = start;
   if (!Number.isFinite(end) || end <= start) {
     end = Math.min(start + 1, Number(gridMaxHour.value || 22));
@@ -11371,8 +11372,10 @@ const onChooserWhenChanged = () => {
   officeAssignEndHour.value = end;
   officeAssignDay.value = String(modalDay.value || officeAssignDay.value || 'Monday');
 
-  // Keep grid selection aligned when the user adjusts WHEN in the chooser.
-  if (modalChooserTimeEditable.value) {
+  // Keep grid selection aligned when the user adjusts WHEN (chooser or timed meetings/huddles).
+  const syncGridSelection = modalChooserTimeEditable.value
+    || (isScheduleEventRequestType.value && !isScheduleEventAllDayUi.value);
+  if (syncGridSelection) {
     const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
     const roomId = Number(selectedOfficeRoomId.value || modalContext.value?.roomId || 0);
     const slots = [];
@@ -12003,15 +12006,19 @@ const editorWorkspaceTabs = computed(() => {
     );
     const eventKind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
     const subtype = normalizeMeetingSubtype(meetingSubtype.value || editingScheduleStackItem.value?.meetingSubtype);
+    const showAttendance = eventKind === 'HUDDLE'
+      || subtype === 'admin'
+      || subtype === 'town_hall'
+      || !!editingScheduleStackItem.value?.attendanceTrackingEnabled;
     const showComp = eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall';
     tabs.push({
       id: 'attendance',
       label: 'Attendance',
       icon: '◎',
-      disabled: !showComp,
-      disabledReason: showComp
+      disabled: !showAttendance,
+      disabledReason: showAttendance
         ? ''
-        : 'Attendance tracking is available for Huddles, Admin Meetings, and Town Halls'
+        : 'General meetings track attendance only when the host enables transcription & attendance in the live meeting, or schedule a Huddle, Admin Meeting, or Town Hall.'
     });
     if (showComp) {
       tabs.push({ id: 'time_claims', label: 'Time Claims', icon: '$' });
@@ -14241,7 +14248,8 @@ const canOpenMeetingAttendanceTab = computed(() => {
   if (!editorIsMeeting.value || !Number(scheduleEventEditId.value || 0)) return false;
   const eventKind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
   const subtype = normalizeMeetingSubtype(meetingSubtype.value || editingScheduleStackItem.value?.meetingSubtype);
-  return eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall';
+  if (eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall') return true;
+  return !!editingScheduleStackItem.value?.attendanceTrackingEnabled;
 });
 const supervisionCanUseAllAgencies = computed(
   () => supervisionGroupModeEnabled.value && canBookGroupSupervisionFromGrid.value && (effectiveAgencyIds.value || []).length > 1
@@ -15443,7 +15451,12 @@ const loadMeetingBusyByParticipant = async (opts = {}) => {
   const restIds = visible.filter((id) => !priorityIds.includes(id) && needsCheck(id));
   if (!priorityIds.length && !restIds.length) return;
 
-  const ranges = mergeSelectedSlotsByDay({ dayName: modalDay.value, startHour: Number(effectiveModalStartHour.value || modalHour.value), endHour: Number(modalEndHour.value) })
+  const ranges = mergeSelectedSlotsByDay({
+    dayName: modalDay.value,
+    startHour: Number(effectiveModalStartHour.value || modalHour.value),
+    endHour: Number(modalEndHour.value),
+    useModalRange: true
+  })
     .map((row) => {
       const dateYmd = String(row?.dateYmd || '').slice(0, 10);
       const startHour = Number(row?.startHour || 0);
@@ -17869,9 +17882,26 @@ const scheduleEventKindForAction = (actionId) => {
   return 'PERSONAL_EVENT';
 };
 
-const mergeSelectedSlotsByDay = ({ dayName, startHour, endHour }) => {
+const mergeSelectedSlotsByDay = ({ dayName, startHour, endHour, useModalRange = false } = {}) => {
   const selected = sortedSelectedActionSlots();
   const fallbackDate = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
+  const modalStart = Number(startHour);
+  const modalEnd = Number(endHour);
+  if (
+    useModalRange
+    && Number.isFinite(modalStart)
+    && Number.isFinite(modalEnd)
+    && modalEnd > modalStart
+  ) {
+    const dates = selected.length
+      ? Array.from(new Set(selected.map((x) => String(x.dateYmd || fallbackDate).slice(0, 10))))
+      : [fallbackDate];
+    return dates.map((dateYmd) => ({
+      dateYmd,
+      startHour: modalStart,
+      endHour: modalEnd
+    }));
+  }
   const seedRows = selected.length
     ? selected.map((x) => ({ dateYmd: String(x.dateYmd || fallbackDate).slice(0, 10), hour: Number(x.hour) }))
     : [{ dateYmd: fallbackDate, hour: Number(startHour) }];
@@ -18327,7 +18357,12 @@ const submitRequest = async () => {
         ? meetingSubtypeForCreatePayload()
         : 'general';
       if (scheduleEventAllDay.value || normalizedAction === 'schedule_hold_all_day') {
-        const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
+        const ranges = mergeSelectedSlotsByDay({
+          dayName: dn,
+          startHour: h,
+          endHour: endH,
+          useModalRange: true
+        });
         const baseDates = Array.from(new Set(ranges.map((x) => String(x.dateYmd || '').slice(0, 10)).filter(Boolean)));
         const recurringDates = Array.from(
           new Set(baseDates.flatMap((dateYmd) => scheduleEventOccurrenceDates(dateYmd, recurrence, occurrenceCount)))
@@ -18373,7 +18408,12 @@ const submitRequest = async () => {
           }
         }
       } else {
-        const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
+        const ranges = mergeSelectedSlotsByDay({
+          dayName: dn,
+          startHour: h,
+          endHour: endH,
+          useModalRange: true
+        });
         for (const row of ranges) {
           const dates = scheduleEventOccurrenceDates(String(row.dateYmd).slice(0, 10), recurrence, occurrenceCount);
           for (const dateYmd of dates) {
@@ -19494,7 +19534,7 @@ watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agency
   void loadMeetingCandidates();
 });
 
-watch([requestType, modalDay, modalHour, modalEndHour, modalStartMinute, modalEndMinute], ([type]) => {
+watch([requestType, modalDay, modalHour, modalStartHour, modalEndHour, modalStartMinute, modalEndMinute], ([type]) => {
   if (!['agency_meeting', 'huddle'].includes(String(type || '')) || !showRequestModal.value) return;
   scheduleMeetingBusyCheck({ prioritizeIds: Array.from(selectedMeetingParticipantIdSet.value.values()) });
 });

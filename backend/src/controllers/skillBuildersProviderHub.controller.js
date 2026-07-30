@@ -44,7 +44,8 @@ import { ProviderAvailabilityService } from '../services/providerAvailability.se
 import {
   recordSkillBuilderEventClockIn,
   recordSkillBuilderEventClockOut,
-  listPairedEventProviderAttendance
+  listPairedEventProviderAttendance,
+  recordAdminManualEmployeeEventTime
 } from '../services/skillBuildersEventKioskPunch.service.js';
 import { buildEventProviderAttendanceCsv } from '../services/eventPayrollSubmissions.service.js';
 import {
@@ -2745,6 +2746,52 @@ export const listSkillBuilderEventKioskAttendance = async (req, res, next) => {
     if (e?.code === 'ER_NO_SUCH_TABLE') {
       return res.json({ ok: true, clientRows: [], employeeRows: [], dates: [] });
     }
+    next(e);
+  }
+};
+
+/** POST /api/skill-builders/events/:eventId/attendance/employee-manual-time */
+export const postAdminManualEmployeeEventTime = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const userId = parsePositiveInt(req.body?.userId);
+    if (!agencyId || !eventId || !userId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and userId are required' } });
+    }
+
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const uid = parsePositiveInt(req.user?.id);
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const coord = await getSkillBuilderCoordinatorAccess(uid);
+    if (!staffLike && !coord) {
+      return res.status(403).json({ error: { message: 'Only event administrators can add manual check-in/out times.' } });
+    }
+
+    const kioskDateYmd = String(req.body?.kioskDate || req.body?.kioskDateYmd || '').trim().slice(0, 10);
+    const clockInAt = req.body?.clockInAt;
+    const clockOutAt = req.body?.clockOutAt;
+    const sessionId = parsePositiveInt(req.body?.sessionId);
+
+    const result = await recordAdminManualEmployeeEventTime(pool, {
+      agencyId,
+      eventId,
+      userId,
+      kioskDateYmd,
+      clockInAt,
+      clockOutAt,
+      sessionId,
+      addedByUserId: uid
+    });
+
+    if (result.error) {
+      return res.status(result.error.status || 400).json({ error: { message: result.error.message } });
+    }
+
+    res.json({ ok: true, ...result });
+  } catch (e) {
     next(e);
   }
 };

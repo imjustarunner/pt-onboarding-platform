@@ -12,7 +12,8 @@ import {
   createAccessTokenAsync,
   listRoomParticipants,
   resolveVideoProjectId,
-  getVideoClientDiagnostics
+  getVideoClientDiagnostics,
+  completeRoom
 } from '../services/video.service.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
@@ -26,10 +27,117 @@ import SupervisionCasePresentation from '../models/SupervisionCasePresentation.m
 
 const JOIN_PRESENCE_STALE_SECONDS = 25;
 
-async function pruneStaleJoinPresence(sessionId) {
+function userIdFromSupervisionJoinIdentity(joinIdentity) {
+  const m = /^user-(\d+)$/i.exec(String(joinIdentity || '').trim());
+  return m ? Number(m[1]) : 0;
+}
+
+function isPresenceLastSeenStale(lastSeenAt, staleSeconds = JOIN_PRESENCE_STALE_SECONDS) {
+  const atMs = parseAsDate(lastSeenAt)?.getTime();
+  if (!Number.isFinite(atMs)) return true;
+  return (Date.now() - atMs) > Number(staleSeconds) * 1000;
+}
+
+async function ensureSupervisionAttendeeForUser(sessionRow, sessionId, userId) {
+  const sid = Number(sessionId || 0);
+  const uid = Number(userId || 0);
+  if (!sid || !uid) return null;
+  let attendee = await SupervisionSession.findAttendeeBySessionUser(sid, uid);
+  if (attendee) return attendee;
+  const role = Number(sessionRow?.supervisor_user_id || 0) === uid ? 'supervisor' : 'supervisee';
+  await SupervisionSession.upsertAttendees(sid, [{
+    userId: uid,
+    participantRole: role,
+    isRequired: true,
+    isCompensableSnapshot: false,
+    status: 'INVITED'
+  }]);
+  attendee = await SupervisionSession.findAttendeeBySessionUser(sid, uid);
+  return attendee || null;
+}
+
+async function recordSupervisionPresenceAttendanceEvent({
+  sessionRow,
+  sessionId,
+  userId,
+  joinIdentity,
+  eventType
+}) {
+  const sid = Number(sessionId || 0);
+  const uid = Number(userId || 0);
+  const evType = String(eventType || '').trim().toLowerCase();
+  if (!sid || !uid || !['joined', 'left'].includes(evType)) return null;
+  const attendee = await ensureSupervisionAttendeeForUser(sessionRow, sid, uid);
+  const eventAt = mysqlNowDateTime();
+  const clientSessionKey = `live-presence-${sid}-${uid}-${String(joinIdentity || '').trim()}`;
+  await SupervisionSession.recordAttendanceEvent({
+    sessionId: sid,
+    attendeeId: Number(attendee?.id || 0) || null,
+    userId: uid,
+    participantSessionKey: clientSessionKey,
+    eventType: evType,
+    eventAt,
+    rawPayload: {
+      source: 'live_join_presence',
+      joinIdentity: String(joinIdentity || '').trim()
+    }
+  });
+  await SupervisionSession.setAttendeeStatus({
+    sessionId: sid,
+    userId: uid,
+    status: evType === 'joined' ? 'JOINED' : 'LEFT'
+  });
+  return recomputeAttendanceRollupForUser({ sessionId: sid, userId: uid });
+}
+
+async function loadSupervisionPresenceByUser(sessionId, {
+  staleSeconds = JOIN_PRESENCE_STALE_SECONDS
+} = {}) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return new Map();
+  const [rows] = await pool.execute(
+    `SELECT join_identity, joined_at, last_seen_at, left_at
+     FROM supervision_session_join_presence
+     WHERE session_id = ?`,
+    [sid]
+  );
+  const out = new Map();
+  for (const row of rows || []) {
+    const uid = userIdFromSupervisionJoinIdentity(row.join_identity);
+    if (!uid) continue;
+    const stale = isPresenceLastSeenStale(row.last_seen_at, staleSeconds);
+    const isPresent = !row.left_at && !stale;
+    out.set(uid, {
+      isPresent,
+      leftAt: row.left_at || null,
+      joinedAt: row.joined_at || null,
+      lastSeenAt: row.last_seen_at || null
+    });
+  }
+  return out;
+}
+
+async function pruneStaleJoinPresence(sessionId, { sessionRow = null } = {}) {
   const sid = Number(sessionId || 0);
   if (!sid) return;
+  let row = sessionRow;
+  if (!row) {
+    try {
+      row = await SupervisionSession.findById(sid);
+    } catch {
+      row = null;
+    }
+  }
   try {
+    const [stale] = await pool.execute(
+      `SELECT join_identity
+       FROM supervision_session_join_presence
+       WHERE session_id = ?
+         AND left_at IS NULL
+         AND last_seen_at < (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
+      [sid]
+    );
+    if (!stale?.length) return;
     await pool.execute(
       `UPDATE supervision_session_join_presence
        SET left_at = UTC_TIMESTAMP()
@@ -38,9 +146,91 @@ async function pruneStaleJoinPresence(sessionId) {
          AND last_seen_at < (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
       [sid]
     );
+    for (const entry of stale) {
+      const identity = String(entry.join_identity || '').trim();
+      const uid = userIdFromSupervisionJoinIdentity(identity);
+      if (!uid || !row) continue;
+      // eslint-disable-next-line no-await-in-loop
+      await recordSupervisionPresenceAttendanceEvent({
+        sessionRow: row,
+        sessionId: sid,
+        userId: uid,
+        joinIdentity: identity,
+        eventType: 'left'
+      });
+    }
   } catch {
     /* ignore */
   }
+}
+
+async function getActiveSupervisionPresenceUserIds(sessionId) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return [];
+  const [rows] = await pool.execute(
+    `SELECT join_identity
+     FROM supervision_session_join_presence
+     WHERE session_id = ?
+       AND left_at IS NULL
+       AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
+    [sid]
+  );
+  const ids = [];
+  for (const row of rows || []) {
+    const uid = userIdFromSupervisionJoinIdentity(row.join_identity);
+    if (uid) ids.push(uid);
+  }
+  return ids;
+}
+
+async function syncSupervisionAttendanceWithPresence(sessionId, { sessionRow = null } = {}) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return { ok: false };
+  let row = sessionRow;
+  if (!row) row = await SupervisionSession.findById(sid);
+  if (!row) return { ok: false };
+
+  await pruneStaleJoinPresence(sid, { sessionRow: row });
+  const activeIds = await getActiveSupervisionPresenceUserIds(sid);
+  const activeSet = new Set(activeIds);
+
+  const rollups = await SupervisionSession.listAttendanceRollupsForSession(sid);
+  const trackedUserIds = new Set(
+    (rollups || []).map((r) => Number(r.user_id || 0)).filter((n) => n > 0)
+  );
+  for (const uid of activeIds) trackedUserIds.add(uid);
+
+  for (const uid of trackedUserIds) {
+    const events = await SupervisionSession.listAttendanceEventsForSessionUser({ sessionId: sid, userId: uid });
+    const last = events?.[events.length - 1];
+    const lastType = String(last?.event_type || '').trim().toLowerCase();
+    if (activeSet.has(uid)) {
+      const admitted = await isUserAdmittedToSupervision({ sessionId: sid, userId: uid });
+      if (admitted && lastType !== 'joined') {
+        // eslint-disable-next-line no-await-in-loop
+        await recordSupervisionPresenceAttendanceEvent({
+          sessionRow: row,
+          sessionId: sid,
+          userId: uid,
+          joinIdentity: `user-${uid}`,
+          eventType: 'joined'
+        });
+      }
+    } else if (lastType === 'joined') {
+      // eslint-disable-next-line no-await-in-loop
+      await recordSupervisionPresenceAttendanceEvent({
+        sessionRow: row,
+        sessionId: sid,
+        userId: uid,
+        joinIdentity: `user-${uid}`,
+        eventType: 'left'
+      });
+    } else {
+      // eslint-disable-next-line no-await-in-loop
+      await recomputeAttendanceRollupForUser({ sessionId: sid, userId: uid });
+    }
+  }
+  return { ok: true, activeCount: activeIds.length };
 }
 
 async function countActiveJoinPresence(sessionId) {
@@ -1458,6 +1648,56 @@ export const finalizeSupervisionSessionBySubmit = async (req, res, next) => {
   }
 };
 
+/** POST /api/supervision/sessions/:id/end-live — facilitator ends the live video room for everyone. */
+export const endSupervisionLiveSession = async (req, res, next) => {
+  try {
+    const ref = String(req.params.id || '').trim();
+    if (!ref) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const row = await SupervisionSession.resolveByJoinRef(ref);
+    if (!row?.id) return res.status(404).json({ error: { message: 'Session not found' } });
+    const id = Number(row.id);
+    const actorUserId = Number(req.user?.id || 0);
+    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const isSupervisor = actorUserId === Number(row.supervisor_user_id || 0)
+      || actorUserId === Number(row.co_facilitator_user_id || 0);
+    let isPresenter = false;
+    try {
+      const [presenterRows] = await pool.execute(
+        `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
+        [id, actorUserId]
+      );
+      isPresenter = !!(presenterRows?.length);
+    } catch {
+      isPresenter = false;
+    }
+    if (!isSupervisor && !isPresenter) {
+      return res.status(403).json({ error: { message: 'Only the facilitator can end the live session for everyone.' } });
+    }
+
+    const roomSid = String(row.twilio_room_sid || '').trim();
+    let videoEnd = null;
+    if (roomSid) {
+      try {
+        videoEnd = await completeRoom(roomSid);
+      } catch (e) {
+        console.warn('[supervision] end-live completeRoom failed', e?.message || e);
+      }
+    }
+    res.json({ ok: true, sessionId: id, videoEnd });
+  } catch (e) {
+    next(e);
+  }
+};
+
 /**
  * Public endpoint: resolve session to org slug for join redirect.
  * Used when user hits /join/supervision/:sessionId without org slug.
@@ -1691,8 +1931,36 @@ export const postSupervisionJoinPresence = async (req, res, next) => {
     const row = await SupervisionSession.resolveByJoinRef(ref);
     if (!row?.id) return res.status(404).json({ error: { message: 'Session not found' } });
     const id = Number(row.id);
+    const userId = userIdFromSupervisionJoinIdentity(identity);
+
+    let priorPresence = null;
+    try {
+      const [presenceRows] = await pool.execute(
+        `SELECT left_at, last_seen_at
+         FROM supervision_session_join_presence
+         WHERE session_id = ? AND join_identity = ?
+         LIMIT 1`,
+        [id, identity]
+      );
+      priorPresence = presenceRows?.[0] || null;
+    } catch {
+      priorPresence = null;
+    }
+    const wasAway = !priorPresence
+      || priorPresence.left_at
+      || isPresenceLastSeenStale(priorPresence.last_seen_at);
+
     if (action === 'leave') {
       await markJoinPresenceLeft({ sessionId: id, joinIdentity: identity });
+      if (userId) {
+        await recordSupervisionPresenceAttendanceEvent({
+          sessionRow: row,
+          sessionId: id,
+          userId,
+          joinIdentity: identity,
+          eventType: 'left'
+        });
+      }
     } else {
       await upsertJoinPresence({
         sessionId: id,
@@ -1700,6 +1968,18 @@ export const postSupervisionJoinPresence = async (req, res, next) => {
         displayName: req.body?.displayName || null,
         isGuest: String(identity).startsWith('guest-')
       });
+      if (userId) {
+        const admitted = await isUserAdmittedToSupervision({ sessionId: id, userId, joinIdentity: identity });
+        if (admitted && wasAway) {
+          await recordSupervisionPresenceAttendanceEvent({
+            sessionRow: row,
+            sessionId: id,
+            userId,
+            joinIdentity: identity,
+            eventType: 'joined'
+          });
+        }
+      }
     }
     const activeCount = await countActiveJoinPresence(id);
     const maxCapacity = maxJoinCapacityForSessionType(row.session_type);
@@ -1708,6 +1988,111 @@ export const postSupervisionJoinPresence = async (req, res, next) => {
       activeParticipants: activeCount,
       maxParticipants: maxCapacity,
       joinLocked: activeCount >= maxCapacity
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/supervision/sessions/:id/live-attendance — live rollups + presence for in-session panel */
+export const getSupervisionLiveAttendance = async (req, res, next) => {
+  try {
+    const ref = String(req.params.id || '').trim();
+    if (!ref) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const row = await SupervisionSession.resolveByJoinRef(ref);
+    if (!row?.id) return res.status(404).json({ error: { message: 'Session not found' } });
+    const id = Number(row.id);
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    await syncSupervisionAttendanceWithPresence(id, { sessionRow: row });
+
+    const [presenceByUser, rollups, attendees] = await Promise.all([
+      loadSupervisionPresenceByUser(id),
+      SupervisionSession.listAttendanceRollupsForSession(id),
+      SupervisionSession.listAttendees(id)
+    ]);
+
+    const byUser = new Map();
+    for (const att of attendees || []) {
+      const uid = Number(att.user_id || att.userId || 0);
+      if (!uid) continue;
+      const firstName = att.first_name || att.firstName || '';
+      const lastName = att.last_name || att.lastName || '';
+      const email = att.email || '';
+      byUser.set(uid, {
+        userId: uid,
+        firstName,
+        lastName,
+        email,
+        role: att.participant_role || att.participantRole || '',
+        isHost: uid === Number(row.supervisor_user_id || 0)
+          || uid === Number(row.co_facilitator_user_id || 0),
+        totalSeconds: 0,
+        segmentCount: 0
+      });
+    }
+    for (const r of rollups || []) {
+      const uid = Number(r.user_id || 0);
+      if (!uid) continue;
+      const existing = byUser.get(uid) || {
+        userId: uid,
+        firstName: '',
+        lastName: '',
+        email: '',
+        role: '',
+        isHost: uid === Number(row.supervisor_user_id || 0)
+          || uid === Number(row.co_facilitator_user_id || 0)
+      };
+      existing.totalSeconds = Number(r.total_seconds || 0);
+      existing.segmentCount = Number(r.segment_count || 0);
+      byUser.set(uid, existing);
+    }
+
+    const participants = Array.from(byUser.values()).map((p) => {
+      const name = [p.firstName, p.lastName].filter(Boolean).join(' ').trim()
+        || p.email
+        || `User #${p.userId}`;
+      const totalMinutes = Math.round((Number(p.totalSeconds || 0) / 60) * 100) / 100;
+      const presence = presenceByUser.get(p.userId) || {};
+      return {
+        userId: p.userId,
+        name,
+        firstName: p.firstName,
+        lastName: p.lastName,
+        email: p.email,
+        role: p.role,
+        isHost: !!p.isHost,
+        totalSeconds: Number(p.totalSeconds || 0),
+        totalMinutes,
+        segmentCount: Number(p.segmentCount || 0),
+        isPresent: !!presence.isPresent,
+        leftAt: presence.leftAt || null,
+        joinedAt: presence.joinedAt || null,
+        lastSeenAt: presence.lastSeenAt || null,
+        presenceStatus: presence.isPresent ? 'active' : (presence.leftAt ? 'left' : 'away')
+      };
+    }).sort((a, b) => {
+      if (a.isHost !== b.isHost) return a.isHost ? -1 : 1;
+      return String(a.name).localeCompare(String(b.name));
+    });
+
+    const namesCsv = participants.map((p) => p.name).join(', ');
+    const namesWithTimeCsv = participants
+      .map((p) => `${p.name} (${p.totalMinutes}m)`)
+      .join(', ');
+
+    res.json({
+      sessionId: id,
+      participants,
+      copyNamesCsv: namesCsv,
+      copyNamesWithTimeCsv: namesWithTimeCsv
     });
   } catch (e) {
     next(e);

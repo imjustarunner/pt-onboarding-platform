@@ -34,6 +34,8 @@ import {
   getSupervisionGuestJoin,
   getGuestAdmissionStatus,
   postSupervisionJoinPresence,
+  getSupervisionLiveAttendance,
+  endSupervisionLiveSession,
   saveGuestTranscript
 } from '../controllers/supervisionSessions.controller.js';
 import {
@@ -104,6 +106,8 @@ router.post('/presentations/:presentationId/external-link', setExternalPresentat
 router.post('/sessions/:id/meeting-lifecycle', markSupervisionMeetingLifecycle);
 router.post('/sessions/:id/finalize', finalizeSupervisionSessionBySubmit);
 router.get('/sessions/:id/video-token', getSupervisionVideoToken);
+router.get('/sessions/:id/live-attendance', getSupervisionLiveAttendance);
+router.post('/sessions/:id/end-live', endSupervisionLiveSession);
 router.get('/sessions/:id/lobby-participants', getLobbyParticipants);
 router.get('/sessions/:id/admission-status', getAdmissionStatus);
 router.post('/sessions/:id/admit/:userId', admitToMainRoom);

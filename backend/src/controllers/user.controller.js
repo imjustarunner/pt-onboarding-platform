@@ -4508,6 +4508,12 @@ export const getUserScheduleSummary = async (req, res, next) => {
             if (subtype === 'admin' || subtype === 'town_hall') return subtype;
             return 'general';
           })(),
+          attendanceTrackingEnabled: (() => {
+            if (kind === 'HUDDLE') return true;
+            const subtype = String(r.meeting_subtype || 'general').trim().toLowerCase();
+            if (subtype === 'admin' || subtype === 'town_hall') return true;
+            return Number(r.attendance_tracking_enabled || 0) === 1;
+          })(),
           canEdit: canEditThisEvent && String(r.status || '').trim().toUpperCase() !== 'CANCELLED'
         };
       });

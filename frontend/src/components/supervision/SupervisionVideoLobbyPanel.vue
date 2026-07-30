@@ -1,6 +1,17 @@
 <template>
   <div v-if="isSupervisor && sessionId" class="lobby-panel">
-    <h4 class="lobby-panel-title">Waiting room — Admit participants</h4>
+    <div class="lobby-panel-head">
+      <h4 class="lobby-panel-title">Waiting room — Admit participants</h4>
+      <button
+        v-if="participants.length > 1"
+        type="button"
+        class="btn btn-primary btn-sm lobby-panel-admit-all"
+        :disabled="admittingAll || !!admittingKey"
+        @click="admitAll"
+      >
+        {{ admittingAll ? 'Admitting all…' : `Admit all (${participants.length})` }}
+      </button>
+    </div>
     <div v-if="admitSuccess" class="lobby-panel-success">Admitted. They’re joining the room…</div>
     <div v-else-if="admitError" class="lobby-panel-error">{{ admitError }}</div>
     <div v-if="initialLoading" class="lobby-panel-loading">Loading…</div>
@@ -14,7 +25,7 @@
         <button
           type="button"
           class="btn btn-primary btn-sm"
-          :disabled="admittingKey === p.admitKey"
+          :disabled="admittingAll || admittingKey === p.admitKey"
           @click="admit(p)"
         >
           {{ admittingKey === p.admitKey ? 'Admitting…' : 'Admit' }}
@@ -53,6 +64,7 @@ function admitPath(pathId) {
 const participants = ref([]);
 const initialLoading = ref(false);
 const admittingKey = ref(null);
+const admittingAll = ref(false);
 const admitSuccess = ref(false);
 const admitError = ref('');
 let pollInterval = null;
@@ -89,7 +101,7 @@ async function fetchLobbyParticipants() {
 }
 
 async function admit(p) {
-  if (!props.sessionId || !p?.admitKey) return;
+  if (!props.sessionId || !p?.admitKey || admittingAll.value) return;
   admittingKey.value = p.admitKey;
   admitError.value = '';
   admitSuccess.value = false;
@@ -105,6 +117,40 @@ async function admit(p) {
     admitError.value = e?.response?.data?.error?.message || e?.message || 'Admit failed';
   } finally {
     admittingKey.value = null;
+  }
+}
+
+async function admitAll() {
+  if (!props.sessionId || participants.value.length < 2 || admittingAll.value) return;
+  admittingAll.value = true;
+  admittingKey.value = null;
+  admitError.value = '';
+  admitSuccess.value = false;
+  const list = [...participants.value];
+  try {
+    const results = await Promise.allSettled(list.map((p) => {
+      const pathId = p.userId || p.joinIdentity;
+      return api.post(admitPath(pathId), {
+        joinIdentity: p.joinIdentity
+      });
+    }));
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.length - succeeded;
+    await fetchLobbyParticipants();
+    if (failed === 0) {
+      admitSuccess.value = true;
+      setTimeout(() => { admitSuccess.value = false; }, 4000);
+    } else if (succeeded > 0) {
+      admitSuccess.value = true;
+      admitError.value = `Admitted ${succeeded} of ${results.length}. ${failed} could not be admitted.`;
+    } else {
+      const firstErr = results.find((r) => r.status === 'rejected');
+      admitError.value = firstErr?.reason?.response?.data?.error?.message
+        || firstErr?.reason?.message
+        || 'Failed to admit participants';
+    }
+  } finally {
+    admittingAll.value = false;
   }
 }
 
@@ -148,9 +194,21 @@ onUnmounted(stopPolling);
   margin-bottom: 12px;
 }
 .lobby-panel-title {
-  margin: 0 0 8px 0;
+  margin: 0;
   font-size: 14px;
   font-weight: 600;
+}
+.lobby-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.lobby-panel-admit-all {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .lobby-panel-loading,
 .lobby-panel-empty {

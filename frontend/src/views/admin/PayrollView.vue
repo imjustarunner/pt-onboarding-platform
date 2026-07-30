@@ -2990,6 +2990,11 @@
                           title="Staff did not clock out at the kiosk — system filled this time. Verify or edit before approving."
                           style="margin-left:4px;background:#fee2e2;color:#991b1b;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
                         >Auto — verify</span>
+                        <span
+                          v-if="row.bucket === 'direct' && row.submission.adminAdded"
+                          title="Administrator added these times on the Attendance page — employee must verify."
+                          style="margin-left:4px;background:#fef3c7;color:#92400e;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
+                        >Added by Admin</span>
                       </td>
                       <td class="right">{{ row.submission.workedHours ?? '—' }}</td>
                       <td>{{ row.bucketLabel }}</td>

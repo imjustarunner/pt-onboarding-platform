@@ -1,6 +1,6 @@
 <template>
-  <div class="isl" :class="{ 'isl--lobby': showWaitingRoomStage }">
-    <header class="isl__header">
+  <div class="isl" :class="{ 'isl--lobby': showWaitingRoomStage, 'isl--video-fs': videoFullscreen }">
+    <header v-if="!videoFullscreen" class="isl__header">
       <div class="isl__header-left">
         <BrandingLogo size="small" />
         <div>
@@ -18,7 +18,7 @@
           {{ videoFocusLabel }}
         </button>
         <span class="isl__count" title="Participants">{{ participantHint || '2' }}</span>
-        <button type="button" class="btn btn-danger btn-sm" @click="$emit('leave')">End session</button>
+        <button type="button" class="btn btn-danger btn-sm" @click="$emit('leave', { endForAll: isSupervisor })">End session</button>
       </div>
     </header>
 
@@ -71,8 +71,9 @@
           :local-role-label="localRoleLabel"
           :local-profile-photo-url="localProfilePhotoUrl"
           layout="standard"
-          @disconnected="$emit('leave')"
+          @disconnected="$emit('disconnected')"
           @connected="onVideoConnected"
+          @meeting-ended="$emit('meeting-ended', $event)"
         />
         <span v-if="!prioritizeSelfView" class="isl__pip-label">You · tap to enlarge</span>
       </div>
@@ -117,14 +118,21 @@
             allow-tile-focus
             show-layout-controls
             v-model:tile-focus="tileFocus"
-            @disconnected="$emit('leave')"
+            v-model:video-fullscreen="videoFullscreen"
+            :activity-notice="videoFullscreenActivityNotice"
+            :raised-hands-notice="videoFullscreenHandsNotice"
+            @disconnected="$emit('disconnected')"
             @connected="onVideoConnected"
             @hands-map-change="onHandsMapChange"
+            @audio-map-change="onAudioMapChange"
+            @participant-left="onParticipantLeft"
+            @meeting-ended="$emit('meeting-ended', $event)"
+            @activity-notice-click="onFullscreenActivityClick"
           />
         </div>
       </section>
 
-      <div class="isl__main-grid">
+      <div v-show="!videoFullscreen" class="isl__main-grid">
         <section
           class="isl__card isl__card--focus"
           :class="{
@@ -196,6 +204,26 @@
               @change="persistWorkspace"
             />
             <button type="button" class="isl__link" @click="appendSummaryNote">+ Add note</button>
+          </div>
+        </section>
+
+        <section
+          v-if="isSupervisor"
+          class="isl__card isl__card--attendance"
+        >
+          <div class="isl__card-head">
+            <h2>Attendance</h2>
+          </div>
+          <div class="isl__card-body">
+            <MeetingAttendancePanel
+              ref="attendancePanelRef"
+              meeting-kind="supervision"
+              :event-id="numericSessionId || supervisionSessionId"
+              :live-poll="true"
+              :raised-hands="raisedHandCount"
+              :raised-hand-names="raisedHandNames"
+              :muted-names="mutedParticipantNames"
+            />
           </div>
         </section>
 
@@ -285,13 +313,14 @@ import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
 import SupervisionWaitingRoomStage from './SupervisionWaitingRoomStage.vue';
 import SupervisionDiscussionSidebar from './SupervisionDiscussionSidebar.vue';
+import MeetingAttendancePanel from '../meetings/MeetingAttendancePanel.vue';
 import {
   supervisionLiveRoomProps,
   useSupervisionLiveSession
 } from '../../composables/useSupervisionLiveSession';
 
 const props = defineProps(supervisionLiveRoomProps);
-const emit = defineEmits(['leave', 'connected']);
+const emit = defineEmits(['leave', 'connected', 'meeting-ended', 'disconnected']);
 
 const transcriptionNoticeDismissed = ref(false);
 
@@ -334,9 +363,15 @@ const showTranscriptionNotice = computed(() => (
 
 const videoRoomRef = ref(null);
 const tileFocus = ref('equal');
+const videoFullscreen = ref(false);
+const videoFullscreenActivityNotice = ref('');
+let fullscreenNoticeTimer = null;
 const editingGoals = ref(false);
 const discussionOpen = ref(true);
 const raisedHandCount = ref(0);
+const raisedHandNames = ref([]);
+const mutedParticipantNames = ref([]);
+const attendancePanelRef = ref(null);
 const sidebarNotes = ref('');
 
 const sectionState = reactive({
@@ -369,11 +404,33 @@ const scheduleLabel = computed(() => {
 });
 
 const videoFocusLabel = computed(() => {
+  if (tileFocus.value === 'speaker') return 'Speaker only';
   if (tileFocus.value === 'local') return 'Focus: you';
   if (tileFocus.value === 'remote') return 'Focus: peer';
   if (tileFocus.value === 'collapsed') return 'Videos collapsed';
   return 'View options';
 });
+
+const videoFullscreenHandsNotice = computed(() => {
+  if (!raisedHandCount.value) return '';
+  const names = (raisedHandNames.value || []).filter(Boolean).slice(0, 2).join(', ');
+  if (names && raisedHandCount.value <= 2) return names;
+  if (names) return `${names} +${raisedHandCount.value - 2}`;
+  return `${raisedHandCount.value} hand${raisedHandCount.value === 1 ? '' : 's'} raised`;
+});
+
+function onFullscreenActivityClick() {
+  videoFullscreen.value = false;
+  videoFullscreenActivityNotice.value = '';
+}
+
+function onLiveActivityNotice(payload) {
+  const text = String(payload?.text || '').trim();
+  if (!text || !videoFullscreen.value) return;
+  videoFullscreenActivityNotice.value = text;
+  if (fullscreenNoticeTimer) clearTimeout(fullscreenNoticeTimer);
+  fullscreenNoticeTimer = setTimeout(() => { videoFullscreenActivityNotice.value = ''; }, 8000);
+}
 
 function normalizeChecklist(list) {
   if (!Array.isArray(list)) return [];
@@ -477,7 +534,7 @@ function setVideoFocus(mode) {
 }
 
 function cycleVideoFocus() {
-  const order = ['equal', 'remote', 'local', 'collapsed'];
+  const order = ['equal', 'speaker', 'remote', 'local', 'collapsed'];
   const idx = order.indexOf(tileFocus.value);
   setVideoFocus(order[(idx + 1) % order.length]);
 }
@@ -513,8 +570,27 @@ function toggleDiscussion() {
   }
 }
 
-function onHandsMapChange(map) {
-  raisedHandCount.value = Object.keys(map || {}).filter((k) => map[k]).length;
+function onHandsMapChange(payload) {
+  const map = payload?.byConnection || payload || {};
+  const names = payload?.nameByConnection || {};
+  raisedHandCount.value = Object.keys(map).filter((k) => map[k]).length;
+  raisedHandNames.value = Object.keys(map)
+    .filter((k) => map[k])
+    .map((k) => names[k])
+    .filter(Boolean);
+}
+
+function onAudioMapChange(payload) {
+  const map = payload?.mutedByConnection || {};
+  const names = payload?.nameByConnection || {};
+  mutedParticipantNames.value = Object.keys(map)
+    .filter((k) => map[k])
+    .map((k) => names[k])
+    .filter(Boolean);
+}
+
+function onParticipantLeft() {
+  attendancePanelRef.value?.load?.({ quiet: true });
 }
 
 async function onTranscriptPauseResume() {
@@ -566,7 +642,12 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (workspaceSaveTimer) clearTimeout(workspaceSaveTimer);
+  if (fullscreenNoticeTimer) clearTimeout(fullscreenNoticeTimer);
   void saveWorkspaceNow();
+});
+
+defineExpose({
+  disconnect: (...args) => videoRoomRef.value?.disconnect?.(...args)
 });
 </script>
 
@@ -584,6 +665,10 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 .isl--lobby { padding-bottom: 20px; }
+.isl--video-fs {
+  padding: 0;
+  background: #070a10;
+}
 .isl__transcript-banner {
   display: flex;
   align-items: flex-start;

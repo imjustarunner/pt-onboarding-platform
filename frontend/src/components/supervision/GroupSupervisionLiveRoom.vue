@@ -1,6 +1,6 @@
 <template>
-  <div class="gsl">
-    <header class="gsl__header">
+  <div class="gsl" :class="{ 'gsl--video-fs': videoFullscreen }">
+    <header v-if="!videoFullscreen" class="gsl__header">
       <div class="gsl__header-left">
         <BrandingLogo size="small" class="gsl__logo" />
         <div>
@@ -21,12 +21,12 @@
           {{ viewAsAttendee ? 'Exit attendee view' : 'View as attendee' }}
         </button>
         <span class="gsl__count" title="Participants">{{ participantHint }}</span>
-        <button type="button" class="btn btn-danger btn-sm" @click="$emit('leave')">Leave session</button>
+        <button type="button" class="btn btn-danger btn-sm" @click="$emit('leave', { endForAll: canFacilitate })">Leave session</button>
       </div>
     </header>
 
     <div
-      v-if="showTranscriptionNotice"
+      v-if="showTranscriptionNotice && !videoFullscreen"
       class="gsl__transcript-banner"
       role="status"
     >
@@ -65,6 +65,7 @@
       >
         <SupervisionVideoRoom
           v-if="token && vonageSessionId && applicationId"
+          ref="videoRoomRef"
           :token="token"
           :vonage-session-id="vonageSessionId"
           :room-sid="vonageSessionId"
@@ -80,9 +81,20 @@
           :local-display-name="localDisplayName"
           :local-role-label="localRoleLabel"
           :local-profile-photo-url="localProfilePhotoUrl"
-          :layout="showWaitingRoomStage ? 'standard' : 'strip'"
-          @disconnected="$emit('leave')"
+          layout="standard"
+          :equal-tiles-when-remote="true"
+          allow-tile-focus
+          v-model:tile-focus="tileFocus"
+          v-model:video-fullscreen="videoFullscreen"
+          :activity-notice="videoFullscreenActivityNotice"
+          :raised-hands-notice="videoFullscreenHandsNotice"
+          @disconnected="$emit('disconnected')"
           @connected="onVideoConnected"
+          @hands-map-change="onHandsMapChange"
+          @audio-map-change="onAudioMapChange"
+          @participant-left="onParticipantLeft"
+          @meeting-ended="$emit('meeting-ended', $event)"
+          @activity-notice-click="onFullscreenActivityClick"
         />
         <span
           v-if="showWaitingRoomStage && !prioritizeSelfView"
@@ -91,7 +103,11 @@
       </div>
     </div>
 
-    <div class="gsl__main" :class="{ 'gsl__main--lobby': showWaitingRoomStage }">
+    <div
+      v-show="!videoFullscreen"
+      class="gsl__main"
+      :class="{ 'gsl__main--lobby': showWaitingRoomStage }"
+    >
       <section v-if="!showWaitingRoomStage" class="gsl__stage-wrap">
         <div class="gsl__stage">
           <template v-if="externalEmbedUrl">
@@ -167,6 +183,18 @@
             :can-answer-questions="canFacilitate"
             :start-open="true"
             :below-video="true"
+            @activity-notice="onLiveActivityNotice"
+          />
+        </section>
+        <section v-if="canFacilitate" class="gsl__workspace-section">
+          <MeetingAttendancePanel
+            ref="attendancePanelRef"
+            meeting-kind="supervision"
+            :event-id="numericSessionId || supervisionSessionId"
+            :live-poll="true"
+            :raised-hands="raisedHandCount"
+            :raised-hand-names="raisedHandNames"
+            :muted-names="mutedParticipantNames"
           />
         </section>
         <section class="gsl__workspace-section gsl__workspace-section--transcript">
@@ -188,7 +216,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 import BrandingLogo from '../BrandingLogo.vue';
 import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
@@ -196,15 +224,21 @@ import SupervisionWaitingRoomStage from './SupervisionWaitingRoomStage.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import MeetingGoalsActionsPanel from '../meetings/MeetingGoalsActionsPanel.vue';
 import MeetingLiveActivityPanel from '../meetings/MeetingLiveActivityPanel.vue';
+import MeetingAttendancePanel from '../meetings/MeetingAttendancePanel.vue';
 import {
   supervisionLiveRoomProps,
   useSupervisionLiveSession
 } from '../../composables/useSupervisionLiveSession';
 
 const props = defineProps(supervisionLiveRoomProps);
-const emit = defineEmits(['leave', 'connected']);
+const emit = defineEmits(['leave', 'connected', 'meeting-ended', 'disconnected']);
 
+const videoRoomRef = ref(null);
 const transcriptionNoticeDismissed = ref(false);
+const tileFocus = ref('equal');
+const videoFullscreen = ref(false);
+const videoFullscreenActivityNotice = ref('');
+let fullscreenNoticeTimer = null;
 
 const {
   numericSessionId,
@@ -233,6 +267,34 @@ const canFacilitate = computed(() => (
   !viewAsAttendee.value && (props.isSupervisor || props.isPresenter)
 ));
 
+const attendancePanelRef = ref(null);
+const raisedHandCount = ref(0);
+const raisedHandNames = ref([]);
+const mutedParticipantNames = ref([]);
+
+function onHandsMapChange(payload) {
+  const map = payload?.byConnection || payload || {};
+  const names = payload?.nameByConnection || {};
+  raisedHandCount.value = Object.keys(map).filter((k) => map[k]).length;
+  raisedHandNames.value = Object.keys(map)
+    .filter((k) => map[k])
+    .map((k) => names[k])
+    .filter(Boolean);
+}
+
+function onAudioMapChange(payload) {
+  const map = payload?.mutedByConnection || {};
+  const names = payload?.nameByConnection || {};
+  mutedParticipantNames.value = Object.keys(map)
+    .filter((k) => map[k])
+    .map((k) => names[k])
+    .filter(Boolean);
+}
+
+function onParticipantLeft() {
+  attendancePanelRef.value?.load?.({ quiet: true });
+}
+
 const showTranscriptionNotice = computed(() => (
   !transcriptionNoticeDismissed.value
   && !props.isInLobby
@@ -246,6 +308,35 @@ const transcriptCombined = computed(() => {
   if (base && live) return `${base}\n${live}`;
   return base || live || '';
 });
+
+const videoFullscreenHandsNotice = computed(() => {
+  if (!raisedHandCount.value) return '';
+  const names = (raisedHandNames.value || []).filter(Boolean).slice(0, 2).join(', ');
+  if (names && raisedHandCount.value <= 2) return names;
+  if (names) return `${names} +${raisedHandCount.value - 2}`;
+  return `${raisedHandCount.value} hand${raisedHandCount.value === 1 ? '' : 's'} raised`;
+});
+
+function onFullscreenActivityClick() {
+  videoFullscreen.value = false;
+  videoFullscreenActivityNotice.value = '';
+}
+
+function onLiveActivityNotice(payload) {
+  const text = String(payload?.text || '').trim();
+  if (!text || !videoFullscreen.value) return;
+  videoFullscreenActivityNotice.value = text;
+  if (fullscreenNoticeTimer) clearTimeout(fullscreenNoticeTimer);
+  fullscreenNoticeTimer = setTimeout(() => { videoFullscreenActivityNotice.value = ''; }, 8000);
+}
+
+onUnmounted(() => {
+  if (fullscreenNoticeTimer) clearTimeout(fullscreenNoticeTimer);
+});
+
+defineExpose({
+  disconnect: (...args) => videoRoomRef.value?.disconnect?.(...args)
+});
 </script>
 
 <style scoped>
@@ -258,6 +349,10 @@ const transcriptCombined = computed(() => {
   color: #eef2f8;
   padding: 12px 16px 20px;
   box-sizing: border-box;
+}
+.gsl--video-fs {
+  padding: 0;
+  background: #070a10;
 }
 .gsl__header {
   display: flex;

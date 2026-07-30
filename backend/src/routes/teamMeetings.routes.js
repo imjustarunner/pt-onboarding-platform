@@ -18,6 +18,7 @@ import {
   patchTeamMeetingTimeClaim,
   getTeamMeetingNotes,
   postTeamMeetingTranscriptControl,
+  enableTeamMeetingAttendanceTracking,
   listAdminMeetingsLog
 } from '../controllers/teamMeetings.controller.js';
 import { getTeamMeetingActivity, postTeamMeetingActivity } from '../controllers/videoMeetingActivity.controller.js';
@@ -41,6 +42,7 @@ router.post('/:eventId/admit/:userId', admitTeamMeetingParticipant);
 router.post('/:eventId/recording-rules', setTeamMeetingRecordingRules);
 router.post('/:eventId/client-transcript', saveTeamMeetingClientTranscript);
 router.post('/:eventId/transcript-control', postTeamMeetingTranscriptControl);
+router.post('/:eventId/enable-attendance-tracking', enableTeamMeetingAttendanceTracking);
 router.get('/:eventId/activity', getTeamMeetingActivity);
 router.post('/:eventId/activity', postTeamMeetingActivity);
 router.get('/:eventId/workspace', getTeamMeetingWorkspace);

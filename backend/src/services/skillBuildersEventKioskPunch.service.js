@@ -156,6 +156,9 @@ async function maybeAutoClockOutStaleOpenPunch(poolConn, { agencyId, eventId, us
   });
 }
 
+const ADMIN_MANUAL_DEFERRAL_NOTE =
+  'Added by Admin — please verify and update your check-in/check-out times.';
+
 async function createSkillBuilderEventPayrollClaims(poolConn, {
   agencyId,
   eventId,
@@ -170,7 +173,10 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
   directHoursCap,
   outClientId,
   outSessionId,
-  source
+  source,
+  deferAsAdminAdded = false,
+  deferredByUserId = null,
+  deferralNote = null
 }) {
   let eventTimezone = 'America/Denver';
   try {
@@ -196,6 +202,8 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
 
   const punchSource = source || 'portal';
   const isAutoClockOut = punchSource === 'auto_all_clients_out' || punchSource === 'auto';
+  const isAdminManual = deferAsAdminAdded || punchSource === 'admin_attendance_manual';
+  const adminDeferralNote = String(deferralNote || ADMIN_MANUAL_DEFERRAL_NOTE).trim().slice(0, 255);
   const clockInIso = toUtcIso(lastIn.punched_at) || toUtcIso(tIn);
   const clockOutIso = toUtcIso(tOut);
   const basePayload = {
@@ -218,18 +226,39 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
           needsVerification: true,
           verificationReason: punchSource
         }
+      : {}),
+    ...(isAdminManual
+      ? {
+          adminAdded: true,
+          addedByAdminUserId: parsePositiveInt(deferredByUserId) || null,
+          adminAddedNote: adminDeferralNote
+        }
       : {})
   };
 
+  const initialClaimStatus = isAdminManual ? 'deferred' : 'submitted';
+  const deferActorId = parsePositiveInt(deferredByUserId);
+
   let directClaimId = null;
   let indirectClaimId = null;
+
+  const stampDeferredRejection = async (claimId) => {
+    if (!isAdminManual || !claimId) return;
+    await poolConn.execute(
+      `UPDATE payroll_time_claims
+       SET rejection_reason = ?, rejected_by_user_id = ?, rejected_at = NOW()
+       WHERE id = ?
+       LIMIT 1`,
+      [adminDeferralNote || null, deferActorId || null, claimId]
+    );
+  };
 
   if (directHours > 0) {
     const directClaim = await PayrollTimeClaim.create({
       agencyId,
       userId,
       submittedByUserId: userId,
-      status: 'submitted',
+      status: initialClaimStatus,
       claimType: 'skill_builder_event',
       claimDate,
       suggestedPayrollPeriodId,
@@ -240,6 +269,7 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
       [round2(directHours), directClaim.id]
     );
     directClaimId = directClaim.id;
+    await stampDeferredRejection(directClaimId);
   }
 
   if (indirectHours > 0) {
@@ -247,7 +277,7 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
       agencyId,
       userId,
       submittedByUserId: userId,
-      status: 'submitted',
+      status: initialClaimStatus,
       claimType: 'skill_builder_event',
       claimDate,
       suggestedPayrollPeriodId,
@@ -258,6 +288,7 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
       [round2(indirectHours), indirectClaim.id]
     );
     indirectClaimId = indirectClaim.id;
+    await stampDeferredRejection(indirectClaimId);
   }
 
   if (directClaimId && indirectClaimId) {
@@ -520,6 +551,184 @@ export async function recordEventEmployeeClockOut(poolConn, params) {
   });
 }
 
+async function syncAdminManualEmployeeKioskCheckin(poolConn, {
+  eventId,
+  agencyId,
+  userId,
+  kioskDateYmd,
+  clockInAt,
+  clockOutAt
+}) {
+  const tIn = clockInAt instanceof Date ? clockInAt : new Date(clockInAt);
+  const tOut = clockOutAt instanceof Date ? clockOutAt : new Date(clockOutAt);
+  if (!Number.isFinite(tIn.getTime()) || !Number.isFinite(tOut.getTime())) return;
+
+  await poolConn.execute(
+    `INSERT INTO event_day_kiosk_checkins
+       (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date)
+     VALUES (?, ?, ?, 'employee', 'check_in', ?, ?)
+     ON DUPLICATE KEY UPDATE checked_in_at = ?, action = 'check_in', updated_at = NOW()`,
+    [eventId, agencyId, userId, tIn, kioskDateYmd, tIn]
+  ).catch(() => null);
+
+  await poolConn.execute(
+    `UPDATE event_day_kiosk_checkins
+     SET action = 'check_out', checked_out_at = ?, updated_at = NOW()
+     WHERE company_event_id = ? AND user_id = ? AND kiosk_date = ? AND person_type = 'employee'`,
+    [tOut, eventId, userId, kioskDateYmd]
+  ).catch(() => null);
+}
+
+/**
+ * Admin manual employee check-in/out from the event portal Attendance page.
+ * Creates kiosk punches + deferred event-time payroll claims (sent back to employee).
+ */
+export async function recordAdminManualEmployeeEventTime(poolConn, params) {
+  const agencyId = parsePositiveInt(params.agencyId);
+  const eventId = parsePositiveInt(params.eventId);
+  const userId = parsePositiveInt(params.userId);
+  const addedByUserId = parsePositiveInt(params.addedByUserId);
+  const kioskDateYmd = String(params.kioskDateYmd || '').trim().slice(0, 10);
+
+  if (!agencyId || !eventId || !userId || !addedByUserId) {
+    return { error: { status: 400, message: 'agencyId, eventId, userId, and addedByUserId are required' } };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(kioskDateYmd)) {
+    return { error: { status: 400, message: 'Valid kioskDate (YYYY-MM-DD) is required' } };
+  }
+
+  const tIn = new Date(params.clockInAt);
+  const tOut = new Date(params.clockOutAt);
+  if (!Number.isFinite(tIn.getTime()) || !Number.isFinite(tOut.getTime())) {
+    return { error: { status: 400, message: 'Valid clockInAt and clockOutAt are required' } };
+  }
+  if (tOut <= tIn) {
+    return { error: { status: 400, message: 'Check-out must be after check-in' } };
+  }
+
+  const onRoster = await providerOnEventStaffRoster(userId, eventId, agencyId);
+  if (!onRoster) {
+    return { error: { status: 400, message: 'Employee is not on this event staff roster' } };
+  }
+
+  let eventTimezone = 'America/Denver';
+  const [evRows] = await poolConn.execute(
+    `SELECT skill_builder_direct_hours, event_type, timezone FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
+    [eventId, agencyId]
+  );
+  const eventType = String(evRows?.[0]?.event_type || '').toLowerCase();
+  const tz = String(evRows?.[0]?.timezone || '').trim();
+  if (tz) eventTimezone = tz;
+
+  const dayIn = utcDateToZonedYmd(tIn, eventTimezone);
+  const dayOut = utcDateToZonedYmd(tOut, eventTimezone);
+  if (dayIn !== kioskDateYmd || dayOut !== kioskDateYmd) {
+    return {
+      error: {
+        status: 400,
+        message: 'Check-in and check-out must fall on the selected event day in the event timezone.'
+      }
+    };
+  }
+
+  const paired = await listPairedEventProviderAttendance(eventId, { userId, agencyId });
+  const hasDayRecord = paired.some((row) => {
+    const d = utcDateToZonedYmd(row.clockInAt, eventTimezone);
+    return d === kioskDateYmd && row.clockInAt;
+  });
+  if (hasDayRecord) {
+    return {
+      error: {
+        status: 409,
+        message: 'This employee already has check-in/out times for this day.'
+      }
+    };
+  }
+
+  const [lastP] = await poolConn.execute(
+    `SELECT punch_type FROM skill_builders_event_kiosk_punches
+     WHERE company_event_id = ? AND user_id = ?
+     ORDER BY punched_at DESC, id DESC LIMIT 1`,
+    [eventId, userId]
+  );
+  if (String(lastP?.[0]?.punch_type || '') === 'clock_in') {
+    return { error: { status: 409, message: 'Employee has an open clock-in. Close it before adding manual times.' } };
+  }
+
+  const schoolPortalEvent = eventType.startsWith('school_');
+  const directConfigured = Number(evRows?.[0]?.skill_builder_direct_hours);
+  const directHoursCap = schoolPortalEvent
+    ? 0
+    : (Number.isFinite(directConfigured) && directConfigured > 0 ? directConfigured : 0);
+
+  const sid = parsePositiveInt(params.sessionId) || await resolveSessionIdForKioskDate(poolConn, eventId, kioskDateYmd);
+
+  const [insIn] = await poolConn.execute(
+    `INSERT INTO skill_builders_event_kiosk_punches
+     (company_event_id, session_id, user_id, client_id, punch_type, punched_at, office_location_id)
+     VALUES (?, ?, ?, NULL, 'clock_in', ?, NULL)`,
+    [eventId, sid || null, userId, tIn]
+  );
+  const lastIn = {
+    id: insIn.insertId,
+    punched_at: tIn,
+    client_id: null,
+    session_id: sid || null
+  };
+
+  const workedHours = Math.max(0, (tOut.getTime() - tIn.getTime()) / 3600000);
+  const directHours = Math.min(directHoursCap, workedHours);
+  const indirectHours = Math.max(0, workedHours - directHours);
+
+  const [insOut] = await poolConn.execute(
+    `INSERT INTO skill_builders_event_kiosk_punches
+     (company_event_id, session_id, user_id, client_id, punch_type, punched_at, office_location_id)
+     VALUES (?, ?, ?, NULL, 'clock_out', ?, NULL)`,
+    [eventId, sid || null, userId, tOut]
+  );
+
+  const claims = await createSkillBuilderEventPayrollClaims(poolConn, {
+    agencyId,
+    eventId,
+    userId,
+    lastIn,
+    punchOutId: insOut.insertId,
+    tIn,
+    tOut,
+    workedHours,
+    directHours,
+    indirectHours,
+    directHoursCap,
+    outClientId: null,
+    outSessionId: sid || null,
+    source: 'admin_attendance_manual',
+    deferAsAdminAdded: true,
+    deferredByUserId: addedByUserId
+  });
+
+  await syncAdminManualEmployeeKioskCheckin(poolConn, {
+    eventId,
+    agencyId,
+    userId,
+    kioskDateYmd,
+    clockInAt: tIn,
+    clockOutAt: tOut
+  });
+
+  return {
+    ok: true,
+    punchInId: lastIn.id,
+    punchOutId: insOut.insertId,
+    payrollTimeClaimId: claims.payrollTimeClaimId,
+    directClaimId: claims.directClaimId,
+    indirectClaimId: claims.indirectClaimId,
+    directHours: round2(directHours),
+    indirectHours: round2(indirectHours),
+    workedHours: round2(workedHours),
+    deferred: true
+  };
+}
+
 function claimStatusFromRow(row) {
   return row?.status ? String(row.status) : null;
 }
@@ -640,6 +849,7 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
       || claimSource === 'auto';
     const needsVerification = claimPayload.needsVerification === true
       || claimSource === 'auto_all_clients_out';
+    const adminAdded = claimPayload.adminAdded === true || claimSource === 'admin_attendance_manual';
 
     paired.push({
       userId: uidKey,
@@ -659,7 +869,8 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
       indirectClaimStatus: claimStatusFromRow(indirectClaim),
       source: claimSource,
       autoClockOut,
-      needsVerification
+      needsVerification,
+      adminAdded
     });
   }
 

@@ -56,6 +56,9 @@ function groupClaimsIntoSubmissions(claimRows, eventTitlesById, eventStartById =
         needsVerification: payload.needsVerification === true
           || String(payload.source || '') === 'auto_all_clients_out',
         verificationReason: payload.verificationReason || null,
+        adminAdded: payload.adminAdded === true
+          || String(payload.source || '') === 'admin_attendance_manual',
+        adminAddedNote: payload.adminAddedNote || null,
         wasEdited: payload.wasEdited === true,
         lastEditedByRole: payload.lastEditedByRole || null,
         lastEditedAt: payload.lastEditedAt || null,

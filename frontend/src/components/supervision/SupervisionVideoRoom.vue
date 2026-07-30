@@ -17,6 +17,9 @@
       :promote-local-when-alone="promoteLocalWhenAlone"
       :equal-tiles-when-remote="equalTilesWhenRemote"
       :tile-focus="tileFocus"
+      :video-fullscreen="videoFullscreen"
+      :activity-notice="activityNotice"
+      :raised-hands-notice="raisedHandsNotice"
       :hide-controls="hideControls"
       :allow-tile-focus="allowTileFocus"
       :show-layout-controls="showLayoutControls"
@@ -24,6 +27,8 @@
       :is-host-or-cohost="isHostOrCohost || isHost"
       :play-join-tone="playJoinTone"
       @update:tile-focus="$emit('update:tileFocus', $event)"
+      @update:video-fullscreen="$emit('update:videoFullscreen', $event)"
+      @activity-notice-click="$emit('activity-notice-click', $event)"
       @disconnected="$emit('disconnected')"
       @connected="$emit('connected', $event)"
       @error="$emit('error', $event)"
@@ -31,8 +36,10 @@
       @meeting-ended="$emit('meeting-ended', $event)"
       @hand-raised-change="$emit('hand-raised-change', $event)"
       @hands-map-change="$emit('hands-map-change', $event)"
+      @audio-map-change="$emit('audio-map-change', $event)"
       @reaction="$emit('reaction', $event)"
       @transcript-control="$emit('transcript-control', $event)"
+      @participant-left="$emit('participant-left', $event)"
     >
       <template #extra-controls>
         <slot name="extra-controls" />
@@ -62,13 +69,16 @@ const props = defineProps({
   apiKey: { type: String, default: '' },
   sessionTitle: { type: String, default: '' },
   isHost: { type: Boolean, default: false },
-  layout: { type: String, default: 'strip' },
+  layout: { type: String, default: 'standard' },
   diagnostics: { type: Object, default: null },
   canRecreateRoom: { type: Boolean, default: false },
   promoteLocalWhenAlone: { type: Boolean, default: true },
   /** When false, remotes fill the stage and local stays a small corner PiP. */
   equalTilesWhenRemote: { type: Boolean, default: true },
   tileFocus: { type: String, default: 'equal' },
+  videoFullscreen: { type: Boolean, default: false },
+  activityNotice: { type: String, default: '' },
+  raisedHandsNotice: { type: String, default: '' },
   hideControls: { type: Boolean, default: false },
   allowTileFocus: { type: Boolean, default: false },
   showLayoutControls: { type: Boolean, default: false },
@@ -86,11 +96,15 @@ defineEmits([
   'error',
   'recreate-room',
   'update:tileFocus',
+  'update:videoFullscreen',
+  'activity-notice-click',
   'meeting-ended',
   'hand-raised-change',
   'hands-map-change',
+  'audio-map-change',
   'reaction',
-  'transcript-control'
+  'transcript-control',
+  'participant-left'
 ]);
 
 const authStore = useAuthStore();
@@ -143,6 +157,7 @@ defineExpose({
   toggleRaiseHand: (...args) => videoRoomRef.value?.toggleRaiseHand?.(...args),
   sendReaction: (...args) => videoRoomRef.value?.sendReaction?.(...args),
   signalTranscriptControl: (...args) => videoRoomRef.value?.signalTranscriptControl?.(...args),
+  disconnect: (...args) => videoRoomRef.value?.disconnect?.(...args),
   get publishAudio() { return videoRoomRef.value?.publishAudio; },
   get publishVideo() { return videoRoomRef.value?.publishVideo; },
   get sharingScreen() { return videoRoomRef.value?.sharingScreen; },

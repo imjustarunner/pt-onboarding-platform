@@ -275,7 +275,7 @@ const props = defineProps({
   pollMs: { type: Number, default: 4000 }
 });
 
-const emit = defineEmits(['update:open']);
+const emit = defineEmits(['update:open', 'activity-notice']);
 const authStore = useAuthStore();
 const panelOpen = ref(!!props.startOpen);
 const tab = ref('chat');
@@ -598,6 +598,12 @@ async function loadActivity({ quiet = false } = {}) {
       for (const kind of ['chat', 'polls', 'qa']) {
         const n = newCounts[kind];
         if (!n) continue;
+        // Always notify parents (e.g. fullscreen video toast); unread badges only when not viewing that tab.
+        let notice = '';
+        if (kind === 'chat') notice = `New chat message${n > 1 ? 's' : ''}`;
+        else if (kind === 'polls') notice = n > 1 ? 'New polls' : 'New poll';
+        else if (kind === 'qa') notice = n > 1 ? 'New questions' : 'New question';
+        if (notice) emit('activity-notice', { kind, text: notice, amount: n });
         if (viewing && tab.value === kind) continue;
         bumpUnread(kind, n);
       }
@@ -954,6 +960,13 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   min-height: 360px;
   display: flex;
   flex-direction: column;
+}
+.mlap--below-video:not(.mlap--open) {
+  min-height: 0;
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  overflow: visible;
 }
 .mlap--below-video .mlap__panel {
   min-height: 340px;

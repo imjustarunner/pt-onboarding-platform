@@ -19,6 +19,7 @@ import {
   resolveVideoProjectId,
   getVideoClientDiagnostics
 } from '../services/video.service.js';
+import { isAttendanceTrackingEnabledForEvent } from '../services/meetingAttendanceSegments.service.js';
 
 const JOIN_PRESENCE_STALE_SECONDS = 45;
 
@@ -96,16 +97,8 @@ async function pruneStaleJoinPresence(eventId) {
   const eid = Number(eventId || 0);
   if (!eid) return;
   try {
-    // Only clear lobby presence. Do not close attendance segments here —
-    // a missed heartbeat while still in the Vonage room was zeroing minutes.
-    await pool.execute(
-      `UPDATE provider_schedule_event_join_presence
-       SET left_at = UTC_TIMESTAMP()
-       WHERE event_id = ?
-         AND left_at IS NULL
-         AND last_seen_at < (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
-      [eid]
-    );
+    const { pruneStaleJoinPresenceForEvent } = await import('../services/meetingAttendanceSegments.service.js');
+    await pruneStaleJoinPresenceForEvent(eid, { staleSeconds: JOIN_PRESENCE_STALE_SECONDS });
   } catch {
     /* table may not exist yet */
   }
@@ -513,6 +506,9 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       roomMode: useLobby ? 'lobby' : 'main',
       lobbyEnabledForSession: waitingRoomOn,
       waitingRoomEnabled: waitingRoomOn,
+      kind: kindNorm,
+      meetingSubtype: String(row.meeting_subtype || 'general').trim().toLowerCase(),
+      attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row),
       videoConfigured: true,
       diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
     });
@@ -996,6 +992,7 @@ export const getTeamMeetingWorkspace = async (req, res, next) => {
       eventId,
       meetingSubtype,
       kind,
+      attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(event),
       title: String(event.title || '').trim() || null,
       participants,
       workspace
@@ -1317,6 +1314,90 @@ function mysqlNowDateTimeLocal() {
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
 }
 
+/** POST /api/team-meetings/:eventId/enable-attendance-tracking — host opt-in for general meetings */
+export const enableTeamMeetingAttendanceTracking = async (req, res, next) => {
+  try {
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const event = await ProviderScheduleEvent.findById(eventId);
+    const kind = String(event?.kind || '').toUpperCase();
+    if (!event || !['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+      return res.status(404).json({ error: { message: 'Meeting not found' } });
+    }
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    const isHost = actorId === Number(event.provider_id || 0)
+      || actorId === Number(event.created_by_user_id || 0);
+    const isPrivileged = [
+      'super_admin',
+      'superadmin',
+      'admin',
+      'support',
+      'staff',
+      'clinical_practice_assistant'
+    ].includes(role);
+    if (!isHost && !isPrivileged) {
+      return res.status(403).json({ error: { message: 'Only the host or admin can enable attendance tracking.' } });
+    }
+
+    const subtype = String(event.meeting_subtype || 'general').trim().toLowerCase();
+    if (kind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall') {
+      return res.json({
+        ok: true,
+        eventId,
+        attendanceTrackingEnabled: true,
+        alreadyEnabled: true
+      });
+    }
+
+    const {
+      enableAttendanceTrackingForEvent,
+      syncAttendanceSegmentsWithPresence
+    } = await import('../services/meetingAttendanceSegments.service.js');
+    const result = await enableAttendanceTrackingForEvent(eventId, { actorUserId: actorId });
+    if (!result?.ok) {
+      return res.status(400).json({ error: { message: result?.error || 'Unable to enable tracking' } });
+    }
+
+    await ProviderScheduleEventArtifact.ensureTagged({ eventId, updatedByUserId: actorId });
+    try {
+      await pool.execute(
+        `UPDATE provider_schedule_event_artifacts
+         SET transcript_paused = 0,
+             updated_by_user_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE event_id = ? AND transcript_stopped_at IS NULL`,
+        [actorId, eventId]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
+
+    try {
+      await syncAttendanceSegmentsWithPresence(eventId, { staleSeconds: JOIN_PRESENCE_STALE_SECONDS });
+    } catch (e) {
+      console.warn('[teamMeeting] sync on enable tracking failed', e?.message || e);
+    }
+
+    const refreshed = await ProviderScheduleEvent.findById(eventId);
+    res.json({
+      ok: true,
+      eventId,
+      attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(refreshed),
+      enabled: !!result.enabled,
+      alreadyEnabled: !!result.alreadyEnabled
+    });
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({
+        error: { message: 'Attendance tracking opt-in requires migration 1096.' }
+      });
+    }
+    next(e);
+  }
+};
+
 /** POST /api/team-meetings/:eventId/transcript-control — pause | resume | stop */
 export const postTeamMeetingTranscriptControl = async (req, res, next) => {
   try {
@@ -1521,36 +1602,9 @@ export const getTeamMeetingAttendance = async (req, res, next) => {
     if (!(await canAccessTeamMeeting(req, event))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    // Open segments for anyone currently present + admitted (fixes 0m while in-room).
     try {
-      const {
-        openAttendanceSegment,
-        rebuildAttendanceRollupsFromSegments
-      } = await import('../services/meetingAttendanceSegments.service.js');
-      await pruneStaleJoinPresence(eventId);
-      const [present] = await pool.execute(
-        `SELECT p.join_identity
-         FROM provider_schedule_event_join_presence p
-         WHERE p.event_id = ?
-           AND p.left_at IS NULL
-           AND p.last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
-        [eventId]
-      );
-      for (const row of present || []) {
-        const identity = normalizeJoinIdentity(row.join_identity);
-        const uid = userIdFromJoinIdentity(identity);
-        if (!uid) continue;
-        // Active presence heartbeat means they're in the live join flow — accrue time.
-        // eslint-disable-next-line no-await-in-loop
-        await openAttendanceSegment({
-          eventId,
-          userId: uid,
-          joinIdentity: identity,
-          source: 'platform',
-          force: true
-        });
-      }
-      await rebuildAttendanceRollupsFromSegments(eventId, { syncClaims: false });
+      const { syncAttendanceSegmentsWithPresence } = await import('../services/meetingAttendanceSegments.service.js');
+      await syncAttendanceSegmentsWithPresence(eventId, { staleSeconds: JOIN_PRESENCE_STALE_SECONDS });
     } catch (e) {
       console.warn('[teamMeeting] attendance sync on list failed', e?.message || e);
     }

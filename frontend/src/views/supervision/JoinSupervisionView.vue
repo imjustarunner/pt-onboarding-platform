@@ -1,7 +1,18 @@
 <template>
   <div class="join-supervision-view">
-    <div v-if="resolving" class="join-placeholder">Resolving session…</div>
-    <div v-else-if="error" class="join-error">
+    <MeetingSessionExitPanel
+      v-if="sessionExit"
+      :variant="sessionExit.variant"
+      :can-rejoin="sessionExit.canRejoin"
+      meeting-label="session"
+      session-kind="supervision"
+      :banner-dismissed="exitBannerDismissed"
+      @rejoin="rejoinSession"
+      @go-to-schedule="goToScheduleFromExit"
+      @dismiss-banner="dismissHostEndedBanner"
+    />
+    <div v-else-if="resolving" class="join-placeholder">Resolving session…</div>
+    <div v-else-if="error && !token" class="join-error">
       <p>{{ error }}</p>
       <button
         v-if="showLoginFallback"
@@ -11,9 +22,18 @@
       >
         Log in to join
       </button>
+      <button
+        v-if="sessionExit === null && error.includes('left the session')"
+        type="button"
+        class="join-login-btn join-login-btn--secondary"
+        @click="rejoinSession"
+      >
+        Rejoin session
+      </button>
     </div>
     <SupervisionLiveRoom
       v-else-if="token && vonageSessionId && applicationId"
+      ref="liveRoomRef"
       :supervision-session-id="numericSessionId || sessionId"
       :token="token"
       :vonage-session-id="vonageSessionId"
@@ -30,7 +50,10 @@
       :local-role-label="localRoleLabel"
       :local-profile-photo-url="localProfilePhotoUrl"
       :join-token="isOpaqueJoinRef ? String(sessionId || '') : ''"
-      @leave="onDisconnected"
+      @leave="onLeaveRequest"
+      @connected="onVideoConnected"
+      @meeting-ended="onMeetingEnded"
+      @disconnected="onVideoDisconnected"
     />
     <div v-else class="join-placeholder">Loading…</div>
   </div>
@@ -41,6 +64,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import SupervisionLiveRoom from '../../components/supervision/SupervisionLiveRoom.vue';
+import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
 import api from '../../services/api';
 
 const router = useRouter();
@@ -73,6 +97,11 @@ const localRoleLabel = ref('');
 const localProfilePhotoUrl = ref('');
 const isGuestJoin = ref(false);
 const joinAttemptedForPath = ref('');
+const intentionalLeave = ref(false);
+const sessionExit = ref(null);
+const exitBannerDismissed = ref(false);
+const liveRoomRef = ref(null);
+const videoConnected = ref(false);
 
 const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
 const isOpaqueJoinRef = computed(() => {
@@ -119,23 +148,29 @@ function applyTokenPayload(data) {
   const fromApi = String(data.displayName || '').trim();
   localDisplayName.value = (fromApi && fromApi.toLowerCase() !== 'guest')
     ? fromApi
-    : (authName || fromApi || '');
-  localProfilePhotoUrl.value = String(
-    data.profilePhotoUrl || data.profile_photo_url || u.profile_photo_url || u.profilePhotoUrl || ''
-  ).trim();
-  if (data.isSupervisor) localRoleLabel.value = 'Supervisor';
-  else if (data.isPresenter) localRoleLabel.value = 'Presenter';
-  else if (isGuestJoin.value && !authName) localRoleLabel.value = 'Guest';
-  else {
-    const roleFromApi = String(data.roleLabel || '').trim();
-    localRoleLabel.value = (roleFromApi && roleFromApi.toLowerCase() !== 'guest')
-      ? roleFromApi
-      : 'Supervisee';
+    : (authName || (fromApi.toLowerCase() === 'guest' ? '' : fromApi) || '');
+  const roleFromApi = String(data.roleLabel || '').trim();
+  localRoleLabel.value = (roleFromApi && roleFromApi.toLowerCase() !== 'guest')
+    ? roleFromApi
+    : 'Supervisee';
+}
+
+function stopAdmissionPolling() {
+  if (admissionPollInterval.value) {
+    clearInterval(admissionPollInterval.value);
+    admissionPollInterval.value = null;
+  }
+}
+
+function stopPresenceHeartbeat() {
+  if (presencePollInterval.value) {
+    clearInterval(presencePollInterval.value);
+    presencePollInterval.value = null;
   }
 }
 
 function startAdmissionPolling() {
-  if (admissionPollInterval.value) clearInterval(admissionPollInterval.value);
+  stopAdmissionPolling();
   admissionPollInterval.value = setInterval(pollAdmissionStatus, 2000);
 }
 
@@ -162,12 +197,15 @@ async function pollAdmissionStatus() {
       });
       data = resp?.data || {};
     }
+    if (data.roomMode === 'ended' || data.sessionEnded) {
+      stopAdmissionPolling();
+      void finishLeave({ variant: 'host-ended', canRejoin: false });
+      return;
+    }
     if (data.admitted && data.token) {
       applyTokenPayload(data);
-      if (admissionPollInterval.value) {
-        clearInterval(admissionPollInterval.value);
-        admissionPollInterval.value = null;
-      }
+      stopAdmissionPolling();
+      startPresenceHeartbeat();
     }
   } catch {
     // ignore, will retry
@@ -175,7 +213,7 @@ async function pollAdmissionStatus() {
 }
 
 function startPresenceHeartbeat() {
-  if (presencePollInterval.value) clearInterval(presencePollInterval.value);
+  stopPresenceHeartbeat();
   const tick = async () => {
     const sid = numericSessionId.value || sessionId.value;
     const identity = joinIdentity.value;
@@ -203,24 +241,123 @@ async function leavePresence() {
   const sid = numericSessionId.value || sessionId.value;
   const identity = joinIdentity.value;
   if (!sid || !identity) return;
-  const body = { identity, action: 'leave' };
+  const body = JSON.stringify({ identity, action: 'leave' });
   try {
-    // Beacon survives tab close / navigation better than a normal XHR.
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-      const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
-      if (navigator.sendBeacon(presenceLeaveUrl(sid), blob)) return;
+      const blob = new Blob([body], { type: 'application/json' });
+      navigator.sendBeacon(presenceLeaveUrl(sid), blob);
+      return;
     }
-  } catch {
-    /* fall through */
-  }
+  } catch { /* ignore */ }
   try {
     await api.post(
       `/supervision/sessions/${encodeURIComponent(sid)}/join-presence`,
-      body,
+      { identity, action: 'leave' },
       { skipAuthRedirect: true, skipGlobalLoading: true }
     );
-  } catch {
-    /* ignore */
+  } catch { /* ignore */ }
+}
+
+async function teardownLiveSession() {
+  stopAdmissionPolling();
+  stopPresenceHeartbeat();
+  try {
+    liveRoomRef.value?.disconnect?.();
+  } catch { /* ignore */ }
+  await leavePresence();
+  token.value = '';
+  vonageSessionId.value = '';
+  roomName.value = '';
+  videoConnected.value = false;
+}
+
+function showSessionExit({ variant = 'left', canRejoin = true } = {}) {
+  sessionExit.value = { variant, canRejoin: !!canRejoin };
+  exitBannerDismissed.value = false;
+}
+
+function dismissHostEndedBanner() {
+  exitBannerDismissed.value = true;
+  goToScheduleFromExit();
+}
+
+function navigateAway() {
+  const slug = organizationSlug.value;
+  if (authStore.isAuthenticated) {
+    if (slug) router.push({ path: `/${slug}/dashboard`, query: { focus: 'schedule', tab: 'my_schedule' } });
+    else router.push({ path: '/dashboard', query: { focus: 'schedule', tab: 'my_schedule' } });
+    return;
+  }
+  error.value = 'You left the session. Use Rejoin below if the room is still open.';
+  sessionExit.value = null;
+}
+
+function goToScheduleFromExit() {
+  sessionExit.value = null;
+  exitBannerDismissed.value = false;
+  navigateAway();
+}
+
+async function rejoinSession() {
+  sessionExit.value = null;
+  exitBannerDismissed.value = false;
+  intentionalLeave.value = false;
+  error.value = '';
+  joinAttemptedForPath.value = '';
+  await fetchTokenAndJoin();
+}
+
+async function endLiveSessionForEveryone() {
+  const sid = numericSessionId.value || sessionId.value;
+  if (!sid) return;
+  try {
+    await api.post(`/supervision/sessions/${encodeURIComponent(sid)}/end-live`, {}, {
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
+  } catch (e) {
+    console.warn('[JoinSupervision] end-live failed', e?.message || e);
+  }
+}
+
+async function finishLeave({ variant = 'left', canRejoin = true } = {}) {
+  intentionalLeave.value = true;
+  await teardownLiveSession();
+  showSessionExit({ variant, canRejoin });
+}
+
+async function onLeaveRequest(payload = {}) {
+  if (intentionalLeave.value || sessionExit.value) return;
+  const endForAll = !!payload?.endForAll;
+  if (endForAll) {
+    await endLiveSessionForEveryone();
+    await finishLeave({ variant: 'ended-by-you', canRejoin: false });
+    return;
+  }
+  await finishLeave({ variant: 'left', canRejoin: true });
+}
+
+function onMeetingEnded() {
+  if (sessionExit.value || intentionalLeave.value) return;
+  void finishLeave({ variant: 'host-ended', canRejoin: false });
+}
+
+function onVideoDisconnected() {
+  if (intentionalLeave.value || sessionExit.value) return;
+  videoConnected.value = false;
+  void finishLeave({ variant: 'left', canRejoin: true });
+}
+
+function onVideoConnected() {
+  videoConnected.value = true;
+}
+
+function goLogin() {
+  const slug = organizationSlug.value;
+  if (slug) {
+    router.push(`/${slug}/login?redirect=${encodeURIComponent(route.fullPath)}`);
+  } else {
+    router.push(`/login?redirect=${encodeURIComponent(route.fullPath)}`);
   }
 }
 
@@ -236,13 +373,13 @@ async function resolveAndRedirect() {
     const resp = await api.get(`/supervision/join-info/${encodeURIComponent(sid)}`, { skipAuthRedirect: true });
     const data = resp?.data || {};
     const slug = data.orgSlug;
-    if (slug) {
-      const joinKey = String(data.joinToken || sid).trim();
-      if (data.sessionId) numericSessionId.value = Number(data.sessionId);
-      router.replace(`/${slug}/join/supervision/${encodeURIComponent(joinKey)}`);
+    if (!slug) {
+      error.value = 'Session organization not found';
       return;
     }
-    error.value = 'Session not found';
+    if (slug !== organizationSlug.value) {
+      router.replace(`/${slug}/join/supervision/${encodeURIComponent(sid)}`);
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Session not found';
   } finally {
@@ -252,126 +389,62 @@ async function resolveAndRedirect() {
 
 async function fetchGuestToken() {
   const sid = sessionId.value;
-  if (!sid || !isOpaqueJoinRef.value) return false;
   const guestKey = stableGuestKey(sid);
   const resp = await api.get(`/supervision/guest-join/${encodeURIComponent(sid)}`, {
-    params: guestKey ? { guestKey } : undefined,
-    skipAuthRedirect: true,
-    skipGlobalLoading: true
-  });
-  applyTokenPayload(resp?.data || {});
-  if (!token.value || !vonageSessionId.value || !applicationId.value) {
-    throw new Error('Video credentials were incomplete.');
-  }
-  if (roomMode.value === 'lobby') startAdmissionPolling();
-  startPresenceHeartbeat();
-  return true;
-}
-
-async function fetchAuthenticatedToken() {
-  const sid = sessionId.value;
-  const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/video-token`, {
+    params: {
+      guestKey,
+      displayName: localDisplayName.value || 'Guest'
+    },
     skipAuthRedirect: true
   });
   applyTokenPayload(resp?.data || {});
-  if (!token.value || !vonageSessionId.value || !applicationId.value) {
-    throw new Error('Video credentials were incomplete.');
-  }
-  // Prefer auth-store identity when available so labels never stick on Guest.
-  const u = authStore.user || {};
-  const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
-    || u.email
-    || '';
-  if (authName && (!localDisplayName.value || localDisplayName.value === 'Guest')) {
-    localDisplayName.value = authName;
-  }
-  if (!localProfilePhotoUrl.value) {
-    localProfilePhotoUrl.value = String(u.profile_photo_url || u.profilePhotoUrl || '').trim();
-  }
-  if (roomMode.value === 'lobby') startAdmissionPolling();
-  startPresenceHeartbeat();
-  return true;
-}
-
-async function ensureAuthenticatedSession() {
-  if (authStore.isAuthenticated) return true;
-  try {
-    const resp = await api.get('/users/me', { skipAuthRedirect: true, skipGlobalLoading: true });
-    const u = resp?.data || null;
-    if (u && (u.id || u.email)) {
-      const existingToken = (() => {
-        try { return localStorage.getItem('authToken') || authStore.token || null; } catch { return null; }
-      })();
-      authStore.setAuth(existingToken, u, localStorage.getItem('sessionId') || null);
-      return true;
-    }
-  } catch {
-    /* fall through */
-  }
-  return false;
-}
-
-function goLogin() {
-  const slug = organizationSlug.value;
-  const redirect = encodeURIComponent(route.fullPath);
-  if (slug) router.replace(`/${slug}/login?redirect=${redirect}`);
-  else router.replace(`/login?redirect=${redirect}`);
+  if (isInLobby.value) startAdmissionPolling();
+  else startPresenceHeartbeat();
 }
 
 async function fetchTokenAndJoin() {
-  const sid = sessionId.value;
-  if (!sid) {
-    error.value = 'Invalid session';
-    return;
-  }
   error.value = '';
   showLoginFallback.value = false;
   try {
-    // Prefer authenticated join when logged in so the same user reuses one seat
-    // (guest path used to mint a new identity per tab and lock individual rooms at 2).
-    const loggedIn = await ensureAuthenticatedSession();
-    if (loggedIn) {
-      try {
-        await fetchAuthenticatedToken();
-        return;
-      } catch (authErr) {
-        const status = Number(authErr?.response?.status || 0);
-        if (status === 409) {
-          error.value = authErr?.response?.data?.error?.message
-            || 'This session is full right now. When someone leaves, try the link again.';
-          return;
-        }
-        // Do not silently fall through to guest while logged in — that caused "Guest" labels.
-        error.value = authErr?.response?.data?.error?.message
-          || 'You’re signed in but can’t join this session with this account. Use the participant link for your role, or sign out to join as a guest.';
-        showLoginFallback.value = status === 401 || status === 403;
-        return;
-      }
-    }
-
-    if (isOpaqueJoinRef.value) {
-      try {
-        await fetchGuestToken();
-        return;
-      } catch (guestErr) {
-        const status = Number(guestErr?.response?.status || 0);
-        if (status === 409) {
-          error.value = guestErr?.response?.data?.error?.message
-            || 'This session is full right now. When someone leaves, try the link again.';
-          return;
-        }
-        error.value = guestErr?.response?.data?.error?.message
-          || 'Could not join as guest. Log in with your account, or ask the host for a fresh join link.';
-        showLoginFallback.value = true;
-        return;
-      }
-    }
-
-    showLoginFallback.value = true;
-    error.value = 'Please log in to join this session.';
+    const sid = sessionId.value;
+    const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/video-token`, {
+      skipAuthRedirect: true
+    });
+    applyTokenPayload(resp?.data || {});
+    if (isInLobby.value) startAdmissionPolling();
+    else startPresenceHeartbeat();
+    return;
   } catch (e) {
+    const status = Number(e?.response?.status || 0);
+    if (status === 401) {
+      if (isOpaqueJoinRef.value) {
+        try {
+          await fetchGuestToken();
+          return;
+        } catch (guestErr) {
+          const guestStatus = Number(guestErr?.response?.status || 0);
+          if (guestStatus === 409) {
+            error.value = guestErr?.response?.data?.error?.message
+              || 'This session is full right now. When someone leaves, try the link again.';
+            return;
+          }
+          error.value = guestErr?.response?.data?.error?.message
+            || 'Could not join as guest. Log in with your account, or ask the host for a fresh join link.';
+          showLoginFallback.value = true;
+          return;
+        }
+      }
+      showLoginFallback.value = true;
+      error.value = 'Please log in to join this session.';
+      return;
+    }
+    if (status === 409) {
+      error.value = e?.response?.data?.error?.message
+        || 'This session is full right now. When someone leaves, try the link again.';
+      return;
+    }
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
-    if (Number(e?.response?.status || 0) === 401) showLoginFallback.value = true;
+    if (status === 401) showLoginFallback.value = true;
   }
 }
 
@@ -407,24 +480,10 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('pagehide', onPageLeave);
   window.removeEventListener('beforeunload', onPageLeave);
-  if (admissionPollInterval.value) clearInterval(admissionPollInterval.value);
-  if (presencePollInterval.value) clearInterval(presencePollInterval.value);
-  void leavePresence();
+  stopAdmissionPolling();
+  stopPresenceHeartbeat();
+  if (!intentionalLeave.value) void leavePresence();
 });
-
-async function onDisconnected() {
-  await leavePresence();
-  const slug = organizationSlug.value;
-  if (authStore.isAuthenticated) {
-    if (slug) router.push({ path: `/${slug}/dashboard`, query: { focus: 'schedule', tab: 'my_schedule' } });
-    else router.push({ path: '/dashboard', query: { focus: 'schedule', tab: 'my_schedule' } });
-    return;
-  }
-  // Guests: stay on a simple thank-you state instead of bouncing to login/dashboard.
-  error.value = 'You left the session. Close this tab, or use the join link again if the room still has an open seat.';
-  token.value = '';
-  vonageSessionId.value = '';
-}
 </script>
 
 <style scoped>
@@ -461,5 +520,9 @@ async function onDisconnected() {
   font-weight: 700;
   padding: 10px 16px;
   cursor: pointer;
+}
+.join-login-btn--secondary {
+  background: #1e293b;
+  color: #e2e8f0;
 }
 </style>

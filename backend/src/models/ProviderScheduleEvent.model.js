@@ -42,6 +42,9 @@ class ProviderScheduleEvent {
     const subtype = kindUpper === 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall')
       ? requestedSubtype
       : 'general';
+    const attendanceTrackingEnabled = kindUpper === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall'
+      ? 1
+      : 0;
     try {
       const [result] = await pool.execute(
         `INSERT INTO provider_schedule_events
@@ -50,8 +53,8 @@ class ProviderScheduleEvent {
            kind, title, description, reason_code, is_private, all_day, start_at, end_at, start_date, end_date, status,
            recurrence_series_id, recurrence_frequency, recurrence_policy, recurrence_index,
            google_event_id, google_html_link, google_meet_link, platform_video_link,
-           is_training_pay_eligible, meeting_subtype, created_by_user_id, updated_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           is_training_pay_eligible, meeting_subtype, attendance_tracking_enabled, created_by_user_id, updated_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           participantToken,
           hostToken,
@@ -83,6 +86,7 @@ class ProviderScheduleEvent {
           platformVideoLink == null ? null : (platformVideoLink ? 1 : 0),
           isTrainingPayEligible ? 1 : 0,
           subtype,
+          attendanceTrackingEnabled,
           createdByUserId ? Number(createdByUserId) : null,
           createdByUserId ? Number(createdByUserId) : null
         ]

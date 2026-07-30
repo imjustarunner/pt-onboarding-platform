@@ -5,6 +5,7 @@
       'vsr--compact': compact,
       'vsr--strip': layout === 'strip',
       'vsr--hide-controls': hideControls,
+      'vsr--fullscreen': videoFullscreen,
       [`vsr--focus-${tileFocus}`]: !!tileFocus
     }"
   >
@@ -33,145 +34,216 @@
     </div>
 
     <template v-else>
-      <div
-        class="vsr__stage"
-        :class="{
-          'vsr__stage--strip': layout === 'strip',
-          'vsr__stage--solo': isSoloStage && !hasScreenShare,
-          'vsr__stage--duo': isDuoStage && !hasScreenShare,
-          'vsr__stage--grid': isGridStage && !hasScreenShare,
-          'vsr__stage--screen': hasScreenShare,
-          'vsr__stage--focus-local': tileFocus === 'local' && !hasScreenShare,
-          'vsr__stage--focus-remote': tileFocus === 'remote' && !hasScreenShare,
-          'vsr__stage--focus-collapsed': tileFocus === 'collapsed' && !hasScreenShare,
-          [`vsr__stage--count-${Math.min(remotes.length + (hideSelfView ? 0 : 1), 6)}`]: layout !== 'strip' && !hasScreenShare && hasRemote
-        }"
-      >
+      <div class="vsr__viewport" :class="{ 'vsr__viewport--split': useSplitCamOffLayout }">
         <div
-          v-show="hasScreenShare"
-          class="vsr__tile vsr__tile--screen"
-        >
-          <div ref="screenEl" class="vsr__media" />
-          <span class="vsr__label">{{ screenShareLabel || 'Screen share' }}</span>
-        </div>
-
-        <div
-          v-for="r in remotes"
-          :key="r.streamId"
-          class="vsr__tile vsr__tile--remote"
+          class="vsr__stage"
           :class="{
-            'vsr__tile--cam-off': !r.hasVideo,
-            'vsr__tile--muted': !r.hasAudio,
-            'vsr__tile--hand': !!handByConnection[r.connectionId],
-            'vsr__tile--pip': hasScreenShare || tileFocus === 'local',
-            'vsr__tile--featured': tileFocus === 'remote' && remotes.length === 1,
-            'vsr__tile--mini': tileFocus === 'collapsed'
+            'vsr__stage--strip': layout === 'strip',
+            'vsr__stage--solo': isSoloStage && !hasScreenShare,
+            'vsr__stage--duo': isDuoStage && !hasScreenShare,
+            'vsr__stage--grid': isGridStage && !hasScreenShare,
+            'vsr__stage--screen': hasScreenShare,
+            'vsr__stage--focus-local': tileFocus === 'local' && !hasScreenShare,
+            'vsr__stage--focus-remote': (tileFocus === 'remote' || tileFocus === 'speaker') && !hasScreenShare,
+            'vsr__stage--focus-speaker': tileFocus === 'speaker' && !hasScreenShare,
+            'vsr__stage--focus-collapsed': tileFocus === 'collapsed' && !hasScreenShare,
+            [`vsr__stage--count-${Math.min(stageVideoCount, 6)}`]: layout !== 'strip' && !hasScreenShare && stageVideoCount > 0
           }"
-          @click="onTileActivate('remote')"
         >
           <div
-            class="vsr__media"
-            :ref="(el) => setRemoteMediaEl(r.streamId, el)"
-          />
-          <div v-if="!r.hasVideo" class="vsr__avatar" aria-hidden="true">
-            <img v-if="r.profilePhotoUrl" :src="r.profilePhotoUrl" alt="" class="vsr__avatar-img" />
-            <span v-else class="vsr__avatar-initials">{{ initialsFromLabel(r.name) }}</span>
-          </div>
-          <span v-if="!r.hasAudio" class="vsr__mic-badge" title="Microphone off" aria-label="Microphone off">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" stroke="currentColor" stroke-width="2"/>
-              <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-          </span>
-          <span v-if="handByConnection[r.connectionId]" class="vsr__hand-badge" title="Hand raised" aria-label="Hand raised">✋</span>
-          <span class="vsr__label">
-            {{ r.name }}
-            <span v-if="handByConnection[r.connectionId]" class="vsr__hand-inline">✋</span>
-          </span>
-          <button
-            v-if="canMuteOthers && r.connectionId"
-            type="button"
-            class="vsr__mute-other"
-            title="Mute this participant"
-            @click.stop="forceMuteRemote(r)"
+            v-show="hasScreenShare"
+            class="vsr__tile vsr__tile--screen"
           >
-            Mute
-          </button>
-        </div>
-
-        <div
-          v-if="!hasRemote && !hasScreenShare"
-          class="vsr__tile vsr__tile--remote vsr__tile--empty"
-        >
-          <span class="vsr__waiting">Waiting for others to join…</span>
-        </div>
-
-        <div
-          v-show="!hideSelfView"
-          class="vsr__tile vsr__tile--local"
-          :class="{
-            'vsr__tile--muted': !publishAudio,
-            'vsr__tile--cam-off': !publishVideo,
-            'vsr__tile--hand': localHandRaised,
-            'vsr__tile--solo': isSoloStage && !hasScreenShare && tileFocus === 'equal',
-            'vsr__tile--duo': isDuoStage && !hasScreenShare && tileFocus === 'equal',
-            'vsr__tile--grid-local': isGridStage && !hasScreenShare && tileFocus === 'equal',
-            'vsr__tile--pip': hasScreenShare || tileFocus === 'remote',
-            'vsr__tile--featured': tileFocus === 'local',
-            'vsr__tile--mini': tileFocus === 'collapsed'
-          }"
-          @click="onTileActivate('local')"
-        >
-          <div ref="localMediaEl" class="vsr__media" />
-          <div v-if="!publishVideo" class="vsr__avatar" aria-hidden="true">
-            <img v-if="localProfilePhotoUrl" :src="localProfilePhotoUrl" alt="" class="vsr__avatar-img" />
-            <span v-else class="vsr__avatar-initials">{{ localInitials }}</span>
+            <div ref="screenEl" class="vsr__media" />
+            <span class="vsr__label">{{ screenShareLabel || 'Screen share' }}</span>
           </div>
-          <span v-if="!publishAudio" class="vsr__mic-badge" title="Microphone off" aria-label="Microphone off">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" stroke="currentColor" stroke-width="2"/>
-              <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-          </span>
-          <span v-if="localHandRaised" class="vsr__hand-badge" title="Hand raised" aria-label="Hand raised">✋</span>
-          <span class="vsr__label">
-            {{ localName || 'You' }}
-            <span v-if="localHandRaised" class="vsr__hand-inline">✋</span>
-          </span>
-          <button
-            v-if="allowTileFocus"
-            type="button"
-            class="vsr__focus-btn"
-            :title="tileFocus === 'local' ? 'Shrink video' : 'Enlarge video'"
-            @click.stop="onTileActivate('local')"
-          >
-            {{ tileFocus === 'local' ? 'Shrink' : 'Expand' }}
-          </button>
-        </div>
 
-        <div class="vsr__reactions" aria-live="polite">
           <div
-            v-for="rx in floatingReactions"
-            :key="rx.id"
-            class="vsr__float-rx"
-            :style="{ left: rx.left, top: rx.top, animationDuration: rx.duration }"
+            v-for="r in stageRemotes"
+            :key="r.streamId"
+            class="vsr__tile vsr__tile--remote"
+            :class="{
+              'vsr__tile--cam-off': !useSplitCamOffLayout && !r.hasVideo,
+              'vsr__tile--muted': !r.hasAudio,
+              'vsr__tile--hand': handRaisedForConnection(r.connectionId),
+              'vsr__tile--pip': hasScreenShare || tileFocus === 'local' || (tileFocus === 'speaker' && r.streamId !== featuredSpeakerStreamId),
+              'vsr__tile--featured': (
+                (tileFocus === 'remote' && stageRemotes.length === 1)
+                || (tileFocus === 'speaker' && r.streamId === featuredSpeakerStreamId)
+              ),
+              'vsr__tile--mini': tileFocus === 'collapsed'
+            }"
+            @click="onTileActivate('remote')"
           >
-            <span class="vsr__float-rx-emoji">{{ rx.emoji }}</span>
-            <span class="vsr__float-rx-name">{{ rx.displayName }}</span>
+            <div
+              class="vsr__media"
+              :ref="(el) => setRemoteMediaEl(r.streamId, el)"
+            />
+            <div v-if="!useSplitCamOffLayout && !r.hasVideo" class="vsr__avatar" aria-hidden="true">
+              <img v-if="r.profilePhotoUrl" :src="r.profilePhotoUrl" alt="" class="vsr__avatar-img" />
+              <span v-else class="vsr__avatar-initials">{{ initialsFromLabel(r.name) }}</span>
+            </div>
+            <span v-if="!r.hasAudio" class="vsr__mic-badge" title="Microphone off" aria-label="Microphone off">
+              <svg class="vsr__mic-badge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" stroke="currentColor" stroke-width="2"/>
+                <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <span v-if="handRaisedForConnection(r.connectionId)" class="vsr__hand-badge" title="Hand raised" aria-label="Hand raised">✋</span>
+            <span class="vsr__label" :class="{ 'vsr__label--with-status': !r.hasAudio }">
+              <span class="vsr__label-name">{{ r.name }}</span>
+              <span v-if="!r.hasAudio" class="vsr__label-status vsr__label-status--muted">Muted</span>
+            </span>
+            <span v-if="!r.hasAudio" class="vsr__muted-pill" aria-label="Muted">Muted</span>
+            <button
+              v-else-if="canMuteOthers && r.connectionId"
+              type="button"
+              class="vsr__mute-other"
+              title="Mute this participant"
+              @click.stop="forceMuteRemote(r)"
+            >
+              Mute
+            </button>
+          </div>
+
+          <div
+            v-if="showStageEmpty"
+            class="vsr__tile vsr__tile--remote vsr__tile--empty"
+          >
+            <span class="vsr__waiting">Waiting for others to join…</span>
+          </div>
+
+          <div
+            v-show="showLocalOnStage"
+            class="vsr__tile vsr__tile--local"
+            :class="{
+              'vsr__tile--muted': !publishAudio,
+              'vsr__tile--cam-off': !publishVideo && !useSplitCamOffLayout,
+              'vsr__tile--hand': localHandRaised,
+              'vsr__tile--solo': isSoloStage && !hasScreenShare && tileFocus === 'equal',
+              'vsr__tile--duo': isDuoStage && !hasScreenShare && tileFocus === 'equal',
+              'vsr__tile--grid-local': isGridStage && !hasScreenShare && tileFocus === 'equal',
+              'vsr__tile--pip': hasScreenShare || tileFocus === 'remote' || (tileFocus === 'speaker' && !!featuredSpeakerStreamId),
+              'vsr__tile--featured': tileFocus === 'local' || (tileFocus === 'speaker' && !featuredSpeakerStreamId),
+              'vsr__tile--mini': tileFocus === 'collapsed'
+            }"
+            @click="onTileActivate('local')"
+          >
+            <div ref="localMediaStageEl" class="vsr__media" />
+            <div v-if="!publishVideo && !useSplitCamOffLayout" class="vsr__avatar" aria-hidden="true">
+              <img v-if="localProfilePhotoUrl" :src="localProfilePhotoUrl" alt="" class="vsr__avatar-img" />
+              <span v-else class="vsr__avatar-initials">{{ localInitials }}</span>
+            </div>
+            <span v-if="!publishAudio" class="vsr__mic-badge" title="Microphone off" aria-label="Microphone off">
+              <svg class="vsr__mic-badge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" stroke="currentColor" stroke-width="2"/>
+                <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <span v-if="localHandRaised" class="vsr__hand-badge" title="Hand raised" aria-label="Hand raised">✋</span>
+            <span class="vsr__label" :class="{ 'vsr__label--with-status': !publishAudio }">
+              <span class="vsr__label-name">{{ localName || 'You' }}</span>
+              <span v-if="!publishAudio" class="vsr__label-status vsr__label-status--muted">Muted</span>
+            </span>
+            <button
+              v-if="allowTileFocus"
+              type="button"
+              class="vsr__focus-btn"
+              :title="tileFocus === 'local' ? 'Shrink video' : 'Enlarge video'"
+              @click.stop="onTileActivate('local')"
+            >
+              {{ tileFocus === 'local' ? 'Shrink' : 'Expand' }}
+            </button>
+          </div>
+
+          <div class="vsr__reactions" aria-live="polite">
+            <div
+              v-for="rx in floatingReactions"
+              :key="rx.id"
+              class="vsr__float-rx"
+              :style="{ left: rx.left, top: rx.top, animationDuration: rx.duration }"
+            >
+              <span class="vsr__float-rx-emoji">{{ rx.emoji }}</span>
+              <span class="vsr__float-rx-name">{{ rx.displayName }}</span>
+            </div>
           </div>
         </div>
+
+        <aside
+          v-if="camOffPanelEntries.length"
+          class="vsr__cam-off-panel"
+          aria-label="Camera off participants"
+        >
+          <div class="vsr__cam-off-panel-inner">
+            <div
+              v-for="entry in camOffPanelEntries"
+              :key="entry.key"
+              class="vsr__cam-off-chip"
+              :class="{
+                'vsr__cam-off-chip--speaking': isParticipantSpeaking(entry),
+                'vsr__cam-off-chip--muted': !entry.hasAudio,
+                'vsr__cam-off-chip--local': entry.kind === 'local'
+              }"
+            >
+              <div
+                v-if="entry.kind === 'remote'"
+                class="vsr__cam-off-media"
+                :ref="(el) => setRemoteMediaEl(entry.streamId, el)"
+                aria-hidden="true"
+              />
+              <div class="vsr__cam-off-avatar" aria-hidden="true">
+                <img v-if="entry.profilePhotoUrl" :src="entry.profilePhotoUrl" alt="" class="vsr__cam-off-avatar-img" />
+                <span v-else class="vsr__cam-off-avatar-initials">{{ initialsFromLabel(entry.displayName) }}</span>
+              </div>
+              <div class="vsr__cam-off-meta">
+                <span class="vsr__cam-off-name">{{ entry.displayName }}</span>
+                <span v-if="!entry.hasAudio" class="vsr__cam-off-muted">Muted</span>
+                <span v-else-if="isParticipantSpeaking(entry)" class="vsr__cam-off-speaking">Speaking</span>
+              </div>
+              <span v-if="!entry.hasAudio" class="vsr__cam-off-mic-off" title="Microphone off" aria-label="Microphone off">
+                <svg class="vsr__mic-badge-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" stroke="currentColor" stroke-width="2"/>
+                  <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <span v-if="entry.kind === 'remote' && handRaisedForConnection(entry.connectionId)" class="vsr__cam-off-hand">✋</span>
+              <span v-if="!entry.hasAudio" class="vsr__muted-pill vsr__muted-pill--chip" aria-label="Muted">Muted</span>
+              <button
+                v-else-if="entry.kind === 'remote' && canMuteOthers && entry.connectionId"
+                type="button"
+                class="vsr__cam-off-mute"
+                title="Mute this participant"
+                @click.stop="forceMuteRemote(entry.remote)"
+              >
+                Mute
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <div ref="localPublisherHostEl" class="vsr__publisher-host vsr__sr-only" aria-hidden="true" />
+      </div>
+
+      <div v-if="!publishAudio" class="vsr__muted-banner" role="status" aria-live="polite">
+        <span class="vsr__muted-banner-icon" aria-hidden="true">
+          <svg class="vsr__mic-badge-icon" viewBox="0 0 24 24" fill="none">
+            <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" stroke="currentColor" stroke-width="2"/>
+            <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="vsr__muted-banner-text">You are muted — others cannot hear you</span>
       </div>
 
       <div v-if="!hideControls" class="vsr__controls" role="toolbar" aria-label="Session media controls">
         <button
           type="button"
           class="vsr__ctrl"
-          :class="{ 'vsr__ctrl--danger': !publishAudio }"
+          :class="{ 'vsr__ctrl--danger': !publishAudio, 'vsr__ctrl--mic-muted': !publishAudio }"
           :aria-pressed="!publishAudio"
           :title="publishAudio ? 'Mute microphone' : 'Unmute microphone'"
           @click.stop.prevent="toggleMic"
         >
-          {{ publishAudio ? 'Mic' : 'Muted' }}
+          {{ publishAudio ? 'Mic' : 'Unmute' }}
         </button>
         <button
           type="button"
@@ -232,16 +304,49 @@
             @click="sendReaction(rx)"
           >{{ rx }}</button>
         </div>
-        <button
-          v-if="allowTileFocus || showLayoutControls"
-          type="button"
-          class="vsr__ctrl"
-          title="Cycle video layout"
-          @click="cycleLayoutFocus"
-        >
-          Layout
-        </button>
+        <div v-if="allowTileFocus || showLayoutControls" class="vsr__layout-wrap">
+          <button
+            type="button"
+            class="vsr__ctrl"
+            :class="{ 'vsr__ctrl--active': layoutMenuOpen || videoFullscreen }"
+            title="Video layout"
+            aria-haspopup="menu"
+            :aria-expanded="layoutMenuOpen"
+            @click="layoutMenuOpen = !layoutMenuOpen"
+          >
+            Layout
+          </button>
+          <div v-if="layoutMenuOpen" class="vsr__layout-menu" role="menu">
+            <button
+              v-for="opt in layoutMenuOptions"
+              :key="opt.id"
+              type="button"
+              class="vsr__layout-item"
+              :class="{ on: isLayoutOptionActive(opt) }"
+              role="menuitem"
+              @click="applyLayoutOption(opt)"
+            >
+              <span>{{ opt.label }}</span>
+              <span v-if="isLayoutOptionActive(opt)" class="vsr__layout-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
         <slot name="extra-controls" />
+      </div>
+      <div v-if="videoFullscreen" class="vsr__fs-chrome">
+        <button type="button" class="vsr__fs-exit" @click="setVideoFullscreen(false)">
+          Exit full screen
+        </button>
+        <span v-if="raisedHandsNotice" class="vsr__fs-hand" role="status">✋ {{ raisedHandsNotice }}</span>
+        <button
+          v-if="activityNotice"
+          type="button"
+          class="vsr__fs-notice"
+          @click="onActivityNoticeClick"
+        >
+          {{ activityNotice }}
+          <span class="vsr__fs-notice-hint">Tap to exit &amp; read</span>
+        </button>
       </div>
     </template>
   </div>
@@ -269,20 +374,28 @@ const props = defineProps({
   diagnostics: { type: Object, default: null },
   /** Show “Reset video room” when auth fails (parent handles recreate). */
   canRecreateRoom: { type: Boolean, default: false },
-  /** equal | local | remote | collapsed — parent-driven expandable tiles */
+  /** equal | speaker | local | remote | collapsed — parent-driven expandable tiles */
   tileFocus: { type: String, default: 'equal' },
   /** Hide built-in control bar when parent renders its own dock */
   hideControls: { type: Boolean, default: false },
   /** Show Expand/Shrink controls on tiles */
   allowTileFocus: { type: Boolean, default: false },
-  /** Show Layout cycle button in controls */
+  /** Show Layout menu in controls */
   showLayoutControls: { type: Boolean, default: false },
+  /** Immersive full-screen video (parent hides workspace/chat) */
+  videoFullscreen: { type: Boolean, default: false },
+  /** Toast while fullscreen (e.g. "New chat message") — tap exits to read */
+  activityNotice: { type: String, default: '' },
+  /** Compact hand-raise summary while fullscreen */
+  raisedHandsNotice: { type: String, default: '' },
   /** Who may force-mute others: 'everyone' | 'host' | 'none' */
   muteOthersMode: { type: String, default: 'host' },
   /** Local user is host or co-host (for mute-others when mode is host) */
   isHostOrCohost: { type: Boolean, default: false },
   /** Play a short tone when someone else joins */
   playJoinTone: { type: Boolean, default: true },
+  /** Play a short tone when someone else leaves */
+  playLeaveTone: { type: Boolean, default: true },
   /** Connection id / identity used for raise-hand map keys when known */
   localConnectionKey: { type: String, default: '' }
 });
@@ -293,16 +406,21 @@ const emit = defineEmits([
   'error',
   'stream-created',
   'stream-destroyed',
+  'participant-left',
   'request-recreate-room',
   'update:tileFocus',
+  'update:videoFullscreen',
+  'activity-notice-click',
   'meeting-ended',
   'hand-raised-change',
   'hands-map-change',
+  'audio-map-change',
   'reaction',
   'transcript-control'
 ]);
 
-const localMediaEl = ref(null);
+const localMediaStageEl = ref(null);
+const localPublisherHostEl = ref(null);
 const screenEl = ref(null);
 const connecting = ref(false);
 const errorMessage = ref('');
@@ -312,7 +430,6 @@ const publishVideo = ref(true);
 const hideSelfView = ref(false);
 /** on | processing | unavailable | unsupported */
 const voiceIsolationStatus = ref('');
-let ownedAudioTrack = null;
 /** @type {import('vue').Ref<Array<{ streamId: string, connectionId: string, name: string, hasVideo: boolean, hasAudio: boolean, profilePhotoUrl: string }>>} */
 const remotes = ref([]);
 const sharingScreen = ref(false);
@@ -323,13 +440,89 @@ const remoteMediaEls = new Map();
 const localHandRaised = ref(false);
 /** @type {import('vue').Ref<Record<string, boolean>>} */
 const handByConnection = ref({});
+/** @type {import('vue').Ref<Record<string, string>>} */
+const audioNameByConnection = ref({});
+/** @type {import('vue').Ref<Record<string, string>>} */
+const handNameByConnection = ref({});
 /** @type {import('vue').Ref<Array<{ id: string, emoji: string, displayName: string, left: string, top: string, duration: string }>>} */
 const floatingReactions = ref([]);
 const reactionEmojis = ['👍', '❤️', '🎉', '👏', '💡'];
+const SPEAK_LEVEL = 0.2;
+/** @type {import('vue').Ref<Record<string, boolean>>} */
+const speakingByKey = ref({});
 let joinToneCtx = null;
 let reactionSeq = 0;
 
 const hasRemote = computed(() => remotes.value.length > 0);
+const layoutMenuOpen = ref(false);
+const lastSpeakerStreamId = ref('');
+const layoutMenuOptions = [
+  { id: 'equal', label: 'Equal tiles', kind: 'focus' },
+  { id: 'speaker', label: 'Speaker only', kind: 'focus' },
+  { id: 'remote', label: 'Focus peer', kind: 'focus' },
+  { id: 'local', label: 'Focus you', kind: 'focus' },
+  { id: 'collapsed', label: 'Collapse videos', kind: 'focus' },
+  { id: 'fullscreen', label: 'Full screen videos', kind: 'fullscreen' }
+];
+const useSplitCamOffLayout = computed(() =>
+  props.layout !== 'strip'
+  && props.tileFocus === 'equal'
+  && !props.videoFullscreen
+);
+const featuredSpeakerStreamId = computed(() => {
+  if (props.tileFocus !== 'speaker') return '';
+  const speakingRemote = stageRemotes.value.find((r) => !!speakingByKey.value[String(r.streamId || '')]);
+  if (speakingRemote?.streamId) return speakingRemote.streamId;
+  if (lastSpeakerStreamId.value && stageRemotes.value.some((r) => r.streamId === lastSpeakerStreamId.value)) {
+    return lastSpeakerStreamId.value;
+  }
+  return stageRemotes.value[0]?.streamId || '';
+});
+const remotesOnVideo = computed(() => remotes.value.filter((r) => r.hasVideo));
+const remotesCamOff = computed(() => remotes.value.filter((r) => !r.hasVideo));
+const stageRemotes = computed(() => (
+  useSplitCamOffLayout.value ? remotesOnVideo.value : remotes.value
+));
+const showLocalOnStage = computed(() => (
+  !hideSelfView.value
+  && (!useSplitCamOffLayout.value || publishVideo.value)
+));
+const stageVideoCount = computed(() => {
+  let count = stageRemotes.value.length;
+  if (showLocalOnStage.value) count += 1;
+  return count;
+});
+const showStageEmpty = computed(() => (
+  !hasScreenShare.value
+  && !hasRemote.value
+  && !showLocalOnStage.value
+));
+const camOffPanelEntries = computed(() => {
+  if (!useSplitCamOffLayout.value) return [];
+  const entries = remotesCamOff.value.map((r) => ({
+    key: r.streamId,
+    kind: 'remote',
+    streamId: r.streamId,
+    connectionId: r.connectionId,
+    displayName: r.name,
+    profilePhotoUrl: r.profilePhotoUrl,
+    hasAudio: r.hasAudio,
+    remote: r
+  }));
+  if (!hideSelfView.value && !publishVideo.value) {
+    entries.push({
+      key: 'local',
+      kind: 'local',
+      streamId: 'local',
+      connectionId: '',
+      displayName: props.localName || 'You',
+      profilePhotoUrl: props.localProfilePhotoUrl,
+      hasAudio: publishAudio.value,
+      remote: null
+    });
+  }
+  return entries;
+});
 const canMuteOthers = computed(() => {
   const mode = String(props.muteOthersMode || 'host').toLowerCase();
   if (mode === 'everyone') return true;
@@ -339,67 +532,58 @@ const canMuteOthers = computed(() => {
 
 const voiceIsolationLabel = computed(() => {
   if (voiceIsolationStatus.value === 'on') return 'Voice isolation on';
-  if (voiceIsolationStatus.value === 'processing') return 'Mic processing on';
-  if (voiceIsolationStatus.value === 'unavailable') return 'Voice isolation off';
-  if (voiceIsolationStatus.value === 'unsupported') return 'Voice isolation N/A';
+  if (voiceIsolationStatus.value === 'processing') return 'Enhancing mic…';
+  if (voiceIsolationStatus.value === 'unavailable') return 'Basic mic only';
+  if (voiceIsolationStatus.value === 'unsupported') return 'Isolation N/A';
   return '';
 });
 const voiceIsolationTitle = computed(() => {
   if (voiceIsolationStatus.value === 'on') {
-    return 'Browser voice isolation is applied to your published microphone';
+    return 'Vonage advanced noise suppression is filtering background noise from your microphone. Echo cancellation is also active.';
   }
   if (voiceIsolationStatus.value === 'processing') {
-    return 'Noise suppression / echo cancellation is active on your mic. Chrome Mic Mode voice isolation may also be on at the OS level.';
+    return 'Starting advanced noise suppression…';
   }
   if (voiceIsolationStatus.value === 'unavailable') {
-    return 'Could not enable mic processing on this device';
+    return 'Advanced voice isolation needs Chrome, Edge, or Opera on desktop. Browser echo cancellation and noise suppression are still active.';
   }
   if (voiceIsolationStatus.value === 'unsupported') {
-    return 'This browser does not expose a voiceIsolation constraint; echo cancellation and noise suppression are still requested';
+    return 'This browser cannot run Vonage audio processing. Use Chrome or Edge for voice isolation.';
   }
   return '';
 });
 
-async function acquireIsolatedAudioTrack() {
-  if (!navigator?.mediaDevices?.getUserMedia) {
-    voiceIsolationStatus.value = 'unsupported';
-    return null;
-  }
-  const supported = navigator.mediaDevices.getSupportedConstraints?.() || {};
-  const wantsVoiceIsolation = !!supported.voiceIsolation;
-  const audio = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true
-  };
-  if (wantsVoiceIsolation) audio.voiceIsolation = true;
+function vonageSupportsAdvancedNoiseSuppression(OT) {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
-    const track = stream.getAudioTracks()?.[0] || null;
-    if (!track) {
-      voiceIsolationStatus.value = 'unavailable';
-      return null;
-    }
-    for (const t of stream.getTracks()) {
-      if (t !== track) t.stop();
-    }
-    const settings = typeof track.getSettings === 'function' ? (track.getSettings() || {}) : {};
-    const nsOn = settings.noiseSuppression !== false;
-    const viOn = settings.voiceIsolation === true;
-    if (viOn) {
+    return typeof OT?.hasMediaProcessorSupport === 'function' && OT.hasMediaProcessorSupport('audio');
+  } catch {
+    return false;
+  }
+}
+
+function refreshAudioEnhancementStatus(publisher) {
+  try {
+    const filter = publisher?.getAudioFilter?.();
+    if (filter?.type === 'advancedNoiseSuppression') {
       voiceIsolationStatus.value = 'on';
-    } else if (nsOn) {
-      // Chrome Mic Mode / OS VI often won't show in getSettings().voiceIsolation.
-      voiceIsolationStatus.value = wantsVoiceIsolation ? 'processing' : 'processing';
-    } else {
-      voiceIsolationStatus.value = 'unavailable';
+      return;
     }
-    ownedAudioTrack = track;
-    return track;
-  } catch (e) {
-    console.warn('[VideoSessionRoom] isolated mic capture failed; using default publisher audio', e?.message || e);
+  } catch { /* ignore */ }
+  if (voiceIsolationStatus.value === 'on') {
     voiceIsolationStatus.value = 'unavailable';
-    return null;
+  }
+}
+
+async function ensureAdvancedNoiseSuppression(publisher) {
+  if (!publisher) return false;
+  try {
+    const existing = publisher.getAudioFilter?.();
+    if (existing?.type === 'advancedNoiseSuppression') return true;
+    await publisher.applyAudioFilter({ type: 'advancedNoiseSuppression' });
+    return publisher.getAudioFilter?.()?.type === 'advancedNoiseSuppression';
+  } catch (e) {
+    console.warn('[VideoSessionRoom] advancedNoiseSuppression failed', e?.message || e);
+    return false;
   }
 }
 
@@ -428,12 +612,93 @@ function playJoinChime() {
   } catch { /* ignore */ }
 }
 
+function playLeaveChime() {
+  if (!props.playLeaveTone) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!joinToneCtx) joinToneCtx = new AC();
+    const ctx = joinToneCtx;
+    if (ctx.state === 'suspended') void ctx.resume();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(392, now);
+    osc.frequency.setValueAtTime(329.63, now + 0.1);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.07, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  } catch { /* ignore */ }
+}
+
 function localConnectionId() {
   try {
-    return String(session?.connection?.connectionId || props.localConnectionKey || '').trim();
+    return connectionIdFrom(session?.connection) || String(props.localConnectionKey || '').trim();
   } catch {
     return String(props.localConnectionKey || '').trim();
   }
+}
+
+function connectionIdFrom(conn) {
+  if (!conn) return '';
+  return String(conn.connectionId || conn.id || '').trim();
+}
+
+function setRemoteAudioByConnection(connectionId, hasAudio, displayName = '') {
+  const id = String(connectionId || '').trim();
+  if (!id) return;
+  remotes.value = remotes.value.map((r) => (
+    r.connectionId === id ? { ...r, hasAudio: !!hasAudio } : r
+  ));
+  if (displayName) {
+    audioNameByConnection.value = { ...audioNameByConnection.value, [id]: String(displayName).trim() };
+  } else if (hasAudio) {
+    const nextNames = { ...audioNameByConnection.value };
+    delete nextNames[id];
+    audioNameByConnection.value = nextNames;
+  }
+  if (!hasAudio) {
+    const remote = remotes.value.find((r) => r.connectionId === id);
+    if (remote?.streamId) setSpeaking(remote.streamId, false);
+    if (!displayName && remote?.name) {
+      audioNameByConnection.value = { ...audioNameByConnection.value, [id]: remote.name };
+    }
+  }
+}
+
+function emitAudioMapChange() {
+  const mutedByConnection = {};
+  const nameByConnection = { ...audioNameByConnection.value };
+  for (const r of remotes.value) {
+    if (!r.hasAudio && r.connectionId) {
+      mutedByConnection[r.connectionId] = true;
+      if (r.name) nameByConnection[r.connectionId] = r.name;
+    }
+  }
+  const localId = localConnectionId();
+  if (localId && !publishAudio.value) {
+    mutedByConnection[localId] = true;
+    nameByConnection[localId] = props.localName || 'You';
+  }
+  emit('audio-map-change', {
+    mutedByConnection: { ...mutedByConnection },
+    nameByConnection: { ...nameByConnection }
+  });
+}
+
+function broadcastMicState(hasAudio) {
+  const connId = localConnectionId();
+  if (!connId) return;
+  sendSessionSignal('mic_state', {
+    connectionId: connId,
+    hasAudio: !!hasAudio,
+    displayName: props.localName || 'You'
+  });
 }
 
 function sendSessionSignal(type, data, toConnection = null) {
@@ -452,21 +717,37 @@ function sendSessionSignal(type, data, toConnection = null) {
   }
 }
 
-function setHandState(connectionId, raised) {
+function handRaisedForConnection(connectionId) {
+  const id = String(connectionId || '').trim();
+  if (!id) return false;
+  return !!handByConnection.value[id];
+}
+
+function setHandState(connectionId, raised, displayName = '') {
   const id = String(connectionId || '').trim();
   if (!id) return;
   const next = { ...handByConnection.value };
-  if (raised) next[id] = true;
-  else delete next[id];
+  const nextNames = { ...handNameByConnection.value };
+  if (raised) {
+    next[id] = true;
+    if (displayName) nextNames[id] = String(displayName).trim();
+  } else {
+    delete next[id];
+    delete nextNames[id];
+  }
   handByConnection.value = next;
-  emit('hands-map-change', { ...next });
+  handNameByConnection.value = nextNames;
+  emit('hands-map-change', {
+    byConnection: { ...next },
+    nameByConnection: { ...nextNames }
+  });
 }
 
 function toggleRaiseHand() {
   const next = !localHandRaised.value;
   localHandRaised.value = next;
   const connId = localConnectionId();
-  if (connId) setHandState(connId, next);
+  if (connId) setHandState(connId, next, props.localName || 'You');
   sendSessionSignal('hand_raised', {
     raised: next,
     connectionId: connId,
@@ -504,18 +785,57 @@ function sendReaction(emoji) {
 
 function forceMuteRemote(remote) {
   if (!canMuteOthers.value || !remote?.connectionId) return;
+  setRemoteAudioByConnection(remote.connectionId, false);
   sendSessionSignal('force_mute', {
     targetConnectionId: remote.connectionId,
     byName: props.localName || 'Someone'
   });
 }
 
+function isLayoutOptionActive(opt) {
+  if (!opt) return false;
+  if (opt.kind === 'fullscreen') return !!props.videoFullscreen;
+  return props.tileFocus === opt.id && !props.videoFullscreen;
+}
+
+function setVideoFullscreen(on) {
+  emit('update:videoFullscreen', !!on);
+  layoutMenuOpen.value = false;
+}
+
+function applyLayoutOption(opt) {
+  if (!opt) return;
+  if (opt.kind === 'fullscreen') {
+    setVideoFullscreen(!props.videoFullscreen);
+    return;
+  }
+  emit('update:tileFocus', opt.id);
+  layoutMenuOpen.value = false;
+}
+
+function onActivityNoticeClick() {
+  emit('activity-notice-click');
+  setVideoFullscreen(false);
+}
+
 function cycleLayoutFocus() {
-  const order = ['equal', 'local', 'remote', 'collapsed'];
+  const order = ['equal', 'speaker', 'remote', 'local', 'collapsed'];
   const idx = order.indexOf(props.tileFocus);
   const next = order[(idx + 1) % order.length];
   emit('update:tileFocus', next);
 }
+
+watch(speakingByKey, (map) => {
+  const speaking = Object.entries(map || {}).find(([, on]) => !!on);
+  if (!speaking?.[0] || speaking[0] === 'local') return;
+  if (stageRemotes.value.some((r) => String(r.streamId) === String(speaking[0]))) {
+    lastSpeakerStreamId.value = speaking[0];
+  }
+}, { deep: true });
+
+watch(() => props.videoFullscreen, (on) => {
+  if (on) layoutMenuOpen.value = false;
+});
 
 function applyForceMuteLocal() {
   if (!publishAudio.value) return;
@@ -523,41 +843,120 @@ function applyForceMuteLocal() {
   try {
     publisher?.publishAudio?.(false);
   } catch { /* ignore */ }
-}
-
-function releaseOwnedAudioTrack() {
-  try {
-    ownedAudioTrack?.stop?.();
-  } catch { /* ignore */ }
-  ownedAudioTrack = null;
+  broadcastMicState(false);
+  setSpeaking('local', false);
 }
 
 const visibleLocal = computed(() => !hideSelfView.value);
-const visibleTileCount = computed(() => remotes.value.length + (visibleLocal.value ? 1 : 0));
+const visibleTileCount = computed(() => stageVideoCount.value);
 const isSoloStage = computed(() =>
   props.layout !== 'strip'
   && props.tileFocus === 'equal'
-  && visibleTileCount.value === 1
+  && stageVideoCount.value === 1
   && (hasRemote.value || props.promoteLocalWhenAlone)
 );
 const isDuoStage = computed(() =>
   props.equalTilesWhenRemote
   && props.layout !== 'strip'
   && props.tileFocus === 'equal'
-  && visibleTileCount.value === 2
+  && stageVideoCount.value === 2
 );
 const isGridStage = computed(() =>
   props.equalTilesWhenRemote
   && props.layout !== 'strip'
   && props.tileFocus === 'equal'
-  && visibleTileCount.value >= 3
+  && stageVideoCount.value >= 3
 );
+
+function isParticipantSpeaking(entry) {
+  return !!speakingByKey.value[String(entry?.key || '')];
+}
+
+function setSpeaking(key, speaking) {
+  const id = String(key || '').trim();
+  if (!id) return;
+  const prev = !!speakingByKey.value[id];
+  const nextSpeaking = !!speaking;
+  if (prev === nextSpeaking) return;
+  const next = { ...speakingByKey.value };
+  if (nextSpeaking) next[id] = true;
+  else delete next[id];
+  speakingByKey.value = next;
+}
+
+function attachSubscriberAudioLevel(sub, streamId) {
+  const id = String(streamId || '').trim();
+  if (!id || !sub?.on) return;
+  try {
+    sub.on('audioLevelUpdated', (event) => {
+      const remote = remotes.value.find((r) => r.streamId === id);
+      if (remote && !remote.hasAudio) {
+        setSpeaking(id, false);
+        return;
+      }
+      setSpeaking(id, Number(event?.audioLevel ?? 0) > SPEAK_LEVEL);
+    });
+  } catch { /* ignore */ }
+}
+
+function attachPublisherAudioLevel() {
+  try {
+    publisher?.on?.('audioLevelUpdated', (event) => {
+      if (!publishAudio.value) {
+        setSpeaking('local', false);
+        return;
+      }
+      setSpeaking('local', Number(event?.audioLevel ?? 0) > SPEAK_LEVEL);
+    });
+  } catch { /* ignore */ }
+}
+
+function reparentMediaElement(mediaEl, targetEl) {
+  if (!mediaEl || !targetEl) return;
+  if (mediaEl.parentNode === targetEl) return;
+  targetEl.innerHTML = '';
+  targetEl.appendChild(mediaEl);
+  forceMediaFill(targetEl);
+}
+
+function reparentSubscriberMedia(streamId, targetEl) {
+  const id = String(streamId || '').trim();
+  const sub = subscribers.get(id);
+  if (!sub || !targetEl) return;
+  try {
+    const mediaEl = typeof sub.element === 'function' ? sub.element() : null;
+    reparentMediaElement(mediaEl, targetEl);
+  } catch { /* ignore */ }
+}
+
+async function syncLocalVideoPresentation() {
+  await nextTick();
+  let target = localPublisherHostEl.value;
+  if (!hideSelfView.value && (!useSplitCamOffLayout.value || publishVideo.value)) {
+    target = localMediaStageEl.value || target;
+  }
+  if (!publisher || !target) return;
+  try {
+    const mediaEl = typeof publisher.element === 'function' ? publisher.element() : null;
+    reparentMediaElement(mediaEl, target);
+  } catch { /* ignore */ }
+}
+
+async function syncRemotePresentation(streamId) {
+  await nextTick();
+  const el = remoteMediaEls.get(String(streamId || '').trim());
+  if (el) reparentSubscriberMedia(streamId, el);
+}
 
 function setRemoteMediaEl(streamId, el) {
   const id = String(streamId || '');
   if (!id) return;
-  if (el) remoteMediaEls.set(id, el);
-  else remoteMediaEls.delete(id);
+  if (el) {
+    remoteMediaEls.set(id, el);
+    reparentSubscriberMedia(id, el);
+  } else {
+    remoteMediaEls.delete(id);
+  }
 }
 
 function onTileActivate(which) {
@@ -631,7 +1030,7 @@ function remoteMetaFromStream(stream) {
   } catch { /* keep defaults */ }
   return {
     streamId: String(stream.streamId || ''),
-    connectionId: String(stream?.connection?.connectionId || '').trim(),
+    connectionId: connectionIdFrom(stream?.connection),
     name,
     hasVideo: stream?.hasVideo !== false,
     hasAudio: stream?.hasAudio !== false,
@@ -695,13 +1094,16 @@ async function subscribeToStream(stream) {
   if (!remotes.value.some((r) => r.streamId === streamId)) {
     remotes.value = [...remotes.value, remoteMetaFromStream(stream)];
   }
-  await nextTick();
-  await new Promise((r) => requestAnimationFrame(() => r()));
-
-  let targetEl = remoteMediaEls.get(streamId);
-  if (!targetEl) {
+  let targetEl = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    // eslint-disable-next-line no-await-in-loop
     await nextTick();
+    if (attempt > 0) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => requestAnimationFrame(() => r()));
+    }
     targetEl = remoteMediaEls.get(streamId);
+    if (targetEl) break;
   }
   if (!targetEl) {
     console.error('[VideoSessionRoom] remote media target missing', { streamId });
@@ -737,15 +1139,18 @@ async function subscribeToStream(stream) {
   );
 
   subscribers.set(streamId, sub);
+  attachSubscriberAudioLevel(sub, streamId);
   sub.on?.('videoEnabled', () => {
     remotes.value = remotes.value.map((r) => (
       r.streamId === streamId ? { ...r, hasVideo: true } : r
     ));
+    void syncRemotePresentation(streamId);
   });
   sub.on?.('videoDisabled', () => {
     remotes.value = remotes.value.map((r) => (
       r.streamId === streamId ? { ...r, hasVideo: false } : r
     ));
+    void syncRemotePresentation(streamId);
   });
   sub.on?.('audioEnabled', () => {
     remotes.value = remotes.value.map((r) => (
@@ -756,6 +1161,7 @@ async function subscribeToStream(stream) {
     remotes.value = remotes.value.map((r) => (
       r.streamId === streamId ? { ...r, hasAudio: false } : r
     ));
+    setSpeaking(streamId, false);
   });
   playJoinChime();
 }
@@ -915,6 +1321,14 @@ async function connect() {
         remotes.value = remotes.value.filter((r) => r.streamId !== streamId);
         remoteMediaEls.delete(streamId);
         if (gone?.connectionId) setHandState(gone.connectionId, false);
+        if (gone) {
+          playLeaveChime();
+          emit('participant-left', {
+            displayName: gone.displayName || gone.label || 'Participant',
+            connectionId: gone.connectionId || '',
+            streamId
+          });
+        }
       }
       emit('stream-destroyed', event);
     });
@@ -945,7 +1359,7 @@ async function connect() {
       const connId = String(payload.connectionId || event?.from?.connectionId || '').trim();
       if (!connId) return;
       const raised = !!payload.raised;
-      setHandState(connId, raised);
+      setHandState(connId, raised, payload.displayName || '');
       if (connId === localConnectionId()) localHandRaised.value = raised;
     });
 
@@ -970,6 +1384,16 @@ async function connect() {
       if (target && me && target === me) applyForceMuteLocal();
     });
 
+    session.on('signal:mic_state', (event) => {
+      let payload = {};
+      try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
+      const connId = String(payload.connectionId || event?.from?.connectionId || '').trim();
+      if (!connId || connId === localConnectionId()) return;
+      if (typeof payload.hasAudio === 'boolean') {
+        setRemoteAudioByConnection(connId, payload.hasAudio, payload.displayName || '');
+      }
+    });
+
     session.on('signal:transcript_control', (event) => {
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
@@ -981,9 +1405,10 @@ async function connect() {
     });
 
     await nextTick();
-    if (localMediaEl.value) localMediaEl.value.innerHTML = '';
-    releaseOwnedAudioTrack();
-    const audioTrack = await acquireIsolatedAudioTrack();
+    const publisherMountEl = localMediaStageEl.value || localPublisherHostEl.value;
+    if (publisherMountEl) publisherMountEl.innerHTML = '';
+    const useVonageNoiseSuppression = vonageSupportsAdvancedNoiseSuppression(OT);
+    voiceIsolationStatus.value = useVonageNoiseSuppression ? 'processing' : 'unavailable';
     const publisherOpts = {
       insertMode: 'append',
       width: '100%',
@@ -993,23 +1418,36 @@ async function connect() {
       publishVideo: publishVideo.value,
       name: props.localName,
       mirror: true,
-      style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
+      style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' },
+      echoCancellation: true,
+      autoGainControl: true,
+      // Vonage advanced filter replaces browser noise suppression when available.
+      noiseSuppression: !useVonageNoiseSuppression
     };
-    // Prefer an explicit mic track so voiceIsolation / noiseSuppression actually apply.
-    // Chrome's PiP "Mic Mode" UI is not enough — OT must publish that constrained track.
-    if (audioTrack) publisherOpts.audioSource = audioTrack;
+    if (useVonageNoiseSuppression) {
+      publisherOpts.audioFilter = { type: 'advancedNoiseSuppression' };
+    }
     publisher = OT.initPublisher(
-      localMediaEl.value,
+      publisherMountEl,
       publisherOpts,
       (err) => {
         if (err) console.error('[VideoSessionRoom] publisher error', err);
-        else forceMediaFill(localMediaEl.value);
+        else forceMediaFill(publisherMountEl);
       }
     );
+    attachPublisherAudioLevel();
 
     await new Promise((resolve, reject) => {
       session.publish(publisher, (err) => (err ? reject(err) : resolve()));
     });
+    if (useVonageNoiseSuppression) {
+      const applied = await ensureAdvancedNoiseSuppression(publisher);
+      voiceIsolationStatus.value = applied ? 'on' : 'unavailable';
+    } else {
+      voiceIsolationStatus.value = 'unavailable';
+    }
+    refreshAudioEnhancementStatus(publisher);
+    await syncLocalVideoPresentation();
 
     // Catch streams that were already in the session before our listener ran.
     // Never subscribe to our own published stream (that caused “two of me”).
@@ -1151,9 +1589,10 @@ function disconnect(emitEvent = true) {
       }
       session = null;
     }
-    if (localMediaEl.value) localMediaEl.value.innerHTML = '';
+    if (localMediaStageEl.value) localMediaStageEl.value.innerHTML = '';
+    if (localPublisherHostEl.value) localPublisherHostEl.value.innerHTML = '';
     clearRemote();
-    releaseOwnedAudioTrack();
+    speakingByKey.value = {};
     voiceIsolationStatus.value = '';
   } finally {
     connecting.value = false;
@@ -1170,6 +1609,8 @@ function toggleMic() {
   }
   try {
     publisher.publishAudio(next);
+    broadcastMicState(next);
+    if (!next) setSpeaking('local', false);
   } catch (e) {
     console.error('[VideoSessionRoom] publishAudio failed', e);
     publishAudio.value = !next;
@@ -1185,6 +1626,7 @@ function toggleCamera() {
   }
   try {
     publisher.publishVideo(next);
+    void syncLocalVideoPresentation();
   } catch (e) {
     console.error('[VideoSessionRoom] publishVideo failed', e);
     publishVideo.value = !next;
@@ -1203,6 +1645,24 @@ watch(
   () => [props.applicationId, props.apiKey, props.sessionId, props.token],
   () => {
     if (props.autoConnect && props.token) connect();
+  }
+);
+
+watch([publishVideo, hideSelfView, useSplitCamOffLayout], () => {
+  void syncLocalVideoPresentation();
+});
+
+watch(
+  [publishAudio, () => remotes.value.map((r) => `${r.streamId}:${r.hasAudio ? 1 : 0}`).join('|')],
+  () => {
+    emitAudioMapChange();
+  }
+);
+
+watch(
+  () => remotes.value.map((r) => `${r.streamId}:${r.hasVideo ? 1 : 0}`).join('|'),
+  () => {
+    for (const r of remotes.value) void syncRemotePresentation(r.streamId);
   }
 );
 
@@ -1239,6 +1699,7 @@ defineExpose({
 
 <style scoped>
 .vsr {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -1251,6 +1712,152 @@ defineExpose({
 }
 .vsr--compact {
   min-height: 120px;
+}
+.vsr__viewport {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  gap: 0.35rem;
+}
+.vsr__viewport--split .vsr__stage {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.vsr__sr-only,
+.vsr__publisher-host {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.vsr__cam-off-panel {
+  flex: 0 0 auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.45rem 0.55rem;
+}
+.vsr__cam-off-panel-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: stretch;
+}
+.vsr__cam-off-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: min(100%, 220px);
+  flex: 1 1 180px;
+  padding: 0.45rem 0.55rem;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #243044 0%, #151a24 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
+}
+.vsr__cam-off-chip--speaking {
+  border-color: rgba(52, 211, 153, 0.75);
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.35), 0 0 18px rgba(52, 211, 153, 0.18);
+}
+.vsr__cam-off-chip--muted {
+  border-color: rgba(248, 113, 113, 0.8);
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.35), 0 0 14px rgba(239, 68, 68, 0.15);
+}
+.vsr__cam-off-muted {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #fecaca;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.vsr__cam-off-media {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.vsr__cam-off-avatar {
+  flex-shrink: 0;
+}
+.vsr__cam-off-avatar-img,
+.vsr__cam-off-avatar-initials {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 0.95rem;
+  background: rgba(30, 64, 120, 0.55);
+  color: #f8fafc;
+}
+.vsr__cam-off-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+}
+.vsr__cam-off-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vsr__cam-off-speaking {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #6ee7b7;
+  letter-spacing: 0.02em;
+}
+.vsr__cam-off-hand {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1rem;
+  background: rgba(234, 179, 8, 0.94);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+}
+.vsr__cam-off-mic-off {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(185, 28, 28, 0.94);
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.vsr__cam-off-mute {
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.vsr__cam-off-mute:hover {
+  background: rgba(185, 28, 28, 0.85);
 }
 .vsr__stage {
   position: relative;
@@ -1333,25 +1940,98 @@ defineExpose({
   top: 0.5rem;
   left: 0.5rem;
   z-index: 4;
-  width: 28px;
-  height: 28px;
+  width: 2.35rem;
+  height: 2.35rem;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: rgba(185, 28, 28, 0.9);
+  background: rgba(185, 28, 28, 0.96);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.42);
+}
+.vsr__mic-badge-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+.vsr__tile--muted {
+  outline: 2px solid rgba(248, 113, 113, 0.75);
+  outline-offset: -2px;
+}
+.vsr__muted-pill {
+  position: absolute;
+  bottom: 2.1rem;
+  right: 0.45rem;
+  z-index: 5;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(185, 28, 28, 0.92);
+  border: 1px solid rgba(254, 202, 202, 0.65);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.vsr__muted-pill--chip {
+  position: static;
+  bottom: auto;
+  right: auto;
+}
+.vsr__muted-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  margin: 0 0.35rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(127, 29, 29, 0.92);
+  border: 1px solid rgba(248, 113, 113, 0.55);
+  color: #fecaca;
+  font-size: 0.84rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.vsr__muted-banner-icon {
+  display: grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  flex-shrink: 0;
+}
+.vsr__muted-banner-text {
+  line-height: 1.25;
 }
 .vsr__hand-badge {
   position: absolute;
-  top: 0.45rem;
-  right: 0.45rem;
+  top: 0.5rem;
+  right: 0.5rem;
   z-index: 4;
-  font-size: 1.25rem;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1.35rem;
+  line-height: 1;
+  background: rgba(234, 179, 8, 0.94);
+  color: #422006;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.42);
+  animation: vsr-hand-pulse 1.8s ease-in-out infinite;
 }
-.vsr__hand-inline {
-  margin-left: 0.25rem;
+@keyframes vsr-hand-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.42); }
+  50% { transform: scale(1.06); box-shadow: 0 4px 16px rgba(234, 179, 8, 0.55); }
+}
+.vsr__tile--hand {
+  outline: 2px solid rgba(234, 179, 8, 0.65);
+  outline-offset: -2px;
 }
 .vsr__mute-other {
   position: absolute;
@@ -1508,12 +2188,15 @@ defineExpose({
   display: none;
 }
 .vsr__stage--focus-local,
-.vsr__stage--focus-remote {
+.vsr__stage--focus-remote,
+.vsr__stage--focus-speaker {
   grid-template-columns: 1fr;
   min-height: min(48vh, 420px);
 }
 .vsr__stage--focus-local .vsr__tile--local.vsr__tile--featured,
-.vsr__stage--focus-remote .vsr__tile--remote.vsr__tile--featured {
+.vsr__stage--focus-remote .vsr__tile--remote.vsr__tile--featured,
+.vsr__stage--focus-speaker .vsr__tile--remote.vsr__tile--featured,
+.vsr__stage--focus-speaker .vsr__tile--local.vsr__tile--featured {
   position: relative !important;
   inset: auto !important;
   width: 100% !important;
@@ -1521,9 +2204,12 @@ defineExpose({
   min-height: min(42vh, 380px);
   height: 100%;
   box-shadow: none !important;
+  grid-area: 1 / 1;
 }
 .vsr__stage--focus-local .vsr__tile--remote.vsr__tile--pip,
-.vsr__stage--focus-remote .vsr__tile--local.vsr__tile--pip {
+.vsr__stage--focus-remote .vsr__tile--local.vsr__tile--pip,
+.vsr__stage--focus-speaker .vsr__tile--local.vsr__tile--pip,
+.vsr__stage--focus-speaker .vsr__tile--remote.vsr__tile--pip {
   position: absolute !important;
   right: 0.75rem;
   bottom: 0.75rem;
@@ -1535,6 +2221,126 @@ defineExpose({
   z-index: 4;
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.vsr__stage--focus-speaker .vsr__tile--remote.vsr__tile--pip:nth-last-of-type(2) {
+  right: calc(0.75rem + min(26%, 180px) + 0.45rem);
+}
+.vsr--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: #070a10;
+  border-radius: 0;
+  max-height: none;
+  height: 100dvh;
+  width: 100vw;
+}
+.vsr--fullscreen .vsr__viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.vsr--fullscreen .vsr__stage {
+  min-height: 0;
+  height: 100%;
+}
+.vsr--fullscreen .vsr__stage--focus-local .vsr__tile--local.vsr__tile--featured,
+.vsr--fullscreen .vsr__stage--focus-remote .vsr__tile--remote.vsr__tile--featured,
+.vsr--fullscreen .vsr__stage--focus-speaker .vsr__tile--remote.vsr__tile--featured,
+.vsr--fullscreen .vsr__stage--solo .vsr__tile,
+.vsr--fullscreen .vsr__stage--duo .vsr__tile,
+.vsr--fullscreen .vsr__stage--grid .vsr__tile {
+  min-height: min(70dvh, 720px);
+}
+.vsr__layout-wrap {
+  position: relative;
+}
+.vsr__layout-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 200px;
+  background: #111827;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.vsr__layout-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #e2e8f0;
+  text-align: left;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.vsr__layout-item:hover,
+.vsr__layout-item.on {
+  background: #1e293b;
+}
+.vsr__layout-check {
+  color: #6ee7b7;
+  font-weight: 800;
+}
+.vsr__fs-chrome {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+  pointer-events: none;
+}
+.vsr__fs-exit,
+.vsr__fs-hand,
+.vsr__fs-notice {
+  pointer-events: auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.vsr__fs-exit {
+  background: rgba(15, 23, 42, 0.85);
+  color: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  cursor: pointer;
+}
+.vsr__fs-hand {
+  background: rgba(245, 158, 11, 0.92);
+  color: #422006;
+}
+.vsr__fs-notice {
+  margin-left: auto;
+  background: rgba(37, 99, 235, 0.95);
+  color: #eff6ff;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: min(70vw, 280px);
+  text-align: left;
+}
+.vsr__fs-notice-hint {
+  font-size: 0.68rem;
+  font-weight: 600;
+  opacity: 0.9;
 }
 .vsr__stage--focus-collapsed {
   grid-template-columns: 1fr 1fr;
@@ -1617,6 +2423,30 @@ defineExpose({
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   z-index: 3;
+  max-width: calc(100% - 0.8rem);
+}
+.vsr__label--with-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  padding: 0.2rem 0.45rem;
+}
+.vsr__label-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.vsr__label-status {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.vsr__label-status--muted {
+  color: #fecaca;
 }
 .vsr__controls {
   display: flex;
@@ -1669,6 +2499,14 @@ defineExpose({
   border-color: #f87171 !important;
   color: #fff !important;
   font-weight: 700;
+}
+.vsr__ctrl--mic-muted {
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.45), 0 4px 14px rgba(185, 28, 28, 0.35);
+  animation: vsr-mic-muted-pulse 2s ease-in-out infinite;
+}
+@keyframes vsr-mic-muted-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.45), 0 4px 14px rgba(185, 28, 28, 0.35); }
+  50% { box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.65), 0 4px 18px rgba(185, 28, 28, 0.5); }
 }
 .vsr__tile--parked {
   /* Keep a real layout box so OT can attach; visually parked until someone joins. */
