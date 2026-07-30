@@ -28,31 +28,43 @@
           @click="transcriptionNoticeDismissed = true"
         >×</button>
       </div>
-      <div v-if="!videoFullscreen" class="join-toolbar">
-        <button type="button" class="btn btn-danger btn-sm" @click="requestLeave">
-          {{ isHost ? 'Leave / End meeting' : 'Leave meeting' }}
-        </button>
-        <button
-          v-if="showEnableTrackingButton"
-          type="button"
-          class="btn btn-primary btn-sm"
-          :disabled="enablingTracking"
-          @click="enableAttendanceTracking"
-        >
-          {{ enablingTracking ? 'Enabling…' : 'Enable transcription & attendance' }}
-        </button>
-        <span v-if="enableTrackingError" class="join-tracking-error">{{ enableTrackingError }}</span>
-        <div v-if="isAdminMeeting" class="join-tools">
-          <button type="button" class="btn btn-secondary btn-sm" @click="toolsOpen = !toolsOpen">Tools</button>
-          <div v-if="toolsOpen" class="join-tools__menu">
-            <button type="button" class="join-tools__item" @click="copyJoinLink">
-              {{ joinLinkCopied ? 'Copied!' : 'Copy join link' }}
-            </button>
+      <header v-if="!videoFullscreen" class="join-header">
+        <div class="join-header__left">
+          <BrandingLogo size="large" class="join-header__logo" />
+          <div>
+            <h1>{{ displayMeetingTitle }}</h1>
+            <p class="join-header__meta">
+              <span v-if="sessionMetaLine">{{ sessionMetaLine }}</span>
+              <span class="join-header__live">● Live</span>
+            </p>
           </div>
         </div>
-        <span v-if="raisedHandCount" class="join-hand-chip" title="Hands raised">✋ {{ raisedHandCount }}</span>
-        <span v-if="meetingCompletedAt" class="join-completed-chip">Session completed</span>
-      </div>
+        <div class="join-header__right">
+          <button
+            v-if="showEnableTrackingButton"
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="enablingTracking"
+            @click="enableAttendanceTracking"
+          >
+            {{ enablingTracking ? 'Enabling…' : 'Enable transcription & attendance' }}
+          </button>
+          <span v-if="enableTrackingError" class="join-tracking-error">{{ enableTrackingError }}</span>
+          <div v-if="isAdminMeeting" class="join-tools">
+            <button type="button" class="btn btn-secondary btn-sm" @click="toolsOpen = !toolsOpen">Tools</button>
+            <div v-if="toolsOpen" class="join-tools__menu">
+              <button type="button" class="join-tools__item" @click="copyJoinLink">
+                {{ joinLinkCopied ? 'Copied!' : 'Copy join link' }}
+              </button>
+            </div>
+          </div>
+          <span v-if="raisedHandCount" class="join-hand-chip" title="Hands raised">✋ {{ raisedHandCount }}</span>
+          <span v-if="meetingCompletedAt" class="join-completed-chip">Session completed</span>
+          <button type="button" class="btn btn-danger btn-sm" @click="requestLeave">
+            {{ isHost ? 'Leave / End meeting' : 'Leave meeting' }}
+          </button>
+        </div>
+      </header>
       <div
         class="join-session-layout"
         :class="{
@@ -64,13 +76,13 @@
         <div class="join-video" :class="{ 'join-video--lobby': isInLobby && !videoFullscreen }">
           <SupervisionWaitingRoomStage
             v-if="isInLobby && !videoFullscreen"
-            :meeting-title="waitingMeetingTitle || 'Team meeting'"
+            :meeting-title="displayMeetingTitle"
             :host-present="hostPresent"
             :host-role-label="hostRoleLabel"
             :host-status-label="hostStatusLabel"
-            :goals="waitingGoals"
+            :goals="isHuddle ? [] : waitingGoals"
             :agenda="waitingAgenda"
-            :action-items="waitingActionItems"
+            :action-items="isHuddle ? [] : waitingActionItems"
           />
           <div
             class="join-video__stage"
@@ -130,6 +142,7 @@
               :can-create-polls="canCreatePolls"
               :start-open="true"
               :below-video="true"
+              theme="dark"
               @update:open="chatPanelOpen = $event"
               @activity-notice="onLiveActivityNotice"
             />
@@ -157,9 +170,10 @@
                 :can-add-item="true"
                 :embedded="true"
                 :live="true"
+                theme="dark"
               />
             </section>
-            <section class="join-stack-section">
+            <section v-if="!isHuddle" class="join-stack-section">
               <MeetingGoalsActionsPanel
                 :event-id="resolvedEventId"
                 section="goals"
@@ -169,7 +183,7 @@
                 embedded
               />
             </section>
-            <section class="join-stack-section">
+            <section v-if="!isHuddle" class="join-stack-section">
               <MeetingGoalsActionsPanel
                 :event-id="resolvedEventId"
                 section="actions"
@@ -252,6 +266,7 @@ import MeetingAttendancePanel from '../../components/meetings/MeetingAttendanceP
 import MeetingNotesPanel from '../../components/meetings/MeetingNotesPanel.vue';
 import MeetingLiveActivityPanel from '../../components/meetings/MeetingLiveActivityPanel.vue';
 import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
+import BrandingLogo from '../../components/BrandingLogo.vue';
 import api from '../../services/api';
 
 const router = useRouter();
@@ -285,6 +300,8 @@ const waitingMeetingTitle = ref('');
 const waitingGoals = ref([]);
 const waitingAgenda = ref([]);
 const waitingActionItems = ref([]);
+/** Booked invitee count (excludes host) — used for Group Huddle / Group Meeting titles. */
+const bookedParticipantCount = ref(0);
 const joinIdentity = ref('');
 const localDisplayName = ref('');
 const localRoleLabel = ref('');
@@ -411,6 +428,27 @@ watch(videoFullscreen, (on) => {
 });
 
 const isAdminMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'admin');
+const isHuddle = computed(() => String(meetingKind.value || '').toUpperCase() === 'HUDDLE');
+const isMultiParticipant = computed(() => Number(bookedParticipantCount.value || 0) >= 1);
+
+const displayMeetingTitle = computed(() => {
+  const kind = String(meetingKind.value || '').toUpperCase();
+  const subtype = String(meetingSubtype.value || '').toLowerCase();
+  if (kind === 'HUDDLE') return isMultiParticipant.value ? 'Group Huddle' : 'Huddle';
+  if (subtype === 'admin') return 'Admin Meeting';
+  if (subtype === 'town_hall') return 'Town Hall';
+  if (kind === 'TEAM_MEETING') return isMultiParticipant.value ? 'Group Meeting' : 'Meeting';
+  return waitingMeetingTitle.value || 'Meeting';
+});
+
+const sessionMetaLine = computed(() => {
+  const title = String(waitingMeetingTitle.value || '').trim();
+  if (title && title.toLowerCase() !== String(displayMeetingTitle.value || '').toLowerCase()) {
+    return title;
+  }
+  return '';
+});
+
 const muteOthersMode = computed(() => (isAdminMeeting.value ? 'everyone' : 'host'));
 
 const showTranscriptionNotice = computed(() => (
@@ -465,7 +503,9 @@ const canCreatePolls = computed(() => {
 });
 
 const workspaceBannerText = computed(() => (
-  'Meeting workspace — agenda, attendance, and transcript stay with this session. Chat & polls are under the video.'
+  isHuddle.value
+    ? 'Huddle workspace — agenda, attendance, and notes stay with this session. Chat & polls are under the video.'
+    : 'Meeting workspace — agenda, goals, attendance, and transcript stay with this session. Chat & polls are under the video.'
 ));
 
 watch(isInLobby, (lobby, wasLobby) => {
@@ -999,6 +1039,13 @@ watch(
       if (data?.attendanceTrackingEnabled != null) {
         attendanceTrackingEnabled.value = !!data.attendanceTrackingEnabled;
       }
+      if (data?.title) waitingMeetingTitle.value = String(data.title).trim();
+      const parts = Array.isArray(data?.participants) ? data.participants : [];
+      // Workspace participants include the host; group label uses booked invitees only.
+      bookedParticipantCount.value = parts.filter((p) => {
+        if (p?.isHost) return false;
+        return Number(p?.userId || p?.user_id || p?.id || 0) > 0;
+      }).length;
     } catch {
       meetingSubtype.value = 'general';
     }
@@ -1050,6 +1097,54 @@ onUnmounted(() => {
   gap: 10px;
   box-sizing: border-box;
   overflow: hidden;
+}
+.join-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  padding: 4px 0 2px;
+}
+.join-header__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.join-header__logo {
+  flex: 0 0 auto;
+}
+.join-header__logo :deep(.logo-image) {
+  height: 48px;
+  max-height: 48px;
+}
+.join-header h1 {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #f4faf6;
+}
+.join-header__meta {
+  margin: 2px 0 0;
+  color: #a8b3c7;
+  font-size: 0.85rem;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.join-header__live {
+  color: #3dce7a;
+  font-weight: 600;
+}
+.join-header__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .join-toolbar {
   display: flex;
@@ -1235,9 +1330,9 @@ onUnmounted(() => {
   min-height: 0;
 }
 .join-live-activity {
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: 12px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.04);
   padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
@@ -1304,10 +1399,11 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.12);
-  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   overflow: hidden;
+  color: #e8edf5;
 }
 .join-workspace__banner {
   display: flex;
@@ -1316,9 +1412,9 @@ onUnmounted(() => {
   margin: 12px 12px 0;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  color: #065f46;
+  background: rgba(6, 95, 70, 0.28);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  color: #d1fae5;
   font-size: 0.82rem;
   line-height: 1.35;
 }
@@ -1333,7 +1429,7 @@ onUnmounted(() => {
 .join-workspace__banner-x {
   border: 0;
   background: transparent;
-  color: #047857;
+  color: #a7f3d0;
   font-size: 1.1rem;
   line-height: 1;
   cursor: pointer;
@@ -1351,10 +1447,17 @@ onUnmounted(() => {
   gap: 14px;
 }
 .join-stack-section {
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   padding: 12px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.03);
+}
+.join-workspace :deep(.meeting-agenda-panel),
+.join-workspace :deep(.mgap) {
+  color: #e8edf5;
+}
+.join-workspace :deep(.muted) {
+  color: #93a0b8;
 }
 .join-stack-section--chat {
   min-height: 280px;

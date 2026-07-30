@@ -98,8 +98,11 @@
         <label class="tmb-label">Notifications</label>
         <div class="tmb-switch-row">
           <div class="tmb-switch-copy">
-            <span class="tmb-switch-title">Email invites</span>
-            <p class="muted">Send Google Calendar invite and in-app notification emails. Turn off to add silently.</p>
+            <span class="tmb-switch-title">Email invites &amp; reminders</span>
+            <p class="muted">
+              Send calendar invite emails, in-app schedule emails, and the automatic join reminder (~5 min before).
+              Turn off to add silently with no reminder emails.
+            </p>
           </div>
           <label class="tmb-switch" :class="{ disabled }">
             <input
@@ -150,6 +153,7 @@
           </option>
         </select>
         <p v-if="meetingKind === 'huddle'" class="muted">
+          Agency-internal huddle — agenda only (no goals or action items). Solo or with invited participants.
           Host (CPA / Provider Plus) is paid at the Individual Meeting rate when they have one; attendees use MEETING time.
         </p>
         <p v-else-if="!canSetAdminSubtype && showMeetingSubtype" class="muted">

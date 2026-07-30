@@ -998,13 +998,18 @@
           <span class="sched-legend-chip muted" style="font-size: 11px;">Fill = organization · label = appointment type</span>
         </template>
         <template v-else-if="hideOfficeAndCalendarIntegration">
-          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--sevt" aria-hidden="true"></span> Team meeting</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--huddle" aria-hidden="true"></span> Huddle</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--group-huddle" aria-hidden="true"></span> Group huddle</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--meeting" aria-hidden="true"></span> Meeting</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--request" aria-hidden="true"></span> Pending</span>
         </template>
         <template v-else>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--request" aria-hidden="true"></span> Requested (pending)</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--school" aria-hidden="true"></span> School assigned</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--supv sched-legend-dot--ring" aria-hidden="true"></span> Supervision</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--huddle" aria-hidden="true"></span> Huddle</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--group-huddle" aria-hidden="true"></span> Group huddle</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--meeting" aria-hidden="true"></span> Meeting</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--sevt" aria-hidden="true"></span> Schedule event</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--oa sched-legend-dot--dashed" aria-hidden="true"></span> Office reserved (empty)</span>
           <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ot sched-legend-dot--ring" aria-hidden="true"></span> Temp hold</span>
@@ -1180,6 +1185,7 @@
                   </span>
                 </template>
                 <span v-else-if="b.shortLabel && b.kind !== 'peerbusy'" class="cell-block-text">
+                  <span v-if="b.viewerIsPresenter" class="cell-block-presenter-badge">PRESENTER</span>
                   <span>{{ b.shortLabel }}</span>
                   <SupervisionSignupCountdown
                     v-if="b.kind === 'supv-signup' && b.signupClosesAt && b.signupOpen"
@@ -1380,7 +1386,7 @@
             v-show="editorWorkspaceTab === 'info'"
             class="supv-info-layout"
             :class="{
-              'supv-info-layout--with-workspace': showIndividualSupervisionWorkspace
+              'supv-info-layout--with-workspace': showSupervisionAgendaWorkspace
                 || (editorIsMeeting && Number(scheduleEventEditId || 0) > 0)
             }"
           >
@@ -1402,8 +1408,11 @@
               :can-open-client="canOpenScheduleClientProfile"
               :participant-label="editorParticipantLabel"
               :participant-summary="editorIsMeeting || editorIsSupervision ? editorParticipantSummary : ''"
-              :participant-names="editorIsMeeting ? editorMeetingParticipantNames : []"
-              :expandable-participants="editorIsMeeting"
+              :participant-names="editorIsMeeting
+                ? editorMeetingParticipantNames
+                : (editorIsSupervision ? editorSupervisionInfoParticipantNames : [])"
+              :expandable-participants="editorIsMeeting || (editorIsSupervision && editorSupervisionInfoParticipantNames.length > 1)"
+              :presenter-names="editorIsSupervision ? editorSupervisionPresenterNames : []"
               :service-label="editorInfoServiceLabel"
               :location-label="editorInfoLocationLabel"
               :room-label="editorRoomLabel"
@@ -1440,6 +1449,7 @@
                 :embedded="true"
               />
               <MeetingGoalsActionsPanel
+                v-if="String(editingScheduleStackItem?.eventKind || '').toUpperCase() !== 'HUDDLE'"
                 :event-id="scheduleEventEditId"
                 section="both"
                 :compact="true"
@@ -1449,7 +1459,7 @@
               />
             </aside>
             <aside
-              v-if="showIndividualSupervisionWorkspace"
+              v-if="showSupervisionAgendaWorkspace"
               class="meeting-info-side"
               aria-label="Supervision agenda and goals"
             >
@@ -1460,6 +1470,7 @@
                 :embedded="true"
               />
               <SupervisionGoalsActionsPanel
+                v-if="showIndividualSupervisionWorkspace"
                 :session-id="selectedSupvSessionId"
                 section="goals"
                 lock-position="bottom"
@@ -1567,6 +1578,7 @@
               section="controls"
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
+              v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
               :session-type-label="supervisionEffectiveSessionTypeLabel"
@@ -1644,6 +1656,13 @@
               </span>
               <span class="aes-participant-chevron" aria-hidden="true">{{ meetingParticipantsExpanded ? '▴' : '▾' }}</span>
             </button>
+            <span
+              v-else-if="editorIsSupervision && !isSupervisionEditMode && supervisionSignupOnlyEnabled"
+              class="nr-info-value"
+              title="Agency signup — open to everyone in the agency"
+            >
+              Agency signup — open to all
+            </span>
             <button
               v-else-if="editorIsSupervision && !isSupervisionEditMode"
               type="button"
@@ -1674,7 +1693,7 @@
 
           <template #participant-tray>
             <MeetingParticipantsPicker
-              v-if="editorIsSupervision && supervisionParticipantsExpanded && !isSupervisionEditMode"
+              v-if="editorIsSupervision && supervisionParticipantsExpanded && !isSupervisionEditMode && !supervisionSignupOnlyEnabled"
               tray-mode
               :expanded="true"
               :loading="supervisionProvidersLoading"
@@ -1812,7 +1831,7 @@
             :video-configured="scheduleVideoConfigured"
             :show-virtual-options="false"
             :show-agenda-draft="!isScheduleEventEditMode"
-            :show-goals-actions-draft="!isScheduleEventEditMode"
+            :show-goals-actions-draft="!isScheduleEventEditMode && editorMeetingKind !== 'huddle'"
             :assignee-options="meetingDraftAssigneeOptions"
             :show-participants="false"
             :title-missing="isMeetingTitleMissing"
@@ -1906,7 +1925,7 @@
           </div>
 
           <div
-            v-show="editorWorkspaceTab === 'agenda' && ((editorIsMeeting && scheduleEventEditId) || showIndividualSupervisionWorkspace)"
+            v-show="editorWorkspaceTab === 'agenda' && ((editorIsMeeting && scheduleEventEditId) || showSupervisionAgendaWorkspace)"
             class="appt-workspace-panel appt-workspace-panel--flush"
           >
             <MeetingAgendaPanel
@@ -1917,7 +1936,7 @@
               :embedded="true"
             />
             <MeetingAgendaPanel
-              v-else-if="showIndividualSupervisionWorkspace && selectedSupvSessionId"
+              v-else-if="showSupervisionAgendaWorkspace && selectedSupvSessionId"
               meeting-type="supervision_session"
               :meeting-id="Number(selectedSupvSessionId)"
               :can-add-item="true"
@@ -1982,6 +2001,15 @@
             <p v-else class="muted">Notes are available for supervision sessions.</p>
           </div>
 
+          <div v-show="editorWorkspaceTab === 'presentation'" class="appt-workspace-panel appt-workspace-panel--flush">
+            <SupervisionPresenterCasePanel
+              v-if="canEditSupervisionPresenterCase && selectedSupvSessionId"
+              :session-id="selectedSupvSessionId"
+              @open-full-builder="openSupvPresentationBuilder"
+            />
+            <p v-else class="muted">Case presentation editing is available to assigned presenters.</p>
+          </div>
+
           <div v-show="editorWorkspaceTab === 'supervisee'" class="appt-workspace-panel appt-workspace-panel--flush">
             <SupervisionSuperviseePanel
               v-if="editorIsSupervision"
@@ -1994,6 +2022,10 @@
               :enabled="supvSuperviseeHours.enabled"
               :loading="supvSuperviseeHoursLoading"
               :error="supvSuperviseeHoursError"
+              :roster-mode="showSupervisionParticipantsRoster"
+              :participants="supvParticipantHoursRows"
+              :roster-loading="supvParticipantHoursLoading"
+              :roster-error="supvParticipantHoursError"
             />
             <p v-else class="muted">Supervisee progress is available for supervision sessions.</p>
           </div>
@@ -2876,6 +2908,7 @@
               section="controls"
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
+              v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
               :session-type-label="supervisionEffectiveSessionTypeLabel"
@@ -2887,8 +2920,30 @@
           <div v-if="requestType === 'supervision' && supervisionProvidersLoading" class="muted" style="margin-top: 6px;">
             Loading providers…
           </div>
-          <div v-if="requestType === 'supervision' && !supervisionProvidersLoading && availableSupervisionParticipants.length === 0" class="muted" style="margin-top: 6px;">
+          <div v-if="requestType === 'supervision' && !supervisionProvidersLoading && availableSupervisionParticipants.length === 0 && !supervisionSignupOnlyEnabled" class="muted" style="margin-top: 6px;">
             No eligible supervisees are available in the selected supervision scope.
+          </div>
+
+          <div v-if="requestType === 'supervision' && supervisionSignupOnlyEnabled" style="margin-top: 10px;">
+            <p class="muted" style="margin-top: 6px;">
+              Agency signup session — open to everyone in the agency. No named supervisees required.
+            </p>
+            <SupervisionBody
+              section="details"
+              v-model:is-virtual="editorSupervisionIsVirtual"
+              v-model:group-mode="supervisionGroupModeEnabled"
+              v-model:signup-only="supervisionSignupOnlyEnabled"
+              v-model:facilitator-user-id="supervisionFacilitatorUserId"
+              v-model:co-facilitator-user-id="supervisionCoFacilitatorUserId"
+              v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
+              v-model:invite-audience-group-support="supervisionInviteAudienceGroupSupport"
+              v-model:presenter-ids="supervisionPresenterIds"
+              :session-type-label="supervisionEffectiveSessionTypeLabel"
+              :can-book-group="canBookGroupSupervisionFromGrid"
+              :facilitator-options="supervisionFacilitatorOptions"
+              :presenter-options="supervisionPresenterCandidateOptions"
+              :disabled="submitting"
+            />
           </div>
 
           <div v-if="requestType === 'supervision' && availableSupervisionParticipants.length && !supervisionSignupOnlyEnabled" style="margin-top: 10px;">
@@ -3149,10 +3204,10 @@
             </label>
             <label class="sched-toggle" style="margin-top: 8px;">
               <input type="checkbox" v-model="notifyMeetingParticipants" />
-              <span>Email calendar invites / notify participants</span>
+              <span>Email invites &amp; reminders</span>
             </label>
             <div class="muted nr-help" style="margin-top: 4px;">
-              Turn off to add the meeting to calendars without sending invite or notification emails.
+              Turn off to add silently — no calendar invite emails, in-app notify emails, or join reminder emails.
             </div>
             <div v-if="requestType === 'agency_meeting' || requestType === 'huddle'" class="agenda-draft-section" style="margin-top: 12px;">
               <label class="lbl">Agenda items (optional)</label>
@@ -3897,7 +3952,7 @@
             class="supv-signup-footer"
           >
             <div class="supv-signup-footer__copy">
-              <strong>Tenant signup session</strong>
+              <strong>Agency signup session</strong>
               <SupervisionSignupCountdown
                 v-if="selectedSupvSession?.signupClosesAt"
                 :closes-at="selectedSupvSession.signupClosesAt"
@@ -4220,7 +4275,7 @@
           :host-present="supvAppVideoHostPresent"
           :host-role-label="supvAppVideoHostRoleLabel"
           :host-status-label="supvAppVideoHostStatusLabel"
-          @leave="closeSupvAppVideoModal"
+          @leave="onSupvAppVideoLeave"
         />
       </div>
     </div>
@@ -4997,6 +5052,7 @@ import MeetingAttendancePanel from '../meetings/MeetingAttendancePanel.vue';
 import MeetingTimeClaimsPanel from '../meetings/MeetingTimeClaimsPanel.vue';
 import MeetingNotesPanel from '../meetings/MeetingNotesPanel.vue';
 import SupervisionSuperviseePanel from './SupervisionSuperviseePanel.vue';
+import SupervisionPresenterCasePanel from './SupervisionPresenterCasePanel.vue';
 import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
 import PushSessionUpdatePanel from './PushSessionUpdatePanel.vue';
@@ -8067,6 +8123,10 @@ function onEditorMeetingKind(value) {
   const v = String(value || '').trim().toLowerCase();
   if (v !== 'agency_meeting' && v !== 'huddle') return;
   if (isAppointmentEditMode.value) return;
+  if (v === 'huddle') {
+    createGoalDraftItems.value = [];
+    createActionDraftItems.value = [];
+  }
   if (String(requestType.value || '') === v) return;
   onEditorAppointmentType(v);
 }
@@ -8973,8 +9033,8 @@ const supervisionLabel = (dayName, hour, minute = 0, segmentClass = 'single', { 
     });
   }
   const names = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
-  const hasPresenter = hits.some((ev) => String(ev?.presenterRole || '').trim().length > 0);
-  const type = hasPresenter ? 'Presenting' : 'Supervision';
+  const isGroup = hits.some((ev) => String(ev?.sessionType || '').trim().toLowerCase() === 'group');
+  const type = isGroup ? 'Group Supervision' : 'Supervision';
   let who = '';
   if (names.length === 1) who = names[0];
   else if (names.length > 1) who = `${names[0]}+${names.length - 1}`;
@@ -9000,13 +9060,18 @@ const supervisionTitle = (dayName, hour, minute = 0) => {
   }
   const withNames = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
   const who = withNames.length ? withNames.join(', ') : '—';
-  const presenterRows = hits.filter((ev) => String(ev?.presenterRole || '').trim().length > 0);
-  const presenterText = presenterRows.length
-    ? ` • Presenter (${presenterRows.map((ev) => String(ev.presenterRole || 'primary')).join(', ')})`
-    : '';
+  const isGroup = hits.some((ev) => String(ev?.sessionType || '').trim().toLowerCase() === 'group');
+  const type = isGroup ? 'Group Supervision' : 'Supervision';
+  const presenterNames = Array.from(new Set(
+    hits.flatMap((ev) => String(ev?.presenterNames || '').split(',').map((s) => s.trim()).filter(Boolean))
+  ));
+  const viewerIsPresenter = hits.some((ev) => String(ev?.presenterRole || '').trim().length > 0);
+  const presenterText = presenterNames.length
+    ? ` • Presenter: ${presenterNames.join(', ')}`
+    : (viewerIsPresenter ? ' • PRESENTER' : '');
   const first = hits[0] || null;
   const timeText = clockRangeLabel(first?.startAt, first?.endAt) || hourLabel(hour);
-  return `Supervision — ${who} — ${dayName} ${timeText}${presenterText}`;
+  return `${type} — ${who} — ${dayName} ${timeText}${presenterText}`;
 };
 
 /** Google event IDs already represented by first-class app schedule rows. */
@@ -9271,6 +9336,65 @@ const agendaItemStyle = (b) => {
   return style;
 };
 
+/** Max participant names shown on dense schedule blocks before collapsing to "N people". */
+const MEETING_NAME_GRID_MAX = 5;
+
+/** Booked invitee display names (from summary attendees payload). */
+const meetingBookedParticipantNames = (ev) => {
+  const attendees = Array.isArray(ev?.attendees) ? ev.attendees : [];
+  const names = [];
+  for (const a of attendees) {
+    const name = String(
+      a?.name
+      || [a?.firstName || a?.first_name, a?.lastName || a?.last_name].filter(Boolean).join(' ')
+      || ''
+    ).trim();
+    if (name) names.push(name);
+  }
+  return names;
+};
+
+/** Invitee count — host is separate; ≥1 invitee means multi-person (group) meeting/huddle. */
+const meetingBookedParticipantCount = (ev) => {
+  const names = meetingBookedParticipantNames(ev);
+  if (names.length) return names.length;
+  if (Array.isArray(ev?.attendeeUserIds) && ev.attendeeUserIds.length) {
+    return ev.attendeeUserIds.map((n) => Number(n || 0)).filter((n) => n > 0).length;
+  }
+  const explicit = Number(ev?.attendeeCount || 0);
+  if (explicit > 0) return explicit;
+  if (ev?.isGroupMeeting) return 1;
+  return 0;
+};
+
+const isMultiParticipantMeeting = (ev) => meetingBookedParticipantCount(ev) >= 1;
+
+/** Kind-aware type label: Group Huddle / Group Meeting when multi-invitee. */
+const meetingTypeDisplayLabel = (ev) => {
+  const eventKind = String(ev?.kind || ev?.eventKind || '').trim().toUpperCase();
+  const subtype = String(ev?.meetingSubtype || '').toLowerCase();
+  const multi = isMultiParticipantMeeting(ev);
+  if (eventKind === 'HUDDLE') return multi ? 'Group Huddle' : 'Huddle';
+  if (eventKind === 'TEAM_MEETING') {
+    if (subtype === 'admin') return 'Admin Meeting';
+    if (subtype === 'town_hall') return 'Town Hall';
+    return multi ? 'Group Meeting' : 'Meeting';
+  }
+  return null;
+};
+
+const meetingWhoLabelForGrid = (ev, typePrefix) => {
+  const names = meetingBookedParticipantNames(ev);
+  const count = meetingBookedParticipantCount(ev);
+  if (count > MEETING_NAME_GRID_MAX) return `${count} people`;
+  if (names.length) return names.join(', ');
+  const raw = String(ev?.title || '').trim();
+  if (raw && raw !== typePrefix && !/^(huddle|group huddle|meeting|group meeting|admin meeting|town hall)$/i.test(raw)) {
+    return raw;
+  }
+  return '';
+};
+
 const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = false } = {}) => {
   const raw = String(ev?.title || '').trim() || 'Event';
   const eventKind = String(ev?.kind || '').trim().toUpperCase();
@@ -9298,21 +9422,19 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
     });
   }
   let typePrefix = 'Event';
-  if (eventKind === 'TEAM_MEETING') {
-    const subtype = String(ev?.meetingSubtype || '').toLowerCase();
-    if (subtype === 'admin') typePrefix = 'Admin Meeting';
-    else if (subtype === 'town_hall') typePrefix = 'Town Hall';
-    else typePrefix = 'Meeting';
-  } else if (eventKind === 'HUDDLE') typePrefix = 'Huddle';
-  else if (eventKind === 'SCHEDULE_HOLD') typePrefix = ev?.allDay ? 'All-day block' : 'Hold';
+  const meetingLabel = meetingTypeDisplayLabel(ev);
+  if (meetingLabel) {
+    typePrefix = meetingLabel;
+  } else if (eventKind === 'SCHEDULE_HOLD') typePrefix = ev?.allDay ? 'All-day block' : 'Hold';
   else if (eventKind === 'INDIRECT_SERVICES') typePrefix = 'Indirect';
   else if (eventKind === 'PERSONAL_EVENT' && isClientSessionScheduleEvent(ev)) typePrefix = 'Session';
   else if (eventKind === 'PERSONAL_EVENT') typePrefix = 'Personal';
   else if (/virtual|session/i.test(raw)) typePrefix = 'Session';
   const canceledPrefix = isScheduleEventCancelled(ev) ? 'Cancelled · ' : '';
   const typeLabel = `${canceledPrefix}${typePrefix}`.trim();
-  // Prefer a clean who/title separate from type for the running strip.
-  const whoLabel = raw;
+  const whoLabel = (eventKind === 'HUDDLE' || eventKind === 'TEAM_MEETING')
+    ? meetingWhoLabelForGrid(ev, typePrefix)
+    : raw;
   return runningAppointmentLabel({
     segmentClass,
     startAt: ev?.startAt,
@@ -10046,6 +10168,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       hideAgencyDot: false,
       eventId: Number(first?.id || 0) || null,
       sessionType: String(first?.sessionType || 'individual').trim().toLowerCase() || 'individual',
+      viewerIsPresenter: sortedEvents.some((ev) => String(ev?.presenterRole || '').trim().length > 0),
       startAt: first?.startAt || null,
       endAt: first?.endAt || null,
       signupClosesAt: first?.signupClosesAt || null,
@@ -10066,6 +10189,8 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const segmentClass = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
     if (segmentClass === 'middle' || segmentClass === 'end') continue;
     const timedSlice = appointmentSpanSlice(ev?.startAt, ev?.endAt, dayName, hour, minute);
+    const attendeeCount = meetingBookedParticipantCount(ev);
+    const isGroupMeeting = isMultiParticipantMeeting(ev);
     blocks.push({
       key: `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
       kind: 'sevt',
@@ -10089,6 +10214,10 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       endAt: ev?.endAt || null,
       recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || null,
       providerId: resolveBookedProviderIdForEvent(ev),
+      attendeeCount,
+      isGroupMeeting,
+      attendees: Array.isArray(ev?.attendees) ? ev.attendees : [],
+      attendeeUserIds: Array.isArray(ev?.attendeeUserIds) ? ev.attendeeUserIds : [],
       timedSlice,
       spanBlock: true,
       draggable: !isScheduleEventCancelled(ev) && Number(ev?.id || 0) > 0
@@ -10630,16 +10759,28 @@ const snapQuarterMinute = (m) => {
 const effectiveModalStartHour = computed(() =>
   canUseQuarterHourInput.value ? Number(modalStartHour.value || modalHour.value || 0) : Number(modalHour.value || 0)
 );
-const modalGridMaxEnd = computed(() => gridMaxHour.value);
+const modalGridMaxEnd = computed(() => {
+  // Supervision (incl. agency signup) may run into the evening; allow through midnight.
+  // Use requestType string only — isSupervisionEditMode is defined later (TDZ).
+  const t = String(requestType.value || '');
+  if (t === 'supervision' || t === 'edit_supervision') return 24;
+  return gridMaxHour.value;
+});
 const modalStartTimeValue = computed(() => (
   `${pad2Clock(effectiveModalStartHour.value)}:${pad2Clock(modalStartMinute.value)}`
 ));
 const modalEndTimeValue = computed(() => (
   `${pad2Clock(modalEndHour.value)}:${pad2Clock(modalEndMinute.value)}`
 ));
-const endMinuteOptions = computed(
-  () => (Number(modalEndHour.value || 0) >= modalGridMaxEnd.value - 1 ? [0] : quarterMinuteOptions)
-);
+const endMinuteOptions = computed(() => {
+  const endH = Number(modalEndHour.value || 0);
+  const maxEnd = Number(modalGridMaxEnd.value || 0);
+  // At the absolute end hour (e.g. 24 = midnight), only :00 is valid.
+  if (endH >= maxEnd) return [0];
+  // Clinical day band: last visible hour is exclusive end (e.g. max 22 → hour 21 only :00).
+  if (maxEnd < 24 && endH >= maxEnd - 1) return [0];
+  return quarterMinuteOptions;
+});
 const modalTimeRangeLabel = computed(() => {
   if (isScheduleEventAllDayUi.value) return 'All day';
   if (useModalQuarterHourTime.value) {
@@ -11360,7 +11501,10 @@ const editingScheduleStackItem = computed(() => {
 });
 
 const appointmentEditKindLabel = computed(() => {
-  if (isSupervisionEditMode.value) return 'Supervision';
+  if (isSupervisionEditMode.value) {
+    const t = String(selectedSupvSession.value?.sessionType || '').trim().toLowerCase();
+    return t === 'group' ? 'Group Supervision' : 'Supervision';
+  }
   const item = editingScheduleStackItem.value;
   if (item) return String(item.kindLabel || 'Schedule event');
   if (isPickScheduleEventMode.value) return 'Schedule';
@@ -11652,7 +11796,9 @@ const modalScheduleSubtitle = computed(() => {
   }
   if (t === 'edit_supervision') {
     const who = String(selectedSupvSession.value?.counterpartyName || '').trim();
-    return who ? `Edit supervision — ${who}` : 'Edit supervision session';
+    const isGroup = String(selectedSupvSession.value?.sessionType || '').trim().toLowerCase() === 'group';
+    const kind = isGroup ? 'group supervision' : 'supervision';
+    return who ? `Edit ${kind} — ${who}` : `Edit ${kind} session`;
   }
   if (t === 'pick_schedule_event') return 'Choose which item to open and edit.';
   if (!t || showActionChooser.value) {
@@ -11701,7 +11847,11 @@ const showAppointmentEditorShell = computed(() => {
 
 const modalEditorTitle = computed(() => {
   if (showActionChooser.value || !String(requestType.value || '').trim()) return 'Schedule';
-  if (isSupervisionEditMode.value) return 'Supervision';
+  if (isSupervisionEditMode.value || String(requestType.value || '') === 'supervision') {
+    const fromSession = String(selectedSupvSession.value?.sessionType || '').trim().toLowerCase();
+    const t = fromSession || supervisionEffectiveSessionType.value;
+    return t === 'group' ? 'Group Supervision' : 'Supervision';
+  }
   if (isScheduleEventEditMode.value) {
     const item = editingScheduleStackItem.value;
     if (isMeetingStackItem(item)) return appointmentEditorTitleForKind(item?.eventKind || 'TEAM_MEETING');
@@ -12055,23 +12205,35 @@ const editorWorkspaceTabs = computed(() => {
     { id: 'edit', label: 'Edit', icon: '✎' }
   ];
   if (editorIsSupervision.value) {
+    if (showSupervisionAgendaWorkspace.value) {
+      tabs.splice(1, 0, { id: 'agenda', label: 'Agenda', icon: '☰' });
+    }
     if (showIndividualSupervisionWorkspace.value) {
-      tabs.splice(1, 0,
-        { id: 'agenda', label: 'Agenda', icon: '☰' },
-        { id: 'goals', label: 'Goals', icon: '◎' }
-      );
+      const insertAt = tabs.findIndex((t) => t.id === 'edit');
+      tabs.splice(insertAt >= 0 ? insertAt : 1, 0, { id: 'goals', label: 'Goals', icon: '◎' });
     }
     tabs.push({ id: 'note', label: 'Note', icon: '✎' });
-    tabs.push({ id: 'supervisee', label: 'Supervisee', icon: '◎' });
+    if (canEditSupervisionPresenterCase.value) {
+      tabs.push({ id: 'presentation', label: 'Case', icon: '◈' });
+    }
+    tabs.push({
+      id: 'supervisee',
+      label: showSupervisionParticipantsRoster.value ? 'Participants' : 'Supervisee',
+      icon: '◎'
+    });
   }
   if (editorIsMeeting.value && Number(scheduleEventEditId.value || 0) > 0) {
-    // Dedicated tabs for Agenda / Goals / Actions (single editor instance each — avoids reload thrash).
-    tabs.splice(1, 0,
-      { id: 'agenda', label: 'Agenda', icon: '☰' },
-      { id: 'goals', label: 'Goals', icon: '◎' },
-      { id: 'actions', label: 'Action Items', icon: '☑' }
-    );
     const eventKind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
+    // Huddles: agenda only (group-supervision style). Team meetings keep goals + actions.
+    if (eventKind === 'HUDDLE') {
+      tabs.splice(1, 0, { id: 'agenda', label: 'Agenda', icon: '☰' });
+    } else {
+      tabs.splice(1, 0,
+        { id: 'agenda', label: 'Agenda', icon: '☰' },
+        { id: 'goals', label: 'Goals', icon: '◎' },
+        { id: 'actions', label: 'Action Items', icon: '☑' }
+      );
+    }
     const subtype = normalizeMeetingSubtype(meetingSubtype.value || editingScheduleStackItem.value?.meetingSubtype);
     const showAttendance = eventKind === 'HUDDLE'
       || subtype === 'admin'
@@ -12375,7 +12537,9 @@ const editorShowParticipant = computed(() => editorIsClinical.value || editorIsM
 const editorParticipantLabel = computed(() => {
   if (editorIsMeeting.value) return 'Participants';
   if (editorIsSupervision.value) {
-    if ((editorSupervisionParticipantNames.value || []).length > 1) return 'Supervisees';
+    if (!isSupervisionEditMode.value && supervisionSignupOnlyEnabled.value) return 'Audience';
+    if (isEditingGroupSupervision.value) return 'Participants';
+    if ((editorSupervisionInfoParticipantNames.value || []).length > 1) return 'Supervisees';
     const sessionRole = String(selectedSupvSession.value?.role || '').trim().toLowerCase();
     if (sessionRole === 'supervisor') return 'Supervisee';
     if (sessionRole === 'supervisee') return 'Supervisor';
@@ -12441,13 +12605,25 @@ const editorParticipantSummary = computed(() => {
     return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
   }
   if (editorIsSupervision.value) {
+    if (!isSupervisionEditMode.value && supervisionSignupOnlyEnabled.value) {
+      return 'Agency signup — open to all';
+    }
     const session = selectedSupvSession.value;
     const sessionRole = String(session?.role || '').trim().toLowerCase();
-    if (sessionRole === 'supervisor') {
+    const infoNames = editorSupervisionInfoParticipantNames.value || [];
+    if (isEditingGroupSupervision.value && infoNames.length) {
+      if (infoNames.length <= 3) return infoNames.join(', ');
+      return `${infoNames.slice(0, 2).join(', ')} +${infoNames.length - 2} more`;
+    }
+    if (sessionRole === 'supervisor' && !isEditingGroupSupervision.value) {
       return String(session?.superviseeName || session?.counterpartyName || '').trim() || '—';
     }
-    if (sessionRole === 'supervisee') {
+    if (sessionRole === 'supervisee' && !isEditingGroupSupervision.value) {
       return String(session?.supervisorName || session?.counterpartyName || '').trim() || '—';
+    }
+    if (infoNames.length) {
+      if (infoNames.length <= 3) return infoNames.join(', ');
+      return `${infoNames.slice(0, 2).join(', ')} +${infoNames.length - 2} more`;
     }
     const names = editorSupervisionParticipantNames.value;
     if (names.length) {
@@ -14248,6 +14424,13 @@ const supervisionSignupOnlyEnabled = ref(false);
 const supvSignupBusy = ref(false);
 const supvSignupError = ref('');
 const supervisionPresenterIds = ref([]);
+/** Invited attendees for the open supervision session (edit / info / roster). */
+const supvSessionAttendees = ref([]);
+const supvSessionAttendeesLoading = ref(false);
+const supvSessionAttendeesError = ref('');
+const supvParticipantHoursRows = ref([]);
+const supvParticipantHoursLoading = ref(false);
+const supvParticipantHoursError = ref('');
 const supervisionCreateGroupBusy = ref(false);
 const supervisionCreateGroupError = ref('');
 const createSupervisionMeetLink = ref(true);
@@ -14304,12 +14487,40 @@ const supervisionEffectiveSessionTypeLabel = computed(() => {
   return 'Individual supervision';
 });
 const isGroupSupervisionType = computed(() => supervisionEffectiveSessionType.value === 'group');
-/** Goals / action items only for individual supervision (not group/triadic). */
+const supervisionSessionTypeNormalized = computed(() => {
+  const fromSession = String(selectedSupvSession.value?.sessionType || '').trim().toLowerCase();
+  return fromSession || supervisionEffectiveSessionType.value;
+});
+const isEditingGroupSupervision = computed(() => supervisionSessionTypeNormalized.value === 'group');
+/** Agenda on Info / Agenda tab for individual and group supervision. */
+const showSupervisionAgendaWorkspace = computed(() => {
+  if (!editorIsSupervision.value) return false;
+  const t = supervisionSessionTypeNormalized.value;
+  return t === 'individual' || t === '1:1' || t === 'one_on_one' || t === 'one-on-one'
+    || t === 'group' || t === 'triadic';
+});
+/** Goals only for individual supervision (not group/triadic). */
 const showIndividualSupervisionWorkspace = computed(() => {
   if (!editorIsSupervision.value) return false;
-  const fromSession = String(selectedSupvSession.value?.sessionType || '').trim().toLowerCase();
-  const t = fromSession || supervisionEffectiveSessionType.value;
+  const t = supervisionSessionTypeNormalized.value;
   return t === 'individual' || t === '1:1' || t === 'one_on_one' || t === 'one-on-one';
+});
+const showSupervisionParticipantsRoster = computed(() => (
+  editorIsSupervision.value && isEditingGroupSupervision.value
+));
+const canEditSupervisionPresenterCase = computed(() => {
+  if (!editorIsSupervision.value || !isEditingGroupSupervision.value) return false;
+  const sid = Number(selectedSupvSessionId.value || 0);
+  if (!sid) return false;
+  const me = Number(authStore.user?.id || 0);
+  if (!me) return false;
+  const fromPresenters = (supvPresenters.value || []).some(
+    (p) => Number(p?.user_id || p?.userId || 0) === me
+  );
+  if (fromPresenters) return true;
+  return (supvSessionAttendees.value || []).some(
+    (row) => Number(row?.userId || 0) === me && !!row?.isPresenter
+  );
 });
 const canOpenMeetingAttendanceTab = computed(() => {
   if (!editorIsMeeting.value || !Number(scheduleEventEditId.value || 0)) return false;
@@ -14407,7 +14618,47 @@ const supervisionPresenterCandidateOptions = computed(() => {
       label: supervisionParticipantLabel(chip.row || { id })
     });
   }
+  for (const row of (supvSessionAttendees.value || [])) {
+    const id = Number(row?.userId || row?.id || 0);
+    if (!id) continue;
+    const role = String(row?.participantRole || '').trim().toLowerCase();
+    if (role && role !== 'supervisee') continue;
+    if (map.has(id)) continue;
+    map.set(id, {
+      id,
+      label: String(row?.name || '').trim() || `User #${id}`
+    });
+  }
   return Array.from(map.values());
+});
+
+const editorSupervisionPresenterNames = computed(() => {
+  const fromLoaded = (supvPresenters.value || [])
+    .map((p) => String(p?.presenter_name || p?.presenterName || p?.name || '').trim())
+    .filter(Boolean);
+  if (fromLoaded.length) return fromLoaded;
+  const fromSession = String(selectedSupvSession.value?.presenterNames || '').trim();
+  if (fromSession) {
+    return fromSession.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  const ids = new Set((supervisionPresenterIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  if (!ids.size) return [];
+  return (supervisionPresenterCandidateOptions.value || [])
+    .filter((opt) => ids.has(Number(opt.id)))
+    .map((opt) => String(opt.label || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || `User #${opt.id}`);
+});
+
+const editorSupervisionInfoParticipantNames = computed(() => {
+  const fromAttendees = (supvSessionAttendees.value || [])
+    .filter((row) => String(row?.participantRole || '').trim().toLowerCase() === 'supervisee')
+    .map((row) => String(row?.name || '').trim())
+    .filter(Boolean);
+  if (fromAttendees.length) return fromAttendees;
+  const fromChips = editorSupervisionParticipantNames.value || [];
+  if (fromChips.length) return fromChips;
+  const fromSession = String(selectedSupvSession.value?.counterpartyName || '').trim();
+  if (!fromSession) return [];
+  return fromSession.split(',').map((s) => s.trim()).filter(Boolean);
 });
 
 const filteredSupervisionAdditionalParticipants = computed(() => {
@@ -14501,6 +14752,10 @@ const setSelectedSupervisionParticipantIds = (ids = []) => {
 };
 
 const openSupervisionParticipantTray = () => {
+  if (supervisionSignupOnlyEnabled.value) {
+    supervisionParticipantsExpanded.value = false;
+    return;
+  }
   const nextOpen = !supervisionParticipantsExpanded.value;
   supervisionParticipantsExpanded.value = nextOpen;
   if (nextOpen) {
@@ -15295,7 +15550,8 @@ const patchScheduleEventInSummary = ({
   agencyId = null,
   isPrivate = false,
   attendeeUserIds = null,
-  waitingRoomEnabled = undefined
+  waitingRoomEnabled = undefined,
+  notifyParticipants = undefined
 } = {}) => {
   const eid = Number(eventId || 0);
   if (!eid || !summary.value) return;
@@ -15337,6 +15593,9 @@ const patchScheduleEventInSummary = ({
     ...(Array.isArray(attendeeUserIds) ? { attendeeUserIds } : {}),
     ...(waitingRoomEnabled !== undefined && ['TEAM_MEETING', 'HUDDLE'].includes(String(prev?.kind || '').toUpperCase())
       ? { waitingRoomEnabled: !!waitingRoomEnabled }
+      : {}),
+    ...(notifyParticipants !== undefined && ['TEAM_MEETING', 'HUDDLE'].includes(String(prev?.kind || '').toUpperCase())
+      ? { notifyParticipants: !!notifyParticipants }
       : {})
   };
   summary.value = { ...summary.value, scheduleEvents: list };
@@ -15408,8 +15667,9 @@ const getBusyConflictFromSummary = (summaryPayload, ranges = []) => {
     if (activity === 'personal') return 'Personal';
     if (activity === 'external') return 'External busy';
     const kind = String(row?.kind || row?.eventKind || '').trim().toUpperCase();
-    if (kind === 'TEAM_MEETING') return 'Team meeting';
-    if (kind === 'HUDDLE') return 'Huddle';
+    if (kind === 'TEAM_MEETING' || kind === 'HUDDLE') {
+      return meetingTypeDisplayLabel(row) || (kind === 'HUDDLE' ? 'Huddle' : 'Team meeting');
+    }
     if (kind === 'SCHEDULE_HOLD') return 'Schedule hold';
     if (kind === 'INDIRECT_SERVICES') return 'Indirect';
     if (kind === 'PERSONAL_EVENT') return 'Personal';
@@ -15748,8 +16008,11 @@ const loadSupervisionProviders = async () => {
 
 const startHourOptions = computed(() => {
   if (useModalQuarterHourTime.value) {
-    const minH = Number(gridMinHour.value || 0);
-    const maxH = Number(gridMaxHour.value || 24) - 1;
+    const t = String(requestType.value || '');
+    const supervisionWide = t === 'supervision' || t === 'edit_supervision';
+    // Agency signup / evening group sessions need full-day start hours even in clinical day-band view.
+    const minH = supervisionWide ? 0 : Number(gridMinHour.value || 0);
+    const maxH = supervisionWide ? 23 : Number(gridMaxHour.value || 24) - 1;
     const out = [];
     for (let h = minH; h <= maxH; h += 1) out.push(h);
     return out;
@@ -16978,13 +17241,21 @@ const typeStyleToken = (b) => {
   if (kind === 'intake-vi') return 'VI';
   if (kind === 'sevt') {
     const eventKind = String(b?.eventKind || '').toUpperCase();
-    if (eventKind === 'TEAM_MEETING') {
-      const subtype = String(b?.meetingSubtype || '').toLowerCase();
-      if (subtype === 'admin') return 'Admin';
-      if (subtype === 'town_hall') return 'Town Hall';
+    if (eventKind === 'TEAM_MEETING' || eventKind === 'HUDDLE') {
+      const label = meetingTypeDisplayLabel({
+        kind: eventKind,
+        eventKind,
+        meetingSubtype: b?.meetingSubtype,
+        attendees: b?.attendees,
+        attendeeUserIds: b?.attendeeUserIds,
+        attendeeCount: b?.attendeeCount
+      });
+      if (eventKind === 'HUDDLE') return b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 1 ? 'Grp huddle' : 'Huddle';
+      if (label === 'Admin Meeting') return 'Admin';
+      if (label === 'Town Hall') return 'Town Hall';
+      if (label === 'Group Meeting') return 'Grp mtg';
       return 'Meeting';
     }
-    if (eventKind === 'HUDDLE') return 'Huddle';
     if (eventKind === 'FALL_CHECKIN_PRESLOT') return 'Visit hold';
     if (eventKind === 'FALL_CHECKIN_BOOKED') return 'School visit';
     if (eventKind === 'SCHEDULE_HOLD') return b?.allDay ? 'All-day' : 'Hold';
@@ -17051,6 +17322,13 @@ function meetingTypePalette(b, dark) {
       : { fill: 'rgba(16, 185, 129, 0.24)', border: 'rgba(5, 150, 105, 0.78)', stripe: 'rgba(5, 150, 105, 0.92)', text: 'rgba(6, 78, 59, 0.98)' };
   }
   if (eventKind === 'HUDDLE') {
+    const isGroup = !!b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 1;
+    if (isGroup) {
+      // Group huddle — deeper teal to distinguish from solo cyan huddle
+      return dark
+        ? { fill: 'rgba(20, 184, 166, 0.48)', border: 'rgba(45, 212, 191, 0.95)', stripe: 'rgba(94, 234, 212, 0.98)', text: 'rgba(204, 251, 241, 0.98)' }
+        : { fill: 'rgba(13, 148, 136, 0.30)', border: 'rgba(15, 118, 110, 0.72)', stripe: 'rgba(13, 148, 136, 0.95)', text: 'rgba(19, 78, 74, 0.98)' };
+    }
     return dark
       ? { fill: 'rgba(34, 211, 238, 0.40)', border: 'rgba(103, 232, 249, 0.90)', stripe: 'rgba(165, 243, 252, 0.95)', text: 'rgba(207, 250, 254, 0.98)' }
       : { fill: 'rgba(6, 182, 212, 0.24)', border: 'rgba(14, 116, 144, 0.58)', stripe: 'rgba(8, 145, 178, 0.92)', text: 'rgba(22, 78, 99, 0.98)' };
@@ -17067,7 +17345,14 @@ function meetingTypePalette(b, dark) {
         ? { fill: 'rgba(129, 140, 248, 0.45)', border: 'rgba(165, 180, 252, 0.90)', stripe: 'rgba(199, 210, 254, 0.95)', text: 'rgba(224, 231, 255, 0.98)' }
         : { fill: 'rgba(79, 70, 229, 0.24)', border: 'rgba(67, 56, 202, 0.55)', stripe: 'rgba(79, 70, 229, 0.90)', text: 'rgba(49, 46, 129, 0.98)' };
     }
-    // general team meeting
+    const isGroup = !!b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 1;
+    if (isGroup) {
+      // Group meeting — slightly stronger blue than solo meeting
+      return dark
+        ? { fill: 'rgba(59, 130, 246, 0.50)', border: 'rgba(96, 165, 250, 0.95)', stripe: 'rgba(147, 197, 253, 0.98)', text: 'rgba(219, 234, 254, 0.98)' }
+        : { fill: 'rgba(29, 78, 216, 0.28)', border: 'rgba(30, 64, 175, 0.65)', stripe: 'rgba(37, 99, 235, 0.95)', text: 'rgba(30, 58, 138, 0.98)' };
+    }
+    // general team meeting (solo / host-only)
     return dark
       ? { fill: 'rgba(96, 165, 250, 0.42)', border: 'rgba(147, 197, 253, 0.90)', stripe: 'rgba(191, 219, 254, 0.95)', text: 'rgba(219, 234, 254, 0.98)' }
       : { fill: 'rgba(37, 99, 235, 0.22)', border: 'rgba(29, 78, 216, 0.55)', stripe: 'rgba(37, 99, 235, 0.90)', text: 'rgba(30, 64, 175, 0.98)' };
@@ -17801,6 +18086,12 @@ const onQuickActionSelect = (act) => {
 };
 
 const requestCloseModal = () => {
+  // After a successful create, the share panel is showing — X should behave like Done (reload),
+  // not "discard" (which skipped refresh and made the new meeting look deleted).
+  if (meetingCreatedShare.value) {
+    void dismissMeetingCreatedShare();
+    return;
+  }
   if (requestModalIsDirty.value) {
     const ok = window.confirm('Discard this schedule entry? Your unsaved changes will be lost.');
     if (!ok) return;
@@ -19246,6 +19537,7 @@ const submitRequest = async () => {
           createMeetLink: !!editorSupervisionIsVirtual.value && !!createSupervisionMeetLink.value,
           modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
           waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
+          notifyParticipants: !!notifyMeetingParticipants.value,
           ...(supervisionSeriesId
             ? {
                 recurrenceSeriesId: supervisionSeriesId,
@@ -19316,6 +19608,13 @@ const submitRequest = async () => {
       try {
         const bookedDow = new Date(`${String(dateYmd).slice(0, 10)}T12:00:00`).getDay();
         if (bookedDow === 0 || bookedDow === 6) hideWeekend.value = false;
+      } catch { /* ignore */ }
+      // Evening agency-signup / late sessions sit outside the default 7–9pm day band.
+      try {
+        const dayBandMaxExclusive = showAllHours.value ? 24 : 22;
+        if (Number(endH) >= dayBandMaxExclusive || Number(h) >= dayBandMaxExclusive - 1) {
+          showAllHours.value = true;
+        }
       } catch { /* ignore */ }
     } else if (requestType.value === 'extend_assignment') {
       const contexts = selectedActionContexts().filter(
@@ -19617,6 +19916,8 @@ watch(supervisionIncludeAllAgencies, () => {
 watch(selectedSupervisionParticipantIds, () => {
   pruneSupervisionMandatoryAttendeeIds();
   const allowed = new Set((supervisionPresenterCandidateOptions.value || []).map((p) => Number(p.id)));
+  // Keep assigned presenters until invitee options are known (edit load race).
+  if (!allowed.size) return;
   supervisionPresenterIds.value = (supervisionPresenterIds.value || [])
     .map((n) => Number(n))
     .filter((n) => allowed.has(n))
@@ -19640,6 +19941,7 @@ watch(supervisionSignupOnlyEnabled, (enabled) => {
   supervisionInviteAudienceAllSupervised.value = false;
   supervisionInviteAudienceGroupSupport.value = false;
   supervisionPresenterIds.value = [];
+  supervisionParticipantsExpanded.value = false;
 });
 
 watch(supervisionFacilitatorUserId, () => {
@@ -20106,6 +20408,22 @@ const startAppVideoMeetingFromGrid = async (session) => {
   }
 };
 
+const onSupvAppVideoLeave = async (payload = {}) => {
+  const endForAll = !!payload?.endForAll && !!supvAppVideoIsSupervisor.value;
+  const sid = Number(supvAppVideoSessionId.value || 0);
+  if (endForAll && sid) {
+    try {
+      await api.post(`/supervision/sessions/${encodeURIComponent(sid)}/end-live`, {}, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      });
+    } catch (e) {
+      console.warn('[ScheduleGrid] end-live failed', e?.message || e);
+    }
+  }
+  closeSupvAppVideoModal();
+};
+
 const closeSupvAppVideoModal = () => {
   stopSupvAppVideoAdmissionPoll();
   stopSupvAppVideoPresenceHeartbeat();
@@ -20406,12 +20724,105 @@ const loadSupvPresenters = async (sessionId) => {
     supvPresentersLoading.value = true;
     supvPresentersError.value = '';
     const resp = await api.get(`/supervision/sessions/${sid}/presenters`);
-    supvPresenters.value = Array.isArray(resp.data?.presenters) ? resp.data.presenters : [];
+    const presenters = Array.isArray(resp.data?.presenters) ? resp.data.presenters : [];
+    supvPresenters.value = presenters;
+    supervisionPresenterIds.value = presenters
+      .map((p) => Number(p?.user_id || p?.userId || 0))
+      .filter((n) => n > 0)
+      .slice(0, 2);
   } catch (e) {
     supvPresenters.value = [];
     supvPresentersError.value = e.response?.data?.error?.message || e.message || 'Failed to load presenters';
   } finally {
     supvPresentersLoading.value = false;
+  }
+};
+
+const loadSupvAttendees = async (sessionId) => {
+  const sid = Number(sessionId || 0);
+  if (!sid) {
+    supvSessionAttendees.value = [];
+    supvSessionAttendeesError.value = '';
+    return;
+  }
+  try {
+    supvSessionAttendeesLoading.value = true;
+    supvSessionAttendeesError.value = '';
+    const resp = await api.get(`/supervision/sessions/${sid}/attendees`, { skipGlobalLoading: true });
+    supvSessionAttendees.value = Array.isArray(resp.data?.attendees) ? resp.data.attendees : [];
+  } catch (e) {
+    supvSessionAttendees.value = [];
+    supvSessionAttendeesError.value = e.response?.data?.error?.message || e.message || 'Failed to load attendees';
+  } finally {
+    supvSessionAttendeesLoading.value = false;
+  }
+};
+
+const loadSupvParticipantHoursRoster = async () => {
+  if (!showSupervisionParticipantsRoster.value) {
+    supvParticipantHoursRows.value = [];
+    supvParticipantHoursError.value = '';
+    return;
+  }
+  const session = selectedSupvSession.value;
+  const agencyId = Number(session?.agencyId || session?._agencyId || editorAgencyId.value || effectiveAgencyId.value || 0);
+  const supervisees = (supvSessionAttendees.value || [])
+    .filter((row) => String(row?.participantRole || '').trim().toLowerCase() === 'supervisee')
+    .map((row) => ({
+      id: Number(row?.userId || 0),
+      name: String(row?.name || '').trim(),
+      isPresenter: !!row?.isPresenter
+    }))
+    .filter((row) => row.id > 0);
+  if (!supervisees.length) {
+    supvParticipantHoursRows.value = [];
+    return;
+  }
+  const presenterIds = new Set(
+    (supvPresenters.value || []).map((p) => Number(p?.user_id || p?.userId || 0)).filter((n) => n > 0)
+  );
+  for (const row of supervisees) {
+    if (presenterIds.has(row.id)) row.isPresenter = true;
+  }
+  try {
+    supvParticipantHoursLoading.value = true;
+    supvParticipantHoursError.value = '';
+    const me = Number(authStore.user?.id || 0);
+    const params = agencyId > 0 ? { agencyId } : {};
+    const settled = await Promise.all(supervisees.map(async (row) => {
+      try {
+        const resp = row.id === me
+          ? await api.get('/payroll/me/dashboard-summary', { params, skipGlobalLoading: true })
+          : await api.get(`/payroll/supervisee/${row.id}/dashboard-summary`, { params, skipGlobalLoading: true });
+        const sup = resp?.data?.supervision || null;
+        return {
+          ...row,
+          enabled: sup == null ? true : !!sup.enabled,
+          individualHours: Number(sup?.individualHours || 0),
+          groupHours: Number(sup?.groupHours || 0),
+          requiredIndividual: Number(sup?.requiredIndividualHours || 50),
+          requiredGroup: Number(sup?.requiredGroupHours || 50),
+          loading: false,
+          error: ''
+        };
+      } catch (e) {
+        return {
+          ...row,
+          enabled: true,
+          individualHours: 0,
+          groupHours: 0,
+          requiredIndividual: 50,
+          requiredGroup: 50,
+          loading: false,
+          error: e?.response?.data?.error?.message || e?.message || 'Failed to load hours'
+        };
+      }
+    }));
+    supvParticipantHoursRows.value = settled;
+  } catch (e) {
+    supvParticipantHoursError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load participant hours';
+  } finally {
+    supvParticipantHoursLoading.value = false;
   }
 };
 
@@ -20501,11 +20912,16 @@ watch(selectedSupervisionParticipantId, (nextId) => {
 
 watch(
   () => [selectedSupvSessionId.value, editorWorkspaceTab.value, isSupervisionEditMode.value],
-  ([sid, tab, editMode]) => {
+  async ([sid, tab, editMode]) => {
     if (!editMode || !Number(sid || 0)) return;
-    if (tab === 'note' || tab === 'supervisee' || tab === 'info') {
+    if (tab === 'note' || tab === 'supervisee' || tab === 'info' || tab === 'edit' || tab === 'agenda') {
       void loadSupvArtifact(sid);
-      void loadSupvSuperviseeHours();
+      void loadSupvPresenters(sid);
+      await loadSupvAttendees(sid);
+      if (tab === 'supervisee' || tab === 'info') {
+        if (showSupervisionParticipantsRoster.value) void loadSupvParticipantHoursRoster();
+        else void loadSupvSuperviseeHours();
+      }
     }
   }
 );
@@ -20532,6 +20948,7 @@ const openSupvModal = (dayName, hour) => {
     recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim()
   };
   void loadSupvPresenters(selectedSupvSessionId.value);
+  void loadSupvAttendees(selectedSupvSessionId.value);
   void loadSupvArtifact(selectedSupvSessionId.value);
 };
 
@@ -20549,6 +20966,13 @@ const closeSupvModal = () => {
   supvPresenters.value = [];
   supvPresentersLoading.value = false;
   supvPresentersError.value = '';
+  supvSessionAttendees.value = [];
+  supvSessionAttendeesLoading.value = false;
+  supvSessionAttendeesError.value = '';
+  supvParticipantHoursRows.value = [];
+  supvParticipantHoursLoading.value = false;
+  supvParticipantHoursError.value = '';
+  supervisionPresenterIds.value = [];
   supvMeetTrackerError.value = '';
   supvArtifactLoading.value = false;
   supvArtifactSaving.value = false;
@@ -20570,6 +20994,7 @@ watch(selectedSupvSessionId, (id) => {
     recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim()
   };
   void loadSupvPresenters(id);
+  void loadSupvAttendees(id);
   void loadSupvArtifact(id);
 });
 
@@ -20716,11 +21141,19 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
   try {
     supvSaving.value = true;
     supvModalError.value = '';
+    const presenterUserIds = Array.from(
+      new Set(
+        (supervisionPresenterIds.value || [])
+          .map((n) => Number(n || 0))
+          .filter((n) => Number.isFinite(n) && n > 0)
+      )
+    ).slice(0, 2);
     await api.patch(`/supervision/sessions/${id}`, {
       startAt,
       endAt,
       timeZone: scheduleMeetingTimeZone(),
       notes: supvNotes.value || '',
+      presenterUserIds,
       ...(scope ? { scope } : {})
     });
     await load();
@@ -21403,6 +21836,9 @@ const beginEditScheduleStackItem = async (item) => {
     editorMeetingWaitingRoomEnabled.value = item?.waitingRoomEnabled !== false
       && item?.waiting_room_enabled !== false
       && item?.waiting_room_enabled !== 0;
+    notifyMeetingParticipants.value = item?.notifyParticipants !== false
+      && item?.notify_participants !== false
+      && item?.notify_participants !== 0;
     if (agencyId > 0) void loadMeetingCandidates();
   } else if (agencyId > 0) {
     void loadVirtualSessionClients(agencyId);
@@ -21530,6 +21966,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
             invitedGroupIds: Array.from(selectedMeetingInviteGroupIdSet.value.values()),
             isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
             waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
+            notifyParticipants: !!notifyMeetingParticipants.value,
             ...(String(item?.eventKind || '').toUpperCase() === 'TEAM_MEETING'
               ? {
                   meetingSubtype: (canSetAdminMeetingSubtype.value
@@ -21556,6 +21993,11 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
         ? (savedEvent.waitingRoomEnabled !== undefined
           ? savedEvent.waitingRoomEnabled !== false
           : !!editorMeetingWaitingRoomEnabled.value)
+        : undefined,
+      notifyParticipants: isMeeting
+        ? (savedEvent.notifyParticipants !== undefined
+          ? savedEvent.notifyParticipants !== false
+          : !!notifyMeetingParticipants.value)
         : undefined
     });
     editTimingBaseline.value = {
@@ -21824,7 +22266,11 @@ const openSupervisionEditInScheduleModal = (dayName, hour) => {
   modalEndHour.value = Number(hour || 0) + 1;
 
   showRequestModal.value = true;
+  supervisionGroupModeEnabled.value = String(first?.sessionType || '').trim().toLowerCase() === 'group';
   void loadSupvPresenters(selectedSupvSessionId.value);
+  void loadSupvAttendees(selectedSupvSessionId.value).then(() => {
+    if (showSupervisionParticipantsRoster.value) void loadSupvParticipantHoursRoster();
+  });
   void loadSupvArtifact(selectedSupvSessionId.value);
   void loadBookingMetadataForProvider();
   openAppointmentEditor({
@@ -22152,10 +22598,9 @@ const scheduleKindLabel = (kindRaw, ev = null) => {
     return 'Personal';
   }
   if (k === 'SCHEDULE_HOLD' && ev?.allDay) return 'Schedule block';
-  if (k === 'TEAM_MEETING') {
-    const subtype = String(ev?.meetingSubtype || '').toLowerCase();
-    if (subtype === 'admin') return 'Admin Meeting';
-    if (subtype === 'town_hall') return 'Town Hall';
+  if (k === 'TEAM_MEETING' || k === 'HUDDLE') {
+    const meetingLabel = meetingTypeDisplayLabel({ ...ev, kind: k, eventKind: k });
+    if (meetingLabel) return meetingLabel;
   }
   if (SCHEDULE_EVENT_KIND_LABELS[k]) return SCHEDULE_EVENT_KIND_LABELS[k];
   if (!k) return 'Schedule event';
@@ -22294,6 +22739,9 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     waitingRoomEnabled: ev?.waitingRoomEnabled !== false
       && ev?.waiting_room_enabled !== false
       && ev?.waiting_room_enabled !== 0,
+    notifyParticipants: ev?.notifyParticipants !== false
+      && ev?.notify_participants !== false
+      && ev?.notify_participants !== 0,
     status: String(ev?.status || (cancelled ? 'CANCELLED' : 'ACTIVE')).trim().toUpperCase() || 'ACTIVE',
     isPrivate: !!ev?.isPrivate,
     allDay: !!ev?.allDay,
@@ -23828,6 +24276,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .sched-legend-dot--school { background: #56a8e8; }
 .sched-legend-dot--supv { color: #8b5cf6; background: rgba(139, 92, 246, 0.18); }
 .sched-legend-dot--sevt { background: #34d399; }
+.sched-legend-dot--huddle { background: #06b6d4; }
+.sched-legend-dot--group-huddle { background: #0f766e; }
+.sched-legend-dot--meeting { background: #2563eb; }
 .sched-legend-dot--oa { background: #4ade80; }
 .sched-legend-dot--ot { color: #f472b6; background: rgba(244, 114, 182, 0.16); }
 .sched-legend-dot--ob { background: #f87171; }
@@ -24666,6 +25117,20 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   color: rgba(113, 63, 18, 0.95);
   background: rgba(253, 224, 71, 0.92);
   border: 1px solid rgba(234, 179, 8, 0.45);
+  white-space: nowrap;
+}
+.cell-block-presenter-badge {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #9f1239;
+  color: #fff;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  vertical-align: middle;
   white-space: nowrap;
 }
 .cell-block-supv {

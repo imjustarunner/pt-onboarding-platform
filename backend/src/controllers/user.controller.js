@@ -4355,6 +4355,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const waitingRoomEnabled = r.waiting_room_enabled == null
           ? true
           : !(r.waiting_room_enabled === 0 || r.waiting_room_enabled === false || r.waiting_room_enabled === '0');
+        const notifyParticipants = r.notify_participants == null
+          ? true
+          : !(r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0');
         return {
           id: r.id,
           role: isSupervisor ? 'supervisor' : 'supervisee',
@@ -4363,6 +4366,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           isRequired,
           presenterRole: r.viewer_presenter_role || null,
           presenterStatus: r.viewer_presenter_status || null,
+          presenterNames: String(r.presenter_names || '').trim() || null,
           startAt: startWall,
           endAt: endWall,
           startDateYmd,
@@ -4380,6 +4384,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             ? joinUrlForSupervision(supervisionJoinUrlBase, hostJoinToken)
             : null,
           waitingRoomEnabled,
+          notifyParticipants,
           superviseeUserId: Number(r.supervisee_user_id || 0) || null,
           supervisorUserId: Number(r.supervisor_user_id || 0) || null,
           superviseeName: `${r.supervisee_first_name || ''} ${r.supervisee_last_name || ''}`.trim() || null,
@@ -4461,6 +4466,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const waitingRoomEnabled = r.waiting_room_enabled == null
           ? true
           : !(r.waiting_room_enabled === 0 || r.waiting_room_enabled === false || r.waiting_room_enabled === '0');
+        const notifyParticipants = r.notify_participants == null
+          ? true
+          : !(r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0');
         const eventProviderId = Number(r.provider_id || 0) || null;
         const createdByUserId = Number(r.created_by_user_id || 0) || null;
         const isHost = !!eventProviderId && eventProviderId === Number(providerId);
@@ -4500,6 +4508,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           hostJoinUrl,
           participantJoinUrl: appJoinUrl,
           waitingRoomEnabled: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? waitingRoomEnabled : null,
+          notifyParticipants: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? notifyParticipants : null,
           status: String(r.status || 'ACTIVE').trim().toUpperCase() || 'ACTIVE',
           isCancelled: String(r.status || '').trim().toUpperCase() === 'CANCELLED',
           isTrainingPayEligible: Number(r.is_training_pay_eligible || 0) === 1,
@@ -5773,7 +5782,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
         clientId: Number(req.body?.clientId || 0) || null,
         isTrainingPayEligible,
         waitingRoomEnabled,
-        meetingSubtype
+        meetingSubtype,
+        notifyParticipants
       });
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && attendeeUserIds?.length) {
         const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
@@ -5884,6 +5894,9 @@ export const createUserScheduleEvent = async (req, res, next) => {
         participantJoinUrl: appJoinUrl || null,
         waitingRoomEnabled: (kind === 'TEAM_MEETING' || kind === 'HUDDLE')
           ? (req.body?.waitingRoomEnabled !== false)
+          : null,
+        notifyParticipants: (kind === 'TEAM_MEETING' || kind === 'HUDDLE')
+          ? !!notifyParticipants
           : null,
         agencyId,
         kind,
@@ -6202,6 +6215,23 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         || raw === 'true';
     }
 
+    let nextNotifyParticipants = undefined;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'notifyParticipants')
+      || Object.prototype.hasOwnProperty.call(req.body || {}, 'sendCalendarInvites')) {
+      if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+        return res.status(400).json({ error: { message: 'notifyParticipants is only supported for TEAM_MEETING and HUDDLE.' } });
+      }
+      const raw = req.body?.notifyParticipants !== undefined
+        ? req.body.notifyParticipants
+        : req.body.sendCalendarInvites;
+      nextNotifyParticipants = !(
+        raw === false
+        || raw === 0
+        || raw === '0'
+        || raw === 'false'
+      );
+    }
+
     const scope = String(req.body?.scope || 'single').trim().toLowerCase();
     if (!['single', 'future'].includes(scope)) {
       return res.status(400).json({ error: { message: 'scope must be single or future' } });
@@ -6269,6 +6299,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         isTrainingPayEligible: isPrimary ? nextTrainingPayEligible : undefined,
         meetingSubtype: isPrimary ? nextMeetingSubtype : (scope === 'future' ? nextMeetingSubtype : undefined),
         waitingRoomEnabled: isPrimary ? nextWaitingRoomEnabled : undefined,
+        notifyParticipants: isPrimary ? nextNotifyParticipants : (scope === 'future' ? nextNotifyParticipants : undefined),
         updatedByUserId: actorUserId
       });
       if (isPrimary) updated = rowUpdated;
@@ -6415,6 +6446,11 @@ export const updateUserScheduleEvent = async (req, res, next) => {
           ? !(updated?.waiting_room_enabled === 0
             || updated?.waiting_room_enabled === false
             || updated?.waiting_room_enabled === '0')
+          : null,
+        notifyParticipants: ['TEAM_MEETING', 'HUDDLE'].includes(kind)
+          ? !(updated?.notify_participants === 0
+            || updated?.notify_participants === false
+            || updated?.notify_participants === '0')
           : null,
         recurrenceSeriesId: seriesId || null
       }

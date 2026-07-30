@@ -1,38 +1,78 @@
 <template>
   <div class="ssp" data-testid="supervision-supervisee-panel">
     <div class="ssp-head">
-      <h3 class="ssp-title">Supervisee</h3>
-      <p class="ssp-sub muted">{{ participantName || 'Supervision progress toward required hours' }}</p>
+      <h3 class="ssp-title">{{ title }}</h3>
+      <p class="ssp-sub muted">{{ subtitle }}</p>
     </div>
 
-    <div v-if="loading" class="muted">Loading supervision hours…</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else-if="!enabled" class="muted">
-      Supervision hour tracking is not enabled for this supervisee on this tenant.
+    <div v-if="hasRoster" class="ssp-roster">
+      <div v-if="rosterLoading && !participants.length" class="muted">Loading participants…</div>
+      <div v-else-if="rosterError && !participants.length" class="error">{{ rosterError }}</div>
+      <div v-else-if="!participants.length" class="muted">No invited participants for this session.</div>
+      <div v-else class="ssp-roster-list">
+        <article
+          v-for="row in participants"
+          :key="`ssp-p-${row.id}`"
+          class="ssp-person"
+          :class="{ 'ssp-person--presenter': row.isPresenter }"
+        >
+          <div class="ssp-person-head">
+            <div class="ssp-person-name">{{ row.name || `User #${row.id}` }}</div>
+            <span v-if="row.isPresenter" class="ssp-presenter-badge">PRESENTER</span>
+          </div>
+          <div v-if="row.loading" class="muted ssp-person-meta">Loading hours…</div>
+          <div v-else-if="row.error" class="error ssp-person-meta">{{ row.error }}</div>
+          <div v-else-if="row.enabled === false" class="muted ssp-person-meta">
+            Hour tracking not enabled for this supervisee.
+          </div>
+          <div v-else class="ssp-person-hours">
+            <div class="ssp-hour">
+              <span class="ssp-hour-k">Individual</span>
+              <span class="ssp-hour-v">{{ fmt(row.individualHours) }} hrs</span>
+            </div>
+            <div class="ssp-hour">
+              <span class="ssp-hour-k">Group</span>
+              <span class="ssp-hour-v">{{ fmt(row.groupHours) }} hrs</span>
+            </div>
+            <div class="ssp-hour ssp-hour--total">
+              <span class="ssp-hour-k">Total</span>
+              <span class="ssp-hour-v">{{ fmt(totalFor(row)) }} hrs</span>
+            </div>
+          </div>
+        </article>
+      </div>
     </div>
-    <div v-else class="ssp-cards">
-      <div class="ssp-card">
-        <div class="ssp-k">Individual</div>
-        <div class="ssp-v">{{ fmt(individualHours) }} / {{ fmt(requiredIndividual) }}</div>
-        <div class="ssp-bar" aria-hidden="true">
-          <span class="ssp-bar-fill" :style="{ width: pct(individualHours, requiredIndividual) }" />
+
+    <template v-else>
+      <div v-if="loading" class="muted">Loading supervision hours…</div>
+      <div v-else-if="error" class="error">{{ error }}</div>
+      <div v-else-if="!enabled" class="muted">
+        Supervision hour tracking is not enabled for this supervisee on this tenant.
+      </div>
+      <div v-else class="ssp-cards">
+        <div class="ssp-card">
+          <div class="ssp-k">Individual</div>
+          <div class="ssp-v">{{ fmt(individualHours) }} / {{ fmt(requiredIndividual) }}</div>
+          <div class="ssp-bar" aria-hidden="true">
+            <span class="ssp-bar-fill" :style="{ width: pct(individualHours, requiredIndividual) }" />
+          </div>
+          <div class="ssp-meta muted">{{ remaining(individualHours, requiredIndividual) }} hrs remaining</div>
         </div>
-        <div class="ssp-meta muted">{{ remaining(individualHours, requiredIndividual) }} hrs remaining</div>
-      </div>
-      <div class="ssp-card">
-        <div class="ssp-k">Group</div>
-        <div class="ssp-v">{{ fmt(groupHours) }} / {{ fmt(requiredGroup) }}</div>
-        <div class="ssp-bar" aria-hidden="true">
-          <span class="ssp-bar-fill ssp-bar-fill--group" :style="{ width: pct(groupHours, requiredGroup) }" />
+        <div class="ssp-card">
+          <div class="ssp-k">Group</div>
+          <div class="ssp-v">{{ fmt(groupHours) }} / {{ fmt(requiredGroup) }}</div>
+          <div class="ssp-bar" aria-hidden="true">
+            <span class="ssp-bar-fill ssp-bar-fill--group" :style="{ width: pct(groupHours, requiredGroup) }" />
+          </div>
+          <div class="ssp-meta muted">{{ remaining(groupHours, requiredGroup) }} hrs remaining</div>
         </div>
-        <div class="ssp-meta muted">{{ remaining(groupHours, requiredGroup) }} hrs remaining</div>
+        <div class="ssp-card ssp-card--wide">
+          <div class="ssp-k">Total</div>
+          <div class="ssp-v">{{ fmt(totalHours) }} hrs logged</div>
+          <div class="ssp-meta muted">Session type: {{ sessionTypeLabel }}</div>
+        </div>
       </div>
-      <div class="ssp-card ssp-card--wide">
-        <div class="ssp-k">Total</div>
-        <div class="ssp-v">{{ fmt(totalHours) }} hrs logged</div>
-        <div class="ssp-meta muted">Session type: {{ sessionTypeLabel }}</div>
-      </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -48,7 +88,21 @@ const props = defineProps({
   requiredGroup: { type: Number, default: 50 },
   enabled: { type: Boolean, default: true },
   loading: { type: Boolean, default: false },
-  error: { type: String, default: '' }
+  error: { type: String, default: '' },
+  /** When set, show a roster of invited participants with per-person hours. */
+  participants: { type: Array, default: () => [] },
+  rosterMode: { type: Boolean, default: false },
+  rosterLoading: { type: Boolean, default: false },
+  rosterError: { type: String, default: '' }
+});
+
+const hasRoster = computed(() => !!props.rosterMode);
+const title = computed(() => (hasRoster.value ? 'Participants' : 'Supervisee'));
+const subtitle = computed(() => {
+  if (hasRoster.value) {
+    return 'Invited participants with individual, group, and total hours logged';
+  }
+  return props.participantName || 'Supervision progress toward required hours';
 });
 
 const totalHours = computed(() => Number(props.individualHours || 0) + Number(props.groupHours || 0));
@@ -59,6 +113,9 @@ const sessionTypeLabel = computed(() => {
   return 'Individual';
 });
 
+function totalFor(row) {
+  return Number(row?.individualHours || 0) + Number(row?.groupHours || 0);
+}
 function fmt(n) {
   const v = Number(n || 0);
   return v.toLocaleString(undefined, { maximumFractionDigits: 1 });
@@ -118,10 +175,81 @@ function remaining(have, need) {
 }
 .ssp-bar-fill--group { background: #7c3aed; }
 .ssp-meta { margin-top: 6px; font-size: 0.8rem; font-weight: 600; }
+.ssp-roster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ssp-person {
+  padding: 12px 14px;
+  border: 1px solid #e8eef5;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.ssp-person--presenter {
+  border-color: #fda4af;
+  background: #fff1f2;
+}
+.ssp-person-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ssp-person-name {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.ssp-presenter-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #9f1239;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  flex: 0 0 auto;
+}
+.ssp-person-meta { margin-top: 6px; font-size: 0.8rem; }
+.ssp-person-hours {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.ssp-hour {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
+.ssp-hour--total {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+.ssp-hour-k {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+.ssp-hour-v {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+}
 .error { color: #b91c1c; font-size: 0.85rem; }
 .muted { color: #64748b; }
 @media (max-width: 640px) {
   .ssp-cards { grid-template-columns: 1fr; }
   .ssp-card--wide { grid-column: auto; }
+  .ssp-person-hours { grid-template-columns: 1fr; }
 }
 </style>

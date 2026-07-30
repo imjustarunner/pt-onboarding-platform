@@ -441,7 +441,11 @@ async function isUserAdmittedToSupervision({ sessionId, userId = null, joinIdent
     if (uid > 0) {
       const [rows] = await pool.execute(
         `SELECT 1 FROM supervision_session_video_admissions
-         WHERE session_id = ? AND (user_id = ? OR join_identity = ?)
+         WHERE session_id = ?
+           AND (
+             user_id = ?
+             OR (join_identity IS NOT NULL AND BINARY join_identity = BINARY ?)
+           )
          LIMIT 1`,
         [sid, uid, `user-${uid}`]
       );
@@ -450,7 +454,9 @@ async function isUserAdmittedToSupervision({ sessionId, userId = null, joinIdent
     if (identity) {
       const [rows] = await pool.execute(
         `SELECT 1 FROM supervision_session_video_admissions
-         WHERE session_id = ? AND join_identity = ?
+         WHERE session_id = ?
+           AND join_identity IS NOT NULL
+           AND BINARY join_identity = BINARY ?
          LIMIT 1`,
         [sid, identity]
       );
@@ -499,7 +505,8 @@ async function listWaitingLobbyPresence(sessionId) {
   await pruneStaleJoinPresence(sid);
   // Looser than attendance stale so brief heartbeat jitter doesn’t hide waiters.
   const lobbyStaleSeconds = Math.max(JOIN_PRESENCE_STALE_SECONDS, 45);
-  // Avoid CONCAT(...) = join_identity — MySQL collation mix (0900_ai_ci vs unicode_ci) fails.
+  // Avoid string collation mixes (0900_ai_ci vs unicode_ci): match by user_id when
+  // possible, otherwise BINARY compare join_identity (no collation coercion).
   const [rows] = await pool.execute(
     `SELECT p.join_identity, p.display_name, p.is_guest, p.joined_at, p.last_seen_at,
             u.first_name, u.last_name, u.email
@@ -514,12 +521,15 @@ async function listWaitingLobbyPresence(sessionId) {
          SELECT 1 FROM supervision_session_video_admissions a
          WHERE a.session_id = p.session_id
            AND (
-             a.join_identity COLLATE utf8mb4_unicode_ci
-               = p.join_identity COLLATE utf8mb4_unicode_ci
-             OR (
+             (
                a.user_id IS NOT NULL
                AND p.join_identity LIKE 'user-%'
                AND a.user_id = CAST(SUBSTRING(p.join_identity, 6) AS UNSIGNED)
+             )
+             OR (
+               a.join_identity IS NOT NULL
+               AND a.join_identity <> ''
+               AND BINARY a.join_identity = BINARY p.join_identity
              )
            )
        )
@@ -670,11 +680,24 @@ function parseDateTimeLocalString(s) {
 function signupClosesAtFromStart(startAt) {
   const wall = parseDateTimeLocalString(startAt);
   if (!wall) return null;
-  const dt = new Date(wall.replace(' ', 'T'));
+  // Pure wall-clock math — avoid Date TZ reinterpretation on UTC servers.
+  const m = wall.match(/^(\d{4})-(\d{2})-(\d{2})[ ](\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const h = Number(m[4]);
+  const mi = Number(m[5]);
+  const s = Number(m[6]);
+  const totalMin = ((h * 60) + mi) - 60;
+  const dayOffset = totalMin < 0 ? -1 : 0;
+  const minsInDay = ((totalMin % 1440) + 1440) % 1440;
+  const closesH = Math.floor(minsInDay / 60);
+  const closesMi = minsInDay % 60;
+  const dt = new Date(Date.UTC(y, mo - 1, d + dayOffset, 12, 0, 0));
   if (Number.isNaN(dt.getTime())) return null;
-  const closes = new Date(dt.getTime() - (60 * 60 * 1000));
   const pad2 = (n) => String(n).padStart(2, '0');
-  return `${closes.getFullYear()}-${pad2(closes.getMonth() + 1)}-${pad2(closes.getDate())} ${pad2(closes.getHours())}:${pad2(closes.getMinutes())}:${pad2(closes.getSeconds())}`;
+  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())} ${pad2(closesH)}:${pad2(closesMi)}:${pad2(s)}`;
 }
 
 function isSignupOnlyEnrollment(raw) {
@@ -703,17 +726,23 @@ async function buildSupervisionSessionTitle(sessionId, row) {
   const typeLabel = st === 'group' ? 'Group' : st === 'triadic' ? 'Triadic' : 'Individual';
   const names = [supName, svName].filter(Boolean);
   if (st === 'group') {
-    const [extraRows] = await pool.execute(
-      `SELECT CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')) AS name
-       FROM supervision_session_attendees ssa
-       JOIN users u ON u.id = ssa.user_id
-       WHERE ssa.session_id = ? AND ssa.user_id NOT IN (?, ?)
-       ORDER BY ssa.id`,
-      [sessionId, row.supervisor_user_id, row.supervisee_user_id]
-    );
-    const extraNames = (extraRows || []).map((r) => String(r?.name || '').trim()).filter(Boolean);
-    const allNames = [...new Set([...names, ...extraNames])];
-    return allNames.length ? `${typeLabel} Supervision with ${allNames.join(', ')}` : `${typeLabel} Supervision`;
+    // Keep the live title short — listing every invitee is noisy for large groups.
+    // Only append assigned Case Conceptualization presenters when set.
+    try {
+      const presenters = await SupervisionSession.listPresentersForSession(sessionId);
+      const presenterNames = (presenters || [])
+        .map((p) => String(p?.presenter_name || '').trim())
+        .filter(Boolean);
+      if (presenterNames.length === 1) {
+        return `Group Supervision — Presenting: ${presenterNames[0]}`;
+      }
+      if (presenterNames.length > 1) {
+        return `Group Supervision — Presenting: ${presenterNames.join(' · ')}`;
+      }
+    } catch {
+      /* ignore */
+    }
+    return 'Group Supervision';
   }
   return names.length ? `${typeLabel} Supervision with ${names.join(' and ')}` : `${typeLabel} Supervision`;
 }
@@ -3802,6 +3831,16 @@ export const createSupervisionSession = async (req, res, next) => {
       });
 
     const waitingRoomEnabled = req.body?.waitingRoomEnabled !== false;
+    const notifyParticipants = !(
+      req.body?.notifyParticipants === false
+      || req.body?.notifyParticipants === 0
+      || req.body?.notifyParticipants === '0'
+      || req.body?.notifyParticipants === 'false'
+      || req.body?.sendCalendarInvites === false
+      || req.body?.sendCalendarInvites === 0
+      || req.body?.sendCalendarInvites === '0'
+      || req.body?.sendCalendarInvites === 'false'
+    );
     const created = await SupervisionSession.create({
       agencyId,
       supervisorUserId,
@@ -3818,6 +3857,7 @@ export const createSupervisionSession = async (req, res, next) => {
       notes: notes ? String(notes) : null,
       createdByUserId: req.user.id,
       waitingRoomEnabled,
+      notifyParticipants,
       recurrenceSeriesId,
       recurrenceFrequency,
       recurrenceIndex,
@@ -3923,42 +3963,44 @@ export const createSupervisionSession = async (req, res, next) => {
     }
 
     // Notify counterparts so their schedule can refresh / toast.
-    try {
-      const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
-      const actorId = Number(req.user?.id || 0);
-      const actorName = `${String(req.user?.first_name || req.user?.firstName || '').trim()} ${String(req.user?.last_name || req.user?.lastName || '').trim()}`.trim()
-        || 'A teammate';
-      const whenLabel = String(startAt || '').replace(' ', ' · ').slice(0, 16);
-      const recipientIds = Array.from(new Set([
-        supervisorUserId,
-        superviseeUserId,
-        ...(coFacilitatorUserId ? [coFacilitatorUserId] : []),
-        ...superviseeIds
-      ].filter((uid) => Number(uid) > 0 && Number(uid) !== actorId)));
-      const typeLabel = sessionType === 'group' ? 'Group supervision' : 'Supervision';
-      await Promise.all(recipientIds.map((uid) => createNotificationAndDispatch({
-        type: 'supervision_session_scheduled',
-        severity: 'info',
-        title: `${typeLabel} scheduled`,
-        message: `${actorName} scheduled ${typeLabel.toLowerCase()} for ${whenLabel}. Open My Schedule to see it.`,
-        userId: uid,
-        agencyId,
-        relatedEntityType: 'supervision_sessions',
-        relatedEntityId: Number(created.id),
-        actorSource: 'Schedule',
-        metadata: {
-          sessionId: Number(created.id),
-          startAt,
-          endAt,
-          sessionType,
-          refreshSchedule: true
-        }
-      }).catch((err) => {
-        console.warn('[supervision] schedule notify failed', uid, err?.message || err);
-        return null;
-      })));
-    } catch (notifyErr) {
-      console.warn('[supervision] schedule notify skipped', notifyErr?.message || notifyErr);
+    if (notifyParticipants) {
+      try {
+        const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
+        const actorId = Number(req.user?.id || 0);
+        const actorName = `${String(req.user?.first_name || req.user?.firstName || '').trim()} ${String(req.user?.last_name || req.user?.lastName || '').trim()}`.trim()
+          || 'A teammate';
+        const whenLabel = String(startAt || '').replace(' ', ' · ').slice(0, 16);
+        const recipientIds = Array.from(new Set([
+          supervisorUserId,
+          superviseeUserId,
+          ...(coFacilitatorUserId ? [coFacilitatorUserId] : []),
+          ...superviseeIds
+        ].filter((uid) => Number(uid) > 0 && Number(uid) !== actorId)));
+        const typeLabel = sessionType === 'group' ? 'Group supervision' : 'Supervision';
+        await Promise.all(recipientIds.map((uid) => createNotificationAndDispatch({
+          type: 'supervision_session_scheduled',
+          severity: 'info',
+          title: `${typeLabel} scheduled`,
+          message: `${actorName} scheduled ${typeLabel.toLowerCase()} for ${whenLabel}. Open My Schedule to see it.`,
+          userId: uid,
+          agencyId,
+          relatedEntityType: 'supervision_sessions',
+          relatedEntityId: Number(created.id),
+          actorSource: 'Schedule',
+          metadata: {
+            sessionId: Number(created.id),
+            startAt,
+            endAt,
+            sessionType,
+            refreshSchedule: true
+          }
+        }).catch((err) => {
+          console.warn('[supervision] schedule notify failed', uid, err?.message || err);
+          return null;
+        })));
+      } catch (notifyErr) {
+        console.warn('[supervision] schedule notify skipped', notifyErr?.message || notifyErr);
+      }
     }
     }
 
@@ -3996,7 +4038,8 @@ export const createSupervisionSession = async (req, res, next) => {
       summary,
       description: desc,
       createMeetLink: useVideo ? false : createMeetLink,
-      appJoinUrl
+      appJoinUrl,
+      sendUpdates: notifyParticipants ? 'all' : 'none'
     });
 
     if (sync?.ok) {
@@ -4670,6 +4713,51 @@ export const getMyPresenterAssignments = async (req, res, next) => {
     }
 
     res.json({ ok: true, assignments: out, now: now.toISOString() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getSessionAttendees = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const [attendees, presenters] = await Promise.all([
+      SupervisionSession.listAttendees(id),
+      SupervisionSession.listPresentersForSession(id)
+    ]);
+    const presenterIds = new Set(
+      (presenters || []).map((p) => Number(p.user_id || p.userId || 0)).filter((n) => n > 0)
+    );
+    const out = (attendees || []).map((a) => {
+      const userId = Number(a.user_id || a.userId || 0);
+      const firstName = String(a.first_name || a.firstName || '').trim();
+      const lastName = String(a.last_name || a.lastName || '').trim();
+      const name = `${firstName} ${lastName}`.trim() || String(a.email || '').trim() || `User #${userId}`;
+      return {
+        userId,
+        firstName,
+        lastName,
+        email: String(a.email || '').trim() || null,
+        name,
+        participantRole: String(a.participant_role || a.participantRole || '').trim() || null,
+        isRequired: Number(a.is_required || a.isRequired || 0) === 1,
+        status: String(a.status || '').trim() || null,
+        isPresenter: presenterIds.has(userId)
+      };
+    });
+    res.json({ ok: true, attendees: out });
   } catch (e) {
     next(e);
   }

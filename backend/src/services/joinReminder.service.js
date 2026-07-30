@@ -176,7 +176,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
     try {
       const [rows] = await pool.execute(
         `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.supervisee_user_id,
-                ss.google_meet_link, ss.join_token, ss.enrollment_mode,
+                ss.google_meet_link, ss.join_token, ss.enrollment_mode, ss.notify_participants,
                 CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name
          FROM supervision_sessions ss
          JOIN users sup ON sup.id = ss.supervisor_user_id
@@ -187,7 +187,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
       );
       supvRows = rows || [];
     } catch (e) {
-      if (!/enrollment_mode/i.test(String(e?.message || ''))) throw e;
+      if (!/enrollment_mode|notify_participants/i.test(String(e?.message || ''))) throw e;
       const [rows] = await pool.execute(
         `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.supervisee_user_id,
                 ss.google_meet_link, ss.join_token,
@@ -204,6 +204,10 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
 
     for (const r of supvRows || []) {
       const sessionId = Number(r.id);
+      // Opt-out via notify_participants boolean (default on when column missing).
+      if (r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0') {
+        continue;
+      }
       const isSignupOnly = String(r.enrollment_mode || '').trim().toLowerCase() === 'signup_only';
       const agencyId = Number(r.agency_id);
       const label = `Supervision with ${String(r.supervisor_name || '').trim() || 'supervisor'}`;
@@ -249,28 +253,51 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
       }
     }
 
-    // Team meetings starting in 5-8 min
-    const [teamRows] = await pool.execute(
-      `SELECT pse.id, pse.agency_id, pse.provider_id, pse.title, pse.google_meet_link, pse.platform_video_link
-       FROM provider_schedule_events pse
-       WHERE UPPER(COALESCE(pse.kind, '')) = 'TEAM_MEETING'
-         AND (pse.status IS NULL OR pse.status = 'ACTIVE')
-         AND pse.start_at >= ? AND pse.start_at < ?
-       ORDER BY pse.start_at ASC`,
-      [startSql, endSql]
-    );
+    // Team meetings + huddles starting in 5-8 min
+    let teamRows = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT pse.id, pse.agency_id, pse.provider_id, pse.title, pse.kind, pse.google_meet_link,
+                pse.platform_video_link, pse.notify_participants, pse.participant_join_token, pse.join_token
+         FROM provider_schedule_events pse
+         WHERE UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
+           AND (pse.status IS NULL OR pse.status = 'ACTIVE')
+           AND pse.start_at >= ? AND pse.start_at < ?
+         ORDER BY pse.start_at ASC`,
+        [startSql, endSql]
+      );
+      teamRows = rows || [];
+    } catch (e) {
+      if (!/notify_participants|participant_join_token/i.test(String(e?.message || ''))) throw e;
+      const [rows] = await pool.execute(
+        `SELECT pse.id, pse.agency_id, pse.provider_id, pse.title, pse.kind, pse.google_meet_link, pse.platform_video_link
+         FROM provider_schedule_events pse
+         WHERE UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
+           AND (pse.status IS NULL OR pse.status = 'ACTIVE')
+           AND pse.start_at >= ? AND pse.start_at < ?
+         ORDER BY pse.start_at ASC`,
+        [startSql, endSql]
+      );
+      teamRows = rows || [];
+    }
 
     for (const r of teamRows || []) {
+      if (r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0') {
+        continue;
+      }
       const sessionId = Number(r.id);
       let agencyId = Number(r.agency_id || 0);
       if (!agencyId && r.provider_id) {
         const agencies = await User.getAgencies(Number(r.provider_id));
         agencyId = agencies?.[0]?.id || 0;
       }
-      const label = String(r.title || 'Team meeting').trim() || 'Team meeting';
+      const kind = String(r.kind || '').toUpperCase();
+      const label = String(r.title || (kind === 'HUDDLE' ? 'Huddle' : 'Team meeting')).trim()
+        || (kind === 'HUDDLE' ? 'Huddle' : 'Team meeting');
       const hasPlatformLink = r.platform_video_link == null || Number(r.platform_video_link) === 1;
-      const joinUrl = useAppJoin && hasPlatformLink
-        ? `${FRONTEND_URL}/join/team-meeting/${sessionId}`
+      const joinKey = String(r.participant_join_token || r.join_token || sessionId || '').trim();
+      const joinUrl = useAppJoin && hasPlatformLink && joinKey
+        ? `${FRONTEND_URL}/join/team-meeting/${encodeURIComponent(joinKey)}`
         : (r.google_meet_link ? String(r.google_meet_link).trim() : null);
       if (!joinUrl) continue;
 
@@ -375,10 +402,16 @@ export async function buildScheduleEventNotificationPlan(eventRow) {
     return { items: [], attendees: [], canSendAdditionalReminder: false };
   }
 
+  const notifyOn = !(
+    eventRow.notify_participants === 0
+    || eventRow.notify_participants === false
+    || eventRow.notify_participants === '0'
+  );
   const hostId = Number(eventRow.provider_id || 0);
-  const title = String(eventRow.title || 'Team meeting').trim() || 'Team meeting';
+  const title = String(eventRow.title || (kind === 'HUDDLE' ? 'Huddle' : 'Team meeting')).trim()
+    || (kind === 'HUDDLE' ? 'Huddle' : 'Team meeting');
   const startAt = eventRow.start_at || null;
-  const fireAt = reminderFireAtFromStart(startAt);
+  const fireAt = notifyOn ? reminderFireAtFromStart(startAt) : null;
   const nowMs = Date.now();
   const startMs = startAt ? new Date(String(startAt).replace(' ', 'T')).getTime() : NaN;
   const meetingStarted = Number.isFinite(startMs) && startMs <= nowMs;

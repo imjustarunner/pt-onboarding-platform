@@ -31,7 +31,8 @@ class ProviderScheduleEvent {
     joinToken = null,
     isTrainingPayEligible = false,
     waitingRoomEnabled = true,
-    meetingSubtype = 'general'
+    meetingSubtype = 'general',
+    notifyParticipants = true
   }) {
     const kindUpper = String(kind || '').trim().toUpperCase();
     const needsJoinToken = ['TEAM_MEETING', 'HUDDLE'].includes(kindUpper) && !!platformVideoLink;
@@ -45,21 +46,25 @@ class ProviderScheduleEvent {
     const attendanceTrackingEnabled = kindUpper === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall'
       ? 1
       : 0;
+    const notifyFlag = notifyParticipants === false || notifyParticipants === 0 || notifyParticipants === '0' || notifyParticipants === 'false'
+      ? 0
+      : 1;
     try {
       const [result] = await pool.execute(
         `INSERT INTO provider_schedule_events
-          (join_token, host_join_token, participant_join_token, waiting_room_enabled,
+          (join_token, host_join_token, participant_join_token, waiting_room_enabled, notify_participants,
            agency_id, provider_id, client_id, entitlement_id, package_payment_id, session_index,
            kind, title, description, reason_code, is_private, all_day, start_at, end_at, start_date, end_date, status,
            recurrence_series_id, recurrence_frequency, recurrence_policy, recurrence_index,
            google_event_id, google_html_link, google_meet_link, platform_video_link,
            is_training_pay_eligible, meeting_subtype, attendance_tracking_enabled, created_by_user_id, updated_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           participantToken,
           hostToken,
           participantToken,
           waitingRoomFlag,
+          notifyFlag,
           agencyId == null ? null : Number(agencyId),
           Number(providerId),
           clientId ? Number(clientId) : null,
@@ -352,6 +357,7 @@ class ProviderScheduleEvent {
     isTrainingPayEligible = undefined,
     meetingSubtype = undefined,
     waitingRoomEnabled = undefined,
+    notifyParticipants = undefined,
     updatedByUserId = null
   }) {
     const eid = Number(eventId || 0);
@@ -418,6 +424,14 @@ class ProviderScheduleEvent {
     if (waitingRoomEnabled !== undefined) {
       sets.push('waiting_room_enabled = ?');
       params.push(waitingRoomEnabled === false || waitingRoomEnabled === 0 ? 0 : 1);
+    }
+    if (notifyParticipants !== undefined) {
+      sets.push('notify_participants = ?');
+      params.push(
+        notifyParticipants === false || notifyParticipants === 0 || notifyParticipants === '0' || notifyParticipants === 'false'
+          ? 0
+          : 1
+      );
     }
     if (!sets.length) return this.findByIdForProvider({ eventId: eid, providerId: pid });
     sets.push('updated_by_user_id = ?');

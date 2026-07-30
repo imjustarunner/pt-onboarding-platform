@@ -25,6 +25,7 @@
       :show-layout-controls="showLayoutControls"
       :mute-others-mode="muteOthersMode"
       :is-host-or-cohost="isHostOrCohost || isHost"
+      :start-muted="startMuted"
       :play-join-tone="playJoinTone"
       @update:tile-focus="$emit('update:tileFocus', $event)"
       @update:video-fullscreen="$emit('update:videoFullscreen', $event)"
@@ -84,6 +85,8 @@ const props = defineProps({
   showLayoutControls: { type: Boolean, default: false },
   muteOthersMode: { type: String, default: 'host' },
   isHostOrCohost: { type: Boolean, default: false },
+  /** Join with microphone off (group supervision default for attendees). */
+  startMuted: { type: Boolean, default: false },
   playJoinTone: { type: Boolean, default: true },
   localDisplayName: { type: String, default: '' },
   localRoleLabel: { type: String, default: '' },

@@ -32,7 +32,8 @@ class SupervisionSession {
     recurrenceIndex = null,
     enrollmentMode = 'invited',
     signupClosesAt = null,
-    autoCancelIfEmpty = false
+    autoCancelIfEmpty = false,
+    notifyParticipants = true
   }) {
     const participantToken = String(joinToken || generateJoinToken()).slice(0, 64);
     const hostToken = generateJoinToken().slice(0, 64);
@@ -44,21 +45,25 @@ class SupervisionSession {
       ? 'signup_only'
       : (String(enrollmentMode || 'invited').trim().toLowerCase() === 'open_join' ? 'open_join' : 'invited');
     const autoCancelFlag = autoCancelIfEmpty ? 1 : 0;
+    const notifyFlag = notifyParticipants === false || notifyParticipants === 0 || notifyParticipants === '0' || notifyParticipants === 'false'
+      ? 0
+      : 1;
     try {
       const [result] = await pool.execute(
         `INSERT INTO supervision_sessions
-          (join_token, host_join_token, participant_join_token, waiting_room_enabled,
+          (join_token, host_join_token, participant_join_token, waiting_room_enabled, notify_participants,
            agency_id, supervisor_user_id, co_facilitator_user_id, supervisee_user_id, session_type, invite_scope,
            invite_audience_all_supervised, invite_audience_group_support,
            enrollment_mode, signup_closes_at, auto_cancel_if_empty,
            start_at, end_at, modality, location_text, notes, status,
            recurrence_series_id, recurrence_frequency, recurrence_index, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
         [
           participantToken,
           hostToken,
           participantToken,
           waitingRoomFlag,
+          notifyFlag,
           Number(agencyId),
           Number(supervisorUserId),
           coFacilitatorId,
@@ -83,7 +88,7 @@ class SupervisionSession {
       );
       return this.findById(result.insertId);
     } catch (e) {
-      const missingEnrollmentCols = /enrollment_mode|signup_closes_at|auto_cancel_if_empty/i.test(String(e?.message || ''));
+      const missingEnrollmentCols = /enrollment_mode|signup_closes_at|auto_cancel_if_empty|notify_participants/i.test(String(e?.message || ''));
       if (!missingEnrollmentCols && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
     }
     try {
@@ -1021,7 +1026,17 @@ class SupervisionSession {
            WHERE ssp.session_id = ss.id
              AND ssp.user_id = ?
            LIMIT 1
-         ) AS viewer_presenter_status
+         ) AS viewer_presenter_status,
+         (
+           SELECT GROUP_CONCAT(
+             TRIM(CONCAT(COALESCE(u3.first_name, ''), ' ', COALESCE(u3.last_name, '')))
+             ORDER BY CASE WHEN ssp2.presenter_role = 'primary' THEN 0 ELSE 1 END, ssp2.id ASC
+             SEPARATOR ', '
+           )
+           FROM supervision_session_presenters ssp2
+           JOIN users u3 ON u3.id = ssp2.user_id
+           WHERE ssp2.session_id = ss.id
+         ) AS presenter_names
        FROM supervision_sessions ss
        JOIN users sup ON sup.id = ss.supervisor_user_id
        LEFT JOIN users sv ON sv.id = ss.supervisee_user_id

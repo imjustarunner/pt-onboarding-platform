@@ -24,9 +24,10 @@
       </div>
     </div>
     <div v-if="admitSuccess" class="lobby-panel-success">Admitted. They’re joining the room…</div>
-    <div v-else-if="admitError" class="lobby-panel-error">{{ admitError }}</div>
+    <div v-if="admitError" class="lobby-panel-error">{{ admitError }}</div>
+    <div v-if="loadError" class="lobby-panel-error">{{ loadError }}</div>
     <div v-if="initialLoading" class="lobby-panel-loading">Loading…</div>
-    <div v-else-if="participants.length === 0" class="lobby-panel-empty">No one waiting</div>
+    <div v-else-if="participants.length === 0 && !loadError" class="lobby-panel-empty">No one waiting</div>
     <ul v-else class="lobby-panel-list">
       <li v-for="p in participants" :key="p.sid || p.joinIdentity" class="lobby-panel-item">
         <span class="lobby-panel-identity">
@@ -80,6 +81,7 @@ const disablingWaitingRoom = ref(false);
 const waitingRoomEnabled = ref(true);
 const admitSuccess = ref(false);
 const admitError = ref('');
+const loadError = ref('');
 let pollInterval = null;
 let hasLoadedOnce = false;
 
@@ -115,9 +117,11 @@ async function fetchLobbyParticipants() {
       };
     }).filter((p) => p.admitKey);
     hasLoadedOnce = true;
-  } catch {
+    loadError.value = '';
+  } catch (e) {
     // Keep the last good list on poll errors so the UI does not bounce empty ↔ filled.
     if (!hasLoadedOnce) participants.value = [];
+    loadError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load waiting room';
   } finally {
     initialLoading.value = false;
   }

@@ -904,7 +904,8 @@ export class GoogleCalendarService {
     createMeetLink = false,
     appJoinUrl = null,
     existingGoogleEventId = null,
-    existingMeetLink = null
+    existingMeetLink = null,
+    sendUpdates = 'all'
   }) {
     const subject = String(hostEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_host_email' };
@@ -959,6 +960,10 @@ export class GoogleCalendarService {
       };
     }
 
+    const sendUpdatesMode = ['all', 'externalOnly', 'none'].includes(String(sendUpdates || ''))
+      ? String(sendUpdates)
+      : 'all';
+
     try {
       let data;
       let googleEventId = String(existingGoogleEventId || '').trim() || null;
@@ -968,7 +973,7 @@ export class GoogleCalendarService {
           calendarId,
           eventId: googleEventId,
           requestBody,
-          sendUpdates: 'all',
+          sendUpdates: sendUpdatesMode,
           ...(createMeetLink ? { conferenceDataVersion: 1 } : {})
         });
         data = upd.data;
@@ -976,7 +981,7 @@ export class GoogleCalendarService {
         const ins = await cal.events.insert({
           calendarId,
           requestBody,
-          sendUpdates: 'all',
+          sendUpdates: sendUpdatesMode,
           ...(createMeetLink ? { conferenceDataVersion: 1 } : {})
         });
         data = ins.data;

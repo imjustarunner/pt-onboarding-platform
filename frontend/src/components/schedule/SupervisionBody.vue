@@ -30,7 +30,7 @@
 
         <div v-if="groupMode && canBookGroup" class="supb-row supb-switch-row">
           <div class="supb-switch-copy">
-            <span class="supb-switch-title">Tenant signup session</span>
+            <span class="supb-switch-title">Agency signup session</span>
             <p class="supb-hint muted">
               Open to everyone in the agency. Appears on all schedules with a signup countdown.
               Signup closes 1 hour before start; cancels automatically if no one signs up.
@@ -86,10 +86,31 @@
             <span class="supb-switch-slider" aria-hidden="true"></span>
           </label>
         </div>
+
+        <div v-if="showNotifyOption" class="supb-row supb-switch-row">
+          <div class="supb-switch-copy">
+            <span class="supb-switch-title">Email invites &amp; reminders</span>
+            <p class="supb-hint muted">
+              Send calendar invite emails, in-app schedule emails, and the automatic join reminder (~5 min before).
+              Turn off to add silently with no reminder emails.
+            </p>
+          </div>
+          <label class="supb-switch" :class="{ disabled: disabled }">
+            <input
+              type="checkbox"
+              role="switch"
+              :checked="notifyParticipants"
+              :disabled="disabled"
+              :aria-checked="String(!!notifyParticipants)"
+              @change="emit('update:notifyParticipants', !!$event.target.checked)"
+            />
+            <span class="supb-switch-slider" aria-hidden="true"></span>
+          </label>
+        </div>
       </div>
 
       <template v-if="showDetails">
-        <template v-if="groupMode && canBookGroup && !signupOnly">
+        <template v-if="groupMode && canBookGroup">
           <div class="supb-row">
             <label class="supb-label">Facilitator</label>
             <select
@@ -121,7 +142,11 @@
             </select>
           </div>
 
-          <div class="supb-row">
+          <p v-if="signupOnly" class="supb-hint muted">
+            Agency signup — open to everyone in the agency. No named supervisees; people sign up from their schedule.
+          </p>
+
+          <div v-if="!signupOnly" class="supb-row">
             <label class="supb-label">Open join (in addition to named invites)</label>
             <div class="supb-scope-options">
               <label class="supb-check">
@@ -145,27 +170,38 @@
             </div>
           </div>
 
-          <div v-if="presenterOptions.length" class="supb-row">
-            <label class="supb-label">Presenter(s) <span class="supb-optional">optional</span></label>
-            <select
-              class="supb-select"
-              multiple
-              size="3"
-              :value="presenterIds"
-              :disabled="disabled"
-              @change="onPresenterChange"
-            >
-              <option v-for="opt in presenterOptions" :key="`supb-presenter-${opt.id}`" :value="opt.id">
-                {{ opt.label }}
-              </option>
-            </select>
-            <p class="supb-hint muted">Schedule up to 2 presenters from invited participants. Leave empty if no one is presenting.</p>
-          </div>
         </template>
+
+        <div v-if="presenterOptions.length && groupMode && !signupOnly" class="supb-row">
+          <label class="supb-label">Presenter(s) <span class="supb-optional">optional</span></label>
+          <div class="supb-presenter-picker" role="group" aria-label="Select presenters from invited participants">
+            <label
+              v-for="opt in presenterOptions"
+              :key="`supb-presenter-${opt.id}`"
+              class="supb-presenter-option"
+              :class="{
+                on: presenterIdSet.has(opt.id),
+                disabled: disabled || (!presenterIdSet.has(opt.id) && presenterIdSet.size >= 2)
+              }"
+            >
+              <input
+                type="checkbox"
+                :checked="presenterIdSet.has(opt.id)"
+                :disabled="disabled || (!presenterIdSet.has(opt.id) && presenterIdSet.size >= 2)"
+                @change="togglePresenter(opt.id, !!$event.target.checked)"
+              />
+              <span>{{ opt.label }}</span>
+            </label>
+          </div>
+          <p class="supb-hint muted">
+            Choose who is presenting from the invited list (up to 2). Leave unchecked if nobody is presenting —
+            invited participants are not presenters unless selected here.
+          </p>
+        </div>
 
         <p class="supb-hint muted">
           After booking, use the <strong>Note</strong> tab for short notes, transcript, and summary,
-          and the <strong>Supervisee</strong> tab for individual / group hour progress.
+          and the <strong>Participants</strong> / <strong>Supervisee</strong> tab for hour progress.
         </p>
       </template>
     </div>
@@ -264,6 +300,9 @@ import { computed, ref } from 'vue';
 const props = defineProps({
   isVirtual: { type: Boolean, default: true },
   waitingRoomEnabled: { type: Boolean, default: true },
+  /** When false: no calendar invite emails, in-app notify emails, or join reminder emails. */
+  notifyParticipants: { type: Boolean, default: true },
+  showNotifyOption: { type: Boolean, default: true },
   groupMode: { type: Boolean, default: false },
   signupOnly: { type: Boolean, default: false },
   canBookGroup: { type: Boolean, default: false },
@@ -290,6 +329,7 @@ const props = defineProps({
 const emit = defineEmits([
   'update:isVirtual',
   'update:waitingRoomEnabled',
+  'update:notifyParticipants',
   'update:groupMode',
   'update:signupOnly',
   'update:facilitatorUserId',
@@ -318,12 +358,21 @@ const coFacilitatorOptions = computed(() => {
   return (props.facilitatorOptions || []).filter((opt) => Number(opt?.id || 0) !== facId);
 });
 
-function onPresenterChange(event) {
-  const selected = Array.from(event?.target?.selectedOptions || [])
-    .map((opt) => Number(opt.value || 0))
-    .filter((n) => Number.isFinite(n) && n > 0)
-    .slice(0, 2);
-  emit('update:presenterIds', selected);
+const presenterIdSet = computed(() => new Set(
+  (props.presenterIds || []).map((n) => Number(n || 0)).filter((n) => n > 0)
+));
+
+function togglePresenter(userId, checked) {
+  const id = Number(userId || 0);
+  if (!id) return;
+  const next = new Set(presenterIdSet.value);
+  if (checked) {
+    if (next.size >= 2 && !next.has(id)) return;
+    next.add(id);
+  } else {
+    next.delete(id);
+  }
+  emit('update:presenterIds', Array.from(next.values()).slice(0, 2));
 }
 
 function addAgenda() {
@@ -535,6 +584,32 @@ function removeAction(idx) {
 }
 .supb-icon-btn:hover { color: #b91c1c; }
 .supb-empty { margin: 0; font-size: 0.8rem; }
+.supb-presenter-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fff;
+  max-height: 180px;
+  overflow: auto;
+}
+.supb-presenter-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #0f172a;
+  cursor: pointer;
+}
+.supb-presenter-option:hover:not(.disabled) { background: #f1f5f9; }
+.supb-presenter-option.on { background: #ecfdf5; color: #065f46; font-weight: 600; }
+.supb-presenter-option.disabled { opacity: 0.45; cursor: not-allowed; }
+.supb-presenter-option input { margin: 0; }
 @media (max-width: 720px) {
   .supb { grid-template-columns: 1fr; }
 }

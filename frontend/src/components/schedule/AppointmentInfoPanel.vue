@@ -86,6 +86,26 @@
       </div>
 
       <div
+        v-if="presenterNames.length"
+        class="aip-card aip-card--presenters"
+      >
+        <span class="aip-ico aip-ico--rose" aria-hidden="true">◈</span>
+        <div>
+          <div class="aip-k">{{ presenterNames.length > 1 ? 'Presenters' : 'Presenter' }}</div>
+          <div class="aip-v aip-presenter-names">
+            <span
+              v-for="(name, idx) in presenterNames"
+              :key="`aip-pres-${idx}`"
+              class="aip-presenter-chip"
+            >
+              <span class="aip-presenter-badge">PRESENTER</span>
+              {{ name }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div
         v-if="participantSummary || participantNames.length"
         class="aip-card aip-card--participants"
       >
@@ -102,7 +122,10 @@
             {{ participantsExpanded ? 'Hide list' : `Show all ${participantNames.length}` }}
           </button>
           <ul v-if="participantsExpanded && participantNames.length" class="aip-participants-list">
-            <li v-for="(name, idx) in participantNames" :key="`aip-p-${idx}`">{{ name }}</li>
+            <li v-for="(name, idx) in participantNames" :key="`aip-p-${idx}`">
+              <span>{{ name }}</span>
+              <span v-if="isPresenterName(name)" class="aip-presenter-badge">PRESENTER</span>
+            </li>
           </ul>
         </div>
       </div>
@@ -243,9 +266,11 @@ const props = defineProps({
   canOpenClient: { type: Boolean, default: false },
   participantLabel: { type: String, default: 'Participants' },
   participantSummary: { type: String, default: '' },
-  /** Full name list for expandable participants (meetings). */
+  /** Full name list for expandable participants (meetings / group supervision). */
   participantNames: { type: Array, default: () => [] },
   expandableParticipants: { type: Boolean, default: false },
+  /** Presenter display names for supervision info. */
+  presenterNames: { type: Array, default: () => [] },
   serviceLabel: { type: String, default: '' },
   locationLabel: { type: String, default: '' },
   roomLabel: { type: String, default: '' },
@@ -274,16 +299,29 @@ const statusPretty = computed(() => {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 });
 
+/** Show up to 5 names inline; beyond that collapse to "N people" with expand. */
+const PARTICIPANT_SUMMARY_MAX = 5;
+
 const canExpandParticipants = computed(() => (
-  !!props.expandableParticipants && (props.participantNames || []).length > 1
+  !!props.expandableParticipants && (props.participantNames || []).length > PARTICIPANT_SUMMARY_MAX
 ));
+
+const presenterNameSet = computed(() => new Set(
+  (props.presenterNames || []).map((n) => String(n || '').trim().toLowerCase()).filter(Boolean)
+));
+
+function isPresenterName(name) {
+  return presenterNameSet.value.has(String(name || '').trim().toLowerCase());
+}
 
 const participantDisplaySummary = computed(() => {
   const names = (props.participantNames || []).map((n) => String(n || '').trim()).filter(Boolean);
   if (!names.length) return props.participantSummary || 'None selected';
-  if (!props.expandableParticipants || names.length <= 2) return names.join(', ');
-  if (participantsExpanded.value) return `${names.length} participants`;
-  return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
+  if (!props.expandableParticipants || names.length <= PARTICIPANT_SUMMARY_MAX) {
+    return names.join(', ');
+  }
+  if (participantsExpanded.value) return `${names.length} people`;
+  return `${names.length} people`;
 });
 
 const copiedLink = ref(false);
@@ -357,6 +395,10 @@ async function copyVirtualLink() {
   gap: 4px;
 }
 .aip-participants-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 0.82rem;
   font-weight: 600;
   color: #334155;
@@ -364,6 +406,31 @@ async function copyVirtualLink() {
   border-radius: 6px;
   background: #fff;
   border: 1px solid #e2e8f0;
+}
+.aip-ico--rose { background: #ffe4e6; color: #be123c; }
+.aip-presenter-names {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.aip-presenter-chip {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.aip-presenter-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #9f1239;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  flex: 0 0 auto;
 }
 .aip-tenant {
   display: flex;

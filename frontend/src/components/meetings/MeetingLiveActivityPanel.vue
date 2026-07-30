@@ -1281,4 +1281,34 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
 .mlap--dark .mlap__msg {
   background: rgba(255, 255, 255, 0.04) !important;
 }
+.mlap--dark.mlap--below-video,
+.mlap--dark.mlap--below-video .mlap__panel,
+.mlap--dark.mlap--embedded .mlap__panel {
+  background: #121722 !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+.mlap--dark.mlap--below-video .mlap__tab.on,
+.mlap--dark.mlap--embedded .mlap__tab.on {
+  color: #6ee7b7 !important;
+  border-bottom-color: #34d399 !important;
+}
+.mlap--dark.mlap--below-video .mlap__toggle,
+.mlap--dark.mlap--embedded .mlap__toggle {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: #e2e8f0 !important;
+}
+.mlap--dark.mlap--below-video .mlap__toggle.on,
+.mlap--dark.mlap--embedded .mlap__toggle.on {
+  background: rgba(52, 211, 153, 0.22) !important;
+  border-color: rgba(52, 211, 153, 0.45) !important;
+  color: #fff !important;
+}
+.mlap--dark.mlap--below-video .mlap__input,
+.mlap--dark.mlap--embedded .mlap__input {
+  background: #0b1018 !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
 </style>

@@ -224,7 +224,23 @@
         <div ref="localPublisherHostEl" class="vsr__publisher-host vsr__sr-only" aria-hidden="true" />
       </div>
 
-      <div v-if="!publishAudio" class="vsr__muted-banner" role="status" aria-live="polite">
+      <div
+        v-if="automuteNoticeVisible"
+        class="vsr__automute-modal"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="vsr-automute-title"
+      >
+        <div class="vsr__automute-card">
+          <h3 id="vsr-automute-title">You have been automuted</h3>
+          <p>Please unmute to speak when you are ready.</p>
+          <div class="vsr__automute-actions">
+            <button type="button" class="vsr__ctrl vsr__ctrl--primary" @click="dismissAutomuteAndUnmute">Unmute</button>
+            <button type="button" class="vsr__ctrl" @click="dismissAutomuteNotice">Stay muted</button>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="!publishAudio" class="vsr__muted-banner" role="status" aria-live="polite">
         <span class="vsr__muted-banner-icon" aria-hidden="true">
           <svg class="vsr__mic-badge-icon" viewBox="0 0 24 24" fill="none">
             <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" stroke="currentColor" stroke-width="2"/>
@@ -392,6 +408,8 @@ const props = defineProps({
   muteOthersMode: { type: String, default: 'host' },
   /** Local user is host or co-host (for mute-others when mode is host) */
   isHostOrCohost: { type: Boolean, default: false },
+  /** Start with microphone off and show an automute notice */
+  startMuted: { type: Boolean, default: false },
   /** Play a short tone when someone else joins */
   playJoinTone: { type: Boolean, default: true },
   /** Play a short tone when someone else leaves */
@@ -425,8 +443,9 @@ const screenEl = ref(null);
 const connecting = ref(false);
 const errorMessage = ref('');
 const errorMeta = ref(null);
-const publishAudio = ref(true);
+const publishAudio = ref(!props.startMuted);
 const publishVideo = ref(true);
+const automuteNoticeVisible = ref(!!props.startMuted);
 const hideSelfView = ref(false);
 /** on | processing | unavailable | unsupported */
 const voiceIsolationStatus = ref('');
@@ -1629,9 +1648,19 @@ function disconnect(emitEvent = true) {
   }
 }
 
+function dismissAutomuteNotice() {
+  automuteNoticeVisible.value = false;
+}
+
+function dismissAutomuteAndUnmute() {
+  automuteNoticeVisible.value = false;
+  if (!publishAudio.value) toggleMic();
+}
+
 function toggleMic() {
   const next = !publishAudio.value;
   publishAudio.value = next;
+  if (next) automuteNoticeVisible.value = false;
   if (!publisher) {
     console.warn('[VideoSessionRoom] mic toggled before publisher ready');
     return;
@@ -2007,6 +2036,48 @@ defineExpose({
   position: static;
   bottom: auto;
   right: auto;
+}
+.vsr__automute-modal {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(7, 10, 16, 0.72);
+}
+.vsr__automute-card {
+  width: min(100%, 360px);
+  padding: 18px 18px 14px;
+  border-radius: 14px;
+  background: #121722;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #e2e8f0;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+.vsr__automute-card h3 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+}
+.vsr__automute-card p {
+  margin: 0 0 14px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: #cbd5e1;
+}
+.vsr__automute-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.vsr__ctrl--primary {
+  background: #059669 !important;
+  border-color: #047857 !important;
+  color: #fff !important;
 }
 .vsr__muted-banner {
   display: flex;

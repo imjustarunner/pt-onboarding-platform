@@ -27,6 +27,7 @@ import {
   getMySupervisionSessions,
   getSuperviseeSessions,
   getMyPresenterAssignments,
+  getSessionAttendees,
   getSessionPresenters,
   markSessionPresenterPresented,
   signupForSupervisionSession,
@@ -82,6 +83,7 @@ router.get('/my-prompts', getMySupervisionPrompts);
 router.get('/my-sessions', getMySupervisionSessions);
 router.get('/supervisee/:superviseeId/sessions', getSuperviseeSessions);
 router.get('/my-presenter-assignments', getMyPresenterAssignments);
+router.get('/sessions/:id/attendees', getSessionAttendees);
 router.get('/sessions/:id/presenters', getSessionPresenters);
 router.post('/sessions/:id/presenters/:userId/presented', markSessionPresenterPresented);
 router.get('/sessions/:id/presentations', listSessionPresentations);

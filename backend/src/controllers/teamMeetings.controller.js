@@ -229,8 +229,10 @@ async function buildTeamMeetingHostStatus(row) {
   };
 }
 
-async function buildTeamMeetingWaitingPrep(eventId, { sessionTitle = null } = {}) {
+async function buildTeamMeetingWaitingPrep(eventId, { sessionTitle = null, kind = null } = {}) {
   const eid = Number(eventId || 0);
+  const kindNorm = String(kind || '').toUpperCase();
+  const isHuddle = kindNorm === 'HUDDLE';
   const out = {
     sessionTitle: sessionTitle || null,
     goals: [],
@@ -238,23 +240,26 @@ async function buildTeamMeetingWaitingPrep(eventId, { sessionTitle = null } = {}
     actionItems: []
   };
   if (!eid) return out;
-  try {
-    const artifact = await ProviderScheduleEventArtifact.findByEventId(eid);
-    const parseList = (raw) => {
-      if (Array.isArray(raw)) return raw;
-      if (typeof raw === 'string') {
-        try {
-          const parsed = JSON.parse(raw || '[]');
-          return Array.isArray(parsed) ? parsed : [];
-        } catch { return []; }
-      }
-      return [];
-    };
-    const goals = parseList(artifact?.goals_json ?? artifact?.goals);
-    const actions = parseList(artifact?.action_items_json ?? artifact?.actionItems);
-    out.goals = goals.map((g, i) => ({ id: String(g?.id || `g-${i + 1}`), text: String(g?.text || '').trim() })).filter((g) => g.text);
-    out.actionItems = actions.map((a, i) => ({ id: String(a?.id || `a-${i + 1}`), text: String(a?.text || '').trim() })).filter((a) => a.text);
-  } catch { /* ignore */ }
+  // Huddles are agenda-only (group-supervision style) — skip goals/actions prep.
+  if (!isHuddle) {
+    try {
+      const artifact = await ProviderScheduleEventArtifact.findByEventId(eid);
+      const parseList = (raw) => {
+        if (Array.isArray(raw)) return raw;
+        if (typeof raw === 'string') {
+          try {
+            const parsed = JSON.parse(raw || '[]');
+            return Array.isArray(parsed) ? parsed : [];
+          } catch { return []; }
+        }
+        return [];
+      };
+      const goals = parseList(artifact?.goals_json ?? artifact?.goals);
+      const actions = parseList(artifact?.action_items_json ?? artifact?.actionItems);
+      out.goals = goals.map((g, i) => ({ id: String(g?.id || `g-${i + 1}`), text: String(g?.text || '').trim() })).filter((g) => g.text);
+      out.actionItems = actions.map((a, i) => ({ id: String(a?.id || `a-${i + 1}`), text: String(a?.text || '').trim() })).filter((a) => a.text);
+    } catch { /* ignore */ }
+  }
   try {
     const [agendaRows] = await pool.execute(
       `SELECT mai.id, mai.title, mai.status
@@ -865,7 +870,8 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     if (!admitted) {
       const hostStatus = await buildTeamMeetingHostStatus(row);
       const waitingPrep = await buildTeamMeetingWaitingPrep(row.id, {
-        sessionTitle: String(row.title || '').trim() || null
+        sessionTitle: String(row.title || '').trim() || null,
+        kind: row.kind
       });
       return res.json({
         admitted: false,

@@ -2,10 +2,11 @@
   <div class="gsl" :class="{ 'gsl--video-fs': videoFullscreen }">
     <header v-if="!videoFullscreen" class="gsl__header">
       <div class="gsl__header-left">
-        <BrandingLogo size="small" class="gsl__logo" />
+        <BrandingLogo size="large" class="gsl__logo" />
         <div>
-          <h1>{{ sessionTitle || 'Group Supervision' }}</h1>
+          <h1>{{ displayTitle }}</h1>
           <p class="gsl__meta">
+            <span v-if="presenterSubtitle" class="gsl__presenter-line">{{ presenterSubtitle }}</span>
             <span v-if="sessionMeta">{{ sessionMeta }}</span>
             <span class="gsl__live">● Live</span>
           </p>
@@ -21,7 +22,7 @@
           {{ viewAsAttendee ? 'Exit attendee view' : 'View as attendee' }}
         </button>
         <span class="gsl__count" title="Participants">{{ participantHint }}</span>
-        <button type="button" class="btn btn-danger btn-sm" @click="$emit('leave', { endForAll: canFacilitate })">Leave session</button>
+        <button type="button" class="btn btn-danger btn-sm" @click="onLeaveClick">Leave session</button>
       </div>
     </header>
 
@@ -53,13 +54,12 @@
       <SupervisionWaitingRoomStage
         v-if="showWaitingRoomStage"
         :pip="prioritizeSelfView"
-        :meeting-title="sessionTitle || 'Group supervision'"
+        :meeting-title="displayTitle"
         :host-present="hostPresent"
         :host-role-label="hostRoleLabel"
         :host-status-label="hostStatusLabel"
-        :goals="waitingGoals"
+        :goals="[]"
         :agenda="waitingAgenda"
-        :action-items="props.waitingActionItems || []"
         @show-waiting-room="prioritizeSelfView = false"
       />
       <aside
@@ -84,6 +84,7 @@
             :is-host="isSupervisor"
             :is-host-or-cohost="isSupervisor"
             mute-others-mode="host"
+            :start-muted="joinMutedByDefault"
             :diagnostics="diagnostics"
             :local-display-name="localDisplayName"
             :local-role-label="localRoleLabel"
@@ -117,6 +118,7 @@
           :is-host="isSupervisor"
           :is-host-or-cohost="isSupervisor"
           mute-others-mode="host"
+          :start-muted="joinMutedByDefault"
           show-layout-controls
           :diagnostics="diagnostics"
           :local-display-name="localDisplayName"
@@ -141,11 +143,10 @@
     </div>
 
     <div
-      v-show="!videoFullscreen"
+      v-if="!videoFullscreen && !showWaitingRoomStage"
       class="gsl__main"
-      :class="{ 'gsl__main--lobby': showWaitingRoomStage }"
     >
-      <section v-if="!showWaitingRoomStage" class="gsl__stage-wrap">
+      <section class="gsl__stage-wrap">
         <div class="gsl__stage">
           <template v-if="externalEmbedUrl">
             <iframe
@@ -159,6 +160,12 @@
             <div class="gsl__slide">
               <p class="gsl__slide-kicker">{{ currentSlide.section_key || 'Case Presentation' }}</p>
               <h2>{{ currentSlide.title }}</h2>
+              <div v-if="hasCaseGlance" class="gsl__case-inline">
+                <span v-if="caseSummary.client"><strong>Client</strong> {{ caseSummary.client }}</span>
+                <span v-if="caseSummary.presentingConcerns"><strong>Concerns</strong> {{ caseSummary.presentingConcerns }}</span>
+                <span v-if="caseSummary.duration"><strong>Duration</strong> {{ caseSummary.duration }}</span>
+                <span v-if="caseSummary.setting"><strong>Setting</strong> {{ caseSummary.setting }}</span>
+              </div>
               <div class="gsl__slide-body" v-html="slideBodyHtml" />
             </div>
           </template>
@@ -172,24 +179,15 @@
           </div>
         </div>
 
-        <div class="gsl__below">
-          <div v-if="showPresenterNotes" class="gsl__card">
+        <div v-if="showPresenterNotes" class="gsl__below">
+          <div class="gsl__card">
             <h3>Presenter notes <small>visible to you</small></h3>
             <p>{{ currentSlide?.presenter_notes || 'No notes for this slide.' }}</p>
-          </div>
-          <div class="gsl__card">
-            <h3>Case at a glance</h3>
-            <dl class="gsl__case">
-              <div><dt>Client</dt><dd>{{ caseSummary.client || '—' }}</dd></div>
-              <div><dt>Presenting concerns</dt><dd>{{ caseSummary.presentingConcerns || '—' }}</dd></div>
-              <div><dt>Duration</dt><dd>{{ caseSummary.duration || '—' }}</dd></div>
-              <div><dt>Setting</dt><dd>{{ caseSummary.setting || '—' }}</dd></div>
-            </dl>
           </div>
         </div>
       </section>
 
-      <aside v-if="!showWaitingRoomStage" class="gsl__workspace">
+      <aside class="gsl__workspace">
         <section class="gsl__workspace-section">
           <MeetingAgendaPanel
             meeting-type="supervision_session"
@@ -197,16 +195,6 @@
             :can-add-item="canFacilitate"
             :embedded="true"
             :live="true"
-          />
-        </section>
-        <section class="gsl__workspace-section">
-          <MeetingGoalsActionsPanel
-            :session-id="numericSessionId || supervisionSessionId"
-            section="goals"
-            :compact="false"
-            :embedded="true"
-            :live="true"
-            :disabled="!canFacilitate"
           />
         </section>
         <section class="gsl__workspace-section gsl__workspace-section--activity">
@@ -220,6 +208,7 @@
             :can-answer-questions="canFacilitate"
             :start-open="true"
             :below-video="true"
+            theme="dark"
             @activity-notice="onLiveActivityNotice"
           />
         </section>
@@ -241,13 +230,6 @@
           <p v-else class="gsl__transcript-empty">Transcript will appear here once speech is detected.</p>
         </section>
       </aside>
-
-      <aside v-else class="gsl__workspace gsl__workspace--lobby">
-        <section class="gsl__workspace-section gsl__workspace-section--activity">
-          <h3 class="gsl__workspace-title">Discussion</h3>
-          <p class="gsl__transcript-hint">Waiting room — full workspace unlocks when admitted.</p>
-        </section>
-      </aside>
     </div>
   </div>
 </template>
@@ -260,7 +242,6 @@ import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
 import SupervisionWaitingRoomStage from './SupervisionWaitingRoomStage.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
-import MeetingGoalsActionsPanel from '../meetings/MeetingGoalsActionsPanel.vue';
 import MeetingLiveActivityPanel from '../meetings/MeetingLiveActivityPanel.vue';
 import MeetingAttendancePanel from '../meetings/MeetingAttendancePanel.vue';
 import {
@@ -277,7 +258,6 @@ const tileFocus = ref('equal');
 const videoFullscreen = ref(false);
 const videoFullscreenActivityNotice = ref('');
 let fullscreenNoticeTimer = null;
-const waitingGoals = ref([]);
 const waitingAgenda = ref([]);
 
 const {
@@ -303,43 +283,31 @@ const {
   nextSlide
 } = useSupervisionLiveSession(props, emit, { enablePresentation: true, enableActivityFeed: false });
 
-const waitingPrepItems = computed(() => {
-  const out = [];
-  for (const g of waitingGoals.value || []) {
-    const text = String(g?.text || '').trim();
-    if (!text) continue;
-    out.push({ id: `goal-${g.id || text}`, kind: 'Goal', text });
-  }
-  for (const a of waitingAgenda.value || []) {
-    const text = String(a?.text || a?.title || '').trim();
-    if (!text) continue;
-    out.push({ id: `agenda-${a.id || text}`, kind: 'Agenda', text });
-  }
-  return out.slice(0, 8);
+const displayTitle = computed(() => 'Group Supervision');
+const presenterSubtitle = computed(() => {
+  const raw = String(props.sessionTitle || '').trim();
+  const m = raw.match(/Presenting:\s*(.+)$/i);
+  if (m?.[1]) return `Presenting: ${m[1].trim()}`;
+  return '';
+});
+const joinMutedByDefault = computed(() => !props.isSupervisor);
+const hasCaseGlance = computed(() => {
+  const c = caseSummary.value || {};
+  return !!(c.client || c.presentingConcerns || c.duration || c.setting);
 });
 
 async function loadWaitingPrep() {
   const sid = numericSessionId.value || Number(props.supervisionSessionId || 0);
   if (!sid || !props.isInLobby) return;
   try {
-    const [artifactResp, agendaResp] = await Promise.all([
-      api.get(`/supervision/sessions/${sid}/artifacts`, {
-        skipGlobalLoading: true,
-        skipAuthRedirect: true
-      }).catch(() => null),
-      api.get('/meeting-agendas', {
-        params: { meetingType: 'supervision_session', meetingId: sid },
-        skipGlobalLoading: true,
-        skipAuthRedirect: true
-      }).catch(() => null)
-    ]);
-    const artifact = artifactResp?.data?.artifact || artifactResp?.data || {};
-    const goals = artifact.goals || artifact.goals_json || [];
-    waitingGoals.value = Array.isArray(goals) ? goals : [];
+    const agendaResp = await api.get('/meeting-agendas', {
+      params: { meetingType: 'supervision_session', meetingId: sid },
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    }).catch(() => null);
     const agenda = agendaResp?.data?.items || [];
     waitingAgenda.value = Array.isArray(agenda) ? agenda : [];
   } catch {
-    waitingGoals.value = [];
     waitingAgenda.value = [];
   }
 }
@@ -351,6 +319,17 @@ onMounted(() => {
 const canFacilitate = computed(() => (
   !viewAsAttendee.value && (props.isSupervisor || props.isPresenter)
 ));
+
+function onLeaveClick() {
+  if (props.isSupervisor) {
+    const endForAll = window.confirm(
+      'End this Group Supervision for everyone?\n\nOK = End for all participants\nCancel = Leave only (session stays open)'
+    );
+    emit('leave', { endForAll: !!endForAll });
+    return;
+  }
+  emit('leave', { endForAll: false });
+}
 
 const attendancePanelRef = ref(null);
 const raisedHandCount = ref(0);
@@ -452,11 +431,42 @@ defineExpose({
   align-items: center;
   gap: 12px;
 }
+.gsl__logo {
+  flex: 0 0 auto;
+}
+.gsl__logo :deep(.logo-image) {
+  height: 52px;
+  max-height: 52px;
+}
 .gsl__header h1 {
   letter-spacing: -0.02em;
   color: #f4faf6;
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+.gsl__presenter-line {
+  color: #fde68a;
+  font-weight: 700;
+}
+.gsl__case-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.82rem;
+  color: #d1fae5;
+}
+.gsl__case-inline strong {
+  display: inline-block;
+  margin-right: 4px;
+  color: #86efac;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .gsl__meta {
   margin: 2px 0 0;
