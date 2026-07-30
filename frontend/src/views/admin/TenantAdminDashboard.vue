@@ -2547,11 +2547,11 @@ const logout = () => {
 }
 .qa-schedule-row {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 12px;
+  align-items: stretch;
 }
-@media (max-width: 1100px) {
+@media (max-width: 960px) {
   .qa-schedule-row { grid-template-columns: 1fr; }
 }
 .qa-schedule-row--qa-only,
@@ -2564,6 +2564,7 @@ const logout = () => {
   border-radius: 12px;
   padding: 16px 18px;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
+  min-height: 280px;
 }
 .qa-wrap--dense.panel {
   padding: 10px 12px;

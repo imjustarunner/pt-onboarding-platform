@@ -14,21 +14,78 @@
     </div>
     <ul v-else class="timeline">
       <li
-        v-for="item in items"
+        v-for="(item, index) in items"
         :key="item.id"
-        class="timeline-row"
-        :class="[`is-${item.status}`, { 'is-now': item.status === 'in_progress' }]"
+        class="timeline-card"
+        :class="[
+          `is-${item.status}`,
+          { 'is-now': item.status === 'in_progress' },
+          { 'is-clickable': item.clickable }
+        ]"
+        :style="entryStyle(index)"
+        role="button"
+        :tabindex="item.clickable ? 0 : -1"
+        @click="openItem(item)"
+        @keydown.enter.prevent="openItem(item)"
+        @keydown.space.prevent="openItem(item)"
       >
-        <span class="time">{{ item.timeLabel }}</span>
-        <div class="copy">
-          <strong>{{ item.title }}</strong>
-          <small v-if="item.subtitle">{{ item.subtitle }}</small>
+        <div class="timeline-card-inner">
+          <span class="time">{{ item.timeLabel }}</span>
+          <div class="copy">
+            <strong>{{ item.title }}</strong>
+            <small v-if="item.subtitle">{{ item.subtitle }}</small>
+          </div>
+          <div class="timeline-actions">
+            <button
+              v-if="canJoinItem(item)"
+              type="button"
+              class="join-btn"
+              @click.stop="joinItem(item)"
+            >
+              Join
+            </button>
+            <span class="status-pill" :class="`status-pill--${item.status}`">
+              {{ statusLabel(item.status) }}
+            </span>
+          </div>
         </div>
       </li>
     </ul>
     <footer v-if="items.length" class="foot">
       {{ items.length }} item{{ items.length === 1 ? '' : 's' }} today
     </footer>
+
+    <div v-if="detailItem" class="modal-overlay" @click.self="closeDetail">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ops-sched-detail-title">
+        <header class="modal-header">
+          <h3 id="ops-sched-detail-title">{{ detailItem.title }}</h3>
+          <button type="button" class="modal-close" aria-label="Close" @click="closeDetail">×</button>
+        </header>
+        <div class="modal-body">
+          <p class="modal-time">{{ detailItem.timeLabel }}</p>
+          <p v-if="detailItem.subtitle" class="modal-sub">{{ detailItem.subtitle }}</p>
+          <p class="modal-status">
+            <span class="status-pill" :class="`status-pill--${detailItem.status}`">
+              {{ statusLabel(detailItem.status) }}
+            </span>
+          </p>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn-secondary" @click="closeDetail">Close</button>
+          <button
+            v-if="canJoinItem(detailItem)"
+            type="button"
+            class="btn-primary"
+            @click="joinItem(detailItem)"
+          >
+            Join session
+          </button>
+          <button type="button" class="btn-linkish" @click="goSchedule">
+            Open in schedule
+          </button>
+        </footer>
+      </div>
+    </div>
   </article>
 </template>
 
@@ -42,11 +99,25 @@ const props = defineProps({
   schedulePath: { type: String, default: '/my-schedule' }
 });
 
-defineEmits(['navigate']);
+const emit = defineEmits(['navigate']);
 
 const loading = ref(true);
 const error = ref('');
 const items = ref([]);
+const detailItem = ref(null);
+
+const ENTRY_SHADES = [
+  {
+    bg: 'color-mix(in srgb, var(--ops-primary, #1f6b4a) 9%, #fff)',
+    border: 'color-mix(in srgb, var(--ops-primary, #1f6b4a) 24%, #e2e8f0)'
+  },
+  { bg: '#eff6ff', border: '#bfdbfe' },
+  { bg: '#f5f3ff', border: '#ddd6fe' },
+  { bg: '#ecfdf5', border: '#a7f3d0' },
+  { bg: '#fff7ed', border: '#fed7aa' },
+  { bg: '#fef2f2', border: '#fecaca' },
+  { bg: '#f0fdfa', border: '#99f6e4' }
+];
 
 const dateLabel = computed(() => {
   try {
@@ -59,6 +130,14 @@ const dateLabel = computed(() => {
     return 'Today';
   }
 });
+
+function entryStyle(index) {
+  const shade = ENTRY_SHADES[index % ENTRY_SHADES.length];
+  return {
+    background: shade.bg,
+    borderColor: shade.border
+  };
+}
 
 function localYmd(d = new Date()) {
   const y = d.getFullYear();
@@ -105,6 +184,83 @@ function statusForWindow(startMs, endMs, now = Date.now()) {
   return 'upcoming';
 }
 
+function statusLabel(status) {
+  if (status === 'completed') return 'Completed';
+  if (status === 'in_progress') return 'In progress';
+  return 'Upcoming';
+}
+
+function resolveJoinUrl(item) {
+  if (!item) return '';
+  const raw = String(
+    item.joinUrl ||
+    item.hostJoinUrl ||
+    item.participantJoinUrl ||
+    item.appJoinUrl ||
+    item.meetLink ||
+  '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('/')) {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return `${origin}${raw}`;
+  }
+  return raw;
+}
+
+function canJoinItem(item) {
+  return !!resolveJoinUrl(item);
+}
+
+function joinItem(item) {
+  const url = resolveJoinUrl(item);
+  if (!url) return;
+  try {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } catch {
+    window.location.href = url;
+  }
+}
+
+function openItem(item) {
+  if (!item?.clickable) return;
+  detailItem.value = item;
+}
+
+function closeDetail() {
+  detailItem.value = null;
+}
+
+function goSchedule() {
+  closeDetail();
+  emit('navigate', props.schedulePath);
+}
+
+function scheduleJoinFields(e, kind) {
+  const k = String(kind || '').toUpperCase();
+  if (k === 'SUPERVISION' || kind === 'supervision') {
+    return {
+      joinUrl: e.joinUrl || e.participantJoinUrl || e.meetingUrl || null,
+      hostJoinUrl: e.hostJoinUrl || null,
+      meetLink: e.googleMeetLink || e.meetLink || null,
+      modality: e.modality || null
+    };
+  }
+  if (k === 'TEAM_MEETING' || k === 'HUDDLE') {
+    return {
+      joinUrl: e.appJoinUrl || e.participantJoinUrl || null,
+      hostJoinUrl: e.hostJoinUrl || null,
+      meetLink: e.meetLink || null,
+      modality: 'virtual'
+    };
+  }
+  return {
+    joinUrl: e.appJoinUrl || e.participantJoinUrl || e.joinUrl || null,
+    hostJoinUrl: e.hostJoinUrl || null,
+    meetLink: e.meetLink || null,
+    modality: e.modality || null
+  };
+}
+
 function buildTodayItems(summary) {
   const s = summary || {};
   const ymd = localYmd();
@@ -116,13 +272,18 @@ function buildTodayItems(summary) {
     const endMs = parseAt(e.endAt || e.endsAt);
     if (!isSameLocalDay(startMs, ymd) && !isSameLocalDay(endMs, ymd)) continue;
     const room = [e.buildingName, e.roomLabel].filter(Boolean).join(' · ');
+    const joins = scheduleJoinFields(e, 'office');
     rows.push({
       id: `office-${e.id || startMs}`,
+      kind: 'office',
       title: room || 'Office appointment',
       subtitle: e.displayStatus || 'Office',
       startMs,
+      endMs,
       timeLabel: formatTimeRange(startMs, endMs),
-      status: statusForWindow(startMs, endMs, now)
+      status: statusForWindow(startMs, endMs, now),
+      ...joins,
+      clickable: true
     });
   }
 
@@ -130,13 +291,21 @@ function buildTodayItems(summary) {
     const startMs = parseAt(e.startAt || e.startsAt || e.startDate);
     const endMs = parseAt(e.endAt || e.endsAt || e.endDate);
     if (!isSameLocalDay(startMs, ymd) && !isSameLocalDay(endMs, ymd)) continue;
+    const eventKind = String(e.kind || '').trim().toUpperCase();
+    const joins = scheduleJoinFields(e, eventKind);
     rows.push({
       id: `sched-${e.kind || 'evt'}-${e.id || startMs}`,
+      kind: String(e.kind || 'event').toLowerCase(),
+      eventKind,
+      eventId: Number(e.id || 0) || null,
       title: e.title || e.kind || 'Scheduled event',
-      subtitle: e.location || e.subtitle || '',
+      subtitle: e.location || e.subtitle || e.description || '',
       startMs,
+      endMs,
       timeLabel: formatTimeRange(startMs, endMs),
-      status: statusForWindow(startMs, endMs, now)
+      status: statusForWindow(startMs, endMs, now),
+      ...joins,
+      clickable: true
     });
   }
 
@@ -145,13 +314,20 @@ function buildTodayItems(summary) {
     const endMs = parseAt(e.endAt || e.endsAt);
     if (!isSameLocalDay(startMs, ymd) && !isSameLocalDay(endMs, ymd)) continue;
     const who = String(e.counterpartyName || e.superviseeName || e.supervisorName || '').trim();
+    const sessionType = String(e.sessionType || e.session_type || '').trim();
+    const joins = scheduleJoinFields(e, 'supervision');
     rows.push({
       id: `supv-${e.id || startMs}`,
+      kind: 'supervision',
+      eventId: Number(e.id || 0) || null,
       title: who ? `Supervision · ${who}` : (e.title || 'Supervision'),
-      subtitle: String(e.sessionType || e.session_type || 'Supervision'),
+      subtitle: sessionType || 'Supervision',
       startMs,
+      endMs,
       timeLabel: formatTimeRange(startMs, endMs),
-      status: statusForWindow(startMs, endMs, now)
+      status: statusForWindow(startMs, endMs, now),
+      ...joins,
+      clickable: true
     });
   }
 
@@ -199,8 +375,8 @@ onMounted(load);
   box-shadow: 0 6px 18px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  max-height: 420px;
+  min-height: 280px;
+  max-height: 520px;
 }
 .panel-header {
   display: flex;
@@ -260,38 +436,45 @@ onMounted(load);
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 8px;
   overflow: auto;
   flex: 1;
   min-height: 0;
 }
-.timeline-row {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 8px;
-  padding: 7px 0;
-  border-bottom: 1px solid #f1f5f9;
+.timeline-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
-.timeline-row:last-child { border-bottom: none; }
-.timeline-row.is-now {
-  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
-  margin: 0 -6px;
-  padding-left: 6px;
-  padding-right: 6px;
-  border-radius: 8px;
-  border-bottom-color: transparent;
+.timeline-card.is-clickable {
+  cursor: pointer;
+}
+.timeline-card.is-clickable:hover {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+.timeline-card.is-now {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ops-primary, #1f6b4a) 35%, transparent);
+}
+.timeline-card-inner {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
 }
 .time {
   font-size: 10px;
   font-weight: 700;
-  color: #64748b;
-  line-height: 1.3;
+  color: #475569;
+  line-height: 1.35;
 }
 .copy {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 .copy strong {
   font-size: 12px;
@@ -303,14 +486,42 @@ onMounted(load);
 }
 .copy small {
   font-size: 10px;
-  color: #94a3b8;
+  color: #64748b;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.timeline-row.is-completed .copy strong {
+.timeline-card.is-completed .copy strong {
   color: #64748b;
 }
+.timeline-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.join-btn {
+  border: none;
+  border-radius: 999px;
+  background: #15803d;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.join-btn:hover { background: #166534; }
+.status-pill {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.status-pill--completed { background: #dcfce7; color: #166534; }
+.status-pill--in_progress { background: #ede9fe; color: #6b21a8; }
+.status-pill--upcoming { background: #f1f5f9; color: #475569; }
 .foot {
   margin-top: 6px;
   padding-top: 6px;
@@ -318,5 +529,108 @@ onMounted(load);
   font-size: 10px;
   font-weight: 600;
   color: #94a3b8;
+}
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 16px;
+}
+.modal {
+  width: min(420px, 100%);
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+  overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px 8px;
+}
+.modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.modal-close {
+  border: none;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: #64748b;
+}
+.modal-body {
+  padding: 0 16px 12px;
+}
+.modal-time {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+}
+.modal-sub {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #64748b;
+}
+.modal-status { margin: 0; }
+.modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 16px 14px;
+  border-top: 1px solid #f1f5f9;
+}
+.btn-primary,
+.btn-secondary,
+.btn-linkish {
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.btn-primary {
+  border: none;
+  background: #15803d;
+  color: #fff;
+}
+.btn-primary:hover { background: #166534; }
+.btn-secondary {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #334155;
+}
+.btn-linkish {
+  border: none;
+  background: none;
+  color: var(--ops-primary, #1f6b4a);
+  padding: 8px 4px;
+}
+.btn-linkish:hover { text-decoration: underline; }
+@media (max-width: 640px) {
+  .timeline-card-inner {
+    grid-template-columns: 1fr auto;
+  }
+  .time {
+    grid-column: 1;
+  }
+  .copy {
+    grid-column: 1;
+  }
+  .timeline-actions {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
 }
 </style>
