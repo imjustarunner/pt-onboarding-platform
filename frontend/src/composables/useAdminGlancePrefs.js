@@ -1,4 +1,5 @@
 import { ref, watch, computed, isRef, unref } from 'vue';
+import api from '../services/api';
 
 export const DEFAULT_TENANT_GLANCE_ORDER = Object.freeze([
   'support_tickets',
@@ -34,26 +35,106 @@ export const GLANCE_CARD_LABELS = Object.freeze({
 
 const sanitizeKey = (value) => String(value || 'anon').replace(/[^a-zA-Z0-9_-]/g, '');
 
-const loadOrder = (storageKey, defaults) => {
-  if (typeof window === 'undefined') return [...defaults];
+const mergeOrderWithDefaults = (order, defaults) => {
+  const allowed = new Set(defaults);
+  const seen = new Set();
+  const merged = [];
+  for (const key of order || []) {
+    const k = String(key);
+    if (!allowed.has(k) || seen.has(k)) continue;
+    merged.push(k);
+    seen.add(k);
+  }
+  for (const key of defaults) {
+    if (!seen.has(key)) merged.push(key);
+  }
+  return merged;
+};
+
+const scopedPart = (namespace, agencyId) => {
+  const agencyPart = agencyId ? `agency-${sanitizeKey(agencyId)}` : 'platform';
+  return `${namespace}:${agencyPart}`;
+};
+
+const buildStorageKey = (namespace, agencyId, userId) => {
+  return `adminDashboardGlanceOrder:${scopedPart(namespace, agencyId)}:${sanitizeKey(userId)}`;
+};
+
+const legacyStorageKeys = (namespace, agencyId, userId) => {
+  const uid = sanitizeKey(userId);
+  const keys = [];
+  if (agencyId) {
+    keys.push(`adminDashboardGlanceOrder:${namespace}:platform:${uid}`);
+  }
+  keys.push(`adminDashboardGlanceOrder:${namespace}:${uid}`);
+  return keys;
+};
+
+const loadOrderFromRaw = (raw, defaults) => {
+  if (!raw) return null;
   try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return [...defaults];
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [...defaults];
-    return parsed.map(String);
+    if (!Array.isArray(parsed)) return null;
+    return mergeOrderWithDefaults(parsed.map(String), defaults);
   } catch {
-    return [...defaults];
+    return null;
   }
 };
 
-const saveOrder = (storageKey, order) => {
-  if (typeof window === 'undefined') return;
+const loadOrderFromLocal = (namespace, agencyId, userId, defaults) => {
+  if (typeof window === 'undefined') return [...defaults];
+  const primaryKey = buildStorageKey(namespace, agencyId, userId);
   try {
-    window.localStorage.setItem(storageKey, JSON.stringify(order));
+    let loaded = loadOrderFromRaw(window.localStorage.getItem(primaryKey), defaults);
+    if (loaded) return loaded;
+
+    for (const legacyKey of legacyStorageKeys(namespace, agencyId, userId)) {
+      const legacy = loadOrderFromRaw(window.localStorage.getItem(legacyKey), defaults);
+      if (legacy) {
+        try {
+          window.localStorage.setItem(primaryKey, JSON.stringify(legacy));
+        } catch {
+          // ignore
+        }
+        return legacy;
+      }
+    }
   } catch {
     // ignore
   }
+  return [...defaults];
+};
+
+const saveOrderToLocal = (namespace, agencyId, userId, order) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      buildStorageKey(namespace, agencyId, userId),
+      JSON.stringify(order)
+    );
+  } catch {
+    // ignore
+  }
+};
+
+const parseRemoteGlanceMap = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  return {};
+};
+
+const resolveApiUserId = (userId) => {
+  if (userId == null || userId === '') return null;
+  const n = Number(userId);
+  return Number.isFinite(n) && n > 0 ? n : null;
 };
 
 /**
@@ -72,21 +153,90 @@ export function useAdminGlancePrefs({
 } = {}) {
   const userIdRef = isRef(userId) ? userId : ref(userId);
   const agencyIdRef = isRef(agencyId) ? agencyId : ref(agencyId);
+  const namespaceRef = ref(namespace);
   const defaultsRef = [...defaults];
 
   const storageKey = computed(() => {
-    const agencyPart = unref(agencyIdRef) ? `agency-${sanitizeKey(unref(agencyIdRef))}` : 'platform';
-    return `adminDashboardGlanceOrder:${namespace}:${agencyPart}:${sanitizeKey(unref(userIdRef))}`;
+    const ns = String(unref(namespaceRef) || 'tenant');
+    const agency = unref(agencyIdRef);
+    const uid = unref(userIdRef);
+    return buildStorageKey(ns, agency, uid);
   });
 
-  const order = ref(loadOrder(storageKey.value, defaultsRef));
-
-  watch([userIdRef, agencyIdRef], () => {
-    order.value = loadOrder(storageKey.value, defaultsRef);
+  const scopeKey = computed(() => {
+    const ns = String(unref(namespaceRef) || 'tenant');
+    const agency = unref(agencyIdRef);
+    return scopedPart(ns, agency);
   });
+
+  const order = ref([...defaultsRef]);
+  const ready = ref(false);
+  const loading = ref(false);
+  const saving = ref(false);
+  let saveTimer = null;
+  let remoteGlanceMap = {};
+
+  const persistRemote = async (nextOrder) => {
+    const apiUserId = resolveApiUserId(unref(userIdRef));
+    if (!apiUserId) return;
+    saving.value = true;
+    const merged = { ...remoteGlanceMap, [scopeKey.value]: [...nextOrder] };
+    try {
+      await api.put(`/users/${apiUserId}/preferences`, {
+        dashboard_glance_order_json: merged
+      });
+      remoteGlanceMap = merged;
+    } catch (err) {
+      console.warn('Failed to save At a Glance order', err);
+    } finally {
+      saving.value = false;
+    }
+  };
+
+  const scheduleRemoteSave = (nextOrder) => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => persistRemote(nextOrder), 400);
+  };
+
+  const loadPrefs = async () => {
+    const uid = unref(userIdRef);
+    const agency = unref(agencyIdRef);
+    const ns = String(unref(namespaceRef) || 'tenant');
+    ready.value = false;
+    loading.value = true;
+
+    order.value = loadOrderFromLocal(ns, agency, uid, defaultsRef);
+
+    const apiUserId = resolveApiUserId(uid);
+    if (apiUserId) {
+      try {
+        const res = await api.get(`/users/${apiUserId}/preferences`, { skipGlobalLoading: true });
+        remoteGlanceMap = parseRemoteGlanceMap(res.data?.dashboard_glance_order_json);
+        const remoteOrder = remoteGlanceMap[scopeKey.value];
+        if (Array.isArray(remoteOrder) && remoteOrder.length) {
+          order.value = mergeOrderWithDefaults(remoteOrder.map(String), defaultsRef);
+          saveOrderToLocal(ns, agency, uid, order.value);
+        }
+      } catch {
+        /* keep local/default */
+      }
+    }
+
+    loading.value = false;
+    ready.value = true;
+  };
+
+  watch([userIdRef, agencyIdRef, namespaceRef], () => {
+    loadPrefs();
+  }, { immediate: true });
 
   watch(order, (next) => {
-    saveOrder(storageKey.value, next);
+    if (!ready.value) return;
+    const uid = unref(userIdRef);
+    const agency = unref(agencyIdRef);
+    const ns = String(unref(namespaceRef) || 'tenant');
+    saveOrderToLocal(ns, agency, uid, next);
+    scheduleRemoteSave(next);
   }, { deep: true });
 
   const applyOrder = (cards, { includeEscalations = true } = {}) => {
@@ -108,6 +258,7 @@ export function useAdminGlancePrefs({
   };
 
   const syncAvailableKeys = (keys) => {
+    if (!ready.value) return;
     const allowed = new Set((keys || []).map(String));
     const merged = [];
     const seen = new Set();
@@ -123,7 +274,9 @@ export function useAdminGlancePrefs({
         seen.add(k);
       }
     }
-    order.value = merged;
+    if (merged.join('|') !== (order.value || []).join('|')) {
+      order.value = merged;
+    }
   };
 
   const moveUp = (key) => {
@@ -161,6 +314,9 @@ export function useAdminGlancePrefs({
 
   return {
     order,
+    ready,
+    loading,
+    saving,
     applyOrder,
     syncAvailableKeys,
     moveUp,
@@ -168,6 +324,7 @@ export function useAdminGlancePrefs({
     resetOrder,
     isFirst,
     isLast,
-    labelsForOrder
+    labelsForOrder,
+    reload: loadPrefs
   };
 }

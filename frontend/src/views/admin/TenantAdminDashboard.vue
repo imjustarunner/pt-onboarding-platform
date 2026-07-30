@@ -584,7 +584,8 @@ const {
   resetOrder: resetGlanceOrder,
   isFirst: glanceIsFirst,
   isLast: glanceIsLast,
-  labelsForOrder: glanceLabelsForCustomizeRaw
+  labelsForOrder: glanceLabelsForCustomizeRaw,
+  ready: glancePrefsReady
 } = useAdminGlancePrefs({
   userId,
   agencyId: currentAgencyId,
@@ -962,8 +963,14 @@ const glanceLabelsForCustomize = computed(() => {
 });
 
 watch(glanceCards, (cards) => {
+  if (!glancePrefsReady.value) return;
   syncGlanceKeys((cards || []).map((card) => card.key));
 }, { immediate: true });
+
+watch(glancePrefsReady, (ready) => {
+  if (!ready) return;
+  syncGlanceKeys((glanceCards.value || []).map((card) => card.key));
+});
 
 const docAlerts = computed(() => {
   const rows = [];

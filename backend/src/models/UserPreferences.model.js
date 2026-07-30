@@ -60,7 +60,8 @@ class UserPreferences {
           'review_prompt_state',
           'toast_preferences',
           'documents_category_order_json',
-          'schedule_display_prefs'
+          'schedule_display_prefs',
+          'dashboard_glance_order_json'
         ];
 
         for (const field of allowedFields) {
@@ -78,7 +79,8 @@ class UserPreferences {
               field === 'review_prompt_state' ||
               field === 'toast_preferences' ||
               field === 'documents_category_order_json' ||
-              field === 'schedule_display_prefs'
+              field === 'schedule_display_prefs' ||
+              field === 'dashboard_glance_order_json'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {
@@ -129,7 +131,8 @@ class UserPreferences {
           'review_prompt_state',
           'toast_preferences',
           'documents_category_order_json',
-          'schedule_display_prefs'
+          'schedule_display_prefs',
+          'dashboard_glance_order_json'
         ];
 
         for (const field of allowedFields) {
@@ -148,7 +151,8 @@ class UserPreferences {
               field === 'review_prompt_state' ||
               field === 'toast_preferences' ||
               field === 'documents_category_order_json' ||
-              field === 'schedule_display_prefs'
+              field === 'schedule_display_prefs' ||
+              field === 'dashboard_glance_order_json'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {

@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import UserPreferences from '../models/UserPreferences.model.js';
 import User from '../models/User.model.js';
 import KioskModel from '../models/Kiosk.model.js';
+import { sanitizeDocumentsCategoryOrder } from '../config/documentDisplayCategories.js';
 
 async function getSessionLockMaxMinutes(agencyId) {
   let platformMax = 30;
@@ -61,6 +62,54 @@ const ALL_NOTIFICATION_CATEGORY_KEYS = [
   'system_org_announcements',
   'program_reminders'
 ];
+
+const VALID_GLANCE_CARD_KEYS = new Set([
+  'support_tickets',
+  'messages',
+  'late_notes',
+  'applications',
+  'payroll',
+  'escalations',
+  'office_requests',
+  'new_hires',
+  'in_onboarding',
+  'completed_onboarding',
+  'training'
+]);
+
+const SCOPED_GLANCE_KEY_RE = /^(tenant|operations):(agency-[a-zA-Z0-9_-]+|platform)$/;
+
+const sanitizeGlanceOrderArray = (raw) => {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of raw) {
+    const key = String(item || '').trim();
+    if (!VALID_GLANCE_CARD_KEYS.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+    if (out.length >= 20) break;
+  }
+  return out;
+};
+
+const sanitizeDashboardGlanceOrder = (raw) => {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  let scopeCount = 0;
+  for (const [scopeKey, order] of Object.entries(raw)) {
+    if (scopeCount >= 50) break;
+    const key = String(scopeKey || '').trim();
+    if (!SCOPED_GLANCE_KEY_RE.test(key)) continue;
+    const sanitized = sanitizeGlanceOrderArray(order);
+    if (sanitized.length) {
+      out[key] = sanitized;
+      scopeCount += 1;
+    }
+  }
+  return Object.keys(out).length ? out : null;
+};
 
 const buildDefaultCategories = () => {
   const base = {};
@@ -353,6 +402,20 @@ export const updateUserPreferences = async (req, res, next) => {
         });
       } else {
         updates.documents_category_order_json = sanitizeDocumentsCategoryOrder(raw);
+      }
+    }
+
+    if ('dashboard_glance_order_json' in updates || 'dashboardGlanceOrder' in updates) {
+      const raw = updates.dashboard_glance_order_json ?? updates.dashboardGlanceOrder;
+      delete updates.dashboardGlanceOrder;
+      if (raw === null || raw === undefined) {
+        updates.dashboard_glance_order_json = null;
+      } else if (typeof raw !== 'object' || Array.isArray(raw)) {
+        return res.status(400).json({
+          error: { message: 'dashboard_glance_order_json must be an object keyed by tenant|operations scope' }
+        });
+      } else {
+        updates.dashboard_glance_order_json = sanitizeDashboardGlanceOrder(raw);
       }
     }
 
