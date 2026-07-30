@@ -14,11 +14,8 @@
     <div v-else-if="resolving" class="join-placeholder">Resolving meeting…</div>
     <div v-else-if="error && !token" class="join-error">{{ error }}</div>
     <template v-else-if="token && (vonageSessionId || roomName)">
-      <div v-if="isInLobby && !videoFullscreen" class="join-lobby-banner">
-        You’re in the waiting room. The host will admit you shortly.
-      </div>
       <div
-        v-if="showTranscriptionNotice && !videoFullscreen"
+        v-if="showTranscriptionNotice && !videoFullscreen && !isInLobby"
         class="join-transcript-banner"
         role="status"
       >
@@ -64,38 +61,53 @@
           'join-session-layout--video-fs': videoFullscreen
         }"
       >
-        <div class="join-video">
-          <SupervisionVideoRoom
-            ref="videoRoomRef"
-            :token="token"
-            :vonage-session-id="vonageSessionId"
-            :room-name="roomName"
-            :application-id="applicationId"
-            :diagnostics="diagnostics"
-            :event-id="resolvedEventId || eventId"
-            :is-host="isHost"
-            :is-host-or-cohost="isHost"
-            :mute-others-mode="muteOthersMode"
-            show-layout-controls
-            allow-tile-focus
-            v-model:tile-focus="tileFocus"
-            v-model:video-fullscreen="videoFullscreen"
-            :activity-notice="videoFullscreenActivityNotice"
-            :raised-hands-notice="videoFullscreenHandsNotice"
-            layout="standard"
-            :equal-tiles-when-remote="true"
-            :local-display-name="localDisplayName"
-            :local-role-label="localRoleLabel"
-            :local-profile-photo-url="localProfilePhotoUrl"
-            @connected="onVideoConnected"
-            @disconnected="onDisconnected"
-            @meeting-ended="onMeetingEnded"
-            @hands-map-change="onHandsMapChange"
-            @audio-map-change="onAudioMapChange"
-            @transcript-control="onRemoteTranscriptControl"
-            @participant-left="onParticipantLeft"
-            @activity-notice-click="onFullscreenActivityClick"
+        <div class="join-video" :class="{ 'join-video--lobby': isInLobby && !videoFullscreen }">
+          <SupervisionWaitingRoomStage
+            v-if="isInLobby && !videoFullscreen"
+            :meeting-title="waitingMeetingTitle || 'Team meeting'"
+            :host-present="hostPresent"
+            :host-role-label="hostRoleLabel"
+            :host-status-label="hostStatusLabel"
+            :goals="waitingGoals"
+            :agenda="waitingAgenda"
+            :action-items="waitingActionItems"
           />
+          <div
+            class="join-video__stage"
+            :class="{ 'join-video__stage--pip': isInLobby && !videoFullscreen }"
+          >
+            <SupervisionVideoRoom
+              ref="videoRoomRef"
+              :token="token"
+              :vonage-session-id="vonageSessionId"
+              :room-name="roomName"
+              :application-id="applicationId"
+              :diagnostics="diagnostics"
+              :event-id="resolvedEventId || eventId"
+              :is-host="isHost"
+              :is-host-or-cohost="isHost"
+              :mute-others-mode="muteOthersMode"
+              :show-layout-controls="!isInLobby"
+              allow-tile-focus
+              v-model:tile-focus="tileFocus"
+              v-model:video-fullscreen="videoFullscreen"
+              :activity-notice="videoFullscreenActivityNotice"
+              :raised-hands-notice="videoFullscreenHandsNotice"
+              layout="standard"
+              :equal-tiles-when-remote="true"
+              :local-display-name="localDisplayName"
+              :local-role-label="localRoleLabel"
+              :local-profile-photo-url="localProfilePhotoUrl"
+              @connected="onVideoConnected"
+              @disconnected="onDisconnected"
+              @meeting-ended="onMeetingEnded"
+              @hands-map-change="onHandsMapChange"
+              @audio-map-change="onAudioMapChange"
+              @transcript-control="onRemoteTranscriptControl"
+              @participant-left="onParticipantLeft"
+              @activity-notice-click="onFullscreenActivityClick"
+            />
+          </div>
           <SupervisionVideoLobbyPanel
             v-if="isHost && resolvedEventId && waitingRoomEnabled && !videoFullscreen"
             :session-id="resolvedEventId"
@@ -233,6 +245,7 @@ import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/a
 import { useTeamMeetingLiveTranscript } from '../../composables/useTeamMeetingLiveTranscript';
 import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
+import SupervisionWaitingRoomStage from '../../components/supervision/SupervisionWaitingRoomStage.vue';
 import MeetingAgendaPanel from '../../components/meetings/MeetingAgendaPanel.vue';
 import MeetingGoalsActionsPanel from '../../components/meetings/MeetingGoalsActionsPanel.vue';
 import MeetingAttendancePanel from '../../components/meetings/MeetingAttendancePanel.vue';
@@ -265,6 +278,13 @@ const isHost = ref(false);
 const resolvedEventId = ref(0);
 const roomMode = ref('main');
 const waitingRoomEnabled = ref(true);
+const hostPresent = ref(false);
+const hostRoleLabel = ref('Host');
+const hostStatusLabel = ref('');
+const waitingMeetingTitle = ref('');
+const waitingGoals = ref([]);
+const waitingAgenda = ref([]);
+const waitingActionItems = ref([]);
 const joinIdentity = ref('');
 const localDisplayName = ref('');
 const localRoleLabel = ref('');
@@ -583,6 +603,15 @@ async function pollAdmission() {
       onMeetingEnded();
       return;
     }
+    if (Object.prototype.hasOwnProperty.call(data, 'hostPresent')) {
+      hostPresent.value = !!data.hostPresent;
+    }
+    if (data.hostRoleLabel) hostRoleLabel.value = String(data.hostRoleLabel);
+    if (data.hostStatusLabel) hostStatusLabel.value = String(data.hostStatusLabel);
+    if (data.sessionTitle) waitingMeetingTitle.value = String(data.sessionTitle);
+    if (Array.isArray(data.goals)) waitingGoals.value = data.goals;
+    if (Array.isArray(data.agenda)) waitingAgenda.value = data.agenda;
+    if (Array.isArray(data.actionItems)) waitingActionItems.value = data.actionItems;
     if (data.admitted && data.token) {
       applyTokenPayload(data);
       stopAdmissionPolling();
@@ -1159,6 +1188,40 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 10px;
   overflow: auto;
+}
+.join-video--lobby {
+  position: relative;
+  min-height: min(68vh, 620px);
+  border-radius: 16px;
+  overflow: hidden;
+  background: #0b1210;
+}
+.join-video__stage {
+  position: relative;
+  z-index: 3;
+  flex: 1;
+  min-height: 0;
+}
+.join-video__stage--pip {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: min(38%, 260px);
+  height: auto;
+  min-height: 0;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  overflow: hidden;
+  z-index: 5;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+}
+.join-video__stage--pip :deep(.supervision-video-room),
+.join-video__stage--pip :deep(.vsr),
+.join-video__stage--pip :deep(.vsr__stage),
+.join-video__stage--pip :deep(.vsr__tile) {
+  min-height: 0 !important;
+  height: 100%;
 }
 .join-session-layout--video-focus .join-video {
   overflow: hidden;

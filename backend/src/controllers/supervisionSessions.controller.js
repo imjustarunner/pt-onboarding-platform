@@ -150,6 +150,14 @@ async function pruneStaleJoinPresence(sessionId, { sessionRow = null } = {}) {
       const identity = String(entry.join_identity || '').trim();
       const uid = userIdFromSupervisionJoinIdentity(identity);
       if (!uid || !row) continue;
+      // Lobby waiters are not in the main room yet — do not mark them LEFT in attendance.
+      // eslint-disable-next-line no-await-in-loop
+      const admitted = await isUserAdmittedToSupervision({
+        sessionId: sid,
+        userId: uid,
+        joinIdentity: identity
+      });
+      if (!admitted) continue;
       // eslint-disable-next-line no-await-in-loop
       await recordSupervisionPresenceAttendanceEvent({
         sessionRow: row,
@@ -181,6 +189,54 @@ async function getActiveSupervisionPresenceUserIds(sessionId) {
     if (uid) ids.push(uid);
   }
   return ids;
+}
+
+/**
+ * Waiting-room host presence for supervisees/guests.
+ * Role label is Supervisor today; keep extensible for provider/tutor sessions later.
+ */
+async function buildWaitingRoomHostStatus(row) {
+  const sid = Number(row?.id || 0);
+  const hostIds = [
+    Number(row?.supervisor_user_id || 0),
+    Number(row?.co_facilitator_user_id || 0)
+  ].filter((n) => n > 0);
+  const hostRoleLabel = 'Supervisor';
+  if (!sid || !hostIds.length) {
+    return {
+      hostPresent: false,
+      hostRoleLabel,
+      hostStatusLabel: `Your ${hostRoleLabel.toLowerCase()} hasn’t joined yet`
+    };
+  }
+  // Slightly looser than attendance stale window so heartbeat jitter doesn’t flicker the pill.
+  const hostStaleSeconds = Math.max(JOIN_PRESENCE_STALE_SECONDS, 45);
+  let hostPresent = false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT join_identity
+       FROM supervision_session_join_presence
+       WHERE session_id = ?
+         AND left_at IS NULL
+         AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${hostStaleSeconds} SECOND)`,
+      [sid]
+    );
+    const presentSet = new Set();
+    for (const r of rows || []) {
+      const uid = userIdFromSupervisionJoinIdentity(r.join_identity);
+      if (uid) presentSet.add(uid);
+    }
+    hostPresent = hostIds.some((id) => presentSet.has(id));
+  } catch {
+    hostPresent = false;
+  }
+  return {
+    hostPresent,
+    hostRoleLabel,
+    hostStatusLabel: hostPresent
+      ? `Your ${hostRoleLabel.toLowerCase()} is in the room`
+      : `Your ${hostRoleLabel.toLowerCase()} hasn’t joined yet`
+  };
 }
 
 async function syncSupervisionAttendanceWithPresence(sessionId, { sessionRow = null } = {}) {
@@ -425,12 +481,18 @@ async function listWaitingLobbyPresence(sessionId) {
   const sid = Number(sessionId || 0);
   if (!sid) return [];
   await pruneStaleJoinPresence(sid);
+  // Looser than attendance stale so brief heartbeat jitter doesn’t hide waiters.
+  const lobbyStaleSeconds = Math.max(JOIN_PRESENCE_STALE_SECONDS, 45);
   const [rows] = await pool.execute(
-    `SELECT p.join_identity, p.display_name, p.is_guest, p.joined_at, p.last_seen_at
+    `SELECT p.join_identity, p.display_name, p.is_guest, p.joined_at, p.last_seen_at,
+            u.first_name, u.last_name, u.email
      FROM supervision_session_join_presence p
+     LEFT JOIN users u
+       ON u.id = CAST(SUBSTRING(p.join_identity, 6) AS UNSIGNED)
+      AND p.join_identity LIKE 'user-%'
      WHERE p.session_id = ?
        AND p.left_at IS NULL
-       AND p.last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)
+       AND p.last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${lobbyStaleSeconds} SECOND)
        AND NOT EXISTS (
          SELECT 1 FROM supervision_session_video_admissions a
          WHERE a.session_id = p.session_id
@@ -445,15 +507,80 @@ async function listWaitingLobbyPresence(sessionId) {
   return (rows || []).map((r) => {
     const identity = String(r.join_identity || '');
     const m = identity.match(/^user-(\d+)$/);
+    const fromUser = [r.first_name, r.last_name].filter(Boolean).join(' ').trim()
+      || String(r.email || '').trim();
     return {
       identity,
       joinIdentity: identity,
       userId: m ? Number(m[1]) : null,
-      displayName: r.display_name || identity,
+      displayName: String(r.display_name || '').trim() || fromUser || identity,
       isGuest: !!r.is_guest,
       sid: identity
     };
   });
+}
+
+async function buildWaitingRoomPrepPayload(sessionId, { sessionTitle = null } = {}) {
+  const sid = Number(sessionId || 0);
+  const out = {
+    sessionTitle: sessionTitle || null,
+    goals: [],
+    agenda: [],
+    actionItems: []
+  };
+  if (!sid) return out;
+  try {
+    const artifact = await SupervisionSessionArtifact.findBySessionId(sid);
+    const parseList = (raw) => {
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw || '[]');
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    };
+    const goals = parseList(artifact?.goals_json ?? artifact?.goals);
+    const actions = parseList(artifact?.action_items_json ?? artifact?.actionItems);
+    out.goals = goals
+      .map((g, idx) => ({
+        id: String(g?.id || `g-${idx + 1}`),
+        text: String(g?.text || '').trim()
+      }))
+      .filter((g) => g.text);
+    out.actionItems = actions
+      .map((a, idx) => ({
+        id: String(a?.id || `a-${idx + 1}`),
+        text: String(a?.text || '').trim()
+      }))
+      .filter((a) => a.text);
+    if (!out.sessionTitle && (artifact?.focus_title || artifact?.focusTitle)) {
+      out.sessionTitle = String(artifact.focus_title || artifact.focusTitle || '').trim() || null;
+    }
+  } catch { /* ignore */ }
+  try {
+    const [agendaRows] = await pool.execute(
+      `SELECT mai.id, mai.title, mai.status
+       FROM meeting_agendas ma
+       INNER JOIN meeting_agenda_items mai ON mai.meeting_agenda_id = ma.id
+       WHERE ma.meeting_type = 'supervision_session'
+         AND ma.meeting_id = ?
+       ORDER BY mai.sort_order ASC, mai.id ASC
+       LIMIT 20`,
+      [sid]
+    );
+    out.agenda = (agendaRows || [])
+      .map((r) => ({
+        id: String(r.id),
+        text: String(r.title || '').trim(),
+        status: String(r.status || '').trim().toLowerCase() || 'pending'
+      }))
+      .filter((r) => r.text);
+  } catch { /* ignore */ }
+  return out;
 }
 
 function requireValid(req, res) {
@@ -1888,6 +2015,8 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
     });
 
     const sessionTitle = await buildSupervisionSessionTitle(id, row);
+    const hostStatus = useLobby ? await buildWaitingRoomHostStatus(row) : null;
+    const waitingPrep = useLobby ? await buildWaitingRoomPrepPayload(id, { sessionTitle }) : null;
     res.json({
       ok: true,
       guest: true,
@@ -1912,7 +2041,9 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
       videoConfigured: true,
       activeParticipants: alreadyPresent ? activeCount : activeCount + 1,
       maxParticipants: maxCapacity,
-      diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
+      diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId }),
+      ...(hostStatus || {}),
+      ...(waitingPrep || {})
     });
   } catch (e) {
     next(e);
@@ -2055,6 +2186,27 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
       byUser.set(uid, existing);
     }
 
+    // Fill any missing names (rollup-only rows, etc.).
+    const missingNameIds = Array.from(byUser.values())
+      .filter((p) => !String(p.firstName || '').trim() && !String(p.lastName || '').trim() && !String(p.email || '').trim())
+      .map((p) => p.userId);
+    if (missingNameIds.length) {
+      try {
+        const placeholders = missingNameIds.map(() => '?').join(',');
+        const [nameRows] = await pool.execute(
+          `SELECT id, first_name, last_name, email FROM users WHERE id IN (${placeholders})`,
+          missingNameIds
+        );
+        for (const nr of nameRows || []) {
+          const existing = byUser.get(Number(nr.id));
+          if (!existing) continue;
+          existing.firstName = nr.first_name || '';
+          existing.lastName = nr.last_name || '';
+          existing.email = nr.email || '';
+        }
+      } catch { /* ignore */ }
+    }
+
     const participants = Array.from(byUser.values()).map((p) => {
       const name = [p.firstName, p.lastName].filter(Boolean).join(' ').trim()
         || p.email
@@ -2177,6 +2329,20 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     }
     const displayName = displayNameFromUser(actorProfile || req.user) || identity;
     const profilePhotoUrl = await profilePhotoUrlForUserId(actorUserId);
+
+    // Host always bypasses waiting room; mark admitted so presence/attendance can accrue.
+    if (isSupervisor) {
+      try {
+        await admitSupervisionJoinIdentity({
+          sessionId: id,
+          userId: actorUserId,
+          joinIdentity: identity
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+
     const admitted = isSupervisor
       || await isUserAdmittedToSupervision({ sessionId: id, userId: actorUserId, joinIdentity: identity });
 
@@ -2252,6 +2418,12 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to generate access token' } });
     }
 
+    const priorPresenceMap = await loadSupervisionPresenceByUser(id);
+    const priorPresence = priorPresenceMap.get(actorUserId) || null;
+    const wasAway = !priorPresence
+      || priorPresence.leftAt
+      || isPresenceLastSeenStale(priorPresence.lastSeenAt);
+
     await upsertJoinPresence({
       sessionId: id,
       joinIdentity: identity,
@@ -2259,7 +2431,25 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       isGuest: false
     });
 
+    if (!useLobby && admitted && wasAway) {
+      try {
+        await recordSupervisionPresenceAttendanceEvent({
+          sessionRow: row,
+          sessionId: id,
+          userId: actorUserId,
+          joinIdentity: identity,
+          eventType: 'joined'
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+
     const sessionTitle = await buildSupervisionSessionTitle(id, row);
+    const hostStatus = useLobby && !isSupervisor ? await buildWaitingRoomHostStatus(row) : null;
+    const waitingPrep = useLobby && !isSupervisor
+      ? await buildWaitingRoomPrepPayload(id, { sessionTitle })
+      : null;
 
     res.json({
       ok: true,
@@ -2286,7 +2476,9 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       videoConfigured: true,
       activeParticipants: alreadyPresent ? activeCount : activeCount + 1,
       maxParticipants: maxCapacity,
-      diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
+      diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId }),
+      ...(hostStatus || {}),
+      ...(waitingPrep || {})
     });
   } catch (e) {
     next(e);
@@ -2419,6 +2611,54 @@ export const admitToMainRoom = async (req, res, next) => {
   }
 };
 
+/**
+ * Host live control: turn waiting room off (and admit everyone currently waiting)
+ * or turn it back on for later arrivals.
+ */
+export const setSupervisionWaitingRoomLive = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const isSupervisor = actorUserId === Number(row.supervisor_user_id)
+      || actorUserId === Number(row.co_facilitator_user_id || 0);
+    if (!isSupervisor) {
+      return res.status(403).json({ error: { message: 'Only the host can change the waiting room' } });
+    }
+
+    const enabled = !(req.body?.enabled === false || req.body?.enabled === 0 || req.body?.enabled === '0');
+    const admitWaiting = req.body?.admitWaiting !== false;
+    await SupervisionSession.updateById(id, { waitingRoomEnabled: enabled });
+
+    let admittedCount = 0;
+    if (!enabled && admitWaiting) {
+      const waiters = await listWaitingLobbyPresence(id);
+      for (const p of waiters || []) {
+        // eslint-disable-next-line no-await-in-loop
+        const ok = await admitSupervisionJoinIdentity({
+          sessionId: id,
+          userId: p.userId || null,
+          joinIdentity: p.joinIdentity
+        });
+        if (ok) admittedCount += 1;
+      }
+    }
+
+    const fresh = await SupervisionSession.findById(id);
+    res.json({
+      ok: true,
+      waitingRoomEnabled: isWaitingRoomEnabled(fresh || row),
+      admittedCount
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 async function buildMainRoomAdmissionPayload({ row, identity, displayName, roleLabel, role, profilePhotoUrl = null }) {
   const id = Number(row.id);
   const projectId = resolveVideoProjectId();
@@ -2504,10 +2744,10 @@ export const getAdmissionStatus = async (req, res, next) => {
 
     const isSupervisor = actorUserId === Number(row.supervisor_user_id)
       || actorUserId === Number(row.co_facilitator_user_id || 0);
-    if (isSupervisor || !waitingRoomOn) {
+    if (isSupervisor) {
       return res.json({
         admitted: true,
-        role: isSupervisor ? 'supervisor' : 'supervisee',
+        role: 'supervisor',
         sessionType,
         roomMode: 'main',
         lobbyEnabledForSession: waitingRoomOn,
@@ -2516,19 +2756,34 @@ export const getAdmissionStatus = async (req, res, next) => {
     }
 
     const identity = `user-${actorUserId}`;
-    const admitted = await isUserAdmittedToSupervision({
+    let admitted = await isUserAdmittedToSupervision({
       sessionId: id,
       userId: actorUserId,
       joinIdentity: identity
     });
 
+    // Host turned waiting room off — auto-admit and hand out a main-room token.
+    if (!waitingRoomOn && !admitted) {
+      await admitSupervisionJoinIdentity({
+        sessionId: id,
+        userId: actorUserId,
+        joinIdentity: identity
+      });
+      admitted = true;
+    }
+
     if (!admitted) {
+      const hostStatus = await buildWaitingRoomHostStatus(row);
+      const sessionTitle = await buildSupervisionSessionTitle(id, row);
+      const waitingPrep = await buildWaitingRoomPrepPayload(id, { sessionTitle });
       return res.json({
         admitted: false,
         sessionType,
         roomMode: 'lobby',
         lobbyEnabledForSession: waitingRoomOn,
-        waitingRoomEnabled: waitingRoomOn
+        waitingRoomEnabled: waitingRoomOn,
+        ...hostStatus,
+        ...waitingPrep
       });
     }
 
@@ -2585,23 +2840,23 @@ export const getGuestAdmissionStatus = async (req, res, next) => {
     const waitingRoomOn = isWaitingRoomEnabled(row);
     const sessionType = String(row.session_type || 'individual').toLowerCase();
     const identity = `guest-${guestKey}`;
-    if (!waitingRoomOn) {
-      return res.json({
-        admitted: true,
-        sessionType,
-        roomMode: 'main',
-        lobbyEnabledForSession: false,
-        waitingRoomEnabled: false
-      });
+    let admitted = await isUserAdmittedToSupervision({ sessionId: id, joinIdentity: identity });
+    if (!waitingRoomOn && !admitted) {
+      await admitSupervisionJoinIdentity({ sessionId: id, joinIdentity: identity });
+      admitted = true;
     }
-    const admitted = await isUserAdmittedToSupervision({ sessionId: id, joinIdentity: identity });
     if (!admitted) {
+      const hostStatus = await buildWaitingRoomHostStatus(row);
+      const sessionTitle = await buildSupervisionSessionTitle(id, row);
+      const waitingPrep = await buildWaitingRoomPrepPayload(id, { sessionTitle });
       return res.json({
         admitted: false,
         sessionType,
         roomMode: 'lobby',
         lobbyEnabledForSession: true,
-        waitingRoomEnabled: true
+        waitingRoomEnabled: true,
+        ...hostStatus,
+        ...waitingPrep
       });
     }
     const displayName = String(req.query?.displayName || req.query?.name || 'Guest').trim().slice(0, 80) || 'Guest';
@@ -3663,6 +3918,7 @@ export const createSupervisionSession = async (req, res, next) => {
     const useVideo = isVideoConfigured();
     const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
     const appJoinUrl = useVideo ? supervisionAppJoinUrl(created) : null;
+    const supervisionTimeZone = String(req.body?.timeZone || 'America/Denver').trim() || 'America/Denver';
     const sync = await GoogleCalendarService.upsertSupervisionSession({
       supervisionSessionId: created.id,
       hostEmail,
@@ -3670,6 +3926,7 @@ export const createSupervisionSession = async (req, res, next) => {
       additionalAttendeeEmails: extraAttendeeEmails,
       startAt,
       endAt,
+      timeZone: supervisionTimeZone,
       summary,
       description: desc,
       createMeetLink: useVideo ? false : createMeetLink,
@@ -3885,12 +4142,14 @@ export const patchSupervisionSession = async (req, res, next) => {
       const desc = fresh?.notes ? String(fresh.notes) : null;
       const appJoinUrl = useVideo ? supervisionAppJoinUrl(fresh) : null;
       // eslint-disable-next-line no-await-in-loop
+      const supervisionTimeZone = String(req.body?.timeZone || 'America/Denver').trim() || 'America/Denver';
       const sync = await GoogleCalendarService.upsertSupervisionSession({
         supervisionSessionId: occId,
         hostEmail,
         attendeeEmail,
         startAt: fresh.start_at,
         endAt: fresh.end_at,
+        timeZone: supervisionTimeZone,
         summary,
         description: desc,
         createMeetLink: useVideo ? false : (occId === id && createMeetLink && !String(fresh.google_meet_link || '').trim()),

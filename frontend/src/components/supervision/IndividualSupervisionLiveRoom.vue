@@ -47,14 +47,48 @@
     <div v-if="showWaitingRoomStage" class="isl__lobby-stage">
       <SupervisionWaitingRoomStage
         :pip="prioritizeSelfView"
+        :meeting-title="sessionTitle || focusTitle || 'Supervision'"
+        :host-present="hostPresent"
+        :host-role-label="hostRoleLabel"
+        :host-status-label="hostStatusLabel"
+        :goals="waitingRoomGoals"
+        :agenda="waitingRoomAgenda"
+        :action-items="waitingRoomActions"
         @show-waiting-room="prioritizeSelfView = false"
       />
+      <aside
+        v-if="!prioritizeSelfView"
+        class="isl__lobby-rail"
+        aria-label="Session preview"
+      >
+        <div
+          class="isl__self isl__self--pip"
+          @click="onSelfStageClick"
+        >
+          <SupervisionVideoRoom
+            v-if="token && vonageSessionId && applicationId"
+            :token="token"
+            :vonage-session-id="vonageSessionId"
+            :room-sid="vonageSessionId"
+            :application-id="applicationId"
+            :api-key="applicationId"
+            :session-id="supervisionSessionId"
+            :is-host="isSupervisor"
+            :diagnostics="diagnostics"
+            :local-display-name="localDisplayName"
+            :local-role-label="localRoleLabel"
+            :local-profile-photo-url="localProfilePhotoUrl"
+            layout="standard"
+            @disconnected="$emit('disconnected')"
+            @connected="onVideoConnected"
+            @meeting-ended="$emit('meeting-ended', $event)"
+          />
+          <span class="isl__pip-label">You · tap to enlarge</span>
+        </div>
+      </aside>
       <div
-        class="isl__self"
-        :class="{
-          'isl__self--pip': !prioritizeSelfView,
-          'isl__self--featured': prioritizeSelfView
-        }"
+        v-else
+        class="isl__self isl__self--featured"
         @click="onSelfStageClick"
       >
         <SupervisionVideoRoom
@@ -75,7 +109,6 @@
           @connected="onVideoConnected"
           @meeting-ended="$emit('meeting-ended', $event)"
         />
-        <span v-if="!prioritizeSelfView" class="isl__pip-label">You · tap to enlarge</span>
       </div>
     </div>
 
@@ -397,6 +430,39 @@ const transcriptCombined = computed(() => {
   return base || live || '';
 });
 
+const waitingAgendaItems = ref([]);
+
+const waitingRoomGoals = computed(() => {
+  const fromProps = Array.isArray(props.waitingGoals) ? props.waitingGoals : [];
+  if (fromProps.length) return fromProps;
+  return goals.value || [];
+});
+const waitingRoomAgenda = computed(() => {
+  const fromProps = Array.isArray(props.waitingAgenda) ? props.waitingAgenda : [];
+  if (fromProps.length) return fromProps;
+  return waitingAgendaItems.value || [];
+});
+const waitingRoomActions = computed(() => {
+  const fromProps = Array.isArray(props.waitingActionItems) ? props.waitingActionItems : [];
+  if (fromProps.length) return fromProps;
+  return actionItems.value || [];
+});
+
+async function loadWaitingAgenda() {
+  const sid = numericSessionId.value || Number(props.supervisionSessionId || 0);
+  if (!sid) return;
+  try {
+    const { data } = await api.get('/meeting-agendas', {
+      params: { meetingType: 'supervision_session', meetingId: sid },
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
+    waitingAgendaItems.value = Array.isArray(data?.items) ? data.items : [];
+  } catch {
+    waitingAgendaItems.value = [];
+  }
+}
+
 const scheduleLabel = computed(() => {
   const meta = String(props.sessionMeta || '').trim();
   if (meta && meta.toLowerCase() !== 'individual') return meta;
@@ -638,6 +704,7 @@ watch(tileFocus, (v) => {
 
 onMounted(() => {
   void loadWorkspace();
+  void loadWaitingAgenda();
 });
 
 onUnmounted(() => {
@@ -663,6 +730,7 @@ defineExpose({
   color: #eef2f8;
   padding: 12px 16px 84px;
   box-sizing: border-box;
+  font-family: "Segoe UI", "Helvetica Neue", ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 .isl--lobby { padding-bottom: 20px; }
 .isl--video-fs {
@@ -718,12 +786,15 @@ defineExpose({
 }
 .isl__header h1 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: clamp(1.05rem, 2.2vw, 1.35rem);
   font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: #f4faf6;
 }
 .isl__meta {
   margin: 2px 0 0;
-  color: #a8b3c7;
+  color: rgba(220, 245, 230, 0.78);
   font-size: 0.85rem;
   display: flex;
   gap: 10px;
@@ -766,19 +837,86 @@ defineExpose({
   overflow: hidden;
   background: #0b1210;
 }
-.isl__self { position: relative; z-index: 3; height: 100%; }
-.isl__self--pip {
+.isl__lobby-rail {
   position: absolute;
+  top: 14px;
   right: 14px;
   bottom: 14px;
-  width: min(34%, 240px);
-  aspect-ratio: 16 / 10;
+  z-index: 5;
+  width: min(38%, 280px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+.isl__lobby-prep {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.92);
+  color: #134e3a;
+  border-radius: 18px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  max-height: 42%;
+  overflow: auto;
+}
+.isl__lobby-prep-kicker {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #3f6b58;
+}
+.isl__lobby-prep-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.isl__lobby-prep-list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  color: #134e3a;
+}
+.isl__lobby-prep-tag {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #166534;
+  background: #dcfce7;
+  border-radius: 999px;
+  padding: 2px 7px;
+  margin-top: 1px;
+}
+.isl__self { position: relative; z-index: 3; height: 100%; }
+.isl__self--pip {
+  position: relative;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  aspect-ratio: 1;
   border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
   border: 2px solid rgba(255, 255, 255, 0.4);
   z-index: 5;
+  pointer-events: auto;
+  flex: 0 0 auto;
+}
+.isl__self--pip :deep(.supervision-video-room),
+.isl__self--pip :deep(.vsr),
+.isl__self--pip :deep(.vsr__stage),
+.isl__self--pip :deep(.vsr__tile) {
+  min-height: 0 !important;
+  height: 100%;
 }
 .isl__self--featured { position: absolute; inset: 0; z-index: 2; }
 .isl__pip-label {
@@ -792,6 +930,16 @@ defineExpose({
   font-size: 0.72rem;
   font-weight: 700;
   pointer-events: none;
+}
+@media (max-width: 900px) {
+  .isl__lobby-rail {
+    width: min(46%, 200px);
+    top: auto;
+    bottom: 10px;
+    right: 10px;
+    max-height: 55%;
+  }
+  .isl__lobby-prep { max-height: 36%; }
 }
 
 .isl__workspace {

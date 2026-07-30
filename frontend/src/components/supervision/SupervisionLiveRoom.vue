@@ -56,6 +56,12 @@ const roomProps = computed(() => ({
   localDisplayName: props.localDisplayName,
   localRoleLabel: props.localRoleLabel,
   localProfilePhotoUrl: props.localProfilePhotoUrl,
-  joinToken: props.joinToken
+  joinToken: props.joinToken,
+  hostPresent: props.hostPresent,
+  hostRoleLabel: props.hostRoleLabel,
+  hostStatusLabel: props.hostStatusLabel,
+  waitingGoals: props.waitingGoals,
+  waitingAgenda: props.waitingAgenda,
+  waitingActionItems: props.waitingActionItems
 }));
 </script>

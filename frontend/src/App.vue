@@ -5774,12 +5774,19 @@ const initializeNotificationUpdateCursor = async () => {
   notificationUpdatesInitialized.value = true;
 };
 
+let notificationUpdatesInterval = null;
+
 function syncNotificationsCounts(enabled) {
   if (enabled) {
     fetchNotificationsCounts();
     void initializeNotificationUpdateCursor();
     if (notificationsInterval) clearInterval(notificationsInterval);
     notificationsInterval = setInterval(fetchNotificationsCounts, 2 * 60 * 1000);
+    // Faster schedule/invite sync than the 2-minute badge poll.
+    if (notificationUpdatesInterval) clearInterval(notificationUpdatesInterval);
+    notificationUpdatesInterval = setInterval(() => {
+      void showNewNotificationToast();
+    }, 20 * 1000);
   } else {
     showLoginNotificationsModal.value = false;
     notificationsNudgeVisible.value = false;
@@ -5790,6 +5797,8 @@ function syncNotificationsCounts(enabled) {
     seenNotificationToastIds.clear();
     if (notificationsInterval) clearInterval(notificationsInterval);
     notificationsInterval = null;
+    if (notificationUpdatesInterval) clearInterval(notificationUpdatesInterval);
+    notificationUpdatesInterval = null;
   }
 }
 watch(shouldFetchNotificationsCounts, syncNotificationsCounts);

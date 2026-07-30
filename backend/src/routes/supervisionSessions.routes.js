@@ -9,6 +9,7 @@ import {
   getSupervisionVideoToken,
   getLobbyParticipants,
   admitToMainRoom,
+  setSupervisionWaitingRoomLive,
   getAdmissionStatus,
   saveClientTranscript,
   postSupervisionTranscriptControl,
@@ -111,6 +112,7 @@ router.post('/sessions/:id/end-live', endSupervisionLiveSession);
 router.get('/sessions/:id/lobby-participants', getLobbyParticipants);
 router.get('/sessions/:id/admission-status', getAdmissionStatus);
 router.post('/sessions/:id/admit/:userId', admitToMainRoom);
+router.post('/sessions/:id/waiting-room', setSupervisionWaitingRoomLive);
 router.post('/sessions/:id/client-transcript', saveClientTranscript);
 router.post('/sessions/:id/transcript-control', postSupervisionTranscriptControl);
 router.get('/sessions/:id/artifacts', getSupervisionSessionArtifacts);

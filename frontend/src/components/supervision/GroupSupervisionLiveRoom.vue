@@ -53,12 +53,53 @@
       <SupervisionWaitingRoomStage
         v-if="showWaitingRoomStage"
         :pip="prioritizeSelfView"
+        :meeting-title="sessionTitle || 'Group supervision'"
+        :host-present="hostPresent"
+        :host-role-label="hostRoleLabel"
+        :host-status-label="hostStatusLabel"
+        :goals="waitingGoals"
+        :agenda="waitingAgenda"
+        :action-items="props.waitingActionItems || []"
         @show-waiting-room="prioritizeSelfView = false"
       />
+      <aside
+        v-if="showWaitingRoomStage && !prioritizeSelfView"
+        class="gsl__lobby-rail"
+        aria-label="Session preview"
+      >
+        <div
+          class="gsl__self-stage gsl__self-stage--pip"
+          @click="onSelfStageClick"
+        >
+          <SupervisionVideoRoom
+            v-if="token && vonageSessionId && applicationId"
+            ref="videoRoomRef"
+            :token="token"
+            :vonage-session-id="vonageSessionId"
+            :room-sid="vonageSessionId"
+            :application-id="applicationId"
+            :api-key="applicationId"
+            :session-title="''"
+            :session-id="supervisionSessionId"
+            :is-host="isSupervisor"
+            :is-host-or-cohost="isSupervisor"
+            mute-others-mode="host"
+            :diagnostics="diagnostics"
+            :local-display-name="localDisplayName"
+            :local-role-label="localRoleLabel"
+            :local-profile-photo-url="localProfilePhotoUrl"
+            layout="standard"
+            @disconnected="$emit('disconnected')"
+            @connected="onVideoConnected"
+            @meeting-ended="$emit('meeting-ended', $event)"
+          />
+          <span class="gsl__self-pip-label">You · tap to enlarge</span>
+        </div>
+      </aside>
       <div
+        v-else
         class="gsl__self-stage"
         :class="{
-          'gsl__self-stage--pip': showWaitingRoomStage && !prioritizeSelfView,
           'gsl__self-stage--featured': showWaitingRoomStage && prioritizeSelfView
         }"
         @click="onSelfStageClick"
@@ -96,10 +137,6 @@
           @meeting-ended="$emit('meeting-ended', $event)"
           @activity-notice-click="onFullscreenActivityClick"
         />
-        <span
-          v-if="showWaitingRoomStage && !prioritizeSelfView"
-          class="gsl__self-pip-label"
-        >You · tap to enlarge</span>
       </div>
     </div>
 
@@ -216,7 +253,8 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import api from '../../services/api';
 import BrandingLogo from '../BrandingLogo.vue';
 import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
@@ -239,6 +277,8 @@ const tileFocus = ref('equal');
 const videoFullscreen = ref(false);
 const videoFullscreenActivityNotice = ref('');
 let fullscreenNoticeTimer = null;
+const waitingGoals = ref([]);
+const waitingAgenda = ref([]);
 
 const {
   numericSessionId,
@@ -262,6 +302,51 @@ const {
   prevSlide,
   nextSlide
 } = useSupervisionLiveSession(props, emit, { enablePresentation: true, enableActivityFeed: false });
+
+const waitingPrepItems = computed(() => {
+  const out = [];
+  for (const g of waitingGoals.value || []) {
+    const text = String(g?.text || '').trim();
+    if (!text) continue;
+    out.push({ id: `goal-${g.id || text}`, kind: 'Goal', text });
+  }
+  for (const a of waitingAgenda.value || []) {
+    const text = String(a?.text || a?.title || '').trim();
+    if (!text) continue;
+    out.push({ id: `agenda-${a.id || text}`, kind: 'Agenda', text });
+  }
+  return out.slice(0, 8);
+});
+
+async function loadWaitingPrep() {
+  const sid = numericSessionId.value || Number(props.supervisionSessionId || 0);
+  if (!sid || !props.isInLobby) return;
+  try {
+    const [artifactResp, agendaResp] = await Promise.all([
+      api.get(`/supervision/sessions/${sid}/artifacts`, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      }).catch(() => null),
+      api.get('/meeting-agendas', {
+        params: { meetingType: 'supervision_session', meetingId: sid },
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      }).catch(() => null)
+    ]);
+    const artifact = artifactResp?.data?.artifact || artifactResp?.data || {};
+    const goals = artifact.goals || artifact.goals_json || [];
+    waitingGoals.value = Array.isArray(goals) ? goals : [];
+    const agenda = agendaResp?.data?.items || [];
+    waitingAgenda.value = Array.isArray(agenda) ? agenda : [];
+  } catch {
+    waitingGoals.value = [];
+    waitingAgenda.value = [];
+  }
+}
+
+onMounted(() => {
+  void loadWaitingPrep();
+});
 
 const canFacilitate = computed(() => (
   !viewAsAttendee.value && (props.isSupervisor || props.isPresenter)
@@ -349,6 +434,7 @@ defineExpose({
   color: #eef2f8;
   padding: 12px 16px 20px;
   box-sizing: border-box;
+  font-family: "Segoe UI", "Helvetica Neue", ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 .gsl--video-fs {
   padding: 0;
@@ -367,6 +453,8 @@ defineExpose({
   gap: 12px;
 }
 .gsl__header h1 {
+  letter-spacing: -0.02em;
+  color: #f4faf6;
   margin: 0;
   font-size: 1.15rem;
 }
@@ -397,6 +485,63 @@ defineExpose({
   background: #0b1210;
   min-height: min(58vh, 520px);
 }
+.gsl__lobby-rail {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 5;
+  width: min(38%, 280px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+.gsl__lobby-prep {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.92);
+  color: #134e3a;
+  border-radius: 18px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  max-height: 42%;
+  overflow: auto;
+  font-family: "Segoe UI", "Helvetica Neue", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+.gsl__lobby-prep-kicker {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #3f6b58;
+}
+.gsl__lobby-prep-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.gsl__lobby-prep-list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+.gsl__lobby-prep-tag {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #166534;
+  background: #dcfce7;
+  border-radius: 999px;
+  padding: 2px 7px;
+}
 .gsl__self-stage {
   position: relative;
   z-index: 3;
@@ -404,19 +549,19 @@ defineExpose({
   min-height: inherit;
 }
 .gsl__self-stage--pip {
-  position: absolute;
-  right: 14px;
-  bottom: 14px;
-  width: min(34%, 240px);
+  position: relative;
+  width: 100%;
   min-height: 0;
   height: auto;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 1;
   border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
   border: 2px solid rgba(255, 255, 255, 0.4);
   z-index: 5;
+  pointer-events: auto;
+  flex: 0 0 auto;
 }
 .gsl__self-stage--pip :deep(.supervision-video-room),
 .gsl__self-stage--pip :deep(.vsr),
@@ -634,10 +779,13 @@ defineExpose({
   .gsl__video-strip--lobby {
     min-height: 48vh;
   }
-  .gsl__self-stage--pip {
-    width: min(46%, 180px);
-    right: 10px;
+  .gsl__lobby-rail {
+    width: min(46%, 200px);
+    top: auto;
     bottom: 10px;
+    right: 10px;
+    max-height: 55%;
   }
+  .gsl__lobby-prep { max-height: 36%; }
 }
 </style>

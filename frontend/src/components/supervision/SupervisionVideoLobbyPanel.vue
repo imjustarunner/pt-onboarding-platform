@@ -2,15 +2,27 @@
   <div v-if="isSupervisor && sessionId" class="lobby-panel">
     <div class="lobby-panel-head">
       <h4 class="lobby-panel-title">Waiting room — Admit participants</h4>
-      <button
-        v-if="participants.length > 1"
-        type="button"
-        class="btn btn-primary btn-sm lobby-panel-admit-all"
-        :disabled="admittingAll || !!admittingKey"
-        @click="admitAll"
-      >
-        {{ admittingAll ? 'Admitting all…' : `Admit all (${participants.length})` }}
-      </button>
+      <div class="lobby-panel-actions">
+        <button
+          v-if="participants.length > 1"
+          type="button"
+          class="btn btn-primary btn-sm lobby-panel-admit-all"
+          :disabled="admittingAll || !!admittingKey || disablingWaitingRoom"
+          @click="admitAll"
+        >
+          {{ admittingAll ? 'Admitting all…' : `Admit all (${participants.length})` }}
+        </button>
+        <button
+          v-if="waitingRoomEnabled"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="disablingWaitingRoom || admittingAll || !!admittingKey"
+          title="Admit everyone waiting and let later arrivals join without waiting"
+          @click="openWaitingRoom"
+        >
+          {{ disablingWaitingRoom ? 'Opening…' : 'Let everyone in' }}
+        </button>
+      </div>
     </div>
     <div v-if="admitSuccess" class="lobby-panel-success">Admitted. They’re joining the room…</div>
     <div v-else-if="admitError" class="lobby-panel-error">{{ admitError }}</div>
@@ -65,10 +77,19 @@ const participants = ref([]);
 const initialLoading = ref(false);
 const admittingKey = ref(null);
 const admittingAll = ref(false);
+const disablingWaitingRoom = ref(false);
+const waitingRoomEnabled = ref(true);
 const admitSuccess = ref(false);
 const admitError = ref('');
 let pollInterval = null;
 let hasLoadedOnce = false;
+
+function waitingRoomPath() {
+  const id = encodeURIComponent(props.sessionId);
+  return props.meetingKind === 'team-meeting'
+    ? `/team-meetings/${id}/waiting-room`
+    : `/supervision/sessions/${id}/waiting-room`;
+}
 
 async function fetchLobbyParticipants() {
   if (!props.sessionId || !props.isSupervisor) return;
@@ -76,6 +97,9 @@ async function fetchLobbyParticipants() {
   if (!hasLoadedOnce) initialLoading.value = true;
   try {
     const resp = await api.get(lobbyParticipantsPath(), { skipGlobalLoading: true, skipAuthRedirect: true });
+    if (resp?.data?.waitingRoomEnabled != null) {
+      waitingRoomEnabled.value = !!resp.data.waitingRoomEnabled;
+    }
     const list = resp?.data?.participants || [];
     participants.value = list.map((p) => {
       const identity = String(p.joinIdentity || p.identity || '');
@@ -117,6 +141,27 @@ async function admit(p) {
     admitError.value = e?.response?.data?.error?.message || e?.message || 'Admit failed';
   } finally {
     admittingKey.value = null;
+  }
+}
+
+async function openWaitingRoom() {
+  if (!props.sessionId || disablingWaitingRoom.value) return;
+  disablingWaitingRoom.value = true;
+  admitError.value = '';
+  admitSuccess.value = false;
+  try {
+    await api.post(waitingRoomPath(), {
+      enabled: false,
+      admitWaiting: true
+    }, { skipGlobalLoading: true, skipAuthRedirect: true });
+    waitingRoomEnabled.value = false;
+    admitSuccess.value = true;
+    await fetchLobbyParticipants();
+    setTimeout(() => { admitSuccess.value = false; }, 4000);
+  } catch (e) {
+    admitError.value = e?.response?.data?.error?.message || e?.message || 'Could not open waiting room';
+  } finally {
+    disablingWaitingRoom.value = false;
   }
 }
 
@@ -197,6 +242,12 @@ onUnmounted(stopPolling);
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+}
+.lobby-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 .lobby-panel-head {
   display: flex;

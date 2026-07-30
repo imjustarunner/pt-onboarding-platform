@@ -190,6 +190,89 @@ async function admitJoinIdentity({ eventId, userId = null, joinIdentity = null }
   }
 }
 
+async function buildTeamMeetingHostStatus(row) {
+  const eid = Number(row?.id || 0);
+  const hostId = Number(row?.provider_id || 0);
+  const hostRoleLabel = 'Host';
+  if (!eid || !hostId) {
+    return {
+      hostPresent: false,
+      hostRoleLabel,
+      hostStatusLabel: `Your ${hostRoleLabel.toLowerCase()} hasn’t joined yet`
+    };
+  }
+  let hostPresent = false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM provider_schedule_event_join_presence
+       WHERE event_id = ?
+         AND left_at IS NULL
+         AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)
+         AND (
+           join_identity = ?
+           OR join_identity = CAST(? AS CHAR)
+         )
+       LIMIT 1`,
+      [eid, `user-${hostId}`, hostId]
+    );
+    hostPresent = !!(rows?.length);
+  } catch {
+    hostPresent = false;
+  }
+  return {
+    hostPresent,
+    hostRoleLabel,
+    hostStatusLabel: hostPresent
+      ? `Your ${hostRoleLabel.toLowerCase()} is in the room`
+      : `Your ${hostRoleLabel.toLowerCase()} hasn’t joined yet`
+  };
+}
+
+async function buildTeamMeetingWaitingPrep(eventId, { sessionTitle = null } = {}) {
+  const eid = Number(eventId || 0);
+  const out = {
+    sessionTitle: sessionTitle || null,
+    goals: [],
+    agenda: [],
+    actionItems: []
+  };
+  if (!eid) return out;
+  try {
+    const artifact = await ProviderScheduleEventArtifact.findByEventId(eid);
+    const parseList = (raw) => {
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw || '[]');
+          return Array.isArray(parsed) ? parsed : [];
+        } catch { return []; }
+      }
+      return [];
+    };
+    const goals = parseList(artifact?.goals_json ?? artifact?.goals);
+    const actions = parseList(artifact?.action_items_json ?? artifact?.actionItems);
+    out.goals = goals.map((g, i) => ({ id: String(g?.id || `g-${i + 1}`), text: String(g?.text || '').trim() })).filter((g) => g.text);
+    out.actionItems = actions.map((a, i) => ({ id: String(a?.id || `a-${i + 1}`), text: String(a?.text || '').trim() })).filter((a) => a.text);
+  } catch { /* ignore */ }
+  try {
+    const [agendaRows] = await pool.execute(
+      `SELECT mai.id, mai.title, mai.status
+       FROM meeting_agendas ma
+       INNER JOIN meeting_agenda_items mai ON mai.meeting_agenda_id = ma.id
+       WHERE ma.meeting_type = 'provider_schedule_event'
+         AND ma.meeting_id = ?
+       ORDER BY mai.sort_order ASC, mai.id ASC
+       LIMIT 20`,
+      [eid]
+    );
+    out.agenda = (agendaRows || [])
+      .map((r) => ({ id: String(r.id), text: String(r.title || '').trim(), status: String(r.status || '').toLowerCase() }))
+      .filter((r) => r.text);
+  } catch { /* ignore */ }
+  return out;
+}
+
 function normalizeJoinIdentity(raw, { userId = null } = {}) {
   const identity = String(raw || '').trim();
   const uid = Number(userId || 0);
@@ -679,6 +762,53 @@ export const admitTeamMeetingParticipant = async (req, res, next) => {
   }
 };
 
+/** Host live control: turn waiting room off (admit current waiters) or back on. */
+export const setTeamMeetingWaitingRoomLive = async (req, res, next) => {
+  try {
+    const ref = String(req.params.eventId || '').trim();
+    const row = await ProviderScheduleEvent.resolveByJoinRef(ref)
+      || (/^\d+$/.test(ref) ? await ProviderScheduleEvent.findById(Number(ref)) : null);
+    if (!row?.id) return res.status(404).json({ error: { message: 'Event not found' } });
+    const eventId = Number(row.id);
+    const actorUserId = Number(req.user?.id || 0);
+    if (actorUserId !== Number(row.provider_id)) {
+      return res.status(403).json({ error: { message: 'Only the host can change the waiting room' } });
+    }
+    const enabled = !(req.body?.enabled === false || req.body?.enabled === 0 || req.body?.enabled === '0');
+    const admitWaiting = req.body?.admitWaiting !== false;
+    await ProviderScheduleEvent.updateForProvider({
+      eventId,
+      providerId: actorUserId,
+      waitingRoomEnabled: enabled,
+      updatedByUserId: actorUserId
+    });
+
+    let admittedCount = 0;
+    if (!enabled && admitWaiting) {
+      const waiters = await listWaitingLobbyPresence(eventId, {
+        excludeUserIds: [Number(row.provider_id || 0)]
+      });
+      for (const p of waiters || []) {
+        // eslint-disable-next-line no-await-in-loop
+        const ok = await admitJoinIdentity({
+          eventId,
+          userId: p.userId || null,
+          joinIdentity: p.joinIdentity
+        });
+        if (ok) admittedCount += 1;
+      }
+    }
+    const fresh = await ProviderScheduleEvent.findById(eventId);
+    res.json({
+      ok: true,
+      waitingRoomEnabled: isWaitingRoomEnabled(fresh || row),
+      admittedCount
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
   try {
     const ref = String(req.params.eventId || '').trim();
@@ -705,7 +835,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       });
     }
 
-    if (isHost || !waitingRoomOn) {
+    if (isHost) {
       return res.json({
         admitted: true,
         roomMode: 'main',
@@ -716,20 +846,37 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       });
     }
 
-    const admitted = await isUserAdmitted({
+    let admitted = await isUserAdmitted({
       eventId: row.id,
       userId: actorUserId,
       joinIdentity: identity
     });
 
+    // Host turned waiting room off — auto-admit and mint main-room token below.
+    if (!waitingRoomOn && !admitted) {
+      await admitJoinIdentity({
+        eventId: row.id,
+        userId: actorUserId,
+        joinIdentity: identity
+      });
+      admitted = true;
+    }
+
     if (!admitted) {
+      const hostStatus = await buildTeamMeetingHostStatus(row);
+      const waitingPrep = await buildTeamMeetingWaitingPrep(row.id, {
+        sessionTitle: String(row.title || '').trim() || null
+      });
       return res.json({
         admitted: false,
         roomMode: 'lobby',
         meetingCompleted: false,
         meetingCompletedAt: null,
         lobbyEnabledForSession: waitingRoomOn,
-        waitingRoomEnabled: waitingRoomOn
+        waitingRoomEnabled: waitingRoomOn,
+        sessionTitle: waitingPrep.sessionTitle || String(row.title || '').trim() || null,
+        ...hostStatus,
+        ...waitingPrep
       });
     }
 

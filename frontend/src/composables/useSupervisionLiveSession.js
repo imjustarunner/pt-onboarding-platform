@@ -551,7 +551,13 @@ export const supervisionLiveRoomProps = {
   localDisplayName: { type: String, default: '' },
   localRoleLabel: { type: String, default: '' },
   localProfilePhotoUrl: { type: String, default: '' },
-  joinToken: { type: String, default: '' }
+  joinToken: { type: String, default: '' },
+  hostPresent: { type: Boolean, default: false },
+  hostRoleLabel: { type: String, default: 'Supervisor' },
+  hostStatusLabel: { type: String, default: '' },
+  waitingGoals: { type: Array, default: () => [] },
+  waitingAgenda: { type: Array, default: () => [] },
+  waitingActionItems: { type: Array, default: () => [] }
 };
 
 export function isIndividualSupervisionType(sessionMetaOrType) {

@@ -294,8 +294,12 @@ class SupervisionSession {
     const sid = parseInt(sessionId, 10);
     if (!sid) return [];
     const [rows] = await pool.execute(
-      `SELECT ssa.*
+      `SELECT ssa.*,
+              u.first_name,
+              u.last_name,
+              u.email
        FROM supervision_session_attendees ssa
+       LEFT JOIN users u ON u.id = ssa.user_id
        WHERE ssa.session_id = ?
        ORDER BY CASE WHEN ssa.participant_role = 'supervisor' THEN 0 ELSE 1 END, ssa.id ASC`,
       [sid]

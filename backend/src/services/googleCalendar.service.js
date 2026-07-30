@@ -898,7 +898,7 @@ export class GoogleCalendarService {
     additionalAttendeeEmails = [],
     startAt,
     endAt,
-    timeZone = 'America/New_York',
+    timeZone = 'America/Denver',
     summary,
     description = null,
     createMeetLink = false,
@@ -929,11 +929,18 @@ export class GoogleCalendarService {
       const joinLine = `\n\nJoin video: ${String(appJoinUrl).trim()}`;
       finalDescription = (finalDescription + joinLine).trim();
     }
+    // Supervision create payloads are already wall-clock in `timeZone`
+    // (e.g. "2026-07-29T20:00:00" meaning 8pm Denver). Do NOT run them through
+    // utcToRfc3339Wall via toRfc3339Local(…, timeZone) — that treats the digits
+    // as UTC and shifts Mountain times back by 6 hours (8pm → 2pm).
+    const wallDateTime = (value) => toRfc3339Local(value, null);
+    const tz = String(timeZone || 'America/Denver').trim() || 'America/Denver';
+
     const requestBody = {
       summary: String(summary || 'Supervision').trim() || 'Supervision',
       description: finalDescription || undefined,
-      start: { dateTime: toRfc3339Local(startAt, timeZone), timeZone },
-      end: { dateTime: toRfc3339Local(endAt, timeZone), timeZone },
+      start: { dateTime: wallDateTime(startAt), timeZone: tz },
+      end: { dateTime: wallDateTime(endAt), timeZone: tz },
       attendees,
       extendedProperties: {
         private: {

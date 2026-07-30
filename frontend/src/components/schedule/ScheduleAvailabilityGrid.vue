@@ -1810,10 +1810,15 @@
             v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
             v-model:invite-audience-group-support="supervisionInviteAudienceGroupSupport"
             v-model:presenter-ids="supervisionPresenterIds"
+            v-model:agenda-items="createAgendaDraftItems"
+            v-model:goal-draft-items="createGoalDraftItems"
+            v-model:action-draft-items="createActionDraftItems"
             :session-type-label="supervisionEffectiveSessionTypeLabel"
             :can-book-group="canBookGroupSupervisionFromGrid"
             :facilitator-options="supervisionFacilitatorOptions"
             :presenter-options="supervisionPresenterCandidateOptions"
+            :show-agenda-draft="!isSupervisionEditMode"
+            :show-goals-actions-draft="!isSupervisionEditMode && !supervisionGroupModeEnabled"
             :disabled="submitting || scheduleEventSaving"
           />
 
@@ -4183,6 +4188,9 @@
           :local-role-label="supvAppVideoRoleLabel"
           :local-profile-photo-url="supvAppVideoProfilePhotoUrl"
           :join-token="supvAppVideoJoinToken"
+          :host-present="supvAppVideoHostPresent"
+          :host-role-label="supvAppVideoHostRoleLabel"
+          :host-status-label="supvAppVideoHostStatusLabel"
           @leave="closeSupvAppVideoModal"
         />
       </div>
@@ -5298,6 +5306,7 @@ const selectedExternalCalendarIdSet = computed(
 );
 let schedMouseUpHandler = null;
 let schedScheduleRefreshHandler = null;
+let schedSoftRefreshTimer = null;
 const hideWeekend = ref(props.mode === 'self');
 const focusedDays = ref([]);
 /** day | agenda | week — day/agenda focus one day; week = full multi-day grid */
@@ -6527,6 +6536,12 @@ onMounted(() => {
   };
   window.addEventListener('pt-schedule-refresh', onScheduleRefreshEvent);
   schedScheduleRefreshHandler = onScheduleRefreshEvent;
+  // Soft refresh so newly scheduled supervision/meetings appear without a hard reload.
+  if (schedSoftRefreshTimer) clearInterval(schedSoftRefreshTimer);
+  schedSoftRefreshTimer = setInterval(() => {
+    if (document.visibilityState === 'hidden') return;
+    void load({ forceRefresh: true });
+  }, 45 * 1000);
 });
 
 watch(
@@ -6562,6 +6577,10 @@ onUnmounted(() => {
   if (schedScheduleRefreshHandler) {
     window.removeEventListener('pt-schedule-refresh', schedScheduleRefreshHandler);
     schedScheduleRefreshHandler = null;
+  }
+  if (schedSoftRefreshTimer) {
+    clearInterval(schedSoftRefreshTimer);
+    schedSoftRefreshTimer = null;
   }
   dismissBookingReceipt();
   darkThemeObserver?.disconnect();
@@ -9979,6 +9998,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       segmentClass: 'single',
       hideAgencyDot: false,
       eventId: Number(first?.id || 0) || null,
+      sessionType: String(first?.sessionType || 'individual').trim().toLowerCase() || 'individual',
       startAt: first?.startAt || null,
       endAt: first?.endAt || null,
       signupClosesAt: first?.signupClosesAt || null,
@@ -14625,6 +14645,25 @@ async function postWorkspaceDraftForNewMeeting(eventId, { goals = [], actionItem
     // best-effort
   }
 }
+async function postSupervisionWorkspaceDraft(sessionId, { goals = [], actionItems = [] } = {}) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return;
+  const cleanGoals = (goals || [])
+    .map((g) => ({ text: String(g?.text || g || '').trim(), done: !!g?.done }))
+    .filter((g) => g.text);
+  const cleanActions = (actionItems || [])
+    .map((a) => ({ text: String(a?.text || a || '').trim(), done: !!a?.done }))
+    .filter((a) => a.text);
+  if (!cleanGoals.length && !cleanActions.length) return;
+  try {
+    await api.post(`/supervision/sessions/${sid}/artifacts`, {
+      goals: cleanGoals,
+      actionItems: cleanActions
+    }, { skipGlobalLoading: true });
+  } catch {
+    // best-effort
+  }
+}
 const meetingIncludeAllAgencies = ref(false);
 const meetingBusyByUserId = ref({});
 const meetingBusyLabelByUserId = ref({});
@@ -16879,7 +16918,12 @@ const typeStyleToken = (b) => {
   if (kind === 'ob') return 'Booked';
   if (kind === 'oa') return 'Assigned';
   if (kind === 'ot') return 'Temp';
-  if (kind === 'supv') return 'Supv';
+  if (kind === 'supv') {
+    const st = String(b?.sessionType || '').toLowerCase();
+    if (st === 'group') return 'Group sup';
+    if (st === 'triadic') return 'Triadic';
+    return 'Indiv. sup';
+  }
   if (kind === 'supv-signup') return 'Signup sup';
   if (kind === 'school') return 'School';
   if (kind === 'request') return 'Req';
@@ -16905,6 +16949,97 @@ const typeStyleToken = (b) => {
   return '';
 };
 
+/** Meeting/supervision blocks keep type hues; logos show tenant. */
+function usesMeetingTypeFill(b) {
+  const kind = String(b?.kind || '');
+  if (kind === 'supv' || kind === 'supv-signup') return true;
+  if (kind !== 'sevt') return false;
+  const eventKind = String(b?.eventKind || '').toUpperCase();
+  return ['HUDDLE', 'TEAM_MEETING', 'FALL_CHECKIN_PRESLOT', 'FALL_CHECKIN_BOOKED', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES'].includes(eventKind)
+    || !!String(b?.meetingSubtype || '').trim();
+}
+
+function applyTypeFillVars(style, palette) {
+  if (!palette) return;
+  if (palette.fill) style['--blockFill'] = palette.fill;
+  if (palette.border) style['--blockBorder'] = palette.border;
+  if (palette.stripe) style['--blockTypeStripe'] = palette.stripe;
+  if (palette.text) style['--blockText'] = palette.text;
+  if (palette.borderStyle) style['--blockBorderStyle'] = palette.borderStyle;
+}
+
+function meetingTypePalette(b, dark) {
+  const kind = String(b?.kind || '');
+  if (kind === 'supv-signup') {
+    return dark
+      ? { fill: 'rgba(45, 212, 191, 0.42)', border: 'rgba(94, 234, 212, 0.92)', stripe: 'rgba(94, 234, 212, 0.95)', text: 'rgba(204, 251, 241, 0.98)', borderStyle: 'dashed' }
+      : { fill: 'rgba(20, 184, 166, 0.28)', border: 'rgba(13, 148, 136, 0.78)', stripe: 'rgba(13, 148, 136, 0.92)', text: 'rgba(19, 78, 74, 0.98)', borderStyle: 'dashed' };
+  }
+  if (kind === 'supv') {
+    const st = String(b?.sessionType || 'individual').toLowerCase();
+    if (st === 'group') {
+      return dark
+        ? { fill: 'rgba(251, 113, 133, 0.42)', border: 'rgba(251, 113, 133, 0.90)', stripe: 'rgba(253, 164, 175, 0.95)', text: 'rgba(255, 228, 230, 0.98)' }
+        : { fill: 'rgba(244, 63, 94, 0.22)', border: 'rgba(190, 18, 60, 0.55)', stripe: 'rgba(225, 29, 72, 0.90)', text: 'rgba(136, 19, 55, 0.98)' };
+    }
+    if (st === 'triadic') {
+      return dark
+        ? { fill: 'rgba(232, 121, 249, 0.42)', border: 'rgba(232, 121, 249, 0.90)', stripe: 'rgba(240, 171, 252, 0.95)', text: 'rgba(250, 232, 255, 0.98)' }
+        : { fill: 'rgba(192, 38, 211, 0.22)', border: 'rgba(162, 28, 175, 0.55)', stripe: 'rgba(168, 85, 247, 0.90)', text: 'rgba(112, 26, 117, 0.98)' };
+    }
+    return dark
+      ? { fill: 'rgba(167, 139, 250, 0.48)', border: 'rgba(196, 181, 253, 0.90)', stripe: 'rgba(216, 180, 254, 0.95)', text: 'rgba(237, 233, 254, 0.98)' }
+      : { fill: 'rgba(124, 58, 237, 0.22)', border: 'rgba(109, 40, 217, 0.55)', stripe: 'rgba(124, 58, 237, 0.90)', text: 'rgba(76, 29, 149, 0.98)' };
+  }
+  if (kind !== 'sevt') return null;
+  const eventKind = String(b?.eventKind || '').toUpperCase();
+  if (eventKind === 'FALL_CHECKIN_PRESLOT') {
+    return dark
+      ? { fill: 'rgba(148, 163, 184, 0.18)', border: 'rgba(148, 163, 184, 0.72)', stripe: 'rgba(148, 163, 184, 0.85)', text: 'rgba(226, 232, 240, 0.95)', borderStyle: 'dashed' }
+      : { fill: 'rgba(148, 163, 184, 0.14)', border: 'rgba(100, 116, 139, 0.72)', stripe: 'rgba(100, 116, 139, 0.85)', text: 'rgba(51, 65, 85, 0.95)', borderStyle: 'dashed' };
+  }
+  if (eventKind === 'FALL_CHECKIN_BOOKED') {
+    return dark
+      ? { fill: 'rgba(52, 211, 153, 0.42)', border: 'rgba(110, 231, 183, 0.92)', stripe: 'rgba(110, 231, 183, 0.95)', text: 'rgba(209, 250, 229, 0.98)' }
+      : { fill: 'rgba(16, 185, 129, 0.24)', border: 'rgba(5, 150, 105, 0.78)', stripe: 'rgba(5, 150, 105, 0.92)', text: 'rgba(6, 78, 59, 0.98)' };
+  }
+  if (eventKind === 'HUDDLE') {
+    return dark
+      ? { fill: 'rgba(34, 211, 238, 0.40)', border: 'rgba(103, 232, 249, 0.90)', stripe: 'rgba(165, 243, 252, 0.95)', text: 'rgba(207, 250, 254, 0.98)' }
+      : { fill: 'rgba(6, 182, 212, 0.24)', border: 'rgba(14, 116, 144, 0.58)', stripe: 'rgba(8, 145, 178, 0.92)', text: 'rgba(22, 78, 99, 0.98)' };
+  }
+  if (eventKind === 'TEAM_MEETING') {
+    const subtype = String(b?.meetingSubtype || 'general').toLowerCase();
+    if (subtype === 'admin') {
+      return dark
+        ? { fill: 'rgba(251, 191, 36, 0.40)', border: 'rgba(252, 211, 77, 0.90)', stripe: 'rgba(253, 224, 71, 0.95)', text: 'rgba(254, 243, 199, 0.98)' }
+        : { fill: 'rgba(245, 158, 11, 0.26)', border: 'rgba(180, 83, 9, 0.58)', stripe: 'rgba(217, 119, 6, 0.92)', text: 'rgba(120, 53, 15, 0.98)' };
+    }
+    if (subtype === 'town_hall') {
+      return dark
+        ? { fill: 'rgba(129, 140, 248, 0.45)', border: 'rgba(165, 180, 252, 0.90)', stripe: 'rgba(199, 210, 254, 0.95)', text: 'rgba(224, 231, 255, 0.98)' }
+        : { fill: 'rgba(79, 70, 229, 0.24)', border: 'rgba(67, 56, 202, 0.55)', stripe: 'rgba(79, 70, 229, 0.90)', text: 'rgba(49, 46, 129, 0.98)' };
+    }
+    // general team meeting
+    return dark
+      ? { fill: 'rgba(96, 165, 250, 0.42)', border: 'rgba(147, 197, 253, 0.90)', stripe: 'rgba(191, 219, 254, 0.95)', text: 'rgba(219, 234, 254, 0.98)' }
+      : { fill: 'rgba(37, 99, 235, 0.22)', border: 'rgba(29, 78, 216, 0.55)', stripe: 'rgba(37, 99, 235, 0.90)', text: 'rgba(30, 64, 175, 0.98)' };
+  }
+  if (eventKind === 'SCHEDULE_HOLD') {
+    return dark
+      ? { fill: 'rgba(148, 163, 184, 0.28)', border: 'rgba(148, 163, 184, 0.75)', stripe: 'rgba(203, 213, 225, 0.90)', text: 'rgba(226, 232, 240, 0.95)' }
+      : { fill: 'rgba(100, 116, 139, 0.16)', border: 'rgba(71, 85, 105, 0.55)', stripe: 'rgba(71, 85, 105, 0.85)', text: 'rgba(51, 65, 85, 0.95)' };
+  }
+  if (eventKind === 'INDIRECT_SERVICES') {
+    return dark
+      ? { fill: 'rgba(163, 230, 53, 0.35)', border: 'rgba(190, 242, 100, 0.85)', stripe: 'rgba(217, 249, 157, 0.92)', text: 'rgba(236, 252, 203, 0.98)' }
+      : { fill: 'rgba(132, 204, 22, 0.22)', border: 'rgba(77, 124, 15, 0.55)', stripe: 'rgba(101, 163, 13, 0.90)', text: 'rgba(54, 83, 20, 0.98)' };
+  }
+  return dark
+    ? { fill: 'rgba(52, 211, 153, 0.35)', border: 'rgba(110, 231, 183, 0.85)', stripe: 'rgba(167, 243, 208, 0.92)', text: 'rgba(209, 250, 229, 0.98)' }
+    : { fill: 'rgba(16, 185, 129, 0.22)', border: 'rgba(5, 150, 105, 0.55)', stripe: 'rgba(5, 150, 105, 0.88)', text: 'rgba(6, 95, 70, 0.98)' };
+}
+
 const cellBlockStyle = (b) => {
   const kind = String(b?.kind || '');
   const style = {};
@@ -16924,29 +17059,8 @@ const cellBlockStyle = (b) => {
     style['--blockFill'] = officeKindFillMap[kind].fill;
     style['--blockBorder'] = officeKindFillMap[kind].border;
   }
-  if (kind === 'supv-signup') {
-    style['--blockFill'] = dark ? 'rgba(45, 212, 191, 0.42)' : 'rgba(20, 184, 166, 0.24)';
-    style['--blockBorder'] = dark ? 'rgba(94, 234, 212, 0.92)' : 'rgba(13, 148, 136, 0.78)';
-    style['--blockBorderStyle'] = 'dashed';
-    style['--blockTypeStripe'] = dark ? 'rgba(94, 234, 212, 0.95)' : 'rgba(13, 148, 136, 0.92)';
-  }
-  if (kind === 'sevt') {
-    const eventKind = String(b?.eventKind || '').toUpperCase();
-    if (eventKind === 'FALL_CHECKIN_PRESLOT') {
-      style['--blockFill'] = dark ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)';
-      style['--blockBorder'] = dark ? 'rgba(148, 163, 184, 0.72)' : 'rgba(100, 116, 139, 0.72)';
-      style['--blockBorderStyle'] = 'dashed';
-    } else if (eventKind === 'FALL_CHECKIN_BOOKED') {
-      style['--blockFill'] = dark ? 'rgba(52, 211, 153, 0.42)' : 'rgba(16, 185, 129, 0.24)';
-      style['--blockBorder'] = dark ? 'rgba(110, 231, 183, 0.92)' : 'rgba(5, 150, 105, 0.78)';
-      style['--blockTypeStripe'] = dark ? 'rgba(110, 231, 183, 0.95)' : 'rgba(5, 150, 105, 0.92)';
-    } else if (eventKind === 'TEAM_MEETING') {
-      style['--blockFill'] = dark ? 'rgba(216, 180, 254, 0.48)' : 'rgba(147, 51, 234, 0.22)';
-      style['--blockBorder'] = dark ? 'rgba(196, 181, 253, 0.85)' : 'rgba(126, 34, 206, 0.52)';
-    } else if (eventKind === 'HUDDLE') {
-      style['--blockFill'] = dark ? 'rgba(103, 232, 249, 0.42)' : 'rgba(6, 182, 212, 0.22)';
-      style['--blockBorder'] = dark ? 'rgba(34, 211, 238, 0.82)' : 'rgba(14, 116, 144, 0.50)';
-    }
+  if (usesMeetingTypeFill(b)) {
+    applyTypeFillVars(style, meetingTypePalette(b, dark));
   }
   if (kind === 'peerbusy') {
     const peerColor = peerColorById(b?.peerUserId);
@@ -16958,8 +17072,8 @@ const cellBlockStyle = (b) => {
     if (border) style['--blockBorder'] = border;
     style['--peerAccent'] = peerColor;
   }
-  // Multi-tenant view: fill by organization; appointment type stays in the label/stripe.
-  if (colorBlocksByTenant.value && kind !== 'peerbusy') {
+  // Multi-tenant: office/school/etc. fill by org. Meetings/supervision keep type hues (logos show tenant).
+  if (colorBlocksByTenant.value && kind !== 'peerbusy' && !usesMeetingTypeFill(b)) {
     const tenantColor = agencyBadgeColorById(b?.agencyId);
     const fillColor = dark ? lightenHex(tenantColor, 0.45) : tenantColor;
     const borderColor = dark ? lightenHex(tenantColor, 0.22) : tenantColor;
@@ -16968,11 +17082,8 @@ const cellBlockStyle = (b) => {
     if (fill) style['--blockFill'] = fill;
     if (border) style['--blockBorder'] = border;
     style['--blockTypeStripe'] = officeKindFillMap[kind]?.border
-      || (kind === 'supv' ? (dark ? 'rgba(216, 180, 254, 0.92)' : 'rgba(147, 51, 234, 0.85)')
-        : kind === 'supv-signup' ? (dark ? 'rgba(94, 234, 212, 0.92)' : 'rgba(13, 148, 136, 0.88)')
-        : kind === 'school' ? (dark ? 'rgba(147, 197, 253, 0.92)' : 'rgba(37, 99, 235, 0.85)')
-          : kind === 'sevt' ? (dark ? 'rgba(110, 231, 183, 0.92)' : 'rgba(15, 118, 110, 0.85)')
-            : (dark ? 'rgba(203, 213, 225, 0.85)' : 'rgba(100, 116, 139, 0.75)'));
+      || (kind === 'school' ? (dark ? 'rgba(147, 197, 253, 0.92)' : 'rgba(37, 99, 235, 0.85)')
+        : (dark ? 'rgba(203, 213, 225, 0.85)' : 'rgba(100, 116, 139, 0.75)'));
   }
   // Continuous appointment: top/height % of the start cell (height may exceed 100%).
   if (b?.timedSlice && Number.isFinite(b.timedSlice.topPct) && Number.isFinite(b.timedSlice.heightPct)) {
@@ -19066,6 +19177,7 @@ const submitRequest = async () => {
       for (const occYmd of dates) {
         const startAt = `${String(occYmd).slice(0, 10)}T${pad2(h)}:${pad2(startMinute)}:00`;
         const endAt = `${String(occYmd).slice(0, 10)}T${pad2(endH)}:${pad2(endMinute)}:00`;
+        const supervisionTimeZone = scheduleMeetingTimeZone();
         // eslint-disable-next-line no-await-in-loop
         const supvRes = await api.post('/supervision/sessions', {
           agencyId: effectiveAgencyId.value,
@@ -19082,6 +19194,7 @@ const submitRequest = async () => {
           inviteAudienceGroupSupport: sessionType === 'group' ? inviteAudienceGroupSupport : false,
           startAt,
           endAt,
+          timeZone: supervisionTimeZone,
           notes: requestNotes.value || '',
           createMeetLink: !!editorSupervisionIsVirtual.value && !!createSupervisionMeetLink.value,
           modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
@@ -19108,10 +19221,22 @@ const submitRequest = async () => {
         }
       }
       if (createdSessionIds.length && createAgendaDraftItems.value.length) {
+        const items = [...createAgendaDraftItems.value];
         for (const sessionId of createdSessionIds) {
           // eslint-disable-next-line no-await-in-loop
-          await postAgendaItemsForNewMeeting('supervision_session', sessionId);
+          await postAgendaItemsForNewMeeting('supervision_session', sessionId, items);
         }
+        createAgendaDraftItems.value = [];
+      }
+      if (createdSessionIds.length && (createGoalDraftItems.value.length || createActionDraftItems.value.length)) {
+        const goals = [...(createGoalDraftItems.value || [])];
+        const actions = [...(createActionDraftItems.value || [])];
+        for (const sessionId of createdSessionIds) {
+          // eslint-disable-next-line no-await-in-loop
+          await postSupervisionWorkspaceDraft(sessionId, { goals, actionItems: actions });
+        }
+        createGoalDraftItems.value = [];
+        createActionDraftItems.value = [];
       }
       forceRefreshSummary = true;
       invalidateScheduleSummaryCacheForUser(props.userId);
@@ -19722,15 +19847,21 @@ const supvAppVideoRoleLabel = ref('');
 const supvAppVideoProfilePhotoUrl = ref('');
 const supvAppVideoJoinToken = ref('');
 const supvAppVideoSessionType = ref('individual');
+const supvAppVideoHostPresent = ref(false);
+const supvAppVideoHostRoleLabel = ref('Supervisor');
+const supvAppVideoHostStatusLabel = ref('');
 const supvAppVideoError = ref('');
 const supvAppVideoLoading = ref(false);
 let supvAppVideoAdmissionPoll = null;
+let supvAppVideoPresencePoll = null;
 
 const clearSupvMeetPolling = () => {
   if (supvMeetPollTimer.value) {
     clearInterval(supvMeetPollTimer.value);
     supvMeetPollTimer.value = null;
   }
+  stopSupvAppVideoAdmissionPoll();
+  stopSupvAppVideoPresenceHeartbeat();
 };
 
 const joinPromptNowMs = ref(Date.now());
@@ -19822,6 +19953,38 @@ const applySupvAppVideoTokenPayload = (data, sid) => {
   supvAppVideoSessionType.value = String(data.sessionType || data.session_type || 'individual').toLowerCase();
 };
 
+const startSupvAppVideoPresenceHeartbeat = (sid) => {
+  stopSupvAppVideoPresenceHeartbeat();
+  const identity = String(supvAppVideoJoinIdentity.value || '').trim();
+  if (!sid || !identity) return;
+  const tick = async () => {
+    if (!showSupvAppVideoModal.value) {
+      stopSupvAppVideoPresenceHeartbeat();
+      return;
+    }
+    try {
+      await api.post(
+        `/supervision/sessions/${encodeURIComponent(sid)}/join-presence`,
+        {
+          identity,
+          action: 'heartbeat',
+          displayName: supvAppVideoDisplayName.value || undefined
+        },
+        { skipGlobalLoading: true, skipAuthRedirect: true }
+      );
+    } catch { /* best-effort */ }
+  };
+  void tick();
+  supvAppVideoPresencePoll = setInterval(tick, 10000);
+};
+
+const stopSupvAppVideoPresenceHeartbeat = () => {
+  if (supvAppVideoPresencePoll) {
+    clearInterval(supvAppVideoPresencePoll);
+    supvAppVideoPresencePoll = null;
+  }
+};
+
 const startSupvAppVideoAdmissionPoll = (sid) => {
   stopSupvAppVideoAdmissionPoll();
   if (!sid || supvAppVideoIsSupervisor.value || supvAppVideoRoomMode.value !== 'lobby') return;
@@ -19836,9 +19999,15 @@ const startSupvAppVideoAdmissionPoll = (sid) => {
         skipAuthRedirect: true
       });
       const data = resp?.data || {};
+      if (Object.prototype.hasOwnProperty.call(data, 'hostPresent')) {
+        supvAppVideoHostPresent.value = !!data.hostPresent;
+      }
+      if (data.hostRoleLabel) supvAppVideoHostRoleLabel.value = String(data.hostRoleLabel);
+      if (data.hostStatusLabel) supvAppVideoHostStatusLabel.value = String(data.hostStatusLabel);
       if (data.admitted && data.token) {
         applySupvAppVideoTokenPayload(data, sid);
         stopSupvAppVideoAdmissionPoll();
+        startSupvAppVideoPresenceHeartbeat(sid);
       }
     } catch {
       /* retry */
@@ -19877,6 +20046,12 @@ const startAppVideoMeetingFromGrid = async (session) => {
       session?.joinToken || session?.join_token || data.joinToken || data.join_token || ''
     ).trim();
     showSupvAppVideoModal.value = true;
+    startSupvAppVideoPresenceHeartbeat(sid);
+    if (Object.prototype.hasOwnProperty.call(data, 'hostPresent')) {
+      supvAppVideoHostPresent.value = !!data.hostPresent;
+    }
+    if (data.hostRoleLabel) supvAppVideoHostRoleLabel.value = String(data.hostRoleLabel);
+    if (data.hostStatusLabel) supvAppVideoHostStatusLabel.value = String(data.hostStatusLabel);
     if (supvAppVideoRoomMode.value === 'lobby') startSupvAppVideoAdmissionPoll(sid);
   } catch (e) {
     supvAppVideoError.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room.';
@@ -19887,6 +20062,7 @@ const startAppVideoMeetingFromGrid = async (session) => {
 
 const closeSupvAppVideoModal = () => {
   stopSupvAppVideoAdmissionPoll();
+  stopSupvAppVideoPresenceHeartbeat();
   if (supvAppVideoSessionId.value) {
     void logSupvMeetingLifecycle({ sessionId: supvAppVideoSessionId.value, eventType: 'closed' });
   }
@@ -19908,6 +20084,9 @@ const closeSupvAppVideoModal = () => {
   supvAppVideoProfilePhotoUrl.value = '';
   supvAppVideoJoinToken.value = '';
   supvAppVideoSessionType.value = 'individual';
+  supvAppVideoHostPresent.value = false;
+  supvAppVideoHostRoleLabel.value = 'Supervisor';
+  supvAppVideoHostStatusLabel.value = '';
 };
 
 const startTrackedSupvMeetForSession = async (session) => {
@@ -20494,6 +20673,7 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
     await api.patch(`/supervision/sessions/${id}`, {
       startAt,
       endAt,
+      timeZone: scheduleMeetingTimeZone(),
       notes: supvNotes.value || '',
       ...(scope ? { scope } : {})
     });
@@ -20773,6 +20953,7 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
       await api.patch(`/supervision/sessions/${draft.eventId}`, {
         startAt: draft.newStartAt,
         endAt: draft.newEndAt,
+        timeZone: scheduleMeetingTimeZone(),
         ...(scope ? { scope } : {})
       }, { skipGlobalLoading: true });
     } else {
@@ -24426,7 +24607,19 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border: 1px solid rgba(234, 179, 8, 0.45);
   white-space: nowrap;
 }
-.cell-block-supv { background: var(--blockFill, rgba(216, 180, 254, 0.42)); border-color: var(--blockBorder, rgba(147, 51, 234, 0.22)); }
+.cell-block-supv {
+  background: var(--blockFill, rgba(216, 180, 254, 0.42));
+  border-color: var(--blockBorder, rgba(147, 51, 234, 0.22));
+  color: var(--blockText, rgba(76, 29, 149, 0.98));
+  box-shadow: inset 4px 0 0 var(--blockTypeStripe, rgba(124, 58, 237, 0.90));
+}
+.cell-block-supv-signup {
+  background: var(--blockFill, rgba(20, 184, 166, 0.28));
+  border-color: var(--blockBorder, rgba(13, 148, 136, 0.78));
+  border-style: var(--blockBorderStyle, dashed);
+  color: var(--blockText, rgba(19, 78, 74, 0.98));
+  box-shadow: inset 4px 0 0 var(--blockTypeStripe, rgba(13, 148, 136, 0.92));
+}
 .cell-block-oa { background: var(--blockFill, rgba(191, 219, 254, 0.55)); border-color: var(--blockBorder, rgba(59, 130, 246, 0.2)); }
 .cell-block-office {
   flex-direction: row;
@@ -24634,7 +24827,14 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .peer-activity-title { font-weight: 700; font-size: 13px; }
 .peer-activity-body { min-width: 0; }
 .cell-block-gevt { background: rgba(191, 219, 254, 0.45); border-color: rgba(59, 130, 246, 0.2); cursor: pointer; }
-.cell-block-sevt { background: var(--blockFill, rgba(167, 243, 208, 0.55)); border-color: var(--blockBorder, rgba(16, 185, 129, 0.22)); color: rgba(6, 95, 70, 0.95); cursor: pointer; }
+.cell-block-sevt {
+  background: var(--blockFill, rgba(167, 243, 208, 0.55));
+  border-color: var(--blockBorder, rgba(16, 185, 129, 0.22));
+  border-style: var(--blockBorderStyle, solid);
+  color: var(--blockText, rgba(6, 95, 70, 0.95));
+  box-shadow: inset 4px 0 0 var(--blockTypeStripe, rgba(5, 150, 105, 0.88));
+  cursor: pointer;
+}
 .cell-block-sevt--fall-preslot {
   background: var(--blockFill, rgba(148, 163, 184, 0.14));
   border-color: var(--blockBorder, rgba(100, 116, 139, 0.72));

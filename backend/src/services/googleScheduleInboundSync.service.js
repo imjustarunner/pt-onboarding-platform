@@ -9,9 +9,10 @@ import User from '../models/User.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import GoogleCalendarService from './googleCalendar.service.js';
-import { toMysqlUtcDateTime } from '../utils/officeEventDateTime.util.js';
+import { toMysqlUtcDateTime, utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 
 const MEETING_KINDS = new Set(['TEAM_MEETING', 'HUDDLE']);
+const DEFAULT_SUPERVISION_WALL_TZ = 'America/Denver';
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -37,12 +38,24 @@ function googleTimedToMysqlUtc(value) {
 }
 
 /**
- * RFC3339 → wall `YYYY-MM-DD HH:MM:SS` (digits as Google shows them).
+ * Google timed value → wall `YYYY-MM-DD HH:MM:SS` in the session IANA zone.
+ * Prefer absolute→zoned conversion so `…Z` / offset forms do not strip the wrong digits.
  * Used for supervision_sessions which store wall clock, not UTC.
  */
-function googleTimedToMysqlWall(value) {
+function googleTimedToMysqlWall(value, timeZone = DEFAULT_SUPERVISION_WALL_TZ) {
   const raw = String(value || '').trim();
   if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const tz = String(timeZone || DEFAULT_SUPERVISION_WALL_TZ).trim() || DEFAULT_SUPERVISION_WALL_TZ;
+  // Absolute RFC3339 (Z or numeric offset): convert to wall in session TZ.
+  // Do not treat bare "YYYY-MM-DDTHH:mm:ss" as absolute — that is already wall digits.
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
+    const d = new Date(raw);
+    if (Number.isFinite(d.getTime())) {
+      const wall = utcToZonedMysqlWall(d, tz);
+      if (wall) return wall;
+    }
+  }
   const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(raw);
   if (!m) return null;
   return `${m[1]} ${m[2]}:${m[3]}:${pad2(Number(m[4] || 0))}`;

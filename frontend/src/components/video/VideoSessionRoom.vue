@@ -278,8 +278,8 @@
           v-if="voiceIsolationStatus"
           class="vsr__voice-iso"
           :class="{
-            'vsr__voice-iso--on': voiceIsolationStatus === 'on' || voiceIsolationStatus === 'processing',
-            'vsr__voice-iso--off': voiceIsolationStatus === 'unavailable'
+            'vsr__voice-iso--on': voiceIsolationStatus === 'on' || voiceIsolationStatus === 'processing' || voiceIsolationStatus === 'browser',
+            'vsr__voice-iso--off': voiceIsolationStatus === 'unavailable' || voiceIsolationStatus === 'unsupported'
           }"
           :title="voiceIsolationTitle"
         >
@@ -533,8 +533,9 @@ const canMuteOthers = computed(() => {
 const voiceIsolationLabel = computed(() => {
   if (voiceIsolationStatus.value === 'on') return 'Voice isolation on';
   if (voiceIsolationStatus.value === 'processing') return 'Enhancing mic…';
-  if (voiceIsolationStatus.value === 'unavailable') return 'Basic mic only';
-  if (voiceIsolationStatus.value === 'unsupported') return 'Isolation N/A';
+  if (voiceIsolationStatus.value === 'browser') return 'Noise reduction on';
+  if (voiceIsolationStatus.value === 'unavailable') return 'Standard mic';
+  if (voiceIsolationStatus.value === 'unsupported') return 'Mic processing N/A';
   return '';
 });
 const voiceIsolationTitle = computed(() => {
@@ -544,11 +545,14 @@ const voiceIsolationTitle = computed(() => {
   if (voiceIsolationStatus.value === 'processing') {
     return 'Starting advanced noise suppression…';
   }
+  if (voiceIsolationStatus.value === 'browser') {
+    return 'Your browser or device is applying noise reduction / voice isolation (for example Chrome or iOS Voice Isolation). Echo cancellation is also active.';
+  }
   if (voiceIsolationStatus.value === 'unavailable') {
-    return 'Advanced voice isolation needs Chrome, Edge, or Opera on desktop. Browser echo cancellation and noise suppression are still active.';
+    return 'Vonage advanced isolation is not available here. Your browser may still apply echo cancellation or system voice isolation separately.';
   }
   if (voiceIsolationStatus.value === 'unsupported') {
-    return 'This browser cannot run Vonage audio processing. Use Chrome or Edge for voice isolation.';
+    return 'This browser cannot report mic processing. Your system may still apply voice isolation.';
   }
   return '';
 });
@@ -561,6 +565,17 @@ function vonageSupportsAdvancedNoiseSuppression(OT) {
   }
 }
 
+function trackHasBrowserNoiseReduction(track) {
+  if (!track || typeof track.getSettings !== 'function') return false;
+  try {
+    const settings = track.getSettings() || {};
+    if (settings.noiseSuppression === true) return true;
+    const vi = String(settings.voiceIsolation || '').toLowerCase();
+    if (vi && vi !== 'off' && vi !== 'false' && vi !== '0') return true;
+  } catch { /* ignore */ }
+  return false;
+}
+
 function refreshAudioEnhancementStatus(publisher) {
   try {
     const filter = publisher?.getAudioFilter?.();
@@ -569,8 +584,22 @@ function refreshAudioEnhancementStatus(publisher) {
       return;
     }
   } catch { /* ignore */ }
-  if (voiceIsolationStatus.value === 'on') {
-    voiceIsolationStatus.value = 'unavailable';
+  try {
+    const stream = publisher?.getAudioSource?.() || publisher?.stream || null;
+    const track = stream?.getAudioTracks?.()?.[0]
+      || (typeof stream?.getTracks === 'function'
+        ? stream.getTracks().find((t) => t?.kind === 'audio')
+        : null);
+    if (trackHasBrowserNoiseReduction(track)) {
+      voiceIsolationStatus.value = 'browser';
+      return;
+    }
+  } catch { /* ignore */ }
+  // Publisher was created with browser noiseSuppression when Vonage ANS is unavailable.
+  if (voiceIsolationStatus.value === 'on' || voiceIsolationStatus.value === 'processing') {
+    voiceIsolationStatus.value = 'browser';
+  } else if (!voiceIsolationStatus.value) {
+    voiceIsolationStatus.value = 'browser';
   }
 }
 
@@ -1408,7 +1437,7 @@ async function connect() {
     const publisherMountEl = localMediaStageEl.value || localPublisherHostEl.value;
     if (publisherMountEl) publisherMountEl.innerHTML = '';
     const useVonageNoiseSuppression = vonageSupportsAdvancedNoiseSuppression(OT);
-    voiceIsolationStatus.value = useVonageNoiseSuppression ? 'processing' : 'unavailable';
+    voiceIsolationStatus.value = useVonageNoiseSuppression ? 'processing' : 'browser';
     const publisherOpts = {
       insertMode: 'append',
       width: '100%',
@@ -1442,9 +1471,9 @@ async function connect() {
     });
     if (useVonageNoiseSuppression) {
       const applied = await ensureAdvancedNoiseSuppression(publisher);
-      voiceIsolationStatus.value = applied ? 'on' : 'unavailable';
+      voiceIsolationStatus.value = applied ? 'on' : 'browser';
     } else {
-      voiceIsolationStatus.value = 'unavailable';
+      voiceIsolationStatus.value = 'browser';
     }
     refreshAudioEnhancementStatus(publisher);
     await syncLocalVideoPresentation();

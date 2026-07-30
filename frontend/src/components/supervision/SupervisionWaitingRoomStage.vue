@@ -6,8 +6,8 @@
     <div class="swr__shade" aria-hidden="true" />
     <div v-if="!pip" class="swr__overlay">
       <p class="swr__kicker">Waiting Room</p>
-      <h2>Welcome to the Waiting Room</h2>
-      <p class="swr__sub">We’re here for you. Your supervisor will admit you shortly.</p>
+      <h2>{{ meetingTitle || 'Welcome to the Waiting Room' }}</h2>
+      <p class="swr__sub">{{ welcomeCopy }}</p>
       <div class="swr__cards">
         <div class="swr__card">
           <strong>You are in the waiting room</strong>
@@ -16,9 +16,21 @@
         <div class="swr__card swr__card--status">
           <div class="swr__status-row">
             <span>Waiting Room Status</span>
-            <span class="swr__pill">Standing by</span>
+            <span
+              class="swr__pill"
+              :class="hostPresent ? 'swr__pill--here' : 'swr__pill--waiting'"
+            >{{ statusPill }}</span>
           </div>
-          <p class="swr__status-copy">You’ll join the live session as soon as you’re admitted.</p>
+          <p class="swr__status-copy">{{ hostStatusCopy }}</p>
+        </div>
+        <div v-if="prepItems.length" class="swr__card swr__card--prep">
+          <strong>Session plan</strong>
+          <ul class="swr__prep-list">
+            <li v-for="item in prepItems" :key="item.id">
+              <span class="swr__prep-tag">{{ item.kind }}</span>
+              <span>{{ item.text }}</span>
+            </li>
+          </ul>
         </div>
       </div>
       <p class="swr__hint">Tap your video preview to prioritize your camera.</p>
@@ -39,10 +51,61 @@
 </template>
 
 <script setup>
-defineProps({
-  pip: { type: Boolean, default: false }
+import { computed } from 'vue';
+
+const props = defineProps({
+  pip: { type: Boolean, default: false },
+  meetingTitle: { type: String, default: '' },
+  hostPresent: { type: Boolean, default: false },
+  hostRoleLabel: { type: String, default: 'Host' },
+  hostStatusLabel: { type: String, default: '' },
+  goals: { type: Array, default: () => [] },
+  agenda: { type: Array, default: () => [] },
+  actionItems: { type: Array, default: () => [] }
 });
 defineEmits(['show-waiting-room']);
+
+const roleWord = computed(() => {
+  const raw = String(props.hostRoleLabel || 'Host').trim() || 'Host';
+  return raw.toLowerCase();
+});
+
+const welcomeCopy = computed(() => (
+  `We’re here for you. Your ${roleWord.value} will admit you shortly.`
+));
+
+const statusPill = computed(() => (
+  props.hostPresent ? `${props.hostRoleLabel || 'Host'} here` : 'Standing by'
+));
+
+const hostStatusCopy = computed(() => {
+  const custom = String(props.hostStatusLabel || '').trim();
+  if (custom) return custom;
+  if (props.hostPresent) {
+    return `Your ${roleWord.value} is in the room. You’ll join as soon as you’re admitted.`;
+  }
+  return `Your ${roleWord.value} hasn’t joined yet. You’ll join the live session as soon as you’re admitted.`;
+});
+
+const prepItems = computed(() => {
+  const out = [];
+  for (const g of props.goals || []) {
+    const text = String(g?.text || '').trim();
+    if (!text) continue;
+    out.push({ id: `goal-${g.id || text}`, kind: 'Goal', text });
+  }
+  for (const a of props.agenda || []) {
+    const text = String(a?.text || a?.title || '').trim();
+    if (!text) continue;
+    out.push({ id: `agenda-${a.id || text}`, kind: 'Agenda', text });
+  }
+  for (const a of props.actionItems || []) {
+    const text = String(a?.text || '').trim();
+    if (!text) continue;
+    out.push({ id: `action-${a.id || text}`, kind: 'Action', text });
+  }
+  return out.slice(0, 10);
+});
 </script>
 
 <style scoped>
@@ -50,6 +113,7 @@ defineEmits(['show-waiting-room']);
   position: absolute;
   inset: 0;
   z-index: 1;
+  font-family: "Segoe UI", "Helvetica Neue", ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 .swr--pip {
   inset: auto;
@@ -57,7 +121,7 @@ defineEmits(['show-waiting-room']);
   bottom: 72px;
   width: min(34%, 220px);
   height: auto;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 1;
   border-radius: 12px;
   overflow: hidden;
   z-index: 4;
@@ -84,7 +148,7 @@ defineEmits(['show-waiting-room']);
   flex-direction: column;
   justify-content: flex-end;
   padding: clamp(18px, 4vw, 36px);
-  max-width: 560px;
+  max-width: min(560px, calc(100% - min(38%, 280px) - 28px));
 }
 .swr__kicker {
   margin: 0 0 6px;
@@ -97,7 +161,9 @@ defineEmits(['show-waiting-room']);
 .swr__overlay h2 {
   margin: 0 0 8px;
   font-size: clamp(1.45rem, 3vw, 2rem);
+  font-weight: 700;
   line-height: 1.15;
+  letter-spacing: -0.02em;
   color: #f4faf6;
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.35);
 }
@@ -105,6 +171,7 @@ defineEmits(['show-waiting-room']);
   margin: 0 0 16px;
   color: rgba(236, 245, 238, 0.92);
   font-size: 0.98rem;
+  line-height: 1.4;
   max-width: 36ch;
 }
 .swr__cards {
@@ -122,7 +189,7 @@ defineEmits(['show-waiting-room']);
   gap: 4px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
-.swr__card strong { font-size: 0.98rem; }
+.swr__card strong { font-size: 0.98rem; font-weight: 700; }
 .swr__card span,
 .swr__status-copy {
   margin: 0;
@@ -139,12 +206,46 @@ defineEmits(['show-waiting-room']);
   font-size: 0.9rem;
 }
 .swr__pill {
-  background: #dcfce7;
-  color: #166534;
   border-radius: 999px;
   padding: 3px 10px;
   font-size: 0.75rem;
   font-weight: 700;
+  white-space: nowrap;
+}
+.swr__pill--waiting {
+  background: #dcfce7;
+  color: #166534;
+}
+.swr__pill--here {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.swr__prep-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.swr__prep-list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  color: #134e3a;
+}
+.swr__prep-tag {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #166534;
+  background: #dcfce7;
+  border-radius: 999px;
+  padding: 2px 7px;
+  margin-top: 1px;
 }
 .swr__hint {
   margin: 0;
@@ -178,14 +279,10 @@ defineEmits(['show-waiting-room']);
   font-weight: 700;
 }
 @media (max-width: 900px) {
-  .swr--pip {
-    width: min(46%, 180px);
-    right: 10px;
-    bottom: 10px;
-  }
   .swr__overlay {
     max-width: none;
     padding: 14px;
+    padding-right: min(46%, 200px);
   }
   .swr__overlay h2 { font-size: 1.35rem; }
 }

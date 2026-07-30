@@ -50,6 +50,12 @@
       :local-role-label="localRoleLabel"
       :local-profile-photo-url="localProfilePhotoUrl"
       :join-token="isOpaqueJoinRef ? String(sessionId || '') : ''"
+      :host-present="hostPresent"
+      :host-role-label="hostRoleLabel"
+      :host-status-label="hostStatusLabel"
+      :waiting-goals="waitingGoals"
+      :waiting-agenda="waitingAgenda"
+      :waiting-action-items="waitingActionItems"
       @leave="onLeaveRequest"
       @connected="onVideoConnected"
       @meeting-ended="onMeetingEnded"
@@ -95,6 +101,12 @@ const joinIdentity = ref('');
 const localDisplayName = ref('');
 const localRoleLabel = ref('');
 const localProfilePhotoUrl = ref('');
+const hostPresent = ref(false);
+const hostRoleLabel = ref('Supervisor');
+const hostStatusLabel = ref('');
+const waitingGoals = ref([]);
+const waitingAgenda = ref([]);
+const waitingActionItems = ref([]);
 const isGuestJoin = ref(false);
 const joinAttemptedForPath = ref('');
 const intentionalLeave = ref(false);
@@ -153,6 +165,14 @@ function applyTokenPayload(data) {
   localRoleLabel.value = (roleFromApi && roleFromApi.toLowerCase() !== 'guest')
     ? roleFromApi
     : 'Supervisee';
+  if (Object.prototype.hasOwnProperty.call(data, 'hostPresent')) {
+    hostPresent.value = !!data.hostPresent;
+  }
+  if (data.hostRoleLabel) hostRoleLabel.value = String(data.hostRoleLabel);
+  if (data.hostStatusLabel) hostStatusLabel.value = String(data.hostStatusLabel);
+  if (Array.isArray(data.goals)) waitingGoals.value = data.goals;
+  if (Array.isArray(data.agenda)) waitingAgenda.value = data.agenda;
+  if (Array.isArray(data.actionItems)) waitingActionItems.value = data.actionItems;
 }
 
 function stopAdmissionPolling() {
@@ -202,9 +222,19 @@ async function pollAdmissionStatus() {
       void finishLeave({ variant: 'host-ended', canRejoin: false });
       return;
     }
+    if (Object.prototype.hasOwnProperty.call(data, 'hostPresent')) {
+      hostPresent.value = !!data.hostPresent;
+    }
+    if (data.hostRoleLabel) hostRoleLabel.value = String(data.hostRoleLabel);
+    if (data.hostStatusLabel) hostStatusLabel.value = String(data.hostStatusLabel);
+    if (Array.isArray(data.goals)) waitingGoals.value = data.goals;
+    if (Array.isArray(data.agenda)) waitingAgenda.value = data.agenda;
+    if (Array.isArray(data.actionItems)) waitingActionItems.value = data.actionItems;
+    if (data.sessionTitle && !sessionTitle.value) sessionTitle.value = String(data.sessionTitle);
     if (data.admitted && data.token) {
       applyTokenPayload(data);
       stopAdmissionPolling();
+      // Keep heartbeat running (already started in lobby).
       startPresenceHeartbeat();
     }
   } catch {
@@ -221,7 +251,11 @@ function startPresenceHeartbeat() {
     try {
       await api.post(
         `/supervision/sessions/${encodeURIComponent(sid)}/join-presence`,
-        { identity, action: 'heartbeat' },
+        {
+          identity,
+          action: 'heartbeat',
+          displayName: localDisplayName.value || undefined
+        },
         { skipAuthRedirect: true, skipGlobalLoading: true }
       );
     } catch {
@@ -229,7 +263,8 @@ function startPresenceHeartbeat() {
     }
   };
   void tick();
-  presencePollInterval.value = setInterval(tick, 15000);
+  // Faster than stale window so hosts keep seeing lobby waiters.
+  presencePollInterval.value = setInterval(tick, 10000);
 }
 
 function presenceLeaveUrl(sid) {
@@ -398,8 +433,8 @@ async function fetchGuestToken() {
     skipAuthRedirect: true
   });
   applyTokenPayload(resp?.data || {});
+  startPresenceHeartbeat();
   if (isInLobby.value) startAdmissionPolling();
-  else startPresenceHeartbeat();
 }
 
 async function fetchTokenAndJoin() {
@@ -411,8 +446,9 @@ async function fetchTokenAndJoin() {
       skipAuthRedirect: true
     });
     applyTokenPayload(resp?.data || {});
+    // Heartbeat in lobby too — otherwise waiters vanish from the host list after ~25s.
+    startPresenceHeartbeat();
     if (isInLobby.value) startAdmissionPolling();
-    else startPresenceHeartbeat();
     return;
   } catch (e) {
     const status = Number(e?.response?.status || 0);
