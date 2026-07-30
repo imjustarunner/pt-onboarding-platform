@@ -538,3 +538,73 @@ export function zonedDatetimeLocalToIso(value, timezone = SCHOOL_EVENT_FALLBACK_
   });
   return Number.isFinite(utc.getTime()) ? utc.toISOString() : null;
 }
+
+/** Fallback when agency/office timezone is unknown. */
+export const SCHEDULE_WALL_FALLBACK_TIMEZONE = 'America/Denver';
+
+/** Normalize a stored wall-clock value to `YYYY-MM-DD HH:MM:SS`. */
+export function normalizeMysqlWallDatetime(value) {
+  if (!value) return '';
+  const raw = String(value).trim().replace('T', ' ');
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})[ ](\d{2}:\d{2}:\d{2})/);
+  if (m) return `${m[1]} ${m[2]}`;
+  return raw.slice(0, 19);
+}
+
+/** Current wall-clock time as MySQL DATETIME in an IANA timezone. */
+export function wallNowMysql(timeZone = SCHEDULE_WALL_FALLBACK_TIMEZONE, now = new Date()) {
+  const tz = String(timeZone || SCHEDULE_WALL_FALLBACK_TIMEZONE).trim() || SCHEDULE_WALL_FALLBACK_TIMEZONE;
+  const when = now instanceof Date ? now : new Date(now);
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).formatToParts(when);
+    const get = (type) => parts.find((p) => p.type === type)?.value || '00';
+    let hour = get('hour');
+    if (hour === '24') hour = '00';
+    return `${get('year')}-${get('month')}-${get('day')} ${hour}:${get('minute')}:${get('second')}`;
+  } catch {
+    const d = when;
+    const pad2 = (n) => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+  }
+}
+
+/** Wall-clock MySQL datetime in zone → UTC Date for countdown math. */
+export function mysqlWallDatetimeToUtcDate(wallMysql, timeZone = SCHEDULE_WALL_FALLBACK_TIMEZONE) {
+  const norm = normalizeMysqlWallDatetime(wallMysql);
+  const m = norm.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const utc = zonedWallTimeToUtcClient({
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour: Number(m[4]),
+    minute: Number(m[5]),
+    second: Number(m[6]),
+    timeZone
+  });
+  return Number.isFinite(utc.getTime()) ? utc : null;
+}
+
+/** True when signup is still open (closesAt is agency wall clock). */
+export function isSignupWallOpen(closesAtMysql, timeZone = SCHEDULE_WALL_FALLBACK_TIMEZONE, nowMs = Date.now()) {
+  const closes = mysqlWallDatetimeToUtcDate(closesAtMysql, timeZone);
+  if (!closes) return false;
+  return nowMs < closes.getTime();
+}
+
+/** Milliseconds until a wall-clock close time in the given zone. */
+export function msUntilMysqlWallDatetime(closesAtMysql, timeZone = SCHEDULE_WALL_FALLBACK_TIMEZONE, nowMs = Date.now()) {
+  const closes = mysqlWallDatetimeToUtcDate(closesAtMysql, timeZone);
+  if (!closes) return 0;
+  return closes.getTime() - nowMs;
+}
+

@@ -9,7 +9,9 @@ const props = defineProps({
   closesAt: { type: [String, Date, Number], default: null },
   prefix: { type: String, default: 'Sign up by' },
   /** duration = "2h 47m"; clock = "2:47" (hours:minutes left). */
-  format: { type: String, default: 'duration' }
+  format: { type: String, default: 'duration' },
+  /** Kept for API compat; closesAt is UTC ISO after supervision UTC migration. */
+  timezone: { type: String, default: '' }
 });
 
 const nowMs = ref(Date.now());
@@ -30,14 +32,23 @@ function parseClosesAt(raw) {
   if (raw instanceof Date) return Number.isNaN(raw.getTime()) ? null : raw;
   const text = String(raw).trim();
   if (!text) return null;
-  const d = new Date(text.includes('T') ? text : text.replace(' ', 'T'));
+  // Naked MySQL DATETIME → treat as UTC (storage contract).
+  const normalized = (/^\d{4}-\d{2}-\d{2}[ ]\d{2}:\d{2}:\d{2}$/.test(text))
+    ? text.replace(' ', 'T') + 'Z'
+    : (text.includes('T') ? text : text.replace(' ', 'T'));
+  const d = new Date(normalized);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-const label = computed(() => {
+const remainingMs = computed(() => {
   const closes = parseClosesAt(props.closesAt);
-  if (!closes) return '';
-  const diff = closes.getTime() - nowMs.value;
+  if (!closes) return 0;
+  return closes.getTime() - nowMs.value;
+});
+
+const label = computed(() => {
+  const diff = remainingMs.value;
+  if (!props.closesAt) return '';
   if (diff <= 0) return 'Signup closed';
   const totalMins = Math.floor(diff / 60000);
   const hrs = Math.floor(totalMins / 60);
@@ -50,12 +61,7 @@ const label = computed(() => {
 });
 
 const closed = computed(() => label.value === 'Signup closed');
-const urgent = computed(() => {
-  const closes = parseClosesAt(props.closesAt);
-  if (!closes) return false;
-  const diff = closes.getTime() - nowMs.value;
-  return diff > 0 && diff <= (2 * 60 * 60 * 1000);
-});
+const urgent = computed(() => remainingMs.value > 0 && remainingMs.value <= (2 * 60 * 60 * 1000));
 </script>
 
 <style scoped>

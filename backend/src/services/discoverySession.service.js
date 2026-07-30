@@ -6,15 +6,24 @@ import pool from '../config/database.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import { createOrGetRoomByUniqueName, createAccessTokenAsync, isVideoConfigured } from './video.service.js';
+import {
+  dateToMysqlUtcDateTime,
+  wallMysqlToUtcMysql,
+  normalizeWallMysqlDatetime,
+  utcMysqlToIso,
+  DEFAULT_SCHEDULE_TZ
+} from '../utils/zonedWallTime.util.js';
 const FRONTEND_URL = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
 
-function toSqlDatetimeSafe(value) {
+/** Store discovery booked times as UTC MySQL DATETIME. */
+function toSqlDatetimeSafe(value, timeZone = DEFAULT_SCHEDULE_TZ) {
   if (!value) return null;
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2} /.test(value)) return value;
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  if (value instanceof Date) return dateToMysqlUtcDateTime(value);
+  const s = String(value).trim();
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) return dateToMysqlUtcDateTime(new Date(s));
+  const wall = normalizeWallMysqlDatetime(s);
+  if (!wall) return null;
+  return wallMysqlToUtcMysql(wall, timeZone) || wall;
 }
 
 function buildDiscoveryUrl(agencySlug, accessToken) {
@@ -263,6 +272,9 @@ export async function selectDiscoveryOption({ token, optionIndex }) {
   const chosen = options[idx];
   const startAt = chosen.startAt;
   const endAt = chosen.endAt;
+  const scheduleTz = await resolveDiscoveryScheduleTimezone(session.agency_id);
+  const startUtc = toSqlDatetimeSafe(startAt, scheduleTz);
+  const endUtc = toSqlDatetimeSafe(endAt, scheduleTz);
 
   const slug = await resolveAgencySlug(session.agency_id);
   const joinUrl = buildDiscoveryUrl(slug, session.access_token);
@@ -276,15 +288,15 @@ export async function selectDiscoveryOption({ token, optionIndex }) {
     description: joinUrl
       ? `Discovery session with ${session.client_name}.\nJoin: ${joinUrl}`
       : `Discovery session with ${session.client_name}.`,
-    startAt: toSqlDatetimeSafe(startAt),
-    endAt: toSqlDatetimeSafe(endAt),
+    startAt: startUtc,
+    endAt: endUtc,
     createdByUserId: session.created_by_user_id || session.provider_id
   });
 
   const booked = await DiscoverySession.markBooked(session.id, {
     optionIndex: idx,
-    bookedStartAt: startAt,
-    bookedEndAt: endAt,
+    bookedStartAt: startUtc,
+    bookedEndAt: endUtc,
     providerScheduleEventId: event?.id || null
   });
 
@@ -363,7 +375,8 @@ export async function getDiscoveryVideoToken({ token, identityLabel = 'guest' })
     throw Object.assign(new Error('Video is not configured'), { status: 503 });
   }
 
-  const start = new Date(session.booked_start_at).getTime();
+  const startIso = utcMysqlToIso(session.booked_start_at) || session.booked_start_at;
+  const start = new Date(startIso).getTime();
   const end = new Date(session.booked_end_at).getTime();
   const now = Date.now();
   const earlyMs = 15 * 60 * 1000;

@@ -1,51 +1,10 @@
 import pool from '../config/database.js';
 import GoogleCalendarService from './googleCalendar.service.js';
-
-const DEFAULT_AGENCY_TZ = 'America/Denver';
-
-/**
- * Current wall-clock time as MySQL DATETIME in an IANA timezone.
- * Session times / signup_closes_at are stored as naive agency-local DATETIMEs.
- */
-function wallNowMysql(timeZone = DEFAULT_AGENCY_TZ) {
-  const tz = String(timeZone || DEFAULT_AGENCY_TZ).trim() || DEFAULT_AGENCY_TZ;
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    }).formatToParts(new Date());
-    const get = (type) => parts.find((p) => p.type === type)?.value || '00';
-    let hour = get('hour');
-    // Some runtimes emit "24" for midnight.
-    if (hour === '24') hour = '00';
-    return `${get('year')}-${get('month')}-${get('day')} ${hour}:${get('minute')}:${get('second')}`;
-  } catch {
-    const d = new Date();
-    const pad2 = (n) => String(n).padStart(2, '0');
-    return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
-  }
-}
-
-function closesAtMysql(value) {
-  if (!value) return '';
-  // Prefer DATE_FORMAT strings from SQL; avoid Date objects (driver TZ ambiguity).
-  const raw = String(value).trim().replace('T', ' ');
-  const m = raw.match(/^(\d{4}-\d{2}-\d{2})[ ](\d{2}:\d{2}:\d{2})/);
-  if (m) return `${m[1]} ${m[2]}`;
-  return raw.slice(0, 19);
-}
+import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 
 /**
  * Auto-cancel empty agency-signup group sessions after signup closes.
- *
- * Comparing signup_closes_at to UTC NOW() cancelled evening Mountain/Pacific sessions
- * as soon as the UTC clock passed the wall-clock close hour. Compare wall clocks instead.
+ * signup_closes_at is stored as UTC DATETIME (migration 1097).
  */
 export async function runSupervisionSignupAutoCancelTick() {
   let rows = [];
@@ -55,26 +14,24 @@ export async function runSupervisionSignupAutoCancelTick() {
               DATE_FORMAT(ss.signup_closes_at, '%Y-%m-%d %H:%i:%s') AS signup_closes_at,
               ss.google_event_id,
               ss.google_calendar_id,
-              ss.google_host_email,
-              COALESCE(NULLIF(TRIM(a.timezone), ''), ?) AS agency_timezone
+              ss.google_host_email
        FROM supervision_sessions ss
-       LEFT JOIN agencies a ON a.id = ss.agency_id
        WHERE LOWER(COALESCE(ss.enrollment_mode, 'invited')) = 'signup_only'
          AND UPPER(COALESCE(ss.status, 'SCHEDULED')) = 'SCHEDULED'
          AND COALESCE(ss.auto_cancel_if_empty, 0) = 1
          AND ss.signup_closes_at IS NOT NULL
+         AND ss.signup_closes_at <= UTC_TIMESTAMP()
          AND NOT EXISTS (
            SELECT 1
            FROM supervision_session_attendees ssa
            WHERE ssa.session_id = ss.id
              AND ssa.participant_role = 'supervisee'
              AND UPPER(COALESCE(ssa.status, '')) IN ('SIGNED_UP', 'JOINED', 'INVITED')
-         )`,
-      [DEFAULT_AGENCY_TZ]
+         )`
     );
     rows = result || [];
   } catch (e) {
-    if (!/enrollment_mode|signup_closes_at|auto_cancel_if_empty|timezone/i.test(String(e?.message || ''))) {
+    if (!/enrollment_mode|signup_closes_at|auto_cancel_if_empty/i.test(String(e?.message || ''))) {
       throw e;
     }
     console.warn('[supervision-signup-auto-cancel] skipped tick:', e?.message || e);
@@ -85,9 +42,8 @@ export async function runSupervisionSignupAutoCancelTick() {
   for (const row of rows || []) {
     const sid = Number(row?.id || 0);
     if (!sid) continue;
-    const closesAt = closesAtMysql(row?.signup_closes_at);
-    const nowWall = wallNowMysql(row?.agency_timezone || DEFAULT_AGENCY_TZ);
-    if (!closesAt || closesAt > nowWall) continue;
+    // Defensive: ensure close instant is parseable as UTC
+    if (!utcMysqlToIso(row?.signup_closes_at)) continue;
     try {
       await pool.execute(
         `UPDATE supervision_sessions

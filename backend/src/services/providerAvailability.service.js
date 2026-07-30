@@ -44,7 +44,7 @@ function dayIndex(dayOfWeek) {
 function parseMySqlDateTime(s) {
   if (s instanceof Date) {
     if (Number.isNaN(s.getTime())) return null;
-    // DATETIME is stored as wall-clock; when driver returns Date, UTC parts preserve numeric wall components.
+    // Office / slot DATETIMEs are UTC (pool +00:00); UTC getters are the instant.
     return {
       year: s.getUTCFullYear(),
       month: s.getUTCMonth() + 1,
@@ -54,7 +54,7 @@ function parseMySqlDateTime(s) {
       second: s.getUTCSeconds()
     };
   }
-  // "YYYY-MM-DD HH:MM:SS"
+  // "YYYY-MM-DD HH:MM:SS" — for office_events / slot tables these digits are UTC.
   const m = String(s || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (!m) return null;
   return {
@@ -65,6 +65,12 @@ function parseMySqlDateTime(s) {
     minute: parseInt(m[5], 10),
     second: parseInt(m[6] || '0', 10)
   };
+}
+
+/** Office event / slot availability rows store UTC — do not wall-convert again. */
+function utcPartsToDate(parts) {
+  if (!parts) return null;
+  return tzPartsToUtcDate(parts);
 }
 
 function parseTimeHHMM(s) {
@@ -278,8 +284,9 @@ export class ProviderAvailabilityService {
         const en = parseMySqlDateTime(r.end_at);
         const tzEvent = String(r.building_timezone || '').trim() || tz;
         if (!st || !en) continue;
-        const s = zonedWallTimeToUtc({ ...st, timeZone: tzEvent });
-        const e = zonedWallTimeToUtc({ ...en, timeZone: tzEvent });
+        // office_events are UTC (migration 1065) — do not treat digits as wall.
+        const s = utcPartsToDate(st);
+        const e = utcPartsToDate(en);
         if (!(e > s)) continue;
 
         // Normalize office_event state across older/newer schemas.
@@ -427,8 +434,9 @@ export class ProviderAvailabilityService {
         const en = parseMySqlDateTime(r.end_at);
         const tzEvent = String(r.building_timezone || '').trim() || tz;
         if (!st || !en) continue;
-        const s = zonedWallTimeToUtc({ ...st, timeZone: tzEvent });
-        const e = zonedWallTimeToUtc({ ...en, timeZone: tzEvent });
+        // Virtual slot availability copies office UTC times — do not wall-convert.
+        const s = utcPartsToDate(st);
+        const e = utcPartsToDate(en);
         if (!(e > s)) continue;
 
         const sessionType = String(r.session_type || 'INTAKE').toUpperCase();

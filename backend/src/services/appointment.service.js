@@ -14,18 +14,28 @@ import {
   listCommunications
 } from './appointmentReminder.service.js';
 import { scheduleSessionNotifications } from './sessionNotification.service.js';
+import {
+  dateToMysqlUtcDateTime,
+  wallMysqlToUtcMysql,
+  normalizeWallMysqlDatetime,
+  DEFAULT_SCHEDULE_TZ
+} from '../utils/zonedWallTime.util.js';
 
-function toMysqlDateTime(v) {
+/** Store appointment instants as UTC MySQL DATETIME. */
+function toMysqlDateTime(v, timeZone = DEFAULT_SCHEDULE_TZ) {
   if (!v) return null;
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())} ${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}`;
+    return dateToMysqlUtcDateTime(v);
   }
   const s = String(v).trim();
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) return s.slice(0, 19);
-  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
-  if (Number.isNaN(d.getTime())) return null;
-  return toMysqlDateTime(d);
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) {
+    return dateToMysqlUtcDateTime(new Date(s));
+  }
+  const wall = normalizeWallMysqlDatetime(s);
+  if (!wall) return null;
+  // Prefer converting wall → UTC; if already UTC digits post-migration, wallMysql still
+  // needs the correct zone — callers should pass ISO-Z after migration when possible.
+  return wallMysqlToUtcMysql(wall, timeZone) || wall;
 }
 
 function participantModeFromList(participants = []) {

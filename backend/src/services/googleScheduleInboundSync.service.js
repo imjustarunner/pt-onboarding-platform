@@ -9,14 +9,9 @@ import User from '../models/User.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import GoogleCalendarService from './googleCalendar.service.js';
-import { toMysqlUtcDateTime, utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
+import { toMysqlUtcDateTime } from '../utils/officeEventDateTime.util.js';
 
 const MEETING_KINDS = new Set(['TEAM_MEETING', 'HUDDLE']);
-const DEFAULT_SUPERVISION_WALL_TZ = 'America/Denver';
-
-function pad2(n) {
-  return String(n).padStart(2, '0');
-}
 
 /** Normalize to `YYYY-MM-DD HH:MM` for minute-level compare. */
 function minuteKey(value) {
@@ -29,36 +24,12 @@ function ymdKey(value) {
   return String(value || '').trim().slice(0, 10);
 }
 
-/** RFC3339 / Date → MySQL UTC DATETIME (for Google-synced PSE rows). */
+/** RFC3339 / Date → MySQL UTC DATETIME. */
 function googleTimedToMysqlUtc(value) {
   const raw = String(value || '').trim();
   if (!raw) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null; // all-day date
   return toMysqlUtcDateTime(raw);
-}
-
-/**
- * Google timed value → wall `YYYY-MM-DD HH:MM:SS` in the session IANA zone.
- * Prefer absolute→zoned conversion so `…Z` / offset forms do not strip the wrong digits.
- * Used for supervision_sessions which store wall clock, not UTC.
- */
-function googleTimedToMysqlWall(value, timeZone = DEFAULT_SUPERVISION_WALL_TZ) {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
-  const tz = String(timeZone || DEFAULT_SUPERVISION_WALL_TZ).trim() || DEFAULT_SUPERVISION_WALL_TZ;
-  // Absolute RFC3339 (Z or numeric offset): convert to wall in session TZ.
-  // Do not treat bare "YYYY-MM-DDTHH:mm:ss" as absolute — that is already wall digits.
-  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
-    const d = new Date(raw);
-    if (Number.isFinite(d.getTime())) {
-      const wall = utcToZonedMysqlWall(d, tz);
-      if (wall) return wall;
-    }
-  }
-  const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(raw);
-  if (!m) return null;
-  return `${m[1]} ${m[2]}:${m[3]}:${pad2(Number(m[4] || 0))}`;
 }
 
 function isGoogleAllDay(startAt, endAt) {
@@ -372,7 +343,7 @@ export async function reconcileGoogleLinkedSchedule({
     return rest;
   });
 
-  // --- supervision_sessions (wall-clock storage) ---
+  // --- supervision_sessions (UTC storage) ---
   const supvTargets = nextSupervision
     .map((s, idx) => ({ s, idx }))
     .filter(({ s }) => {
@@ -402,30 +373,30 @@ export async function reconcileGoogleLinkedSchedule({
 
     if (!g.startAt || !g.endAt || g.allDay) return;
 
-    const nextStartWall = googleTimedToMysqlWall(g.startAt);
-    const nextEndWall = googleTimedToMysqlWall(g.endAt);
-    if (!nextStartWall || !nextEndWall) return;
+    const nextStartUtc = googleTimedToMysqlUtc(g.startAt);
+    const nextEndUtc = googleTimedToMysqlUtc(g.endAt);
+    if (!nextStartUtc || !nextEndUtc) return;
 
     const curStart = minuteKey(s.startAt || s.startWall);
     const curEnd = minuteKey(s.endAt || s.endWall);
-    if (curStart === minuteKey(nextStartWall) && curEnd === minuteKey(nextEndWall)) return;
+    if (curStart === minuteKey(nextStartUtc) && curEnd === minuteKey(nextEndUtc)) return;
 
     try {
       await SupervisionSession.updateById(Number(s.id), {
-        startAt: nextStartWall,
-        endAt: nextEndWall
+        startAt: nextStartUtc,
+        endAt: nextEndUtc
       });
       updatedCount += 1;
       rematerialize = true;
-      const wallStartIso = nextStartWall.replace(' ', 'T');
-      const wallEndIso = nextEndWall.replace(' ', 'T');
-      const stillInWindow = inWindow(nextStartWall, nextEndWall, windowStart, windowEnd);
+      const startIso = `${nextStartUtc.replace(' ', 'T')}Z`;
+      const endIso = `${nextEndUtc.replace(' ', 'T')}Z`;
+      const stillInWindow = inWindow(nextStartUtc, nextEndUtc, windowStart, windowEnd);
       nextSupervision[idx] = {
         ...s,
-        startAt: wallStartIso,
-        endAt: wallEndIso,
-        startWall: wallStartIso,
-        endWall: wallEndIso,
+        startAt: startIso,
+        endAt: endIso,
+        startWall: startIso,
+        endWall: endIso,
         _inboundMovedOutOfWindow: !stillInWindow
       };
     } catch (e) {

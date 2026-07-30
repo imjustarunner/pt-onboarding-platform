@@ -17,6 +17,15 @@ import ClientPaymentsSetupService from '../services/clientPaymentsSetup.service.
 import StripePaymentsService, { isStripeConfigured } from '../services/stripePayments.service.js';
 import BillingMerchantContextService from '../services/billingMerchantContext.service.js';
 import { isBookedOfficeEventForLearningLink, wallMySqlToUtcDateTime } from '../utils/learningBillingTime.utils.js';
+import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
+
+/** office_events are UTC — normalize without wall→UTC re-conversion. */
+function officeEventToUtcMysql(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return dateToMysqlUtcDateTime(value);
+  const iso = utcMysqlToIso(value);
+  return iso ? dateToMysqlUtcDateTime(new Date(iso)) : wallMySqlToUtcDateTime(value, 'UTC');
+}
 import { encryptBillingSecret } from '../services/billingEncryption.service.js';
 
 const canManageLearningBilling = (role) => {
@@ -207,8 +216,8 @@ export const createSessionFromOfficeEvent = async (req, res, next) => {
       learningServiceId,
       paymentMode: String(req.body?.paymentMode || 'PAY_PER_EVENT').toUpperCase(),
       sourceTimezone,
-      startAtUtc: wallMySqlToUtcDateTime(officeEvent.start_at, sourceTimezone),
-      endAtUtc: wallMySqlToUtcDateTime(officeEvent.end_at, sourceTimezone),
+      startAtUtc: officeEventToUtcMysql(officeEvent.start_at),
+      endAtUtc: officeEventToUtcMysql(officeEvent.end_at),
       createdByUserId: req.user.id
     });
 

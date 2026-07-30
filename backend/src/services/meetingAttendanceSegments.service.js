@@ -5,9 +5,11 @@
 import pool from '../config/database.js';
 import AgencyMeetingAttendanceRollup from '../models/AgencyMeetingAttendanceRollup.model.js';
 
+/** UTC MySQL DATETIME for attendance segments (matches meeting start_at storage). */
 function toMysqlWall(d = new Date()) {
+  const when = d instanceof Date ? d : new Date(d);
   const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `${when.getUTCFullYear()}-${pad(when.getUTCMonth() + 1)}-${pad(when.getUTCDate())} ${pad(when.getUTCHours())}:${pad(when.getUTCMinutes())}:${pad(when.getUTCSeconds())}`;
 }
 
 function parseMysqlDate(raw) {

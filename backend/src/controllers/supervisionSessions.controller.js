@@ -24,6 +24,12 @@ import crypto from 'crypto';
 import { joinUrlForSupervision, isNumericJoinRef } from '../utils/joinToken.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import SupervisionCasePresentation from '../models/SupervisionCasePresentation.model.js';
+import {
+  wallMysqlToUtcMysql,
+  normalizeWallMysqlDatetime,
+  subtractHoursFromUtcMysql,
+  DEFAULT_SCHEDULE_TZ
+} from '../utils/zonedWallTime.util.js';
 
 const JOIN_PRESENCE_STALE_SECONDS = 25;
 
@@ -656,48 +662,22 @@ async function assertCanManageGroupSupervision(req, res, { sessionType, existing
   return true;
 }
 
+/** Preserve wall digits from datetime-local payloads (no TZ convert). */
 function parseDateTimeLocalString(s) {
-  // Accept "YYYY-MM-DDTHH:MM:SS" or "YYYY-MM-DD HH:MM:SS" or ISO strings.
-  // Prefer wall-clock preservation for datetime-local payloads (no TZ reinterpretation).
-  const raw = String(s || '').trim();
-  if (!raw) return null;
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) return raw.slice(0, 19);
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
-    const normalized = raw.length === 16 ? `${raw}:00` : raw;
-    return normalized.replace('T', ' ').slice(0, 19);
-  }
-  const d = new Date(raw);
-  if (!Number.isNaN(d.getTime())) {
-    // Convert to MySQL DATETIME "YYYY-MM-DD HH:MM:SS" in local time
-    const pad2 = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
-  }
-  // Fall back: allow already formatted datetime
-  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(raw)) return raw.replace('T', ' ');
-  return null;
+  return normalizeWallMysqlDatetime(s);
 }
 
-function signupClosesAtFromStart(startAt) {
-  const wall = parseDateTimeLocalString(startAt);
-  if (!wall) return null;
-  // Pure wall-clock math — avoid Date TZ reinterpretation on UTC servers.
-  const m = wall.match(/^(\d{4})-(\d{2})-(\d{2})[ ](\d{2}):(\d{2}):(\d{2})$/);
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  const h = Number(m[4]);
-  const mi = Number(m[5]);
-  const s = Number(m[6]);
-  const totalMin = ((h * 60) + mi) - 60;
-  const dayOffset = totalMin < 0 ? -1 : 0;
-  const minsInDay = ((totalMin % 1440) + 1440) % 1440;
-  const closesH = Math.floor(minsInDay / 60);
-  const closesMi = minsInDay % 60;
-  const dt = new Date(Date.UTC(y, mo - 1, d + dayOffset, 12, 0, 0));
-  if (Number.isNaN(dt.getTime())) return null;
-  const pad2 = (n) => String(n).padStart(2, '0');
-  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())} ${pad2(closesH)}:${pad2(closesMi)}:${pad2(s)}`;
+/** Wall start + IANA TZ → UTC MySQL for storage. */
+function wallStartEndToUtcMysql(startWall, endWall, timeZone) {
+  const tz = String(timeZone || DEFAULT_SCHEDULE_TZ).trim() || DEFAULT_SCHEDULE_TZ;
+  const startAt = wallMysqlToUtcMysql(startWall, tz);
+  const endAt = wallMysqlToUtcMysql(endWall, tz);
+  return { startAt, endAt, timeZone: tz };
+}
+
+/** Signup closes 1 hour before session start (UTC instant math). */
+function signupClosesAtFromUtcStart(startAtUtc) {
+  return subtractHoursFromUtcMysql(startAtUtc, 1);
 }
 
 function isSignupOnlyEnrollment(raw) {
@@ -943,7 +923,7 @@ function isSupervisionMeetingCode(codeRaw) {
 function mysqlNowDateTime() {
   const d = new Date();
   const p2 = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+  return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`;
 }
 
 function csvCell(value) {
@@ -1027,19 +1007,20 @@ function parseAsDate(input) {
   if (input instanceof Date && !Number.isNaN(input.getTime())) return input;
   const raw = String(input || '').trim();
   if (!raw) return null;
+  // Naked DATETIME digits are UTC under the schedule contract.
   const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(raw);
-  if (m) {
-    const d = new Date(
+  if (m && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
+    const d = new Date(Date.UTC(
       Number(m[1]),
       Number(m[2]) - 1,
       Number(m[3]),
       Number(m[4]),
       Number(m[5]),
       Number(m[6] || 0)
-    );
+    ));
     return Number.isNaN(d.getTime()) ? null : d;
   }
-  const d = new Date(raw);
+  const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -1704,7 +1685,16 @@ export const markSupervisionMeetingLifecycle = async (req, res, next) => {
     const eventType = (eventTypeRaw === 'opened')
       ? 'joined'
       : (eventTypeRaw === 'closed' ? 'left' : eventTypeRaw);
-    const eventAt = parseDateTimeLocalString(req.body?.eventAt) || mysqlNowDateTime();
+    // Prefer client ISO/Z; otherwise stamp UTC now (event_at is UTC).
+    const eventAtRaw = req.body?.eventAt;
+    let eventAt = mysqlNowDateTime();
+    if (eventAtRaw != null && String(eventAtRaw).trim()) {
+      const asDate = parseAsDate(eventAtRaw);
+      if (asDate) {
+        const p2 = (n) => String(n).padStart(2, '0');
+        eventAt = `${asDate.getUTCFullYear()}-${p2(asDate.getUTCMonth() + 1)}-${p2(asDate.getUTCDate())} ${p2(asDate.getUTCHours())}:${p2(asDate.getUTCMinutes())}:${p2(asDate.getUTCSeconds())}`;
+      }
+    }
     const clientSessionKey = String(req.body?.clientSessionKey || '').trim()
       || `web-${id}-${actorUserId}-${Date.now()}`;
 
@@ -3726,8 +3716,10 @@ export const createSupervisionSession = async (req, res, next) => {
     const superviseeUserId = isSignupOnly
       ? (Number.isFinite(superviseeUserIdRaw) && superviseeUserIdRaw > 0 ? superviseeUserIdRaw : supervisorUserId)
       : superviseeUserIdRaw;
-    const startAt = parseDateTimeLocalString(req.body?.startAt);
-    const endAt = parseDateTimeLocalString(req.body?.endAt);
+    const startWall = parseDateTimeLocalString(req.body?.startAt);
+    const endWall = parseDateTimeLocalString(req.body?.endAt);
+    const supervisionTimeZone = String(req.body?.timeZone || DEFAULT_SCHEDULE_TZ).trim() || DEFAULT_SCHEDULE_TZ;
+    const { startAt, endAt } = wallStartEndToUtcMysql(startWall, endWall, supervisionTimeZone);
     const sessionType = String(req.body?.sessionType || 'individual').trim().toLowerCase();
     const inviteAudienceAllSupervised = req.body?.inviteAudienceAllSupervised === true;
     const inviteAudienceGroupSupport = req.body?.inviteAudienceGroupSupport === true;
@@ -3771,7 +3763,9 @@ export const createSupervisionSession = async (req, res, next) => {
       )
     ).slice(0, 2);
 
-    if (!startAt || !endAt) return res.status(400).json({ error: { message: 'Invalid startAt/endAt' } });
+    if (!startWall || !endWall || !startAt || !endAt) {
+      return res.status(400).json({ error: { message: 'Invalid startAt/endAt' } });
+    }
     if (endAt <= startAt) return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
     if (!isSignupOnly && (!Number.isFinite(superviseeUserId) || superviseeUserId <= 0)) {
       return res.status(400).json({ error: { message: 'superviseeUserId is required' } });
@@ -3810,7 +3804,7 @@ export const createSupervisionSession = async (req, res, next) => {
     const supervisee = isSignupOnly ? supervisor : await User.findById(superviseeUserId);
     if (!supervisor || (!isSignupOnly && !supervisee)) return res.status(404).json({ error: { message: 'User not found' } });
 
-    const signupClosesAt = isSignupOnly ? signupClosesAtFromStart(startAt) : null;
+    const signupClosesAt = isSignupOnly ? signupClosesAtFromUtcStart(startAt) : null;
 
     const recurrenceSeriesIdRaw = String(req.body?.recurrenceSeriesId || '').trim();
     const recurrenceSeriesId = recurrenceSeriesIdRaw ? recurrenceSeriesIdRaw.slice(0, 64) : null;
@@ -4026,7 +4020,6 @@ export const createSupervisionSession = async (req, res, next) => {
     const useVideo = isVideoConfigured();
     const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
     const appJoinUrl = useVideo ? supervisionAppJoinUrl(created) : null;
-    const supervisionTimeZone = String(req.body?.timeZone || 'America/Denver').trim() || 'America/Denver';
     const sync = await GoogleCalendarService.upsertSupervisionSession({
       supervisionSessionId: created.id,
       hostEmail,
@@ -4099,8 +4092,32 @@ export const patchSupervisionSession = async (req, res, next) => {
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const startAt = req.body?.startAt !== undefined ? parseDateTimeLocalString(req.body?.startAt) : undefined;
-    const endAt = req.body?.endAt !== undefined ? parseDateTimeLocalString(req.body?.endAt) : undefined;
+    const supervisionTimeZone = String(req.body?.timeZone || DEFAULT_SCHEDULE_TZ).trim() || DEFAULT_SCHEDULE_TZ;
+    const startWall = req.body?.startAt !== undefined ? parseDateTimeLocalString(req.body?.startAt) : undefined;
+    const endWall = req.body?.endAt !== undefined ? parseDateTimeLocalString(req.body?.endAt) : undefined;
+    let startAt;
+    let endAt;
+    if (startWall !== undefined || endWall !== undefined) {
+      const wallStart = startWall !== undefined ? startWall : normalizeWallMysqlDatetime(row.start_at);
+      const wallEnd = endWall !== undefined ? endWall : normalizeWallMysqlDatetime(row.end_at);
+      // Request body is wall clock; convert to UTC for storage.
+      // When only one side changes, convert that side; keep other from DB if body omitted.
+      if (startWall !== undefined) {
+        startAt = wallMysqlToUtcMysql(startWall, supervisionTimeZone);
+      }
+      if (endWall !== undefined) {
+        endAt = wallMysqlToUtcMysql(endWall, supervisionTimeZone);
+      }
+      // If client sent ISO-Z already (rare), normalizeWallMysqlDatetime/wallMysql may still work.
+      if (startWall !== undefined && !startAt) {
+        return res.status(400).json({ error: { message: 'Invalid startAt' } });
+      }
+      if (endWall !== undefined && !endAt) {
+        return res.status(400).json({ error: { message: 'Invalid endAt' } });
+      }
+      void wallStart;
+      void wallEnd;
+    }
     const wantsTimeChange = startAt !== undefined || endAt !== undefined;
     if (wantsTimeChange) {
       const actorId = Number(req.user?.id || 0);
@@ -4263,7 +4280,6 @@ export const patchSupervisionSession = async (req, res, next) => {
       const desc = fresh?.notes ? String(fresh.notes) : null;
       const appJoinUrl = useVideo ? supervisionAppJoinUrl(fresh) : null;
       // eslint-disable-next-line no-await-in-loop
-      const supervisionTimeZone = String(req.body?.timeZone || 'America/Denver').trim() || 'America/Denver';
       const sync = await GoogleCalendarService.upsertSupervisionSession({
         supervisionSessionId: occId,
         hostEmail,

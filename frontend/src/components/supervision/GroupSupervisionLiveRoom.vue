@@ -49,7 +49,11 @@
 
     <div
       class="gsl__video-strip"
-      :class="{ 'gsl__video-strip--lobby': showWaitingRoomStage }"
+      :class="{
+        'gsl__video-strip--lobby': showWaitingRoomStage,
+        'gsl__video-strip--collapsed': videoStripCollapsed,
+        'gsl__video-strip--featured': videoStripFeatured
+      }"
     >
       <SupervisionWaitingRoomStage
         v-if="showWaitingRoomStage"
@@ -158,8 +162,7 @@
           </template>
           <template v-else-if="currentSlide">
             <div class="gsl__slide">
-              <p class="gsl__slide-kicker">{{ currentSlide.section_key || 'Case Presentation' }}</p>
-              <h2>{{ currentSlide.title }}</h2>
+              <h2>{{ currentSlide.title || slideSectionLabel(currentSlide) }}</h2>
               <div v-if="hasCaseGlance" class="gsl__case-inline">
                 <span v-if="caseSummary.client"><strong>Client</strong> {{ caseSummary.client }}</span>
                 <span v-if="caseSummary.presentingConcerns"><strong>Concerns</strong> {{ caseSummary.presentingConcerns }}</span>
@@ -188,13 +191,15 @@
       </section>
 
       <aside class="gsl__workspace">
-        <section class="gsl__workspace-section">
+        <section class="gsl__workspace-section gsl__workspace-section--agenda">
           <MeetingAgendaPanel
             meeting-type="supervision_session"
             :meeting-id="numericSessionId || supervisionSessionId"
             :can-add-item="canFacilitate"
             :embedded="true"
             :live="true"
+            :live-sidebar="true"
+            theme="dark"
           />
         </section>
         <section class="gsl__workspace-section gsl__workspace-section--activity">
@@ -259,6 +264,27 @@ const videoFullscreen = ref(false);
 const videoFullscreenActivityNotice = ref('');
 let fullscreenNoticeTimer = null;
 const waitingAgenda = ref([]);
+
+const videoStripCollapsed = computed(() => (
+  !videoFullscreen.value && tileFocus.value === 'collapsed'
+));
+const videoStripFeatured = computed(() => (
+  !videoFullscreen.value
+  && !videoStripCollapsed.value
+  && ['local', 'remote', 'speaker'].includes(tileFocus.value)
+));
+
+function slideSectionLabel(slide) {
+  const title = String(slide?.title || '').trim();
+  if (title) return title;
+  const key = String(slide?.section_key || '').trim();
+  if (!key) return 'Case Presentation';
+  return key
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
 
 const {
   numericSessionId,
@@ -485,9 +511,36 @@ defineExpose({
   font-size: 0.9rem;
 }
 .gsl__video-strip {
-  min-height: 160px;
+  flex: 0 0 auto;
+  min-height: min(40vh, 420px);
   margin-bottom: 12px;
   position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #070a10;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: min-height 0.22s ease;
+}
+.gsl__video-strip--featured {
+  min-height: min(52vh, 520px);
+}
+.gsl__video-strip--collapsed {
+  min-height: 104px;
+}
+.gsl__video-strip :deep(.supervision-video-room),
+.gsl__video-strip :deep(.vsr) {
+  height: 100%;
+  min-height: inherit;
+  border-radius: 0;
+}
+.gsl__video-strip :deep(.vsr__viewport),
+.gsl__video-strip :deep(.vsr__stage) {
+  min-height: inherit;
+}
+.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--solo .vsr__tile),
+.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--duo .vsr__tile),
+.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--grid .vsr__tile) {
+  min-height: min(34vh, 360px);
 }
 .gsl__video-strip--lobby {
   overflow: hidden;
@@ -645,6 +698,30 @@ defineExpose({
   gap: 12px;
   min-height: 0;
   max-height: min(72vh, 760px);
+  overflow: hidden;
+}
+.gsl__workspace-section--agenda {
+  flex: 1 1 34%;
+  min-height: 160px;
+  max-height: 42%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.gsl__workspace-section--agenda :deep(.meeting-agenda-panel) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.gsl__workspace-section--agenda :deep(.agenda-section) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.gsl__workspace-section--agenda :deep(.agenda-items) {
+  flex: 1 1 auto;
   overflow: auto;
 }
 .gsl__workspace--lobby {
@@ -652,12 +729,17 @@ defineExpose({
 }
 .gsl__workspace-section {
   flex-shrink: 0;
+  min-height: 0;
+}
+.gsl__workspace-section--activity {
+  flex: 1 1 auto;
+  overflow: auto;
 }
 .gsl__workspace-section--activity :deep(.mlap) {
-  min-height: min(42vh, 420px);
+  min-height: min(30vh, 300px);
 }
 .gsl__workspace-section--activity :deep(.mlap__panel) {
-  min-height: min(38vh, 380px);
+  min-height: min(26vh, 260px);
 }
 .gsl__workspace-title {
   margin: 0 0 8px;
@@ -699,7 +781,7 @@ defineExpose({
 }
 .gsl__main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 440px);
   gap: 14px;
   flex: 1;
   min-height: 0;
@@ -712,21 +794,14 @@ defineExpose({
   background: #121722;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
-  min-height: 320px;
+  min-height: 240px;
+  max-height: min(46vh, 480px);
   padding: 22px;
-  overflow: hidden;
-}
-.gsl__slide-kicker {
-  margin: 0 0 6px;
-  color: var(--agency-primary-color, var(--primary));
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-size: 0.75rem;
-  font-weight: 700;
+  overflow: auto;
 }
 .gsl__slide h2 {
   margin: 0 0 14px;
-  font-size: 1.6rem;
+  font-size: 1.45rem;
 }
 .gsl__stage-empty {
   color: #8893a8;

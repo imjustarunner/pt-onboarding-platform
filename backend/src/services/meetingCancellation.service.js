@@ -305,8 +305,9 @@ function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
-function toMysqlDateTimeWall(d) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+/** Format a Date as UTC MySQL DATETIME (pool +00:00 / schedule contract). */
+function toMysqlDateTimeUtc(d) {
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
 }
 
 /**
@@ -416,8 +417,8 @@ export async function rescheduleOneMeeting({
   }
 
   const oldStartIso = event.start_at;
-  const newStartSql = toMysqlDateTimeWall(newStart);
-  const newEndSql = toMysqlDateTimeWall(newEnd);
+  const newStartSql = toMysqlDateTimeUtc(newStart);
+  const newEndSql = toMysqlDateTimeUtc(newEnd);
 
   await pool.execute(
     `UPDATE provider_schedule_events

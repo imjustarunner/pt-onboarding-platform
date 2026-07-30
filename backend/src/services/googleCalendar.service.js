@@ -930,18 +930,14 @@ export class GoogleCalendarService {
       const joinLine = `\n\nJoin video: ${String(appJoinUrl).trim()}`;
       finalDescription = (finalDescription + joinLine).trim();
     }
-    // Supervision create payloads are already wall-clock in `timeZone`
-    // (e.g. "2026-07-29T20:00:00" meaning 8pm Denver). Do NOT run them through
-    // utcToRfc3339Wall via toRfc3339Local(…, timeZone) — that treats the digits
-    // as UTC and shifts Mountain times back by 6 hours (8pm → 2pm).
-    const wallDateTime = (value) => toRfc3339Local(value, null);
+    // Supervision times are stored as UTC DATETIME; convert to wall for Google + timeZone.
     const tz = String(timeZone || 'America/Denver').trim() || 'America/Denver';
 
     const requestBody = {
       summary: String(summary || 'Supervision').trim() || 'Supervision',
       description: finalDescription || undefined,
-      start: { dateTime: wallDateTime(startAt), timeZone: tz },
-      end: { dateTime: wallDateTime(endAt), timeZone: tz },
+      start: { dateTime: toRfc3339Local(startAt, tz), timeZone: tz },
+      end: { dateTime: toRfc3339Local(endAt, tz), timeZone: tz },
       attendees,
       extendedProperties: {
         private: {

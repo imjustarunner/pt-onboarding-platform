@@ -11,6 +11,7 @@ import PhoneNumber from '../models/PhoneNumber.model.js';
 import EmailService from './email.service.js';
 import VonageService from './vonage.service.js';
 import { resolveReminderNumber } from './communicationRouting.service.js';
+import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 
 const DEFAULT_REMINDERS = [
   { channel: 'email', offsetMinutes: 1440 },
@@ -29,13 +30,17 @@ function parseJson(raw, fallback = null) {
 
 function toMysqlDateTime(d) {
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return dateToMysqlUtcDateTime(d);
 }
 
 function parseStartAt(startAt) {
   if (!startAt) return null;
   if (startAt instanceof Date) return startAt;
+  const iso = utcMysqlToIso(startAt);
+  if (iso) {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
   const s = String(startAt).trim();
   const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
   return Number.isNaN(d.getTime()) ? null : d;
@@ -405,7 +410,7 @@ async function sendOneReminder(row) {
 export async function processDueReminders({ limit = 50 } = {}) {
   const [rows] = await pool.execute(
     `SELECT * FROM appointment_reminders
-     WHERE status = 'pending' AND scheduled_for <= NOW()
+     WHERE status = 'pending' AND scheduled_for <= UTC_TIMESTAMP()
      ORDER BY scheduled_for ASC
      LIMIT ?`,
     [Math.max(1, Math.min(200, Number(limit) || 50))]

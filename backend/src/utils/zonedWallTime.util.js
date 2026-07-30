@@ -167,3 +167,88 @@ export function utcDateToZonedParts(date, timeZone) {
     return null;
   }
 }
+
+export const DEFAULT_SCHEDULE_TZ = 'America/Denver';
+
+/** Parse `YYYY-MM-DD[ T]HH:MM[:SS]` wall digits (no TZ interpretation). */
+export function parseMysqlWallParts(raw) {
+  const s = String(raw || '').trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return null;
+  return {
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour: Number(m[4]),
+    minute: Number(m[5]),
+    second: Number(m[6] || 0)
+  };
+}
+
+/**
+ * Wall-clock MySQL DATETIME string in `timeZone` → UTC MySQL DATETIME digits.
+ * Use on write when the client sends agency/office face time.
+ */
+export function wallMysqlToUtcMysql(wall, timeZone = DEFAULT_SCHEDULE_TZ) {
+  const parts = parseMysqlWallParts(wall);
+  if (!parts) return null;
+  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : DEFAULT_SCHEDULE_TZ;
+  const utc = zonedWallTimeToUtc({ ...parts, timeZone: tz });
+  return dateToMysqlUtcDateTime(utc);
+}
+
+/**
+ * Preserve wall digits from datetime-local / MySQL-ish payloads (no TZ convert).
+ * Returns `YYYY-MM-DD HH:MM:SS` or null.
+ */
+export function normalizeWallMysqlDatetime(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    if (!Number.isFinite(value.getTime())) return null;
+    return dateToMysqlUtcDateTime(value);
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) return raw.slice(0, 19);
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+    const normalized = raw.length === 16 ? `${raw}:00` : raw;
+    return normalized.replace('T', ' ').slice(0, 19);
+  }
+  // ISO with Z/offset: take UTC digits (caller should prefer wallMysqlToUtcMysql for wall inputs).
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) || /^\d{4}-\d{2}-\d{2}T/.test(raw)) {
+    const d = new Date(raw);
+    return dateToMysqlUtcDateTime(d);
+  }
+  const parts = parseMysqlWallParts(raw);
+  if (!parts) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
+}
+
+/**
+ * UTC MySQL DATETIME / Date / ISO → ISO-8601 with Z for schedule APIs.
+ * Naked `YYYY-MM-DD HH:MM:SS` is treated as already-UTC under the contract.
+ */
+export function utcMysqlToIso(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.toISOString() : null;
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(raw) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
+    const d = new Date(`${raw.replace(' ', 'T')}Z`);
+    return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+  }
+  const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+
+/** Subtract whole hours from a UTC MySQL DATETIME (instant math). */
+export function subtractHoursFromUtcMysql(utcMysql, hours = 1) {
+  const iso = utcMysqlToIso(utcMysql);
+  if (!iso) return null;
+  const d = new Date(iso);
+  d.setUTCHours(d.getUTCHours() - Number(hours || 0));
+  return dateToMysqlUtcDateTime(d);
+}

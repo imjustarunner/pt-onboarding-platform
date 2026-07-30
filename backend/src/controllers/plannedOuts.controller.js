@@ -2,6 +2,12 @@ import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import PlannedOut from '../models/PlannedOut.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
+import {
+  wallMysqlToUtcMysql,
+  dateToMysqlUtcDateTime,
+  DEFAULT_SCHEDULE_TZ,
+  isValidTimeZone
+} from '../utils/zonedWallTime.util.js';
 
 function roleOf(req) {
   return String(req.user?.role || '').toLowerCase();
@@ -38,15 +44,19 @@ function addDaysYmd(dateStr, days) {
   return `${y}-${m}-${day}`;
 }
 
-function asMysqlDateTime(raw) {
+/** Wall or ISO → UTC MySQL DATETIME. */
+function asMysqlDateTime(raw, timeZone = DEFAULT_SCHEDULE_TZ) {
   if (!raw) return null;
+  if (raw instanceof Date) return dateToMysqlUtcDateTime(raw);
   const s = String(raw).trim();
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) return dateToMysqlUtcDateTime(new Date(s));
   const naive = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2})?$/);
-  if (naive) return `${naive[1]} ${naive[2]}${naive[3] || ':00'}`;
-  const d = new Date(s);
-  if (!Number.isFinite(d.getTime())) return null;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  if (naive) {
+    const wall = `${naive[1]} ${naive[2]}${naive[3] || ':00'}`;
+    return wallMysqlToUtcMysql(wall, timeZone);
+  }
+  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
+  return Number.isFinite(d.getTime()) ? dateToMysqlUtcDateTime(d) : null;
 }
 
 function buildDescription(body) {
@@ -95,14 +105,15 @@ async function createScheduleBlockForOut({ req, agencyId, userId, payload, userN
   });
 }
 
-function normalizePayload(body = {}) {
+function normalizePayload(body = {}, timeZone = DEFAULT_SCHEDULE_TZ) {
+  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : DEFAULT_SCHEDULE_TZ;
   const spanTypeRaw = String(body.spanType || body.span_type || 'hours').toLowerCase();
   const spanType = ['hours', 'half_day', 'all_day'].includes(spanTypeRaw) ? spanTypeRaw : 'hours';
   const allDay = spanType === 'all_day' || body.allDay === true;
   let startDate = ymd(body.startDate || body.start_date);
   let endDate = ymd(body.endDate || body.end_date);
-  let startAt = asMysqlDateTime(body.startAt || body.start_at);
-  let endAt = asMysqlDateTime(body.endAt || body.end_at);
+  let startAt = asMysqlDateTime(body.startAt || body.start_at, tz);
+  let endAt = asMysqlDateTime(body.endAt || body.end_at, tz);
   let halfDayPart = null;
 
   if (spanType === 'half_day') {
@@ -111,8 +122,8 @@ function normalizePayload(body = {}) {
     if (!day) throw Object.assign(new Error('half-day planned out requires a date'), { status: 400 });
     startDate = day;
     endDate = addDaysYmd(day, 1);
-    startAt = `${day} ${halfDayPart === 'am' ? '08:00:00' : '12:00:00'}`;
-    endAt = `${day} ${halfDayPart === 'am' ? '12:00:00' : '17:00:00'}`;
+    startAt = wallMysqlToUtcMysql(`${day} ${halfDayPart === 'am' ? '08:00:00' : '12:00:00'}`, tz);
+    endAt = wallMysqlToUtcMysql(`${day} ${halfDayPart === 'am' ? '12:00:00' : '17:00:00'}`, tz);
   } else if (allDay || spanType === 'all_day') {
     if (!startDate) throw Object.assign(new Error('all-day planned out requires startDate'), { status: 400 });
     if (!endDate) endDate = addDaysYmd(startDate, 1);
@@ -123,7 +134,7 @@ function normalizePayload(body = {}) {
     if (!startAt || !endAt) {
       throw Object.assign(new Error('timed planned out requires startAt and endAt'), { status: 400 });
     }
-    if (new Date(endAt) <= new Date(startAt)) {
+    if (String(endAt) <= String(startAt)) {
       throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
     }
     startDate = String(startAt).slice(0, 10);
@@ -190,9 +201,10 @@ export const createPlannedOut = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only admins can submit planned outs for others' } });
     }
 
+    const agencyTz = String(access.agency?.timezone || '').trim() || DEFAULT_SCHEDULE_TZ;
     let payload;
     try {
-      payload = normalizePayload(req.body || {});
+      payload = normalizePayload(req.body || {}, agencyTz);
     } catch (err) {
       return res.status(err.status || 400).json({ error: { message: err.message } });
     }
@@ -318,14 +330,22 @@ export const updatePlannedOut = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Only pending or revision items can be edited' } });
     }
 
+    const agencyTz = String(access.agency?.timezone || '').trim() || DEFAULT_SCHEDULE_TZ;
+    // Existing DB times are UTC — pass as ISO-Z so we do not wall-convert again.
+    const keepStart = req.body?.startAt == null && row.start_at
+      ? (String(row.start_at).includes('T') ? row.start_at : `${String(row.start_at).replace(' ', 'T')}Z`)
+      : req.body?.startAt;
+    const keepEnd = req.body?.endAt == null && row.end_at
+      ? (String(row.end_at).includes('T') ? row.end_at : `${String(row.end_at).replace(' ', 'T')}Z`)
+      : req.body?.endAt;
     let payload;
     try {
       payload = normalizePayload({
         spanType: req.body?.spanType || row.span_type,
         halfDayPart: req.body?.halfDayPart ?? row.half_day_part,
         allDay: req.body?.allDay ?? row.all_day,
-        startAt: req.body?.startAt ?? row.start_at,
-        endAt: req.body?.endAt ?? row.end_at,
+        startAt: keepStart,
+        endAt: keepEnd,
         startDate: req.body?.startDate ?? row.start_date,
         endDate: req.body?.endDate ?? row.end_date,
         availability: req.body?.availability ?? row.availability,
@@ -334,7 +354,7 @@ export const updatePlannedOut = async (req, res, next) => {
         emergenciesRedirectName: req.body?.emergenciesRedirectName ?? row.emergencies_redirect_name,
         contactPreference: req.body?.contactPreference ?? row.contact_preference,
         details: req.body?.details !== undefined ? req.body.details : row.details
-      });
+      }, agencyTz);
     } catch (err) {
       return res.status(err.status || 400).json({ error: { message: err.message } });
     }

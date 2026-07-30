@@ -1,6 +1,11 @@
 import pool from '../config/database.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import User from '../models/User.model.js';
+import {
+  utcMysqlToIso,
+  subtractHoursFromUtcMysql,
+  dateToMysqlUtcDateTime
+} from '../utils/zonedWallTime.util.js';
 
 function normalizeEnrollmentMode(raw) {
   const mode = String(raw || 'invited').trim().toLowerCase();
@@ -12,10 +17,11 @@ function isSignupSession(row) {
   return normalizeEnrollmentMode(row?.enrollment_mode || row?.enrollmentMode) === 'signup_only';
 }
 
-function parseDateTime(value) {
-  if (!value) return null;
-  const d = value instanceof Date ? value : new Date(String(value).replace(' ', 'T'));
-  return Number.isNaN(d.getTime()) ? null : d;
+function toUtcMs(value) {
+  const iso = utcMysqlToIso(value);
+  if (!iso) return null;
+  const ms = new Date(iso).getTime();
+  return Number.isFinite(ms) ? ms : null;
 }
 
 export async function userBelongsToAgency(userId, agencyId) {
@@ -65,20 +71,26 @@ export async function getViewerSignupState(sessionId, userId) {
   }
 }
 
-export function getSignupClosesAt(sessionRow) {
-  const explicit = parseDateTime(sessionRow?.signup_closes_at || sessionRow?.signupClosesAt);
-  if (explicit) return explicit;
-  const start = parseDateTime(sessionRow?.start_at || sessionRow?.startAt);
+/** Signup close instant as UTC MySQL DATETIME (stored UTC after migration 1097). */
+export function getSignupClosesAtUtc(sessionRow) {
+  const explicit = sessionRow?.signup_closes_at || sessionRow?.signupClosesAt;
+  if (explicit) {
+    const iso = utcMysqlToIso(explicit);
+    if (iso) return dateToMysqlUtcDateTime(new Date(iso));
+  }
+  const start = sessionRow?.start_at || sessionRow?.startAt;
   if (!start) return null;
-  return new Date(start.getTime() - (60 * 60 * 1000));
+  return subtractHoursFromUtcMysql(start, 1);
 }
 
 export function isSignupOpen(sessionRow, now = new Date()) {
   if (!isSignupSession(sessionRow)) return false;
   if (String(sessionRow?.status || '').toUpperCase() === 'CANCELLED') return false;
-  const closesAt = getSignupClosesAt(sessionRow);
-  if (!closesAt) return false;
-  return now.getTime() < closesAt.getTime();
+  const closesAt = getSignupClosesAtUtc(sessionRow);
+  const closesMs = toUtcMs(closesAt);
+  if (closesMs == null) return false;
+  const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  return nowMs < closesMs;
 }
 
 export async function canUserSignup({ sessionRow, userId, now = new Date() }) {
@@ -120,12 +132,12 @@ export async function signupForSession({ sessionId, userId }) {
     err.code = gate.reason || 'signup_not_allowed';
     throw err;
   }
-  const compensableMap = await User.getAgencySupervisionCompensableMap(Number(row.agency_id), [uid]);
+  // Open-signup supervisees are never compensable; only the facilitator is paid.
   await SupervisionSession.upsertAttendees(sid, [{
     userId: uid,
     participantRole: 'supervisee',
     isRequired: false,
-    isCompensableSnapshot: !!compensableMap[uid],
+    isCompensableSnapshot: false,
     status: 'SIGNED_UP'
   }]);
   try {

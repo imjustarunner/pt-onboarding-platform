@@ -999,6 +999,7 @@
                         v-if="b.signupClosesAt && b.signupOpen && !b.viewerSignedUp"
                         class="cell-block-signup-countdown"
                         :closes-at="b.signupClosesAt"
+                        :timezone="bookingTimezoneIana"
                         prefix="Signup now"
                         format="clock"
                       />
@@ -1216,6 +1217,7 @@
                     v-if="b.signupClosesAt && b.signupOpen && !b.viewerSignedUp"
                     class="cell-block-signup-countdown"
                     :closes-at="b.signupClosesAt"
+                    :timezone="bookingTimezoneIana"
                     prefix="Signup now"
                     format="clock"
                   />
@@ -4007,6 +4009,7 @@
               <SupervisionSignupCountdown
                 v-if="selectedSupvSession?.signupClosesAt"
                 :closes-at="selectedSupvSession.signupClosesAt"
+                :timezone="bookingTimezoneIana"
                 prefix="Signup now"
                 format="clock"
               />
@@ -9167,7 +9170,12 @@ const isSignupSupervisionOpen = (ev) => {
   if (!isSignupSupervisionEvent(ev)) return false;
   const raw = ev?.signupClosesAt;
   if (!raw) return false;
-  const closes = new Date(String(raw).includes('T') ? raw : String(raw).replace(' ', 'T'));
+  const text = String(raw).trim();
+  // UTC ISO (preferred) or naked UTC DATETIME digits.
+  const normalized = (/^\d{4}-\d{2}-\d{2}[ ]\d{2}:\d{2}:\d{2}$/.test(text))
+    ? `${text.replace(' ', 'T')}Z`
+    : (text.includes('T') ? text : text.replace(' ', 'T'));
+  const closes = new Date(normalized);
   if (Number.isNaN(closes.getTime())) return false;
   return Date.now() < closes.getTime();
 };
@@ -9673,8 +9681,8 @@ const officeState = (dayName, hour) => {
   for (const e of s.officeEvents || []) {
     const startRaw = String(e.startAt || '').trim();
     if (!startRaw) continue;
-    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
-    if (Number.isNaN(startLocal.getTime())) continue;
+    const startLocal = parseScheduleInstant(startRaw);
+    if (!startLocal) continue;
     // Align office-event day matching to the visible grid anchor (Monday-first weekStart).
     const idx = dayIndexForDateLocal(localYmd(startLocal), weekStart.value);
     const dn = ALL_DAYS[idx] || null;
@@ -9822,8 +9830,8 @@ const agenciesInCell = (kind, dayName, hour) => {
     for (const e of s.officeEvents || []) {
       const startRaw = String(e.startAt || '').trim();
       if (!startRaw) continue;
-      const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
-      if (Number.isNaN(startLocal.getTime())) continue;
+      const startLocal = parseScheduleInstant(startRaw);
+      if (!startLocal) continue;
       const idx = dayIndexForDateLocal(localYmd(startLocal), ws);
       const dn = ALL_DAYS[idx] || null;
       if (dn !== dayName) continue;
@@ -9867,13 +9875,13 @@ const officeEventsInCell = (dayName, hour, minute = 0) => {
   const hits = (s?.officeEvents || []).filter((e) => {
     const startRaw = String(e.startAt || '').trim();
     if (!startRaw) return false;
-    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
-    if (Number.isNaN(startLocal.getTime())) return false;
+    const startLocal = parseScheduleInstant(startRaw);
+    if (!startLocal) return false;
     const endRaw = String(e.endAt || '').trim();
     const endLocal = endRaw
-      ? new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'))
+      ? parseScheduleInstant(endRaw)
       : new Date(startLocal.getTime() + (60 * 60 * 1000));
-    if (Number.isNaN(endLocal.getTime())) return false;
+    if (!endLocal || Number.isNaN(endLocal.getTime())) return false;
     return endLocal > cellStart && startLocal < cellEnd;
   });
   return hits;
@@ -9949,9 +9957,9 @@ const supervisionSessionsInCell = (dayName, hour, minute = 0) => {
     const startRaw = String(ev.startAt || '').trim();
     const endRaw = String(ev.endAt || '').trim();
     if (!startRaw || !endRaw) continue;
-    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
-    const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
-    if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
+    const startLocal = parseScheduleInstant(startRaw);
+    const endLocal = parseScheduleInstant(endRaw);
+    if (!startLocal || !endLocal) continue;
     const dateYmd = supervisionDateYmd(ev);
     if (!dateYmd) continue;
     const sessionDay = supervisionDayName(ev);
@@ -14684,6 +14692,13 @@ const isEditingGroupSupervision = computed(() => supervisionSessionTypeNormalize
 /** Agenda on Info / Agenda tab for individual and group supervision. */
 const showSupervisionAgendaWorkspace = computed(() => {
   if (!editorIsSupervision.value) return false;
+  if (
+    isSelectedSupvSignupOffering.value
+    && !selectedSupvSession.value?.viewerSignedUp
+    && !isSelectedSupvSignupFacilitator.value
+  ) {
+    return false;
+  }
   const t = supervisionSessionTypeNormalized.value;
   return t === 'individual' || t === '1:1' || t === 'one_on_one' || t === 'one-on-one'
     || t === 'group' || t === 'triadic';
@@ -20708,7 +20723,24 @@ const startTrackedSupvMeet = async () => {
 const parseMaybeDate = (raw) => {
   const s = String(raw || '').trim();
   if (!s) return null;
-  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
+  // Naked MySQL DATETIME from UTC storage → treat as UTC (append Z).
+  const normalized = (/^\d{4}-\d{2}-\d{2}[ ]\d{2}:\d{2}(:\d{2})?$/.test(s))
+    ? `${s.replace(' ', 'T')}${s.length === 16 ? ':00' : ''}Z`
+    : (s.includes('T') ? s : s.replace(' ', 'T'));
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+/** Parse office/schedule instants; naked digits are UTC under the schedule contract. */
+const parseScheduleInstant = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const normalized = (/^\d{4}-\d{2}-\d{2}[ ]\d{2}:\d{2}(:\d{2})?$/.test(s))
+    ? `${s.replace(' ', 'T')}${s.length === 16 ? ':00' : ''}Z`
+    : (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s))
+      ? `${s.length === 16 ? `${s}:00` : s}Z`
+      : (s.includes('T') ? s : s.replace(' ', 'T'));
+  const d = new Date(normalized);
   return Number.isNaN(d.getTime()) ? null : d;
 };
 /** IANA zone for meeting wall-clock (My Schedule = browser; admin views = office TZ). */
@@ -24348,6 +24380,11 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   font-size: 0.62rem;
   letter-spacing: 0.02em;
   -webkit-line-clamp: 3;
+}
+.sched-wrap-quarter .cell-block-signup-host,
+.sched-wrap-quarter .cell-block-signup-range,
+.sched-wrap-quarter .cell-block-signup-countdown {
+  font-size: 0.6rem;
 }
 .cell-block-span .cell-block-text.cell-block-text--signup-supv {
   display: flex;

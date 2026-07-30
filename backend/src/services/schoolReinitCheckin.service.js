@@ -4,6 +4,14 @@
 import pool from '../config/database.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import GoogleCalendarService from './googleCalendar.service.js';
+import {
+  wallMysqlToUtcMysql,
+  utcMysqlToIso,
+  dateToMysqlUtcDateTime,
+  normalizeWallMysqlDatetime,
+  DEFAULT_SCHEDULE_TZ,
+  isValidTimeZone
+} from '../utils/zonedWallTime.util.js';
 
 export const PRESLOT_KIND = 'FALL_CHECKIN_PRESLOT';
 export const BOOKED_KIND = 'FALL_CHECKIN_BOOKED';
@@ -50,67 +58,50 @@ function asIntArray(raw) {
 }
 
 /**
- * Check-in slots are wall-clock times (e.g. "11:00 AM at the school"), not UTC instants.
- * The DB pool uses timezone '+00:00', so mysql2 treats DATETIME as UTC. We therefore:
- *  - parse/store the Y-M-D H:M:S the admin typed (no TZ conversion)
- *  - do arithmetic with Date.UTC of those components
- *  - serialize API fields back as "YYYY-MM-DD HH:mm:ss" (no Z) so the browser
- *    does not shift them by the local offset.
+ * Check-in slots are stored as UTC DATETIME (migration 1098).
+ * Writers convert agency/school wall clock → UTC; API emits ISO with Z.
  */
-function pad2(n) {
-  return String(n).padStart(2, '0');
-}
+const agencyTzCache = new Map();
 
-function parseWallClock(raw) {
-  if (raw == null || raw === '') return null;
-  if (raw instanceof Date) {
-    if (Number.isNaN(raw.getTime())) return null;
-    // mysql2 Date: stored wall-clock was read as UTC — use UTC getters.
-    return {
-      y: raw.getUTCFullYear(),
-      mo: raw.getUTCMonth() + 1,
-      d: raw.getUTCDate(),
-      h: raw.getUTCHours(),
-      mi: raw.getUTCMinutes(),
-      s: raw.getUTCSeconds(),
-    };
+async function resolveAgencyTimezone(agencyId) {
+  const aid = Number(agencyId || 0);
+  if (agencyTzCache.has(aid)) return agencyTzCache.get(aid);
+  let tz = DEFAULT_SCHEDULE_TZ;
+  if (aid > 0) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT timezone FROM agencies WHERE id = ? LIMIT 1`,
+        [aid]
+      );
+      const raw = String(rows?.[0]?.timezone || '').trim();
+      if (isValidTimeZone(raw)) tz = raw;
+    } catch {
+      /* keep default */
+    }
   }
-  const s = String(raw).trim();
-  // Prefer explicit components so "…Z" / ISO does not shift the clock face.
-  // If the client sends an ISO UTC instant, take UTC components as the wall clock
-  // only when Z is present; otherwise take the digits as typed.
-  const m = s.match(
-    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?(?:\.\d+)?(Z)?/i
-  );
-  if (!m) return null;
-  return {
-    y: Number(m[1]),
-    mo: Number(m[2]),
-    d: Number(m[3]),
-    h: Number(m[4] || 0),
-    mi: Number(m[5] || 0),
-    s: Number(m[6] || 0),
-  };
+  agencyTzCache.set(aid, tz);
+  return tz;
 }
 
-function wallClockToMysql(parts) {
-  if (!parts) return null;
-  return `${parts.y}-${pad2(parts.mo)}-${pad2(parts.d)} ${pad2(parts.h)}:${pad2(parts.mi)}:${pad2(parts.s)}`;
-}
-
-function wallClockToUtcDate(parts) {
-  if (!parts) return null;
-  return new Date(Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s));
-}
-
-/** @deprecated name kept for call sites — always emits wall-clock MySQL DATETIME */
-function toMysqlDateTime(d) {
-  return wallClockToMysql(parseWallClock(d));
+/** Wall digits or Date → UTC MySQL DATETIME in agency TZ. */
+function toMysqlDateTime(d, timeZone = DEFAULT_SCHEDULE_TZ) {
+  if (d == null || d === '') return null;
+  if (d instanceof Date) {
+    if (Number.isNaN(d.getTime())) return null;
+    // Already an absolute instant (e.g. from addMinutes).
+    return dateToMysqlUtcDateTime(d);
+  }
+  const raw = String(d).trim();
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
+    return dateToMysqlUtcDateTime(new Date(raw));
+  }
+  const wall = normalizeWallMysqlDatetime(raw);
+  return wallMysqlToUtcMysql(wall, timeZone);
 }
 
 function addMinutes(dateLike, minutes) {
-  const parts = parseWallClock(dateLike);
-  const base = wallClockToUtcDate(parts);
+  const iso = utcMysqlToIso(dateLike) || (dateLike instanceof Date ? dateLike.toISOString() : null);
+  const base = iso ? new Date(iso) : new Date(dateLike);
   if (!base || Number.isNaN(base.getTime())) return new Date(NaN);
   return new Date(base.getTime() + Number(minutes || 0) * 60_000);
 }
@@ -118,11 +109,10 @@ function addMinutes(dateLike, minutes) {
 function serializeSlotRow(row) {
   if (!row || typeof row !== 'object') return row;
   const out = { ...row };
-  // Only slot schedule fields are wall-clock; leave real timestamps alone.
   for (const key of ['starts_at', 'ends_at']) {
     if (out[key] != null) {
-      const mysql = toMysqlDateTime(out[key]);
-      if (mysql) out[key] = mysql;
+      const iso = utcMysqlToIso(out[key]);
+      if (iso) out[key] = iso;
     }
   }
   return out;
@@ -566,15 +556,14 @@ export async function createCheckinPreslot({
   }
 
   const modality = normalizeModality(modalityRaw);
-  const startParts = parseWallClock(startsAt);
-  if (!startParts) throw new Error('Invalid startsAt');
-  // Ignore trailing Z from older clients — use the clock face they typed / intended.
-  // Prefer non-ISO wall-clock payloads from the admin UI.
-  const startMysql = wallClockToMysql(startParts);
-  const start = wallClockToUtcDate(startParts);
+  const tz = await resolveAgencyTimezone(agencyId);
+  // Admin UI sends wall clock; store as UTC.
+  const startMysql = toMysqlDateTime(startsAt, tz);
+  if (!startMysql) throw new Error('Invalid startsAt');
+  const start = new Date(`${startMysql.replace(' ', 'T')}Z`);
   const duration = settings.slotDurationMinutes;
   const end = addMinutes(start, duration);
-  const endMysql = toMysqlDateTime(end);
+  const endMysql = dateToMysqlUtcDateTime(end);
   const gap = modality === 'virtual' ? settings.virtualGapMinutes : settings.inPersonGapMinutes;
 
   if (!skipGapCheck) {

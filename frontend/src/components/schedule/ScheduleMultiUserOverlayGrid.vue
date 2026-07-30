@@ -442,7 +442,13 @@ const hourLabel = (h) => {
 const parseMaybeDate = (raw) => {
   const s = String(raw || '').trim();
   if (!s) return null;
-  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
+  // Naked MySQL DATETIME from UTC storage → treat as UTC.
+  const normalized = (/^\d{4}-\d{2}-\d{2}[ ]\d{2}:\d{2}(:\d{2})?$/.test(s))
+    ? `${s.replace(' ', 'T')}${s.length === 16 ? ':00' : ''}Z`
+    : (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s))
+      ? `${s.length === 16 ? `${s}:00` : s}Z`
+      : (s.includes('T') ? s : s.replace(' ', 'T'));
+  const d = new Date(normalized);
   return Number.isNaN(d.getTime()) ? null : d;
 };
 

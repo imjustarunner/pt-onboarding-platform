@@ -4,7 +4,8 @@
     :class="{
       'meeting-agenda-panel--embedded': embedded,
       'meeting-agenda-panel--compact': compact,
-      'meeting-agenda-panel--dark': theme === 'dark'
+      'meeting-agenda-panel--dark': theme === 'dark',
+      'meeting-agenda-panel--live-sidebar': liveSidebar
     }"
   >
     <div v-if="!embedded" class="agenda-header">
@@ -74,57 +75,62 @@
             class="agenda-item"
             :class="{
               'agenda-item--editing': editingId === item.id,
+              'agenda-item--live-sidebar': liveSidebar,
               'agenda-item-done': item.status === 'completed',
               'agenda-item-discussed': item.status === 'discussed'
             }"
           >
-            <span class="agenda-item-num" aria-hidden="true">{{ idx + 1 }}</span>
+            <div class="agenda-item-row">
+              <span class="agenda-item-num" aria-hidden="true">{{ idx + 1 }}</span>
 
-            <select
-              v-if="showStatusSelect"
-              :value="item.status"
-              :disabled="togglingId === item.id"
-              class="agenda-status-select"
-              @change="updateItemStatus(item, $event.target.value)"
-            >
-              <option value="pending">Pending</option>
-              <option value="discussed">Discussed</option>
-              <option value="completed">Completed</option>
-            </select>
-            <span
-              v-else-if="compact && statusBadge(item.status)"
-              class="agenda-status-badge"
-              :class="`agenda-status-badge--${item.status}`"
-            >
-              {{ statusBadge(item.status) }}
-            </span>
+              <div class="agenda-item-content">
+                <template v-if="canAddItem && editingId === item.id">
+                  <input
+                    ref="editInputRef"
+                    v-model="editDraft"
+                    class="mw-field agenda-item-title-input"
+                    type="text"
+                    :disabled="togglingId === item.id"
+                    @keydown.enter.prevent="saveEdit(item)"
+                    @keydown.escape.prevent="cancelEdit"
+                  />
+                </template>
+                <template v-else>
+                  <div class="mw-hover-wrap">
+                    <span class="agenda-item-title" :title="item.title">{{ item.title }}</span>
+                  </div>
+                  <a
+                    v-if="item.task_id"
+                    href="/tasks"
+                    class="agenda-item-task-link"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    Open task
+                  </a>
+                </template>
+              </div>
 
-            <div class="agenda-item-content">
-              <template v-if="canAddItem && editingId === item.id">
-                <input
-                  ref="editInputRef"
-                  v-model="editDraft"
-                  class="mw-field agenda-item-title-input"
-                  type="text"
-                  :disabled="togglingId === item.id"
-                  @keydown.enter.prevent="saveEdit(item)"
-                  @keydown.escape.prevent="cancelEdit"
-                />
-              </template>
-              <template v-else>
-                <div class="mw-hover-wrap">
-                  <span class="agenda-item-title" :title="item.title">{{ item.title }}</span>
-                </div>
-                <a
-                  v-if="item.task_id"
-                  href="/tasks"
-                  class="agenda-item-task-link"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  Open task
-                </a>
-              </template>
+              <select
+                v-if="showStatusSelect"
+                :value="item.status"
+                :disabled="togglingId === item.id"
+                class="agenda-status-select"
+                :class="{ 'agenda-status-select--sidebar': liveSidebar }"
+                :aria-label="`Status for ${item.title}`"
+                @change="updateItemStatus(item, $event.target.value)"
+              >
+                <option value="pending">Pending</option>
+                <option value="discussed">Discussed</option>
+                <option value="completed">Completed</option>
+              </select>
+              <span
+                v-else-if="compact && statusBadge(item.status)"
+                class="agenda-status-badge"
+                :class="`agenda-status-badge--${item.status}`"
+              >
+                {{ statusBadge(item.status) }}
+              </span>
             </div>
 
             <div v-if="canAddItem" class="agenda-item-actions">
@@ -210,6 +216,8 @@ const props = defineProps({
   compact: { type: Boolean, default: null },
   /** Poll for shared updates during a live session */
   live: { type: Boolean, default: false },
+  /** Narrow live sidebar layout: title wraps, compact status control */
+  liveSidebar: { type: Boolean, default: false },
   pollMs: { type: Number, default: 8000 },
   /** light (default) | dark — for live supervision workspace */
   theme: { type: String, default: 'light' }
@@ -601,6 +609,40 @@ onUnmounted(() => { stopPoll(); });
   position: relative;
   transition: background 0.12s ease;
 }
+.agenda-item-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.agenda-item--live-sidebar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.agenda-item--live-sidebar .agenda-item-row {
+  width: 100%;
+}
+.agenda-item--live-sidebar .agenda-item-content {
+  flex: 1 1 auto;
+}
+.agenda-item--live-sidebar .agenda-item-title {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  line-height: 1.35;
+}
+.agenda-item--live-sidebar .agenda-status-select--sidebar {
+  max-width: 78px;
+  padding: 2px 4px;
+  font-size: 0.66rem;
+  margin-top: 1px;
+}
+.agenda-item--live-sidebar .agenda-item-actions {
+  opacity: 1;
+  align-self: flex-end;
+}
 .agenda-item:hover {
   background: rgba(148, 163, 184, 0.1);
 }
@@ -793,6 +835,12 @@ onUnmounted(() => { stopPoll(); });
 .agenda-empty {
   padding: 6px 4px;
   font-size: 0.82rem;
+}
+.meeting-agenda-panel--live-sidebar .agenda-section-head h3 {
+  font-size: 0.92rem;
+}
+.meeting-agenda-panel--live-sidebar .agenda-live-hint {
+  display: none;
 }
 .agenda-live-hint {
   margin: 8px 0 0;

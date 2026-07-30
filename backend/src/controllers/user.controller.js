@@ -3600,28 +3600,18 @@ function toScheduleWallIso(value) {
 
 const SCHEDULE_MEETING_KINDS = new Set(['TEAM_MEETING', 'HUDDLE']);
 
-/** Rows that store UTC instants in MySQL (meetings always; others when Google-linked). */
+/** All timed provider_schedule_events store UTC instants (migration 1098). */
 function scheduleEventStoresUtc(row) {
-  const kind = String(row?.kind || '').trim().toUpperCase();
-  if (SCHEDULE_MEETING_KINDS.has(kind)) return true;
-  return !!String(row?.google_event_id || '').trim();
+  if (Number(row?.all_day || 0) === 1) return false;
+  return true;
 }
 
 function scheduleEventStartEndForSummary(row) {
   const isAllDay = Number(row?.all_day || 0) === 1;
   if (isAllDay) return { startAt: null, endAt: null };
-  const kind = String(row?.kind || '').trim().toUpperCase();
-  const isFallCheckin = kind === 'FALL_CHECKIN_PRESLOT' || kind === 'FALL_CHECKIN_BOOKED';
-  // Fall check-in times are wall-clock in MySQL, not UTC instants — never apply Z conversion.
-  if (scheduleEventStoresUtc(row) && !isFallCheckin) {
-    return {
-      startAt: toIsoUtcForSchedule(row.start_at) || toScheduleWallIso(row.start_at) || row.start_at || null,
-      endAt: toIsoUtcForSchedule(row.end_at) || toScheduleWallIso(row.end_at) || row.end_at || null
-    };
-  }
   return {
-    startAt: toScheduleWallIso(row.start_at) || row.start_at || null,
-    endAt: toScheduleWallIso(row.end_at) || row.end_at || null
+    startAt: toIsoUtcForSchedule(row.start_at) || toScheduleWallIso(row.start_at) || row.start_at || null,
+    endAt: toIsoUtcForSchedule(row.end_at) || toScheduleWallIso(row.end_at) || row.end_at || null
   };
 }
 
@@ -4083,6 +4073,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
            osa.temporary_until_date AS assignment_temporary_until_date,
            bp.booked_frequency,
            ol.name AS building_name,
+           ol.timezone AS building_timezone,
            e.room_id,
            r.room_number,
            r.label AS room_label,
@@ -4172,8 +4163,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
         roomId: r.room_id,
         roomNumber: r.room_number,
         roomLabel: r.room_label || r.room_name,
-        startAt: toMysqlDateTimeWall(r.start_at) || r.start_at,
-        endAt: toMysqlDateTimeWall(r.end_at) || r.end_at,
+        // office_events are UTC instants — emit ISO with Z so the grid does not treat digits as local wall.
+        startAt: toIsoUtcForSchedule(r.start_at) || toMysqlDateTimeWall(r.start_at) || r.start_at,
+        endAt: toIsoUtcForSchedule(r.end_at) || toMysqlDateTimeWall(r.end_at) || r.end_at,
+        buildingTimezone: String(r.building_timezone || r.timezone || '').trim() || null,
         status: r.status,
         slotState: normalizedSlotState,
         appointmentType: String(r.appointment_type_code || '').trim().toUpperCase() || defaultAppointmentTypeForSlot({ status: r.status, slotState: normalizedSlotState }),
@@ -4211,6 +4204,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
            osa.available_since_date AS assignment_available_since_date,
            osa.temporary_until_date AS assignment_temporary_until_date,
            ol.name AS building_name,
+           ol.timezone AS building_timezone,
            e.room_id,
            r.room_number,
            r.label AS room_label,
@@ -4272,8 +4266,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         roomId: r.room_id,
         roomNumber: r.room_number,
         roomLabel: r.room_label || r.room_name,
-        startAt: toMysqlDateTimeWall(r.start_at) || r.start_at,
-        endAt: toMysqlDateTimeWall(r.end_at) || r.end_at,
+        startAt: toIsoUtcForSchedule(r.start_at) || toMysqlDateTimeWall(r.start_at) || r.start_at,
+        endAt: toIsoUtcForSchedule(r.end_at) || toMysqlDateTimeWall(r.end_at) || r.end_at,
+        buildingTimezone: String(r.building_timezone || '').trim() || null,
         status: r.status,
         slotState: normalizedSlotState,
         appointmentType: defaultAppointmentTypeForSlot({ status: r.status, slotState: normalizedSlotState }),
@@ -4341,6 +4336,26 @@ export const getUserScheduleSummary = async (req, res, next) => {
           mergedRows.push(row);
         }
       }
+      const agencyTzMap = new Map();
+      const agencyIdsForTz = [...new Set(
+        (mergedRows || []).map((r) => Number(r?.agency_id || 0)).filter((n) => n > 0)
+      )];
+      if (agencyIdsForTz.length) {
+        try {
+          const placeholders = agencyIdsForTz.map(() => '?').join(',');
+          const [tzRows] = await pool.execute(
+            `SELECT id, COALESCE(NULLIF(TRIM(timezone), ''), 'America/Denver') AS agency_timezone
+             FROM agencies
+             WHERE id IN (${placeholders})`,
+            agencyIdsForTz
+          );
+          for (const tzRow of tzRows || []) {
+            agencyTzMap.set(Number(tzRow.id), String(tzRow.agency_timezone || 'America/Denver').trim() || 'America/Denver');
+          }
+        } catch {
+          /* optional */
+        }
+      }
       supervisionSessions = await Promise.all((mergedRows || []).map(async (r) => {
         const gid = String(r?.google_event_id || '').trim();
         if (gid) supervisionGoogleEventIds.add(gid);
@@ -4366,11 +4381,12 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const viewerAttendeeStatus = String(r?.viewer_attendee_status || '').trim().toUpperCase();
         const viewerSignedUp = ['SIGNED_UP', 'JOINED', 'INVITED'].includes(viewerAttendeeStatus)
           && viewerAttendeeStatus !== 'WITHDRAWN';
-        const signupClosesAt = toMysqlDateTimeWall(r.signup_closes_at) || r.signup_closes_at || null;
+        const signupClosesAt = toIsoUtcForSchedule(r.signup_closes_at) || r.signup_closes_at || null;
         const signupCount = Number(r?.signup_count || 0);
-        const startWall = toMysqlDateTimeWall(r.start_at) || r.start_at;
-        const endWall = toMysqlDateTimeWall(r.end_at) || r.end_at;
-        const startDateYmd = String(r?.start_date_ymd || '').trim() || (startWall ? String(startWall).slice(0, 10) : null);
+        const startWall = toIsoUtcForSchedule(r.start_at) || toMysqlDateTimeWall(r.start_at) || r.start_at;
+        const endWall = toIsoUtcForSchedule(r.end_at) || toMysqlDateTimeWall(r.end_at) || r.end_at;
+        const startDateYmd = String(r?.start_date_ymd || '').trim()
+          || (startWall ? String(startWall).slice(0, 10) : null);
         let joinToken = String(r.participant_join_token || r.join_token || '').trim();
         let hostJoinToken = String(r.host_join_token || '').trim();
         if (!joinToken && Number(r.id || 0) > 0) {
@@ -4436,6 +4452,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           superviseeName: `${r.supervisee_first_name || ''} ${r.supervisee_last_name || ''}`.trim() || null,
           supervisorName: `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim() || null,
           agencyId: Number(r.agency_id || agencyId || 0) || null,
+          agencyTimezone: agencyTzMap.get(Number(r.agency_id || 0)) || 'America/Denver',
           recurrenceSeriesId: String(r.recurrence_series_id || '').trim() || null,
           recurrenceFrequency: String(r.recurrence_frequency || '').trim().toUpperCase() || null,
           recurrenceIndex: r.recurrence_index == null ? null : Number(r.recurrence_index),
@@ -5834,19 +5851,15 @@ export const createUserScheduleEvent = async (req, res, next) => {
       });
     }
 
-    // Meetings and Google-synced rows store UTC instants. Convert from the wall clock the
+    // All timed schedule events store UTC instants. Convert from the wall clock the
     // user picked in `timeZone` (do not re-project Google's dateTime through a second TZ shift).
-    const storesUtc = !allDay && (SCHEDULE_MEETING_KINDS.has(kind) || googleOk);
+    const storesUtc = !allDay;
     const storedStartAt = allDay
       ? null
-      : (storesUtc
-        ? (wallInTimeZoneToMysqlUtc(startAt, timeZone) || (result?.startAt ? toMysqlUtc(result.startAt) : startAt))
-        : startAt);
+      : (wallInTimeZoneToMysqlUtc(startAt, timeZone) || (result?.startAt ? toMysqlUtc(result.startAt) : startAt));
     const storedEndAt = allDay
       ? null
-      : (storesUtc
-        ? (wallInTimeZoneToMysqlUtc(endAt, timeZone) || (result?.endAt ? toMysqlUtc(result.endAt) : endAt))
-        : endAt);
+      : (wallInTimeZoneToMysqlUtc(endAt, timeZone) || (result?.endAt ? toMysqlUtc(result.endAt) : endAt));
 
     let saved = null;
     let appJoinUrl = null;
@@ -6157,15 +6170,9 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const rawEnd = req.body?.endAt != null ? req.body.endAt : target.end_at;
       googleStartWall = toMysqlDateTimeWall(rawStart);
       googleEndWall = toMysqlDateTimeWall(rawEnd);
-      const storesUtc = SCHEDULE_MEETING_KINDS.has(kind) || !!String(target.google_event_id || '').trim();
-      // Meetings and Google-linked rows store UTC so edit→refresh keeps the viewer's wall time.
-      if (storesUtc) {
-        startAt = wallInTimeZoneToMysqlUtc(googleStartWall, updateTimeZone);
-        endAt = wallInTimeZoneToMysqlUtc(googleEndWall, updateTimeZone);
-      } else {
-        startAt = googleStartWall;
-        endAt = googleEndWall;
-      }
+      // All timed schedule events store UTC.
+      startAt = wallInTimeZoneToMysqlUtc(googleStartWall, updateTimeZone);
+      endAt = wallInTimeZoneToMysqlUtc(googleEndWall, updateTimeZone);
       if (!startAt || !endAt) {
         return res.status(400).json({ error: { message: 'startAt and endAt are required' } });
       }
