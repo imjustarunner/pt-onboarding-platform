@@ -421,7 +421,7 @@
       <details class="sched-more-tools" data-tour="my-schedule-more-tools">
         <summary class="sched-more-tools__summary" title="Therapy Notes feeds, organization filters, programs, and color key">
           <span class="sched-more-tools__title">More tools</span>
-          <span class="sched-more-tools__hint muted">feeds · organization · programs · key</span>
+          <span class="sched-more-tools__hint muted">feeds · organization · programs · office peek · key</span>
           <span class="sched-more-tools__chev" aria-hidden="true">▾</span>
         </summary>
         <div class="sched-more-tools__body">
@@ -460,6 +460,20 @@
               data-tour="my-schedule-ehr-titles-toggle"
             >
               Therapy Notes titles
+            </button>
+            <button
+              v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific"
+              type="button"
+              class="sched-pill"
+              :class="{ on: showOfficeQuickGlance }"
+              role="switch"
+              :aria-checked="String(!!showOfficeQuickGlance)"
+              :disabled="loading || officeGridLoading"
+              title="Show a room peek panel for the selected day/hour (off by default; never auto-opens)"
+              @click="toggleOfficeQuickGlanceTool"
+              data-testid="my-schedule-office-quick-glance-toggle"
+            >
+              Office at this time
             </button>
           </div>
 
@@ -619,7 +633,7 @@
       </div>
 
       <details
-        v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGrid && !officeGridLoading"
+        v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && showOfficeQuickGlance && officeGrid && !officeGridLoading"
         class="office-quick-glance"
         :open="quickGlanceOpen"
         @toggle="onQuickGlanceToggle"
@@ -627,7 +641,7 @@
         <summary class="office-quick-glance-summary">
           <span class="office-quick-glance-title">Office at this time</span>
           <span class="muted office-quick-glance-summary-hint">
-            {{ quickGlanceOpen ? 'Click a room to request or inspect' : 'Expand after picking a calendar cell — not tied to your session yet' }}
+            {{ quickGlanceOpen ? 'Click a room to request or inspect' : 'Collapsed — expand to peek rooms for the day/hour below' }}
           </span>
         </summary>
         <div class="office-quick-glance-head">
@@ -5589,6 +5603,11 @@ const normalizeRowHeightMode = (raw) => {
   return ['compact', 'normal', 'large', 'xl'].includes(m) ? m : 'normal';
 };
 
+// Declared with display prefs so collectDisplayPrefs / applyDisplayPrefs never hit a TDZ binding.
+const customHoldReasons = ref([]); // [{ code, label }]
+/** Opt-in "Office at this time" peek panel (More tools). Off by default — never auto-opens. */
+const showOfficeQuickGlance = ref(false);
+
 const applyDisplayPrefs = (prefs = {}, { focusDay = true } = {}) => {
   if (!prefs || typeof prefs !== 'object') return;
   if (prefs.rowHeightMode != null) rowHeightMode.value = normalizeRowHeightMode(prefs.rowHeightMode);
@@ -5605,10 +5624,8 @@ const applyDisplayPrefs = (prefs = {}, { focusDay = true } = {}) => {
   }
   if (prefs.hideWeekend != null) hideWeekend.value = !!prefs.hideWeekend;
   if (prefs.showAllHours != null) showAllHours.value = !!prefs.showAllHours;
+  if (prefs.showOfficeQuickGlance != null) showOfficeQuickGlance.value = !!prefs.showOfficeQuickGlance;
 };
-
-// Declared with display prefs so collectDisplayPrefs never hits a TDZ binding.
-const customHoldReasons = ref([]); // [{ code, label }]
 
 const collectDisplayPrefs = () => ({
   rowHeightMode: normalizeRowHeightMode(rowHeightMode.value),
@@ -5616,6 +5633,7 @@ const collectDisplayPrefs = () => ({
   weekStartsOn: effectiveWeekStartsOn.value === 'sunday' ? 'sunday' : 'monday',
   hideWeekend: !!hideWeekend.value,
   showAllHours: !!showAllHours.value,
+  showOfficeQuickGlance: !!showOfficeQuickGlance.value,
   holdReasons: (customHoldReasons.value || [])
     .map((r) => ({
       code: String(r?.code || '').toUpperCase(),
@@ -10942,6 +10960,7 @@ const clearSelectedActionSlots = () => {
 
 // ---- In-grid request creation (self mode) ----
 const showRequestModal = ref(false);
+const showAdditionalParticipantsPicker = ref(false);
 // Keep modal “Schedule for” in sync when parent changes the viewed user (declared after showRequestModal to avoid TDZ).
 watch(() => props.userId, (uid) => {
   const id = Number(uid || 0);
@@ -17038,8 +17057,8 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
   selectedBlockKey.value = ''; // whole-cell selection
   selectedActionSlots.value = [item];
   lastSelectedActionKey.value = item.key;
-  if (isOfficeScopeSpecific.value) {
-    syncQuickGlanceToCell(dateYmd, hour, { open: true });
+  if (isOfficeScopeSpecific.value && showOfficeQuickGlance.value) {
+    syncQuickGlanceToCell(dateYmd, hour, { open: false });
   }
   if (viewMode.value === 'office_layout' && roomId > 0 && canBookFromGrid.value) {
     // Office layout: resolve state for THIS specific room (not the whole row)
@@ -17215,7 +17234,7 @@ const isOfficeScopeAll = computed(() => Number(selectedOfficeLocationId.value) =
 const officeGridLoading = ref(false);
 const scheduleCornerLoadingLabel = computed(() => {
   const scheduleBusy = !!loading.value;
-  const officeBusy = !hideOfficeAndCalendarIntegration.value
+  const officeBusy = !props.hideOfficeAndCalendarIntegration
     && isOfficeScopeSpecific.value
     && !!officeGridLoading.value;
   if (scheduleBusy && officeBusy) return 'Refreshing schedule and office availability…';
@@ -17225,7 +17244,7 @@ const scheduleCornerLoadingLabel = computed(() => {
 });
 const scheduleCornerLoadingShortLabel = computed(() => {
   const scheduleBusy = !!loading.value;
-  const officeBusy = !hideOfficeAndCalendarIntegration.value
+  const officeBusy = !props.hideOfficeAndCalendarIntegration
     && isOfficeScopeSpecific.value
     && !!officeGridLoading.value;
   if (scheduleBusy && officeBusy) return 'Refreshing';
@@ -17548,14 +17567,21 @@ const officeOverlayStyle = computed(() => {
 const quickGlanceDateYmd = ref('');
 const quickGlanceHour = ref(0);
 const quickGlanceStateFilter = ref('all'); // all|booked|assigned|open
-const quickGlanceOpen = ref(false); // collapsed until user picks a cell or expands
+const quickGlanceOpen = ref(false); // collapsed until user expands (never auto-opens)
 
 const onQuickGlanceToggle = (e) => {
   quickGlanceOpen.value = !!e?.target?.open;
 };
 
-/** Sync peek panel to a concrete calendar cell (does not auto-open the appointment modal). */
-const syncQuickGlanceToCell = (dateYmd, hour, { open = true } = {}) => {
+const toggleOfficeQuickGlanceTool = () => {
+  showOfficeQuickGlance.value = !showOfficeQuickGlance.value;
+  if (!showOfficeQuickGlance.value) quickGlanceOpen.value = false;
+  saveDisplayPrefs();
+};
+
+/** Sync peek panel to a concrete calendar cell (never forces the panel open). */
+const syncQuickGlanceToCell = (dateYmd, hour, { open = false } = {}) => {
+  if (!showOfficeQuickGlance.value) return;
   const ymd = String(dateYmd || '').slice(0, 10);
   const h = Number(hour);
   if (!ymd || !Number.isFinite(h)) return;
