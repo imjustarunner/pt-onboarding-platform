@@ -19,10 +19,17 @@ import {
   computeExpiresAt,
   expirationStatus,
   FEDERAL_BG_ITEM_KEY,
-  getExpirationYearsForUser,
   syncFederalBackgroundExpiration,
 } from './federalBackgroundCheck.service.js';
 import { requiresProviderYearUpdateLicensesSection } from '../utils/credentialNormalization.js';
+import {
+  D11_BACKGROUND_EXPIRATION_YEARS,
+  SCHOOL_BADGE_ITEM_KEY,
+  listProviderDistrictFlags,
+} from '../utils/districtCompliance.js';
+import { ensureD11ComplianceForProvider } from './d11Compliance.service.js';
+import UserLifecycleChecklistItem from '../models/UserLifecycleChecklistItem.model.js';
+import LifecycleChecklistDefinition from '../models/LifecycleChecklistDefinition.model.js';
 
 export const SECTION_KEYS = [
   'reminders',
@@ -1494,10 +1501,20 @@ export async function loadLicenseContextForProvider(userId, agencyId) {
       ? publicUploadsUrlFromStoredPath(uploadPath)
       : null;
 
-  await syncFederalBackgroundExpiration(userId, { preferredAgencyId: agencyId }).catch(() => null);
-  const expirationYears = await getExpirationYearsForUser(userId, agencyId);
+  await ensureD11ComplianceForProvider(userId, { preferredAgencyId: agencyId }).catch(() => null);
+  const districtFlags = await listProviderDistrictFlags(userId).catch(() => ({
+    hasD11: false,
+    hasD12: false,
+    hasDps: false,
+    schoolDistricts: [],
+  }));
+  const d11Applicable = !!districtFlags.hasD11;
+  const sync = await syncFederalBackgroundExpiration(userId, {
+    preferredAgencyId: agencyId,
+  }).catch(() => null);
+  const expirationYears = d11Applicable ? D11_BACKGROUND_EXPIRATION_YEARS : null;
   const [bgRows] = await pool.execute(
-    `SELECT ulci.is_completed, ulci.completed_at, ulci.expires_at
+    `SELECT ulci.is_completed, ulci.completed_at, ulci.expires_at, ulci.scheduled_at, ulci.definition_id
      FROM user_lifecycle_checklist_items ulci
      JOIN lifecycle_checklist_definitions lcd ON lcd.id = ulci.definition_id
      WHERE ulci.user_id = ? AND lcd.item_key = ?
@@ -1506,11 +1523,26 @@ export async function loadLicenseContextForProvider(userId, agencyId) {
   );
   const bg = bgRows?.[0] || null;
   const completedAt = bg?.completed_at ? normalizeLicenseDateYmd(bg.completed_at) : null;
-  let expiresAt = bg?.expires_at ? normalizeLicenseDateYmd(bg.expires_at) : null;
-  if (!expiresAt && completedAt) {
-    expiresAt = computeExpiresAt(completedAt, expirationYears);
+  let expiresAt = null;
+  let bgStatus = null;
+  let scheduledAt = bg?.scheduled_at ? normalizeLicenseDateYmd(bg.scheduled_at) : null;
+  if (d11Applicable) {
+    expiresAt = bg?.expires_at ? normalizeLicenseDateYmd(bg.expires_at) : null;
+    if (!expiresAt && completedAt) {
+      expiresAt = computeExpiresAt(completedAt, D11_BACKGROUND_EXPIRATION_YEARS);
+    }
+    bgStatus = expirationStatus(expiresAt);
   }
-  const bgStatus = expirationStatus(expiresAt);
+
+  const [badgeRows] = await pool.execute(
+    `SELECT ulci.is_completed, ulci.completed_at, ulci.definition_id
+     FROM user_lifecycle_checklist_items ulci
+     JOIN lifecycle_checklist_definitions lcd ON lcd.id = ulci.definition_id
+     WHERE ulci.user_id = ? AND lcd.item_key = ?
+     LIMIT 1`,
+    [userId, SCHOOL_BADGE_ITEM_KEY]
+  );
+  const badge = badgeRows?.[0] || null;
 
   const missingFields = [];
   if (!licenseTypeNumber) missingFields.push('license_type_number');
@@ -1528,15 +1560,44 @@ export async function loadLicenseContextForProvider(userId, agencyId) {
     pdfUrl,
     pdfUploadedAt: doc?.created_at || null,
     missingFields,
+    d11Applicable,
+    d11Compliance: {
+      applies: d11Applicable,
+      hasD11: !!districtFlags.hasD11,
+      hasD12: !!districtFlags.hasD12,
+      hasDps: !!districtFlags.hasDps,
+      schoolDistricts: districtFlags.schoolDistricts || [],
+    },
     backgroundCheck: {
+      applies: d11Applicable,
       isCompleted: Boolean(bg?.is_completed),
       completedAt,
-      expiresAt,
+      expiresAt: d11Applicable ? expiresAt : null,
+      scheduledAt: d11Applicable ? scheduledAt : null,
+      definitionId: bg?.definition_id || sync?.definitionId || null,
       expirationYears,
-      status: bgStatus?.status || (expiresAt ? 'unknown' : 'missing'),
-      label: bgStatus?.label || (expiresAt ? '' : 'Not on file'),
-      daysUntilExpiration: bgStatus?.days ?? null,
+      status: d11Applicable
+        ? bgStatus?.status || (expiresAt ? 'unknown' : 'missing')
+        : 'not_applicable',
+      label: d11Applicable
+        ? bgStatus?.label || (expiresAt ? '' : 'Not on file')
+        : 'Not required (no District 11 school assignment)',
+      daysUntilExpiration: d11Applicable ? bgStatus?.days ?? null : null,
       capturedAt: new Date().toISOString(),
+    },
+    schoolBadge: {
+      applies: d11Applicable,
+      isCompleted: Boolean(badge?.is_completed),
+      completedAt: badge?.completed_at
+        ? normalizeLicenseDateYmd(badge.completed_at)
+        : null,
+      definitionId: badge?.definition_id || null,
+      optional: true,
+      securityOffice: {
+        hours: 'Monday through Friday, 8:00am–4:00pm',
+        address: '1104 North Franklin Street, Colorado Springs, CO 80903',
+        addressLabel: 'Security Office Address',
+      },
     },
   };
 }
@@ -1589,6 +1650,7 @@ function validateLicensesSectionCompletion(data, licenseContext) {
   ).trim();
   const issued = normalizeLicenseDateYmd(data?.issuedDate ?? licenseContext.issuedDate);
   const expires = normalizeLicenseDateYmd(data?.expirationDate ?? licenseContext.expirationDate);
+  const d11 = !!licenseContext.d11Applicable;
 
   if (!credential) errs.push('License type (credential) is required.');
   if (!typeNumber) errs.push('License type and number are required.');
@@ -1598,15 +1660,52 @@ function validateLicensesSectionCompletion(data, licenseContext) {
   if (!data?.licenseConfirmed) {
     errs.push('Please confirm your license information is accurate.');
   }
-  if (!data?.backgroundCheckConfirmed) {
-    errs.push('Please confirm your federal background check expiration date.');
-  }
-  if (licenseContext.backgroundCheck?.status === 'expired' && !data?.backgroundCheckRenewalAcknowledged) {
-    errs.push(
-      'Please acknowledge that you will complete a new background check and submit reimbursement through the app.'
-    );
+  if (d11) {
+    if (!data?.backgroundCheckConfirmed) {
+      errs.push('Please confirm your federal background check expiration date.');
+    }
+    if (
+      licenseContext.backgroundCheck?.status === 'expired' &&
+      !data?.backgroundCheckRenewalAcknowledged
+    ) {
+      errs.push(
+        'Please acknowledge that you will complete a new background check and submit reimbursement through the app.'
+      );
+    }
+    if (licenseContext.backgroundCheck?.status === 'expired') {
+      const scheduled =
+        normalizeLicenseDateYmd(data?.backgroundCheckScheduledAt) ||
+        licenseContext.backgroundCheck?.scheduledAt;
+      if (!scheduled) {
+        errs.push('Please enter the date your background check renewal is scheduled.');
+      }
+    }
   }
   return errs;
+}
+
+async function applyLicensesComplianceSideEffects(userId, data, licenseContext) {
+  if (!data || typeof data !== 'object') return;
+  const d11 = !!licenseContext?.d11Applicable;
+  if (!d11) return;
+
+  const bgDefId = licenseContext?.backgroundCheck?.definitionId;
+  const scheduled = normalizeLicenseDateYmd(data.backgroundCheckScheduledAt);
+  if (bgDefId && scheduled) {
+    await UserLifecycleChecklistItem.setScheduledAt(userId, bgDefId, scheduled);
+  }
+
+  if (data.schoolBadgeAttested === true) {
+    let badgeDefId = licenseContext?.schoolBadge?.definitionId;
+    if (!badgeDefId) {
+      const def = await LifecycleChecklistDefinition.findByKey(SCHOOL_BADGE_ITEM_KEY);
+      badgeDefId = def?.id || null;
+    }
+    if (badgeDefId) {
+      await UserLifecycleChecklistItem.ensureRows(userId, [badgeDefId]);
+      await UserLifecycleChecklistItem.toggle(userId, badgeDefId, true, null, new Date());
+    }
+  }
 }
 
 export async function getSectionProgress(cycleId) {
@@ -1672,9 +1771,20 @@ export async function upsertSectionProgress({
     }
     if (sectionData && typeof sectionData === 'object') {
       await syncLicenseFieldsFromSectionData(cycle.provider_user_id, sectionData);
+      await applyLicensesComplianceSideEffects(
+        cycle.provider_user_id,
+        sectionData,
+        licenseContext
+      );
+      const refreshed = await loadLicenseContextForProvider(
+        cycle.provider_user_id,
+        cycle.agency_id
+      );
       sectionData = {
         ...sectionData,
-        backgroundCheckSnapshot: licenseContext.backgroundCheck,
+        backgroundCheckSnapshot: refreshed.backgroundCheck,
+        schoolBadgeSnapshot: refreshed.schoolBadge,
+        d11Applicable: refreshed.d11Applicable,
       };
     }
   }

@@ -25,11 +25,11 @@ export const SECTION_META = [
   },
   {
     key: 'licenses',
-    title: 'Licenses & Background Check',
-    shortTitle: 'Licenses',
-    hint: 'Confirm license details and background check',
+    title: 'Licensure and Compliance',
+    shortTitle: 'Licensure',
+    hint: 'Confirm license, District 11 background check, and school badge',
     description:
-      'Review your professional license and federal background check expiration for this school year.',
+      'Review your professional license and District 11 compliance items (federal background check expiration and school badge) for this school year.',
     icon: 'badge',
   },
   {

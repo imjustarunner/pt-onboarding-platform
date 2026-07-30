@@ -1,9 +1,14 @@
 /**
  * Federal Background/Fingerprint Check expiration helpers.
  * Completion lives on lifecycle item `background_check_complete`.
- * Expiration = completed_at + agencies.federal_background_check_expiration_years (3 or 5).
+ * Expiration applies only for District 11 school assignments: completed_at + 3 years.
+ * Non-D11 providers keep completion dates but do not track/display expiration.
  */
 import pool from '../config/database.js';
+import {
+  D11_BACKGROUND_EXPIRATION_YEARS,
+  providerHasDistrict11Assignment,
+} from '../utils/districtCompliance.js';
 
 export const FEDERAL_BG_ITEM_KEY = 'background_check_complete';
 export const FEDERAL_BG_DEFAULT_YEARS = 5;
@@ -92,20 +97,37 @@ export async function getExpirationYearsForAgency(agencyId) {
   }
 }
 
+/**
+ * Effective years for displaying/computing expiration.
+ * District 11 assignees always use 3 years; others return tenant setting
+ * (but sync clears expires_at when not D11-applicable).
+ */
 export async function getExpirationYearsForUser(userId, preferredAgencyId = null) {
+  const d11 = await providerHasDistrict11Assignment(userId);
+  if (d11) return D11_BACKGROUND_EXPIRATION_YEARS;
   const agencyId = await resolveAgencyIdForUser(userId, preferredAgencyId);
   if (!agencyId) return FEDERAL_BG_DEFAULT_YEARS;
   return getExpirationYearsForAgency(agencyId);
 }
 
+export async function federalBackgroundExpirationApplies(userId) {
+  return providerHasDistrict11Assignment(userId);
+}
+
 /**
  * Recompute and persist expires_at on the federal background lifecycle row.
+ * D11-applicable → expires_at = completed_at + 3 years.
+ * Not D11 → clear expires_at (keep completion).
  */
 export async function syncFederalBackgroundExpiration(userId, { preferredAgencyId = null } = {}) {
   const uid = Number(userId);
   if (!Number.isInteger(uid) || uid <= 0) return null;
 
-  const years = await getExpirationYearsForUser(uid, preferredAgencyId);
+  const applies = await providerHasDistrict11Assignment(uid);
+  const years = applies
+    ? D11_BACKGROUND_EXPIRATION_YEARS
+    : await getExpirationYearsForUser(uid, preferredAgencyId);
+
   const [defs] = await pool.execute(
     `SELECT id FROM lifecycle_checklist_definitions
      WHERE item_key = ? AND agency_id IS NULL LIMIT 1`,
@@ -115,15 +137,25 @@ export async function syncFederalBackgroundExpiration(userId, { preferredAgencyI
   if (!definitionId) return null;
 
   const [rows] = await pool.execute(
-    `SELECT is_completed, completed_at, expires_at
+    `SELECT is_completed, completed_at, expires_at, scheduled_at
      FROM user_lifecycle_checklist_items
      WHERE user_id = ? AND definition_id = ?
      LIMIT 1`,
     [uid, definitionId]
   );
   const row = rows?.[0];
-  if (!row || !row.is_completed || !row.completed_at) {
-    if (row) {
+  if (!row) {
+    return {
+      applies,
+      expiresAt: null,
+      years: applies ? D11_BACKGROUND_EXPIRATION_YEARS : years,
+      definitionId,
+      scheduledAt: null,
+    };
+  }
+
+  if (!applies || !row.is_completed || !row.completed_at) {
+    if (row.expires_at != null) {
       await pool.execute(
         `UPDATE user_lifecycle_checklist_items
          SET expires_at = NULL
@@ -131,22 +163,36 @@ export async function syncFederalBackgroundExpiration(userId, { preferredAgencyI
         [uid, definitionId]
       );
     }
-    return { expiresAt: null, years, definitionId };
+    return {
+      applies,
+      expiresAt: null,
+      years: applies ? D11_BACKGROUND_EXPIRATION_YEARS : years,
+      definitionId,
+      completedAt: toYmd(row.completed_at),
+      scheduledAt: toYmd(row.scheduled_at),
+    };
   }
 
-  const expiresAt = computeExpiresAt(row.completed_at, years);
+  const expiresAt = computeExpiresAt(row.completed_at, D11_BACKGROUND_EXPIRATION_YEARS);
   await pool.execute(
     `UPDATE user_lifecycle_checklist_items
      SET expires_at = ?
      WHERE user_id = ? AND definition_id = ?`,
     [expiresAt, uid, definitionId]
   );
-  return { expiresAt, years, definitionId, completedAt: toYmd(row.completed_at) };
+  return {
+    applies: true,
+    expiresAt,
+    years: D11_BACKGROUND_EXPIRATION_YEARS,
+    definitionId,
+    completedAt: toYmd(row.completed_at),
+    scheduledAt: toYmd(row.scheduled_at),
+  };
 }
 
 /**
- * When tenant years change, recompute expires_at for every federal bg check row
- * for users in that agency.
+ * When tenant years change, persist the agency setting then re-sync each
+ * agency member so D11 users stay on 3 years and non-D11 clear expiration.
  */
 export async function setExpirationYearsForAgency(agencyId, years) {
   const id = parseInt(agencyId, 10);
@@ -165,20 +211,19 @@ export async function setExpirationYearsForAgency(agencyId, years) {
     [y, id]
   );
 
-  await pool.execute(
-    `UPDATE user_lifecycle_checklist_items ulci
+  const [users] = await pool.execute(
+    `SELECT DISTINCT ua.user_id
+     FROM user_agencies ua
+     JOIN user_lifecycle_checklist_items ulci ON ulci.user_id = ua.user_id
      JOIN lifecycle_checklist_definitions lcd ON lcd.id = ulci.definition_id
-     JOIN user_agencies ua ON ua.user_id = ulci.user_id
-     SET ulci.expires_at = CASE
-       WHEN ulci.is_completed = 1 AND ulci.completed_at IS NOT NULL
-         THEN DATE_ADD(DATE(ulci.completed_at), INTERVAL ? YEAR)
-       ELSE NULL
-     END
-     WHERE lcd.item_key = ?
-       AND lcd.agency_id IS NULL
-       AND ua.agency_id = ?`,
-    [y, FEDERAL_BG_ITEM_KEY, id]
+     WHERE ua.agency_id = ?
+       AND lcd.item_key = ?
+       AND lcd.agency_id IS NULL`,
+    [id, FEDERAL_BG_ITEM_KEY]
   );
+  for (const row of users || []) {
+    await syncFederalBackgroundExpiration(row.user_id, { preferredAgencyId: id }).catch(() => null);
+  }
 
   return { agencyId: id, years: y };
 }

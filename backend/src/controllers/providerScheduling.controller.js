@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
+import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 
 const parseAgencyId = (req) => {
   const raw = req.query.agencyId || req.body.agencyId || req.user?.agencyId;
@@ -235,6 +236,12 @@ export const upsertProviderSchoolAssignment = async (req, res, next) => {
         isActive,
         actorUserId: req.user?.id
       });
+      if (isActive) {
+        enqueueD11ComplianceEnsure(providerUserId, {
+          schoolOrganizationId,
+          actorUserId: req.user?.id,
+        });
+      }
       return res.status(201).json(rows[0] || null);
     }
 
@@ -269,6 +276,12 @@ export const upsertProviderSchoolAssignment = async (req, res, next) => {
       isActive,
       actorUserId: req.user?.id
     });
+    if (isActive) {
+      enqueueD11ComplianceEnsure(providerUserId, {
+        schoolOrganizationId,
+        actorUserId: req.user?.id,
+      });
+    }
     res.json(rows[0] || null);
   } catch (e) {
     next(e);

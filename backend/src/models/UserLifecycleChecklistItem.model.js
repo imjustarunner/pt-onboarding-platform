@@ -194,6 +194,36 @@ class UserLifecycleChecklistItem {
   }
 
   /**
+   * Set scheduled_at (e.g. federal BG recheck date when expired).
+   */
+  static async setScheduledAt(userId, definitionId, scheduledAt) {
+    const uid = Number(userId);
+    const defId = Number(definitionId);
+    if (!Number.isInteger(uid) || uid <= 0 || !Number.isInteger(defId) || defId <= 0) {
+      return null;
+    }
+    let value = null;
+    if (scheduledAt != null && String(scheduledAt).trim() !== '') {
+      const s = String(scheduledAt).trim();
+      value = /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null;
+      if (!value) {
+        const d = new Date(s);
+        if (!Number.isNaN(d.getTime())) {
+          value = d.toISOString().slice(0, 10);
+        }
+      }
+    }
+    await pool.execute(
+      `INSERT INTO user_lifecycle_checklist_items
+         (user_id, definition_id, is_completed, scheduled_at)
+       VALUES (?, ?, 0, ?)
+       ON DUPLICATE KEY UPDATE scheduled_at = VALUES(scheduled_at)`,
+      [uid, defId, value]
+    );
+    return this.findByUserAndDefinition(uid, defId);
+  }
+
+  /**
    * Auto-complete an item (from sync). Does not overwrite a manually_overridden=1 row
    * when trying to mark complete.
    */

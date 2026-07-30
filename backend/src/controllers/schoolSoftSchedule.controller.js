@@ -8,6 +8,7 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
+import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 import { bumpGradeCanonical } from '../utils/clientGrade.js';
 import { computeCurrentSchoolYearLabel, normalizeSchoolYearLabel } from '../utils/schoolYear.js';
 import { evaluateClientDocCompliance } from '../utils/clientDocCompliance.js';
@@ -1943,6 +1944,11 @@ export const addSchoolProviderWithSchedule = async (req, res, next) => {
         actorUserId: req.user?.id
       });
     }
+
+    enqueueD11ComplianceEnsure(providerUserId, {
+      schoolOrganizationId: schoolOrgId,
+      actorUserId: req.user?.id,
+    });
 
     res.status(201).json({
       ok: true,

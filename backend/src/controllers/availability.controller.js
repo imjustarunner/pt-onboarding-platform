@@ -3,6 +3,7 @@ import config from '../config/config.js';
 import User from '../models/User.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
+import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 import { mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned } from '../utils/officeEventDateTime.util.js';
 import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
 import PublicAppointmentRequest from '../models/PublicAppointmentRequest.model.js';
@@ -3414,6 +3415,10 @@ export const assignSchoolFromRequest = async (req, res, next) => {
       weekday: dayOfWeek,
       isActive: true,
       actorUserId: req.user?.id
+    });
+    enqueueD11ComplianceEnsure(providerUserId, {
+      schoolOrganizationId,
+      actorUserId: req.user?.id,
     });
 
     await conn.execute(

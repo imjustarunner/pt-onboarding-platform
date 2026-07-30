@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
+import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -558,6 +559,11 @@ export const upsertProviderSchoolAssignments = async (req, res, next) => {
     }
 
     await connection.commit();
+
+    enqueueD11ComplianceEnsure(target.providerUserId, {
+      schoolOrganizationId: aff.schoolId,
+      actorUserId: req.user?.id,
+    });
 
     const [rows] = await pool.execute(
       `SELECT *

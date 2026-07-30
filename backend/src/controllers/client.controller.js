@@ -12,6 +12,7 @@ import pool from '../config/database.js';
 import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
+import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 import { notifyClientBecameCurrent, notifyClientChecklistUpdated, notifyPaperworkReceived, notifyClientTerminated } from '../services/clientNotifications.service.js';
 import { createClientOnboardingTaskForProvider } from '../services/clientOnboardingTask.service.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
@@ -3531,6 +3532,10 @@ export const assignProvider = async (req, res, next) => {
              ON DUPLICATE KEY UPDATE is_active = TRUE`,
             [providerId, schoolId, targetDay, slotsTotal, slotsAvailable]
           );
+          enqueueD11ComplianceEnsure(providerId, {
+            schoolOrganizationId: schoolId,
+            actorUserId: req.user?.id,
+          });
           take = await adjustProviderSlots(connection, {
             providerUserId: providerId,
             schoolId,

@@ -10,6 +10,7 @@ import { getCoverageWarnings } from '../services/schoolCoverageWarnings.service.
 import { getOpenSchoolDays } from '../services/openSchoolDays.service.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 import { enableSchoolEventProviderStaffing } from '../services/schoolPortalEvents.service.js';
+import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 import pool from '../config/database.js';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -617,6 +618,12 @@ export const upsertProviderDaySlots = async (req, res, next) => {
       isActive,
       actorUserId: req.user?.id
     });
+    if (isActive) {
+      enqueueD11ComplianceEnsure(providerUserId, {
+        schoolOrganizationId,
+        actorUserId: req.user?.id,
+      });
+    }
 
     const [rows] = await pool.execute(`SELECT * FROM provider_school_assignments WHERE id = ?`, [rowId]);
     res.json(rows[0] || null);

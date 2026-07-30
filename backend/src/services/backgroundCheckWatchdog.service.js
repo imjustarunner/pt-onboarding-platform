@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
 import { FEDERAL_BG_ITEM_KEY } from './federalBackgroundCheck.service.js';
+import { providerHasDistrict11Assignment } from '../utils/districtCompliance.js';
 
 async function getAgencyAdminStaffUserIds(agencyId) {
   const [rows] = await pool.execute(
@@ -117,6 +118,8 @@ class BackgroundCheckWatchdogService {
     for (const doc of expiring) {
       const agencyId = doc.agency_id;
       if (!agencyId) continue;
+      // Expiration tracking is District 11 only
+      if (!(await providerHasDistrict11Assignment(doc.user_id))) continue;
       const recipients = await getAgencyAdminStaffUserIds(agencyId);
       const title = 'Background check renewal due soon';
       const message = `Background check (${doc.document_type}) is expiring soon for user ID ${doc.user_id} (expires ${new Date(doc.expiration_date).toLocaleDateString()}).`;
@@ -162,6 +165,8 @@ class BackgroundCheckWatchdogService {
       for (const row of lifecycleRows) {
         const agencyId = row.agency_id;
         if (!agencyId || !row.expires_at) continue;
+        // Only District 11 assignees track federal BG expiration
+        if (!(await providerHasDistrict11Assignment(row.user_id))) continue;
         const expiresYmd = String(row.expires_at).slice(0, 10);
         const expiresDate = new Date(`${expiresYmd}T00:00:00`);
         if (Number.isNaN(expiresDate.getTime())) continue;

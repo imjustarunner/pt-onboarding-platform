@@ -361,12 +361,15 @@
             </div>
           </section>
 
-          <!-- Licenses & background check (licensed providers only) -->
+          <!-- Licensure and Compliance (licensed providers only) -->
           <section v-else-if="activeSection === 'licenses'" class="pyu__panel">
-            <h2>Licenses &amp; Background Check</h2>
+            <h2>Licensure and Compliance</h2>
             <p class="muted">
-              Review the license and federal background check information we have on file. This uses the same data as your profile
+              Review the license information we have on file. This uses the same data as your profile
               <strong>Clinical Information → License &amp; Certifications</strong> tab — add anything missing, then confirm it is accurate.
+              <template v-if="d11Applicable">
+                District 11 school assignments also include federal background check expiration (3 years from fingerprinting completion) and an optional school badge attestation.
+              </template>
             </p>
 
             <label class="field pyu__license-credential-field">
@@ -440,11 +443,11 @@
               I confirm the license information above is accurate and complete.
             </label>
 
-            <div class="pyu__license-bg">
-              <h3>Federal background check</h3>
+            <div v-if="d11Applicable" class="pyu__license-bg">
+              <h3>Federal background check / fingerprinting</h3>
               <p class="muted tiny">
-                Expiration is calculated from your completion date and your agency’s current policy
-                ({{ licenseContext?.backgroundCheck?.expirationYears || 3 }}-year window as of when you opened this section).
+                For District 11 school assignments, expiration is <strong>3 years after your federal background check /
+                fingerprinting completion date</strong>.
               </p>
               <div class="pyu__license-bg-grid">
                 <div class="pyu__license-bg-item">
@@ -464,10 +467,18 @@
                 </div>
               </div>
               <p v-if="bgCheckExpired" class="pyu__license-bg-warning">
-                Your federal background check appears expired under the current {{ licenseContext?.backgroundCheck?.expirationYears }}-year
-                policy. You will need to complete a new background check, pay out of pocket, and submit the expense for
-                reimbursement through the app (Payroll → reimbursements).
+                Your federal background check appears expired under the 3-year District 11 policy. You will need to
+                complete a new background check, pay out of pocket, and submit the expense for reimbursement through the
+                app (Payroll → reimbursements). Enter the date it is scheduled below.
               </p>
+              <label v-if="bgCheckExpired" class="field" style="margin-top: 10px;">
+                <span>Date scheduled for renewal</span>
+                <input
+                  v-model="licensesForm.backgroundCheckScheduledAt"
+                  type="date"
+                  :disabled="isFinalized"
+                />
+              </label>
               <label class="pyu__check">
                 <input v-model="licensesForm.backgroundCheckConfirmed" type="checkbox" :disabled="isFinalized" />
                 I confirm the background check expiration date shown above is accurate.
@@ -482,6 +493,37 @@
               </label>
             </div>
 
+            <div v-if="d11Applicable" class="pyu__license-badge-callout">
+              <h3>District 11 school badge</h3>
+              <p class="muted tiny">
+                District 11 badges are separate from fingerprinting / background checks. You can go to the Security Office
+                for a badge photo. This is optional and does not block completion if you do not have a badge.
+              </p>
+              <ul class="pyu__badge-office">
+                <li><strong>Hours:</strong> {{ d11SecurityOffice.hours }}</li>
+                <li>
+                  <strong>{{ d11SecurityOffice.addressLabel }}:</strong>
+                  {{ d11SecurityOffice.address }}
+                </li>
+              </ul>
+              <label class="pyu__check">
+                <input
+                  v-model="licensesForm.schoolBadgeAttested"
+                  type="checkbox"
+                  :disabled="isFinalized || licenseContext?.schoolBadge?.isCompleted"
+                />
+                <template v-if="licenseContext?.schoolBadge?.isCompleted">
+                  School badge visit already attested
+                  <span v-if="licenseContext.schoolBadge.completedAt" class="muted tiny">
+                    ({{ licenseContext.schoolBadge.completedAt }})
+                  </span>
+                </template>
+                <template v-else>
+                  I attest that I have gone in and completed my District 11 school badge photo / visit.
+                </template>
+              </label>
+            </div>
+
             <div class="pyu__section-actions">
               <button
                 type="button"
@@ -489,7 +531,7 @@
                 :disabled="isFinalized || saving || !canCompleteLicenses"
                 @click="saveLicensesSection"
               >
-                Mark licenses section complete
+                Mark licensure section complete
               </button>
               <button
                 v-if="props.mode !== 'token'"
@@ -778,6 +820,7 @@ import {
   LICENSE_UPLOAD_ACCEPT,
   PROVIDER_YEAR_UPDATE_LICENSE_TOKENS,
 } from '../../utils/credentialNormalization.js';
+import { D11_SECURITY_OFFICE } from '../../utils/districtCompliance.js';
 import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
 import ProviderYearUpdateSchoolNeedsPanel from './ProviderYearUpdateSchoolNeedsPanel.vue';
 import ProviderYearUpdateSupportPanel from './ProviderYearUpdateSupportPanel.vue';
@@ -816,6 +859,8 @@ const licensesForm = reactive({
   licenseConfirmed: false,
   backgroundCheckConfirmed: false,
   backgroundCheckRenewalAcknowledged: false,
+  backgroundCheckScheduledAt: '',
+  schoolBadgeAttested: false,
 });
 const materialsForm = reactive({
   school_cart: null,
@@ -915,13 +960,22 @@ const visibleSectionMeta = computed(() => {
   return SECTION_META.filter((m) => m.key !== 'licenses');
 });
 const licenseContext = computed(() => payload.value?.licenseContext || null);
+const d11Applicable = computed(
+  () =>
+    Boolean(licenseContext.value?.d11Applicable) ||
+    Boolean(licenseContext.value?.backgroundCheck?.applies) ||
+    Boolean(licenseContext.value?.schoolBadge?.applies)
+);
+const d11SecurityOffice = D11_SECURITY_OFFICE;
 const licenseCredentialOptions = computed(() => {
   const current = String(licenseContext.value?.credential || licensesForm.credential || '').trim();
   const base = [...PROVIDER_YEAR_UPDATE_LICENSE_TOKENS];
   if (current && !base.includes(current)) base.unshift(current);
   return base;
 });
-const bgCheckExpired = computed(() => licenseContext.value?.backgroundCheck?.status === 'expired');
+const bgCheckExpired = computed(
+  () => d11Applicable.value && licenseContext.value?.backgroundCheck?.status === 'expired'
+);
 const bgStatusPillClass = computed(() => {
   const status = licenseContext.value?.backgroundCheck?.status;
   if (status === 'expired') return 'pill-danger';
@@ -933,8 +987,14 @@ const canCompleteLicenses = computed(() => {
   if (!String(licensesForm.licenseTypeNumber || '').trim()) return false;
   if (!licensesForm.issuedDate || !licensesForm.expirationDate) return false;
   if (!licenseContext.value?.hasPdf) return false;
-  if (!licensesForm.licenseConfirmed || !licensesForm.backgroundCheckConfirmed) return false;
-  if (bgCheckExpired.value && !licensesForm.backgroundCheckRenewalAcknowledged) return false;
+  if (!licensesForm.licenseConfirmed) return false;
+  if (d11Applicable.value) {
+    if (!licensesForm.backgroundCheckConfirmed) return false;
+    if (bgCheckExpired.value && !licensesForm.backgroundCheckRenewalAcknowledged) return false;
+    if (bgCheckExpired.value && !String(licensesForm.backgroundCheckScheduledAt || '').trim()) {
+      return false;
+    }
+  }
   return true;
 });
 const gearItems = computed(() => {
@@ -1122,6 +1182,13 @@ function applyPayload(data) {
   licensesForm.backgroundCheckConfirmed = Boolean(licSaved.backgroundCheckConfirmed);
   licensesForm.backgroundCheckRenewalAcknowledged = Boolean(
     licSaved.backgroundCheckRenewalAcknowledged
+  );
+  licensesForm.backgroundCheckScheduledAt =
+    licSaved.backgroundCheckScheduledAt ||
+    licCtx.backgroundCheck?.scheduledAt ||
+    '';
+  licensesForm.schoolBadgeAttested = Boolean(
+    licSaved.schoolBadgeAttested || licCtx.schoolBadge?.isCompleted
   );
   if (
     activeSection.value === 'licenses' &&
@@ -1350,6 +1417,8 @@ function licensesPayload() {
     licenseConfirmed: Boolean(licensesForm.licenseConfirmed),
     backgroundCheckConfirmed: Boolean(licensesForm.backgroundCheckConfirmed),
     backgroundCheckRenewalAcknowledged: Boolean(licensesForm.backgroundCheckRenewalAcknowledged),
+    backgroundCheckScheduledAt: String(licensesForm.backgroundCheckScheduledAt || '').trim() || null,
+    schoolBadgeAttested: Boolean(licensesForm.schoolBadgeAttested),
   };
 }
 
@@ -2548,6 +2617,25 @@ defineExpose({ load, reload: load });
 .pyu__license-missing {
   color: #c2410c;
   font-weight: 600;
+}
+.pyu__license-badge-callout {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+.pyu__license-badge-callout h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  color: #1e3a8a;
+}
+.pyu__badge-office {
+  margin: 8px 0 12px;
+  padding-left: 18px;
+  font-size: 0.85rem;
+  color: #1e293b;
+  line-height: 1.45;
 }
 .pyu__license-bg {
   margin-top: 20px;

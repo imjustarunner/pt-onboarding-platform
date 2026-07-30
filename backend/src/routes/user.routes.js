@@ -32,6 +32,7 @@ import {
   updateSeparationInfo,
   toggleLifecycleChecklistItem,
   setLifecycleChecklistNotApplicable,
+  setLifecycleChecklistScheduledAt,
   syncLifecycle,
   uploadLifecycleChecklistAttachment,
   downloadLifecycleChecklistAttachment,
@@ -153,6 +154,7 @@ router.patch('/:id/lifecycle/separation', authenticate, requireBackofficeAdminOr
 router.get('/:id/lifecycle/federal-background-expiration-years', authenticate, requireBackofficeAdminOrCpa, getFederalBackgroundExpirationYears);
 router.patch('/:id/lifecycle/federal-background-expiration-years', authenticate, requireBackofficeAdminOrCpa, updateFederalBackgroundExpirationYears);
 router.post('/:id/lifecycle/checklist/:definitionId/toggle', authenticate, requireBackofficeAdminOrCpa, toggleLifecycleChecklistItem);
+router.patch('/:id/lifecycle/checklist/:definitionId/schedule', authenticate, requireBackofficeAdminOrCpa, setLifecycleChecklistScheduledAt);
 router.post('/:id/lifecycle/checklist/:definitionId/not-applicable', authenticate, requireBackofficeAdminOrCpa, setLifecycleChecklistNotApplicable);
 router.post('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, uploadLifecycleChecklistAttachment);
 router.get('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, downloadLifecycleChecklistAttachment);

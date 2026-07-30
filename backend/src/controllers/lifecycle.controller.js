@@ -272,6 +272,31 @@ export const toggleLifecycleChecklistItem = async (req, res, next) => {
   }
 };
 
+/** PATCH /users/:id/lifecycle/checklist/:definitionId/schedule */
+export const setLifecycleChecklistScheduledAt = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const definitionId = parseInt(req.params.definitionId, 10);
+    if (!userId || !definitionId) {
+      return res.status(400).json({ error: { message: 'Invalid user id or definition id' } });
+    }
+
+    const def = await LifecycleChecklistDefinition.findById(definitionId);
+    if (!def) return res.status(404).json({ error: { message: 'Checklist item not found' } });
+    if (def.item_key !== FEDERAL_BG_ITEM_KEY) {
+      return res.status(400).json({
+        error: { message: 'scheduled_at is only supported for Federal Background/Fingerprint Check' },
+      });
+    }
+
+    const scheduledAt = req.body?.scheduledAt ?? req.body?.scheduled_at ?? null;
+    const item = await UserLifecycleChecklistItem.setScheduledAt(userId, definitionId, scheduledAt);
+    res.json({ ok: true, item });
+  } catch (err) {
+    next(err);
+  }
+};
+
 /** GET /users/:id/lifecycle/federal-background-expiration-years */
 export const getFederalBackgroundExpirationYears = async (req, res, next) => {
   try {

@@ -266,13 +266,19 @@
               <div class="lc-block-title-row">
                 <h4 class="lc-block-title">{{ group.label }}</h4>
                 <div
-                  v-if="group.category === 'background_credentialing' && !viewOnly"
+                  v-if="group.category === 'background_credentialing'"
                   class="lc-exp-setting-wrap"
                 >
+                  <span
+                    v-if="data.d11Compliance?.applies || data.federalBackgroundCheck?.applies"
+                    class="lc-d11-badge"
+                    title="District 11 school assignment — federal BG expires 3 years after completion"
+                  >D11 · 3 yr</span>
                   <button
+                    v-if="!viewOnly && !(data.d11Compliance?.applies || data.federalBackgroundCheck?.applies)"
                     type="button"
                     class="lc-exp-setting-btn"
-                    title="Federal Background/Fingerprint Check expiration period (tenant-wide)"
+                    title="Federal Background/Fingerprint Check expiration period (tenant-wide; D11 assignees always use 3 years)"
                     :aria-expanded="expSettingOpen"
                     @click="expSettingOpen = !expSettingOpen"
                   >
@@ -282,10 +288,10 @@
                       <path d="M10 3v1.5M10 15.5V17M3 10h1.5M15.5 10H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                     </svg>
                   </button>
-                  <div v-if="expSettingOpen" class="lc-exp-setting-popover">
+                  <div v-if="expSettingOpen && !viewOnly" class="lc-exp-setting-popover">
                     <div class="lc-exp-setting-title">Expiration period</div>
                     <p class="lc-exp-setting-hint">
-                      Applies to every Federal Background/Fingerprint Check in this tenant.
+                      Tenant default for non–District 11 staff. Providers with a District 11 school assignment always use 3 years from fingerprinting completion.
                     </p>
                     <label class="lc-exp-radio">
                       <input
@@ -312,6 +318,13 @@
                   </div>
                 </div>
               </div>
+              <p
+                v-if="group.category === 'background_credentialing' && (data.d11Compliance?.applies || data.federalBackgroundCheck?.applies)"
+                class="lc-d11-hint"
+              >
+                District 11 school assignment: federal background/fingerprint expiration is 3 years after completion.
+                School Badge is optional and does not count toward lifecycle completion.
+              </p>
               <LifecycleGearPanel
                 v-if="group.category === 'equipment'"
                 :user-id="userId"
@@ -358,7 +371,7 @@
                       :checked="item.isCompleted"
                       :disabled="viewOnly || item.isExpirationRow || item.readOnly"
                       :title="item.isExpirationRow
-                        ? 'Calculated from completion date + tenant expiration years'
+                        ? 'Calculated from completion date + 3 years (District 11)'
                         : (item.completionMethod === 'auto' ? 'Auto-completed from app data' : '')"
                       @change="toggleItem(item, $event.target.checked)"
                     />
@@ -366,7 +379,7 @@
                       v-if="item.completionMethod === 'auto' || item.isExpirationRow"
                       class="lc-auto-badge"
                       :title="item.isExpirationRow
-                        ? 'Calculated from completion date + tenant expiration years'
+                        ? 'Calculated from completion date + 3 years (District 11)'
                         : 'Auto-completed from app data'"
                     >auto</span>
                   </span>
@@ -386,6 +399,20 @@
                       title="Override completion date"
                     />
                     <span v-else>{{ fmtDate(item.completedAt) || (item.isCompleted ? '✓' : '—') }}</span>
+                    <label
+                      v-if="item.itemKey === 'background_check_complete' && item.expirationStatus === 'expired' && !item.isExpirationRow"
+                      class="lc-scheduled-field"
+                    >
+                      <span class="lc-scheduled-label">Scheduled</span>
+                      <input
+                        type="date"
+                        class="lc-item-date-input"
+                        :value="toYmd(item.scheduledAt)"
+                        :disabled="viewOnly"
+                        @change="updateItemScheduledAt(item, $event.target.value)"
+                        title="Date background check renewal is scheduled"
+                      />
+                    </label>
                   </span>
                   <span v-if="group.category === 'compliance_documents'" class="lc-item-doc">
                     <!-- Signed document from onboarding flow -->
@@ -941,6 +968,21 @@ async function updateItemDate(item, dateStr) {
   }
 }
 
+async function updateItemScheduledAt(item, dateStr) {
+  if (props.viewOnly || item?.isExpirationRow || !item?.definitionId) return;
+  const prev = item.scheduledAt;
+  item.scheduledAt = dateStr || null;
+  try {
+    await api.patch(`/users/${props.userId}/lifecycle/checklist/${item.definitionId}/schedule`, {
+      scheduledAt: dateStr || null,
+      agencyId: props.agencyId || undefined,
+    });
+    await fetchLifecycle();
+  } catch {
+    item.scheduledAt = prev;
+  }
+}
+
 async function saveExpirationYears(years) {
   if (props.viewOnly) return;
   expSettingSaving.value = true;
@@ -1250,7 +1292,37 @@ watch(() => props.userId, () => {
   margin-bottom: 8px;
 }
 .lc-block-title-row .lc-block-title { margin-bottom: 0; }
-.lc-exp-setting-wrap { position: relative; }
+.lc-exp-setting-wrap { position: relative; display: flex; align-items: center; gap: 8px; }
+.lc-d11-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1e40af;
+}
+.lc-d11-hint {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  color: #475569;
+  line-height: 1.4;
+}
+.lc-scheduled-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+.lc-scheduled-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #92400e;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
 .lc-exp-setting-btn {
   display: inline-flex;
   align-items: center;

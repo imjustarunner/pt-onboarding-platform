@@ -91,17 +91,22 @@ export const createComplianceDocument = async (req, res, next) => {
     const uploadedAt = new Date();
 
     let effectiveExpirationDate = expirationDate ? new Date(expirationDate) : null;
-    // Background check renews on the tenant setting (3 or 5 years; default 5)
+    // Background check expiration applies for District 11 assignees only (3 years)
     if (!effectiveExpirationDate && normalizedType.startsWith('background_check') && !normalizedType.startsWith('background_check_receipt')) {
-      let years = 5;
       try {
-        const { getExpirationYearsForAgency } = await import('../services/federalBackgroundCheck.service.js');
-        if (agencyId) years = await getExpirationYearsForAgency(agencyId);
+        const {
+          providerHasDistrict11Assignment,
+          D11_BACKGROUND_EXPIRATION_YEARS,
+        } = await import('../utils/districtCompliance.js');
+        if (await providerHasDistrict11Assignment(targetUserId)) {
+          effectiveExpirationDate = new Date(uploadedAt);
+          effectiveExpirationDate.setFullYear(
+            effectiveExpirationDate.getFullYear() + D11_BACKGROUND_EXPIRATION_YEARS
+          );
+        }
       } catch {
-        years = 5;
+        // leave null when not D11 / on error
       }
-      effectiveExpirationDate = new Date(uploadedAt);
-      effectiveExpirationDate.setFullYear(effectiveExpirationDate.getFullYear() + years);
     }
 
     const doc = await UserComplianceDocument.create({

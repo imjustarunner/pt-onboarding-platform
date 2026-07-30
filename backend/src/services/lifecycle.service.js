@@ -24,6 +24,8 @@ import {
   getExpirationYearsForUser,
   syncFederalBackgroundExpiration,
 } from './federalBackgroundCheck.service.js';
+import { ensureD11ComplianceForProvider } from './d11Compliance.service.js';
+import { listProviderDistrictFlags } from '../utils/districtCompliance.js';
 
 // Milestone date field keys we manage via user_info_values EAV
 const MILESTONE_FIELD_KEYS = [
@@ -246,6 +248,19 @@ export async function getLifecycleData(userId) {
   } catch {
     // non-fatal
   }
+  try {
+    await ensureD11ComplianceForProvider(userId);
+  } catch {
+    // non-fatal
+  }
+  const districtFlags = await listProviderDistrictFlags(userId).catch(() => ({
+    hasD11: false,
+    hasD12: false,
+    hasDps: false,
+    schoolDistricts: [],
+  }));
+  const d11Applicable = !!districtFlags.hasD11;
+
   const scopedKeys = await UserLifecycleScopedItem.findKeysByUser(userId);
   const scopedItems = await UserLifecycleScopedItem.findDetailsByUser(userId);
 
@@ -270,7 +285,7 @@ export async function getLifecycleData(userId) {
   let onboardDone = 0;
   const missingItems = [];
 
-  const federalBgYears = await getExpirationYearsForUser(userId);
+  const federalBgYears = d11Applicable ? 3 : await getExpirationYearsForUser(userId);
   try {
     await syncFederalBackgroundExpiration(userId);
   } catch {
@@ -321,8 +336,12 @@ export async function getLifecycleData(userId) {
       continue;
     }
 
-    const expiresAt = toYmd(state.expires_at);
-    const expMeta = def.item_key === FEDERAL_BG_ITEM_KEY ? expirationStatus(expiresAt) : null;
+    const expiresAt =
+      def.item_key === FEDERAL_BG_ITEM_KEY && d11Applicable ? toYmd(state.expires_at) : null;
+    const expMeta =
+      def.item_key === FEDERAL_BG_ITEM_KEY && d11Applicable ? expirationStatus(expiresAt) : null;
+    const scheduledAt =
+      def.item_key === FEDERAL_BG_ITEM_KEY ? toYmd(state.scheduled_at) : null;
 
     const item = {
       id: state.id || null,
@@ -334,7 +353,8 @@ export async function getLifecycleData(userId) {
       isNotApplicable: !!state.is_not_applicable,
       notApplicableAt: state.not_applicable_at || null,
       completedAt: state.completed_at || null,
-      expiresAt: def.item_key === FEDERAL_BG_ITEM_KEY ? expiresAt : null,
+      expiresAt: def.item_key === FEDERAL_BG_ITEM_KEY && d11Applicable ? expiresAt : null,
+      scheduledAt,
       expirationStatus: expMeta?.status || null,
       expirationLabel: expMeta?.label || null,
       completionMethod: state.completion_method || 'manual',
@@ -388,8 +408,8 @@ export async function getLifecycleData(userId) {
       }
       onboardingGroups[def.category].items.push(item);
 
-      // Synthetic expiration row under Federal Background/Fingerprint Check
-      if (def.item_key === FEDERAL_BG_ITEM_KEY) {
+      // Synthetic expiration row under Federal Background/Fingerprint Check (D11 only)
+      if (def.item_key === FEDERAL_BG_ITEM_KEY && d11Applicable) {
         onboardingGroups[def.category].items.push({
           id: null,
           definitionId: null,
@@ -401,6 +421,7 @@ export async function getLifecycleData(userId) {
           notApplicableAt: null,
           completedAt: expiresAt,
           expiresAt,
+          scheduledAt,
           expirationStatus: expMeta?.status || null,
           expirationLabel: expMeta?.label || null,
           completionMethod: 'auto',
@@ -469,6 +490,15 @@ export async function getLifecycleData(userId) {
     federalBackgroundCheck: {
       expirationYears: federalBgYears,
       soonDays: 90,
+      applies: d11Applicable,
+      expirationYearsSource: d11Applicable ? 'district_11' : 'tenant',
+    },
+    d11Compliance: {
+      applies: d11Applicable,
+      hasD11: !!districtFlags.hasD11,
+      hasD12: !!districtFlags.hasD12,
+      hasDps: !!districtFlags.hasDps,
+      schoolDistricts: districtFlags.schoolDistricts || [],
     },
     onboarding: {
       progress: onboardingProgress,
