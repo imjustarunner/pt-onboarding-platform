@@ -14099,15 +14099,6 @@ watch(editorWorkspaceTab, (tab) => {
   }
 });
 
-watch(isSelectedSupvReadOnlyView, (readOnly) => {
-  if (!readOnly) return;
-  if (['edit', 'notifications'].includes(String(editorWorkspaceTab.value || ''))) {
-    editorWorkspaceTab.value = isSelectedSupvPresenterView.value && canEditSupervisionPresenterCase.value
-      ? 'presentation'
-      : 'info';
-  }
-});
-
 async function loadEditorOfficeLocations() {
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
   editorOfficeLocationsLoading.value = true;
@@ -21575,6 +21566,15 @@ const selectedSupvNoteViewerRole = computed(() => {
 });
 const canCancelSelectedSupvSession = computed(() => canHostOrAdminManageSelectedSupv.value);
 const canSaveSelectedSupvSession = computed(() => canHostOrAdminManageSelectedSupv.value);
+
+watch(isSelectedSupvReadOnlyView, (readOnly) => {
+  if (!readOnly) return;
+  if (['edit', 'notifications'].includes(String(editorWorkspaceTab.value || ''))) {
+    editorWorkspaceTab.value = isSelectedSupvPresenterView.value && canEditSupervisionPresenterCase.value
+      ? 'presentation'
+      : 'info';
+  }
+});
 
 const loadSupvPresenters = async (sessionId) => {
   const sid = Number(sessionId || 0);
