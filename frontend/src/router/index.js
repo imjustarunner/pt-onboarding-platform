@@ -7,6 +7,7 @@ import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
 import { getLoginUrl, getCurrentPortalSlugFromHostCache } from '../utils/loginRedirect';
 import { buildOrgLoginPath } from '../utils/orgLoginPath';
+import { guessPortalSlugFromHostname } from '../utils/orgScopedPath';
 import { isSupervisor } from '../utils/helpers';
 import { hasProviderMobileAccess } from '../utils/providerMobileAccess';
 import { isLikelyMobileViewport, isStandalonePwa } from '../utils/pwa';
@@ -28,6 +29,15 @@ import {
   getParentAgencyFromOrg,
   getOrgSlug
 } from '../utils/organizationTypes.js';
+
+/** Host-implied portal slug (app.itsco.health → itsco), even when /agencies/resolve is empty. */
+const resolveHostPortalSlug = (brandingStore = null) => {
+  const fromStore = String(brandingStore?.portalHostPortalUrl || '').trim().toLowerCase();
+  if (fromStore) return fromStore;
+  const fromCache = String(getCurrentPortalSlugFromHostCache() || '').trim().toLowerCase();
+  if (fromCache) return fromCache;
+  return String(guessPortalSlugFromHostname() || '').trim().toLowerCase() || '';
+};
 
 const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'];
 /** Hub landing + Staff Schedules busy overlay (providers cannot open buildings/approvals from hub). */
@@ -237,7 +247,7 @@ const getDefaultOrganizationSlug = () => {
 
 /** True when hostname already identifies this portal slug (custom domain or subdomain); path must stay flat (no /{slug}/…). */
 const isPortalHostSlugRedundantInPath = (brandingStore, segmentSlug) => {
-  const h = String(brandingStore?.portalHostPortalUrl || '').trim().toLowerCase();
+  const h = resolveHostPortalSlug(brandingStore);
   const s = String(segmentSlug || '').trim().toLowerCase();
   return Boolean(h && s && h === s);
 };
@@ -3759,21 +3769,29 @@ router.beforeEach(async (to, from, next) => {
       const hopTrace = _navLoopRecentHops.slice(-12).join(' | ');
       _navLoopRecentHops = [];
 
-      // Fresh login: do NOT wipe the session. Break the spin by forcing one dashboard land.
-      if (isFreshLoginWindow(now) && authStore.isAuthenticated) {
+      // Fresh login / admin slug ping-pong: do NOT wipe the session.
+      // Classic failure: /itsco/admin ↔ /admin on app.itsco.health after password login.
+      const hasClientAuthHint = (() => {
+        try {
+          return !!(authStore.isAuthenticated || localStorage.getItem('authToken') || localStorage.getItem('user'));
+        } catch {
+          return !!authStore.isAuthenticated;
+        }
+      })();
+      const looksLikeAdminSlugPingPong = /\/admin/.test(hopTrace) && (
+        hopTrace.includes('/admin |') || hopTrace.includes('→ /admin')
+      );
+      if (hasClientAuthHint && (isFreshLoginWindow(now) || looksLikeAdminSlugPingPong)) {
+        const hostPortal = resolveHostPortalSlug(brandingStore);
+        const flatAdmin = '/admin';
         // eslint-disable-next-line no-console
         console.error(
-          '[nav-loop-breaker] Redirect loop during fresh login; keeping session and forcing dashboard.',
-          hopTrace
+          '[nav-loop-breaker] Redirect loop during login/admin routing; keeping session and landing on flat admin.',
+          { hostPortal, hopTrace }
         );
-        try {
-          const dash = getDashboardRoute();
-          if (dash && String(to.path || '') !== String(dash).split('?')[0]) {
-            next({ path: dash, replace: true });
-          } else {
-            next();
-          }
-        } catch {
+        if (String(to.path || '') !== flatAdmin) {
+          next({ path: flatAdmin, replace: true });
+        } else {
           next();
         }
         return;
@@ -3888,8 +3906,13 @@ router.beforeEach(async (to, from, next) => {
   }
 
   // Custom domain / subdomain portals: never keep /{portalSlug}/… in the path (host is already the bucket).
-  const hostPortalEarly = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase();
+  // Use resolveHostPortalSlug so app.itsco.health ≡ itsco even when /agencies/resolve returns null.
+  const hostPortalEarly = resolveHostPortalSlug(brandingStore);
   if (hostPortalEarly) {
+    // Keep branding store aligned so other checks (redundant slug, login paths) agree.
+    if (!brandingStore.portalHostPortalUrl) {
+      try { brandingStore.portalHostPortalUrl = hostPortalEarly; } catch { /* ignore */ }
+    }
     const rawPath = String(to.path || '');
     const prefix = `/${hostPortalEarly}`;
     if (rawPath === prefix || rawPath.startsWith(`${prefix}/`)) {
@@ -3941,6 +3964,8 @@ router.beforeEach(async (to, from, next) => {
   }
 
   // Club managers (admin with only affiliation orgs): redirect /admin to /sstc/admin
+  // Never re-prefix when the hostname already implies that slug — that creates
+  // /itsco/admin ↔ /admin ping-pong on app.itsco.health after password login.
   const isAdminPath = to.path === '/admin' || String(to.path || '').startsWith('/admin/');
   if (authStore.isAuthenticated && isAdminPath && !to.meta.organizationSlug) {
     const userRole = String(authStore.user?.role || '').toLowerCase();
@@ -3955,7 +3980,7 @@ router.beforeEach(async (to, from, next) => {
         const orgType = String(org?.organization_type || org?.organizationType || '').toLowerCase();
         if (orgType === 'affiliation') {
           const slug = org?.parent_slug || org?.slug || org?.portal_url || org?.portalUrl;
-          if (slug && String(slug).trim()) {
+          if (slug && String(slug).trim() && !isPortalHostSlugRedundantInPath(brandingStore, slug)) {
             const rest = to.path === '/admin' ? '' : to.path.slice(6);
             const qs = to.fullPath.includes('?') ? to.fullPath.slice(to.fullPath.indexOf('?')) : '';
             next(`/${slug}/admin${rest}${qs}`);

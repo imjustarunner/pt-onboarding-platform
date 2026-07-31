@@ -1743,7 +1743,19 @@ const handleLogin = async () => {
     const hasNoAgencies = !Array.isArray(agencies) || agencies.length === 0;
     const isAdmin = String(authStore.user?.role || '').toLowerCase() === 'admin';
     if (isAdmin && hasNoAgencies && loginSlug.value) {
-      router.push(`/${loginSlug.value}/admin`);
+      // On app.itsco.health, /itsco/admin is stripped to /admin — push flat to avoid login↔admin ping-pong.
+      const slug = String(loginSlug.value || '').trim().toLowerCase();
+      let hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase();
+      if (!hostImplied) {
+        try {
+          const { guessPortalSlugFromHostname } = await import('../utils/orgScopedPath.js');
+          hostImplied = String(guessPortalSlugFromHostname() || '').trim().toLowerCase();
+        } catch {
+          hostImplied = '';
+        }
+      }
+      const adminPath = hostImplied && hostImplied === slug ? '/admin' : `/${slug}/admin`;
+      router.push(adminPath);
       loading.value = false;
       return;
     }

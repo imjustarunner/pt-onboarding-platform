@@ -743,16 +743,27 @@ export const useBrandingStore = defineStore('branding', () => {
           timeout: 15000
         });
         const resolved = String(resp?.data?.portalUrl || '').trim();
-        if (resolved) {
-          portalHostPortalUrl.value = resolved;
-          const payload = JSON.stringify({ portalUrl: resolved, ts: Date.now() });
+        // Fallback: app.{portal}.health → portal (e.g. app.itsco.health → itsco) when
+        // agency_custom_domains has no row. Keeps flat-path routing consistent.
+        let portal = resolved;
+        if (!portal) {
+          try {
+            const { guessPortalSlugFromHostname } = await import('../utils/orgScopedPath.js');
+            portal = String(guessPortalSlugFromHostname(host) || '').trim();
+          } catch {
+            portal = '';
+          }
+        }
+        if (portal) {
+          portalHostPortalUrl.value = portal;
+          const payload = JSON.stringify({ portalUrl: portal, ts: Date.now() });
           try {
             sessionStorage.setItem(cacheKey, payload);
             localStorage.setItem(cacheKey, payload);
           } catch {
             // ignore
           }
-          await fetchAgencyTheme(resolved);
+          await fetchAgencyTheme(portal);
         }
       } catch {
         // best effort; do not block app load

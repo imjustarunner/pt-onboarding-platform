@@ -1,6 +1,7 @@
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
+import { useBrandingStore } from '../store/branding';
 import { isSupervisor } from './helpers.js';
 import { getOrganizationDashboardRoute } from './organizationContext.js';
 import { hasProviderMobileAccess } from './providerMobileAccess.js';
@@ -14,6 +15,28 @@ import {
 import { getSstcSurfaceChoice, getPreferredWorkAgencyId } from './sstcSurfaceChoice.js';
 import { isPractitionerOrgType } from './practitionerVertical.js';
 import { isBookClubAgency, getBookClubParentSlug } from './bookClubAgency.js';
+import { getCurrentPortalSlugFromHostCache } from './loginRedirect.js';
+import { guessPortalSlugFromHostname } from './orgScopedPath.js';
+
+function hostImpliedPortalSlug() {
+  try {
+    const fromStore = String(useBrandingStore().portalHostPortalUrl || '').trim().toLowerCase();
+    if (fromStore) return fromStore;
+  } catch {
+    /* ignore */
+  }
+  const fromCache = String(getCurrentPortalSlugFromHostCache() || '').trim().toLowerCase();
+  if (fromCache) return fromCache;
+  return String(guessPortalSlugFromHostname() || '').trim().toLowerCase() || '';
+}
+
+function adminHomePathForSlug(slug) {
+  const s = String(slug || '').trim().toLowerCase();
+  if (!s) return '/admin';
+  // On app.itsco.health, /itsco/admin is stripped back to /admin — return flat to avoid ping-pong.
+  if (hostImpliedPortalSlug() === s) return '/admin';
+  return `/${s}/admin`;
+}
 
 /**
  * Resolve preferred org slug + type for practitioner vertical landing.
@@ -228,7 +251,7 @@ export function getDashboardRoute() {
       const orgType = String(org?.organization_type || org?.organizationType || '').toLowerCase();
       if (orgType === 'affiliation') {
         const slug = org?.parent_slug || org?.slug || org?.portal_url || org?.portalUrl;
-        if (slug && String(slug).trim()) return `/${slug}/admin`;
+        if (slug && String(slug).trim()) return adminHomePathForSlug(slug);
       }
     }
     return '/admin';
