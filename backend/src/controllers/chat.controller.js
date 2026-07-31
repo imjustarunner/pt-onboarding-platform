@@ -345,11 +345,114 @@ async function otherUserAllowedInAgency(otherUserId, agencyId, organizationId = 
   return false;
 }
 
+async function userInAgency(userId, agencyId) {
+  const uid = Number(userId);
+  const aid = Number(agencyId);
+  if (!uid || !aid) return false;
+  const [rows] = await pool.execute(
+    'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+    [uid, aid]
+  );
+  if (rows?.length) return true;
+  const [mgmt] = await pool.execute(
+    'SELECT 1 FROM agency_management_team WHERE user_id = ? AND agency_id = ? AND is_active = TRUE LIMIT 1',
+    [uid, aid]
+  );
+  return mgmt?.length > 0;
+}
+
+/**
+ * Reuse an existing direct thread between two users when one already exists.
+ * Prefers school-scoped threads when organizationId is provided, then unread/recent activity.
+ */
+async function findExistingDirectThreadBetweenUsers(
+  meUserId,
+  otherUserId,
+  { requestedAgencyId = null, organizationId = null } = {}
+) {
+  const me = Number(meUserId);
+  const other = Number(otherUserId);
+  if (!me || !other || me === other) return null;
+
+  const [rows] = await pool.execute(
+    `SELECT t.id AS thread_id,
+            t.agency_id,
+            t.organization_id,
+            t.updated_at,
+            (SELECT MAX(m.created_at) FROM chat_messages m WHERE m.thread_id = t.id) AS last_message_at,
+            (
+              SELECT COUNT(*) FROM chat_messages m2
+              LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
+              WHERE m2.thread_id = t.id
+                AND m2.sender_user_id <> ?
+                AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
+                AND NOT EXISTS (
+                  SELECT 1 FROM chat_message_deletes d
+                  WHERE d.user_id = ? AND d.message_id = m2.id
+                )
+            ) AS unread_count
+     FROM chat_threads t
+     INNER JOIN chat_thread_participants p_me
+       ON p_me.thread_id = t.id AND p_me.user_id = ?
+     INNER JOIN chat_thread_participants p_other
+       ON p_other.thread_id = t.id AND p_other.user_id = ?
+     WHERE t.thread_type = 'direct'
+     GROUP BY t.id, t.agency_id, t.organization_id, t.updated_at`,
+    [me, me, me, me, other]
+  );
+  if (!rows?.length) return null;
+
+  const reqAgency = Number(requestedAgencyId || 0);
+  const reqOrg =
+    organizationId != null && organizationId !== '' ? Number(organizationId) : null;
+
+  const scored = (rows || []).map((r) => {
+    const agencyId = Number(r.agency_id);
+    const orgId = r.organization_id != null ? Number(r.organization_id) : null;
+    const unread = Number(r.unread_count || 0);
+    const lastAt = r.last_message_at || r.updated_at;
+    let score = 0;
+    if (reqOrg != null && orgId === reqOrg) score += 100000;
+    score += unread * 1000;
+    if (lastAt) score += 5000;
+    if (reqAgency && agencyId === reqAgency) score += 200;
+    if (reqOrg == null && orgId == null) score += 50;
+    if (lastAt) score += new Date(lastAt).getTime() / 1e15;
+    return {
+      threadId: Number(r.thread_id),
+      agencyId,
+      organizationId: orgId,
+      score
+    };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  if (!best?.threadId) return null;
+  return {
+    threadId: best.threadId,
+    agencyId: best.agencyId,
+    organizationId: best.organizationId
+  };
+}
+
 /** Pick an agency both users can use for a direct thread (shared membership preferred). */
-async function resolveDirectThreadAgencyId(meUserId, otherUserId, requestedAgencyId, organizationId = null) {
+async function resolveDirectThreadAgencyId(
+  meUserId,
+  otherUserId,
+  requestedAgencyId,
+  organizationId = null,
+  { viewerRole } = {}
+) {
   const reqAgency = Number(requestedAgencyId || 0);
   if (!reqAgency || !otherUserId || !meUserId) return null;
-  if (await otherUserAllowedInAgency(otherUserId, reqAgency, organizationId)) return reqAgency;
+  const isSuperAdmin = String(viewerRole || '').toLowerCase() === 'super_admin';
+
+  if (await otherUserAllowedInAgency(otherUserId, reqAgency, organizationId)) {
+    if (isSuperAdmin || (await userInAgency(meUserId, reqAgency))) {
+      return reqAgency;
+    }
+  }
 
   const [shared] = await pool.execute(
     `SELECT ua1.agency_id AS id
@@ -364,17 +467,9 @@ async function resolveDirectThreadAgencyId(meUserId, otherUserId, requestedAgenc
   );
   if (shared.length) return Number(shared[0].id);
 
-  const [otherAgency] = await pool.execute(
-    `SELECT ua.agency_id AS id
-     FROM user_agencies ua
-     INNER JOIN agencies a ON a.id = ua.agency_id
-     WHERE ua.user_id = ?
-       AND LOWER(COALESCE(a.organization_type, 'agency')) IN ('agency', 'organization', '')
-     ORDER BY CASE WHEN ua.agency_id = ? THEN 0 ELSE 1 END, a.name ASC
-     LIMIT 1`,
-    [otherUserId, reqAgency]
-  );
-  if (otherAgency.length) return Number(otherAgency[0].id);
+  if (isSuperAdmin && (await otherUserAllowedInAgency(otherUserId, reqAgency, organizationId))) {
+    return reqAgency;
+  }
 
   return null;
 }
@@ -946,7 +1041,30 @@ export const createOrGetDirectThread = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Cannot create a chat with yourself' } });
     }
 
-    let resolvedAgencyId = await resolveDirectThreadAgencyId(me, otherUserId, agencyId, organizationId);
+    const existing = await findExistingDirectThreadBetweenUsers(me, otherUserId, {
+      requestedAgencyId: agencyId,
+      organizationId
+    });
+    if (existing?.threadId) {
+      await assertAgencyOrOrgAccess(req.user, existing.agencyId, existing.organizationId);
+      try {
+        await pool.execute('DELETE FROM chat_thread_deletes WHERE thread_id = ? AND user_id = ?', [
+          existing.threadId,
+          me
+        ]);
+      } catch {
+        // ignore
+      }
+      return res.status(201).json({
+        threadId: existing.threadId,
+        agencyId: existing.agencyId,
+        organizationId: existing.organizationId
+      });
+    }
+
+    let resolvedAgencyId = await resolveDirectThreadAgencyId(me, otherUserId, agencyId, organizationId, {
+      viewerRole: req.user?.role
+    });
     let allowed = !!resolvedAgencyId;
 
     // Provider/staff ↔ guardian: allow when the other user is a guardian linked to a client
@@ -1000,7 +1118,11 @@ export const createOrGetDirectThread = async (req, res, next) => {
     } catch {
       // ignore (table may not exist yet in some envs)
     }
-    res.status(201).json({ threadId, agencyId: resolvedAgencyId });
+    res.status(201).json({
+      threadId,
+      agencyId: resolvedAgencyId,
+      organizationId: organizationId || null
+    });
   } catch (e) {
     next(e);
   }

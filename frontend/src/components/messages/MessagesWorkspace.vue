@@ -483,7 +483,9 @@
                 v-for="u in dmList"
                 :key="u.id"
                 class="person"
-                :title="personHoverTitle(u)"
+                :class="{ 'person-disabled': u.id !== meId && !personCanBeMessaged(u) }"
+                :title="u.id !== meId && !personCanBeMessaged(u) ? 'You do not share a tenant with this person' : personHoverTitle(u)"
+                :disabled="u.id !== meId && !personCanBeMessaged(u)"
                 @click="openChat(u)"
               >
                 <span class="dot" :class="presenceDotClassForPerson(u)"></span>
@@ -1082,6 +1084,10 @@ import {
 } from '../../utils/presenceStatus';
 import { responsibilityFlagsLabel } from '../../utils/ticketTopics';
 import { pauseIdleForSessionExtend, clearSessionExtendPause, resetActivityTimer } from '../../utils/activityTracker';
+import {
+  canDirectMessagePerson,
+  resolveChatContextForPerson
+} from '../../utils/chatTenantResolve';
 
 const props = defineProps({
   layout: {
@@ -1791,32 +1797,28 @@ const activeChatPresencePerson = computed(() => {
   return presencePersonForId(activeChatUser.value.id) || activeChatUser.value;
 });
 
-function resolveChatAgencyForPerson(person, agencyIdOverride = null) {
-  const override = Number(agencyIdOverride || 0);
-  if (override) return override;
+function resolveChatContextForPersonLocal(person, agencyIdOverride = null, organizationIdOverride = null) {
+  return resolveChatContextForPerson({
+    person,
+    agencyIdOverride,
+    organizationIdOverride,
+    myMembershipAgencyIds: membershipAgencies.value.map((a) => Number(a.id)).filter((n) => n > 0),
+    membershipAgencies: membershipAgencies.value,
+    composeAgencyId: effectiveComposeAgencyId.value,
+    fallbackAgencyId: agencyId.value,
+    threads: threads.value,
+    allowPeerOnlyFallback: adminsAllMode.value
+  });
+}
 
-  const personAgencyIds = new Set();
-  for (const id of person?.shared_agency_ids || []) {
-    const n = Number(id);
-    if (n) personAgencyIds.add(n);
-  }
-  for (const m of person?.shared_agency_memberships || []) {
-    const n = Number(m?.id);
-    if (n) personAgencyIds.add(n);
-  }
-
-  const membershipIds = membershipAgencies.value.map((a) => Number(a.id)).filter((n) => n > 0);
-
-  // Prefer a tenant both people share.
-  for (const id of membershipIds) {
-    if (personAgencyIds.has(id)) return id;
-  }
-
-  // Fall back to the peer's tenant when the viewer can access it (e.g. super_admin).
-  const firstPeer = [...personAgencyIds][0];
-  if (firstPeer) return firstPeer;
-
-  return effectiveComposeAgencyId.value || agencyId.value || null;
+function personCanBeMessaged(person) {
+  return canDirectMessagePerson({
+    person,
+    myMembershipAgencyIds: membershipAgencies.value.map((a) => Number(a.id)).filter((n) => n > 0),
+    threads: threads.value,
+    allowPeerOnlyFallback: adminsAllMode.value,
+    meId: meId.value
+  });
 }
 
 function mergePresencePeople(lists) {
@@ -2718,11 +2720,20 @@ const openChat = async (u, agencyIdOverride = null, organizationIdOverride = nul
 
   try {
     chatLoading.value = true;
-    const useAgencyId = resolveChatAgencyForPerson(u, agencyIdOverride);
-    if (!useAgencyId) {
-      // In super-admin "admins-only" mode there may be no agency context.
-      // Don't open the full chat box in that case (it creates a large empty panel).
-      chatError.value = 'Select an agency to start a chat';
+    if (!personCanBeMessaged(u)) {
+      chatError.value = "You don't share a tenant with this person.";
+      activeChatUser.value = null;
+      activeThreadId.value = null;
+      activeThreadAgencyId.value = null;
+      chatMessages.value = [];
+      return;
+    }
+
+    const ctx = resolveChatContextForPersonLocal(u, agencyIdOverride, organizationIdOverride);
+    if (!ctx.agencyId) {
+      chatError.value = adminsAllMode.value
+        ? 'Select an agency to start a chat'
+        : "You don't share a tenant with this person.";
       activeChatUser.value = null;
       activeThreadId.value = null;
       activeThreadAgencyId.value = null;
@@ -2731,13 +2742,9 @@ const openChat = async (u, agencyIdOverride = null, organizationIdOverride = nul
     }
 
     activeChatUser.value = u;
-    activeThreadAgencyId.value = useAgencyId;
-    const body = { agencyId: useAgencyId, otherUserId: u.id };
-    const oid =
-      organizationIdOverride != null && organizationIdOverride !== ''
-        ? parseInt(organizationIdOverride, 10)
-        : null;
-    if (oid) body.organizationId = oid;
+    activeThreadAgencyId.value = ctx.agencyId;
+    const body = { agencyId: ctx.agencyId, otherUserId: u.id };
+    if (ctx.organizationId) body.organizationId = ctx.organizationId;
     const resp = await api.post('/chat/threads/direct', body, { skipGlobalLoading: true });
     activeThreadId.value = resp.data.threadId;
     if (resp.data?.agencyId) activeThreadAgencyId.value = Number(resp.data.agencyId);
@@ -2768,25 +2775,31 @@ const openThread = async (t) => {
 /** Open a direct thread by user id (e.g. from URL openChatWith=userId&agencyId=...). Used when supervisor clicks "Chat with supervisee". */
 const openChatByUserId = async (otherUserId, agencyIdOverride, displayName = '', organizationIdOverride = null) => {
   const peer = presencePersonForId(parseInt(otherUserId, 10));
-  const useAgencyId = resolveChatAgencyForPerson(peer, agencyIdOverride ? parseInt(agencyIdOverride, 10) : null);
-  if (!useAgencyId || !otherUserId) return;
+  const agencyOverrideNum = agencyIdOverride ? parseInt(agencyIdOverride, 10) : null;
+  const orgOverrideNum =
+    organizationIdOverride != null && organizationIdOverride !== ''
+      ? parseInt(organizationIdOverride, 10)
+      : null;
+  if (!otherUserId) return;
+  if (peer && !personCanBeMessaged(peer)) {
+    chatError.value = "You don't share a tenant with this person.";
+    return;
+  }
+  const ctx = resolveChatContextForPersonLocal(peer, agencyOverrideNum, orgOverrideNum);
+  if (!ctx.agencyId) return;
   chatError.value = '';
   chatMessages.value = [];
   draft.value = '';
   try {
     chatLoading.value = true;
     const body = {
-      agencyId: useAgencyId,
+      agencyId: ctx.agencyId,
       otherUserId: parseInt(otherUserId, 10)
     };
-    const oid =
-      organizationIdOverride != null && organizationIdOverride !== ''
-        ? parseInt(organizationIdOverride, 10)
-        : null;
-    if (oid) body.organizationId = oid;
+    if (ctx.organizationId) body.organizationId = ctx.organizationId;
     const resp = await api.post('/chat/threads/direct', body, { skipGlobalLoading: true });
     activeThreadId.value = resp.data?.threadId ?? null;
-    activeThreadAgencyId.value = Number(resp.data?.agencyId || useAgencyId);
+    activeThreadAgencyId.value = Number(resp.data?.agencyId || ctx.agencyId);
     const name = (displayName || '').trim() || 'User';
     const parts = name.split(/\s+/);
     activeChatUser.value = {
@@ -3983,6 +3996,15 @@ onUnmounted(() => {
   text-align: left;
 }
 .person:hover { border-color: var(--primary); }
+.person.person-disabled,
+.person:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.person.person-disabled:hover,
+.person:disabled:hover {
+  border-color: var(--border);
+}
 .dot {
   width: 12px;
   height: 12px;
