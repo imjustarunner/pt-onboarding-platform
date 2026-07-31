@@ -671,6 +671,7 @@ import {
   clearRememberedSchoolStaffPasswordLogin
 } from '../utils/loginRemember';
 import { buildOrgLoginPath } from '../utils/orgLoginPath';
+import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath';
 import { getPlatformAppHostname } from '../utils/brandSwitchUrl';
 import { buildPublicIntakeUrl } from '../utils/publicIntakeUrl';
 import QRCode from 'qrcode';
@@ -782,7 +783,7 @@ function resolveParentForNestedLogin(resolvedChildSlug) {
     const rs = String(resolvedChildSlug || '').trim().toLowerCase();
     if (cur && rs && cur !== rs) return cur;
   }
-  return String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+  return resolveHostImpliedPortalSlug(brandingStore) || null;
 }
 
 const clubManagerSignupPath = computed(() =>
@@ -1572,9 +1573,12 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     if (isSummitLogin) {
       // Skip redirect; fall through to show password (or Google)
     } else if (resolvedSlug) {
+      const hostImplied = resolveHostImpliedPortalSlug(brandingStore) || null;
+      // On app.itsco.health, flat /login is already the ITSCO branded login — never bounce to /itsco/login.
+      const onHostBrandedLogin = !!(hostImplied && hostImplied === resolvedSlug);
+
       // If this verification indicates we should be on a different branded login, route there.
-      if (!current || current !== resolvedSlug) {
-        const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+      if (!onHostBrandedLogin && (!current || current !== resolvedSlug)) {
         const targetLoginPath = buildOrgLoginPath(
           resolvedSlug,
           resolveParentForNestedLogin(resolvedSlug),
@@ -1584,8 +1588,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
         const currentLoginPath = normalizeLoginPath(route.path);
         const normalizedTarget = normalizeLoginPath(targetLoginPath);
 
-        // On dedicated agency hosts (e.g. app.itsco.health), flat /login is the branded login for
-        // that org — do not "redirect" to the same path and bail without showing the password step.
+        // Same effective login page (e.g. /login on app.itsco.health ≡ /itsco/login after strip).
         if (currentLoginPath !== normalizedTarget) {
           // Persist before navigation so return visits open /{parent}/{school}/login (e.g. /itsco/rudy/login).
           if (rememberLogin.value && resolvedSlug) {
@@ -1758,15 +1761,7 @@ const handleLogin = async () => {
     if (isAdmin && hasNoAgencies && loginSlug.value) {
       // On app.itsco.health, /itsco/admin is stripped to /admin — push flat to avoid login↔admin ping-pong.
       const slug = String(loginSlug.value || '').trim().toLowerCase();
-      let hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase();
-      if (!hostImplied) {
-        try {
-          const { guessPortalSlugFromHostname } = await import('../utils/orgScopedPath.js');
-          hostImplied = String(guessPortalSlugFromHostname() || '').trim().toLowerCase();
-        } catch {
-          hostImplied = '';
-        }
-      }
+      const hostImplied = resolveHostImpliedPortalSlug(brandingStore);
       const adminPath = hostImplied && hostImplied === slug ? '/admin' : `/${slug}/admin`;
       router.push(adminPath);
       loading.value = false;

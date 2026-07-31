@@ -32,6 +32,18 @@ export function guessPortalSlugFromHostname(hostname = null) {
 }
 
 /**
+ * Host-implied agency portal slug (app.itsco.health → itsco), without route params.
+ * Mirrors router resolveHostPortalSlug for login redirects on dedicated app hosts.
+ */
+export function resolveHostImpliedPortalSlug(brandingStore = null) {
+  const fromStore = norm(brandingStore?.portalHostPortalUrl);
+  if (fromStore) return fromStore;
+  const fromCache = norm(getCurrentPortalSlugFromHostCache());
+  if (fromCache) return fromCache;
+  return guessPortalSlugFromHostname();
+}
+
+/**
  * Portal slug for API calls and storage keys when the route may omit :organizationSlug
  * (e.g. flat /kiosk on app.{agency}.health).
  */
