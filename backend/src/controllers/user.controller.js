@@ -4438,7 +4438,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
           : !(r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0');
         return {
           id: r.id,
-          role: isSupervisor ? 'supervisor' : 'supervisee',
+          role: isSupervisor
+            ? 'supervisor'
+            : (String(r.viewer_presenter_role || '').trim() ? 'presenter' : 'supervisee'),
           counterpartyName: otherName || null,
           sessionType,
           isRequired,

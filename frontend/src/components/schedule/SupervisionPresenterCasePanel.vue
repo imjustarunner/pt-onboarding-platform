@@ -3,7 +3,7 @@
     <div class="spc-head">
       <h3 class="spc-title">Case presentation</h3>
       <p class="spc-sub muted">
-        Add the client background and case notes that appear on the Group Supervision stage.
+        Work through each case conceptualization section with text, bullets, bold, and italic.
         Only assigned presenters can edit this.
       </p>
     </div>
@@ -17,21 +17,32 @@
       <p v-if="saveStatus" class="spc-save muted">{{ saveStatus }}</p>
 
       <label class="spc-field">
-        <span>Slide title</span>
-        <input v-model="draft.title" class="input" type="text" :disabled="saving" @change="saveSlide" />
+        <span>Section</span>
+        <select v-model.number="slideId" class="input" :disabled="saving" @change="onSlideChange">
+          <option v-for="slide in slides" :key="slide.id" :value="Number(slide.id)">
+            {{ slide.title }}
+          </option>
+        </select>
       </label>
 
-      <label class="spc-field">
-        <span>Client background / content</span>
-        <textarea
-          v-model="draft.bodyHtml"
-          class="input spc-textarea"
-          rows="10"
-          :disabled="saving"
-          placeholder="Write the case background and talking points for the live stage…"
-          @change="saveSlide"
+      <div class="spc-field">
+        <span>Section content</span>
+        <div class="spc-toolbar" role="toolbar" aria-label="Text formatting">
+          <button type="button" class="spc-tool" title="Bold" @mousedown.prevent="applyFormat('bold')"><strong>B</strong></button>
+          <button type="button" class="spc-tool" title="Italic" @mousedown.prevent="applyFormat('italic')"><em>I</em></button>
+          <button type="button" class="spc-tool" title="Bullet list" @mousedown.prevent="applyFormat('insertUnorderedList')">• List</button>
+        </div>
+        <div
+          ref="bodyEditor"
+          class="input spc-richtext"
+          contenteditable="true"
+          role="textbox"
+          aria-multiline="true"
+          data-placeholder="Write your case content for this section…"
+          :contenteditable="!saving"
+          @input="onBodyInput"
         />
-      </label>
+      </div>
 
       <label class="spc-field">
         <span>Presenter notes <em>(only you see these)</em></span>
@@ -44,28 +55,9 @@
         />
       </label>
 
-      <div class="spc-grid">
-        <label class="spc-field">
-          <span>Client</span>
-          <input v-model="caseSummary.client" class="input" :disabled="saving" @change="saveCaseSummary" />
-        </label>
-        <label class="spc-field">
-          <span>Presenting concerns</span>
-          <input v-model="caseSummary.presentingConcerns" class="input" :disabled="saving" @change="saveCaseSummary" />
-        </label>
-        <label class="spc-field">
-          <span>Duration</span>
-          <input v-model="caseSummary.duration" class="input" :disabled="saving" @change="saveCaseSummary" />
-        </label>
-        <label class="spc-field">
-          <span>Setting</span>
-          <input v-model="caseSummary.setting" class="input" :disabled="saving" @change="saveCaseSummary" />
-        </label>
-      </div>
-
       <div class="spc-actions">
-        <button type="button" class="btn btn-primary btn-sm" :disabled="saving" @click="saveAll">
-          {{ saving ? 'Saving…' : 'Save case content' }}
+        <button type="button" class="btn btn-primary btn-sm" :disabled="saving" @click="saveSlide">
+          {{ saving ? 'Saving…' : 'Save section' }}
         </button>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="$emit('open-full-builder')">
           Open full slide builder
@@ -76,7 +68,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue';
+import { nextTick, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -89,23 +81,54 @@ const saving = ref(false);
 const error = ref('');
 const saveStatus = ref('');
 const presentationId = ref(0);
+const slides = ref([]);
 const slideId = ref(0);
+const bodyEditor = ref(null);
 const draft = reactive({
-  title: 'Client Background',
   bodyHtml: '',
   presenterNotes: ''
 });
-const caseSummary = reactive({
-  client: '',
-  presentingConcerns: '',
-  duration: '',
-  setting: ''
-});
+
+function syncBodyEditor() {
+  const el = bodyEditor.value;
+  if (!el) return;
+  const html = String(draft.bodyHtml || '');
+  if (el.innerHTML !== html) el.innerHTML = html;
+}
+
+function onBodyInput() {
+  draft.bodyHtml = bodyEditor.value?.innerHTML || '';
+}
+
+function applyFormat(command) {
+  const el = bodyEditor.value;
+  if (!el || saving.value) return;
+  el.focus();
+  try {
+    document.execCommand(command, false, null);
+  } catch {
+    // ignore
+  }
+  draft.bodyHtml = el.innerHTML || '';
+}
+
+function loadSlideDraft(id) {
+  const slide = slides.value.find((s) => Number(s.id) === Number(id));
+  if (!slide) return;
+  draft.bodyHtml = String(slide.body_html || slide.bodyHtml || '');
+  draft.presenterNotes = String(slide.presenter_notes || slide.presenterNotes || '');
+  nextTick(syncBodyEditor);
+}
+
+function onSlideChange() {
+  loadSlideDraft(slideId.value);
+}
 
 async function load() {
   const sid = Number(props.sessionId || 0);
   if (!sid) {
     presentationId.value = 0;
+    slides.value = [];
     return;
   }
   loading.value = true;
@@ -116,75 +139,38 @@ async function load() {
     });
     const presentation = data?.presentation || null;
     presentationId.value = Number(presentation?.id || 0);
-    const slides = Array.isArray(presentation?.slides) ? presentation.slides : [];
-    const first = slides[0] || null;
-    slideId.value = Number(first?.id || 0);
-    draft.title = String(first?.title || 'Client Background');
-    draft.bodyHtml = String(first?.body_html || first?.bodyHtml || '');
-    draft.presenterNotes = String(first?.presenter_notes || first?.presenterNotes || '');
-    const cs = presentation?.caseSummary || {};
-    caseSummary.client = String(cs.client || '');
-    caseSummary.presentingConcerns = String(cs.presentingConcerns || '');
-    caseSummary.duration = String(cs.duration || '');
-    caseSummary.setting = String(cs.setting || '');
+    slides.value = Array.isArray(presentation?.slides) ? presentation.slides : [];
+    slideId.value = Number(slides.value[0]?.id || 0);
+    if (slideId.value) loadSlideDraft(slideId.value);
   } catch (e) {
     presentationId.value = 0;
+    slides.value = [];
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load presentation';
   } finally {
     loading.value = false;
   }
 }
 
-async function ensureSlide() {
-  if (slideId.value || !presentationId.value) return slideId.value;
-  const { data } = await api.post(`/supervision/presentations/${presentationId.value}/slides`, {
-    title: draft.title || 'Client Background',
-    bodyHtml: draft.bodyHtml || '',
-    presenterNotes: draft.presenterNotes || ''
-  });
-  slideId.value = Number(data?.slide?.id || 0);
-  return slideId.value;
-}
-
 async function saveSlide() {
-  if (!presentationId.value) return;
+  if (!presentationId.value || !slideId.value) return;
+  onBodyInput();
   saving.value = true;
   error.value = '';
   try {
-    const id = await ensureSlide();
-    if (!id) throw new Error('Could not create slide');
-    await api.patch(`/supervision/presentation-slides/${id}`, {
-      title: draft.title,
+    const slide = slides.value.find((s) => Number(s.id) === Number(slideId.value));
+    await api.patch(`/supervision/presentation-slides/${slideId.value}`, {
+      title: slide?.title,
       bodyHtml: draft.bodyHtml,
-      presenterNotes: draft.presenterNotes
+      presenterNotes: draft.presenterNotes,
+      layout: 'text',
+      background: null
     });
     saveStatus.value = `Saved ${new Date().toLocaleTimeString()}`;
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save slide';
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save section';
   } finally {
     saving.value = false;
   }
-}
-
-async function saveCaseSummary() {
-  if (!presentationId.value) return;
-  saving.value = true;
-  error.value = '';
-  try {
-    await api.patch(`/supervision/presentations/${presentationId.value}`, {
-      caseSummary: { ...caseSummary }
-    });
-    saveStatus.value = `Saved ${new Date().toLocaleTimeString()}`;
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save case summary';
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function saveAll() {
-  await saveSlide();
-  await saveCaseSummary();
 }
 
 watch(() => Number(props.sessionId || 0), () => { void load(); });
@@ -206,11 +192,40 @@ onMounted(() => { void load(); });
   color: #475569;
 }
 .spc-field em { font-weight: 500; color: #94a3b8; }
-.spc-textarea { min-height: 160px; resize: vertical; }
-.spc-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+.spc-toolbar {
+  display: flex;
+  gap: 6px;
+}
+.spc-tool {
+  min-width: 32px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.spc-richtext {
+  min-height: 160px;
+  resize: vertical;
+  overflow: auto;
+  line-height: 1.45;
+  font-weight: 400;
+}
+.spc-richtext:empty::before {
+  content: attr(data-placeholder);
+  color: #94a3b8;
+  pointer-events: none;
+}
+.spc-richtext:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+.spc-richtext :deep(ul) {
+  margin: 0.4em 0;
+  padding-left: 1.2rem;
 }
 .spc-actions {
   display: flex;
@@ -219,7 +234,4 @@ onMounted(() => { void load(); });
 }
 .error { color: #b91c1c; font-size: 0.85rem; }
 .muted { color: #64748b; }
-@media (max-width: 640px) {
-  .spc-grid { grid-template-columns: 1fr; }
-}
 </style>

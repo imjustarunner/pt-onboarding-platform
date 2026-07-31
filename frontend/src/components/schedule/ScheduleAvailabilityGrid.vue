@@ -1500,6 +1500,9 @@
               :show-join-quick="false"
               :join-busy="supvMeetOpening || supvAppVideoLoading"
               :show-note-quick="editorIsSupervision"
+              :show-edit-action="!isSelectedSupvReadOnlyView"
+              :note-quick-label="isSelectedSupvPresenterView ? 'Presenter prep notes' : 'Supervision note'"
+              :note-quick-hint="isSelectedSupvPresenterView ? 'Private prep for your case presentation' : 'Short note, transcript & summary'"
               :show-billing="editorShowBillingTab"
               :show-clinical="editorShowClinicalTab"
               :claim-id="editorClaimId"
@@ -1559,7 +1562,7 @@
           :title="modalEditorTitle"
           :subtitle="modalScheduleSubtitle"
           :hide-chrome="true"
-          :disabled="submitting || scheduleEventSaving"
+          :disabled="submitting || scheduleEventSaving || !canSaveSelectedSupvSession"
           :show-virtual="editorShowVirtual || editorIsMeeting"
           :show-virtual-options="editorIsMeeting"
           v-model:virtual-is-virtual="editorMeetingIsVirtual"
@@ -2079,6 +2082,7 @@
               :disabled="submitting || scheduleEventSaving"
               :attendance-seconds="supvAttendanceSeconds"
               :scheduled-duration-label="modalDurationLabel"
+              :viewer-role="selectedSupvNoteViewerRole"
               @join="startTrackedSupvMeet"
               @open-agenda="showAgendaPanel = true"
             />
@@ -12754,6 +12758,9 @@ const editorWorkspaceTabs = computed(() => {
   if (editorShowBillingTab.value) tabs.push({ id: 'billing', label: 'Billing', icon: '$' });
   if (editorShowClinicalTab.value) tabs.push({ id: 'clinical', label: 'Clinical', icon: '☰' });
   tabs.push({ id: 'notifications', label: 'Notifications', icon: '🔔' });
+  if (isSelectedSupvReadOnlyView.value) {
+    return tabs.filter((t) => !['edit', 'notifications'].includes(t.id));
+  }
   return tabs;
 });
 
@@ -14092,6 +14099,15 @@ watch(editorWorkspaceTab, (tab) => {
   }
 });
 
+watch(isSelectedSupvReadOnlyView, (readOnly) => {
+  if (!readOnly) return;
+  if (['edit', 'notifications'].includes(String(editorWorkspaceTab.value || ''))) {
+    editorWorkspaceTab.value = isSelectedSupvPresenterView.value && canEditSupervisionPresenterCase.value
+      ? 'presentation'
+      : 'info';
+  }
+});
+
 async function loadEditorOfficeLocations() {
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
   editorOfficeLocationsLoading.value = true;
@@ -15164,6 +15180,8 @@ const canEditSupervisionPresenterCase = computed(() => {
   if (!sid) return false;
   const me = Number(authStore.user?.id || 0);
   if (!me) return false;
+  if (String(selectedSupvSession.value?.presenterRole || '').trim()) return true;
+  if (String(selectedSupvSession.value?.role || '').trim().toLowerCase() === 'presenter') return true;
   const fromPresenters = (supvPresenters.value || []).some(
     (p) => Number(p?.user_id || p?.userId || 0) === me
   );
@@ -21528,6 +21546,33 @@ const canHostOrAdminManageSelectedSupv = computed(() => {
   if (String(s.role || '') === 'supervisor') return true;
   return !!s.canEdit || !!s.canReschedule;
 });
+
+/** Presenter on group supervision — may edit case/prep notes but not session scheduling. */
+const isSelectedSupvPresenterView = computed(() => {
+  if (!editorIsSupervision.value || !isSupervisionEditMode.value) return false;
+  if (canHostOrAdminManageSelectedSupv.value) return false;
+  const sessionRole = String(selectedSupvSession.value?.role || '').trim().toLowerCase();
+  if (sessionRole === 'presenter') return true;
+  if (String(selectedSupvSession.value?.presenterRole || '').trim()) return true;
+  const me = Number(authStore.user?.id || 0);
+  if (!me) return false;
+  if ((supvPresenters.value || []).some((p) => Number(p?.user_id || p?.userId || 0) === me)) return true;
+  return (supvSessionAttendees.value || []).some(
+    (row) => Number(row?.userId || 0) === me && !!row?.isPresenter
+  );
+});
+
+/** Supervisee, presenter, or other non-host viewer — no scheduling edits. */
+const isSelectedSupvReadOnlyView = computed(() => {
+  if (!editorIsSupervision.value || !isSupervisionEditMode.value) return false;
+  return !canHostOrAdminManageSelectedSupv.value;
+});
+
+const selectedSupvNoteViewerRole = computed(() => {
+  if (canHostOrAdminManageSelectedSupv.value) return 'host';
+  if (isSelectedSupvPresenterView.value) return 'presenter';
+  return 'attendee';
+});
 const canCancelSelectedSupvSession = computed(() => canHostOrAdminManageSelectedSupv.value);
 const canSaveSelectedSupvSession = computed(() => canHostOrAdminManageSelectedSupv.value);
 
@@ -23204,12 +23249,15 @@ const openSupervisionEditInScheduleModal = (dayName, hour) => {
   });
   void loadSupvArtifact(selectedSupvSessionId.value);
   void loadBookingMetadataForProvider();
+  const isPresenterOpen = !!String(first?.presenterRole || '').trim()
+    || String(first?.role || '').trim().toLowerCase() === 'presenter';
   openAppointmentEditor({
     mode: 'edit',
     kind: 'supervision',
     id: Number(selectedSupvSessionId.value || 0),
     defaults: {
-      modality: first?.joinUrl || first?.googleMeetLink ? 'TELEHEALTH' : 'IN_PERSON'
+      modality: first?.joinUrl || first?.googleMeetLink ? 'TELEHEALTH' : 'IN_PERSON',
+      workspaceTab: isPresenterOpen ? 'presentation' : 'info'
     }
   });
   editorSupervisionIsVirtual.value = !!(first?.joinUrl || first?.googleMeetLink || first?.modality === 'virtual');

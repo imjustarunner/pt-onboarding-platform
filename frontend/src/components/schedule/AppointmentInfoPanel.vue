@@ -183,7 +183,7 @@
         </div>
       </div>
 
-      <button type="button" class="aip-card aip-card--action" @click="emit('edit')">
+      <button v-if="showEditAction" type="button" class="aip-card aip-card--action" @click="emit('edit')">
         <span class="aip-ico aip-ico--violet" aria-hidden="true">✎</span>
         <div>
           <div class="aip-k">Edit appointment</div>
@@ -237,8 +237,8 @@
       >
         <span class="aip-ico aip-ico--green" aria-hidden="true">✎</span>
         <div>
-          <div class="aip-k">Supervision note</div>
-          <div class="aip-v">Short note, transcript &amp; summary</div>
+          <div class="aip-k">{{ noteQuickLabel }}</div>
+          <div class="aip-v">{{ noteQuickHint }}</div>
         </div>
       </button>
     </div>
@@ -281,6 +281,9 @@ const props = defineProps({
   compactVirtualLink: { type: Boolean, default: false },
   showJoinQuick: { type: Boolean, default: false },
   joinBusy: { type: Boolean, default: false },
+  showEditAction: { type: Boolean, default: true },
+  noteQuickLabel: { type: String, default: 'Supervision note' },
+  noteQuickHint: { type: String, default: 'Short note, transcript & summary' },
   showNoteQuick: { type: Boolean, default: false },
   showBilling: { type: Boolean, default: false },
   showClinical: { type: Boolean, default: false },

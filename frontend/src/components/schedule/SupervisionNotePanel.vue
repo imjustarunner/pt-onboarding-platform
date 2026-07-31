@@ -2,9 +2,9 @@
   <div class="snp" data-testid="supervision-note-panel">
     <div class="snp-head">
       <div>
-        <h3 class="snp-title">Supervision note</h3>
+        <h3 class="snp-title">{{ panelTitle }}</h3>
         <p class="snp-sub muted">
-          Private note to yourself before or after the session. Encrypted and visible only to you — not your supervisor or supervisee.
+          {{ panelSubtitle }}
         </p>
       </div>
       <div class="snp-actions">
@@ -42,7 +42,7 @@
     <template v-else>
       <div class="snp-private">
         <div class="snp-private-head">
-          <label class="snp-label" for="snp-personal-note">Your private note</label>
+          <label class="snp-label" for="snp-personal-note">{{ noteFieldLabel }}</label>
           <span v-if="saveStatus" class="snp-status" :class="`snp-status--${saveStatus}`" aria-live="polite">
             <span v-if="saveStatus === 'saving'">Saving…</span>
             <span v-else-if="saveStatus === 'saved'">Saved</span>
@@ -125,10 +125,32 @@ const props = defineProps({
   error: { type: String, default: '' },
   disabled: { type: Boolean, default: false },
   attendanceSeconds: { type: [Number, String], default: null },
-  scheduledDurationLabel: { type: String, default: '' }
+  scheduledDurationLabel: { type: String, default: '' },
+  /** presenter | attendee | host — adjusts copy for group supervision role */
+  viewerRole: { type: String, default: 'attendee' }
 });
 
 const emit = defineEmits(['join', 'open-agenda']);
+
+const panelTitle = computed(() => {
+  if (props.viewerRole === 'presenter') return 'Presenter prep notes';
+  if (props.viewerRole === 'host') return 'Supervision note';
+  return 'Supervision note';
+});
+
+const panelSubtitle = computed(() => {
+  if (props.viewerRole === 'presenter') {
+    return 'Private notes for your case presentation. Encrypted and visible only to you — not shared with the facilitator or audience.';
+  }
+  if (props.viewerRole === 'host') {
+    return 'Private note to yourself before or after the session. Encrypted and visible only to you.';
+  }
+  return 'Private note to yourself before or after the session. Encrypted and visible only to you — not your supervisor or supervisee.';
+});
+
+const noteFieldLabel = computed(() => (
+  props.viewerRole === 'presenter' ? 'Your private prep notes' : 'Your private note'
+));
 
 const noteText = ref('');
 const noteLoading = ref(false);
