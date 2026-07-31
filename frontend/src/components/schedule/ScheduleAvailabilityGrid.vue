@@ -3192,11 +3192,11 @@
               style="margin-top: 12px;"
             />
             <div
-              v-if="requestType === 'supervision' && supervisionGroupModeEnabled && supervisionSelectedParticipantCount < 3 && !supervisionIsOpenInvite"
+              v-if="requestType === 'supervision' && supervisionGroupModeEnabled && supervisionSelectedParticipantCount < 1 && !supervisionIsOpenInvite && !supervisionSignupOnlyEnabled"
               class="muted"
               style="margin-top: 6px;"
             >
-              Group supervision needs at least 3 named participants, or an open-join audience option.
+              Group supervision needs at least one named supervisee, or an open-join audience / agency signup option.
             </div>
           </div>
 
@@ -4115,7 +4115,7 @@
         </div>
         <div
           v-else-if="isSupervisionEditMode"
-          class="nr-footer nr-footer--supv"
+          class="nr-footer nr-footer--supv nr-footer--sticky"
         >
           <div
             v-if="isSelectedSupvSignupOffering && !isSelectedSupvSignupFacilitator"
@@ -4153,7 +4153,9 @@
               {{ supvSignupBusy ? 'Updating…' : 'Withdraw signup' }}
             </button>
           </div>
+          <div v-if="supvModalError" class="error nr-footer__error">{{ supvModalError }}</div>
           <button
+            v-if="canCancelSelectedSupvSession"
             class="btn btn-danger"
             type="button"
             :disabled="supvSaving || !selectedSupvSessionId"
@@ -4172,6 +4174,7 @@
               {{ supvJoinSessionLabel }}
             </button>
             <button
+              v-if="canSaveSelectedSupvSession"
               class="btn nr-btn-submit"
               type="button"
               :disabled="supvSaving || !selectedSupvSessionId"
@@ -4389,7 +4392,14 @@
           </div>
 
           <div class="modal-actions modal-actions--supv" style="margin-top: 14px;">
-            <button class="btn btn-danger" type="button" @click="cancelSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
+            <div v-if="supvModalError" class="error" style="flex: 1 1 100%; margin-bottom: 8px;">{{ supvModalError }}</div>
+            <button
+              v-if="canCancelSelectedSupvSession"
+              class="btn btn-danger"
+              type="button"
+              @click="cancelSupvSession"
+              :disabled="supvSaving || !selectedSupvSessionId"
+            >
               Cancel session
             </button>
             <div class="modal-actions__right">
@@ -4402,7 +4412,13 @@
               >
                 {{ supvJoinSessionLabel }}
               </button>
-              <button class="btn btn-primary btn-sm stack-details-edit-btn" type="button" @click="saveSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
+              <button
+                v-if="canSaveSelectedSupvSession"
+                class="btn btn-primary btn-sm stack-details-edit-btn"
+                type="button"
+                @click="() => saveSupvSession({ closeScheduleShell: false })"
+                :disabled="supvSaving || !selectedSupvSessionId"
+              >
                 {{ supvSaving ? 'Saving…' : 'Save changes' }}
               </button>
             </div>
@@ -14205,7 +14221,18 @@ const requestSubmitBlockedReason = computed(() => {
     return 'School daytime availability must be on weekdays between 6 AM and 6 PM.';
   }
   if (t === 'supervision' && !supervisionCanSubmit.value) {
-    return 'Add the required supervision participants before submitting.';
+    if (supervisionSignupOnlyEnabled.value && supervisionGroupModeEnabled.value) {
+      if (!Number(supervisionFacilitatorUserId.value || 0)) return 'Select a facilitator before submitting.';
+      return 'Group supervision signup session is not ready to submit.';
+    }
+    if (supervisionGroupModeEnabled.value) {
+      if (!Number(supervisionFacilitatorUserId.value || 0)) return 'Select a facilitator before submitting.';
+      if (supervisionSelectedParticipantCount.value < 1 && !supervisionIsOpenInvite.value) {
+        return 'Add at least one named supervisee, or turn on an open-join audience / agency signup.';
+      }
+      return 'Group supervision is not ready to submit.';
+    }
+    return 'Select a supervisee before submitting.';
   }
   if ((t === 'agency_meeting' || t === 'huddle') && meetingCandidatesError.value) {
     return meetingCandidatesError.value;
@@ -15176,7 +15203,8 @@ const supervisionCanSubmit = computed(() => {
   if (supervisionGroupModeEnabled.value) {
     if (!canBookGroupSupervisionFromGrid.value) return false;
     if (!Number(supervisionFacilitatorUserId.value || 0)) return false;
-    if (supervisionSelectedParticipantCount.value < 3 && !supervisionIsOpenInvite.value) return false;
+    // Facilitator + at least one named supervisee (or open-join / agency signup).
+    if (supervisionSelectedParticipantCount.value < 1 && !supervisionIsOpenInvite.value) return false;
   }
   return true;
 });
@@ -20247,11 +20275,11 @@ const submitRequest = async () => {
       if (
         !signupOnly
         && sessionType === 'group'
-        && additionalAttendeeUserIds.length < 2
+        && !Number(participantId || 0)
         && !inviteAudienceAllSupervised
         && !inviteAudienceGroupSupport
       ) {
-        throw new Error('Group supervision requires at least 2 additional participants, or choose an open audience.');
+        throw new Error('Group supervision requires at least one named supervisee, or choose an open audience / agency signup.');
       }
       const dayIdx = orderedDays.value.indexOf(String(dn)) - (effectiveWeekStartsOn.value === 'sunday' ? 1 : 0);
       if (dayIdx < -1) throw new Error('Invalid day');
@@ -21488,6 +21516,21 @@ const canManagePresenterStatus = computed(() => {
   return privileged || isSessionSupervisor || isAdminMode.value;
 });
 
+/** Host (facilitator) or admin-like roles may save/cancel group supervision. Presenters cannot cancel. */
+const canHostOrAdminManageSelectedSupv = computed(() => {
+  const me = Number(authStore.user?.id || 0);
+  const s = selectedSupvSession.value;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const admin = ['super_admin', 'superadmin', 'admin', 'support', 'clinical_practice_assistant'].includes(role);
+  if (admin || isAdminMode.value) return true;
+  if (!me || !s) return false;
+  if (me === Number(s.supervisorUserId || 0)) return true;
+  if (String(s.role || '') === 'supervisor') return true;
+  return !!s.canEdit || !!s.canReschedule;
+});
+const canCancelSelectedSupvSession = computed(() => canHostOrAdminManageSelectedSupv.value);
+const canSaveSelectedSupvSession = computed(() => canHostOrAdminManageSelectedSupv.value);
+
 const loadSupvPresenters = async (sessionId) => {
   const sid = Number(sessionId || 0);
   if (!sid) {
@@ -21927,11 +21970,15 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       startAt,
       endAt,
       timeZone: scheduleMeetingTimeZone(),
-      notes: supvNotes.value || '',
+      notes: String(requestNotes.value || supvNotes.value || ''),
       presenterUserIds,
+      modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
+      waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
+      inviteAudienceAllSupervised: !!supervisionInviteAudienceAllSupervised.value,
+      inviteAudienceGroupSupport: !!supervisionInviteAudienceGroupSupport.value,
       ...(scope ? { scope } : {})
     });
-    await load();
+    await load({ forceRefresh: true });
     closeSupvModal();
     if (closeScheduleShell) requestCloseModal();
   } catch (e) {
@@ -21942,7 +21989,17 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
   }
 };
 
-const saveSupvSessionFromScheduleModal = () => saveSupvSession({ closeScheduleShell: true });
+const saveSupvSessionFromScheduleModal = async () => {
+  if (!canSaveSelectedSupvSession.value) {
+    supvModalError.value = 'Only the host or an admin can save this session.';
+    return;
+  }
+  try {
+    await saveSupvSession({ closeScheduleShell: true });
+  } catch {
+    /* error already in supvModalError */
+  }
+};
 
 const ensureSupvMeetLink = async () => {
   const id = Number(selectedSupvSessionId.value || 0);
@@ -21964,6 +22021,10 @@ const ensureSupvMeetLink = async () => {
 const cancelSupvSession = async () => {
   const id = Number(selectedSupvSessionId.value || 0);
   if (!id) return;
+  if (!canCancelSelectedSupvSession.value) {
+    supvModalError.value = 'Only the host or an admin can cancel this session.';
+    return;
+  }
   try {
     supvSaving.value = true;
     supvModalError.value = '';
@@ -26547,7 +26608,11 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0 4px 8px;
+  padding: 0 12px 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .appt-workspace-tabbar {
   display: flex;
@@ -26722,6 +26787,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   --nr-line: #e8eef5;
   --nr-soft: #f8fafc;
   max-width: min(920px, 100%);
+  max-height: calc(100vh - 24px);
   padding: 0;
   background: #fff;
   border-radius: 18px;
@@ -27131,16 +27197,28 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   padding: 14px 20px 16px;
   border-top: 1px solid var(--nr-line);
   background: var(--nr-soft);
+  flex: 0 0 auto;
 }
 .nr-footer--supv {
   justify-content: space-between;
   align-items: center;
+}
+.nr-footer--sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  box-shadow: 0 -8px 20px rgba(15, 23, 42, 0.06);
+}
+.nr-footer__error {
+  flex: 1 1 100%;
+  margin: 0 0 4px;
 }
 .nr-footer__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+  margin-left: auto;
 }
 .nr-btn-cancel {
   min-width: 96px;

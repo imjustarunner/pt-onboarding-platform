@@ -5467,6 +5467,7 @@ const showNotificationsNudge = computed(() => {
 const clearJustLoggedIn = () => {
   try {
     window.sessionStorage.removeItem('justLoggedIn');
+    window.sessionStorage.removeItem('justLoggedInAt');
   } catch {
     // ignore
   }
@@ -5696,8 +5697,18 @@ const textMeReminder = async () => {
   }
 };
 
+const isOnSupervisionJoinRoute = () => {
+  const path = String(route.path || window.location.pathname || '');
+  return /\/join\/supervision(\/|$)/i.test(path);
+};
+
 const fetchJoinPrompts = async () => {
   if (!isAuthenticated.value || !user.value?.id) return;
+  // Already in a live join room — never show Join-now (opens a second window).
+  if (isOnSupervisionJoinRoute()) {
+    joinReminderToast.value = { visible: false, message: '', prompt: null };
+    return;
+  }
   try {
     const params = {};
     const aid = agencyStore.currentAgency?.id;
@@ -5721,7 +5732,22 @@ const fetchJoinPrompts = async () => {
 const joinReminderToastJoin = () => {
   const p = joinReminderToast.value?.prompt;
   const link = String(p?.joinUrl || p?.googleMeetLink || '').trim();
-  if (link) window.open(link, '_blank', 'noreferrer');
+  if (!link) {
+    dismissJoinReminderToast();
+    return;
+  }
+  // Prefer same-tab navigation when the join URL is this app; avoid a second window.
+  try {
+    const url = new URL(link, window.location.origin);
+    if (url.origin === window.location.origin && /\/join\/supervision\//i.test(url.pathname)) {
+      dismissJoinReminderToast();
+      void router.push(`${url.pathname}${url.search}${url.hash}`);
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+  window.open(link, '_blank', 'noreferrer');
   dismissJoinReminderToast();
 };
 
@@ -5834,7 +5860,11 @@ watch(() => route.path, (path) => {
   if (path && (path.includes('/admin/communications') || path.includes('/tickets'))) {
     void communicationsCountsStore.fetchCounts();
   }
-  if (path && (path.includes('/dashboard') || path.includes('/join/supervision')) && isAuthenticated.value) {
+  if (path && /\/join\/supervision(\/|$)/i.test(String(path || ''))) {
+    joinReminderToast.value = { visible: false, message: '', prompt: null };
+    return;
+  }
+  if (path && path.includes('/dashboard') && isAuthenticated.value) {
     void fetchJoinPrompts();
   }
 });

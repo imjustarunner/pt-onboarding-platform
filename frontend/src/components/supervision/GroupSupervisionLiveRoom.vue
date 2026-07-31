@@ -728,18 +728,27 @@ defineExpose({
   max-height: none;
 }
 .gsl__workspace-section {
-  flex-shrink: 0;
+  flex-shrink: 1;
   min-height: 0;
 }
 .gsl__workspace-section--activity {
   flex: 1 1 auto;
   overflow: auto;
+  min-height: 80px;
 }
 .gsl__workspace-section--activity :deep(.mlap) {
-  min-height: min(30vh, 300px);
+  min-height: min(18vh, 180px);
 }
 .gsl__workspace-section--activity :deep(.mlap__panel) {
-  min-height: min(26vh, 260px);
+  min-height: min(16vh, 160px);
+}
+.gsl__workspace-section--transcript {
+  flex: 1 1 28%;
+  min-height: 120px;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .gsl__workspace-title {
   margin: 0 0 8px;
@@ -758,7 +767,9 @@ defineExpose({
   font-size: 0.78rem;
   line-height: 1.35;
   color: #d5deea;
-  max-height: 180px;
+  flex: 1 1 auto;
+  min-height: 80px;
+  max-height: none;
   overflow: auto;
 }
 .gsl__transcript-empty {

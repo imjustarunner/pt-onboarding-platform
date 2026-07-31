@@ -281,8 +281,8 @@ class UserInfoValue {
     for (const group of LICENSE_FIELD_ALIAS_GROUPS) {
       const keys = allKeysInLicenseAliasGroup(group);
       const best = pickBestLicenseGroupEntry(keys, {
-        valueByKey,
-        metaByKey,
+        valueByKey: valueByFieldKey,
+        metaByKey: metaByFieldKey,
         isMeaningful,
       });
       if (!best) continue;

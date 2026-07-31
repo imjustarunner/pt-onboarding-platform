@@ -88,8 +88,11 @@ const attemptLogin = async (lastNameValue = null) => {
     // Set auth user (token is in HttpOnly cookie, set by backend)
     authStore.setAuth(response.data.token || null, response.data.user, response.data.sessionId);
     
-    // Mark that we just logged in to help with cookie timing issues
-    sessionStorage.setItem('justLoggedIn', 'true');
+    // Mark that we just logged in to help with cookie/Bearer timing issues
+    try {
+      sessionStorage.setItem('justLoggedIn', 'true');
+      sessionStorage.setItem('justLoggedInAt', String(Date.now()));
+    } catch { /* ignore */ }
     try {
       const { signalFreshLogin } = await import('../composables/useReminderSnooze.js');
       signalFreshLogin();

@@ -39,6 +39,9 @@
         </span>
         <span class="map__mins">
           {{ formatMins(p.totalMinutes) }}
+          <small v-if="Number(p.segmentCount || 0) > 1" class="map__segments" title="Total time sums all join/leave segments">
+            {{ p.segmentCount }} segments
+          </small>
           <small v-if="Number(p.waitMinutes || 0) > 0" class="map__wait" title="Waiting-room time (not counted toward session pay)">
             wait {{ formatMins(p.waitMinutes) }}
           </small>
@@ -283,6 +286,11 @@ defineExpose({ load });
   font-size: 0.68rem;
   font-weight: 650;
   color: #94a3b8;
+}
+.map__segments {
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: #64748b;
 }
 .map__host {
   margin-left: 6px;

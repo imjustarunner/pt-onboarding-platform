@@ -202,8 +202,11 @@ export const useAuthStore = defineStore('auth', () => {
       // Persist token in secure Preferences so biometrics can unlock it on next open
       saveBiometricToken(response.data.token, response.data.user).catch(() => {});
       
-      // Mark that we just logged in to help with cookie timing issues
-      sessionStorage.setItem('justLoggedIn', 'true');
+      // Mark that we just logged in to help with cookie/Bearer timing (esp. incognito).
+      try {
+        sessionStorage.setItem('justLoggedIn', 'true');
+        sessionStorage.setItem('justLoggedInAt', String(Date.now()));
+      } catch { /* ignore */ }
       try {
         const { signalFreshLogin } = await import('../composables/useReminderSnooze.js');
         signalFreshLogin();

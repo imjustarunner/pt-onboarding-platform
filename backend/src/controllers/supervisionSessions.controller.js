@@ -100,6 +100,45 @@ async function recordSupervisionPresenceAttendanceEvent({
   });
 }
 
+/** Open payable attendance when admitted and last ledger event is not an open join. */
+async function ensureSupervisionAttendanceSegmentOpen({
+  sessionRow,
+  sessionId,
+  userId,
+  joinIdentity
+}) {
+  const sid = Number(sessionId || 0);
+  const uid = Number(userId || 0);
+  const identity = String(joinIdentity || (uid ? `user-${uid}` : '')).trim();
+  if (!sid || !uid) return null;
+  const admitted = await isUserAdmittedToSupervision({
+    sessionId: sid,
+    userId: uid,
+    joinIdentity: identity
+  });
+  if (!admitted) return null;
+
+  const events = await SupervisionSession.listAttendanceEventsForSessionUser({
+    sessionId: sid,
+    userId: uid
+  });
+  const lastType = String(events?.[events.length - 1]?.event_type || '').trim().toLowerCase();
+  if (lastType === 'joined' || lastType === 'opened') {
+    return recomputeAttendanceRollupForUser({
+      sessionId: sid,
+      userId: uid,
+      sessionStartAt: sessionRow?.start_at
+    });
+  }
+  return recordSupervisionPresenceAttendanceEvent({
+    sessionRow,
+    sessionId: sid,
+    userId: uid,
+    joinIdentity: identity,
+    eventType: 'joined'
+  });
+}
+
 async function loadSupervisionPresenceByUser(sessionId, {
   staleSeconds = JOIN_PRESENCE_STALE_SECONDS
 } = {}) {
@@ -354,6 +393,7 @@ async function upsertJoinPresence({ sessionId, joinIdentity, displayName = null,
   const identity = String(joinIdentity || '').trim();
   if (!sid || !identity) return;
   try {
+    // Reset joined_at when re-entering after leave so wait-time is the current segment only.
     await pool.execute(
       `INSERT INTO supervision_session_join_presence
          (session_id, join_identity, display_name, is_guest, joined_at, last_seen_at, left_at)
@@ -361,6 +401,10 @@ async function upsertJoinPresence({ sessionId, joinIdentity, displayName = null,
        ON DUPLICATE KEY UPDATE
          display_name = COALESCE(VALUES(display_name), display_name),
          is_guest = VALUES(is_guest),
+         joined_at = CASE
+           WHEN left_at IS NOT NULL THEN UTC_TIMESTAMP()
+           ELSE joined_at
+         END,
          last_seen_at = UTC_TIMESTAMP(),
          left_at = NULL`,
       [sid, identity, displayName ? String(displayName).slice(0, 255) : null, isGuest ? 1 : 0]
@@ -1198,10 +1242,20 @@ async function finalizeSupervisionSession({
         actorUserId,
         finalizeAsMissed: false
       });
+      if (pipeline?.claim?.skipped || pipeline?.claim?.ok === false) {
+        console.warn(
+          `[supervision] finalize claim result session=${sid}:`,
+          pipeline?.claim?.reason || pipeline?.claim?.error || pipeline?.claim
+        );
+      }
     } catch (e) {
       console.warn('[supervision] finalize pipeline failed', e?.message || e);
       pipeline = { ok: false, error: e?.message || 'pipeline_failed' };
     }
+  } else {
+    console.warn(
+      `[supervision] finalize marked MISSED session=${sid} (no attendance/transcript); payroll claim skipped`
+    );
   }
 
   return {
@@ -2103,23 +2157,6 @@ export const postSupervisionJoinPresence = async (req, res, next) => {
     const id = Number(row.id);
     const userId = userIdFromSupervisionJoinIdentity(identity);
 
-    let priorPresence = null;
-    try {
-      const [presenceRows] = await pool.execute(
-        `SELECT left_at, last_seen_at
-         FROM supervision_session_join_presence
-         WHERE session_id = ? AND join_identity = ?
-         LIMIT 1`,
-        [id, identity]
-      );
-      priorPresence = presenceRows?.[0] || null;
-    } catch {
-      priorPresence = null;
-    }
-    const wasAway = !priorPresence
-      || priorPresence.left_at
-      || isPresenceLastSeenStale(priorPresence.last_seen_at);
-
     if (action === 'leave') {
       await markJoinPresenceLeft({ sessionId: id, joinIdentity: identity });
       if (userId) {
@@ -2140,13 +2177,12 @@ export const postSupervisionJoinPresence = async (req, res, next) => {
       });
       if (userId) {
         const admitted = await isUserAdmittedToSupervision({ sessionId: id, userId, joinIdentity: identity });
-        if (admitted && wasAway) {
-          await recordSupervisionPresenceAttendanceEvent({
+        if (admitted) {
+          await ensureSupervisionAttendanceSegmentOpen({
             sessionRow: row,
             sessionId: id,
             userId,
-            joinIdentity: identity,
-            eventType: 'joined'
+            joinIdentity: identity
           });
         }
       }
@@ -2503,12 +2539,6 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to generate access token' } });
     }
 
-    const priorPresenceMap = await loadSupervisionPresenceByUser(id);
-    const priorPresence = priorPresenceMap.get(actorUserId) || null;
-    const wasAway = !priorPresence
-      || priorPresence.leftAt
-      || isPresenceLastSeenStale(priorPresence.lastSeenAt);
-
     await upsertJoinPresence({
       sessionId: id,
       joinIdentity: identity,
@@ -2516,14 +2546,13 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       isGuest: false
     });
 
-    if (!useLobby && admitted && wasAway) {
+    if (!useLobby && admitted) {
       try {
-        await recordSupervisionPresenceAttendanceEvent({
+        await ensureSupervisionAttendanceSegmentOpen({
           sessionRow: row,
           sessionId: id,
           userId: actorUserId,
-          joinIdentity: identity,
-          eventType: 'joined'
+          joinIdentity: identity
         });
       } catch {
         /* ignore */
@@ -2690,6 +2719,19 @@ export const admitToMainRoom = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to admit participant' } });
     }
 
+    if (userIdNum) {
+      try {
+        await ensureSupervisionAttendanceSegmentOpen({
+          sessionRow: row,
+          sessionId: id,
+          userId: userIdNum,
+          joinIdentity
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+
     res.json({ ok: true, admitted: userIdNum || joinIdentity, joinIdentity });
   } catch (e) {
     next(e);
@@ -2729,7 +2771,22 @@ export const setSupervisionWaitingRoomLive = async (req, res, next) => {
           userId: p.userId || null,
           joinIdentity: p.joinIdentity
         });
-        if (ok) admittedCount += 1;
+        if (ok) {
+          admittedCount += 1;
+          if (p.userId) {
+            try {
+              // eslint-disable-next-line no-await-in-loop
+              await ensureSupervisionAttendanceSegmentOpen({
+                sessionRow: row,
+                sessionId: id,
+                userId: p.userId,
+                joinIdentity: p.joinIdentity
+              });
+            } catch {
+              /* ignore */
+            }
+          }
+        }
       }
     }
 
@@ -2896,6 +2953,16 @@ export const getAdmissionStatus = async (req, res, next) => {
     });
     if (!payload) {
       return res.status(500).json({ error: { message: 'Failed to get main room' } });
+    }
+    try {
+      await ensureSupervisionAttendanceSegmentOpen({
+        sessionRow: row,
+        sessionId: id,
+        userId: actorUserId,
+        joinIdentity: identity
+      });
+    } catch {
+      /* ignore */
     }
     res.json(payload);
   } catch (e) {
@@ -4333,15 +4400,22 @@ export const cancelSupervisionSession = async (req, res, next) => {
     const row = await SupervisionSession.findById(id);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
 
-    const ok = await canScheduleSession(req, {
-      agencyId: row.agency_id,
-      supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id
-    });
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-    if (!(await assertCanManageGroupSupervision(req, res, {
-      existingSessionType: row.session_type
-    }))) return;
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    const isHost = actorId === Number(row.supervisor_user_id || 0);
+    const isAdminLike = ['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(role);
+    // Presenters / supervisees / co-facilitators must not cancel — host or admin only.
+    if (!isHost && !isAdminLike) {
+      return res.status(403).json({ error: { message: 'Only the host or an admin can cancel this session' } });
+    }
+    if (isAdminLike && !isHost) {
+      const actorAgencies = await User.getAgencies(actorId);
+      const inAgency = (actorAgencies || []).some((a) => Number(a?.id) === Number(row.agency_id));
+      if (!inAgency && role !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+      }
+    }
 
     const cancelled = await SupervisionSession.cancel(id);
 

@@ -1200,6 +1200,24 @@ async function subscribeToStream(stream) {
     ));
     void syncRemotePresentation(streamId);
   });
+  // Fallback: some SDK builds emit property changes instead of videoEnabled/Disabled.
+  sub.on?.('streamPropertyChanged', (event) => {
+    const changed = String(event?.changedProperty || event?.property || '').toLowerCase();
+    if (changed === 'hasvideo' || changed === 'video') {
+      const on = event?.newValue !== false && event?.newValue !== 0;
+      remotes.value = remotes.value.map((r) => (
+        r.streamId === streamId ? { ...r, hasVideo: !!on } : r
+      ));
+      void syncRemotePresentation(streamId);
+    }
+    if (changed === 'hasaudio' || changed === 'audio') {
+      const on = event?.newValue !== false && event?.newValue !== 0;
+      remotes.value = remotes.value.map((r) => (
+        r.streamId === streamId ? { ...r, hasAudio: !!on } : r
+      ));
+      if (!on) setSpeaking(streamId, false);
+    }
+  });
   sub.on?.('audioEnabled', () => {
     remotes.value = remotes.value.map((r) => (
       r.streamId === streamId ? { ...r, hasAudio: true } : r
@@ -1535,6 +1553,7 @@ async function connect() {
 function stopScreenShare() {
   if (!screenPublisher) {
     sharingScreen.value = false;
+    clearScreenShareTile();
     return;
   }
   try {
@@ -1549,6 +1568,8 @@ function stopScreenShare() {
   }
   screenPublisher = null;
   sharingScreen.value = false;
+  // Always clear the featured screen tile — otherwise a black pane remains after Stop share.
+  clearScreenShareTile();
 }
 
 async function toggleScreenShare() {

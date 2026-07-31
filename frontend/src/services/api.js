@@ -238,12 +238,26 @@ api.interceptors.response.use(
     }
 
     // Don't redirect on 401 if we're already on the login page or setup pages
-    // Also don't redirect immediately after login (give cookie time to be available)
+    // Also don't redirect immediately after login (give cookie/Bearer time to stick)
     const path = window.location.pathname || '';
     const isLoginPage = path.includes('/login');
     const isPasswordlessLogin = window.location.pathname.includes('/passwordless-login');
     const isInitialSetup = window.location.pathname.includes('/initial-setup');
-    const justLoggedIn = sessionStorage.getItem('justLoggedIn') === 'true';
+    let justLoggedIn = false;
+    let justLoggedInFresh = false;
+    try {
+      justLoggedIn = sessionStorage.getItem('justLoggedIn') === 'true';
+      const loggedInAt = Number(sessionStorage.getItem('justLoggedInAt') || 0);
+      justLoggedInFresh = justLoggedIn && loggedInAt > 0 && (Date.now() - loggedInAt) < 20000;
+      if (justLoggedIn && !justLoggedInFresh && loggedInAt > 0) {
+        sessionStorage.removeItem('justLoggedIn');
+        sessionStorage.removeItem('justLoggedInAt');
+        justLoggedIn = false;
+      }
+    } catch {
+      justLoggedIn = false;
+      justLoggedInFresh = false;
+    }
     const skipAuthRedirect = !!error?.config?.skipAuthRedirect;
     const isSchoolOnboardingDemo =
       isSchoolOnboardingDemoActive() ||
@@ -302,22 +316,28 @@ api.interceptors.response.use(
       !isPublicPath &&
       !isPrehirePortalApi
     ) {
-      // If we just logged in, this might be a cookie timing issue
-      // Give it one retry before logging out
-      if (justLoggedIn && !error.config._retry) {
+      // Post-login races (cookie not yet accepted, especially incognito): retry with Bearer.
+      const retryCount = Number(error.config._authRetryCount || 0);
+      if ((justLoggedIn || justLoggedInFresh) && retryCount < 3) {
+        error.config._authRetryCount = retryCount + 1;
         error.config._retry = true;
-        // Clear the flag after a delay
-        setTimeout(() => {
-          sessionStorage.removeItem('justLoggedIn');
-        }, 5000);
-        // Retry the request after a short delay to allow cookie to be available
+        try {
+          const storedToken = localStorage.getItem('authToken');
+          if (storedToken) {
+            error.config.headers = error.config.headers || {};
+            error.config.headers.Authorization = `Bearer ${storedToken}`;
+          }
+        } catch {
+          /* ignore */
+        }
+        const delayMs = 400 + (retryCount * 350);
         return new Promise((resolve) => {
           setTimeout(() => {
             resolve(api.request(error.config));
-          }, 500);
+          }, delayMs);
         });
       }
-      
+
       // Token is in HttpOnly cookie, so we only clear user state
       // Get user info before clearing to determine login redirect
       const storedUser = localStorage.getItem('user');
@@ -327,14 +347,20 @@ api.interceptors.response.use(
       } catch (e) {
         // Ignore parse errors
       }
-      
+
       localStorage.removeItem('user');
-      sessionStorage.removeItem('justLoggedIn');
-      
+      try {
+        localStorage.removeItem('authToken');
+        sessionStorage.removeItem('justLoggedIn');
+        sessionStorage.removeItem('justLoggedInAt');
+      } catch {
+        /* ignore */
+      }
+
       // Prefer current path slug so branded portals stay branded (e.g. /nlu/dashboard → /nlu/login)
       const { getLoginUrlForRedirect } = await import('../utils/loginRedirect');
       const loginUrl = getLoginUrlForRedirect(user);
-      
+
       // Keep sessionId for activity logging
       window.location.href = loginUrl;
     }

@@ -27,10 +27,11 @@ function clampHours(n) {
 
 function mysqlDateYmd(raw) {
   if (!raw) return null;
+  // Session start_at is stored UTC — use UTC calendar day for claim_date / window checks.
   if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
-    const y = raw.getFullYear();
-    const m = String(raw.getMonth() + 1).padStart(2, '0');
-    const d = String(raw.getDate()).padStart(2, '0');
+    const y = raw.getUTCFullYear();
+    const m = String(raw.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(raw.getUTCDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   }
   const s = String(raw).trim();
@@ -336,6 +337,9 @@ export async function createSupervisorSupervisionTimeClaim({
     asOf: claimDate
   });
   if (!eligibility.eligible) {
+    console.warn(
+      `[supervisionFinalize] supervisor claim skipped session=${sid} user=${supervisorId}: ${eligibility.reason || 'not_eligible_for_claim'}`
+    );
     return { ok: true, skipped: true, reason: eligibility.reason || 'not_eligible_for_claim' };
   }
 
@@ -392,6 +396,9 @@ export async function createSupervisorSupervisionTimeClaim({
     hardStopPolicy: '60_days'
   });
   if (!win?.ok) {
+    console.warn(
+      `[supervisionFinalize] supervisor claim window blocked session=${sid}: ${win?.errorMessage || 'outside_submission_window'} claimDate=${claimDate}`
+    );
     return { ok: false, skipped: true, reason: win?.errorMessage || 'outside_submission_window' };
   }
 
