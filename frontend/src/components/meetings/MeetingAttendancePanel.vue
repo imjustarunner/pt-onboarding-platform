@@ -270,8 +270,21 @@ defineExpose({ load });
 .map__status--left { color: #9a3412; background: #ffedd5; }
 .map__status--away { color: #64748b; background: #f1f5f9; }
 .map__actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.map__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.map__list li { display: flex; justify-content: space-between; gap: 10px; font-size: 0.9rem; align-items: flex-start; }
+.map__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.map__list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.86rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.map__name {
+  flex: 1 1 12rem;
+  min-width: 0;
+  line-height: 1.35;
+  word-break: break-word;
+}
 .map__list-item--away .map__mins { color: #94a3b8; }
 .map__mins {
   display: inline-flex;
@@ -281,6 +294,8 @@ defineExpose({ load });
   white-space: nowrap;
   color: #64748b;
   font-size: 0.82rem;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .map__wait {
   font-size: 0.68rem;

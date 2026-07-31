@@ -104,6 +104,24 @@
             >
               Mute
             </button>
+            <button
+              v-if="canGrantScreenShare && r.connectionId && !shareGrantedFor(r.connectionId)"
+              type="button"
+              class="vsr__share-grant"
+              title="Allow this participant to share their screen"
+              @click.stop="grantScreenShare(r, true)"
+            >
+              Allow share
+            </button>
+            <button
+              v-else-if="canGrantScreenShare && r.connectionId && shareGrantedFor(r.connectionId)"
+              type="button"
+              class="vsr__share-grant vsr__share-grant--on"
+              title="Revoke screen share permission"
+              @click.stop="grantScreenShare(r, false)"
+            >
+              Revoke share
+            </button>
           </div>
 
           <div
@@ -217,6 +235,24 @@
               >
                 Mute
               </button>
+              <button
+                v-if="entry.kind === 'remote' && canGrantScreenShare && entry.connectionId && !shareGrantedFor(entry.connectionId)"
+                type="button"
+                class="vsr__share-grant"
+                title="Allow this participant to share their screen"
+                @click.stop="grantScreenShare(entry.remote || entry, true)"
+              >
+                Allow share
+              </button>
+              <button
+                v-else-if="entry.kind === 'remote' && canGrantScreenShare && entry.connectionId && shareGrantedFor(entry.connectionId)"
+                type="button"
+                class="vsr__share-grant vsr__share-grant--on"
+                title="Revoke screen share permission"
+                @click.stop="grantScreenShare(entry.remote || entry, false)"
+              >
+                Revoke share
+              </button>
             </div>
           </div>
         </aside>
@@ -281,11 +317,12 @@
           {{ hideSelfView ? 'Show me' : 'Hide me' }}
         </button>
         <button
+          v-if="effectiveCanShareScreen || sharingScreen"
           type="button"
           class="vsr__ctrl"
           :aria-pressed="sharingScreen"
-          :disabled="!sessionReady"
-          :title="sharingScreen ? 'Stop sharing your screen' : 'Share your screen'"
+          :disabled="!sessionReady || (!effectiveCanShareScreen && !sharingScreen)"
+          :title="screenShareButtonTitle"
           @click="toggleScreenShare"
         >
           {{ sharingScreen ? 'Stop share' : 'Share screen' }}
@@ -408,6 +445,12 @@ const props = defineProps({
   muteOthersMode: { type: String, default: 'host' },
   /** Local user is host or co-host (for mute-others when mode is host) */
   isHostOrCohost: { type: Boolean, default: false },
+  /** everyone | restricted — restricted requires canShareScreen or a host grant */
+  screenShareMode: { type: String, default: 'everyone' },
+  /** When mode is restricted: whether this user may share without a grant */
+  canShareScreen: { type: Boolean, default: true },
+  /** Host/admin may grant temporary screen-share to attendees */
+  canGrantScreenShare: { type: Boolean, default: false },
   /** Start with microphone off and show an automute notice */
   startMuted: { type: Boolean, default: false },
   /** Play a short tone when someone else joins */
@@ -548,6 +591,53 @@ const canMuteOthers = computed(() => {
   if (mode === 'none') return false;
   return !!props.isHostOrCohost;
 });
+
+/** connectionId → granted (host-tracked + local grant for self) */
+const screenShareGrants = ref({});
+const localShareGranted = ref(false);
+
+const isRestrictedScreenShare = computed(() => (
+  String(props.screenShareMode || 'everyone').toLowerCase() === 'restricted'
+));
+const canGrantScreenShare = computed(() => (
+  isRestrictedScreenShare.value && !!props.canGrantScreenShare
+));
+const effectiveCanShareScreen = computed(() => {
+  if (!isRestrictedScreenShare.value) return props.canShareScreen !== false;
+  return !!props.canShareScreen || !!localShareGranted.value;
+});
+const screenShareButtonTitle = computed(() => {
+  if (sharingScreen.value) return 'Stop sharing your screen';
+  if (effectiveCanShareScreen.value) return 'Share your screen';
+  return 'Screen share is limited to the host/presenter — ask them to allow you';
+});
+
+function shareGrantedFor(connectionId) {
+  const id = String(connectionId || '').trim();
+  if (!id) return false;
+  return !!screenShareGrants.value[id];
+}
+
+function grantScreenShare(remote, granted) {
+  if (!canGrantScreenShare.value) return;
+  const connectionId = String(remote?.connectionId || remote?.connection?.connectionId || '').trim();
+  if (!connectionId) return;
+  const next = { ...screenShareGrants.value };
+  if (granted) next[connectionId] = true;
+  else delete next[connectionId];
+  screenShareGrants.value = next;
+  // Broadcast so the recipient enables share and other hosts see grant state.
+  sendSessionSignal('screen_share_grant', {
+    connectionId,
+    granted: !!granted,
+    displayName: remote?.name || ''
+  });
+}
+
+function applyScreenShareGrantLocal(granted) {
+  localShareGranted.value = !!granted;
+  if (!granted && sharingScreen.value) stopScreenShare();
+}
 
 const voiceIsolationLabel = computed(() => {
   if (voiceIsolationStatus.value === 'on') return 'Voice isolation on';
@@ -717,6 +807,74 @@ function setRemoteAudioByConnection(connectionId, hasAudio, displayName = '') {
       audioNameByConnection.value = { ...audioNameByConnection.value, [id]: remote.name };
     }
   }
+}
+
+/**
+ * Keep remote camera state consistent across SDK event gaps.
+ * Split cam-off layout remounts tiles when hasVideo flips — refresh after DOM settles.
+ */
+async function refreshRemoteVideo(streamId, hasVideo) {
+  const id = String(streamId || '').trim();
+  if (!id) return;
+  const sub = subscribers.get(id);
+  if (sub) {
+    try {
+      if (typeof sub.subscribeToVideo === 'function') sub.subscribeToVideo(!!hasVideo);
+    } catch { /* ignore */ }
+  }
+  if (!hasVideo) return;
+  for (const delay of [0, 50, 160, 320]) {
+    // eslint-disable-next-line no-await-in-loop
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    // eslint-disable-next-line no-await-in-loop
+    await nextTick();
+    const el = remoteMediaEls.get(id);
+    if (!el) continue;
+    reparentSubscriberMedia(id, el);
+    forceMediaFill(el);
+    try {
+      const mediaEl = typeof sub?.element === 'function' ? sub.element() : null;
+      const video = mediaEl?.querySelector?.('video') || el.querySelector?.('video');
+      if (video) {
+        video.style.visibility = 'visible';
+        video.style.opacity = '1';
+        if (typeof video.play === 'function') void video.play().catch(() => {});
+      }
+    } catch { /* ignore */ }
+  }
+}
+
+function setRemoteVideoState({ streamId = '', connectionId = '', hasVideo }) {
+  const sid = String(streamId || '').trim();
+  const cid = String(connectionId || '').trim();
+  const on = !!hasVideo;
+  let matched = false;
+  remotes.value = remotes.value.map((r) => {
+    const hit = (sid && r.streamId === sid) || (cid && r.connectionId === cid);
+    if (!hit) return r;
+    matched = true;
+    if (r.hasVideo === on) return r;
+    return { ...r, hasVideo: on };
+  });
+  if (!matched) return;
+  const targets = remotes.value.filter((r) => (
+    (sid && r.streamId === sid) || (cid && r.connectionId === cid)
+  ));
+  for (const r of targets) void refreshRemoteVideo(r.streamId, on);
+}
+
+function setRemoteVideoByConnection(connectionId, hasVideo) {
+  setRemoteVideoState({ connectionId, hasVideo });
+}
+
+function broadcastCameraState(hasVideo) {
+  const connId = localConnectionId();
+  if (!connId) return;
+  sendSessionSignal('camera_state', {
+    connectionId: connId,
+    hasVideo: !!hasVideo,
+    displayName: props.localName || 'You'
+  });
 }
 
 function emitAudioMapChange() {
@@ -991,9 +1149,16 @@ async function syncLocalVideoPresentation() {
 }
 
 async function syncRemotePresentation(streamId) {
+  const id = String(streamId || '').trim();
+  if (!id) return;
   await nextTick();
-  const el = remoteMediaEls.get(String(streamId || '').trim());
-  if (el) reparentSubscriberMedia(streamId, el);
+  const remote = remotes.value.find((r) => r.streamId === id);
+  const el = remoteMediaEls.get(id);
+  if (el) {
+    reparentSubscriberMedia(id, el);
+    forceMediaFill(el);
+  }
+  if (remote?.hasVideo) void refreshRemoteVideo(id, true);
 }
 
 function setRemoteMediaEl(streamId, el) {
@@ -1002,9 +1167,15 @@ function setRemoteMediaEl(streamId, el) {
   if (el) {
     remoteMediaEls.set(id, el);
     reparentSubscriberMedia(id, el);
-  } else {
-    remoteMediaEls.delete(id);
+    forceMediaFill(el);
+    const remote = remotes.value.find((r) => r.streamId === id);
+    if (remote?.hasVideo) void refreshRemoteVideo(id, true);
+    return;
   }
+  // Vue may null the old tile after the new cam-off/stage tile already registered.
+  const current = remoteMediaEls.get(id);
+  if (current && typeof current.isConnected === 'boolean' && current.isConnected) return;
+  remoteMediaEls.delete(id);
 }
 
 function onTileActivate(which) {
@@ -1189,26 +1360,17 @@ async function subscribeToStream(stream) {
   subscribers.set(streamId, sub);
   attachSubscriberAudioLevel(sub, streamId);
   sub.on?.('videoEnabled', () => {
-    remotes.value = remotes.value.map((r) => (
-      r.streamId === streamId ? { ...r, hasVideo: true } : r
-    ));
-    void syncRemotePresentation(streamId);
+    setRemoteVideoState({ streamId, hasVideo: true });
   });
   sub.on?.('videoDisabled', () => {
-    remotes.value = remotes.value.map((r) => (
-      r.streamId === streamId ? { ...r, hasVideo: false } : r
-    ));
-    void syncRemotePresentation(streamId);
+    setRemoteVideoState({ streamId, hasVideo: false });
   });
   // Fallback: some SDK builds emit property changes instead of videoEnabled/Disabled.
   sub.on?.('streamPropertyChanged', (event) => {
     const changed = String(event?.changedProperty || event?.property || '').toLowerCase();
     if (changed === 'hasvideo' || changed === 'video') {
       const on = event?.newValue !== false && event?.newValue !== 0;
-      remotes.value = remotes.value.map((r) => (
-        r.streamId === streamId ? { ...r, hasVideo: !!on } : r
-      ));
-      void syncRemotePresentation(streamId);
+      setRemoteVideoState({ streamId, hasVideo: !!on });
     }
     if (changed === 'hasaudio' || changed === 'audio') {
       const on = event?.newValue !== false && event?.newValue !== 0;
@@ -1372,6 +1534,22 @@ async function connect() {
       void subscribeToStream(event.stream).then(() => emit('stream-created', event));
     });
 
+    // Authoritative camera/mic flips — more reliable than subscriber-only events across SDK builds.
+    session.on('streamPropertyChanged', (event) => {
+      const stream = event?.stream;
+      if (!stream || isOwnStream(stream) || isScreenStream(stream)) return;
+      const changed = String(event?.changedProperty || '').toLowerCase();
+      const streamId = String(stream.streamId || '');
+      const connectionId = connectionIdFrom(stream.connection);
+      if (changed === 'hasvideo') {
+        const on = event?.newValue !== false && event?.newValue !== 0;
+        setRemoteVideoState({ streamId, connectionId, hasVideo: !!on });
+      } else if (changed === 'hasaudio') {
+        const on = event?.newValue !== false && event?.newValue !== 0;
+        if (connectionId) setRemoteAudioByConnection(connectionId, !!on);
+      }
+    });
+
     session.on('streamDestroyed', (event) => {
       const stream = event.stream;
       const streamId = String(stream?.streamId || '');
@@ -1442,6 +1620,21 @@ async function connect() {
       emit('reaction', payload);
     });
 
+    session.on('signal:screen_share_grant', (event) => {
+      let data = {};
+      try { data = JSON.parse(event?.data || '{}'); } catch { data = {}; }
+      const target = String(data.connectionId || '').trim();
+      const me = localConnectionId();
+      if (target && me && target === me) {
+        applyScreenShareGrantLocal(!!data.granted);
+      }
+      if (data.connectionId) {
+        const next = { ...screenShareGrants.value };
+        if (data.granted) next[String(data.connectionId)] = true;
+        else delete next[String(data.connectionId)];
+        screenShareGrants.value = next;
+      }
+    });
     session.on('signal:force_mute', (event) => {
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
@@ -1457,6 +1650,16 @@ async function connect() {
       if (!connId || connId === localConnectionId()) return;
       if (typeof payload.hasAudio === 'boolean') {
         setRemoteAudioByConnection(connId, payload.hasAudio, payload.displayName || '');
+      }
+    });
+
+    session.on('signal:camera_state', (event) => {
+      let payload = {};
+      try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
+      const connId = String(payload.connectionId || event?.from?.connectionId || '').trim();
+      if (!connId || connId === localConnectionId()) return;
+      if (typeof payload.hasVideo === 'boolean') {
+        setRemoteVideoByConnection(connId, payload.hasVideo);
       }
     });
 
@@ -1506,6 +1709,9 @@ async function connect() {
     await new Promise((resolve, reject) => {
       session.publish(publisher, (err) => (err ? reject(err) : resolve()));
     });
+    // Seed peers with our initial mic/camera state (toggle events alone can be missed).
+    broadcastMicState(publishAudio.value);
+    broadcastCameraState(publishVideo.value);
     if (useVonageNoiseSuppression) {
       const applied = await ensureAdvancedNoiseSuppression(publisher);
       voiceIsolationStatus.value = applied ? 'on' : 'browser';
@@ -1579,6 +1785,10 @@ async function toggleScreenShare() {
   }
   if (sharingScreen.value) {
     stopScreenShare();
+    return;
+  }
+  if (!effectiveCanShareScreen.value) {
+    errorMessage.value = 'Only the host or presenter can share screen unless they allow you.';
     return;
   }
   try {
@@ -1705,6 +1915,7 @@ function toggleCamera() {
   }
   try {
     publisher.publishVideo(next);
+    broadcastCameraState(next);
     void syncLocalVideoPresentation();
   } catch (e) {
     console.error('[VideoSessionRoom] publishVideo failed', e);
@@ -1741,7 +1952,10 @@ watch(
 watch(
   () => remotes.value.map((r) => `${r.streamId}:${r.hasVideo ? 1 : 0}`).join('|'),
   () => {
-    for (const r of remotes.value) void syncRemotePresentation(r.streamId);
+    for (const r of remotes.value) {
+      if (r.hasVideo) void refreshRemoteVideo(r.streamId, true);
+      else void syncRemotePresentation(r.streamId);
+    }
   }
 );
 
@@ -2170,6 +2384,30 @@ defineExpose({
 }
 .vsr__mute-other:hover {
   background: rgba(185, 28, 28, 0.85);
+}
+.vsr__share-grant {
+  position: absolute;
+  bottom: 3.6rem;
+  right: 0.45rem;
+  z-index: 5;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(15, 76, 129, 0.75);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  cursor: pointer;
+  max-width: 6.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vsr__share-grant:hover {
+  background: rgba(29, 78, 216, 0.9);
+}
+.vsr__share-grant--on {
+  background: rgba(4, 120, 87, 0.85);
 }
 .vsr__reactions {
   pointer-events: none;

@@ -25,6 +25,9 @@
       :show-layout-controls="showLayoutControls"
       :mute-others-mode="muteOthersMode"
       :is-host-or-cohost="isHostOrCohost || isHost"
+      :screen-share-mode="screenShareMode"
+      :can-share-screen="canShareScreen"
+      :can-grant-screen-share="canGrantScreenShare"
       :start-muted="startMuted"
       :play-join-tone="playJoinTone"
       @update:tile-focus="$emit('update:tileFocus', $event)"
@@ -85,6 +88,10 @@ const props = defineProps({
   showLayoutControls: { type: Boolean, default: false },
   muteOthersMode: { type: String, default: 'host' },
   isHostOrCohost: { type: Boolean, default: false },
+  /** everyone (default) | restricted — restricted uses canShareScreen + host grants */
+  screenShareMode: { type: String, default: 'everyone' },
+  canShareScreen: { type: Boolean, default: true },
+  canGrantScreenShare: { type: Boolean, default: false },
   /** Join with microphone off (group supervision default for attendees). */
   startMuted: { type: Boolean, default: false },
   playJoinTone: { type: Boolean, default: true },

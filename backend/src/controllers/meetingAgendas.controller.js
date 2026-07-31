@@ -42,6 +42,22 @@ async function canFacilitateSupervisionSession(userId, session) {
   return false;
 }
 
+/** Host / co-host / agency admin — not presenters or general attendees. */
+async function canHostSupervisionAgenda(userId, session) {
+  const uid = Number(userId || 0);
+  if (!uid || !session) return false;
+  if (uid === Number(session.supervisor_user_id || 0)) return true;
+  if (uid === Number(session.co_facilitator_user_id || 0)) return true;
+  const user = await User.findById(uid);
+  const role = String(user?.role || '').toLowerCase();
+  const adminRoles = ['super_admin', 'admin', 'support', 'clinical_practice_assistant'];
+  if (adminRoles.includes(role)) {
+    const agencies = await User.getAgencies(uid);
+    return (agencies || []).some((a) => Number(a?.id) === Number(session.agency_id));
+  }
+  return false;
+}
+
 async function canManageMeetingAgenda(userId, meetingType, meetingId) {
   const uid = Number(userId || 0);
   const mid = parseInt(meetingId, 10);
@@ -104,9 +120,9 @@ async function canManageMeetingAgenda(userId, meetingType, meetingId) {
 
 /**
  * Who can add/edit agenda items:
- * - Team meetings: anyone who can manage the meeting (host + invited attendees)
- * - Individual supervision: supervisor/facilitators + the named supervisee
- * - Group/triadic supervision: facilitators only (keeps large-room agenda from getting noisy)
+ * - Team / group huddles: host + agency admin (not every attendee)
+ * - Individual supervision / 1:1 huddle: host facilitators + named supervisee / both participants
+ * - Group/triadic supervision: host, co-host, admin only (not presenters)
  */
 async function canEditMeetingAgenda(userId, meetingType, meetingId) {
   if (meetingType === 'supervision_session') {
@@ -123,14 +139,38 @@ async function canEditMeetingAgenda(userId, meetingType, meetingId) {
     );
     const session = rows?.[0];
     if (!session) return false;
-    if (await canFacilitateSupervisionSession(uid, session)) return true;
 
     const sessionType = String(session.session_type || 'individual').toLowerCase();
     const isGroupLike = sessionType.includes('group') || sessionType.includes('triadic');
-    if (!isGroupLike && uid === Number(session.supervisee_user_id || 0)) return true;
+    if (isGroupLike) {
+      return canHostSupervisionAgenda(uid, session);
+    }
+    if (await canFacilitateSupervisionSession(uid, session)) return true;
+    if (uid === Number(session.supervisee_user_id || 0)) return true;
     return false;
   }
-  return canManageMeetingAgenda(userId, meetingType, meetingId);
+
+  if (meetingType === 'provider_schedule_event') {
+    const mid = parseInt(meetingId, 10);
+    const uid = Number(userId || 0);
+    if (!mid || !uid) return false;
+    const event = await ProviderScheduleEvent.findById(mid);
+    const kind = String(event?.kind || '').toUpperCase();
+    if (!event || (kind !== 'TEAM_MEETING' && kind !== 'HUDDLE')) return false;
+
+    if (uid === Number(event.provider_id) || uid === Number(event.created_by_user_id)) return true;
+
+    const user = await User.findById(uid);
+    const role = String(user?.role || '').toLowerCase();
+    const adminRoles = ['super_admin', 'admin', 'support', 'clinical_practice_assistant'];
+    if (adminRoles.includes(role)) {
+      const agencies = await User.getAgencies(uid);
+      return (agencies || []).some((a) => Number(a?.id) === Number(event.agency_id));
+    }
+    return false;
+  }
+
+  return false;
 }
 
 async function getMeetingInfo(meetingType, meetingId) {

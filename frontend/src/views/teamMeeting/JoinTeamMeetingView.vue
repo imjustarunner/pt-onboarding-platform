@@ -101,6 +101,9 @@
               :event-id="resolvedEventId || eventId"
               :is-host="isHost"
               :is-host-or-cohost="isHost"
+              :screen-share-mode="screenShareMode"
+              :can-share-screen="canShareScreenByDefault"
+              :can-grant-screen-share="canGrantScreenShare"
               :mute-others-mode="muteOthersMode"
               :show-layout-controls="!isInLobby"
               allow-tile-focus
@@ -170,9 +173,10 @@
               <MeetingAgendaPanel
                 meeting-type="provider_schedule_event"
                 :meeting-id="resolvedEventId"
-                :can-add-item="true"
+                :can-add-item="canEditAgenda"
                 :embedded="true"
                 :live="true"
+                :live-sidebar="true"
                 theme="dark"
               />
             </section>
@@ -481,6 +485,26 @@ const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase(
 const canSeeFullWorkspace = computed(() => {
   if (isHost.value) return true;
   return FULL_WORKSPACE_ROLES.has(actorRole.value);
+});
+
+/** Agenda mutations: host or admin — not every workspace viewer. */
+const canEditAgenda = computed(() => {
+  if (isHost.value) return true;
+  return ['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(actorRole.value);
+});
+
+/** Multi-participant rooms restrict screen share to host (+ grants); 1:1 stays open. */
+const screenShareMode = computed(() => (
+  isMultiParticipant.value || isGroupHuddle.value ? 'restricted' : 'everyone'
+));
+const canShareScreenByDefault = computed(() => {
+  if (screenShareMode.value !== 'restricted') return true;
+  return !!isHost.value;
+});
+const canGrantScreenShare = computed(() => {
+  if (screenShareMode.value !== 'restricted') return false;
+  if (isHost.value) return true;
+  return ['super_admin', 'admin', 'support'].includes(actorRole.value);
 });
 
 const showAttendanceTab = computed(() => {

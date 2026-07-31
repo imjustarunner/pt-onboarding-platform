@@ -112,7 +112,7 @@
               </div>
 
               <select
-                v-if="showStatusSelect"
+                v-if="showStatusSelect && canAddItem"
                 :value="item.status"
                 :disabled="togglingId === item.id"
                 class="agenda-status-select"
@@ -125,11 +125,11 @@
                 <option value="completed">Completed</option>
               </select>
               <span
-                v-else-if="compact && statusBadge(item.status)"
+                v-else-if="statusBadge(item.status)"
                 class="agenda-status-badge"
                 :class="`agenda-status-badge--${item.status}`"
               >
-                {{ statusBadge(item.status) }}
+                {{ statusBadge(item.status) || 'Pending' }}
               </span>
             </div>
 
@@ -258,6 +258,7 @@ function statusBadge(status) {
   const s = String(status || 'pending').toLowerCase();
   if (s === 'completed') return 'Done';
   if (s === 'discussed') return 'Discussed';
+  if (s === 'pending') return 'Pending';
   return '';
 }
 
@@ -619,29 +620,49 @@ onUnmounted(() => { stopPoll(); });
 .agenda-item--live-sidebar {
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
+  gap: 6px;
+  padding: 8px 6px;
 }
 .agenda-item--live-sidebar .agenda-item-row {
   width: 100%;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px 8px;
 }
 .agenda-item--live-sidebar .agenda-item-content {
-  flex: 1 1 auto;
+  flex: 1 1 100%;
+  min-width: 0;
+  order: 1;
+}
+.agenda-item--live-sidebar .agenda-item-num {
+  order: 0;
+}
+.agenda-item--live-sidebar .agenda-status-select,
+.agenda-item--live-sidebar .agenda-status-badge {
+  order: 2;
+  margin-left: auto;
 }
 .agenda-item--live-sidebar .agenda-item-title {
   white-space: normal;
   overflow: visible;
   text-overflow: unset;
   line-height: 1.35;
+  padding-right: 0;
 }
 .agenda-item--live-sidebar .agenda-status-select--sidebar {
-  max-width: 78px;
-  padding: 2px 4px;
-  font-size: 0.66rem;
-  margin-top: 1px;
+  max-width: 96px;
+  padding: 2px 6px;
+  font-size: 0.68rem;
+  margin-top: 0;
+  flex: 0 0 auto;
 }
 .agenda-item--live-sidebar .agenda-item-actions {
   opacity: 1;
-  align-self: flex-end;
+  align-self: stretch;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  width: 100%;
+  padding-left: 1.4rem;
 }
 .agenda-item:hover {
   background: rgba(148, 163, 184, 0.1);

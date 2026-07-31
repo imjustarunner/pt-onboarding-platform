@@ -87,6 +87,9 @@
             :session-id="supervisionSessionId"
             :is-host="isSupervisor"
             :is-host-or-cohost="isSupervisor"
+            screen-share-mode="restricted"
+            :can-share-screen="canShareScreenByDefault"
+            :can-grant-screen-share="canGrantScreenShare"
             mute-others-mode="host"
             :start-muted="joinMutedByDefault"
             :diagnostics="diagnostics"
@@ -121,6 +124,9 @@
           :session-id="supervisionSessionId"
           :is-host="isSupervisor"
           :is-host-or-cohost="isSupervisor"
+          screen-share-mode="restricted"
+          :can-share-screen="canShareScreenByDefault"
+          :can-grant-screen-share="canGrantScreenShare"
           mute-others-mode="host"
           :start-muted="joinMutedByDefault"
           show-layout-controls
@@ -195,7 +201,7 @@
           <MeetingAgendaPanel
             meeting-type="supervision_session"
             :meeting-id="numericSessionId || supervisionSessionId"
-            :can-add-item="canFacilitate"
+            :can-add-item="canEditAgenda"
             :embedded="true"
             :live="true"
             :live-sidebar="true"
@@ -217,7 +223,7 @@
             @activity-notice="onLiveActivityNotice"
           />
         </section>
-        <section v-if="canFacilitate" class="gsl__workspace-section">
+        <section v-if="canFacilitate" class="gsl__workspace-section gsl__workspace-section--attendance">
           <MeetingAttendancePanel
             ref="attendancePanelRef"
             meeting-kind="supervision"
@@ -242,6 +248,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 import BrandingLogo from '../BrandingLogo.vue';
 import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
@@ -253,6 +260,8 @@ import {
   supervisionLiveRoomProps,
   useSupervisionLiveSession
 } from '../../composables/useSupervisionLiveSession';
+
+const authStore = useAuthStore();
 
 const props = defineProps(supervisionLiveRoomProps);
 const emit = defineEmits(['leave', 'connected', 'meeting-ended', 'disconnected']);
@@ -346,6 +355,25 @@ const canFacilitate = computed(() => (
   !viewAsAttendee.value && (props.isSupervisor || props.isPresenter)
 ));
 
+/** Agenda edit/status: host, co-host, or agency admin — not presenters/attendees. */
+const canEditAgenda = computed(() => {
+  if (viewAsAttendee.value) return false;
+  if (props.isSupervisor) return true;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(role);
+});
+
+/** Default screen share: host/co-host or tagged presenter (grants handled in VideoSessionRoom). */
+const canShareScreenByDefault = computed(() => (
+  !viewAsAttendee.value && (props.isSupervisor || props.isPresenter)
+));
+const canGrantScreenShare = computed(() => {
+  if (viewAsAttendee.value) return false;
+  if (props.isSupervisor) return true;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support'].includes(role);
+});
+
 function onLeaveClick() {
   if (props.isSupervisor) {
     const endForAll = window.confirm(
@@ -431,13 +459,15 @@ defineExpose({
 
 <style scoped>
 .gsl {
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: linear-gradient(180deg, color-mix(in srgb, var(--agency-secondary-color, #1d2633) 88%, #000), #0c1018);
   color: #eef2f8;
-  padding: 12px 16px 20px;
+  padding: 12px 16px 16px;
   box-sizing: border-box;
   font-family: "Segoe UI", "Helvetica Neue", ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
@@ -511,9 +541,10 @@ defineExpose({
   font-size: 0.9rem;
 }
 .gsl__video-strip {
-  flex: 0 0 auto;
-  min-height: min(40vh, 420px);
-  margin-bottom: 12px;
+  flex: 0 1 34%;
+  min-height: min(28vh, 280px);
+  max-height: min(42vh, 420px);
+  margin-bottom: 10px;
   position: relative;
   border-radius: 14px;
   overflow: hidden;
@@ -522,25 +553,29 @@ defineExpose({
   transition: min-height 0.22s ease;
 }
 .gsl__video-strip--featured {
-  min-height: min(52vh, 520px);
+  min-height: min(34vh, 340px);
+  max-height: min(48vh, 480px);
 }
 .gsl__video-strip--collapsed {
+  flex: 0 0 auto;
   min-height: 104px;
+  max-height: 120px;
 }
 .gsl__video-strip :deep(.supervision-video-room),
 .gsl__video-strip :deep(.vsr) {
   height: 100%;
-  min-height: inherit;
+  min-height: 0;
   border-radius: 0;
 }
 .gsl__video-strip :deep(.vsr__viewport),
 .gsl__video-strip :deep(.vsr__stage) {
-  min-height: inherit;
+  min-height: 0;
+  height: 100%;
 }
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--solo .vsr__tile),
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--duo .vsr__tile),
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--grid .vsr__tile) {
-  min-height: min(34vh, 360px);
+  min-height: min(22vh, 220px);
 }
 .gsl__video-strip--lobby {
   overflow: hidden;
@@ -692,36 +727,44 @@ defineExpose({
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
-  padding: 12px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   min-height: 0;
-  max-height: min(72vh, 760px);
+  height: 100%;
+  max-height: 100%;
   overflow: hidden;
 }
 .gsl__workspace-section--agenda {
-  flex: 1 1 34%;
-  min-height: 160px;
-  max-height: 42%;
-  overflow: auto;
+  flex: 0 1 26%;
+  min-height: 120px;
+  max-height: 32%;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
+  z-index: 1;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 8px;
 }
 .gsl__workspace-section--agenda :deep(.meeting-agenda-panel) {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .gsl__workspace-section--agenda :deep(.agenda-section) {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .gsl__workspace-section--agenda :deep(.agenda-items) {
   flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
 }
 .gsl__workspace--lobby {
@@ -730,36 +773,69 @@ defineExpose({
 .gsl__workspace-section {
   flex-shrink: 1;
   min-height: 0;
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
 }
 .gsl__workspace-section--activity {
+  flex: 1 1 38%;
+  overflow: hidden;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 8px;
+}
+.gsl__workspace-section--activity :deep(.mlap),
+.gsl__workspace-section--activity :deep(.mlap--below-video) {
   flex: 1 1 auto;
+  min-height: 0 !important;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.gsl__workspace-section--activity :deep(.mlap__panel),
+.gsl__workspace-section--activity :deep(.mlap--below-video .mlap__panel) {
+  flex: 1 1 auto;
+  min-height: 0 !important;
+  max-height: none !important;
   overflow: auto;
-  min-height: 80px;
 }
-.gsl__workspace-section--activity :deep(.mlap) {
-  min-height: min(18vh, 180px);
+.gsl__workspace-section--attendance {
+  flex: 0 1 18%;
+  min-height: 96px;
+  max-height: 22%;
+  overflow: auto;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 8px;
 }
-.gsl__workspace-section--activity :deep(.mlap__panel) {
-  min-height: min(16vh, 160px);
+.gsl__workspace-section--attendance :deep(.map) {
+  min-height: 0;
+}
+.gsl__workspace-section--attendance :deep(.map__list) {
+  overflow: visible;
 }
 .gsl__workspace-section--transcript {
-  flex: 1 1 28%;
-  min-height: 120px;
-  max-height: none;
+  flex: 0 1 18%;
+  min-height: 100px;
+  max-height: 24%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 .gsl__workspace-title {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   font-size: 0.92rem;
   font-weight: 700;
   color: #e8edf5;
+  flex: 0 0 auto;
 }
 .gsl__transcript-hint {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   font-size: 0.8rem;
   color: #93a0b8;
+  flex: 0 0 auto;
 }
 .gsl__transcript {
   margin: 0;
@@ -768,8 +844,8 @@ defineExpose({
   line-height: 1.35;
   color: #d5deea;
   flex: 1 1 auto;
-  min-height: 80px;
-  max-height: none;
+  min-height: 0;
+  max-height: 100%;
   overflow: auto;
 }
 .gsl__transcript-empty {
@@ -792,10 +868,15 @@ defineExpose({
 }
 .gsl__main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(380px, 440px);
+  grid-template-columns: minmax(0, 1fr) minmax(400px, 480px);
   gap: 14px;
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
+}
+.gsl__main > .gsl__workspace {
+  min-height: 0;
+  overflow: hidden;
 }
 .gsl__main--lobby {
   grid-template-columns: minmax(0, 1fr);
