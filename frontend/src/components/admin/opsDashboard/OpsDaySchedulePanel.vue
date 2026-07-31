@@ -14,39 +14,49 @@
     </div>
     <ul v-else class="timeline">
       <li
-        v-for="(item, index) in items"
-        :key="item.id"
-        class="timeline-card"
-        :class="[
-          `is-${item.status}`,
-          { 'is-now': item.status === 'in_progress' },
-          { 'is-clickable': item.clickable }
-        ]"
-        :style="entryStyle(index)"
-        role="button"
-        :tabindex="item.clickable ? 0 : -1"
-        @click="openItem(item)"
-        @keydown.enter.prevent="openItem(item)"
-        @keydown.space.prevent="openItem(item)"
+        v-for="(group, gi) in displayRows"
+        :key="`row-${gi}-${group.map((i) => i.id).join('-')}`"
+        class="timeline-row"
+        :class="{ 'is-multi': group.length > 1 }"
       >
-        <div class="timeline-card-inner">
-          <span class="time">{{ item.timeLabel }}</span>
-          <div class="copy">
-            <strong>{{ item.title }}</strong>
-            <small v-if="item.subtitle">{{ item.subtitle }}</small>
-          </div>
-          <div class="timeline-actions">
-            <button
-              v-if="canJoinItem(item)"
-              type="button"
-              class="join-btn"
-              @click.stop="joinItem(item)"
-            >
-              Join
-            </button>
-            <span class="status-pill" :class="`status-pill--${item.status}`">
-              {{ statusLabel(item.status) }}
-            </span>
+        <div
+          v-for="item in group"
+          :key="item.id"
+          class="timeline-card"
+          :class="[
+            `is-${item.status}`,
+            { 'is-now': item.status === 'in_progress' },
+            { 'is-clickable': item.clickable }
+          ]"
+          role="button"
+          :tabindex="item.clickable ? 0 : -1"
+          @click="openItem(item)"
+          @keydown.enter.prevent="openItem(item)"
+          @keydown.space.prevent="openItem(item)"
+        >
+          <div class="timeline-card-inner">
+            <span class="time">{{ item.timeLabel }}</span>
+            <div class="copy">
+              <strong>{{ item.title }}</strong>
+              <small v-if="item.subtitle">{{ item.subtitle }}</small>
+            </div>
+            <div class="timeline-actions">
+              <button
+                v-if="canJoinItem(item)"
+                type="button"
+                class="join-btn"
+                @click.stop="joinItem(item)"
+              >
+                Join
+              </button>
+              <span
+                v-else-if="item.status !== 'completed'"
+                class="status-pill"
+                :class="`status-pill--${item.status}`"
+              >
+                {{ statusLabel(item.status) }}
+              </span>
+            </div>
           </div>
         </div>
       </li>
@@ -106,18 +116,39 @@ const error = ref('');
 const items = ref([]);
 const detailItem = ref(null);
 
-const ENTRY_SHADES = [
-  {
-    bg: 'color-mix(in srgb, var(--ops-primary, #1f6b4a) 9%, #fff)',
-    border: 'color-mix(in srgb, var(--ops-primary, #1f6b4a) 24%, #e2e8f0)'
-  },
-  { bg: '#eff6ff', border: '#bfdbfe' },
-  { bg: '#f5f3ff', border: '#ddd6fe' },
-  { bg: '#ecfdf5', border: '#a7f3d0' },
-  { bg: '#fff7ed', border: '#fed7aa' },
-  { bg: '#fef2f2', border: '#fecaca' },
-  { bg: '#f0fdfa', border: '#99f6e4' }
-];
+function eventsOverlap(a, b) {
+  const a0 = a.startMs ?? 0;
+  const a1 = a.endMs ?? a0 + 1;
+  const b0 = b.startMs ?? 0;
+  const b1 = b.endMs ?? b0 + 1;
+  return a0 < b1 && b0 < a1;
+}
+
+function buildOverlapGroups(sortedItems) {
+  const groups = [];
+  const assigned = new Set();
+  for (const item of sortedItems) {
+    if (assigned.has(item.id)) continue;
+    const group = [item];
+    assigned.add(item.id);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const other of sortedItems) {
+        if (assigned.has(other.id)) continue;
+        if (group.some((g) => eventsOverlap(g, other))) {
+          group.push(other);
+          assigned.add(other.id);
+          changed = true;
+        }
+      }
+    }
+    groups.push(group);
+  }
+  return groups;
+}
+
+const displayRows = computed(() => buildOverlapGroups(items.value));
 
 const dateLabel = computed(() => {
   try {
@@ -130,14 +161,6 @@ const dateLabel = computed(() => {
     return 'Today';
   }
 });
-
-function entryStyle(index) {
-  const shade = ENTRY_SHADES[index % ENTRY_SHADES.length];
-  return {
-    background: shade.bg,
-    borderColor: shade.border
-  };
-}
 
 function localYmd(d = new Date()) {
   const y = d.getFullYear();
@@ -375,8 +398,9 @@ onMounted(load);
   box-shadow: 0 6px 18px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
   display: flex;
   flex-direction: column;
-  min-height: 280px;
-  max-height: 520px;
+  min-height: 240px;
+  max-height: 360px;
+  height: 100%;
 }
 .panel-header {
   display: flex;
@@ -436,39 +460,56 @@ onMounted(load);
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   overflow: auto;
   flex: 1;
   min-height: 0;
 }
+.timeline-row {
+  display: flex;
+  gap: 6px;
+  min-height: 44px;
+}
+.timeline-row.is-multi .timeline-card {
+  flex: 1 1 0;
+  min-width: 0;
+}
 .timeline-card {
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 18%, #e2e8f0);
+  border-radius: 8px;
   padding: 0;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 7%, #fff);
+  transition: box-shadow 0.15s ease;
+}
+.timeline-card.is-completed {
+  background: #f8fafc;
+  border-color: #e2e8f0;
 }
 .timeline-card.is-clickable {
   cursor: pointer;
 }
 .timeline-card.is-clickable:hover {
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
-  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
 }
 .timeline-card.is-now {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ops-primary, #1f6b4a) 35%, transparent);
 }
 .timeline-card-inner {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 6px;
   align-items: center;
-  padding: 8px 10px;
+  padding: 6px 8px;
+  height: 100%;
 }
 .time {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   color: #475569;
-  line-height: 1.35;
+  line-height: 1.25;
 }
 .copy {
   min-width: 0;
@@ -477,7 +518,7 @@ onMounted(load);
   gap: 2px;
 }
 .copy strong {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   color: #0f172a;
   overflow: hidden;
@@ -485,7 +526,7 @@ onMounted(load);
   white-space: nowrap;
 }
 .copy small {
-  font-size: 10px;
+  font-size: 9px;
   color: #64748b;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -496,8 +537,8 @@ onMounted(load);
 }
 .timeline-actions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: flex-end;
   gap: 4px;
 }
 .join-btn {
@@ -505,9 +546,9 @@ onMounted(load);
   border-radius: 999px;
   background: #15803d;
   color: #fff;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
-  padding: 5px 10px;
+  padding: 4px 8px;
   cursor: pointer;
   white-space: nowrap;
 }

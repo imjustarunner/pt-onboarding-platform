@@ -253,40 +253,45 @@
             </div>
           </div>
 
-          <article
-            v-if="showTeamBoardCard"
-            class="panel team-board-panel"
-            :style="sectionStyle('teamBoard')"
+          <div
+            v-if="showOpsBoardRow"
+            class="dash-block dash-block--full ops-board-row"
+            :class="{ 'ops-board-row--single': !showTeamBoardAndEscalations }"
+            :style="opsBoardRowStyle"
           >
-            <div class="team-board-split">
-              <div class="team-board-presence">
-                <PresenceTeamPreview
-                  embedded
-                  title="Presence / Team Board"
+            <article
+              v-if="showTeamBoardCard"
+              class="panel ops-board-card"
+            >
+              <div class="ops-board-split">
+                <div class="ops-board-main">
+                  <PresenceTeamPreview
+                    embedded
+                    title="Presence / Team Board"
+                    :agency-id="currentAgencyId"
+                    board-to="/admin/presence"
+                  />
+                  <p class="ops-board-hint">
+                    Source of truth for who is logged in, idle, timed out, or available while logged out.
+                    Hover a name for details. Use Planned Outs for dated absences.
+                  </p>
+                </div>
+                <PlannedOutsPanel
                   :agency-id="currentAgencyId"
-                  board-to="/admin/presence"
+                  @open-full="go(plannedOutsPath)"
                 />
-                <p class="team-board-hint">
-                  Source of truth for who is logged in, idle, timed out, or available while logged out.
-                  Hover a name for details. Use Planned Outs for dated absences.
-                </p>
               </div>
-              <PlannedOutsPanel
-                :agency-id="currentAgencyId"
-                @open-full="go(plannedOutsPath)"
-              />
-            </div>
-          </article>
+            </article>
 
-          <EscalationsCard
-            v-if="showEscalationsCard"
-            class="escalations-dash-card"
-            :agency-id="currentAgencyId"
-            :desk-path="escalationsPath"
-            :style="sectionStyle('escalations')"
-            @navigate="go"
-            @assigned="refreshEscalationGlance"
-          />
+            <EscalationsCard
+              v-if="showEscalationsCard"
+              class="ops-board-card"
+              :agency-id="currentAgencyId"
+              :desk-path="escalationsPath"
+              @navigate="go"
+              @assigned="refreshEscalationGlance"
+            />
+          </div>
 
           <TenantContextCards
             use-contents
@@ -465,6 +470,7 @@ import UnifiedChecklistTab from '../../components/dashboard/UnifiedChecklistTab.
 import PresenceTeamPreview from '../../components/dashboard/PresenceTeamPreview.vue';
 import EscalationsCard from '../../components/admin/opsDashboard/EscalationsCard.vue';
 import PlannedOutsPanel from '../../components/admin/opsDashboard/PlannedOutsPanel.vue';
+import '../../styles/ops-board-card.css';
 import { useMomentumListAddon } from '../../composables/useMomentumListAddon';
 import { useSuperadminPlatformPreview } from '../../composables/useSuperadminPlatformPreview';
 import { canAccessSchoolPortalsSurfaces, parseFeatureFlags, isTruthyFeatureFlag } from '../../utils/schoolPortalsAccess.js';
@@ -649,6 +655,27 @@ const canSeeEscalations = computed(() =>
 const showEscalationsCard = computed(() =>
   canSeeEscalations.value && isVisible('escalations') && !!currentAgencyId.value && !isOperationsMode.value
 );
+const showTeamBoardAndEscalations = computed(() =>
+  showTeamBoardCard.value && showEscalationsCard.value
+);
+const showOpsBoardRow = computed(() =>
+  showTeamBoardCard.value || showEscalationsCard.value
+);
+const opsBoardRowStyle = computed(() => {
+  const teamOn = showTeamBoardCard.value;
+  const escOn = showEscalationsCard.value;
+  if (teamOn && escOn) {
+    return {
+      order: Math.min(
+        dashboardLayout.orderOf('teamBoard'),
+        dashboardLayout.orderOf('escalations')
+      )
+    };
+  }
+  if (teamOn) return sectionStyle('teamBoard');
+  if (escOn) return sectionStyle('escalations');
+  return {};
+});
 const escalationsPath = computed(() => `${prefix.value}/admin/escalations`);
 const plannedOutsPath = computed(() => `${prefix.value}/admin/planned-outs`);
 
@@ -2497,37 +2524,32 @@ const logout = () => {
 .dashboard-stack :deep(.panel--feed) {
   grid-column: span 3;
 }
-.team-board-panel,
-.escalations-dash-card {
-  grid-column: 1 / -1 !important;
-  background: #fff;
-  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, #e2e8f0);
-  border-radius: 16px;
-  padding: 16px 18px;
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
+/* Nested split rows use their own 2-col grid; don't inherit span-2 from dashboard-stack */
+.qa-schedule-row > *,
+.ops-board-row > * {
+  grid-column: auto !important;
+  min-width: 0;
 }
-.escalations-dash-card {
-  /* EscalationsCard brings its own panel chrome */
-  background: transparent;
-  border: none;
-  padding: 0;
-  box-shadow: none;
+.ops-board-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 12px;
+  align-items: stretch;
 }
-.team-board-split {
+.ops-board-row--single {
+  grid-template-columns: 1fr;
+}
+.team-board-split,
+.ops-board-split {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.95fr);
   gap: 16px;
   align-items: start;
 }
-.team-board-presence { min-width: 0; }
-.team-board-hint {
-  margin: 12px 0 0;
-  font-size: 12px;
-  line-height: 1.4;
-  color: #64748b;
-}
+.ops-board-main { min-width: 0; }
 @media (max-width: 900px) {
-  .team-board-split { grid-template-columns: 1fr; }
+  .team-board-split,
+  .ops-board-split { grid-template-columns: 1fr; }
 }
 @media (max-width: 1100px) {
   .dashboard-stack :deep(.panel),
@@ -2540,8 +2562,7 @@ const logout = () => {
     grid-template-columns: 1fr;
   }
   .dashboard-stack :deep(.panel),
-  .dashboard-stack :deep(.panel--feed),
-  .team-board-panel {
+  .dashboard-stack :deep(.panel--feed) {
     grid-column: 1 / -1 !important;
   }
 }
@@ -2558,8 +2579,13 @@ const logout = () => {
   gap: 12px;
   align-items: stretch;
 }
-@media (max-width: 960px) {
+@media (max-width: 720px) {
   .qa-schedule-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  .ops-board-row:not(.ops-board-row--single) {
+    grid-template-columns: 1fr;
+  }
 }
 .qa-schedule-row--qa-only,
 .qa-schedule-row--schedule-only {
@@ -2571,7 +2597,10 @@ const logout = () => {
   border-radius: 12px;
   padding: 16px 18px;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
-  min-height: 280px;
+  min-height: 240px;
+  max-height: 360px;
+  height: 100%;
+  overflow: auto;
 }
 .qa-wrap--dense.panel {
   padding: 10px 12px;

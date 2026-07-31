@@ -216,6 +216,10 @@ const PAYROLL_SUMMARY_TOOL_ROLES = [
   'supervisor'
 ];
 
+const COMPLIANCE_SELF_TOOL_ROLES = [...PAYROLL_SUMMARY_TOOL_ROLES];
+
+const COMPLIANCE_ADMIN_TOOL_ROLES = ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'];
+
 /** Admin / super_admin / users with has_payroll_access (payrollAgencyIds attached on assist). */
 function canUsePayrollAnalyticsTool(reqUser) {
   const role = String(reqUser?.role || '').toLowerCase();
@@ -643,6 +647,10 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
         return navigableRouteNamesForUser(reqUser).length > 0;
       case 'getMyPayrollSummary':
         return roleAllowed(reqUser, PAYROLL_SUMMARY_TOOL_ROLES);
+      case 'getMyComplianceStatus':
+        return roleAllowed(reqUser, COMPLIANCE_SELF_TOOL_ROLES);
+      case 'queryAgencyCompliance':
+        return roleAllowed(reqUser, COMPLIANCE_ADMIN_TOOL_ROLES);
       case 'queryPayrollAnalytics':
         return canUsePayrollAnalyticsTool(reqUser);
       case 'searchReferralDirectory':
@@ -776,6 +784,42 @@ export function getToolSchemas() {
         type: 'object',
         additionalProperties: false,
         properties: {}
+      }
+    },
+    {
+      name: 'getMyComplianceStatus',
+      description:
+        "Fetch the signed-in user's license expiration and federal background check status from their profile (credentials + lifecycle). Use for questions like when does my license expire, is my license up to date, or is my background check due.",
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {}
+      }
+    },
+    {
+      name: 'queryAgencyCompliance',
+      description:
+        'List providers in the current agency with expired or expiring licenses and background-check issues. Use for admin questions like who has an expired license or who has a background check due.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          filter: {
+            type: 'string',
+            enum: [
+              'all',
+              'expired_licenses',
+              'expiring_licenses',
+              'background_expired',
+              'background_due'
+            ],
+            description: 'Which compliance slice to return.'
+          },
+          limit: {
+            type: 'integer',
+            description: 'Max rows to return (default 25, max 50).'
+          }
+        }
       }
     },
     {
@@ -1590,6 +1634,30 @@ export async function executeToolCall({ req, toolCall }) {
     requireAuthed(req);
     const { buildAssistantPayrollMeSummary } = await import('../../controllers/payroll.controller.js');
     const result = await buildAssistantPayrollMeSummary(req);
+    return { ok: true, tool: name, result };
+  }
+
+  if (name === 'getMyComplianceStatus') {
+    requireAuthed(req);
+    const agencyId = currentAgencyId(req);
+    const { getMyComplianceStatus } = await import('./assistantCompliance.service.js');
+    const result = await getMyComplianceStatus({ userId: req.user.id, agencyId });
+    return { ok: true, tool: name, result };
+  }
+
+  if (name === 'queryAgencyCompliance') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, COMPLIANCE_ADMIN_TOOL_ROLES)) {
+      const err = new Error('Agency compliance lookup is not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) noAgencyContextError();
+    const { queryAgencyCompliance } = await import('./assistantCompliance.service.js');
+    const filter = str(args.filter, 64) || 'all';
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 25), 50);
+    const result = await queryAgencyCompliance({ agencyId, filter, limit });
     return { ok: true, tool: name, result };
   }
 

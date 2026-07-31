@@ -273,3 +273,66 @@ export function getDashboardRoute() {
   // Regular users go to regular dashboard
   return '/dashboard';
 }
+
+/**
+ * Org-scoped My Dashboard path for tab deep-links (payroll, schedule, etc.).
+ * Unlike getDashboardRoute(), this always targets the tabbed dashboard shell.
+ */
+export function getMyDashboardPath(opts = {}) {
+  const slug = resolveOrgSlugForNavigation(opts);
+  return slug ? `/${slug}/dashboard` : '/dashboard';
+}
+
+/**
+ * Best-effort portal slug for assistant / quick-nav navigation.
+ */
+export function resolveOrgSlugForNavigation(opts = {}) {
+  let slug = String(opts.orgSlug || '').trim();
+  if (slug) return slug;
+
+  const organizationStore = useOrganizationStore();
+  const agencyStore = useAgencyStore();
+  const authStore = useAuthStore();
+
+  slug = String(
+    organizationStore.organizationContext?.slug ||
+      agencyStore.currentAgency?.slug ||
+      agencyStore.currentAgency?.portal_url ||
+      agencyStore.currentAgency?.portalUrl ||
+      ''
+  ).trim();
+  if (slug) return slug;
+
+  const user = authStore.user;
+  const fromUser = user?.agencies || [];
+  const fromStore = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+  const orgs = fromUser.length > 0 ? fromUser : (Array.isArray(fromStore) ? fromStore : []);
+  if (Array.isArray(orgs) && orgs.length === 1) {
+    return String(orgs[0]?.slug || orgs[0]?.portal_url || orgs[0]?.portalUrl || '').trim();
+  }
+  return '';
+}
+
+/**
+ * Prefix bare /dashboard and /admin paths with the current org slug for vue-router.
+ */
+export function resolveAssistantNavigationPath(to, opts = {}) {
+  const raw = String(to || '').trim();
+  if (!raw) return raw;
+
+  const slug = resolveOrgSlugForNavigation(opts);
+  if (!slug) return raw;
+
+  const qIndex = raw.indexOf('?');
+  const pathname = qIndex >= 0 ? raw.slice(0, qIndex) : raw;
+  const search = qIndex >= 0 ? raw.slice(qIndex) : '';
+
+  let path = pathname;
+  if (path === '/dashboard' || path.startsWith('/dashboard/')) {
+    path = path.replace(/^\/dashboard/, `/${slug}/dashboard`);
+  } else if (path.startsWith('/admin') && !path.startsWith(`/${slug}/`)) {
+    path = `/${slug}${path}`;
+  }
+
+  return `${path}${search}`;
+}

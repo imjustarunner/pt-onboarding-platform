@@ -79,7 +79,7 @@ describe('quickNavCatalog', () => {
     );
     expect(loc).toEqual({
       path: '/itsco/dashboard',
-      query: { foo: '1', tab: 'my', my: 'payroll' }
+      query: { tab: 'my', my: 'payroll' }
     });
   });
 

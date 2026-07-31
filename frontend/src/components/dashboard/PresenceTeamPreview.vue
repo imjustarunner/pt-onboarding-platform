@@ -1,16 +1,16 @@
 <template>
   <div class="presence-preview" :class="{ 'presence-preview--card': !embedded }">
-    <div class="presence-preview-header">
+    <div class="presence-preview-header" :class="{ 'ops-board-header': embedded }">
       <div>
-        <span class="presence-preview-title">{{ title }}</span>
-        <p class="presence-preview-legend">
+        <span class="presence-preview-title" :class="{ 'ops-board-title': embedded }">{{ title }}</span>
+        <p class="presence-preview-legend" :class="{ 'ops-board-legend': embedded }">
           <span class="leg"><i class="dot-available" /> Available</span>
           <span class="leg"><i class="dot-away-reachable" /> Away · reachable</span>
           <span class="leg"><i class="dot-unavailable" /> Unavailable</span>
           <span class="leg"><i class="dot-available-offline" /> Available · logged out</span>
         </p>
       </div>
-      <router-link :to="boardTo" class="presence-preview-link">View full board</router-link>
+      <router-link :to="boardTo" class="presence-preview-link" :class="{ 'ops-board-link': embedded }">View full board</router-link>
     </div>
     <div v-if="loading" class="presence-preview-loading">Loading…</div>
     <div v-else-if="error" class="presence-preview-error">{{ error }}</div>

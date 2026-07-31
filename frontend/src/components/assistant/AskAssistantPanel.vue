@@ -465,7 +465,7 @@ import { useSpeechToText } from '../../composables/useSpeechToText';
 import { useAssistantAgencyContext } from '../../composables/useAssistantAgencyContext';
 import { useAskAssistant } from '../../composables/useAskAssistant';
 import { isSupervisor } from '../../utils/helpers.js';
-import { getDashboardRoute } from '../../utils/router.js';
+import { getMyDashboardPath, resolveAssistantNavigationPath } from '../../utils/router.js';
 import {
   buildQuickNavContext,
   resolveQuickNavRoute,
@@ -961,8 +961,21 @@ function quickNavOptionId(item) {
 }
 
 function dashboardPathForQuickNav() {
-  const raw = getDashboardRoute();
-  return typeof raw === 'string' ? raw : String(raw?.path || '/dashboard');
+  const orgSlug =
+    route.params?.organizationSlug ||
+    agencyStore.currentAgency?.slug ||
+    agencyStore.currentAgency?.portal_url ||
+    null;
+  return getMyDashboardPath({ orgSlug });
+}
+
+function orgSlugForNavigation() {
+  return (
+    route.params?.organizationSlug ||
+    agencyStore.currentAgency?.slug ||
+    agencyStore.currentAgency?.portal_url ||
+    null
+  );
 }
 
 async function goQuickNav(item) {
@@ -1219,10 +1232,11 @@ async function executeUiCommands(commands) {
     if (type === 'navigate') {
       const to = String(cmd?.to || '').trim();
       if (!to) continue;
-      navs.push(to);
+      const target = resolveAssistantNavigationPath(to, { orgSlug: orgSlugForNavigation() });
+      navs.push(target);
       try {
         markEngaged();
-        await router.push(to);
+        await router.push(target);
         if (!isEmbedded.value) close();
       } catch (e) {
         console.warn('[AskAssistantPanel] navigation failed', e?.message);

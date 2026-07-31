@@ -828,10 +828,8 @@ export function resolveQuickNavLocation(entry, { currentPath, orgSlug, currentQu
   if (!entry) return null;
 
   if (entry.kind === 'dashboard') {
-    const query = { ...(currentQuery || {}) };
-    query.tab = entry.tab;
+    const query = { tab: entry.tab };
     if (entry.my) query.my = entry.my;
-    else delete query.my;
     const basePath = String(dashboardPath || currentPath || '/dashboard').trim() || '/dashboard';
     return {
       path: basePath,

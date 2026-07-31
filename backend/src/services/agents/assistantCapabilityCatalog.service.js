@@ -23,6 +23,10 @@ import {
   SEMANTIC_MARGIN
 } from './assistantCapabilitySemanticRouter.service.js';
 import {
+  looksLikeMyComplianceQuestion,
+  parseAgencyComplianceFilterFromPrompt
+} from './assistantCompliance.service.js';
+import {
   askAssistantGeminiRouterEnabled,
   verifyOrCorrectCapabilityRoute
 } from './assistantCapabilityGeminiRouter.service.js';
@@ -727,6 +731,107 @@ export async function matchDeterministicCapabilityIntent({
 function catalogEntries() {
   return [
     {
+      id: 'dashboard_tab_navigate',
+      audience: ['admin_like', 'provider_like', 'general'],
+      group: 'Navigation and lookup',
+      prompt: 'Open my schedule',
+      requiredToolsAll: ['navigateTo'],
+      subtitleTag: 'navigation',
+      routeHints: ['schedule', 'payroll', 'credentials', 'benefits', 'documents', 'notifications'],
+      semanticExamples: [
+        'open payroll',
+        'go to my schedule',
+        'take me to credentials',
+        'open my benefits',
+        'show my documents tab'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('navigateTo')) return false;
+        const routeName = resolveNavigateRouteNameFromPrompt(lower);
+        if (!routeName) return false;
+        const dashboardRoutes = new Set([
+          'Schedule',
+          'MyPayroll',
+          'MyCompensation',
+          'MyBenefits',
+          'Credentials',
+          'MyDocuments',
+          'AccountInfo',
+          'Dashboard',
+          'Notifications',
+          'MyKudos',
+          'LifeBalance',
+          'Preferences',
+          'MyClients',
+          'SchoolClients',
+          'OfficeClients',
+          'NewClients',
+          'ClientExchange'
+        ]);
+        if (!dashboardRoutes.has(routeName)) return false;
+        if (/\b(open|go to|take me to|navigate|show me|visit)\b/.test(lower)) return true;
+        const words = lower.split(/\s+/).filter(Boolean);
+        return words.length <= 3;
+      },
+      buildIntent: (lower) => {
+        const routeName = resolveNavigateRouteNameFromPrompt(lower);
+        return {
+          intent: 'page_navigate',
+          capabilityId: 'dashboard_tab_navigate',
+          toolCalls: [{ name: 'navigateTo', args: { routeName } }]
+        };
+      }
+    },
+    {
+      id: 'my_compliance_status',
+      audience: ['admin_like', 'provider_like', 'general'],
+      group: 'Compliance',
+      prompt: 'When does my license expire?',
+      requiredToolsAll: ['getMyComplianceStatus'],
+      subtitleTag: 'compliance',
+      semanticExamples: [
+        'is my license up to date',
+        'when does my background check expire',
+        'is my background check due',
+        'am i current on my license'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('getMyComplianceStatus')) return false;
+        return looksLikeMyComplianceQuestion(lower);
+      },
+      buildIntent: () => ({
+        intent: 'my_compliance_status',
+        capabilityId: 'my_compliance_status',
+        toolCalls: [{ name: 'getMyComplianceStatus', args: {} }]
+      })
+    },
+    {
+      id: 'agency_compliance_lookup',
+      audience: ['admin_like'],
+      group: 'Compliance',
+      prompt: 'Who has an expired license?',
+      requiredToolsAll: ['queryAgencyCompliance'],
+      subtitleTag: 'compliance',
+      semanticExamples: [
+        'who has a background check due',
+        'anyone with an expiring license',
+        'list providers with expired credentials',
+        'which staff need background check renewal'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('queryAgencyCompliance')) return false;
+        return !!parseAgencyComplianceFilterFromPrompt(lower);
+      },
+      buildIntent: (lower) => {
+        const filter = parseAgencyComplianceFilterFromPrompt(lower) || 'all';
+        return {
+          intent: 'agency_compliance_lookup',
+          capabilityId: 'agency_compliance_lookup',
+          toolCalls: [{ name: 'queryAgencyCompliance', args: { filter, limit: 25 } }]
+        };
+      }
+    },
+    {
       id: 'workspace_open',
       audience: ['provider_like', 'admin_like', 'general'],
       group: 'Schedule and meetings',
@@ -744,6 +849,12 @@ function catalogEntries() {
       ],
       matcher: (lower, allowedTools) => {
         if (!allowedTools.has('openTodaysWorkspace')) return false;
+        if (allowedTools.has('navigateTo') && /\b(open|go to|take me to|navigate)\b/.test(lower)) {
+          const routeName = resolveNavigateRouteNameFromPrompt(lower);
+          if (['Schedule', 'MyPayroll', 'Credentials', 'MyCompensation', 'MyBenefits'].includes(routeName)) {
+            return false;
+          }
+        }
         if (/\b(cancel|clear|wipe|kill)\b/.test(lower) && /\b(day|meetings?)\b/.test(lower)) return false;
         if (/\b(handbook|polic(?:y|ies)|document|pdf)\b/.test(lower)) return false;
         // Telegraphic: "what my day", "my agenda", "todays schedule"
@@ -1635,6 +1746,13 @@ function catalogEntries() {
       ],
       matcher: (lower, allowedTools) => {
         if (!allowedTools.has('getMyPayrollSummary')) return false;
+        if (
+          allowedTools.has('navigateTo') &&
+          /\b(open|go to|take me to|navigate|show me)\b/.test(lower) &&
+          /\b(payroll|paycheck|schedule|calendar|credentials|benefits|documents)\b/.test(lower)
+        ) {
+          return false;
+        }
         // Self paycheck questions always route here.
         if (/\b(my\s+pay|my\s+paycheck|my\s+payroll|last\s+paycheck|pay\s+summary|open\s+payroll\s+summary)\b/.test(lower)) {
           return true;
