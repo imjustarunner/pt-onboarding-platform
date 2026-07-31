@@ -1574,27 +1574,40 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     } else if (resolvedSlug) {
       // If this verification indicates we should be on a different branded login, route there.
       if (!current || current !== resolvedSlug) {
-        // Persist before navigation so return visits open /{parent}/{school}/login (e.g. /itsco/rudy/login).
-        if (rememberLogin.value && resolvedSlug) {
-          setRememberedLogin({
-            username: u,
-            orgSlug: resolvedSlug,
-            parentOrgSlug: resolveParentForNestedLogin(resolvedSlug)
-          });
-        }
-        try {
-          sessionStorage.setItem('__pt_login_pending_username__', u);
-          sessionStorage.setItem('__pt_login_pending_verify__', '1');
-          sessionStorage.setItem('__pt_login_pending_remember__', rememberLogin.value ? '1' : '0');
-        } catch {
-          // ignore
-        }
         const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
-        await router.replace({
-          path: buildOrgLoginPath(resolvedSlug, resolveParentForNestedLogin(resolvedSlug), hostImplied),
-          query: { u }
-        });
-        return;
+        const targetLoginPath = buildOrgLoginPath(
+          resolvedSlug,
+          resolveParentForNestedLogin(resolvedSlug),
+          hostImplied
+        );
+        const normalizeLoginPath = (p) => String(p || '').replace(/\/+$/, '') || '/';
+        const currentLoginPath = normalizeLoginPath(route.path);
+        const normalizedTarget = normalizeLoginPath(targetLoginPath);
+
+        // On dedicated agency hosts (e.g. app.itsco.health), flat /login is the branded login for
+        // that org — do not "redirect" to the same path and bail without showing the password step.
+        if (currentLoginPath !== normalizedTarget) {
+          // Persist before navigation so return visits open /{parent}/{school}/login (e.g. /itsco/rudy/login).
+          if (rememberLogin.value && resolvedSlug) {
+            setRememberedLogin({
+              username: u,
+              orgSlug: resolvedSlug,
+              parentOrgSlug: resolveParentForNestedLogin(resolvedSlug)
+            });
+          }
+          try {
+            sessionStorage.setItem('__pt_login_pending_username__', u);
+            sessionStorage.setItem('__pt_login_pending_verify__', '1');
+            sessionStorage.setItem('__pt_login_pending_remember__', rememberLogin.value ? '1' : '0');
+          } catch {
+            // ignore
+          }
+          await router.replace({
+            path: normalizedTarget,
+            query: { u }
+          });
+          return;
+        }
       }
     }
 
