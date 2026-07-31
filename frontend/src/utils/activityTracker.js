@@ -850,9 +850,18 @@ export function getSessionExtendUntilMs() {
 export async function refetchSessionLockConfig() {
   const preservedOverride = runtimeTimeoutOverride ? { ...runtimeTimeoutOverride } : null;
   try {
-    const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
-    useSessionLockStore().setLockConfig(res.data || null);
-    applyTimeoutConfig(res.data || {});
+    let hasAuthHint = false;
+    try {
+      hasAuthHint = !!(localStorage.getItem('authToken') || localStorage.getItem('user'));
+    } catch { /* ignore */ }
+    if (!hasAuthHint) {
+      useSessionLockStore().setLockConfig(null);
+      applyTimeoutConfig({});
+    } else {
+      const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
+      useSessionLockStore().setLockConfig(res.data || null);
+      applyTimeoutConfig(res.data || {});
+    }
   } catch {
     useSessionLockStore().setLockConfig(null);
     applyTimeoutConfig({});

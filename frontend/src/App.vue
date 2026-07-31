@@ -2071,9 +2071,9 @@
         <router-view :key="route.path" />
       </main>
       <PublicTranslateWidget v-if="showPublicTranslateWidget" />
-      <MomentumStickiesOverlay v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute && momentumListEnabled" />
-      <AddStickyFab v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute && momentumListEnabled" />
-      <AddToStickyContextMenu v-if="isAuthenticated && momentumListEnabled" />
+      <MomentumStickiesOverlay v-if="showMomentumStickiesShell" />
+      <AddStickyFab v-if="showMomentumStickiesShell" />
+      <AddToStickyContextMenu v-if="showMomentumStickiesShell" />
       <!-- <RegistrationPromoToastRail v-if="isAuthenticated" /> -->
       <HelperWidget v-if="isAuthenticated && !isImmersiveJoinRoute" />
       <BetaFeedbackWidget v-if="isAuthenticated && !isNative && !isImmersiveJoinRoute" />
@@ -3901,6 +3901,31 @@ const isImmersiveJoinRoute = computed(() => {
   const path = String(route.path || '');
   return /\/join\/(?:team-meeting|supervision)\//.test(path);
 });
+
+// Mount Momentum Stickies only after auth+addon settle and setup finishes.
+// Prevents post-login races (and any remaining TDZ) from crashing the login redirect chain.
+const momentumStickiesShellReady = ref(false);
+watch(
+  [isAuthenticated, momentumListEnabled, hideGlobalNavForSchoolStaff, isImmersiveJoinRoute],
+  ([auth, enabled, hideNav, immersive]) => {
+    if (auth && enabled && !hideNav && !immersive) {
+      void nextTick(() => {
+        momentumStickiesShellReady.value = true;
+      });
+      return;
+    }
+    momentumStickiesShellReady.value = false;
+  },
+  { flush: 'post', immediate: true }
+);
+const showMomentumStickiesShell = computed(
+  () =>
+    momentumStickiesShellReady.value &&
+    isAuthenticated.value &&
+    momentumListEnabled.value &&
+    !hideGlobalNavForSchoolStaff.value &&
+    !isImmersiveJoinRoute.value
+);
 
 const capabilities = computed(() => user.value?.capabilities || null);
 const hasCapability = (key) => {

@@ -3714,14 +3714,28 @@ const hasSkillBuildersToolingBypass = (userLike) => {
 // guards below into a redirect loop — classically login <-> dashboard — which
 // white-screens the app and forces users to manually clear cookies to recover.
 // This tripwire counts how often beforeEach runs in a short window; a redirect
-// loop re-enters beforeEach far more often than any legitimate flow. When it
-// trips we drop the bad client session (so requiresGuest login stops bouncing to
-// the dashboard) and land on login instead of spinning forever.
+// loop re-enters beforeEach far more often than any legitimate flow.
+//
+// IMPORTANT: right after a successful login the app can legitimately hop several
+// times (slug strip/prefix, agency sync, summit/work surface). If we clearAuth
+// during that window we create the 401 spam the breaker was meant to stop.
 const NAV_LOOP_WINDOW_MS = 4000;
-const NAV_LOOP_LIMIT = 14;          // well above any real redirect chain (2-5 hops)
+const NAV_LOOP_LIMIT = 18;          // above real post-login chains; still catches tight loops
 const NAV_LOOP_COOLDOWN_MS = 8000;  // don't re-trip immediately after recovering
+const NAV_LOOP_FRESH_LOGIN_MS = 30000;
 let _navBeforeEachHits = [];
 let _navLoopBrokenAt = 0;
+let _navLoopRecentHops = [];
+
+function isFreshLoginWindow(now = Date.now()) {
+  try {
+    if (sessionStorage.getItem('justLoggedIn') !== 'true') return false;
+    const loggedInAt = Number(sessionStorage.getItem('justLoggedInAt') || 0);
+    return loggedInAt > 0 && (now - loggedInAt) < NAV_LOOP_FRESH_LOGIN_MS;
+  } catch {
+    return false;
+  }
+}
 
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
@@ -3734,29 +3748,56 @@ router.beforeEach(async (to, from, next) => {
     const now = Date.now();
     _navBeforeEachHits = _navBeforeEachHits.filter((t) => now - t < NAV_LOOP_WINDOW_MS);
     _navBeforeEachHits.push(now);
+    _navLoopRecentHops.push(`${String(from?.fullPath || from?.path || '')} → ${String(to?.fullPath || to?.path || '')}`);
+    if (_navLoopRecentHops.length > 24) _navLoopRecentHops = _navLoopRecentHops.slice(-24);
     if (
       _navBeforeEachHits.length > NAV_LOOP_LIMIT &&
       now - _navLoopBrokenAt > NAV_LOOP_COOLDOWN_MS
     ) {
       _navLoopBrokenAt = now;
       _navBeforeEachHits = [];
-      // Drop the stale/invalid client session so login stops bouncing to dashboard.
+      const hopTrace = _navLoopRecentHops.slice(-12).join(' | ');
+      _navLoopRecentHops = [];
+
+      // Fresh login: do NOT wipe the session. Break the spin by forcing one dashboard land.
+      if (isFreshLoginWindow(now) && authStore.isAuthenticated) {
+        // eslint-disable-next-line no-console
+        console.error(
+          '[nav-loop-breaker] Redirect loop during fresh login; keeping session and forcing dashboard.',
+          hopTrace
+        );
+        try {
+          const dash = getDashboardRoute();
+          if (dash && String(to.path || '') !== String(dash).split('?')[0]) {
+            next({ path: dash, replace: true });
+          } else {
+            next();
+          }
+        } catch {
+          next();
+        }
+        return;
+      }
+
+      // Stale session: drop client auth so requiresGuest login stops bouncing to dashboard.
       try { authStore.clearAuth?.(); } catch { /* best-effort */ }
-      // Best-effort: also clear the server auth cookie (fire-and-forget, no redirect).
       try {
         const sessionId = localStorage.getItem('sessionId');
         api.post('/auth/logout', { sessionId, reason: 'nav_loop_recovery' }, { skipAuthRedirect: true }).catch(() => {});
       } catch { /* ignore */ }
       // eslint-disable-next-line no-console
       console.error(
-        '[nav-loop-breaker] Redirect loop detected; cleared the stale session and routed to login to recover.'
+        '[nav-loop-breaker] Redirect loop detected; cleared the stale session and routed to login to recover.',
+        hopTrace
       );
+      const hostImplied = String(brandingStore.portalHostPortalUrl || getCurrentPortalSlugFromHostCache() || '').trim().toLowerCase() || null;
       const slug = getDefaultOrganizationSlug();
-      const loginPath = slug ? `/${slug}/login` : '/login';
+      const loginPath = slug
+        ? buildOrgLoginPath(slug, null, hostImplied)
+        : '/login';
       if (String(to.path || '') !== loginPath) {
         next({ path: loginPath, replace: true });
       } else {
-        // Already heading to login — let it render now that the session is cleared.
         next();
       }
       return;
