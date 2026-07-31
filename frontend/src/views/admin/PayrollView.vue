@@ -8959,7 +8959,7 @@ const loadEventTimeSubmissions = async () => {
     const resp = await api.get('/payroll/event-time-submissions', {
       params: {
         agencyId: agencyId.value,
-        status: eventTimeShowApproved.value ? 'submitted,approved,rejected,deferred' : 'submitted',
+        status: eventTimeShowApproved.value ? 'submitted,approved,rejected,deferred' : 'submitted,deferred',
         // For pending view: show ALL unapproved submissions agency-wide so nothing falls
         // through the cracks (e.g. claims whose suggested period doesn't match the open period).
         // For history view: filter to the selected period so you see what was approved into it.
