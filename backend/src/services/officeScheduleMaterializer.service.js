@@ -102,7 +102,7 @@ function weekdayIndexFromYmd(dateStr) {
   return new Date(Date.UTC(p.y, p.mo - 1, p.d)).getUTCDay();
 }
 
-function isAssignmentActiveOnDate(assignment, dateStr) {
+export function isAssignmentActiveOnDate(assignment, dateStr) {
   const availableSince = normalizeYmd(assignment.available_since_date);
   if (availableSince && dateStr < availableSince) return false;
   // temporary_until_date is only a hard cutoff for TEMPORARY assignments.
@@ -208,7 +208,7 @@ function bookingOccurrenceNumberForDate(plan, assignment, dateStr) {
   return count;
 }
 
-function shouldBookByCount(plan, assignment, dateStr) {
+export function shouldBookByCount(plan, assignment, dateStr) {
   // Open-ended weekly AVAILABLE slots ignore occurrence caps from the old intake path.
   const openEndedWeekly =
     String(plan?.booked_frequency || '').toUpperCase() === 'WEEKLY'

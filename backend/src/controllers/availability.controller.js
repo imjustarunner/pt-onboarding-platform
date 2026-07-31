@@ -2800,10 +2800,127 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       startHour: hour,
       endHour,
       recurrence: recurrenceName,
-      occurrenceCount: requestOccurrenceCount
+      occurrenceCount: requestOccurrenceCount,
+      officeTimeZone: officeTz
     });
     if (!seriesCheck.ok) {
       return res.status(seriesCheck.status).json({ error: seriesCheck.error });
+    }
+
+    // One-time requests on a slot owned by someone else's standing assignment:
+    // borrow the open occurrence (book the requester for that day) without fighting the
+    // physical unique key / deactivating the recurring owner's series.
+    if (recurrenceName === 'ONCE') {
+      const borrowHours = [];
+      for (let h = hour; h < endHour; h++) {
+        // eslint-disable-next-line no-await-in-loop
+        const standingOwner = await OfficeStandingAssignment.findActiveBySlot({
+          officeLocationId: officeId,
+          roomId,
+          weekday,
+          hour: h
+        });
+        if (standingOwner?.id && Number(standingOwner.provider_id) !== providerId) {
+          borrowHours.push({ h, standingOwner });
+        }
+      }
+
+      if (borrowHours.length === (endHour - hour)) {
+        const borrowEventIds = [];
+        let otherStandingId = null;
+        for (const { h, standingOwner } of borrowHours) {
+          otherStandingId = Number(standingOwner.id);
+          const startAt = mysqlDateTimeForDateHour(requestStartDate, h, officeTz);
+          const endAt = mysqlDateTimeForDateHour(requestStartDate, h + 1, officeTz);
+          if (!startAt || !endAt) {
+            return res.status(400).json({ error: { message: 'Could not resolve office timezone slot bounds' } });
+          }
+          // eslint-disable-next-line no-await-in-loop
+          const [occRows] = await pool.execute(
+            `SELECT id, status, slot_state
+             FROM office_events
+             WHERE room_id = ?
+               AND start_at < ?
+               AND end_at > ?
+               AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+             ORDER BY id DESC
+             LIMIT 1`,
+            [roomId, endAt, startAt]
+          );
+          const occ = occRows?.[0] || null;
+          const occStatus = String(occ?.status || '').toUpperCase();
+          const occState = String(occ?.slot_state || '').toUpperCase();
+          if (occ && (occStatus === 'BOOKED' || ['ASSIGNED_BOOKED', 'COMPANY_HOLD'].includes(occState))) {
+            const ownerName = `${standingOwner.first_name || ''} ${standingOwner.last_name || ''}`.trim()
+              || 'another provider';
+            return res.status(409).json({
+              error: {
+                message: `Cannot approve — this room/time is already booked by ${ownerName} on ${requestStartDate}. Please choose a different room.`
+              }
+            });
+          }
+
+          let eventId = Number(occ?.id || 0) || null;
+          if (!eventId) {
+            // eslint-disable-next-line no-await-in-loop
+            const created = await OfficeEvent.upsertSlotState({
+              officeLocationId: officeId,
+              roomId,
+              startAt,
+              endAt,
+              slotState: 'ASSIGNED_AVAILABLE',
+              standingAssignmentId: standingOwner.id,
+              bookingPlanId: null,
+              assignedProviderId: Number(standingOwner.provider_id),
+              bookedProviderId: null,
+              createdByUserId: req.user.id,
+              replaceCancelled: true
+            });
+            eventId = Number(created?.id || 0) || null;
+          }
+          if (!eventId) {
+            return res.status(500).json({ error: { message: 'Could not prepare office slot for one-time booking' } });
+          }
+          // eslint-disable-next-line no-await-in-loop
+          const booked = await OfficeEvent.markBooked({
+            eventId,
+            bookedProviderId: providerId
+          });
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await pool.execute(
+              `UPDATE office_events
+               SET assigned_provider_id = ?, standing_assignment_id = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE id = ?`,
+              [Number(standingOwner.provider_id), standingOwner.id, eventId]
+            );
+          } catch {
+            // best-effort
+          }
+          if (booked?.id) borrowEventIds.push(Number(booked.id));
+        }
+
+        await pool.execute(
+          `UPDATE provider_office_availability_requests
+           SET status = 'ASSIGNED',
+               resolved_office_location_id = ?,
+               resolved_standing_assignment_id = ?,
+               resolved_at = NOW(),
+               resolved_by_user_id = ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [officeId, otherStandingId, req.user.id, requestId]
+        );
+        OfficeScheduleMaterializer.invalidateOffice(officeId);
+        syncOfficeEventsToGoogleBestEffort(borrowEventIds).catch(() => {});
+        return res.json({
+          ok: true,
+          borrowed: true,
+          standingAssignmentId: otherStandingId,
+          eventIds: borrowEventIds,
+          message: 'One-time request approved on an open day of an existing recurring assignment.'
+        });
+      }
     }
 
     // Standing rows + booking plans use the shared OfficeStandingAssignment model

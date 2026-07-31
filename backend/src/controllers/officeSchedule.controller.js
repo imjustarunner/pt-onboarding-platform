@@ -12,7 +12,10 @@ import ProviderVirtualSlotAvailability from '../models/ProviderVirtualSlotAvaila
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import User from '../models/User.model.js';
 import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
-import OfficeScheduleMaterializer, { shouldBookOnDate } from '../services/officeScheduleMaterializer.service.js';
+import OfficeScheduleMaterializer, {
+  shouldBookOnDate,
+  isAssignmentActiveOnDate
+} from '../services/officeScheduleMaterializer.service.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import {
   refreshLocationBookingsFromEhr,
@@ -1164,6 +1167,43 @@ export const getWeeklyGrid = async (req, res, next) => {
       }));
     }
 
+    // Active standing owners for this office — used when materializer left a hole
+    // (cancelled occurrence / off-week / upsert skipped) so approve conflicts match the grid.
+    const standingByRoomWeekdayHour = new Map();
+    const planByStandingId = new Map();
+    try {
+      const [standingRows] = await pool.execute(
+        `SELECT a.*,
+                u.first_name, u.last_name, u.role AS provider_role
+         FROM office_standing_assignments a
+         JOIN users u ON u.id = a.provider_id
+         WHERE a.office_location_id = ?
+           AND a.is_active = TRUE`,
+        [officeLocationIdNum]
+      );
+      for (const row of standingRows || []) {
+        const sk = `${Number(row.room_id)}:${Number(row.weekday)}:${Number(row.hour)}`;
+        if (!standingByRoomWeekdayHour.has(sk)) standingByRoomWeekdayHour.set(sk, []);
+        standingByRoomWeekdayHour.get(sk).push(row);
+      }
+      const standingIdsForPlans = (standingRows || []).map((r) => Number(r.id)).filter((n) => n > 0);
+      if (standingIdsForPlans.length) {
+        const ph = standingIdsForPlans.map(() => '?').join(',');
+        const [planRows] = await pool.execute(
+          `SELECT *
+           FROM office_booking_plans
+           WHERE standing_assignment_id IN (${ph})
+             AND is_active = TRUE`,
+          standingIdsForPlans
+        );
+        for (const p of planRows || []) {
+          planByStandingId.set(Number(p.standing_assignment_id), p);
+        }
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
     // Index assignments by room+date+hour (treat as "assigned" if overlapping the hour slot)
     const assignedBySlot = new Map();
     const reconciliationConflicts = [];
@@ -1455,6 +1495,81 @@ export const getWeeklyGrid = async (req, res, next) => {
             });
             continue;
           }
+
+          // Standing owner with no materialized event for this day — still show on the grid
+          // so approve conflicts and the Daily Schedule agree.
+          const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+          const standingCandidates = standingByRoomWeekdayHour.get(`${Number(room.id)}:${dow}:${Number(hour)}`) || [];
+          const standingHit = standingCandidates.find((sa) => isAssignmentActiveOnDate(sa, date));
+          if (standingHit) {
+            const plan = planByStandingId.get(Number(standingHit.id)) || null;
+            // Booking plan off-week (e.g. weekly assign + biweekly book): leave open for others.
+            if (plan && !shouldBookOnDate(plan, standingHit, date)) {
+              // fall through to open
+            } else {
+              const bookedToday = !!(plan && shouldBookOnDate(plan, standingHit, date));
+              // Best-effort heal: recreate the missing materialization so approve + grid stay in sync.
+              let healedEventId = null;
+              try {
+                const slotStartAt = mysqlDateTimeForDateHour(date, hour, officeTz);
+                const slotEndAt = mysqlDateTimeForDateHour(date, Number(hour) + 1, officeTz);
+                if (slotStartAt && slotEndAt) {
+                  // eslint-disable-next-line no-await-in-loop
+                  const healed = await OfficeEvent.upsertSlotState({
+                    officeLocationId: officeLocationIdNum,
+                    roomId: room.id,
+                    startAt: slotStartAt,
+                    endAt: slotEndAt,
+                    slotState: bookedToday ? 'ASSIGNED_BOOKED' : 'ASSIGNED_AVAILABLE',
+                    standingAssignmentId: standingHit.id,
+                    bookingPlanId: bookedToday ? (plan?.id || null) : null,
+                    assignedProviderId: Number(standingHit.provider_id),
+                    bookedProviderId: bookedToday ? Number(standingHit.provider_id) : null,
+                    createdByUserId: req.user?.id || 1,
+                    replaceCancelled: true
+                  });
+                  healedEventId = Number(healed?.id || 0) || null;
+                }
+              } catch (healErr) {
+                console.warn('[getWeeklyGrid] standing overlay heal failed', healErr?.message || healErr);
+              }
+              const state = bookedToday ? 'assigned_booked' : 'assigned_available';
+              const first = String(standingHit.first_name || '').trim();
+              const last = String(standingHit.last_name || '').trim();
+              const initials = `${first.slice(0, 1)}${last.slice(0, 1)}`.toUpperCase();
+              const freq = String(standingHit.assigned_frequency || plan?.booked_frequency || 'WEEKLY').toUpperCase();
+              slots.push(compact({
+                roomId: room.id,
+                date,
+                hour,
+                state,
+                displayStatus: bookedToday ? 'BOOKED' : 'AVAILABLE',
+                eventId: healedEventId,
+                standingOverlayOnly: !healedEventId,
+                learningSessionId: null,
+                learningLinked: false,
+                standingAssignmentId: Number(standingHit.id) || null,
+                bookingPlanId: plan ? Number(plan.id) || null : null,
+                recurrenceGroupId: standingHit.recurrence_group_id || null,
+                providerId: Number(standingHit.provider_id) || null,
+                providerInitials: initials || null,
+                assignedProviderId: Number(standingHit.provider_id) || null,
+                bookedProviderId: bookedToday ? Number(standingHit.provider_id) || null : null,
+                assignedProviderName: formatClinicianName(first, last) || null,
+                assignedProviderFullName: formatFullName(first, last) || null,
+                bookedProviderName: bookedToday ? (formatClinicianName(first, last) || null) : null,
+                bookedProviderFullName: bookedToday ? (formatFullName(first, last) || null) : null,
+                frequency: freq,
+                frequencyLabel: sharedRecurrenceLabel(freq) || freq,
+                frequencyBadge: sharedRecurrenceLabel(freq) || freq,
+                appointmentType: bookedToday ? 'BOOKED_SLOT' : 'AVAILABLE_SLOT',
+                virtualIntakeEnabled: false,
+                inPersonIntakeEnabled: false
+              }));
+              continue;
+            }
+          }
+
           slots.push({
             roomId: room.id,
             date,

@@ -151,7 +151,13 @@
               </button>
             </div>
           </div>
-          <p class="oa-tz-note">All times are shown in your local timezone ({{ localTz }}).</p>
+          <p class="oa-tz-note">
+            Office times are in <strong>{{ officeTzLabel }}</strong>
+            <template v-if="tzMismatch">
+              · your clock is <strong>{{ viewerTzLabel }}</strong>
+              (slot times below also show your local equivalent when they differ)
+            </template>
+          </p>
         </aside>
 
         <!-- Center: summary + day schedule -->
@@ -208,6 +214,7 @@
                   Showing
                   <strong>{{ scheduleRoomFilterLabel }}</strong>
                   — employee, time, and recurrence only.
+                  Timeline hours are {{ officeTzLabel }}.
                 </p>
               </div>
               <div class="oa-date-nav">
@@ -270,7 +277,7 @@
                 >
                   <div class="oa-block-name">{{ block.name }}</div>
                   <div class="oa-block-meta">
-                    {{ hourLabel(block.startHour) }}–{{ hourLabel(block.endHour) }}
+                    {{ formatOfficeHourRange(block.startHour, block.endHour) }}
                     <span v-if="block.recurrence"> · {{ block.recurrence }}</span>
                   </div>
                   <span v-if="block.pending" class="oa-block-pending">Pending</span>
@@ -375,6 +382,11 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import {
+  detectLocalTimezone,
+  timezoneLabelFor,
+  zonedDatetimeLocalToIso
+} from '../../utils/timezones.js';
 import OfficeCoverageFlagsView from './OfficeCoverageFlagsView.vue';
 
 const PAGE_SIZE = 6;
@@ -426,13 +438,15 @@ const orgSlug = computed(() =>
 const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
 const scheduleHubTo = computed(() => orgTo('/schedule'));
 const myScheduleTo = computed(() => orgTo('/my-schedule'));
-const localTz = computed(() => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
-  } catch {
-    return 'local';
-  }
+const viewerTz = computed(() => detectLocalTimezone());
+const officeTzIana = computed(() => {
+  const fromGrid = String(scheduleGrid.value?.location?.timezone || '').trim();
+  if (fromGrid) return fromGrid;
+  return 'America/Denver';
 });
+const officeTzLabel = computed(() => timezoneLabelFor(officeTzIana.value));
+const viewerTzLabel = computed(() => timezoneLabelFor(viewerTz.value));
+const tzMismatch = computed(() => officeTzIana.value !== viewerTz.value);
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 const agencies = computed(() => {
@@ -458,10 +472,37 @@ const weekdays = [
   { value: 0, label: 'Sun' }
 ];
 const weekdayLabel = (n) => weekdays.find((d) => d.value === Number(n))?.label || String(n);
+const pad2 = (n) => String(n).padStart(2, '0');
+/** Format an office-wall hour digit (API hours are already in office TZ). */
 const hourLabel = (h) => {
-  const d = new Date();
-  d.setHours(Number(h), 0, 0, 0);
-  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
+  const hour = Number(h);
+  if (!Number.isFinite(hour)) return '';
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}:00 ${suffix}`;
+};
+/** Office wall range + viewer-local equivalent when timezones differ. */
+const formatOfficeHourRange = (startHour, endHour, dateYmd = scheduleDate.value) => {
+  const officeRange = `${hourLabel(startHour)}–${hourLabel(endHour)}`;
+  if (!tzMismatch.value || !dateYmd) return officeRange;
+  const ymd = String(dateYmd).slice(0, 10);
+  const startIso = zonedDatetimeLocalToIso(`${ymd}T${pad2(startHour)}:00`, officeTzIana.value);
+  const endIso = zonedDatetimeLocalToIso(`${ymd}T${pad2(endHour)}:00`, officeTzIana.value);
+  if (!startIso || !endIso) return `${officeRange} (${officeTzLabel.value})`;
+  const opts = { hour: 'numeric', minute: '2-digit', timeZone: viewerTz.value };
+  const viewerStart = new Date(startIso).toLocaleTimeString(undefined, opts);
+  const viewerEnd = new Date(endIso).toLocaleTimeString(undefined, opts);
+  return `${officeRange} ${shortTzAbbrev(officeTzIana.value)} · ${viewerStart}–${viewerEnd} your time`;
+};
+const shortTzAbbrev = (iana) => {
+  const label = timezoneLabelFor(iana);
+  const m = /\(([A-Z]{2,5})\)/.exec(label);
+  if (m) return m[1];
+  if (String(iana).includes('Denver') || String(iana).includes('Phoenix')) return 'MT';
+  if (String(iana).includes('Chicago')) return 'CT';
+  if (String(iana).includes('New_York')) return 'ET';
+  if (String(iana).includes('Los_Angeles')) return 'PT';
+  return label;
 };
 const fmtDate = (ymd) => {
   if (!ymd) return '';
@@ -577,7 +618,11 @@ const requestDateLabel = (r) => {
 const slotTimeOnly = (r) => {
   const slot = firstSlot(r);
   if (!slot) return 'No time window';
-  return `${hourLabel(slot.startHour)}–${hourLabel(slot.endHour)}`;
+  const start = String(r?.requestedStartDate || todayYmd()).slice(0, 10);
+  const dateYmd = slot && Number.isFinite(Number(slot.weekday))
+    ? firstOnOrAfterWeekday(start, Number(slot.weekday))
+    : start;
+  return formatOfficeHourRange(slot.startHour, slot.endHour, dateYmd);
 };
 
 const initials = (name) => {

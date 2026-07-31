@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { utcDateToZonedParts } from '../utils/zonedWallTime.util.js';
+import { resolveOfficeTimeZone, parseUtcDate } from '../utils/officeEventDateTime.util.js';
 
 /** Roles that must not own standing provider slots (use company hold instead). */
 const STAFF_HOLD_ROLES = new Set([
@@ -24,15 +26,37 @@ class OfficeStandingAssignment {
    * True when the standing row has a real future booking (not just materializer
    * ASSIGNED_AVAILABLE placeholders). Staff holds often materialize empty events
    * that previously blocked provider approvals while staying hidden on the grid.
+   *
+   * Matches weekday/hour in office wall time — never MySQL HOUR()/DAYOFWEEK() on UTC.
    */
-  static async hasLiveBookedFutureEvents({ roomId, hour, weekday, standingAssignmentId, providerId }) {
+  static async hasLiveBookedFutureEvents({
+    roomId,
+    hour,
+    weekday,
+    standingAssignmentId,
+    providerId,
+    officeTimeZone = null,
+    officeLocationId = null
+  }) {
+    let tz = String(officeTimeZone || '').trim() || null;
+    if (!tz && officeLocationId) {
+      try {
+        const [tzRows] = await pool.execute(
+          `SELECT timezone FROM office_locations WHERE id = ? LIMIT 1`,
+          [officeLocationId]
+        );
+        tz = String(tzRows?.[0]?.timezone || '').trim() || null;
+      } catch {
+        tz = null;
+      }
+    }
+    tz = resolveOfficeTimeZone(tz);
+
     const [liveRows] = await pool.execute(
-      `SELECT 1
+      `SELECT start_at
        FROM office_events
        WHERE room_id = ?
          AND start_at >= NOW()
-         AND HOUR(start_at) = ?
-         AND DAYOFWEEK(start_at) = ?
          AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
          AND (
            UPPER(COALESCE(status, '')) = 'BOOKED'
@@ -43,10 +67,22 @@ class OfficeStandingAssignment {
            OR booked_provider_id = ?
            OR assigned_provider_id = ?
          )
-       LIMIT 1`,
-      [roomId, hour, Number(weekday) + 1, standingAssignmentId, providerId, providerId]
+       ORDER BY start_at ASC
+       LIMIT 40`,
+      [roomId, standingAssignmentId, providerId, providerId]
     );
-    return (liveRows || []).length > 0;
+    const wantHour = Number(hour);
+    const wantWeekday = Number(weekday);
+    for (const row of liveRows || []) {
+      const d = parseUtcDate(row.start_at);
+      if (!d) continue;
+      const parts = utcDateToZonedParts(d, tz);
+      if (!parts) continue;
+      // JS getUTCDay-style: 0=Sun … 6=Sat from zoned parts via Date.UTC
+      const localDow = new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+      if (localDow === wantWeekday && Number(parts.hour) === wantHour) return true;
+    }
+    return false;
   }
 
   /**
@@ -108,7 +144,8 @@ class OfficeStandingAssignment {
         hour: Number(conflict.hour ?? hour),
         weekday: Number(conflict.weekday ?? weekday),
         standingAssignmentId: conflict.id,
-        providerId: conflict.provider_id
+        providerId: conflict.provider_id,
+        officeLocationId
       });
       if (!hasBooked) {
         await this.deactivateStandingHold(conflict.id);
@@ -442,13 +479,14 @@ class OfficeStandingAssignment {
 
   static async findActiveBySlot({ officeLocationId, roomId, weekday, hour }) {
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM office_standing_assignments
-       WHERE office_location_id = ?
-         AND room_id = ?
-         AND weekday = ?
-         AND hour = ?
-         AND is_active = TRUE
+      `SELECT a.*, u.first_name, u.last_name, u.role AS provider_role
+       FROM office_standing_assignments a
+       LEFT JOIN users u ON u.id = a.provider_id
+       WHERE a.office_location_id = ?
+         AND a.room_id = ?
+         AND a.weekday = ?
+         AND a.hour = ?
+         AND a.is_active = TRUE
        LIMIT 1`,
       [officeLocationId, roomId, weekday, hour]
     );
