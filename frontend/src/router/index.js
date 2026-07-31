@@ -252,6 +252,18 @@ const isPortalHostSlugRedundantInPath = (brandingStore, segmentSlug) => {
   return Boolean(h && s && h === s);
 };
 
+/** Strip /{hostPortal} prefix on dedicated app hosts (app.itsco.health → flat /dashboard). */
+const flattenPathForHostPortal = (targetPath, brandingStore) => {
+  const raw = String(targetPath || '/').trim() || '/';
+  const hostPortal = resolveHostPortalSlug(brandingStore);
+  if (!hostPortal) return raw;
+  const prefix = `/${hostPortal}`;
+  if (raw === prefix || raw.startsWith(`${prefix}/`)) {
+    return raw === prefix ? '/' : raw.slice(prefix.length) || '/';
+  }
+  return raw;
+};
+
 const routes = [
   // Public school finder (no auth). Must be before "/:organizationSlug".
   {
@@ -3782,15 +3794,14 @@ router.beforeEach(async (to, from, next) => {
         hopTrace.includes('/admin |') || hopTrace.includes('→ /admin')
       );
       if (hasClientAuthHint && (isFreshLoginWindow(now) || looksLikeAdminSlugPingPong)) {
-        const hostPortal = resolveHostPortalSlug(brandingStore);
-        const flatAdmin = '/admin';
+        const recoveryPath = flattenPathForHostPortal(getDashboardRoute(), brandingStore);
         // eslint-disable-next-line no-console
         console.error(
-          '[nav-loop-breaker] Redirect loop during login/admin routing; keeping session and landing on flat admin.',
-          { hostPortal, hopTrace }
+          '[nav-loop-breaker] Redirect loop during post-login routing; keeping session and landing on role-appropriate home.',
+          { recoveryPath, hopTrace }
         );
-        if (String(to.path || '') !== flatAdmin) {
-          next({ path: flatAdmin, replace: true });
+        if (String(to.path || '') !== recoveryPath) {
+          next({ path: recoveryPath, replace: true });
         } else {
           next();
         }

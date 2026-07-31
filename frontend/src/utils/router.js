@@ -239,11 +239,11 @@ export function getDashboardRoute() {
     }
   }
 
-  // Admins/super admins/support/supervisors (with multiple orgs or no slug) go to admin dashboard.
-  // CPAs should land on personal dashboard so "My Schedule" is immediately available.
-  // Summit Stats club managers (admin with only affiliation agencies) go to parent slug admin (e.g. /ssc/admin)
+  // Admins/super admins/support/legacy-supervisor role go to admin dashboard.
+  // Supervisor privileges on provider/staff are additive — those users stay on provider surfaces.
+  const supervisorPrimaryRole = userRole === 'supervisor';
   if (userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin' ||
-      user.role === 'support' || isSupervisor(user)) {
+      user.role === 'support' || supervisorPrimaryRole) {
     const adminOrgs = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? user.agencies ?? [];
     const orgs = Array.isArray(adminOrgs) ? adminOrgs : [];
     if (orgs.length === 1) {
@@ -271,21 +271,32 @@ export function getDashboardRoute() {
     return slug ? `/${slug}/dashboard` : '/dashboard';
   }
 
-  // Providers with a single agency should land on org-scoped dashboard for consistent branding/nav
+  // Providers with agency membership should land on org-scoped dashboard for consistent branding/nav
   if (userRole === 'provider') {
     const fromUser = user.agencies || [];
     const fromStore = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
     const orgs = fromUser.length > 0 ? fromUser : (Array.isArray(fromStore) ? fromStore : []);
-    if (orgs.length === 1 && (orgs[0]?.slug || orgs[0]?.portal_url)) {
-      const slug = orgs[0].slug || orgs[0].portal_url;
-      const orgType = String(orgs[0]?.organization_type || orgs[0]?.organizationType || '').toLowerCase();
+    const pickOrg = () => {
+      if (!orgs.length) return null;
+      if (orgs.length === 1) return orgs[0];
+      // Prefer parent agency tenant when user also belongs to affiliated schools/programs.
+      const agencyOrg = orgs.find((o) => {
+        const t = String(o?.organization_type || o?.organizationType || '').toLowerCase();
+        return t === 'agency' || (!t && !o?.affiliated_agency_id);
+      });
+      return agencyOrg || orgs[0];
+    };
+    const org = pickOrg();
+    if (org && (org?.slug || org?.portal_url)) {
+      const slug = org.slug || org.portal_url;
+      const orgType = String(org?.organization_type || org?.organizationType || '').toLowerCase();
       if (slug && String(slug).trim()) {
         if (orgType === 'affiliation') {
-          if (isBookClubAgency(orgs[0])) {
-            const parentSlug = getBookClubParentSlug(orgs[0], orgs) || slug;
+          if (isBookClubAgency(org)) {
+            const parentSlug = getBookClubParentSlug(org, orgs) || slug;
             return parentSlug ? `/${parentSlug}/dashboard` : '/dashboard';
           }
-          const affiliationClubId = orgs[0]?.id ?? null;
+          const affiliationClubId = org?.id ?? null;
           return affiliationClubId ? `/${slug}/clubs/${affiliationClubId}` : `/${slug}/my_club_dashboard`;
         }
         return `/${slug}/dashboard`;
