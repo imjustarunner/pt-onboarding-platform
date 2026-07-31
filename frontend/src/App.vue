@@ -2382,7 +2382,7 @@ const tutorialStore = useTutorialStore();
 
 watch(isSummitStatsChallengeChrome, (v) => {
   if (v) tutorialStore.setEnabled(false);
-}, { immediate: true });
+});
 const builderStore = useSuperadminBuilderStore();
 const notificationStore = useNotificationStore();
 /** Declared before engagement-menu computeds that watch unread count (avoids TDZ when showEngagementMenu is evaluated early). */
@@ -2416,6 +2416,18 @@ const goToIndirectLogTime = () => {
   else router.push({ path: want, query }).catch(() => {});
 };
 
+function syncIndirectTimeSessionPolling() {
+  if (
+    authStore.isAuthenticated &&
+    indirectTimeSessionStore.isHourlyWorker &&
+    indirectTimeSessionStore.agencyId
+  ) {
+    indirectTimeSessionStore.startPolling();
+  } else {
+    indirectTimeSessionStore.stopPolling();
+    indirectTimeSessionStore.resetAll();
+  }
+}
 watch(
   () => [
     authStore.isAuthenticated,
@@ -2423,19 +2435,7 @@ watch(
     authStore.user?.is_hourly_worker,
     agencyStore.currentAgency?.id
   ],
-  () => {
-    if (
-      authStore.isAuthenticated &&
-      indirectTimeSessionStore.isHourlyWorker &&
-      indirectTimeSessionStore.agencyId
-    ) {
-      indirectTimeSessionStore.startPolling();
-    } else {
-      indirectTimeSessionStore.stopPolling();
-      indirectTimeSessionStore.resetAll();
-    }
-  },
-  { immediate: true }
+  syncIndirectTimeSessionPolling
 );
 
 const showPublicTranslateWidget = computed(() => shouldShowPublicTranslate(route));
@@ -4047,14 +4047,11 @@ const canSeeToolsNav = computed(() => {
   return canSeeFullPortalNav.value;
 });
 
-watch(
-  canSeeGamesNav,
-  (v) => {
-    if (v) loadRegistryGames();
-    else registryGames.value = [];
-  },
-  { immediate: true }
-);
+function syncRegistryGamesNav(v) {
+  if (v) loadRegistryGames();
+  else registryGames.value = [];
+}
+watch(canSeeGamesNav, syncRegistryGamesNav);
 
 /** School Portals nav (Overview + All school portals). Same roles as prior School Overview links; gated by platform + tenant flags. */
 const canSeeSchoolPortalsNav = computed(() => {
@@ -4585,8 +4582,7 @@ async function loadProgramWorkspaceOrgs() {
 
 watch(
   () => [canSeeProgramWorkspacesTopNav.value, agencyStore.currentAgency?.id, user.value?.id],
-  () => { void loadProgramWorkspaceOrgs(); },
-  { immediate: true }
+  () => { void loadProgramWorkspaceOrgs(); }
 );
 
 const programWorkspaceHref = (org) => {
@@ -4692,8 +4688,7 @@ watch(
   () => {
     void loadAssignedEventPortals();
     void loadDirectoryEventPortals();
-  },
-  { immediate: true }
+  }
 );
 
 // Re-run event portal load once program orgs are available (they load asynchronously).
@@ -5348,8 +5343,7 @@ function syncPayrollPendingPolling([authenticated, canSee, agencyId]) {
 }
 watch(
   [isAuthenticated, canSeePayrollManagement, currentAgencyId],
-  syncPayrollPendingPolling,
-  { immediate: true }
+  syncPayrollPendingPolling
 );
 
 watch(sessionSettingsKey, () => {
@@ -5928,6 +5922,17 @@ onMounted(async () => {
     syncNotificationsCounts(shouldFetchNotificationsCounts.value);
     syncJoinPrompts(isAuthenticated.value);
     syncCommunicationsCountsWithEngagementMenu(showEngagementMenu.value);
+    syncIndirectTimeSessionPolling();
+    syncRegistryGamesNav(canSeeGamesNav.value);
+    syncPayrollPendingPolling([
+      isAuthenticated.value,
+      canSeePayrollManagement.value,
+      currentAgencyId.value
+    ]);
+    if (isSummitStatsChallengeChrome.value) tutorialStore.setEnabled(false);
+    void loadProgramWorkspaceOrgs();
+    void loadAssignedEventPortals();
+    void loadDirectoryEventPortals();
     void loadNavActiveSeason();
     // Organization context from route
     const slug = route.params.organizationSlug;

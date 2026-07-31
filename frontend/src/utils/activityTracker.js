@@ -653,9 +653,19 @@ export async function startActivityTracking({ force = false } = {}) {
   }
 
   try {
-    const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
-    useSessionLockStore().setLockConfig(res.data || null);
-    applyTimeoutConfig(res.data || {});
+    // Skip when clearly logged out — avoids 401 spam on /login after nav-loop recovery.
+    let hasAuthHint = false;
+    try {
+      hasAuthHint = !!(localStorage.getItem('authToken') || localStorage.getItem('user'));
+    } catch { /* ignore */ }
+    if (hasAuthHint) {
+      const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
+      useSessionLockStore().setLockConfig(res.data || null);
+      applyTimeoutConfig(res.data || {});
+    } else {
+      useSessionLockStore().setLockConfig(null);
+      applyTimeoutConfig({});
+    }
   } catch {
     useSessionLockStore().setLockConfig(null);
     applyTimeoutConfig({});

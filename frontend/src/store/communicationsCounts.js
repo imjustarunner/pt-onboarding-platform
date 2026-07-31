@@ -35,20 +35,31 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
       
       const agencyId = agencyStore.currentAgency?.id;
       const params = agencyId ? { agencyId } : {};
+      // Backend pending-count is admin/support/staff/super_admin only — skip for providers etc.
+      const canFetchPendingDelivery =
+        role === 'admin' ||
+        role === 'super_admin' ||
+        role === 'support' ||
+        role === 'staff';
 
       if (!canFetchOpenTicketCount) {
         openTicketsCount.value = 0;
         supportAttentionCount.value = 0;
       }
+      if (!canFetchPendingDelivery) {
+        pendingDeliveryCount.value = 0;
+      }
 
       const [pendingRes, centerRes, personalRes, ticketsRes] = await Promise.allSettled([
-        api.get('/communications/pending-count', { skipGlobalLoading: true }),
+        canFetchPendingDelivery
+          ? api.get('/communications/pending-count', { skipGlobalLoading: true, skipAuthRedirect: true })
+          : Promise.resolve({ data: { count: 0 } }),
         canFetchOpenTicketCount
-          ? api.get('/communications/center-summary', { params, skipGlobalLoading: true })
+          ? api.get('/communications/center-summary', { params, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: {} }),
-        api.get('/messages/dashboard-summary', { params, skipGlobalLoading: true }).catch(() => ({ data: {} })),
+        api.get('/messages/dashboard-summary', { params, skipGlobalLoading: true, skipAuthRedirect: true }).catch(() => ({ data: {} })),
         canFetchOpenTicketCount
-          ? api.get('/support-tickets/count', { params: { status: 'open' }, skipGlobalLoading: true })
+          ? api.get('/support-tickets/count', { params: { status: 'open' }, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: {} })
       ]);
 

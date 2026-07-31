@@ -172,10 +172,11 @@ export function useReminderSnooze(userIdRef, sessionIdRef = null) {
   }
 
   if (userIdRef) {
-    watch(userIdRef, load, { immediate: true });
+    // flush post avoids TDZ in minified App.vue setup when this composable runs early.
+    watch(userIdRef, load, { immediate: true, flush: 'post' });
   }
   if (sessionIdRef) {
-    watch(sessionIdRef, load, { immediate: true });
+    watch(sessionIdRef, load, { immediate: true, flush: 'post' });
   }
 
   return {
