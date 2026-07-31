@@ -2292,7 +2292,10 @@ const startVideoMeeting = async (kind = 'TEAM_MEETING') => {
     const eventId = resp.data?.eventId;
     await loadMessages();
     if (joinUrl) {
-      window.open(joinUrl, '_blank', 'noopener');
+      const { navigateToJoinLink } = await import('../../utils/appJoinNavigation.js');
+      if (!navigateToJoinLink(router, joinUrl) && eventId) {
+        router.push(`/join/team-meeting/${eventId}`);
+      }
     } else if (eventId) {
       router.push(`/join/team-meeting/${eventId}`);
     }

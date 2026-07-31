@@ -2271,6 +2271,7 @@ import { canSeeClientExchangeNav } from './utils/clientExchangeNav.js';
 import { buildFormUrl } from './utils/publicIntakeUrl.js';
 import { isMedicalBillingEnabled } from './config/medicalBillingAccess.js';
 import api from './services/api';
+import { navigateToJoinLink } from './utils/appJoinNavigation';
 import { listActivities } from './services/counselingApi.js';
 import { launchActivity, isStandaloneLaunchable, isToolsCatalogActivity, isEmbeddedSessionActivity, resolveStandaloneUrl } from './services/launchActivity.js';
 import {
@@ -5731,24 +5732,24 @@ const fetchJoinPrompts = async () => {
 
 const joinReminderToastJoin = () => {
   const p = joinReminderToast.value?.prompt;
-  const link = String(p?.joinUrl || p?.googleMeetLink || '').trim();
-  if (!link) {
-    dismissJoinReminderToast();
+  const appUrl = String(p?.joinUrl || '').trim();
+  const meetLink = String(p?.googleMeetLink || '').trim();
+  dismissJoinReminderToast();
+  // Same-tab path join — keeps cookies/JWT on iPad Safari (noreferrer new tabs lost auth).
+  if (navigateToJoinLink(router, appUrl)) return;
+  const sid = p?.id || p?.sessionId || p?.session_id;
+  const slug = String(route.params?.organizationSlug || '').trim();
+  if (sid && slug) {
+    void router.push(`/${slug}/join/supervision/${encodeURIComponent(sid)}`);
     return;
   }
-  // Prefer same-tab navigation when the join URL is this app; avoid a second window.
-  try {
-    const url = new URL(link, window.location.origin);
-    if (url.origin === window.location.origin && /\/join\/supervision\//i.test(url.pathname)) {
-      dismissJoinReminderToast();
-      void router.push(`${url.pathname}${url.search}${url.hash}`);
-      return;
-    }
-  } catch {
-    /* fall through */
+  if (sid) {
+    void router.push(`/join/supervision/${encodeURIComponent(sid)}`);
+    return;
   }
-  window.open(link, '_blank', 'noreferrer');
-  dismissJoinReminderToast();
+  if (meetLink) {
+    window.open(meetLink, '_blank', 'noopener');
+  }
 };
 
 const goToNotifications = async () => {

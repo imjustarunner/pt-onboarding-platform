@@ -1177,12 +1177,9 @@ async function maybeAutoJoinFromResponse(data) {
   await copyTextToClipboard(absolute);
   try {
     markEngaged();
-    if (join.startsWith('http')) {
-      window.open(join, '_blank', 'noopener,noreferrer');
-    } else {
-      await router.push(join);
-      if (!isEmbedded.value) close();
-    }
+    const { navigateToJoinLink } = await import('../../utils/appJoinNavigation.js');
+    navigateToJoinLink(router, absolute);
+    if (!isEmbedded.value) close();
   } catch (e) {
     console.warn('[AskAssistantPanel] auto-join failed', e?.message);
   }

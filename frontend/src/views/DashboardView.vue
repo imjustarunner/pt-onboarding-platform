@@ -1150,6 +1150,7 @@ import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js'
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuildersSchoolProgramAccess.js';
 import { useTutorialStore } from '../store/tutorial';
 import api from '../services/api';
+import { navigateToJoinLink } from '../utils/appJoinNavigation';
 import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
 import MomentumListTab from '../components/dashboard/MomentumListTab.vue';
@@ -2284,9 +2285,20 @@ const dismissPresenterAssignment = (assignmentId) => {
 const joinSupervisionPrompt = (prompt) => {
   const appUrl = String(prompt?.joinUrl || '').trim();
   const meetLink = String(prompt?.googleMeetLink || '').trim();
-  const link = appUrl || meetLink;
-  if (link) {
-    window.open(link, '_blank', 'noreferrer');
+  // Same-tab join preserves auth on iPad Safari (new-tab + noreferrer was showing login).
+  if (navigateToJoinLink(router, appUrl)) return;
+  const sid = prompt?.id || prompt?.sessionId || prompt?.session_id;
+  const slug = String(route.params?.organizationSlug || '').trim();
+  if (sid && slug) {
+    void router.push(`/${slug}/join/supervision/${encodeURIComponent(sid)}`);
+    return;
+  }
+  if (sid) {
+    void router.push(`/join/supervision/${encodeURIComponent(sid)}`);
+    return;
+  }
+  if (meetLink) {
+    window.open(meetLink, '_blank', 'noopener');
     return;
   }
   activeTab.value = 'my_schedule';

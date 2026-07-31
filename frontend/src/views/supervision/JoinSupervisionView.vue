@@ -446,14 +446,47 @@ async function fetchGuestToken() {
   if (isInLobby.value) startAdmissionPolling();
 }
 
+function appearsLoggedInLocally() {
+  if (authStore.isAuthenticated) return true;
+  try {
+    return !!(localStorage.getItem('user') || localStorage.getItem('authToken'));
+  } catch {
+    return false;
+  }
+}
+
+async function requestVideoToken(sid, { authRetry = false } = {}) {
+  const headers = {};
+  if (authRetry) {
+    try {
+      const storedToken = localStorage.getItem('authToken');
+      if (storedToken) headers.Authorization = `Bearer ${storedToken}`;
+    } catch { /* ignore */ }
+  }
+  return api.get(`/supervision/sessions/${encodeURIComponent(sid)}/video-token`, {
+    skipAuthRedirect: true,
+    headers
+  });
+}
+
 async function fetchTokenAndJoin() {
   error.value = '';
   showLoginFallback.value = false;
+  const sid = sessionId.value;
   try {
-    const sid = sessionId.value;
-    const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/video-token`, {
-      skipAuthRedirect: true
-    });
+    let resp;
+    try {
+      resp = await requestVideoToken(sid);
+    } catch (firstErr) {
+      const firstStatus = Number(firstErr?.response?.status || 0);
+      // iPad/Safari: cookie may lag a beat after navigation; retry with Bearer if we look logged in.
+      if (firstStatus === 401 && appearsLoggedInLocally()) {
+        await new Promise((r) => setTimeout(r, 350));
+        resp = await requestVideoToken(sid, { authRetry: true });
+      } else {
+        throw firstErr;
+      }
+    }
     applyTokenPayload(resp?.data || {});
     // Heartbeat in lobby too — otherwise waiters vanish from the host list after ~25s.
     startPresenceHeartbeat();
@@ -473,8 +506,12 @@ async function fetchTokenAndJoin() {
               || 'This session is full right now. When someone leaves, try the link again.';
             return;
           }
-          error.value = guestErr?.response?.data?.error?.message
-            || 'Could not join as guest. Log in with your account, or ask the host for a fresh join link.';
+          // Prefer login CTA when we already look authenticated — guest path failed.
+          error.value = appearsLoggedInLocally()
+            ? (guestErr?.response?.data?.error?.message
+              || 'Could not join this session. Try Log in to join to refresh your session.')
+            : (guestErr?.response?.data?.error?.message
+              || 'Could not join as guest. Log in with your account, or ask the host for a fresh join link.');
           showLoginFallback.value = true;
           return;
         }
