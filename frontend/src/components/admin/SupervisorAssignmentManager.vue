@@ -182,6 +182,8 @@ const props = defineProps({
   }
 });
 
+const emit = defineEmits(['changed']);
+
 const authStore = useAuthStore();
 const loading = ref(true);
 const error = ref('');
@@ -336,15 +338,15 @@ const fetchAssignments = async () => {
     loading.value = true;
     error.value = '';
 
-    if (props.supervisorId) {
-      // Fetch assignments for a specific supervisor
-      const response = await api.get(`/supervisor-assignments/supervisor/${props.supervisorId}`, {
+    // Prefer supervisee scope when set (profile Supervision tab always manages who
+    // supervises this person). Supervisor scope is only for supervisor-centric views.
+    if (props.superviseeId) {
+      const response = await api.get(`/supervisor-assignments/supervisee/${props.superviseeId}`, {
         params: { agencyId: selectedAgencyId.value || undefined }
       });
       assignments.value = response.data;
-    } else if (props.superviseeId) {
-      // Fetch assignments for a specific supervisee
-      const response = await api.get(`/supervisor-assignments/supervisee/${props.superviseeId}`, {
+    } else if (props.supervisorId) {
+      const response = await api.get(`/supervisor-assignments/supervisor/${props.supervisorId}`, {
         params: { agencyId: selectedAgencyId.value || undefined }
       });
       assignments.value = response.data;
@@ -374,6 +376,7 @@ const setPrimary = async (assignment) => {
       agencyId: Number(assignment.agency_id)
     });
     await fetchAssignments();
+    emit('changed');
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to set primary supervisor');
   } finally {
@@ -406,6 +409,7 @@ const createAssignment = async () => {
     };
     
     await fetchAssignments();
+    emit('changed');
     alert('Assignment created successfully');
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to create assignment');
@@ -423,6 +427,7 @@ const removeAssignment = async (assignmentId) => {
     removing.value = true;
     await api.delete(`/supervisor-assignments/${assignmentId}`);
     await fetchAssignments();
+    emit('changed');
     alert('Assignment removed successfully');
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to remove assignment');

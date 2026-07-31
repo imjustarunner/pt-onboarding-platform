@@ -1721,6 +1721,7 @@
             :supervisees="supervisees"
             :supervisors-loading="supervisorsLoading"
             :supervisees-loading="superviseesLoading"
+            @supervision-changed="onSupervisionAssignmentsChanged"
           />
         </div>
 
@@ -6374,6 +6375,7 @@ provide(USER_ACCOUNT_CONTEXT_KEY, {
   headerPhotoUrl,
   headerManagerName,
   headerSupervisorName,
+  supervisors,
   photoUploading,
   triggerPhotoUpload,
   saveAccount: () => saveAccount({ fromDashboard: true }),
@@ -6919,13 +6921,16 @@ watch(tabIds, (ids) => {
 // NOTE: We intentionally do not sync `activeTab` to the URL query to avoid router/VDOM race conditions.
 
 const fetchSupervisees = async () => {
+  const id = Number(userId.value || 0);
+  if (!Number.isFinite(id) || id <= 0) return;
   if (!user.value || (!isSupervisor(user.value) && user.value.role !== 'clinical_practice_assistant')) {
+    supervisees.value = [];
     return;
   }
-  
+
   try {
     superviseesLoading.value = true;
-    const response = await api.get(`/supervisor-assignments/supervisor/${userId.value}`);
+    const response = await api.get(`/supervisor-assignments/supervisor/${id}`);
     supervisees.value = response.data;
   } catch (err) {
     console.error('Failed to fetch supervisees:', err);
@@ -6936,20 +6941,31 @@ const fetchSupervisees = async () => {
 };
 
 const fetchSupervisors = async () => {
-  if (!user.value || !['staff', 'provider'].includes(user.value.role)) {
-    return;
-  }
-  
+  const id = Number(userId.value || 0);
+  if (!Number.isFinite(id) || id <= 0) return;
+
   try {
     supervisorsLoading.value = true;
-    const response = await api.get(`/supervisor-assignments/supervisee/${userId.value}`);
-    supervisors.value = response.data;
+    const response = await api.get(`/supervisor-assignments/supervisee/${id}`);
+    supervisors.value = Array.isArray(response.data) ? response.data : [];
   } catch (err) {
     console.error('Failed to fetch supervisors:', err);
     supervisors.value = [];
   } finally {
     supervisorsLoading.value = false;
   }
+};
+
+watch(
+  () => [userId.value, user.value?.id, user.value?.role, user.value?.has_supervisor_privileges],
+  () => {
+    void Promise.allSettled([fetchSupervisees(), fetchSupervisors()]);
+  }
+);
+
+const onSupervisionAssignmentsChanged = () => {
+  void Promise.allSettled([fetchSupervisees(), fetchSupervisors()]);
+  void refreshOverview?.();
 };
 
 watch(

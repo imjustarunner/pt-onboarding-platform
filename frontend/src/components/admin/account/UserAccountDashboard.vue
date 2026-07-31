@@ -485,10 +485,27 @@
                   Clinical Information → Supervision
                 </button>.
               </p>
-              <div v-if="supervisorName" class="acct-field">
+              <template v-if="supervisorAssignmentRows.length">
+                <div
+                  v-for="row in supervisorAssignmentRows"
+                  :key="row.id || `${row.supervisor_id}-${row.supervisor_type}-${row.agency_id}`"
+                  class="acct-field"
+                >
+                  <span class="acct-field-label">
+                    {{ supervisorTypeLabel(row.supervisor_type) }} supervisor
+                    <template v-if="row.is_primary"> · Primary</template>
+                  </span>
+                  <span class="acct-field-value">
+                    {{ formatSupervisorAssignmentName(row) }}
+                    <small v-if="row.agency_name" class="acct-field-sub">{{ row.agency_name }}</small>
+                  </span>
+                </div>
+              </template>
+              <div v-else-if="supervisorName" class="acct-field">
                 <span class="acct-field-label">Primary supervisor</span>
                 <span class="acct-field-value">{{ supervisorName }}</span>
               </div>
+              <p v-else class="muted">No supervisors assigned.</p>
             </AccountDashboardCard>
           </div>
 
@@ -534,6 +551,7 @@ import { computed, inject, onMounted, ref, watch } from 'vue';
 import AccountDashboardCard from './AccountDashboardCard.vue';
 import { USER_ACCOUNT_CONTEXT_KEY } from '../../../composables/userAccountContext.js';
 import { formatSnapshotValue, formatClinicalFieldValue, findFieldByKeys } from '../../../utils/clinicalFieldDisplay.js';
+import { supervisorTypeLabel } from '../../../constants/supervisorTypes.js';
 
 const PRACTICE_CATEGORY_LABELS = {
   mental_health: 'Mental health',
@@ -588,6 +606,18 @@ const displayName = computed(() => unwrap(ctx.headerDisplayName) || 'User');
 const photoUrl = computed(() => unwrap(ctx.headerPhotoUrl) || '');
 const managerName = computed(() => unwrap(ctx.headerManagerName) || '');
 const supervisorName = computed(() => unwrap(ctx.headerSupervisorName) || '');
+
+const supervisorAssignmentRows = computed(() => {
+  const fromOverview = overview.value?.supervisors;
+  if (Array.isArray(fromOverview) && fromOverview.length) return fromOverview;
+  const fromCtx = unwrap(ctx.supervisors);
+  return Array.isArray(fromCtx) ? fromCtx : [];
+});
+
+function formatSupervisorAssignmentName(row) {
+  const name = `${row?.supervisor_first_name || ''} ${row?.supervisor_last_name || ''}`.trim();
+  return name || row?.supervisor_email || '—';
+}
 
 const initials = computed(() => {
   const f = String(user.value?.first_name || '').trim()[0] || '';
@@ -1162,6 +1192,7 @@ watch([compUserId, compAgencyId], ([uid, aid]) => {
 .acct-field--full { grid-column: 1 / -1; }
 .acct-field-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--acct-muted); margin-bottom: 4px; }
 .acct-field-value { font-size: 14px; color: var(--acct-text); word-break: break-word; }
+.acct-field-sub { display: block; margin-top: 2px; font-size: 12px; color: var(--acct-muted); font-weight: 400; }
 .acct-field-value--block { display: block; white-space: pre-wrap; line-height: 1.45; }
 .acct-field--edit label { display: block; font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 4px; }
 .acct-field-hint { margin: 6px 0 0; font-size: 12px; color: #64748b; line-height: 1.4; }

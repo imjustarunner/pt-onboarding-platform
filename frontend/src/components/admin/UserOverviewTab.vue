@@ -455,7 +455,7 @@
             <div class="ov-card">
               <div class="ov-card-hdr">
                 <span class="ov-card-title">Supervisor Assignments</span>
-                <button v-if="canManageAssignments" class="ov-btn-edit" type="button" @click="$emit('navigate', 'account')">Edit</button>
+                <button v-if="canManageAssignments" class="ov-btn-edit" type="button" @click="$emit('navigate', 'provider_info', '', 'supervision')">Edit</button>
               </div>
               <div v-if="supervisorsLoading" class="ov-loading-sm">Loading…</div>
               <div v-else-if="supervisors.length === 0" class="ov-empty-sm">No supervisors assigned.</div>
@@ -482,7 +482,7 @@
                   </tbody>
                 </table>
               </template>
-              <button v-if="canManageAssignments" class="ov-add-link" type="button" @click="$emit('navigate', 'account')">+ Add Supervisor Assignment</button>
+              <button v-if="canManageAssignments" class="ov-add-link" type="button" @click="$emit('navigate', 'provider_info', '', 'supervision')">+ Add Supervisor Assignment</button>
             </div>
 
             <!-- Access & Permissions -->

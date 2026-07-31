@@ -66,6 +66,7 @@
           :supervisees="supervisees"
           :supervisors-loading="supervisorsLoading"
           :supervisees-loading="superviseesLoading"
+          @changed="emit('supervision-changed')"
         />
       </div>
 
@@ -128,6 +129,8 @@ const props = defineProps({
   supervisorsLoading: { type: Boolean, default: false },
   superviseesLoading: { type: Boolean, default: false },
 });
+
+const emit = defineEmits(['supervision-changed']);
 
 const authStore = useAuthStore();
 const canEdit = computed(() => {

@@ -149,9 +149,19 @@ class SupervisorAssignment {
    * Find all supervisees for a supervisor in an agency
    */
   static async findBySupervisor(supervisorId, agencyId = null) {
+    // Explicit columns — avoid sa.* so driver column overlap never drops ids/names.
     let query = `
-      SELECT sa.*,
-             u.id as supervisee_id,
+      SELECT sa.id,
+             sa.supervisor_id,
+             sa.supervisee_id,
+             sa.agency_id,
+             sa.supervisor_type,
+             sa.is_primary,
+             sa.created_by_user_id,
+             sa.created_at,
+             s.first_name as supervisor_first_name,
+             s.last_name as supervisor_last_name,
+             s.email as supervisor_email,
              u.first_name as supervisee_first_name,
              u.last_name as supervisee_last_name,
              u.email as supervisee_email,
@@ -161,6 +171,7 @@ class SupervisorAssignment {
              TRIM(COALESCE(a.slug, a.portal_url, '')) as agency_slug,
              a.color_palette as agency_color_palette
       FROM supervisor_assignments sa
+      INNER JOIN users s ON sa.supervisor_id = s.id
       INNER JOIN users u ON sa.supervisee_id = u.id
       INNER JOIN agencies a ON sa.agency_id = a.id
       WHERE sa.supervisor_id = ?
@@ -182,9 +193,16 @@ class SupervisorAssignment {
    * Find all supervisors for a supervisee in an agency
    */
   static async findBySupervisee(superviseeId, agencyId = null) {
+    // Explicit columns — avoid sa.* so driver column overlap never drops supervisor_id/names.
     let query = `
-      SELECT sa.*,
-             u.id as supervisor_id,
+      SELECT sa.id,
+             sa.supervisor_id,
+             sa.supervisee_id,
+             sa.agency_id,
+             sa.supervisor_type,
+             sa.is_primary,
+             sa.created_by_user_id,
+             sa.created_at,
              u.first_name as supervisor_first_name,
              u.last_name as supervisor_last_name,
              u.email as supervisor_email,
@@ -236,16 +254,25 @@ class SupervisorAssignment {
    */
   static async findByAgency(agencyId) {
     const [rows] = await pool.execute(
-      `SELECT sa.*,
+      `SELECT sa.id,
+              sa.supervisor_id,
+              sa.supervisee_id,
+              sa.agency_id,
+              sa.supervisor_type,
+              sa.is_primary,
+              sa.created_by_user_id,
+              sa.created_at,
               s.first_name as supervisor_first_name,
               s.last_name as supervisor_last_name,
               s.email as supervisor_email,
               e.first_name as supervisee_first_name,
               e.last_name as supervisee_last_name,
-              e.email as supervisee_email
+              e.email as supervisee_email,
+              a.name as agency_name
        FROM supervisor_assignments sa
        LEFT JOIN users s ON sa.supervisor_id = s.id
        LEFT JOIN users e ON sa.supervisee_id = e.id
+       LEFT JOIN agencies a ON sa.agency_id = a.id
        WHERE sa.agency_id = ?
        ORDER BY s.last_name, s.first_name, e.last_name, e.first_name`,
       [agencyId]
