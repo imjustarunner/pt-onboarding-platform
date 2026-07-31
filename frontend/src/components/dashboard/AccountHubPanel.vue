@@ -215,12 +215,66 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
   margin-bottom: 20px;
 }
 
+/* Desktop: left nav is the section picker — hide the redundant top card grid. */
+@media (min-width: 901px) {
+  .acct-hub__stats {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .acct-hub__stats {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    margin-bottom: 16px;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .acct-hub__stat {
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: auto;
+    min-width: 76px;
+    max-width: 96px;
+    padding: 10px 8px;
+    text-align: center;
+  }
+
+  .acct-hub__stat-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+  }
+
+  .acct-hub__stat-icon :deep(svg) {
+    width: 16px;
+    height: 16px;
+  }
+
+  .acct-hub__stat-value {
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  .acct-hub__stat-label,
+  .acct-hub__stat-hint {
+    display: none;
+  }
+}
+
 .acct-hub__stat {
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: flex-start;
   width: 100%;
-  padding: 18px 20px;
+  padding: 12px 14px;
   text-align: left;
   background: #fff;
   border: 1px solid var(--hub-border);
@@ -253,9 +307,9 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 }
 
 .acct-hub__stat-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -263,7 +317,7 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 }
 
 .acct-hub__stat-value {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.2;
 }
