@@ -373,9 +373,28 @@ export const createEscalation = async (req, res, next) => {
       }
     }
 
-    // Chain of responsibility — auto-assign first available step.
-    const routing = await parseRouting(access.agency);
-    const assignee = await resolveFirstAssigneeFromRouting(agencyId, routing);
+    // Manual assign (managers) or chain-of-responsibility auto-assign.
+    let assignee = null;
+    const rawManualAssignee = req.body?.assigneeUserId;
+    const hasManualAssignee =
+      rawManualAssignee != null && rawManualAssignee !== '' && String(rawManualAssignee).toLowerCase() !== 'auto';
+    if (hasManualAssignee) {
+      if (!isEscalationManagerRole(role)) {
+        return res.status(403).json({ error: { message: 'Only admin/support can assign on create' } });
+      }
+      const manualId = parseInt(rawManualAssignee, 10);
+      if (!manualId) {
+        return res.status(400).json({ error: { message: 'Invalid assigneeUserId' } });
+      }
+      assignee = await resolveAssignableUser({ agencyId, assigneeId: manualId });
+      if (!assignee) return res.status(404).json({ error: { message: 'Assignee not found in this agency' } });
+      if (assignee.is_archived === 1 || String(assignee.status || '').toUpperCase() === 'ARCHIVED') {
+        return res.status(400).json({ error: { message: 'Assignee is archived' } });
+      }
+    } else {
+      const routing = await parseRouting(access.agency);
+      assignee = await resolveFirstAssigneeFromRouting(agencyId, routing);
+    }
     if (assignee) {
       await pool.execute(
         `UPDATE support_tickets

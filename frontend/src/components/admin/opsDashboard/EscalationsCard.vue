@@ -35,6 +35,15 @@
             <span>Department</span>
             <input v-model="department" type="text" maxlength="120" placeholder="e.g. Payroll" />
           </label>
+          <label v-if="canManage" class="field">
+            <span>Assign to</span>
+            <select v-model="assigneeUserId">
+              <option value="">Auto (chain of responsibility)</option>
+              <option v-for="u in assignees" :key="u.id" :value="String(u.id)">
+                {{ u.last_name }}, {{ u.first_name }}
+              </option>
+            </select>
+          </label>
           <label class="check">
             <input v-model="immediate" type="checkbox" />
             <span>Immediate action</span>
@@ -69,19 +78,20 @@
               </span>
               <i class="prio" :class="e.priority">{{ e.priority }}</i>
             </button>
-            <label v-if="canManage" class="esc-assign" @click.stop>
-              <span class="sr-only">Assign escalation #{{ e.id }}</span>
-              <select
-                :value="e.claimed_by_user_id ? String(e.claimed_by_user_id) : ''"
-                :disabled="assigningId === e.id"
-                @change="assignEscalation(e, $event)"
-              >
-                <option value="">Unassigned</option>
-                <option v-for="u in assignOptionsFor(e)" :key="u.id" :value="String(u.id)">
-                  {{ u.last_name }}, {{ u.first_name }}
-                </option>
-              </select>
-            </label>
+            <select
+              v-if="canManage"
+              class="esc-assign-inline"
+              :value="e.claimed_by_user_id ? String(e.claimed_by_user_id) : ''"
+              :disabled="assigningId === e.id"
+              :aria-label="`Assign escalation #${e.id}`"
+              @click.stop
+              @change="assignEscalation(e, $event)"
+            >
+              <option value="">Unassigned</option>
+              <option v-for="u in assignOptionsFor(e)" :key="u.id" :value="String(u.id)">
+                {{ u.last_name }}, {{ u.first_name }}
+              </option>
+            </select>
           </li>
         </ul>
         <div v-else class="empty-state">
@@ -117,6 +127,7 @@ const recommended = ref('');
 const department = ref('');
 const priority = ref('medium');
 const immediate = ref(false);
+const assigneeUserId = ref('');
 const sending = ref(false);
 const flash = ref('');
 const flashTone = ref('ok');
@@ -225,7 +236,10 @@ async function submit() {
         recommendedResolution: recommended.value.trim(),
         affectedDepartment: department.value.trim() || undefined,
         priority: priority.value,
-        immediateActionRequired: immediate.value
+        immediateActionRequired: immediate.value,
+        ...(canManage.value && assigneeUserId.value
+          ? { assigneeUserId: Number(assigneeUserId.value) }
+          : {})
       },
       { skipGlobalLoading: true }
     );
@@ -235,6 +249,7 @@ async function submit() {
     department.value = '';
     immediate.value = false;
     priority.value = 'medium';
+    assigneeUserId.value = '';
     flashTone.value = 'ok';
     flash.value = 'Escalation submitted';
     await loadList();
@@ -347,7 +362,7 @@ onMounted(() => {
 }
 .row-3 {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
   align-items: end;
 }
@@ -406,13 +421,14 @@ onMounted(() => {
 }
 .esc-item {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
   border-bottom: 1px solid #f1f5f9;
   padding-bottom: 4px;
 }
-.esc-assign select {
-  width: 100%;
+.esc-assign-inline {
+  flex: 0 0 min(148px, 34%);
+  min-width: 0;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 5px 8px;
@@ -422,20 +438,10 @@ onMounted(() => {
   background: #fff;
   font-family: inherit;
 }
-.esc-assign select:disabled { opacity: 0.6; }
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
+.esc-assign-inline:disabled { opacity: 0.6; }
 .esc-row {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -443,7 +449,6 @@ onMounted(() => {
   background: transparent;
   text-align: left;
   padding: 8px 4px;
-  border-bottom: 1px solid #f1f5f9;
   cursor: pointer;
   font: inherit;
 }

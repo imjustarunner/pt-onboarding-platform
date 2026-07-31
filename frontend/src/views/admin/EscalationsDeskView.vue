@@ -323,6 +323,15 @@
             </label>
             <label>Department<input v-model="form.department" type="text" /></label>
             <label>Related project<input v-model="form.project" type="text" /></label>
+            <label v-if="canManage">
+              Assign to
+              <select v-model="form.assigneeUserId">
+                <option value="">Auto (chain of responsibility)</option>
+                <option v-for="u in assignees" :key="u.id" :value="String(u.id)">
+                  {{ u.last_name }}, {{ u.first_name }}
+                </option>
+              </select>
+            </label>
           </div>
           <label class="check"><input v-model="form.immediate" type="checkbox" /> Immediate action required</label>
           <p v-if="createError" class="error">{{ createError }}</p>
@@ -419,7 +428,8 @@ const form = ref({
   department: '',
   project: '',
   priority: 'medium',
-  immediate: false
+  immediate: false,
+  assigneeUserId: ''
 });
 
 const metricCards = computed(() => [
@@ -769,7 +779,10 @@ async function createEscalation() {
       affectedDepartment: form.value.department.trim() || undefined,
       relatedProject: form.value.project.trim() || undefined,
       priority: form.value.priority,
-      immediateActionRequired: form.value.immediate
+      immediateActionRequired: form.value.immediate,
+      ...(canManage.value && form.value.assigneeUserId
+        ? { assigneeUserId: Number(form.value.assigneeUserId) }
+        : {})
     });
     showCreate.value = false;
     form.value = {
@@ -779,7 +792,8 @@ async function createEscalation() {
       department: '',
       project: '',
       priority: 'medium',
-      immediate: false
+      immediate: false,
+      assigneeUserId: ''
     };
     await refresh();
     if (res.data?.id) await selectEscalation(res.data.id);
