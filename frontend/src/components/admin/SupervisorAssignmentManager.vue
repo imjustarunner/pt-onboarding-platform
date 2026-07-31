@@ -88,10 +88,17 @@
               <label style="display: block; margin-bottom: 6px; font-weight: 500;">Supervisor</label>
               <select v-model="newAssignment.supervisorId" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
                 <option value="">Select a supervisor...</option>
-                <option v-for="supervisor in supervisors" :key="supervisor.id" :value="supervisor.id">
-                  {{ supervisor.first_name }} {{ supervisor.last_name }} ({{ supervisor.email }})
+                <option v-for="supervisor in eligibleSupervisors" :key="supervisor.id" :value="supervisor.id">
+                  {{ formatSupervisorOption(supervisor) }}
                 </option>
               </select>
+              <small class="supervisor-eligibility-hint">{{ supervisorEligibilityHint }}</small>
+              <small
+                v-if="requiresLicensedSupervisor && !eligibleSupervisors.length && supervisors.length"
+                class="supervisor-eligibility-hint supervisor-eligibility-hint--warn"
+              >
+                No licensed providers with supervisor privileges match {{ CLINICAL_BILLING_SUPERVISOR_LICENSE_HINT }}.
+              </small>
             </div>
             <div v-if="!props.superviseeId">
               <label style="display: block; margin-bottom: 6px; font-weight: 500;">Supervisee</label>
@@ -118,6 +125,7 @@
                 <option v-for="t in SUPERVISOR_TYPES" :key="t" :value="t">{{ supervisorTypeLabel(t) }}</option>
               </select>
               <small style="color: var(--text-secondary); font-size: 12px;">One person per type (clinical, manager, billing). Same person may hold multiple types.</small>
+              <small class="supervisor-eligibility-hint">{{ supervisorTypeHint }}</small>
             </div>
             <div v-if="tenantOptions.length > 1">
               <label style="display: block; margin-bottom: 6px; font-weight: 500;">Tenant</label>
@@ -166,6 +174,11 @@ import { useAuthStore } from '../../store/auth';
 import { isSupervisor } from '../../utils/helpers.js';
 import { SUPERVISOR_TYPES, supervisorTypeLabel } from '../../constants/supervisorTypes.js';
 import { isTenantOrganization } from '../../utils/tenantOrganizations.js';
+import {
+  CLINICAL_BILLING_SUPERVISOR_LICENSE_HINT,
+  isClinicalOrBillingSupervisorCredentialText,
+  supervisorCredentialText
+} from '../../utils/credentialNormalization.js';
 
 const props = defineProps({
   supervisorId: {
@@ -229,6 +242,39 @@ const canCreateAssignment = computed(() => {
          newAssignment.value.agencyId &&
          tenantOptions.value.length > 0;
 });
+
+const requiresLicensedSupervisor = computed(() => {
+  const type = String(newAssignment.value.supervisorType || 'clinical').toLowerCase();
+  return type === 'clinical' || type === 'billing';
+});
+
+const eligibleSupervisors = computed(() => {
+  const list = Array.isArray(supervisors.value) ? supervisors.value : [];
+  if (!requiresLicensedSupervisor.value) return list;
+  return list.filter((u) => isClinicalOrBillingSupervisorCredentialText(supervisorCredentialText(u)));
+});
+
+const supervisorEligibilityHint = computed(() => {
+  if (requiresLicensedSupervisor.value) {
+    return `Clinical and billing supervisors must be a licensed provider (${CLINICAL_BILLING_SUPERVISOR_LICENSE_HINT}). Pre-licensed, candidate, associate, and bachelor's credentials under supervision cannot be selected.`;
+  }
+  return 'Manager supervisors typically need the role of Clinical Practice Assistant (CPA), Provider Plus, or admin. There is no license requirement for manager supervisors.';
+});
+
+const supervisorTypeHint = computed(() => {
+  if (requiresLicensedSupervisor.value) {
+    return `Requires a licensed provider credential: ${CLINICAL_BILLING_SUPERVISOR_LICENSE_HINT}.`;
+  }
+  return 'Typically CPA, Provider Plus, or admin for now (disclaimer — not hard-enforced).';
+});
+
+function formatSupervisorOption(supervisor) {
+  const name = `${supervisor.first_name || ''} ${supervisor.last_name || ''}`.trim() || 'User';
+  const cred = supervisorCredentialText(supervisor);
+  const email = supervisor.email || '';
+  if (cred) return `${name} — ${cred} (${email})`;
+  return `${name} (${email})`;
+}
 
 const syncAutoTenant = () => {
   if (tenantOptions.value.length === 1) {
@@ -455,6 +501,18 @@ watch(
   }
 );
 
+watch(
+  () => [newAssignment.value.supervisorType, eligibleSupervisors.value.map((u) => u.id).join(',')],
+  () => {
+    const selected = Number(newAssignment.value.supervisorId || 0);
+    if (!selected) return;
+    const allowed = eligibleSupervisors.value.some((u) => Number(u.id) === selected);
+    if (!allowed) {
+      newAssignment.value.supervisorId = props.supervisorId || '';
+    }
+  }
+);
+
 // Watch for supervisee prop changes
 watch(() => props.superviseeId, async (newSuperviseeId) => {
   if (newSuperviseeId) {
@@ -540,5 +598,17 @@ onMounted(async () => {
 
 .error {
   color: #dc3545;
+}
+
+.supervisor-eligibility-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.supervisor-eligibility-hint--warn {
+  color: #842029;
 }
 </style>

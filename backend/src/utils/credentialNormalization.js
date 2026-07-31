@@ -70,23 +70,32 @@ export function deriveCredentialTierFromText({ userRole, providerCredentialText 
  * insurance credentialing (LPC, LCSW, LMFT/MFT, LAC, Licensed Psychologist).
  * Pre-licensed / candidate credentials (LPCC, MFTC, SWC, etc.) are excluded.
  */
-export function isFullyLicensedCredentialText(raw) {
+function isPrelicensedOrUnderSupervisionCredentialText(raw) {
   const s = safeText(raw);
   if (!s) return false;
   const upper = s.toUpperCase();
 
-  // Pre-licensed / associate-level — not insurance-credentialing eligible
-  if (/\bINTERN\b/.test(upper)) return false;
-  if (/\bUNLICENSED\b/.test(upper)) return false;
-  if (/\bPRE[- ]?LICENSED\b/.test(upper) || /\bPRELICENSED\b/.test(upper)) return false;
-  if (/\bLPCC\b/.test(upper)) return false;
-  if (/\bSWC\b/.test(upper)) return false;
-  if (/\bMFTC\b/.test(upper)) return false;
-  if (/\bCANDIDATE\b/.test(upper)) return false;
-  if (/\bASSOCIATE\b/.test(upper)) return false;
-  if (/\bLPC-A\b/.test(upper) || /\bLPC-ASSOCIATE\b/.test(upper)) return false;
+  // Pre-licensed / associate-level — not eligible to supervise clinically
+  if (/\bINTERN\b/.test(upper)) return true;
+  if (/\bUNLICENSED\b/.test(upper)) return true;
+  if (/\bPRE[- ]?LICENSED\b/.test(upper) || /\bPRELICENSED\b/.test(upper)) return true;
+  if (/\bLPCC\b/.test(upper)) return true;
+  if (/\bSWC\b/.test(upper)) return true;
+  if (/\bMFTC\b/.test(upper)) return true;
+  if (/\bCANDIDATE\b/.test(upper)) return true;
+  if (/\bASSOCIATE\b/.test(upper)) return true;
+  if (/\bLPC-A\b/.test(upper) || /\bLPC-ASSOCIATE\b/.test(upper)) return true;
   // LSW alone is not fully licensed; LCSW is
-  if (/\bLSW\b/.test(upper) && !/\bLCSW\b/.test(upper)) return false;
+  if (/\bLSW\b/.test(upper) && !/\bLCSW\b/.test(upper)) return true;
+  if (isBachelorsCredentialText(s)) return true;
+  return false;
+}
+
+export function isFullyLicensedCredentialText(raw) {
+  const s = safeText(raw);
+  if (!s) return false;
+  if (isPrelicensedOrUnderSupervisionCredentialText(s)) return false;
+  const upper = s.toUpperCase();
 
   if (/\bLCSW\b/.test(upper)) return true;
   if (/\bLPC\b/.test(upper)) return true;
@@ -104,6 +113,24 @@ export function isFullyLicensedCredentialText(raw) {
 
   return false;
 }
+
+/**
+ * Clinical / billing supervisors must hold a fully licensed credential:
+ * LPC, LCSW, LMFT/MFT, LAC, PsyD, or PhD (or licensed psychologist).
+ * Pre-licensed, candidate, associate, and bachelor's credentials are excluded.
+ */
+export function isClinicalOrBillingSupervisorCredentialText(raw) {
+  const s = safeText(raw);
+  if (!s) return false;
+  if (isPrelicensedOrUnderSupervisionCredentialText(s)) return false;
+  if (isFullyLicensedCredentialText(s)) return true;
+  // Allow bare PhD (without "psychologist" text) for clinical/billing supervisor eligibility
+  if (/\bPH\.?\s*D\.?\b/i.test(s) || /\bPHD\b/i.test(s)) return true;
+  return false;
+}
+
+export const CLINICAL_BILLING_SUPERVISOR_LICENSE_HINT =
+  'LPC, LCSW, LMFT, LAC, PsyD, or PhD';
 
 /** Licensed / pre-licensed credentials that require PYU license + background check review. */
 export const PROVIDER_YEAR_UPDATE_LICENSE_TOKENS = [

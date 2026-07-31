@@ -6,6 +6,34 @@ import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { normalizeSupervisorType, SUPERVISOR_TYPES } from '../constants/supervisorTypes.js';
 import { resolveTenantRootAgencyId } from '../utils/meDashboardTenantScope.js';
 import { isTenantOrganizationType } from '../utils/tenantOrganizations.js';
+import {
+  CLINICAL_BILLING_SUPERVISOR_LICENSE_HINT,
+  isClinicalOrBillingSupervisorCredentialText
+} from '../utils/credentialNormalization.js';
+import pool from '../config/database.js';
+
+async function resolveUserCredentialText(user) {
+  const fromUser = String(user?.credential || '').trim();
+  if (fromUser) return fromUser;
+  const userId = Number(user?.id || 0);
+  if (!userId) return '';
+  try {
+    const [rows] = await pool.execute(
+      `SELECT
+         MAX(CASE WHEN uifd.field_key = 'provider_credential' THEN uiv.value END) AS credential,
+         MAX(CASE WHEN uifd.field_key = 'provider_credential_license_type_number' THEN uiv.value END) AS license_type_number
+       FROM user_info_values uiv
+       JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+       WHERE uiv.user_id = ?
+         AND uifd.field_key IN ('provider_credential', 'provider_credential_license_type_number')`,
+      [userId]
+    );
+    const row = rows?.[0] || {};
+    return String(row.credential || row.license_type_number || '').trim();
+  } catch {
+    return '';
+  }
+}
 
 async function collectTenantIdsForUser(userId) {
   const agencies = await User.getAgencies(userId);
@@ -81,6 +109,17 @@ export const createAssignment = async (req, res, next) => {
           message: 'User must be a supervisor or have supervisor privileges (admin, super admin, or clinical practice assistant with supervisor privileges enabled)' 
         } 
       });
+    }
+
+    if (type === 'clinical' || type === 'billing') {
+      const credentialText = await resolveUserCredentialText(supervisor);
+      if (!isClinicalOrBillingSupervisorCredentialText(credentialText)) {
+        return res.status(400).json({
+          error: {
+            message: `Clinical and billing supervisors must be a licensed provider (${CLINICAL_BILLING_SUPERVISOR_LICENSE_HINT}). Pre-licensed, candidate, associate, and bachelor's credentials under supervision cannot be assigned.`
+          }
+        });
+      }
     }
 
     // Verify supervisee exists
