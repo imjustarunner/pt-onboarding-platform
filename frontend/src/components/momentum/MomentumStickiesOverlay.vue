@@ -59,6 +59,35 @@ const showRestorePopover = ref(false);
 const hiddenStickies = ref([]);
 const restoreLoading = ref(false);
 
+// Declared before watches — `{ immediate: true }` below calls fetchStickies during setup.
+const fetchStickies = async () => {
+  if (!userId.value) return;
+  try {
+    loading.value = true;
+    const { data } = await api.get(`/users/${userId.value}/momentum-stickies`);
+    momentumStore.setStickies(data || []);
+  } catch (err) {
+    console.error('Failed to fetch Momentum Stickies:', err);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const createSticky = async () => {
+  if (!userId.value) return;
+  try {
+    const current = momentumStore.stickies;
+    const { data } = await api.post(`/users/${userId.value}/momentum-stickies`, {
+      title: 'New Sticky',
+      position_x: 80 + current.length * 40,
+      position_y: 80 + current.length * 40
+    });
+    momentumStore.setStickies([...current, data]);
+  } catch (err) {
+    console.error('Failed to create Momentum Sticky:', err);
+  }
+};
+
 watch(userId, (id) => {
   if (id) fetchStickies();
 }, { immediate: true });
@@ -154,34 +183,6 @@ watch(() => momentumStore.pendingAddMultipleToSticky, async (payload) => {
     console.error('Failed to add multiple to sticky:', err);
   }
 });
-
-const fetchStickies = async () => {
-  if (!userId.value) return;
-  try {
-    loading.value = true;
-    const { data } = await api.get(`/users/${userId.value}/momentum-stickies`);
-    momentumStore.setStickies(data || []);
-  } catch (err) {
-    console.error('Failed to fetch Momentum Stickies:', err);
-  } finally {
-    loading.value = false;
-  }
-};
-
-const createSticky = async () => {
-  if (!userId.value) return;
-  try {
-    const current = momentumStore.stickies;
-    const { data } = await api.post(`/users/${userId.value}/momentum-stickies`, {
-      title: 'New Sticky',
-      position_x: 80 + current.length * 40,
-      position_y: 80 + current.length * 40
-    });
-    momentumStore.setStickies([...current, data]);
-  } catch (err) {
-    console.error('Failed to create Momentum Sticky:', err);
-  }
-};
 
 const updateSticky = async (sticky, patch) => {
   if (!userId.value) return;
