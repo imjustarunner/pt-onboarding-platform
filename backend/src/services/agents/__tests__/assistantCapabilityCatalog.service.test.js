@@ -215,8 +215,8 @@ test('profile section jump: licenses opens account licenses', () => {
     context: { routeName: 'OrganizationUserProfile', profileUserId: 7 }
   });
   assert.ok(intent);
-  assert.equal(intent.uiCommands?.[0]?.tabId, 'account');
-  assert.equal(intent.uiCommands?.[0]?.sectionId, 'licenses');
+  assert.equal(intent.uiCommands?.[0]?.tabId, 'provider_info');
+  assert.equal(intent.uiCommands?.[0]?.clinicalSubTab, 'license_certifications');
 });
 
 test('profile section jump: specialties opens clinical subtab', () => {

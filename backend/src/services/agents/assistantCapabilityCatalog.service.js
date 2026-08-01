@@ -769,6 +769,9 @@ function catalogEntries() {
           'ClientExchange'
         ]);
         if (!dashboardRoutes.has(routeName)) return false;
+        if (routeName === 'MyPayroll' && /\b(summary|paycheck|how much|last pay|unpaid)\b/.test(lower)) {
+          return false;
+        }
         if (/\b(open|go to|take me to|navigate|show me|visit)\b/.test(lower)) return true;
         const words = lower.split(/\s+/).filter(Boolean);
         return words.length <= 3;
@@ -942,6 +945,7 @@ function catalogEntries() {
       matcher: (lower, allowedTools) => {
         if (!allowedTools.has('searchUsers') && !allowedTools.has('searchProviders')) return false;
         if (/\b(online|idle|away|working|team\s+presence|office roster|booked in)\b/.test(lower)) return false;
+        if (/\boffice(s)?\b/.test(lower) && /\b(who|today|booked|staffed|roster)\b/.test(lower)) return false;
         if (/\b(start|schedule|cancel|reschedule)\b/.test(lower) && /\b(meeting|call|huddle)\b/.test(lower)) return false;
         if (parseUserIdFromPrompt(lower)) return false;
         if (/\b(intake|openings?|availab|open slots?)\b/.test(lower)) return false;
@@ -1749,7 +1753,8 @@ function catalogEntries() {
         if (
           allowedTools.has('navigateTo') &&
           /\b(open|go to|take me to|navigate|show me)\b/.test(lower) &&
-          /\b(payroll|paycheck|schedule|calendar|credentials|benefits|documents)\b/.test(lower)
+          /\b(payroll|paycheck|schedule|calendar|credentials|benefits|documents)\b/.test(lower) &&
+          !/\b(summary|paycheck amount|how much|last pay|unpaid documentation)\b/.test(lower)
         ) {
           return false;
         }
@@ -1915,7 +1920,8 @@ function catalogEntries() {
         const endDate = end.toISOString().slice(0, 10);
         
         // If they explicitly ask for a raw log, list, or a specific user's log, use search
-        const wantsRawLogs = /\b(log|list|details|raw)\b/.test(lower) || /\b(who|user)\b/.test(lower);
+        const wantsRawLogs =
+          /\b(log|list|details|raw|happened)\b/.test(lower) || /\b(who|user)\b/.test(lower);
 
         if (wantsRawLogs && allowedTools.has('searchAgencyActivity')) {
           return {
