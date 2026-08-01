@@ -35,6 +35,8 @@ export function clearLoginNotificationDismissed() {
 export function signalFreshLogin() {
   clearLoginNotificationDismissed();
   try {
+    sessionStorage.setItem('justLoggedIn', 'true');
+    sessionStorage.setItem('justLoggedInAt', String(Date.now()));
     window.dispatchEvent(new CustomEvent('app:just-logged-in'));
   } catch {
     // ignore

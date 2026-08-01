@@ -23,6 +23,7 @@ import { isSstcTenantSlug } from '../config/tenantAppProfiles.js';
 import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuildersSchoolProgramAccess.js';
 import { isBookClubAgency, getBookClubParentSlug } from '../utils/bookClubAgency.js';
+import { signalFreshLogin } from '../composables/useReminderSnooze.js';
 import {
   isTenantOrganizationType,
   isNestedOrganizationType,
@@ -3960,6 +3961,10 @@ router.beforeEach(async (to, from, next) => {
       const u = resp?.data || null;
       if (!u || (!u.id && !u.email)) return false;
       authStore.setAuth(null, u, localStorage.getItem('sessionId') || null);
+      // Google OAuth returns with an HttpOnly cookie instead of going through
+      // authStore.login(). Preserve the same fresh-login signal used by password,
+      // passwordless, and biometric flows so privileged briefings open reliably.
+      if (String(to.query?.sso || '') === '1') signalFreshLogin();
       return true;
     } catch {
       return false;

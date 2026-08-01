@@ -58,5 +58,7 @@ describe('useReminderSnooze', () => {
     expect(isLoginNotificationDismissed()).toBe(true);
     signalFreshLogin();
     expect(isLoginNotificationDismissed()).toBe(false);
+    expect(sessionStorage.getItem('justLoggedIn')).toBe('true');
+    expect(Number(sessionStorage.getItem('justLoggedInAt'))).toBeGreaterThan(0);
   });
 });
