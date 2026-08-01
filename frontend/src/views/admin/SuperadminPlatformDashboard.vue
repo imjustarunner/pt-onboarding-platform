@@ -62,7 +62,20 @@
             <div class="pthq-user-role">Super Administrator</div>
           </div>
         </div>
-        <button type="button" class="pthq-classic" @click="goClassic">Classic dashboard</button>
+        <div class="pthq-sidebar-actions">
+          <button type="button" class="pthq-classic" @click="goClassic">Classic dashboard</button>
+          <button
+            type="button"
+            class="pthq-logout"
+            :disabled="loggingOut"
+            @click="handleLogout"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M10 17l5-5-5-5M15 12H3M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+            </svg>
+            {{ loggingOut ? 'Signing out…' : 'Log out' }}
+          </button>
+        </div>
       </div>
     </aside>
 
@@ -383,6 +396,7 @@ const stats = ref({
 const myOpenTickets = ref('—');
 const refreshedAt = ref(null);
 const weekStartYmd = ref('');
+const loggingOut = ref(false);
 
 const setPanel = (next) => {
   const p = VALID_PANELS.has(String(next || '')) ? String(next) : 'overview';
@@ -713,6 +727,16 @@ const goClassic = () => {
   router.push({ path: '/admin', query: { classic: '1' } });
 };
 
+const handleLogout = async () => {
+  if (loggingOut.value) return;
+  loggingOut.value = true;
+  try {
+    await authStore.logout();
+  } finally {
+    loggingOut.value = false;
+  }
+};
+
 onMounted(fetchAll);
 </script>
 
@@ -857,6 +881,11 @@ onMounted(fetchAll);
 }
 .pthq-user-name { font-size: 0.82rem; font-weight: 600; }
 .pthq-user-role { font-size: 0.7rem; color: var(--muted); }
+.pthq-sidebar-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
 .pthq-classic {
   width: 100%;
   border: 1px solid var(--line);
@@ -866,6 +895,39 @@ onMounted(fetchAll);
   padding: 0.45rem;
   cursor: pointer;
   font-size: 0.78rem;
+}
+.pthq-logout {
+  width: 100%;
+  border: 1px solid rgba(248, 113, 113, 0.32);
+  background: rgba(127, 29, 29, 0.16);
+  color: #fca5a5;
+  border-radius: 9px;
+  padding: 0.45rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+.pthq-logout svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+.pthq-logout:hover:not(:disabled) {
+  background: rgba(153, 27, 27, 0.3);
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fecaca;
+}
+.pthq-logout:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .pthq-main {

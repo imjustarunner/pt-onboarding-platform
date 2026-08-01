@@ -2099,10 +2099,14 @@
       <StatusPromptModal />
       <AwaySessionOverlay />
       <LoginSplashModal
-        v-if="loginSplashVisible && loginSplashSeasons.length"
+        v-if="loginSplashVisible && loginSplashSeasons.length && !isAdminLike"
         :seasons="loginSplashSeasons"
         :last-logout-at="loginSplashLastLogout"
         @dismiss="loginSplashVisible = false"
+      />
+      <PrivilegedLoginBriefingModal
+        v-if="isAuthenticated"
+        :login-trigger="privilegedLoginBriefingTrigger"
       />
       <PoweredByFooter v-if="isAuthenticated && !isImmersiveJoinRoute" />
       <Teleport to="body">
@@ -2310,6 +2314,7 @@ import StatusPromptModal from './components/StatusPromptModal.vue';
 import AwaySessionOverlay from './components/AwaySessionOverlay.vue';
 import LogoutStatusSplit from './components/LogoutStatusSplit.vue';
 import LoginSplashModal from './components/LoginSplashModal.vue';
+import PrivilegedLoginBriefingModal from './components/admin/PrivilegedLoginBriefingModal.vue';
 import UserAvatar from './components/common/UserAvatar.vue';
 import { usePresenceSessionStore } from './store/presenceSession';
 import { availabilityBandForPerson } from './utils/presenceStatus';
@@ -3964,7 +3969,7 @@ const isAdmin = computed(() => {
 
 const isAdminLike = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();
-  return role === 'admin' || role === 'super_admin' || role === 'support';
+  return role === 'admin' || role === 'super_admin' || role === 'superadmin' || role === 'support';
 });
 
 /** Desktop top-bar word links/dropdowns — only admin / super_admin / support. */
@@ -5446,9 +5451,15 @@ const notificationsUnreadLabel = computed(() => (
 const showLoginNotificationsModal = ref(false);
 const notificationsNudgeVisible = ref(false);
 const loginNotificationGateConsumed = ref(false);
+const privilegedLoginBriefingTrigger = ref(0);
 
 const resetLoginNotificationGate = () => {
   loginNotificationGateConsumed.value = false;
+};
+
+const handleFreshLoginSignal = () => {
+  resetLoginNotificationGate();
+  privilegedLoginBriefingTrigger.value = Date.now();
 };
 
 const closeLoginNotificationsPrompt = ({ showNudge = false, defer = false } = {}) => {
@@ -5953,7 +5964,7 @@ watch(() => route.params.organizationSlug, async (newSlug) => {
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick);
-  window.addEventListener('app:just-logged-in', resetLoginNotificationGate);
+  window.addEventListener('app:just-logged-in', handleFreshLoginSignal);
   window.addEventListener('school-clients-pending-changed', fetchSchoolClientsPendingCount);
   router.afterEach(() => closeAllNavMenus());
 
@@ -6110,7 +6121,7 @@ onMounted(async () => {
 onUnmounted(() => {
   unbindNavLinksScrollHelpers();
   document.removeEventListener('click', onDocumentClick);
-  window.removeEventListener('app:just-logged-in', resetLoginNotificationGate);
+  window.removeEventListener('app:just-logged-in', handleFreshLoginSignal);
   window.removeEventListener('school-clients-pending-changed', fetchSchoolClientsPendingCount);
   window.removeEventListener('superadmin-preview-updated', onPreviewUpdated);
   stopActivityTracking();

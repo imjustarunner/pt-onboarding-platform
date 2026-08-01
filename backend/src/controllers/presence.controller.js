@@ -1153,6 +1153,104 @@ export const listAdminPresence = async (req, res, next) => {
   }
 };
 
+/**
+ * Login briefing: currently signed-in admin/support/superadmin peers.
+ * Admin/support are restricted to people sharing at least one tenant membership;
+ * superadmin receives the platform-wide privileged set. Inactive/archived accounts
+ * are excluded at the database boundary, not merely hidden by the client.
+ * GET /api/presence/privileged
+ */
+export const listPrivilegedPresence = async (req, res, next) => {
+  try {
+    const viewerRole = String(req.user?.role || '').trim().toLowerCase();
+    if (!['admin', 'support', 'super_admin', 'superadmin'].includes(viewerRole)) {
+      return res.status(403).json({ error: { message: 'Admin or support access required' } });
+    }
+
+    await UserPresenceStatus.clearExpiredTimedAwayStatuses();
+
+    let membershipJoinSql = '';
+    let scopeSql = '';
+    const membershipParams = [];
+    const scopeParams = [];
+    if (viewerRole !== 'super_admin' && viewerRole !== 'superadmin') {
+      const memberships = await User.getAgencies(req.user.id);
+      const agencyIds = [...new Set((memberships || [])
+        .map((agency) => Number(agency?.id || 0))
+        .filter((id) => Number.isInteger(id) && id > 0))];
+      if (!agencyIds.length) return res.json([]);
+      // Limit returned tenant names/ids to the viewer's shared scope as well.
+      // The EXISTS clause alone would authorize the person but leak their other affiliations.
+      membershipJoinSql = `AND ua.agency_id IN (${agencyIds.map(() => '?').join(',')})`;
+      membershipParams.push(...agencyIds);
+      scopeSql = `AND EXISTS (
+        SELECT 1 FROM user_agencies viewer_scope
+        WHERE viewer_scope.user_id = u.id
+          AND viewer_scope.agency_id IN (${agencyIds.map(() => '?').join(',')})
+      )`;
+      scopeParams.push(...agencyIds);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT u.id,
+              u.first_name,
+              u.last_name,
+              u.preferred_name,
+              u.email,
+              u.role,
+              u.profile_photo_path,
+              up.last_heartbeat_at,
+              up.last_activity_at,
+              up.session_phase,
+              up.availability_level,
+              ${PRESENCE_STATUS_JOIN},
+              GROUP_CONCAT(DISTINCT a.id ORDER BY a.name SEPARATOR ',') AS agency_ids,
+              GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') AS agency_names
+       FROM users u
+       LEFT JOIN user_presence up ON up.user_id = u.id
+       LEFT JOIN user_presence_status ps ON ps.user_id = u.id
+       LEFT JOIN user_agencies ua ON ua.user_id = u.id ${membershipJoinSql}
+       LEFT JOIN agencies a ON a.id = ua.agency_id AND COALESCE(a.is_active, 1) = 1
+       WHERE LOWER(COALESCE(u.role, '')) IN ('admin', 'support', 'super_admin', 'superadmin')
+         AND COALESCE(u.is_archived, 0) = 0
+         AND COALESCE(u.is_active, 1) = 1
+         AND UPPER(COALESCE(u.status, 'ACTIVE_EMPLOYEE')) NOT IN ('INACTIVE', 'INACTIVE_EMPLOYEE', 'ARCHIVED')
+         AND (u.id = ? OR up.last_heartbeat_at >= DATE_SUB(NOW(), INTERVAL 6 MINUTE))
+         ${scopeSql}
+       GROUP BY u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.role,
+                u.profile_photo_path, up.last_heartbeat_at, up.last_activity_at,
+                up.session_phase, up.availability_level, ps.status, ps.note,
+                ps.started_at, ps.ends_at, ps.expected_return_at, ps.reason,
+                ps.display_label, ps.session_extend_until
+       ORDER BY (u.id = ?) DESC, u.first_name ASC, u.last_name ASC`,
+      [...membershipParams, Number(req.user.id), ...scopeParams, Number(req.user.id)]
+    );
+
+    const mapped = mapChatPresenceRows(rows || [], req.user.role)
+      .map((row) => Number(row.id) === Number(req.user.id) && row.status === 'offline'
+        ? {
+            ...row,
+            status: 'online',
+            availability_band: 'available',
+            status_label: 'Active'
+          }
+        : row)
+      .filter((row) => row.status === 'online' || row.status === 'idle')
+      .map((row) => ({
+        ...row,
+        agency_ids: String(row.agency_ids || '')
+          .split(',')
+          .map((value) => Number(value))
+          .filter((value) => Number.isInteger(value) && value > 0),
+        profile_photo_url: publicUploadsUrlFromStoredPath(row.profile_photo_path)
+      }));
+
+    res.json(await attachCalendarBusyToPresenceRows(mapped));
+  } catch (e) {
+    next(e);
+  }
+};
+
 // --- Team Board presence (status-based: In/Out/Traveling) ---
 
 /**
@@ -1743,4 +1841,3 @@ export const nudgeUserPresence = async (req, res, next) => {
     next(e);
   }
 };
-

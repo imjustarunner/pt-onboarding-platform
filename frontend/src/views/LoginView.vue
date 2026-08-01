@@ -698,6 +698,14 @@ const tryBiometricLogin = async () => {
   const result = await authenticateWithBiometrics('Sign in to Summit Stats');
   if (result.success && result.token) {
     authStore.setAuth(result.token, result.user);
+    try {
+      sessionStorage.setItem('justLoggedIn', 'true');
+      sessionStorage.setItem('justLoggedInAt', String(Date.now()));
+      const { signalFreshLogin } = await import('../composables/useReminderSnooze.js');
+      signalFreshLogin();
+    } catch {
+      // A storage restriction should never block biometric sign-in.
+    }
     const dest = getDashboardRoute(result.user, loginSlug.value || 'sstc');
     await router.replace(dest);
   } else {

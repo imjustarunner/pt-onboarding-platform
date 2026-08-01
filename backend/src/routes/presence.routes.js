@@ -5,6 +5,7 @@ import {
   getMyPresence,
   listAgencyPresence,
   listAdminPresence,
+  listPrivilegedPresence,
   listPresence,
   listPresenceForAgency,
   getMyPresenceStatus,
@@ -30,6 +31,7 @@ router.post('/offline', markOffline);
 router.get('/agency/:agencyId/team', listPresenceForAgency);
 router.get('/agency/:agencyId', listAgencyPresence);
 router.get('/admins', listAdminPresence);
+router.get('/privileged', listPrivilegedPresence);
 
 // Team Board presence (status-based: In/Out/Traveling) + rich away flow
 router.get('/', requireSuperAdmin, listPresence);
@@ -42,4 +44,3 @@ router.put('/status/:userId', requireSuperAdmin, updateUserPresence);
 router.post('/status/:userId/nudge', requireSuperAdmin, nudgeUserPresence);
 
 export default router;
-

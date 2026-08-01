@@ -1,0 +1,828 @@
+<template>
+  <Teleport to="body">
+    <Transition name="briefing-fade">
+      <div
+        v-if="visible"
+        class="briefing-overlay"
+        role="presentation"
+        @click.self="dismiss"
+      >
+        <section
+          class="briefing-modal"
+          :class="{
+            'briefing-modal--platform': isSuperadmin,
+            'briefing-modal--multi': brandedAgencies.length > 1
+          }"
+          :style="brandVars"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="privileged-briefing-title"
+          @keydown.esc="dismiss"
+        >
+          <div class="briefing-brand-rail" aria-hidden="true">
+            <div class="brand-logo-stack">
+              <div
+                v-for="(agency, index) in visibleBrandAgencies"
+                :key="agency.id || agency.slug || index"
+                class="brand-logo-wrap"
+                :title="agency.name"
+              >
+                <img v-if="agency.logo" :src="agency.logo" alt="" class="brand-logo" />
+                <span v-else class="brand-logo-fallback">{{ agency.initials }}</span>
+              </div>
+              <div v-if="hiddenBrandCount" class="brand-logo-wrap brand-logo-more">
+                +{{ hiddenBrandCount }}
+              </div>
+            </div>
+          </div>
+
+          <button class="briefing-close" type="button" aria-label="Close login briefing" @click="dismiss">×</button>
+
+          <header class="briefing-header">
+            <div>
+              <div class="briefing-eyebrow">{{ isSuperadmin ? 'Platform command center' : tenantContextLabel }}</div>
+              <h1 id="privileged-briefing-title">Welcome back, {{ firstName }}</h1>
+              <p>Here’s what needs your attention across your organization{{ brandedAgencies.length === 1 ? '' : 's' }} today.</p>
+            </div>
+            <time class="briefing-date" :datetime="todayIso">
+              <span class="date-icon" aria-hidden="true">▦</span>
+              <span><strong>{{ dateLabel }}</strong><small>{{ weekdayLabel }}</small></span>
+            </time>
+          </header>
+
+          <div v-if="brandedAgencies.length > 1 && !isSuperadmin" class="tenant-strip" aria-label="Affiliated tenants">
+            <span>Combined briefing</span>
+            <span
+              v-for="agency in brandedAgencies"
+              :key="`tenant-${agency.id || agency.slug}`"
+              class="tenant-chip"
+              :style="{ '--tenant-color': agency.primary }"
+            >{{ agency.name }}</span>
+          </div>
+
+          <div v-if="loading" class="briefing-loading" role="status">
+            <span class="briefing-spinner" aria-hidden="true"></span>
+            Building your personalized briefing…
+          </div>
+
+          <template v-else>
+            <div v-if="loadError" class="briefing-warning" role="status">
+              Some live information could not be loaded. The available sections are shown below.
+            </div>
+
+            <div class="briefing-layout">
+              <div class="briefing-main">
+                <div v-if="sections.length" class="briefing-card-grid">
+                  <article
+                    v-for="section in sections"
+                    :key="section.key"
+                    class="briefing-card"
+                    :class="`briefing-card--${section.tone}`"
+                  >
+                    <header class="card-header">
+                      <span class="card-icon" aria-hidden="true">{{ section.icon }}</span>
+                      <div>
+                        <div class="card-kicker">{{ section.title }}</div>
+                        <div class="card-count"><strong>{{ section.count }}</strong> {{ section.countLabel }}</div>
+                      </div>
+                    </header>
+                    <button
+                      v-for="item in section.items.slice(0, 3)"
+                      :key="item.id"
+                      type="button"
+                      class="briefing-item"
+                      @click="navigate(section.to)"
+                    >
+                      <span class="item-dot" aria-hidden="true"></span>
+                      <span class="item-copy">
+                        <strong>{{ item.label }}</strong>
+                        <small v-if="item.meta">{{ item.meta }}</small>
+                      </span>
+                      <span v-if="item.badge" class="item-badge" :class="`item-badge--${item.badgeTone || 'neutral'}`">
+                        {{ item.badge }}
+                      </span>
+                    </button>
+                    <button class="card-link" type="button" @click="navigate(section.to)">
+                      {{ section.action }} <span aria-hidden="true">→</span>
+                    </button>
+                  </article>
+                </div>
+
+                <div v-else class="all-clear-card">
+                  <span aria-hidden="true">✓</span>
+                  <div><strong>You’re all caught up.</strong><small>No new assigned items need your attention right now.</small></div>
+                </div>
+
+                <div class="at-a-glance" aria-label="At a glance">
+                  <div class="glance-title"><span aria-hidden="true">▥</span> At a glance</div>
+                  <div v-for="metric in glanceMetrics" :key="metric.label" class="glance-metric">
+                    <strong>{{ metric.value }}</strong>
+                    <span>{{ metric.label }}</span>
+                    <small v-if="metric.hint">{{ metric.hint }}</small>
+                  </div>
+                </div>
+              </div>
+
+              <aside class="briefing-side">
+                <section v-if="activePeople.length" class="presence-card">
+                  <header>
+                    <div class="side-kicker">Who’s currently logged in</div>
+                    <div class="active-session-count"><span></span> Active sessions ({{ activePeople.length }})</div>
+                  </header>
+                  <button
+                    v-for="person in activePeople.slice(0, 7)"
+                    :key="person.id"
+                    type="button"
+                    class="presence-person"
+                    @click="navigate('/admin/presence')"
+                  >
+                    <img v-if="person.profile_photo_url" :src="person.profile_photo_url" alt="" />
+                    <span v-else class="person-avatar">{{ person.initials }}</span>
+                    <span class="person-copy">
+                      <strong>{{ person.name }}{{ Number(person.id) === Number(userId) ? ' (You)' : '' }}</strong>
+                      <small>{{ person.agency_names || roleLabel(person.role) }}</small>
+                    </span>
+                    <span class="person-status" :class="`person-status--${person.availability_band || 'available'}`">
+                      {{ presenceBandLabel(person) }}
+                    </span>
+                  </button>
+                  <button class="card-link" type="button" @click="navigate('/admin/presence')">
+                    View Team Board <span aria-hidden="true">→</span>
+                  </button>
+                </section>
+
+                <button v-if="urgentCount" class="urgent-card" type="button" @click="navigate(urgentDestination)">
+                  <span class="urgent-icon" aria-hidden="true">△</span>
+                  <span><small>Urgent items</small><strong>{{ urgentCount }}</strong> require immediate attention</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+
+                <section class="security-card">
+                  <span aria-hidden="true">♢</span>
+                  <div><strong>Security tip</strong><p>If you see an unfamiliar active session or account activity, sign out and reset your password.</p></div>
+                </section>
+              </aside>
+            </div>
+          </template>
+
+          <footer class="briefing-footer">
+            <label class="dont-show-label">
+              <input v-model="dontShowAgain" type="checkbox" />
+              <span>Don’t show this briefing again on this device</span>
+            </label>
+            <button class="enter-dashboard" type="button" @click="dismiss">
+              <span aria-hidden="true">▣</span> Enter Dashboard
+            </button>
+          </footer>
+        </section>
+      </div>
+    </Transition>
+  </Teleport>
+</template>
+
+<script setup>
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
+import { useBrandingStore } from '../../store/branding';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
+import {
+  SUPERADMIN_BRIEFING_PALETTE,
+  activeBriefingSections,
+  buildTenantBlend,
+  isLivePrivilegedPresence,
+  isPrivilegedLoginBriefingUser,
+  parseBrandPalette
+} from '../../utils/privilegedLoginBriefing';
+
+const props = defineProps({
+  loginTrigger: { type: [Number, String], default: 0 }
+});
+
+const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
+const router = useRouter();
+
+const visible = ref(false);
+const loading = ref(false);
+const loadError = ref(false);
+const dontShowAgain = ref(false);
+const briefing = ref({ notifications: null, messages: null, tickets: null, tasks: null, escalations: null, calendar: null });
+const activePeopleRaw = ref([]);
+const affiliationRows = ref([]);
+let requestGeneration = 0;
+const BRIEFING_REQUEST_TIMEOUT_MS = 12000;
+
+const userId = computed(() => authStore.user?.id || null);
+const role = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isSuperadmin = computed(() => role.value === 'super_admin' || role.value === 'superadmin');
+const firstName = computed(() => String(
+  authStore.user?.preferredName || authStore.user?.preferred_name || authStore.user?.firstName || authStore.user?.first_name || 'Admin'
+).trim().split(/\s+/)[0] || 'Admin');
+
+const platformPalette = computed(() => {
+  if (isSuperadmin.value) return SUPERADMIN_BRIEFING_PALETTE;
+  const pb = brandingStore.platformBranding || {};
+  return {
+    primary: pb.primary_color || '#1f6b4a',
+    secondary: pb.secondary_color || '#0f2f27',
+    accent: pb.accent_color || pb.primary_color || '#2f8c68'
+  };
+});
+
+function agencyLogo(agency) {
+  const direct = agency?.logo_url ?? agency?.logoUrl;
+  if (direct) return String(direct).startsWith('http') ? direct : toUploadsUrl(direct);
+  const path = agency?.logo_path ?? agency?.logoPath ?? agency?.icon_file_path;
+  return path ? toUploadsUrl(path) : null;
+}
+
+function initialsFor(value) {
+  return String(value || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'PT';
+}
+
+const brandedAgencies = computed(() => {
+  if (isSuperadmin.value) {
+    const pb = brandingStore.platformBranding || {};
+    const name = pb.organization_name || 'Plot Twist Co.';
+    return [{
+      id: 'platform',
+      slug: 'platform',
+      name,
+      logo: brandingStore.displayLogoUrl || brandingStore.plotTwistCoLogoUrl || '/logos/plottwistco-logo.svg',
+      initials: initialsFor(name),
+      ...SUPERADMIN_BRIEFING_PALETTE
+    }];
+  }
+  return (affiliationRows.value || []).map((agency) => ({
+    ...agency,
+    ...parseBrandPalette(agency, platformPalette.value),
+    logo: agencyLogo(agency),
+    initials: initialsFor(agency?.name)
+  }));
+});
+
+const visibleBrandAgencies = computed(() => brandedAgencies.value.slice(0, 4));
+const hiddenBrandCount = computed(() => Math.max(0, brandedAgencies.value.length - visibleBrandAgencies.value.length));
+const tenantContextLabel = computed(() => {
+  if (brandedAgencies.value.length === 1) return brandedAgencies.value[0].name;
+  if (brandedAgencies.value.length > 1) return `${brandedAgencies.value.length} affiliated tenants`;
+  return 'Administrative briefing';
+});
+
+const brandVars = computed(() => {
+  const first = brandedAgencies.value[0] || platformPalette.value;
+  return {
+    '--brief-primary': first.primary || platformPalette.value.primary,
+    '--brief-secondary': first.secondary || platformPalette.value.secondary,
+    '--brief-accent': first.accent || platformPalette.value.accent,
+    '--brief-blend': buildTenantBlend(brandedAgencies.value, platformPalette.value)
+  };
+});
+
+const now = new Date();
+const todayIso = now.toISOString().slice(0, 10);
+const dateLabel = now.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' });
+const weekdayLabel = now.toLocaleDateString([], { weekday: 'long' });
+
+const prefix = computed(() => {
+  // Multi-tenant briefings navigate to the flat/global workspaces so the selected
+  // destination preserves the same combined scope represented by this modal.
+  if (isSuperadmin.value || brandedAgencies.value.length !== 1) return '';
+  const slug = String(router.currentRoute.value.params?.organizationSlug || '').trim();
+  if (slug) return `/${slug}`;
+  const preferred = brandedAgencies.value.find((agency) => agency.slug || agency.portal_url);
+  const preferredSlug = String(preferred?.slug || preferred?.portal_url || '').trim();
+  return preferredSlug ? `/${preferredSlug}` : '';
+});
+
+const sections = computed(() => activeBriefingSections(briefing.value));
+const activePeople = computed(() => activePeopleRaw.value
+  .filter(isLivePrivilegedPresence)
+  .map((person) => ({
+    ...person,
+    name: [person.preferred_name || person.first_name, person.last_name].filter(Boolean).join(' ') || person.email || 'Team member',
+    initials: initialsFor([person.first_name, person.last_name].filter(Boolean).join(' '))
+  })));
+
+const urgentCount = computed(() => {
+  const urgentTickets = (briefing.value.tickets?.items || []).filter((item) => item.badgeTone === 'danger').length;
+  const urgentEscalations = Number(briefing.value.escalations?.count || 0);
+  const overdueTasks = (briefing.value.tasks?.items || []).filter((item) => item.badgeTone === 'danger').length;
+  return urgentTickets + urgentEscalations + overdueTasks;
+});
+const urgentDestination = computed(() => briefing.value.escalations?.count
+  ? `${prefix.value}/admin/escalations?mine=true`
+  : `${prefix.value}/tickets?mine=true`);
+
+const glanceMetrics = computed(() => [
+  { value: isSuperadmin.value ? 'Platform' : brandedAgencies.value.length, label: isSuperadmin.value ? 'Scope' : 'Tenant affiliations' },
+  { value: sections.value.reduce((sum, section) => sum + Number(section.count || 0), 0), label: 'Items needing attention' },
+  { value: activePeople.value.length, label: 'Privileged sessions', hint: 'Active or away' },
+  { value: Number(briefing.value.calendar?.count || 0), label: 'Calendar today' }
+]);
+
+function storageKey() {
+  return `pt.privilegedLoginBriefing.disabled:${userId.value || 0}`;
+}
+
+function isDisabled() {
+  try { return localStorage.getItem(storageKey()) === '1'; } catch { return false; }
+}
+
+function relativeTime(raw) {
+  const ms = new Date(raw || 0).getTime();
+  if (!Number.isFinite(ms)) return '';
+  const minutes = Math.max(0, Math.round((Date.now() - ms) / 60000));
+  if (minutes < 1) return 'Now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h ago`;
+  return `${Math.floor(minutes / 1440)}d ago`;
+}
+
+function localYmd(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function mondayYmd() {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  const day = date.getDay();
+  date.setDate(date.getDate() + ((day === 0 ? -6 : 1) - day));
+  return localYmd(date);
+}
+
+function formatTime(raw) {
+  const date = new Date(raw || 0);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function unwrapList(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.notifications)) return data.notifications;
+  return [];
+}
+
+function todayScheduleItems(data) {
+  const rows = [
+    ...(data?.officeEvents || []),
+    ...(data?.scheduleEvents || []),
+    ...(data?.supervisionSessions || [])
+  ];
+  return rows
+    .map((item, index) => {
+      const startsAt = item.startAt || item.startsAt || item.startDate;
+      const date = new Date(startsAt || 0);
+      if (Number.isNaN(date.getTime()) || localYmd(date) !== localYmd()) return null;
+      return {
+        id: `calendar-${item.id || index}`,
+        label: item.title || item.counterpartyName || item.buildingName || 'Scheduled event',
+        meta: formatTime(startsAt),
+        sortAt: date.getTime()
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.sortAt - b.sortAt);
+}
+
+function roleLabel(value) {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'super_admin' || normalized === 'superadmin') return 'Superadmin';
+  if (normalized === 'support') return 'Support';
+  return 'Admin';
+}
+
+function presenceBandLabel(person) {
+  const band = String(person?.availability_band || '').toLowerCase();
+  if (band === 'away_reachable') return 'Away · reachable';
+  if (band === 'unavailable') return 'Unavailable';
+  if (band === 'available_offline') return 'Available · logged out';
+  return person?.status === 'idle' ? 'Away · reachable' : 'Available';
+}
+
+function baseSection({ title, icon, tone, count, countLabel, items, action, to }) {
+  return { title, icon, tone, count: Number(count || 0), countLabel, items: items || [], action, to };
+}
+
+async function loadBriefing() {
+  const generation = ++requestGeneration;
+  loading.value = true;
+  loadError.value = false;
+  briefing.value = { notifications: null, messages: null, tickets: null, tasks: null, escalations: null, calendar: null };
+  activePeopleRaw.value = [];
+  // Open at once so a slow dashboard endpoint can never delay the login experience.
+  // Cards populate after the personalized data has settled.
+  visible.value = true;
+
+  try {
+    if (!isSuperadmin.value) {
+      const current = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+      affiliationRows.value = current.length ? current : (await agencyStore.fetchUserAgencies());
+    } else {
+      affiliationRows.value = [];
+    }
+
+    const requests = await Promise.allSettled([
+      api.get('/notifications/counts', {
+        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      }),
+      api.get('/notifications', {
+        params: { isRead: false, isResolved: false, limit: 30 },
+        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      }),
+      api.get('/messages/dashboard-summary', {
+        params: { allAgencies: 1 },
+        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      }),
+      api.get('/support-tickets', {
+        params: { status: 'open', mine: true, ticketKind: 'support', limit: 30 },
+        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      }),
+      api.get('/tasks', {
+        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      }),
+      api.get('/support-tickets', {
+        params: { mine: true, ticketKind: 'escalation', limit: 30 },
+        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      }),
+      api.get(`/users/${userId.value}/schedule-summary`, {
+        params: { weekStart: mondayYmd(), includeAllAgencies: true },
+        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      }),
+      api.get('/presence/privileged', {
+        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      })
+    ]);
+
+    if (generation !== requestGeneration) return;
+    loadError.value = requests.some((request) => request.status === 'rejected');
+    const value = (index, fallback = null) => requests[index].status === 'fulfilled'
+      ? requests[index].value?.data
+      : fallback;
+
+    const notificationCounts = value(0, {});
+    const notificationList = unwrapList(value(1, []));
+    const unreadNotifications = notificationList.filter((item) => {
+      const read = item._is_read_for_viewer ?? item.is_read;
+      return !read && !item.is_resolved;
+    });
+    const notificationCount = Math.max(
+      Object.values(notificationCounts || {}).reduce((sum, count) => sum + Number(count || 0), 0),
+      unreadNotifications.length
+    );
+
+    const messageData = value(2, {});
+    const messageCount = Number(messageData?.cards?.unread || 0);
+    const ticketRows = unwrapList(value(3, []));
+    const taskRows = unwrapList(value(4, [])).filter((task) => ['pending', 'in_progress'].includes(String(task?.status || 'pending').toLowerCase()));
+    const escalationRows = unwrapList(value(5, [])).filter((item) => !['resolved', 'closed'].includes(String(item?.escalation_status || item?.status || '').toLowerCase()));
+    const calendarRows = todayScheduleItems(value(6, {}));
+    activePeopleRaw.value = unwrapList(value(7, []));
+
+    briefing.value = {
+      notifications: baseSection({
+        title: 'Notifications', icon: '♢', tone: 'slate', count: notificationCount,
+        countLabel: notificationCount === 1 ? 'new' : 'new',
+        items: unreadNotifications.slice(0, 3).map((item) => ({
+          id: `notification-${item.id}`,
+          label: item.title || item.message || 'Notification',
+          meta: relativeTime(item.created_at || item.createdAt)
+        })),
+        action: 'View all notifications', to: `${prefix.value}/notifications`
+      }),
+      messages: baseSection({
+        title: 'Missed messages', icon: '◌', tone: 'blue', count: messageCount,
+        countLabel: 'unread',
+        items: (messageData?.priority || []).slice(0, 3).map((item) => ({
+          id: item.id,
+          label: item.label || 'Conversation',
+          meta: [item.agencyName, relativeTime(item.occurredAt)].filter(Boolean).join(' · ')
+        })),
+        action: 'View all messages', to: `${prefix.value}/messages`
+      }),
+      tickets: baseSection({
+        title: 'Assigned tickets', icon: '◇', tone: 'orange', count: ticketRows.length,
+        countLabel: 'open',
+        items: ticketRows.slice(0, 3).map((item) => ({
+          id: `ticket-${item.id}`,
+          label: item.subject || `Support ticket #${item.id}`,
+          meta: item.agency_name || item.school_name || '',
+          badge: String(item.priority || '').toUpperCase() || null,
+          badgeTone: String(item.priority || '').toLowerCase() === 'high' ? 'danger' : 'warning'
+        })),
+        action: 'View assigned tickets', to: `${prefix.value}/tickets?mine=true`
+      }),
+      tasks: baseSection({
+        title: 'Assigned tasks / to dos', icon: '☷', tone: 'green', count: taskRows.length,
+        countLabel: 'pending',
+        items: taskRows.slice(0, 3).map((item) => {
+          const dueAt = item.due_date || item.dueDate;
+          const overdue = dueAt && new Date(dueAt).getTime() < Date.now();
+          return {
+            id: `task-${item.id}`,
+            label: item.title || 'Assigned task',
+            meta: dueAt ? `Due ${new Date(dueAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : '',
+            badge: overdue ? 'PAST DUE' : null,
+            badgeTone: overdue ? 'danger' : 'neutral'
+          };
+        }),
+        action: 'View all tasks', to: `${prefix.value}/tasks`
+      }),
+      escalations: baseSection({
+        title: 'Escalations', icon: '△', tone: 'red', count: escalationRows.length,
+        countLabel: 'urgent',
+        items: escalationRows.slice(0, 3).map((item) => ({
+          id: `escalation-${item.id}`,
+          label: item.subject || `Escalation #${item.id}`,
+          meta: item.agency_name || '',
+          badge: item.immediate_action_required ? 'URGENT' : String(item.priority || 'HIGH').toUpperCase(),
+          badgeTone: 'danger'
+        })),
+        action: 'View all escalations', to: `${prefix.value}/admin/escalations?mine=true`
+      }),
+      calendar: baseSection({
+        title: 'Today’s calendar', icon: '▦', tone: 'blue', count: calendarRows.length,
+        countLabel: 'scheduled', items: calendarRows,
+        action: 'View full calendar', to: `${prefix.value}/my-schedule`
+      })
+    };
+  } catch {
+    if (generation === requestGeneration) loadError.value = true;
+  } finally {
+    if (generation === requestGeneration) {
+      loading.value = false;
+    }
+  }
+}
+
+function dismiss() {
+  if (dontShowAgain.value) {
+    try { localStorage.setItem(storageKey(), '1'); } catch { /* ignore */ }
+  }
+  visible.value = false;
+}
+
+async function navigate(to) {
+  dismiss();
+  await nextTick();
+  if (to) await router.push(to);
+}
+
+watch(
+  () => [authStore.user?.id, props.loginTrigger],
+  ([nextUserId, trigger]) => {
+    if (!nextUserId || !isPrivilegedLoginBriefingUser(authStore.user) || isDisabled()) {
+      visible.value = false;
+      return;
+    }
+    let freshFlag = false;
+    try { freshFlag = sessionStorage.getItem('justLoggedIn') === 'true'; } catch { /* ignore */ }
+    if (!trigger && !freshFlag) return;
+    void loadBriefing();
+  },
+  { immediate: true }
+);
+
+onBeforeUnmount(() => {
+  requestGeneration += 1;
+});
+</script>
+
+<style scoped>
+.briefing-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(5, 17, 27, 0.87);
+  backdrop-filter: blur(12px);
+}
+.briefing-modal {
+  --brief-primary: #1f6b4a;
+  --brief-secondary: #0f2f27;
+  --brief-accent: #2f8c68;
+  position: relative;
+  width: min(1440px, 96vw);
+  max-height: min(920px, 94vh);
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--brief-primary) 38%, #cbd5e1);
+  border-radius: 20px;
+  background: #f8fafc;
+  color: #172033;
+  box-shadow: 0 34px 90px rgba(0, 0, 0, 0.38);
+}
+.briefing-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 5px;
+  background: var(--brief-blend);
+}
+.briefing-modal--platform {
+  background:
+    radial-gradient(900px 420px at 20% -15%, rgba(139, 92, 246, 0.24), transparent),
+    radial-gradient(700px 360px at 90% 0%, rgba(56, 189, 248, 0.16), transparent),
+    #070b14;
+  color: #e5e7eb;
+  border-color: rgba(139, 92, 246, 0.55);
+}
+.briefing-brand-rail {
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 66px;
+  width: 92px;
+  border-radius: 0 0 0 19px;
+  background: color-mix(in srgb, var(--brief-secondary) 92%, #08111b);
+}
+.brand-logo-stack { display: flex; flex-direction: column; align-items: center; padding-top: 34px; }
+.brand-logo-wrap {
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  margin-bottom: -8px;
+  overflow: hidden;
+  border: 3px solid color-mix(in srgb, var(--brief-secondary) 88%, #fff);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--brief-primary);
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+}
+.brand-logo { width: 100%; height: 100%; object-fit: contain; }
+.brand-logo-more { background: var(--brief-primary); color: #fff; }
+.briefing-close {
+  position: absolute;
+  z-index: 2;
+  top: 22px;
+  right: 24px;
+  border: 0;
+  background: transparent;
+  color: currentColor;
+  font-size: 32px;
+  font-weight: 300;
+  line-height: 1;
+  cursor: pointer;
+}
+.briefing-header {
+  min-height: 128px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 28px 92px 20px 126px;
+  background: linear-gradient(115deg, color-mix(in srgb, var(--brief-primary) 8%, #fff), transparent 58%);
+}
+.briefing-modal--platform .briefing-header { background: transparent; }
+.briefing-eyebrow { color: var(--brief-primary); font-size: 12px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.briefing-modal--platform .briefing-eyebrow { color: #c4b5fd; }
+.briefing-header h1 { margin: 4px 0 3px; font-size: clamp(25px, 2.2vw, 36px); line-height: 1.1; }
+.briefing-header p { margin: 0; color: #526078; font-size: 14px; }
+.briefing-modal--platform .briefing-header p { color: #94a3b8; }
+.briefing-date { display: flex; align-items: center; gap: 10px; min-width: 180px; font-size: 12px; }
+.briefing-date span:last-child { display: flex; flex-direction: column; }
+.briefing-date small { margin-top: 2px; color: #64748b; }
+.date-icon { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #d8dee9; border-radius: 8px; font-size: 23px; color: var(--brief-primary); background: rgba(255,255,255,.7); }
+.tenant-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -6px 26px 14px 126px; font-size: 11px; color: #64748b; }
+.tenant-strip > span:first-child { font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.tenant-chip { border-left: 4px solid var(--tenant-color); border-radius: 999px; padding: 5px 9px; background: #fff; border-top: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; color: #334155; font-weight: 700; }
+.briefing-loading { min-height: 430px; display: flex; align-items: center; justify-content: center; gap: 12px; color: #64748b; }
+.briefing-spinner { width: 23px; height: 23px; border: 3px solid #dbe5e0; border-top-color: var(--brief-primary); border-radius: 50%; animation: briefing-spin .75s linear infinite; }
+.briefing-warning { margin: 0 26px 12px 126px; padding: 9px 12px; border: 1px solid #fcd34d; border-radius: 8px; background: #fffbeb; color: #92400e; font-size: 12px; }
+.briefing-layout { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 18px; padding: 0 28px 18px 126px; }
+.briefing-main { min-width: 0; }
+.briefing-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.briefing-card { min-height: 230px; display: flex; flex-direction: column; padding: 18px; border: 1px solid #dce2ea; border-radius: 12px; background: rgba(255,255,255,.92); box-shadow: 0 6px 24px rgba(15, 23, 42, .035); }
+.briefing-modal--platform .briefing-card, .briefing-modal--platform .presence-card, .briefing-modal--platform .security-card, .briefing-modal--platform .at-a-glance, .briefing-modal--platform .all-clear-card { background: rgba(15, 23, 42, .84); border-color: rgba(148, 163, 184, .20); color: #e5e7eb; }
+.card-header { display: flex; gap: 13px; align-items: center; margin-bottom: 12px; }
+.card-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 10px; color: #fff; background: var(--card-color, #334155); font-size: 25px; }
+.briefing-card--blue { --card-color: #245b9c; }
+.briefing-card--orange { --card-color: #b3470b; }
+.briefing-card--green { --card-color: #236747; }
+.briefing-card--red { --card-color: #a51c1c; }
+.briefing-card--slate { --card-color: #17333b; }
+.card-kicker, .side-kicker { color: var(--card-color, #1e293b); font-size: 12px; font-weight: 850; letter-spacing: .025em; text-transform: uppercase; }
+.briefing-modal--platform .card-kicker, .briefing-modal--platform .side-kicker { color: #c4b5fd; }
+.card-count { margin-top: 2px; color: #475569; font-size: 12px; }
+.card-count strong { margin-right: 5px; color: var(--card-color, #1e293b); font-size: 28px; }
+.briefing-modal--platform .card-count, .briefing-modal--platform .briefing-item small { color: #94a3b8; }
+.briefing-modal--platform .card-count strong { color: #e9d5ff; }
+.briefing-item { width: 100%; display: flex; align-items: center; gap: 9px; padding: 7px 0; border: 0; border-top: 1px solid #eef1f5; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.briefing-modal--platform .briefing-item { border-color: rgba(148, 163, 184, .12); }
+.briefing-item:hover .item-copy strong { color: var(--brief-primary); }
+.item-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--card-color, #334155); }
+.item-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; }
+.item-copy strong { overflow: hidden; color: inherit; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.item-copy small { margin-top: 2px; overflow: hidden; color: #64748b; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.item-badge { flex: 0 0 auto; border-radius: 5px; padding: 3px 5px; background: #f1f5f9; color: #475569; font-size: 8px; font-weight: 850; }
+.item-badge--danger { background: #fee2e2; color: #b91c1c; }
+.item-badge--warning { background: #ffedd5; color: #c2410c; }
+.card-link { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: auto; padding: 12px 0 0; border: 0; background: transparent; color: var(--card-color, var(--brief-primary)); font-size: 12px; font-weight: 800; cursor: pointer; }
+.briefing-modal--platform .card-link { color: #a78bfa; }
+.all-clear-card { display: flex; align-items: center; gap: 14px; min-height: 120px; padding: 24px; border: 1px solid #dce2ea; border-radius: 12px; background: #fff; }
+.all-clear-card > span { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #dcfce7; color: #166534; font-size: 22px; }
+.all-clear-card div { display: flex; flex-direction: column; gap: 4px; }
+.all-clear-card small { color: #64748b; }
+.at-a-glance { display: grid; grid-template-columns: 1.2fr repeat(4, 1fr); margin-top: 14px; padding: 16px 18px; border: 1px solid #dce2ea; border-radius: 12px; background: rgba(255,255,255,.9); }
+.glance-title { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 850; }
+.glance-metric { display: flex; flex-direction: column; padding-left: 18px; border-left: 1px solid #dce2ea; }
+.briefing-modal--platform .glance-metric { border-color: rgba(148, 163, 184, .22); }
+.glance-metric strong { font-size: 20px; }
+.glance-metric span { color: #64748b; font-size: 10px; }
+.glance-metric small { color: #16803c; font-size: 9px; }
+.briefing-side { display: flex; flex-direction: column; gap: 14px; }
+.presence-card, .security-card { padding: 18px; border: 1px solid #dce2ea; border-radius: 12px; background: rgba(255,255,255,.9); }
+.active-session-count { display: flex; align-items: center; gap: 7px; margin-top: 12px; color: #15803d; font-size: 11px; font-weight: 700; }
+.active-session-count span { width: 7px; height: 7px; border-radius: 50%; background: #16a34a; }
+.presence-person { width: 100%; display: grid; grid-template-columns: 35px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 0; border: 0; border-bottom: 1px solid #eef1f5; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.briefing-modal--platform .presence-person { border-color: rgba(148, 163, 184, .12); }
+.presence-person img, .person-avatar { width: 35px; height: 35px; border-radius: 50%; object-fit: cover; }
+.person-avatar { display: grid; place-items: center; background: color-mix(in srgb, var(--brief-primary) 14%, #e2e8f0); color: var(--brief-primary); font-size: 10px; font-weight: 900; }
+.person-copy { min-width: 0; display: flex; flex-direction: column; }
+.person-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.person-copy small { margin-top: 2px; overflow: hidden; color: #64748b; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.person-status { display: inline-flex; align-items: center; gap: 5px; color: #15803d; font-size: 9px; font-weight: 800; white-space: nowrap; }
+.person-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.person-status--away_reachable { color: #e9a700; }
+.person-status--unavailable { color: #dc2626; }
+.person-status--available_offline { color: #1da7d8; }
+.urgent-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 18px; border: 0; border-radius: 12px; background: #17202c; color: #fff; text-align: left; cursor: pointer; }
+.briefing-modal--platform .urgent-card { background: linear-gradient(135deg, #7c3aed, #2563eb); }
+.urgent-icon { color: #fb6b52; font-size: 25px; }
+.urgent-card span:nth-child(2) { font-size: 11px; }
+.urgent-card small { display: block; margin-bottom: 7px; color: #fb6b52; font-size: 9px; font-weight: 850; text-transform: uppercase; }
+.urgent-card strong { margin-right: 5px; font-size: 24px; }
+.security-card { display: flex; gap: 12px; font-size: 12px; }
+.security-card > span { color: var(--brief-primary); font-size: 22px; }
+.security-card p { margin: 7px 0 0; color: #526078; font-size: 11px; line-height: 1.55; }
+.briefing-modal--platform .security-card p { color: #94a3b8; }
+.briefing-footer { position: sticky; bottom: 0; z-index: 2; min-height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 28px 10px 126px; border-top: 1px solid rgba(203, 213, 225, .35); border-radius: 0 0 19px 19px; background: color-mix(in srgb, var(--brief-secondary) 95%, #06111b); color: #fff; }
+.dont-show-label { display: flex; align-items: center; gap: 9px; font-size: 11px; cursor: pointer; }
+.dont-show-label input { width: 16px; height: 16px; accent-color: var(--brief-primary); }
+.enter-dashboard { min-width: 245px; padding: 12px 20px; border: 1px solid rgba(255,255,255,.15); border-radius: 7px; background: var(--brief-blend); color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; }
+.briefing-fade-enter-active, .briefing-fade-leave-active { transition: opacity .18s ease; }
+.briefing-fade-enter-active .briefing-modal, .briefing-fade-leave-active .briefing-modal { transition: transform .18s ease; }
+.briefing-fade-enter-from, .briefing-fade-leave-to { opacity: 0; }
+.briefing-fade-enter-from .briefing-modal, .briefing-fade-leave-to .briefing-modal { transform: translateY(12px) scale(.985); }
+@keyframes briefing-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 1100px) {
+  .briefing-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .briefing-layout { grid-template-columns: minmax(0, 1fr) 280px; }
+  .at-a-glance { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .glance-title { grid-column: 1 / -1; }
+  .glance-metric { border-left: 0; padding-left: 0; }
+}
+@media (max-width: 760px) {
+  .briefing-overlay { padding: 0; }
+  .briefing-modal { width: 100vw; max-height: 100dvh; min-height: 100dvh; border: 0; border-radius: 0; }
+  .briefing-brand-rail { display: none; }
+  .briefing-header { min-height: auto; align-items: flex-start; flex-direction: column; padding: 30px 52px 16px 20px; }
+  .briefing-date { min-width: 0; }
+  .tenant-strip, .briefing-warning { margin-left: 20px; margin-right: 20px; }
+  .briefing-layout { display: block; padding: 0 16px 100px; }
+  .briefing-card-grid { grid-template-columns: 1fr; }
+  .briefing-card { min-height: 210px; }
+  .briefing-side { margin-top: 14px; }
+  .briefing-footer { position: fixed; left: 0; right: 0; padding: 10px 14px; border-radius: 0; }
+  .dont-show-label span { max-width: 150px; }
+  .enter-dashboard { min-width: 155px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .briefing-fade-enter-active, .briefing-fade-leave-active, .briefing-fade-enter-active .briefing-modal, .briefing-fade-leave-active .briefing-modal { transition: none; }
+  .briefing-spinner { animation: none; }
+}
+</style>

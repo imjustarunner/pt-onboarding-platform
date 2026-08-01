@@ -38,7 +38,10 @@ export const getMessagesDashboardSummary = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const agencyIds = await resolveAgencyIds(req);
-    const agencyId = agencyIds[0] || null;
+    // Login briefing and other personal rollups may intentionally combine every
+    // tenant the viewer can access. The default remains single-tenant for existing callers.
+    const combineAllAgencies = ['1', 'true'].includes(String(req.query?.allAgencies || '').toLowerCase());
+    const agencyId = combineAllAgencies ? null : (agencyIds[0] || null);
 
     let dmUnread = 0;
     let channelUnread = 0;
@@ -162,7 +165,8 @@ export const getMessagesDashboardSummary = async (req, res, next) => {
     // Priority conversation previews (recent DMs with unread)
     try {
       const [preview] = await pool.query(
-        `SELECT t.id AS thread_id, t.thread_type,
+        `SELECT t.id AS thread_id, t.thread_type, t.agency_id,
+                a.name AS agency_name,
                 u.first_name, u.last_name,
                 lm.body AS last_body,
                 lm.created_at AS last_at,
@@ -173,6 +177,7 @@ export const getMessagesDashboardSummary = async (req, res, next) => {
                     AND (r.last_read_message_id IS NULL OR m.id > r.last_read_message_id)
                 ) AS unread_count
          FROM chat_threads t
+         LEFT JOIN agencies a ON a.id = t.agency_id
          INNER JOIN chat_thread_participants me ON me.thread_id = t.id AND me.user_id = ?
          LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
          LEFT JOIN chat_thread_participants other
@@ -195,7 +200,9 @@ export const getMessagesDashboardSummary = async (req, res, next) => {
           snippet: String(row.last_body || '').slice(0, 120),
           unread: Number(row.unread_count || 0),
           occurredAt: row.last_at,
-          threadId: row.thread_id
+          threadId: row.thread_id,
+          agencyId: row.agency_id,
+          agencyName: row.agency_name || null
         });
       }
     } catch {
@@ -215,7 +222,8 @@ export const getMessagesDashboardSummary = async (req, res, next) => {
         sharedFiles: filesCount
       },
       priority,
-      agencyId
+      agencyId,
+      combinedAgencies: combineAllAgencies
     });
   } catch (e) {
     next(e);
