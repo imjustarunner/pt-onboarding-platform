@@ -4836,7 +4836,7 @@
                   Edit / move
                 </button>
                 <button
-                  v-if="!item.isCancelled && (item.appJoinUrl || item.meetLink)"
+                  v-if="!item.isCancelled && !item.meetingCompleted && (item.appJoinUrl || item.meetLink)"
                   type="button"
                   class="btn btn-secondary btn-sm"
                   @click.stop="openStackDetailsItem(item)"
@@ -9629,6 +9629,15 @@ const isScheduleEventCancelled = (ev) => (
   || String(ev?.status || '').trim().toUpperCase() === 'CANCELLED'
 );
 
+const isScheduleMeetingCompleted = (ev) => (
+  !!ev?.meetingCompleted
+  || !!ev?.meetingCompletedAt
+);
+
+const isScheduleMeetingJoinable = (ev) => (
+  !isScheduleEventCancelled(ev) && !isScheduleMeetingCompleted(ev)
+);
+
 const fallCheckinEventKind = (blockOrEvent) => String(
   blockOrEvent?.eventKind || blockOrEvent?.kind || ''
 ).trim().toUpperCase();
@@ -10583,7 +10592,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       shortLabel: scheduleEventShortLabel(ev, 'start', { multiline: true }),
       title: scheduleEventBlockTitle(ev, dayName, hour),
       link: String(ev?.htmlLink || '').trim() || null,
-      appJoinUrl: isScheduleEventCancelled(ev) ? null : (String(ev?.appJoinUrl || '').trim() || null),
+      appJoinUrl: isScheduleMeetingJoinable(ev) ? (String(ev?.appJoinUrl || '').trim() || null) : null,
       eventId: Number(ev?.id || 0) || null,
       agencyId: Number(ev?.agencyId || ev?._agencyId || 0) || null,
       schoolName: String(ev?.schoolName || '').trim() || null,
@@ -10591,6 +10600,8 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       locationAddress: String(ev?.locationAddress || '').trim() || null,
       mapsUrl: String(ev?.mapsUrl || '').trim() || null,
       isCancelled: isScheduleEventCancelled(ev),
+      meetingCompleted: isScheduleMeetingCompleted(ev),
+      meetingCompletedAt: ev?.meetingCompletedAt || null,
       segmentClass: 'single',
       hideAgencyDot: false,
       startAt: ev?.startAt || null,
@@ -23734,7 +23745,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     startAt: ev?.startAt || null,
     endAt: ev?.endAt || null,
     link: String(ev?.htmlLink || '').trim() || '',
-    appJoinUrl: cancelled ? '' : (String(ev?.appJoinUrl || '').trim() || ''),
+    appJoinUrl: isScheduleMeetingJoinable(ev) ? (String(ev?.appJoinUrl || '').trim() || '') : '',
     meetLink: cancelled ? '' : (String(ev?.meetLink || '').trim() || ''),
     eventId: Number(ev?.id || 0) || null,
     eventKind: targetKind,
@@ -23774,8 +23785,9 @@ const buildScheduleEventDetailText = (ev) => {
   }
   if (isScheduleEventCancelled(ev)) lines.push('Status: Cancelled (kept on schedule)');
   if (ev?.isPrivate) lines.push('Marked private on your calendar');
-  if (!isScheduleEventCancelled(ev) && ev?.meetLink) lines.push(`Meet link: ${ev.meetLink}`);
-  if (!isScheduleEventCancelled(ev) && ev?.appJoinUrl) lines.push(`Video room: ${ev.appJoinUrl}`);
+  if (isScheduleMeetingCompleted(ev)) lines.push('Status: Session completed');
+  if (isScheduleMeetingJoinable(ev) && ev?.meetLink) lines.push(`Meet link: ${ev.meetLink}`);
+  if (isScheduleMeetingJoinable(ev) && ev?.appJoinUrl) lines.push(`Video room: ${ev.appJoinUrl}`);
   const rf = String(ev?.recurrenceFrequency || '').trim();
   if (rf && rf !== 'ONCE') lines.push(`Recurrence: ${rf}`);
   if (kind === 'SKILL_BUILDERS_PROGRAM') {

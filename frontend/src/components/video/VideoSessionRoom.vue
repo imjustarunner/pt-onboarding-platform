@@ -261,7 +261,7 @@
       </div>
 
       <div
-        v-if="automuteNoticeVisible"
+        v-if="automuteNoticeVisible && canSelfUnmute"
         class="vsr__automute-modal"
         role="alertdialog"
         aria-modal="true"
@@ -283,20 +283,27 @@
             <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </span>
-        <span class="vsr__muted-banner-text">You are muted — others cannot hear you</span>
+        <span class="vsr__muted-banner-text">{{ forceMutedByHost ? 'Muted by host — you cannot unmute yourself' : 'You are muted — others cannot hear you' }}</span>
       </div>
 
       <div v-if="!hideControls" class="vsr__controls" role="toolbar" aria-label="Session media controls">
         <button
+          v-if="canSelfUnmute || publishAudio"
           type="button"
           class="vsr__ctrl"
           :class="{ 'vsr__ctrl--danger': !publishAudio, 'vsr__ctrl--mic-muted': !publishAudio }"
           :aria-pressed="!publishAudio"
-          :title="publishAudio ? 'Mute microphone' : 'Unmute microphone'"
+          :title="publishAudio ? 'Mute microphone' : (canSelfUnmute ? 'Unmute microphone' : 'Muted by host')"
           @click.stop.prevent="toggleMic"
         >
-          {{ publishAudio ? 'Mic' : 'Unmute' }}
+          {{ publishAudio ? 'Mic' : (canSelfUnmute ? 'Unmute' : 'Muted') }}
         </button>
+        <span
+          v-else
+          class="vsr__ctrl vsr__ctrl--mic-muted vsr__ctrl--static"
+          title="Muted by host"
+          aria-label="Muted by host"
+        >Muted</span>
         <button
           type="button"
           class="vsr__ctrl"
@@ -489,6 +496,9 @@ const errorMeta = ref(null);
 const publishAudio = ref(!props.startMuted);
 const publishVideo = ref(true);
 const automuteNoticeVisible = ref(!!props.startMuted);
+/** Set when a host/co-host force-mutes this participant — self-unmute is blocked. */
+const forceMutedByHost = ref(false);
+const canSelfUnmute = computed(() => !forceMutedByHost.value);
 const hideSelfView = ref(false);
 /** on | processing | unavailable | unsupported */
 const voiceIsolationStatus = ref('');
@@ -1045,6 +1055,8 @@ watch(() => props.videoFullscreen, (on) => {
 
 function applyForceMuteLocal() {
   if (!publishAudio.value) return;
+  forceMutedByHost.value = true;
+  automuteNoticeVisible.value = false;
   publishAudio.value = false;
   try {
     publisher?.publishAudio?.(false);
@@ -1890,6 +1902,7 @@ function dismissAutomuteAndUnmute() {
 
 function toggleMic() {
   const next = !publishAudio.value;
+  if (next && forceMutedByHost.value) return;
   publishAudio.value = next;
   if (next) automuteNoticeVisible.value = false;
   if (!publisher) {
@@ -2862,6 +2875,11 @@ defineExpose({
 .vsr__ctrl--mic-muted {
   box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.45), 0 4px 14px rgba(185, 28, 28, 0.35);
   animation: vsr-mic-muted-pulse 2s ease-in-out infinite;
+}
+.vsr__ctrl--static {
+  cursor: default;
+  animation: none;
+  opacity: 0.92;
 }
 @keyframes vsr-mic-muted-pulse {
   0%, 100% { box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.45), 0 4px 14px rgba(185, 28, 28, 0.35); }

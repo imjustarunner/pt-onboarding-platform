@@ -1,9 +1,9 @@
 <template>
   <div class="join-supervision-view">
     <MeetingSessionExitPanel
-      v-if="sessionExit"
-      :variant="sessionExit.variant"
-      :can-rejoin="sessionExit.canRejoin"
+      v-if="sessionExit || (sessionHasEnded && !token)"
+      :variant="sessionExit?.variant || 'host-ended'"
+      :can-rejoin="sessionExit ? sessionExit.canRejoin : false"
       meeting-label="session"
       session-kind="supervision"
       :banner-dismissed="exitBannerDismissed"
@@ -12,7 +12,7 @@
       @dismiss-banner="dismissHostEndedBanner"
     />
     <div v-else-if="resolving" class="join-placeholder">Resolving session…</div>
-    <div v-else-if="error && !token" class="join-error">
+    <div v-else-if="error && !token && !sessionHasEnded" class="join-error">
       <p>{{ error }}</p>
       <button
         v-if="showLoginFallback"
@@ -114,6 +114,9 @@ const sessionExit = ref(null);
 const exitBannerDismissed = ref(false);
 const liveRoomRef = ref(null);
 const videoConnected = ref(false);
+const liveEndedAt = ref(null);
+
+const sessionHasEnded = computed(() => !!liveEndedAt.value);
 
 const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
 const isOpaqueJoinRef = computed(() => {
@@ -343,6 +346,10 @@ function goToScheduleFromExit() {
 }
 
 async function rejoinSession() {
+  if (sessionHasEnded.value) {
+    showSessionExit({ variant: 'host-ended', canRejoin: false });
+    return;
+  }
   sessionExit.value = null;
   exitBannerDismissed.value = false;
   intentionalLeave.value = false;
@@ -375,14 +382,16 @@ async function onLeaveRequest(payload = {}) {
   const endForAll = !!payload?.endForAll;
   if (endForAll) {
     await endLiveSessionForEveryone();
+    liveEndedAt.value = liveEndedAt.value || new Date().toISOString();
     await finishLeave({ variant: 'ended-by-you', canRejoin: false });
     return;
   }
-  await finishLeave({ variant: 'left', canRejoin: true });
+  await finishLeave({ variant: 'left', canRejoin: !sessionHasEnded.value });
 }
 
 function onMeetingEnded() {
   if (sessionExit.value || intentionalLeave.value) return;
+  liveEndedAt.value = liveEndedAt.value || new Date().toISOString();
   void finishLeave({ variant: 'host-ended', canRejoin: false });
 }
 
@@ -523,6 +532,12 @@ async function fetchTokenAndJoin() {
     if (status === 409) {
       error.value = e?.response?.data?.error?.message
         || 'This session is full right now. When someone leaves, try the link again.';
+      return;
+    }
+    if (status === 410 || e?.response?.data?.liveEndedAt) {
+      liveEndedAt.value = e?.response?.data?.liveEndedAt || new Date().toISOString();
+      intentionalLeave.value = true;
+      showSessionExit({ variant: 'host-ended', canRejoin: false });
       return;
     }
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';

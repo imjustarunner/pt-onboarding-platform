@@ -4,9 +4,9 @@
     :class="{ 'join-team-meeting-view--video-fs': videoFullscreen }"
   >
     <MeetingSessionExitPanel
-      v-if="sessionExit"
-      :variant="sessionExit.variant"
-      :can-rejoin="sessionExit.canRejoin"
+      v-if="sessionExit || (meetingCompletedAt && !token)"
+      :variant="sessionExit?.variant || 'host-ended'"
+      :can-rejoin="sessionExit ? sessionExit.canRejoin : false"
       meeting-label="meeting"
       session-kind="team-meeting"
       :banner-dismissed="exitBannerDismissed"
@@ -15,7 +15,7 @@
       @dismiss-banner="dismissHostEndedBanner"
     />
     <div v-else-if="resolving" class="join-placeholder">Resolving meeting…</div>
-    <div v-else-if="error && !token" class="join-error">{{ error }}</div>
+    <div v-else-if="error && !token && !meetingCompletedAt" class="join-error">{{ error }}</div>
     <template v-else-if="token && (vonageSessionId || roomName)">
       <div
         v-if="showTranscriptionNotice && !videoFullscreen && !isInLobby"
@@ -100,7 +100,7 @@
               :diagnostics="diagnostics"
               :event-id="resolvedEventId || eventId"
               :is-host="isHost"
-              :is-host-or-cohost="isHost"
+              :is-host-or-cohost="canMuteParticipants"
               :screen-share-mode="screenShareMode"
               :can-share-screen="canShareScreenByDefault"
               :can-grant-screen-share="canGrantScreenShare"
@@ -481,6 +481,20 @@ const showEnableTrackingButton = computed(() => (
 
 const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase().trim());
 
+/** Roles that may force-mute other participants (in addition to host). */
+const MUTE_PARTICIPANT_ROLES = new Set([
+  'super_admin',
+  'superadmin',
+  'admin',
+  'support',
+  'clinical_practice_assistant',
+  'provider_plus'
+]);
+
+const canMuteParticipants = computed(() => (
+  isHost.value || MUTE_PARTICIPANT_ROLES.has(actorRole.value)
+));
+
 /** Host + admin-side roles see the full right-rail workspace. Providers see chat/polls only. */
 const canSeeFullWorkspace = computed(() => {
   if (isHost.value) return true;
@@ -773,7 +787,8 @@ async function fetchTokenAndJoin() {
     }
     if (status === 410 || e?.response?.data?.meetingCompletedAt) {
       meetingCompletedAt.value = e?.response?.data?.meetingCompletedAt || new Date().toISOString();
-      error.value = e?.response?.data?.error?.message || 'This meeting has ended.';
+      intentionalLeave.value = true;
+      showSessionExit({ variant: 'host-ended', canRejoin: false });
       return;
     }
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
@@ -943,10 +958,13 @@ function goToScheduleFromExit() {
 }
 
 async function rejoinMeeting() {
+  if (meetingCompletedAt.value) {
+    showSessionExit({ variant: 'host-ended', canRejoin: false });
+    return;
+  }
   sessionExit.value = null;
   exitBannerDismissed.value = false;
   intentionalLeave.value = false;
-  meetingCompletedAt.value = null;
   joinAttemptedForPath.value = '';
   error.value = '';
   await fetchTokenAndJoin();
@@ -978,7 +996,8 @@ function requestLeave() {
     completeError.value = '';
     return;
   }
-  void finishLeave({ variant: 'left', canRejoin: true });
+  const ended = !!meetingCompletedAt.value;
+  void finishLeave({ variant: ended ? 'host-ended' : 'left', canRejoin: !ended });
 }
 
 async function markCompletedAndLeave() {

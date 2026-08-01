@@ -388,6 +388,15 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Event not found' } });
     }
 
+    const meetingCompletedAt = event.meeting_completed_at || null;
+    if (meetingCompletedAt) {
+      return res.status(410).json({
+        error: { message: 'This meeting has ended.' },
+        meetingCompleted: true,
+        meetingCompletedAt
+      });
+    }
+
     const [rows] = await pool.execute(
       `SELECT a.slug, a.portal_url
        FROM agencies a
@@ -420,7 +429,9 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
       joinUrl: joinUrlForTeamMeeting(frontendUrl, participantKey),
       hostJoinUrl: hostKey ? joinUrlForTeamMeeting(frontendUrl, hostKey) : null,
       waitingRoomEnabled: isWaitingRoomEnabled(event),
-      joinTokenRole: tokenRole
+      joinTokenRole: tokenRole,
+      meetingCompleted: !!meetingCompletedAt,
+      meetingCompletedAt
     });
   } catch (e) {
     next(e);

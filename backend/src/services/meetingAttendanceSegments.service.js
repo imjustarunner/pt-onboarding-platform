@@ -485,11 +485,21 @@ export async function completeMeetingSession({
 
   const rebuild = await rebuildAttendanceRollupsFromSegments(eid, { syncClaims: true });
   const fresh = await loadMeetingEvent(eid);
+
+  let carryover = null;
+  try {
+    const { carryForwardTeamMeetingWorkspace } = await import('./meetingWorkspaceCarryover.service.js');
+    carryover = await carryForwardTeamMeetingWorkspace({ eventId: eid, actorUserId });
+  } catch (e) {
+    console.warn('[meetingAttendance] workspace carryover failed', e?.message || e);
+  }
+
   return {
     ok: true,
     eventId: eid,
     meetingCompletedAt: fresh?.meeting_completed_at || toMysqlWall(now),
-    rebuild
+    rebuild,
+    carryover
   };
 }
 

@@ -1258,12 +1258,23 @@ async function finalizeSupervisionSession({
     );
   }
 
+  let carryover = null;
+  if (!finalizeAsMissed) {
+    try {
+      const { carryForwardSupervisionWorkspace } = await import('../services/meetingWorkspaceCarryover.service.js');
+      carryover = await carryForwardSupervisionWorkspace({ sessionId: sid, actorUserId });
+    } catch (e) {
+      console.warn('[supervision] finalize workspace carryover failed', e?.message || e);
+    }
+  }
+
   return {
     skipped: false,
     status: finalizeAsMissed ? 'MISSED' : 'FINALIZED',
     finalTotalSeconds: finalizeAsMissed ? 0 : totalSeconds,
     session: updated,
-    pipeline
+    pipeline,
+    carryover
   };
 }
 
@@ -1903,6 +1914,26 @@ export const endSupervisionLiveSession = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only the facilitator can end the live session for everyone.' } });
     }
 
+    const liveEndedAt = row.live_ended_at || null;
+    if (liveEndedAt) {
+      return res.json({
+        ok: true,
+        sessionId: id,
+        liveEndedAt,
+        alreadyEnded: true
+      });
+    }
+
+    await SupervisionSession.setLiveEnded(id);
+
+    let carryover = null;
+    try {
+      const { carryForwardSupervisionWorkspace } = await import('../services/meetingWorkspaceCarryover.service.js');
+      carryover = await carryForwardSupervisionWorkspace({ sessionId: id, actorUserId });
+    } catch (e) {
+      console.warn('[supervision] workspace carryover failed', e?.message || e);
+    }
+
     const roomSid = String(row.twilio_room_sid || '').trim();
     let videoEnd = null;
     if (roomSid) {
@@ -1912,7 +1943,7 @@ export const endSupervisionLiveSession = async (req, res, next) => {
         console.warn('[supervision] end-live completeRoom failed', e?.message || e);
       }
     }
-    res.json({ ok: true, sessionId: id, videoEnd });
+    res.json({ ok: true, sessionId: id, videoEnd, carryover });
   } catch (e) {
     next(e);
   }
@@ -2033,6 +2064,13 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
     const status = String(row.status || '').trim().toUpperCase();
     if (['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED'].includes(status)) {
       return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });
+    }
+    if (row.live_ended_at) {
+      return res.status(410).json({
+        error: { message: 'This session has ended.' },
+        liveEnded: true,
+        liveEndedAt: row.live_ended_at
+      });
     }
 
     const sessionType = String(row.session_type || 'individual').toLowerCase();
@@ -2401,6 +2439,13 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     const status = String(row.status || '').trim().toUpperCase();
     if (['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED'].includes(status)) {
       return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });
+    }
+    if (row.live_ended_at) {
+      return res.status(410).json({
+        error: { message: 'This session has ended.' },
+        liveEnded: true,
+        liveEndedAt: row.live_ended_at
+      });
     }
 
     const ok = await canScheduleSession(req, {

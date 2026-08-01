@@ -4436,6 +4436,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const notifyParticipants = r.notify_participants == null
           ? true
           : !(r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0');
+        const liveEndedAt = r.live_ended_at || null;
+        const liveEnded = !!liveEndedAt;
+        const joinableSession = !liveEnded;
         return {
           id: r.id,
           role: isSupervisor
@@ -4458,11 +4461,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
           googleMeetLink: r.google_meet_link || null,
           joinToken: joinToken || null,
           hostJoinToken: hostJoinToken || null,
-          joinUrl: joinUrlForSupervision(supervisionJoinUrlBase, joinKey),
-          participantJoinUrl: joinUrlForSupervision(supervisionJoinUrlBase, joinKey),
-          hostJoinUrl: hostJoinToken
+          joinUrl: joinableSession ? joinUrlForSupervision(supervisionJoinUrlBase, joinKey) : null,
+          participantJoinUrl: joinableSession ? joinUrlForSupervision(supervisionJoinUrlBase, joinKey) : null,
+          hostJoinUrl: joinableSession && hostJoinToken
             ? joinUrlForSupervision(supervisionJoinUrlBase, hostJoinToken)
             : null,
+          liveEndedAt,
+          liveEnded,
           waitingRoomEnabled,
           notifyParticipants,
           superviseeUserId: Number(r.supervisee_user_id || 0) || null,
@@ -4542,13 +4547,18 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const kind = String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT';
         const meetingJoinKey = String(r.participant_join_token || r.join_token || r.id || '').trim();
         const meetingHostKey = String(r.host_join_token || '').trim();
-        const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfiguredForSchedule
-          && meetingJoinKey
+        const cancelled = String(r.status || '').trim().toUpperCase() === 'CANCELLED';
+        const meetingCompletedAt = r.meeting_completed_at || null;
+        const meetingCompleted = !!meetingCompletedAt;
+        const joinableMeeting = (kind === 'TEAM_MEETING' || kind === 'HUDDLE')
+          && isVideoConfiguredForSchedule
+          && !cancelled
+          && !meetingCompleted;
+        const appJoinUrl = (joinableMeeting && meetingJoinKey
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
           ? `/join/team-meeting/${encodeURIComponent(meetingJoinKey)}`
           : null;
-        const hostJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfiguredForSchedule
-          && meetingHostKey
+        const hostJoinUrl = (joinableMeeting && meetingHostKey
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
           ? `/join/team-meeting/${encodeURIComponent(meetingHostKey)}`
           : null;
@@ -4573,7 +4583,6 @@ export const getUserScheduleSummary = async (req, res, next) => {
           if (subtype === 'admin' || subtype === 'town_hall') return subtype;
           return 'general';
         })();
-        const cancelled = String(r.status || '').trim().toUpperCase() === 'CANCELLED';
         return {
           id: Number(r.id || 0),
           agencyId: Number(r.agency_id || 0) || null,
@@ -4617,6 +4626,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
             if (meetingSubtypeNorm === 'admin' || meetingSubtypeNorm === 'town_hall') return true;
             return Number(r.attendance_tracking_enabled || 0) === 1;
           })(),
+          meetingCompletedAt,
+          meetingCompleted,
           canEdit: canEditThisEvent && !cancelled,
           // Default; refined after attendees + host names attach (admin-meeting invitees can reschedule).
           canReschedule: canEditThisEvent && !cancelled

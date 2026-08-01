@@ -972,6 +972,21 @@ class SupervisionSession {
     return this.findById(sid);
   }
 
+  static async setLiveEnded(sessionId, { at = new Date() } = {}) {
+    const sid = parseInt(sessionId, 10);
+    if (!sid) return null;
+    const when = at instanceof Date ? at : new Date(at);
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${when.getUTCFullYear()}-${pad(when.getUTCMonth() + 1)}-${pad(when.getUTCDate())} ${pad(when.getUTCHours())}:${pad(when.getUTCMinutes())}:${pad(when.getUTCSeconds())}`;
+    await pool.execute(
+      `UPDATE supervision_sessions
+       SET live_ended_at = COALESCE(live_ended_at, ?), updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [stamp, sid]
+    );
+    return this.findById(sid);
+  }
+
   static async listForUserInWindow({ agencyId, allAgencies = false, userId, windowStart, windowEnd }) {
     const uId = parseInt(userId, 10);
     if (!uId || !windowStart || !windowEnd) return [];
