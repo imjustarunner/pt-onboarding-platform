@@ -104,7 +104,13 @@ async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId })
 
 function isSelfProviderRole(role) {
   const r = String(role || '').toLowerCase();
-  return r === 'provider' || r === 'provider_plus' || r === 'clinical_practice_assistant';
+  return (
+    r === 'provider' ||
+    r === 'provider_plus' ||
+    r === 'intern' ||
+    r === 'intern_plus' ||
+    r === 'clinical_practice_assistant'
+  );
 }
 
 async function ensureSchoolAccess(req, schoolId) {

@@ -518,11 +518,32 @@ const isOnSchoolRoster = (clientId) => schoolAffiliatedClientIds.value?.has?.(Nu
 
 const isPosSchoolClient = (c) => !!clientPosFlags(c?.id).seenAtSchool;
 
+/** True when the client record itself is school-affiliated (independent of my-roster sync). */
+const hasSchoolOrganizationOnRecord = (c) => {
+  const type = String(c?.client_type || '').toLowerCase();
+  const orgType = String(c?.organization_type || c?.organizationType || '').toLowerCase();
+  const orgId = Number(c?.organization_id || 0);
+  const orgName = String(c?.organization_name || '').trim();
+  if (['school', 'program', 'learning'].includes(orgType)) return true;
+  // School/learning client types are school-setting even before roster/POS sync catches up.
+  if (['school', 'learning'].includes(type)) return true;
+  // Any assigned school-named org on a caseload client counts as affiliation.
+  if (orgId || orgName) {
+    // Prefer typed orgs; name alone is not enough unless client_type already matched above.
+    if (['school', 'program', 'learning'].includes(orgType)) return true;
+  }
+  return false;
+};
+
+const isSchoolSettingClient = (c) =>
+  isOnSchoolRoster(c?.id) || isPosSchoolClient(c) || hasSchoolOrganizationOnRecord(c);
+
 const isPosOfficeClient = (c) => {
   const flags = clientPosFlags(c?.id);
   if (flags.seenAtOffice) return true;
   if (flags.seenAtSchool) return false;
-  if (isOnSchoolRoster(c?.id)) return false;
+  // Do not default school-affiliated clients to office when my-roster is empty/out of sync.
+  if (isSchoolSettingClient(c)) return false;
   return true;
 };
 
@@ -534,9 +555,7 @@ const filterActiveAssignedClients = (rows) =>
   });
 
 const currentSchoolBillingClients = computed(() =>
-  filterActiveAssignedClients(mergedAssignedClients.value).filter(
-    (c) => isPosSchoolClient(c) || isOnSchoolRoster(c?.id)
-  )
+  filterActiveAssignedClients(mergedAssignedClients.value).filter((c) => isSchoolSettingClient(c))
 );
 
 const schoolBillingTableClients = computed(() =>
@@ -554,9 +573,10 @@ const combinedClientsList = computed(() => {
   for (const c of currentSchoolBillingClients.value || []) {
     const id = Number(c?.id);
     if (!id) continue;
+    const flags = clientPosFlags(id);
     byId.set(id, {
       ...c,
-      setting: isOnSchoolRoster(id) && isPosSchoolClient(c) ? 'In School & Office' : 'In School',
+      setting: flags.seenAtOffice ? 'In School & Office' : 'In School',
       schoolName: c.organization_name || '—',
     });
   }
@@ -566,13 +586,13 @@ const combinedClientsList = computed(() => {
     if (!id) continue;
     const existing = byId.get(id);
     if (existing) {
-      if (isPosSchoolClient(c)) existing.setting = 'In School & Office';
+      existing.setting = 'In School & Office';
       continue;
     }
     byId.set(id, {
       ...c,
       setting: 'In Office',
-      schoolName: '—',
+      schoolName: c.organization_name || '—',
     });
   }
 
@@ -804,12 +824,6 @@ const formatClientTypeLabel = (c) => {
   return t ? t.replace(/_/g, ' ') : '—';
 };
 
-function isSchoolAffiliatedClient(client, schoolIds = schoolAffiliatedClientIds.value) {
-  const id = Number(client?.id);
-  if (id && schoolIds?.has?.(id)) return true;
-  return isPosSchoolClient(client);
-}
-
 const loadBillingPosFlags = async () => {
   if (!agencyId.value || !currentUserId.value) {
     billingPosByClientId.value = {};
@@ -824,6 +838,18 @@ const loadBillingPosFlags = async () => {
       skipGlobalLoading: true,
     });
     billingPosByClientId.value = r.data?.byClientId || {};
+    // Merge lifetime school affiliations (COA/CPA/client_type) into roster set.
+    const affiliated = Array.isArray(r.data?.schoolAffiliatedClientIds)
+      ? r.data.schoolAffiliatedClientIds
+      : [];
+    if (affiliated.length) {
+      const next = new Set(schoolAffiliatedClientIds.value || []);
+      for (const raw of affiliated) {
+        const id = Number(raw);
+        if (id) next.add(id);
+      }
+      schoolAffiliatedClientIds.value = next;
+    }
   } catch {
     billingPosByClientId.value = {};
   }
@@ -908,7 +934,9 @@ const loadOfficeClients = async () => {
 };
 
 async function refreshSchoolAffiliatedClientIds() {
-  const ids = new Set();
+  // Preserve affiliation IDs already discovered via billing/COA so my-roster gaps
+  // do not wipe "In School" for historically school-affiliated clients.
+  const ids = new Set(schoolAffiliatedClientIds.value || []);
   const list = schools.value || [];
   if (!list.length || !currentUserId.value) {
     schoolAffiliatedClientIds.value = ids;

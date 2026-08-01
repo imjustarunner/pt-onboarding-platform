@@ -642,11 +642,15 @@ export const getSchoolClients = async (req, res, next) => {
 
     // Providers ARE allowed to view the roster, but only for clients assigned to them
     // (restricted fields, no sensitive data).
-    // Supervisor-only (not admin/super_admin/support) gets restricted to supervisees' clients.
-    // Admin/super_admin with supervisor privileges get full access; supervisor is additive (My Schedule).
+    // Supervisor privileges are additive and must not demote caseload providers into
+    // supervisee-only school-roster mode. Pure supervisor actors (non-provider roles)
+    // remain restricted to supervisees' clients.
+    // Admin/super_admin with supervisor privileges get full access.
+    const roleNormForRoster = String(userRole || '').toLowerCase();
+    const isCaseloadProvider = ['provider', 'intern', 'intern_plus'].includes(roleNormForRoster);
     const isSupervisor = await isSupervisorActor({ userId, role: userRole, user: req.user });
-    const isSupervisorOnly = isSupervisor && !isAdminLikeRole(userRole);
-    const isProvider = String(userRole || '').toLowerCase() === 'provider' && !isSupervisor;
+    const isSupervisorOnly = isSupervisor && !isAdminLikeRole(userRole) && !isCaseloadProvider;
+    const isProvider = isCaseloadProvider;
     const supervisorProviderIds = isSupervisorOnly ? await getSupervisorSuperviseeIds(userId, null) : [];
 
     // Verify organization exists (school/program/learning)
@@ -1256,7 +1260,7 @@ export const getProviderMyRoster = async (req, res, next) => {
       ? ` AND EXISTS (
           SELECT 1 FROM skills_group_clients sgc
           INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
-            AND sg.organization_id = coa.organization_id
+            AND sg.organization_id = ?
             AND sg.agency_id = c.agency_id
           INNER JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id AND sgp.provider_user_id = ?
           WHERE sgc.client_id = c.id
@@ -1265,15 +1269,19 @@ export const getProviderMyRoster = async (req, res, next) => {
       : '';
 
     // Use the same restricted roster query but force provider filtering.
+    // Include clients linked via COA, active CPA at this school, or legacy clients.organization_id
+    // so providers still see assigned caseload when assignment-table sync is incomplete.
     let clients = [];
     try {
-      const rosterParams = [orgId, providerUserId, providerUserId];
-      if (useSkillBuildersRosterFilter) rosterParams.push(providerUserId);
-      rosterParams.push(skillsFilterVal);
+      const rosterParams = [orgId, orgId, orgId, providerUserId];
+      if (useSkillBuildersRosterFilter) {
+        rosterParams.push(orgId, providerUserId);
+      }
+      rosterParams.push(skillsFilterVal, orgId, providerUserId);
       const [rows] = await pool.execute(
         `SELECT
            c.id,
-           coa.organization_id AS organization_id,
+           COALESCE(coa.organization_id, c.organization_id, ?) AS organization_id,
            c.initials,
            c.identifier_code,
            c.full_name,
@@ -1321,13 +1329,13 @@ export const getProviderMyRoster = async (req, res, next) => {
            c.status,
            MIN(cpa.created_at) AS provider_assigned_at
          FROM clients c
-         JOIN client_organization_assignments coa
+         LEFT JOIN client_organization_assignments coa
            ON coa.client_id = c.id
           AND coa.organization_id = ?
           AND coa.is_active = TRUE
          LEFT JOIN client_provider_assignments cpa
            ON cpa.client_id = c.id
-          AND cpa.organization_id = coa.organization_id
+          AND cpa.organization_id = ?
           AND cpa.is_active = TRUE
           AND cpa.provider_user_id = ?
          LEFT JOIN users u ON u.id = cpa.provider_user_id
@@ -1338,9 +1346,10 @@ export const getProviderMyRoster = async (req, res, next) => {
          WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
            AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
            AND (? = 0 OR c.skills = TRUE)
+           AND (coa.id IS NOT NULL OR c.organization_id = ? OR cpa.id IS NOT NULL)
            AND (cpa.id IS NOT NULL OR c.provider_id = ?)
            ${sbExistsSql}
-         GROUP BY c.id, coa.organization_id
+         GROUP BY c.id
          ORDER BY c.submission_date DESC, c.id DESC`,
         rosterParams
       );

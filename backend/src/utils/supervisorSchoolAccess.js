@@ -31,12 +31,15 @@ export function isAdminLikeRole(role) {
 }
 
 /**
- * True when user is a supervisor actor but NOT admin-like.
+ * True when user is a supervisor actor but NOT admin-like and NOT a caseload provider.
  * Use this when deciding whether to restrict client access to supervisees only.
  * Admin/super_admin/support with supervisor privileges get full access; supervisor-only gets restricted.
+ * Provider/intern roles keep their own caseload permissions — supervisor privileges are additive.
  */
 export async function isSupervisorOnlyActor({ userId, role, user = null }) {
   if (isAdminLikeRole(role)) return false;
+  const roleNorm = String(role || '').toLowerCase();
+  if (['provider', 'intern', 'intern_plus'].includes(roleNorm)) return false;
   return isSupervisorActor({ userId, role, user });
 }
 

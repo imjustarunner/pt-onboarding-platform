@@ -2716,8 +2716,12 @@ const roleNorm = computed(() =>
 );
 const isSuperAdmin = computed(() => !isPublicDemo.value && roleNorm.value === 'super_admin');
 const hasSupervisorCapability = computed(() => !isPublicDemo.value && isSupervisor(authStore.user));
-const isProvider = computed(() => roleNorm.value === 'provider' && !hasSupervisorCapability.value);
-const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && roleNorm.value === 'provider');
+// Caseload-bound roles always use "My roster". Supervisor privileges are additive and must
+// never demote a provider/intern into supervisee-only school-roster mode.
+const isProvider = computed(() =>
+  ['provider', 'intern', 'intern_plus'].includes(roleNorm.value)
+);
+const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && isProvider.value);
 const isSchoolStaff = computed(() => isPublicDemo.value || roleNorm.value === 'school_staff');
 const canAddSchoolProviders = computed(() =>
   ['school_staff', 'admin', 'support', 'super_admin'].includes(roleNorm.value) && !isPreviewOrDemo.value
@@ -2911,22 +2915,10 @@ const backToSchoolsPath = computed(() => {
   return `/admin/schools/overview?orgType=${orgTypeParam}`;
 });
 const canUseComplianceCorner = computed(() => ['super_admin', 'admin'].includes(roleNorm.value));
-const canAccessSchedulingPanels = computed(() => {
-  if (isPublicDemo.value) return true;
-  if (!isSupervisorProviderContext.value) return true;
-  if (!schedulingEligibilityResolved.value) return true;
-  const superviseeIds = (supervisorSuperviseeIds.value || []).map((v) => Number(v)).filter(Boolean);
-  if (superviseeIds.length === 0) return false;
-  const eligibleProviderIds = new Set(
-    (Array.isArray(store.eligibleProviders) ? store.eligibleProviders : [])
-      .map((p) => Number(p?.provider_user_id || 0))
-      .filter(Boolean)
-  );
-  return superviseeIds.some((id) => eligibleProviderIds.has(id));
-});
-const schedulingDisabledReason = computed(() => (
-  'No assigned supervisee providers for this school yet.'
-));
+// Days / Providers stay available for providers. Supervisor privileges must not block
+// those panels — the only school-portal restriction for providers is own-client roster.
+const canAccessSchedulingPanels = computed(() => true);
+const schedulingDisabledReason = computed(() => '');
 
 const settingsIconUrl = computed(() => {
   return brandingStore.getAdminQuickActionIconUrl('settings', cardIconOrg.value || null);

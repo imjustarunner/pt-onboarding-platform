@@ -6,6 +6,7 @@ import {
   revertBillingReportUpload,
   getSessionTotalsByClient,
   getProviderClientPosFlags,
+  getProviderSchoolAffiliatedClientIds,
   getRevenueAggregates,
   listBillingEncountersForClient,
   listBillingDiagnosesForClient,
@@ -294,8 +295,19 @@ export const getBillingProviderClientPos = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'providerUserId is required' } });
     }
 
-    const byClientId = await getProviderClientPosFlags({ agencyId, providerUserId });
-    res.json({ byClientId });
+    const [byClientId, schoolAffiliatedClientIds] = await Promise.all([
+      getProviderClientPosFlags({ agencyId, providerUserId }),
+      getProviderSchoolAffiliatedClientIds({ agencyId, providerUserId }).catch(() => [])
+    ]);
+
+    // School affiliation (including historical) also marks seenAtSchool for Setting UI.
+    for (const rawId of schoolAffiliatedClientIds || []) {
+      const key = String(rawId);
+      const prev = byClientId[key] || { seenAtSchool: false, seenAtOffice: false };
+      byClientId[key] = { ...prev, seenAtSchool: true };
+    }
+
+    res.json({ byClientId, schoolAffiliatedClientIds: schoolAffiliatedClientIds || [] });
   } catch (e) {
     next(e);
   }

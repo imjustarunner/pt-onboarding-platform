@@ -1163,38 +1163,163 @@ export async function getSessionTotalsByClient({ agencyId, fiscalYearStart, prov
   return map;
 }
 
+function isSchoolPosCode(raw) {
+  const digits = String(raw || '').trim().replace(/\D/g, '');
+  if (!digits) return false;
+  return digits.padStart(2, '0').slice(-2) === '03';
+}
+
+function isNonEmptyNonSchoolPosCode(raw) {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return false;
+  return !isSchoolPosCode(trimmed);
+}
+
+/**
+ * Lifetime POS flags for a provider's caseload (no date window).
+ * School = POS 03 (also accepts "3"); office = any other non-empty POS.
+ */
 export async function getProviderClientPosFlags({ agencyId, providerUserId }) {
   const aid = Number(agencyId);
   const pid = Number(providerUserId);
   if (!aid || !pid) return {};
 
-  const [rows] = await pool.execute(
-    `SELECT be.client_id,
-            MAX(CASE WHEN TRIM(COALESCE(be.place_of_service, '')) = '03' THEN 1 ELSE 0 END) AS seen_at_school,
-            MAX(
-              CASE
-                WHEN TRIM(COALESCE(be.place_of_service, '')) <> ''
-                  AND TRIM(COALESCE(be.place_of_service, '')) <> '03'
-                THEN 1
-                ELSE 0
-              END
-            ) AS seen_at_office
-     FROM billing_encounters be
-     WHERE be.agency_id = ? AND be.provider_user_id = ?
-     GROUP BY be.client_id`,
-    [aid, pid]
-  );
-
   const byClientId = {};
-  for (const r of rows || []) {
-    const clientId = Number(r.client_id);
-    if (!clientId) continue;
-    byClientId[String(clientId)] = {
-      seenAtSchool: Number(r.seen_at_school) === 1,
-      seenAtOffice: Number(r.seen_at_office) === 1
+  const mergeFlags = (clientId, seenAtSchool, seenAtOffice) => {
+    const id = Number(clientId);
+    if (!id) return;
+    const key = String(id);
+    const prev = byClientId[key] || { seenAtSchool: false, seenAtOffice: false };
+    byClientId[key] = {
+      seenAtSchool: prev.seenAtSchool || !!seenAtSchool,
+      seenAtOffice: prev.seenAtOffice || !!seenAtOffice
     };
+  };
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT be.client_id,
+              MAX(
+                CASE
+                  WHEN LPAD(TRIM(LEADING '0' FROM TRIM(COALESCE(be.place_of_service, ''))), 2, '0') = '03'
+                    OR TRIM(COALESCE(be.place_of_service, '')) IN ('03', '3')
+                  THEN 1 ELSE 0
+                END
+              ) AS seen_at_school,
+              MAX(
+                CASE
+                  WHEN TRIM(COALESCE(be.place_of_service, '')) <> ''
+                    AND TRIM(COALESCE(be.place_of_service, '')) NOT IN ('03', '3')
+                    AND LPAD(TRIM(LEADING '0' FROM TRIM(COALESCE(be.place_of_service, ''))), 2, '0') <> '03'
+                  THEN 1
+                  ELSE 0
+                END
+              ) AS seen_at_office
+       FROM billing_encounters be
+       WHERE be.agency_id = ? AND be.provider_user_id = ?
+       GROUP BY be.client_id`,
+      [aid, pid]
+    );
+    for (const r of rows || []) {
+      mergeFlags(r.client_id, Number(r.seen_at_school) === 1, Number(r.seen_at_office) === 1);
+    }
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
   }
+
+  // Clinical sessions may hold older POS 03 encounters that never landed in billing_encounters.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT cs.client_id, cs.place_of_service
+       FROM clinical_sessions cs
+       INNER JOIN clients c ON c.id = cs.client_id
+       WHERE c.agency_id = ?
+         AND (cs.rendering_provider_user_id = ? OR cs.provider_user_id = ?)
+         AND TRIM(COALESCE(cs.place_of_service, '')) <> ''`,
+      [aid, pid, pid]
+    );
+    for (const r of rows || []) {
+      mergeFlags(r.client_id, isSchoolPosCode(r.place_of_service), isNonEmptyNonSchoolPosCode(r.place_of_service));
+    }
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
   return byClientId;
+}
+
+/**
+ * Client IDs on this provider's caseload that are (or have been) school-affiliated.
+ * Includes inactive COA rows so historical school portal clients stay "In School".
+ */
+export async function getProviderSchoolAffiliatedClientIds({ agencyId, providerUserId }) {
+  const aid = Number(agencyId);
+  const pid = Number(providerUserId);
+  if (!aid || !pid) return [];
+
+  const ids = new Set();
+  try {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT c.id
+       FROM clients c
+       LEFT JOIN agencies org ON org.id = c.organization_id
+       WHERE c.agency_id = ?
+         AND (
+           c.provider_id = ?
+           OR EXISTS (
+             SELECT 1
+             FROM client_provider_assignments cpa
+             WHERE cpa.client_id = c.id
+               AND cpa.provider_user_id = ?
+           )
+         )
+         AND (
+           LOWER(COALESCE(c.client_type, '')) IN ('school', 'learning')
+           OR LOWER(COALESCE(org.organization_type, '')) IN ('school', 'program', 'learning')
+           OR EXISTS (
+             SELECT 1
+             FROM client_organization_assignments coa
+             INNER JOIN agencies o ON o.id = coa.organization_id
+             WHERE coa.client_id = c.id
+               AND LOWER(COALESCE(o.organization_type, '')) IN ('school', 'program', 'learning')
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM client_provider_assignments cpa
+             INNER JOIN agencies o ON o.id = cpa.organization_id
+             WHERE cpa.client_id = c.id
+               AND cpa.provider_user_id = ?
+               AND LOWER(COALESCE(o.organization_type, '')) IN ('school', 'program', 'learning')
+           )
+         )`,
+      [aid, pid, pid, pid]
+    );
+    for (const r of rows || []) {
+      const id = Number(r.id);
+      if (id) ids.add(id);
+    }
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+  return [...ids];
 }
 
 export async function getRevenueAggregates({ agencyId = null, startYmd = null, endYmd = null } = {}) {

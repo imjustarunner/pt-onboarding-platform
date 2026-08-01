@@ -27,6 +27,66 @@ const normalizeDay = (d) => {
   return allowedDays.includes(s) ? s : null;
 };
 
+function isSelfProviderRole(role) {
+  const r = String(role || '').toLowerCase();
+  return (
+    r === 'provider' ||
+    r === 'provider_plus' ||
+    r === 'intern' ||
+    r === 'intern_plus' ||
+    r === 'clinical_practice_assistant'
+  );
+}
+
+async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId }) {
+  const uid = parseInt(providerUserId, 10);
+  const orgId = parseInt(schoolOrganizationId, 10);
+  if (!uid || !orgId) return false;
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM provider_school_assignments psa
+       WHERE psa.school_organization_id = ?
+         AND psa.provider_user_id = ?
+         AND psa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, uid]
+    );
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_provider_assignments cpa
+       WHERE cpa.organization_id = ?
+         AND cpa.provider_user_id = ?
+         AND cpa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, uid]
+    );
+    return !!rows?.[0];
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (missing) return false;
+    throw e;
+  }
+}
+
 async function ensureSchoolAccess(req, schoolId) {
   const schoolOrgId = parseInt(schoolId, 10);
   if (!schoolOrgId) return { ok: false, status: 400, message: 'Invalid schoolId' };
@@ -41,6 +101,17 @@ async function ensureSchoolAccess(req, schoolId) {
     const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === schoolOrgId);
     if (!hasDirect) {
       const role = String(req.user?.role || '').toLowerCase();
+
+      // Providers often have school access via schedule/client assignments without user_agencies membership.
+      // Keep this ahead of supervisor-limited access so supervisor privileges stay additive.
+      if (isSelfProviderRole(role)) {
+        const hasProviderAccess = await providerHasSchoolAccess({
+          providerUserId: req.user?.id,
+          schoolOrganizationId: schoolOrgId
+        });
+        if (hasProviderAccess) return { ok: true, school };
+      }
+
       const hasSupervisorCapability = await isSupervisorActor({ userId: req.user?.id, role, user: req.user });
       if (hasSupervisorCapability) {
         const canSupervisorAccess = await supervisorHasSuperviseeInSchool(req.user?.id, schoolOrgId);

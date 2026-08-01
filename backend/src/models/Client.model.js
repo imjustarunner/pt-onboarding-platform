@@ -278,6 +278,7 @@ class Client {
         c.*,
         ${useOrgAssignments ? 'COALESCE(orgf.name, org.name) as organization_name,' : 'org.name as organization_name,'}
         ${useOrgAssignments ? 'COALESCE(orgf.slug, org.slug) as organization_slug,' : 'org.slug as organization_slug,'}
+        ${useOrgAssignments ? 'COALESCE(orgf.organization_type, org.organization_type) as organization_type,' : 'org.organization_type as organization_type,'}
         provider.first_name as provider_first_name,
         provider.last_name as provider_last_name,
         cs.label as client_status_label,
