@@ -1,5 +1,26 @@
 /** Shared helpers for company-event shift requests (dashboard + calendar modal). */
 
+export function isFirstDayOfSchoolCompanyEvent(event) {
+  if (!event) return false;
+  const eventType = String(event.eventType || event.event_type || '').trim().toLowerCase();
+  if (eventType === 'school_first_day') return true;
+  const category = String(
+    event.schoolEventCategory || event.category || event.school_event_category || ''
+  )
+    .trim()
+    .toLowerCase();
+  if (category === 'first_day') return true;
+  const title = String(event.title || event.name || '').trim().toLowerCase();
+  if (/\bfirst\s*day\s*of\s*school\b/.test(title)) return true;
+  if (/\bjump\s*start\b/.test(title) && /\bfirst\s*day\b/.test(title)) return true;
+  return false;
+}
+
+/** Provider dashboard surfaces: hide calendar-only first-day dates (not requestable). */
+export function shouldShowOnProviderDashboardEvents(event) {
+  return !isFirstDayOfSchoolCompanyEvent(event);
+}
+
 export function primaryCompanyEventSession(event) {
   if (!event) return null;
   return (Array.isArray(event.sessions) && event.sessions[0]) || null;

@@ -557,9 +557,9 @@ export const listDayProviders = async (req, res, next) => {
     const weekday = normalizeDay(weekdayParam);
     if (!weekday) return res.status(400).json({ error: { message: `Invalid weekday (allowed: ${allowedDays.join(', ')})` } });
 
-    // Provider privacy: providers should only be able to view their own schedule/caseload.
-    const role = String(req.user?.role || '').toLowerCase();
-    let providerOnlyUserId = role === 'provider' ? parseInt(req.user?.id || 0, 10) : null;
+    // Providers can see who else works this day (hours + slot counts).
+    // Caseload and soft schedules stay restricted to self via other endpoints.
+    let providerOnlyUserId = null;
     if (access.supervisorLimited) {
       const superviseeIds = await getSupervisorSuperviseeIds(req.user?.id, null);
       if ((superviseeIds || []).length === 0) return res.json([]);
@@ -588,7 +588,7 @@ export const listDayProviders = async (req, res, next) => {
         AND psa.is_active = TRUE
        WHERE a.school_organization_id = ? AND a.weekday = ? COLLATE utf8mb4_unicode_ci AND a.is_active = TRUE
          AND (? IS NULL OR a.provider_user_id = ?)
-       ORDER BY u.last_name ASC, u.first_name ASC`,
+       ORDER BY COALESCE(psa.start_time, '23:59:59') ASC, u.last_name ASC, u.first_name ASC`,
       [parseInt(schoolId, 10), weekday, providerOnlyUserId, providerOnlyUserId]
     );
 
@@ -744,6 +744,10 @@ export const getSoftScheduleSlots = async (req, res, next) => {
 
     const providerUserId = parseInt(providerId, 10);
     if (!providerUserId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    if (isSelfProviderRole(role) && parseInt(req.user?.id, 10) !== providerUserId) {
+      return res.status(403).json({ error: { message: 'Providers can only view their own soft schedule' } });
+    }
     const providerAllowed = await ensureSupervisorCanAccessProvider({ req, access, providerUserId });
     if (!providerAllowed) return res.status(403).json({ error: { message: 'Access denied' } });
 

@@ -23,7 +23,7 @@
         </div>
       </div>
       <div class="right">
-        <label class="section">
+        <label v-if="!hideSoftSchedule" class="section">
           Section
           <select v-model="selectedSection" class="section-select">
             <option value="all">All</option>

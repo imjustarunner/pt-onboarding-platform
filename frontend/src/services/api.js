@@ -4,6 +4,7 @@ import {
   isSchoolOnboardingDemoActive,
   rewriteSchoolPortalUrlForDemo
 } from '../utils/schoolOnboardingDemoContext.js';
+import { isSchoolPortalShellActive } from '../utils/schoolPortalShell.js';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
@@ -154,6 +155,12 @@ api.interceptors.request.use(
 
     // Global loading overlay tracking (opt-out via config.skipGlobalLoading = true)
     try {
+      const url = String(config?.url || '');
+      const isSchoolPortalApi =
+        url.includes('/school-portal/') || url.startsWith('school-portal/');
+      if (!config?.skipGlobalLoading && (isSchoolPortalShellActive.value || isSchoolPortalApi)) {
+        config.skipGlobalLoading = true;
+      }
       if (!config?.skipGlobalLoading) {
         // Avoid double-begin for retries
         if (!config.__globalLoadingId) {

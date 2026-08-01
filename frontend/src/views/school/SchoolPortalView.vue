@@ -472,6 +472,11 @@
         @activate="openNotificationsPanel"
       />
 
+      <div v-if="portalBootstrapLoading" class="sp-inline-bootstrap-loading" role="status" aria-live="polite">
+        <span class="sp-inline-bootstrap-spinner" aria-hidden="true"></span>
+        <span>Loading portal…</span>
+      </div>
+
       <SurveyPromptCard v-if="authStore.user?.id && !isPreviewOrDemo" :splash="true" />
 
       <ProviderSchoolProfile
@@ -1039,6 +1044,8 @@
             :current-user-role="authStore.user?.role || ''"
             :highlight-client-id="daysHighlightClientId"
             :highlight-provider-user-id="daysHighlightProviderUserId"
+            :provider-view-mode="isProvider"
+            :can-manage-day-providers="canAddSchoolProviders"
             @add-day="handleAddDay"
             @add-provider="handleAddProvider"
             @open-client="openClient"
@@ -2002,7 +2009,7 @@ const loadSchoolPortalEvents = async () => {
   schoolPortalEventsLoading.value = true;
   schoolPortalEventsError.value = '';
   try {
-    const res = await api.get(`/school-portal/${organizationId.value}/school-events`);
+    const res = await api.get(`/school-portal/${organizationId.value}/school-events`, { skipGlobalLoading: true });
     schoolPortalEvents.value = Array.isArray(res.data?.events) ? res.data.events : (Array.isArray(res.data) ? res.data : []);
   } catch (e) {
     schoolPortalEventsError.value = e?.response?.data?.error?.message || 'Failed to load school events';
@@ -2459,6 +2466,7 @@ const comingSoonTitle = computed(() => {
 });
 const selectedClient = ref(null);
 const portalMode = ref('home'); // home | providers | days | roster | skills | events | calendar | school_staff | documents | faq | messages
+const portalBootstrapLoading = ref(false);
 const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel (pending/waitlist)
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
@@ -3046,8 +3054,8 @@ const loadNotificationsPreview = async () => {
     }
 
     const [prefResp, feedResp] = await Promise.all([
-      api.get(`/users/${uid}/preferences`),
-      api.get(`/school-portal/${orgId}/notifications/feed`)
+      api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true }),
+      api.get(`/school-portal/${orgId}/notifications/feed`, { skipGlobalLoading: true })
     ]);
 
     const pref = prefResp?.data || {};
@@ -3170,7 +3178,7 @@ const loadBannerAnnouncements = async () => {
       bannerItems.value = [];
       return;
     }
-    const r = await api.get(`/school-portal/${orgId}/announcements/banner`);
+    const r = await api.get(`/school-portal/${orgId}/announcements/banner`, { skipGlobalLoading: true });
     bannerItems.value = Array.isArray(r.data) ? r.data : [];
   } catch {
     bannerItems.value = [];
@@ -3694,28 +3702,98 @@ watch(
 const ensureAffiliation = async () => {
   if (!organizationId.value) return;
   try {
-    const r = await api.get(`/school-portal/${organizationId.value}/affiliation`);
+    const r = await api.get(`/school-portal/${organizationId.value}/affiliation`, { skipGlobalLoading: true });
     const active = r?.data?.active_agency_id ?? null;
     affiliatedAgencyId.value = active ? Number(active) : null;
     canEditClientActions.value = !!r?.data?.can_edit_clients;
 
-    // Best-effort: load full affiliated agency record for icon overrides (cards + settings icon).
-    // Public onboarding demo includes a sanitized active_agency payload (no /agencies auth).
-    if (isPublicDemo.value && r?.data?.active_agency) {
-      cardIconOrg.value = r.data.active_agency;
-    } else if (affiliatedAgencyId.value) {
-      const a = await api.get(`/agencies/${affiliatedAgencyId.value}`);
-      cardIconOrg.value = a.data || null;
-    } else {
-      cardIconOrg.value = null;
-    }
+    const loadCardIcons = async () => {
+      if (isPublicDemo.value && r?.data?.active_agency) {
+        cardIconOrg.value = r.data.active_agency;
+        return;
+      }
+      if (affiliatedAgencyId.value) {
+        try {
+          const a = await api.get(`/agencies/${affiliatedAgencyId.value}`, { skipGlobalLoading: true });
+          cardIconOrg.value = a.data || null;
+        } catch {
+          cardIconOrg.value = null;
+        }
+      } else {
+        cardIconOrg.value = null;
+      }
+    };
+    void loadCardIcons();
     if (!isPublicDemo.value) {
-      await checkReviewPrompt();
+      void checkReviewPrompt();
     }
   } catch {
     affiliatedAgencyId.value = null;
     cardIconOrg.value = null;
     canEditClientActions.value = false;
+  }
+};
+
+const deferSchoolPortalSecondaryLoads = () => {
+  const run = async () => {
+    const tasks = [];
+    if (!isPublicDemo.value) {
+      tasks.push(loadSupervisorScheduleEligibility());
+      tasks.push(refreshWaiverGateStatus({ force: true }));
+      tasks.push(loadSchoolEventsMissing());
+      tasks.push(loadFallReinitStatus());
+      tasks.push(maybeOpenWeeklyAvailabilityPrompt());
+    }
+    tasks.push(loadNotificationsPreview());
+    tasks.push(loadSchoolPortalEvents());
+    if (!isPublicDemo.value) {
+      tasks.push(applySchoolEventDeepLink());
+    }
+    // Providers list is only needed for days/providers/messages — defer on home.
+    const needsProvidersNow = ['days', 'providers', 'messages'].includes(portalMode.value);
+    if (needsProvidersNow) {
+      tasks.push(store.fetchEligibleProviders());
+    } else {
+      void store.fetchEligibleProviders().catch(() => {});
+    }
+    await Promise.allSettled(tasks);
+    if (!isPublicDemo.value && !showPostSchoolEvent.value) maybeShowSchoolEventPrompt();
+  };
+  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(() => {
+      void run();
+    }, { timeout: 2000 });
+  } else {
+    setTimeout(() => {
+      void run();
+    }, 0);
+  }
+};
+
+const bootstrapSchoolPortal = async () => {
+  if (!organizationId.value) return;
+  portalBootstrapLoading.value = true;
+  try {
+    store.reset();
+    store.setSchoolId(organizationId.value);
+    if (requestedPortalMode.value) {
+      await applyRequestedPortalMode(requestedPortalMode.value);
+    } else if (isSchoolStaff.value) {
+      portalMode.value = 'home';
+    }
+    await Promise.all([
+      ensureAffiliation(),
+      store.fetchDays(),
+      store.fetchPortalStats(),
+      loadBannerAnnouncements()
+    ]);
+    deferSchoolPortalSecondaryLoads();
+    if (portalMode.value === 'days' && store.selectedWeekday) {
+      await loadForDay(store.selectedWeekday);
+    }
+    await openClientFromQuery();
+  } finally {
+    portalBootstrapLoading.value = false;
   }
 };
 
@@ -4062,16 +4140,37 @@ const panelFor = (providerUserId) => {
   return store.providerPanels?.[key] || store.ensurePanel(store.selectedWeekday, providerUserId);
 };
 
-const loadForDay = async (weekday) => {
+let loadForDaySeq = 0;
+
+const loadForDay = async (weekday, { refreshSchoolWide = false, forcePanels = false } = {}) => {
   if (!organizationId.value) return;
   if (portalMode.value !== 'days') return;
   if (!weekday) return;
-  await store.fetchDays();
-  await store.fetchPortalStats();
-  await store.fetchEligibleProviders();
+  const seq = ++loadForDaySeq;
+  if (refreshSchoolWide) {
+    await Promise.all([
+      store.fetchDays({ force: true }),
+      store.fetchPortalStats({ force: true }),
+      store.fetchEligibleProviders({ force: true })
+    ]);
+  }
+  if (seq !== loadForDaySeq) return;
   await store.fetchDayProviders(weekday);
+  if (seq !== loadForDaySeq) return;
   const list = Array.isArray(store.dayProviders) ? store.dayProviders : [];
-  await Promise.all(list.map((p) => store.loadProviderPanel(weekday, p.provider_user_id)));
+  const meId = Number(authStore.user?.id || 0);
+  const providerDaysView = isProvider.value;
+  await Promise.all(
+    list.map((p) => {
+      const pid = Number(p?.provider_user_id || 0);
+      if (providerDaysView && pid !== meId) return Promise.resolve();
+      return store.loadProviderPanel(weekday, p.provider_user_id, {
+        force: forcePanels,
+        includeSoftSchedule: !providerDaysView || pid === meId,
+        includeCaseload: !providerDaysView || pid === meId
+      });
+    })
+  );
 };
 
 const runDaysClientFind = async () => {
@@ -4129,12 +4228,12 @@ const runDaysClientFind = async () => {
 
 const handleAddDay = async () => {
   await store.addDay(store.selectedWeekday);
-  await loadForDay(store.selectedWeekday);
+  await loadForDay(store.selectedWeekday, { refreshSchoolWide: true, forcePanels: true });
 };
 
 const handleAddProvider = async ({ providerUserId }) => {
   await store.addProviderToDay(store.selectedWeekday, providerUserId);
-  await loadForDay(store.selectedWeekday);
+  await loadForDay(store.selectedWeekday, { refreshSchoolWide: true, forcePanels: true });
 };
 
 const handleSaveSlots = async ({ providerUserId, slots }) => {
@@ -4377,75 +4476,13 @@ onMounted(async () => {
     await organizationStore.fetchBySlug(organizationSlug.value);
   }
   if (organizationId.value) {
-    store.reset();
-    store.setSchoolId(organizationId.value);
-    await ensureAffiliation();
-    // Default portal mode (query param overrides provider default).
-    if (requestedPortalMode.value) {
-      await applyRequestedPortalMode(requestedPortalMode.value);
-    } else if (isSchoolStaff.value) {
-      portalMode.value = 'home';
-    }
-    await store.fetchDays();
-    await store.fetchPortalStats();
-    // Preload provider list so home has useful info immediately.
-    await store.fetchEligibleProviders();
-    if (!isPublicDemo.value) {
-      await loadSupervisorScheduleEligibility();
-    }
-    // Preload announcements preview so the card badge/snippet is populated.
-    await loadNotificationsPreview();
-    await loadBannerAnnouncements();
-    if (!isPublicDemo.value) {
-      await refreshWaiverGateStatus({ force: true });
-    }
-    if (!isPublicDemo.value) {
-      await loadSchoolEventsMissing();
-    }
-    await loadSchoolPortalEvents();
-    if (!isPublicDemo.value) {
-      await applySchoolEventDeepLink();
-    }
-    if (!isPublicDemo.value && !showPostSchoolEvent.value) maybeShowSchoolEventPrompt();
-    if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
-    await openClientFromQuery();
-    if (!isPublicDemo.value) {
-      await loadFallReinitStatus();
-    }
-  }
-
-  if (!isPublicDemo.value) {
-    await maybeOpenWeeklyAvailabilityPrompt();
+    await bootstrapSchoolPortal();
   }
 });
 
 watch(organizationId, async (id) => {
   if (!id) return;
-  store.reset();
-  store.setSchoolId(id);
-  await ensureAffiliation();
-  if (requestedPortalMode.value) {
-    await applyRequestedPortalMode(requestedPortalMode.value);
-  } else if (isSchoolStaff.value) {
-    portalMode.value = 'home';
-  }
-  await store.fetchDays();
-  await store.fetchPortalStats();
-  await store.fetchEligibleProviders();
-  if (!isPublicDemo.value) {
-    await loadSupervisorScheduleEligibility();
-  }
-  await loadNotificationsPreview();
-  await loadBannerAnnouncements();
-  if (!isPublicDemo.value) {
-    await refreshWaiverGateStatus({ force: true });
-  }
-  if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
-  await openClientFromQuery();
-  if (!isPublicDemo.value) {
-    await loadFallReinitStatus();
-    await maybeOpenWeeklyAvailabilityPrompt();
-  }
+  await bootstrapSchoolPortal();
 });
 
 watch(
@@ -4486,12 +4523,39 @@ watch(
 );
 
 watch(() => store.selectedWeekday, async (weekday) => {
-  if (!organizationId.value) return;
+  if (!organizationId.value || portalMode.value !== 'days') return;
   await loadForDay(weekday);
 });
 </script>
 
 <style scoped>
+.sp-inline-bootstrap-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+}
+
+.sp-inline-bootstrap-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(15, 23, 42, 0.12);
+  border-top-color: var(--primary, #2f6f4e);
+  border-radius: 50%;
+  animation: sp-inline-bootstrap-spin 0.7s linear infinite;
+}
+
+@keyframes sp-inline-bootstrap-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .school-portal {
   --sp-sidebar-width: 200px;
   --sp-sidebar-collapsed-width: 68px;

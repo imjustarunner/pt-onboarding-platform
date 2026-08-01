@@ -2325,6 +2325,7 @@ import {
 import { toUploadsUrl } from './utils/uploadsUrl';
 import { buildSuperadminAgencyBrandUrl } from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
+import { isSchoolPortalShellActive } from './utils/schoolPortalShell.js';
 import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
 import { isBookClubAgency } from './utils/bookClubAgency.js';
 import {
@@ -2686,8 +2687,25 @@ const sstcClubBannerImageUrl = computed(() => {
 
 const navBarLogoUrl = computed(() => sstcAffiliationNavLogoUrl.value || navBrandLogoUrl.value);
 
+function suppressSchoolPortalFullscreenLoader() {
+  if (!isSchoolPortalShellActive.value) return;
+  if (loaderShowTimer) {
+    clearTimeout(loaderShowTimer);
+    loaderShowTimer = null;
+  }
+  if (loaderHideTimer) {
+    clearTimeout(loaderHideTimer);
+    loaderHideTimer = null;
+  }
+  pageLoading.value = false;
+}
+
 function syncPageLoading(isOn) {
   try {
+    if (isSchoolPortalShellActive.value) {
+      suppressSchoolPortalFullscreenLoader();
+      return;
+    }
     if (isOn) {
       if (loaderHideTimer) {
         clearTimeout(loaderHideTimer);
@@ -2732,6 +2750,9 @@ function syncPageLoading(isOn) {
   }
 }
 watch(globalLoading, syncPageLoading);
+watch(isSchoolPortalShellActive, (active) => {
+  if (active) suppressSchoolPortalFullscreenLoader();
+});
 
 // HQ surface swaps (tickets ↔ command center): use fullscreenloadplatform.mp4.
 // Other platform loads keep the small SmallLoad.mp4 square.

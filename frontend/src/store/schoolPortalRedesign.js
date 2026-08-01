@@ -27,8 +27,17 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
   // Per provider/day panel state (caseload + soft slots)
   const providerPanels = ref({}); // key -> { caseloadClients, slots, persisted, loading, saving, error }
 
+  let daysLoadedForSchoolId = null;
+  let eligibleProvidersLoadedForSchoolId = null;
+  const portalGetOpts = { skipGlobalLoading: true };
+
   const setSchoolId = (id) => {
-    schoolId.value = id ? Number(id) : null;
+    const next = id ? Number(id) : null;
+    if (schoolId.value !== next) {
+      daysLoadedForSchoolId = null;
+      eligibleProvidersLoadedForSchoolId = null;
+    }
+    schoolId.value = next;
   };
 
   const reset = () => {
@@ -43,14 +52,17 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     eligibleProviders.value = [];
     eligibleProvidersLoading.value = false;
     providerPanels.value = {};
+    daysLoadedForSchoolId = null;
+    eligibleProvidersLoadedForSchoolId = null;
   };
 
-  const fetchPortalStats = async () => {
+  const fetchPortalStats = async ({ force = false } = {}) => {
     if (!schoolId.value) return;
+    if (!force && portalStats.value && !portalStatsLoading.value) return;
     portalStatsLoading.value = true;
     portalStatsError.value = '';
     try {
-      const r = await api.get(`/school-portal/${schoolId.value}/stats`);
+      const r = await api.get(`/school-portal/${schoolId.value}/stats`, portalGetOpts);
       portalStats.value = r.data || null;
     } catch (e) {
       portalStatsError.value = e.response?.data?.error?.message || 'Failed to load portal stats';
@@ -60,24 +72,29 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     }
   };
 
-  const fetchDays = async () => {
+  const fetchDays = async ({ force = false } = {}) => {
     if (!schoolId.value) return;
-    const r = await api.get(`/school-portal/${schoolId.value}/days`);
+    if (!force && daysLoadedForSchoolId === schoolId.value) return;
+    const r = await api.get(`/school-portal/${schoolId.value}/days`, portalGetOpts);
     days.value = Array.isArray(r.data) && r.data.length ? r.data : days.value;
+    daysLoadedForSchoolId = schoolId.value;
   };
 
   const addDay = async (weekday) => {
     if (!schoolId.value) return;
     await api.post(`/school-portal/${schoolId.value}/days/${encodeURIComponent(weekday)}`, {});
-    await fetchDays();
+    daysLoadedForSchoolId = null;
+    await fetchDays({ force: true });
   };
 
-  const fetchEligibleProviders = async () => {
+  const fetchEligibleProviders = async ({ force = false } = {}) => {
     if (!schoolId.value) return;
+    if (!force && eligibleProvidersLoadedForSchoolId === schoolId.value && eligibleProviders.value.length) return;
     eligibleProvidersLoading.value = true;
     try {
-      const r = await api.get(`/school-portal/${schoolId.value}/providers/scheduling`);
+      const r = await api.get(`/school-portal/${schoolId.value}/providers/scheduling`, portalGetOpts);
       eligibleProviders.value = Array.isArray(r.data) ? r.data : [];
+      eligibleProvidersLoadedForSchoolId = schoolId.value;
     } finally {
       eligibleProvidersLoading.value = false;
     }
@@ -88,7 +105,7 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     dayProvidersLoading.value = true;
     dayProvidersError.value = '';
     try {
-      const r = await api.get(`/school-portal/${schoolId.value}/days/${encodeURIComponent(weekday)}/providers`);
+      const r = await api.get(`/school-portal/${schoolId.value}/days/${encodeURIComponent(weekday)}/providers`, portalGetOpts);
       dayProviders.value = Array.isArray(r.data) ? r.data : [];
     } catch (e) {
       dayProvidersError.value = e.response?.data?.error?.message || 'Failed to load day providers';
@@ -103,7 +120,7 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     await api.post(`/school-portal/${schoolId.value}/days/${encodeURIComponent(weekday)}/providers`, {
       providerUserId: Number(providerUserId)
     });
-    await fetchDays();
+    await fetchDays({ force: true });
     await fetchDayProviders(weekday);
   };
 
@@ -127,7 +144,9 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
           endTime: endTime || null
         };
     const r = await api.post(`/school-portal/${schoolId.value}/providers`, body);
-    await Promise.all([fetchEligibleProviders(), fetchDays()]);
+    eligibleProvidersLoadedForSchoolId = null;
+    daysLoadedForSchoolId = null;
+    await Promise.all([fetchEligibleProviders({ force: true }), fetchDays({ force: true })]);
     if (dayOfWeek || (days && days[0]?.dayOfWeek)) {
       const wd = dayOfWeek || days[0].dayOfWeek;
       if (selectedWeekday.value === wd) await fetchDayProviders(wd);
@@ -144,7 +163,8 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
         persisted: false,
         loading: false,
         saving: false,
-        error: ''
+        error: '',
+        loaded: false
       };
     }
     return providerPanels.value[key];
@@ -154,7 +174,8 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     if (!schoolId.value) return;
     const panel = ensurePanel(weekday, providerUserId);
     const r = await api.get(`/school-portal/${schoolId.value}/providers/${providerUserId}/assigned-clients`, {
-      params: { dayOfWeek: weekday }
+      params: { dayOfWeek: weekday },
+      skipGlobalLoading: true
     });
     panel.caseloadClients = Array.isArray(r.data) ? r.data : [];
   };
@@ -163,21 +184,36 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     if (!schoolId.value) return;
     const panel = ensurePanel(weekday, providerUserId);
     const r = await api.get(
-      `/school-portal/${schoolId.value}/days/${encodeURIComponent(weekday)}/providers/${providerUserId}/soft-slots`
+      `/school-portal/${schoolId.value}/days/${encodeURIComponent(weekday)}/providers/${providerUserId}/soft-slots`,
+      portalGetOpts
     );
     panel.persisted = !!r.data?.persisted;
     panel.slots = Array.isArray(r.data?.slots) ? r.data.slots : [];
   };
 
-  const loadProviderPanel = async (weekday, providerUserId) => {
+  const loadProviderPanel = async (
+    weekday,
+    providerUserId,
+    { force = false, includeSoftSchedule = true, includeCaseload = true } = {}
+  ) => {
     const panel = ensurePanel(weekday, providerUserId);
+    if (!force && panel.loaded && !panel.error) return;
     panel.loading = true;
     panel.error = '';
     try {
-      const tasks = [fetchProviderCaseload(weekday, providerUserId), fetchSoftSlots(weekday, providerUserId)];
-      await Promise.all(tasks);
+      const tasks = [];
+      if (includeCaseload) tasks.push(fetchProviderCaseload(weekday, providerUserId));
+      if (includeSoftSchedule) tasks.push(fetchSoftSlots(weekday, providerUserId));
+      if (tasks.length) {
+        await Promise.all(tasks);
+      } else {
+        panel.caseloadClients = [];
+        panel.slots = [];
+      }
+      panel.loaded = true;
     } catch (e) {
       panel.error = e.response?.data?.error?.message || 'Failed to load provider panel';
+      panel.loaded = false;
     } finally {
       panel.loading = false;
     }

@@ -78,6 +78,15 @@ const DEFAULT_RSVP_OPTIONS = [
   { key: '2', label: 'No' },
   { key: '3', label: 'Maybe' }
 ];
+
+function isFirstDayOfSchoolDashboardEvent(row) {
+  const eventType = String(row?.event_type || row?.eventType || '').trim().toLowerCase();
+  if (eventType === 'school_first_day') return true;
+  const title = String(row?.title || '').trim().toLowerCase();
+  if (/\bfirst\s*day\s*of\s*school\b/.test(title)) return true;
+  if (/\bjump\s*start\b/.test(title) && /\bfirst\s*day\b/.test(title)) return true;
+  return false;
+}
 const OPEN_REQUEST_MARKER = '[OPEN_REQUEST_SLOT]';
 
 const ROLE_AUDIENCE_CODES = {
@@ -3447,7 +3456,9 @@ export const listMyCompanyEvents = async (req, res, next) => {
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
     const visible = await listEventsVisibleToUser(userId, agencyIds, { excludeSkillsGroupLinkedEvents: true });
-    const events = visible.map(({ row, audience }) => ({
+    const events = visible
+      .filter(({ row }) => !isFirstDayOfSchoolDashboardEvent(row))
+      .map(({ row, audience }) => ({
       ...mapEventRow(row, req, { myEndpoint: true }),
       audience
     }));
@@ -3492,7 +3503,8 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
       [...agencyIds, ...SCHOOL_PORTAL_EVENT_TYPES]
     );
 
-    const eventIds = (rows || []).map((r) => Number(r.id)).filter(Boolean);
+    const filteredRows = (rows || []).filter((row) => !isFirstDayOfSchoolDashboardEvent(row));
+    const eventIds = filteredRows.map((r) => Number(r.id)).filter(Boolean);
     if (!eventIds.length) return res.json([]);
 
     const idPlaceholders = eventIds.map(() => '?').join(', ');
@@ -3561,7 +3573,7 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
       sessionsByEvent.set(eid, list);
     }
 
-    const events = (rows || []).map((row) => {
+    const events = filteredRows.map((row) => {
       const base = mapEventRow(row, req, { myEndpoint: true });
       const eid = Number(row.id);
       const eventType = String(row.event_type || '').toLowerCase();

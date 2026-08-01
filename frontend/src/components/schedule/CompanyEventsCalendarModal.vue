@@ -65,7 +65,8 @@ import {
   companyEventRequestKey,
   companyEventRequestStatusLabel,
   isRequestableCompanyEvent,
-  primaryCompanyEventSession
+  primaryCompanyEventSession,
+  shouldShowOnProviderDashboardEvents
 } from '../../utils/companyEventStaffing';
 
 const emit = defineEmits(['close', 'changed']);
@@ -76,7 +77,9 @@ const events = ref([]);
 const requestingKey = ref('');
 
 const sortedEvents = computed(() =>
-  [...(events.value || [])].sort((a, b) => {
+  [...(events.value || [])]
+    .filter((e) => shouldShowOnProviderDashboardEvents(e))
+    .sort((a, b) => {
     const at = new Date(a?.startsAt || 0).getTime();
     const bt = new Date(b?.startsAt || 0).getTime();
     return (Number.isFinite(at) ? at : 0) - (Number.isFinite(bt) ? bt : 0);

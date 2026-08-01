@@ -5,6 +5,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../services/api';
 import { buildRecentSubmissionActivityItems } from '../utils/submitSubmissionHistory';
+import { shouldShowOnProviderDashboardEvents } from '../utils/companyEventStaffing';
 
 function localYmd(d = new Date()) {
   const y = d.getFullYear();
@@ -99,8 +100,8 @@ export function useDashboardOverview(opts = {}) {
 
   const effectiveCompanyEvents = computed(() => {
     const fromParent = resolve(opts.companyEvents);
-    if (Array.isArray(fromParent)) return fromParent;
-    return localCompanyEvents.value;
+    const list = Array.isArray(fromParent) ? fromParent : localCompanyEvents.value;
+    return (Array.isArray(list) ? list : []).filter((e) => shouldShowOnProviderDashboardEvents(e));
   });
 
   const effectiveSupervisionPrompts = computed(() => {
@@ -554,6 +555,7 @@ export function useDashboardOverview(opts = {}) {
             const rows = Array.isArray(r.data) ? r.data : [];
             const map = new Map();
             for (const row of rows) {
+              if (!shouldShowOnProviderDashboardEvents(row)) continue;
               const id = Number(row?.id);
               if (id) map.set(id, row);
             }

@@ -4,9 +4,9 @@
       <div class="pane-header">
         <div>
           <div class="weekday">{{ weekday }}</div>
-          <div class="hint">Providers added for this day</div>
+          <div class="hint">{{ providerViewMode ? "Who's working this day" : 'Providers added for this day' }}</div>
         </div>
-        <div class="actions">
+        <div v-if="canManageDayProviders" class="actions">
           <button class="btn btn-secondary btn-sm" type="button" @click="showAddProvider = true">
             Add Provider
           </button>
@@ -15,11 +15,11 @@
 
       <div v-if="providers.length === 0" class="empty">
         <div>No providers assigned.</div>
-        <button class="btn btn-primary btn-sm" type="button" @click="$emit('add-day')">Add Day</button>
+        <button v-if="canManageDayProviders" class="btn btn-primary btn-sm" type="button" @click="$emit('add-day')">Add Day</button>
       </div>
 
       <div v-else class="provider-list">
-        <div v-for="p in providers" :key="p.provider_user_id" class="provider-card">
+        <div v-for="p in sortedProviders" :key="p.provider_user_id" class="provider-card">
           <div class="name">{{ p.last_name }}, {{ p.first_name }}</div>
           <div class="meta">
             <span v-if="p.slots_total != null" class="badge badge-secondary">{{ (p.slots_used ?? 0) }} / {{ p.slots_total }} assigned</span>
@@ -30,7 +30,7 @@
         </div>
       </div>
 
-      <div v-if="providers.length > 0 && !hideSoftSchedule" class="schedule-disclaimer schedule-disclaimer-left">
+      <div v-if="providers.length > 0 && showScheduleDisclaimer" class="schedule-disclaimer schedule-disclaimer-left">
         <div class="schedule-disclaimer-title">Schedule Disclaimer</div>
         <div class="schedule-disclaimer-text">
           The schedules shown on this page are intended as a soft schedule for planning and communication purposes only. They do not update,
@@ -80,13 +80,16 @@
         <div>
           <div class="loading-title">Loading schedules…</div>
           <div class="loading-sub">
-            {{ hideSoftSchedule ? 'Pulling caseload for this day.' : 'Pulling caseload + soft schedules for this day.' }}
+            {{ loadingSubtext }}
           </div>
         </div>
       </div>
       <div v-else-if="providersError" class="error">{{ providersError }}</div>
       <div v-else-if="providers.length === 0" class="empty-right">
-        Select “Add Day” to start scheduling this day.
+        {{ canManageDayProviders ? 'Select “Add Day” to start scheduling this day.' : 'No providers are scheduled for this day yet.' }}
+      </div>
+      <div v-else-if="providerViewMode && providersForPanels.length === 0" class="empty-right">
+        Other providers are working this day. Your caseload for {{ weekday }} will appear here when you are scheduled.
       </div>
       <div v-else>
         <div v-if="anyPanelLoading" class="inline-loading">
@@ -96,7 +99,7 @@
 
         <div class="provider-panels">
           <ProviderPanel
-            v-for="p in providers"
+            v-for="p in providersForPanels"
             :key="`panel-${p.provider_user_id}`"
             :provider="p"
             :weekday="weekday"
@@ -106,7 +109,7 @@
             :current-user-role="currentUserRole"
             :highlight-client-id="highlightClientId"
             :highlight-provider-user-id="highlightProviderUserId"
-            :hide-soft-schedule="hideSoftSchedule"
+            :hide-soft-schedule="hideSoftScheduleFor(p)"
             :caseload-clients="panelFor(p.provider_user_id)?.caseloadClients || []"
             :slots="panelFor(p.provider_user_id)?.slots || []"
             :loading="panelFor(p.provider_user_id)?.loading || false"
@@ -141,7 +144,9 @@ const props = defineProps({
   currentUserRole: { type: String, default: '' },
   highlightClientId: { type: [Number, String], default: null },
   highlightProviderUserId: { type: [Number, String], default: null },
-  hideSoftSchedule: { type: Boolean, default: false }
+  hideSoftSchedule: { type: Boolean, default: false },
+  providerViewMode: { type: Boolean, default: false },
+  canManageDayProviders: { type: Boolean, default: true }
 });
 
 const emit = defineEmits([
@@ -164,17 +169,65 @@ const formatClock = (t) => {
   return `${h12}:${String(mm).padStart(2, '0')} ${suffix}`;
 };
 
+const startTimeSortValue = (provider) => {
+  const raw = String(provider?.start_time || '').trim();
+  if (!raw) return Number.POSITIVE_INFINITY;
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return Number.POSITIVE_INFINITY;
+  const hh = parseInt(match[1], 10);
+  const mm = parseInt(match[2], 10);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return Number.POSITIVE_INFINITY;
+  return hh * 60 + mm;
+};
+
+const compareProvidersByStartTime = (a, b) => {
+  const diff = startTimeSortValue(a) - startTimeSortValue(b);
+  if (diff) return diff;
+  const byLast = String(a?.last_name || '').localeCompare(String(b?.last_name || ''), undefined, { sensitivity: 'base' });
+  if (byLast) return byLast;
+  return String(a?.first_name || '').localeCompare(String(b?.first_name || ''), undefined, { sensitivity: 'base' });
+};
+
+const sortedProviders = computed(() => {
+  const list = Array.isArray(props.providers) ? props.providers.slice() : [];
+  return list.sort(compareProvidersByStartTime);
+});
+
 const showAddProvider = ref(false);
 const selectedProviderUserId = ref('');
 const addProviderError = ref('');
 
 const anyPanelLoading = computed(() => {
-  const list = Array.isArray(props.providers) ? props.providers : [];
+  const list = Array.isArray(providersForPanels.value) ? providersForPanels.value : [];
   for (const p of list) {
     const st = props.panelFor?.(p?.provider_user_id);
     if (st?.loading) return true;
   }
   return false;
+});
+
+const providersForPanels = computed(() => {
+  const list = sortedProviders.value;
+  if (!props.providerViewMode) return list;
+  const me = Number(props.currentUserId || 0);
+  if (!me) return [];
+  return list.filter((p) => Number(p?.provider_user_id) === me);
+});
+
+const hideSoftScheduleFor = (provider) => {
+  if (!props.providerViewMode) return false;
+  const me = Number(props.currentUserId || 0);
+  return Number(provider?.provider_user_id) !== me;
+};
+
+const showScheduleDisclaimer = computed(() => {
+  if (!props.providerViewMode) return true;
+  return providersForPanels.value.length > 0;
+});
+
+const loadingSubtext = computed(() => {
+  if (props.providerViewMode) return 'Pulling your caseload and soft schedule for this day.';
+  return 'Pulling caseload + soft schedules for this day.';
 });
 
 const confirmAddProvider = async () => {

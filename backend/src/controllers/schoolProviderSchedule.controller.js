@@ -501,9 +501,14 @@ export const listAssignedClientsForProviderDay = async (req, res, next) => {
     const dayOfWeek = normalizeDay(req.query.dayOfWeek);
     if (!dayOfWeek) return res.status(400).json({ error: { message: `dayOfWeek is required (${allowedDays.join(', ')})` } });
 
+    const role = String(req.user?.role || '').toLowerCase();
+    const pid = parseInt(providerId, 10);
+    if (isSelfProviderRole(role) && parseInt(req.user?.id, 10) !== pid) {
+      return res.status(403).json({ error: { message: 'Providers can only view their own caseload' } });
+    }
+
     // Prefer org-scoped provider/day rows; fall back to legacy clients.organization_id + provider_id + service_day.
     const sid = parseInt(schoolId, 10);
-    const pid = parseInt(providerId, 10);
     const [rows] = await pool.execute(
       `SELECT DISTINCT
          c.id,
@@ -538,7 +543,6 @@ export const listAssignedClientsForProviderDay = async (req, res, next) => {
 
     // Unread note counts (per user) - best effort if table exists.
     const out = rows || [];
-    const role = String(req.user?.role || '').toLowerCase();
     if (role === 'school_staff' && out.length > 0) {
       const schoolOrgId = parseInt(schoolId, 10);
       const [accessByClientId, schoolStaffInOrg] = await Promise.all([

@@ -1268,11 +1268,110 @@ export const getProviderMyRoster = async (req, res, next) => {
         )`
       : '';
 
+    const viewWaitlist = String(req.query.view || '').toLowerCase() === 'waitlist';
+
     // Use the same restricted roster query but force provider filtering.
     // Include clients linked via COA, active CPA at this school, or legacy clients.organization_id
     // so providers still see assigned caseload when assignment-table sync is incomplete.
+    // view=waitlist returns all waitlisted clients at this school (not only the provider's caseload).
     let clients = [];
-    try {
+    if (viewWaitlist) {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT
+             c.id,
+             COALESCE(coa.organization_id, c.organization_id, ?) AS organization_id,
+             c.initials,
+             c.identifier_code,
+             c.full_name,
+             c.client_status_id,
+             cs.label AS client_status_label,
+             cs.status_key AS client_status_key,
+             c.termination_reason,
+             c.waitlist_started_at,
+             c.grade,
+             c.school_year,
+             c.provider_id AS legacy_provider_id,
+             c.service_day AS legacy_service_day,
+             legacy_u.first_name AS legacy_provider_first_name,
+             legacy_u.last_name AS legacy_provider_last_name,
+             GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name) ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ', ') AS provider_name,
+             GROUP_CONCAT(DISTINCT cpa.provider_user_id ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ',') AS provider_ids,
+             GROUP_CONCAT(DISTINCT cpa.service_day ORDER BY FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday') SEPARATOR ', ') AS service_day,
+             GROUP_CONCAT(
+               CONCAT(
+                 cpa.provider_user_id, ':',
+                 COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), 'Provider'),
+                 ':',
+                 COALESCE(cpa.service_day, '')
+               )
+               ORDER BY u.last_name ASC, u.first_name ASC, FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday')
+               SEPARATOR '|'
+             ) AS provider_day_pairs,
+             MAX(CASE WHEN cpa.provider_user_id = ? OR c.provider_id = ? THEN 1 ELSE 0 END) AS user_is_assigned_provider,
+             c.submission_date,
+             c.source,
+             c.document_status,
+             c.paperwork_status_id,
+             ps.label AS paperwork_status_label,
+             ps.status_key AS paperwork_status_key,
+             c.paperwork_delivery_method_id,
+             pdm.label AS paperwork_delivery_method_label,
+             c.doc_date,
+             c.parents_contacted_at,
+             c.parents_contacted_successful,
+             c.intake_at,
+             c.first_service_at,
+             c.continuation_services_json,
+             c.roi_expires_at,
+             c.skills,
+             c.status,
+             MIN(cpa.created_at) AS provider_assigned_at
+           FROM clients c
+           JOIN client_organization_assignments coa
+             ON coa.client_id = c.id
+            AND coa.organization_id = ?
+            AND coa.is_active = TRUE
+           LEFT JOIN client_provider_assignments cpa
+             ON cpa.client_id = c.id
+            AND cpa.organization_id = coa.organization_id
+            AND cpa.is_active = TRUE
+           LEFT JOIN users u ON u.id = cpa.provider_user_id
+           LEFT JOIN users legacy_u ON legacy_u.id = c.provider_id
+           LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+           LEFT JOIN paperwork_statuses ps ON ps.id = c.paperwork_status_id
+           LEFT JOIN paperwork_delivery_methods pdm ON pdm.id = c.paperwork_delivery_method_id
+           WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+             AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
+             AND (
+               LOWER(COALESCE(cs.status_key, '')) = 'waitlist'
+               OR UPPER(COALESCE(c.status, '')) = 'ON_HOLD'
+             )
+           GROUP BY c.id
+           ORDER BY COALESCE(c.waitlist_started_at, c.submission_date) ASC, c.id ASC`,
+          [orgId, providerUserId, providerUserId, orgId]
+        );
+        clients = enrichSchoolRosterClientProviders(rows || []);
+      } catch (e) {
+        const msg = String(e?.message || '');
+        const missing =
+          msg.includes("doesn't exist") ||
+          msg.includes('ER_NO_SUCH_TABLE') ||
+          msg.includes('Unknown column') ||
+          msg.includes('ER_BAD_FIELD_ERROR');
+        if (!missing) throw e;
+
+        const all = await Client.findByOrganizationId(parseInt(orgId, 10), {});
+        clients = (all || []).filter((c) => {
+          const workflow = String(c?.status || '').toUpperCase();
+          const key = String(c?.client_status_key || '').toLowerCase();
+          const label = String(c?.client_status_label || '').toLowerCase();
+          const archived = workflow === 'ARCHIVED' || key === 'archived' || label === 'archived';
+          const waitlisted = key === 'waitlist' || workflow === 'ON_HOLD' || label === 'waitlist';
+          return !archived && waitlisted;
+        });
+      }
+    } else try {
       const rosterParams = [orgId, orgId, orgId, providerUserId];
       if (useSkillBuildersRosterFilter) {
         rosterParams.push(orgId, providerUserId);
@@ -1608,12 +1707,24 @@ export const getProviderMyRoster = async (req, res, next) => {
         waitlist_started_at: client.waitlist_started_at || null,
         grade: client.grade || null,
         school_year: client.school_year || null,
-        provider_id: providerUserId,
-        provider_ids: client.provider_ids || String(providerUserId),
+        provider_id: viewWaitlist
+          ? (() => {
+              const raw = String(client?.provider_ids || '').trim();
+              if (raw) {
+                const first = parseInt(raw.split(',')[0], 10);
+                if (Number.isFinite(first) && first > 0) return first;
+              }
+              const legacy = parseInt(client?.legacy_provider_id ?? client?.provider_id, 10);
+              return Number.isFinite(legacy) && legacy > 0 ? legacy : null;
+            })()
+          : providerUserId,
+        provider_ids: viewWaitlist ? (client.provider_ids || null) : (client.provider_ids || String(providerUserId)),
         provider_name: client.provider_name || null,
         service_day: client.service_day || null,
         provider_day_pairs: client.provider_day_pairs || null,
-        user_is_assigned_provider: true,
+        user_is_assigned_provider: viewWaitlist
+          ? (client.user_is_assigned_provider === 1 || client.user_is_assigned_provider === true)
+          : true,
         submission_date: client.submission_date,
         source: client.source || null,
         document_status: client.document_status,

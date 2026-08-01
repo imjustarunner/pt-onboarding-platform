@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useOrganizationStore } from '../store/organization';
 import { useAgencyStore } from '../store/agency';
@@ -39,6 +39,7 @@ import SchoolPortalView from './school/SchoolPortalView.vue';
 import ProgramPortalView from './program/ProgramPortalView.vue';
 import LifeCoachPractitionerDashboardView from './practitioner/LifeCoachPractitionerDashboardView.vue';
 import ConsultantPractitionerDashboardView from './practitioner/ConsultantPractitionerDashboardView.vue';
+import { enterSchoolPortalShell, leaveSchoolPortalShell } from '../utils/schoolPortalShell.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -83,6 +84,27 @@ const isPortalOrg = computed(() => {
 const isProgramPortal = computed(() => {
   return String(organizationType.value || '').toLowerCase() === 'program';
 });
+
+/** School + learning orgs use SchoolPortalView — suppress app-wide loading overlay for them. */
+const isSchoolPortalShell = computed(() => {
+  const t = String(organizationType.value || '').toLowerCase();
+  return t === 'school' || t === 'learning';
+});
+
+let schoolPortalShellEntered = false;
+watch(
+  isSchoolPortalShell,
+  (active) => {
+    if (active && !schoolPortalShellEntered) {
+      enterSchoolPortalShell();
+      schoolPortalShellEntered = true;
+    } else if (!active && schoolPortalShellEntered) {
+      leaveSchoolPortalShell();
+      schoolPortalShellEntered = false;
+    }
+  },
+  { immediate: true }
+);
 
 const isNestedAffiliationRedirect = computed(() => {
   if (redirectingNested.value) return true;
@@ -155,6 +177,13 @@ watch(() => route.params.organizationSlug, async () => {
 
 onMounted(async () => {
   await ensureOrgLoaded();
+});
+
+onUnmounted(() => {
+  if (schoolPortalShellEntered) {
+    leaveSchoolPortalShell();
+    schoolPortalShellEntered = false;
+  }
 });
 </script>
 

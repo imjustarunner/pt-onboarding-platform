@@ -1162,6 +1162,7 @@ import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
 import CompanyEventsCalendarModal from '../components/schedule/CompanyEventsCalendarModal.vue';
+import { shouldShowOnProviderDashboardEvents } from '../utils/companyEventStaffing';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ScheduleMultiUserOverlayGrid from '../components/schedule/ScheduleMultiUserOverlayGrid.vue';
 import ProviderScheduleList from '../components/schedule/ProviderScheduleList.vue';
@@ -4984,6 +4985,7 @@ const loadMyCompanyEvents = async () => {
     const resp = await api.get('/me/company-events', { skipGlobalLoading: true });
     const rows = Array.isArray(resp.data) ? resp.data : [];
     const sorted = rows
+      .filter((e) => shouldShowOnProviderDashboardEvents(e))
       .slice()
       .sort((a, b) => {
         const aTime = new Date(a?.nextOccurrenceStart || a?.startsAt || 0).getTime();

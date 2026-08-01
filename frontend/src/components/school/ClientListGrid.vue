@@ -1,15 +1,11 @@
 <template>
   <div class="client-list-grid">
-    <div v-if="loading" class="loading-state">
+    <div v-if="loading && clients.length === 0" class="loading-state">
       <p>Loading clients...</p>
     </div>
 
-    <div v-else-if="error" class="error-state">
+    <div v-else-if="error && clients.length === 0" class="error-state">
       <p>{{ error }}</p>
-    </div>
-
-    <div v-else-if="clients.length === 0" class="empty-state">
-      <p>No clients found.</p>
     </div>
 
     <div v-else class="clients-table-wrapper">
@@ -61,15 +57,20 @@
                   ! {{ waitlistDisplayCount }}
                 </span>
               </button>
-              <div v-if="showWaitlistAvailabilityAlert && waitlistAlertOpen" class="waitlist-alert-tooltip" role="status">
-                There are waitlisted clients. Contact admin if you have openings or
-                <button type="button" class="inline-link-btn" @click.stop.prevent="openAvailabilityRequestFromWaitlist">
-                  update my availability
-                </button>.
-                For requesting a whole new day, use
-                <a :href="additionalAvailabilityHref" @click.stop>Submit</a>.
-              </div>
             </div>
+          </div>
+
+          <div
+            v-if="showWaitlistAvailabilityAlert && waitlistAlertOpen"
+            class="waitlist-alert-banner"
+            role="status"
+          >
+            There are waitlisted clients. Contact admin if you have openings or
+            <button type="button" class="inline-link-btn" @click.stop.prevent="openAvailabilityRequestFromWaitlist">
+              update my availability
+            </button>.
+            For requesting a whole new day, use
+            <a :href="additionalAvailabilityHref" @click.stop>Submit</a>.
           </div>
 
           <div
@@ -79,26 +80,30 @@
             {{ attentionSummary.pendingCompliance }} pending compliance
           </div>
 
-          <div class="unread-legend" aria-label="Unread bubble legend">
+          <div
+            v-if="activeStatusFilterKey !== 'waitlist'"
+            class="unread-legend"
+            aria-label="Unread bubble legend"
+          >
             <div class="unread-legend-track">
               <div class="unread-legend-item">
-                <span class="unread-badge unread-badge-comments unread-badge-legend" aria-hidden="true">1</span>
+                <span class="unread-badge unread-badge-comments unread-badge-legend" aria-hidden="true"></span>
                 <span class="unread-legend-text">New comment(s)</span>
               </div>
               <div class="unread-legend-item">
-                <span class="unread-badge unread-badge-messages unread-badge-legend" aria-hidden="true">1</span>
+                <span class="unread-badge unread-badge-messages unread-badge-legend" aria-hidden="true"></span>
                 <span class="unread-legend-text">New message(s)</span>
               </div>
               <div class="unread-legend-item">
-                <span class="unread-badge unread-badge-updates unread-badge-legend" aria-hidden="true">1</span>
+                <span class="unread-badge unread-badge-updates unread-badge-legend" aria-hidden="true"></span>
                 <span class="unread-legend-text">New updates</span>
               </div>
               <div class="unread-legend-item">
-                <span class="ticket-status-badge ticket-status-open ticket-status-legend" aria-hidden="true">1</span>
+                <span class="ticket-status-badge ticket-status-open ticket-status-legend" aria-hidden="true"></span>
                 <span class="unread-legend-text">Ticket open</span>
               </div>
               <div class="unread-legend-item">
-                <span class="ticket-status-badge ticket-status-answered ticket-status-legend" aria-hidden="true">1</span>
+                <span class="ticket-status-badge ticket-status-answered ticket-status-legend" aria-hidden="true"></span>
                 <span class="unread-legend-text">Ticket answered</span>
               </div>
               <div v-if="showAssignedColumn" class="unread-legend-item">
@@ -120,7 +125,14 @@
           :placeholder="searchPlaceholder"
         />
       </div>
-      <div class="clients-table-scroll">
+      <div v-if="rosterRefreshing" class="roster-refresh-bar" role="status">
+        {{ activeStatusFilterKey === 'waitlist' ? 'Loading waitlist…' : 'Refreshing roster…' }}
+      </div>
+      <div v-if="error && clients.length > 0" class="roster-inline-error">{{ error }}</div>
+      <div v-if="clients.length === 0 && !rosterRefreshing" class="empty-state">
+        <p>No clients found.</p>
+      </div>
+      <div v-else class="clients-table-scroll" :class="{ 'is-refreshing': rosterRefreshing }">
         <table class="clients-table">
         <thead>
           <tr>
@@ -133,7 +145,7 @@
               <span class="sort-indicator" v-if="sortKey === 'status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
             <th
-              v-if="rosterScope === 'provider'"
+              v-if="showSchoolColumn"
               class="sortable"
               @click="toggleSort('organization_name')"
               role="button"
@@ -187,10 +199,7 @@
               Sessions FY
               <span class="sort-indicator" v-if="sortKey === 'psychotherapy_total'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
-            <th></th>
-            <th v-if="showChecklistButton"></th>
-            <th v-if="showTerminateButton"></th>
-            <th v-if="canEditClients" class="edit-col">More Info</th>
+            <th v-if="showRowActions" class="actions-col">Actions</th>
             <th
               v-if="showAssignedColumn"
               class="sortable"
@@ -320,30 +329,14 @@
                   :role="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 'button' : undefined"
                   :tabindex="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 0 : undefined"
                   :title="getStatusTitle(client)"
-                  @mouseenter="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? onWaitlistHover(client) : (hoveredTerminatedClientId = String(client.client_status_key || '').toLowerCase() === 'terminated' ? String(client.id) : '')"
-                  @mouseleave="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? (hoveredWaitlistClientId = '') : (hoveredTerminatedClientId = '')"
-                  @focus="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? onWaitlistHover(client) : null"
+                  @mouseenter="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? onWaitlistHover(client, $event) : onTerminatedHover(client, $event)"
+                  @mouseleave="onStatusHoverLeave(client)"
+                  @focus="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? onWaitlistHover(client, $event) : null"
                   @click.stop="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? openWaitlistNote(client) : null"
                   @keydown.enter.stop.prevent="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? openWaitlistNote(client) : null"
                   @keydown.space.stop.prevent="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? openWaitlistNote(client) : null"
                 >
                   {{ formatClientStatusLabel(client) }}
-                  <div
-                    v-if="String(client.client_status_key || '').toLowerCase() === 'waitlist' && String(hoveredWaitlistClientId) === String(client.id)"
-                    class="waitlist-tooltip"
-                    role="tooltip"
-                  >
-                    <div class="waitlist-tooltip-title">Waitlist reason</div>
-                    <div class="waitlist-tooltip-body">{{ waitlistTooltipText(client) }}</div>
-                  </div>
-                  <div
-                    v-if="String(client.client_status_key || '').toLowerCase() === 'terminated' && client.termination_reason && String(hoveredTerminatedClientId) === String(client.id)"
-                    class="waitlist-tooltip"
-                    role="tooltip"
-                  >
-                    <div class="waitlist-tooltip-title">Termination reason</div>
-                    <div class="waitlist-tooltip-body">{{ client.termination_reason }}</div>
-                  </div>
                 </span>
                 <span
                   v-if="String(client.client_status_key || '').toLowerCase() === 'waitlist' && client.waitlist_days !== null && client.waitlist_rank !== null"
@@ -355,7 +348,7 @@
                 </span>
               </div>
             </td>
-            <td v-if="rosterScope === 'provider'">{{ client.organization_name || organizationName || '—' }}</td>
+            <td v-if="showSchoolColumn">{{ client.organization_name || organizationName || '—' }}</td>
             <td>{{ formatDocSummary(client) }}</td>
             <td v-if="rosterScope === 'school' && !isProviderUser">{{ client.provider_name || '—' }}</td>
             <td v-else>
@@ -403,40 +396,45 @@
                 {{ psychotherapyCell(client).total ?? '—' }}
               </span>
             </td>
-            <td>
-              <button
-                class="btn btn-secondary btn-sm comment-btn"
-                :disabled="isSchoolStaff && !canOpenSchoolClient(client)"
-                :title="isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientTitle(client) : 'Open client comments and messages'"
-                @click.stop="openClient(client)"
-              >
-                {{ isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientButtonLabel(client) : 'View & Comment' }}
-              </button>
-            </td>
-            <td v-if="showChecklistButton">
-              <button
-                v-if="client.user_is_assigned_provider"
-                class="btn btn-primary btn-sm checklist-btn"
-                type="button"
-                :title="'Quick edit compliance checklist'"
-                @click.stop="openQuickChecklist(client)"
-              >
-                Checklist
-              </button>
-            </td>
-            <td v-if="showTerminateButton">
-              <button
-                v-if="client.user_is_assigned_provider && !isClientTerminated(client)"
-                class="btn btn-danger btn-sm"
-                type="button"
-                title="Mark this client as terminated"
-                @click.stop="openTerminateModal(client)"
-              >
-                Mark as Terminated
-              </button>
-            </td>
-            <td v-if="canEditClients" class="edit-col">
-              <button class="btn btn-primary btn-sm" type="button" @click.stop="goEdit(client)">More Info</button>
+            <td v-if="showRowActions" class="actions-col">
+              <div class="roster-row-actions">
+                <button
+                  type="button"
+                  class="roster-action-btn"
+                  :disabled="isSchoolStaff && !canOpenSchoolClient(client)"
+                  :title="isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientTitle(client) : 'Open comments and messages'"
+                  @click.stop="openClient(client)"
+                >
+                  {{ isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientButtonLabel(client) : 'Comments' }}
+                </button>
+                <button
+                  v-if="showChecklistButton && client.user_is_assigned_provider"
+                  type="button"
+                  class="roster-action-btn roster-action-btn--accent"
+                  title="Open compliance checklist"
+                  @click.stop="openQuickChecklist(client)"
+                >
+                  Checklist
+                </button>
+                <button
+                  v-if="showTerminateButton && client.user_is_assigned_provider && !isClientTerminated(client)"
+                  type="button"
+                  class="roster-action-btn roster-action-btn--danger"
+                  title="Mark this client as terminated"
+                  @click.stop="openTerminateModal(client)"
+                >
+                  Terminate
+                </button>
+                <button
+                  v-if="canEditClients"
+                  type="button"
+                  class="roster-action-btn"
+                  title="Open full client profile"
+                  @click.stop="goEdit(client)"
+                >
+                  Profile
+                </button>
+              </div>
             </td>
             <td v-if="showAssignedColumn">{{ formatDate(client.provider_assigned_at) }}</td>
             <td>{{ formatDate(client.submission_date) }}</td>
@@ -445,6 +443,18 @@
         </table>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="floatingTooltip"
+        class="waitlist-tooltip waitlist-tooltip-floating"
+        :style="floatingTooltipStyle"
+        role="tooltip"
+      >
+        <div class="waitlist-tooltip-title">{{ floatingTooltip.title }}</div>
+        <div class="waitlist-tooltip-body">{{ floatingTooltip.body }}</div>
+      </div>
+    </Teleport>
 
     <SchoolClientChatModal
       v-if="selectedClient"
@@ -672,6 +682,7 @@ const emit = defineEmits(['edit-client', 'update:statusFilterKey', 'update:needs
 
 const clients = ref([]);
 const loading = ref(false);
+const rosterRefreshing = ref(false);
 const error = ref('');
 const selectedClient = ref(null);
 const selectedClientInitialPane = ref(null); // null | 'comments' | 'messages'
@@ -710,6 +721,14 @@ const showChecklistButton = computed(() => {
 });
 const showTerminateButton = computed(() => props.rosterScope === 'provider');
 const showAssignedColumn = computed(() => props.rosterScope === 'provider');
+/** Only show school column when the roster spans multiple schools (e.g. All schools view). */
+const showSchoolColumn = computed(() => {
+  if (props.rosterScope !== 'provider') return false;
+  const rows = Array.isArray(props.clientsOverride) ? props.clientsOverride : clients.value;
+  const orgIds = new Set((rows || []).map((c) => Number(c?.organization_id)).filter(Boolean));
+  return orgIds.size > 1;
+});
+const showRowActions = computed(() => true);
 const isContinuationServicesSeason = (value = new Date()) => {
   const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   if (!Number.isFinite(d.getTime())) return false;
@@ -732,6 +751,51 @@ const waitlistNoteByClientId = ref({});
 const waitlistNoteLoadingByClientId = ref({});
 const hoveredWaitlistClientId = ref('');
 const hoveredTerminatedClientId = ref('');
+const floatingTooltip = ref(null);
+
+const floatingTooltipStyle = computed(() => {
+  if (!floatingTooltip.value) return {};
+  return {
+    top: `${floatingTooltip.value.top}px`,
+    left: `${floatingTooltip.value.left}px`,
+    width: `${floatingTooltip.value.width}px`
+  };
+});
+
+const positionFloatingTooltip = (target, title, body) => {
+  const el = target?.$el || target;
+  const rect = el?.getBoundingClientRect?.();
+  if (!rect) return;
+  const width = Math.min(320, Math.max(220, window.innerWidth - 24));
+  const left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12);
+  const belowTop = rect.bottom + 8;
+  const aboveTop = rect.top - 8;
+  const estimatedHeight = 96;
+  const top =
+    belowTop + estimatedHeight > window.innerHeight - 12 && aboveTop - estimatedHeight > 12
+      ? aboveTop - estimatedHeight
+      : belowTop;
+  floatingTooltip.value = { title, body, top, left, width };
+};
+
+const hideFloatingTooltip = () => {
+  floatingTooltip.value = null;
+};
+
+const onTerminatedHover = (client, event) => {
+  if (String(client?.client_status_key || '').toLowerCase() !== 'terminated') return;
+  const cid = String(client?.id || '');
+  if (!cid || !client.termination_reason) return;
+  hoveredTerminatedClientId.value = cid;
+  positionFloatingTooltip(event?.currentTarget, 'Termination reason', client.termination_reason);
+};
+
+const onStatusHoverLeave = (client) => {
+  const key = String(client?.client_status_key || '').toLowerCase();
+  if (key === 'waitlist') hoveredWaitlistClientId.value = '';
+  if (key === 'terminated') hoveredTerminatedClientId.value = '';
+  hideFloatingTooltip();
+};
 const isClientTerminated = (client) => String(client?.client_status_key || '').toLowerCase() === 'terminated';
 
 const getStatusTitle = (client) => {
@@ -784,12 +848,28 @@ const ensureWaitlistNoteLoaded = async (client) => {
   }
 };
 
-const onWaitlistHover = (client) => {
+const onWaitlistHover = (client, event) => {
   const cid = String(client?.id || '');
   if (!cid) return;
   hoveredWaitlistClientId.value = cid;
   ensureWaitlistNoteLoaded(client);
+  positionFloatingTooltip(event?.currentTarget, 'Waitlist reason', waitlistTooltipText(client));
 };
+
+watch(
+  () => [hoveredWaitlistClientId.value, waitlistNoteByClientId.value, waitlistNoteLoadingByClientId.value],
+  () => {
+    if (!hoveredWaitlistClientId.value || !floatingTooltip.value) return;
+    if (floatingTooltip.value.title !== 'Waitlist reason') return;
+    const client = (clients.value || []).find((c) => String(c?.id) === hoveredWaitlistClientId.value);
+    if (!client) return;
+    floatingTooltip.value = {
+      ...floatingTooltip.value,
+      body: waitlistTooltipText(client)
+    };
+  },
+  { deep: true }
+);
 
 const waitlistTooltipText = (client) => {
   const key = String(client?.id || '');
@@ -842,6 +922,11 @@ const fetchClients = async () => {
 
   loading.value = true;
   error.value = '';
+  const keepVisibleShell = clients.value.length > 0;
+  if (keepVisibleShell) {
+    loading.value = false;
+    rosterRefreshing.value = true;
+  }
 
   try {
     const orgKey =
@@ -862,6 +947,12 @@ const fetchClients = async () => {
     const params = {};
     if (props.rosterScope === 'provider' && props.skillBuildersOnly) {
       params.skillBuildersOnly = true;
+    }
+    const statusKey = showAttentionFilters.value
+      ? normalize(localStatusFilterKey.value)
+      : normalize(props.statusFilterKey);
+    if (props.rosterScope === 'provider' && statusKey === 'waitlist') {
+      params.view = 'waitlist';
     }
     const rosterUid = Number(props.rosterProviderUserId || 0);
     const meId = Number(authStore.user?.id || 0);
@@ -886,6 +977,7 @@ const fetchClients = async () => {
     clients.value = [];
   } finally {
     loading.value = false;
+    rosterRefreshing.value = false;
   }
 };
 
@@ -1273,13 +1365,20 @@ const sortValue = (client, key) => {
 
 const normalize = (v) => String(v || '').trim().toLowerCase();
 
+const isWaitlistClient = (client) => {
+  const key = normalize(client?.client_status_key);
+  if (key === 'waitlist' || key === 'on_hold') return true;
+  if (normalize(client?.client_status_label) === 'waitlist') return true;
+  return String(client?.status || '').toUpperCase() === 'ON_HOLD';
+};
+
 const attentionFilterActive = ref(false);
 const localStatusFilterKey = ref(''); // used when provider has filter pills (parent may not pass statusFilterKey)
 const showAttentionFilters = computed(() => props.rosterScope === 'provider');
 const showSummaryBanner = computed(() => props.rosterScope === 'provider');
 const waitlistCount = computed(() => {
   const list = Array.isArray(clients.value) ? clients.value : [];
-  return list.filter((c) => normalize(c?.client_status_key) === 'waitlist').length;
+  return list.filter((c) => isWaitlistClient(c)).length;
 });
 const waitlistDisplayCount = computed(() => {
   const external = Number(props.waitlistSchoolCount);
@@ -1355,6 +1454,7 @@ const statusFilteredClients = computed(() => {
   }
   const k = activeStatusFilterKey.value;
   if (!k) return list;
+  if (k === 'waitlist') return list.filter((c) => isWaitlistClient(c));
   return list.filter((c) => normalize(c?.client_status_key) === k);
 });
 
@@ -1779,6 +1879,29 @@ const goEdit = (client) => {
 
 
 watch(
+  () => props.statusFilterKey,
+  (key) => {
+    if (!showAttentionFilters.value) return;
+    const next = normalize(key);
+    if (next === normalize(localStatusFilterKey.value)) return;
+    localStatusFilterKey.value = next;
+    attentionFilterActive.value = false;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => activeStatusFilterKey.value,
+  (key, prevKey) => {
+    if (useClientsOverride()) return;
+    if (props.rosterScope !== 'provider') return;
+    const isWaitlist = key === 'waitlist';
+    const wasWaitlist = prevKey === 'waitlist';
+    if (isWaitlist !== wasWaitlist) fetchClients();
+  }
+);
+
+watch(
   () => props.clientsOverride,
   (val) => {
     if (Array.isArray(val)) {
@@ -1811,7 +1934,7 @@ watch(
 watch(
   () => loading.value,
   (isLoading, wasLoading) => {
-    if (wasLoading && !isLoading && props.rosterScope === 'provider' && attentionSummary.value.total > 0) {
+    if (wasLoading && !isLoading && props.rosterScope === 'provider' && attentionSummary.value.total > 0 && !activeStatusFilterKey.value) {
       attentionFilterActive.value = true;
     }
   }
@@ -2024,6 +2147,12 @@ onMounted(() => {
   z-index: 50;
 }
 
+.waitlist-tooltip-floating {
+  position: fixed;
+  z-index: 5000;
+  max-width: min(320px, calc(100vw - 24px));
+}
+
 .waitlist-tooltip-title {
   font-weight: 900;
   font-size: 12px;
@@ -2191,6 +2320,22 @@ onMounted(() => {
   padding: 4px 8px;
   margin-left: 6px;
 }
+.waitlist-alert-banner {
+  width: 100%;
+  box-sizing: border-box;
+  background: #111827;
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+}
+.waitlist-alert-banner a {
+  color: #93c5fd;
+  font-weight: 700;
+  text-decoration: underline;
+}
 .waitlist-alert-tooltip {
   position: absolute;
   top: 34px;
@@ -2219,6 +2364,31 @@ onMounted(() => {
   cursor: pointer;
   padding: 0;
 }
+.roster-refresh-bar {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(22, 101, 52, 0.08);
+  border: 1px solid rgba(22, 101, 52, 0.16);
+  color: #14532d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.roster-inline-error {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.clients-table-scroll.is-refreshing {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .summary-banner {
   padding: 10px 14px;
   border-radius: 10px;
@@ -2482,6 +2652,75 @@ onMounted(() => {
 .comment-btn {
   position: relative;
 }
+
+.actions-col {
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.roster-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.roster-action-btn {
+  appearance: none;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.roster-action-btn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.2);
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.roster-action-btn:focus-visible {
+  outline: 2px solid rgba(47, 111, 78, 0.45);
+  outline-offset: 1px;
+}
+
+.roster-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.roster-action-btn--accent {
+  border-color: rgba(47, 111, 78, 0.28);
+  color: var(--primary, #2f6f4e);
+  background: rgba(47, 111, 78, 0.05);
+}
+
+.roster-action-btn--accent:hover:not(:disabled) {
+  background: rgba(47, 111, 78, 0.1);
+  border-color: rgba(47, 111, 78, 0.4);
+  color: var(--primary, #2f6f4e);
+}
+
+.roster-action-btn--danger {
+  border-color: rgba(217, 45, 32, 0.22);
+  color: #b42318;
+  background: rgba(217, 45, 32, 0.04);
+}
+
+.roster-action-btn--danger:hover:not(:disabled) {
+  background: rgba(217, 45, 32, 0.08);
+  border-color: rgba(217, 45, 32, 0.35);
+  color: #912018;
+}
+
 .edit-col {
   white-space: nowrap;
 }
