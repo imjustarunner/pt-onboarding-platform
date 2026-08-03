@@ -1,5 +1,9 @@
 <template>
-  <div v-if="isSupervisor && sessionId && waitingRoomEnabled" class="lobby-panel">
+  <div
+    v-if="isSupervisor && sessionId && waitingRoomEnabled"
+    class="lobby-panel"
+    :class="{ 'lobby-panel--dark': theme === 'dark' }"
+  >
     <div class="lobby-panel-head">
       <h4 class="lobby-panel-title">Waiting room — Admit participants</h4>
       <div class="lobby-panel-actions">
@@ -55,8 +59,12 @@ const props = defineProps({
   sessionId: { type: [Number, String], default: null },
   isSupervisor: { type: Boolean, default: false },
   /** supervision | team-meeting */
-  meetingKind: { type: String, default: 'supervision' }
+  meetingKind: { type: String, default: 'supervision' },
+  /** default | dark — dark for live meeting shells */
+  theme: { type: String, default: 'default' }
 });
+
+const emit = defineEmits(['update:waitingCount']);
 
 function lobbyParticipantsPath() {
   const id = encodeURIComponent(props.sessionId);
@@ -118,10 +126,12 @@ async function fetchLobbyParticipants() {
     }).filter((p) => p.admitKey);
     hasLoadedOnce = true;
     loadError.value = '';
+    emit('update:waitingCount', participants.value.length);
   } catch (e) {
     // Keep the last good list on poll errors so the UI does not bounce empty ↔ filled.
     if (!hasLoadedOnce) participants.value = [];
     loadError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load waiting room';
+    if (!hasLoadedOnce) emit('update:waitingCount', 0);
   } finally {
     initialLoading.value = false;
   }
@@ -225,6 +235,7 @@ watch(
     } else {
       participants.value = [];
       initialLoading.value = false;
+      emit('update:waitingCount', 0);
     }
   },
   { immediate: true }
@@ -236,10 +247,29 @@ onUnmounted(stopPolling);
 <style scoped>
 .lobby-panel {
   padding: 12px;
-  background: var(--bg-secondary, #1a1a1a);
-  border: 1px solid var(--border);
+  background: var(--bg-secondary, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
   border-radius: 8px;
   margin-bottom: 12px;
+}
+.lobby-panel--dark {
+  background: #111827;
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2), 0 10px 28px rgba(0, 0, 0, 0.35);
+  color: #e2e8f0;
+}
+.lobby-panel--dark .lobby-panel-title {
+  color: #f8fafc;
+}
+.lobby-panel--dark .lobby-panel-empty,
+.lobby-panel--dark .lobby-panel-loading {
+  color: #94a3b8;
+}
+.lobby-panel--dark .lobby-panel-item {
+  border-bottom-color: rgba(148, 163, 184, 0.25);
+}
+.lobby-panel--dark .lobby-panel-identity {
+  color: #e2e8f0;
 }
 .lobby-panel-title {
   margin: 0;

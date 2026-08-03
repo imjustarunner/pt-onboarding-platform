@@ -68,6 +68,13 @@
               </button>
             </div>
           </div>
+          <span
+            v-if="isHost && waitingLobbyCount > 0"
+            class="join-waiting-chip"
+            title="People waiting to be admitted"
+          >
+            {{ waitingLobbyCount }} waiting
+          </span>
           <span v-if="raisedHandCount" class="join-hand-chip" title="Hands raised">✋ {{ raisedHandCount }}</span>
           <span v-if="meetingCompletedAt" class="join-completed-chip">Session completed</span>
           <button type="button" class="btn btn-danger btn-sm" @click="requestLeave">
@@ -85,6 +92,16 @@
         }"
       >
         <div class="join-video" :class="{ 'join-video--lobby': isInLobby && !videoFullscreen }">
+          <!-- Host admit controls stay above the video so flex layout cannot squeeze them away. -->
+          <SupervisionVideoLobbyPanel
+            v-if="isHost && resolvedEventId && waitingRoomEnabled && !videoFullscreen"
+            class="join-host-lobby"
+            :session-id="resolvedEventId"
+            :is-supervisor="isHost"
+            meeting-kind="team-meeting"
+            theme="dark"
+            @update:waiting-count="waitingLobbyCount = $event"
+          />
           <SupervisionWaitingRoomStage
             v-if="isInLobby && !videoFullscreen"
             :meeting-title="displayMeetingTitle"
@@ -135,12 +152,6 @@
               @activity-notice-click="onFullscreenActivityClick"
             />
           </div>
-          <SupervisionVideoLobbyPanel
-            v-if="isHost && resolvedEventId && waitingRoomEnabled && !videoFullscreen"
-            :session-id="resolvedEventId"
-            :is-supervisor="isHost"
-            meeting-kind="team-meeting"
-          />
           <section
             v-if="resolvedEventId && !isInLobby"
             class="join-live-activity"
@@ -322,6 +333,7 @@ const isHost = ref(false);
 const resolvedEventId = ref(0);
 const roomMode = ref('main');
 const waitingRoomEnabled = ref(true);
+const waitingLobbyCount = ref(0);
 const hostPresent = ref(false);
 const hostRoleLabel = ref('Host');
 const hostStatusLabel = ref('');
@@ -1460,6 +1472,25 @@ onUnmounted(() => {
   color: #92400e;
   border-radius: 999px;
   padding: 4px 8px;
+}
+.join-waiting-chip {
+  font-size: 0.78rem;
+  font-weight: 800;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 4px 10px;
+  animation: join-waiting-pulse 1.6s ease-in-out infinite;
+}
+@keyframes join-waiting-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35); }
+  50% { box-shadow: 0 0 0 5px rgba(37, 99, 235, 0); }
+}
+.join-host-lobby {
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 6;
 }
 .join-video {
   min-width: 0;

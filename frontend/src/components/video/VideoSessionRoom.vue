@@ -1493,6 +1493,13 @@ function resolveProjectId() {
   return '';
 }
 
+function isMicAccessError(err) {
+  const name = String(err?.name || '');
+  const msg = String(err?.message || '');
+  return name.includes('MEDIA_ACCESS')
+    || /microphone|getUserMedia|NotAllowed|NotReadable|Could not start audio|failed to get access to your microphone/i.test(msg);
+}
+
 function sanitizeVideoError(err) {
   const name = String(err?.name || '');
   const code = err?.code != null ? Number(err.code) : null;
@@ -1516,6 +1523,13 @@ function sanitizeVideoError(err) {
       message:
         'Video connection failed (credential mismatch). Confirm VONAGE_APPLICATION_ID matches the private key used to mint tokens.',
       kind: 'auth'
+    };
+  }
+  if (isMicAccessError(err)) {
+    return {
+      message:
+        'Could not access the microphone. Close other apps/tabs using the mic (or end an in-progress call), then tap Retry. You can also join muted.',
+      kind: 'media'
     };
   }
   const cleaned = raw.length > 180 ? `${raw.slice(0, 180)}…` : raw;
@@ -1725,41 +1739,80 @@ async function connect() {
     if (publisherMountEl) publisherMountEl.innerHTML = '';
     const useVonageNoiseSuppression = vonageSupportsAdvancedNoiseSuppression(OT);
     voiceIsolationStatus.value = useVonageNoiseSuppression ? 'processing' : 'browser';
-    const publisherOpts = {
-      insertMode: 'append',
-      width: '100%',
-      height: '100%',
-      fitMode: 'cover',
-      publishAudio: publishAudio.value,
-      publishVideo: publishVideo.value,
-      name: props.localName,
-      mirror: true,
-      style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' },
-      echoCancellation: true,
-      autoGainControl: true,
-      // Vonage advanced filter replaces browser noise suppression when available.
-      noiseSuppression: !useVonageNoiseSuppression
-    };
-    if (useVonageNoiseSuppression) {
-      publisherOpts.audioFilter = { type: 'advancedNoiseSuppression' };
-    }
-    publisher = OT.initPublisher(
-      publisherMountEl,
-      publisherOpts,
-      (err) => {
-        if (err) console.error('[VideoSessionRoom] publisher error', err);
-        else forceMediaFill(publisherMountEl);
-      }
-    );
-    attachPublisherAudioLevel();
 
-    await new Promise((resolve, reject) => {
-      session.publish(publisher, (err) => (err ? reject(err) : resolve()));
+    const buildPublisherOpts = (withAudio) => {
+      const opts = {
+        insertMode: 'append',
+        width: '100%',
+        height: '100%',
+        fitMode: 'cover',
+        publishAudio: !!withAudio,
+        publishVideo: publishVideo.value,
+        name: props.localName,
+        mirror: true,
+        style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' },
+        echoCancellation: true,
+        autoGainControl: true,
+        // Vonage advanced filter replaces browser noise suppression when available.
+        noiseSuppression: !useVonageNoiseSuppression
+      };
+      if (withAudio && useVonageNoiseSuppression) {
+        opts.audioFilter = { type: 'advancedNoiseSuppression' };
+      }
+      return opts;
+    };
+
+    const createPublisher = (withAudio) => new Promise((resolve, reject) => {
+      const pub = OT.initPublisher(
+        publisherMountEl,
+        buildPublisherOpts(withAudio),
+        (err) => {
+          if (err) {
+            console.error('[VideoSessionRoom] publisher error', err);
+            try { pub.destroy(); } catch { /* ignore */ }
+            reject(err);
+            return;
+          }
+          forceMediaFill(publisherMountEl);
+          resolve(pub);
+        }
+      );
     });
+
+    const publishLocal = async (withAudio) => {
+      const pub = await createPublisher(withAudio);
+      await new Promise((resolve, reject) => {
+        session.publish(pub, (err) => {
+          if (err) {
+            try { pub.destroy(); } catch { /* ignore */ }
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      });
+      return pub;
+    };
+
+    try {
+      publisher = await publishLocal(publishAudio.value);
+    } catch (publishErr) {
+      // iOS often fails when another tab/app holds the mic — join muted instead of hard-failing.
+      if (publishAudio.value && isMicAccessError(publishErr)) {
+        console.warn('[VideoSessionRoom] mic publish failed; retrying muted', publishErr?.message || publishErr);
+        if (publisherMountEl) publisherMountEl.innerHTML = '';
+        publishAudio.value = false;
+        automuteNoticeVisible.value = false;
+        publisher = await publishLocal(false);
+      } else {
+        throw publishErr;
+      }
+    }
+    attachPublisherAudioLevel();
     // Seed peers with our initial mic/camera state (toggle events alone can be missed).
     broadcastMicState(publishAudio.value);
     broadcastCameraState(publishVideo.value);
-    if (useVonageNoiseSuppression) {
+    if (publishAudio.value && useVonageNoiseSuppression) {
       const applied = await ensureAdvancedNoiseSuppression(publisher);
       voiceIsolationStatus.value = applied ? 'on' : 'browser';
     } else {
