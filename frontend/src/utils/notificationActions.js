@@ -8,6 +8,12 @@ export function notificationDestination(notification, { organizationSlug = null,
   if (n.type === 'school_portal_onboarding_completed') {
     return `${base}/admin/school-onboarding${n.agency_id ? `?agencyId=${n.agency_id}` : ''}`;
   }
+  if (n.type === 'provider_year_update_completed') {
+    return `${base}/admin/provider-year-update${n.agency_id ? `?agencyId=${n.agency_id}` : ''}`;
+  }
+  if (n.type === 'school_collaborative_year_update_completed' && entityType === 'school' && entityId) {
+    return `${base}/admin/school-reinit/${entityId}${n.agency_id ? `?agencyId=${n.agency_id}` : ''}`;
+  }
   if (n.type === 'support_ticket_created') return `${base}/tickets${entityId ? `?status=open&ticketId=${entityId}` : ''}`;
   if (n.type === 'support_ticket_forwarded_to_provider' && entityType === 'client' && entityId) {
     return { path: `${base}/dashboard`, query: { clientId: String(entityId) } };

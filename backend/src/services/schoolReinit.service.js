@@ -9,6 +9,7 @@ import {
   listSchoolEventsForOrg,
   schoolYearBounds,
 } from './schoolPortalEvents.service.js';
+import { notifySchoolCollaborativeYearUpdateCompleted } from './yearUpdateNotifications.service.js';
 
 const PROVIDER_DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -385,12 +386,13 @@ export async function pushCampaign({ agencyId, schoolYear, userId }) {
   for (const school of schools) {
     const schoolId = Number(school.id || school.organization_id);
     if (!schoolId) continue;
-    const { tokenRow, created } = await ensureShareableToken({
+    const { cycle, tokenRow, created } = await ensureShareableToken({
       agencyId,
       schoolOrganizationId: schoolId,
       schoolYear: year,
       createdByUserId: userId,
     });
+    if (cycle?.id) await markCyclePushed(cycle.id, userId);
     schoolsReady += 1;
     if (created) tokensCreated += 1;
     if (tokenRow) {
@@ -428,6 +430,94 @@ export function campaignIsDisabled(campaign) {
 export function campaignIsEnabled(campaign) {
   const s = String(campaign?.status || '');
   return s === 'enabled' || s === 'pushed';
+}
+
+/** School staff see the collaborative update splash when bulk-pushed or this cycle was pushed. */
+export function cycleIsPushed(cycle, campaign = null) {
+  if (campaignIsDisabled(campaign)) return false;
+  if (String(cycle?.status || '') === 'finalized') return false;
+  if (cycle?.pushed_at) return true;
+  if (campaignIsPushed(campaign)) return true;
+  return false;
+}
+
+export async function markCyclePushed(cycleId, userId) {
+  await pool.execute(
+    `UPDATE school_reinit_cycles
+     SET pushed_at = COALESCE(pushed_at, NOW()),
+         pushed_by_user_id = COALESCE(pushed_by_user_id, ?)
+     WHERE id = ?`,
+    [userId || null, cycleId]
+  );
+  return getCycleById(cycleId);
+}
+
+export async function getCycle({ agencyId, schoolOrganizationId, schoolYear }) {
+  const year = schoolYear || currentSchoolYear();
+  const [rows] = await pool.execute(
+    `SELECT * FROM school_reinit_cycles
+     WHERE agency_id = ? AND school_organization_id = ? AND ${yearEq()}
+     LIMIT 1`,
+    [agencyId, schoolOrganizationId, year]
+  );
+  return rows?.[0] || null;
+}
+
+/**
+ * Push collaborative Year Update to a single school (login splash visible).
+ * Requires campaign enabled and an existing shareable link (generate link first).
+ */
+export async function pushSchool({ agencyId, schoolOrganizationId, schoolYear, userId }) {
+  const year = schoolYear || currentSchoolYear();
+  const campaign = await getCampaign(agencyId, year);
+  if (campaignIsDisabled(campaign)) {
+    const err = new Error('School Year Update is disabled for this school year.');
+    err.status = 400;
+    throw err;
+  }
+  if (!campaignIsEnabled(campaign)) {
+    const err = new Error('Enable School Year Update first before pushing to a school.');
+    err.status = 400;
+    throw err;
+  }
+  const affiliated = await assertSchoolAffiliated(agencyId, schoolOrganizationId);
+  if (!affiliated) {
+    const err = new Error('School is not affiliated with this agency.');
+    err.status = 400;
+    throw err;
+  }
+
+  const cycle = await getOrCreateCycle({ agencyId, schoolOrganizationId, schoolYear: year });
+  const [tokRows] = await pool.execute(
+    `SELECT id FROM school_reinit_tokens
+     WHERE cycle_id = ?
+       AND expires_at > NOW()
+     ORDER BY (locked_at IS NULL) DESC, id DESC
+     LIMIT 1`,
+    [cycle.id]
+  );
+  if (!tokRows?.[0]) {
+    const err = new Error('Generate a shareable link before pushing to this school.');
+    err.status = 400;
+    throw err;
+  }
+
+  if (cycle.pushed_at) {
+    return {
+      alreadyPushed: true,
+      cycle,
+      campaign,
+      tokenId: tokRows[0].id,
+    };
+  }
+
+  const updated = await markCyclePushed(cycle.id, userId);
+  return {
+    alreadyPushed: false,
+    cycle: updated,
+    campaign,
+    tokenId: tokRows[0].id,
+  };
 }
 
 export function receiptButtonVisible(d = new Date()) {
@@ -1386,7 +1476,12 @@ export async function finalizeCycle({ cycleId, actor }) {
     ]
   );
   await lockTokensForCycle(cycleId);
-  return getCycleById(cycleId);
+  const finalized = await getCycleById(cycleId);
+  await notifySchoolCollaborativeYearUpdateCompleted({
+    cycle: finalized,
+    actorUserId: actor?.userId || null
+  });
+  return finalized;
 }
 
 export async function createAddendum({ cycleId, summaryText, changes, actor }) {
@@ -1555,6 +1650,8 @@ export async function listAgencyReport(agencyId, schoolYear) {
       status: cycle?.status || 'not_started',
       started: Boolean(cycle && cycle.status !== 'not_started'),
       finalizedAt: cycle?.finalized_at || null,
+      pushedAt: cycle?.pushed_at || null,
+      isPushed: false,
       sectionPercent: pct,
       reviewedCount,
       sectionTotal: SECTION_KEYS.length,
@@ -1628,6 +1725,12 @@ export async function listAgencyReport(agencyId, schoolYear) {
   };
 
   const campaign = await getOrCreateCampaign(agencyId, year);
+  for (const row of out) {
+    row.isPushed = cycleIsPushed({ pushed_at: row.pushedAt, status: row.status }, campaign);
+    if (campaignIsPushed(campaign) && !row.pushedAt && row.status !== 'finalized') {
+      row.pushedAt = campaign.pushed_at || null;
+    }
+  }
   return {
     agencyId,
     schoolYear: year,

@@ -28,6 +28,7 @@ import {
   listProviderDistrictFlags,
 } from '../utils/districtCompliance.js';
 import { ensureD11ComplianceForProvider } from './d11Compliance.service.js';
+import { notifyProviderYearUpdateCompleted } from './yearUpdateNotifications.service.js';
 import UserLifecycleChecklistItem from '../models/UserLifecycleChecklistItem.model.js';
 import LifecycleChecklistDefinition from '../models/LifecycleChecklistDefinition.model.js';
 
@@ -548,7 +549,13 @@ export async function adminMarkComplete({ agencyId, providerUserId, schoolYear, 
     [JSON.stringify(snapshot), userId || null, cycle.id]
   );
   await lockTokensForCycle(cycle.id);
-  return getCycleById(cycle.id);
+  const finalized = await getCycleById(cycle.id);
+  await notifyProviderYearUpdateCompleted({
+    cycle: finalized,
+    completedBy: 'admin',
+    actorUserId: userId || null
+  });
+  return finalized;
 }
 
 /** Clear push visibility without finalizing (rarely used). */
@@ -2033,7 +2040,13 @@ export async function finalizeCycle({ cycleId, actor }) {
     ]
   );
   await lockTokensForCycle(cycleId);
-  return getCycleById(cycleId);
+  const finalized = await getCycleById(cycleId);
+  await notifyProviderYearUpdateCompleted({
+    cycle: finalized,
+    completedBy: actor?.actorType === 'admin' ? 'admin' : 'provider',
+    actorUserId: actor?.userId || cycle.provider_user_id || null
+  });
+  return finalized;
 }
 
 export async function dismissForUser(cycleId, userId, dismissUntil = null) {

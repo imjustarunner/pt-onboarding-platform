@@ -33,8 +33,8 @@
           <template v-if="campaign.isDisabled">
             Disabled {{ formatDt(campaign.disabledAt) }} — splash and School Management tab are hidden. Re-enable to resume.
           </template>
-          <template v-else-if="campaign.isPushed">Pushed {{ formatDt(campaign.pushedAt) }} — school logins show the update (dismissible).</template>
-          <template v-else-if="campaign.isEnabled">Enabled — edit questions/slots, then Push to Schools when ready.</template>
+          <template v-else-if="campaign.isPushed">Pushed {{ formatDt(campaign.pushedAt) }} — all affiliated schools see the update on login (dismissible).</template>
+          <template v-else-if="campaign.isEnabled">Enabled — generate links per school, push individually, or Push to Schools for everyone.</template>
           <template v-else>Not started — Enable Year Update to seed questions for {{ schoolYear }}.</template>
         </span>
       </div>
@@ -303,7 +303,7 @@
                 <th>Viewers</th>
                 <th>Clicks</th>
                 <th>Last activity</th>
-                <th></th>
+                <th>Link / Push</th>
               </tr>
             </thead>
             <tbody>
@@ -380,10 +380,26 @@
                     <button
                       type="button"
                       class="btn btn-secondary btn-sm"
-                      title="Copy year update link"
+                      :disabled="!campaign.isEnabled || linkBusy"
+                      :title="shareLinkFor(row) ? 'Copy year update link' : 'Generate link first'"
                       @click="copyShareLink(row)"
                     >
-                      {{ copiedSchoolId === row.schoolOrganizationId ? 'Copied' : 'Link' }}
+                      {{ shareLinkFor(row) ? 'Copy' : 'Get link' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-push btn-sm"
+                      :disabled="!canPushSchool(row) || pushBusyId === row.schoolOrganizationId"
+                      :title="pushTitle(row)"
+                      @click="pushOneSchool(row)"
+                    >
+                      {{
+                        pushBusyId === row.schoolOrganizationId
+                          ? 'Pushing…'
+                          : row.isPushed
+                            ? 'Pushed ✓'
+                            : 'Push'
+                      }}
                     </button>
                     <button type="button" class="btn btn-secondary btn-sm icon-btn" title="Open details" @click="selectRow(row)">
                       👁
@@ -525,6 +541,21 @@
                   {{ copiedSchoolId === selectedRow.schoolOrganizationId ? 'Copied!' : 'Copy link' }}
                 </button>
                 <button
+                  type="button"
+                  class="btn btn-push btn-sm"
+                  :disabled="!canPushSchool(selectedRow) || pushBusyId === selectedRow.schoolOrganizationId"
+                  :title="pushTitle(selectedRow)"
+                  @click="pushOneSchool(selectedRow)"
+                >
+                  {{
+                    pushBusyId === selectedRow.schoolOrganizationId
+                      ? 'Pushing…'
+                      : selectedRow.isPushed
+                        ? 'Pushed ✓'
+                        : 'Push to school'
+                  }}
+                </button>
+                <button
                   v-if="selectedRow.tokens?.[0]"
                   type="button"
                   class="btn btn-secondary btn-sm"
@@ -641,6 +672,7 @@ const filterSat4 = ref(false);
 const lastLink = ref('');
 const copiedSchoolId = ref(null);
 const linkBusy = ref(false);
+const pushBusyId = ref(null);
 const failedLogoIds = ref(new Set());
 const selectedRow = ref(null);
 const detail = ref(null);
@@ -815,6 +847,45 @@ function onLogoError(row) {
 function shareLinkFor(row) {
   const token = row?.tokens?.[0]?.token;
   return token ? publicReinitUrl(token) : '';
+}
+
+function canPushSchool(row) {
+  if (!row || !campaign.value.isEnabled || campaign.value.isDisabled) return false;
+  if (row.status === 'finalized') return false;
+  if (row.isPushed) return false;
+  return Boolean(shareLinkFor(row));
+}
+
+function pushTitle(row) {
+  if (!campaign.value.isEnabled) return 'Enable School Year Update first';
+  if (row?.status === 'finalized') return 'Already complete — school no longer sees the splash';
+  if (row?.isPushed) return 'Already pushed — school staff see the update on login';
+  if (!shareLinkFor(row)) return 'Get link first, then push to this school';
+  return 'Show collaborative year update on this school’s login splash';
+}
+
+async function pushOneSchool(row) {
+  if (!row || !canPushSchool(row)) return;
+  pushBusyId.value = row.schoolOrganizationId;
+  error.value = '';
+  pushFlash.value = '';
+  try {
+    const res = await api.post(`/school-reinit/schools/${row.schoolOrganizationId}/push`, {
+      agencyId: Number(props.agencyId),
+      schoolYear: schoolYear.value,
+    });
+    pushFlash.value = res.data?.alreadyPushed
+      ? `${row.schoolName} was already pushed.`
+      : `Pushed collaborative year update to ${row.schoolName}.`;
+    await load();
+    setTimeout(() => {
+      pushFlash.value = '';
+    }, 2500);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Push failed';
+  } finally {
+    pushBusyId.value = null;
+  }
 }
 
 function avatarColor(name) {

@@ -10,6 +10,7 @@ router.get('/campaign', authenticate, ctrl.getCampaignStatus);
 router.post('/campaign/enable', authenticate, ctrl.enableCampaign);
 router.post('/campaign/disable', authenticate, ctrl.disableCampaign);
 router.post('/campaign/push', authenticate, ctrl.pushCampaign);
+router.post('/schools/:schoolOrganizationId/push', authenticate, ctrl.pushSchool);
 router.put('/campaign/checkin-settings', authenticate, ctrl.updateCheckinSettings);
 router.post('/tokens', authenticate, ctrl.generateToken);
 router.get('/schools/:schoolOrganizationId', authenticate, ctrl.getSchoolBundle);

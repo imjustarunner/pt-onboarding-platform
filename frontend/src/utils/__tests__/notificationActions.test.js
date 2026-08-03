@@ -17,6 +17,15 @@ describe('notificationActions', () => {
       .toBe('/org/tickets?status=open&ticketId=3');
     expect(notificationDestination({ type: 'school_portal_onboarding_completed', agency_id: 12 }, { organizationSlug: 'org', role: 'admin' }))
       .toBe('/org/admin/school-onboarding?agencyId=12');
+    expect(notificationDestination({ type: 'provider_year_update_completed', agency_id: 9 }, { organizationSlug: 'org', role: 'admin' }))
+      .toBe('/org/admin/provider-year-update?agencyId=9');
+    expect(notificationDestination({
+      type: 'school_collaborative_year_update_completed',
+      agency_id: 4,
+      related_entity_type: 'school',
+      related_entity_id: 88
+    }, { organizationSlug: 'org', role: 'admin' }))
+      .toBe('/org/admin/school-reinit/88?agencyId=4');
   });
 
   it('does not expose admin profile navigation to ordinary providers', () => {

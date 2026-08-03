@@ -38,7 +38,7 @@ test('catalog contains every literal Notification producer type', () => {
 
 test('every canonical type has one valid category and complete capabilities', () => {
   assert.equal(new Set(NOTIFICATION_TYPES).size, NOTIFICATION_TYPES.length);
-  assert.ok(NOTIFICATION_TYPES.length >= 98);
+  assert.ok(NOTIFICATION_TYPES.length >= 100);
   for (const type of NOTIFICATION_TYPES) {
     const entry = getNotificationCatalogEntry(type);
     assert.ok(type.length <= 128, `${type} exceeds the notifications.type column`);

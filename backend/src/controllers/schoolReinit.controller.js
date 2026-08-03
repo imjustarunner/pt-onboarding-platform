@@ -201,6 +201,7 @@ export async function getSchoolBundle(req, res, next) {
       schoolYear,
       createdByUserId: req.user?.id,
     });
+    const schoolPushed = S.cycleIsPushed(cycle, campaign);
     const payload = await buildDashboardPayload(cycle);
     res.json({
       ...payload,
@@ -208,11 +209,12 @@ export async function getSchoolBundle(req, res, next) {
       campaign: {
         status: campaign.status,
         isEnabled: true,
-        isPushed: S.campaignIsPushed(campaign),
+        isPushed: schoolPushed,
+        pushedAt: cycle?.pushed_at || campaign?.pushed_at || null,
       },
       actorType: 'admin',
-      windowOpen: S.campaignIsPushed(campaign),
-      splashEnabled: S.campaignIsPushed(campaign),
+      windowOpen: schoolPushed,
+      splashEnabled: schoolPushed,
       showReceiptButton: S.canShowReceiptButton(cycle),
     });
   } catch (e) {
@@ -605,16 +607,13 @@ export async function getMyCycle(req, res, next) {
 
     const schoolYear = S.currentSchoolYear();
     const campaign = await S.getCampaign(agencyId, schoolYear);
-    const isPushed = S.campaignIsPushed(campaign) && !S.campaignIsDisabled(campaign);
-
-    // Until the tenant pushes the year update, school staff do not get the splash/workflow.
-    if (!isPushed) {
+    if (S.campaignIsDisabled(campaign)) {
       return res.json({
         campaign: {
           status: campaign?.status || 'draft',
-          isEnabled: S.campaignIsEnabled(campaign),
+          isEnabled: false,
           isPushed: false,
-          isDisabled: S.campaignIsDisabled(campaign),
+          isDisabled: true,
         },
         splashEnabled: false,
         windowOpen: false,
@@ -625,7 +624,28 @@ export async function getMyCycle(req, res, next) {
       });
     }
 
-    const cycle = await S.getOrCreateCycle({ agencyId, schoolOrganizationId, schoolYear });
+    let cycle = await S.getCycle({ agencyId, schoolOrganizationId, schoolYear });
+    const schoolPushed = S.cycleIsPushed(cycle, campaign);
+
+    // Until this school is pushed (individually or bulk), school staff do not get the splash/workflow.
+    if (!schoolPushed) {
+      return res.json({
+        campaign: {
+          status: campaign?.status || 'draft',
+          isEnabled: S.campaignIsEnabled(campaign),
+          isPushed: false,
+          isDisabled: false,
+        },
+        splashEnabled: false,
+        windowOpen: false,
+        showReceiptButton: false,
+        dismissed: false,
+        cycle: null,
+        actorType: 'school_staff',
+      });
+    }
+
+    cycle = cycle || await S.getOrCreateCycle({ agencyId, schoolOrganizationId, schoolYear });
     await S.ensureDefaultQuestions(agencyId, schoolYear);
 
     if (req.user?.id) {
@@ -657,7 +677,7 @@ export async function getMyCycle(req, res, next) {
         status: campaign.status,
         isEnabled: true,
         isPushed: true,
-        pushedAt: campaign.pushed_at,
+        pushedAt: cycle?.pushed_at || campaign?.pushed_at || null,
       },
       splashEnabled: true,
       windowOpen: true,
@@ -695,16 +715,17 @@ export async function ensureMyToken(req, res, next) {
     }
     const schoolYear = S.currentSchoolYear();
     const campaign = await S.getCampaign(agencyId, schoolYear);
-    if (!S.campaignIsPushed(campaign)) {
-      return res.status(400).json({ error: { message: 'Year update has not been pushed yet' } });
+    const cycle = await S.getCycle({ agencyId, schoolOrganizationId, schoolYear });
+    if (!S.cycleIsPushed(cycle, campaign)) {
+      return res.status(400).json({ error: { message: 'Year update has not been pushed to this school yet' } });
     }
-    const { cycle, tokenRow, created } = await S.ensureShareableToken({
+    const { cycle: ensuredCycle, tokenRow, created } = await S.ensureShareableToken({
       agencyId,
       schoolOrganizationId,
       schoolYear,
       createdByUserId: req.user?.id,
     });
-    res.status(created ? 201 : 200).json({ ...tokenResponse(tokenRow, cycle), created });
+    res.status(created ? 201 : 200).json({ ...tokenResponse(tokenRow, ensuredCycle), created });
   } catch (e) {
     next(e);
   }
@@ -776,6 +797,52 @@ export async function disableCampaign(req, res, next) {
         schoolYear,
         campaign: campaignPayload(result.campaign),
         alreadyDisabled: Boolean(result.alreadyDisabled),
+      });
+    } catch (err) {
+      if (err?.status === 400) {
+        return res.status(400).json({ error: { message: err.message } });
+      }
+      throw err;
+    }
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/school-reinit/schools/:schoolOrganizationId/push */
+export async function pushSchool(req, res, next) {
+  try {
+    const schoolOrganizationId = safeInt(req.params.schoolOrganizationId);
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!agencyId || !schoolOrganizationId) {
+      return res.status(400).json({
+        error: { message: 'agencyId and schoolOrganizationId are required' },
+      });
+    }
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
+    try {
+      const result = await S.pushSchool({
+        agencyId,
+        schoolOrganizationId,
+        schoolYear,
+        userId: req.user?.id,
+      });
+      res.json({
+        ok: true,
+        alreadyPushed: Boolean(result.alreadyPushed),
+        schoolOrganizationId,
+        cycleId: result.cycle?.id || null,
+        pushedAt: result.cycle?.pushed_at || null,
+        isPushed: true,
+        campaign: {
+          status: result.campaign?.status,
+          isEnabled: S.campaignIsEnabled(result.campaign),
+          isPushed: S.campaignIsPushed(result.campaign),
+          pushedAt: result.campaign?.pushed_at || null,
+        },
       });
     } catch (err) {
       if (err?.status === 400) {

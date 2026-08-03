@@ -68,6 +68,7 @@ const TYPES_BY_CATEGORY = {
     'background_check_reimbursement_due', 'background_check_renewal_due',
     'background_check_expired', 'd11_background_tracking_activated',
     'new_job_application_submitted', 'school_portal_onboarding_completed',
+    'provider_year_update_completed', 'school_collaborative_year_update_completed',
     'hiring_task_assigned', 'training_assigned', 'training_due_soon'
   ],
   supervision_programs: [
@@ -92,6 +93,8 @@ const LABEL_OVERRIDES = {
   presence_user_returned: 'Teammate is back',
   user_activity_digest: 'Daily user activity',
   school_portal_onboarding_completed: 'School portal onboarding complete',
+  provider_year_update_completed: 'Provider year update complete',
+  school_collaborative_year_update_completed: 'School collaborative year update complete',
   status_expired: 'Status expired',
   new_packet_uploaded: 'New packet uploaded',
   company_event_registration_submitted: 'New event registration',
@@ -214,7 +217,8 @@ const MANAGER_RELEVANT = new Set([
   'school_availability_request_pending', 'school_primary_staff_removed',
   'budget_expense_pending_approval', 'payroll_holiday_bonus_missing_approval',
   'onboarding_completed', 'pending_completed', 'new_job_application_submitted',
-  'school_portal_onboarding_completed', 'kudos_earned_admin_digest'
+  'school_portal_onboarding_completed', 'provider_year_update_completed',
+  'school_collaborative_year_update_completed', 'kudos_earned_admin_digest'
 ]);
 
 const OPERATIONS_RELEVANT = new Set([
@@ -271,7 +275,8 @@ const MANAGER_ESSENTIAL = new Set([
   'unassigned_document_submitted', 'office_schedule_coverage_flag',
   'office_availability_request_pending', 'school_availability_request_pending',
   'budget_expense_pending_approval', 'payroll_holiday_bonus_missing_approval',
-  'new_job_application_submitted', 'school_portal_onboarding_completed'
+  'new_job_application_submitted', 'school_portal_onboarding_completed',
+  'provider_year_update_completed', 'school_collaborative_year_update_completed'
 ]);
 
 const OPERATIONS_ESSENTIAL = new Set([
@@ -282,7 +287,8 @@ const OPERATIONS_ESSENTIAL = new Set([
   'office_availability_request_pending', 'school_availability_request_pending',
   'company_event_registration_submitted', 'budget_expense_pending_approval',
   'payroll_holiday_bonus_missing_approval', 'new_job_application_submitted',
-  'school_portal_onboarding_completed'
+  'school_portal_onboarding_completed', 'provider_year_update_completed',
+  'school_collaborative_year_update_completed'
 ]);
 
 const ADMINISTRATIVE_ESSENTIAL = new Set([

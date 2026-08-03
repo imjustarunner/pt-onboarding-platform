@@ -379,6 +379,8 @@ const formatNotificationLine = (notification) => [
 const primaryLabel = (notification) => {
   if (notification.type === 'user_activity_digest') return 'View activity';
   if (notification.type === 'school_portal_onboarding_completed') return 'View onboarding';
+  if (notification.type === 'provider_year_update_completed') return 'View year update';
+  if (notification.type === 'school_collaborative_year_update_completed') return 'View year update';
   if (notification.type === 'new_packet_uploaded') return 'Open packet';
   if (notification.type === 'company_event_registration_submitted') return 'Event portal';
   if (notification.type === 'support_ticket_created') return 'Open ticket';
