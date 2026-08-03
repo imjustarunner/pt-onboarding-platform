@@ -40,12 +40,12 @@
           <div class="acct-sidebar-block-title">Quick Actions</div>
           <button type="button" class="acct-qa" @click="scrollToSection('account-info')">Edit Profile</button>
           <button type="button" class="acct-qa" @click="scrollToSection('workspace-security')">Reset Password</button>
-          <button type="button" class="acct-qa" @click="ctx.navigate?.('payroll')">Log Time Manually</button>
+          <button v-if="!isSchoolStaffProfile" type="button" class="acct-qa" @click="ctx.navigate?.('payroll')">Log Time Manually</button>
           <button type="button" class="acct-qa" @click="ctx.navigate?.('documents')">Upload Document</button>
           <button type="button" class="acct-qa" @click="ctx.navigate?.('communications')">Send Message</button>
         </div>
 
-        <div v-if="completionPct != null" class="acct-completion">
+        <div v-if="completionPct != null && !isSchoolStaffProfile" class="acct-completion">
           <div class="acct-completion-head">
             <span>Profile completion</span>
             <strong>{{ completionPct }}%</strong>
@@ -61,7 +61,7 @@
         <slot name="view-only" />
 
         <!-- Summary row -->
-        <div class="acct-summary-row">
+        <div v-if="!isSchoolStaffProfile" class="acct-summary-row">
           <div class="acct-summary-card">
             <div class="acct-summary-label">Account Snapshot</div>
             <dl class="acct-summary-dl">
@@ -215,7 +215,7 @@
                 </div>
               </template>
             </div>
-            <div v-if="!isEditing('account-info') && canEditUser" class="acct-field acct-field--full" style="margin-top: 4px;">
+            <div v-if="!isEditing('account-info') && canEditUser && !isSchoolStaffProfile" class="acct-field acct-field--full" style="margin-top: 4px;">
               <button type="button" class="acct-link-btn" @click="ctx.openExternalCalendarsModal?.()">
                 Manage external calendars (ICS)
               </button>
@@ -224,6 +224,7 @@
 
           <!-- Professional Details -->
           <AccountDashboardCard
+            v-if="showAccountSection('professional-details')"
             section-id="professional-details"
             title="Professional Details"
             subtitle="Education and experience from the clinical profile."
@@ -254,6 +255,7 @@
 
           <!-- Home Address -->
           <AccountDashboardCard
+            v-if="showAccountSection('home-address')"
             section-id="home-address"
             title="Home Address"
             subtitle="Used for School Mileage auto-calculation."
@@ -284,6 +286,7 @@
 
           <!-- Licenses (read-only — edit in Clinical Information) -->
           <AccountDashboardCard
+            v-if="showAccountSection('licenses')"
             section-id="licenses"
             title="Licenses & Certifications"
             :can-edit="false"
@@ -325,6 +328,7 @@
 
           <!-- Compensation Level -->
           <AccountDashboardCard
+            v-if="showAccountSection('compensation-level')"
             section-id="compensation-level"
             title="Compensation Level"
             subtitle="Categorize this provider for payroll. Select Bypass to preserve their existing rates."
@@ -388,6 +392,7 @@
 
           <!-- Service & Availability -->
           <AccountDashboardCard
+            v-if="showAccountSection('service-availability')"
             section-id="service-availability"
             title="Service & Availability Settings"
             subtitle="Clinical service settings and caseload preferences."
@@ -411,6 +416,7 @@
 
           <!-- Employment dates -->
           <AccountDashboardCard
+            v-if="showAccountSection('employment-dates')"
             section-id="employment-dates"
             title="Employment & Key Dates"
             :can-edit="false"
@@ -428,6 +434,7 @@
 
           <!-- Access & Permissions -->
           <AccountDashboardCard
+            v-if="showAccountSection('access-permissions')"
             section-id="access-permissions"
             title="Access & Permissions"
             subtitle="System access, contracts, and operational flags. Benefits / Med Cancel live on the Benefits tab."
@@ -472,12 +479,12 @@
           </AccountDashboardCard>
 
           <!-- Feature Access slot -->
-          <div id="feature-access">
+          <div v-if="showAccountSection('feature-access')" id="feature-access">
             <slot name="feature-access" :editing-card="editingCard" />
           </div>
 
           <!-- Supervisor Assignments slot -->
-          <div id="supervisor-assignments">
+          <div v-if="showAccountSection('supervisor-assignments')" id="supervisor-assignments">
             <AccountDashboardCard section-id="supervisor-assignments" title="Supervisor Assignments" :can-edit="false">
               <p class="muted acct-clinical-note">
                 Manage supervisor assignments in
@@ -530,7 +537,7 @@
           </div>
 
           <!-- Public profile + admin tools slot -->
-          <div id="public-profile">
+          <div v-if="showAccountSection('public-profile')" id="public-profile">
             <slot name="public-profile" />
           </div>
 
@@ -560,9 +567,29 @@ const PRACTICE_CATEGORY_LABELS = {
   consulting: 'Consulting'
 };
 
+const SCHOOL_STAFF_HIDDEN_ACCOUNT_SECTIONS = new Set([
+  'professional-details',
+  'home-address',
+  'licenses',
+  'compensation-level',
+  'service-availability',
+  'employment-dates',
+  'access-permissions',
+  'feature-access',
+  'supervisor-assignments',
+  'public-profile'
+]);
+
 const ctx = inject(USER_ACCOUNT_CONTEXT_KEY, {});
 
 const unwrap = (v) => (v && typeof v === 'object' && 'value' in v ? v.value : v);
+
+const isSchoolStaffProfile = computed(() => !!unwrap(ctx.isSchoolStaffProfile));
+
+const showAccountSection = (sectionId) => {
+  if (!isSchoolStaffProfile.value) return true;
+  return !SCHOOL_STAFF_HIDDEN_ACCOUNT_SECTIONS.has(sectionId);
+};
 
 const editingCard = ref(null);
 const clinicalFields = ref([]);
@@ -860,22 +887,26 @@ const permissionGroups = computed(() => {
   return groups.filter((g) => g.items.length > 0);
 });
 
-const navItems = computed(() => [
-  { id: 'account-info', label: 'Account Information' },
-  { id: 'professional-details', label: 'Professional Details' },
-  { id: 'home-address', label: 'Home Address' },
-  { id: 'licenses', label: 'Licenses & Certifications' },
-  { id: 'compensation-level', label: 'Compensation Level' },
-  { id: 'service-availability', label: 'Service & Availability' },
-  { id: 'supervisor-assignments', label: 'Supervisor Assignments' },
-  { id: 'agency-assignments', label: 'Agency Assignments' },
-  { id: 'employment-dates', label: 'Employment & Dates' },
-  { id: 'access-permissions', label: 'Access & Permissions' },
-  { id: 'feature-access', label: 'Feature Access' },
-  { id: 'status-management', label: 'Status Management' },
-  { id: 'workspace-security', label: 'Workspace & Security' },
-  { id: 'public-profile', label: 'Public Provider Profile' }
-]);
+const navItems = computed(() => {
+  const items = [
+    { id: 'account-info', label: 'Account Information' },
+    { id: 'professional-details', label: 'Professional Details' },
+    { id: 'home-address', label: 'Home Address' },
+    { id: 'licenses', label: 'Licenses & Certifications' },
+    { id: 'compensation-level', label: 'Compensation Level' },
+    { id: 'service-availability', label: 'Service & Availability' },
+    { id: 'supervisor-assignments', label: 'Supervisor Assignments' },
+    { id: 'agency-assignments', label: 'Agency Assignments' },
+    { id: 'employment-dates', label: 'Employment & Dates' },
+    { id: 'access-permissions', label: 'Access & Permissions' },
+    { id: 'feature-access', label: 'Feature Access' },
+    { id: 'status-management', label: 'Status Management' },
+    { id: 'workspace-security', label: 'Workspace & Security' },
+    { id: 'public-profile', label: 'Public Provider Profile' }
+  ];
+  if (!isSchoolStaffProfile.value) return items;
+  return items.filter((item) => showAccountSection(item.id));
+});
 
 const completionPct = computed(() => {
   const checks = [
@@ -929,8 +960,12 @@ const loadClinicalFields = async () => {
   }
 };
 
-onMounted(loadClinicalFields);
-watch(() => ctx.userId?.value ?? ctx.userId, loadClinicalFields);
+onMounted(() => {
+  if (!isSchoolStaffProfile.value) loadClinicalFields();
+});
+watch(() => ctx.userId?.value ?? ctx.userId, () => {
+  if (!isSchoolStaffProfile.value) loadClinicalFields();
+});
 watch(
   [userId, agencyId, isProviderRole, userAgencies],
   () => { loadPracticeCategories(); },
@@ -1023,8 +1058,8 @@ const saveCompLevel = async () => {
 const compUserId = computed(() => ctx.userId?.value ?? ctx.userId);
 const compAgencyId = computed(() => ctx.agencyId?.value ?? ctx.agencyId);
 
-watch([compUserId, compAgencyId], ([uid, aid]) => {
-  if (uid && aid) loadCompLevel();
+watch([compUserId, compAgencyId, isSchoolStaffProfile], ([uid, aid, schoolStaff]) => {
+  if (uid && aid && !schoolStaff) loadCompLevel();
 }, { immediate: true });
 </script>
 

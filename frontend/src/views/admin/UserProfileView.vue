@@ -457,7 +457,13 @@
             </template>
 
             <template #feature-access>
-              <AccountDashboardCard section-id="feature-access" title="Feature Access" subtitle="Per-user entitlements and billing." :can-edit="false">
+              <AccountDashboardCard
+                v-if="!isViewingSchoolStaff"
+                section-id="feature-access"
+                title="Feature Access"
+                subtitle="Per-user entitlements and billing."
+                :can-edit="false"
+              >
               <div v-if="!isViewingGuardian && canManageFeatureAccess && perUserFeatureAccessRows.length > 0" class="feature-access-section">
                 <p class="feature-access-help">
                   Per-user entitlements driven by the platform feature catalog. Toggling here writes a
@@ -516,6 +522,7 @@
                           <div
                             v-if="(affiliatedOrgsByAgencyId[String(agency.id)] || []).length > 0"
                             class="affiliations-details-wrap"
+                            :ref="(el) => { if (el && isAffiliationsPopoverOpenFor(Number(agency.id))) affiliationsPopoverAnchorRef = el }"
                             @mouseenter="openAffiliationsPopover(Number(agency.id))"
                             @mouseleave="closeAffiliationsPopover(Number(agency.id))"
                           >
@@ -532,46 +539,54 @@
                               </span>
                             </button>
 
-                            <div v-if="isAffiliationsPopoverOpenFor(Number(agency.id))" class="affiliations-popover">
-                              <div class="affiliations-popover-title">
-                                Affiliated orgs under {{ agency.name }}
-                              </div>
+                            <Teleport to="body">
                               <div
-                                v-for="org in (affiliatedOrgsByAgencyId[String(agency.id)] || [])"
-                                :key="org.id"
-                                class="affiliations-popover-item"
+                                v-if="isAffiliationsPopoverOpenFor(Number(agency.id))"
+                                class="affiliations-popover affiliations-popover--teleported"
+                                :style="affiliationsPopoverStyle"
+                                @mouseenter="openAffiliationsPopover(Number(agency.id))"
+                                @mouseleave="closeAffiliationsPopover(Number(agency.id))"
                               >
-                                <div class="affiliations-popover-item-left">
-                                  <div class="affiliations-popover-item-name">
-                                    {{ org.name }}
-                                    <span v-if="org.organization_type" class="muted" style="font-size: 11px; font-weight: 800;">
-                                      ({{ org.organization_type }})
-                                    </span>
-                                  </div>
-                                  <div class="affiliations-popover-item-actions">
-                                    <button
-                                      v-if="isAffiliationOrg(org)"
-                                      class="btn btn-secondary btn-sm"
-                                      type="button"
-                                      @click="openSchoolSchedulingFromAgencyRow(org)"
-                                    >
-                                      Days &amp; slots
-                                    </button>
-                                    <button
-                                      v-if="canEditUser"
-                                      class="btn btn-danger btn-sm"
-                                      type="button"
-                                      @click="removeAgency(org.id)"
-                                    >
-                                      Remove
-                                    </button>
+                                <div class="affiliations-popover-title">
+                                  Affiliated orgs under {{ agency.name }}
+                                </div>
+                                <div
+                                  v-for="org in (affiliatedOrgsByAgencyId[String(agency.id)] || [])"
+                                  :key="org.id"
+                                  class="affiliations-popover-item"
+                                >
+                                  <div class="affiliations-popover-item-left">
+                                    <div class="affiliations-popover-item-name">
+                                      {{ org.name }}
+                                      <span v-if="org.organization_type" class="muted" style="font-size: 11px; font-weight: 800;">
+                                        ({{ org.organization_type }})
+                                      </span>
+                                    </div>
+                                    <div class="affiliations-popover-item-actions">
+                                      <button
+                                        v-if="isAffiliationOrg(org)"
+                                        class="btn btn-secondary btn-sm"
+                                        type="button"
+                                        @click="openSchoolSchedulingFromAgencyRow(org)"
+                                      >
+                                        Days &amp; slots
+                                      </button>
+                                      <button
+                                        v-if="canEditUser"
+                                        class="btn btn-danger btn-sm"
+                                        type="button"
+                                        @click="removeAgency(org.id)"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
+                                <div class="muted" style="font-size: 12px; margin-top: 8px;">
+                                  Tip: hover to peek, click to pin open.
+                                </div>
                               </div>
-                              <div class="muted" style="font-size: 12px; margin-top: 8px;">
-                                Tip: hover to peek, click to pin open.
-                              </div>
-                            </div>
+                            </Teleport>
                           </div>
                         </div>
 
@@ -860,6 +875,7 @@
               </AccountDashboardCard>
 
               <AccountDashboardCard
+                v-if="!isViewingSchoolStaff"
                 section-id="admin-tools"
                 title="Admin Tools"
                 :can-edit="false"
@@ -3620,7 +3636,6 @@ const tabs = computed(() => {
   if (isViewingSchoolStaff.value) {
     const schoolStaffTabs = [
       { id: 'account', label: 'Account' },
-      { id: 'training', label: 'Training' },
       { id: 'documents', label: 'Documents' },
       { id: 'communications', label: 'Communications' },
       ...(canViewAdminDocsTab.value ? [{ id: 'admin_docs', label: 'Admin Documentation' }] : []),
@@ -4638,16 +4653,50 @@ const isAffiliationsPopoverOpenFor = (agencyId) => {
   const id = Number(agencyId);
   return hoverAffiliationsPopoverAgencyId.value === id || pinnedAffiliationsPopoverAgencyId.value === id;
 };
+let affiliationsPopoverCloseTimeout = null;
 const openAffiliationsPopover = (agencyId) => {
   const id = Number(agencyId);
+  if (affiliationsPopoverCloseTimeout) {
+    clearTimeout(affiliationsPopoverCloseTimeout);
+    affiliationsPopoverCloseTimeout = null;
+  }
   // If a popover is pinned to another agency, don't open a hover popover for a different row.
   if (pinnedAffiliationsPopoverAgencyId.value !== null && pinnedAffiliationsPopoverAgencyId.value !== id) return;
   hoverAffiliationsPopoverAgencyId.value = id;
 };
 const closeAffiliationsPopover = (agencyId) => {
   const id = Number(agencyId);
-  if (hoverAffiliationsPopoverAgencyId.value === id) hoverAffiliationsPopoverAgencyId.value = null;
+  if (hoverAffiliationsPopoverAgencyId.value !== id) return;
+  if (affiliationsPopoverCloseTimeout) clearTimeout(affiliationsPopoverCloseTimeout);
+  affiliationsPopoverCloseTimeout = setTimeout(() => {
+    if (hoverAffiliationsPopoverAgencyId.value === id) hoverAffiliationsPopoverAgencyId.value = null;
+    affiliationsPopoverCloseTimeout = null;
+  }, 150);
 };
+const affiliationsPopoverAnchorRef = ref(null);
+const affiliationsPopoverPosition = ref({ top: 0, left: 0 });
+watch(
+  () => [pinnedAffiliationsPopoverAgencyId.value, hoverAffiliationsPopoverAgencyId.value, affiliationsPopoverAnchorRef.value],
+  () => {
+    const openId = pinnedAffiliationsPopoverAgencyId.value ?? hoverAffiliationsPopoverAgencyId.value;
+    if (openId !== null && affiliationsPopoverAnchorRef.value) {
+      nextTick(() => {
+        const rect = affiliationsPopoverAnchorRef.value?.getBoundingClientRect?.();
+        if (rect) {
+          affiliationsPopoverPosition.value = {
+            top: rect.bottom + 6,
+            left: rect.left
+          };
+        }
+      });
+    }
+  },
+  { flush: 'post' }
+);
+const affiliationsPopoverStyle = computed(() => {
+  const p = affiliationsPopoverPosition.value;
+  return { top: `${p.top}px`, left: `${p.left}px` };
+});
 const toggleAffiliationsPopover = (agencyId) => {
   const id = Number(agencyId);
   if (pinnedAffiliationsPopoverAgencyId.value === id) {
@@ -6556,6 +6605,7 @@ const getStatusBadgeClass = (status, isActive = true) => {
 };
 
 provide(USER_ACCOUNT_CONTEXT_KEY, {
+  isSchoolStaffProfile: isViewingSchoolStaff,
   user,
   userId,
   agencyId: scheduleAgencyId,
@@ -8483,8 +8533,14 @@ onUnmounted(() => {
   padding: 10px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.15);
   z-index: 50;
-  max-height: 300px;
+  max-height: min(70vh, 400px);
   overflow-y: auto;
+}
+
+.affiliations-popover--teleported {
+  position: fixed;
+  margin-top: 0;
+  z-index: 9999;
 }
 
 .affiliations-popover--below {
