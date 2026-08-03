@@ -38,6 +38,12 @@ const isPortalOrg = computed(() => {
   return t === 'school' || t === 'program' || t === 'learning';
 });
 
+const isSchoolPortalRoute = computed(() => {
+  const name = String(route?.name || '');
+  const t = String(organizationStore.organizationContext?.organizationType || '').toLowerCase();
+  return (name === 'OrganizationDashboard' || name === 'Dashboard') && t === 'school';
+});
+
 const isEditableTarget = (el) => {
   if (!el) return false;
   const tag = String(el.tagName || '').toLowerCase();
@@ -76,8 +82,8 @@ const onKeydown = (e) => {
   if (!drv || !drv.isActive()) return;
   if (isEditableTarget(e.target)) return;
 
-  // Spacebar can scroll; prevent when used as "Next"
-  if (e.key === 'Enter' || e.key === ' ' || e.code === 'Space') {
+  // Enter advances; Space scrolls the page — do not bind Space to Next (accidental dismiss).
+  if (e.key === 'Enter') {
     e.preventDefault();
     e.stopPropagation();
     advance();
@@ -121,6 +127,8 @@ const filterRenderableSteps = (steps) => {
 const startForCurrentRoute = async () => {
   const userId = authStore.user?.id;
   if (!tutorialStore.enabled || !userId) return;
+
+  if (isSchoolPortalRoute.value) return;
 
   const isSuperAdmin = authStore.user?.role === 'super_admin';
   const draftTour = isSuperAdmin ? builderStore.getTutorialDraftForRouteName(route.name) : null;
@@ -173,9 +181,9 @@ const startForCurrentRoute = async () => {
     disableActiveInteraction: true,
     showProgress: true,
     progressText: '{{current}} / {{total}}',
-    nextBtnText: 'Next (Enter/Space)',
+    nextBtnText: 'Next (Enter)',
     prevBtnText: 'Back',
-    doneBtnText: 'Done (Enter/Space)',
+    doneBtnText: 'Done',
     onNextClick: () => advance(),
     onPrevClick: () => drv?.movePrevious?.()
   });
@@ -186,7 +194,12 @@ const startForCurrentRoute = async () => {
 
 watch(
   () => [route.name, route.query?.tab, tutorialStore.enabled, authStore.user?.id, currentAgencyId.value, isPortalOrg.value],
-  () => {
+  (newVals, oldVals) => {
+    const enabledNow = !!newVals?.[2];
+    const enabledBefore = !!oldVals?.[2];
+    if (enabledNow && !enabledBefore) {
+      lastAutoStartedKey = null;
+    }
     startForCurrentRoute();
   },
   { immediate: true }

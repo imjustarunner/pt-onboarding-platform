@@ -1,5 +1,5 @@
 <template>
-  <section class="my-docs-wrap">
+  <section class="my-docs-wrap" data-tour="school-staff-docs-panel">
     <header class="my-docs-header">
       <h2>School Staff Documents</h2>
       <div class="header-actions">

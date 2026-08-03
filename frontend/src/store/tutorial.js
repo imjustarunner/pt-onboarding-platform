@@ -99,6 +99,29 @@ export const useTutorialStore = defineStore('tutorial', () => {
     return st.completed === true;
   };
 
+  const getTourStepIndex = (tourId, version) => {
+    const st = getTourState(tourId);
+    if (!st || st.version !== version) return 0;
+    const idx = Number(st.stepIndex);
+    return Number.isFinite(idx) && idx >= 0 ? idx : 0;
+  };
+
+  const saveTourStepIndex = async (userId, tourId, version, stepIndex) => {
+    if (!tourId) return;
+    const idx = Number(stepIndex);
+    if (!Number.isFinite(idx) || idx < 0) return;
+    const tours = { ...(progress.value?.tours || {}) };
+    tours[tourId] = {
+      ...(tours[tourId] || {}),
+      version,
+      completed: false,
+      stepIndex: idx,
+      updatedAt: new Date().toISOString()
+    };
+    progress.value = { ...(progress.value || {}), tours };
+    await saveProgress(userId);
+  };
+
   const markTourComplete = async (userId, tourId, version) => {
     if (!tourId) return;
     const tours = { ...(progress.value?.tours || {}) };
@@ -106,6 +129,7 @@ export const useTutorialStore = defineStore('tutorial', () => {
       ...(tours[tourId] || {}),
       version,
       completed: true,
+      stepIndex: 0,
       completedAt: new Date().toISOString()
     };
     progress.value = { ...(progress.value || {}), tours };
@@ -117,6 +141,36 @@ export const useTutorialStore = defineStore('tutorial', () => {
     const tours = { ...(progress.value?.tours || {}) };
     delete tours[tourId];
     progress.value = { ...(progress.value || {}), tours };
+    await saveProgress(userId);
+  };
+
+  const getTipsState = () => {
+    const tips = progress.value?.tips;
+    return tips && typeof tips === 'object' ? tips : {};
+  };
+
+  const isTipHidden = (tipId) => {
+    if (!tipId) return true;
+    const st = getTipsState()[tipId];
+    if (!st || typeof st !== 'object') return false;
+    if (st.dismissed === true) return true;
+    const snoozeUntil = st.snoozeUntil ? new Date(st.snoozeUntil) : null;
+    if (snoozeUntil && snoozeUntil > new Date()) return true;
+    return false;
+  };
+
+  const applyTipAction = async (userId, tipId, action) => {
+    if (!tipId) return;
+    const tips = { ...getTipsState() };
+    const prev = tips[tipId] && typeof tips[tipId] === 'object' ? tips[tipId] : {};
+    if (action === 'dismiss') {
+      tips[tipId] = { ...prev, dismissed: true, dismissedAt: new Date().toISOString() };
+    } else if (action === 'snooze') {
+      const until = new Date();
+      until.setDate(until.getDate() + 1);
+      tips[tipId] = { ...prev, snoozeUntil: until.toISOString() };
+    }
+    progress.value = { ...(progress.value || {}), tips };
     await saveProgress(userId);
   };
 
@@ -133,8 +187,13 @@ export const useTutorialStore = defineStore('tutorial', () => {
     saveProgress,
     getTourState,
     isTourComplete,
+    getTourStepIndex,
+    saveTourStepIndex,
     markTourComplete,
-    resetTour
+    resetTour,
+    getTipsState,
+    isTipHidden,
+    applyTipAction
   };
 });
 

@@ -1,6 +1,6 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal" @click.stop>
+    <div class="modal" data-tour="school-contact-admin-panel" @click.stop>
       <div class="modal-header">
         <h2>Contact Admin</h2>
         <button class="close" @click="$emit('close')">×</button>

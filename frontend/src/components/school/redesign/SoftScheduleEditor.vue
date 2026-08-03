@@ -1,9 +1,12 @@
 <template>
-  <div class="editor">
+  <div class="editor" data-tour="school-soft-schedule">
     <div class="header">
       <div>
         <div class="title">Soft schedule</div>
-        <div class="subtitle">Order, times, and pickup/location notes (no PHI).</div>
+        <div class="subtitle">
+          Optional — not mandatory. Use at your discretion to aid communication with providers.
+          Order, times, and pickup/location notes (no PHI).
+        </div>
       </div>
       <button class="btn btn-primary btn-sm" type="button" :disabled="saving" @click="save">
         {{ saving ? 'Saving…' : 'Save' }}

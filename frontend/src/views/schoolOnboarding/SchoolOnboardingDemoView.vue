@@ -109,29 +109,35 @@ const demoThemeVars = computed(() => {
 
 async function applyDemoPortalTheme(school) {
   const slug = demoPortalThemeSlug();
+  const schoolLogo = school?.logo_url || school?.logo_path || null;
+  const schoolIcon = school?.icon_file_path || school?.icon_path || null;
   brandingStore.setActiveRouteSlug(slug);
   const theme = school?.portal_theme || {};
   const colorPalette = resolveDemoColorPalette(school);
-  brandingStore.setPortalThemeData({
-    brandingAgencyId: theme.brandingAgencyId || 2,
-    portalOrganizationId: theme.portalOrganizationId || school?.id || null,
-    agencyName: theme.agencyName || 'ITSCO',
-    colorPalette,
-    themeSettings: {
-      ...(theme.themeSettings || {}),
-      useAffiliatedAgencyBranding: true
-    },
-    terminologySettings: theme.terminologySettings || {},
-    logoUrl: theme.logoUrl || school?.logo_url || school?.logo_path || null,
-    iconUrl: theme.iconUrl || null,
-    slug
-  });
-  // Prefer live ITSCO theme when available (logo / fonts), but keep green palette already applied.
+  const applySchoolIdentityTheme = () => {
+    brandingStore.setPortalThemeData({
+      brandingAgencyId: theme.brandingAgencyId || 2,
+      portalOrganizationId: theme.portalOrganizationId || school?.id || null,
+      agencyName: theme.agencyName || 'ITSCO',
+      colorPalette,
+      themeSettings: {
+        ...(theme.themeSettings || {}),
+        useAffiliatedAgencyBranding: true
+      },
+      terminologySettings: theme.terminologySettings || {},
+      logoUrl: schoolLogo,
+      iconUrl: schoolIcon,
+      slug
+    });
+  };
+  applySchoolIdentityTheme();
+  // Prefer live ITSCO theme when available (fonts), but keep Hogwarts crest/icon.
   try {
     await brandingStore.fetchAgencyTheme(slug);
     brandingStore.setActiveRouteSlug(slug);
+    applySchoolIdentityTheme();
   } catch {
-    // keep hard-applied ITSCO palette
+    // keep hard-applied ITSCO palette + Hogwarts identity
   }
 }
 
@@ -224,8 +230,10 @@ async function boot() {
       portal_url: school.portal_url || school.slug || 'hogwarts',
       organization_type: 'school',
       is_active: true,
-      logo_url: theme.logoUrl || school.logo_url || null,
+      logo_url: school.logo_url || school.logo_path || null,
       logo_path: school.logo_path || null,
+      icon_file_path: school.icon_file_path || school.icon_path || null,
+      icon_path: school.icon_path || null,
       // Keep school identity as Hogwarts, but paint chrome with tenant (ITSCO) colors.
       color_palette: colorPalette,
       theme_settings: {

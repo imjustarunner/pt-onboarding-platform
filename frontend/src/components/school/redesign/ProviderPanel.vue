@@ -1,5 +1,5 @@
 <template>
-  <div class="panel">
+  <div class="panel" :id="`school-provider-panel-${provider.provider_user_id}`">
     <div class="panel-header">
       <div class="left">
         <div class="header-line">
@@ -13,8 +13,12 @@
           </div>
 
           <div class="header-metrics">
-            <span v-if="provider.slots_used != null" class="metric">
-              {{ Number(provider.slots_used || 0) }} assigned
+            <span
+              v-if="provider.slots_total != null"
+              class="metric metric-slots"
+              :class="`metric-slots--${capacityColorForProvider}`"
+            >
+              {{ slotSummaryForProvider }}
             </span>
             <span v-if="provider.start_time || provider.end_time" class="metric">
               {{ formatClock(provider.start_time) }} to {{ formatClock(provider.end_time) }}
@@ -111,6 +115,10 @@ import {
   statusPillText,
   statusPillVariant
 } from '../../../composables/useSlotVerification';
+import {
+  providerAssignmentSummary,
+  providerCapacityColor
+} from '../../../utils/providerSlotCapacity';
 
 const props = defineProps({
   provider: { type: Object, required: true },
@@ -169,6 +177,9 @@ const formatClock = (t) => {
   const h12 = hh % 12 === 0 ? 12 : hh % 12;
   return `${h12}:${String(mm).padStart(2, '0')} ${suffix}`;
 };
+
+const capacityColorForProvider = computed(() => providerCapacityColor(props.provider));
+const slotSummaryForProvider = computed(() => providerAssignmentSummary(props.provider));
 
 const canRequestAvailability = computed(() => {
   const role = String(props.currentUserRole || '').toLowerCase();
@@ -259,6 +270,9 @@ watch(() => props.schoolOrganizationId, () => {
   background: white;
   padding: 10px;
 }
+.panel.provider-panel-focus-flash {
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.28);
+}
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -308,6 +322,10 @@ watch(() => props.schoolOrganizationId, () => {
 .metric {
   white-space: nowrap;
 }
+.metric-slots--green { color: #166534; }
+.metric-slots--yellow { color: #92400e; }
+.metric-slots--red { color: #991b1b; }
+.metric-slots--neutral { color: var(--text-secondary); }
 .metric + .metric {
   position: relative;
   padding-left: 10px;

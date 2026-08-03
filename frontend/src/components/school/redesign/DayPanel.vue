@@ -19,10 +19,18 @@
       </div>
 
       <div v-else class="provider-list">
-        <div v-for="p in sortedProviders" :key="p.provider_user_id" class="provider-card">
+        <div
+          v-for="p in sortedProviders"
+          :key="p.provider_user_id"
+          class="provider-card"
+          :class="`provider-card--${providerCapacityColor(p)}`"
+        >
           <div class="name">{{ p.last_name }}, {{ p.first_name }}</div>
           <div class="meta">
-            <span v-if="p.slots_total != null" class="badge badge-secondary">{{ (p.slots_used ?? 0) }} / {{ p.slots_total }} assigned</span>
+            <span v-if="p.slots_total != null" class="badge badge-secondary">{{ providerAssignmentSummary(p) }}</span>
+            <span v-if="providerSlotsOpenLabel(p)" class="badge" :class="`badge-capacity-${providerCapacityColor(p)}`">
+              {{ providerSlotsOpenLabel(p) }}
+            </span>
             <span v-if="p.start_time || p.end_time" class="badge badge-secondary">
               {{ formatClock(p.start_time) }} to {{ formatClock(p.end_time) }}
             </span>
@@ -130,6 +138,11 @@
 <script setup>
 import { computed, ref } from 'vue';
 import ProviderPanel from './ProviderPanel.vue';
+import {
+  providerAssignmentSummary,
+  providerCapacityColor,
+  providerSlotsOpenLabel
+} from '../../../utils/providerSlotCapacity';
 
 const props = defineProps({
   weekday: { type: String, required: true },
@@ -281,6 +294,25 @@ const confirmAddProvider = async () => {
   border-radius: 12px;
   background: var(--bg);
   padding: 8px;
+}
+.provider-card--green { border-left: 4px solid #22c55e; }
+.provider-card--yellow { border-left: 4px solid #f59e0b; }
+.provider-card--red { border-left: 4px solid #ef4444; }
+.provider-card--neutral { border-left: 4px solid #94a3b8; }
+.badge-capacity-green {
+  border-color: rgba(34, 197, 94, 0.45);
+  color: #166534;
+  background: rgba(34, 197, 94, 0.1);
+}
+.badge-capacity-yellow {
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #92400e;
+  background: rgba(245, 158, 11, 0.12);
+}
+.badge-capacity-red {
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #991b1b;
+  background: rgba(239, 68, 68, 0.1);
 }
 .name {
   font-weight: 900;

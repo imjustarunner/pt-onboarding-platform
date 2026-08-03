@@ -440,7 +440,7 @@
             :class="{ active: tutorialStore.enabled }"
             :aria-pressed="tutorialStore.enabled ? 'true' : 'false'"
             @click="tutorialStore.setEnabled(!tutorialStore.enabled)"
-            title="Turn tutorials on/off"
+            title="Guided walkthrough + hover tips. Turn off and back on to resume where you left off."
           >
             Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
           </button>
@@ -638,6 +638,13 @@
               </button>
               <span v-if="daysClientFindMessage" class="days-client-find-msg muted">{{ daysClientFindMessage }}</span>
             </div>
+            <DaysProviderCapacityStrip
+              v-if="store.selectedWeekday && canAccessSchedulingPanels"
+              :weekday="store.selectedWeekday"
+              :providers="store.dayProviders"
+              :loading="store.dayProvidersLoading"
+              @focus-provider="scrollToDaysProvider"
+            />
           </div>
           <div v-if="portalMode === 'home'" class="home">
         <div class="home-hero">
@@ -1689,7 +1696,7 @@
     </div>
 
     <div v-if="showIntakeModal" class="modal-overlay" @click.self="closeIntakeModal">
-      <div class="modal" @click.stop>
+      <div class="modal" data-tour="school-digital-forms-panel" @click.stop>
         <div class="modal-header">
           <strong>Digital forms</strong>
           <button class="btn btn-secondary btn-sm" type="button" @click="closeIntakeModal">Close</button>
@@ -1822,6 +1829,10 @@
 
     <!-- Providers are now shown in-page via ProvidersDirectoryPanel -->
 
+    <SchoolPortalTutorial
+      v-if="authStore.user?.id && isSchoolStaff"
+    />
+
     <SchoolMarketingSplash
       v-if="!isPreviewOrDemo && organizationId"
       :school-id="organizationId"
@@ -1830,7 +1841,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch, nextTick } from 'vue';
+import { computed, onMounted, provide, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   formatSchoolEventWhen as formatSchoolEventWhenUtil,
@@ -1848,11 +1859,13 @@ import SchoolPortalCalendarPanel from '../../components/school/SchoolPortalCalen
 import SchoolEventStaffingPanel from '../../components/caseload-hub/SchoolEventStaffingPanel.vue';
 import AnnouncementMarquee from '../../components/common/AnnouncementMarquee.vue';
 import SchoolEventPromptModal from '../../components/school/SchoolEventPromptModal.vue';
+import SchoolPortalTutorial from '../../components/school/SchoolPortalTutorial.vue';
 import ReviewPromptModal from '../../components/school/ReviewPromptModal.vue';
 import ClientTicketThreadModal from '../../components/school/ClientTicketThreadModal.vue';
 import ReferralUpload from '../../components/school/ReferralUpload.vue';
 import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
 import DayPanel from '../../components/school/redesign/DayPanel.vue';
+import DaysProviderCapacityStrip from '../../components/school/redesign/DaysProviderCapacityStrip.vue';
 import ClientModal from '../../components/school/redesign/ClientModal.vue';
 import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPanel.vue';
 import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersDirectoryPanel.vue';
@@ -3161,6 +3174,73 @@ const openNotificationsPanel = async ({ createAnnouncement = false, syncQuery = 
   await Promise.all([loadNotificationsPreview(), loadBannerAnnouncements()]);
 };
 
+const schoolPortalNavigateMode = async (mode) => {
+  const m = String(mode || 'home').trim().toLowerCase() || 'home';
+
+  const closeTutorialPanels = () => {
+    showHelpDesk.value = false;
+    showUploadModal.value = false;
+    closeIntakeModal();
+  };
+
+  if (m === 'home') {
+    closeTutorialPanels();
+    await setPortalMode('home');
+    return;
+  }
+  if (m === 'days') {
+    closeTutorialPanels();
+    await openDaysPanel();
+    return;
+  }
+  if (m === 'providers') {
+    closeTutorialPanels();
+    await openProvidersPanel();
+    return;
+  }
+  if (m === 'events') {
+    closeTutorialPanels();
+    await openSchoolEventsPanel();
+    return;
+  }
+  if (m === 'calendar') {
+    closeTutorialPanels();
+    await openSchoolCalendarPanel();
+    return;
+  }
+  if (m === 'notifications') {
+    closeTutorialPanels();
+    await openNotificationsPanel();
+    return;
+  }
+  if (m === 'messages') {
+    closeTutorialPanels();
+    await openMessages();
+    return;
+  }
+  if (m === 'digital_forms') {
+    closeTutorialPanels();
+    await setPortalMode('home');
+    await openIntakeModal('qr');
+    return;
+  }
+  if (m === 'upload_packet') {
+    closeTutorialPanels();
+    await setPortalMode('home');
+    showUploadModal.value = true;
+    return;
+  }
+  if (m === 'contact_admin') {
+    closeTutorialPanels();
+    showHelpDesk.value = true;
+    return;
+  }
+  closeTutorialPanels();
+  await setPortalMode(m);
+};
+
+provide('schoolPortalNavigateMode', schoolPortalNavigateMode);
+
 const onNotificationsUpdated = async () => {
   await Promise.all([loadNotificationsPreview(), loadBannerAnnouncements()]);
 };
@@ -3710,6 +3790,10 @@ const ensureAffiliation = async () => {
     canEditClientActions.value = !!r?.data?.can_edit_clients;
 
     const loadCardIcons = async () => {
+      if (isPublicDemo.value && r?.data?.school_agency) {
+        cardIconOrg.value = r.data.school_agency;
+        return;
+      }
       if (isPublicDemo.value && r?.data?.active_agency) {
         cardIconOrg.value = r.data.active_agency;
         return;
@@ -3960,17 +4044,7 @@ const schoolLogoUrl = computed(() => {
   return toUploadsUrl(raw);
 });
 
-const sidebarBrandLogoUrl = computed(() => {
-  if (isPublicDemo.value) {
-    const tenantLogo =
-      brandingStore.portalAgency?.logoUrl ||
-      cardIconOrg.value?.logo_url ||
-      cardIconOrg.value?.logo_path ||
-      null;
-    if (tenantLogo) return toUploadsUrl(tenantLogo);
-  }
-  return schoolLogoUrl.value;
-});
+const sidebarBrandLogoUrl = computed(() => schoolLogoUrl.value);
 
 const tenantBrandName = computed(() => {
   if (!isPublicDemo.value) return '';
@@ -3982,6 +4056,11 @@ const tenantBrandName = computed(() => {
 });
 
 const homeIconUrl = computed(() => {
+  if (isPublicDemo.value) {
+    const org = organizationStore.currentOrganization;
+    const schoolIcon = toUploadsUrl(org?.icon_file_path || org?.icon_path || null);
+    if (schoolIcon) return schoolIcon;
+  }
   const a = cardIconOrg.value || null;
   const raw = a?.icon_file_path || a?.icon_path || null;
   return toUploadsUrl(raw);
@@ -4173,6 +4252,20 @@ const loadForDay = async (weekday, { refreshSchoolWide = false, forcePanels = fa
       });
     })
   );
+};
+
+const scrollToDaysProvider = (providerUserId) => {
+  const id = Number(providerUserId || 0);
+  if (!id) return;
+  const el = document.getElementById(`school-provider-panel-${id}`);
+  if (!el) return;
+  try {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('provider-panel-focus-flash');
+    setTimeout(() => el.classList.remove('provider-panel-focus-flash'), 1600);
+  } catch {
+    // ignore
+  }
 };
 
 const runDaysClientFind = async () => {

@@ -145,8 +145,9 @@ export async function getDemoPortalTheme(token) {
     colorPalette,
     themeSettings,
     terminologySettings,
-    logoUrl: brandingOrg.logo_url || brandingOrg.logo_path || agency.logo_url || agency.logo_path || null,
-    iconUrl: brandingOrg.icon_file_path || brandingOrg.icon_path || null
+    // Hogwarts keeps its own crest/icon; tenant (ITSCO) supplies colors only.
+    logoUrl: agency.logo_url || agency.logo_path || null,
+    iconUrl: agency.icon_file_path || agency.icon_path || null
   };
 }
 
@@ -162,8 +163,10 @@ export async function getDemoSchoolMeta(token) {
     portal_url: agency.portal_url || agency.slug || 'hogwarts',
     organization_type: 'school',
     is_active: true,
-    logo_url: portalTheme.logoUrl || agency.logo_url || null,
+    logo_url: agency.logo_url || agency.logo_path || null,
     logo_path: agency.logo_path || null,
+    icon_file_path: agency.icon_file_path || agency.icon_path || null,
+    icon_path: agency.icon_path || null,
     color_palette: portalTheme.colorPalette || parseFlags(agency.color_palette),
     theme_settings: portalTheme.themeSettings || parseFlags(agency.theme_settings),
     terminology_settings: portalTheme.terminologySettings || parseFlags(agency.terminology_settings),
@@ -582,10 +585,12 @@ export async function getDemoAffiliation(token) {
     activeAgencyId = null;
   }
   const activeAgency = await buildDemoActiveAgency(activeAgencyId);
+  const schoolAgency = await buildDemoActiveAgency(schoolId);
   return {
     school_organization_id: schoolId,
     active_agency_id: activeAgencyId,
     active_agency: activeAgency,
+    school_agency: schoolAgency,
     user_has_school_access: true,
     user_has_agency_access: true,
     can_edit_clients: true,

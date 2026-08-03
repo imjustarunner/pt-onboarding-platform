@@ -22,6 +22,7 @@ import { userChoseWorkOverSummitFromStores } from '../utils/sstcSurfaceChoice.js
 import { isSstcTenantSlug } from '../config/tenantAppProfiles.js';
 import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuildersSchoolProgramAccess.js';
+import { getSchoolStaffPortalSlugs as getSchoolStaffPortalSlugsFromAgencies } from '../utils/schoolStaffPortal.js';
 import { isBookClubAgency, getBookClubParentSlug } from '../utils/bookClubAgency.js';
 import { signalFreshLogin } from '../composables/useReminderSnooze.js';
 import {
@@ -3692,19 +3693,7 @@ const getStoredUserAgencies = () => {
 const getSchoolStaffPortalSlugs = (agencyStore, authStore) => {
   const fromStore = agencyStore.userAgencies?.value || agencyStore.userAgencies;
   const agencies = Array.isArray(fromStore) && fromStore.length > 0 ? fromStore : getStoredUserAgencies();
-  const isPortalOrg = (a) => {
-    const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-    return t === 'school' || t === 'program' || t === 'learning';
-  };
-  const pick = (a) => a?.portal_url || a?.portalUrl || a?.slug || null;
-
-  // Prefer only school org slugs for school_staff.
-  const out = (agencies || [])
-    .filter((a) => isPortalOrg(a))
-    .map((a) => String(pick(a) || '').trim())
-    .filter(Boolean);
-
-  return out;
+  return getSchoolStaffPortalSlugsFromAgencies(agencies);
 };
 
 const userHasSlugAccess = (slug, agencyStore, authStore) => {

@@ -5,13 +5,13 @@
  */
 export default {
   id: 'school_portal',
-  version: 1,
+  version: 2,
   steps: [
     {
       popover: {
         title: 'Welcome to the School Portal',
         description:
-          'This tutorial walks you through each area of the portal. Press Enter or Space to advance. Click anywhere on the overlay to continue.',
+          'This tutorial walks you through each area of the portal. Press Enter or click Next to advance. Turn Tutorial back on from the header anytime.',
         side: 'bottom',
         align: 'center'
       }

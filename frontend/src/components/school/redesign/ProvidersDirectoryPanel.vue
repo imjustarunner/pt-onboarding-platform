@@ -108,19 +108,19 @@
     </div>
 
     <div class="body">
-      <div class="legend" aria-label="Availability legend">
-        <span class="legend-item">
-          <span class="day-pill green" aria-hidden="true"> </span>
-          <span class="legend-text">2+ slots left</span>
-        </span>
-        <span class="legend-item">
-          <span class="day-pill yellow" aria-hidden="true"> </span>
-          <span class="legend-text">1 slot left</span>
-        </span>
-        <span class="legend-item">
-          <span class="day-pill red" aria-hidden="true"> </span>
-          <span class="legend-text">Full</span>
-        </span>
+      <div class="slot-legend" role="group" aria-label="Availability legend">
+        <div class="slot-legend__item">
+          <span class="slot-legend__dot slot-legend__dot--green" aria-hidden="true" />
+          <span>2+ slots left</span>
+        </div>
+        <div class="slot-legend__item">
+          <span class="slot-legend__dot slot-legend__dot--yellow" aria-hidden="true" />
+          <span>1 slot left</span>
+        </div>
+        <div class="slot-legend__item">
+          <span class="slot-legend__dot slot-legend__dot--red" aria-hidden="true" />
+          <span>Full</span>
+        </div>
       </div>
       <div v-if="loading" class="muted">Loading providers…</div>
       <div v-else-if="filtered.length === 0" class="muted">No providers found.</div>
@@ -434,12 +434,24 @@ const dayBadgesFor = (p) => {
   const badgeFor = (a) => {
     const remaining = remainingForAssignment(a);
     let color = 'green';
+    let suffix = '';
     if (remaining !== null) {
-      if (remaining <= 0) color = 'red'; // full (or overbooked)
-      else if (remaining === 1) color = 'yellow'; // 1 slot left
-      else color = 'green';
+      if (remaining <= 0) {
+        color = 'red';
+        suffix = ' · Full';
+      } else if (remaining === 1) {
+        color = 'yellow';
+        suffix = ' · 1';
+      } else {
+        color = 'green';
+        suffix = ` · ${remaining}`;
+      }
     }
-    return { key: `${a.day_of_week}-${a.provider_user_id || ''}`, label: short(a.day_of_week), color };
+    return {
+      key: `${a.day_of_week}-${a.provider_user_id || ''}`,
+      label: `${short(a.day_of_week)}${suffix}`,
+      color
+    };
   };
   return active.map(badgeFor);
 };
@@ -577,27 +589,50 @@ const runClientFind = async () => {
 .body {
   padding: 14px 16px;
 }
-.legend {
+.slot-legend {
   display: flex;
-  gap: 12px;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 800;
+  gap: 20px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 900;
 }
-.legend-item {
-  display: inline-flex;
+.slot-legend__item {
+  display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  white-space: nowrap;
 }
-.legend-text { line-height: 1; }
-.legend .day-pill {
-  width: 14px;
-  height: 14px;
-  padding: 0;
+.slot-legend__dot {
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
+  flex: 0 0 auto;
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.04);
+}
+.slot-legend__dot--green {
+  background: rgba(34, 197, 94, 0.35);
+  border-color: rgba(34, 197, 94, 0.7);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+}
+.slot-legend__dot--yellow {
+  background: rgba(245, 158, 11, 0.38);
+  border-color: rgba(245, 158, 11, 0.75);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
+.slot-legend__dot--red {
+  background: rgba(239, 68, 68, 0.32);
+  border-color: rgba(239, 68, 68, 0.7);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
 }
 .grid {
   display: grid;
@@ -693,10 +728,45 @@ const runClientFind = async () => {
   white-space: nowrap;
 }
 .day-badges {
-  margin-top: 6px;
+  margin-top: 8px;
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+.day-badges .day-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 9px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 900;
+  border: 1.5px solid var(--border);
+  background: var(--bg);
+  color: var(--text-primary);
+  white-space: nowrap;
+  line-height: 1.15;
+}
+.day-badges .day-pill.green {
+  border-color: rgba(34, 197, 94, 0.55);
+  background: rgba(34, 197, 94, 0.14);
+  color: #166534;
+}
+.day-badges .day-pill.yellow {
+  border-color: rgba(245, 158, 11, 0.6);
+  background: rgba(245, 158, 11, 0.16);
+  color: #92400e;
+}
+.day-badges .day-pill.red {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.14);
+  color: #991b1b;
 }
 .day-pill {
   display: inline-flex;

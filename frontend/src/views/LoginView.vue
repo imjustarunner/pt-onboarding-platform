@@ -674,6 +674,9 @@ import { buildOrgLoginPath } from '../utils/orgLoginPath';
 import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath';
 import { getPlatformAppHostname } from '../utils/brandSwitchUrl';
 import { buildPublicIntakeUrl } from '../utils/publicIntakeUrl';
+import {
+  getPrimarySchoolStaffPortalSlug
+} from '../utils/schoolStaffPortal.js';
 import QRCode from 'qrcode';
 
 // Removed hardcoded credentials for security
@@ -1572,9 +1575,49 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     const ro = data?.resolvedOrg || null;
     // IMPORTANT: prefer portal_url as the branded portal path segment.
     const resolvedSlug = String(ro?.portal_url || ro?.portalUrl || ro?.slug || '').trim().toLowerCase();
+    const resolvedOrgType = String(ro?.organization_type || ro?.organizationType || '').toLowerCase();
 
     const current = isOrgLogin.value && loginSlug.value ? String(loginSlug.value).trim().toLowerCase() : '';
     const isSummitLogin = isSummitTenantSlug(current);
+
+    // School staff must sign in on their school's branded login — not a sibling school URL.
+    if (
+      resolvedSlug &&
+      SCHOOL_PORTAL_ORG_TYPES.includes(resolvedOrgType) &&
+      current &&
+      current !== resolvedSlug
+    ) {
+      const hostImplied = resolveHostImpliedPortalSlug(brandingStore) || null;
+      const targetLoginPath = buildOrgLoginPath(
+        resolvedSlug,
+        resolveParentForNestedLogin(resolvedSlug),
+        hostImplied
+      );
+      if (rememberLogin.value) {
+        setRememberedLogin({
+          username: u,
+          orgSlug: resolvedSlug,
+          parentOrgSlug: resolveParentForNestedLogin(resolvedSlug)
+        });
+        setRememberedSchoolStaffPasswordLogin({
+          username: u,
+          orgSlug: resolvedSlug,
+          parentOrgSlug: resolveParentForNestedLogin(resolvedSlug)
+        });
+      }
+      try {
+        sessionStorage.setItem('__pt_login_pending_username__', u);
+        sessionStorage.setItem('__pt_login_pending_verify__', '1');
+        sessionStorage.setItem('__pt_login_pending_remember__', rememberLogin.value ? '1' : '0');
+      } catch {
+        // ignore
+      }
+      await router.replace({
+        path: targetLoginPath,
+        query: { u }
+      });
+      return;
+    }
 
     // Summit-family logins stay on the tenant login the user chose.
     // This prevents /sstc from snapping over to unrelated org portals like /itsco or /rudy.
@@ -1712,16 +1755,6 @@ const handleLogin = async () => {
     const currentOrgSlug = String(loginSlug.value || '').trim().toLowerCase();
     const roleNorm = String(authStore.user?.role || '').toLowerCase();
     const verifiedMethod = String(identifiedLoginMethod.value || 'password').toLowerCase();
-    const isSchoolStaffPasswordFlow = roleNorm === 'school_staff' && verifiedMethod === 'password' && !!currentOrgSlug;
-    if (isSchoolStaffPasswordFlow && rememberLogin.value) {
-      setRememberedSchoolStaffPasswordLogin({
-        username: String(username.value || '').trim(),
-        orgSlug: currentOrgSlug,
-        parentOrgSlug: parentOrgSlug.value || null
-      });
-    } else if (isSchoolStaffPasswordFlow && !rememberLogin.value) {
-      clearRememberedSchoolStaffPasswordLogin(currentOrgSlug);
-    }
 
     // Kiosk users go to kiosk app (no agency fetch)
     if (authStore.user?.role?.toLowerCase() === 'kiosk') {
@@ -1740,6 +1773,40 @@ const handleLogin = async () => {
     } else if (Array.isArray(result.agencies) && result.agencies.length) {
       // Super-admin: seed membership list without blocking on the full /agencies catalog.
       agencyStore.applyLoginAgencies(result.agencies);
+    }
+
+    const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+    const agencyList = Array.isArray(agencies) ? agencies : [];
+    const schoolStaffSlug = roleNorm === 'school_staff' ? getPrimarySchoolStaffPortalSlug(agencyList) : null;
+
+    if (roleNorm === 'school_staff' && schoolStaffSlug) {
+      const parentForSchool = resolveParentForNestedLogin(schoolStaffSlug);
+      if (rememberLogin.value) {
+        setRememberedLogin({
+          username: String(username.value || '').trim(),
+          orgSlug: schoolStaffSlug,
+          parentOrgSlug: parentForSchool
+        });
+      }
+      if (verifiedMethod === 'password') {
+        if (rememberLogin.value) {
+          setRememberedSchoolStaffPasswordLogin({
+            username: String(username.value || '').trim(),
+            orgSlug: schoolStaffSlug,
+            parentOrgSlug: parentForSchool
+          });
+        } else {
+          clearRememberedSchoolStaffPasswordLogin(currentOrgSlug);
+        }
+      }
+    } else if (roleNorm === 'school_staff' && verifiedMethod === 'password' && rememberLogin.value && currentOrgSlug) {
+      setRememberedSchoolStaffPasswordLogin({
+        username: String(username.value || '').trim(),
+        orgSlug: currentOrgSlug,
+        parentOrgSlug: parentOrgSlug.value || null
+      });
+    } else if (roleNorm === 'school_staff' && verifiedMethod === 'password' && !rememberLogin.value) {
+      clearRememberedSchoolStaffPasswordLogin(currentOrgSlug);
     }
 
     if (authStore.user?.requiresPasswordChange) {
@@ -1763,8 +1830,7 @@ const handleLogin = async () => {
     }
 
     // Club managers (admin with no agencies) go to Admin - their main interface for creating/managing club
-    const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
-    const hasNoAgencies = !Array.isArray(agencies) || agencies.length === 0;
+    const hasNoAgencies = !Array.isArray(agencyList) || agencyList.length === 0;
     const isAdmin = String(authStore.user?.role || '').toLowerCase() === 'admin';
     if (isAdmin && hasNoAgencies && loginSlug.value) {
       // On app.itsco.health, /itsco/admin is stripped to /admin — push flat to avoid login↔admin ping-pong.
@@ -1772,6 +1838,12 @@ const handleLogin = async () => {
       const hostImplied = resolveHostImpliedPortalSlug(brandingStore);
       const adminPath = hostImplied && hostImplied === slug ? '/admin' : `/${slug}/admin`;
       router.push(adminPath);
+      loading.value = false;
+      return;
+    }
+
+    if (roleNorm === 'school_staff' && schoolStaffSlug) {
+      router.push(`/${schoolStaffSlug}/dashboard`);
       loading.value = false;
       return;
     }
