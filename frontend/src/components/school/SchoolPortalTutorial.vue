@@ -12,6 +12,9 @@
       <div class="sp-tutorial-hover-card__title">{{ hoverCard.title }}</div>
       <p class="sp-tutorial-hover-card__desc">{{ hoverCard.description }}</p>
       <div class="sp-tutorial-hover-card__actions">
+        <button type="button" class="sp-tutorial-hover-btn primary" @click="onOpenStepByStepTutorial">
+          Open step by step tutorial
+        </button>
         <button type="button" class="sp-tutorial-hover-btn ghost" @click="onHoverDismiss('snooze')">
           Remind later
         </button>
@@ -35,6 +38,7 @@ import { useTutorialStore } from '../../store/tutorial';
 import {
   SCHOOL_PORTAL_TUTORIAL_ID,
   SCHOOL_PORTAL_TUTORIAL_VERSION,
+  findGuidedStepIndexForTip,
   schoolPortalGuidedSteps,
   schoolPortalHoverTips
 } from '../../tutorial/schoolPortalTutorialSteps';
@@ -328,7 +332,7 @@ const onGuidedKeydown = (e) => {
   }
 };
 
-const startGuidedTour = async ({ force = false } = {}) => {
+const startGuidedTour = async ({ force = false, startIndex: startIndexOverride = null } = {}) => {
   if (props.disabled || !tutorialStore.enabled) return;
   const userId = authStore.user?.id;
   if (!userId) return;
@@ -343,10 +347,6 @@ const startGuidedTour = async ({ force = false } = {}) => {
   stopGuidedTour();
   guidedStartKey = tourKey;
 
-  await navigateForStep({ portalMode: 'home' });
-  await nextTick();
-  await new Promise((resolve) => requestAnimationFrame(resolve));
-
   const steps = buildDriverSteps();
   if (!steps.length) return;
 
@@ -354,16 +354,20 @@ const startGuidedTour = async ({ force = false } = {}) => {
     SCHOOL_PORTAL_TUTORIAL_ID,
     SCHOOL_PORTAL_TUTORIAL_VERSION
   );
-  const startIndex = Math.max(0, Math.min(steps.length - 1, savedIndex));
+  const resolvedStart =
+    Number.isFinite(startIndexOverride) && startIndexOverride >= 0
+      ? startIndexOverride
+      : savedIndex;
+  const startIndex = Math.max(0, Math.min(steps.length - 1, resolvedStart));
 
-  if (startIndex > 0) {
-    const startMeta = schoolPortalGuidedSteps[startIndex];
-    if (startMeta?.portalMode) {
-      await navigateForStep(startMeta);
-      await nextTick();
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-    }
+  const startMeta = schoolPortalGuidedSteps[startIndex];
+  if (startMeta?.portalMode) {
+    await navigateForStep(startMeta);
+  } else {
+    await navigateForStep({ portalMode: 'home' });
   }
+  await nextTick();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
 
   drv = driver({
     steps,
@@ -518,6 +522,20 @@ const onHoverTurnOff = () => {
   tutorialStore.setEnabled(false);
 };
 
+const onOpenStepByStepTutorial = async () => {
+  const tipId = hoverCard.value.tipId;
+  hideHoverCard();
+  const matchedIndex = findGuidedStepIndexForTip(tipId);
+  const savedIndex = tutorialStore.getTourStepIndex(
+    SCHOOL_PORTAL_TUTORIAL_ID,
+    SCHOOL_PORTAL_TUTORIAL_VERSION
+  );
+  const startIndex = matchedIndex >= 0 ? matchedIndex : savedIndex;
+  manualRestartNonce += 1;
+  guidedStartKey = '';
+  await startGuidedTour({ force: true, startIndex });
+};
+
 watch(
   () => tutorialStore.enabled,
   (enabled, wasEnabled) => {
@@ -600,6 +618,19 @@ defineExpose({
 
 .sp-tutorial-hover-btn.ghost:hover {
   border-color: #94a3b8;
+}
+
+.sp-tutorial-hover-btn.primary {
+  border-color: rgba(22, 101, 52, 0.35);
+  background: rgba(34, 197, 94, 0.12);
+  color: #166534;
+  font-weight: 700;
+  flex: 1 1 100%;
+}
+
+.sp-tutorial-hover-btn.primary:hover {
+  border-color: rgba(22, 101, 52, 0.55);
+  background: rgba(34, 197, 94, 0.18);
 }
 
 .sp-tutorial-hover-btn.danger {

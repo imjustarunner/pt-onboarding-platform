@@ -445,3 +445,28 @@ export const schoolPortalHoverTips = {
     description: 'Roster preview — click a client for details.'
   }
 };
+
+/** When a hover tip has no direct guided-step selector, jump to this step id. */
+const schoolPortalHoverTipStepIds = {
+  'school-client-modal': 'client-profile-actions',
+  'school-client-modal-comments': 'client-profile-actions',
+  'school-client-modal-messages': 'client-profile-actions',
+  'school-home-roster': 'nav-roster',
+  'school-nav-home': 'home-snapshot'
+};
+
+/** Best guided-walkthrough step index for a hovered data-tour id, or -1. */
+export function findGuidedStepIndexForTip(tipId) {
+  const id = String(tipId || '').trim();
+  if (!id) return -1;
+
+  const needle = `[data-tour="${id}"]`;
+  const directIdx = schoolPortalGuidedSteps.findIndex((step) =>
+    String(step.selector || '').includes(needle)
+  );
+  if (directIdx >= 0) return directIdx;
+
+  const stepId = schoolPortalHoverTipStepIds[id];
+  if (!stepId) return -1;
+  return schoolPortalGuidedSteps.findIndex((step) => step.id === stepId);
+}
