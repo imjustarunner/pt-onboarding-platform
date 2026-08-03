@@ -19,7 +19,8 @@ describe('schoolStaffTempPassword', () => {
       academicYear: '2026-2027'
     });
     expect(password.toLowerCase()).toContain('2026');
-    expect(password).toMatch(/5678$/);
+    expect(password).toMatch(/5678[#$%*&]$/);
+    expect(password).toMatch(/[#$%*&]$/);
   });
 
   it('uses address number when school number is missing', () => {
@@ -29,6 +30,19 @@ describe('schoolStaffTempPassword', () => {
       schoolAddress: '4521 Oak Avenue',
       academicYear: '2026-2027'
     });
-    expect(password).toMatch(/4521$/);
+    expect(password).toMatch(/4521[#$%*&]$/);
+  });
+
+  it('changes on repeated generation', () => {
+    const input = {
+      schoolName: 'Riverdale High School',
+      schoolNumber: '12345678',
+      schoolAddress: '999 Main St',
+      academicYear: '2026-2027'
+    };
+    const passwords = new Set(
+      Array.from({ length: 12 }, () => generateStaffTempPassword(input))
+    );
+    expect(passwords.size).toBeGreaterThan(1);
   });
 });

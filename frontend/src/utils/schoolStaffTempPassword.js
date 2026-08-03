@@ -43,9 +43,24 @@ function randomSeparator() {
   return options[Math.floor(Math.random() * options.length)];
 }
 
+function randomDigits(min = 2, max = 3) {
+  const count = min + Math.floor(Math.random() * (max - min + 1));
+  let out = '';
+  for (let i = 0; i < count; i += 1) {
+    out += String(Math.floor(Math.random() * 10));
+  }
+  return out;
+}
+
+function randomSpecialChar() {
+  const options = ['#', '$', '%', '*', '&'];
+  return options[Math.floor(Math.random() * options.length)];
+}
+
 /**
  * Build a memorable shared staff temp password from school context.
- * Uses initials + year + last 4 of school number (preferred) or street number.
+ * Uses initials + year + random digits + suffix + one special character.
+ * Each click of autogenerate should call this again for fresh randomness.
  */
 export function generateStaffTempPassword({
   schoolName = '',
@@ -60,7 +75,9 @@ export function generateStaffTempPassword({
   const sep = randomSeparator();
   const useLower = Math.random() < 0.5;
   const head = useLower ? initials.toLowerCase() : initials;
-  return `${head}${sep}${year}${suffix}`;
+  const entropy = randomDigits(2, 3);
+  const special = randomSpecialChar();
+  return `${head}${sep}${year}${entropy}${suffix}${special}`;
 }
 
 export function formatStaffTempPasswordExpiry(hours = SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS) {
