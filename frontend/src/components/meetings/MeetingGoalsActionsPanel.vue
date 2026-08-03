@@ -584,8 +584,13 @@ async function submitEscalate() {
   }
 }
 
-watch(() => [Number(props.eventId || 0), Number(props.sessionId || 0)], ([eid, sid], [prevEid, prevSid]) => {
-  if (Number(eid || 0) !== Number(prevEid || 0) || Number(sid || 0) !== Number(prevSid || 0)) {
+watch(() => [Number(props.eventId || 0), Number(props.sessionId || 0)], (curr, prev) => {
+  // On immediate first run, Vue passes prev as undefined — never destructure it.
+  const eid = Number(curr?.[0] || 0);
+  const sid = Number(curr?.[1] || 0);
+  const prevEid = Number(prev?.[0] || 0);
+  const prevSid = Number(prev?.[1] || 0);
+  if (eid !== prevEid || sid !== prevSid) {
     hasLoaded.value = false;
     loadedEventId = 0;
     loadedSessionId = 0;

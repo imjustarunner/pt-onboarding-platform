@@ -287,6 +287,7 @@
         </span>
         <span class="vsr__muted-banner-text">{{ forceMutedByHost ? 'Muted by host — you cannot unmute yourself' : 'You are muted — others cannot hear you' }}</span>
       </div>
+      <div v-if="micActionHint" class="vsr__mic-hint" role="alert">{{ micActionHint }}</div>
 
       <div v-if="!hideControls" class="vsr__controls" role="toolbar" aria-label="Session media controls">
         <button
@@ -519,6 +520,11 @@ const automuteNoticeVisible = ref(!!props.startMuted);
 /** Set when a host/co-host force-mutes this participant — self-unmute is blocked. */
 const forceMutedByHost = ref(false);
 const canSelfUnmute = computed(() => !forceMutedByHost.value);
+/** Non-blocking mic toggle feedback (do not use errorMessage — that unmounts the room). */
+const micActionHint = ref('');
+let micHintTimer = null;
+/** True when we published without audio after a mic-access failure — unmute must rebuild the publisher. */
+const needsAudioPublisherRebuild = ref(false);
 const hideSelfView = ref(false);
 /** on | processing | unavailable | unsupported */
 const voiceIsolationStatus = ref('');
@@ -821,26 +827,46 @@ function connectionIdFrom(conn) {
   return String(conn.connectionId || conn.id || '').trim();
 }
 
-function setRemoteAudioByConnection(connectionId, hasAudio, displayName = '') {
-  const id = String(connectionId || '').trim();
-  if (!id) return;
-  remotes.value = remotes.value.map((r) => (
-    r.connectionId === id ? { ...r, hasAudio: !!hasAudio } : r
+function setRemoteAudioState({ streamId = '', connectionId = '', hasAudio, displayName = '' } = {}) {
+  const sid = String(streamId || '').trim();
+  const cid = String(connectionId || '').trim();
+  const on = !!hasAudio;
+  if (!sid && !cid) return;
+  let matched = false;
+  remotes.value = remotes.value.map((r) => {
+    const hit = (sid && r.streamId === sid) || (cid && r.connectionId === cid);
+    if (!hit) return r;
+    matched = true;
+    return r.hasAudio === on ? r : { ...r, hasAudio: on };
+  });
+  if (!matched) return;
+  const remote = remotes.value.find((r) => (
+    (sid && r.streamId === sid) || (cid && r.connectionId === cid)
   ));
-  if (displayName) {
-    audioNameByConnection.value = { ...audioNameByConnection.value, [id]: String(displayName).trim() };
-  } else if (hasAudio) {
+  const nameKey = cid || remote?.connectionId || '';
+  if (nameKey && displayName) {
+    audioNameByConnection.value = { ...audioNameByConnection.value, [nameKey]: String(displayName).trim() };
+  } else if (nameKey && on) {
     const nextNames = { ...audioNameByConnection.value };
-    delete nextNames[id];
+    delete nextNames[nameKey];
     audioNameByConnection.value = nextNames;
   }
-  if (!hasAudio) {
-    const remote = remotes.value.find((r) => r.connectionId === id);
+  if (!on) {
     if (remote?.streamId) setSpeaking(remote.streamId, false);
-    if (!displayName && remote?.name) {
-      audioNameByConnection.value = { ...audioNameByConnection.value, [id]: remote.name };
+    if (nameKey && !displayName && remote?.name) {
+      audioNameByConnection.value = { ...audioNameByConnection.value, [nameKey]: remote.name };
     }
   }
+}
+
+function setRemoteAudioByConnection(connectionId, hasAudio, displayName = '') {
+  setRemoteAudioState({ connectionId, hasAudio, displayName });
+}
+
+/** Re-send our mic/camera state so peers who joined mid-toggle (or missed a signal) stay in sync. */
+function rebroadcastLocalMediaState() {
+  broadcastMicState(publishAudio.value);
+  broadcastCameraState(publishVideo.value);
 }
 
 /**
@@ -942,7 +968,9 @@ function broadcastMicState(hasAudio) {
 }
 
 function sendSessionSignal(type, data, toConnection = null) {
-  if (!session || !sessionReady.value) return false;
+  // Allow once the Vonage session has a connection — don't wait on sessionReady
+  // (that flag is set after publish, and early mic_state seeds would otherwise be dropped).
+  if (!session || !session.connection) return false;
   try {
     const payload = JSON.stringify(data || {});
     const opts = { type: String(type || ''), data: payload };
@@ -1078,15 +1106,17 @@ watch(() => props.videoFullscreen, (on) => {
 });
 
 function applyForceMuteLocal() {
-  if (!publishAudio.value) return;
   forceMutedByHost.value = true;
   automuteNoticeVisible.value = false;
-  publishAudio.value = false;
-  try {
-    publisher?.publishAudio?.(false);
-  } catch { /* ignore */ }
+  if (publishAudio.value) {
+    publishAudio.value = false;
+    try {
+      publisher?.publishAudio?.(false);
+    } catch { /* ignore */ }
+  }
   broadcastMicState(false);
   setSpeaking('local', false);
+  localMicLevel.value = 0;
 }
 
 const visibleLocal = computed(() => !hideSelfView.value);
@@ -1268,6 +1298,8 @@ const localInitials = computed(() => initialsFromLabel(props.localName));
 let session = null;
 let screenPublisher = null;
 let publisher = null;
+/** Cached Vonage OT module for mid-call publisher rebuilds (e.g. unmute after muted join). */
+let OTApi = null;
 const subscribers = new Map();
 let screenSubscriber = null;
 
@@ -1359,6 +1391,18 @@ async function subscribeToStream(stream) {
   // Add tile first so the media container exists and has real size.
   if (!remotes.value.some((r) => r.streamId === streamId)) {
     remotes.value = [...remotes.value, remoteMetaFromStream(stream)];
+  } else {
+    // Refresh mute/camera flags — streamCreated can race ahead of property events.
+    setRemoteAudioState({
+      streamId,
+      connectionId: connectionIdFrom(stream?.connection),
+      hasAudio: stream?.hasAudio !== false
+    });
+    setRemoteVideoState({
+      streamId,
+      connectionId: connectionIdFrom(stream?.connection),
+      hasVideo: stream?.hasVideo !== false
+    });
   }
   let targetEl = null;
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -1406,6 +1450,12 @@ async function subscribeToStream(stream) {
 
   subscribers.set(streamId, sub);
   attachSubscriberAudioLevel(sub, streamId);
+  // Authoritative snapshot after subscribe — don't wait for a later property event.
+  setRemoteAudioState({
+    streamId,
+    connectionId: connectionIdFrom(stream?.connection),
+    hasAudio: stream?.hasAudio !== false
+  });
   sub.on?.('videoEnabled', () => {
     setRemoteVideoState({ streamId, hasVideo: true });
   });
@@ -1421,22 +1471,14 @@ async function subscribeToStream(stream) {
     }
     if (changed === 'hasaudio' || changed === 'audio') {
       const on = event?.newValue !== false && event?.newValue !== 0;
-      remotes.value = remotes.value.map((r) => (
-        r.streamId === streamId ? { ...r, hasAudio: !!on } : r
-      ));
-      if (!on) setSpeaking(streamId, false);
+      setRemoteAudioState({ streamId, hasAudio: !!on });
     }
   });
   sub.on?.('audioEnabled', () => {
-    remotes.value = remotes.value.map((r) => (
-      r.streamId === streamId ? { ...r, hasAudio: true } : r
-    ));
+    setRemoteAudioState({ streamId, hasAudio: true });
   });
   sub.on?.('audioDisabled', () => {
-    remotes.value = remotes.value.map((r) => (
-      r.streamId === streamId ? { ...r, hasAudio: false } : r
-    ));
-    setSpeaking(streamId, false);
+    setRemoteAudioState({ streamId, hasAudio: false });
   });
   playJoinChime();
 }
@@ -1587,12 +1629,17 @@ async function connect() {
     if (!OT?.initSession) {
       throw new Error('Vonage Video client SDK failed to load.');
     }
+    OTApi = OT;
     disconnect(false);
     // Vonage Video JWT tokens: first arg must be Application ID (not account API key).
     session = OT.initSession(projectId, props.sessionId);
 
     session.on('streamCreated', (event) => {
-      void subscribeToStream(event.stream).then(() => emit('stream-created', event));
+      void subscribeToStream(event.stream).then(() => {
+        // New peer may have missed our earlier mic_state signal — nudge them.
+        rebroadcastLocalMediaState();
+        emit('stream-created', event);
+      });
     });
 
     // Authoritative camera/mic flips — more reliable than subscriber-only events across SDK builds.
@@ -1607,7 +1654,7 @@ async function connect() {
         setRemoteVideoState({ streamId, connectionId, hasVideo: !!on });
       } else if (changed === 'hasaudio') {
         const on = event?.newValue !== false && event?.newValue !== 0;
-        if (connectionId) setRemoteAudioByConnection(connectionId, !!on);
+        setRemoteAudioState({ streamId, connectionId, hasAudio: !!on });
       }
     });
 
@@ -1714,6 +1761,11 @@ async function connect() {
       }
     });
 
+    // Peer joined or missed a toggle — reply with our current mic/camera flags.
+    session.on('signal:media_state_request', () => {
+      rebroadcastLocalMediaState();
+    });
+
     session.on('signal:camera_state', (event) => {
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
@@ -1803,15 +1855,14 @@ async function connect() {
         if (publisherMountEl) publisherMountEl.innerHTML = '';
         publishAudio.value = false;
         automuteNoticeVisible.value = false;
+        needsAudioPublisherRebuild.value = true;
         publisher = await publishLocal(false);
+        showMicHint('Joined muted — mic was busy. Tap Unmute when ready (close other apps using the mic first).');
       } else {
         throw publishErr;
       }
     }
     attachPublisherAudioLevel();
-    // Seed peers with our initial mic/camera state (toggle events alone can be missed).
-    broadcastMicState(publishAudio.value);
-    broadcastCameraState(publishVideo.value);
     if (publishAudio.value && useVonageNoiseSuppression) {
       const applied = await ensureAdvancedNoiseSuppression(publisher);
       voiceIsolationStatus.value = applied ? 'on' : 'browser';
@@ -1840,6 +1891,11 @@ async function connect() {
 
     connecting.value = false;
     sessionReady.value = true;
+    // Seed peers with our mic/camera state after we're fully connected.
+    rebroadcastLocalMediaState();
+    sendSessionSignal('media_state_request', { connectionId: localConnectionId() });
+    setTimeout(() => rebroadcastLocalMediaState(), 400);
+    setTimeout(() => rebroadcastLocalMediaState(), 1200);
     emit('connected');
   } catch (err) {
     console.error('[VideoSessionRoom] connect failed', {
@@ -1973,6 +2029,13 @@ function disconnect(emitEvent = true) {
     clearRemote();
     speakingByKey.value = {};
     voiceIsolationStatus.value = '';
+    needsAudioPublisherRebuild.value = false;
+    forceMutedByHost.value = false;
+    micActionHint.value = '';
+    if (micHintTimer) {
+      clearTimeout(micHintTimer);
+      micHintTimer = null;
+    }
   } finally {
     connecting.value = false;
     if (emitEvent) emit('disconnected');
@@ -1988,25 +2051,121 @@ function dismissAutomuteAndUnmute() {
   if (!publishAudio.value) toggleMic();
 }
 
-function toggleMic() {
+function showMicHint(message) {
+  micActionHint.value = String(message || '').trim();
+  if (micHintTimer) clearTimeout(micHintTimer);
+  if (!micActionHint.value) return;
+  micHintTimer = setTimeout(() => {
+    micActionHint.value = '';
+    micHintTimer = null;
+  }, 6000);
+}
+
+async function rebuildPublisherWithAudio() {
+  if (!session || !OTApi?.initPublisher) {
+    throw new Error('Video session is not ready.');
+  }
+  const publisherMountEl = localPublisherHostEl.value;
+  if (!publisherMountEl) throw new Error('Microphone UI is not ready.');
+  const useVonageNoiseSuppression = vonageSupportsAdvancedNoiseSuppression(OTApi);
+  const old = publisher;
+  publisher = null;
+  if (old) {
+    try { session.unpublish(old); } catch { /* ignore */ }
+    try { old.destroy(); } catch { /* ignore */ }
+  }
+  publisherMountEl.innerHTML = '';
+  const opts = {
+    insertMode: 'append',
+    width: '100%',
+    height: '100%',
+    fitMode: 'cover',
+    publishAudio: true,
+    publishVideo: publishVideo.value,
+    name: props.localName,
+    mirror: true,
+    style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' },
+    echoCancellation: true,
+    autoGainControl: true,
+    noiseSuppression: !useVonageNoiseSuppression
+  };
+  if (useVonageNoiseSuppression) {
+    opts.audioFilter = { type: 'advancedNoiseSuppression' };
+  }
+  const pub = await new Promise((resolve, reject) => {
+    const nextPub = OTApi.initPublisher(publisherMountEl, opts, (err) => {
+      if (err) {
+        try { nextPub.destroy(); } catch { /* ignore */ }
+        reject(err);
+        return;
+      }
+      forceMediaFill(publisherMountEl);
+      resolve(nextPub);
+    });
+  });
+  await new Promise((resolve, reject) => {
+    session.publish(pub, (err) => {
+      if (err) {
+        try { pub.destroy(); } catch { /* ignore */ }
+        reject(err);
+        return;
+      }
+      resolve();
+    });
+  });
+  publisher = pub;
+  needsAudioPublisherRebuild.value = false;
+  attachPublisherAudioLevel();
+  await syncLocalVideoPresentation();
+  if (useVonageNoiseSuppression) {
+    const applied = await ensureAdvancedNoiseSuppression(publisher);
+    voiceIsolationStatus.value = applied ? 'on' : 'browser';
+  }
+}
+
+async function toggleMic() {
   const next = !publishAudio.value;
-  if (next && forceMutedByHost.value) return;
-  publishAudio.value = next;
-  if (next) automuteNoticeVisible.value = false;
-  if (!publisher) {
-    console.warn('[VideoSessionRoom] mic toggled before publisher ready');
+  if (next && forceMutedByHost.value) {
+    showMicHint('Muted by host — you cannot unmute yourself.');
     return;
   }
+  if (!publisher && !needsAudioPublisherRebuild.value) {
+    console.warn('[VideoSessionRoom] mic toggled before publisher ready');
+    showMicHint('Microphone is not ready yet. Wait a moment and try again.');
+    return;
+  }
+  const prev = publishAudio.value;
+  publishAudio.value = next;
+  if (next) automuteNoticeVisible.value = false;
+  micActionHint.value = '';
   try {
-    publisher.publishAudio(next);
+    if (next && needsAudioPublisherRebuild.value) {
+      await rebuildPublisherWithAudio();
+    } else {
+      publisher.publishAudio(next);
+    }
     broadcastMicState(next);
+    // Peers sometimes miss the first signal right as streams settle.
+    if (next) {
+      setTimeout(() => broadcastMicState(true), 250);
+      setTimeout(() => broadcastMicState(true), 900);
+    }
     if (!next) {
       setSpeaking('local', false);
       localMicLevel.value = 0;
+      setTimeout(() => broadcastMicState(false), 250);
     }
   } catch (e) {
     console.error('[VideoSessionRoom] publishAudio failed', e);
-    publishAudio.value = !next;
+    publishAudio.value = prev;
+    const friendly = sanitizeVideoError(e);
+    showMicHint(
+      next
+        ? (friendly.kind === 'media'
+          ? friendly.message
+          : 'Could not unmute. Close other apps using the mic, then try again.')
+        : (friendly.message || 'Could not mute microphone.')
+    );
   }
 }
 
@@ -2518,6 +2677,18 @@ defineExpose({
 }
 .vsr__muted-banner-text {
   line-height: 1.25;
+}
+.vsr__mic-hint {
+  margin: 0 0.35rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  background: rgba(120, 53, 15, 0.92);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  color: #fef3c7;
+  font-size: 0.8rem;
+  font-weight: 650;
+  line-height: 1.3;
+  flex-shrink: 0;
 }
 .vsr__hand-badge {
   position: absolute;
