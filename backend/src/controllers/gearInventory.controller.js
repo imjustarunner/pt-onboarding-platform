@@ -26,7 +26,13 @@ export const createGearType = handle(async (req) =>
 );
 
 export const updateGearType = handle(async (req) =>
-  gearInventory.updateType(agencyFromReq(req), req.params.typeId, req.body || {})
+  gearInventory.updateType(
+    // Route param is source agency; do not let body.agencyId override it when moving.
+    Number(req.params.agencyId || 0) || agencyFromReq(req),
+    req.params.typeId,
+    req.body || {},
+    req.user || null
+  )
 );
 
 export const listGearStock = handle(async (req) => gearInventory.listStock(agencyFromReq(req)));

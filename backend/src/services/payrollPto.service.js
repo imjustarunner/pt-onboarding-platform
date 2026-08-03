@@ -43,6 +43,13 @@ function parseJson(raw) {
 export async function getAgencyPtoPolicy({ agencyId }) {
   const agency = await Agency.findById(agencyId);
   const policy = { ...DEFAULT_PTO_POLICY, ...(parseJson(agency?.pto_policy_json) || {}) };
+  // Remap prior product defaults (1:1 / 1.2×) to current ratios when still stored as-is.
+  if (Number(policy.sickHourlyMultiplier) === 1 || Number(policy.sickHourlyMultiplier) === 1.0) {
+    policy.sickHourlyMultiplier = DEFAULT_PTO_ACCRUAL_POLICY.sickHourlyMultiplier;
+  }
+  if (Number(policy.sickFfsMultiplier) === 1.2) {
+    policy.sickFfsMultiplier = DEFAULT_PTO_ACCRUAL_POLICY.sickFfsMultiplier;
+  }
   const ptoEnabled =
     agency?.pto_enabled === 0 || agency?.pto_enabled === '0' || String(agency?.pto_enabled || '').toLowerCase() === 'false'
       ? false
@@ -1117,6 +1124,11 @@ export async function runPtoAccrualForPostedPeriod({
     let trainingEarn = earned.trainingEarn;
 
     if (sickEarn > 0) {
+      const hourlyMult = Number(policy.sickHourlyMultiplier ?? 0.034);
+      const ffsMult = Number(policy.sickFfsMultiplier ?? 0.04);
+      const note = employment === 'fee_for_service'
+        ? `Sick leave accrual (${basis.toFixed(2)} credits × ${ffsMult})`
+        : `Sick leave accrual (${basis.toFixed(2)} hours × ${hourlyMult})`;
       await PayrollPtoLedger.create({
         agencyId,
         userId,
@@ -1126,9 +1138,7 @@ export async function runPtoAccrualForPostedPeriod({
         effectiveDate: ymd(period.period_end),
         payrollPeriodId,
         requestId: null,
-        note: employment === 'fee_for_service'
-          ? `Sick leave accrual (${basis.toFixed(2)} credits × ${Number(policy.sickFfsMultiplier ?? 1.2)})`
-          : `Sick leave accrual (${basis.toFixed(2)} hours)`,
+        note,
         createdByUserId: postedByUserId
       });
       sickBal += sickEarn;

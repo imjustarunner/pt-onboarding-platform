@@ -8,7 +8,7 @@ const DEFAULT_SUPERVISION_POLICY = {
   // UserInfo field key that contains license type text like "LPCC #123" or "LMFT #..."
   licenseFieldKey: 'provider_credential_license_type_number',
   // Credential codes that mark a provider as pre-licensed / supervision-tracked (editable per agency)
-  eligibleCredentialCodes: ['LPCC', 'LMFT', 'MFTC', 'LSW', 'SWC'],
+  eligibleCredentialCodes: ['LPCC', 'LMFT', 'LMFTC', 'MFTC', 'LSW', 'SWC'],
   // Requirements
   requiredIndividualHours: 50,
   requiredGroupHours: 50,
@@ -233,7 +233,8 @@ export async function accruePrelicensedSupervisionFromPayroll({ agencyId, payrol
   const latestImportId = impRows?.[0]?.id || null;
   if (!latestImportId) return { ok: true, skipped: true, reason: 'no_payroll_import' };
 
-  // Pull prelicensed users and accrue supervision codes by DOS >= start_date.
+  // Pull prelicensed users and accrue supervision codes by DOS >= effective start_date.
+  // Rows before start_date (or with null start_date) are logged in imports but not counted.
   // Assumes payroll_import_rows.unit_count stores minutes for 99414/99416.
   const [rows] = await pool.execute(
     `SELECT
@@ -247,8 +248,10 @@ export async function accruePrelicensedSupervisionFromPayroll({ agencyId, payrol
      WHERE pir.agency_id = ?
        AND pir.payroll_period_id = ?
        AND pir.payroll_import_id = ?
-      AND ua.supervision_is_prelicensed = 1
-      AND UPPER(TRIM(pir.service_code)) IN ('99414','99416')
+       AND ua.supervision_is_prelicensed = 1
+       AND ua.supervision_start_date IS NOT NULL
+       AND pir.service_date >= ua.supervision_start_date
+       AND UPPER(TRIM(pir.service_code)) IN ('99414','99416')
      GROUP BY pir.user_id`,
     [agencyIdNum, periodIdNum, latestImportId]
   );

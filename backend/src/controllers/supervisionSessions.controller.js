@@ -30,6 +30,7 @@ import {
   subtractHoursFromUtcMysql,
   DEFAULT_SCHEDULE_TZ
 } from '../utils/zonedWallTime.util.js';
+import { isSupervisionPayEligibleHours } from '../utils/supervisionHoursGate.util.js';
 
 const JOIN_PRESENCE_STALE_SECONDS = 25;
 
@@ -951,17 +952,17 @@ function canViewAgencySupervisionLogs(roleRaw) {
 function supervisionServiceCodesForParticipant({ participantRole, sessionType }) {
   const role = String(participantRole || '').trim().toLowerCase();
   const st = String(sessionType || 'individual').trim().toLowerCase();
-  if (st === 'group') {
-    if (role === 'supervisor') return ['99416', '99415'];
-    return ['99416', '99414'];
+  if (role === 'supervisor') {
+    if (st === 'group') return ['99416', '99415'];
+    return ['99415'];
   }
-  if (role === 'supervisor') return ['99415'];
-  return ['99414'];
+  // Supervisees are paid via literal MEETING after 100h (99414 tracks requirements only).
+  return ['MEETING'];
 }
 
 function isSupervisionMeetingCode(codeRaw) {
   const code = String(codeRaw || '').trim().toUpperCase();
-  return code === '99414' || code === '99415' || code === '99416';
+  return code === '99414' || code === '99415' || code === '99416' || code === 'MEETING';
 }
 
 function mysqlNowDateTime() {
@@ -1337,28 +1338,39 @@ async function maybeReopenAutoFinalizedSessionForJoin(row) {
 async function getSupervisionPayEligibility({ agencyId, userId }) {
   const uid = Number(userId || 0);
   const aId = Number(agencyId || 0);
-  if (!uid || !aId) return { eligible: false, isHourlyWorker: false, totalSupervisionHours: 0 };
+  if (!uid || !aId) {
+    return {
+      eligible: false,
+      isHourlyWorker: false,
+      individualHours: 0,
+      groupHours: 0,
+      totalSupervisionHours: 0
+    };
+  }
 
   const u = await User.findById(uid);
   const isHourlyWorker = !!(u?.is_hourly_worker === 1 || u?.is_hourly_worker === true || u?.is_hourly_worker === '1');
 
-  let totalSupervisionHours = 0;
+  let individualHours = 0;
+  let groupHours = 0;
   try {
     const [rows] = await pool.execute(
-      `SELECT COALESCE(individual_hours, 0) + COALESCE(group_hours, 0) AS total_hours
+      `SELECT COALESCE(individual_hours, 0) AS ind, COALESCE(group_hours, 0) AS grp
        FROM supervision_accounts
        WHERE agency_id = ? AND user_id = ?
        LIMIT 1`,
       [aId, uid]
     );
-    totalSupervisionHours = Number(rows?.[0]?.total_hours || 0);
+    individualHours = Number(rows?.[0]?.ind || 0);
+    groupHours = Number(rows?.[0]?.grp || 0);
   } catch (e) {
     if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
-    totalSupervisionHours = 0;
   }
 
-  const eligible = isHourlyWorker || totalSupervisionHours >= 100 - 1e-9;
-  return { eligible, isHourlyWorker, totalSupervisionHours };
+  const totalSupervisionHours = individualHours + groupHours;
+  // Align with payroll: ≥50 individual and ≥100 total (hourly flag no longer bypasses).
+  const eligible = isSupervisionPayEligibleHours({ individualHours, groupHours });
+  return { eligible, isHourlyWorker, individualHours, groupHours, totalSupervisionHours };
 }
 
 async function resolveSupervisionPayForParticipant({
@@ -1444,13 +1456,66 @@ async function resolveSupervisionPayForParticipant({
         rateUnit: 'per_hour',
         rateSource: 'none',
         payable: false,
-        reason: 'requires_100_hours_or_hourly_worker'
+        reason: 'requires_100_supervision_hours'
       })),
       rateAmountTotalPerHour: 0,
       rateUnit: 'per_hour',
       rateSource: 'none',
       payable: false,
-      reason: 'requires_100_hours_or_hourly_worker',
+      reason: 'requires_100_supervision_hours',
+      eligibility
+    };
+  }
+
+  // Check effective start date (sessions before this date are logged but not payable).
+  let effectiveStartDate = null;
+  try {
+    const [uaRows] = await pool.execute(
+      `SELECT supervision_start_date FROM user_agencies
+       WHERE agency_id = ? AND user_id = ? LIMIT 1`,
+      [aId, uid]
+    );
+    const sd = String(uaRows?.[0]?.supervision_start_date || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(sd)) effectiveStartDate = sd;
+  } catch { /* ignore */ }
+  if (asOf && effectiveStartDate && asOf < effectiveStartDate) {
+    return {
+      serviceCode,
+      serviceCodes,
+      rateBreakdown: serviceCodes.map((code) => ({
+        serviceCode: code,
+        rateAmount: 0,
+        rateUnit: 'per_hour',
+        rateSource: 'none',
+        payable: false,
+        reason: 'before_effective_start_date'
+      })),
+      rateAmountTotalPerHour: 0,
+      rateUnit: 'per_hour',
+      rateSource: 'none',
+      payable: false,
+      reason: 'before_effective_start_date',
+      eligibility,
+      effectiveStartDate
+    };
+  }
+  if (!effectiveStartDate) {
+    return {
+      serviceCode,
+      serviceCodes,
+      rateBreakdown: serviceCodes.map((code) => ({
+        serviceCode: code,
+        rateAmount: 0,
+        rateUnit: 'per_hour',
+        rateSource: 'none',
+        payable: false,
+        reason: 'missing_effective_start_date'
+      })),
+      rateAmountTotalPerHour: 0,
+      rateUnit: 'per_hour',
+      rateSource: 'none',
+      payable: false,
+      reason: 'missing_effective_start_date',
       eligibility
     };
   }
@@ -1468,22 +1533,21 @@ async function resolveSupervisionPayForParticipant({
       rateBreakdown.push({
         serviceCode: code,
         rateAmount: Number(perCodeRate.rate_amount || 0),
-        rateUnit: isSupervisionMeetingCode(code)
-          ? 'per_hour'
-          : (String(perCodeRate.rate_unit || 'per_hour').trim().toLowerCase() || 'per_hour'),
+        rateUnit: 'per_hour',
         rateSource: 'per_code_rate',
         payable: true,
         reason: null
       });
       continue;
     }
+    // Never fall back to indirect for supervisee MEETING pay.
     rateBreakdown.push({
       serviceCode: code,
-      rateAmount: Number(rateCard?.indirect_rate || 0),
+      rateAmount: 0,
       rateUnit: 'per_hour',
-      rateSource: rateCard ? 'indirect_rate_fallback' : 'none',
-      payable: true,
-      reason: rateCard ? 'missing_meeting_rate_used_indirect' : 'missing_meeting_rate'
+      rateSource: 'none',
+      payable: false,
+      reason: 'missing_meeting_rate'
     });
   }
   const rateAmountTotalPerHour = rateBreakdown.reduce((sum, r) => sum + Number(r.rateAmount || 0), 0);

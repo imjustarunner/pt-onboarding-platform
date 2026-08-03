@@ -42,6 +42,7 @@ function isPrelicensedOrUnderSupervisionCredentialText(raw) {
   if (/\bUNLICENSED\b/.test(upper)) return true;
   if (/\bPRE[- ]?LICENSED\b/.test(upper) || /\bPRELICENSED\b/.test(upper)) return true;
   if (/\bLPCC\b/.test(upper)) return true;
+  if (/\bLMFTC\b/.test(upper)) return true;
   if (/\bSWC\b/.test(upper)) return true;
   if (/\bMFTC\b/.test(upper)) return true;
   if (/\bCANDIDATE\b/.test(upper)) return true;

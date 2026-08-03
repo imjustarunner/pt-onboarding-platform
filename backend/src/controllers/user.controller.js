@@ -8079,6 +8079,9 @@ export const setUserAgencySupervisionPrelicensed = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'User is not assigned to this organization' } });
     }
 
+    const priorStart = membership?.supervision_start_date
+      ? String(membership.supervision_start_date).slice(0, 10)
+      : null;
     const updated = await User.setAgencySupervisionPrelicensedSettings(userId, agencyId, {
       isPrelicensed,
       isCompensable,
@@ -8087,8 +8090,46 @@ export const setUserAgencySupervisionPrelicensed = async (req, res, next) => {
       startGroupHours
     });
     // Best-effort: recompute supervision account so profile reflects baseline changes quickly.
+    // When effective start date changes, re-apply session hour credits so only post-date hours count.
     let supervisionAccount = null;
     try {
+      const nextStart = startDate || null;
+      if (priorStart !== nextStart) {
+        const { resyncFinalizedSessionHourCreditsForUser } = await import('../services/supervisionFinalizePipeline.service.js');
+        await resyncFinalizedSessionHourCreditsForUser({
+          agencyId,
+          userId,
+          actorUserId: req.user?.id || null
+        });
+        // Rebuild payroll-period hour entries with the new effective-date filter.
+        try {
+          const db = (await import('../config/database.js')).default;
+          await db.execute(
+            `DELETE FROM supervision_period_entries WHERE agency_id = ? AND user_id = ?`,
+            [agencyId, userId]
+          );
+          const { accruePrelicensedSupervisionFromPayroll } = await import('../services/supervision.service.js');
+          const [periodRows] = await db.execute(
+            `SELECT DISTINCT pp.id
+             FROM payroll_periods pp
+             JOIN payroll_imports pi ON pi.payroll_period_id = pp.id
+             WHERE pp.agency_id = ?
+             ORDER BY pp.period_end DESC
+             LIMIT 24`,
+            [agencyId]
+          );
+          for (const pr of periodRows || []) {
+            // eslint-disable-next-line no-await-in-loop
+            await accruePrelicensedSupervisionFromPayroll({
+              agencyId,
+              payrollPeriodId: Number(pr.id),
+              uploadedByUserId: req.user?.id || null
+            });
+          }
+        } catch {
+          /* best-effort */
+        }
+      }
       const { recomputeSupervisionAccountForUser } = await import('../services/supervision.service.js');
       supervisionAccount = await recomputeSupervisionAccountForUser({ agencyId, userId });
     } catch {

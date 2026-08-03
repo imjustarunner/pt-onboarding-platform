@@ -15,6 +15,7 @@ import { computeSubmissionWindow } from '../utils/payrollSubmissionWindow.js';
 import { recomputeSupervisionAccountForUser } from './supervision.service.js';
 import { fetchMeetTranscriptForSession } from './googleMeetTranscript.service.js';
 import { triggerSupervisionSummaryFromTranscript } from './supervisionTranscriptSummary.service.js';
+import { sessionHoursAreCountable } from '../utils/supervisionHoursGate.util.js';
 
 export const SUPERVISION_INDIRECT_TYPE_KEY = 'supervision';
 export const SUPERVISION_INDIRECT_LABEL = 'Supervision';
@@ -169,6 +170,22 @@ export async function userEligibleForSupervisionTimeClaim({
   return { ok: true, eligible: false, reason: 'not_hourly_and_no_rate' };
 }
 
+async function loadSupervisionEffectiveStartDate({ agencyId, userId }) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT supervision_start_date
+       FROM user_agencies
+       WHERE agency_id = ? AND user_id = ?
+       LIMIT 1`,
+      [agencyId, userId]
+    );
+    const sd = String(rows?.[0]?.supervision_start_date || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(sd) ? sd : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function creditSuperviseeHoursFromFinalizedSession({
   session,
   rollups = [],
@@ -180,6 +197,7 @@ export async function creditSuperviseeHoursFromFinalizedSession({
 
   const sessionType = String(session?.session_type || 'individual').trim().toLowerCase() || 'individual';
   const asGroup = isGroupSessionType(sessionType);
+  const sessionDateYmd = mysqlDateYmd(session?.start_at);
   const rollupByUser = new Map(
     (rollups || []).map((r) => [Number(r.user_id || 0), Number(r.total_seconds || 0)])
   );
@@ -202,16 +220,15 @@ export async function creditSuperviseeHoursFromFinalizedSession({
 
   const credited = [];
   const cleared = [];
+  const loggedUncounted = [];
 
   for (const userId of touched) {
     const totalSecondsRaw = Math.max(0, Number(rollupByUser.get(userId) || 0));
     // Cap at 8h so a prior open-segment bug cannot permanently inflate requirement totals.
     const totalSeconds = Math.min(totalSecondsRaw, 8 * 3600);
-    const hours = clampHours(totalSeconds / 3600);
-    const individualHours = asGroup ? 0 : hours;
-    const groupHours = asGroup ? hours : 0;
+    const hoursAttended = clampHours(totalSeconds / 3600);
 
-    if (!(hours > 0)) {
+    if (!(hoursAttended > 0)) {
       // eslint-disable-next-line no-await-in-loop
       await pool.execute(
         'DELETE FROM supervision_session_hour_credits WHERE session_id = ? AND user_id = ?',
@@ -222,6 +239,13 @@ export async function creditSuperviseeHoursFromFinalizedSession({
       cleared.push(userId);
       continue;
     }
+
+    // eslint-disable-next-line no-await-in-loop
+    const effectiveStartDate = await loadSupervisionEffectiveStartDate({ agencyId, userId });
+    const countable = sessionHoursAreCountable({ sessionDateYmd, effectiveStartDate });
+    const hours = countable ? hoursAttended : 0;
+    const individualHours = asGroup ? 0 : hours;
+    const groupHours = asGroup ? hours : 0;
 
     // Snapshot hours before/attended/after so supervisee UI can prove credit applied.
     // Subtract any prior credit for this session so re-finalize snapshots stay accurate.
@@ -244,9 +268,9 @@ export async function creditSuperviseeHoursFromFinalizedSession({
     // eslint-disable-next-line no-await-in-loop
     const accountTotal = await readAccountTotalHours(agencyId, userId);
     const hoursBefore = clampHours(accountTotal - priorSessionHours);
-    const hoursAttended = hours;
-    const hoursAfter = clampHours(hoursBefore + hoursAttended);
+    const hoursAfter = clampHours(hoursBefore + hours);
 
+    // Always persist a row (logged). Countable hours are 0 before effective date.
     // eslint-disable-next-line no-await-in-loop
     await pool.execute(
       `INSERT INTO supervision_session_hour_credits
@@ -272,9 +296,13 @@ export async function creditSuperviseeHoursFromFinalizedSession({
           source: 'session_finalize',
           sessionId: sid,
           sessionType,
+          sessionDate: sessionDateYmd,
+          effectiveStartDate,
+          countable,
           totalSeconds,
           hoursBefore,
           hoursAttended,
+          hoursCounted: hours,
           hoursAfter
         }),
         actorUserId ? Number(actorUserId) : null
@@ -282,18 +310,69 @@ export async function creditSuperviseeHoursFromFinalizedSession({
     );
     // eslint-disable-next-line no-await-in-loop
     await recomputeSupervisionAccountForUser({ agencyId, userId });
-    credited.push({
+    const row = {
       userId,
       individualHours,
       groupHours,
       totalSeconds,
       hoursBefore,
       hoursAttended,
-      hoursAfter
-    });
+      hoursAfter,
+      countable,
+      effectiveStartDate
+    };
+    if (countable) credited.push(row);
+    else loggedUncounted.push(row);
   }
 
-  return { ok: true, credited, cleared };
+  return { ok: true, credited, cleared, loggedUncounted };
+}
+
+/** Re-apply hour credits for all finalized sessions a user attended (e.g. after effective date set). */
+export async function resyncFinalizedSessionHourCreditsForUser({
+  agencyId,
+  userId,
+  actorUserId = null
+} = {}) {
+  const aId = Number(agencyId || 0);
+  const uid = Number(userId || 0);
+  if (!aId || !uid) return { ok: false, reason: 'missing_ids', resynced: 0 };
+
+  let sessionIds = [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT ss.id
+       FROM supervision_sessions ss
+       LEFT JOIN supervision_session_attendees ssa
+         ON ssa.session_id = ss.id AND ssa.user_id = ?
+       LEFT JOIN supervision_session_attendance_rollups ssar
+         ON ssar.session_id = ss.id AND ssar.user_id = ?
+       WHERE ss.agency_id = ?
+         AND UPPER(TRIM(COALESCE(ss.status, ''))) = 'FINALIZED'
+         AND (
+           ssa.user_id IS NOT NULL
+           OR ssar.user_id IS NOT NULL
+           OR EXISTS (
+             SELECT 1 FROM supervision_session_hour_credits c
+             WHERE c.session_id = ss.id AND c.user_id = ?
+           )
+         )`,
+      [uid, uid, aId, uid]
+    );
+    sessionIds = (rows || []).map((r) => Number(r.id)).filter((n) => n > 0);
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return { ok: true, resynced: 0 };
+    throw e;
+  }
+
+  let resynced = 0;
+  for (const sessionId of sessionIds) {
+    // eslint-disable-next-line no-await-in-loop
+    const result = await resyncFinalizedSessionHourCredits({ sessionId, actorUserId });
+    if (result?.ok && !result?.skipped) resynced += 1;
+  }
+  await recomputeSupervisionAccountForUser({ agencyId: aId, userId: uid });
+  return { ok: true, resynced, sessionCount: sessionIds.length };
 }
 
 /**

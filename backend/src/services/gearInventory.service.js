@@ -293,7 +293,67 @@ export async function createType(agencyId, body, actorUserId) {
   return mapType((await pool.execute(`SELECT * FROM gear_item_types WHERE id = ?`, [typeId]))[0][0]);
 }
 
-export async function updateType(agencyId, typeId, body) {
+async function assertActorCanAccessAgency(actorUserId, agencyId, actorRole) {
+  const role = String(actorRole || '').trim().toLowerCase();
+  if (role === 'super_admin') return;
+  const uid = Number(actorUserId || 0);
+  const aid = Number(agencyId || 0);
+  if (!uid || !aid) {
+    throw Object.assign(new Error('Not allowed to move inventory to that agency'), { status: 403 });
+  }
+  const [rows] = await pool.execute(
+    `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+    [uid, aid]
+  );
+  if (!rows.length) {
+    throw Object.assign(new Error('You do not have access to the destination agency'), { status: 403 });
+  }
+}
+
+async function moveTypeToAgency({ typeId, fromAgencyId, toAgencyId, conn }) {
+  const db = conn || pool;
+  // Unique asset codes must not collide in the destination agency.
+  const [conflicts] = await db.execute(
+    `SELECT a.asset_code
+     FROM gear_unique_assets a
+     WHERE a.gear_item_type_id = ? AND a.agency_id = ?
+       AND EXISTS (
+         SELECT 1 FROM gear_unique_assets b
+         WHERE b.agency_id = ? AND b.asset_code = a.asset_code AND b.id != a.id
+       )
+     LIMIT 5`,
+    [typeId, fromAgencyId, toAgencyId]
+  );
+  if (conflicts.length) {
+    const codes = conflicts.map((r) => r.asset_code).join(', ');
+    throw Object.assign(
+      new Error(`Cannot move: asset code(s) already exist in destination (${codes})`),
+      { status: 409 }
+    );
+  }
+
+  await db.execute(`UPDATE gear_item_types SET agency_id = ? WHERE id = ? AND agency_id = ?`, [
+    toAgencyId, typeId, fromAgencyId
+  ]);
+  await db.execute(
+    `UPDATE gear_stock_levels SET agency_id = ? WHERE gear_item_type_id = ? AND agency_id = ?`,
+    [toAgencyId, typeId, fromAgencyId]
+  );
+  await db.execute(
+    `UPDATE gear_unique_assets SET agency_id = ? WHERE gear_item_type_id = ? AND agency_id = ?`,
+    [toAgencyId, typeId, fromAgencyId]
+  );
+  await db.execute(
+    `UPDATE gear_assignments SET agency_id = ? WHERE gear_item_type_id = ? AND agency_id = ?`,
+    [toAgencyId, typeId, fromAgencyId]
+  );
+  await db.execute(
+    `UPDATE gear_stock_movements SET agency_id = ? WHERE gear_item_type_id = ? AND agency_id = ?`,
+    [toAgencyId, typeId, fromAgencyId]
+  );
+}
+
+export async function updateType(agencyId, typeId, body, actor = null) {
   const aid = await resolveAgencyId(agencyId);
   const tid = Number(typeId || 0);
   if (!aid || !tid) throw Object.assign(new Error('Invalid ids'), { status: 400 });
@@ -303,6 +363,18 @@ export async function updateType(agencyId, typeId, body) {
     [tid, aid]
   );
   if (!existing) throw Object.assign(new Error('Gear type not found'), { status: 404 });
+
+  const targetAgencyIdRaw = body?.targetAgencyId ?? body?.destinationAgencyId;
+  const targetAgencyId = targetAgencyIdRaw != null && targetAgencyIdRaw !== ''
+    ? Number(targetAgencyIdRaw)
+    : null;
+  const movingAgency = Number.isFinite(targetAgencyId) && targetAgencyId > 0 && targetAgencyId !== aid;
+
+  if (movingAgency) {
+    const [[dest]] = await pool.execute(`SELECT id FROM agencies WHERE id = ? LIMIT 1`, [targetAgencyId]);
+    if (!dest) throw Object.assign(new Error('Destination agency not found'), { status: 404 });
+    await assertActorCanAccessAgency(actor?.id, targetAgencyId, actor?.role);
+  }
 
   const updates = [];
   const values = [];
@@ -363,12 +435,30 @@ export async function updateType(agencyId, typeId, body) {
     await ensureStockRows(aid, tid, sizePayload);
   }
 
-  if (updates.length) {
-    values.push(tid, aid);
-    await pool.execute(
-      `UPDATE gear_item_types SET ${updates.join(', ')} WHERE id = ? AND agency_id = ?`,
-      values
-    );
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    if (updates.length) {
+      values.push(tid, aid);
+      await conn.execute(
+        `UPDATE gear_item_types SET ${updates.join(', ')} WHERE id = ? AND agency_id = ?`,
+        values
+      );
+    }
+    if (movingAgency) {
+      await moveTypeToAgency({
+        typeId: tid,
+        fromAgencyId: aid,
+        toAgencyId: targetAgencyId,
+        conn
+      });
+    }
+    await conn.commit();
+  } catch (err) {
+    try { await conn.rollback(); } catch { /* ignore */ }
+    throw err;
+  } finally {
+    conn.release();
   }
 
   const [[row]] = await pool.execute(`SELECT * FROM gear_item_types WHERE id = ?`, [tid]);

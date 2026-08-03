@@ -411,13 +411,13 @@
           </div>
           <div class="field">
             <label>Hourly sick (per worked hour)</label>
-            <input v-model="ptoDraft.sickHourlyMultiplier" type="number" step="0.01" min="0" :disabled="ptoSaving" />
-            <div class="hint">Default 1.0 — 1 sick hour per 1 direct+indirect+other paid hour after post.</div>
+            <input v-model="ptoDraft.sickHourlyMultiplier" type="number" step="0.001" min="0" :disabled="ptoSaving" />
+            <div class="hint">Default 0.034 — sick hours per 1 direct+indirect+other paid hour after post.</div>
           </div>
           <div class="field">
             <label>FFS sick (per credit)</label>
-            <input v-model="ptoDraft.sickFfsMultiplier" type="number" step="0.01" min="0" :disabled="ptoSaving" />
-            <div class="hint">Default 1.2 — 1.2 sick hours per 1 credit after post.</div>
+            <input v-model="ptoDraft.sickFfsMultiplier" type="number" step="0.001" min="0" :disabled="ptoSaving" />
+            <div class="hint">Default 0.04 — sick hours per 1 credit/hour of paid time after post.</div>
           </div>
           <div class="field">
             <label>Sick annual rollover cap (hrs)</label>
@@ -1331,7 +1331,7 @@ const ptoLoading = ref(false);
 const ptoSaving = ref(false);
 const ptoError = ref('');
 const ptoDraft = ref({
-  ptoEnabled: true, defaultPayRate: 0, sickHourlyMultiplier: 1.0, sickFfsMultiplier: 1.2,
+  ptoEnabled: true, defaultPayRate: 0, sickHourlyMultiplier: 0.034, sickFfsMultiplier: 0.04,
   trainingAccrualPer30: 0.25,
   trainingPtoEnabled: false, sickAnnualRolloverCap: 10, sickAnnualMaxAccrual: 65,
   trainingMaxBalance: 20, trainingForfeitOnTermination: true,
@@ -1346,8 +1346,8 @@ const loadPto = async () => {
     ptoDraft.value = {
       ptoEnabled: resp.data?.policy?.ptoEnabled !== false && resp.data?.ptoEnabled !== false,
       defaultPayRate: Number(resp.data?.defaultPayRate || 0),
-      sickHourlyMultiplier: Number(policy.sickHourlyMultiplier ?? 1.0),
-      sickFfsMultiplier: Number(policy.sickFfsMultiplier ?? 1.2),
+      sickHourlyMultiplier: Number(policy.sickHourlyMultiplier ?? 0.034),
+      sickFfsMultiplier: Number(policy.sickFfsMultiplier ?? 0.04),
       trainingAccrualPer30: Number(policy.trainingAccrualPer30 ?? 0.25),
       trainingPtoEnabled: policy.trainingPtoEnabled === true,
       sickAnnualRolloverCap: Number(policy.sickAnnualRolloverCap ?? 10),
@@ -1370,8 +1370,8 @@ const savePto = async () => {
       ptoEnabled: ptoDraft.value.ptoEnabled !== false,
       defaultPayRate: Number(ptoDraft.value.defaultPayRate || 0),
       policy: {
-        sickHourlyMultiplier: Number(ptoDraft.value.sickHourlyMultiplier ?? 1),
-        sickFfsMultiplier: Number(ptoDraft.value.sickFfsMultiplier ?? 1.2),
+        sickHourlyMultiplier: Number(ptoDraft.value.sickHourlyMultiplier ?? 0.034),
+        sickFfsMultiplier: Number(ptoDraft.value.sickFfsMultiplier ?? 0.04),
         trainingAccrualPer30: Number(ptoDraft.value.trainingAccrualPer30 || 0),
         trainingPtoEnabled: ptoDraft.value.trainingPtoEnabled === true,
         sickAnnualRolloverCap: Number(ptoDraft.value.sickAnnualRolloverCap || 0),

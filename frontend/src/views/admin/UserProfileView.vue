@@ -628,7 +628,7 @@
                           v-if="canShowPrelicensedSupervision"
                           class="agency-item-row"
                           style="flex-wrap: wrap;"
-                          title="Prelicensed supervision tracking is per-organization. Manual start date is informational; baseline hours are added to accrued payroll supervision hours (99414/99416). Pay for 99414/99416 is $0 until the user has already reached ≥50 individual and ≥100 total hours in prior pay periods."
+                          title="Prelicensed supervision tracking is per-organization. Effective start date gates which logged sessions count toward 50/100 hours (sessions before that date stay logged but do not count). After ≥50 individual and ≥100 total countable hours, supervisees are paid at the MEETING rate — not 99414/indirect. Pre-100 supervision does not accrue PTO."
                         >
                           <span class="muted" style="font-size: 12px; font-weight: 700;">Prelicensed</span>
                           <label class="muted" style="display:flex; align-items:center; gap: 6px;">
@@ -661,7 +661,7 @@
                               :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id || !isEditingPrelicensedForAgency(agency)"
                               @change="savePrelicensedSettings(agency, { startDate: $event.target.value })"
                             />
-                            <span class="prelicensed-caption">Manual start date</span>
+                            <span class="prelicensed-caption">Effective start date</span>
                           </div>
                           <div v-if="isPrelicensedForAgency(agency)" class="prelicensed-hours">
                             <div class="prelicensed-field">

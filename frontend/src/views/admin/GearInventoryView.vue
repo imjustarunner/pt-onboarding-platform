@@ -187,6 +187,15 @@
           <option value="">— None —</option>
           <option v-for="k in lifecycleKeys" :key="k.value" :value="k.value">{{ k.label }}</option>
         </select>
+        <template v-if="editingType?.id && moveAgencyOptions.length > 1">
+          <label class="lbl">Agency</label>
+          <select v-model.number="typeForm.targetAgencyId" class="input">
+            <option v-for="a in moveAgencyOptions" :key="a.id" :value="a.id">{{ a.name }}</option>
+          </select>
+          <p v-if="typeForm.targetAgencyId && typeForm.targetAgencyId !== agencyId" class="muted" style="margin: 6px 0 0; font-size: 0.85rem;">
+            Saving will move this type (and its stock/assets/history) to the selected agency.
+          </p>
+        </template>
         <div class="gi-modal-actions">
           <button type="button" class="btn btn-secondary" @click="showTypeModal = false">Cancel</button>
           <button type="button" class="btn btn-primary" :disabled="saving" @click="saveType">Save</button>
@@ -242,6 +251,14 @@ import { useAgencyStore } from '../../store/agency';
 const agencyStore = useAgencyStore();
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
 const agencyName = computed(() => agencyStore.currentAgency?.name || 'this organization');
+const moveAgencyOptions = computed(() => {
+  const list = Array.isArray(agencyStore.userAgencies) && agencyStore.userAgencies.length
+    ? agencyStore.userAgencies
+    : (agencyStore.agencies || []);
+  return list
+    .map((a) => ({ id: Number(a.id), name: a.name || `Agency ${a.id}` }))
+    .filter((a) => a.id > 0);
+});
 
 const tabs = [
   { id: 'catalog', label: 'Catalog' },
@@ -288,6 +305,7 @@ const typeForm = ref({
   menSizeOptionsText: 'S, M, L, XL, XXL',
   lowStockThreshold: 2,
   lifecycleItemKey: '',
+  targetAgencyId: null,
 });
 
 function parseSizesText(text) {
@@ -342,6 +360,7 @@ function openTypeForm(t = null) {
     menSizeOptionsText: (byGender.men || ['S', 'M', 'L', 'XL', 'XXL']).join(', '),
     lowStockThreshold: t?.lowStockThreshold ?? 2,
     lifecycleItemKey: t?.lifecycleItemKey || '',
+    targetAgencyId: Number(t?.agencyId || agencyId.value || 0) || agencyId.value,
   };
   showTypeModal.value = true;
 }
@@ -369,6 +388,10 @@ async function saveType() {
       }
     }
     if (editingType.value?.id) {
+      const destId = Number(typeForm.value.targetAgencyId || 0);
+      if (destId && destId !== Number(agencyId.value)) {
+        payload.targetAgencyId = destId;
+      }
       await api.patch(`${base()}/types/${editingType.value.id}`, payload);
     } else {
       await api.post(`${base()}/types`, payload);

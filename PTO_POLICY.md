@@ -33,17 +33,17 @@ ITSCO reserves the right to deny Training PTO if sufficient documentation is not
 Accrual and Eligibility by Classification
 Accrual is applied when a pay period is posted. The accrual basis is all paid time in that period: direct hours/credits, indirect hours/credits, and other paid-time hours (e.g. Other 1 / dual-rate Log Time, meetings, H0031 and other finalized service time). Flat dollar items (mileage, bonus, reimbursement) do not accrue PTO. Part-time employees and employees not in benefit tiers still accrue Sick Leave under these rules.
 Hourly Employees (Indirect Service)
-Sick Leave Accrual: 1 hour of Sick Leave per 1 hour of paid time (direct + indirect + other paid time)
+Sick Leave Accrual: 0.034 hours of Sick Leave per 1 hour of paid time (direct + indirect + other paid time)
 Training PTO: Not applicable
 Eligibility: Begins first week of employment
 Limitations: Governed by contract terms
 Hourly Employees (Direct or Dual Roles)
-Sick Leave Accrual: 1 hour of Sick Leave per 1 hour of paid time (direct + indirect + other paid time)
+Sick Leave Accrual: 0.034 hours of Sick Leave per 1 hour of paid time (direct + indirect + other paid time)
 Training PTO: Not applicable
 Eligibility: Begins first week of employment
 Limitations: Governed by contract terms
 Fee-for-Service Providers
-Sick Leave Accrual: 1.2 hours of Sick Leave per 1 credit of paid time
+Sick Leave Accrual: 0.04 hours of Sick Leave per 1 credit/hour of paid time
 Training PTO: 0.25 hours per 30 credits earned (when Training PTO is enabled and the provider is eligible)
 Eligibility: Begins first week of employment
 Salaried Employees (Indirect Service)
