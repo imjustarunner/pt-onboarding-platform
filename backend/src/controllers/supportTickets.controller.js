@@ -25,6 +25,7 @@ import {
   ticketDisplayStatus
 } from '../utils/supportTicketCrypto.js';
 import { allowedTopicsForCreatorRole, normalizeTicketTopic } from '../utils/ticketTopics.js';
+import { appendSupportTicketKindFilter } from '../utils/supportTicketKindFilter.js';
 
 async function hasSupportTicketMessagesTable() {
   try {
@@ -1024,21 +1025,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
     // Org escalations have their own desk — keep them out of the general ticket queue
     // unless explicitly requested via ticketKind=escalation|all.
     const ticketKindFilter = req.query?.ticketKind ? String(req.query.ticketKind).trim().toLowerCase() : 'support';
-    try {
-      const [kindCols] = await pool.execute(
-        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_tickets' AND COLUMN_NAME = 'ticket_kind'`
-      );
-      if (Number(kindCols?.[0]?.cnt || 0) > 0) {
-        if (ticketKindFilter === 'escalation') {
-          where.push(`COALESCE(t.ticket_kind, 'support') = 'escalation'`);
-        } else if (ticketKindFilter !== 'all') {
-          where.push(`COALESCE(t.ticket_kind, 'support') <> 'escalation'`);
-        }
-      }
-    } catch {
-      /* ignore */
-    }
+    await appendSupportTicketKindFilter(where, { alias: 't', ticketKind: ticketKindFilter });
 
     await applyTopicAudienceVisibility({ req, where, params, topicFilter });
 
@@ -1237,6 +1224,7 @@ export const getSupportTicketsCount = async (req, res, next) => {
     }
 
     await applyTopicAudienceVisibility({ req, where, params });
+    await appendSupportTicketKindFilter(where, { alias: 't', ticketKind: 'support' });
 
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS cnt FROM support_tickets t
@@ -1280,6 +1268,7 @@ export const getSupportTicketsMetrics = async (req, res, next) => {
     }
 
     await applyTopicAudienceVisibility({ req, where, params });
+    await appendSupportTicketKindFilter(where, { alias: 't', ticketKind: 'support' });
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const uid = Number(req.user?.id || 0);
@@ -1362,6 +1351,7 @@ export const getSupportTicketsCountsByAgency = async (req, res, next) => {
     }
 
     await applyTopicAudienceVisibility({ req, where, params });
+    await appendSupportTicketKindFilter(where, { alias: 't', ticketKind: 'support' });
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const uid = Number(req.user.id);

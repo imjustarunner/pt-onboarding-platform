@@ -6,7 +6,7 @@
       <div class="cc-brand">
         <p class="cc-eyebrow">{{ agencyLabel }} · Support</p>
         <h1>Communications Center</h1>
-        <p class="cc-tag">Home combines what needs attention from Messages and Support — then drill into either view</p>
+        <p class="cc-tag">Home, Messages, Support Hub, Automation, and School alerts — one Communications Center</p>
       </div>
       <nav class="cc-switch" role="tablist" aria-label="Communications Center sections">
         <button
@@ -41,6 +41,32 @@
         >
           Support Hub
           <em v-if="supportAttention > 0">{{ supportAttention > 99 ? '99+' : supportAttention }}</em>
+        </button>
+        <button
+          v-if="canUseSupportHub"
+          type="button"
+          role="tab"
+          :aria-selected="activeMode === 'automation'"
+          class="cc-switch-btn"
+          :class="{ on: activeMode === 'automation' }"
+          @click.prevent.stop="openAutomationTab"
+        >
+          Automation
+          <em
+            v-if="automationAttentionCount > 0"
+            :class="{ 'cc-badge-quality': automationQualityCount > 0 }"
+          >{{ automationAttentionCount > 99 ? '99+' : automationAttentionCount }}</em>
+        </button>
+        <button
+          v-if="canUseSchoolAlerts"
+          type="button"
+          role="tab"
+          :aria-selected="activeMode === 'school'"
+          class="cc-switch-btn"
+          :class="{ on: activeMode === 'school' }"
+          @click.prevent.stop="setMode('school')"
+        >
+          School alerts
         </button>
       </nav>
     </header>
@@ -93,7 +119,7 @@
             v-if="canUseSupportHub"
             type="button"
             class="cc-kpi warn"
-            @click.prevent.stop="setMode('support')"
+            @click.prevent.stop="setMode('automation', { status: 'pending' })"
           >
             <span class="cc-kpi-label">Delivery queue</span>
             <strong class="cc-kpi-value">{{ summary.kpis?.pendingInQueues || 0 }}</strong>
@@ -126,19 +152,19 @@
             </div>
             <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('support')">Support Hub</button>
           </div>
-          <div v-if="canUseSupportHub && (summary.engagement?.pendingCount || 0) > 0" class="cc-alert warn">
+          <div v-if="canUseSupportHub && automationPendingCount > 0" class="cc-alert warn">
             <div>
-              <strong>{{ summary.engagement.pendingCount }} pending</strong>
-              <span> automations / deliveries</span>
+              <strong>{{ automationPendingCount }} automation emails</strong>
+              <span> pending approval</span>
             </div>
-            <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('support')">Review queue</button>
+            <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('automation', { status: 'pending' })">Review &amp; approve</button>
           </div>
           <div v-if="canUseSupportHub && (summary.engagement?.failedCount || 0) > 0" class="cc-alert warn">
             <div>
               <strong>{{ summary.engagement.failedCount }} failed</strong>
               <span> deliveries</span>
             </div>
-            <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('support')">Inspect</button>
+            <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('automation', { status: 'failed' })">Inspect</button>
           </div>
           <div v-if="(summary.messagesMode?.unassigned || 0) > 0" class="cc-alert warn">
             <div>
@@ -149,7 +175,7 @@
           </div>
         </div>
 
-        <div class="cc-grid-main">
+        <div class="cc-grid-main home-panels">
           <section class="cc-panel">
             <header class="cc-panel-h">
               <div>
@@ -171,16 +197,21 @@
             <p v-else class="cc-empty pad">No unread conversations in your Messages right now.</p>
           </section>
 
-          <section class="cc-panel">
+          <section v-if="canUseSupportHub" class="cc-panel">
             <header class="cc-panel-h">
               <div>
                 <h3>From Support Hub</h3>
-                <p class="cc-panel-sub">Tickets + delivery that need eyes</p>
+                <p class="cc-panel-sub">Open support tickets</p>
               </div>
               <button type="button" class="cc-linkish" @click.prevent.stop="setMode('support')">Open hub →</button>
             </header>
             <ul v-if="homeSupportRows.length" class="cc-tickets">
-              <li v-for="row in homeSupportRows" :key="row.id">
+              <li
+                v-for="row in homeSupportRows"
+                :key="row.id"
+                class="cc-msg-row"
+                @click="openHomeSupportRow(row)"
+              >
                 <span class="prio" :class="prioClass(row.priority || row.status)">{{ row.badge }}</span>
                 <div>
                   <strong>{{ row.title }}</strong>
@@ -188,7 +219,35 @@
                 </div>
               </li>
             </ul>
-            <p v-else class="cc-empty pad">No open tickets or failed deliveries right now.</p>
+            <p v-else class="cc-empty pad">No open tickets right now.</p>
+          </section>
+
+          <section v-if="canUseSupportHub" class="cc-panel">
+            <header class="cc-panel-h">
+              <div>
+                <h3>Auto-sent &amp; system messages</h3>
+                <p class="cc-panel-sub">Emails and texts sent by the app — new hire, reminders, automations</p>
+              </div>
+              <button type="button" class="cc-linkish" @click.prevent.stop="setMode('automation')">View all →</button>
+            </header>
+            <ul v-if="homeAutomationRows.length" class="cc-tickets">
+              <li
+                v-for="row in homeAutomationRows"
+                :key="row.id"
+                class="cc-msg-row"
+                @click="openEngagementRow(row)"
+              >
+                <span class="cc-eng-ch">{{ String(row.channel || 'email').toUpperCase() }}</span>
+                <div>
+                  <strong>{{ row.subject }}</strong>
+                  <small>{{ row.recipient || '—' }} · {{ row.status }} · {{ formatTime(row.occurredAt) }}</small>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="cc-empty pad">
+              No auto-sent messages yet.
+              <button type="button" class="cc-linkish block" @click.prevent.stop="setMode('automation')">Open Automation tab →</button>
+            </p>
           </section>
         </div>
 
@@ -211,7 +270,7 @@
               <li><span>Sent (7d)</span><strong>{{ summary.kpis?.messagesSent || 0 }}</strong></li>
               <li><span>Delivery rate</span><strong>{{ summary.kpis?.deliveryRate ?? '—' }}%</strong></li>
             </ul>
-            <button type="button" class="cc-btn outline sm block" @click.prevent.stop="setMode('support')">Review in Support Hub</button>
+            <button type="button" class="cc-btn outline sm block" @click.prevent.stop="setMode('automation', { status: 'pending' })">Review in Automation</button>
           </section>
           <section class="cc-panel">
             <header class="cc-panel-h"><h3>Quick jumps</h3></header>
@@ -222,6 +281,9 @@
               <li><router-link :to="smsPath">SMS care inbox</router-link></li>
               <li><router-link :to="campaignsPath">Broadcasts / campaigns</router-link></li>
               <li><router-link :to="textingSettingsPath">Message routing</router-link></li>
+              <li v-if="canUseSupportHub"><button type="button" class="cc-text-btn" @click.prevent.stop="setMode('automation')">Automation &amp; system messages</button></li>
+              <li v-if="canUseSchoolAlerts"><button type="button" class="cc-text-btn" @click.prevent.stop="setMode('school')">School alerts</button></li>
+              <li v-if="canUseSupportHub"><button type="button" class="cc-text-btn" @click.prevent.stop="openAutomationFeed('pending')">Pending / failed deliveries</button></li>
             </ul>
           </section>
         </div>
@@ -247,7 +309,7 @@
         <div class="cc-mode-intro split">
           <div>
             <h2>Support Hub</h2>
-            <p>Tickets, escalations, delivery queues, automations, and org communication management.</p>
+            <p>Support tickets, escalations, SMS care inbox, and org communication tools.</p>
           </div>
           <div class="cc-intro-actions">
             <button type="button" class="cc-btn outline" @click.prevent.stop="setMode('home')">← Center Home</button>
@@ -261,11 +323,6 @@
             <span class="cc-kpi-label">{{ c.label }}</span>
             <strong class="cc-kpi-value">{{ c.value }}</strong>
             <span class="cc-kpi-hint">{{ c.hint }}</span>
-          </article>
-          <article class="cc-kpi" :class="(escalationSummary.counts?.open || 0) > 0 ? 'warn' : ''">
-            <span class="cc-kpi-label">Open escalations</span>
-            <strong class="cc-kpi-value">{{ escalationSummary.counts?.open || 0 }}</strong>
-            <span class="cc-kpi-hint">Leadership workflow</span>
           </article>
         </div>
 
@@ -313,7 +370,7 @@
               <div class="cc-tr head">
                 <span>ID</span><span>Subject</span><span>Priority</span><span>Status</span><span>Updated</span>
               </div>
-              <div v-for="t in summary.tickets.recent" :key="t.id" class="cc-tr">
+              <div v-for="t in summary.tickets.recent" :key="t.id" class="cc-tr cc-click-row" @click="openTicket(t)">
                 <span class="mono">#{{ t.id }}</span>
                 <span class="grow">{{ t.subject }}</span>
                 <span><i class="prio" :class="prioClass(t.priority)">{{ t.priority }}</i></span>
@@ -322,65 +379,6 @@
               </div>
             </div>
             <p v-else class="cc-empty pad">No open tickets right now.</p>
-          </section>
-
-          <section class="cc-panel">
-            <header class="cc-panel-h"><h3>Analytics</h3></header>
-            <div class="cc-analytics">
-              <div class="cc-metric">
-                <span>Sent (7d)</span>
-                <strong>{{ summary.kpis?.messagesSent || 0 }}</strong>
-              </div>
-              <div class="cc-metric">
-                <span>Delivery rate</span>
-                <strong>{{ summary.kpis?.deliveryRate ?? '—' }}%</strong>
-              </div>
-              <div class="cc-metric">
-                <span>Pending queues</span>
-                <strong>{{ summary.kpis?.pendingInQueues || 0 }}</strong>
-              </div>
-              <div class="cc-metric">
-                <span>Failed</span>
-                <strong class="hot">{{ summary.queues?.emailFailed || 0 }}</strong>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <div class="cc-grid-main" id="engagement-queue">
-          <section class="cc-panel">
-            <header class="cc-panel-h">
-              <div>
-                <h3>Engagement &amp; delivery queue</h3>
-                <p class="cc-panel-sub">Automations, new-hire paperwork, system emails</p>
-              </div>
-              <div class="cc-seg">
-                <button type="button" :class="{ on: engTab === 'pending' }" @click="engTab = 'pending'">
-                  Pending / failed
-                </button>
-                <button type="button" :class="{ on: engTab === 'sent' }" @click="engTab = 'sent'">
-                  Recently sent
-                </button>
-              </div>
-            </header>
-            <ul v-if="engagementRows.length" class="cc-eng-list">
-              <li v-for="row in engagementRows" :key="row.id">
-                <span class="cc-eng-ch">{{ String(row.channel || 'email').toUpperCase() }}</span>
-                <div class="cc-eng-body">
-                  <strong>{{ row.subject }}</strong>
-                  <small>{{ row.recipient || '—' }} · {{ row.status }}</small>
-                </div>
-                <time>{{ formatTime(row.occurredAt) }}</time>
-              </li>
-            </ul>
-            <div v-else class="cc-empty pad">
-              <template v-if="engTab === 'pending'">
-                No pending or failed deliveries. Check
-                <button type="button" class="cc-linkish" @click="engTab = 'sent'">Recently sent</button>
-                for new-hire / automation emails.
-              </template>
-              <template v-else>No recently sent automation emails in this scope.</template>
-            </div>
           </section>
 
           <section class="cc-panel">
@@ -408,6 +406,30 @@
           </div>
         </section>
       </section>
+
+      <!-- ========== AUTOMATION ========== -->
+      <CommunicationsCenterAutomation
+        v-if="activeMode === 'automation'"
+        :prefix="prefix"
+        :initial-channel="automationChannel"
+        :initial-status="automationStatus"
+        :initial-category="automationCategory"
+        :initial-comm-id="automationCommId"
+        :pending-count="automationPendingCount"
+        :failed-count="automationFailedCount"
+        :quality-issues-count="automationQualityCount"
+        :sent-count="automationSentCount"
+        :delivery-rate="summary.kpis?.deliveryRate ?? '—'"
+        @go-home="setMode('home')"
+        @counts-changed="load"
+      />
+
+      <!-- ========== SCHOOL ALERTS ========== -->
+      <CommunicationsCenterSchoolAlerts
+        v-if="activeMode === 'school'"
+        :prefix="prefix"
+        @go-home="setMode('home')"
+      />
     </template>
   </div>
 </template>
@@ -419,6 +441,8 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import MessagesDashboard from '../../components/messages/MessagesDashboard.vue';
+import CommunicationsCenterAutomation from '../../components/communications/CommunicationsCenterAutomation.vue';
+import CommunicationsCenterSchoolAlerts from '../../components/communications/CommunicationsCenterSchoolAlerts.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -428,7 +452,6 @@ const agencyStore = useAgencyStore();
 const loading = ref(false);
 const hasLoadedOnce = ref(false);
 const error = ref('');
-const engTab = ref('pending');
 
 const summary = ref({
   kpis: {},
@@ -443,8 +466,8 @@ const escalationSummary = ref({ counts: { open: 0 }, recent: [] });
 
 function modeFromQuery(raw) {
   const m = String(raw || 'home').toLowerCase();
-  if (m === 'messages' || m === 'support' || m === 'home') return m;
-  // legacy
+  if (['home', 'messages', 'support', 'automation', 'school'].includes(m)) return m;
+  // legacy feed deep-links
   if (m === 'dashboard') return 'home';
   return 'home';
 }
@@ -480,6 +503,42 @@ const canUseEngagementFeed = computed(() =>
   ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff']
     .includes(roleLower.value)
 );
+const canUseSchoolAlerts = computed(() => canUseSupportHub.value && canUseEngagementFeed.value);
+
+const automationPendingCount = computed(() => Number(summary.value.engagement?.pendingCount || 0));
+const automationFailedCount = computed(() => Number(summary.value.engagement?.failedCount || 0));
+const automationQualityCount = computed(() => Number(summary.value.engagement?.qualityIssuesCount || 0));
+/** Prefer quality flags (orange); fall back to pending approvals. */
+const automationAttentionCount = computed(() =>
+  automationQualityCount.value > 0
+    ? automationQualityCount.value
+    : automationPendingCount.value + automationFailedCount.value
+);
+const automationSentCount = computed(() => Number(summary.value.engagement?.sentTotalCount || 0));
+const automationChannel = computed(() => {
+  const ch = String(route.query?.channel || 'email').toLowerCase();
+  return ch === 'sms' ? 'sms' : 'email';
+});
+const automationStatus = computed(() => {
+  const st = String(route.query?.status || '').toLowerCase();
+  if (['pending', 'failed', 'sent'].includes(st)) return st;
+  if (String(route.query?.category || '').toLowerCase() === 'quality') return 'sent';
+  return automationPendingCount.value > 0 ? 'pending' : 'sent';
+});
+const automationCategory = computed(() => {
+  const cat = String(route.query?.category || '').toLowerCase();
+  if (cat === 'quality') return 'quality';
+  return '';
+});
+const automationCommId = computed(() => String(route.query?.commId || '').trim());
+
+function openAutomationTab() {
+  if (automationQualityCount.value > 0) {
+    setMode('automation', { category: 'quality', status: 'sent' });
+    return;
+  }
+  setMode('automation');
+}
 
 const hubGreeting = computed(() => {
   const name = authStore.user?.first_name || 'there';
@@ -495,53 +554,43 @@ const openTicketTotal = computed(
 const supportAttention = computed(
   () =>
     openTicketTotal.value +
-    Number(summary.value.engagement?.pendingCount || 0) +
-    Number(summary.value.engagement?.failedCount || 0)
+    Number(escalationSummary.value.counts?.open || 0)
 );
 
 const hubKpis = computed(() => [
-  { key: 'tickets', label: 'Open tickets', value: summary.value.kpis?.openTickets || 0, hint: 'Unclaimed + in progress', tone: 'accent' },
-  { key: 'sent', label: 'Messages sent', value: summary.value.kpis?.messagesSent || 0, hint: 'Last 7 days', tone: 'secondary' },
-  { key: 'rate', label: 'Delivery rate', value: `${summary.value.kpis?.deliveryRate ?? '—'}%`, hint: 'Last 7 days', tone: 'pop' },
-  { key: 'pending', label: 'Pending in queues', value: summary.value.kpis?.pendingInQueues || 0, hint: 'Email + failed', tone: summary.value.kpis?.pendingInQueues ? 'warn' : 'secondary' },
-  { key: 'unassigned', label: 'Unassigned SMS', value: summary.value.messagesMode?.unassigned || 0, hint: 'Care inbox', tone: 'accent' },
-  { key: 'failed', label: 'Failed deliveries', value: summary.value.queues?.emailFailed || 0, hint: 'Needs review', tone: summary.value.queues?.emailFailed ? 'warn' : '' }
+  { key: 'tickets', label: 'Open tickets', value: summary.value.kpis?.openTickets || 0, hint: 'Unclaimed queue', tone: 'accent' },
+  { key: 'ip', label: 'In progress', value: summary.value.tickets?.in_progress || 0, hint: 'Claimed open', tone: 'secondary' },
+  { key: 'waiting', label: 'Pending reply', value: summary.value.tickets?.waiting || 0, hint: 'Waiting on customer', tone: 'secondary' },
+  { key: 'escalations', label: 'Open escalations', value: escalationSummary.value.counts?.open || 0, hint: 'Leadership workflow', tone: escalationSummary.value.counts?.open ? 'warn' : 'secondary' },
+  { key: 'unassigned', label: 'Unassigned SMS', value: summary.value.messagesMode?.unassigned || 0, hint: 'Care inbox', tone: 'accent' }
 ]);
-
-const engagementRows = computed(() => {
-  if (engTab.value === 'sent') return summary.value.engagement?.recentlySent || [];
-  return summary.value.engagement?.pending || [];
-});
 
 const homeSupportRows = computed(() => {
   const rows = [];
   for (const t of summary.value.tickets?.recent || []) {
     rows.push({
       id: `t-${t.id}`,
+      kind: 'ticket',
+      ticketId: t.id,
       badge: t.priority || 'ticket',
       priority: t.priority,
       title: `#${t.id} ${t.subject}`,
       meta: `${t.status} · ${formatTime(t.updatedAt)}`
     });
   }
-  for (const e of (summary.value.engagement?.pending || []).slice(0, 4)) {
-    rows.push({
-      id: `e-${e.id}`,
-      badge: e.status || 'pending',
-      priority: e.status === 'failed' ? 'high' : 'medium',
-      title: e.subject,
-      meta: `${e.recipient || '—'} · ${formatTime(e.occurredAt)}`
-    });
-  }
   return rows.slice(0, 8);
 });
+
+const homeAutomationRows = computed(() =>
+  (summary.value.engagement?.recentlySent || []).slice(0, 8)
+);
 
 const managementTools = computed(() => {
   const all = [
     { id: 'campaigns', label: 'Broadcasts', desc: 'Campaigns and one-time sends', to: campaignsPath.value, roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider', 'schedule_manager', 'supervisor'] },
     { id: 'contacts', label: 'Contacts', desc: 'Agency contact directory', to: contactsPath.value, roles: ['admin', 'support', 'super_admin'] },
     { id: 'routing', label: 'Message routing', desc: 'SMS numbers and assignments', to: textingSettingsPath.value, roles: ['admin', 'support', 'super_admin'] },
-    { id: 'school', label: 'School alerts', desc: 'School portal notifications', to: `${feedPath.value}?tab=school`, roles: null, needsFeed: true },
+    { id: 'school', label: 'School alerts', desc: 'School portal notifications', to: `${prefix.value}/admin/communications?mode=school`, roles: null, needsFeed: true },
     { id: 'compliance', label: 'Compliance', desc: 'Proof and opt-in surfaces', to: `${feedPath.value}?tab=proof`, roles: null, needsFeed: true },
     { id: 'sms', label: 'SMS inbox', desc: 'Clinical care threads', to: smsPath.value, roles: null, needsSms: true },
     { id: 'tickets', label: 'Ticket desk', desc: 'Full support queue', to: ticketsPath.value, roles: null, needsSupport: true },
@@ -559,11 +608,21 @@ const managementTools = computed(() => {
   });
 });
 
-function setMode(next) {
+function setMode(next, extraQuery = {}) {
   let mode = modeFromQuery(next);
-  if (mode === 'support' && !canUseSupportHub.value) mode = 'messages';
+  if ((mode === 'support' || mode === 'automation') && !canUseSupportHub.value) mode = 'messages';
+  if (mode === 'school' && !canUseSchoolAlerts.value) mode = 'home';
   activeMode.value = mode;
-  router.replace({ path: route.path, query: { ...route.query, mode } }).catch(() => {});
+  const query = { ...route.query, mode, ...extraQuery };
+  if (mode !== 'automation') {
+    delete query.channel;
+    delete query.status;
+    delete query.commId;
+    delete query.category;
+  } else if (!Object.prototype.hasOwnProperty.call(extraQuery, 'category')) {
+    delete query.category;
+  }
+  router.replace({ path: route.path, query }).catch(() => {});
 }
 
 function goSmsInbox() {
@@ -608,6 +667,51 @@ function openPriorityItem(item) {
   }).catch(() => {});
 }
 
+function openTicket(ticket) {
+  const id = ticket?.id || ticket?.ticketId;
+  if (!id) return;
+  router.push({
+    path: ticketsPath.value,
+    query: { status: 'open', ticketId: String(id) }
+  }).catch(() => {});
+}
+
+function openHomeSupportRow(row) {
+  if (row.kind === 'ticket') {
+    openTicket({ id: row.ticketId });
+    return;
+  }
+  if (row.kind === 'engagement' && row.engagement) {
+    openEngagementRow(row.engagement);
+    return;
+  }
+  setMode('support');
+}
+
+function engagementFeedStatus(rowOrStatus) {
+  if (typeof rowOrStatus === 'string') return rowOrStatus;
+  const status = String(rowOrStatus?.status || '').toLowerCase();
+  if (['pending', 'failed', 'bounced', 'undelivered'].includes(status)) {
+    return status === 'pending' ? 'pending' : 'failed';
+  }
+  return 'sent';
+}
+
+function openAutomationFeed(statusOrRow = 'sent') {
+  const status = engagementFeedStatus(statusOrRow);
+  const channel = typeof statusOrRow === 'object'
+    ? String(statusOrRow?.channel || 'email').toLowerCase()
+    : 'email';
+  setMode('automation', { channel, status });
+}
+
+function openEngagementRow(row) {
+  if (!row) return;
+  const status = engagementFeedStatus(row);
+  const channel = String(row?.channel || 'email').toLowerCase();
+  setMode('automation', { channel, status, commId: String(row.id || '') });
+}
+
 async function load() {
   loading.value = true;
   error.value = '';
@@ -637,9 +741,6 @@ async function load() {
       counts: escRes.data?.counts || { open: 0 },
       recent: Array.isArray(escRes.data?.recent) ? escRes.data.recent : []
     };
-    if ((summary.value.engagement?.pending?.length || 0) === 0 && (summary.value.engagement?.recentlySent?.length || 0) > 0) {
-      engTab.value = 'sent';
-    }
     hasLoadedOnce.value = true;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load Communications Center';
@@ -665,7 +766,7 @@ onMounted(() => {
 });
 </script>
 
-<style scoped>
+<style>
 /* Tenant brand tokens: --primary / --secondary / --accent from branding store */
 .cc-shell {
   --cc-primary: var(--primary, var(--agency-primary-color, #1f6b4a));
@@ -780,6 +881,10 @@ onMounted(() => {
   font-size: 10px;
   font-weight: 900;
 }
+.cc-switch-btn em.cc-badge-quality {
+  background: #ea580c;
+  color: #fff;
+}
 .cc-switch-btn.on {
   background: color-mix(in srgb, #fff 92%, var(--cc-accent)) !important;
   color: var(--cc-header-deep) !important;
@@ -893,6 +998,41 @@ button.cc-kpi:hover {
   background: linear-gradient(160deg, #fffbeb, #fff);
   border-color: #fde68a;
 }
+.cc-kpi.kpi-pending {
+  background: linear-gradient(160deg, #fffbeb, #fff);
+  border-color: #fcd34d;
+}
+.cc-kpi.kpi-pending .cc-kpi-value { color: #b45309; }
+.cc-kpi.kpi-failed {
+  background: linear-gradient(160deg, #fef2f2, #fff);
+  border-color: #fca5a5;
+}
+.cc-kpi.kpi-failed .cc-kpi-value { color: #dc2626; }
+.cc-kpi.kpi-quality {
+  background: linear-gradient(160deg, #fff7ed, #fff);
+  border-color: #fdba74;
+}
+.cc-kpi.kpi-quality .cc-kpi-value { color: #ea580c; }
+.cc-kpi.kpi-sent.accent {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--cc-primary) 14%, #fff), #fff);
+  border-color: color-mix(in srgb, var(--cc-primary) 35%, #fff);
+}
+.cc-kpi.kpi-sent.accent .cc-kpi-value { color: var(--cc-primary); }
+.cc-kpi.kpi-rate.pop {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--cc-accent) 18%, #fff), #fff);
+  border-color: color-mix(in srgb, var(--cc-accent) 42%, #fff);
+}
+.cc-kpi.kpi-rate.pop .cc-kpi-value { color: color-mix(in srgb, var(--cc-accent) 75%, #0f172a); }
+.automation-kpis {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+@media (max-width: 1100px) {
+  .automation-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .automation-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.cc-type-filter { min-width: 220px; }
 .cc-kpi-label {
   font-size: 11px;
   font-weight: 800;
@@ -946,6 +1086,12 @@ button.cc-kpi:hover {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-bottom: 14px;
+}
+.cc-grid-main.home-panels {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 1200px) {
+  .cc-grid-main.home-panels { grid-template-columns: 1fr; }
 }
 .cc-grid-3 {
   display: grid;
@@ -1093,6 +1239,11 @@ button.cc-kpi:hover {
 }
 .cc-tr:not(.head):hover {
   background: color-mix(in srgb, var(--cc-primary) 6%, #fff);
+}
+.cc-click-row { cursor: pointer; }
+.cc-linkish.block {
+  display: inline-block;
+  margin-top: 8px;
 }
 .cc-tr.head {
   font-size: 11px;

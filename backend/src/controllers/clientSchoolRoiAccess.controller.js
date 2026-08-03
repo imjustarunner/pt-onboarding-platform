@@ -301,6 +301,25 @@ function ensureRoiSmsBodyHasLink(body, linkUrl) {
   return `${message} ${url}`.trim();
 }
 
+function ensureRoiEmailBodyHasLink(body, linkUrl) {
+  const message = String(body || '').trim();
+  const url = String(linkUrl || '').trim();
+  if (!url) return message;
+  if (!message) return url;
+  if (message.includes(url)) return message;
+
+  const linkBelowIdx = message.toLowerCase().indexOf('link below');
+  if (linkBelowIdx >= 0) {
+    const after = message.slice(linkBelowIdx);
+    const nextBreak = after.indexOf('\n\n');
+    if (nextBreak > 0) {
+      const insertAt = linkBelowIdx + nextBreak;
+      return `${message.slice(0, insertAt)}\n\n${url}${message.slice(insertAt)}`;
+    }
+  }
+  return `${message}\n\n${url}`.trim();
+}
+
 async function createSchoolRoiBackofficeNotification({
   type,
   title,
@@ -985,6 +1004,7 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
     const senderIdentity = await resolvePreferredSenderIdentityForSchoolThenAgency({
       agencyId: client.agency_id || null,
       schoolOrganizationId,
+      templateType: 'school_roi_signing',
       preferredKeys: ['school_intake', 'intake', 'notifications', 'system']
     });
     if (!senderIdentity?.id) {
@@ -1016,15 +1036,59 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
       languageCode: preferredLanguageCode
     });
     const subject = String(req.body?.subject || defaultSubject).trim() || defaultSubject;
-    const body = String(req.body?.message || defaultBody).trim() || defaultBody;
+    const body = ensureRoiEmailBodyHasLink(
+      String(req.body?.message || defaultBody).trim() || defaultBody,
+      linkUrl
+    );
+
+    if (!linkUrl) {
+      return res.status(400).json({
+        error: { message: 'Could not build a signing link for this client. Issue the ROI link first, then send the email.' }
+      });
+    }
 
     const result = await sendEmailFromIdentity({
       senderIdentityId: senderIdentity.id,
       to: toEmail,
       subject,
       text: body,
-      html: buildRoiEmailHtml({ body })
+      html: buildRoiEmailHtml({ body }),
+      templateType: 'school_roi_signing',
+      clientId,
+      generatedByUserId: req.user?.id || null,
+      source: 'auto',
+      linkUrl
     });
+
+    if (result?.pendingApproval) {
+      return res.json({
+        ok: true,
+        queued: true,
+        pending_approval: true,
+        communication_id: result.communicationId || null,
+        message: 'ROI email queued for approval in Communications Center → Automation.',
+        issued_link: serializeIssuedRoiSigningLink(issuedResult.issuedLink, client),
+        link_url: linkUrl,
+        subject,
+        body_preview: body
+      });
+    }
+
+    if (result?.skipped) {
+      return res.status(409).json({
+        error: { message: `Email send blocked: ${result.reason || 'notifications disabled'}` }
+      });
+    }
+
+    if (result?.blocked) {
+      const flagText = (result.qualityFlags || []).map((f) => f.message).filter(Boolean).join(' ');
+      return res.status(409).json({
+        error: {
+          message: flagText || 'Email blocked — quality checks failed.',
+          qualityFlags: result.qualityFlags || []
+        }
+      });
+    }
 
     _roiEmailCooldowns.set(`${clientId}:${toEmail}`, Date.now());
 

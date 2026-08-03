@@ -1838,7 +1838,12 @@ const resolvePacketCompletionEmailContent = async ({
   };
 };
 
-const resolveIntakeSenderIdentity = async ({ organizationId, scopeType, agencyId: explicitAgencyId = null }) => {
+const resolveIntakeSenderIdentity = async ({
+  organizationId,
+  scopeType,
+  agencyId: explicitAgencyId = null,
+  templateType = null
+}) => {
   const scope = String(scopeType || '').trim().toLowerCase();
   const preferredKeys = scope === 'school'
     ? ['school_intake', 'intake', 'notifications', 'system']
@@ -1848,13 +1853,18 @@ const resolveIntakeSenderIdentity = async ({ organizationId, scopeType, agencyId
     return await resolvePreferredSenderIdentityForSchoolThenAgency({
       schoolOrganizationId: organizationId,
       agencyId: explicitAgencyId || null,
+      templateType: templateType || 'intake',
       preferredKeys
     });
   }
 
   const agencyId = Number(explicitAgencyId || organizationId);
   if (!agencyId) return null;
-  return await resolvePreferredSenderIdentityForAgency({ agencyId, preferredKeys });
+  return await resolvePreferredSenderIdentityForAgency({
+    agencyId,
+    preferredKeys,
+    templateType: templateType || 'intake'
+  });
 };
 
 const resolveAbsoluteAssetUrl = (value) => {
@@ -2040,7 +2050,9 @@ const deliverPacketCompletionEmail = async ({
         attachments: packetAttachments,
         source: 'auto',
         clientId,
-        templateType
+        templateType,
+        intakeSubmissionId: submissionId || null,
+        intakeLinkId: link?.id || null
       });
     } else {
       if (!EmailService.isConfigured()) {
@@ -3852,7 +3864,15 @@ const validateJobApplicationSubmission = (link, ctx) => {
   return null;
 };
 
-async function sendJobApplicationReceivedEmail({ agencyId, applicantUser, jobDescription, pdfBuffer, jobTitle }) {
+async function sendJobApplicationReceivedEmail({
+  agencyId,
+  applicantUser,
+  jobDescription,
+  pdfBuffer,
+  jobTitle,
+  submissionId = null,
+  jobDescriptionId = null
+}) {
   try {
     const identity = await resolveJobApplicationSenderIdentity(agencyId);
     if (!identity?.id) return;
@@ -3895,7 +3915,11 @@ async function sendJobApplicationReceivedEmail({ agencyId, applicantUser, jobDes
       text,
       html,
       attachments: attachments.length ? attachments : null,
-      source: 'auto'
+      source: 'auto',
+      userId: applicantUser?.id || null,
+      templateType: 'job_application_received',
+      intakeSubmissionId: submissionId || null,
+      jobDescriptionId: jobDescriptionId || jobDescription?.id || null
     });
   } catch {
     // best-effort
@@ -5806,7 +5830,9 @@ export const finalizePublicIntake = async (req, res, next) => {
           applicantUser: user,
           jobDescription: jd,
           pdfBuffer: answersPdfBuffer,
-          jobTitle
+          jobTitle,
+          submissionId,
+          jobDescriptionId: jobDescriptionId || jd?.id || null
         });
       } catch {
         // best-effort applicant confirmation email
@@ -6162,10 +6188,11 @@ export const finalizePublicIntake = async (req, res, next) => {
           const identity = await resolveIntakeSenderIdentity({
             organizationId: link?.organization_id || null,
             scopeType: link?.scope_type || null,
-            agencyId: boundClient?.agency_id || agency?.id || null
+            agencyId: boundClient?.agency_id || agency?.id || null,
+            templateType: 'school_roi_signer_completion'
           });
           if (identity?.id) {
-            await Promise.race([
+            const sendResult = await Promise.race([
               sendEmailFromIdentity({
                 senderIdentityId: identity.id,
                 to: updatedSubmission.signer_email,
@@ -6180,6 +6207,12 @@ export const finalizePublicIntake = async (req, res, next) => {
                 setTimeout(() => reject(new Error('roi_signer_email_timeout')), 15000);
               })
             ]);
+            if (sendResult?.pendingApproval) {
+              emailDelivery.pending_approval = true;
+              emailDelivery.communication_id = sendResult.communicationId || null;
+            } else {
+              emailDelivery.sent = true;
+            }
           } else {
             const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({
               organizationId: link?.organization_id || null,
@@ -6197,7 +6230,7 @@ export const finalizePublicIntake = async (req, res, next) => {
               organizationId: link?.organization_id || null,
               scopeType: link?.scope_type || null
             });
-            await Promise.race([
+            const sendResult = await Promise.race([
               EmailService.sendEmail({
                 to: updatedSubmission.signer_email,
                 subject,
@@ -6216,8 +6249,13 @@ export const finalizePublicIntake = async (req, res, next) => {
                 setTimeout(() => reject(new Error('roi_signer_email_timeout')), 15000);
               })
             ]);
+            if (sendResult?.pendingApproval) {
+              emailDelivery.pending_approval = true;
+              emailDelivery.communication_id = sendResult.communicationId || null;
+            } else {
+              emailDelivery.sent = true;
+            }
           }
-          emailDelivery.sent = true;
         } catch (emailErr) {
           emailDelivery.error = String(emailErr?.message || '').includes('timeout')
             ? 'send_timeout'

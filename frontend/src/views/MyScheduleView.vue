@@ -31,6 +31,14 @@
             Schedule hub
           </router-link>
           <router-link
+            v-if="canOpenProviderManagement"
+            class="btn btn-secondary btn-sm"
+            :to="providerManagementTo"
+            title="Provider Management — school slots, office & virtual availability"
+          >
+            Provider Management
+          </router-link>
+          <router-link
             class="btn btn-secondary btn-sm"
             :to="staffSchedulesTo"
             title="Compare coworker calendars (busy blocks for providers; full detail for admins)"
@@ -63,11 +71,13 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
+import { useAgencyStore } from '../store/agency';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
 import WorkHoursEditor from '../components/schedule/WorkHoursEditor.vue';
 
 const route = useRoute();
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 
 const orgSlug = computed(() => (
   typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : ''
@@ -75,6 +85,14 @@ const orgSlug = computed(() => (
 const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
 
 const scheduleHubTo = computed(() => orgTo('/schedule'));
+const providerManagementTo = computed(() => ({
+  path: orgTo('/admin/provider-availability'),
+  query: agencyStore.currentAgency?.id ? { agencyId: String(agencyStore.currentAgency.id) } : {}
+}));
+const canOpenProviderManagement = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
+});
 const staffSchedulesTo = computed(() => orgTo('/schedule/staff'));
 const dashboardTo = computed(() => orgTo('/dashboard'));
 const officeApprovalsTo = computed(() => orgTo('/admin/office-approvals'));

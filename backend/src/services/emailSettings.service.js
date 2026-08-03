@@ -37,6 +37,67 @@ export function normalizeSenderIdentityKeys(value) {
   return Array.from(new Set(raw.map((v) => String(v || '').trim().toLowerCase()).filter(Boolean)));
 }
 
+export function normalizeTemplateSenderIdentityJson(value) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const key = String(k || '').trim().toLowerCase();
+    const id = Number(v);
+    if (key && Number.isFinite(id) && id > 0) out[key] = id;
+  }
+  return out;
+}
+
+export function parseTemplateSenderIdentityJson(row) {
+  if (!row) return {};
+  const raw = row.template_sender_identity_json;
+  if (!raw) return {};
+  if (typeof raw === 'object') return normalizeTemplateSenderIdentityJson(raw);
+  try {
+    return normalizeTemplateSenderIdentityJson(JSON.parse(raw));
+  } catch {
+    return {};
+  }
+}
+
+export const SCHOOL_ROI_EMAIL_TEMPLATE_TYPES = new Set([
+  'school_roi_signing',
+  'school_roi_signer_completion',
+  'school_roi_release',
+  'smart_school_roi'
+]);
+
+export function isSchoolRoiEmailTemplate(templateType) {
+  return SCHOOL_ROI_EMAIL_TEMPLATE_TYPES.has(String(templateType || '').trim().toLowerCase());
+}
+
+export async function emailRequiresAdminApproval({ agencyId, templateType, triggerKey = null }) {
+  if (isSchoolRoiEmailTemplate(templateType)) {
+    const settings = await getAgencyEmailSettings(agencyId);
+    if (settings.schoolRoiEmailsRequireApproval !== false) return true;
+  }
+
+  const aid = Number(agencyId || 0);
+  if (!aid) return false;
+
+  let key = String(triggerKey || '').trim();
+  const tt = String(templateType || '').trim();
+  if (!key && tt.toLowerCase().startsWith('trigger:')) {
+    key = tt.slice('trigger:'.length).trim();
+  }
+  if (!key && tt) key = tt;
+  if (!key) return false;
+
+  try {
+    const AgencyNotificationTriggerSetting = (await import('../models/AgencyNotificationTriggerSetting.model.js')).default;
+    const rows = await AgencyNotificationTriggerSetting.listForAgency(aid);
+    const match = (rows || []).find((r) => String(r.triggerKey || '') === key);
+    return !!match?.requireApproval;
+  } catch {
+    return false;
+  }
+}
+
 export async function getPlatformEmailSettings() {
   const row = await PlatformEmailSettings.get();
   return {
@@ -78,7 +139,12 @@ export async function getAgencyEmailSettings(agencyId) {
     allowSchoolOverrides: row?.allow_school_overrides !== 0,
     aiAllowedIntentClasses: normalizeEmailAiIntentClasses(row?.ai_allowed_intents_json || ['school_status_request']),
     aiMatchConfidenceThreshold: normalizeEmailAiConfidenceThreshold(row?.ai_match_confidence_threshold ?? 0.75),
-    aiAllowedSenderIdentityKeys: normalizeSenderIdentityKeys(row?.ai_allowed_sender_identity_keys_json || [])
+    aiAllowedSenderIdentityKeys: normalizeSenderIdentityKeys(row?.ai_allowed_sender_identity_keys_json || []),
+    schoolRoiEmailsRequireApproval: row?.school_roi_emails_require_approval === undefined
+      ? true
+      : row.school_roi_emails_require_approval !== 0,
+    defaultSenderIdentityId: row?.default_sender_identity_id ? Number(row.default_sender_identity_id) : null,
+    templateSenderIdentityIds: parseTemplateSenderIdentityJson(row)
   };
 }
 
@@ -94,7 +160,12 @@ export async function listAgencyEmailSettings(agencyIds) {
       allowSchoolOverrides: row ? row.allow_school_overrides !== 0 : true,
       aiAllowedIntentClasses: normalizeEmailAiIntentClasses(row?.ai_allowed_intents_json || ['school_status_request']),
       aiMatchConfidenceThreshold: normalizeEmailAiConfidenceThreshold(row?.ai_match_confidence_threshold ?? 0.75),
-      aiAllowedSenderIdentityKeys: normalizeSenderIdentityKeys(row?.ai_allowed_sender_identity_keys_json || [])
+      aiAllowedSenderIdentityKeys: normalizeSenderIdentityKeys(row?.ai_allowed_sender_identity_keys_json || []),
+      schoolRoiEmailsRequireApproval: row
+        ? (row.school_roi_emails_require_approval === undefined ? true : row.school_roi_emails_require_approval !== 0)
+        : true,
+      defaultSenderIdentityId: row?.default_sender_identity_id ? Number(row.default_sender_identity_id) : null,
+      templateSenderIdentityIds: parseTemplateSenderIdentityJson(row)
     };
   });
 }

@@ -4015,7 +4015,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
 
     // Affiliated orgs (schools/programs/learning), for school filter dropdown.
     const [organizations] = await pool.execute(
-      `SELECT a.id, a.name, a.organization_type
+      `SELECT a.id, a.name, a.organization_type, a.logo_url
        FROM agencies a
        JOIN organization_affiliations oa ON oa.organization_id = a.id
        WHERE oa.agency_id = ? AND oa.is_active = TRUE
@@ -4058,6 +4058,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
          psa.school_organization_id,
          s.name AS school_name,
          s.organization_type AS school_organization_type,
+         s.logo_url AS school_logo_url,
          psa.day_of_week,
          psa.start_time,
          psa.end_time,
@@ -4091,6 +4092,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
       schoolOrganizationId: r.school_organization_id,
       schoolName: r.school_name || '',
       schoolOrganizationType: String(r.school_organization_type || 'school').toLowerCase(),
+      schoolLogoUrl: r.school_logo_url ? String(r.school_logo_url).trim() : '',
       providerId: r.provider_user_id,
       providerName: `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim(),
       dayOfWeek: r.day_of_week,

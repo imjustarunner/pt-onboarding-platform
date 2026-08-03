@@ -236,6 +236,37 @@ async function loadApprovedProvidersForSession({ eventId, agencyId, sessionDateI
   }));
 }
 
+async function loadSessionRequestsByEvent({ eventId, agencyId }) {
+  const [rows] = await pool.execute(
+    `SELECT r.id, r.session_date_id, r.provider_user_id, r.request_type, r.status, r.created_at, r.decided_at,
+            u.first_name, u.last_name, u.email
+     FROM company_event_session_provider_requests r
+     INNER JOIN users u ON u.id = r.provider_user_id
+     WHERE r.company_event_id = ? AND r.agency_id = ?
+     ORDER BY
+       FIELD(r.status, 'pending', 'approved', 'denied', 'withdrawn') ASC,
+       FIELD(r.request_type, 'regular', 'on_call', 'waitlist') ASC,
+       r.created_at ASC`,
+    [eventId, agencyId]
+  );
+  const bySession = new Map();
+  for (const r of rows || []) {
+    const sid = Number(r.session_date_id);
+    const list = bySession.get(sid) || [];
+    list.push({
+      id: Number(r.id),
+      providerUserId: Number(r.provider_user_id),
+      providerName: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email || `User ${r.provider_user_id}`,
+      requestType: String(r.request_type || 'regular'),
+      status: String(r.status || 'pending'),
+      createdAt: r.created_at || null,
+      decidedAt: r.decided_at || null
+    });
+    bySession.set(sid, list);
+  }
+  return bySession;
+}
+
 export const getCompanyEventSessionStaffingSummary = async (req, res, next) => {
   try {
     const eventId = parsePositiveInt(req.params.eventId);
@@ -262,6 +293,8 @@ export const getCompanyEventSessionStaffingSummary = async (req, res, next) => {
       [eventId]
     );
 
+    const requestsBySession = await loadSessionRequestsByEvent({ eventId, agencyId });
+
     const summaries = [];
     for (const s of sessions || []) {
       const sessionDateId = Number(s.id);
@@ -270,6 +303,7 @@ export const getCompanyEventSessionStaffingSummary = async (req, res, next) => {
       const approvedProvidersCount = await loadApprovedProvidersCount({ eventId, agencyId, sessionDateId });
       const approvedProviders = await loadApprovedProvidersForSession({ eventId, agencyId, sessionDateId });
       const requestStats = await loadSessionRequestStats({ eventId, agencyId, sessionDateId });
+      const sessionRequests = requestsBySession.get(sessionDateId) || [];
       const required = computeRequiredProviders({ staffingConfig, confirmedClientsCount, groupCount });
       summaries.push({
         sessionDateId,
@@ -283,7 +317,10 @@ export const getCompanyEventSessionStaffingSummary = async (req, res, next) => {
         requiredProvidersBreakdown: required.breakdown,
         approvedProvidersCount,
         approvedProviders,
-        requestStats
+        requestStats,
+        sessionRequests,
+        pendingRequests: sessionRequests.filter((r) => String(r.status).toLowerCase() === 'pending'),
+        approvedRequests: sessionRequests.filter((r) => String(r.status).toLowerCase() === 'approved')
       });
     }
 

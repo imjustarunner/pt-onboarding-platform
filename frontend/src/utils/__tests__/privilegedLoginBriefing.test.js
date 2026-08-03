@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   activeBriefingSections,
   buildTenantBlend,
+  isAgencyTenantOrg,
   isLivePrivilegedPresence,
   isPrivilegedLoginBriefingUser,
-  parseBrandPalette
+  isSchoolBriefingNotification,
+  parseBrandPalette,
+  schoolBriefingItemsFromNotifications,
+  tenantBriefingNotifications
 } from '../privilegedLoginBriefing';
 
 describe('privileged login briefing rules', () => {
@@ -17,13 +21,31 @@ describe('privileged login briefing rules', () => {
     expect(isPrivilegedLoginBriefingUser({ role: 'support', status: 'ARCHIVED' })).toBe(false);
   });
 
-  it('removes empty briefing sections', () => {
+  it('removes empty briefing sections in priority order', () => {
     const result = activeBriefingSections({
       messages: { count: 0, items: [] },
       tickets: { count: 2, items: [] },
-      calendar: { count: 0, items: [{ id: 1 }] }
+      calendar: { count: 0, items: [{ id: 1 }] },
+      notifications: { count: 1, items: [{ id: 'n1' }] }
     });
-    expect(result.map((section) => section.key)).toEqual(['tickets', 'calendar']);
+    expect(result.map((section) => section.key)).toEqual(['notifications', 'tickets', 'calendar']);
+  });
+
+  it('splits school updates out of tenant notifications', () => {
+    const rows = [
+      { id: 1, type: 'client_assigned', title: 'Assigned' },
+      { id: 2, type: 'payroll_pending', title: 'Payroll' },
+      { id: 3, type: 'school_provider_availability_updated', title: 'Slots changed' }
+    ];
+    expect(isSchoolBriefingNotification(rows[0])).toBe(true);
+    expect(isSchoolBriefingNotification(rows[1])).toBe(false);
+    expect(schoolBriefingItemsFromNotifications(rows).map((r) => r.id)).toEqual([1, 3]);
+    expect(tenantBriefingNotifications(rows).map((r) => r.id)).toEqual([2]);
+  });
+
+  it('treats only agency rows as tenant orgs for briefing branding', () => {
+    expect(isAgencyTenantOrg({ organization_type: 'agency' })).toBe(true);
+    expect(isAgencyTenantOrg({ organization_type: 'school' })).toBe(false);
   });
 
   it('keeps only live privileged presence rows', () => {

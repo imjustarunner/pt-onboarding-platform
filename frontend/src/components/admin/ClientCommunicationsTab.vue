@@ -234,7 +234,7 @@
               >
                 <span class="timeline-dot" />
                 <div>
-                  <div class="timeline-label">Sent to provider</div>
+                  <div class="timeline-label">{{ sentTimelineLabel(viewingEmail) }}</div>
                   <div class="timeline-time">{{ viewingEmail.sentAt ? formatDate(viewingEmail.sentAt) : 'Not yet sent' }}</div>
                 </div>
               </div>
@@ -603,6 +603,19 @@ const onIframeLoad = async () => {
   } catch {
     // cross-origin in unusual setups — leave default height
   }
+};
+
+const sentTimelineLabel = (email) => {
+  if (email?.recipientIsGuardian) return 'Sent to guardian / signer';
+  const template = String(email?.templateType || '').toLowerCase();
+  const subject = String(email?.subject || '').toLowerCase();
+  if (
+    ['school_roi_signing', 'school_roi_signer_completion', 'school_roi_release', 'smart_school_roi'].includes(template)
+    || subject.includes('release of information')
+  ) {
+    return 'Sent to guardian / signer';
+  }
+  return 'Sent to recipient';
 };
 
 const formatDate = (s) => {

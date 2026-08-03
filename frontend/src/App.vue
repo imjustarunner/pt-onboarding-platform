@@ -934,7 +934,7 @@
                       <span
                         v-if="communicationsCenterAttentionCount > 0"
                         class="nav-badge nav-badge-pulse"
-                        :title="`${communicationsUnreadMessagesCount} unread messages, ${communicationsSupportAttentionCount} items need support`"
+                        :title="`${communicationsUnreadMessagesCount} unread · ${communicationsSupportAttentionCount} tickets · ${communicationsQualityIssuesCount} quality · ${communicationsPendingCount} pending`"
                       >
                         {{ formatNavBadgeCount(communicationsCenterAttentionCount) }}
                       </span>
@@ -5415,9 +5415,9 @@ const scheduleNavLink = computed(() => {
 });
 
 const schoolAvailabilityRequestsNavLink = computed(() => ({
-  path: orgTo('/admin/availability-intake'),
+  path: orgTo('/admin/school-approvals'),
   query: {
-    tab: 'school',
+    tab: 'adjustments',
     ...(currentAgencyId.value ? { agencyId: String(currentAgencyId.value) } : {})
   }
 }));
@@ -5698,7 +5698,14 @@ const communicationsPendingCount = computed(() => Number(communicationsCountsSto
 const communicationsOpenTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
 const communicationsUnreadMessagesCount = computed(() => Number(communicationsCountsStore.unreadMessagesCount || 0));
 const communicationsSupportAttentionCount = computed(() => Number(communicationsCountsStore.supportAttentionCount || 0));
-const communicationsCenterAttentionCount = computed(() => communicationsUnreadMessagesCount.value + communicationsSupportAttentionCount.value);
+const communicationsQualityIssuesCount = computed(() => Number(communicationsCountsStore.qualityIssuesCount || 0));
+/** Communications Center dropdown badge: messages + tickets + automation quality/pending. */
+const communicationsCenterAttentionCount = computed(() =>
+  communicationsUnreadMessagesCount.value +
+  communicationsSupportAttentionCount.value +
+  communicationsQualityIssuesCount.value +
+  communicationsPendingCount.value
+);
 
 const communicationsTotalAttentionCount = computed(() => {
   let count = 0;
@@ -6775,9 +6782,9 @@ onUnmounted(() => {
   min-width: 220px;
   /* Ensure the dropdown never goes off-screen horizontally on narrow viewports */
   max-width: min(320px, calc(100vw - 24px));
-  /* Ensure all items are reachable on short screens */
-  max-height: 80vh;
-  overflow-y: auto;
+  /* Show full menu height; parent nav row reserves space via .nav-menus-open */
+  max-height: none;
+  overflow-y: visible;
   background: white;
   color: var(--text-primary);
   border: 1px solid var(--border);
@@ -7407,8 +7414,9 @@ button.nav-dropdown-button-link:hover {
 .nav-links-wrapper.nav-menus-open {
   overflow-x: auto;
   overflow-y: hidden;
-  padding-bottom: min(70vh, 520px);
-  margin-bottom: calc(-1 * min(70vh, 520px));
+  /* Tall enough for Management / Communications (30+ items) without inner scroll */
+  padding-bottom: 1400px;
+  margin-bottom: -1400px;
   mask-image: none;
   -webkit-mask-image: none;
 }

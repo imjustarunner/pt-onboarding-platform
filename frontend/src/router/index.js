@@ -2338,6 +2338,16 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/school-approvals',
+    name: 'OrganizationSchoolApprovals',
+    component: () => import('../views/admin/SchoolApprovalsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff', 'schedule_manager'],
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/notifications',
     name: 'OrganizationSupervisorNotifications',
     component: () => import('../views/NotificationsHubView.vue'),
@@ -3252,9 +3262,27 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
   },
   {
+    path: '/admin/admin-meetings',
+    name: 'AdminMeetingsLog',
+    component: () => import('../views/admin/AdminMeetingsLogView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'assistant_admin', 'clinical_practice_assistant']
+    }
+  },
+  {
     path: '/admin/office-approvals',
     name: 'OfficeApprovals',
     component: () => import('../views/admin/OfficeApprovalsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff', 'schedule_manager']
+    }
+  },
+  {
+    path: '/admin/school-approvals',
+    name: 'SchoolApprovals',
+    component: () => import('../views/admin/SchoolApprovalsView.vue'),
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff', 'schedule_manager']

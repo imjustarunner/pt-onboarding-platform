@@ -10,18 +10,20 @@
     >
       <slot name="header" />
 
-      <div class="modal-tabs" role="tablist">
-        <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === tab.id"
-          :class="['tab-button', { active: activeTab === tab.id }]"
-          @click="$emit('update:activeTab', tab.id)"
-        >
-          {{ tab.label }}
-        </button>
+      <div class="cc-tab-rail">
+        <div class="modal-tabs" role="tablist" aria-label="Client record sections">
+          <button
+            v-for="tab in tabs"
+            :key="tab.id"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === tab.id"
+            :class="['tab-button', { active: activeTab === tab.id }]"
+            @click="$emit('update:activeTab', tab.id)"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
       </div>
 
       <div

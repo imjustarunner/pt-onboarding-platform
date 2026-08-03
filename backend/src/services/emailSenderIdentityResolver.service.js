@@ -1,4 +1,7 @@
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
+import NotificationTrigger from '../models/NotificationTrigger.model.js';
+import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTriggerSetting.model.js';
+import { getAgencyEmailSettings } from './emailSettings.service.js';
 
 function normalizeKey(value) {
   return String(value || '').trim().toLowerCase();
@@ -13,29 +16,60 @@ export function pickPreferredSenderIdentity(list = [], preferredKeys = []) {
   return (list || [])[0] || null;
 }
 
-export async function resolvePreferredSenderIdentityForAgency({
-  agencyId = null,
-  preferredKeys = [],
-  includePlatformDefaults = true,
-  onlyActive = true
-} = {}) {
-  const aid = Number(agencyId || 0) || null;
-  if (!aid && aid !== null) return null;
-  const list = await EmailSenderIdentity.list({
-    agencyId: aid,
-    includePlatformDefaults,
-    onlyActive
-  });
-  return pickPreferredSenderIdentity(list, preferredKeys);
+async function resolveTriggerSenderIdentityId(agencyId, triggerKey) {
+  const a = Number(agencyId);
+  const key = String(triggerKey || '').trim();
+  if (!a || !key) return null;
+
+  const trigger = await NotificationTrigger.findByKey(key);
+  if (!trigger) return null;
+
+  const settings = await AgencyNotificationTriggerSetting.listForAgency(a);
+  const setting = (settings || []).find((s) => s.triggerKey === key) || null;
+  if (setting?.senderIdentityId) return Number(setting.senderIdentityId);
+  if (trigger.defaultSenderIdentityId) return Number(trigger.defaultSenderIdentityId);
+  return null;
 }
 
-export async function resolvePreferredSenderIdentityForSchoolThenAgency({
-  schoolOrganizationId = null,
+async function resolveConfiguredSenderIdentityId({
+  agencyId,
+  templateType = null,
+  triggerKey = null
+}) {
+  const aid = Number(agencyId || 0);
+  if (!aid) return null;
+
+  if (triggerKey) {
+    const triggerId = await resolveTriggerSenderIdentityId(aid, triggerKey);
+    if (triggerId) return triggerId;
+  }
+
+  const settings = await getAgencyEmailSettings(aid);
+  const byType = settings.templateSenderIdentityIds || {};
+  const tt = String(templateType || '').trim().toLowerCase();
+  if (tt && byType[tt]) return Number(byType[tt]);
+
+  if (settings.defaultSenderIdentityId) return Number(settings.defaultSenderIdentityId);
+  return null;
+}
+
+export async function resolveConfiguredSenderIdentity({
   agencyId = null,
-  preferredKeys = [],
+  templateType = null,
+  triggerKey = null,
+  schoolOrganizationId = null,
+  preferredKeys = ['school_intake', 'intake', 'notifications', 'system'],
   includePlatformDefaults = true,
   onlyActive = true
 } = {}) {
+  const configuredId = await resolveConfiguredSenderIdentityId({ agencyId, templateType, triggerKey });
+  if (configuredId) {
+    const identity = await EmailSenderIdentity.findById(configuredId);
+    if (identity && (onlyActive ? identity.is_active !== 0 && identity.is_active !== false : true)) {
+      return identity;
+    }
+  }
+
   const schoolId = Number(schoolOrganizationId || 0) || null;
   if (schoolId) {
     const schoolList = await EmailSenderIdentity.list({
@@ -46,6 +80,7 @@ export async function resolvePreferredSenderIdentityForSchoolThenAgency({
     const schoolMatch = pickPreferredSenderIdentity(schoolList, preferredKeys);
     if (schoolMatch?.id) return schoolMatch;
   }
+
   return await resolvePreferredSenderIdentityForAgency({
     agencyId,
     preferredKeys,
@@ -54,3 +89,34 @@ export async function resolvePreferredSenderIdentityForSchoolThenAgency({
   });
 }
 
+export async function resolvePreferredSenderIdentityForAgency({
+  agencyId = null,
+  preferredKeys = [],
+  templateType = null,
+  triggerKey = null,
+  includePlatformDefaults = true,
+  onlyActive = true
+} = {}) {
+  const configured = await resolveConfiguredSenderIdentity({
+    agencyId,
+    templateType,
+    triggerKey,
+    preferredKeys,
+    includePlatformDefaults,
+    onlyActive
+  });
+  if (configured?.id) return configured;
+
+  const aid = Number(agencyId || 0) || null;
+  if (!aid && aid !== null) return null;
+  const list = await EmailSenderIdentity.list({
+    agencyId: aid,
+    includePlatformDefaults,
+    onlyActive
+  });
+  return pickPreferredSenderIdentity(list, preferredKeys);
+}
+
+export async function resolvePreferredSenderIdentityForSchoolThenAgency(params = {}) {
+  return await resolveConfiguredSenderIdentity(params);
+}

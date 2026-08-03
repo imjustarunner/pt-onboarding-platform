@@ -3,6 +3,8 @@
  */
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import { countMultiAgencyCommunicationQualityIssues } from '../services/outboundEmailQuality.service.js';
+import { appendSupportTicketKindFilter } from '../utils/supportTicketKindFilter.js';
 
 const isCommsCenterRole = (role) => {
   const r = String(role || '').toLowerCase();
@@ -254,7 +256,7 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
         tickets: { open: 0, in_progress: 0, waiting: 0, closed_today: 0, recent: [] },
         queues: { sms: 0, emailPending: 0, emailFailed: 0, voicemail: 0 },
         messagesMode: { unread: 0, unassigned: 0, queued: 0, recentlySent: 0, newInbound: 0 },
-        engagement: { pendingCount: 0, failedCount: 0, pending: [], recentlySent: [] },
+        engagement: { pendingCount: 0, failedCount: 0, qualityIssuesCount: 0, sentTotalCount: 0, pending: [], recentlySent: [] },
         recentActivity: []
       });
     }
@@ -267,6 +269,10 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
     let closedToday = 0;
     let recentTickets = [];
     try {
+      const ticketKindWhere = [];
+      await appendSupportTicketKindFilter(ticketKindWhere, { alias: '', ticketKind: 'support' });
+      const ticketKindSql = ticketKindWhere.length ? ` AND ${ticketKindWhere[0]}` : '';
+
       // Match desk metrics: open = unclaimed open; in_progress = claimed open
       const [tRows] = await pool.query(
         `SELECT
@@ -275,8 +281,8 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
            SUM(CASE WHEN LOWER(status) IN ('waiting', 'pending') THEN 1 ELSE 0 END) AS wait_cnt,
            SUM(CASE WHEN LOWER(status) = 'closed' AND DATE(updated_at) = CURDATE() THEN 1 ELSE 0 END) AS closed_today
          FROM support_tickets
-         WHERE agency_id IN (${placeholders})
-            OR (agency_id IS NULL AND ? = 1)`,
+         WHERE (agency_id IN (${placeholders}) OR (agency_id IS NULL AND ? = 1))
+           ${ticketKindSql}`,
         [...agencyIds, req.user?.role === 'super_admin' ? 1 : 0]
       );
       openTickets = Number(tRows?.[0]?.open_cnt || 0);
@@ -289,6 +295,7 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
                 question, question_ciphertext
          FROM support_tickets
          WHERE (agency_id IN (${placeholders}) OR (agency_id IS NULL AND ? = 1))
+           ${ticketKindSql}
            AND (
              LOWER(status) = 'open'
              OR LOWER(status) IN ('waiting', 'pending', 'in_progress')
@@ -330,11 +337,15 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
     } catch {
       // support_tickets may differ — retry simpler query
       try {
+        const fallbackKindWhere = [];
+        await appendSupportTicketKindFilter(fallbackKindWhere, { alias: '', ticketKind: 'support' });
+        const fallbackKindSql = fallbackKindWhere.length ? ` AND ${fallbackKindWhere[0]}` : '';
         const [list] = await pool.query(
           `SELECT id, subject, status, priority, updated_at
            FROM support_tickets
            WHERE agency_id IN (${placeholders})
              AND LOWER(status) = 'open'
+             ${fallbackKindSql}
            ORDER BY updated_at DESC
            LIMIT 10`,
           agencyIds
@@ -355,6 +366,7 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
     let pendingInQueues = 0;
     let emailFailed = 0;
     let messagesSent = 0;
+    let sentTotalCount = 0;
     let delivered = 0;
     let engagementPending = [];
     let engagementRecent = [];
@@ -365,6 +377,9 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
            SUM(CASE WHEN delivery_status IN ('failed', 'bounced', 'undelivered') THEN 1 ELSE 0 END) AS failed_cnt,
            SUM(CASE WHEN delivery_status IN ('sent', 'delivered')
                       AND created_at > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS sent_cnt,
+           SUM(CASE WHEN delivery_status IN ('sent', 'delivered') THEN 1 ELSE 0 END) AS sent_total_cnt,
+           SUM(CASE WHEN channel = 'email'
+                      AND delivery_status IN ('sent', 'delivered') THEN 1 ELSE 0 END) AS sent_email_total_cnt,
            SUM(CASE WHEN delivery_status = 'delivered'
                       AND created_at > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS delivered_cnt
          FROM user_communications
@@ -374,10 +389,23 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
       pendingInQueues = Number(pRows?.[0]?.pending_cnt || 0);
       emailFailed = Number(pRows?.[0]?.failed_cnt || 0);
       messagesSent = Number(pRows?.[0]?.sent_cnt || 0);
+      sentTotalCount = Number(pRows?.[0]?.sent_email_total_cnt || pRows?.[0]?.sent_total_cnt || 0);
       delivered = Number(pRows?.[0]?.delivered_cnt || 0);
 
+      const mapEngagementRow = (r) => ({
+        id: r.id,
+        subject: r.subject || r.template_type || 'Message',
+        recipient: r.recipient_address || null,
+        status: r.delivery_status,
+        channel: r.channel || 'email',
+        templateType: r.template_type || null,
+        userId: r.user_id || null,
+        clientId: r.client_id || null,
+        occurredAt: r.sent_at || r.created_at
+      });
+
       const [pendList] = await pool.query(
-        `SELECT id, subject, recipient_address, delivery_status, channel, template_type, created_at, sent_at
+        `SELECT id, user_id, client_id, subject, recipient_address, delivery_status, channel, template_type, created_at, sent_at
          FROM user_communications
          WHERE agency_id IN (${placeholders})
            AND delivery_status IN ('pending', 'failed', 'bounced', 'undelivered')
@@ -385,17 +413,10 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
          LIMIT 8`,
         agencyIds
       );
-      engagementPending = (pendList || []).map((r) => ({
-        id: r.id,
-        subject: r.subject || r.template_type || 'Message',
-        recipient: r.recipient_address || null,
-        status: r.delivery_status,
-        channel: r.channel || 'email',
-        occurredAt: r.created_at
-      }));
+      engagementPending = (pendList || []).map(mapEngagementRow);
 
       const [sentList] = await pool.query(
-        `SELECT id, subject, recipient_address, delivery_status, channel, template_type, created_at, sent_at
+        `SELECT id, user_id, client_id, subject, recipient_address, delivery_status, channel, template_type, created_at, sent_at
          FROM user_communications
          WHERE agency_id IN (${placeholders})
            AND delivery_status IN ('sent', 'delivered')
@@ -403,16 +424,16 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
          LIMIT 8`,
         agencyIds
       );
-      engagementRecent = (sentList || []).map((r) => ({
-        id: r.id,
-        subject: r.subject || r.template_type || 'Message',
-        recipient: r.recipient_address || null,
-        status: r.delivery_status,
-        channel: r.channel || 'email',
-        occurredAt: r.sent_at || r.created_at
-      }));
+      engagementRecent = (sentList || []).map(mapEngagementRow);
     } catch {
       pendingInQueues = 0;
+    }
+
+    let qualityIssuesCount = 0;
+    try {
+      qualityIssuesCount = await countMultiAgencyCommunicationQualityIssues(agencyIds.slice(0, 5), { pool });
+    } catch {
+      qualityIssuesCount = 0;
     }
 
     const deliveryRate =
@@ -490,6 +511,8 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
       engagement: {
         pendingCount: pendingInQueues,
         failedCount: emailFailed,
+        qualityIssuesCount,
+        sentTotalCount,
         pending: engagementPending,
         recentlySent: engagementRecent
       },

@@ -220,7 +220,7 @@
           :canManageAssignments="canManageAssignments"
           :canViewActivityLog="canViewActivityLog"
           :canViewPayroll="canViewPayroll"
-          :agencyId="agencyStore.currentAgency?.id"
+          :agencyId="profileOverviewAgencyId"
           :preloadedOverview="overview"
           :preloadedOverviewLoading="overviewLoading"
           @navigate="selectTab"
@@ -234,7 +234,7 @@
           :user="user"
           :canEditUser="canEditUser"
           :canViewPayroll="canViewPayroll"
-          :agencyId="agencyStore.currentAgency?.id"
+          :agencyId="profileOverviewAgencyId"
           :isHourlyWorker="!!accountForm?.isHourlyWorker"
           @navigate="selectTab"
           @updated="onBenefitsUpdated"
@@ -1748,10 +1748,86 @@
 
           <div v-if="schoolAffiliationsLoading" class="loading">Loading affiliations…</div>
           <div v-else-if="schoolAffiliationsError" class="error">{{ schoolAffiliationsError }}</div>
-          <div v-else-if="affiliationsForActiveTab.length === 0" class="empty-state">
-            <p>No {{ activeAffiliationPluralLabel.toLowerCase() }} affiliations found for this provider.</p>
-          </div>
           <div v-else class="school-affiliation-panel">
+            <div class="affiliation-manage card">
+              <div class="affiliation-manage-head">
+                <div>
+                  <h3 class="affiliation-manage-title">Assigned {{ activeAffiliationPluralLabel.toLowerCase() }}</h3>
+                  <p class="hint affiliation-manage-hint">
+                    Link or unlink {{ activeAffiliationSingleLabel.toLowerCase() }} organizations for this provider.
+                  </p>
+                </div>
+              </div>
+
+              <div v-if="affiliationsForActiveTab.length" class="affiliation-manage-list">
+                <div
+                  v-for="o in affiliationsForActiveTab"
+                  :key="o.id"
+                  class="affiliation-manage-row"
+                  :class="{ active: String(o.id) === selectedSchoolAffiliationId }"
+                >
+                  <button
+                    type="button"
+                    class="affiliation-manage-name"
+                    @click="selectAffiliationForEditing(o.id)"
+                  >
+                    {{ o.name }}
+                    <span v-if="o.organization_type" class="muted">({{ o.organization_type }})</span>
+                  </button>
+                  <div class="affiliation-manage-actions">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      @click="selectAffiliationForEditing(o.id)"
+                    >
+                      Configure
+                    </button>
+                    <button
+                      v-if="canEditUser"
+                      type="button"
+                      class="btn btn-danger btn-sm"
+                      :disabled="assigningAgency"
+                      @click="removeAffiliationFromTab(o)"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <p v-else class="hint affiliation-manage-empty">
+                No {{ activeAffiliationPluralLabel.toLowerCase() }} assigned yet.
+              </p>
+
+              <div v-if="canEditUser" class="affiliation-manage-add">
+                <select v-model="affiliationTabAddOrgId" class="agency-select" :disabled="assigningAgency">
+                  <option value="">Add {{ activeAffiliationSingleLabel.toLowerCase() }}…</option>
+                  <option
+                    v-for="org in availableAffiliationOrgsToAdd"
+                    :key="org.id"
+                    :value="String(org.id)"
+                  >
+                    {{ org.name }}
+                    <template v-if="org.organization_type"> ({{ org.organization_type }})</template>
+                  </option>
+                </select>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  :disabled="!affiliationTabAddOrgId || assigningAgency"
+                  @click="addAffiliationFromTab"
+                >
+                  {{ assigningAgency ? 'Adding…' : 'Add affiliation' }}
+                </button>
+              </div>
+              <p v-else class="hint affiliation-manage-empty">
+                Only admins can change affiliations.
+              </p>
+            </div>
+
+            <div v-if="affiliationsForActiveTab.length === 0" class="empty-state">
+              <p>Add a {{ activeAffiliationSingleLabel.toLowerCase() }} above to configure availability and slots.</p>
+            </div>
+            <template v-else>
             <div class="form-grid" style="grid-template-columns: minmax(240px, 1fr) minmax(240px, 1fr); gap: 12px;">
               <div class="form-group">
                 <label>{{ activeAffiliationSingleLabel }}</label>
@@ -1942,6 +2018,7 @@
                 </div>
               </div>
             </div>
+            </template>
           </div>
         </div>
 
@@ -2504,12 +2581,6 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const userId = computed(() => parseInt(route.params.userId));
-
-const { overview, overviewLoading, overviewError, refreshOverview } = useProfileOverview(
-  userId,
-  computed(() => agencyStore.currentAgency?.id)
-);
-provide('refreshProfileOverview', refreshOverview);
 
 const userDisplayNameForDocs = computed(() => {
   const u = user.value;
@@ -3429,6 +3500,25 @@ const isLegacyAffiliationTabId = (tabId) => isAffiliationSectionId(tabId);
 const isAffiliationTabActive = computed(() => activeTab.value === 'affiliations');
 const activeAffiliationConfig = computed(() => AFFILIATION_TAB_CONFIG[String(activeAffiliationSection.value)] || null);
 const activeAffiliationOrgType = computed(() => String(activeAffiliationConfig.value?.type || ''));
+
+const affiliationTabAddOrgId = ref('');
+
+const userAssignedOrgIds = computed(() => new Set(
+  (userAgencies.value || [])
+    .map((o) => Number(o?.id))
+    .filter((n) => Number.isFinite(n) && n > 0)
+));
+
+const availableAffiliationOrgsToAdd = computed(() => {
+  const type = activeAffiliationOrgType.value;
+  if (!type) return [];
+  return (availableAgencies.value || []).filter((org) => {
+    const id = Number(org?.id || 0);
+    if (!id || userAssignedOrgIds.value.has(id)) return false;
+    if (isAgencyOrg(org)) return false;
+    return String(org?.organization_type || '').toLowerCase() === type;
+  });
+});
 const activeAffiliationTabLabel = computed(() => String(activeAffiliationConfig.value?.label || 'Affiliation'));
 const activeAffiliationSingleLabel = computed(() => String(activeAffiliationConfig.value?.singleLabel || 'Affiliation'));
 const activeAffiliationPluralLabel = computed(() => String(activeAffiliationConfig.value?.pluralLabel || 'Affiliations'));
@@ -4422,6 +4512,7 @@ watch([activeTab, isViewingGuardian], async ([t, viewingGuardian]) => {
   }
   if (t === 'affiliations') {
     if (!canViewSchoolAffiliation.value) return;
+    await ensureAvailableAgencies();
     await loadSchoolAffiliations();
     ensureSelectedAffiliationForActiveTab();
     await loadSchoolAssignments();
@@ -4431,6 +4522,7 @@ watch([activeTab, isViewingGuardian], async ([t, viewingGuardian]) => {
 
 watch(activeAffiliationSection, async () => {
   if (activeTab.value !== 'affiliations') return;
+  affiliationTabAddOrgId.value = '';
   ensureSelectedAffiliationForActiveTab();
   await loadSchoolAssignments();
 });
@@ -4482,6 +4574,8 @@ const tempPasswordInput = ref(null);
 const tempUsernameInput = ref(null);
 
 const availableAgencies = ref([]);
+const availableAgenciesReady = ref(false);
+let fetchAvailableAgenciesInflight = null;
 const selectedAgencyId = ref('');
 const assigningAgency = ref(false);
 const officeAssignmentsLoading = ref(false);
@@ -4516,6 +4610,24 @@ watch(selectedProviderProfileAgencyId, async () => {
 const orgTypeFor = (org) => String(org?.organization_type || 'agency').toLowerCase();
 const isAgencyOrg = (org) => orgTypeFor(org) === 'agency';
 const isAffiliationOrg = (org) => !isAgencyOrg(org);
+
+const profileOverviewAgencyId = computed(() => {
+  const fromStore = Number(agencyStore.currentAgency?.id || 0);
+  if (Number.isFinite(fromStore) && fromStore > 0) return fromStore;
+  const fromRoute = parseInt(String(route.query?.agencyId || ''), 10);
+  if (Number.isFinite(fromRoute) && fromRoute > 0) return fromRoute;
+  const agencies = userAgencies.value || [];
+  const agencyOrg = agencies.find((a) => isAgencyOrg(a));
+  if (agencyOrg?.id) return Number(agencyOrg.id);
+  const first = agencies[0];
+  return first?.id ? Number(first.id) : null;
+});
+
+const { overview, overviewLoading, overviewError, refreshOverview } = useProfileOverview(
+  userId,
+  profileOverviewAgencyId
+);
+provide('refreshProfileOverview', refreshOverview);
 
 // Compact affiliations display on User Profile:
 // - show agencies in the main list
@@ -5141,8 +5253,10 @@ const fetchUser = async () => {
       void loadMemberSeasonHistory();
     } else {
       void Promise.allSettled([
-        fetchUserAgencies().then(() => loadProviderPublicProfile()),
-        fetchAvailableAgencies(),
+        fetchUserAgencies().then(() => {
+          void loadProviderPublicProfile();
+          if (profileOverviewAgencyId.value) void refreshOverview();
+        }),
         fetchAccountInfo(),
         fetchProviderCredential(),
         fetchLicenseCredentialSummary(),
@@ -5768,6 +5882,8 @@ const savePrelicensedSettings = async (agency, patch) => {
 };
 
 const fetchAvailableAgencies = async () => {
+  if (fetchAvailableAgenciesInflight) return fetchAvailableAgenciesInflight;
+  fetchAvailableAgenciesInflight = (async () => {
   if (isSscMemberProfileMode.value) {
     availableAgencies.value = [];
     return;
@@ -5801,9 +5917,88 @@ const fetchAvailableAgencies = async () => {
       if (!byId.has(org.id)) byId.set(org.id, org);
     }
     availableAgencies.value = Array.from(byId.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    availableAgenciesReady.value = true;
   } catch (err) {
     console.error('Failed to load agencies:', err);
     availableAgencies.value = [];
+  }
+  })().finally(() => {
+    fetchAvailableAgenciesInflight = null;
+  });
+  return fetchAvailableAgenciesInflight;
+};
+
+const ensureAvailableAgencies = async () => {
+  if (availableAgenciesReady.value && (availableAgencies.value || []).length > 0) return;
+  await fetchAvailableAgencies();
+};
+
+watch(userId, () => {
+  availableAgenciesReady.value = false;
+});
+
+watch(activeTab, (tab) => {
+  if (tab === 'account' || tab === 'affiliations') {
+    void ensureAvailableAgencies();
+  }
+});
+
+const refreshUserOrgAssignments = async () => {
+  await fetchUserAgencies();
+  if (!canViewSchoolAffiliation.value) return;
+  await loadSchoolAffiliations();
+  ensureSelectedAffiliationForActiveTab();
+  if (selectedSchoolAffiliationId.value) {
+    await loadSchoolAssignments();
+  }
+};
+
+const selectAffiliationForEditing = async (orgId) => {
+  const id = Number(orgId || 0);
+  if (!id) return;
+  selectedSchoolAffiliationId.value = String(id);
+  await loadSchoolAssignments();
+};
+
+const addAffiliationFromTab = async () => {
+  const orgId = parseInt(String(affiliationTabAddOrgId.value || ''), 10);
+  if (!orgId) return;
+  try {
+    assigningAgency.value = true;
+    await api.post('/users/assign/agency', {
+      userId: userId.value,
+      agencyId: orgId
+    });
+    affiliationTabAddOrgId.value = '';
+    await refreshUserOrgAssignments();
+    selectedSchoolAffiliationId.value = String(orgId);
+    await loadSchoolAssignments();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to add affiliation');
+  } finally {
+    assigningAgency.value = false;
+  }
+};
+
+const removeAffiliationFromTab = async (org) => {
+  const name = String(org?.name || 'this organization');
+  const typeLabel = activeAffiliationSingleLabel.value.toLowerCase();
+  if (!confirm(`Remove ${name}? This unlinks the provider from this ${typeLabel} and clears related schedule data.`)) {
+    return;
+  }
+  const orgId = Number(org?.id || 0);
+  if (!orgId) return;
+  try {
+    assigningAgency.value = true;
+    await api.post('/users/remove/agency', {
+      userId: userId.value,
+      agencyId: orgId
+    });
+    await refreshUserOrgAssignments();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to remove affiliation');
+  } finally {
+    assigningAgency.value = false;
   }
 };
 
@@ -5828,7 +6023,7 @@ const addAgency = async () => {
         alert(e.response?.data?.error?.message || 'Agency assigned, but failed to set login email alias.');
       }
     }
-    await fetchUserAgencies();
+    await refreshUserOrgAssignments();
     selectedAgencyId.value = '';
     newAgencyLoginEmail.value = '';
   } catch (err) {
@@ -5866,7 +6061,7 @@ const removeAgency = async (agencyId) => {
       userId: userId.value,
       agencyId: agencyId
     });
-    await fetchUserAgencies();
+    await refreshUserOrgAssignments();
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to remove agency';
     alert(error.value);
@@ -7490,6 +7685,69 @@ onUnmounted(() => {
 .affiliation-subtab.active {
   color: #2e5d50;
   border-bottom-color: #2e5d50;
+}
+
+.affiliation-manage {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #eef2f7;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+.affiliation-manage-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+}
+.affiliation-manage-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.affiliation-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.affiliation-manage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.affiliation-manage-row.active {
+  border-color: color-mix(in srgb, var(--primary, #2e5d50) 45%, #e2e8f0);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary, #2e5d50) 25%, transparent);
+}
+.affiliation-manage-name {
+  border: none;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  cursor: pointer;
+}
+.affiliation-manage-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.affiliation-manage-add {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 4px;
+}
+.affiliation-manage-empty {
+  margin: 8px 0 0;
+  font-size: 12px;
 }
 
 .tab-content {

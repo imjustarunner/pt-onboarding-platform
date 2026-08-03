@@ -507,6 +507,10 @@ function mapEventRow(row, req, opts = {}) {
       if (orgName && et.startsWith('school_')) return orgName;
       return null;
     })(),
+    schoolLogoUrl: (() => {
+      const raw = row.school_logo_url || row.organization_logo_url;
+      return raw ? String(raw).trim() : '';
+    })(),
     location:
       (row.event_location_name && String(row.event_location_name).trim()) ||
       (row.event_location_address && String(row.event_location_address).trim()) ||
@@ -1038,7 +1042,8 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
   const [rows] = await pool.execute(
     `SELECT ce.*,
             org.name AS organization_name,
-            org.organization_type AS organization_type
+            org.organization_type AS organization_type,
+            org.logo_url AS organization_logo_url
      FROM company_events ce
      LEFT JOIN agencies org ON org.id = ce.organization_id
      WHERE ce.agency_id IN (${placeholders})
@@ -3485,7 +3490,8 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
       `SELECT ce.*,
               sch.name AS school_name,
               sch.portal_url AS school_portal_url,
-              sch.slug AS school_slug
+              sch.slug AS school_slug,
+              sch.logo_url AS school_logo_url
        FROM company_events ce
        LEFT JOIN agencies sch ON sch.id = ce.organization_id
        WHERE ce.agency_id IN (${placeholders})
@@ -3597,6 +3603,7 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
         isSchoolPortalEvent: isSchoolEvent,
         schoolName: row.school_name ? String(row.school_name).trim() : null,
         schoolSlug: String(row.school_portal_url || row.school_slug || '').trim() || null,
+        schoolLogoUrl: row.school_logo_url ? String(row.school_logo_url).trim() : null,
         sessions,
         canRequestOutreachShift:
           (isSchoolEvent &&

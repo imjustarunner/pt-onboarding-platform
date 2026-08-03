@@ -10,7 +10,8 @@
         </div>
       </div>
       <div class="header-right" data-tour="sched-compare-controls">
-        <router-link class="btn btn-secondary" :to="orgTo('/schedule')" data-tour="sched-compare-back">Back to Schedule</router-link>
+        <router-link class="btn btn-secondary" :to="orgTo('/schedule')">Schedule hub</router-link>
+        <router-link class="btn btn-secondary" :to="providerManagementTo">Provider Management</router-link>
         <div class="week" data-tour="sched-compare-week">
           <label class="lbl-sm">Week of</label>
           <input v-model="weekStartYmd" type="date" class="input" />
@@ -169,6 +170,10 @@ const orgSlug = computed(() => (typeof route.params.organizationSlug === 'string
 const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const providerManagementTo = computed(() => ({
+  path: orgTo('/admin/provider-availability'),
+  query: agencyStore.currentAgency?.id ? { agencyId: String(agencyStore.currentAgency.id) } : {}
+}));
 
 const loading = ref(false);
 const error = ref('');

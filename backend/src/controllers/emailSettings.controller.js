@@ -10,6 +10,7 @@ import {
   normalizeEmailAiIntentClasses,
   normalizeEmailAiConfidenceThreshold,
   normalizeSenderIdentityKeys,
+  normalizeTemplateSenderIdentityJson,
   listSchoolEmailAiPolicyOverrides,
   upsertSchoolEmailAiPolicyOverride,
   removeSchoolEmailAiPolicyOverride
@@ -50,6 +51,9 @@ export const getEmailSettings = async (req, res, next) => {
         aiAllowedIntentClasses: setting.aiAllowedIntentClasses || ['school_status_request'],
         aiMatchConfidenceThreshold: setting.aiMatchConfidenceThreshold ?? 0.75,
         aiAllowedSenderIdentityKeys: setting.aiAllowedSenderIdentityKeys || [],
+        schoolRoiEmailsRequireApproval: setting.schoolRoiEmailsRequireApproval !== false,
+        defaultSenderIdentityId: setting.defaultSenderIdentityId || null,
+        templateSenderIdentityIds: setting.templateSenderIdentityIds || {},
         effectiveNotificationsEnabled: effectiveEnabled
       };
     });
@@ -115,11 +119,18 @@ export const updateEmailSettings = async (req, res, next) => {
         await AgencyEmailSettings.update({
           agencyId,
           notificationsEnabled: a.notificationsEnabled !== false,
+          schoolRoiEmailsRequireApproval: a.schoolRoiEmailsRequireApproval !== false,
           aiDraftPolicyMode: normalizeEmailAiPolicyMode(a.aiDraftPolicyMode || 'human_only'),
           allowSchoolOverrides: a.allowSchoolOverrides !== false,
           aiAllowedIntents: normalizeEmailAiIntentClasses(a.aiAllowedIntentClasses || ['school_status_request']),
           aiMatchConfidenceThreshold: normalizeEmailAiConfidenceThreshold(a.aiMatchConfidenceThreshold ?? 0.75),
           aiAllowedSenderIdentityKeys: normalizeSenderIdentityKeys(a.aiAllowedSenderIdentityKeys || []),
+          defaultSenderIdentityId: a.defaultSenderIdentityId === null || a.defaultSenderIdentityId === undefined || a.defaultSenderIdentityId === ''
+            ? null
+            : Number(a.defaultSenderIdentityId),
+          templateSenderIdentityJson: a.templateSenderIdentityIds
+            ? normalizeTemplateSenderIdentityJson(a.templateSenderIdentityIds)
+            : undefined,
           actorUserId: req.user.id
         });
       }

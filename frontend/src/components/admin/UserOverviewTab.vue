@@ -1074,14 +1074,17 @@ const fetchActivity = async () => {
 };
 
 const fetchNotes = async () => {
+  const agencyId = props.agencyId ? Number(props.agencyId) : null;
+  if (!agencyId) {
+    // Notes are included in profile-overview (no agency required). Avoid hiring API 400.
+    return;
+  }
   notesLoading.value = true;
   try {
-    const params = {};
-    if (props.agencyId) params.agencyId = props.agencyId;
-    const res = await api.get(`/hiring/candidates/${props.userId}`, { params });
+    const res = await api.get(`/hiring/candidates/${props.userId}`, { params: { agencyId } });
     notes.value = Array.isArray(res.data?.notes) ? res.data.notes : [];
   } catch {
-    notes.value = [];
+    if (!notes.value.length) notes.value = [];
   } finally {
     notesLoading.value = false;
   }
@@ -1102,12 +1105,15 @@ const fetchAffiliations = async () => {
 const saveNote = async () => {
   const text = newNoteText.value.trim();
   if (!text) return;
+  const agencyId = props.agencyId ? Number(props.agencyId) : null;
+  if (!agencyId) {
+    noteSaveError.value = 'An agency context is required to save notes.';
+    return;
+  }
   noteSaving.value = true;
   noteSaveError.value = '';
   try {
-    const params = {};
-    if (props.agencyId) params.agencyId = props.agencyId;
-    await api.post(`/hiring/candidates/${props.userId}/notes`, { message: text }, { params });
+    await api.post(`/hiring/candidates/${props.userId}/notes`, { message: text }, { params: { agencyId } });
     newNoteText.value = '';
     showNoteComposer.value = false;
     await fetchNotes();
@@ -1135,26 +1141,54 @@ const applyPreloaded = (data) => {
   return true;
 };
 
+const waitForPreloadedOverview = async (timeoutMs = 12000) => {
+  if (props.preloadedOverview) return props.preloadedOverview;
+  if (!props.preloadedOverviewLoading) return null;
+  return new Promise((resolve) => {
+    let stop = () => {};
+    const deadline = setTimeout(() => {
+      stop();
+      resolve(null);
+    }, timeoutMs);
+    stop = watch(
+      () => [props.preloadedOverview, props.preloadedOverviewLoading],
+      ([data, loading]) => {
+        if (data || !loading) {
+          clearTimeout(deadline);
+          stop();
+          resolve(data || null);
+        }
+      },
+      { immediate: true }
+    );
+  });
+};
+
 const loadOverviewData = async () => {
   loading.value = true;
   loadError.value = '';
   try {
-    if (props.preloadedOverview && applyPreloaded(props.preloadedOverview)) {
+    let preloaded = props.preloadedOverview;
+    if (!preloaded && props.preloadedOverviewLoading) {
+      preloaded = await waitForPreloadedOverview();
+    }
+    if (preloaded && applyPreloaded(preloaded)) {
       await Promise.all([
         fetchTasks().catch(() => {}),
         fetchAffiliations().catch(() => {}),
       ]);
-    } else {
-      await Promise.all([
-        fetchAccountInfo().catch(() => {}),
-        props.canViewLifecycleTab ? fetchLifecycle().catch(() => {}) : Promise.resolve(),
-        fetchTasks(),
-        fetchSupervisors(),
-        props.canViewActivityLog ? fetchActivity() : Promise.resolve(),
-        fetchNotes(),
-        fetchAffiliations().catch(() => {}),
-      ]);
+      return;
     }
+
+    await Promise.all([
+      fetchAccountInfo().catch(() => {}),
+      props.canViewLifecycleTab ? fetchLifecycle().catch(() => {}) : Promise.resolve(),
+      fetchTasks(),
+      fetchSupervisors(),
+      props.canViewActivityLog ? fetchActivity() : Promise.resolve(),
+      fetchNotes(),
+      fetchAffiliations().catch(() => {}),
+    ]);
   } catch (err) {
     loadError.value = 'Failed to load overview. Please refresh.';
     console.error('[UserOverviewTab]', err);

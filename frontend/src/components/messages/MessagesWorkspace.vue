@@ -1128,6 +1128,12 @@ const isAffiliationOrgType = (org) => {
 };
 const isSchoolOrgType = (org) =>
   String(org?.organization_type || org?.organizationType || '').toLowerCase() === 'school';
+const isChildOrgType = (org) => {
+  const t = String(org?.organization_type || org?.organizationType || '').toLowerCase();
+  return t === 'school' || t === 'program' || t === 'learning';
+};
+/** Tenant orgs the user can scope team presence / unified inbox to (not inherited schools). */
+const isTenantOrgForMessaging = (org) => isAgencyOrgType(org) || isAffiliationOrgType(org);
 
 const agencyId = computed(() => {
   const current = agencyStore.currentAgency || null;
@@ -1169,10 +1175,12 @@ const COMPOSE_AGENCY_KEY = 'pt.messages.composeAgencyId.v1';
 const composeAgencyId = ref(null);
 const membershipAgencies = computed(() => {
   const seen = new Map();
+  const includeChildOrgs = isSchoolStaffRole(authStore.user?.role);
   for (const a of agencyStore.userAgencies || []) {
     if (!a?.id || seen.has(a.id)) continue;
-    // Prefer parent agencies for compose; include affiliation/club when that is the only context.
-    if (isAgencyOrgType(a) || isAffiliationOrgType(a) || isSchoolOrgType(a)) {
+    // Admin/support inherit child schools in userAgencies but cannot call presence for them.
+    // Scope compose + presence to tenant agencies (and school org only for school staff).
+    if (isTenantOrgForMessaging(a) || (includeChildOrgs && isChildOrgType(a))) {
       seen.set(a.id, { id: a.id, name: a.name || `Agency ${a.id}` });
     }
   }
@@ -1185,6 +1193,9 @@ const membershipAgencies = computed(() => {
   }
   return [...seen.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
 });
+const tenantMembershipCount = computed(
+  () => (agencyStore.userAgencies || []).filter((a) => isTenantOrgForMessaging(a)).length
+);
 const showComposeAgencyPicker = computed(
   () => !isSchoolStaffRole(authStore.user?.role) && membershipAgencies.value.length > 1
 );
@@ -1232,7 +1243,7 @@ const adminsAllMode = computed(() => myRole.value === 'super_admin' && myAvailab
 const shouldUnifyInboxes = computed(() => {
   if (isClubContext.value) return false;
   if (myRole.value === 'super_admin') return true;
-  return (agencyStore.userAgencies || []).length > 1;
+  return tenantMembershipCount.value > 1;
 });
 const needsAgency = computed(() => {
   if (adminsAllMode.value || shouldUnifyInboxes.value) return false;
@@ -1872,8 +1883,10 @@ const loadPresence = async () => {
     }
 
     const agencyIds = shouldUnifyInboxes.value
-      ? membershipAgencies.value.map((a) => Number(a.id)).filter((n) => n > 0)
-      : [Number(effectiveComposeAgencyId.value || 0)].filter((n) => n > 0);
+      ? membershipAgencies.value
+          .map((a) => Number(a.id))
+          .filter((n) => n > 0)
+      : [Number(effectiveComposeAgencyId.value || agencyId.value || 0)].filter((n) => n > 0);
 
     if (!agencyIds.length) {
       people.value = [];

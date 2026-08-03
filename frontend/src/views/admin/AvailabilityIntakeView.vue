@@ -1,11 +1,16 @@
 <template>
   <div class="availability-intake-view container">
     <div class="page-header">
-      <h1>Office &amp; availability approvals</h1>
+      <h1>Availability tools</h1>
       <p class="subtitle">
-        One place to approve office requests, booking requests, and school availability.
-        My Schedule remains the primary day-to-day schedule surface.
+        Appointments, search, and skills. Office approvals and school approvals now have dedicated inboxes.
       </p>
+      <div class="legacy-links">
+        <router-link class="btn btn-secondary btn-sm" :to="officeApprovalsTo">Office approvals</router-link>
+        <router-link class="btn btn-secondary btn-sm" :to="schoolApprovalsTo">School approvals</router-link>
+        <router-link class="btn btn-secondary btn-sm" :to="providerManagementTo">Provider Management</router-link>
+        <router-link class="btn btn-secondary btn-sm" :to="scheduleHubTo">Schedule hub</router-link>
+      </div>
     </div>
 
     <div v-if="shouldShowAgencySelector" class="agency-selector">
@@ -26,25 +31,42 @@
       :show-header="false"
       :initial-tab="initialTab"
       :show-booking-queue-tabs="true"
+      :hide-office-and-school-tabs="true"
     />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import AvailabilityIntakeManagement from '../../components/admin/AvailabilityIntakeManagement.vue';
 import OfficeScheduleApprovalsView from './OfficeScheduleApprovalsView.vue';
 
 const route = useRoute();
+const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
 const selectedAgencyId = ref(null);
 const initialTab = computed(() => String(route.query.tab || '').trim().toLowerCase());
 const isBookingQueueTab = computed(() => ['booking', 'legacy'].includes(initialTab.value));
+
+const orgSlug = computed(() => (typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : null));
+const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
+const agencyQuery = computed(() => (
+  agencyStore.currentAgency?.id || selectedAgencyId.value
+    ? { agencyId: String(agencyStore.currentAgency?.id || selectedAgencyId.value) }
+    : {}
+));
+const officeApprovalsTo = computed(() => ({ path: orgTo('/admin/office-approvals'), query: { tab: 'requests', ...agencyQuery.value } }));
+const schoolApprovalsTo = computed(() => ({ path: orgTo('/admin/school-approvals'), query: { tab: 'adjustments', ...agencyQuery.value } }));
+const scheduleHubTo = computed(() => orgTo('/schedule'));
+const providerManagementTo = computed(() => ({
+  path: orgTo('/admin/provider-availability'),
+  query: agencyQuery.value
+}));
 
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 
@@ -83,8 +105,33 @@ const ensureAgencyContextFromQuery = async () => {
   }
 };
 
+/** Old combined inbox tabs → dedicated pages. */
+function redirectLegacyTabs() {
+  const t = initialTab.value;
+  const agencyId = route.query.agencyId || selectedAgencyId.value || agencyStore.currentAgency?.id;
+  const q = agencyId ? { agencyId: String(agencyId) } : {};
+  if (t === 'office') {
+    router.replace({ path: orgTo('/admin/office-approvals'), query: { tab: 'requests', ...q } }).catch(() => {});
+    return true;
+  }
+  if (t === 'school' || t === 'additional_hours') {
+    router.replace({ path: orgTo('/admin/school-approvals'), query: { tab: 'hours', ...q } }).catch(() => {});
+    return true;
+  }
+  if (t === 'schedule_adjustments' || t === 'adjustments') {
+    router.replace({ path: orgTo('/admin/school-approvals'), query: { tab: 'adjustments', ...q } }).catch(() => {});
+    return true;
+  }
+  return false;
+}
+
 onMounted(async () => {
   await ensureAgencyContextFromQuery();
+  redirectLegacyTabs();
+});
+
+watch(() => route.query.tab, () => {
+  redirectLegacyTabs();
 });
 
 watch(() => agencyStore.currentAgency?.id, (id) => {
@@ -99,6 +146,12 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
 .subtitle {
   color: var(--text-secondary);
   margin: 6px 0 0 0;
+}
+.legacy-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 .agency-selector {
   margin-bottom: 16px;

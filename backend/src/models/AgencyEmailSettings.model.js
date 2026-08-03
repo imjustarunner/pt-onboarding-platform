@@ -42,6 +42,9 @@ class AgencyEmailSettings {
         ai_allowed_intents_json: ['school_status_request'],
         ai_match_confidence_threshold: 0.75,
         ai_allowed_sender_identity_keys_json: [],
+        school_roi_emails_require_approval: 1,
+        default_sender_identity_id: null,
+        template_sender_identity_json: null,
         missingTable: false
       };
     }
@@ -89,11 +92,14 @@ class AgencyEmailSettings {
   static async update({
     agencyId,
     notificationsEnabled,
+    schoolRoiEmailsRequireApproval,
     aiDraftPolicyMode,
     allowSchoolOverrides,
     aiAllowedIntents,
     aiMatchConfidenceThreshold,
     aiAllowedSenderIdentityKeys,
+    defaultSenderIdentityId,
+    templateSenderIdentityJson,
     actorUserId
   }) {
     const exists = await this.tableExists();
@@ -103,6 +109,7 @@ class AgencyEmailSettings {
       throw err;
     }
     const enabledVal = notificationsEnabled === false ? 0 : 1;
+    const roiApprovalVal = schoolRoiEmailsRequireApproval === false ? 0 : 1;
     const policyMode = String(aiDraftPolicyMode || 'human_only').trim().toLowerCase() || 'human_only';
     const schoolOverridesVal = allowSchoolOverrides === false ? 0 : 1;
     const allowedIntentsJson = JSON.stringify(
@@ -119,21 +126,42 @@ class AgencyEmailSettings {
         ? aiAllowedSenderIdentityKeys.map((x) => String(x || '').trim().toLowerCase()).filter(Boolean)
         : []
     );
+    const defaultSenderId = defaultSenderIdentityId === null || defaultSenderIdentityId === undefined || defaultSenderIdentityId === ''
+      ? null
+      : Number(defaultSenderIdentityId);
+    const templateSenderJson = templateSenderIdentityJson === undefined
+      ? null
+      : (templateSenderIdentityJson && typeof templateSenderIdentityJson === 'object'
+        ? JSON.stringify(templateSenderIdentityJson)
+        : null);
+
+    const [existingRows] = await pool.execute(
+      'SELECT template_sender_identity_json FROM agency_email_settings WHERE agency_id = ? LIMIT 1',
+      [agencyId]
+    );
+    const finalTemplateJson = templateSenderIdentityJson === undefined
+      ? (existingRows?.[0]?.template_sender_identity_json || null)
+      : templateSenderJson;
+
     await pool.execute(
       `INSERT INTO agency_email_settings
-        (agency_id, notifications_enabled, ai_draft_policy_mode, allow_school_overrides,
-         ai_allowed_intents_json, ai_match_confidence_threshold, ai_allowed_sender_identity_keys_json, updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (agency_id, notifications_enabled, school_roi_emails_require_approval, ai_draft_policy_mode, allow_school_overrides,
+         ai_allowed_intents_json, ai_match_confidence_threshold, ai_allowed_sender_identity_keys_json,
+         default_sender_identity_id, template_sender_identity_json, updated_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          notifications_enabled = VALUES(notifications_enabled),
+         school_roi_emails_require_approval = VALUES(school_roi_emails_require_approval),
          ai_draft_policy_mode = VALUES(ai_draft_policy_mode),
          allow_school_overrides = VALUES(allow_school_overrides),
          ai_allowed_intents_json = VALUES(ai_allowed_intents_json),
          ai_match_confidence_threshold = VALUES(ai_match_confidence_threshold),
          ai_allowed_sender_identity_keys_json = VALUES(ai_allowed_sender_identity_keys_json),
+         default_sender_identity_id = VALUES(default_sender_identity_id),
+         template_sender_identity_json = VALUES(template_sender_identity_json),
          updated_by_user_id = VALUES(updated_by_user_id),
          updated_at = CURRENT_TIMESTAMP`,
-      [agencyId, enabledVal, policyMode, schoolOverridesVal, allowedIntentsJson, threshold, allowedSenderIdentityKeysJson, actorUserId || null]
+      [agencyId, enabledVal, roiApprovalVal, policyMode, schoolOverridesVal, allowedIntentsJson, threshold, allowedSenderIdentityKeysJson, defaultSenderId, finalTemplateJson, actorUserId || null]
     );
     return await this.getByAgencyId(agencyId);
   }

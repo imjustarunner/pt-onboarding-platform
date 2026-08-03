@@ -7,6 +7,7 @@
       </div>
       <div class="oa-header-actions">
         <router-link class="btn btn-secondary btn-sm" :to="scheduleHubTo">Schedule hub</router-link>
+        <router-link class="btn btn-secondary btn-sm" :to="providerManagementTo">Provider Management</router-link>
         <router-link class="btn btn-secondary btn-sm" :to="myScheduleTo">My Schedule</router-link>
         <button type="button" class="btn btn-primary btn-sm" :disabled="loading" @click="refresh">
           {{ loading ? 'Refreshing…' : 'Refresh' }}
@@ -438,6 +439,10 @@ const orgSlug = computed(() =>
 const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
 const scheduleHubTo = computed(() => orgTo('/schedule'));
 const myScheduleTo = computed(() => orgTo('/my-schedule'));
+const providerManagementTo = computed(() => ({
+  path: orgTo('/admin/provider-availability'),
+  query: agencyStore.currentAgency?.id ? { agencyId: String(agencyStore.currentAgency.id) } : {}
+}));
 const viewerTz = computed(() => detectLocalTimezone());
 const officeTzIana = computed(() => {
   const fromGrid = String(scheduleGrid.value?.location?.timezone || '').trim();

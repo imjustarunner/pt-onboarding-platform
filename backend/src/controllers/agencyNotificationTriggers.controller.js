@@ -1,6 +1,7 @@
 import NotificationTrigger from '../models/NotificationTrigger.model.js';
 import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTriggerSetting.model.js';
 import User from '../models/User.model.js';
+import { resolveTriggerSetting } from '../services/notificationTriggerSettings.service.js';
 
 function normalizeBoolOrNull(v) {
   if (v === null || v === undefined) return null;
@@ -21,27 +22,19 @@ async function ensureAgencyAccess(req, agencyId) {
 }
 
 function resolveSetting(trigger, setting) {
-  const enabled =
-    setting?.enabled === null || setting?.enabled === undefined
-      ? !!trigger.defaultEnabled
-      : !!setting.enabled;
+  return resolveTriggerSetting(trigger, setting);
+}
 
-  const channels =
-    setting?.channels && typeof setting.channels === 'object'
-      ? setting.channels
-      : (trigger.defaultChannels && typeof trigger.defaultChannels === 'object' ? trigger.defaultChannels : { inApp: true, sms: false, email: false });
-
-  const recipients =
-    setting?.recipients && typeof setting.recipients === 'object'
-      ? setting.recipients
-      : (trigger.defaultRecipients && typeof trigger.defaultRecipients === 'object' ? trigger.defaultRecipients : { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true });
-
-  const senderIdentityId =
-    setting?.senderIdentityId !== null && setting?.senderIdentityId !== undefined
-      ? setting.senderIdentityId
-      : (trigger?.defaultSenderIdentityId || null);
-
-  return { enabled, channels, recipients, senderIdentityId };
+function serializeOverride(s) {
+  if (!s) return null;
+  return {
+    enabled: s.enabled,
+    channels: s.channels,
+    recipients: s.recipients,
+    senderIdentityId: s.senderIdentityId || null,
+    subjectOverride: s.subjectOverride || null,
+    requireApproval: !!s.requireApproval
+  };
 }
 
 export const listAgencyNotificationTriggers = async (req, res, next) => {
@@ -67,16 +60,11 @@ export const listAgencyNotificationTriggers = async (req, res, next) => {
           enabled: !!t.defaultEnabled,
           channels: t.defaultChannels,
           recipients: t.defaultRecipients,
-          senderIdentityId: t.defaultSenderIdentityId || null
+          senderIdentityId: t.defaultSenderIdentityId || null,
+          subjectOverride: null,
+          requireApproval: false
         },
-        agencyOverride: s
-          ? {
-              enabled: s.enabled,
-              channels: s.channels,
-              recipients: s.recipients,
-              senderIdentityId: s.senderIdentityId || null
-            }
-          : null,
+        agencyOverride: serializeOverride(s),
         resolved
       };
     });
@@ -107,19 +95,33 @@ export const updateAgencyNotificationTrigger = async (req, res, next) => {
       req.body?.senderIdentityId === null || req.body?.senderIdentityId === undefined || req.body?.senderIdentityId === ''
         ? null
         : Number(req.body?.senderIdentityId);
+    const subjectOverride = Object.prototype.hasOwnProperty.call(req.body || {}, 'subjectOverride')
+      ? (req.body.subjectOverride === null || req.body.subjectOverride === ''
+        ? null
+        : String(req.body.subjectOverride).trim().slice(0, 255))
+      : undefined;
+    const requireApproval = Object.prototype.hasOwnProperty.call(req.body || {}, 'requireApproval')
+      ? !!req.body.requireApproval
+      : undefined;
 
-    const saved = await AgencyNotificationTriggerSetting.upsert({ agencyId, triggerKey, enabled, channels, recipients, senderIdentityId });
+    const saved = await AgencyNotificationTriggerSetting.upsert({
+      agencyId,
+      triggerKey,
+      enabled,
+      channels,
+      recipients,
+      senderIdentityId,
+      subjectOverride,
+      requireApproval
+    });
     const resolved = resolveSetting(trigger, saved);
 
     res.json({
       triggerKey: trigger.triggerKey,
-      agencyOverride: saved
-        ? { enabled: saved.enabled, channels: saved.channels, recipients: saved.recipients, senderIdentityId: saved.senderIdentityId || null }
-        : null,
+      agencyOverride: serializeOverride(saved),
       resolved
     });
   } catch (e) {
     next(e);
   }
 };
-

@@ -1302,6 +1302,8 @@
     <ClientDetailPanel
       v-if="adminSelectedClient"
       :client="adminSelectedClient"
+      :school-organization-id="organizationId"
+      :can-manage-school-assignments="canEditClientActions"
       :initial-tab="adminClientActiveTab"
       :current-client-index="adminClientCurrentIndex"
       :navigation-count="adminClientNavigationIds.length"
@@ -4376,9 +4378,25 @@ const fetchAdminClientById = async (clientId) => {
   return r.data || null;
 };
 
+const mergeClientWithRosterSnapshot = (full, snap) => {
+  if (!full) return snap || null;
+  if (!snap) return full;
+  return {
+    ...full,
+    provider_name: full.provider_name || snap.provider_name || null,
+    provider_day_pairs: snap.provider_day_pairs || full.provider_day_pairs || null,
+    provider_id: full.provider_id || snap.provider_id || null,
+    provider_ids: snap.provider_ids || full.provider_ids || null,
+    service_day: snap.service_day || full.service_day || null,
+    grade: full.grade ?? snap.grade ?? null,
+    school_year: full.school_year ?? snap.school_year ?? null
+  };
+};
+
 const openAdminClientEditor = async (payload) => {
   const client = payload?.client || payload;
   if (!client?.id) return;
+  const rosterSnap = client;
   const navigationIds = resolveSelectedClientNavigationIds(payload);
   if (!adminSelectedClient.value) {
     adminClientActiveTab.value = isProvider.value ? 'checklist' : '';
@@ -4386,7 +4404,8 @@ const openAdminClientEditor = async (payload) => {
   adminClientNavigationIds.value = navigationIds.length > 0 ? navigationIds : [Number(client.id)];
   adminClientLoading.value = true;
   try {
-    adminSelectedClient.value = await fetchAdminClientById(client.id);
+    const full = await fetchAdminClientById(client.id);
+    adminSelectedClient.value = mergeClientWithRosterSnapshot(full, rosterSnap);
   } catch (e) {
     console.error('Failed to open client editor:', e);
     alert(e.response?.data?.error?.message || e.message || 'Failed to open client editor');
@@ -4420,7 +4439,8 @@ const navigateAdminClient = async ({ direction }) => {
   if (!nextId) return;
   adminClientLoading.value = true;
   try {
-    adminSelectedClient.value = await fetchAdminClientById(nextId);
+    const full = await fetchAdminClientById(nextId);
+    adminSelectedClient.value = full;
   } catch (e) {
     console.error('Failed to navigate client editor:', e);
     alert(e.response?.data?.error?.message || e.message || 'Failed to load next client');

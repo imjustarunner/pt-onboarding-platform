@@ -142,6 +142,40 @@
             </div>
           </div>
 
+          <div
+            v-if="isSchoolClientType && isSchoolPortalContext"
+            class="cdp-school-profile-strip"
+          >
+            <div class="cdp-school-profile-item">
+              <span class="cdp-school-profile-kicker">Grade</span>
+              <strong>{{ formatGradeDisplay(client.grade) || '—' }}</strong>
+            </div>
+            <div class="cdp-school-profile-item">
+              <span class="cdp-school-profile-kicker">School year</span>
+              <strong>{{ client.school_year || '—' }}</strong>
+            </div>
+            <div
+              v-if="canViewAdminNote"
+              class="cdp-school-profile-item cdp-school-profile-item--note admin-note-row"
+              :class="{ 'is-popover-open': adminNotePopoverOpen }"
+            >
+              <span class="cdp-school-profile-kicker">Admin note</span>
+              <div
+                ref="adminNoteStripTriggerEl"
+                class="admin-note-trigger"
+                @mouseenter="openAdminNotePopover"
+                @mouseleave="closeAdminNotePopoverSoon"
+              >
+                <span v-if="adminNoteLoading" class="muted">Loading…</span>
+                <span v-else-if="adminNoteMessage">
+                  <span class="admin-note-indicator" title="Admin note available">✓</span>
+                  <span class="muted">Hover to view/edit</span>
+                </span>
+                <span v-else class="muted">Hover to add</span>
+              </div>
+            </div>
+          </div>
+
           <div class="cdp-glance-grid">
             <article class="cdp-glance-card">
               <div class="cdp-glance-label">Primary clinician</div>
@@ -184,8 +218,17 @@
             </article>
             <article class="cdp-glance-card">
               <div class="cdp-glance-label">Care team</div>
-              <div class="cdp-glance-value">{{ overviewProviders.length || (client.provider_name ? 1 : 0) }} assigned</div>
-              <button v-if="canEditAccount" type="button" class="cdp-text-link" @click="activeTab = 'assignments'">
+              <div class="cdp-glance-value">{{ careTeamGlanceSummary }}</div>
+              <div v-if="careTeamGlanceMeta" class="cdp-glance-meta">{{ careTeamGlanceMeta }}</div>
+              <button
+                v-if="canManageSchoolAssignments"
+                type="button"
+                class="cdp-text-link"
+                @click="showAssignDayModal = true"
+              >
+                Update assignment →
+              </button>
+              <button v-else-if="canEditAccount" type="button" class="cdp-text-link" @click="activeTab = 'assignments'">
                 Manage →
               </button>
             </article>
@@ -271,7 +314,7 @@
             </div>
           </div>
 
-          <details class="cdp-profile-details" :open="editingOverview || undefined">
+          <details class="cdp-profile-details" :open="schoolProfileDetailsOpen || undefined">
             <summary>
               <span>Profile details</span>
               <span class="cdp-profile-details__hint">Identity, status, education, languages</span>
@@ -609,9 +652,9 @@
                   <div class="ov-row-label">Provider</div>
                   <div class="ov-row-value">
                     <div v-if="overviewProvidersLoading" class="muted">Loading…</div>
-                    <div v-else-if="overviewProviders.length === 0">{{ client.provider_name || 'Not assigned' }}</div>
+                    <div v-else-if="effectiveOverviewProviders.length === 0">Not assigned</div>
                     <div v-else class="provider-list">
-                      <div v-for="p in overviewProviders" :key="p.id" class="provider-row">
+                      <div v-for="p in effectiveOverviewProviders" :key="p.id" class="provider-row">
                         <div>
                           <strong>{{ p.provider_last_name }}, {{ p.provider_first_name }}</strong>
                           <span v-if="p.is_primary" class="badge badge-success" style="margin-left: 8px;">Primary</span>
@@ -2033,6 +2076,14 @@
           </div>
         </div>
       </div>
+
+      <AssignDayModal
+        v-if="showAssignDayModal && schoolOrganizationId && client?.id"
+        :organization-id="schoolOrganizationId"
+        :client="client"
+        @close="showAssignDayModal = false"
+        @updated="onSchoolAssignmentUpdated"
+      />
     </template>
   </ClientChartShell>
 </template>
@@ -2065,6 +2116,7 @@ import {
   normalizeGradeForSave,
   normalizeGradeToStandard
 } from '../../utils/clientGrade.js';
+import AssignDayModal from '../school/AssignDayModal.vue';
 
 const props = defineProps({
   client: {
@@ -2093,6 +2145,16 @@ const props = defineProps({
   },
   /** When true, renders as a full-page view instead of a modal overlay. */
   fullPage: {
+    type: Boolean,
+    default: false
+  },
+  /** School portal context: scopes assignments and opens school profile fields by default. */
+  schoolOrganizationId: {
+    type: [Number, String],
+    default: null
+  },
+  /** School portal: allow day/assignment updates from overview (Assign day modal). */
+  canManageSchoolAssignments: {
     type: Boolean,
     default: false
   }
@@ -2189,7 +2251,7 @@ const intakeGuardianAlreadyLinked = computed(() => {
     (g) => String(g.email || '').trim().toLowerCase() === intakeEmail.toLowerCase()
   );
 });
-const canViewAdminNote = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
+const canViewAdminNote = computed(() => ['super_admin', 'admin', 'support'].includes(roleNorm.value));
 const canManageClientCode = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 // Providers terminate via "Mark as Terminated" in roster only; support staff use this panel
 const canTerminate = computed(() => {
@@ -2314,13 +2376,24 @@ const switchableAgencies = computed(() => {
 
 const hasAgencyAccess = computed(() => {
   if (isSuperAdmin.value) return true;
+  if (Number(props.schoolOrganizationId || 0) > 0 && isBackofficeRole.value) return true;
   const mine = new Set((myAgencies.value || []).map((a) => Number(a?.id)).filter(Boolean));
+  const clientOrgId = Number(props.client?.organization_id || 0);
+  if (clientOrgId && mine.has(clientOrgId)) return true;
   const clientAgencyIds = (clientAgencyAffiliations.value || []).map((a) => Number(a?.agency_id)).filter(Boolean);
   if (clientAgencyIds.length > 0) {
     return clientAgencyIds.some((id) => mine.has(id));
   }
   return mine.has(Number(props.client?.agency_id || 0));
 });
+
+const isSchoolPortalContext = computed(() => Number(props.schoolOrganizationId || 0) > 0);
+const schoolOrganizationId = computed(() => Number(props.schoolOrganizationId || 0) || null);
+const schoolProfileDetailsOpen = computed(() => editingOverview.value || isSchoolPortalContext.value);
+const canManageSchoolAssignments = computed(
+  () => props.canManageSchoolAssignments && isSchoolPortalContext.value
+);
+const showAssignDayModal = ref(false);
 
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
 
@@ -2348,7 +2421,7 @@ const primaryInsuranceLabel = computed(() => {
 });
 
 const primaryProviderLabel = computed(() => {
-  const primary = (overviewProviders.value || []).find((p) => p?.is_primary) || (overviewProviders.value || [])[0];
+  const primary = (effectiveOverviewProviders.value || []).find((p) => p?.is_primary) || (effectiveOverviewProviders.value || [])[0];
   if (primary) {
     const last = String(primary.provider_last_name || '').trim();
     const first = String(primary.provider_first_name || '').trim();
@@ -2765,42 +2838,155 @@ const eventAssignmentsPast = computed(() =>
 const overviewProviders = ref([]);
 const overviewProvidersLoading = ref(false);
 
-const refreshOverviewProviders = async () => {
-  // Endpoint is backoffice-only; if the viewer can't access it, fall back to legacy single provider label.
-  if (!isBackofficeRole.value || !hasAgencyAccess.value) {
-    overviewProviders.value = [];
-    overviewProvidersLoading.value = false;
-    return;
+function providersFromClientSnapshot(client) {
+  if (!client) return [];
+  const raw = String(client.provider_day_pairs || '').trim();
+  if (raw) {
+    const byProvider = new Map();
+    for (const part of raw.split('|')) {
+      const bits = String(part || '').split(':');
+      if (bits.length < 2) continue;
+      const pid = parseInt(bits[0], 10);
+      if (!pid) continue;
+      const day = String(bits[bits.length - 1] || '').trim() || null;
+      const nameParts = bits.slice(1, -1).join(':').trim();
+      const tokens = nameParts.split(/\s+/).filter(Boolean);
+      const first = tokens[0] || '';
+      const last = tokens.slice(1).join(' ') || '';
+      const key = `${pid}:${day || ''}`;
+      if (!byProvider.has(key)) {
+        byProvider.set(key, {
+          id: `snap-${key}`,
+          provider_user_id: pid,
+          provider_first_name: first,
+          provider_last_name: last,
+          service_day: day,
+          is_primary: false
+        });
+      }
+    }
+    const list = Array.from(byProvider.values());
+    if (list.length) {
+      list[0].is_primary = true;
+      return list;
+    }
   }
+  const pname = String(client.provider_name || '').trim();
+  if (pname) {
+    const tokens = pname.split(/\s+/);
+    return [{
+      id: 'snap-legacy',
+      provider_user_id: client.provider_id || null,
+      provider_first_name: tokens[0] || pname,
+      provider_last_name: tokens.slice(1).join(' ') || '',
+      service_day: client.service_day || null,
+      is_primary: true
+    }];
+  }
+  return [];
+}
+
+const effectiveOverviewProviders = computed(() => {
+  if ((overviewProviders.value || []).length) return overviewProviders.value;
+  return providersFromClientSnapshot(props.client);
+});
+
+const careTeamGlanceSummary = computed(() => {
+  const rows = effectiveOverviewProviders.value || [];
+  if (!rows.length) return 'Not assigned';
+  const labels = rows.map((p) => {
+    const last = String(p.provider_last_name || '').trim();
+    const first = String(p.provider_first_name || '').trim();
+    if (last || first) return `${last}${last && first ? ', ' : ''}${first}`;
+    return 'Provider';
+  });
+  return [...new Set(labels)].join(' · ');
+});
+
+const careTeamGlanceMeta = computed(() => {
+  const rows = effectiveOverviewProviders.value || [];
+  if (!rows.length) return '';
+  const days = [...new Set(rows.map((p) => String(p.service_day || '').trim()).filter(Boolean))];
+  return days.length ? days.join(', ') : '';
+});
+
+const refreshOverviewProviders = async () => {
   const clientId = Number(props.client?.id);
   if (!clientId) {
     overviewProviders.value = [];
     overviewProvidersLoading.value = false;
     return;
   }
+  if (!isBackofficeRole.value) {
+    overviewProviders.value = providersFromClientSnapshot(props.client);
+    overviewProvidersLoading.value = false;
+    return;
+  }
   try {
     overviewProvidersLoading.value = true;
-    // No org filter: show all assigned providers (including secondary) across affiliations.
-    const r = await api.get(`/clients/${clientId}/provider-assignments`);
+    const params = {};
+    const orgId = Number(props.schoolOrganizationId || props.client?.organization_id || 0);
+    if (orgId > 0) params.organizationId = orgId;
+    const r = await api.get(`/clients/${clientId}/provider-assignments`, { params });
     const rows = Array.isArray(r.data) ? r.data : [];
-    // Sort by org, primary first, then provider name, then day.
-    overviewProviders.value = rows.sort((a, b) => {
-      const org = String(a?.organization_name || '').localeCompare(String(b?.organization_name || ''));
-      if (org !== 0) return org;
-      const ap = a?.is_primary ? 1 : 0;
-      const bp = b?.is_primary ? 1 : 0;
-      if (ap !== bp) return bp - ap;
-      const ln = String(a?.provider_last_name || '').localeCompare(String(b?.provider_last_name || ''));
-      if (ln !== 0) return ln;
-      const fn = String(a?.provider_first_name || '').localeCompare(String(b?.provider_first_name || ''));
-      if (fn !== 0) return fn;
-      return String(a?.service_day || '').localeCompare(String(b?.service_day || ''));
-    });
+    overviewProviders.value = rows.length
+      ? rows.sort((a, b) => {
+          const org = String(a?.organization_name || '').localeCompare(String(b?.organization_name || ''));
+          if (org !== 0) return org;
+          const ap = a?.is_primary ? 1 : 0;
+          const bp = b?.is_primary ? 1 : 0;
+          if (ap !== bp) return bp - ap;
+          const ln = String(a?.provider_last_name || '').localeCompare(String(b?.provider_last_name || ''));
+          if (ln !== 0) return ln;
+          const fn = String(a?.provider_first_name || '').localeCompare(String(b?.provider_first_name || ''));
+          if (fn !== 0) return fn;
+          return String(a?.service_day || '').localeCompare(String(b?.service_day || ''));
+        })
+      : providersFromClientSnapshot(props.client);
   } catch {
-    overviewProviders.value = [];
+    overviewProviders.value = providersFromClientSnapshot(props.client);
   } finally {
     overviewProvidersLoading.value = false;
   }
+};
+
+const onSchoolAssignmentUpdated = async ({ clientId, providers: providerList } = {}) => {
+  showAssignDayModal.value = false;
+  const list = Array.isArray(providerList) ? providerList : [];
+  const pairs = list
+    .map((p) => {
+      const pid = Number(p.provider_user_id || 0);
+      if (!pid) return null;
+      const name = [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || `Provider ${pid}`;
+      const days = Array.isArray(p.assigned_days) ? p.assigned_days : [];
+      if (!days.length) return `${pid}:${name}:`;
+      return days.map((d) => `${pid}:${name}:${d}`).join('|');
+    })
+    .filter(Boolean)
+    .join('|');
+  const providerName = list
+    .map((p) => [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || `Provider ${p.provider_user_id}`)
+    .filter(Boolean)
+    .join(', ');
+  const uniqueDays = [...new Set(list.flatMap((p) => (Array.isArray(p.assigned_days) ? p.assigned_days : [])).filter(Boolean))];
+
+  if (props.client?.id) {
+    const merged = {
+      ...props.client,
+      provider_day_pairs: pairs || props.client.provider_day_pairs || null,
+      provider_name: providerName || props.client.provider_name || null,
+      service_day: uniqueDays.length ? uniqueDays.join(', ') : props.client.service_day || null
+    };
+    emit('updated', { keepOpen: true, client: merged });
+  } else if (clientId) {
+    try {
+      const r = await api.get(`/clients/${clientId}`);
+      emit('updated', { keepOpen: true, client: r.data });
+    } catch {
+      /* ignore */
+    }
+  }
+  await refreshOverviewProviders();
 };
 
 // Compliance checklist
@@ -3206,6 +3392,7 @@ const adminNoteSuppressOpenUntil = ref(0);
 // Position-tracking for the teleported popover so it escapes overflow/transform
 // stacking contexts created by parent cards/scroll containers.
 const adminNoteTriggerEl = ref(null);
+const adminNoteStripTriggerEl = ref(null);
 const adminNotePopoverPos = ref({ top: 0, left: 0, width: 520 });
 const adminNotePopoverStyle = computed(() => {
   const { top, left, width } = adminNotePopoverPos.value || {};
@@ -3219,7 +3406,7 @@ const adminNotePopoverStyle = computed(() => {
 });
 
 const recomputeAdminNotePopoverPos = () => {
-  const el = adminNoteTriggerEl.value;
+  const el = adminNoteStripTriggerEl.value || adminNoteTriggerEl.value;
   if (!el || typeof el.getBoundingClientRect !== 'function') return;
   const rect = el.getBoundingClientRect();
   const desiredWidth = Math.min(520, Math.max(280, window.innerWidth - 24));
@@ -4736,20 +4923,6 @@ watch(
   width: min(1280px, 97vw);
 }
 
-.modal-tabs {
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap;
-  scrollbar-width: none;
-}
-.modal-tabs::-webkit-scrollbar {
-  display: none;
-}
-.tab-button {
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-
 .admin-note-item {
   position: relative;
 }
@@ -5375,6 +5548,33 @@ watch(
   margin-top: 10px;
 }
 
+.cdp-school-profile-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: flex-start;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(58, 76, 107, 0.1);
+  background: rgba(247, 249, 252, 0.9);
+}
+.cdp-school-profile-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 88px;
+}
+.cdp-school-profile-item--note {
+  flex: 1 1 180px;
+}
+.cdp-school-profile-kicker {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(29, 38, 51, 0.55);
+}
 .cdp-profile-details {
   margin: 8px 0 4px;
   border: 1px solid rgba(58, 76, 107, 0.10);
@@ -5566,54 +5766,11 @@ watch(
   background: rgba(15, 23, 42, 0.08);
 }
 
-/* ───────────── Modern tab navigation ───────────── */
-.modal-tabs {
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 2px;
-  padding: 0 18px;
-  border-bottom: 1px solid rgba(58, 76, 107, 0.14);
-  background: #fff;
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.modal-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.tab-button {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  padding: 12px 13px 13px;
-  background: transparent;
-  border: none;
-  border-bottom: 3px solid transparent;
-  border-radius: 0;
-  cursor: pointer;
-  font-size: 13.5px;
-  font-weight: 650;
-  color: var(--accent, #3A4C6B);
-  transition: color 0.15s ease, border-color 0.15s ease;
-  margin: 0;
-  white-space: nowrap;
-}
-
-.tab-button:hover {
-  color: var(--secondary, #1D2633);
-  background: transparent;
-}
-
-.tab-button.active {
-  color: var(--secondary, #1D2633);
-  background: transparent;
-  border-bottom-color: var(--primary, #C69A2B);
-  font-weight: 850;
-  box-shadow: none;
+/* ───────────── Tab navigation (full-page shell overrides) ───────────── */
+.cdp-page-body.client-chart .cc-tab-rail {
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .tab-content {
@@ -5640,13 +5797,6 @@ watch(
   .cdp-header-actions { justify-content: flex-start; }
   .cdp-avatar { width: 52px; height: 52px; font-size: 18px; border-radius: 14px; }
   .cdp-title { font-size: 22px; }
-  .modal-tabs {
-    padding: 8px 12px;
-  }
-  .tab-button {
-    padding: 8px 10px 10px;
-    font-size: 13px;
-  }
   .tab-content {
     padding: 18px 16px;
   }
@@ -6822,7 +6972,7 @@ watch(
 }
 /* When rendered in full-page mode, give the panel modal-like card chrome */
 .cdp-page-body.client-chart .modal-header.cdp-header,
-.cdp-page-body.client-chart .modal-tabs,
+.cdp-page-body.client-chart .cc-tab-rail,
 .cdp-page-body.client-chart .cc-alert-bar,
 .cdp-page-body.client-chart .tab-content {
   background: #ffffff;
@@ -6833,7 +6983,7 @@ watch(
   border-bottom: 1px solid var(--border);
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
 }
-.cdp-page-body.client-chart .modal-tabs {
+.cdp-page-body.client-chart .cc-tab-rail {
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);

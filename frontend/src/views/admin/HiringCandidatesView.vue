@@ -2217,6 +2217,14 @@ onMounted(async () => {
   await loadJobDescriptions();
   await refresh();
 
+  const deepCandidateId = route.query?.candidateId ? parseInt(String(route.query.candidateId), 10) : null;
+  if (deepCandidateId && Number.isFinite(deepCandidateId)) {
+    await selectCandidate(deepCandidateId);
+    const nextQuery = { ...route.query };
+    delete nextQuery.candidateId;
+    await router.replace({ query: nextQuery });
+  }
+
   // Allow deep-linking from navigation (People Ops → Job descriptions)
   if (isTruthyQueryFlag(route.query?.openJobs)) {
     await openJobDescriptions();

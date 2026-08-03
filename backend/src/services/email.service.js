@@ -1,5 +1,6 @@
 import GoogleWorkspaceEmailService from './googleWorkspaceEmail.service.js';
-import { getEmailSendingMode, isEmailNotificationsEnabled } from './emailSettings.service.js';
+import { getEmailSendingMode, isEmailNotificationsEnabled, emailRequiresAdminApproval } from './emailSettings.service.js';
+import { validateOutboundEmailQuality, formatQualityFlags } from './outboundEmailQuality.service.js';
 
 /**
  * Look up a user_id by email address, best-effort. Used when callers don't
@@ -69,7 +70,9 @@ class EmailService {
     clientId = null,
     templateType = null,
     templateId = null,
-    generatedByUserId = null
+    generatedByUserId = null,
+    existingCommunicationId = null,
+    linkUrl = null
   }) {
     const gate = await this.canSend({ source, agencyId });
     if (!gate.allowed) {
@@ -110,26 +113,91 @@ class EmailService {
       throw new Error('EmailService is not configured (Google Workspace sender missing env vars)');
     }
 
+    const quality = validateOutboundEmailQuality({
+      subject,
+      text,
+      html,
+      attachments,
+      linkUrl,
+      templateType: templateType || 'transactional_email',
+      clientId
+    });
+    if (!quality.ok) {
+      const errMsg = `Blocked — ${formatQualityFlags(quality.flags)}`.slice(0, 500);
+      if (existingCommunicationId) {
+        try {
+          const { default: pool } = await import('../config/database.js');
+          await pool.execute(
+            `UPDATE user_communications SET delivery_status = 'failed', error_message = ? WHERE id = ?`,
+            [errMsg, Number(existingCommunicationId)]
+          );
+        } catch {
+          /* best effort */
+        }
+        return { blocked: true, reason: 'quality_check_failed', qualityFlags: quality.flags, communicationId: existingCommunicationId };
+      }
+      try {
+        const { default: CommunicationLoggingService } = await import('./communicationLogging.service.js');
+        const resolvedUserId = userId || await resolveUserIdByEmail(to);
+        const { default: pool } = await import('../config/database.js');
+        const comm = await CommunicationLoggingService.logGeneratedCommunication({
+          userId: resolvedUserId || null,
+          clientId: clientId ? Number(clientId) : null,
+          agencyId: agencyId ? Number(agencyId) : null,
+          templateType: templateType || 'transactional_email',
+          templateId: templateId || null,
+          subject: subject || null,
+          body: html || text || '',
+          generatedByUserId: generatedByUserId || null,
+          channel: 'email',
+          recipientAddress: to
+        });
+        if (comm?.id) {
+          await pool.execute(
+            `UPDATE user_communications SET delivery_status = 'failed', error_message = ? WHERE id = ?`,
+            [errMsg, comm.id]
+          );
+        }
+      } catch {
+        /* best effort */
+      }
+      return { blocked: true, reason: 'quality_check_failed', qualityFlags: quality.flags };
+    }
+
     // Pre-log as 'pending' so any failure during the actual send is still
     // visible on the Communications tab as a failed/pending row.
     let comm = null;
-    try {
-      const { default: CommunicationLoggingService } = await import('./communicationLogging.service.js');
-      const resolvedUserId = userId || await resolveUserIdByEmail(to);
-      comm = await CommunicationLoggingService.logGeneratedCommunication({
-        userId: resolvedUserId || null,
-        clientId: clientId ? Number(clientId) : null,
-        agencyId: agencyId ? Number(agencyId) : null,
-        templateType: templateType || 'transactional_email',
-        templateId: templateId || null,
-        subject: subject || null,
-        body: html || text || '',
-        generatedByUserId: generatedByUserId || null,
-        channel: 'email',
-        recipientAddress: to
-      });
-    } catch (logErr) {
-      console.warn('[EmailService] pre-log to user_communications failed', logErr?.message || logErr);
+    if (existingCommunicationId) {
+      comm = { id: Number(existingCommunicationId) };
+    } else {
+      try {
+        const { default: CommunicationLoggingService } = await import('./communicationLogging.service.js');
+        const resolvedUserId = userId || await resolveUserIdByEmail(to);
+        comm = await CommunicationLoggingService.logGeneratedCommunication({
+          userId: resolvedUserId || null,
+          clientId: clientId ? Number(clientId) : null,
+          agencyId: agencyId ? Number(agencyId) : null,
+          templateType: templateType || 'transactional_email',
+          templateId: templateId || null,
+          subject: subject || null,
+          body: html || text || '',
+          generatedByUserId: generatedByUserId || null,
+          channel: 'email',
+          recipientAddress: to
+        });
+      } catch (logErr) {
+        console.warn('[EmailService] pre-log to user_communications failed', logErr?.message || logErr);
+      }
+    }
+
+    const resolvedTemplateType = templateType || 'transactional_email';
+    if (!existingCommunicationId && comm?.id && await emailRequiresAdminApproval({ agencyId, templateType: resolvedTemplateType })) {
+      return {
+        queued: true,
+        pendingApproval: true,
+        communicationId: comm.id,
+        reason: 'school_roi_requires_approval'
+      };
     }
 
     let sendResult;

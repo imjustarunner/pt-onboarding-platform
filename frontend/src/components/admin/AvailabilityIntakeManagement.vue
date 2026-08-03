@@ -11,9 +11,11 @@
 
     <div v-else class="panel">
       <div class="tabs">
-        <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'">Office Requests</button>
-        <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'">Additional school hours</button>
-        <button class="tab" :class="{ active: tab === 'schedule_adjustments' }" @click="tab = 'schedule_adjustments'">Schedule adjustments</button>
+        <template v-if="!hideOfficeAndSchoolTabs">
+          <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'">Office Requests</button>
+          <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'">Additional school hours</button>
+          <button class="tab" :class="{ active: tab === 'schedule_adjustments' }" @click="tab = 'schedule_adjustments'">Schedule adjustments</button>
+        </template>
         <button class="tab" :class="{ active: tab === 'appointments' }" @click="tab = 'appointments'">Appointments</button>
         <button class="tab" :class="{ active: tab === 'search' }" @click="tab = 'search'">Search</button>
         <button class="tab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Skills</button>
@@ -143,7 +145,7 @@
         <div v-else-if="tab === 'schedule_adjustments'">
           <p class="muted" style="margin: 0 0 12px;">
             Pending requests to change times or client spots on an <strong>existing</strong> school assignment.
-            Apply updates in Organization slots — these are not new-day assignments.
+            Apply updates in Provider Management — these are not new-day assignments.
           </p>
           <div v-if="scheduleAdjustmentRequests.length === 0" class="muted">No pending schedule adjustment requests.</div>
           <div v-else class="list">
@@ -162,7 +164,7 @@
               <div class="assign">
                 <div class="lbl">Review</div>
                 <p class="muted tiny" style="margin: 0 0 8px;">
-                  Update the provider’s assignment in Organization slots, then dismiss this request.
+                  Update the provider’s assignment in Provider Management, then dismiss this request.
                 </p>
                 <button class="btn btn-secondary btn-sm" @click="denySchool(r)" :disabled="saving">Dismiss</button>
               </div>
@@ -407,6 +409,11 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  /** Hide legacy office/school tabs — those live on dedicated approval pages. */
+  hideOfficeAndSchoolTabs: {
+    type: Boolean,
+    default: false
+  },
   /** Optional override when embedded (e.g. School Management hub agency selector). */
   agencyIdOverride: {
     type: [Number, String],
@@ -422,7 +429,7 @@ const agencyId = computed(() => {
   return agencyStore.currentAgency?.id || null;
 });
 
-const tab = ref('office'); // office | school | schedule_adjustments | appointments | search | skills
+const tab = ref('appointments'); // office | school | schedule_adjustments | appointments | search | skills
 
 const bookingQueueLink = (queueTab) => {
   // Relative to current availability-intake route (org-scoped or bare).
@@ -978,8 +985,13 @@ const saveProviderSkills = async () => {
 
 onMounted(async () => {
   const initial = String(props.initialTab || '').trim().toLowerCase();
-  if (['office', 'school', 'schedule_adjustments', 'appointments', 'search', 'skills'].includes(initial)) {
+  const allowed = props.hideOfficeAndSchoolTabs
+    ? ['appointments', 'search', 'skills', 'booking', 'legacy']
+    : ['office', 'school', 'schedule_adjustments', 'appointments', 'search', 'skills'];
+  if (allowed.includes(initial) && !['booking', 'legacy'].includes(initial)) {
     tab.value = initial;
+  } else if (props.hideOfficeAndSchoolTabs) {
+    tab.value = 'appointments';
   }
   await reload();
 });
@@ -992,7 +1004,10 @@ watch(
   () => props.initialTab,
   (next) => {
     const normalized = String(next || '').trim().toLowerCase();
-    if (['office', 'school', 'schedule_adjustments', 'appointments', 'search', 'skills'].includes(normalized)) {
+    const allowed = props.hideOfficeAndSchoolTabs
+      ? ['appointments', 'search', 'skills']
+      : ['office', 'school', 'schedule_adjustments', 'appointments', 'search', 'skills'];
+    if (allowed.includes(normalized)) {
       tab.value = normalized;
     }
   }

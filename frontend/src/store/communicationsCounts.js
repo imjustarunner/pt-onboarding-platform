@@ -13,9 +13,14 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
   const openTicketsCount = ref(0);
   const unreadMessagesCount = ref(0);
   const supportAttentionCount = ref(0);
+  const qualityIssuesCount = ref(0);
 
   const totalAttentionCount = computed(
-    () => Number(unreadMessagesCount.value || 0) + Number(supportAttentionCount.value || 0)
+    () =>
+      Number(unreadMessagesCount.value || 0) +
+      Number(supportAttentionCount.value || 0) +
+      Number(qualityIssuesCount.value || 0) +
+      Number(pendingDeliveryCount.value || 0)
   );
 
   const fetchCounts = async () => {
@@ -48,6 +53,7 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
       }
       if (!canFetchPendingDelivery) {
         pendingDeliveryCount.value = 0;
+        qualityIssuesCount.value = 0;
       }
 
       const [pendingRes, centerRes, personalRes, ticketsRes] = await Promise.allSettled([
@@ -63,18 +69,24 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
           : Promise.resolve({ data: {} })
       ]);
 
-      if (pendingRes.status === 'fulfilled' && pendingRes.value?.data?.count != null) {
-        pendingDeliveryCount.value = Number(pendingRes.value.data.count);
+      if (pendingRes.status === 'fulfilled' && pendingRes.value?.data) {
+        pendingDeliveryCount.value = Number(pendingRes.value.data.count || 0);
+        if (pendingRes.value.data.qualityIssuesCount != null) {
+          qualityIssuesCount.value = Number(pendingRes.value.data.qualityIssuesCount || 0);
+        }
       }
 
       if (centerRes.status === 'fulfilled' && centerRes.value?.data) {
         const data = centerRes.value.data;
         const openTotal = Number(data.tickets?.open || 0) + Number(data.tickets?.in_progress || 0);
-        // We use center-summary to accurately match the Communications Center Support Hub view
-        supportAttentionCount.value =
-          openTotal +
-          Number(data.engagement?.pendingCount || 0) +
-          Number(data.engagement?.failedCount || 0);
+        // Match Communications Center Support Hub + Automation attention
+        supportAttentionCount.value = openTotal;
+        if (data.engagement?.qualityIssuesCount != null) {
+          qualityIssuesCount.value = Number(data.engagement.qualityIssuesCount || 0);
+        }
+        if (data.engagement?.pendingCount != null) {
+          pendingDeliveryCount.value = Number(data.engagement.pendingCount || 0);
+        }
       }
 
       if (
@@ -99,6 +111,7 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
     openTicketsCount,
     unreadMessagesCount,
     supportAttentionCount,
+    qualityIssuesCount,
     totalAttentionCount,
     fetchCounts
   };

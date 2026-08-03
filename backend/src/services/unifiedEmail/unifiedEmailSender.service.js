@@ -7,7 +7,13 @@ import AgencyNotificationTriggerSetting from '../../models/AgencyNotificationTri
 import UserCommunication from '../../models/UserCommunication.model.js';
 import CommunicationLoggingService from '../communicationLogging.service.js';
 import { logContactCommunicationIfApplicable } from '../contactCommsLogging.service.js';
-import { getEmailSendingMode, isEmailNotificationsEnabled } from '../emailSettings.service.js';
+import { isAgencyTriggerChannelEnabled } from '../notificationTriggerSettings.service.js';
+import { emailRequiresAdminApproval } from '../emailSettings.service.js';
+import {
+  validateOutboundEmailQuality,
+  formatQualityFlags,
+  scanStoredCommunicationQuality
+} from '../outboundEmailQuality.service.js';
 
 async function canSendEmail({ source, agencyId } = {}) {
   const mode = await getEmailSendingMode();
@@ -157,7 +163,80 @@ export async function logSkippedOrFailedEmail({
     });
   } catch (e) {
     console.warn('[unifiedEmail] failed to log skipped/failed email attempt', e?.message || e);
+    return null;
   }
+}
+
+async function blockSendForQualityIssues({
+  flags,
+  to,
+  subject,
+  text,
+  html,
+  agencyId,
+  userId,
+  clientId,
+  templateType,
+  templateId,
+  generatedByUserId,
+  existingCommunicationId = null,
+  extraMetadata = null
+}) {
+  const errMsg = `Blocked — ${formatQualityFlags(flags)}`.slice(0, 500);
+  const qualityMeta = {
+    ...(extraMetadata || {}),
+    qualityFlags: flags,
+    qualityBlockedAt: new Date().toISOString()
+  };
+  if (existingCommunicationId) {
+    try {
+      const [existingRows] = await pool.execute(
+        'SELECT metadata FROM user_communications WHERE id = ? LIMIT 1',
+        [Number(existingCommunicationId)]
+      );
+      let mergedMeta = { ...(extraMetadata || {}) };
+      const rawMeta = existingRows?.[0]?.metadata;
+      if (rawMeta) {
+        try {
+          mergedMeta = { ...JSON.parse(rawMeta), ...mergedMeta };
+        } catch {
+          /* keep mergedMeta */
+        }
+      }
+      mergedMeta.qualityFlags = flags;
+      mergedMeta.qualityBlockedAt = new Date().toISOString();
+      await pool.execute(
+        `UPDATE user_communications
+            SET delivery_status = 'failed', error_message = ?, metadata = ?
+          WHERE id = ?`,
+        [errMsg, JSON.stringify(mergedMeta), Number(existingCommunicationId)]
+      );
+    } catch {
+      /* best effort */
+    }
+    return {
+      blocked: true,
+      reason: 'quality_check_failed',
+      qualityFlags: flags,
+      communicationId: Number(existingCommunicationId)
+    };
+  }
+  await logSkippedOrFailedEmail({
+    to,
+    subject,
+    text,
+    html,
+    agencyId,
+    userId,
+    clientId,
+    templateType,
+    templateId,
+    generatedByUserId,
+    deliveryStatus: 'failed',
+    errorMessage: errMsg,
+    metadata: qualityMeta
+  });
+  return { blocked: true, reason: 'quality_check_failed', qualityFlags: flags };
 }
 
 /**
@@ -192,14 +271,16 @@ function injectTrackingPixel(html, token) {
   return `${html}${pixel}`;
 }
 
-async function resolveSenderIdentityForTrigger({ agencyId, triggerKey }) {
+async function resolveTriggerDeliveryConfig({ agencyId, triggerKey }) {
   const a = Number(agencyId);
   const key = String(triggerKey || '').trim();
   if (!a) throw new Error('agencyId is required');
   if (!key) throw new Error('triggerKey is required');
 
   const trigger = await NotificationTrigger.findByKey(key);
-  if (!trigger) return null;
+  if (!trigger) {
+    return { identity: null, subjectOverride: null, requireApproval: false, setting: null, trigger: null };
+  }
 
   const settings = await AgencyNotificationTriggerSetting.listForAgency(a);
   const s = (settings || []).find((x) => x.triggerKey === key) || null;
@@ -209,8 +290,15 @@ async function resolveSenderIdentityForTrigger({ agencyId, triggerKey }) {
       ? s.senderIdentityId
       : (trigger.defaultSenderIdentityId || null);
 
-  if (!senderIdentityId) return null;
-  return await EmailSenderIdentity.findById(senderIdentityId);
+  const identity = senderIdentityId ? await EmailSenderIdentity.findById(senderIdentityId) : null;
+  const subjectOverride = s?.subjectOverride ? String(s.subjectOverride).trim() : null;
+  const requireApproval = !!s?.requireApproval;
+  return { identity, subjectOverride, requireApproval, setting: s, trigger };
+}
+
+async function resolveSenderIdentityForTrigger({ agencyId, triggerKey }) {
+  const { identity } = await resolveTriggerDeliveryConfig({ agencyId, triggerKey });
+  return identity;
 }
 
 /**
@@ -269,7 +357,32 @@ export async function sendNotificationEmail({
     });
     return { skipped: true, reason: gate.reason };
   }
-  const identity = await resolveSenderIdentityForTrigger({ agencyId, triggerKey });
+
+  const isManual = String(source || '').trim().toLowerCase() === 'manual';
+  if (triggerKey && agencyId && !isManual) {
+    const emailAllowed = await isAgencyTriggerChannelEnabled({ agencyId, triggerKey, channel: 'email' });
+    if (!emailAllowed) {
+      await logSkippedOrFailedEmail({
+        to,
+        subject,
+        text,
+        html,
+        agencyId,
+        userId,
+        clientId,
+        templateType: templateType || `trigger:${triggerKey}`,
+        templateId,
+        generatedByUserId,
+        deliveryStatus: 'skipped',
+        errorMessage: 'send skipped — trigger email channel disabled',
+        metadata: { triggerKey, source, reason: 'trigger_email_disabled' }
+      });
+      return { skipped: true, reason: 'trigger_email_disabled' };
+    }
+  }
+
+  const delivery = await resolveTriggerDeliveryConfig({ agencyId, triggerKey });
+  const identity = delivery.identity;
   if (!identity) {
     // Record the missing-identity failure on the Communications tab so it's
     // visible instead of only appearing in server logs.
@@ -291,9 +404,37 @@ export async function sendNotificationEmail({
     throw new Error(`No sender identity configured for trigger "${triggerKey}" (agency ${agencyId})`);
   }
 
+  const effectiveSubject = delivery.subjectOverride || subject;
+
   const from = pickFromHeader({ displayName: identity.display_name, fromEmail: identity.from_email });
   const replyTo = identity.reply_to || null;
   const signedContent = applySenderSignatureBlock({ identity, text, html });
+
+  const quality = validateOutboundEmailQuality({
+    subject: effectiveSubject,
+    text: signedContent.text,
+    html: signedContent.html,
+    attachments,
+    linkUrl: null,
+    templateType: templateType || `trigger:${triggerKey}`,
+    clientId
+  });
+  if (!quality.ok) {
+    return blockSendForQualityIssues({
+      flags: quality.flags,
+      to,
+      subject: effectiveSubject,
+      text: signedContent.text,
+      html: signedContent.html,
+      agencyId,
+      userId,
+      clientId,
+      templateType: templateType || `trigger:${triggerKey}`,
+      templateId,
+      generatedByUserId,
+      extraMetadata: { triggerKey, source, senderIdentityId: identity.id }
+    });
+  }
 
   // Auto-resolve recipient user when the caller didn't supply one (so the row
   // still attributes to the right profile / guardian-as-client tab).
@@ -316,7 +457,7 @@ export async function sendNotificationEmail({
       agencyId,
       templateType: templateType || `trigger:${triggerKey}`,
       templateId: templateId || null,
-      subject,
+      subject: effectiveSubject,
       body: htmlWithPixel || signedContent.text || '',
       generatedByUserId: generatedByUserId || null,
       channel: 'email',
@@ -335,10 +476,19 @@ export async function sendNotificationEmail({
     comm = null;
   }
 
+  if (!isManual && comm?.id && delivery.requireApproval) {
+    return {
+      queued: true,
+      pendingApproval: true,
+      communicationId: comm.id,
+      reason: 'trigger_requires_approval'
+    };
+  }
+
   const gmail = await getGmailClient();
   const mime = buildMimeMessage({
     to,
-    subject,
+    subject: effectiveSubject,
     text: signedContent.text,
     html: htmlWithPixel,
     from,
@@ -373,7 +523,7 @@ export async function sendNotificationEmail({
       recipient: to,
       body: html || text || '',
       externalRefId: messageId,
-      metadata: { subject, threadId }
+      metadata: { subject: effectiveSubject, threadId }
     }).catch(() => {});
   }
 
@@ -404,7 +554,12 @@ export async function sendEmailFromIdentity({
   userId = null,
   clientId = null,
   templateType = null,
-  templateId = null
+  templateId = null,
+  linkUrl = null,
+  intakeSubmissionId = null,
+  intakeLinkId = null,
+  jobDescriptionId = null,
+  existingCommunicationId = null
 }) {
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
@@ -443,38 +598,89 @@ export async function sendEmailFromIdentity({
     overrideName ? { ...identity, display_name: effectiveDisplayName } : identity;
   const signedContent = applySenderSignatureBlock({ identity: identityForSignature, text, html });
 
+  const quality = validateOutboundEmailQuality({
+    subject,
+    text: signedContent.text,
+    html: signedContent.html,
+    attachments,
+    linkUrl,
+    templateType: templateType || 'identity_send',
+    clientId
+  });
+  if (!quality.ok) {
+    return blockSendForQualityIssues({
+      flags: quality.flags,
+      to,
+      subject,
+      text: signedContent.text,
+      html: signedContent.html,
+      agencyId: identity?.agency_id || null,
+      userId,
+      clientId,
+      templateType: templateType || 'identity_send',
+      templateId,
+      generatedByUserId,
+      existingCommunicationId,
+      extraMetadata: {
+        senderIdentityId: identity.id,
+        fromEmail: identity.from_email,
+        source
+      }
+    });
+  }
+
   let resolvedUserId = userId;
   if (!resolvedUserId && to) {
     resolvedUserId = await resolveRecipientUserIdByEmail(to);
   }
   const trackingToken = signedContent.html ? UserCommunication.generateTrackingToken() : null;
   const htmlWithPixel = signedContent.html ? injectTrackingPixel(signedContent.html, trackingToken) : signedContent.html;
+  const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
 
   let comm = null;
-  try {
-    comm = await CommunicationLoggingService.logGeneratedCommunication({
-      userId: resolvedUserId || null,
-      clientId: clientId || null,
-      agencyId: identity?.agency_id || null,
-      templateType: templateType || 'identity_send',
-      templateId: templateId || null,
-      subject,
-      body: htmlWithPixel || signedContent.text || '',
-      generatedByUserId: generatedByUserId || null,
-      channel: 'email',
-      recipientAddress: to,
-      trackingToken,
-      metadata: {
-        senderIdentityId: identity.id,
-        fromEmail: identity.from_email,
-        replyTo: identity.reply_to || null,
-        source,
-        threadId
-      }
-    });
-  } catch (logErr) {
-    console.error('[unifiedEmail] failed to pre-log identity email', logErr?.message || logErr);
-    comm = null;
+  if (existingCommunicationId) {
+    comm = { id: Number(existingCommunicationId) };
+  } else {
+    try {
+      comm = await CommunicationLoggingService.logGeneratedCommunication({
+        userId: resolvedUserId || null,
+        clientId: clientId || null,
+        agencyId: identity?.agency_id || null,
+        templateType: templateType || 'identity_send',
+        templateId: templateId || null,
+        subject,
+        body: htmlWithPixel || signedContent.text || '',
+        generatedByUserId: generatedByUserId || null,
+        channel: 'email',
+        recipientAddress: to,
+        trackingToken,
+        metadata: {
+          senderIdentityId: identity.id,
+          fromEmail: identity.from_email,
+          replyTo: identity.reply_to || null,
+          source,
+          threadId,
+          ...(linkUrl ? { linkUrl } : {}),
+          ...(intakeSubmissionId ? { intakeSubmissionId: Number(intakeSubmissionId) } : {}),
+          ...(intakeLinkId ? { intakeLinkId: Number(intakeLinkId) } : {}),
+          ...(jobDescriptionId ? { jobDescriptionId: Number(jobDescriptionId) } : {}),
+          ...(hasAttachments ? { hadAttachments: true, attachmentCount: attachments.length } : {})
+        }
+      });
+    } catch (logErr) {
+      console.error('[unifiedEmail] failed to pre-log identity email', logErr?.message || logErr);
+      comm = null;
+    }
+  }
+
+  const resolvedTemplateType = templateType || 'identity_send';
+  if (!existingCommunicationId && comm?.id && await emailRequiresAdminApproval({ agencyId: identity?.agency_id, templateType: resolvedTemplateType })) {
+    return {
+      queued: true,
+      pendingApproval: true,
+      communicationId: comm.id,
+      reason: 'school_roi_requires_approval'
+    };
   }
 
   const gmail = await getGmailClient();

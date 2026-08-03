@@ -51,7 +51,7 @@
           </header>
 
           <div v-if="brandedAgencies.length > 1 && !isSuperadmin" class="tenant-strip" aria-label="Affiliated tenants">
-            <span>Combined briefing</span>
+            <span>Tenant briefing</span>
             <span
               v-for="agency in brandedAgencies"
               :key="`tenant-${agency.id || agency.slug}`"
@@ -192,9 +192,12 @@ import {
   SUPERADMIN_BRIEFING_PALETTE,
   activeBriefingSections,
   buildTenantBlend,
+  isAgencyTenantOrg,
   isLivePrivilegedPresence,
   isPrivilegedLoginBriefingUser,
-  parseBrandPalette
+  parseBrandPalette,
+  schoolBriefingItemsFromNotifications,
+  tenantBriefingNotifications
 } from '../../utils/privilegedLoginBriefing';
 
 const props = defineProps({
@@ -210,11 +213,20 @@ const visible = ref(false);
 const loading = ref(false);
 const loadError = ref(false);
 const dontShowAgain = ref(false);
-const briefing = ref({ notifications: null, messages: null, tickets: null, tasks: null, escalations: null, calendar: null });
+const briefing = ref({
+  notifications: null,
+  messages: null,
+  tickets: null,
+  tasks: null,
+  escalations: null,
+  schoolUpdates: null,
+  calendar: null
+});
 const activePeopleRaw = ref([]);
 const affiliationRows = ref([]);
 let requestGeneration = 0;
-const BRIEFING_REQUEST_TIMEOUT_MS = 12000;
+const BRIEFING_PRIMARY_TIMEOUT_MS = 10000;
+const BRIEFING_SECONDARY_TIMEOUT_MS = 8000;
 
 const userId = computed(() => authStore.user?.id || null);
 const role = computed(() => String(authStore.user?.role || '').toLowerCase());
@@ -262,7 +274,7 @@ const brandedAgencies = computed(() => {
       ...SUPERADMIN_BRIEFING_PALETTE
     }];
   }
-  return (affiliationRows.value || []).map((agency) => ({
+  return (affiliationRows.value || []).filter(isAgencyTenantOrg).map((agency) => ({
     ...agency,
     ...parseBrandPalette(agency, platformPalette.value),
     logo: agencyLogo(agency),
@@ -417,80 +429,117 @@ function baseSection({ title, icon, tone, count, countLabel, items, action, to }
   return { title, icon, tone, count: Number(count || 0), countLabel, items: items || [], action, to };
 }
 
+function resolvePrimaryAgencyId() {
+  const current = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
+  const currentId = Number(current?.id || 0);
+  if (currentId > 0 && isAgencyTenantOrg(current)) return currentId;
+  const tenant = (affiliationRows.value || []).find(isAgencyTenantOrg);
+  return tenant?.id ? Number(tenant.id) : null;
+}
+
+function mapNotificationItems(rows = []) {
+  return rows.slice(0, 3).map((item) => ({
+    id: `notification-${item.id}`,
+    label: item.title || item.message || 'Notification',
+    meta: relativeTime(item.created_at || item.createdAt)
+  }));
+}
+
+function mapSchoolUpdateItems(rows = []) {
+  return rows.slice(0, 3).map((item) => ({
+    id: `school-update-${item.id}`,
+    label: item.title || item.message || 'School update',
+    meta: relativeTime(item.created_at || item.createdAt)
+  }));
+}
+
+function applyNotificationSections(unreadNotifications, notificationCount) {
+  const tenantRows = tenantBriefingNotifications(unreadNotifications);
+  const schoolRows = schoolBriefingItemsFromNotifications(unreadNotifications);
+  briefing.value = {
+    ...briefing.value,
+    notifications: baseSection({
+      title: 'Notifications',
+      icon: '♢',
+      tone: 'slate',
+      count: Math.max(notificationCount, tenantRows.length),
+      countLabel: tenantRows.length === 1 ? 'new' : 'new',
+      items: mapNotificationItems(tenantRows),
+      action: 'View all notifications',
+      to: `${prefix.value}/notifications`
+    }),
+    schoolUpdates: baseSection({
+      title: 'School updates',
+      icon: '▣',
+      tone: 'green',
+      count: schoolRows.length,
+      countLabel: schoolRows.length === 1 ? 'update' : 'updates',
+      items: mapSchoolUpdateItems(schoolRows),
+      action: 'View communications',
+      to: `${prefix.value}/admin/communications`
+    })
+  };
+}
+
 async function loadBriefing() {
   const generation = ++requestGeneration;
   loading.value = true;
   loadError.value = false;
-  briefing.value = { notifications: null, messages: null, tickets: null, tasks: null, escalations: null, calendar: null };
+  briefing.value = {
+    notifications: null,
+    messages: null,
+    tickets: null,
+    tasks: null,
+    escalations: null,
+    schoolUpdates: null,
+    calendar: null
+  };
   activePeopleRaw.value = [];
-  // Open at once so a slow dashboard endpoint can never delay the login experience.
-  // Cards populate after the personalized data has settled.
   visible.value = true;
+
+  const apiOpts = (timeoutMs) => ({
+    timeout: timeoutMs,
+    skipGlobalLoading: true,
+    skipAuthRedirect: true
+  });
 
   try {
     if (!isSuperadmin.value) {
       const current = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
-      affiliationRows.value = current.length ? current : (await agencyStore.fetchUserAgencies());
+      const rows = current.length ? current : (await agencyStore.fetchUserAgencies());
+      affiliationRows.value = (rows || []).filter(isAgencyTenantOrg);
     } else {
       affiliationRows.value = [];
     }
 
-    const requests = await Promise.allSettled([
-      api.get('/notifications/counts', {
-        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
-        skipGlobalLoading: true,
-        skipAuthRedirect: true
-      }),
+    const primaryAgencyId = resolvePrimaryAgencyId();
+    const notificationParams = {
+      isRead: false,
+      isResolved: false,
+      limit: 40
+    };
+    if (primaryAgencyId) notificationParams.agencyId = primaryAgencyId;
+
+    const phase1 = await Promise.allSettled([
+      api.get('/notifications/counts', apiOpts(BRIEFING_PRIMARY_TIMEOUT_MS)),
       api.get('/notifications', {
-        params: { isRead: false, isResolved: false, limit: 30 },
-        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
-        skipGlobalLoading: true,
-        skipAuthRedirect: true
+        params: notificationParams,
+        ...apiOpts(BRIEFING_PRIMARY_TIMEOUT_MS)
       }),
-      api.get('/messages/dashboard-summary', {
-        params: { allAgencies: 1 },
-        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
-        skipGlobalLoading: true,
-        skipAuthRedirect: true
-      }),
-      api.get('/support-tickets', {
-        params: { status: 'open', mine: true, ticketKind: 'support', limit: 30 },
-        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
-        skipGlobalLoading: true,
-        skipAuthRedirect: true
-      }),
-      api.get('/tasks', {
-        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
-        skipGlobalLoading: true,
-        skipAuthRedirect: true
-      }),
-      api.get('/support-tickets', {
-        params: { mine: true, ticketKind: 'escalation', limit: 30 },
-        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
-        skipGlobalLoading: true,
-        skipAuthRedirect: true
-      }),
-      api.get(`/users/${userId.value}/schedule-summary`, {
-        params: { weekStart: mondayYmd(), includeAllAgencies: true },
-        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
-        skipGlobalLoading: true,
-        skipAuthRedirect: true
-      }),
-      api.get('/presence/privileged', {
-        timeout: BRIEFING_REQUEST_TIMEOUT_MS,
-        skipGlobalLoading: true,
-        skipAuthRedirect: true
-      })
+      primaryAgencyId
+        ? api.get('/messages/dashboard-summary', {
+          params: { agencyId: primaryAgencyId },
+          ...apiOpts(BRIEFING_PRIMARY_TIMEOUT_MS)
+        })
+        : Promise.resolve({ data: { cards: { unread: 0 }, priority: [] } })
     ]);
 
     if (generation !== requestGeneration) return;
-    loadError.value = requests.some((request) => request.status === 'rejected');
-    const value = (index, fallback = null) => requests[index].status === 'fulfilled'
-      ? requests[index].value?.data
-      : fallback;
 
-    const notificationCounts = value(0, {});
-    const notificationList = unwrapList(value(1, []));
+    const notificationCounts = phase1[0].status === 'fulfilled' ? (phase1[0].value?.data || {}) : {};
+    const notificationList = phase1[1].status === 'fulfilled'
+      ? unwrapList(phase1[1].value?.data)
+      : [];
     const unreadNotifications = notificationList.filter((item) => {
       const read = item._is_read_for_viewer ?? item.is_read;
       return !read && !item.is_resolved;
@@ -499,38 +548,76 @@ async function loadBriefing() {
       Object.values(notificationCounts || {}).reduce((sum, count) => sum + Number(count || 0), 0),
       unreadNotifications.length
     );
+    applyNotificationSections(unreadNotifications, notificationCount);
 
-    const messageData = value(2, {});
+    const messageData = phase1[2].status === 'fulfilled' ? (phase1[2].value?.data || {}) : {};
     const messageCount = Number(messageData?.cards?.unread || 0);
-    const ticketRows = unwrapList(value(3, []));
-    const taskRows = unwrapList(value(4, [])).filter((task) => ['pending', 'in_progress'].includes(String(task?.status || 'pending').toLowerCase()));
-    const escalationRows = unwrapList(value(5, [])).filter((item) => !['resolved', 'closed'].includes(String(item?.escalation_status || item?.status || '').toLowerCase()));
-    const calendarRows = todayScheduleItems(value(6, {}));
-    activePeopleRaw.value = unwrapList(value(7, []));
-
     briefing.value = {
-      notifications: baseSection({
-        title: 'Notifications', icon: '♢', tone: 'slate', count: notificationCount,
-        countLabel: notificationCount === 1 ? 'new' : 'new',
-        items: unreadNotifications.slice(0, 3).map((item) => ({
-          id: `notification-${item.id}`,
-          label: item.title || item.message || 'Notification',
-          meta: relativeTime(item.created_at || item.createdAt)
-        })),
-        action: 'View all notifications', to: `${prefix.value}/notifications`
-      }),
+      ...briefing.value,
       messages: baseSection({
-        title: 'Missed messages', icon: '◌', tone: 'blue', count: messageCount,
+        title: 'Missed messages',
+        icon: '◌',
+        tone: 'blue',
+        count: messageCount,
         countLabel: 'unread',
         items: (messageData?.priority || []).slice(0, 3).map((item) => ({
           id: item.id,
           label: item.label || 'Conversation',
           meta: [item.agencyName, relativeTime(item.occurredAt)].filter(Boolean).join(' · ')
         })),
-        action: 'View all messages', to: `${prefix.value}/messages`
+        action: 'View all messages',
+        to: `${prefix.value}/messages`
+      })
+    };
+
+    loadError.value = phase1[0].status === 'rejected' && phase1[1].status === 'rejected';
+    loading.value = false;
+
+    const ticketParams = primaryAgencyId ? { agencyId: primaryAgencyId } : {};
+    const scheduleParams = {
+      weekStart: mondayYmd(),
+      ...(primaryAgencyId ? { agencyId: primaryAgencyId } : {})
+    };
+
+    const phase2 = await Promise.allSettled([
+      api.get('/support-tickets', {
+        params: { ...ticketParams, status: 'open', mine: true, ticketKind: 'support', limit: 30 },
+        ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
       }),
+      api.get('/tasks', {
+        params: ticketParams,
+        ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
+      }),
+      api.get('/support-tickets', {
+        params: { ...ticketParams, mine: true, ticketKind: 'escalation', limit: 30 },
+        ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
+      }),
+      api.get(`/users/${userId.value}/schedule-summary`, {
+        params: scheduleParams,
+        ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
+      }),
+      api.get('/presence/privileged', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS))
+    ]);
+
+    if (generation !== requestGeneration) return;
+
+    const value = (index, fallback = null) => phase2[index].status === 'fulfilled'
+      ? phase2[index].value?.data
+      : fallback;
+
+    const ticketRows = unwrapList(value(0, []));
+    const taskRows = unwrapList(value(1, [])).filter((task) => ['pending', 'in_progress'].includes(String(task?.status || 'pending').toLowerCase()));
+    const escalationRows = unwrapList(value(2, [])).filter((item) => !['resolved', 'closed'].includes(String(item?.escalation_status || item?.status || '').toLowerCase()));
+    const calendarRows = todayScheduleItems(value(3, {}));
+    activePeopleRaw.value = unwrapList(value(4, []));
+
+    briefing.value = {
+      ...briefing.value,
       tickets: baseSection({
-        title: 'Assigned tickets', icon: '◇', tone: 'orange', count: ticketRows.length,
+        title: 'Assigned tickets',
+        icon: '◇',
+        tone: 'orange',
+        count: ticketRows.length,
         countLabel: 'open',
         items: ticketRows.slice(0, 3).map((item) => ({
           id: `ticket-${item.id}`,
@@ -539,10 +626,14 @@ async function loadBriefing() {
           badge: String(item.priority || '').toUpperCase() || null,
           badgeTone: String(item.priority || '').toLowerCase() === 'high' ? 'danger' : 'warning'
         })),
-        action: 'View assigned tickets', to: `${prefix.value}/tickets?mine=true`
+        action: 'View assigned tickets',
+        to: `${prefix.value}/tickets?mine=true`
       }),
       tasks: baseSection({
-        title: 'Assigned tasks / to dos', icon: '☷', tone: 'green', count: taskRows.length,
+        title: 'Assigned tasks / to dos',
+        icon: '☷',
+        tone: 'green',
+        count: taskRows.length,
         countLabel: 'pending',
         items: taskRows.slice(0, 3).map((item) => {
           const dueAt = item.due_date || item.dueDate;
@@ -555,10 +646,14 @@ async function loadBriefing() {
             badgeTone: overdue ? 'danger' : 'neutral'
           };
         }),
-        action: 'View all tasks', to: `${prefix.value}/tasks`
+        action: 'View all tasks',
+        to: `${prefix.value}/tasks`
       }),
       escalations: baseSection({
-        title: 'Escalations', icon: '△', tone: 'red', count: escalationRows.length,
+        title: 'Escalations',
+        icon: '△',
+        tone: 'red',
+        count: escalationRows.length,
         countLabel: 'urgent',
         items: escalationRows.slice(0, 3).map((item) => ({
           id: `escalation-${item.id}`,
@@ -567,14 +662,24 @@ async function loadBriefing() {
           badge: item.immediate_action_required ? 'URGENT' : String(item.priority || 'HIGH').toUpperCase(),
           badgeTone: 'danger'
         })),
-        action: 'View all escalations', to: `${prefix.value}/admin/escalations?mine=true`
+        action: 'View all escalations',
+        to: `${prefix.value}/admin/escalations?mine=true`
       }),
       calendar: baseSection({
-        title: 'Today’s calendar', icon: '▦', tone: 'blue', count: calendarRows.length,
-        countLabel: 'scheduled', items: calendarRows,
-        action: 'View full calendar', to: `${prefix.value}/my-schedule`
+        title: 'Today’s calendar',
+        icon: '▦',
+        tone: 'blue',
+        count: calendarRows.length,
+        countLabel: 'scheduled',
+        items: calendarRows,
+        action: 'View full calendar',
+        to: `${prefix.value}/my-schedule`
       })
     };
+
+    if (phase2.some((request) => request.status === 'rejected')) {
+      loadError.value = true;
+    }
   } catch {
     if (generation === requestGeneration) loadError.value = true;
   } finally {

@@ -1,27 +1,36 @@
 <template>
-  <div class="page">
-    <div class="page-header" data-tour="avail-header">
-      <div>
-        <h1 data-tour="avail-title">Provider Management</h1>
-        <p class="page-description" data-tour="avail-subtitle">
-          Schedules, availability, payroll ratios for hourly providers, app usage, and kudos — by agency.
-        </p>
+  <div class="pm-page">
+    <header class="pm-header" data-tour="avail-header">
+      <div class="pm-brand">
+        <div v-if="tenantLogoUrl" class="pm-tenant-logo">
+          <img :src="tenantLogoUrl" alt="" />
+        </div>
+        <div>
+          <p v-if="tenantName" class="pm-tenant-name">{{ tenantName }}</p>
+          <h1 data-tour="avail-title">Provider Management</h1>
+          <p class="page-description" data-tour="avail-subtitle">
+            Schedules, availability, payroll ratios for hourly providers, app usage, and kudos — by agency.
+          </p>
+        </div>
       </div>
-      <div class="header-actions" data-tour="avail-actions">
+      <div class="pm-header-actions" data-tour="avail-actions">
+        <router-link class="pm-header-btn" :to="scheduleHubTo">Schedule hub</router-link>
         <router-link
           v-if="canSeeClientExchange"
           :to="clientExchangeLink"
-          class="btn btn-secondary"
+          class="pm-header-btn"
         >
           Client Exchange
         </router-link>
-        <button class="btn btn-secondary" type="button" @click="tab = 'kudos'">Kudos</button>
-        <button class="btn btn-secondary" type="button" @click="tab = 'tracker'">Provider App Tracker</button>
-        <button class="btn btn-secondary" type="button" @click="reload" :disabled="loading">Refresh</button>
+        <button class="pm-header-btn" type="button" @click="tab = 'kudos'">Kudos</button>
+        <button class="pm-header-btn" type="button" @click="tab = 'tracker'">Provider App Tracker</button>
+        <button class="pm-header-btn pm-header-btn--primary" type="button" @click="reload" :disabled="loading">
+          {{ loading ? 'Refreshing…' : 'Refresh' }}
+        </button>
       </div>
-    </div>
+    </header>
 
-    <div v-if="agencies.length > 1" class="agency-selector">
+    <div v-if="agencies.length > 1" class="agency-selector pm-agency-bar">
       <label>Agency</label>
       <select v-model="selectedAgencyId" @change="onAgencyChange">
         <option :value="null">Select an agency…</option>
@@ -29,25 +38,25 @@
       </select>
     </div>
 
-    <div v-if="!agencyId" class="empty-state">
+    <div v-if="!agencyId" class="empty-state pm-empty">
       <p>Select an agency first.</p>
     </div>
 
-    <div v-else class="panel" data-tour="avail-panel">
-      <div class="tabs" data-tour="avail-tabs">
-        <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'" data-tour="avail-tab-school">Organization slots</button>
-        <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'" data-tour="avail-tab-office">Office availability</button>
-        <button class="tab" :class="{ active: tab === 'virtual' }" @click="tab = 'virtual'" data-tour="avail-tab-virtual">Virtual availability</button>
-        <button class="tab" :class="{ active: tab === 'school_requests' }" @click="tab = 'school_requests'">Additional school hours</button>
-        <button class="tab" :class="{ active: tab === 'tracker' }" @click="tab = 'tracker'">Provider app tracker</button>
-        <button class="tab" :class="{ active: tab === 'kudos' }" @click="tab = 'kudos'">Kudos</button>
-        <button class="tab" :class="{ active: tab === 'hourly_direct' }" @click="tab = 'hourly_direct'">
-          Hourly direct / indirect
+    <div v-else class="panel pm-panel" data-tour="avail-panel">
+      <nav class="pm-tabs" data-tour="avail-tabs" aria-label="Provider management sections">
+        <button
+          v-for="t in PM_TABS"
+          :key="t.id"
+          type="button"
+          class="pm-tab"
+          :class="{ active: tab === t.id }"
+          :data-tour="t.tour || undefined"
+          @click="tab = t.id"
+        >
+          <span class="pm-tab-icon" aria-hidden="true" v-html="pmTabIcon(t.id)" />
+          <span class="pm-tab-label">{{ t.label }}</span>
         </button>
-        <button class="tab" :class="{ active: tab === 'unpaid_notes' }" @click="tab = 'unpaid_notes'">
-          No-note / draft unpaid
-        </button>
-      </div>
+      </nav>
 
       <div v-if="error" class="error">{{ error }}</div>
       <div v-else-if="loading" class="loading">Loading…</div>
@@ -58,7 +67,7 @@
             <strong>Additional school daytime hours</strong>
             <p class="muted">
               Providers submit new weekday daytime blocks here (with notes about what they hope to accomplish).
-              This queue is separate from Organization slots, where you change an existing assignment’s times or open slot counts.
+              This queue is separate from school slots in Provider Management, where you change an existing assignment’s times or open slot counts.
             </p>
           </div>
           <AvailabilityIntakeManagement :show-header="false" initial-tab="school" />
@@ -449,64 +458,76 @@
           </table>
         </div>
 
-        <div v-else class="filters" data-tour="avail-filters">
-          <div class="field">
-            <label>Provider</label>
-            <select v-model="filters.providerId" class="select">
-              <option value="">All</option>
-              <option v-for="p in providerOptions" :key="`p-${p.id}`" :value="String(p.id)">
-                {{ p.last_name }}, {{ p.first_name }}
-              </option>
-            </select>
+        <div v-else class="pm-filter-shell" data-tour="avail-filters">
+          <div class="pm-filters">
+            <div class="field">
+              <label>Provider</label>
+              <select v-model="draftFilters.providerId" class="select pm-control">
+                <option value="">All</option>
+                <option v-for="p in providerOptions" :key="`p-${p.id}`" :value="String(p.id)">
+                  {{ p.last_name }}, {{ p.first_name }}
+                </option>
+              </select>
+            </div>
+
+            <div v-if="tab === 'school'" class="field">
+              <label>Organization</label>
+              <select v-model="draftFilters.schoolOrganizationId" class="select pm-control">
+                <option value="">All</option>
+                <option v-for="o in orgOptions" :key="`o-${o.id}`" :value="String(o.id)">
+                  {{ o.name }}
+                </option>
+              </select>
+            </div>
+
+            <div v-if="tab === 'office'" class="field">
+              <label>Office</label>
+              <select v-model="draftFilters.officeLocationId" class="select pm-control">
+                <option value="">All</option>
+                <option v-for="o in officeOptions" :key="`off-${o.id}`" :value="String(o.id)">
+                  {{ o.name }}
+                </option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>Day of week</label>
+              <select v-model="draftFilters.dayOfWeek" class="select pm-control">
+                <option value="">All</option>
+                <option v-for="d in days" :key="d" :value="d">{{ d }}</option>
+              </select>
+            </div>
+
+            <div class="field pm-search-field">
+              <label>Search</label>
+              <input
+                v-model="draftFilters.search"
+                class="input pm-control"
+                type="search"
+                placeholder="Search organization, office, or provider…"
+              />
+            </div>
+
+            <div class="field pm-toggle-field">
+              <label>Include inactive</label>
+              <label class="pm-switch">
+                <input v-model="draftFilters.includeInactive" type="checkbox" />
+                <span class="pm-switch-ui" />
+              </label>
+            </div>
+
+            <div v-if="tab === 'office'" class="field pm-toggle-field">
+              <label>Include staff holds</label>
+              <label class="pm-switch">
+                <input v-model="draftFilters.includeStaffHolds" type="checkbox" />
+                <span class="pm-switch-ui" />
+              </label>
+            </div>
           </div>
 
-          <div v-if="tab === 'school'" class="field">
-            <label>Organization</label>
-            <select v-model="filters.schoolOrganizationId" class="select">
-              <option value="">All</option>
-              <option v-for="o in orgOptions" :key="`o-${o.id}`" :value="String(o.id)">
-                {{ o.name }} ({{ String(o.organization_type || 'org').toLowerCase() }})
-              </option>
-            </select>
-          </div>
-
-          <div v-if="tab === 'office'" class="field">
-            <label>Office</label>
-            <select v-model="filters.officeLocationId" class="select">
-              <option value="">All</option>
-              <option v-for="o in officeOptions" :key="`off-${o.id}`" :value="String(o.id)">
-                {{ o.name }}
-              </option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label>Day of week</label>
-            <select v-model="filters.dayOfWeek" class="select">
-              <option value="">All</option>
-              <option v-for="d in days" :key="d" :value="d">{{ d }}</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label>Search</label>
-            <input v-model="filters.search" class="input" placeholder="Organization/office/provider…" />
-          </div>
-
-          <div class="field">
-            <label>Include inactive</label>
-            <label class="toggle">
-              <input type="checkbox" v-model="filters.includeInactive" />
-              <span />
-            </label>
-          </div>
-
-          <div v-if="tab === 'office'" class="field">
-            <label>Include staff holds</label>
-            <label class="toggle">
-              <input type="checkbox" v-model="filters.includeStaffHolds" />
-              <span />
-            </label>
+          <div class="pm-filter-actions">
+            <button type="button" class="pm-btn pm-btn-primary" @click="applyFilters">Apply filters</button>
+            <button type="button" class="pm-btn pm-btn-ghost" @click="resetFilters">Reset</button>
           </div>
         </div>
 
@@ -515,18 +536,33 @@
           Booking status comes from the active booking plan and upcoming booked occurrences.
         </p>
 
-        <div v-if="tab === 'school'" class="school-actions" data-tour="avail-school-actions">
-          <button class="btn btn-secondary btn-sm" type="button" @click="expandAllSchools" :disabled="schoolGroups.length === 0">
-            Expand all
-          </button>
-          <button class="btn btn-secondary btn-sm" type="button" @click="collapseAllSchools" :disabled="schoolGroups.length === 0">
-            Collapse all
-          </button>
-          <div class="muted" style="font-size: 12px;">Organizations: {{ schoolGroups.length }} · Rows: {{ schoolRows.length }}</div>
+        <div v-if="tab === 'school'" class="pm-insights">
+          <div v-for="card in schoolInsightCards" :key="card.key" class="pm-insight-card" :class="`tone-${card.tone}`">
+            <span class="pm-insight-icon" aria-hidden="true" v-html="card.icon" />
+            <div>
+              <span class="pm-insight-label">{{ card.label }}</span>
+              <strong class="pm-insight-value">{{ card.value }}</strong>
+            </div>
+          </div>
         </div>
 
-        <div v-if="tab === 'school'" class="table-wrap" data-tour="avail-school-table">
-          <table class="table">
+        <div v-if="tab === 'school'" class="pm-toolbar" data-tour="avail-school-actions">
+          <p class="pm-toolbar-meta">
+            Organizations: <strong>{{ schoolGroups.length }}</strong>
+            · Rows: <strong>{{ schoolRows.length }}</strong>
+          </p>
+          <div class="pm-toolbar-actions">
+            <button class="pm-btn pm-btn-ghost pm-btn-sm" type="button" @click="collapseAllSchools" :disabled="schoolGroups.length === 0">
+              Collapse all
+            </button>
+            <button class="pm-btn pm-btn-ghost pm-btn-sm" type="button" @click="expandAllSchools" :disabled="schoolGroups.length === 0">
+              Expand all
+            </button>
+          </div>
+        </div>
+
+        <div v-if="tab === 'school'" class="pm-table-shell" data-tour="avail-school-table">
+          <table class="pm-table">
             <thead>
               <tr>
                 <th @click="setSort('schoolName')">Organization</th>
@@ -536,24 +572,41 @@
                 <th @click="setSort('slotsTotal')">Slots total</th>
                 <th @click="setSort('slotsAvailable')">Slots available</th>
                 <th @click="setSort('isActive')">Active</th>
+                <th class="pm-col-actions" />
               </tr>
             </thead>
             <tbody>
               <template v-for="g in schoolGroups" :key="`sg-${g.schoolOrganizationId}`">
-                <tr class="group-row" @click="toggleSchool(g.schoolOrganizationId)">
-                  <td colspan="7">
-                    <div class="group-row-inner">
-                      <button class="group-toggle" type="button" @click.stop="toggleSchool(g.schoolOrganizationId)">
-                        <span class="caret" :class="{ open: isSchoolExpanded(g.schoolOrganizationId) }">▸</span>
+                <tr class="pm-group-row" @click="toggleSchool(g.schoolOrganizationId)">
+                  <td colspan="8">
+                    <div class="pm-group-inner">
+                      <button class="pm-group-toggle" type="button" @click.stop="toggleSchool(g.schoolOrganizationId)">
+                        <span class="pm-caret" :class="{ open: isSchoolExpanded(g.schoolOrganizationId) }">▸</span>
                       </button>
-                      <div class="group-main">
-                        <div class="group-title">{{ g.schoolLabel }}</div>
-                        <div class="group-sub muted">
-                          Rows: {{ g.rows.length }} · Total: {{ g.totals.slotsAvailable }}/{{ g.totals.slotsTotal }}
+                      <div class="pm-group-main">
+                        <div class="pm-school-icon" :style="schoolIconStyle(g)">
+                          <img
+                            v-if="schoolIconUrl(g)"
+                            :src="schoolIconUrl(g)"
+                            alt=""
+                            @error="onSchoolIconError(g.schoolOrganizationId)"
+                          />
+                          <span v-else>{{ schoolInitials(g.schoolName) }}</span>
+                        </div>
+                        <div>
+                          <div class="pm-group-title">{{ g.schoolName }}</div>
+                          <div class="pm-group-sub">
+                            {{ g.schoolOrganizationType || 'school' }} · Rows: {{ g.rows.length }} · Total: {{ g.totals.slotsAvailable }}/{{ g.totals.slotsTotal }}
+                          </div>
                         </div>
                       </div>
-                      <div class="group-days">
-                        <span v-for="d in days" :key="`sg-${g.schoolOrganizationId}-${d}`" class="day-chip">
+                      <div class="pm-group-days">
+                        <span
+                          v-for="d in days"
+                          :key="`sg-${g.schoolOrganizationId}-${d}`"
+                          class="pm-day-chip"
+                          :class="{ 'has-open': (g.byDay[d]?.slotsAvailable ?? 0) > 0 }"
+                        >
                           <span class="day">{{ d.slice(0, 3) }}</span>
                           <span class="vals">{{ g.byDay[d]?.slotsAvailable ?? 0 }}/{{ g.byDay[d]?.slotsTotal ?? 0 }}</span>
                         </span>
@@ -566,25 +619,33 @@
                   v-for="r in g.sortedRows"
                   v-show="isSchoolExpanded(g.schoolOrganizationId)"
                   :key="`s-${g.schoolOrganizationId}-${r.id}`"
+                  class="pm-data-row"
                 >
-                  <td>{{ r.schoolName }}</td>
-                  <td>{{ r.providerName }}</td>
+                  <td class="pm-org-cell muted">{{ r.schoolName }}</td>
+                  <td><span class="pm-provider-name">{{ r.providerName }}</span></td>
                   <td>{{ r.dayOfWeek }}</td>
                   <td>{{ formatRange(r.startTime, r.endTime) }}</td>
                   <td>{{ r.slotsTotal }}</td>
-                  <td :style="Number(r.slotsAvailable) < 0 ? 'color: var(--danger, #d92d20); font-weight: 800;' : ''">
-                    {{ r.slotsAvailable }}
+                  <td :class="{ 'pm-negative': Number(r.slotsAvailable) < 0 }">{{ r.slotsAvailable }}</td>
+                  <td>
+                    <span class="pm-pill" :class="r.isActive ? 'is-yes' : 'is-no'">{{ r.isActive ? 'Yes' : 'No' }}</span>
                   </td>
-                  <td>{{ r.isActive ? 'Yes' : 'No' }}</td>
+                  <td class="pm-col-actions">
+                    <router-link class="pm-row-link" :to="caseloadHubTo" title="Edit in caseload hub">⋯</router-link>
+                  </td>
                 </tr>
               </template>
 
               <tr v-if="schoolGroups.length === 0">
-                <td colspan="7" class="muted">No matching organization slot rows.</td>
+                <td colspan="8" class="pm-empty-row">No matching school slot rows.</td>
               </tr>
             </tbody>
           </table>
         </div>
+
+        <router-link v-if="tab === 'school'" class="pm-fab" :to="caseloadHubTo" title="Manage school caseloads">
+          +
+        </router-link>
 
         <div v-else-if="tab === 'office'" class="table-wrap" data-tour="avail-office-table">
           <table class="table">
@@ -715,15 +776,32 @@ import api from '../../services/api';
 import { formatTimeHm12h, formatTimeRange12h } from '../../utils/timeFormat';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import { useBrandingStore } from '../../store/branding';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 import AvailabilityIntakeManagement from '../../components/admin/AvailabilityIntakeManagement.vue';
 import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 const route = useRoute();
+const orgSlug = computed(() => (typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : ''));
+const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
+const scheduleHubTo = computed(() => ({
+  path: orgTo('/schedule'),
+  query: agencyId.value ? { agencyId: String(agencyId.value) } : {}
+}));
 const canSeeClientExchange = computed(() => canSeeClientExchangeNav(authStore.user?.role));
 const clientExchangeLink = computed(() => clientExchangePath(route.params?.organizationSlug));
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const tenantName = computed(() => String(agencyStore.currentAgency?.name || '').trim());
+const tenantLogoUrl = computed(() => {
+  const raw = String(agencyStore.currentAgency?.logo_url || agencyStore.currentAgency?.logoUrl || '').trim();
+  if (!raw) return brandingStore.logoUrl || null;
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  return toUploadsUrl(raw);
+});
+const failedSchoolIconIds = ref(new Set());
 const selectedAgencyId = ref(null);
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 const agencies = computed(() => {
@@ -772,15 +850,61 @@ const kudosEligibleRecipients = computed(() =>
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-const filters = ref({
-  providerId: '',
-  schoolOrganizationId: '',
-  officeLocationId: '',
-  dayOfWeek: '',
-  search: '',
-  includeInactive: false,
-  includeStaffHolds: false
-});
+const PM_TABS = [
+  { id: 'school', label: 'School slots', tour: 'avail-tab-school' },
+  { id: 'office', label: 'Office availability', tour: 'avail-tab-office' },
+  { id: 'virtual', label: 'Virtual availability', tour: 'avail-tab-virtual' },
+  { id: 'school_requests', label: 'Additional school hours' },
+  { id: 'tracker', label: 'Provider app tracker' },
+  { id: 'kudos', label: 'Kudos' },
+  { id: 'hourly_direct', label: 'Hourly direct / indirect' },
+  { id: 'unpaid_notes', label: 'No-note / draft unpaid' }
+];
+
+const PM_TAB_ICONS = {
+  school: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 19V9l8-5 8 5v10"/><path d="M9 21V12h6v9"/></svg>',
+  office: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 21V7l8-4 8 4v14"/><path d="M9 9h1M9 13h1M9 17h1M14 9h1M14 13h1M14 17h1"/></svg>',
+  virtual: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+  school_requests: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>',
+  tracker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>',
+  kudos: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 3l2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L4.8 8.2l5-.7L12 3z"/></svg>',
+  hourly_direct: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l3-4 3 2 4-6"/></svg>',
+  unpaid_notes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M7 4h10v16H7z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>'
+};
+
+function pmTabIcon(id) {
+  return PM_TAB_ICONS[id] || PM_TAB_ICONS.school;
+}
+
+function defaultFilters() {
+  return {
+    providerId: '',
+    schoolOrganizationId: '',
+    officeLocationId: '',
+    dayOfWeek: '',
+    search: '',
+    includeInactive: false,
+    includeStaffHolds: false
+  };
+}
+
+const filters = ref(defaultFilters());
+const draftFilters = ref(defaultFilters());
+
+function applyFilters() {
+  filters.value = { ...draftFilters.value };
+}
+
+function resetFilters() {
+  const next = defaultFilters();
+  draftFilters.value = next;
+  filters.value = next;
+}
+
+const caseloadHubTo = computed(() => ({
+  path: orgTo('/admin/caseload-hub/schools-staff'),
+  query: agencyId.value ? { agencyId: String(agencyId.value) } : {}
+}));
 
 const officeEditLink = (r) => {
   const officeId = Number(r?.officeLocationId || 0);
@@ -1215,10 +1339,15 @@ const schoolGroups = computed(() => {
         schoolOrganizationId: sid,
         schoolName: r.schoolName || `Organization ${sid}`,
         schoolOrganizationType: orgType,
+        schoolLogoUrl: String(r.schoolLogoUrl || '').trim(),
         rows: []
       });
     }
-    bySchool.get(sid).rows.push(r);
+    const group = bySchool.get(sid);
+    if (!group.schoolLogoUrl && r.schoolLogoUrl) {
+      group.schoolLogoUrl = String(r.schoolLogoUrl).trim();
+    }
+    group.rows.push(r);
   }
 
   const groups = Array.from(bySchool.values());
@@ -1256,6 +1385,85 @@ const schoolGroups = computed(() => {
     };
   });
 });
+
+const schoolTotals = computed(() => sumSchoolRows(schoolRows.value));
+
+const schoolInsightCards = computed(() => {
+  const rows = schoolRows.value || [];
+  const inactive = rows.filter((r) => !r.isActive).length;
+  const atCapacity = rows.filter((r) => r.isActive && Number(r.slotsAvailable) <= 0 && Number(r.slotsTotal) > 0).length;
+  const negative = rows.filter((r) => Number(r.slotsAvailable) < 0).length;
+  const totals = schoolTotals.value;
+  return [
+    {
+      key: 'orgs',
+      label: 'Organizations',
+      value: schoolGroups.value.length,
+      tone: 'primary',
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 19V9l8-5 8 5v10"/><path d="M9 21V12h6v9"/></svg>'
+    },
+    {
+      key: 'open',
+      label: 'Open slots',
+      value: `${totals.slotsAvailable}/${totals.slotsTotal}`,
+      tone: 'blue',
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>'
+    },
+    {
+      key: 'capacity',
+      label: 'At capacity',
+      value: atCapacity,
+      tone: 'amber',
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>'
+    },
+    {
+      key: 'attention',
+      label: 'Needs attention',
+      value: negative + inactive,
+      tone: 'red',
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 4.3 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0z"/></svg>'
+    }
+  ];
+});
+
+const orgLogoById = computed(() => {
+  const map = new Map();
+  for (const o of data.value.organizations || []) {
+    const id = Number(o.id || 0);
+    if (!id) continue;
+    const raw = String(o.logo_url || o.logoUrl || '').trim();
+    if (raw) map.set(id, raw);
+  }
+  return map;
+});
+
+function schoolIconUrl(group) {
+  const id = Number(group?.schoolOrganizationId || 0);
+  if (!id || failedSchoolIconIds.value.has(id)) return null;
+  const apiLogo = String(group?.schoolLogoUrl || orgLogoById.value.get(id) || '').trim();
+  if (apiLogo) {
+    return apiLogo.startsWith('http://') || apiLogo.startsWith('https://') ? apiLogo : toUploadsUrl(apiLogo);
+  }
+  return brandingStore.getOrganizationOwnIconUrl(id) || brandingStore.getOrganizationChromeIconUrl(id) || null;
+}
+
+function onSchoolIconError(schoolOrganizationId) {
+  const id = Number(schoolOrganizationId || 0);
+  if (!id) return;
+  failedSchoolIconIds.value = new Set([...failedSchoolIconIds.value, id]);
+}
+
+function schoolInitials(name) {
+  const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+}
+
+function schoolIconStyle(group) {
+  const hue = (Number(group?.schoolOrganizationId || 0) * 53) % 360;
+  return { background: `hsl(${hue} 48% 42%)` };
+}
 
 const setSort = (key) => {
   if (sortKey.value === key) {
@@ -1564,21 +1772,552 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
 </script>
 
 <style scoped>
-.page {
+.pm-page {
+  --pm-accent: var(--primary, #1f6b4a);
+  --pm-accent-soft: color-mix(in srgb, var(--pm-accent) 12%, #fff);
+  --pm-accent-border: color-mix(in srgb, var(--pm-accent) 35%, var(--border, #e2e8f0));
+  --pm-ink: color-mix(in srgb, var(--pm-accent) 22%, #0f172a);
+  --pm-muted: #64748b;
+  --pm-line: #e2e8f0;
+  --pm-panel: #ffffff;
+  --pm-bg: color-mix(in srgb, var(--pm-accent) 4%, #f4f6fb);
   width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 20px 28px 56px;
+  box-sizing: border-box;
+  min-height: calc(100vh - 72px);
+  min-height: calc(100dvh - 72px);
+  background: var(--pm-bg);
+  color: var(--pm-ink);
+  position: relative;
 }
-.page-header {
+.pm-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
   gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
 }
-.page-header h1 {
+.pm-brand {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.pm-tenant-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--pm-line);
+  background: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.pm-tenant-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.pm-tenant-name {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pm-muted);
+}
+.pm-header h1 {
   margin: 0;
+  font-size: clamp(1.65rem, 2.4vw, 2.15rem);
+  font-weight: 800;
+  color: var(--pm-accent);
+  letter-spacing: -0.03em;
 }
 .page-description {
   margin: 8px 0 0;
-  color: var(--text-secondary);
+  color: var(--pm-muted);
+  max-width: 62ch;
+  line-height: 1.45;
+}
+.pm-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.pm-header-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--pm-line);
+  background: #fff;
+  color: var(--pm-ink);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.pm-header-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--pm-accent) 40%, var(--pm-line));
+  background: color-mix(in srgb, var(--pm-accent) 6%, #fff);
+  color: var(--pm-accent);
+}
+.pm-header-btn--primary {
+  background: var(--pm-accent);
+  border-color: var(--pm-accent);
+  color: #fff;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--pm-accent) 35%, transparent);
+}
+.pm-header-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pm-accent) 88%, #000);
+  border-color: color-mix(in srgb, var(--pm-accent) 88%, #000);
+  color: #fff;
+  filter: none;
+}
+.pm-header-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.panel.pm-panel {
+  margin-top: 0;
+  background: var(--pm-panel);
+  border: 1px solid var(--pm-line);
+  border-radius: 20px;
+  padding: 18px 20px 22px;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.06);
+}
+.pm-agency-bar {
+  background: #fff;
+  border: 1px solid var(--pm-line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.pm-empty {
+  margin-top: 16px;
+  padding: 40px;
+  text-align: center;
+  background: #fff;
+  border-radius: 16px;
+  border: 1px dashed var(--pm-line);
+}
+.pm-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--pm-line);
+}
+.pm-tab {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 108px;
+  padding: 10px 12px 8px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--pm-muted);
+  font-weight: 650;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.pm-tab:hover {
+  background: #f8fafc;
+  color: var(--pm-ink);
+}
+.pm-tab.active {
+  background: var(--pm-accent-soft);
+  border-color: var(--pm-accent-border);
+  color: var(--pm-accent);
+  box-shadow: inset 0 -3px 0 var(--pm-accent);
+}
+.pm-tab-icon :deep(svg) {
+  width: 22px;
+  height: 22px;
+}
+.pm-tab-label {
+  text-align: center;
+  line-height: 1.2;
+}
+.pm-filter-shell {
+  margin-bottom: 16px;
+}
+.pm-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1px solid var(--pm-line);
+}
+.pm-filters .field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pm-muted);
+  margin-bottom: 6px;
+}
+.pm-control {
+  width: 100%;
+  border-radius: 12px !important;
+  border-color: var(--pm-line) !important;
+  background: #fff !important;
+}
+.pm-search-field {
+  grid-column: span 2;
+}
+.pm-toggle-field {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.pm-switch {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.pm-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.pm-switch-ui {
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  position: relative;
+  transition: background 0.15s ease;
+}
+.pm-switch-ui::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+.pm-switch input:checked + .pm-switch-ui {
+  background: var(--pm-accent);
+}
+.pm-switch input:checked + .pm-switch-ui::after {
+  transform: translateX(18px);
+}
+.pm-filter-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.pm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--pm-line);
+  background: #fff;
+  color: var(--pm-ink);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.pm-btn-sm {
+  padding: 7px 12px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+.pm-btn-primary {
+  background: var(--pm-accent);
+  border-color: var(--pm-accent);
+  color: #fff;
+}
+.pm-btn-ghost {
+  background: #fff;
+}
+.pm-insights {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.pm-insight-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--pm-line);
+  background: #fff;
+}
+.pm-insight-icon :deep(svg) {
+  width: 22px;
+  height: 22px;
+}
+.pm-insight-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.pm-insight-card.tone-primary .pm-insight-icon {
+  background: color-mix(in srgb, var(--pm-accent) 14%, #fff);
+  color: var(--pm-accent);
+}
+.pm-insight-card.tone-blue .pm-insight-icon { background: #dbeafe; color: #2563eb; }
+.pm-insight-card.tone-amber .pm-insight-icon { background: #fef3c7; color: #d97706; }
+.pm-insight-card.tone-red .pm-insight-icon { background: #fee2e2; color: #dc2626; }
+.pm-insight-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pm-muted);
+}
+.pm-insight-value {
+  display: block;
+  font-size: 1.35rem;
+  line-height: 1.1;
+  color: var(--pm-ink);
+}
+.pm-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.pm-toolbar-meta {
+  margin: 0;
+  font-size: 13px;
+  color: var(--pm-muted);
+}
+.pm-toolbar-actions {
+  display: flex;
+  gap: 8px;
+}
+.pm-table-shell {
+  border: 1px solid var(--pm-line);
+  border-radius: 16px;
+  overflow: auto;
+  background: #fff;
+}
+.pm-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.pm-table th,
+.pm-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--pm-line);
+  text-align: left;
+  vertical-align: middle;
+}
+.pm-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fafafa;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pm-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.pm-group-row {
+  background: #f8fafc;
+  cursor: pointer;
+}
+.pm-group-row:hover {
+  background: #f1f5f9;
+}
+.pm-group-inner {
+  display: grid;
+  grid-template-columns: 34px minmax(240px, 1fr) minmax(280px, 2fr);
+  gap: 12px;
+  align-items: center;
+}
+.pm-group-toggle {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--pm-line);
+  border-radius: 10px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.pm-caret {
+  display: inline-block;
+  transform: rotate(0deg);
+  transition: transform 0.12s ease;
+  font-weight: 900;
+  color: var(--pm-muted);
+}
+.pm-caret.open {
+  transform: rotate(90deg);
+}
+.pm-group-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.pm-group-title {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--pm-ink);
+}
+.pm-group-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--pm-muted);
+}
+.pm-school-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 12px;
+  flex-shrink: 0;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+.pm-school-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pm-group-days {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.pm-day-chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid var(--pm-line);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 11px;
+}
+.pm-day-chip.has-open {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.pm-day-chip .day {
+  font-weight: 800;
+  color: var(--pm-muted);
+}
+.pm-day-chip .vals {
+  font-weight: 700;
+  color: var(--pm-ink);
+}
+.pm-data-row:hover {
+  background: #fcfcfd;
+}
+.pm-provider-name {
+  font-weight: 650;
+}
+.pm-negative {
+  color: #dc2626;
+  font-weight: 800;
+}
+.pm-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.pm-pill.is-yes {
+  background: #dcfce7;
+  color: #15803d;
+}
+.pm-pill.is-no {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.pm-col-actions {
+  width: 44px;
+  text-align: right;
+}
+.pm-row-link {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--pm-line);
+  color: var(--pm-muted);
+  text-decoration: none;
+  font-size: 18px;
+  line-height: 1;
+}
+.pm-row-link:hover {
+  background: var(--pm-accent-soft);
+  color: var(--pm-accent);
+  border-color: var(--pm-accent-border);
+}
+.pm-empty-row {
+  text-align: center;
+  color: var(--pm-muted);
+  padding: 28px !important;
+}
+.pm-fab {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  background: var(--pm-accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  font-weight: 300;
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: 0 10px 25px color-mix(in srgb, var(--pm-accent) 35%, transparent);
+  z-index: 20;
+}
+.pm-fab:hover {
+  filter: brightness(1.06);
 }
 .school-requests-banner {
   margin: 0 0 14px;
@@ -1593,17 +2332,6 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
 }
 .school-requests-banner p {
   margin: 0;
-}
-.header-actions {
-  display: flex;
-  gap: 10px;
-}
-.panel {
-  margin-top: 16px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
 }
 .agency-selector {
   margin-top: 12px;
@@ -1973,11 +2701,11 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
   color: var(--text-secondary);
 }
 @media (max-width: 900px) {
-  .page-header {
+  .pm-header {
     flex-direction: column;
     align-items: stretch;
   }
-  .header-actions {
+  .pm-header-actions {
     flex-wrap: wrap;
   }
   .tab {
@@ -1986,15 +2714,29 @@ watch(() => agencyStore.currentAgency?.id, (id) => {
   }
 }
 @media (max-width: 1100px) {
-  .filters {
+  .filters,
+  .pm-filters {
     grid-template-columns: 1fr;
   }
-  .group-row-inner {
-    grid-template-columns: 30px 1fr;
+  .pm-insights {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .pm-search-field {
+    grid-column: span 1;
+  }
+  .pm-group-inner,
+  .group-row-inner {
+    grid-template-columns: 34px 1fr;
+  }
+  .pm-group-days,
   .group-days {
     grid-column: 1 / -1;
     justify-content: flex-start;
+  }
+}
+@media (max-width: 700px) {
+  .pm-insights {
+    grid-template-columns: 1fr;
   }
 }
 .hourly-tenure-modal-overlay {

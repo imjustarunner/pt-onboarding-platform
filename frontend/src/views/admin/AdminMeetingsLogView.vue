@@ -5,9 +5,13 @@
         <h1>Admin Meetings</h1>
         <p class="muted">Log of admin meetings with attendance, transcript, summary, and activity.</p>
       </div>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="load">
-        {{ loading ? 'Loading…' : 'Refresh' }}
-      </button>
+      <div class="aml__head-actions">
+        <router-link class="btn btn-secondary btn-sm" :to="scheduleHubTo">Schedule hub</router-link>
+        <router-link class="btn btn-secondary btn-sm" :to="providerManagementTo">Provider Management</router-link>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="load">
+          {{ loading ? 'Loading…' : 'Refresh' }}
+        </button>
+      </div>
     </header>
 
     <p v-if="error" class="error">{{ error }}</p>
@@ -87,11 +91,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 
+const route = useRoute();
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const loading = ref(false);
 const detailLoading = ref(false);
 const error = ref('');
@@ -99,9 +107,22 @@ const rows = ref([]);
 const selectedId = ref(null);
 const detail = ref({});
 
-const agencyId = computed(() =>
-  Number(authStore.user?.agencyId || authStore.user?.agency_id || authStore.currentAgencyId || 0)
-);
+/** Prefer header agency selector (super_admin); fall back to user agency / query. */
+const agencyId = computed(() => {
+  const fromStore = Number(agencyStore.currentAgency?.id || 0);
+  if (fromStore > 0) return fromStore;
+  const fromQuery = Number(route.query?.agencyId || 0);
+  if (fromQuery > 0) return fromQuery;
+  return Number(authStore.user?.agencyId || authStore.user?.agency_id || authStore.currentAgencyId || 0);
+});
+
+const orgSlug = computed(() => (typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : ''));
+const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
+const scheduleHubTo = computed(() => orgTo('/schedule'));
+const providerManagementTo = computed(() => ({
+  path: orgTo('/admin/provider-availability'),
+  query: agencyId.value ? { agencyId: String(agencyId.value) } : {}
+}));
 
 function formatWhen(raw) {
   if (!raw) return '—';
@@ -201,17 +222,36 @@ async function toggle(row) {
   }
 }
 
-onMounted(() => { void load(); });
+onMounted(async () => {
+  if (!agencyId.value) {
+    try {
+      await agencyStore.fetchUserAgencies?.();
+    } catch {
+      /* best effort */
+    }
+  }
+  void load();
+});
+
+watch(agencyId, (next, prev) => {
+  if (next && next !== prev) void load();
+});
 </script>
 
 <style scoped>
-.aml { padding: 20px 16px 40px; max-width: 960px; }
+.aml { padding: 20px 24px 40px; max-width: none; width: 100%; box-sizing: border-box; }
 .aml__head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
+  flex-wrap: wrap;
   margin-bottom: 16px;
+}
+.aml__head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .aml__head h1 { margin: 0 0 4px; font-size: 1.5rem; }
 .aml__list { display: flex; flex-direction: column; gap: 10px; }

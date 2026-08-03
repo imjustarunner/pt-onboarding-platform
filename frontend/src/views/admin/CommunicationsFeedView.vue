@@ -852,6 +852,13 @@ const platformError = ref('');
 const platformRows = ref([]);
 const platformChannel = ref('email');
 const platformStatus = ref('pending');
+
+function syncAutomationFiltersFromRoute() {
+  const channel = String(route.query?.channel || '').trim().toLowerCase();
+  const status = String(route.query?.status || '').trim().toLowerCase();
+  if (channel === 'email' || channel === 'sms') platformChannel.value = channel;
+  if (['pending', 'failed', 'sent'].includes(status)) platformStatus.value = status;
+}
 const testEmailTo = ref('');
 const testSenderIdentityId = ref('');
 const senderIdentityOptionsLoading = ref(false);
@@ -1631,7 +1638,24 @@ onMounted(async () => {
     router.push('/login');
     return;
   }
+
+  const tab = activeTab.value;
+  if (canUseCommunicationsCenter.value && (tab === 'automation' || tab === 'school')) {
+    const slug = route.params.organizationSlug;
+    const base = typeof slug === 'string' && slug ? `/${slug}/admin/communications` : '/admin/communications';
+    const query = { mode: tab };
+    if (tab === 'automation') {
+      const ch = String(route.query?.channel || '').trim().toLowerCase();
+      const st = String(route.query?.status || '').trim().toLowerCase();
+      if (ch === 'email' || ch === 'sms') query.channel = ch;
+      if (['pending', 'failed', 'sent'].includes(st)) query.status = st;
+    }
+    router.replace({ path: base, query });
+    return;
+  }
+
   void communicationsCountsStore.fetchCounts();
+  syncAutomationFiltersFromRoute();
   await load();
   await Promise.all([loadCalls(), loadCallAnalytics(), loadVoicemails()]);
   await loadCallSettings();
@@ -1657,6 +1681,13 @@ watch([platformChannel, platformStatus, currentAgencyId], async () => {
   if (!authStore.isAuthenticated) return;
   if (activeTab.value === 'automation') await loadPlatform();
 });
+
+watch(
+  () => [route.query?.channel, route.query?.status, route.query?.tab],
+  () => {
+    if (String(route.query?.tab || '') === 'automation') syncAutomationFiltersFromRoute();
+  }
+);
 
 watch([currentAgencyId, isSuperAdmin], async () => {
   if (!authStore.isAuthenticated) return;
