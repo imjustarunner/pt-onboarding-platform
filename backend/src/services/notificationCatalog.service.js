@@ -67,8 +67,8 @@ const TYPES_BY_CATEGORY = {
     'onboarding_completed', 'pending_completed', 'checklist_incomplete',
     'background_check_reimbursement_due', 'background_check_renewal_due',
     'background_check_expired', 'd11_background_tracking_activated',
-    'new_job_application_submitted', 'hiring_task_assigned',
-    'training_assigned', 'training_due_soon'
+    'new_job_application_submitted', 'school_portal_onboarding_completed',
+    'hiring_task_assigned', 'training_assigned', 'training_due_soon'
   ],
   supervision_programs: [
     'supervision_individual_50_reached', 'supervision_total_100_reached',
@@ -90,7 +90,8 @@ const LABEL_OVERRIDES = {
   user_login: 'User logged in',
   user_logout: 'User logged out',
   presence_user_returned: 'Teammate is back',
-  user_activity_digest: 'User activity digest',
+  user_activity_digest: 'Daily user activity',
+  school_portal_onboarding_completed: 'School portal onboarding complete',
   status_expired: 'Status expired',
   new_packet_uploaded: 'New packet uploaded',
   company_event_registration_submitted: 'New event registration',
@@ -213,7 +214,7 @@ const MANAGER_RELEVANT = new Set([
   'school_availability_request_pending', 'school_primary_staff_removed',
   'budget_expense_pending_approval', 'payroll_holiday_bonus_missing_approval',
   'onboarding_completed', 'pending_completed', 'new_job_application_submitted',
-  'kudos_earned_admin_digest'
+  'school_portal_onboarding_completed', 'kudos_earned_admin_digest'
 ]);
 
 const OPERATIONS_RELEVANT = new Set([
@@ -270,7 +271,7 @@ const MANAGER_ESSENTIAL = new Set([
   'unassigned_document_submitted', 'office_schedule_coverage_flag',
   'office_availability_request_pending', 'school_availability_request_pending',
   'budget_expense_pending_approval', 'payroll_holiday_bonus_missing_approval',
-  'new_job_application_submitted'
+  'new_job_application_submitted', 'school_portal_onboarding_completed'
 ]);
 
 const OPERATIONS_ESSENTIAL = new Set([
@@ -280,7 +281,8 @@ const OPERATIONS_ESSENTIAL = new Set([
   'medical_records_release_submitted', 'office_schedule_coverage_flag',
   'office_availability_request_pending', 'school_availability_request_pending',
   'company_event_registration_submitted', 'budget_expense_pending_approval',
-  'payroll_holiday_bonus_missing_approval', 'new_job_application_submitted'
+  'payroll_holiday_bonus_missing_approval', 'new_job_application_submitted',
+  'school_portal_onboarding_completed'
 ]);
 
 const ADMINISTRATIVE_ESSENTIAL = new Set([

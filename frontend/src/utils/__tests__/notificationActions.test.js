@@ -15,6 +15,8 @@ describe('notificationActions', () => {
       .toBe('/org/admin/office-approvals?agencyId=8&tab=requests');
     expect(notificationDestination({ type: 'support_ticket_created', related_entity_id: 3 }, { organizationSlug: 'org', role: 'admin' }))
       .toBe('/org/tickets?status=open&ticketId=3');
+    expect(notificationDestination({ type: 'school_portal_onboarding_completed', agency_id: 12 }, { organizationSlug: 'org', role: 'admin' }))
+      .toBe('/org/admin/school-onboarding?agencyId=12');
   });
 
   it('does not expose admin profile navigation to ordinary providers', () => {

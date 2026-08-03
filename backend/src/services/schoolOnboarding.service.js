@@ -13,6 +13,34 @@ import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityRe
 import { validatePasswordStrength } from '../utils/passwordValidation.js';
 import { bootstrapDigitalIntakeFormsForSchool } from './schoolOnboardingIntakeBootstrap.service.js';
 
+async function notifySchoolPortalOnboardingCompleted(invite) {
+  if (!invite?.agency_id || !invite?.id) return;
+  try {
+    const Notification = (await import('../models/Notification.model.js')).default;
+    const schoolName = String(invite.school_org_name || invite.school_name || 'School').trim();
+    await Notification.create({
+      type: 'school_portal_onboarding_completed',
+      severity: 'info',
+      title: 'School portal onboarding complete',
+      message: `${schoolName} completed school portal onboarding.`,
+      audienceJson: {
+        admin: true,
+        support: true,
+        staff: true,
+        provider: false
+      },
+      userId: null,
+      agencyId: invite.agency_id,
+      relatedEntityType: 'school_onboarding_invite',
+      relatedEntityId: invite.id,
+      actorUserId: invite.primary_user_id || null,
+      actorSource: 'School Portal'
+    });
+  } catch {
+    // best effort
+  }
+}
+
 const STEP_KEYS = [
   'school_information',
   'school_staff',
@@ -1328,6 +1356,7 @@ export async function submitOnboarding(token) {
   }
 
   const fresh = await SchoolOnboardingInvite.findById(invite.id);
+  await notifySchoolPortalOnboardingCompleted(fresh);
   const schoolSlug = fresh.school_slug || fresh.school_portal_url;
   const agencySlug = fresh.agency_slug || fresh.agency_portal_url;
   const serialized = serializeInvite(fresh, { publicView: true });

@@ -10,7 +10,7 @@
           {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
         </button>
         <button class="action-btn" type="button" :disabled="!matchingUnreadCount || bulkSaving" @click="markMatchingRead">
-          ✓ Mark all read
+          {{ markAllReadLabel }}
         </button>
         <button class="action-btn primary" type="button" @click="openSettings()">
           ☷ Filter &amp; Settings
@@ -42,6 +42,15 @@
         <option value="">More…</option>
         <option v-for="item in moreTypes" :key="item.type" :value="item.type">{{ item.label }} ({{ item.count }})</option>
       </select>
+      <button
+        v-if="type && matchingUnreadCount"
+        class="type-mark-read-btn"
+        type="button"
+        :disabled="bulkSaving"
+        @click="markActiveTypeRead"
+      >
+        {{ markAllReadLabel }}
+      </button>
     </div>
 
     <button class="mobile-filter-btn" type="button" @click="mobileFiltersOpen = !mobileFiltersOpen">
@@ -168,7 +177,7 @@
     <Teleport to="body">
       <div v-if="digestModal.open" class="modal-backdrop" @click.self="digestModal.open = false">
         <section class="digest-modal" role="dialog" aria-modal="true" aria-label="User activity digest details">
-          <header><strong>User activity digest</strong><button type="button" @click="digestModal.open = false">×</button></header>
+          <header><strong>Daily user activity</strong><button type="button" @click="digestModal.open = false">×</button></header>
           <div v-if="digestModal.loading" class="empty-state">Loading activity…</div>
           <div v-else class="digest-events">
             <article v-for="event in digestModal.items" :key="event.id">
@@ -257,6 +266,17 @@ const statusOptions = [
   { key: 'dismissed', label: 'Dismissed', icon: '🗃' }
 ];
 
+const activeTypeEntry = computed(() => (feed.facets.types || []).find((item) => item.type === type.value) || null);
+const markAllReadLabel = computed(() => {
+  if (type.value) {
+    const label = activeTypeEntry.value?.label || 'selected topic';
+    return `✓ Mark all ${label} read`;
+  }
+  if (category.value && activeCategory.value) {
+    return `✓ Mark all ${activeCategory.value.label} read`;
+  }
+  return '✓ Mark all read';
+});
 const activeCount = computed(() => Number(feed.facets.matchingTotal ?? feed.pagination.total ?? 0));
 const allCategoryCount = computed(() => Number(feed.facets.categoryTotal ?? feed.facets.matchingTotal ?? 0));
 const activeCategory = computed(() => (feed.facets.categories || []).find((item) => item.key === category.value) || null);
@@ -358,6 +378,7 @@ const formatNotificationLine = (notification) => [
 
 const primaryLabel = (notification) => {
   if (notification.type === 'user_activity_digest') return 'View activity';
+  if (notification.type === 'school_portal_onboarding_completed') return 'View onboarding';
   if (notification.type === 'new_packet_uploaded') return 'Open packet';
   if (notification.type === 'company_event_registration_submitted') return 'Event portal';
   if (notification.type === 'support_ticket_created') return 'Open ticket';
@@ -417,6 +438,10 @@ const markMatchingRead = async () => {
 const markTypeRead = async (notificationType) => {
   overflowId.value = null;
   await bulkAction('mark_read', currentFilters({ type: notificationType, status: 'unread' }));
+};
+const markActiveTypeRead = async () => {
+  if (!type.value) return;
+  await markTypeRead(type.value);
 };
 
 const muteType = async (notification) => {
@@ -506,6 +531,7 @@ onBeforeUnmount(() => { if (undoTimer) clearTimeout(undoTimer); if (searchTimer)
 .type-strip { display:flex; gap:8px; overflow-x:auto; padding:18px 0; }
 .type-strip button,.type-strip select { white-space:nowrap; border:1px solid var(--border); background:white; border-radius:9px; padding:9px 14px; font-weight:700; cursor:pointer; }
 .type-strip button.active { background:#065f46; color:white; border-color:#065f46; }
+.type-mark-read-btn { margin-left:auto; color:#065f46; border-color:#86efac; background:#ecfdf5; }
 .inbox-layout { display:grid; grid-template-columns:280px minmax(0,1fr); gap:18px; }
 .filter-sidebar { border:1px solid var(--border); border-radius:12px; background:linear-gradient(180deg,#f8fffb,#fff); padding:16px; align-self:start; position:sticky; top:12px; }
 .sidebar-section { display:flex; flex-direction:column; gap:5px; }

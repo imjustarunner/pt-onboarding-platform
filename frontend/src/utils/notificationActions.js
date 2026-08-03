@@ -5,6 +5,9 @@ export function notificationDestination(notification, { organizationSlug = null,
   const entityId = Number(n.related_entity_id || 0);
   const adminLike = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(String(role || '').toLowerCase());
 
+  if (n.type === 'school_portal_onboarding_completed') {
+    return `${base}/admin/school-onboarding${n.agency_id ? `?agencyId=${n.agency_id}` : ''}`;
+  }
   if (n.type === 'support_ticket_created') return `${base}/tickets${entityId ? `?status=open&ticketId=${entityId}` : ''}`;
   if (n.type === 'support_ticket_forwarded_to_provider' && entityType === 'client' && entityId) {
     return { path: `${base}/dashboard`, query: { clientId: String(entityId) } };
