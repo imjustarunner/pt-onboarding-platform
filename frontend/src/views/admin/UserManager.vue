@@ -622,52 +622,63 @@
                     @click="startInlineEdit(user)"
                   >Edit</button>
                   <router-link v-if="!user.isOrphaned && !user.isGuardian" :to="userProfilePath(user.id)" class="btn btn-primary btn-sm">View</router-link>
-                  <div v-if="rowHasMoreActions(user)" class="um-more-wrap">
+                  <div
+                    v-if="rowHasMoreActions(user)"
+                    class="um-more-wrap"
+                    :ref="(el) => { if (el && openActionsMenuId === Number(user.id)) actionsMenuAnchorRef = el }"
+                  >
                     <button
                       type="button"
                       class="btn btn-secondary btn-sm um-more-btn"
                       :aria-expanded="openActionsMenuId === Number(user.id) ? 'true' : 'false'"
                       @click.stop="toggleActionsMenu(user.id)"
                     >⋮</button>
-                    <div v-if="openActionsMenuId === Number(user.id)" class="um-more-menu" @click.stop>
-                      <router-link
-                        v-if="!user.isOrphaned && !user.isGuardian"
-                        :to="userProfileTabPath(user.id, 'communications')"
-                        class="um-more-item"
-                        @click="openActionsMenuId = null"
-                      >Announce / Splash</router-link>
-                      <button
-                        v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'pending') && !user.pending_access_locked && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))"
-                        type="button"
-                        class="um-more-item"
-                        @click="openActionsMenuId = null; showPendingCompleteModal(user)"
-                      >Mark hiring complete</button>
-                      <button
-                        v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
-                        type="button"
-                        class="um-more-item"
-                        @click="openActionsMenuId = null; moveToActive(user)"
-                      >Activate</button>
-                      <button
-                        v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'ready_for_review') && (canArchiveDelete || user.role === 'admin' || user.role === 'super_admin') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))"
-                        type="button"
-                        class="um-more-item um-more-danger"
-                        @click="openActionsMenuId = null; downloadAndWipeUserData(user)"
-                      >Download &amp; wipe</button>
-                      <button
-                        v-if="canArchiveDelete && (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant')"
-                        type="button"
-                        class="um-more-item um-more-danger"
-                        @click="openActionsMenuId = null; archiveUser(user)"
-                      >Archive</button>
-                      <button
-                        v-if="isSscSstcTenant && Number(user.id) !== Number(authStore.user?.id) && !user.applicationPending && inlineEditingId !== user.id"
-                        type="button"
-                        class="um-more-item um-more-danger"
-                        :disabled="memberStatusSavingId === Number(user.id)"
-                        @click="openActionsMenuId = null; removeMemberFromClub(user)"
-                      >{{ memberStatusSavingId === Number(user.id) ? 'Removing…' : (user.isOrphaned || user.isGuardian ? 'Clean Up' : 'Remove from Club') }}</button>
-                    </div>
+                    <Teleport to="body">
+                      <div
+                        v-if="openActionsMenuId === Number(user.id)"
+                        class="um-more-menu um-more-menu--teleported"
+                        :style="actionsMenuStyle"
+                        @click.stop
+                      >
+                        <router-link
+                          v-if="!user.isOrphaned && !user.isGuardian"
+                          :to="userProfileTabPath(user.id, 'communications')"
+                          class="um-more-item"
+                          @click="openActionsMenuId = null"
+                        >Announce / Splash</router-link>
+                        <button
+                          v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'pending') && !user.pending_access_locked && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))"
+                          type="button"
+                          class="um-more-item"
+                          @click="openActionsMenuId = null; showPendingCompleteModal(user)"
+                        >Mark hiring complete</button>
+                        <button
+                          v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
+                          type="button"
+                          class="um-more-item"
+                          @click="openActionsMenuId = null; moveToActive(user)"
+                        >Activate</button>
+                        <button
+                          v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'ready_for_review') && (canArchiveDelete || user.role === 'admin' || user.role === 'super_admin') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))"
+                          type="button"
+                          class="um-more-item um-more-danger"
+                          @click="openActionsMenuId = null; downloadAndWipeUserData(user)"
+                        >Download &amp; wipe</button>
+                        <button
+                          v-if="canArchiveDelete && (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant')"
+                          type="button"
+                          class="um-more-item um-more-danger"
+                          @click="openActionsMenuId = null; archiveUser(user)"
+                        >Archive</button>
+                        <button
+                          v-if="isSscSstcTenant && Number(user.id) !== Number(authStore.user?.id) && !user.applicationPending && inlineEditingId !== user.id"
+                          type="button"
+                          class="um-more-item um-more-danger"
+                          :disabled="memberStatusSavingId === Number(user.id)"
+                          @click="openActionsMenuId = null; removeMemberFromClub(user)"
+                        >{{ memberStatusSavingId === Number(user.id) ? 'Removing…' : (user.isOrphaned || user.isGuardian ? 'Clean Up' : 'Remove from Club') }}</button>
+                      </div>
+                    </Teleport>
                   </div>
                 </template>
               </div>
@@ -2309,6 +2320,45 @@ const toggleActionsMenu = (userId) => {
   const id = Number(userId);
   openActionsMenuId.value = openActionsMenuId.value === id ? null : id;
 };
+
+const actionsMenuAnchorRef = ref(null);
+const actionsMenuPosition = ref({ top: 0, left: 0 });
+watch(
+  () => [openActionsMenuId.value, actionsMenuAnchorRef.value],
+  () => {
+    if (openActionsMenuId.value === null || !actionsMenuAnchorRef.value) return;
+    nextTick(() => {
+      const rect = actionsMenuAnchorRef.value?.getBoundingClientRect?.();
+      if (!rect) return;
+      actionsMenuPosition.value = {
+        top: rect.bottom + 4,
+        left: rect.right
+      };
+    });
+  },
+  { flush: 'post' }
+);
+const actionsMenuStyle = computed(() => {
+  const p = actionsMenuPosition.value;
+  return { top: `${p.top}px`, left: `${p.left}px` };
+});
+
+const closeActionsMenuOnScroll = () => {
+  if (openActionsMenuId.value !== null) openActionsMenuId.value = null;
+};
+watch(openActionsMenuId, (id, prev) => {
+  if (id !== null && prev === null) {
+    window.addEventListener('scroll', closeActionsMenuOnScroll, true);
+    window.addEventListener('resize', closeActionsMenuOnScroll);
+  } else if (id === null && prev !== null) {
+    window.removeEventListener('scroll', closeActionsMenuOnScroll, true);
+    window.removeEventListener('resize', closeActionsMenuOnScroll);
+  }
+});
+onUnmounted(() => {
+  window.removeEventListener('scroll', closeActionsMenuOnScroll, true);
+  window.removeEventListener('resize', closeActionsMenuOnScroll);
+});
 
 const rowHasMoreActions = (u) => {
   if (!u) return false;
@@ -4943,6 +4993,16 @@ onUnmounted(() => window.removeEventListener('click', closeActionsMenus));
   padding: 6px;
   display: flex;
   flex-direction: column;
+}
+
+.um-more-menu--teleported {
+  position: fixed;
+  right: auto;
+  top: auto;
+  transform: translateX(-100%);
+  z-index: 9999;
+  max-height: min(70vh, 360px);
+  overflow-y: auto;
 }
 
 .um-more-item {
