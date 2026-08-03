@@ -97,6 +97,7 @@ import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { encodeDemoLaunchHash } from '../../utils/demoWindowSession';
 import { isPractitionerOrgType } from '../../utils/practitionerVertical.js';
+import { isLikelyDemoTenant } from '../../utils/demoTenant.js';
 
 const router = useRouter();
 const loading = ref(false);
@@ -104,13 +105,6 @@ const error = ref('');
 const tenants = ref([]);
 const launchingId = ref('');
 const lastLaunch = ref('');
-
-const isLikelyDemoTenant = (t) => {
-  const hay = [t?.name, t?.official_name, t?.slug, t?.portal_url]
-    .map((v) => String(v || '').toLowerCase())
-    .join(' ');
-  return ['demo', 'fake', 'sandbox', 'training', 'sample', 'test'].some((k) => hay.includes(k));
-};
 
 const findTenant = (predicate) => {
   const list = Array.isArray(tenants.value) ? tenants.value : [];

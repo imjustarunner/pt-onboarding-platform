@@ -245,7 +245,7 @@
                     <router-link :to="orgTo('/club/settings')" @click.stop="closeClubManagementMenu">Club Settings</router-link>
                   </div>
                 </div>
-                <router-link :to="orgTo('/notifications')" @click="closeMobileMenu">Notifications</router-link>
+                <router-link :to="notificationsNavTo" @click="closeMobileMenu">Notifications</router-link>
                 <router-link
                   v-if="showSscMessagesLink"
                   :to="orgTo('/messages')"
@@ -339,7 +339,7 @@
                   :to="orgTo('/admin/company-events')"
                   @click="closeMobileMenu"
                 >Club Events</router-link>
-                <router-link :to="orgTo('/notifications')" @click="closeMobileMenu">Notifications</router-link>
+                <router-link :to="notificationsNavTo" @click="closeMobileMenu">Notifications</router-link>
                 <router-link
                   v-if="showSscMessagesLink"
                   :to="orgTo('/messages')"
@@ -951,7 +951,7 @@
                       v-if="canUseCommunicationsCenter && !isSscSstcTenant"
                       :to="orgTo('/admin/contacts')"
                     >Contacts</router-link>
-                    <router-link :to="orgTo('/notifications')" >
+                    <router-link :to="notificationsNavTo" >
                       <span>Notifications</span>
                       <span
                         v-if="notificationsUnreadCount > 0"
@@ -1166,7 +1166,7 @@
                 </router-link>
                 <router-link
                   v-if="showNotificationsObnoxiousBadge"
-                  :to="orgTo('/notifications')"
+                  :to="notificationsNavTo"
                   class="nav-obnoxious-badge"
                   :title="`${notificationsUnreadCount} unread notification(s)`"
                   aria-label="Notifications"
@@ -1175,7 +1175,7 @@
                 </router-link>
                 <router-link
                   v-if="showNotificationsCompactBadge"
-                  :to="orgTo('/notifications')"
+                  :to="notificationsNavTo"
                   class="nav-compact-badge nav-badge-pulse"
                   :title="`${notificationsUnreadCount} unread notification(s)`"
                   aria-label="Notifications"
@@ -1396,7 +1396,7 @@
                 <router-link :to="orgTo('/admin/company-events')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Club Events</router-link>
                 <router-link :to="orgTo('/club/settings')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Club Settings</router-link>
               </details>
-              <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
+              <router-link :to="notificationsNavTo" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
               <router-link
                 v-if="showSscMessagesLink"
                 :to="orgTo('/messages')"
@@ -1477,7 +1477,7 @@
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Club Events</router-link>
-              <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
+              <router-link :to="notificationsNavTo" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
               <router-link
                 v-if="showSscMessagesLink"
                 :to="orgTo('/messages')"
@@ -1995,7 +1995,7 @@
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
                   >Contacts</router-link>
-                  <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink mobile-nav-link-obnoxious">
+                  <router-link :to="notificationsNavTo" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink mobile-nav-link-obnoxious">
                     <span>Notifications</span>
                     <span class="mobile-obnoxious-badge" v-if="notificationsUnreadCount > 0">{{ notificationsUnreadCount }}</span>
                   </router-link>
@@ -2391,6 +2391,7 @@ import { useSessionLockStore } from './store/sessionLock';
 import { useUserPreferencesStore } from './store/userPreferences';
 import { useRouter, useRoute } from 'vue-router';
 import { isSchoolOnboardingDemoRoute } from './utils/schoolOnboardingDemoContext.js';
+import { resolvePreferredAgencySlug } from './utils/demoTenant.js';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
 import { canSeeClientExchangeNav } from './utils/clientExchangeNav.js';
@@ -5312,8 +5313,8 @@ const navBucketSlug = computed(() => {
   if (portalParent) return portalParent;
 
   if (slugFromRoute) return slugFromRoute;
-  const fromAgency = agency?.slug || agency?.portal_url || agency?.portalUrl;
-  if (fromAgency) return String(fromAgency).trim();
+  const preferredSlug = resolvePreferredAgencySlug(agency, arr, slugFromRoute);
+  if (preferredSlug) return preferredSlug;
   const orgContext = organizationStore.organizationContext?.value ?? organizationStore.organizationContext;
   if (orgContext?.slug) return String(orgContext.slug).trim();
   return null;
@@ -5327,6 +5328,14 @@ const orgTo = (path) => {
   if (hostPortal && s && hostPortal === s) return path;
   return `/${slug}${path}`;
 };
+
+/** Cross-agency inbox — never org-slug prefix (avoids Demo ITSCO snap for real admins). */
+const notificationsNavTo = computed(() => {
+  if (isAdminLike.value) {
+    return { path: '/notifications', query: { scope: 'managed' } };
+  }
+  return '/notifications';
+});
 
 /** SSTC affiliations the signed-in user belongs to, normalized for the
  *  "My Clubs" nav. Each entry links to that club's public page. */
@@ -6117,7 +6126,7 @@ const goToNotifications = async () => {
   // updates can leave the old modal vnode mounted until a refresh if the large
   // app-shell route render is interrupted.
   await nextTick();
-  if (!isOnNotificationsRoute.value) await router.push(orgTo('/notifications'));
+  if (!isOnNotificationsRoute.value) await router.push(notificationsNavTo.value);
 };
 
 let notificationsInterval = null;

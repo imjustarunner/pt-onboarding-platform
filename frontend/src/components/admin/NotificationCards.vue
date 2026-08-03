@@ -361,20 +361,14 @@ const openCategoryModal = (agencyId, agencyName) => {
   showCategoryModal.value = true;
 };
 
-const orgTo = (path) => {
-  const slug = route.params.organizationSlug;
-  if (typeof slug === 'string' && slug) return `/${slug}${path}`;
-  return path;
-};
-
 const goToAllNotifications = () => {
-  // Match existing navigation conventions:
-  // - supervisors/CPAs use /notifications
-  // - admins/support/super_admin use /admin/notifications
   const role = authStore.user?.role;
   const isSupervisorOrCpa = role === 'supervisor' || role === 'clinical_practice_assistant';
-  const path = isSupervisorOrCpa ? '/notifications' : '/admin/notifications';
-  router.push(orgTo(path));
+  if (isSupervisorOrCpa) {
+    router.push('/notifications');
+    return;
+  }
+  router.push({ path: '/notifications', query: { scope: 'managed' } });
 };
 
 const closeScopeModal = () => {

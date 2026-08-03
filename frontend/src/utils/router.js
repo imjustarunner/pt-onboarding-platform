@@ -17,6 +17,7 @@ import { isPractitionerOrgType } from './practitionerVertical.js';
 import { isBookClubAgency, getBookClubParentSlug } from './bookClubAgency.js';
 import { getCurrentPortalSlugFromHostCache } from './loginRedirect.js';
 import { guessPortalSlugFromHostname } from './orgScopedPath.js';
+import { isLikelyDemoTenant, pickFirstNonDemoTenant, pickOrgSlug } from './demoTenant.js';
 
 function hostImpliedPortalSlug() {
   try {
@@ -335,12 +336,17 @@ export function resolveOrgSlugForNavigation(opts = {}) {
       agencyStore.currentAgency?.portalUrl ||
       ''
   ).trim();
-  if (slug) return slug;
+  if (slug && !isLikelyDemoTenant(agencyStore.currentAgency)) return slug;
 
   const user = authStore.user;
   const fromUser = user?.agencies || [];
   const fromStore = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
   const orgs = fromUser.length > 0 ? fromUser : (Array.isArray(fromStore) ? fromStore : []);
+  const preferred = pickFirstNonDemoTenant(orgs);
+  if (preferred) return pickOrgSlug(preferred);
+
+  if (slug) return slug;
+
   if (Array.isArray(orgs) && orgs.length === 1) {
     return String(orgs[0]?.slug || orgs[0]?.portal_url || orgs[0]?.portalUrl || '').trim();
   }

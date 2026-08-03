@@ -9,6 +9,7 @@ import {
 } from '../utils/demoWindowSession';
 import { isBookClubAgency } from '../utils/bookClubAgency.js';
 import { isTenantOrganizationType } from '../utils/organizationTypes.js';
+import { pickFirstNonDemoTenant } from '../utils/demoTenant.js';
 
 export const useAgencyStore = defineStore('agency', () => {
   const agencies = ref([]);
@@ -230,7 +231,8 @@ export const useAgencyStore = defineStore('agency', () => {
         
         // Set default agency if none selected and user has agencies
         if (!currentAgency.value && userAgencies.value.length > 0) {
-          setCurrentAgency(userAgencies.value[0]);
+          const preferred = pickFirstNonDemoTenant(userAgencies.value) || userAgencies.value[0];
+          setCurrentAgency(preferred);
         }
       } else {
         if (!agenciesAllInFlight) {
@@ -248,7 +250,8 @@ export const useAgencyStore = defineStore('agency', () => {
               if (role && role !== 'super_admin') {
                 userAgencies.value = response.data;
                 if (!currentAgency.value && !platformMode.value && userAgencies.value.length > 0) {
-                  setCurrentAgency(userAgencies.value[0]);
+                  const preferred = pickFirstNonDemoTenant(userAgencies.value) || userAgencies.value[0];
+                  setCurrentAgency(preferred);
                 }
               }
             } catch {
@@ -307,7 +310,8 @@ export const useAgencyStore = defineStore('agency', () => {
     const arr = Array.isArray(list) ? list : [];
     if (!arr.length) return null;
 
-    const workTenant = arr.find((a) => isTenantOrganizationType(a) && !isBookClubAgency(a));
+    const workTenant = pickFirstNonDemoTenant(arr, { preferredPortal }) ||
+      arr.find((a) => isTenantOrganizationType(a) && !isBookClubAgency(a));
     if (workTenant && roleNorm !== 'club_manager') return workTenant;
 
     // Club managers: first path segment is the Summit *platform* slug (e.g. ssc), which matches the

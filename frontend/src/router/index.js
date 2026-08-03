@@ -24,6 +24,7 @@ import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js'
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuildersSchoolProgramAccess.js';
 import { getSchoolStaffPortalSlugs as getSchoolStaffPortalSlugsFromAgencies } from '../utils/schoolStaffPortal.js';
 import { isBookClubAgency, getBookClubParentSlug } from '../utils/bookClubAgency.js';
+import { isLikelyDemoTenant, pickFirstNonDemoTenant, pickOrgSlug } from '../utils/demoTenant.js';
 import { signalFreshLogin } from '../composables/useReminderSnooze.js';
 import {
   isTenantOrganizationType,
@@ -202,6 +203,11 @@ const getDefaultOrganizationSlug = () => {
     const curAgency = agencyStore.currentAgency;
     const storedList = JSON.parse(localStorage.getItem('userAgencies') || '[]');
     const storedArr = Array.isArray(storedList) ? storedList : [];
+    const membershipPool = [
+      ...storedArr,
+      ...(Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : []),
+      ...(Array.isArray(authStore.user?.agencies) ? authStore.user.agencies : [])
+    ];
     const fromStore = curAgency?.slug || curAgency?.portal_url;
     if (fromStore) {
       if (!isSchoolStaff && isPortalOrg(curAgency)) {
@@ -212,6 +218,11 @@ const getDefaultOrganizationSlug = () => {
         const parentSlug = getBookClubParentSlug(curAgency, storedArr);
         if (parentSlug) return parentSlug;
       }
+      if (isLikelyDemoTenant(curAgency)) {
+        const preferred = pickFirstNonDemoTenant(membershipPool);
+        const preferredSlug = preferred ? pickOrgSlug(preferred) : '';
+        if (preferredSlug) return preferredSlug;
+      }
       return fromStore;
     }
 
@@ -220,7 +231,8 @@ const getDefaultOrganizationSlug = () => {
       const t = String(org?.organization_type || org?.organizationType || '').toLowerCase();
       return !t || t === 'agency' || t === 'life_coach' || t === 'consultant';
     };
-    const firstTenant = storedArr.find((o) => isTenant(o) && pickSlug(o) && !isBookClubAgency(o));
+    const tenantPool = storedArr.filter((o) => isTenant(o) && pickSlug(o) && !isBookClubAgency(o));
+    const firstTenant = pickFirstNonDemoTenant(tenantPool) || tenantPool[0] || null;
     if (firstTenant) return pickSlug(firstTenant);
 
     // Prefer Summit affiliations (not book clubs) when picking from stored user agencies
@@ -2187,7 +2199,7 @@ const routes = [
     path: '/:organizationSlug/admin/notifications',
     name: 'OrganizationNotifications',
     redirect: (to) => ({
-      path: `/${to.params.organizationSlug}/notifications`,
+      path: '/notifications',
       query: { ...to.query, scope: 'managed' }
     }),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'school_staff', 'club_manager'], organizationSlug: true }
@@ -2351,7 +2363,10 @@ const routes = [
   {
     path: '/:organizationSlug/notifications',
     name: 'OrganizationSupervisorNotifications',
-    component: () => import('../views/NotificationsHubView.vue'),
+    redirect: (to) => ({
+      path: '/notifications',
+      query: { ...to.query }
+    }),
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
@@ -4244,6 +4259,10 @@ router.beforeEach(async (to, from, next) => {
     to.path === '/dashboard' ||
     to.path === '/mydashboard' ||
     String(to.name || '') === 'Dashboard';
+  const allowUnscopedNotifications =
+    to.path === '/notifications' ||
+    to.path.startsWith('/notifications/') ||
+    ['SupervisorNotifications', 'Notifications'].includes(String(to.name || ''));
   const allowUnscopedDocumentSigning = ['DocumentSigning', 'DocumentReview', 'DocumentPrint'].includes(String(to.name || ''));
   // Users with affiliation (SSTC) access: redirect to club dashboard instead of platform /dashboard
   if (
@@ -4311,6 +4330,7 @@ router.beforeEach(async (to, from, next) => {
     to.meta.requiresAuth &&
     !to.meta.organizationSlug &&
     !allowUnscopedDashboard &&
+    !allowUnscopedNotifications &&
     !allowUnscopedDocumentSigning
   ) {
     const slug = getDefaultOrganizationSlug();

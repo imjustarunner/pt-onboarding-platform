@@ -78,6 +78,7 @@ import { useAuthStore } from '../store/auth';
 import { useRoute, useRouter } from 'vue-router';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { isBookClubAgency } from '../utils/bookClubAgency.js';
+import { pickFirstNonDemoTenant, isLikelyDemoTenant } from '../utils/demoTenant.js';
 import {
   isTenantOrganizationType,
   isPortalBubbleOrg,
@@ -315,7 +316,15 @@ onMounted(async () => {
 
   const current = agencyStore.currentAgency;
   if (current && isTenantOrganizationType(current)) {
-    selectedAgencyId.value = current.id;
+    if (isLikelyDemoTenant(current) && agencies.value.length > 1) {
+      const preferred = pickFirstNonDemoTenant(agencies.value) || current;
+      selectedAgencyId.value = preferred.id;
+      if (Number(preferred.id) !== Number(current.id)) {
+        agencyStore.setCurrentAgency(preferred);
+      }
+    } else {
+      selectedAgencyId.value = current.id;
+    }
   } else if (current && !isTenantOrganizationType(current)) {
     // Book Club / school / learning / program / clinical must not own tenant context.
     // SSTC affiliation clubs may temporarily own currentAgency for Summit chrome.
@@ -332,15 +341,18 @@ onMounted(async () => {
         agencyStore.setCurrentAgency(nav.parent);
         selectedAgencyId.value = Number(nav.parent.id);
       } else if (agencies.value.length > 0) {
-        selectedAgencyId.value = agencies.value[0].id;
-        agencyStore.setCurrentAgency(agencies.value[0]);
+        const preferred = pickFirstNonDemoTenant(agencies.value) || agencies.value[0];
+        selectedAgencyId.value = preferred.id;
+        agencyStore.setCurrentAgency(preferred);
       }
     } else if (agencies.value.length > 0) {
-      selectedAgencyId.value = agencies.value[0].id;
+      const preferred = pickFirstNonDemoTenant(agencies.value) || agencies.value[0];
+      selectedAgencyId.value = preferred.id;
     }
   } else if (agencies.value.length > 0) {
-    selectedAgencyId.value = agencies.value[0].id;
-    agencyStore.setCurrentAgency(agencies.value[0]);
+    const preferred = pickFirstNonDemoTenant(agencies.value) || agencies.value[0];
+    selectedAgencyId.value = preferred.id;
+    agencyStore.setCurrentAgency(preferred);
   }
 });
 
