@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
 import * as S from '../services/schoolOnboarding.service.js';
+import { nukeSchoolOnboardingInvite } from '../services/schoolOnboardingNuke.service.js';
 
 function agencyIdFromReq(req) {
   const raw = req.body?.agencyId ?? req.query?.agencyId ?? req.headers['x-agency-id'];
@@ -87,6 +88,36 @@ export async function revokeInvite(req, res, next) {
     if (!inviteId) return res.status(400).json({ error: { message: 'Invalid invite id' } });
     const invite = await S.revokeInvite(inviteId, agencyId);
     res.json({ invite });
+  } catch (err) {
+    handleServiceError(err, res, next);
+  }
+}
+
+export async function nukeInvite(req, res, next) {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role !== 'admin' && role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admins can nuke a school onboarding invite.' } });
+    }
+    const agencyId = agencyIdFromReq(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const inviteId = parseInt(req.params.id, 10);
+    if (!inviteId) return res.status(400).json({ error: { message: 'Invalid invite id' } });
+    if (String(req.body?.confirm || '').trim().toUpperCase() !== 'NUKE') {
+      return res.status(400).json({
+        error: {
+          code: 'NUKE_CONFIRM_REQUIRED',
+          message: 'Type confirm: "NUKE" in the request body to permanently delete this school and all related test data.'
+        }
+      });
+    }
+    const result = await nukeSchoolOnboardingInvite(inviteId, agencyId, {
+      archivedByUserId: req.user?.id || null
+    });
+    res.json({
+      message: 'School and related onboarding data permanently deleted.',
+      ...result
+    });
   } catch (err) {
     handleServiceError(err, res, next);
   }

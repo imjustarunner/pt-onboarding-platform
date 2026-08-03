@@ -4,11 +4,14 @@ import { fileURLToPath } from 'url';
 import { parseFile } from 'music-metadata';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, '../../..');
+const BACKEND_ROOT = path.resolve(__dirname, '../..');
+const MONOREPO_ROOT = path.resolve(BACKEND_ROOT, '..');
 const MUSIC_DIRS = [
-  path.join(REPO_ROOT, 'assets', 'Focus Music'),
-  path.join(REPO_ROOT, 'frontend', 'public', 'assets', 'focus-music')
-];
+  path.join(MONOREPO_ROOT, 'assets', 'Focus Music'),
+  path.join(BACKEND_ROOT, 'assets', 'Focus Music'),
+  path.join(MONOREPO_ROOT, 'frontend', 'public', 'assets', 'focus-music'),
+  path.join(BACKEND_ROOT, 'public', 'assets', 'focus-music')
+].filter((dir, index, all) => all.indexOf(dir) === index);
 
 let catalogCache = { scannedAt: 0, tracks: [], fingerprint: '' };
 

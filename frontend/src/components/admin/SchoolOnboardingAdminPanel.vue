@@ -123,6 +123,10 @@
           </button>
         </div>
         <p v-if="listMessage" class="success">{{ listMessage }}</p>
+        <p class="muted tiny so-actions-legend">
+          <strong>Revoke</strong> only disables the invite link.
+          <strong class="nuke-label">☢ Nuke</strong> permanently deletes the school organization, its school-staff users, clients, and this invite — for test cleanup only.
+        </p>
         <p v-if="loading" class="muted">Loading invites…</p>
         <p v-else-if="!invites.length" class="muted">No school onboarding invites yet.</p>
         <div v-else class="so-table-wrap">
@@ -175,6 +179,15 @@
                     @click="revoke(inv)"
                   >
                     Revoke
+                  </button>
+                  <button
+                    type="button"
+                    class="linkish danger nuke"
+                    :disabled="busyId === inv.id"
+                    title="Permanently delete this test school, its staff users, clients, and invite. Cannot be undone."
+                    @click="nuke(inv)"
+                  >
+                    ☢ Nuke
                   </button>
                 </td>
               </tr>
@@ -437,6 +450,49 @@ async function revoke(inv) {
     await loadInvites();
   } catch (e) {
     formError.value = e?.response?.data?.error?.message || 'Failed to revoke';
+  } finally {
+    busyId.value = null;
+  }
+}
+
+async function nuke(inv) {
+  const schoolName = inv.schoolName || 'this school';
+  const warning = [
+    `☢ NUKE "${schoolName}"?`,
+    '',
+    'This PERMANENTLY deletes:',
+    '• The school organization (portal, profile, contacts)',
+    '• School-staff users created for this school',
+    '• All clients at this school',
+    '• This onboarding invite',
+    '',
+    'This cannot be undone. Use only for test/demo cleanup.',
+    '',
+    'Type NUKE below to confirm.'
+  ].join('\n');
+  if (!confirm(warning)) return;
+  const typed = window.prompt(`Type NUKE to permanently delete "${schoolName}":`);
+  if (String(typed || '').trim().toUpperCase() !== 'NUKE') {
+    formError.value = 'Nuke cancelled — confirmation did not match.';
+    return;
+  }
+  busyId.value = inv.id;
+  formError.value = '';
+  listMessage.value = '';
+  try {
+    const res = await api.post(`/school-onboarding/invites/${inv.id}/nuke`, {
+      agencyId: resolvedAgencyId.value,
+      confirm: 'NUKE'
+    });
+    const parts = [];
+    if (res.data?.deletedClients) parts.push(`${res.data.deletedClients} client(s)`);
+    if (res.data?.deletedUsers) parts.push(`${res.data.deletedUsers} user(s)`);
+    listMessage.value = parts.length
+      ? `Nuked ${schoolName} (removed ${parts.join(', ')}).`
+      : `Nuked ${schoolName}.`;
+    await loadInvites();
+  } catch (e) {
+    formError.value = e?.response?.data?.error?.message || 'Failed to nuke school';
   } finally {
     busyId.value = null;
   }
@@ -717,6 +773,9 @@ a.btn {
   font-size: 0.85rem;
 }
 .linkish.danger { color: #b91c1c; }
+.linkish.nuke { font-weight: 600; }
+.so-actions-legend { margin: 0 0 0.75rem; line-height: 1.45; }
+.so-actions-legend .nuke-label { color: #b91c1c; }
 .linkish:disabled { opacity: 0.45; cursor: not-allowed; }
 .so-qr-box {
   display: flex;

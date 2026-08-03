@@ -9,6 +9,7 @@ router.post('/invites', authenticate, ctrl.createInvite);
 router.post('/invites/:id/send-email', authenticate, ctrl.sendInviteEmail);
 router.post('/invites/:id/resend', authenticate, ctrl.resendInvite);
 router.post('/invites/:id/revoke', authenticate, ctrl.revokeInvite);
+router.post('/invites/:id/nuke', authenticate, ctrl.nukeInvite);
 
 router.get('/qr-link', authenticate, ctrl.getQrLink);
 router.post('/qr-link/rotate', authenticate, ctrl.rotateQrLink);

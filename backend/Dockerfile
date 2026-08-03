@@ -128,6 +128,9 @@ COPY database/migrations ./database/migrations
 # across instances and are helpful when GCS keys are missing/misconfigured.
 COPY backend/uploads ./uploads
 
+# Focus Music catalog (streamed via /api/focus-music/*; not in frontend dist).
+COPY assets/Focus\ Music ./assets/Focus\ Music
+
 # Copy built frontend from builder stage to public directory
 COPY --from=frontend-builder /app/frontend/dist ./public
 
