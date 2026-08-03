@@ -7,8 +7,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BACKEND_ROOT = path.resolve(__dirname, '../..');
 const MONOREPO_ROOT = path.resolve(BACKEND_ROOT, '..');
 const MUSIC_DIRS = [
-  path.join(MONOREPO_ROOT, 'assets', 'Focus Music'),
-  path.join(BACKEND_ROOT, 'assets', 'Focus Music'),
+  path.join(MONOREPO_ROOT, 'assets', 'focus-music'),
+  path.join(BACKEND_ROOT, 'assets', 'focus-music'),
   path.join(MONOREPO_ROOT, 'frontend', 'public', 'assets', 'focus-music'),
   path.join(BACKEND_ROOT, 'public', 'assets', 'focus-music')
 ].filter((dir, index, all) => all.indexOf(dir) === index);
