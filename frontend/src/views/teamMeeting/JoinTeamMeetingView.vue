@@ -244,7 +244,6 @@
     <div v-else class="join-placeholder">
       <p>{{ joiningStatusText || 'Preparing meeting…' }}</p>
       <button
-        v-if="error"
         type="button"
         class="btn btn-secondary btn-sm"
         style="margin-top:12px"
@@ -295,6 +294,7 @@ import MeetingLiveActivityPanel from '../../components/meetings/MeetingLiveActiv
 import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import api from '../../services/api';
+import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
 
 const router = useRouter();
 const route = useRoute();
@@ -302,6 +302,8 @@ const authStore = useAuthStore();
 
 const eventId = computed(() => route.params.eventId);
 const organizationSlug = computed(() => route.params.organizationSlug);
+/** Dedicated portal hosts (app.itsco.health) strip /{slug} from the path in the router. */
+const hostPortalSlug = computed(() => resolveHostImpliedPortalSlug());
 
 const resolving = ref(false);
 const error = ref('');
@@ -768,11 +770,18 @@ function startAdmissionPolling() {
   admissionPollInterval = setInterval(pollAdmission, 2500);
 }
 
+/**
+ * Resolve meeting org from join-info.
+ * @returns {Promise<'continue'|'redirected'|'error'>}
+ * - continue: stay on current (slugless) path and fetch the video token
+ * - redirected: navigated to /{slug}/join/...; that route will resume join
+ * - error: stop (error message already set)
+ */
 async function resolveAndRedirect() {
   const eid = eventId.value;
   if (!eid) {
     error.value = 'Invalid event';
-    return;
+    return 'error';
   }
   resolving.value = true;
   joiningPhase.value = 'resolve';
@@ -784,19 +793,36 @@ async function resolveAndRedirect() {
       'Meeting lookup'
     );
     const data = resp?.data || {};
-    const slug = data.orgSlug;
-    if (slug) {
-      const joinKey = String(data.joinToken || eid).trim();
-      if (Number(data.eventId || 0) > 0) resolvedEventId.value = Number(data.eventId);
-      // Allow the org-slug route to run join again after redirect.
+    const slug = String(data.orgSlug || '').trim();
+    if (!slug) {
+      error.value = 'Meeting not found';
       joinAttemptedForPath.value = '';
-      router.replace(`/${slug}/join/team-meeting/${encodeURIComponent(joinKey)}`);
-      return;
+      return 'error';
     }
-    error.value = 'Meeting not found';
+    const joinKey = String(data.joinToken || eid).trim();
+    if (Number(data.eventId || 0) > 0) resolvedEventId.value = Number(data.eventId);
+
+    // On app.{portal}.health the router strips /{portal}/… back to /join/….
+    // Redirecting to /itsco/join/... would loop forever and never fetch a token.
+    const hostSlug = String(hostPortalSlug.value || '').trim().toLowerCase();
+    if (hostSlug && hostSlug === slug.toLowerCase()) {
+      return 'continue';
+    }
+
+    // Generic multi-tenant hosts still need the org-scoped join URL.
+    joinAttemptedForPath.value = '';
+    router.replace(`/${slug}/join/team-meeting/${encodeURIComponent(joinKey)}`);
+    return 'redirected';
   } catch (e) {
+    if (Number(e?.response?.status || 0) === 410 || e?.response?.data?.meetingCompletedAt) {
+      meetingCompletedAt.value = e?.response?.data?.meetingCompletedAt || new Date().toISOString();
+      intentionalLeave.value = true;
+      showSessionExit({ variant: 'host-ended', canRejoin: false });
+      return 'error';
+    }
     error.value = e?.response?.data?.error?.message || e?.message || 'Meeting not found';
     joinAttemptedForPath.value = '';
+    return 'error';
   } finally {
     resolving.value = false;
     joiningPhase.value = '';
@@ -1136,8 +1162,8 @@ async function runJoinFlowForCurrentRoute() {
   error.value = '';
 
   if (!organizationSlug.value) {
-    await resolveAndRedirect();
-    return;
+    const resolved = await resolveAndRedirect();
+    if (resolved !== 'continue') return;
   }
   const ok = await ensureAuthenticatedSession();
   if (!ok) {

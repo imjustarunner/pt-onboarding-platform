@@ -72,6 +72,7 @@ import { useAuthStore } from '../../store/auth';
 import SupervisionLiveRoom from '../../components/supervision/SupervisionLiveRoom.vue';
 import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
 import api from '../../services/api';
+import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
 
 const router = useRouter();
 const route = useRoute();
@@ -79,6 +80,7 @@ const authStore = useAuthStore();
 
 const sessionId = computed(() => route.params.sessionId);
 const organizationSlug = computed(() => route.params.organizationSlug);
+const hostPortalSlug = computed(() => resolveHostImpliedPortalSlug());
 
 const resolving = ref(false);
 const error = ref('');
@@ -414,27 +416,50 @@ function goLogin() {
   }
 }
 
+/**
+ * @returns {Promise<'continue'|'redirected'|'error'>}
+ */
 async function resolveAndRedirect() {
   const sid = sessionId.value;
   if (!sid) {
     error.value = 'Invalid session';
-    return;
+    return 'error';
   }
   resolving.value = true;
   error.value = '';
   try {
     const resp = await api.get(`/supervision/join-info/${encodeURIComponent(sid)}`, { skipAuthRedirect: true });
     const data = resp?.data || {};
-    const slug = data.orgSlug;
+    const slug = String(data.orgSlug || '').trim();
     if (!slug) {
       error.value = 'Session organization not found';
-      return;
+      joinAttemptedForPath.value = '';
+      return 'error';
+    }
+    if (Number(data.sessionId || 0) > 0) numericSessionId.value = Number(data.sessionId);
+
+    // Dedicated portal hosts strip /{slug}/… — stay on /join/supervision/:id and continue.
+    const hostSlug = String(hostPortalSlug.value || '').trim().toLowerCase();
+    if (hostSlug && hostSlug === slug.toLowerCase()) {
+      return 'continue';
     }
     if (slug !== organizationSlug.value) {
-      router.replace(`/${slug}/join/supervision/${encodeURIComponent(sid)}`);
+      joinAttemptedForPath.value = '';
+      const joinKey = String(data.joinToken || sid).trim();
+      router.replace(`/${slug}/join/supervision/${encodeURIComponent(joinKey)}`);
+      return 'redirected';
     }
+    return 'continue';
   } catch (e) {
+    if (Number(e?.response?.status || 0) === 410 || e?.response?.data?.liveEndedAt) {
+      liveEndedAt.value = e?.response?.data?.liveEndedAt || new Date().toISOString();
+      intentionalLeave.value = true;
+      showSessionExit({ variant: 'host-ended', canRejoin: false });
+      return 'error';
+    }
     error.value = e?.response?.data?.error?.message || e?.message || 'Session not found';
+    joinAttemptedForPath.value = '';
+    return 'error';
   } finally {
     resolving.value = false;
   }
@@ -551,8 +576,8 @@ async function runJoinFlowForCurrentRoute() {
   joinAttemptedForPath.value = pathKey;
 
   if (!organizationSlug.value) {
-    await resolveAndRedirect();
-    return;
+    const resolved = await resolveAndRedirect();
+    if (resolved !== 'continue') return;
   }
   await fetchTokenAndJoin();
 }
