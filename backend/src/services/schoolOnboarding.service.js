@@ -17,6 +17,7 @@ const STEP_KEYS = [
   'school_information',
   'school_staff',
   'preferred_days',
+  'welcome_materials',
   'explore_demo',
   'review_submit'
 ];
@@ -25,8 +26,36 @@ const REQUIRED_BEFORE_SUBMIT = [
   'school_information',
   'school_staff',
   'preferred_days',
+  'welcome_materials',
   'explore_demo'
 ];
+
+const WELCOME_MATERIAL_KEYS = new Set(['trifolds', 'stress_balls', 'pens', 'other']);
+
+function buildSchoolLoginPath(agencySlug, schoolSlug) {
+  const school = String(schoolSlug || '').trim().toLowerCase();
+  const agency = String(agencySlug || '').trim().toLowerCase();
+  if (!school) return '/login';
+  if (agency && agency !== school) return `/${agency}/${school}/login`;
+  return `/${school}/login`;
+}
+
+function summarizeWelcomeMaterials(payload) {
+  const body = payload?.welcome_materials;
+  if (!body || typeof body !== 'object') return null;
+  const materials = Array.isArray(body.materials)
+    ? body.materials.map((m) => String(m || '').trim()).filter((m) => WELCOME_MATERIAL_KEYS.has(m))
+    : [];
+  const materialsOther = String(body.materialsOther || '').trim();
+  const requestPaperPackets =
+    body.requestPaperPackets === true ? true : body.requestPaperPackets === false ? false : null;
+  if (requestPaperPackets == null && !materials.length && !materialsOther) return null;
+  return {
+    materials,
+    materialsOther: materialsOther || null,
+    requestPaperPackets
+  };
+}
 
 const SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS = 24 * 7;
 
@@ -616,6 +645,10 @@ function isStepEffectivelyComplete(stepKey, progress, payload) {
       const notes = String(body.notes || '').trim();
       return preferredDays.length > 0 || !!notes;
     }
+    case 'welcome_materials': {
+      if (!body || typeof body !== 'object' || !hasExplicitStepCompletion(body)) return false;
+      return body.requestPaperPackets === true || body.requestPaperPackets === false;
+    }
     case 'explore_demo':
       return (
         hasExplicitStepCompletion(body) ||
@@ -680,7 +713,11 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
       token: invite.token,
       link: buildOnboardingLink(invite.token),
       invitedByName: `${invite.invited_by_first_name || ''} ${invite.invited_by_last_name || ''}`.trim() || null,
-      agencyId: invite.agency_id
+      agencyId: invite.agency_id,
+      materialsRequest: summarizeWelcomeMaterials(payload),
+      stepPayload: {
+        welcome_materials: payload?.welcome_materials || null
+      }
     };
   }
 
@@ -1010,6 +1047,29 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
       { preferredDays, notes },
       markComplete
     );
+  } else if (stepKey === 'welcome_materials') {
+    const materials = Array.isArray(body.materials)
+      ? [...new Set(body.materials.map((m) => String(m || '').trim()).filter((m) => WELCOME_MATERIAL_KEYS.has(m)))]
+      : [];
+    const materialsOther = String(body.materialsOther || '').trim().slice(0, 500);
+    const requestPaperPackets =
+      body.requestPaperPackets === true ? true : body.requestPaperPackets === false ? false : null;
+    if (markComplete && requestPaperPackets == null) {
+      throw Object.assign(
+        new Error('Please tell us whether you want paper referral packets printed'),
+        { status: 400 }
+      );
+    }
+    stepPayload.welcome_materials = stampStepPayload(
+      'welcome_materials',
+      {
+        welcomePackageAcknowledged: true,
+        materials,
+        materialsOther: materials.includes('other') ? materialsOther : '',
+        requestPaperPackets
+      },
+      markComplete
+    );
   } else if (stepKey === 'explore_demo') {
     stepPayload.explore_demo = stampStepPayload(
       'explore_demo',
@@ -1199,10 +1259,13 @@ export async function submitOnboarding(token) {
   }
   if (usable.submitted) {
     const schoolSlug = invite.school_slug || invite.school_portal_url;
+    const agencySlug = invite.agency_slug || invite.agency_portal_url;
+    const serialized = serializeInvite(invite, { publicView: true });
+    if (serialized) serialized.submitted = true;
     return {
       alreadySubmitted: true,
-      loginPath: schoolSlug ? `/${schoolSlug}/login` : '/login',
-      invite: serializeInvite(invite, { publicView: true })
+      loginPath: buildSchoolLoginPath(agencySlug, schoolSlug),
+      invite: serialized
     };
   }
 
@@ -1266,10 +1329,13 @@ export async function submitOnboarding(token) {
 
   const fresh = await SchoolOnboardingInvite.findById(invite.id);
   const schoolSlug = fresh.school_slug || fresh.school_portal_url;
+  const agencySlug = fresh.agency_slug || fresh.agency_portal_url;
+  const serialized = serializeInvite(fresh, { publicView: true });
+  if (serialized) serialized.submitted = true;
   return {
     alreadySubmitted: false,
-    loginPath: schoolSlug ? `/${schoolSlug}/login` : '/login',
-    invite: serializeInvite(fresh, { publicView: true })
+    loginPath: buildSchoolLoginPath(agencySlug, schoolSlug),
+    invite: serialized
   };
 }
 

@@ -56,11 +56,108 @@
       <div v-if="loading" class="so-panel muted">Loading your onboarding…</div>
       <div v-else-if="error" class="so-panel error-box">{{ error }}</div>
       <template v-else-if="invite">
-        <div v-if="invite.submitted" class="so-panel success-box">
-          <h2>You’re all set</h2>
-          <p>Your school portal is ready. Sign in with your email as your username.</p>
-          <router-link class="btn primary" :to="loginPath">Go to school login →</router-link>
-        </div>
+        <section v-if="invite.submitted" class="so-thanks" aria-live="polite">
+          <div class="so-thanks-confetti" aria-hidden="true">
+            <span
+              v-for="i in 24"
+              :key="i"
+              class="so-thanks-confetti-piece"
+              :style="confettiStyle(i)"
+            />
+          </div>
+          <div class="so-thanks-check" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </div>
+          <h2 class="so-thanks-title">Thank You!</h2>
+          <p class="so-thanks-sub">Your School Portal has been created.</p>
+
+          <div class="so-thanks-info-cards">
+            <article class="so-thanks-info-card">
+              <div class="so-thanks-info-icon" aria-hidden="true">🛡</div>
+              <p>
+                We will verify your information and ensure you are ready within
+                <strong>24 hours</strong> to begin submitting referrals through the system digitally.
+              </p>
+            </article>
+            <article v-if="requestedPaperPackets" class="so-thanks-info-card">
+              <div class="so-thanks-info-icon" aria-hidden="true">✉</div>
+              <p>
+                If you requested paper packets, you will receive those within
+                <strong>72 hours</strong> (uploaded into your school portal profile).
+              </p>
+            </article>
+          </div>
+
+          <div class="so-thanks-access">
+            <h3>Your School Portal Access</h3>
+            <div class="so-thanks-access-row">
+              <div class="so-thanks-access-icon" aria-hidden="true">🌐</div>
+              <div class="so-thanks-access-body">
+                <span class="so-thanks-access-label">Quick Link</span>
+                <strong class="so-thanks-access-value so-thanks-link">{{ loginDisplayHost }}</strong>
+              </div>
+              <a class="btn ghost so-thanks-btn" :href="loginHref" target="_blank" rel="noopener noreferrer">
+                Open Link
+              </a>
+            </div>
+            <div class="so-thanks-access-row">
+              <div class="so-thanks-access-icon" aria-hidden="true">👤</div>
+              <div class="so-thanks-access-body">
+                <span class="so-thanks-access-label">Username</span>
+                <strong class="so-thanks-access-value">{{ displayUsername }}</strong>
+              </div>
+              <div class="so-thanks-row-actions">
+                <button type="button" class="btn ghost so-thanks-btn" @click="copyText(displayUsername, 'Username')">
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div class="so-thanks-access-row">
+              <div class="so-thanks-access-icon" aria-hidden="true">🔒</div>
+              <div class="so-thanks-access-body">
+                <span class="so-thanks-access-label">Password</span>
+                <strong v-if="personalPasswordForThankYou" class="so-thanks-access-value">
+                  {{ showThankYouPassword ? personalPasswordForThankYou : '•••••••••' }}
+                </strong>
+                <strong v-else class="so-thanks-access-value muted">
+                  The personal password you created
+                </strong>
+              </div>
+              <div class="so-thanks-row-actions">
+                <button
+                  v-if="personalPasswordForThankYou"
+                  type="button"
+                  class="btn ghost so-thanks-btn"
+                  @click="showThankYouPassword = !showThankYouPassword"
+                >
+                  {{ showThankYouPassword ? 'Hide' : 'View' }}
+                </button>
+                <button
+                  v-if="personalPasswordForThankYou"
+                  type="button"
+                  class="btn ghost so-thanks-btn"
+                  @click="copyText(personalPasswordForThankYou, 'Password')"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+            <p class="muted tiny so-thanks-login-hint">
+              After you leave this page, go to your school portal login, sign in with your username and password,
+              and keep your password private — do not share it with others.
+            </p>
+            <p v-if="copyFeedback" class="ok so-thanks-copy-feedback">{{ copyFeedback }}</p>
+          </div>
+
+          <div class="so-thanks-welcome">
+            Welcome to the <strong>{{ agencyName }}</strong> community. We’re excited to partner with you!
+          </div>
+          <button type="button" class="btn primary so-thanks-got-it" @click="goToLogin">
+            Got It
+          </button>
+        </section>
 
         <template v-else>
           <!-- Home -->
@@ -275,8 +372,10 @@
             <label class="block so-staff-password">
               <span>Shared temporary password for staff accounts</span>
               <span class="muted tiny">
-                This is only for the additional staff you add below — not your own login. You will create your
-                personal password on the final step.
+                This is a <strong>temporary password only</strong> — it is <strong>not</strong> each staff
+                member’s real password. They will log in with this once, then set their own password.
+                You can use something simple if you want, but keep it private. You will create
+                <em>your</em> personal password on the final step (separate from this shared temp password).
               </span>
               <div class="so-staff-password-row">
                 <input
@@ -290,8 +389,9 @@
                 </button>
               </div>
               <span class="so-expiry-note">
-                Share this with staff as soon as possible. It expires in
+                Staff must log in and set their own password within
                 <strong>{{ staffTempPasswordExpiryLabel }}</strong>.
+                As school admin, you can reset a password or create another temporary password later from the portal.
               </span>
             </label>
 
@@ -347,6 +447,56 @@
             <p v-if="actionError" class="error">{{ actionError }}</p>
             <div class="so-actions">
               <button type="button" class="btn primary" :disabled="saving" @click="savePreferredDays">
+                {{ saving ? 'Completing…' : 'Mark complete & continue' }}
+              </button>
+            </div>
+          </section>
+
+          <!-- Welcome materials -->
+          <section v-else-if="currentStep === 'welcome_materials'" class="so-panel">
+            <h2>Welcome materials</h2>
+            <p class="muted">
+              Every new school receives a small <strong>welcome package</strong> with a few starter items.
+              Let us know if you’d like anything extra, and whether you want printed paper referral packets
+              in addition to your digital intake links.
+            </p>
+
+            <div class="so-materials-block">
+              <h3>Additional materials (optional)</h3>
+              <p class="muted tiny">Select anything you’d like included beyond the welcome package.</p>
+              <div class="so-materials-options">
+                <label v-for="opt in materialOptions" :key="opt.key" class="so-material-opt">
+                  <input v-model="materialsSelected" type="checkbox" :value="opt.key" />
+                  {{ opt.label }}
+                </label>
+              </div>
+              <label v-if="materialsSelected.includes('other')" class="block" style="margin-top:0.75rem;">
+                Other materials
+                <input v-model.trim="materialsOther" type="text" maxlength="500" placeholder="Tell us what you’d like" />
+              </label>
+            </div>
+
+            <div class="so-materials-block">
+              <h3>Paper referral packets</h3>
+              <p class="muted tiny">
+                You’ll have digital links for referrals. Would you also like paper packets printed for your school?
+                Paper packets take up to <strong>72 hours</strong> for us to create and upload into your portal profile.
+              </p>
+              <div class="so-paper-choices">
+                <label class="so-paper-choice" :class="{ selected: requestPaperPackets === true }">
+                  <input v-model="requestPaperPackets" type="radio" :value="true" />
+                  Yes, please print paper packets
+                </label>
+                <label class="so-paper-choice" :class="{ selected: requestPaperPackets === false }">
+                  <input v-model="requestPaperPackets" type="radio" :value="false" />
+                  No thanks — digital links are enough
+                </label>
+              </div>
+            </div>
+
+            <p v-if="actionError" class="error">{{ actionError }}</p>
+            <div class="so-actions">
+              <button type="button" class="btn primary" :disabled="saving" @click="saveWelcomeMaterials">
                 {{ saving ? 'Completing…' : 'Mark complete & continue' }}
               </button>
             </div>
@@ -410,7 +560,11 @@
                     ? 'You started from a QR link — please confirm your details below, then choose your personal password.'
                     : 'This invitation was sent to you — confirm your details match, then choose your personal password.'
                 }}
-                This password is only for your account, not the shared staff temporary password.
+              </p>
+              <p class="muted tiny so-password-privacy">
+                This is <strong>your</strong> login password — not the shared staff temporary password.
+                Do <strong>not</strong> share it. After you finish, sign in at your school portal link with your
+                username (email) and this password.
               </p>
               <div class="so-grid so-identity-grid">
                 <label>
@@ -454,6 +608,9 @@
             <div v-else class="so-password-done">
               <h3>Login password</h3>
               <p class="muted ok">Password created for {{ invite.username || invite.contactEmail }}.</p>
+              <p class="muted tiny">
+                Keep this password private. You’ll use it with your username to sign in at your school portal link.
+              </p>
             </div>
 
             <p v-if="actionError" class="error">{{ actionError }}</p>
@@ -483,6 +640,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useBrandingStore } from '../../store/branding';
 import {
   buildSchoolGroupEmail,
   parseSchoolGroupEmailLocal,
@@ -496,19 +654,29 @@ import {
   generateStaffTempPassword,
   SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS
 } from '../../utils/schoolStaffTempPassword.js';
+import { buildOrgLoginPath } from '../../utils/orgLoginPath.js';
+import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 
 const steps = [
   { key: 'school_information', label: 'School Information' },
   { key: 'school_staff', label: 'Add School Staff' },
   { key: 'preferred_days', label: 'Preferred Days' },
+  { key: 'welcome_materials', label: 'Welcome Materials' },
   { key: 'explore_demo', label: 'Explore Demo' },
   { key: 'review_submit', label: 'Review & Submit' }
 ];
 const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const materialOptions = [
+  { key: 'trifolds', label: 'Trifolds' },
+  { key: 'stress_balls', label: 'Stress balls' },
+  { key: 'pens', label: 'Pens' },
+  { key: 'other', label: 'Other' }
+];
 
 const SCHOOL_INFO_FIELDS = [
   { key: 'schoolName', label: 'School name' },
@@ -546,9 +714,16 @@ const identityForm = reactive({
 });
 const preferredDays = ref([]);
 const preferredNotes = ref('');
+const materialsSelected = ref([]);
+const materialsOther = ref('');
+const requestPaperPackets = ref(null);
 const sharedTempPassword = ref('');
 const staffRows = ref([{ fullName: '', email: '', accessRole: 'standard' }]);
 const showSchoolInfoValidation = ref(false);
+const personalPasswordForThankYou = ref('');
+const showThankYouPassword = ref(false);
+const copyFeedback = ref('');
+let copyFeedbackTimer = null;
 const schoolForm = reactive({
   schoolName: '',
   itscoEmail: '',
@@ -599,6 +774,17 @@ const startHereGuide = computed(() => {
       bullets: ['Select preferred service days', 'Add scheduling notes if needed']
     };
   }
+  if (key === 'welcome_materials') {
+    return {
+      title: 'Welcome materials',
+      description: 'Tell us about optional swag and whether you want paper referral packets.',
+      bullets: [
+        'You’ll receive a small welcome package',
+        'Optional extras: trifolds, stress balls, pens',
+        'Paper packets available (up to 72 hours)'
+      ]
+    };
+  }
   if (key === 'explore_demo') {
     return {
       title: 'Explore the demo',
@@ -608,8 +794,12 @@ const startHereGuide = computed(() => {
   }
   return {
     title: 'Almost done',
-    description: 'Review your answers and submit to activate your school portal.',
-    bullets: ['Confirm each step looks correct', 'Submit when you are ready']
+    description: 'Review your answers, create your personal password, and submit to activate your school portal.',
+    bullets: [
+      'Confirm each step looks correct',
+      'Create your private login password',
+      'Submit when you are ready'
+    ]
   };
 });
 const startCta = computed(() => {
@@ -691,17 +881,44 @@ const progressPct = computed(() => {
   return Math.round((done / total) * 100);
 });
 const canSubmit = computed(() => {
-  const stepsComplete = ['school_information', 'school_staff', 'preferred_days', 'explore_demo'].every(
-    (k) => progress.value[k] === 'complete'
-  );
+  const stepsComplete = [
+    'school_information',
+    'school_staff',
+    'preferred_days',
+    'welcome_materials',
+    'explore_demo'
+  ].every((k) => progress.value[k] === 'complete');
   if (!stepsComplete) return false;
   if (invite.value?.passwordSet) return true;
   if (!identityReady.value) return false;
   return password.value.length >= 6 && password.value === passwordConfirm.value;
 });
 const loginPath = computed(() => {
-  const slug = invite.value?.schoolSlug || invite.value?.school?.slug;
-  return slug ? `/${slug}/login` : '/login';
+  const schoolSlug = invite.value?.schoolSlug || invite.value?.school?.slug;
+  const agencySlug = invite.value?.agency?.slug;
+  const hostImplied = resolveHostImpliedPortalSlug(brandingStore);
+  return buildOrgLoginPath(schoolSlug, agencySlug, hostImplied);
+});
+const loginHref = computed(() => {
+  if (typeof window === 'undefined') return loginPath.value;
+  return `${window.location.origin}${loginPath.value}`;
+});
+const loginDisplayHost = computed(() => {
+  try {
+    const url = new URL(loginHref.value);
+    const host = url.host.replace(/^www\./i, '');
+    const path = url.pathname.replace(/\/login\/?$/i, '').replace(/^\//, '');
+    return path ? `${host}/${path}` : host;
+  } catch {
+    return loginHref.value.replace(/^https?:\/\//i, '').replace(/\/login\/?$/i, '');
+  }
+});
+const displayUsername = computed(
+  () => invite.value?.username || invite.value?.contactEmail || identityForm.contactEmail || ''
+);
+const requestedPaperPackets = computed(() => {
+  const raw = invite.value?.stepPayload?.welcome_materials?.requestPaperPackets;
+  return raw === true;
 });
 
 const shellVars = computed(() => {
@@ -800,6 +1017,13 @@ function hydrateForms() {
   preferredDays.value = Array.isArray(days.preferredDays) ? [...days.preferredDays] : [];
   preferredNotes.value = days.notes || '';
 
+  const materials = inv.stepPayload?.welcome_materials || {};
+  materialsSelected.value = Array.isArray(materials.materials) ? [...materials.materials] : [];
+  materialsOther.value = materials.materialsOther || '';
+  if (materials.requestPaperPackets === true || materials.requestPaperPackets === false) {
+    requestPaperPackets.value = materials.requestPaperPackets;
+  }
+
   const staff = inv.stepPayload?.school_staff?.staff;
   if (Array.isArray(staff) && staff.length) {
     staffRows.value = staff.map((s) => ({
@@ -808,6 +1032,41 @@ function hydrateForms() {
       accessRole: s.accessRole || 'standard'
     }));
   }
+}
+
+function confettiStyle(i) {
+  const colors = [
+    'var(--so-primary)',
+    'var(--so-accent)',
+    'var(--so-secondary)',
+    '#94a3b8',
+    '#fbbf24',
+    '#38bdf8'
+  ];
+  return {
+    left: `${(i / 24) * 100}%`,
+    animationDelay: `${(i * 0.12) % 2.2}s`,
+    background: colors[i % colors.length]
+  };
+}
+
+async function copyText(value, label = 'Value') {
+  const text = String(value || '').trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    copyFeedback.value = `${label} copied.`;
+  } catch {
+    copyFeedback.value = text;
+  }
+  if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer);
+  copyFeedbackTimer = setTimeout(() => {
+    copyFeedback.value = '';
+  }, 2500);
+}
+
+function goToLogin() {
+  router.push(loginPath.value);
 }
 
 async function ensurePasswordBeforeSubmit() {
@@ -846,6 +1105,9 @@ async function ensurePasswordBeforeSubmit() {
       }
     }
   }
+  if (password.value) {
+    personalPasswordForThankYou.value = password.value;
+  }
   await loadInvite();
   return !!invite.value?.passwordSet;
 }
@@ -854,13 +1116,18 @@ async function submit() {
   actionError.value = '';
   saving.value = true;
   try {
+    if (password.value) {
+      personalPasswordForThankYou.value = password.value;
+    }
     const ready = await ensurePasswordBeforeSubmit();
     if (!ready) return;
     const res = await api.post(`/public/school-onboarding/${token.value}/submit`, {}, { skipAuthRedirect: true });
-    invite.value = res.data?.invite || invite.value;
-    if (res.data?.loginPath) {
-      router.push(res.data.loginPath);
-    }
+    invite.value = {
+      ...(res.data?.invite || invite.value || {}),
+      submitted: true
+    };
+    showThankYouPassword.value = false;
+    go('home');
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || 'Unable to submit';
   } finally {
@@ -959,6 +1226,23 @@ function savePreferredDays() {
   return saveStep(
     'preferred_days',
     { preferredDays: preferredDays.value, notes: preferredNotes.value },
+    'welcome_materials'
+  );
+}
+
+function saveWelcomeMaterials() {
+  if (requestPaperPackets.value !== true && requestPaperPackets.value !== false) {
+    actionError.value = 'Please tell us whether you want paper referral packets printed.';
+    return;
+  }
+  return saveStep(
+    'welcome_materials',
+    {
+      welcomePackageAcknowledged: true,
+      materials: [...materialsSelected.value],
+      materialsOther: materialsOther.value,
+      requestPaperPackets: requestPaperPackets.value
+    },
     'explore_demo'
   );
 }
@@ -1550,6 +1834,226 @@ select {
 .success-box { background: #f0fdf4; border-color: #bbf7d0; }
 .ok { color: #047857; font-size: 0.85rem; }
 .warn { color: #b45309; font-size: 0.85rem; }
+.so-password-privacy {
+  margin: 0.55rem 0 0;
+  line-height: 1.45;
+}
+.so-materials-block {
+  margin-top: 1.15rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--so-primary) 14%, #e2e8f0);
+  border-radius: 14px;
+  background: var(--so-primary-softer);
+}
+.so-materials-block h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  color: var(--so-primary-dark);
+}
+.so-materials-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+}
+.so-material-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--so-primary) 16%, #e2e8f0);
+  border-radius: 999px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+}
+.so-paper-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+.so-paper-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--so-primary) 14%, #e2e8f0);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  cursor: pointer;
+}
+.so-paper-choice.selected {
+  border-color: var(--so-primary);
+  background: color-mix(in srgb, var(--so-primary) 8%, #fff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--so-primary) 25%, transparent);
+}
+.so-thanks {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: center;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--so-primary) 12%, #e2e8f0);
+  border-radius: 20px;
+  padding: 2rem 1.5rem 1.75rem;
+  box-shadow: 0 10px 36px color-mix(in srgb, var(--so-primary) 10%, rgba(15, 23, 42, 0.06));
+}
+.so-thanks-confetti {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 180px;
+  pointer-events: none;
+  overflow: hidden;
+}
+.so-thanks-confetti-piece {
+  position: absolute;
+  top: -12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  animation: soThanksConfettiFall 2.4s ease-in both infinite;
+}
+@keyframes soThanksConfettiFall {
+  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(190px) rotate(360deg); opacity: 0; }
+}
+.so-thanks-check {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 1rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--so-hero-bg);
+  box-shadow:
+    0 0 0 12px color-mix(in srgb, var(--so-primary) 14%, transparent),
+    0 8px 24px color-mix(in srgb, var(--so-primary) 28%, transparent);
+}
+.so-thanks-title {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.35rem);
+  color: var(--so-primary-dark);
+}
+.so-thanks-sub {
+  margin: 0.35rem 0 1.35rem;
+  color: #475569;
+  font-size: 1.05rem;
+}
+.so-thanks-info-cards {
+  display: grid;
+  gap: 0.75rem;
+  text-align: left;
+  margin-bottom: 1.25rem;
+}
+.so-thanks-info-card {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+  padding: 0.95rem 1rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--so-primary) 9%, #fff);
+  border: 1px solid color-mix(in srgb, var(--so-primary) 12%, #e2e8f0);
+}
+.so-thanks-info-card p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: #334155;
+}
+.so-thanks-info-icon {
+  flex-shrink: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+.so-thanks-access {
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--so-primary) 14%, #e2e8f0);
+  border-radius: 16px;
+  padding: 1rem 1.1rem 1.15rem;
+  margin-bottom: 1.15rem;
+}
+.so-thanks-access h3 {
+  margin: 0 0 0.85rem;
+  text-align: center;
+  font-size: 1.05rem;
+  color: var(--so-primary-dark);
+}
+.so-thanks-access-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--so-primary) 8%, #f1f5f9);
+}
+.so-thanks-access-row:first-of-type {
+  border-top: none;
+}
+.so-thanks-access-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--so-primary);
+  color: #fff;
+  flex-shrink: 0;
+  font-size: 0.95rem;
+}
+.so-thanks-access-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.so-thanks-access-label {
+  font-size: 0.78rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.so-thanks-access-value {
+  font-size: 0.98rem;
+  color: #0f172a;
+  word-break: break-word;
+}
+.so-thanks-link {
+  color: var(--so-primary);
+}
+.so-thanks-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+.so-thanks-btn {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.82rem;
+}
+.so-thanks-login-hint {
+  margin: 0.75rem 0 0;
+  line-height: 1.45;
+}
+.so-thanks-copy-feedback {
+  margin: 0.5rem 0 0;
+}
+.so-thanks-welcome {
+  margin: 0 0 1.15rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: var(--so-primary-soft);
+  color: var(--so-primary-dark);
+  font-size: 0.95rem;
+}
+.so-thanks-got-it {
+  min-width: 180px;
+  padding: 0.75rem 1.5rem;
+  font-weight: 700;
+}
 .so-footer {
   margin-top: auto;
   padding-top: 2rem;

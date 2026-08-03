@@ -5,6 +5,7 @@ const DEFAULT_STEP_PROGRESS = {
   school_information: 'not_started',
   school_staff: 'not_started',
   preferred_days: 'not_started',
+  welcome_materials: 'not_started',
   explore_demo: 'not_started',
   review_submit: 'not_started'
 };
@@ -32,7 +33,10 @@ export default class SchoolOnboardingInvite {
     if (!row) return null;
     return {
       ...row,
-      step_progress: parseJson(row.step_progress, { ...DEFAULT_STEP_PROGRESS }),
+      step_progress: {
+        ...DEFAULT_STEP_PROGRESS,
+        ...parseJson(row.step_progress, {})
+      },
       step_payload: parseJson(row.step_payload, {})
     };
   }

@@ -951,7 +951,13 @@
             </div>
           </button>
 
-          <button data-tour="school-home-card-digital-intake" class="dash-card" type="button" @click="openIntakeModal('qr')">
+          <button
+            data-tour="school-home-card-digital-intake"
+            class="dash-card"
+            :class="{ 'dash-card-pulse': shouldPulseDigitalForms }"
+            type="button"
+            @click="openIntakeModal('qr')"
+          >
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
@@ -2405,6 +2411,7 @@ const loadIntakeLink = async () => {
 const openIntakeModal = async (mode) => {
   intakeModalMode.value = mode === 'sign' ? 'sign' : 'qr';
   showIntakeModal.value = true;
+  dismissDigitalFormsPulse();
   await loadIntakeLink();
 };
 
@@ -4177,6 +4184,43 @@ const organizationId = computed(() => {
          null;
 });
 
+function digitalFormsPulseStorageKey(orgId) {
+  return `school-portal-digital-forms-pulse-dismissed:${orgId}`;
+}
+
+const digitalFormsPulseDismissed = ref(false);
+
+watch(
+  organizationId,
+  (id) => {
+    if (!id) {
+      digitalFormsPulseDismissed.value = true;
+      return;
+    }
+    try {
+      digitalFormsPulseDismissed.value = localStorage.getItem(digitalFormsPulseStorageKey(id)) === '1';
+    } catch {
+      digitalFormsPulseDismissed.value = false;
+    }
+  },
+  { immediate: true }
+);
+
+function dismissDigitalFormsPulse() {
+  digitalFormsPulseDismissed.value = true;
+  const id = organizationId.value;
+  if (!id) return;
+  try {
+    localStorage.setItem(digitalFormsPulseStorageKey(id), '1');
+  } catch {
+    /* ignore */
+  }
+}
+
+const shouldPulseDigitalForms = computed(
+  () => !!organizationId.value && !isPreviewOrDemo.value && !digitalFormsPulseDismissed.value
+);
+
 const demoProfileProviderId = computed(() => {
   if (!isPublicDemo.value) return null;
   return demoProviderIdFromRoute();
@@ -5488,6 +5532,24 @@ watch(() => store.selectedWeekday, async (weekday) => {
   100% { transform: scale(1); box-shadow: 0 0 0 rgba(47, 143, 131, 0.0); }
 }
 
+@keyframes dashCardAttentionPulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 0 0 0 rgba(47, 143, 131, 0.0);
+    border-color: var(--border, #e8eaed);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 8px 22px rgba(47, 143, 131, 0.18), 0 0 0 4px rgba(47, 143, 131, 0.14);
+    border-color: color-mix(in srgb, var(--primary, #2f8f83) 55%, #e8eaed);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 0 0 0 rgba(47, 143, 131, 0.0);
+    border-color: var(--border, #e8eaed);
+  }
+}
+
 .dashboard-card-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5510,6 +5572,10 @@ watch(() => store.selectedWeekday, async (weekday) => {
   text-decoration: none;
   color: inherit;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+.dash-card.dash-card-pulse {
+  animation: dashCardAttentionPulse 1.7s ease-in-out infinite;
+  z-index: 1;
 }
 .dash-card:hover {
   border-color: color-mix(in srgb, var(--primary) 45%, #cbd5e1);

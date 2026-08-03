@@ -134,6 +134,7 @@
                 <th>Source</th>
                 <th>Status</th>
                 <th>Progress</th>
+                <th>Materials</th>
                 <th>Invited</th>
                 <th></th>
               </tr>
@@ -151,6 +152,11 @@
                 <td><span class="pill">{{ inv.source || 'invite' }}</span></td>
                 <td><span class="pill" :data-status="inv.status">{{ inv.status }}</span></td>
                 <td>{{ inv.completedSteps }}/{{ inv.totalSteps }}</td>
+                <td>
+                  <div class="so-materials-summary" :title="materialsRequestTitle(inv)">
+                    {{ materialsRequestSummary(inv) }}
+                  </div>
+                </td>
                 <td class="muted tiny">{{ formatDate(inv.createdAt) }}</td>
                 <td class="so-row-actions">
                   <button type="button" class="linkish" @click="copyLink(inv.link)">Copy link</button>
@@ -262,6 +268,35 @@ function formatDate(v) {
   } catch {
     return String(v);
   }
+}
+
+const MATERIAL_LABELS = {
+  trifolds: 'Trifolds',
+  stress_balls: 'Stress balls',
+  pens: 'Pens',
+  other: 'Other'
+};
+
+function materialsRequestSummary(inv) {
+  const req = inv?.materialsRequest;
+  if (!req) return '—';
+  const parts = [];
+  if (req.requestPaperPackets === true) parts.push('Paper packets');
+  else if (req.requestPaperPackets === false) parts.push('No paper');
+  const mats = Array.isArray(req.materials) ? req.materials : [];
+  const labels = mats
+    .map((key) => {
+      if (key === 'other' && req.materialsOther) return `Other: ${req.materialsOther}`;
+      return MATERIAL_LABELS[key] || key;
+    })
+    .filter(Boolean);
+  if (labels.length) parts.push(labels.join(', '));
+  return parts.length ? parts.join(' · ') : '—';
+}
+
+function materialsRequestTitle(inv) {
+  const summary = materialsRequestSummary(inv);
+  return summary === '—' ? '' : summary;
 }
 
 async function copyLink(link) {
@@ -567,6 +602,12 @@ onMounted(async () => {
 .tiny { font-size: 0.8rem; margin-top: 2px; }
 .error { color: #b91c1c; margin: 0.5rem 0 0; }
 .success { color: #047857; margin: 0.5rem 0 0; }
+.so-materials-summary {
+  font-size: 0.8rem;
+  color: #334155;
+  max-width: 220px;
+  line-height: 1.35;
+}
 .so-card {
   background: #fff;
   border: 1px solid #e2e8f0;
