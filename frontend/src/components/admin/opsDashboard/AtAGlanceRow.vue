@@ -56,29 +56,29 @@ const formatCount = (v) => {
 
 <style scoped>
 .ops-glance {
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 .ops-glance-header {
   display: flex;
   align-items: baseline;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   flex-wrap: wrap;
 }
 .ops-glance-header h2 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 800;
   color: var(--ops-ink, #0f172a);
 }
 .ops-glance-sub {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--ops-muted, #64748b);
 }
 .ops-glance-row {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
   align-items: stretch;
 }
 .ops-glance-customize {
@@ -87,7 +87,7 @@ const formatCount = (v) => {
   background: #fff;
   color: var(--ops-primary, #1f6b4a);
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 3px 9px;
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
@@ -95,22 +95,22 @@ const formatCount = (v) => {
 .ops-glance-customize:hover {
   background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
 }
-@media (max-width: 1200px) {
+@media (max-width: 900px) {
   .ops-glance-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-@media (max-width: 700px) {
+@media (max-width: 600px) {
   .ops-glance-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .ops-metric {
   background: #fff;
   border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 18%, #e2e8f0);
-  border-radius: 16px;
-  padding: 14px 16px;
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--ops-primary, #1f6b4a) 6%, transparent);
+  border-radius: 12px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-height: 132px;
+  gap: 2px;
+  min-height: 0;
   height: 100%;
   text-align: left;
   cursor: pointer;
@@ -119,7 +119,7 @@ const formatCount = (v) => {
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
 }
 .ops-metric-body {
-  min-height: 52px;
+  min-height: 0;
   display: flex;
   align-items: flex-end;
 }
@@ -128,7 +128,7 @@ const formatCount = (v) => {
 }
 .ops-metric:hover {
   border-color: color-mix(in srgb, var(--ops-primary, #1f6b4a) 45%, #e2e8f0);
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, transparent);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--ops-primary, #1f6b4a) 12%, transparent);
   transform: translateY(-1px);
 }
 .ops-metric.danger {
@@ -156,17 +156,19 @@ const formatCount = (v) => {
   border-color: #a7f3d0;
 }
 .ops-metric-label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   color: var(--ops-muted, #64748b);
+  line-height: 1.2;
 }
 .ops-metric-value {
-  font-size: 1.7rem;
+  font-size: 1.35rem;
   font-weight: 800;
   letter-spacing: -0.03em;
   color: #0f172a;
+  line-height: 1.1;
 }
 .ops-metric.danger .ops-metric-value { color: #b91c1c; }
 .ops-metric.warn .ops-metric-value { color: #c2410c; }
@@ -176,25 +178,25 @@ const formatCount = (v) => {
 .ops-metric.success .ops-metric-value { color: #047857; }
 .ops-metric-stats {
   display: flex;
-  gap: 10px;
+  gap: 6px;
   flex-wrap: wrap;
-  margin: 2px 0 4px;
+  margin: 0;
 }
 .ops-metric-stat {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
   min-width: 0;
 }
 .ops-metric-stat-label {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   color: #94a3b8;
 }
 .ops-metric-stat-value {
-  font-size: 1.35rem;
+  font-size: 1.15rem;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: #0f172a;
@@ -205,13 +207,17 @@ const formatCount = (v) => {
 .ops-metric-stat-value.accent { color: var(--ops-primary, #1f6b4a); }
 .ops-metric-stat-value.info { color: #1d4ed8; }
 .ops-metric-hint {
-  font-size: 12px;
+  font-size: 10px;
   color: #94a3b8;
-  flex: 1;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .ops-metric-cta {
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: 2px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--ops-primary, #1f6b4a);
 }

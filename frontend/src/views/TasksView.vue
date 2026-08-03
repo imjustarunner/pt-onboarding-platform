@@ -1,20 +1,21 @@
 <template>
-  <div class="container">
-    <h1 data-tour="tasks-title">My Tasks</h1>
-    <div data-tour="tasks-list">
-      <TaskList />
-    </div>
+  <div class="tasks-page">
+    <TasksHub />
   </div>
 </template>
 
 <script setup>
-import TaskList from '../components/tasks/TaskList.vue';
+import TasksHub from '../components/tasks/TasksHub.vue';
 </script>
 
 <style scoped>
-h1 {
-  margin-bottom: 30px;
-  color: var(--text-primary);
+.tasks-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 12px 20px 24px;
+  box-sizing: border-box;
+  min-height: calc(100vh - 72px);
+  background: #f8fafc;
 }
 </style>
-

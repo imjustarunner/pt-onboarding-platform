@@ -185,6 +185,82 @@ class PlannedOut {
     const [result] = await pool.execute(`DELETE FROM planned_outs WHERE id = ?`, [eid]);
     return Number(result?.affectedRows || 0) > 0;
   }
+
+  /** Approved planned outs that may be active now (for presence overlay). */
+  static async listApprovedForAgency(agencyId, { limit = 200 } = {}) {
+    return this.listForAgency({
+      agencyId,
+      upcomingOnly: true,
+      includeStatuses: ['approved'],
+      limit
+    });
+  }
+
+  /** Approved planned outs covering the current moment (server-side time filter). */
+  static async listActiveApprovedNowForAgency(agencyId, { userId = null, limit = 200 } = {}) {
+    const aid = Number(agencyId || 0);
+    if (!aid) return [];
+    const lim = Math.min(200, Math.max(1, Number(limit) || 200));
+    const params = [aid];
+    let userSql = '';
+    const uid = Number(userId || 0);
+    if (uid > 0) {
+      userSql = ' AND po.user_id = ?';
+      params.push(uid);
+    }
+    const [rows] = await pool.execute(
+      `SELECT po.*,
+              ${USER_NAME_SQL} AS user_name,
+              u.first_name AS user_first_name,
+              u.last_name AS user_last_name,
+              u.profile_photo_path AS profile_photo_url
+       FROM planned_outs po
+       JOIN users u ON u.id = po.user_id
+       WHERE po.agency_id = ?
+         AND po.status = 'approved'
+         AND (
+           (po.all_day = 1 AND CURDATE() >= po.start_date AND CURDATE() < po.end_date)
+           OR (
+             po.all_day = 0
+             AND po.start_at IS NOT NULL
+             AND po.end_at IS NOT NULL
+             AND po.start_at <= UTC_TIMESTAMP()
+             AND po.end_at > UTC_TIMESTAMP()
+           )
+         )
+         ${userSql}
+       ORDER BY COALESCE(po.start_at, CAST(po.start_date AS DATETIME)) ASC, po.id ASC
+       LIMIT ${lim}`,
+      params
+    );
+    return (rows || []).map((r) => this.mapRow(r));
+  }
 }
 
 export default PlannedOut;
+
+function parseStoredInstant(value) {
+  if (!value) return NaN;
+  if (value instanceof Date) return value.getTime();
+  const raw = String(value).trim();
+  if (!raw) return NaN;
+  if (raw.includes('T')) return new Date(raw).getTime();
+  return new Date(`${raw.replace(' ', 'T')}Z`).getTime();
+}
+
+/** True when an approved planned out covers the current moment. */
+export function isPlannedOutActiveNow(plannedOut, now = new Date()) {
+  if (!plannedOut || String(plannedOut.status || '').toLowerCase() !== 'approved') return false;
+  if (plannedOut.all_day) {
+    const today = now.toISOString().slice(0, 10);
+    const start = String(plannedOut.start_date || '').slice(0, 10);
+    const end = String(plannedOut.end_date || '').slice(0, 10);
+    if (!start || !end) return false;
+    return start <= today && end > today;
+  }
+  const startMs = parseStoredInstant(plannedOut.start_at);
+  const endMs = parseStoredInstant(plannedOut.end_at);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return false;
+  const ts = now.getTime();
+  return ts >= startMs && ts < endMs;
+}

@@ -132,6 +132,7 @@
                 <div class="status-stack">
                   <span class="status-rich" :title="personHoverDetail(person)">{{ personStatusLabel(person) || '—' }}</span>
                   <span class="status-band">{{ bandLabel(person) }}</span>
+                  <span v-if="scheduleLine(person)" class="status-schedule">{{ scheduleLine(person) }}</span>
                   <select
                     v-if="isSuperAdmin"
                     :value="person.presence_status || ''"
@@ -199,6 +200,7 @@ import {
   availabilityBandLabel,
   presenceDetailLines,
   presenceDotClassForPerson,
+  scheduleActivityLabel,
   teamBoardReturnAt,
   teamBoardStatusLabel
 } from '../../utils/presenceStatus';
@@ -298,6 +300,7 @@ const avatarInitial = (p) => {
 
 const bandDotClass = (person) => presenceDotClassForPerson(person);
 const bandLabel = (person) => availabilityBandLabel(availabilityBandForPerson(person));
+const scheduleLine = (person) => scheduleActivityLabel(person);
 const personHoverDetail = (person) => {
   const name = person?.display_name || '';
   const lines = presenceDetailLines(person);
@@ -804,6 +807,12 @@ onBeforeUnmount(() => {
   font-size: 0.75rem;
   font-weight: 700;
   color: var(--text-secondary, #64748b);
+}
+.status-schedule {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #475569;
+  line-height: 1.2;
 }
 
 .status-indicator {

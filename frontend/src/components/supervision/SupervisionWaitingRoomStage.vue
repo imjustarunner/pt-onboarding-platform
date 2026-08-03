@@ -1,7 +1,10 @@
 <template>
   <div class="swr" :class="{ 'swr--pip': pip }">
-    <video class="swr__bg" autoplay muted loop playsinline>
+    <video class="swr__bg swr__bg--portrait" autoplay muted loop playsinline>
       <source src="/assets/video/waiting-room.mp4" type="video/mp4" />
+    </video>
+    <video class="swr__bg swr__bg--landscape" autoplay muted loop playsinline>
+      <source src="/assets/video/horizontal-waiting-room.mp4" type="video/mp4" />
     </video>
     <div class="swr__shade" aria-hidden="true" />
     <div v-if="!pip" class="swr__overlay">
@@ -9,7 +12,7 @@
       <h2>{{ meetingTitle || 'Welcome to the Waiting Room' }}</h2>
       <p class="swr__sub">{{ welcomeCopy }}</p>
       <div class="swr__cards">
-        <div class="swr__card">
+        <div class="swr__card swr__card--welcome">
           <strong>You are in the waiting room</strong>
           <span>Your privacy and care are our priority.</span>
         </div>
@@ -32,6 +35,30 @@
             </li>
           </ul>
         </div>
+        <div class="swr__card swr__card--music">
+          <div class="swr__music-head">
+            <strong>Waiting room music</strong>
+            <span class="swr__music-track">{{ currentTrack.label }}</span>
+          </div>
+          <div class="swr__music-actions">
+            <button
+              type="button"
+              class="swr__music-btn swr__music-btn--primary"
+              :aria-pressed="musicPlaying"
+              @click="toggleMusic"
+            >
+              {{ musicPlaying ? 'Pause music' : 'Play music' }}
+            </button>
+            <button
+              type="button"
+              class="swr__music-btn"
+              title="Next track"
+              @click="nextTrack"
+            >
+              Next track
+            </button>
+          </div>
+        </div>
       </div>
       <p class="swr__hint">Tap your video preview to prioritize your camera.</p>
     </div>
@@ -47,11 +74,29 @@
       </video>
       <span>Waiting room</span>
     </button>
+    <audio
+      v-if="!pip"
+      ref="audioRef"
+      loop
+      preload="none"
+      :src="currentTrack.src"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+
+const WAITING_ROOM_TRACKS = [
+  { id: 'neoclassical-v3', label: 'Neoclassical v3', src: '/assets/audio/waiting-room/neoclassical-v3.mp3' },
+  { id: 'neoclassical-v4', label: 'Neoclassical v4', src: '/assets/audio/waiting-room/neoclassical-v4.mp3' },
+  { id: 'mysterious', label: 'Mysterious', src: '/assets/audio/waiting-room/mysterious.mp3' },
+  { id: 'soft-woodwind', label: 'Soft woodwind', src: '/assets/audio/waiting-room/soft-woodwind.mp3' },
+  { id: 'take-1', label: 'The Waiting Room (Take 1)', src: '/assets/audio/waiting-room/take-1.mp3' },
+  { id: 'take-2', label: 'The Waiting Room (Take 2)', src: '/assets/audio/waiting-room/take-2.mp3' }
+];
+
+const TRACK_INDEX_KEY = 'waitingRoomMusicTrackIndex:v1';
 
 const props = defineProps({
   pip: { type: Boolean, default: false },
@@ -64,13 +109,18 @@ const props = defineProps({
 });
 defineEmits(['show-waiting-room']);
 
+const audioRef = ref(null);
+const trackIndex = ref(loadTrackIndex());
+const musicPlaying = ref(false);
+const musicEnabled = ref(false);
+
 const roleWord = computed(() => {
   const raw = String(props.hostRoleLabel || 'Host').trim() || 'Host';
   return raw.toLowerCase();
 });
 
 const welcomeCopy = computed(() => (
-  `We’re here for you. Your ${roleWord.value} will admit you shortly.`
+  `We're here for you. Your ${roleWord.value} will admit you shortly.`
 ));
 
 const statusPill = computed(() => (
@@ -81,9 +131,9 @@ const hostStatusCopy = computed(() => {
   const custom = String(props.hostStatusLabel || '').trim();
   if (custom) return custom;
   if (props.hostPresent) {
-    return `Your ${roleWord.value} is in the room. You’ll join as soon as you’re admitted.`;
+    return `Your ${roleWord.value} is in the room. You'll join as soon as you're admitted.`;
   }
-  return `Your ${roleWord.value} hasn’t joined yet. You’ll join the live session as soon as you’re admitted.`;
+  return `Your ${roleWord.value} hasn't joined yet. You'll join the live session as soon as you're admitted.`;
 });
 
 const prepItems = computed(() => {
@@ -99,6 +149,77 @@ const prepItems = computed(() => {
     out.push({ id: `agenda-${a.id || text}`, kind: 'Agenda', text });
   }
   return out.slice(0, 10);
+});
+
+const currentTrack = computed(() => WAITING_ROOM_TRACKS[trackIndex.value] || WAITING_ROOM_TRACKS[0]);
+
+function loadTrackIndex() {
+  try {
+    const raw = sessionStorage.getItem(TRACK_INDEX_KEY);
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0 && n < WAITING_ROOM_TRACKS.length) return n;
+  } catch {
+    /* ignore */
+  }
+  return 0;
+}
+
+function saveTrackIndex() {
+  try {
+    sessionStorage.setItem(TRACK_INDEX_KEY, String(trackIndex.value));
+  } catch {
+    /* ignore */
+  }
+}
+
+async function playCurrentTrack() {
+  const el = audioRef.value;
+  if (!el) return;
+  try {
+    el.volume = 0.55;
+    await el.play();
+    musicPlaying.value = true;
+    musicEnabled.value = true;
+  } catch {
+    musicPlaying.value = false;
+  }
+}
+
+function pauseMusic() {
+  const el = audioRef.value;
+  if (el) {
+    el.pause();
+  }
+  musicPlaying.value = false;
+}
+
+async function toggleMusic() {
+  if (musicPlaying.value) {
+    pauseMusic();
+    return;
+  }
+  await playCurrentTrack();
+}
+
+function nextTrack() {
+  trackIndex.value = (trackIndex.value + 1) % WAITING_ROOM_TRACKS.length;
+  saveTrackIndex();
+  if (musicEnabled.value) {
+    void playCurrentTrack();
+  }
+}
+
+watch(trackIndex, () => {
+  const el = audioRef.value;
+  if (!el) return;
+  const wasPlaying = musicPlaying.value;
+  el.pause();
+  el.load();
+  if (wasPlaying) void playCurrentTrack();
+});
+
+onBeforeUnmount(() => {
+  pauseMusic();
 });
 </script>
 
@@ -123,10 +244,30 @@ const prepItems = computed(() => {
   border: 2px solid rgba(255, 255, 255, 0.35);
 }
 .swr__bg {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+}
+.swr__bg--landscape {
+  display: none;
+}
+@media (min-width: 901px) {
+  .swr__bg--portrait {
+    display: none;
+  }
+  .swr__bg--landscape {
+    display: block;
+  }
+  .swr__overlay {
+    max-width: min(640px, 42vw);
+  }
+  .swr__sub {
+    max-width: none;
+    white-space: nowrap;
+  }
 }
 .swr__shade {
   position: absolute;
@@ -142,7 +283,7 @@ const prepItems = computed(() => {
   flex-direction: column;
   justify-content: flex-end;
   padding: clamp(18px, 4vw, 36px);
-  max-width: min(560px, calc(100% - min(46%, 420px) - 36px));
+  max-width: min(560px, calc(100% - min(38%, 300px) - 28px));
 }
 .swr__kicker {
   margin: 0 0 6px;
@@ -174,14 +315,31 @@ const prepItems = computed(() => {
   margin-bottom: 12px;
 }
 .swr__card {
-  background: rgba(255, 255, 255, 0.92);
   color: #134e3a;
   border-radius: 18px;
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+}
+.swr__card--welcome {
+  background: linear-gradient(155deg, rgba(255, 252, 246, 0.95), rgba(248, 251, 247, 0.93));
+  border-color: rgba(226, 236, 228, 0.85);
+}
+.swr__card--status {
+  background: linear-gradient(155deg, rgba(241, 249, 244, 0.95), rgba(232, 244, 236, 0.93));
+  border-color: rgba(198, 224, 206, 0.8);
+}
+.swr__card--prep {
+  background: linear-gradient(155deg, rgba(247, 244, 252, 0.95), rgba(241, 246, 252, 0.93));
+  border-color: rgba(210, 218, 236, 0.75);
+}
+.swr__card--music {
+  gap: 10px;
+  background: linear-gradient(155deg, rgba(236, 245, 250, 0.95), rgba(241, 248, 252, 0.93));
+  border-color: rgba(190, 214, 228, 0.78);
 }
 .swr__card strong { font-size: 0.98rem; font-weight: 700; }
 .swr__card span,
@@ -213,6 +371,46 @@ const prepItems = computed(() => {
 .swr__pill--here {
   background: #dbeafe;
   color: #1d4ed8;
+}
+.swr__music-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.swr__music-track {
+  font-size: 0.82rem;
+  color: #3f6b58;
+  font-weight: 600;
+}
+.swr__music-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.swr__music-btn {
+  border: 1px solid #b8d4c4;
+  background: #fff;
+  color: #134e3a;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.swr__music-btn:hover:not(:disabled) {
+  background: #f0fdf4;
+}
+.swr__music-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.swr__music-btn--primary {
+  background: #166534;
+  border-color: #166534;
+  color: #fff;
+}
+.swr__music-btn--primary:hover:not(:disabled) {
+  background: #14532d;
 }
 .swr__prep-list {
   list-style: none;
@@ -283,5 +481,9 @@ const prepItems = computed(() => {
     padding-right: min(46%, 200px);
   }
   .swr__overlay h2 { font-size: 1.35rem; }
+  .swr__sub {
+    white-space: normal;
+    max-width: 28ch;
+  }
 }
 </style>

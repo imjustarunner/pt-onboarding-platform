@@ -14,8 +14,15 @@
       @go-to-schedule="goToScheduleFromExit"
       @dismiss-banner="dismissHostEndedBanner"
     />
-    <div v-else-if="resolving" class="join-placeholder">Resolving meeting…</div>
-    <div v-else-if="error && !token && !meetingCompletedAt" class="join-error">{{ error }}</div>
+    <div v-else-if="resolving || joiningPhase" class="join-placeholder">
+      {{ joiningStatusText }}
+    </div>
+    <div v-else-if="error && !token && !meetingCompletedAt" class="join-error">
+      <p>{{ error }}</p>
+      <button type="button" class="btn btn-secondary btn-sm" style="margin-top:12px" @click="retryJoin">
+        Retry
+      </button>
+    </div>
     <template v-else-if="token && (vonageSessionId || roomName)">
       <div
         v-if="showTranscriptionNotice && !videoFullscreen && !isInLobby"
@@ -72,6 +79,7 @@
         class="join-session-layout"
         :class="{
           'join-session-layout--chat-only': !canSeeFullWorkspace,
+          'join-session-layout--lobby': isInLobby && !videoFullscreen,
           'join-session-layout--video-focus': !chatPanelOpen || videoFullscreen,
           'join-session-layout--video-fs': videoFullscreen
         }"
@@ -105,6 +113,7 @@
               :can-share-screen="canShareScreenByDefault"
               :can-grant-screen-share="canGrantScreenShare"
               :mute-others-mode="muteOthersMode"
+              :lobby-mode="isInLobby && !videoFullscreen"
               :show-layout-controls="!isInLobby"
               allow-tile-focus
               v-model:tile-focus="tileFocus"
@@ -232,7 +241,18 @@
         </aside>
       </div>
     </template>
-    <div v-else class="join-placeholder">Loading…</div>
+    <div v-else class="join-placeholder">
+      <p>{{ joiningStatusText || 'Preparing meeting…' }}</p>
+      <button
+        v-if="error"
+        type="button"
+        class="btn btn-secondary btn-sm"
+        style="margin-top:12px"
+        @click="retryJoin"
+      >
+        Retry
+      </button>
+    </div>
 
     <div v-if="showHostLeaveModal" class="join-modal-backdrop" role="dialog" aria-modal="true">
       <div class="join-modal">
@@ -314,6 +334,9 @@ const localDisplayName = ref('');
 const localRoleLabel = ref('');
 const localProfilePhotoUrl = ref('');
 const joinAttemptedForPath = ref('');
+/** auth | resolve | token | '' when idle/ready */
+const joiningPhase = ref('');
+const JOIN_TIMEOUT_MS = 25000;
 const showHostLeaveModal = ref(false);
 const completing = ref(false);
 const completeError = ref('');
@@ -565,6 +588,34 @@ watch(isInLobby, (lobby, wasLobby) => {
   }
 });
 
+const joiningStatusText = computed(() => {
+  switch (joiningPhase.value) {
+    case 'auth':
+      return 'Checking your session…';
+    case 'resolve':
+      return 'Resolving meeting…';
+    case 'token':
+      return 'Connecting to video room…';
+    default:
+      return resolving.value ? 'Resolving meeting…' : '';
+  }
+});
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function retryJoin() {
+  joinAttemptedForPath.value = '';
+  error.value = '';
+  joiningPhase.value = '';
+  void runJoinFlowForCurrentRoute();
+}
+
 function applyTokenPayload(data) {
   const tok = String(data.token || data.data?.token || '').trim();
   if (tok) token.value = tok;
@@ -724,22 +775,31 @@ async function resolveAndRedirect() {
     return;
   }
   resolving.value = true;
+  joiningPhase.value = 'resolve';
   error.value = '';
   try {
-    const resp = await api.get(`/team-meetings/join-info/${encodeURIComponent(eid)}`, { skipAuthRedirect: true });
+    const resp = await withTimeout(
+      api.get(`/team-meetings/join-info/${encodeURIComponent(eid)}`, { skipAuthRedirect: true }),
+      JOIN_TIMEOUT_MS,
+      'Meeting lookup'
+    );
     const data = resp?.data || {};
     const slug = data.orgSlug;
     if (slug) {
       const joinKey = String(data.joinToken || eid).trim();
       if (Number(data.eventId || 0) > 0) resolvedEventId.value = Number(data.eventId);
+      // Allow the org-slug route to run join again after redirect.
+      joinAttemptedForPath.value = '';
       router.replace(`/${slug}/join/team-meeting/${encodeURIComponent(joinKey)}`);
       return;
     }
     error.value = 'Meeting not found';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Meeting not found';
+    joinAttemptedForPath.value = '';
   } finally {
     resolving.value = false;
+    joiningPhase.value = '';
   }
 }
 
@@ -750,11 +810,16 @@ async function fetchTokenAndJoin() {
     return;
   }
   error.value = '';
+  joiningPhase.value = 'token';
   try {
-    const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/video-token`, {
-      skipAuthRedirect: true,
-      skipGlobalLoading: true
-    });
+    const resp = await withTimeout(
+      api.get(`/team-meetings/${encodeURIComponent(eid)}/video-token`, {
+        skipAuthRedirect: true,
+        skipGlobalLoading: true
+      }),
+      JOIN_TIMEOUT_MS,
+      'Video token'
+    );
     applyTokenPayload(resp?.data || {});
     if (!token.value) {
       error.value = `Video token was empty. Check Network tab: GET /api/team-meetings/${eid}/video-token.`;
@@ -762,6 +827,10 @@ async function fetchTokenAndJoin() {
     }
     if (!vonageSessionId.value) {
       vonageSessionId.value = String(resp?.data?.roomSid || '').trim();
+    }
+    if (!vonageSessionId.value && !roomName.value) {
+      error.value = 'Video room was not created for this meeting. Try again or contact support.';
+      return;
     }
     const u = authStore.user || {};
     const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim() || u.email || '';
@@ -779,6 +848,7 @@ async function fetchTokenAndJoin() {
     if (status === 401) {
       // Not authenticated — send to login once. Do not clear an existing session here;
       // a 403/access error must not look like a logout loop.
+      joinAttemptedForPath.value = '';
       const slug = organizationSlug.value;
       if (slug) {
         router.replace(`/${slug}/login?redirect=${encodeURIComponent(route.fullPath)}`);
@@ -792,14 +862,22 @@ async function fetchTokenAndJoin() {
       return;
     }
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
+    joinAttemptedForPath.value = '';
+  } finally {
+    joiningPhase.value = '';
   }
 }
 
 async function ensureAuthenticatedSession() {
   // Always verify via cookie/API first so a fresh tab (or absolute join URL) hydrates
   // the session before we send the user to login.
+  joiningPhase.value = 'auth';
   try {
-    const resp = await api.get('/users/me', { skipAuthRedirect: true, skipGlobalLoading: true });
+    const resp = await withTimeout(
+      api.get('/users/me', { skipAuthRedirect: true, skipGlobalLoading: true }),
+      JOIN_TIMEOUT_MS,
+      'Session check'
+    );
     const u = resp?.data || null;
     if (u && (u.id || u.email)) {
       authStore.setAuth(
@@ -809,10 +887,16 @@ async function ensureAuthenticatedSession() {
       );
       return true;
     }
-  } catch {
+  } catch (e) {
+    if (String(e?.message || '').includes('timed out') && authStore.isAuthenticated) {
+      return true;
+    }
     /* fall through */
+  } finally {
+    if (joiningPhase.value === 'auth') joiningPhase.value = '';
   }
   if (authStore.isAuthenticated) return true;
+  joinAttemptedForPath.value = '';
   const slug = organizationSlug.value;
   if (slug) {
     router.replace(`/${slug}/login?redirect=${encodeURIComponent(route.fullPath)}`);
@@ -1049,13 +1133,18 @@ async function runJoinFlowForCurrentRoute() {
   const pathKey = String(route.fullPath || '');
   if (joinAttemptedForPath.value === pathKey) return;
   joinAttemptedForPath.value = pathKey;
+  error.value = '';
 
   if (!organizationSlug.value) {
     await resolveAndRedirect();
     return;
   }
   const ok = await ensureAuthenticatedSession();
-  if (!ok) return;
+  if (!ok) {
+    // Auth redirected — allow retry when user returns to this path.
+    joinAttemptedForPath.value = '';
+    return;
+  }
   await fetchTokenAndJoin();
 }
 
@@ -1288,6 +1377,9 @@ onUnmounted(() => {
 .join-session-layout--chat-only {
   grid-template-columns: 1fr;
 }
+.join-session-layout--lobby {
+  grid-template-columns: 1fr;
+}
 .join-session-layout--video-fs {
   grid-template-columns: 1fr;
   gap: 0;
@@ -1354,6 +1446,7 @@ onUnmounted(() => {
 }
 .join-video--lobby {
   position: relative;
+  flex: 1;
   min-height: min(68vh, 620px);
   border-radius: 16px;
   overflow: hidden;
@@ -1369,18 +1462,28 @@ onUnmounted(() => {
   position: absolute;
   right: 14px;
   bottom: 14px;
-  width: min(38%, 260px);
+  top: auto;
+  width: min(300px, 34%);
+  max-height: calc(100% - 28px);
   height: auto;
   min-height: 0;
-  aspect-ratio: 1;
   border-radius: 14px;
-  overflow: hidden;
+  overflow: auto;
   z-index: 5;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
   border: 2px solid rgba(255, 255, 255, 0.4);
+  display: flex;
+  flex-direction: column;
 }
 .join-video__stage--pip :deep(.supervision-video-room),
-.join-video__stage--pip :deep(.vsr),
+.join-video__stage--pip :deep(.vsr) {
+  flex: 0 0 auto;
+  min-height: 0 !important;
+  height: auto;
+}
+.join-video__stage--pip :deep(.vsr__viewport) {
+  flex: 0 0 auto;
+}
 .join-video__stage--pip :deep(.vsr__stage),
 .join-video__stage--pip :deep(.vsr__tile) {
   min-height: 0 !important;
@@ -1421,6 +1524,12 @@ onUnmounted(() => {
   font-size: 0.95rem;
   font-weight: 800;
   color: #0f172a;
+}
+.join-video--lobby .join-video__stage--pip :deep(.supervision-video-room),
+.join-video--lobby .join-video__stage--pip :deep(.vsr) {
+  flex: 0 0 auto;
+  min-height: 0 !important;
+  height: auto;
 }
 .join-video :deep(.supervision-video-room) {
   flex: 1 1 auto;
@@ -1612,6 +1721,14 @@ onUnmounted(() => {
   }
   .join-workspace {
     max-height: 48vh;
+  }
+  .join-video__stage--pip {
+    top: auto;
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+    width: auto;
+    max-height: min(48vh, 360px);
   }
 }
 </style>

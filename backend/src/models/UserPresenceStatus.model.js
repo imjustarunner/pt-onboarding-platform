@@ -190,16 +190,30 @@ export default class UserPresenceStatus {
   }
 
   /**
-   * Timed Away (Out – Quick / meal / personal with a return time) whose timer has passed.
-   * Day-level outs without an end/return time are left alone (manual clear / Planned Outs).
+   * Timed Away whose return/end time has passed.
+   * Day-level outs (`out_full_day` / reason `out_day`) with no timer expire at the end of
+   * the UTC calendar day they started — otherwise they stick as Unavailable forever.
    */
   static isTimedAwayExpired(row, now = Date.now()) {
     if (!row) return false;
     const status = String(row.presence_status || row.rich_status || row.status || '').trim();
-    if (!this.isAwayStatus(status)) return false;
+    const reason = String(row.presence_reason || row.reason || '').trim();
+    if (!this.isAwayStatus(status) && reason !== 'out_day') return false;
     const expiryMs = this.getTimedAwayExpiryMs(row);
-    if (expiryMs == null) return false;
-    return expiryMs <= now;
+    if (expiryMs != null) return expiryMs <= now;
+    if (status === 'out_full_day' || reason === 'out_day') {
+      const startedRaw = row.presence_started_at || row.started_at;
+      if (!startedRaw) return false;
+      const started = new Date(startedRaw);
+      if (!Number.isFinite(started.getTime())) return false;
+      const endOfStartDayUtc = Date.UTC(
+        started.getUTCFullYear(),
+        started.getUTCMonth(),
+        started.getUTCDate() + 1
+      );
+      return now >= endOfStartDayUtc;
+    }
+    return false;
   }
 
   /** Persist clear for one user when their timed Away return/end time has passed. */
@@ -213,7 +227,7 @@ export default class UserPresenceStatus {
 
   /**
    * Bulk-clear timed Away rows whose return/end/extend time is in the past.
-   * Keeps day-level outs that have no timer timestamps.
+   * Also clears day-level outs that started on a previous UTC calendar day.
    */
   static async clearExpiredTimedAwayStatuses() {
     try {
@@ -237,6 +251,20 @@ export default class UserPresenceStatus {
                AND expected_return_at IS NULL
                AND ends_at IS NULL
                AND status = 'out_quick'
+             )
+             OR (
+               status = 'out_full_day'
+               AND expected_return_at IS NULL
+               AND ends_at IS NULL
+               AND started_at IS NOT NULL
+               AND DATE(started_at) < UTC_DATE()
+             )
+             OR (
+               reason = 'out_day'
+               AND expected_return_at IS NULL
+               AND ends_at IS NULL
+               AND started_at IS NOT NULL
+               AND DATE(started_at) < UTC_DATE()
              )
            )`
       );

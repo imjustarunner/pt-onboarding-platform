@@ -1,7 +1,7 @@
 <template>
-  <div class="presence-preview" :class="{ 'presence-preview--card': !embedded }">
+  <div class="presence-preview" :class="{ 'presence-preview--card': !embedded, 'presence-preview--embedded': embedded }">
     <div class="presence-preview-header" :class="{ 'ops-board-header': embedded }">
-      <div>
+      <div class="presence-preview-header-main">
         <span class="presence-preview-title" :class="{ 'ops-board-title': embedded }">{{ title }}</span>
         <p class="presence-preview-legend" :class="{ 'ops-board-legend': embedded }">
           <span class="leg"><i class="dot-available" /> Available</span>
@@ -10,7 +10,10 @@
           <span class="leg"><i class="dot-available-offline" /> Available · logged out</span>
         </p>
       </div>
-      <router-link :to="boardTo" class="presence-preview-link" :class="{ 'ops-board-link': embedded }">View full board</router-link>
+      <div class="presence-preview-header-actions">
+        <PresenceStatusWidget v-if="embedded && showStatusControl" compact @updated="fetchPresence(false)" />
+        <router-link :to="boardTo" class="presence-preview-link" :class="{ 'ops-board-link': embedded }">View full board</router-link>
+      </div>
     </div>
     <div v-if="loading" class="presence-preview-loading">Loading…</div>
     <div v-else-if="error" class="presence-preview-error">{{ error }}</div>
@@ -41,6 +44,7 @@
         </div>
         <span class="person-name">{{ shortName(person) }}</span>
         <span class="person-band">{{ bandLabel(person) }}</span>
+        <span v-if="scheduleLine(person)" class="person-schedule">{{ scheduleLine(person) }}</span>
 
         <div v-if="hoveredId === person.id" class="person-popover" role="tooltip">
           <strong>{{ person.display_name || shortName(person) }}</strong>
@@ -64,15 +68,18 @@ import {
   availabilityBandLabel,
   presenceDetailLines,
   presenceDotClassForPerson,
-  presenceSortRankForPerson
+  presenceSortRankForPerson,
+  scheduleActivityLabel
 } from '../../utils/presenceStatus';
+import PresenceStatusWidget from './PresenceStatusWidget.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   boardTo: { type: String, default: '/admin/presence' },
   title: { type: String, default: 'Team Presence' },
   limit: { type: Number, default: 36 },
-  embedded: { type: Boolean, default: false }
+  embedded: { type: Boolean, default: false },
+  showStatusControl: { type: Boolean, default: true }
 });
 
 const POLL_INTERVAL_MS = 15 * 1000;
@@ -125,6 +132,7 @@ const shortName = (p) => {
 };
 
 const bandLabel = (p) => availabilityBandLabel(availabilityBandForPerson(p));
+const scheduleLine = (p) => scheduleActivityLabel(p);
 const dotClass = (p) => presenceDotClassForPerson(p);
 const detailLines = (p) => presenceDetailLines(p);
 
@@ -193,8 +201,26 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.presence-preview--embedded .presence-preview-header,
+.presence-preview-header.ops-board-header {
+  margin-bottom: 8px;
+}
+
+.presence-preview-header-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.presence-preview-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .presence-preview-title {
@@ -209,8 +235,8 @@ onBeforeUnmount(() => {
   margin: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 10px 14px;
-  font-size: 11px;
+  gap: 6px 10px;
+  font-size: 10px;
   font-weight: 700;
   color: #64748b;
 }
@@ -259,6 +285,12 @@ onBeforeUnmount(() => {
   gap: 14px 10px;
 }
 
+.presence-preview--embedded .presence-preview-grid,
+.ops-board-header + .presence-preview-grid {
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px 4px;
+}
+
 .person-tile {
   position: relative;
   display: flex;
@@ -269,6 +301,13 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   cursor: default;
   outline: none;
+}
+
+.presence-preview--embedded .person-tile,
+.ops-board-header ~ .presence-preview-grid .person-tile {
+  gap: 3px;
+  padding: 4px 2px 2px;
+  border-radius: 10px;
 }
 
 .person-tile:hover,
@@ -292,6 +331,12 @@ onBeforeUnmount(() => {
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
 }
 
+.presence-preview--embedded .avatar {
+  width: 44px;
+  height: 44px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+}
+
 .avatar-img {
   width: 100%;
   height: 100%;
@@ -302,6 +347,10 @@ onBeforeUnmount(() => {
   font-size: 16px;
   font-weight: 800;
   color: var(--text-secondary, #64748b);
+}
+
+.presence-preview--embedded .avatar-initial {
+  font-size: 13px;
 }
 
 .status-dot {
@@ -315,6 +364,12 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.1);
 }
 
+.presence-preview--embedded .status-dot {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+
 .person-name {
   font-size: 12px;
   font-weight: 800;
@@ -326,12 +381,37 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.presence-preview--embedded .person-name {
+  font-size: 10px;
+}
+
 .person-band {
   font-size: 10px;
   font-weight: 700;
   color: #64748b;
   text-align: center;
   line-height: 1.2;
+}
+
+.presence-preview--embedded .person-band {
+  font-size: 9px;
+  line-height: 1.1;
+}
+
+.person-schedule {
+  font-size: 9px;
+  font-weight: 700;
+  color: #475569;
+  text-align: center;
+  line-height: 1.15;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presence-preview--embedded .person-schedule {
+  font-size: 8px;
 }
 
 .person-popover {

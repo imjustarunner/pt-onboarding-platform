@@ -42,7 +42,7 @@
         @click="selectJobFilter('')"
       >
         <div class="job-card-title">All roles</div>
-        <div class="job-card-meta">{{ candidates.length }} in view</div>
+        <div class="job-card-meta">{{ allCandidates.length }} in view</div>
         <div v-if="newForMeInView > 0" class="job-card-badge">{{ newForMeInView }} new for you</div>
       </button>
       <button
@@ -57,6 +57,17 @@
         <div class="job-card-meta">{{ jobListedCount(j.id) }} in view</div>
         <div v-if="newForMeJobCount(j.id) > 0" class="job-card-badge">{{ newForMeJobCount(j.id) }} new</div>
       </button>
+      <button
+        v-if="otherJobCount > 0"
+        type="button"
+        class="job-card job-card--other"
+        :class="{ selected: filterJobId === '__other__' }"
+        @click="selectJobFilter('__other__')"
+      >
+        <div class="job-card-title">Other / no role</div>
+        <div class="job-card-meta">{{ otherJobCount }} in view</div>
+        <div v-if="otherJobNewCount > 0" class="job-card-badge">{{ otherJobNewCount }} new</div>
+      </button>
     </div>
 
     <div class="grid" data-tour="hiring-grid">
@@ -68,9 +79,10 @@
             <option value="hired">Hired</option>
             <option value="not_hired">Not hired</option>
           </select>
-          <select v-model="filterJobId" class="input" @change="refresh" style="max-width: 200px;">
+          <select v-model="filterJobId" class="input" style="max-width: 200px;">
             <option value="">All jobs (list)</option>
             <option v-for="j in jobDescriptions" :key="j.id" :value="String(j.id)">{{ j.title }}</option>
+            <option v-if="otherJobCount > 0" value="__other__">Other / no role</option>
           </select>
           <label class="toggle-new">
             <input v-model="filterNewOnly" type="checkbox" />
@@ -96,16 +108,17 @@
             <div class="meta">
               <span v-if="c.is_new_for_me" class="pill pill-new">New</span>
               <span class="pill">{{ stageLabel(c) }}</span>
+              <span v-if="appliedAtLabel(c)" class="muted small applied-at">{{ appliedAtLabel(c) }}</span>
               <span v-if="c.job_title" class="muted small">{{ c.job_title }}</span>
               <span v-if="Number(c.duplicate_application_count || 0) > 1" class="pill pill-duplicate">Repeat applicant</span>
               <span class="email">{{ c.personal_email || c.email }}</span>
             </div>
           </button>
 
-          <div v-if="candidates.length === 0" class="empty">No applicants found.</div>
+          <div v-if="filteredCandidates.length === 0" class="empty">No applicants found.</div>
         </div>
 
-        <div v-if="!loading && candidates.length > 0" class="report-section">
+        <div v-if="!loading && candidatesInView.length > 0" class="report-section">
           <div class="report-header">
             <strong>Applicants by job</strong>
             <button class="btn btn-secondary btn-sm" type="button" @click="downloadApplicantsCsv">
@@ -841,11 +854,41 @@ const orgPath = (path) => {
 
 const loading = ref(false);
 const error = ref('');
-const candidates = ref([]);
+const allCandidates = ref([]);
 const q = ref('');
 const filterJobId = ref('');
 const stageFilter = ref('active');
 const filterNewOnly = ref(false);
+
+// Job descriptions (agency-scoped) — needed for job-dash counts
+const jobDescriptions = ref([]);
+const jobsLoading = ref(false);
+
+const knownJobIdSet = computed(() =>
+  new Set((jobDescriptions.value || []).map((j) => Number(j.id)).filter((id) => id > 0))
+);
+
+const isOtherJobCandidate = (c) => {
+  const jid = Number(c?.job_description_id || 0);
+  return !jid || !knownJobIdSet.value.has(jid);
+};
+
+const otherJobCandidates = computed(() =>
+  (allCandidates.value || []).filter((c) => isOtherJobCandidate(c))
+);
+
+const otherJobCount = computed(() => otherJobCandidates.value.length);
+
+const otherJobNewCount = computed(() =>
+  otherJobCandidates.value.filter((c) => c.is_new_for_me).length
+);
+
+const candidatesInView = computed(() => {
+  const list = allCandidates.value || [];
+  if (filterJobId.value === '__other__') return otherJobCandidates.value;
+  if (!filterJobId.value) return list;
+  return list.filter((c) => Number(c.job_description_id || 0) === Number(filterJobId.value));
+});
 
 const selectedId = ref(null);
 const detailLoading = ref(false);
@@ -936,7 +979,7 @@ const fluentLanguagesDisplay = computed(() => {
 });
 
 const applicantsByJob = computed(() => {
-  const list = candidates.value || [];
+  const list = candidatesInView.value || [];
   const byJob = new Map();
   for (const c of list) {
     const jid = c.job_description_id ?? '_none';
@@ -948,22 +991,21 @@ const applicantsByJob = computed(() => {
 });
 
 const filteredCandidates = computed(() => {
-  const list = candidates.value || [];
+  const list = candidatesInView.value || [];
   if (!filterNewOnly.value) return list;
   return list.filter((c) => c.is_new_for_me);
 });
 
-const newForMeInView = computed(() => (candidates.value || []).filter((c) => c.is_new_for_me).length);
+const newForMeInView = computed(() => (allCandidates.value || []).filter((c) => c.is_new_for_me).length);
 
 const jobListedCount = (jobId) =>
-  (candidates.value || []).filter((c) => Number(c.job_description_id || 0) === Number(jobId)).length;
+  (allCandidates.value || []).filter((c) => Number(c.job_description_id || 0) === Number(jobId)).length;
 
 const newForMeJobCount = (jobId) =>
-  (candidates.value || []).filter((c) => Number(c.job_description_id || 0) === Number(jobId) && c.is_new_for_me).length;
+  (allCandidates.value || []).filter((c) => Number(c.job_description_id || 0) === Number(jobId) && c.is_new_for_me).length;
 
 const selectJobFilter = async (id) => {
   filterJobId.value = id || '';
-  await refresh();
 };
 
 const stageLabel = (row) => {
@@ -975,15 +1017,27 @@ const stageLabel = (row) => {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Applied';
 };
 
+const appliedAtLabel = (row) => {
+  const raw = row?.hiring_created_at;
+  if (!raw) return '';
+  try {
+    const d = new Date(raw);
+    return `Applied ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  } catch {
+    return '';
+  }
+};
+
 const downloadApplicantsCsv = () => {
-  const list = candidates.value || [];
-  const headers = ['Name', 'Email', 'Job', 'Stage', 'Applied role', 'Source'];
+  const list = candidatesInView.value || [];
+  const headers = ['Name', 'Email', 'Job', 'Stage', 'Applied', 'Applied role', 'Source'];
   const escape = (s) => String(s || '').replace(/"/g, '""');
   const rows = list.map((c) => [
     `"${escape(`${c.first_name || ''} ${c.last_name || ''}`.trim())}"`,
     `"${escape(c.personal_email || c.email)}"`,
     `"${escape(c.job_title)}"`,
     `"${escape(stageLabel(c))}"`,
+    `"${escape(c.hiring_created_at ? formatDate(c.hiring_created_at) : '')}"`,
     `"${escape(c.applied_role)}"`,
     `"${escape(c.source)}"`
   ]);
@@ -1111,7 +1165,7 @@ const searchSuggestionsHtml = computed(() => {
 const refresh = async () => {
   if (!effectiveAgencyId.value) {
     error.value = 'No agency selected. Please pick an agency in the header selector, then refresh.';
-    candidates.value = [];
+    allCandidates.value = [];
     return;
   }
   try {
@@ -1122,11 +1176,10 @@ const refresh = async () => {
         agencyId: effectiveAgencyId.value,
         status: 'PROSPECTIVE',
         stageFilter: stageFilter.value || 'active',
-        q: q.value || undefined,
-        jobDescriptionId: filterJobId.value || undefined
+        q: q.value || undefined
       }
     });
-    candidates.value = r.data || [];
+    allCandidates.value = r.data || [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load applicants';
   } finally {
@@ -1824,10 +1877,6 @@ const createTask = async () => {
   }
 };
 
-// Job descriptions (agency-scoped)
-const jobDescriptions = ref([]);
-const jobsLoading = ref(false);
-
 const loadJobDescriptions = async () => {
   if (!effectiveAgencyId.value) {
     jobDescriptions.value = [];
@@ -2231,6 +2280,12 @@ onUnmounted(() => {
   border-radius: 999px;
   background: #dbeafe;
   color: #1d4ed8;
+}
+.job-card--other {
+  border-style: dashed;
+}
+.applied-at {
+  white-space: nowrap;
 }
 .pill-new {
   background: #dcfce7;

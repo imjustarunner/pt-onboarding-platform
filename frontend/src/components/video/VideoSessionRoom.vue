@@ -6,6 +6,7 @@
       'vsr--strip': layout === 'strip',
       'vsr--hide-controls': hideControls,
       'vsr--fullscreen': videoFullscreen,
+      'vsr--lobby': lobbyMode,
       [`vsr--focus-${tileFocus}`]: !!tileFocus
     }"
   >
@@ -148,6 +149,7 @@
             @click="onTileActivate('local')"
           >
             <div ref="localMediaStageEl" class="vsr__media" />
+            <span v-if="lobbyMode" class="vsr__lobby-preview-label">Your preview</span>
             <div v-if="!publishVideo && !useSplitCamOffLayout" class="vsr__avatar" aria-hidden="true">
               <img v-if="localProfilePhotoUrl" :src="localProfilePhotoUrl" alt="" class="vsr__avatar-img" />
               <span v-else class="vsr__avatar-initials">{{ localInitials }}</span>
@@ -290,13 +292,28 @@
         <button
           v-if="canSelfUnmute || publishAudio"
           type="button"
-          class="vsr__ctrl"
+          class="vsr__ctrl vsr__ctrl--mic"
           :class="{ 'vsr__ctrl--danger': !publishAudio, 'vsr__ctrl--mic-muted': !publishAudio }"
           :aria-pressed="!publishAudio"
           :title="publishAudio ? 'Mute microphone' : (canSelfUnmute ? 'Unmute microphone' : 'Muted by host')"
           @click.stop.prevent="toggleMic"
         >
-          {{ publishAudio ? 'Mic' : (canSelfUnmute ? 'Unmute' : 'Muted') }}
+          <span class="vsr__ctrl-mic-row">
+            <span>{{ publishAudio ? 'Mic' : (canSelfUnmute ? 'Unmute' : 'Muted') }}</span>
+            <span
+              v-if="publishAudio"
+              class="vsr__mic-meter"
+              :class="{ 'vsr__mic-meter--active': localMicLevel > 0.04 }"
+              aria-hidden="true"
+            >
+              <span
+                v-for="bar in 5"
+                :key="bar"
+                class="vsr__mic-bar"
+                :style="{ transform: `scaleY(${micBarScale(bar)})` }"
+              />
+            </span>
+          </span>
         </button>
         <span
           v-else
@@ -315,6 +332,7 @@
           {{ publishVideo ? 'Camera' : 'Cam off' }}
         </button>
         <button
+          v-if="!lobbyMode"
           type="button"
           class="vsr__ctrl"
           :aria-pressed="hideSelfView"
@@ -465,7 +483,9 @@ const props = defineProps({
   /** Play a short tone when someone else leaves */
   playLeaveTone: { type: Boolean, default: true },
   /** Connection id / identity used for raise-hand map keys when known */
-  localConnectionKey: { type: String, default: '' }
+  localConnectionKey: { type: String, default: '' },
+  /** Waiting-room layout: tall preview + stacked controls + mic meter */
+  lobbyMode: { type: Boolean, default: false }
 });
 
 const emit = defineEmits([
@@ -522,6 +542,7 @@ const reactionEmojis = ['👍', '❤️', '🎉', '👏', '💡'];
 const SPEAK_LEVEL = 0.2;
 /** @type {import('vue').Ref<Record<string, boolean>>} */
 const speakingByKey = ref({});
+const localMicLevel = ref(0);
 let joinToneCtx = null;
 let reactionSeq = 0;
 
@@ -556,8 +577,11 @@ const stageRemotes = computed(() => (
   useSplitCamOffLayout.value ? remotesOnVideo.value : remotes.value
 ));
 const showLocalOnStage = computed(() => (
-  !hideSelfView.value
-  && (!useSplitCamOffLayout.value || publishVideo.value)
+  props.lobbyMode
+  || (
+    !hideSelfView.value
+    && (!useSplitCamOffLayout.value || publishVideo.value)
+  )
 ));
 const stageVideoCount = computed(() => {
   let count = stageRemotes.value.length;
@@ -1071,7 +1095,7 @@ const isSoloStage = computed(() =>
   props.layout !== 'strip'
   && props.tileFocus === 'equal'
   && stageVideoCount.value === 1
-  && (hasRemote.value || props.promoteLocalWhenAlone)
+  && (hasRemote.value || props.promoteLocalWhenAlone || props.lobbyMode)
 );
 const isDuoStage = computed(() =>
   props.equalTilesWhenRemote
@@ -1117,14 +1141,25 @@ function attachSubscriberAudioLevel(sub, streamId) {
   } catch { /* ignore */ }
 }
 
+function micBarScale(barIndex) {
+  const level = Number(localMicLevel.value || 0);
+  const threshold = barIndex / 5;
+  if (level <= threshold - 0.18) return 0.2;
+  const active = Math.min(1, (level - (threshold - 0.18)) / 0.35);
+  return 0.2 + active * 0.8;
+}
+
 function attachPublisherAudioLevel() {
   try {
     publisher?.on?.('audioLevelUpdated', (event) => {
+      const level = Math.max(0, Math.min(1, Number(event?.audioLevel ?? 0)));
       if (!publishAudio.value) {
         setSpeaking('local', false);
+        localMicLevel.value = 0;
         return;
       }
-      setSpeaking('local', Number(event?.audioLevel ?? 0) > SPEAK_LEVEL);
+      setSpeaking('local', level > SPEAK_LEVEL);
+      localMicLevel.value = Math.max(level, localMicLevel.value * 0.82);
     });
   } catch { /* ignore */ }
 }
@@ -1912,7 +1947,10 @@ function toggleMic() {
   try {
     publisher.publishAudio(next);
     broadcastMicState(next);
-    if (!next) setSpeaking('local', false);
+    if (!next) {
+      setSpeaking('local', false);
+      localMicLevel.value = 0;
+    }
   } catch (e) {
     console.error('[VideoSessionRoom] publishAudio failed', e);
     publishAudio.value = !next;
@@ -2018,6 +2056,79 @@ defineExpose({
 }
 .vsr--compact {
   min-height: 120px;
+}
+.vsr--lobby {
+  background: rgba(14, 17, 24, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  height: auto;
+  min-height: 0;
+}
+.vsr--lobby .vsr__viewport {
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  min-height: 0;
+  max-height: min(300px, 34vw);
+}
+.vsr--lobby .vsr__stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+.vsr--lobby .vsr__stage--solo,
+.vsr--lobby .vsr__tile--local {
+  min-height: 0 !important;
+  height: 100% !important;
+}
+.vsr--lobby .vsr__controls {
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(8, 10, 14, 0.96);
+}
+.vsr--lobby .vsr__ctrl--mic {
+  width: 100%;
+}
+.vsr__lobby-preview-label {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ecfdf5;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+.vsr__ctrl-mic-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+}
+.vsr__mic-meter {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  height: 18px;
+}
+.vsr__mic-bar {
+  width: 5px;
+  height: 16px;
+  border-radius: 3px;
+  background: rgba(148, 163, 184, 0.45);
+  transform-origin: bottom center;
+  transition: transform 80ms linear;
+}
+.vsr__mic-meter--active .vsr__mic-bar {
+  background: #4ade80;
 }
 .vsr__viewport {
   display: flex;

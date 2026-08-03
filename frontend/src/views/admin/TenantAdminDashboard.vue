@@ -815,6 +815,9 @@ const contextPaths = computed(() => ({
 const supportTicketsNew = ref(0);
 const supportTicketsActive = ref(0);
 const supportTicketsAssignedToMe = ref(0);
+const tasksOpen = ref(0);
+const tasksOverdue = ref(0);
+const tasksAssignedToMe = ref(0);
 const escalationNew = ref(0);
 const escalationTotal = ref(0);
 const escalationAssignedToMe = ref(0);
@@ -927,6 +930,19 @@ const glanceCards = computed(() => {
       cta: 'View queue',
       tone: 'danger',
       to: `${ticketsPath.value}?status=open`
+    },
+    {
+      key: 'tasks',
+      label: 'Tasks',
+      metrics: [
+        { label: 'Open', value: tasksOpen.value, tone: 'accent' },
+        { label: 'Overdue', value: tasksOverdue.value, tone: 'danger' },
+        { label: 'Assigned to me', value: tasksAssignedToMe.value, tone: 'warn' }
+      ],
+      hint: 'Team and personal work queue',
+      cta: 'Open Tasks',
+      tone: 'accent',
+      to: `${prefix.value}/tasks?tab=all`
     },
     {
       key: 'messages',
@@ -1666,6 +1682,17 @@ const refreshDerivedGlanceCounts = async ({ agencyId, personal, center } = {}) =
     lateNotes.value = notificationLate;
   }
   unsignedDocs.value = countUnsignedNotifications();
+
+  const taskCounts = await safeGet(
+    '/tasks/counts',
+    { params: agencyId ? { agencyId } : {} },
+    6000
+  );
+  if (taskCounts) {
+    tasksOpen.value = Number(taskCounts.all ?? taskCounts.open ?? 0);
+    tasksOverdue.value = Number(taskCounts.agency_overdue ?? taskCounts.overdue ?? 0);
+    tasksAssignedToMe.value = Number(taskCounts.assigned ?? 0);
+  }
 };
 
 const countUnsignedNotifications = () => {

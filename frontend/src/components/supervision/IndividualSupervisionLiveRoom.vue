@@ -101,6 +101,7 @@
             :api-key="applicationId"
             :session-id="supervisionSessionId"
             :is-host="isSupervisor"
+            lobby-mode
             :diagnostics="diagnostics"
             :local-display-name="localDisplayName"
             :local-role-label="localRoleLabel"
@@ -898,11 +899,13 @@ defineExpose({
 }
 .isl__lobby-rail {
   position: absolute;
-  top: 18px;
+  top: auto;
   right: 18px;
   bottom: 18px;
   z-index: 5;
-  width: min(46%, 420px);
+  width: min(300px, 34%);
+  max-height: calc(100% - 36px);
+  overflow: auto;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -958,8 +961,8 @@ defineExpose({
 .isl__self--pip {
   position: relative;
   width: 100%;
-  height: min(58vh, 480px);
-  min-height: 280px;
+  height: auto;
+  min-height: 0;
   border-radius: 16px;
   overflow: hidden;
   cursor: pointer;
@@ -967,13 +970,13 @@ defineExpose({
   border: 2px solid rgba(255, 255, 255, 0.4);
   z-index: 5;
   pointer-events: auto;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   background: #0f1117;
 }
 .isl__self--pip :deep(.supervision-video-room),
 .isl__self--pip :deep(.vsr) {
   min-height: 0 !important;
-  height: 100%;
+  height: auto;
 }
 .isl__self--pip :deep(.vsr__viewport),
 .isl__self--pip :deep(.vsr__stage),
@@ -998,6 +1001,16 @@ defineExpose({
   padding: 8px;
   background: rgba(10, 14, 22, 0.82);
   border-radius: 12px;
+}
+.isl__self--pip :deep(.vsr--lobby .vsr__controls) {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  justify-content: stretch;
+  background: rgba(8, 10, 14, 0.96);
+  border-radius: 0;
 }
 .isl__self--pip :deep(.vsr__ctrl),
 .isl__self--pip :deep(.vsr__voice-iso),

@@ -50,6 +50,12 @@
       :show-chats="showChats"
     />
 
+    <OverviewTodaysFocus
+      :agency-id="agencyId"
+      @view-momentum="navigate('checklist')"
+      @add-sticky="navigate('checklist')"
+    />
+
     <div v-if="error" class="ov-error">{{ error }}</div>
 
     <OverviewMetricCards
@@ -157,6 +163,7 @@ import OverviewNotesSnapshot from './OverviewNotesSnapshot.vue';
 import OverviewRecentActivity from './OverviewRecentActivity.vue';
 import OverviewQuickActions from './OverviewQuickActions.vue';
 import OverviewQuickNav from './OverviewQuickNav.vue';
+import OverviewTodaysFocus from './OverviewTodaysFocus.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },

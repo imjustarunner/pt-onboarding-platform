@@ -8,6 +8,7 @@
 
 import {
   AWAY_REASONS,
+  AVAILABILITY_BANDS,
   DURATION_CHIPS,
   addCustomOutReason,
   loadCustomOutReasons,
@@ -16,6 +17,30 @@ import {
 
 const KEY = '__PT_STATUS_PROMPT__';
 const ROOT_ID = 'pt-status-prompt-root';
+const STYLE_ID = 'pt-status-prompt-styles';
+
+const LONGER_OPTIONS = [
+  {
+    id: 'out_day',
+    title: 'Out for the Day',
+    band: 'unavailable',
+    bullets: [
+      'You will not receive notifications',
+      'Others see you as unavailable (red)',
+      'Use when you are done for the day'
+    ]
+  },
+  {
+    id: 'available_offline',
+    title: 'Available · Logged out',
+    band: 'available_offline',
+    bullets: [
+      'You log out but stay open to connect',
+      'Others can still message or call you (blue)',
+      'Use when you are away from your device'
+    ]
+  }
+];
 
 function getBridge() {
   if (typeof window === 'undefined') {
@@ -82,36 +107,64 @@ function notifyListeners(mode) {
 
 function titleFor(mode) {
   if (mode === 'logout') return 'Set your status before leaving?';
-  if (mode === 'manual') return 'Set your Away / timeout status';
   if (mode === 'change') return 'Change your Away status';
-  return 'Still here — or set your status?';
+  return 'Set your status';
 }
 
 function subFor(mode) {
   if (mode === 'logout') {
     return 'Let the team know if you are out. You can also leave without setting a status.';
   }
-  if (mode === 'manual') {
-    return 'Choosing Away keeps you signed in for up to 2 hours so you do not have to log back in.';
-  }
   if (mode === 'change') {
     return 'Update why you are away without coming back. Reset the timer, or keep the time you already have left.';
   }
-  return 'Your session is timing out. Stay signed in, or set an away status (up to 2 hours).';
+  return 'Your status shows your availability and how others can reach you across the platform.';
 }
 
-function btnStyle(active, primary) {
-  if (primary) {
-    return 'width:100%;padding:12px 14px;border:none;border-radius:10px;background:#1f5c3d;color:#fff;font-weight:700;cursor:pointer;font-size:14px;';
-  }
-  if (active) {
-    return 'padding:8px 12px;border:none;border-radius:999px;background:#1f5c3d;color:#fff;font-weight:700;cursor:pointer;font-size:13px;';
-  }
-  return 'padding:8px 12px;border:1px solid rgba(34,80,50,0.25);border-radius:999px;background:#fff;color:#1a3d2b;font-weight:650;cursor:pointer;font-size:13px;';
-}
-
-function ghostBtnStyle() {
-  return 'width:100%;padding:12px 14px;border:1px solid rgba(34,80,50,0.25);border-radius:10px;background:#fff;color:#1a3d2b;font-weight:700;cursor:pointer;font-size:14px;';
+function ensurePromptStyles() {
+  if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = `
+    .pt-sp-card { width:min(720px,100%); max-height:min(92vh,820px); overflow:auto; background:#fff; border-radius:16px; padding:24px 28px 20px; box-shadow:0 24px 60px rgba(15,23,42,0.22); border:1px solid #e2e8f0; font-family:system-ui,sans-serif; color:#0f172a; position:relative; }
+    .pt-sp-close { position:absolute; top:14px; right:14px; width:32px; height:32px; border:none; border-radius:8px; background:#f1f5f9; color:#64748b; font-size:18px; cursor:pointer; line-height:1; }
+    .pt-sp-close:hover { background:#e2e8f0; color:#0f172a; }
+    .pt-sp-h2 { margin:0 36px 6px 0; font-size:1.35rem; font-weight:800; color:#0f172a; }
+    .pt-sp-sub { margin:0 0 18px; font-size:0.9rem; line-height:1.5; color:#64748b; }
+    .pt-sp-section { margin-bottom:16px; }
+    .pt-sp-section-h { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:0.72rem; font-weight:800; letter-spacing:0.07em; text-transform:uppercase; color:#475569; }
+    .pt-sp-section-note { margin:0 0 10px; font-size:0.82rem; line-height:1.45; color:#64748b; }
+    .pt-sp-chips { display:flex; flex-wrap:wrap; gap:8px; }
+    .pt-sp-chip { padding:8px 14px; border:1px solid #d1d5db; border-radius:999px; background:#fff; color:#1e293b; font-weight:650; font-size:13px; cursor:pointer; }
+    .pt-sp-chip.active { background:#1f6b4a; border-color:#1f6b4a; color:#fff; }
+    .pt-sp-reach-box { background:#fffbeb; border:1px solid #fde68a; border-radius:12px; padding:12px 14px; }
+    .pt-sp-longer-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width:640px) { .pt-sp-longer-grid { grid-template-columns:1fr; } }
+    .pt-sp-longer-card { text-align:left; border-radius:12px; padding:12px 14px; cursor:pointer; border:2px solid transparent; background:#f8fafc; }
+    .pt-sp-longer-card.unavailable { background:#fef2f2; border-color:#fecaca; }
+    .pt-sp-longer-card.available_offline { background:#eff6ff; border-color:#bfdbfe; }
+    .pt-sp-longer-card.active.unavailable { border-color:#dc2626; box-shadow:0 0 0 2px rgba(220,38,38,0.15); }
+    .pt-sp-longer-card.active.available_offline { border-color:#0ea5e9; box-shadow:0 0 0 2px rgba(14,165,233,0.15); }
+    .pt-sp-longer-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+    .pt-sp-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+    .pt-sp-longer-title { font-size:14px; font-weight:800; color:#0f172a; }
+    .pt-sp-band-pill { margin-left:auto; font-size:10px; font-weight:800; padding:2px 8px; border-radius:999px; text-transform:uppercase; letter-spacing:0.04em; }
+    .pt-sp-band-pill.unavailable { background:#fee2e2; color:#b91c1c; }
+    .pt-sp-band-pill.available_offline { background:#dbeafe; color:#1d4ed8; }
+    .pt-sp-longer-card ul { margin:0; padding-left:18px; font-size:12px; line-height:1.45; color:#475569; }
+    .pt-sp-longer-card li + li { margin-top:4px; }
+    .pt-sp-guide { border-top:1px solid #e2e8f0; padding-top:14px; margin-top:16px; }
+    .pt-sp-guide-row { display:flex; align-items:flex-start; gap:8px; font-size:12px; color:#475569; margin-bottom:6px; }
+    .pt-sp-guide-row strong { color:#0f172a; font-size:12px; }
+    .pt-sp-actions { display:flex; flex-direction:column; gap:8px; margin-top:18px; }
+    .pt-sp-btn-primary { width:100%; padding:12px 14px; border:none; border-radius:10px; background:#1f6b4a; color:#fff; font-weight:700; cursor:pointer; font-size:14px; }
+    .pt-sp-btn-primary:disabled { opacity:0.5; cursor:not-allowed; }
+    .pt-sp-btn-ghost { width:100%; padding:12px 14px; border:1px solid #e2e8f0; border-radius:10px; background:#fff; color:#334155; font-weight:700; cursor:pointer; font-size:14px; }
+    .pt-sp-custom-wrap { display:inline-flex; align-items:center; gap:4px; }
+    .pt-sp-custom-del { width:22px; height:22px; border:none; border-radius:999px; background:rgba(15,23,42,0.08); color:#334155; cursor:pointer; font-size:14px; }
+    .pt-sp-privacy { margin:10px 0 0; font-size:11px; color:#94a3b8; line-height:1.4; }
+  `;
+  document.head.appendChild(style);
 }
 
 function removePromptDom() {
@@ -119,8 +172,28 @@ function removePromptDom() {
   if (node) node.remove();
 }
 
+function chipBtn(label, active) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = label;
+  btn.className = `pt-sp-chip${active ? ' active' : ''}`;
+  return btn;
+}
+
+function sectionHeader(text) {
+  const h = document.createElement('div');
+  h.className = 'pt-sp-section-h';
+  h.textContent = text;
+  return h;
+}
+
+function isLongerAway(reason) {
+  return reason === 'out_day' || reason === 'available_offline';
+}
+
 function renderPromptDom(mode) {
   if (typeof document === 'undefined') return;
+  ensurePromptStyles();
   removePromptDom();
   const b = getBridge();
   b.outReason = b.outReason || 'meal';
@@ -137,72 +210,72 @@ function renderPromptDom(mode) {
   root.setAttribute('data-pt-status-prompt', '1');
   root.setAttribute('role', 'alertdialog');
   root.setAttribute('aria-modal', 'true');
+  root.setAttribute('aria-labelledby', 'pt-sp-title');
   root.style.cssText =
     'position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,20,0.55);backdrop-filter:blur(4px);';
 
   const card = document.createElement('div');
-  card.style.cssText =
-    'width:min(480px,100%);max-height:min(90vh,720px);overflow:auto;background:#f7faf7;border-radius:16px;padding:22px;box-shadow:0 20px 50px rgba(0,0,0,0.25);border:1px solid rgba(34,80,50,0.12);font-family:system-ui,sans-serif;color:#1a3d2b;';
+  card.className = 'pt-sp-card';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'pt-sp-close';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.textContent = '×';
+  closeBtn.addEventListener('click', () => {
+    if (mode === 'logout') resolveLogoutStatusPrompt(false);
+    else closeStatusPrompt();
+  });
+  card.appendChild(closeBtn);
 
   const h2 = document.createElement('h2');
+  h2.id = 'pt-sp-title';
+  h2.className = 'pt-sp-h2';
   h2.textContent = titleFor(mode);
-  h2.style.cssText = 'margin:0 0 8px;font-size:1.25rem;font-weight:700;';
   card.appendChild(h2);
 
   const sub = document.createElement('p');
+  sub.className = 'pt-sp-sub';
   sub.textContent = subFor(mode);
-  sub.style.cssText = 'margin:0 0 18px;font-size:0.9rem;line-height:1.45;color:#3d5c4a;';
   card.appendChild(sub);
-
-  const section = (label, nodes) => {
-    const wrap = document.createElement('div');
-    wrap.style.marginBottom = '14px';
-    const lab = document.createElement('div');
-    lab.textContent = label;
-    lab.style.cssText =
-      'font-size:0.7rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#5a7a68;margin-bottom:8px;';
-    const grid = document.createElement('div');
-    grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;';
-    nodes.forEach((n) => grid.appendChild(n));
-    wrap.appendChild(lab);
-    wrap.appendChild(grid);
-    card.appendChild(wrap);
-    return { wrap, grid };
-  };
 
   const selectOut = (id, customLabel = null) => {
     b.outReason = id;
     b.customLabel = customLabel;
     b.customOutId = id.startsWith('custom_') ? id : null;
-    if (id === 'out_day' || id === 'available_offline') b.reachable = null;
+    if (isLongerAway(id)) b.reachable = null;
     renderPromptDom(mode);
   };
 
-  const outBuiltIn = AWAY_REASONS.filter((r) => r.group === 'out').map((r) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = r.label;
-    btn.style.cssText = btnStyle(b.outReason === r.id && !b.customOutId, false);
-    btn.addEventListener('click', () => selectOut(r.id));
-    return btn;
-  });
+  const shortSection = document.createElement('div');
+  shortSection.className = 'pt-sp-section';
+  shortSection.appendChild(sectionHeader('Short away (stay signed in)'));
+  const shortNote = document.createElement('p');
+  shortNote.className = 'pt-sp-section-note';
+  shortNote.textContent =
+    mode === 'timedown'
+      ? 'Temporarily away but still signed in. Pick a reason and how long — up to 2 hours.'
+      : 'Temporarily away but will return soon. You stay signed in for up to 2 hours.';
+  shortSection.appendChild(shortNote);
 
-  const customs = loadCustomOutReasons(b.userId);
-  const customBtns = customs.map((c) => {
+  const chips = document.createElement('div');
+  chips.className = 'pt-sp-chips';
+  AWAY_REASONS.filter((r) => r.group === 'out').forEach((r) => {
+    const btn = chipBtn(r.label, b.outReason === r.id && !b.customOutId);
+    btn.addEventListener('click', () => selectOut(r.id));
+    chips.appendChild(btn);
+  });
+  loadCustomOutReasons(b.userId).forEach((c) => {
     const wrap = document.createElement('span');
-    wrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = c.label;
-    btn.style.cssText = btnStyle(b.customOutId === c.id, false);
+    wrap.className = 'pt-sp-custom-wrap';
+    const btn = chipBtn(c.label, b.customOutId === c.id);
     btn.addEventListener('click', () => selectOut(c.id, c.label));
     const del = document.createElement('button');
     del.type = 'button';
+    del.className = 'pt-sp-custom-del';
     del.title = 'Remove saved reason';
     del.setAttribute('aria-label', `Remove ${c.label}`);
     del.textContent = '×';
-    del.style.cssText =
-      'width:22px;height:22px;border:none;border-radius:999px;background:rgba(15,23,20,0.08);color:#334155;cursor:pointer;font-size:14px;line-height:1;';
     del.addEventListener('click', (e) => {
       e.stopPropagation();
       removeCustomOutReason(b.userId, c.id);
@@ -215,106 +288,161 @@ function renderPromptDom(mode) {
     });
     wrap.appendChild(btn);
     wrap.appendChild(del);
-    return wrap;
+    chips.appendChild(wrap);
   });
-
-  const plus = document.createElement('button');
-  plus.type = 'button';
-  plus.textContent = '+';
-  plus.title = 'Add your own Out for… reason';
-  plus.setAttribute('aria-label', 'Add custom out reason');
-  plus.style.cssText =
-    'width:36px;height:36px;border:1px dashed rgba(34,80,50,0.45);border-radius:999px;background:#fff;color:#1f5c3d;font-weight:800;font-size:18px;cursor:pointer;';
+  const plus = chipBtn('+ Custom status', false);
+  plus.style.borderStyle = 'dashed';
   plus.addEventListener('click', () => {
     const label = window.prompt('Add a personal “Out for…” reason (saved for you):');
     if (!label) return;
     const created = addCustomOutReason(b.userId, label);
     if (created) selectOut(created.id, created.label);
   });
+  chips.appendChild(plus);
+  shortSection.appendChild(chips);
+  card.appendChild(shortSection);
 
-  section('Out for', [...outBuiltIn, ...customBtns, plus]);
-
-  // Reachable is independent — toggle same chip off if clicked again.
-  const reachBtns = AWAY_REASONS.filter((r) => r.group === 'reachable').map((r) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = r.label;
-    btn.style.cssText = btnStyle(b.reachable === r.id, false);
-    btn.addEventListener('click', () => {
-      b.reachable = b.reachable === r.id ? null : r.id;
-      renderPromptDom(mode);
+  if (!isLongerAway(b.outReason)) {
+    const reachSection = document.createElement('div');
+    reachSection.className = 'pt-sp-section';
+    const reachBox = document.createElement('div');
+    reachBox.className = 'pt-sp-reach-box';
+    reachBox.appendChild(sectionHeader('Still reachable (optional)'));
+    const reachNote = document.createElement('p');
+    reachNote.className = 'pt-sp-section-note';
+    reachNote.textContent = 'Let others know how they can reach you while you are away (yellow on the team board).';
+    reachBox.appendChild(reachNote);
+    const reachChips = document.createElement('div');
+    reachChips.className = 'pt-sp-chips';
+    AWAY_REASONS.filter((r) => r.group === 'reachable').forEach((r) => {
+      const btn = chipBtn(r.label, b.reachable === r.id);
+      btn.addEventListener('click', () => {
+        b.reachable = b.reachable === r.id ? null : r.id;
+        renderPromptDom(mode);
+      });
+      reachChips.appendChild(btn);
     });
-    return btn;
-  });
-  if (b.outReason !== 'out_day' && b.outReason !== 'available_offline') {
-    section('Also reachable for (optional)', reachBtns);
+    reachBox.appendChild(reachChips);
+    reachSection.appendChild(reachBox);
+    card.appendChild(reachSection);
   }
 
-  const dayBtn = document.createElement('button');
-  dayBtn.type = 'button';
-  dayBtn.textContent = 'Out for the Day';
-  dayBtn.style.cssText = btnStyle(b.outReason === 'out_day', false);
-  dayBtn.addEventListener('click', () => selectOut('out_day'));
-
-  const offlineAvailBtn = document.createElement('button');
-  offlineAvailBtn.type = 'button';
-  offlineAvailBtn.textContent = 'Available · Logged out';
-  offlineAvailBtn.title = 'Log out but stay marked available (blue) for the team';
-  offlineAvailBtn.style.cssText = btnStyle(b.outReason === 'available_offline', false);
-  offlineAvailBtn.addEventListener('click', () => {
-    b.reachable = null;
-    selectOut('available_offline');
+  const longerSection = document.createElement('div');
+  longerSection.className = 'pt-sp-section';
+  longerSection.appendChild(sectionHeader('Longer away'));
+  const longerNote = document.createElement('p');
+  longerNote.className = 'pt-sp-section-note';
+  longerNote.textContent = 'Stepping away for an extended period. These options use different team-board colors.';
+  longerSection.appendChild(longerNote);
+  const longerGrid = document.createElement('div');
+  longerGrid.className = 'pt-sp-longer-grid';
+  LONGER_OPTIONS.forEach((opt) => {
+    const bandMeta = AVAILABILITY_BANDS[opt.band] || AVAILABILITY_BANDS.unavailable;
+    const cardBtn = document.createElement('button');
+    cardBtn.type = 'button';
+    cardBtn.className = `pt-sp-longer-card ${opt.band}${b.outReason === opt.id ? ' active' : ''}`;
+    const head = document.createElement('div');
+    head.className = 'pt-sp-longer-head';
+    const dot = document.createElement('span');
+    dot.className = 'pt-sp-dot';
+    dot.style.background = bandMeta.dot || '#94a3b8';
+    const title = document.createElement('span');
+    title.className = 'pt-sp-longer-title';
+    title.textContent = opt.title;
+    const pill = document.createElement('span');
+    pill.className = `pt-sp-band-pill ${opt.band}`;
+    pill.textContent = bandMeta.label;
+    head.appendChild(dot);
+    head.appendChild(title);
+    head.appendChild(pill);
+    cardBtn.appendChild(head);
+    const ul = document.createElement('ul');
+    opt.bullets.forEach((line) => {
+      const li = document.createElement('li');
+      li.textContent = line;
+      ul.appendChild(li);
+    });
+    cardBtn.appendChild(ul);
+    cardBtn.addEventListener('click', () => selectOut(opt.id));
+    longerGrid.appendChild(cardBtn);
   });
-  section('Longer', [dayBtn, offlineAvailBtn]);
+  longerSection.appendChild(longerGrid);
+  card.appendChild(longerSection);
 
-  if (mode === 'change' && b.outReason && b.outReason !== 'out_day') {
-    const continueBtn = document.createElement('button');
-    continueBtn.type = 'button';
-    continueBtn.textContent = 'Continue current time';
-    continueBtn.style.cssText = btnStyle(b.timerMode === 'continue', false);
+  if (mode === 'change' && b.outReason && !isLongerAway(b.outReason)) {
+    const timerSection = document.createElement('div');
+    timerSection.className = 'pt-sp-section';
+    timerSection.appendChild(sectionHeader('Timer'));
+    const timerChips = document.createElement('div');
+    timerChips.className = 'pt-sp-chips';
+    const continueBtn = chipBtn('Continue current time', b.timerMode === 'continue');
     continueBtn.addEventListener('click', () => {
       b.timerMode = 'continue';
       renderPromptDom(mode);
     });
-    const resetBtn = document.createElement('button');
-    resetBtn.type = 'button';
-    resetBtn.textContent = 'Reset time';
-    resetBtn.style.cssText = btnStyle(b.timerMode === 'reset', false);
+    const resetBtn = chipBtn('Reset time', b.timerMode === 'reset');
     resetBtn.addEventListener('click', () => {
       b.timerMode = 'reset';
       renderPromptDom(mode);
     });
-    section('Timer', [continueBtn, resetBtn]);
+    timerChips.append(continueBtn, resetBtn);
+    timerSection.appendChild(timerChips);
+    card.appendChild(timerSection);
   }
 
   const showDuration =
     b.outReason &&
-    b.outReason !== 'out_day' &&
-    b.outReason !== 'available_offline' &&
+    !isLongerAway(b.outReason) &&
     (mode !== 'change' || b.timerMode === 'reset');
   if (showDuration) {
-    const durBtns = DURATION_CHIPS.map((d) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.textContent = d.label;
-      btn.style.cssText = btnStyle(b.durationMinutes === d.minutes, false);
+    const durSection = document.createElement('div');
+    durSection.className = 'pt-sp-section';
+    durSection.appendChild(sectionHeader(mode === 'change' ? 'New duration' : 'How long?'));
+    const durChips = document.createElement('div');
+    durChips.className = 'pt-sp-chips';
+    DURATION_CHIPS.forEach((d) => {
+      const btn = chipBtn(d.label, b.durationMinutes === d.minutes);
       btn.addEventListener('click', () => {
         b.durationMinutes = d.minutes;
         renderPromptDom(mode);
       });
-      return btn;
+      durChips.appendChild(btn);
     });
-    section(mode === 'change' ? 'New duration' : 'How long?', durBtns);
+    durSection.appendChild(durChips);
+    card.appendChild(durSection);
   }
 
+  const guide = document.createElement('div');
+  guide.className = 'pt-sp-guide';
+  guide.appendChild(sectionHeader('Status color guide'));
+  [
+    ['available', 'Online and ready to connect'],
+    ['away_reachable', 'Away but can be reached'],
+    ['unavailable', 'Not available — others should not expect a reply'],
+    ['available_offline', 'Logged out but open to connect']
+  ].forEach(([bandId, desc]) => {
+    const meta = AVAILABILITY_BANDS[bandId];
+    const row = document.createElement('div');
+    row.className = 'pt-sp-guide-row';
+    const dot = document.createElement('span');
+    dot.className = 'pt-sp-dot';
+    dot.style.background = meta?.dot || '#94a3b8';
+    dot.style.marginTop = '3px';
+    const text = document.createElement('span');
+    text.innerHTML = `<strong>${meta?.label || bandId}</strong> — ${desc}`;
+    row.appendChild(dot);
+    row.appendChild(text);
+    guide.appendChild(row);
+  });
+
   const actions = document.createElement('div');
-  actions.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-top:8px;';
+  actions.className = 'pt-sp-actions';
 
   if (mode === 'timedown') {
     const still = document.createElement('button');
     still.type = 'button';
+    still.className = 'pt-sp-btn-primary';
     still.textContent = "I'm still here";
-    still.style.cssText = btnStyle(false, true);
     still.addEventListener('click', async () => {
       try {
         await b.handlers?.onStillHere?.();
@@ -327,21 +455,20 @@ function renderPromptDom(mode) {
 
   const setStatus = document.createElement('button');
   setStatus.type = 'button';
+  setStatus.className = 'pt-sp-btn-primary';
   if (b.outReason === 'available_offline') {
     setStatus.textContent = 'Set available & log out';
   } else if (b.outReason === 'out_day') {
     setStatus.textContent =
-      mode === 'manual' || mode === 'change'
-        ? 'Set Out for the Day & log out'
-        : 'Set Out for the Day';
+      mode === 'manual' || mode === 'change' || mode === 'logout'
+        ? 'Set unavailable for the day & log out'
+        : 'Set unavailable for the day';
   } else if (mode === 'change') {
     setStatus.textContent =
       b.timerMode === 'continue' ? 'Update status · keep timer' : 'Update status · reset timer';
   } else {
     setStatus.textContent = 'Set status & stay signed in';
   }
-  setStatus.style.cssText =
-    'width:100%;padding:12px 14px;border:none;border-radius:10px;background:#3d8b65;color:#fff;font-weight:700;cursor:pointer;font-size:14px;';
   setStatus.disabled = !b.outReason;
   setStatus.addEventListener('click', async () => {
     setStatus.disabled = true;
@@ -351,7 +478,7 @@ function renderPromptDom(mode) {
         mode,
         reason: b.outReason === 'out_day' ? 'out_day' : isCustom ? 'custom' : b.outReason,
         durationMinutes: b.durationMinutes,
-        reachable: b.outReason === 'out_day' ? null : b.reachable,
+        reachable: isLongerAway(b.outReason) ? null : b.reachable,
         customLabel: isCustom ? b.customLabel : null,
         timerMode: mode === 'change' ? b.timerMode || 'continue' : 'reset'
       });
@@ -370,8 +497,8 @@ function renderPromptDom(mode) {
   if (mode !== 'manual' && mode !== 'change') {
     const skip = document.createElement('button');
     skip.type = 'button';
+    skip.className = 'pt-sp-btn-ghost';
     skip.textContent = mode === 'logout' ? 'Log out without status' : 'Log out now';
-    skip.style.cssText = ghostBtnStyle();
     skip.addEventListener('click', async () => {
       if (mode === 'logout') {
         resolveLogoutStatusPrompt(true);
@@ -386,8 +513,8 @@ function renderPromptDom(mode) {
   if (mode === 'logout' || mode === 'manual' || mode === 'change') {
     const cancel = document.createElement('button');
     cancel.type = 'button';
+    cancel.className = 'pt-sp-btn-ghost';
     cancel.textContent = 'Cancel';
-    cancel.style.cssText = ghostBtnStyle();
     cancel.addEventListener('click', () => {
       if (mode === 'logout') resolveLogoutStatusPrompt(false);
       else closeStatusPrompt();
@@ -395,7 +522,12 @@ function renderPromptDom(mode) {
     actions.appendChild(cancel);
   }
 
+  const privacy = document.createElement('p');
+  privacy.className = 'pt-sp-privacy';
+  privacy.textContent = 'Your status is visible to your organization on the Presence / Team Board.';
   card.appendChild(actions);
+  card.appendChild(guide);
+  card.appendChild(privacy);
   root.appendChild(card);
   document.body.appendChild(root);
 }

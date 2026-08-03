@@ -1,17 +1,18 @@
 <template>
-  <div class="presence-widget">
-    <div class="presence-widget-header">
-      <span class="presence-widget-title">My Status</span>
+  <div class="presence-widget" :class="{ 'presence-widget--compact': compact }">
+    <div v-if="!compact" class="presence-widget-header">
+      <span class="presence-widget-title">In status</span>
       <router-link v-if="canViewTeamBoard" to="/admin/presence" class="presence-team-link">View Team Board</router-link>
     </div>
-    <div class="presence-widget-body">
+    <div class="presence-widget-body" :class="{ 'presence-widget-body--compact': compact }">
       <select
-        :value="currentStatus"
+        :value="currentOptionKey"
         class="presence-select"
+        :class="{ 'presence-select--compact': compact }"
         :disabled="saving"
         @change="onChange"
       >
-        <option value="">— Set status —</option>
+        <option value="">{{ compact ? 'In status…' : '— Set In status —' }}</option>
         <option
           v-for="opt in statusOptions"
           :key="opt.value"
@@ -20,7 +21,15 @@
           {{ opt.label }}
         </option>
       </select>
-      <p v-if="loading" class="presence-muted">Loading…</p>
+      <button
+        v-if="canUseAwayPrompt"
+        type="button"
+        class="presence-away-btn"
+        @click="openAwayPrompt"
+      >
+        {{ compact ? 'Set status…' : 'Set Away status…' }}
+      </button>
+      <p v-if="loading && !compact" class="presence-muted">Loading…</p>
       <p v-else-if="error" class="presence-error">{{ error }}</p>
     </div>
   </div>
@@ -30,10 +39,19 @@
 import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { usePresenceSessionStore } from '../../store/presenceSession';
+import { IN_PRESENCE_OPTIONS, inPresenceOptionKey, isPrivilegedPresenceRole } from '../../utils/presenceStatus';
 import api from '../../services/api';
+
+defineProps({
+  compact: { type: Boolean, default: false }
+});
+
+const emit = defineEmits(['updated']);
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const presenceSession = usePresenceSessionStore();
 const canViewTeamBoard = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   if (role === 'super_admin') return true;
@@ -43,18 +61,17 @@ const canViewTeamBoard = computed(() => {
   return f?.presenceEnabled === true;
 });
 
-const statusOptions = [
-  { value: 'in_available', label: 'In – Available' },
-  { value: 'in_heads_down', label: 'In – Heads Down' },
-  { value: 'in_available_for_phone', label: 'In – Available for Phone' },
-  { value: 'out_quick', label: 'Out – Quick (Under 90 min)' },
-  { value: 'out_am', label: 'Out – AM' },
-  { value: 'out_pm', label: 'Out – PM' },
-  { value: 'out_full_day', label: 'Out – Full Day' },
-  { value: 'traveling_offsite', label: 'Traveling / Offsite' }
-];
+const canUseAwayPrompt = computed(() =>
+  isPrivilegedPresenceRole(authStore.user?.role) || presenceSession.shouldUseStatusPrompt(authStore.user?.role)
+);
 
-const currentStatus = ref('');
+const openAwayPrompt = () => {
+  presenceSession.openManualTimeoutPrompt();
+};
+
+const statusOptions = IN_PRESENCE_OPTIONS;
+
+const currentOptionKey = ref('');
 const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
@@ -64,112 +81,38 @@ const fetchStatus = async () => {
     loading.value = true;
     error.value = '';
     const res = await api.get('/presence/status/me');
-    currentStatus.value = res.data?.presence_status || '';
+    currentOptionKey.value = inPresenceOptionKey(res.data || {});
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load';
-    currentStatus.value = '';
+    currentOptionKey.value = '';
   } finally {
     loading.value = false;
   }
 };
 
-const parseDateInput = (input) => {
-  const s = String(input || '').trim().toLowerCase();
-  if (!s) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  if (s === 'today') return today;
-  if (s === 'tomorrow') {
-    const t = new Date(today);
-    t.setDate(t.getDate() + 1);
-    return t;
-  }
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) {
-    const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
-    return isNaN(d.getTime()) ? null : d;
-  }
-  return null;
-};
-
 const onChange = async (event) => {
-  const newStatus = event.target?.value || '';
-  if (!newStatus) return;
-
-  let payload = { status: newStatus };
-  if (newStatus === 'out_quick') {
-    const ret = prompt('Expected return time (e.g. 2:15 PM). Must be within 90 minutes:');
-    if (!ret) {
-      event.target.value = currentStatus.value;
-      return;
-    }
-    const parsed = parseReturnTime(ret);
-    if (parsed) {
-      const now = new Date();
-      const mins = (new Date(parsed) - now) / (60 * 1000);
-      if (mins > 90) {
-        error.value = 'Return time must be within 90 minutes of now';
-        event.target.value = currentStatus.value;
-        return;
-      }
-      payload.expected_return_at = parsed;
-    } else {
-      payload.note = ret;
-    }
-    const note = prompt('Optional note (e.g. "Errand", "Appointment"):');
-    if (note && note.trim()) payload.note = payload.note ? `${payload.note} – ${note.trim()}` : note.trim();
-  } else if (['out_am', 'out_pm', 'out_full_day', 'traveling_offsite'].includes(newStatus)) {
-    const dateInput = prompt('For which date? (today, tomorrow, or YYYY-MM-DD). Leave blank for today:');
-    const d = dateInput ? parseDateInput(dateInput) : new Date();
-    if (d) {
-      const start = new Date(d);
-      const end = new Date(d);
-      if (newStatus === 'out_full_day' || newStatus === 'traveling_offsite') {
-        start.setHours(0, 0, 0, 0);
-        end.setHours(23, 59, 59, 999);
-      } else if (newStatus === 'out_am') {
-        start.setHours(8, 0, 0, 0);
-        end.setHours(12, 0, 0, 0);
-      } else {
-        start.setHours(12, 0, 0, 0);
-        end.setHours(17, 0, 0, 0);
-      }
-      payload.started_at = start.toISOString();
-      payload.ends_at = end.toISOString();
-    }
-    const note = prompt('Optional note (e.g. "Travel day", "Appointment"):');
-    if (note && note.trim()) payload.note = note.trim();
-  } else {
-    const note = prompt('Optional note:');
-    if (note && note.trim()) payload.note = note.trim();
-  }
+  const key = event.target?.value || '';
+  if (!key) return;
+  const opt = statusOptions.find((o) => o.value === key);
+  if (!opt) return;
 
   try {
     saving.value = true;
     error.value = '';
-    await api.put('/presence/status/me', payload);
-    currentStatus.value = newStatus;
+    await api.put('/presence/status/me', {
+      status: opt.status || opt.value,
+      display_label: opt.displayLabel || opt.label,
+      reason: null,
+      note: null
+    });
+    currentOptionKey.value = key;
+    emit('updated');
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to update';
-    event.target.value = currentStatus.value;
+    event.target.value = currentOptionKey.value;
   } finally {
     saving.value = false;
   }
-};
-
-const parseReturnTime = (input) => {
-  const s = String(input || '').trim();
-  if (!s) return null;
-  const m = s.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
-  if (!m) return null;
-  let hour = parseInt(m[1], 10);
-  const min = parseInt(m[2], 10);
-  const meridiem = (m[3] || '').toLowerCase();
-  if (meridiem === 'pm' && hour < 12) hour += 12;
-  if (meridiem === 'am' && hour === 12) hour = 0;
-  const d = new Date();
-  d.setHours(hour, min, 0, 0);
-  return d.toISOString();
 };
 
 onMounted(fetchStatus);
@@ -233,5 +176,45 @@ onMounted(fetchStatus);
   margin: 0;
   font-size: 0.8rem;
   color: var(--danger);
+}
+
+.presence-widget--compact {
+  background: transparent;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+}
+
+.presence-widget-body--compact {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.presence-select--compact {
+  min-width: 0;
+  width: auto;
+  max-width: 168px;
+  padding: 5px 8px;
+  font-size: 11px;
+  border-radius: 8px;
+}
+
+.presence-away-btn {
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 28%, #e2e8f0);
+  background: #fff;
+  color: var(--ops-primary, #1f6b4a);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.presence-away-btn:hover {
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
 }
 </style>

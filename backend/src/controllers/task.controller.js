@@ -307,9 +307,55 @@ export const renderTaskDocumentHtml = async (req, res, next) => {
 export const getUserTasks = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { taskType, status } = req.query;
+    const {
+      taskType,
+      status,
+      view,
+      urgency,
+      departmentId,
+      due,
+      q,
+      limit,
+      offset,
+      agencyId: agencyIdRaw
+    } = req.query;
 
-    let tasks = await Task.findByUser(userId, { taskType, status });
+    const role = String(req.user.role || '').toLowerCase();
+    const canViewAll =
+      role === 'admin' ||
+      role === 'super_admin' ||
+      role === 'support' ||
+      role === 'supervisor' ||
+      !!req.user?.capabilities?.canManageHiring;
+
+    const requestedView = String(view || '').toLowerCase();
+    let agencyId = agencyIdRaw != null ? parseInt(agencyIdRaw, 10) : null;
+    if (!agencyId) {
+      agencyId = req.user.agency_id || req.user.primary_agency_id || null;
+    }
+    if (!agencyId && Array.isArray(req.user.agencies) && req.user.agencies[0]) {
+      agencyId = req.user.agencies[0].id || req.user.agencies[0].agency_id || null;
+    }
+
+    const filters = {
+      taskType: taskType || undefined,
+      status: status || undefined,
+      view: requestedView || undefined,
+      urgency: urgency || undefined,
+      departmentId: departmentId || undefined,
+      due: due || undefined,
+      q: q || undefined,
+      limit: limit != null ? limit : undefined,
+      offset: offset != null ? offset : undefined,
+      agencyId: canViewAll && requestedView === 'all' ? agencyId : undefined
+    };
+
+    if (requestedView === 'all' && !canViewAll) {
+      filters.view = 'assigned';
+      delete filters.agencyId;
+    }
+
+    let tasks = await Task.findForHub(userId, filters);
     if (!taskType || taskType === 'document') {
       const { enrichDocumentTasks } = await import('../services/documentTaskEnrichment.service.js');
       tasks = await enrichDocumentTasks(tasks);
@@ -323,13 +369,27 @@ export const getUserTasks = async (req, res, next) => {
 export const getTaskCounts = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const trainingCount = await Task.getTrainingTaskCount(userId);
-    const documentCount = await Task.getDocumentTaskCount(userId);
+    const role = String(req.user.role || '').toLowerCase();
+    const canViewAll =
+      role === 'admin' ||
+      role === 'super_admin' ||
+      role === 'support' ||
+      role === 'supervisor' ||
+      !!req.user?.capabilities?.canManageHiring;
 
-    res.json({
-      training: trainingCount,
-      document: documentCount
+    let agencyId = req.query.agencyId != null ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) {
+      agencyId = req.user.agency_id || req.user.primary_agency_id || null;
+    }
+    if (!agencyId && Array.isArray(req.user.agencies) && req.user.agencies[0]) {
+      agencyId = req.user.agencies[0].id || req.user.agencies[0].agency_id || null;
+    }
+
+    const counts = await Task.getHubCounts(userId, {
+      agencyId,
+      canViewAll
     });
+    res.json(counts);
   } catch (error) {
     next(error);
   }

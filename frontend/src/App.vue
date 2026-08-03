@@ -2191,28 +2191,76 @@
           @click.stop="dismissNewNotificationToast"
         >×</button>
       </div>
-      <div
-        v-if="showPayrollPendingToast"
-        class="payroll-pending-toast-wrap"
-        role="status"
-      >
-        <button type="button" class="payroll-pending-toast" @click="goToPayrollPending()">
-          <span class="payroll-pending-toast-icon" aria-hidden="true">💼</span>
-          <span>
-            <strong>{{ payrollPendingCount }}</strong> pending payroll submission{{ payrollPendingCount !== 1 ? 's' : '' }}
-            <span v-if="payrollPendingItems.length" class="payroll-pending-toast-names">
-              — {{ payrollPendingItems.slice(0, 3).map((p) => p.name.split(' ')[0]).join(', ') }}{{ payrollPendingItems.length > 3 ? ` +${payrollPendingItems.length - 3} more` : '' }}
+      <div class="app-corner-toasts" aria-live="polite">
+        <div
+          v-if="showPayrollPendingToast"
+          class="payroll-pending-toast-wrap"
+          role="status"
+        >
+          <button type="button" class="payroll-pending-toast" @click="goToPayrollPending()">
+            <span class="payroll-pending-toast-icon" aria-hidden="true">💼</span>
+            <span>
+              <strong>{{ payrollPendingCount }}</strong> pending payroll submission{{ payrollPendingCount !== 1 ? 's' : '' }}
+              <span v-if="payrollPendingItems.length" class="payroll-pending-toast-names">
+                — {{ payrollPendingItems.slice(0, 3).map((p) => p.name.split(' ')[0]).join(', ') }}{{ payrollPendingItems.length > 3 ? ` +${payrollPendingItems.length - 3} more` : '' }}
+              </span>
             </span>
-          </span>
-        </button>
-        <button
-          type="button"
-          class="toast-dismiss-btn payroll-pending-toast-dismiss"
-          aria-label="Snooze for 3 hours"
-          title="Snooze for 3 hours"
-          @pointerdown.prevent.stop="dismissPayrollPendingToast"
-          @click.prevent.stop="dismissPayrollPendingToast"
-        >✕</button>
+          </button>
+          <button
+            type="button"
+            class="toast-dismiss-btn payroll-pending-toast-dismiss"
+            aria-label="Snooze for 3 hours"
+            title="Snooze for 3 hours"
+            @pointerdown.prevent.stop="dismissPayrollPendingToast"
+            @click.prevent.stop="dismissPayrollPendingToast"
+          >✕</button>
+        </div>
+        <div
+          v-if="showPreHireToast"
+          class="hiring-toast-wrap hiring-toast-wrap--prehire"
+          role="status"
+        >
+          <button type="button" class="hiring-toast" @click="goToPreHireFromToast()">
+            <span class="hiring-toast-icon" aria-hidden="true">🤝</span>
+            <span>
+              <strong>{{ preHireToastCount }}</strong> in pre-hire
+              <span v-if="preHireToastNames.length" class="hiring-toast-names">
+                — {{ preHireToastNames.slice(0, 3).join(', ') }}{{ preHireToastNames.length > 3 ? ` +${preHireToastNames.length - 3} more` : '' }}
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="toast-dismiss-btn hiring-toast-dismiss"
+            aria-label="Snooze for 3 hours"
+            title="Snooze for 3 hours"
+            @pointerdown.prevent.stop="dismissPreHireToast"
+            @click.prevent.stop="dismissPreHireToast"
+          >✕</button>
+        </div>
+        <div
+          v-if="showApplicantsToast"
+          class="hiring-toast-wrap hiring-toast-wrap--applicants"
+          role="status"
+        >
+          <button type="button" class="hiring-toast" @click="goToApplicantsFromToast()">
+            <span class="hiring-toast-icon" aria-hidden="true">📋</span>
+            <span>
+              <strong>{{ applicantsToastCount }}</strong> applicant{{ applicantsToastCount !== 1 ? 's' : '' }}
+              <span v-if="applicantsToastNames.length" class="hiring-toast-names">
+                — {{ applicantsToastNames.slice(0, 3).join(', ') }}{{ applicantsToastNames.length > 3 ? ` +${applicantsToastNames.length - 3} more` : '' }}
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="toast-dismiss-btn hiring-toast-dismiss"
+            aria-label="Snooze for 3 hours"
+            title="Snooze for 3 hours"
+            @pointerdown.prevent.stop="dismissApplicantsToast"
+            @click.prevent.stop="dismissApplicantsToast"
+          >✕</button>
+        </div>
       </div>
       <div
         v-if="joinReminderToast.visible"
@@ -4510,6 +4558,142 @@ const goToPayrollPending = (opts = {}) => {
 const goToPayrollStage = () => {
   goToPayrollPending({ tab: 'pto' });
 };
+
+// ---- Hiring attention toasts (pre-hire + applicants) ----
+const PREHIRE_TOAST_SNOOZE_KEY = 'preHireToastSnoozedUntil';
+const APPLICANTS_TOAST_SNOOZE_KEY = 'applicantsToastSnoozedUntil';
+
+const readSnoozeUntil = (key) => {
+  try {
+    return Number(localStorage.getItem(key) || 0) || 0;
+  } catch {
+    return 0;
+  }
+};
+
+const canSeeHiringToasts = computed(() =>
+  isAuthenticated.value &&
+  hasHiringFeature.value &&
+  hasCapability('canManageHiring') &&
+  !!currentAgencyId.value
+);
+
+const preHireToastCount = ref(0);
+const preHireToastNames = ref([]);
+const preHireToastVisible = ref(false);
+const preHireToastSnoozed = ref(readSnoozeUntil(PREHIRE_TOAST_SNOOZE_KEY) > Date.now());
+const showPreHireToast = computed(
+  () => preHireToastVisible.value && preHireToastCount.value > 0 && !preHireToastSnoozed.value
+);
+
+const applicantsToastCount = ref(0);
+const applicantsToastNames = ref([]);
+const applicantsToastVisible = ref(false);
+const applicantsToastSnoozed = ref(readSnoozeUntil(APPLICANTS_TOAST_SNOOZE_KEY) > Date.now());
+const showApplicantsToast = computed(
+  () => applicantsToastVisible.value && applicantsToastCount.value > 0 && !applicantsToastSnoozed.value
+);
+
+let hiringToastInterval = null;
+
+const hiringToastFirstName = (u) => {
+  const first = String(u?.first_name || '').trim();
+  if (first) return first;
+  const full = `${u?.first_name || ''} ${u?.last_name || ''}`.trim();
+  if (full) return full.split(/\s+/)[0];
+  return String(u?.personal_email || u?.email || 'Candidate').split('@')[0];
+};
+
+const snoozeHiringToast = (key, snoozedRef, hours = 3) => {
+  snoozedRef.value = true;
+  try {
+    localStorage.setItem(key, String(Date.now() + hours * 60 * 60 * 1000));
+  } catch { /* ignore */ }
+};
+
+const clearHiringToastSnooze = (key, snoozedRef) => {
+  snoozedRef.value = false;
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+};
+
+const fetchHiringAttentionToasts = async () => {
+  if (!canSeeHiringToasts.value) {
+    preHireToastCount.value = 0;
+    preHireToastNames.value = [];
+    applicantsToastCount.value = 0;
+    applicantsToastNames.value = [];
+    return;
+  }
+  const agencyId = Number(currentAgencyId.value);
+  try {
+    const [preRes, appRes] = await Promise.all([
+      api.get('/hiring/prehire-candidates', {
+        params: { agencyId },
+        skipGlobalLoading: true
+      }).catch(() => ({ data: [] })),
+      api.get('/hiring/candidates', {
+        params: { agencyId, status: 'PROSPECTIVE', limit: 200 },
+        skipGlobalLoading: true
+      }).catch(() => ({ data: [] }))
+    ]);
+
+    const preList = Array.isArray(preRes.data) ? preRes.data : [];
+    preHireToastCount.value = preList.length;
+    preHireToastNames.value = preList.map(hiringToastFirstName);
+
+    const appRaw = Array.isArray(appRes.data)
+      ? appRes.data
+      : (Array.isArray(appRes.data?.candidates) ? appRes.data.candidates : []);
+    // Keep toast focused on active applicants (exclude anyone still in pre-hire statuses).
+    const preHireStatuses = new Set(['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW']);
+    const appList = appRaw.filter((u) => !preHireStatuses.has(String(u?.status || '').toUpperCase()));
+    applicantsToastCount.value = appList.length;
+    applicantsToastNames.value = appList.map(hiringToastFirstName);
+
+    if (!preHireToastSnoozed.value && readSnoozeUntil(PREHIRE_TOAST_SNOOZE_KEY) > Date.now()) {
+      preHireToastSnoozed.value = true;
+    }
+    if (!applicantsToastSnoozed.value && readSnoozeUntil(APPLICANTS_TOAST_SNOOZE_KEY) > Date.now()) {
+      applicantsToastSnoozed.value = true;
+    }
+
+    if (preHireToastCount.value > 0) {
+      if (!preHireToastSnoozed.value) preHireToastVisible.value = true;
+    } else {
+      preHireToastVisible.value = false;
+      clearHiringToastSnooze(PREHIRE_TOAST_SNOOZE_KEY, preHireToastSnoozed);
+    }
+
+    if (applicantsToastCount.value > 0) {
+      if (!applicantsToastSnoozed.value) applicantsToastVisible.value = true;
+    } else {
+      applicantsToastVisible.value = false;
+      clearHiringToastSnooze(APPLICANTS_TOAST_SNOOZE_KEY, applicantsToastSnoozed);
+    }
+  } catch {
+    // best-effort
+  }
+};
+
+const dismissPreHireToast = () => {
+  snoozeHiringToast(PREHIRE_TOAST_SNOOZE_KEY, preHireToastSnoozed, 3);
+  preHireToastVisible.value = false;
+};
+
+const dismissApplicantsToast = () => {
+  snoozeHiringToast(APPLICANTS_TOAST_SNOOZE_KEY, applicantsToastSnoozed, 3);
+  applicantsToastVisible.value = false;
+};
+
+const goToPreHireFromToast = () => {
+  preHireToastVisible.value = false;
+  router.push({ path: orgTo('/admin/pre-hire') });
+};
+
+const goToApplicantsFromToast = () => {
+  applicantsToastVisible.value = false;
+  router.push({ path: orgTo('/admin/hiring') });
+};
 const MIN_PENDING_DATE = '2026-02-01';
 const fetchSchoolClientsPendingCount = async () => {
   if (!isAuthenticated.value || !showSchoolClientsPendingBadge.value || !schoolClientsAgencyId.value) {
@@ -5395,6 +5579,25 @@ function syncPayrollPendingPolling([authenticated, canSee, agencyId]) {
 watch(
   [isAuthenticated, canSeePayrollManagement, currentAgencyId],
   syncPayrollPendingPolling
+);
+
+function syncHiringToastPolling() {
+  if (hiringToastInterval) clearInterval(hiringToastInterval);
+  hiringToastInterval = null;
+  if (canSeeHiringToasts.value) {
+    fetchHiringAttentionToasts();
+    hiringToastInterval = setInterval(fetchHiringAttentionToasts, 3 * 60 * 1000);
+    return;
+  }
+  preHireToastCount.value = 0;
+  preHireToastNames.value = [];
+  applicantsToastCount.value = 0;
+  applicantsToastNames.value = [];
+}
+watch(
+  [isAuthenticated, hasHiringFeature, currentAgencyId, () => hasCapability('canManageHiring')],
+  syncHiringToastPolling,
+  { immediate: true }
 );
 
 watch(sessionSettingsKey, () => {
@@ -7540,22 +7743,81 @@ button.nav-dropdown-button-link:hover {
 }
 
 /* ── Payroll pending submissions toast ── */
-.payroll-pending-toast-wrap {
+.app-corner-toasts {
   position: fixed;
   top: 72px;
   right: 20px;
   z-index: 10050;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: min(440px, calc(100vw - 40px));
+  pointer-events: none;
+}
+.app-corner-toasts > * {
+  pointer-events: auto;
+}
+
+.payroll-pending-toast-wrap {
   display: inline-flex;
   align-items: stretch;
-  max-width: min(440px, calc(100vw - 40px));
+  width: 100%;
   border-radius: 12px;
   border: 1px solid #b6d4b3;
   background: #f0fdf0;
   box-shadow: 0 8px 24px rgba(22, 101, 52, 0.18);
   overflow: visible;
   animation: newNotificationToastIn 0.3s ease-out;
-  pointer-events: auto;
 }
+
+.hiring-toast-wrap {
+  display: inline-flex;
+  align-items: stretch;
+  width: 100%;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  overflow: visible;
+  animation: newNotificationToastIn 0.3s ease-out;
+}
+.hiring-toast-wrap--prehire {
+  border: 1px solid #fdba74;
+  background: #fff7ed;
+}
+.hiring-toast-wrap--applicants {
+  border: 1px solid #93c5fd;
+  background: #eff6ff;
+}
+.hiring-toast {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  font: inherit;
+  text-align: left;
+}
+.hiring-toast-wrap--prehire .hiring-toast { color: #9a3412; }
+.hiring-toast-wrap--prehire .hiring-toast:hover { background: #ffedd5; }
+.hiring-toast-wrap--applicants .hiring-toast { color: #1e3a8a; }
+.hiring-toast-wrap--applicants .hiring-toast:hover { background: #dbeafe; }
+.hiring-toast-icon { font-size: 18px; flex-shrink: 0; }
+.hiring-toast-names { font-weight: 400; font-size: 13px; opacity: 0.9; }
+.hiring-toast-dismiss {
+  position: relative;
+  z-index: 3;
+  pointer-events: auto;
+  min-width: 44px;
+  background: rgba(254, 226, 226, 0.55);
+  color: #b91c1c;
+}
+.hiring-toast-wrap--prehire .hiring-toast-dismiss { border-left: 1px solid #fdba74; }
+.hiring-toast-wrap--applicants .hiring-toast-dismiss { border-left: 1px solid #93c5fd; }
 .payroll-pending-toast {
   flex: 1;
   min-width: 0;

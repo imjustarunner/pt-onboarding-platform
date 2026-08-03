@@ -101,19 +101,25 @@
       </div>
     </section>
 
-    <!-- Shared lists -->
+    <!-- Shared lists live on the Tasks hub -->
     <section v-if="agencyId" class="momentum-shared-lists-section" aria-label="Shared lists">
-      <div class="shared-lists-head" @click="sharedListsExpanded = !sharedListsExpanded">
-        <h2 class="section-title">Shared lists</h2>
-        <span v-if="!sharedListsExpanded && sharedListsSummary" class="shared-lists-summary">
-          {{ sharedListsSummary.listCount }} list{{ sharedListsSummary.listCount !== 1 ? 's' : '' }},
-          {{ sharedListsSummary.totalTasks }} task{{ sharedListsSummary.totalTasks !== 1 ? 's' : '' }}
-          <span v-if="sharedListsSummary.hasRecentActivity" class="shared-lists-activity" title="Activity in last 24h">●</span>
-        </span>
-        <span class="shared-lists-toggle">{{ sharedListsExpanded ? '▼' : '▶' }}</span>
+      <div class="shared-lists-head shared-lists-head--link">
+        <div>
+          <h2 class="section-title">Shared lists</h2>
+          <p class="shared-lists-moved muted">
+            Shared lists are managed in the Tasks hub.
+            <span v-if="sharedListsSummary">
+              {{ sharedListsSummary.listCount }} list{{ sharedListsSummary.listCount !== 1 ? 's' : '' }},
+              {{ sharedListsSummary.totalTasks }} task{{ sharedListsSummary.totalTasks !== 1 ? 's' : '' }}.
+            </span>
+          </p>
+        </div>
+        <router-link :to="tasksSharedListsRoute" class="btn btn-primary btn-sm">
+          Open Shared Lists →
+        </router-link>
       </div>
       <SharedListsView
-        v-show="sharedListsExpanded"
+        class="shared-lists-hidden-loader"
         :agency-id="agencyId"
         @task-changed="fetchDigest"
         @summary="sharedListsSummary = $event"
@@ -148,7 +154,7 @@
       <div class="quick-links-grid">
         <router-link
           v-if="taskCount > 0"
-          to="/tasks"
+          :to="tasksHubRoute"
           class="quick-link-card"
           data-add-to-sticky="My Tasks"
         >
@@ -391,7 +397,6 @@ const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
 const userId = computed(() => authStore.user?.id);
 
-const sharedListsExpanded = ref(false);
 const sharedListsSummary = ref(null);
 const digestLoading = ref(true);
 const checklistCount = ref(0);
@@ -871,6 +876,16 @@ const fullListRoute = computed(() => {
   return `${base}?tab=checklist&section=full-list`;
 });
 
+const tasksSharedListsRoute = computed(() => {
+  const slug = route.params?.organizationSlug;
+  return slug ? `/${slug}/tasks?tab=shared` : '/tasks?tab=shared';
+});
+
+const tasksHubRoute = computed(() => {
+  const slug = route.params?.organizationSlug;
+  return slug ? `/${slug}/tasks` : '/tasks';
+});
+
 const notesToSignRoute = computed(() => {
   const slug = route.params?.organizationSlug;
   const base = slug ? `/${slug}/dashboard` : '/dashboard';
@@ -1167,6 +1182,7 @@ watch([() => props.programId, () => props.agencyId], () => {
 }
 
 .momentum-shared-lists-section {
+  position: relative;
   background: white;
   border: 1px solid var(--border, #e5e7eb);
   border-radius: 8px;
@@ -1178,6 +1194,22 @@ watch([() => props.programId, () => props.agencyId], () => {
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
+}
+.shared-lists-head--link {
+  cursor: default;
+  gap: 12px;
+}
+.shared-lists-moved {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.shared-lists-hidden-loader {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
 .shared-lists-head .section-title {

@@ -316,12 +316,22 @@ function buildAppEntries() {
     {
       id: 'learning-checklist',
       routeName: null,
-      label: 'Momentum List',
-      description: 'Checklist, focus digest, and actionable items.',
+      label: 'Momentum',
+      description: 'Focus digest, checklist, and actionable items.',
       group: 'learning',
-      keywords: ['momentum', 'checklist', 'tasks', 'to do', 'todo'],
+      keywords: ['momentum', 'checklist', 'focus', 'to do', 'todo'],
       kind: 'dashboard',
       tab: 'checklist',
+      requires: ['showLearning']
+    },
+    {
+      id: 'learning-tasks-hub',
+      routeName: 'OrganizationTasks',
+      label: 'Tasks',
+      description: 'Assigned tasks, shared lists, escalations, and meeting actions.',
+      group: 'learning',
+      keywords: ['tasks', 'shared lists', 'escalation', 'action items', 'to do', 'todo'],
+      kind: 'route',
       requires: ['showLearning']
     },
     {

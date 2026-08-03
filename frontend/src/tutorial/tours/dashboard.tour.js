@@ -158,9 +158,18 @@ const dashboardTour = {
       }
     },
     {
+      element: '[data-tour="dash-rail-card-momentum_nest"]',
+      popover: {
+        title: 'Momentum',
+        description: 'Expand for Focus (digest & checklist) and Tasks (shared lists, assignments, escalations).',
+        side: 'right',
+        align: 'center'
+      }
+    },
+    {
       element: '[data-tour="dash-rail-card-checklist"]',
       popover: {
-        title: 'Momentum List',
+        title: 'Focus',
         description: 'Your focus digest, checklist, and actionable items.',
         side: 'right',
         align: 'center'
@@ -212,36 +221,9 @@ const dashboardTour = {
       }
     },
     {
-      element: '[data-tour="dash-rail-card-on_demand_training"]',
-      popover: {
-        title: 'On-Demand Training',
-        description: 'Always-available training library (post-onboarding).',
-        side: 'right',
-        align: 'center'
-      }
-    },
-    {
-      element: '[data-tour="dash-rail-card-social_feeds"]',
-      popover: {
-        title: 'Feed',
-        description: 'Organization feed and school updates in one place.',
-        side: 'right',
-        align: 'center'
-      }
-    },
-    {
-      element: '[data-tour="dash-rail-card-communications"]',
-      popover: {
-        title: 'Communications',
-        description: 'Opens the unified communications feed (texts + platform chats).',
-        side: 'right',
-        align: 'center'
-      }
-    },
-    {
       element: '[data-tour="dash-rail-card-chats"]',
       popover: {
-        title: 'Chats',
+        title: 'Messages',
         description: 'Open direct platform chats.',
         side: 'right',
         align: 'center'

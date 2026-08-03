@@ -92,6 +92,7 @@
             :can-grant-screen-share="canGrantScreenShare"
             mute-others-mode="host"
             :start-muted="joinMutedByDefault"
+            lobby-mode
             :diagnostics="diagnostics"
             :local-display-name="localDisplayName"
             :local-role-label="localRoleLabel"
@@ -585,11 +586,13 @@ defineExpose({
 }
 .gsl__lobby-rail {
   position: absolute;
-  top: 14px;
+  top: auto;
   right: 14px;
   bottom: 14px;
   z-index: 5;
-  width: min(38%, 280px);
+  width: min(300px, 34%);
+  max-height: calc(100% - 28px);
+  overflow: auto;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -649,9 +652,9 @@ defineExpose({
 .gsl__self-stage--pip {
   position: relative;
   width: 100%;
+  flex: 0 0 auto;
   min-height: 0;
   height: auto;
-  aspect-ratio: 1;
   border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
@@ -659,10 +662,15 @@ defineExpose({
   border: 2px solid rgba(255, 255, 255, 0.4);
   z-index: 5;
   pointer-events: auto;
-  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
 }
 .gsl__self-stage--pip :deep(.supervision-video-room),
-.gsl__self-stage--pip :deep(.vsr),
+.gsl__self-stage--pip :deep(.vsr) {
+  flex: 0 0 auto;
+  min-height: 0 !important;
+  height: auto;
+}
 .gsl__self-stage--pip :deep(.vsr__stage),
 .gsl__self-stage--pip :deep(.vsr__tile) {
   min-height: 0 !important;

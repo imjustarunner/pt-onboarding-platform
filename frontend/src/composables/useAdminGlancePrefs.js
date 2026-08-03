@@ -3,6 +3,7 @@ import api from '../services/api';
 
 export const DEFAULT_TENANT_GLANCE_ORDER = Object.freeze([
   'support_tickets',
+  'tasks',
   'messages',
   'late_notes',
   'applications',
@@ -21,6 +22,7 @@ export const DEFAULT_OPERATIONS_GLANCE_ORDER = Object.freeze([
 
 export const GLANCE_CARD_LABELS = Object.freeze({
   support_tickets: 'Support Tickets',
+  tasks: 'Tasks',
   messages: 'Messages',
   late_notes: 'Late Notes',
   applications: 'New Applications',

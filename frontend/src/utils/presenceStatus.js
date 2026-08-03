@@ -57,16 +57,41 @@ export const AWAY_REASONS = [
 
 /** Shared availability bands — Team Board + Messages use the same colors. */
 export const AVAILABILITY_BANDS = Object.freeze({
-  available: { id: 'available', label: 'Available', short: 'Available' },
-  away_reachable: { id: 'away_reachable', label: 'Away · reachable', short: 'Away' },
-  unavailable: { id: 'unavailable', label: 'Unavailable', short: 'Unavailable' },
+  available: { id: 'available', label: 'Available', short: 'Available', dot: '#16a34a' },
+  away_reachable: { id: 'away_reachable', label: 'Away · reachable', short: 'Away', dot: '#eab308' },
+  unavailable: { id: 'unavailable', label: 'Unavailable', short: 'Unavailable', dot: '#dc2626' },
   available_offline: {
     id: 'available_offline',
     label: 'Available · logged out',
-    short: 'Available (offline)'
+    short: 'Available (offline)',
+    dot: '#0ea5e9'
   },
-  offline: { id: 'offline', label: 'Inactive', short: 'Inactive' }
+  offline: { id: 'offline', label: 'Inactive', short: 'Inactive', dot: '#94a3b8' }
 });
+
+/** Team Board "In" statuses — use Away modal for out / longer absences. */
+export const IN_PRESENCE_OPTIONS = [
+  { value: 'in_available', label: 'In – Available', displayLabel: 'In – Available' },
+  { value: 'in_heads_down', label: 'In – Heads Down', displayLabel: 'In – Heads Down' },
+  { value: 'in_available_for_phone', label: 'In – Available for Phone', displayLabel: 'In – Available for Phone' },
+  { value: 'in_heads_down_meeting', label: 'In – In a meeting', status: 'in_heads_down', displayLabel: 'In – In a meeting' },
+  { value: 'in_heads_down_focus', label: 'In – Focus time', status: 'in_heads_down', displayLabel: 'In – Focus time' },
+  { value: 'in_heads_down_client', label: 'In – With a client', status: 'in_heads_down', displayLabel: 'In – With a client' },
+  { value: 'in_available_onsite', label: 'In – On site / traveling', status: 'in_available', displayLabel: 'In – On site / traveling' }
+];
+
+export function inPresenceOptionKey(row) {
+  const status = String(row?.presence_status || row?.status || '').trim();
+  const label = String(row?.presence_display_label || row?.display_label || '').trim();
+  const hit = IN_PRESENCE_OPTIONS.find(
+    (o) => (o.status || o.value) === status && (o.displayLabel || o.label) === (label || o.displayLabel || o.label)
+  );
+  if (hit) return hit.value;
+  if (status === 'in_available') return 'in_available';
+  if (status === 'in_heads_down') return 'in_heads_down';
+  if (status === 'in_available_for_phone') return 'in_available_for_phone';
+  return '';
+}
 
 /** Team Board enum labels (roster for admin/support/super_admin). Not for Messages peers. */
 export const TEAM_BOARD_STATUS_LABELS = {
@@ -225,6 +250,7 @@ export function availabilityBandForPerson(person) {
     }
     if (
       person.calendar_busy ||
+      person.schedule_activity_label ||
       display.includes('in session') ||
       display.includes('supervision') ||
       display.includes('in meeting')
@@ -250,6 +276,15 @@ export function availabilityBandForPerson(person) {
 
 export function availabilityBandLabel(band) {
   return AVAILABILITY_BANDS[band]?.label || AVAILABILITY_BANDS.offline.label;
+}
+
+/** Schedule-derived activity line (meetings, supervision, sessions). */
+export function scheduleActivityLabel(person) {
+  if (!person) return '';
+  const label = String(person.schedule_activity_label || '').trim();
+  if (!label) return '';
+  const detail = String(person.schedule_activity_detail || '').trim();
+  return detail ? `${label} · ${detail}` : label;
 }
 
 /** Wire status → peer-facing label (legacy Active / Idle / Inactive). Prefer band labels. */
@@ -319,8 +354,13 @@ export function presenceDetailLines(person) {
   if (!person) return [];
   const band = availabilityBandForPerson(person);
   const lines = [availabilityBandLabel(band)];
+  if (person.planned_out_active) {
+    lines.push('Approved planned out');
+  }
   const rich = teamBoardStatusLabel(person);
   if (rich && rich !== lines[0]) lines.push(rich);
+  const schedule = scheduleActivityLabel(person);
+  if (schedule) lines.push(schedule);
   const back = teamBoardReturnAt(person);
   if (back) {
     try {

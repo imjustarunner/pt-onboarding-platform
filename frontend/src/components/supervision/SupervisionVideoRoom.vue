@@ -30,6 +30,7 @@
       :can-grant-screen-share="canGrantScreenShare"
       :start-muted="startMuted"
       :play-join-tone="playJoinTone"
+      :lobby-mode="lobbyMode"
       @update:tile-focus="$emit('update:tileFocus', $event)"
       @update:video-fullscreen="$emit('update:videoFullscreen', $event)"
       @activity-notice-click="$emit('activity-notice-click', $event)"
@@ -97,7 +98,8 @@ const props = defineProps({
   playJoinTone: { type: Boolean, default: true },
   localDisplayName: { type: String, default: '' },
   localRoleLabel: { type: String, default: '' },
-  localProfilePhotoUrl: { type: String, default: '' }
+  localProfilePhotoUrl: { type: String, default: '' },
+  lobbyMode: { type: Boolean, default: false }
 });
 
 defineEmits([

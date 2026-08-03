@@ -164,15 +164,6 @@
       <button v-else class="btn btn-primary" disabled>View Checklist</button>
     </div>
     
-    <!-- Pre-hire attention widget – visible to admins/staff with canManageHiring -->
-    <div
-      v-if="!previewMode && isOnboardingComplete && canSeePreHireWidget"
-      class="top-snapshot-wrap"
-      data-tour="dash-prehire-attention"
-    >
-      <PreHireAttentionWidget />
-    </div>
-
     <!-- Social & feeds (collapsible block) – super_admin only until full release -->
     <div
       v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && authStore.user?.role === 'super_admin' && dashboardSocialFeeds.length > 0"
@@ -498,6 +489,9 @@
               @select-view="onScheduleHubSelectView"
             >
               <template #header-actions>
+                <button type="button" class="btn btn-primary btn-sm" @click="openTasksHubFromSchedule">
+                  Tasks
+                </button>
                 <button type="button" class="btn btn-secondary btn-sm" @click="toggleScheduleFullscreen">
                   {{ scheduleFullscreenActive ? 'Exit full screen' : 'Show full screen' }}
                 </button>
@@ -1184,7 +1178,6 @@ import ProgramHubModal from '../components/availability/ProgramHubModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import BudgetSubmitExpensesModal from '../components/budget/BudgetSubmitExpensesModal.vue';
 import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
-import PreHireAttentionWidget from '../components/dashboard/PreHireAttentionWidget.vue';
 import SurveyPromptCard from '../components/dashboard/SurveyPromptCard.vue';
 import FacilitatorAvailabilityPromptCard from '../components/dashboard/FacilitatorAvailabilityPromptCard.vue';
 import ClubEmployerSharePromptCard from '../components/club/ClubEmployerSharePromptCard.vue';
@@ -1500,14 +1493,6 @@ const shiftProgramsEnabledForAgency = computed(() => isTruthyFlag(agencyFlags.va
 
 const timeClaimExcessEnabled = computed(() => agencyFlags.value?.timeClaimExcessEnabled !== false);
 const timeClaimServiceCorrectionEnabled = computed(() => agencyFlags.value?.timeClaimServiceCorrectionEnabled !== false);
-
-// Pre-hire attention widget: visible to admins and staff with canManageHiring capability
-const canSeePreHireWidget = computed(() => {
-  const role = String(authStore.user?.role || '').toLowerCase();
-  if (role === 'super_admin' || role === 'admin') return true;
-  const caps = authStore.user?.capabilities || {};
-  return !!caps.canManageHiring;
-});
 
 // Kudos (Overview / other panels): when agency has kudosEnabled
 const canSeeKudosWidget = computed(() => isTruthyFlag(agencyFlags.value?.kudosEnabled));
@@ -2396,6 +2381,11 @@ const openScheduleInNewWindow = () => {
   window.open(url.toString(), '_blank', `noopener,noreferrer,width=${w},height=${h}`);
 };
 
+const openTasksHubFromSchedule = () => {
+  const slug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  router.push(slug ? `/${slug}/tasks` : '/tasks').catch(() => {});
+};
+
 const fetchSuperviseesForSchedule = async () => {
   try {
     superviseesError.value = '';
@@ -2860,7 +2850,7 @@ const scheduleViewContextLine = computed(() => {
 
 const tabs = computed(() => {
   const list = [
-    { id: 'checklist', label: momentumListEnabled.value ? 'Momentum List' : 'Checklist', badgeCount: checklistCount.value },
+    { id: 'checklist', label: momentumListEnabled.value ? 'Momentum' : 'Checklist', badgeCount: checklistCount.value },
     { id: 'training', label: 'Training', badgeCount: trainingCount.value }
   ];
   // Documents live under My Account once onboarding is complete; keep rail access for pre-hire.
@@ -3320,6 +3310,7 @@ const portalsNestLabel = computed(() => {
 
 const portalsNestExpanded = ref(false);
 const toolsNestExpanded = ref(false);
+const momentumNestExpanded = ref(false);
 const toolsHubTab = ref('assessments');
 /** Provider Year Update status for portals-nest link + pulse */
 const providerYearUpdateStatus = ref(null);
@@ -3377,6 +3368,7 @@ function openProviderYearUpdateFromSplash() {
 function isNestExpanded(nestId) {
   if (nestId === 'tools_nest') return toolsNestExpanded.value;
   if (nestId === 'portals_nest') return portalsNestExpanded.value;
+  if (nestId === 'momentum_nest') return momentumNestExpanded.value;
   return false;
 }
 
@@ -3387,6 +3379,10 @@ function toggleNest(nestId) {
   }
   if (nestId === 'portals_nest') {
     portalsNestExpanded.value = !portalsNestExpanded.value;
+    return;
+  }
+  if (nestId === 'momentum_nest') {
+    momentumNestExpanded.value = !momentumNestExpanded.value;
   }
 }
 
@@ -3552,6 +3548,8 @@ const dashboardCards = computed(() => {
     !isTrueAdmin && !isProviderLikeForSubmissions && (isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll);
 
   const iconOrg = cardIconOrgOverride.value;
+  const orgSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  const tasksHubPath = orgSlug ? `/${orgSlug}/tasks` : '/tasks';
   const cards = filteredTabs.value.map((t) => ({
     ...t,
     kind: 'content',
@@ -3566,6 +3564,43 @@ const dashboardCards = computed(() => {
           ? 'Assigned training modules and progress.'
           : 'Documents that need review or signature.'
   }));
+
+  // Promote Checklist/Momentum into a nest: Focus (panel) + Tasks (hub route).
+  const checklistIdx = cards.findIndex((c) => String(c?.id) === 'checklist');
+  if (checklistIdx >= 0) {
+    const base = cards[checklistIdx];
+    const momentumIcon =
+      brandingStore.getDashboardCardIconUrl('momentum_list', iconOrg) || base.iconUrl;
+    cards.splice(checklistIdx, 1, {
+      id: 'momentum_nest',
+      label: momentumListEnabled.value ? 'Momentum' : 'Checklist',
+      kind: 'nest',
+      badgeCount: base.badgeCount || 0,
+      iconUrl: momentumIcon,
+      description: momentumListEnabled.value
+        ? 'Focus digest and your Tasks hub.'
+        : 'Checklist and your Tasks hub.',
+      children: [
+        {
+          id: 'checklist',
+          label: momentumListEnabled.value ? 'Focus' : 'Checklist',
+          kind: 'content',
+          badgeCount: base.badgeCount || 0,
+          iconUrl: momentumIcon,
+          description: base.description
+        },
+        {
+          id: 'tasks_hub',
+          label: 'Tasks',
+          kind: 'link',
+          to: tasksHubPath,
+          badgeCount: 0,
+          iconUrl: brandingStore.getDashboardCardIconUrl('checklist', iconOrg) || momentumIcon,
+          description: 'Assigned tasks, shared lists, escalations, and meeting actions.'
+        }
+      ]
+    });
+  }
 
   // Post-onboarding cards
   if (isOnboardingComplete.value) {
@@ -3730,27 +3765,6 @@ const dashboardCards = computed(() => {
       iconUrl: brandingStore.getDashboardCardIconUrl('my', iconOrg),
       description: 'Account info, credentials, and personal preferences.'
     });
-    if (!isClubContext.value) {
-      cards.push({
-        id: 'on_demand_training',
-        label: 'My Learning',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training', iconOrg),
-        description: 'Continuing education and on-demand courses.'
-      });
-    }
-    // Summit Stats Team Challenge only — never on Book Club affiliations
-    if (!isBookClubContext.value && myChallenges.value?.length > 0) {
-      cards.push({
-        id: 'challenges',
-        label: isClubContext.value ? 'Current Seasons' : 'Seasons',
-        kind: 'content',
-        badgeCount: myChallenges.value.length,
-        iconUrl: brandingStore.getDashboardCardIconUrl('challenges', iconOrg),
-        description: isClubContext.value ? 'Your enrolled seasons. View leaderboards and log workouts.' : 'Your assigned fitness seasons. View leaderboards and log workouts.'
-      });
-    }
     // Club admin: Start new season card (SSTC clubs only)
     if (
       !isBookClubContext.value &&
@@ -3766,31 +3780,9 @@ const dashboardCards = computed(() => {
         description: 'Create a new season for your club.'
       });
     }
-    // Social feeds – super_admin only until full release
-    if (role === 'super_admin') {
-      cards.push({
-        id: 'social_feeds',
-        label: 'Feed',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('social_feeds', iconOrg),
-        description: 'Organization feed and school updates in one place.'
-      });
-    }
 
-    // Communications surfaces (embedded in dashboard)
+    // Messages only on rail (Communications / Contacts / Feed / Seasons / My Learning removed).
     if (!isLimitedAccessNonProvider) {
-      if (!isClubContext.value) {
-        cards.push({
-          id: 'communications',
-          label: 'Communications',
-          kind: 'content',
-          badgeCount: 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('communications', iconOrg),
-          description: 'SMS inbox, calls, and delivery automation workspace.'
-        });
-      }
-      // Chats: keep for club context (simplified to club members only)
       cards.push({
         id: 'chats',
         label: 'Messages',
@@ -3799,16 +3791,6 @@ const dashboardCards = computed(() => {
         iconUrl: brandingStore.getDashboardCardIconUrl('chats', iconOrg),
         description: isClubContext.value ? 'Club members online.' : 'Direct messages, channels, threads, and mentions.'
       });
-      if (!isClubContext.value) {
-        cards.push({
-          id: 'contacts',
-          label: 'Contacts',
-          kind: 'content',
-          badgeCount: 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('contacts', iconOrg),
-          description: 'Agency contacts for mass communications and outreach.'
-        });
-      }
     }
 
     // Notifications: embedded in dashboard
@@ -3867,45 +3849,47 @@ const railCards = computed(() => {
 
   const orderIndex = (id) => {
     const k = String(id || '');
-    if (k === 'portals_nest') return hasMy ? 2 : 4;
-    if (hasMy && k.startsWith('portal_org_')) return 2.1;
+    if (k === 'portals_nest') return hasMy ? 10 : 4;
+    if (hasMy && k.startsWith('portal_org_')) return 10.1;
     if (!hasMy && k.startsWith('portal_org_')) return 4.1;
     // Stable rail order:
     // - Overview first when present (post-onboarding agency dashboard).
     // - If My Account exists (post-onboarding), keep it near the top after Overview.
     // - If My Account doesn't exist yet (during onboarding), Checklist stays first.
     if (hasMy) {
-      if (k.startsWith('sub_coord_program_')) return 4;
+      if (k.startsWith('sub_coord_program_')) return 20;
+      // Core: Overview → My Account → My Schedule → Momentum → Messages → Submit → Tools →
+      // Notifications → Supervision → Training; gated extras below.
       return ({
         overview: -1,
         my: 0,
         my_schedule: 1,
-        program_shifts: 2,
-        sub_coordinator_school_portals: 3,
-        sub_coordinator_program_overview: 3.5,
-        skill_builders_provider_hub: 3.7,
-        provider_program_portals: 3.8,
-        skill_builders_availability: 4,
-        clients: 5,
-        tools_nest: 6,
-        tools_assessments: 6.1,
-        tools_games: 6.2,
-        tools_ai: 6.3,
-        tools_aids: 6.4,
-        checklist: 7,
+        momentum_nest: 2,
+        checklist: 2.1,
+        tasks_hub: 2.2,
+        chats: 3,
+        submit: 4,
+        tools_nest: 5,
+        tools_assessments: 5.1,
+        tools_games: 5.2,
+        tools_ai: 5.3,
+        tools_aids: 5.4,
+        notifications: 6,
+        supervision: 7,
+        my_supervision: 7.5,
         training: 8,
-        documents: 9,
-        submit: 10,
-        payroll: 11,
-        on_demand_training: 12,
-        challenges: 12.5,
-        social_feeds: 13,
-        communications: 14,
-        chats: 15,
-        notifications: 16,
-        supervision: 17,
-        my_supervision: 17.5,
-        providers: 18
+        // Gated extras below core
+        portals_nest: 10,
+        program_shifts: 11,
+        clients: 12,
+        providers: 13,
+        documents: 14,
+        skill_builders_provider_hub: 15,
+        provider_program_portals: 15.1,
+        skill_builders_availability: 15.2,
+        sub_coordinator_school_portals: 15.3,
+        sub_coordinator_program_overview: 15.4,
+        payroll: 16
       })[k] ?? 999;
     }
     if (k.startsWith('sub_coord_program_')) return 6;
@@ -4038,9 +4022,12 @@ const handleCardClick = (card) => {
     router.push(String(card.to));
     return;
   }
-  if (card.id === 'portals_nest' || card.id === 'tools_nest' || card.kind === 'nest') {
+  if (card.id === 'portals_nest' || card.id === 'tools_nest' || card.id === 'momentum_nest' || card.kind === 'nest') {
     toggleNest(card.id);
     return;
+  }
+  if (card.id === 'checklist') {
+    momentumNestExpanded.value = true;
   }
   if (
     card.id === 'tools_assessments' ||

@@ -1527,15 +1527,8 @@
                 :can-add-item="true"
                 :embedded="true"
               />
-              <MeetingGoalsActionsPanel
-                v-if="String(editingScheduleStackItem?.eventKind || '').toUpperCase() !== 'HUDDLE' || isIndividualHuddleEditor"
-                :event-id="scheduleEventEditId"
-                :section="String(editingScheduleStackItem?.eventKind || '').toUpperCase() === 'HUDDLE' ? 'goals' : 'both'"
-                :compact="true"
-                :embedded="true"
-                :meeting-subtype="meetingSubtype"
-                :participants="meetingDraftAssigneeOptions"
-              />
+              <!-- Goals/action items edit only via workspace Goals / Action Items tabs
+                   (a second section=both panel here was wiping action_items_json on save). -->
             </aside>
             <aside
               v-if="showSupervisionAgendaWorkspace"
@@ -9810,7 +9803,11 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
   const meetingLabel = meetingTypeDisplayLabel(ev);
   if (meetingLabel) {
     typePrefix = meetingLabel;
-  } else if (eventKind === 'SCHEDULE_HOLD') typePrefix = ev?.allDay ? 'All-day block' : 'Hold';
+      } else if (eventKind === 'SCHEDULE_HOLD') {
+        const reason = String(ev?.reasonCode || ev?.reason_code || '').toUpperCase();
+        if (reason === 'PLANNED_OUT') typePrefix = ev?.allDay ? 'Planned out (all day)' : 'Planned out';
+        else typePrefix = ev?.allDay ? 'All-day block' : 'Hold';
+      }
   else if (eventKind === 'INDIRECT_SERVICES') typePrefix = 'Indirect';
   else if (eventKind === 'PERSONAL_EVENT' && isClientSessionScheduleEvent(ev)) typePrefix = 'Session';
   else if (eventKind === 'PERSONAL_EVENT') typePrefix = 'Personal';
@@ -15597,7 +15594,7 @@ async function postAgendaItemsForNewMeeting(meetingType, meetingId, itemsToAdd) 
 }
 async function postWorkspaceDraftForNewMeeting(eventId, { goals = [], actionItems = [] } = {}) {
   const eid = Number(eventId || 0);
-  if (!eid) return;
+  if (!eid) return { ok: false, error: 'Invalid event' };
   const cleanGoals = (goals || [])
     .map((g) => ({ text: String(g?.text || g || '').trim(), done: !!g?.done }))
     .filter((g) => g.text);
@@ -15608,14 +15605,17 @@ async function postWorkspaceDraftForNewMeeting(eventId, { goals = [], actionItem
       assigneeUserId: Number(a?.assigneeUserId || 0) || 0
     }))
     .filter((a) => a.text);
-  if (!cleanGoals.length && !cleanActions.length) return;
+  if (!cleanGoals.length && !cleanActions.length) return { ok: true };
   try {
     await api.post(`/team-meetings/${eid}/workspace`, {
       goals: cleanGoals,
       actionItems: cleanActions
     }, { skipGlobalLoading: true });
-  } catch {
-    // best-effort
+    return { ok: true };
+  } catch (e) {
+    const msg = e?.response?.data?.error?.message || e?.message || 'Failed to save goals / action items';
+    console.error('postWorkspaceDraftForNewMeeting failed', msg);
+    return { ok: false, error: msg };
   }
 }
 async function postSupervisionWorkspaceDraft(sessionId, { goals = [], actionItems = [] } = {}) {
@@ -18045,7 +18045,11 @@ const typeStyleToken = (b) => {
     }
     if (eventKind === 'FALL_CHECKIN_PRESLOT') return 'Visit hold';
     if (eventKind === 'FALL_CHECKIN_BOOKED') return 'School visit';
-    if (eventKind === 'SCHEDULE_HOLD') return b?.allDay ? 'All-day' : 'Hold';
+    if (eventKind === 'SCHEDULE_HOLD') {
+      const reason = String(b?.reasonCode || b?.reason_code || '').toUpperCase();
+      if (reason === 'PLANNED_OUT') return b?.allDay ? 'Planned out' : 'Planned out';
+      return b?.allDay ? 'All-day' : 'Hold';
+    }
     if (eventKind === 'INDIRECT_SERVICES') return 'Indirect';
     const title = String(b?.title || b?.shortLabel || '').toLowerCase();
     if (title.includes('virtual') || title.includes('session')) return 'Session';
@@ -19714,12 +19718,27 @@ const submitRequest = async () => {
           const goals = [...(createGoalDraftItems.value || [])];
           const actions = [...(createActionDraftItems.value || [])];
           if (goals.length || actions.length) {
-            for (const ev of createdScheduleEvents) {
-              const eid = ev?.providerScheduleEventId ?? ev?.id;
-              if (eid) postWorkspaceDraftForNewMeeting(eid, { goals, actionItems: actions }).catch(() => {});
+            const draftResults = await Promise.all(
+              createdScheduleEvents.map(async (ev) => {
+                const eid = ev?.providerScheduleEventId ?? ev?.id;
+                if (!eid) return { ok: false };
+                return postWorkspaceDraftForNewMeeting(eid, { goals, actionItems: actions });
+              })
+            );
+            const anyFailed = draftResults.some((r) => !r?.ok);
+            if (!anyFailed) {
+              createGoalDraftItems.value = [];
+              createActionDraftItems.value = [];
+            } else {
+              const firstErr = draftResults.find((r) => !r?.ok)?.error;
+              console.warn('Workspace draft save failed; keeping drafts for retry', firstErr);
+              if (typeof window !== 'undefined') {
+                window.alert?.(
+                  firstErr
+                    || 'Meeting was scheduled, but goals/action items could not be saved. Re-open the meeting and add them again.'
+                );
+              }
             }
-            createGoalDraftItems.value = [];
-            createActionDraftItems.value = [];
           }
         }
         if (requestType.value === 'agency_meeting' || requestType.value === 'huddle') {

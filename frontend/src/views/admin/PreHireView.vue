@@ -184,6 +184,7 @@
                       <button class="phr-action-item" @click="selectUser(c.id); openMenu = null">View details</button>
                       <button class="phr-action-item" @click="resendLink(c); openMenu = null">Resend setup link</button>
                       <button v-if="c.status === 'PREHIRE_REVIEW'" class="phr-action-item phr-action-item-green" @click="openPromoteModal(c); openMenu = null">Move to Onboarding…</button>
+                      <button class="phr-action-item phr-action-item-danger" @click="markNotHired(c); openMenu = null">Mark as Not hired</button>
                     </div>
                   </div>
                 </div>
@@ -255,6 +256,7 @@
             <div v-if="openMenu === 'detail'" class="phr-action-menu phr-action-menu-right" @mouseleave="openMenu = null">
               <button class="phr-action-item" @click="resendLink(selectedUser); openMenu = null">Resend setup link</button>
               <button v-if="selectedUser.status === 'PREHIRE_REVIEW'" class="phr-action-item phr-action-item-green" @click="openPromoteModal(selectedUser); openMenu = null">Move to Onboarding…</button>
+              <button class="phr-action-item phr-action-item-danger" @click="markNotHired(selectedUser); openMenu = null">Mark as Not hired</button>
             </div>
           </div>
         </div>
@@ -279,6 +281,14 @@
         <div v-if="selectedUser.status === 'PENDING_SETUP'" class="phr-stage-banner phr-stage-warn" data-tour="prehire-stage-banner">
           <strong>Waiting on candidate setup</strong>
           <p>The candidate has not yet accessed their pre-hire portal. Use the portal link in the Overview tab to share their access link.</p>
+          <button
+            type="button"
+            class="phr-btn phr-btn-danger phr-btn-sm"
+            :disabled="markingNotHired"
+            @click="markNotHired(selectedUser)"
+          >
+            {{ markingNotHired ? 'Saving…' : 'Mark as Not hired' }}
+          </button>
         </div>
         <div v-else-if="selectedUser.status === 'PREHIRE_OPEN'" class="phr-stage-banner phr-stage-info">
           <strong>Pre-hire in progress</strong>
@@ -564,6 +574,7 @@ const openMenu = ref(null);
 const activeTab = ref('Overview');
 const actionLoading = ref(false);
 const actionMsg = ref('');
+const markingNotHired = ref(false);
 const copyLabel = ref('Copy');
 const tasks = ref([]);
 const adminDocs = ref([]);
@@ -822,6 +833,28 @@ const resendLink = async (c) => {
   } finally { actionLoading.value = false; }
 };
 
+const markNotHired = async (c) => {
+  if (!c?.id || markingNotHired.value) return;
+  // eslint-disable-next-line no-alert
+  const ok = confirm(
+    `Mark ${fullName(c)} as not hired? They will be removed from Pre-Hire and moved to Applicants → Not hired.`
+  );
+  if (!ok) return;
+  markingNotHired.value = true;
+  actionMsg.value = '';
+  try {
+    const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
+    await api.post(`/hiring/candidates/${c.id}/not-hired`, {}, { params });
+    if (selectedId.value === c.id) selectedId.value = null;
+    await load();
+  } catch (e) {
+    actionMsg.value = e.response?.data?.error?.message || 'Failed to mark as not hired.';
+    alert(actionMsg.value);
+  } finally {
+    markingNotHired.value = false;
+  }
+};
+
 const copyPortalLink = (link) => {
   navigator.clipboard.writeText(link).then(() => {
     copyLabel.value = 'Copied!';
@@ -901,6 +934,8 @@ onMounted(load);
 .phr-btn-secondary:hover { background: #f9fafb; }
 .phr-btn-ghost { background: transparent; color: #6b7280; border: 1px solid #e5e7eb; }
 .phr-btn-ghost:hover { background: #f9fafb; color: #374151; }
+.phr-btn-danger { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.phr-btn-danger:hover { background: #fee2e2; }
 .phr-btn-icon { display: inline-flex; align-items: center; gap: 5px; }
 .phr-btn-ghost:hover { color: #111827; }
 .phr-btn-sm { padding: 6px 12px; font-size: 12px; }
@@ -982,6 +1017,7 @@ onMounted(load);
 .phr-action-item { display: block; width: 100%; text-align: left; padding: 8px 14px; font-size: 13px; background: transparent; border: none; cursor: pointer; color: #374151; }
 .phr-action-item:hover { background: #f9fafb; }
 .phr-action-item-green { color: #16a34a; }
+.phr-action-item-danger { color: #b91c1c; }
 .phr-row-actions { display: flex; align-items: center; gap: 6px; }
 .phr-promote-btn { font-size: 11px; font-weight: 700; padding: 4px 10px; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 20px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
 .phr-promote-btn:hover { background: #dcfce7; border-color: #86efac; }

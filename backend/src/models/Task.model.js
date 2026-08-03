@@ -45,7 +45,11 @@ class Task {
       typicalDayOfWeek,
       typicalTime,
       targetCount,
-      isRequired
+      isRequired,
+      departmentId,
+      sourceRefType,
+      sourceRefId,
+      linkedScheduleEventId
     } = taskData;
 
     console.log('Task.create: Creating task with data', {
@@ -64,35 +68,60 @@ class Task {
     const typicalTimeVal = typicalTime != null ? String(typicalTime) : null; // e.g. "09:00" or "09:00:00"
 
     const targetCountVal = targetCount != null ? Math.max(0, parseInt(targetCount, 10) || 0) : null;
-    const [result] = await pool.execute(
-      `INSERT INTO tasks (
-        task_type, document_action_type, title, description, assigned_to_user_id, 
-        assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
-        due_date, reference_id, metadata,
-        task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time, target_count, is_required
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        taskType,
-        documentActionType ?? (taskType === 'document' ? 'signature' : null),
-        title,
-        description,
-        assignedToUserId ?? null,
-        assignedToRole ?? null,
-        assignedToAgencyId ?? null,
-        assignedByUserId ?? null,
-        dueDateMySQL,
-        referenceId ?? null,
-        metadata ? JSON.stringify(metadata) : null,
-        taskListId ?? null,
-        urgencyVal,
-        !!isRecurring,
-        recurringRule ? JSON.stringify(recurringRule) : null,
-        typicalDayOfWeek ?? null,
-        typicalTimeVal,
-        targetCountVal,
-        isRequired ? 1 : 0
-      ]
-    );
+    const baseParams = [
+      taskType,
+      documentActionType ?? (taskType === 'document' ? 'signature' : null),
+      title,
+      description,
+      assignedToUserId ?? null,
+      assignedToRole ?? null,
+      assignedToAgencyId ?? null,
+      assignedByUserId ?? null,
+      dueDateMySQL,
+      referenceId ?? null,
+      metadata ? JSON.stringify(metadata) : null,
+      taskListId ?? null,
+      urgencyVal,
+      !!isRecurring,
+      recurringRule ? JSON.stringify(recurringRule) : null,
+      typicalDayOfWeek ?? null,
+      typicalTimeVal,
+      targetCountVal,
+      isRequired ? 1 : 0
+    ];
+    let result;
+    try {
+      [result] = await pool.execute(
+        `INSERT INTO tasks (
+          task_type, document_action_type, title, description, assigned_to_user_id, 
+          assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
+          due_date, reference_id, metadata,
+          task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time,
+          department_id, source_ref_type, source_ref_id, linked_schedule_event_id,
+          target_count, is_required
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          ...baseParams.slice(0, 17),
+          departmentId != null ? parseInt(departmentId, 10) || null : null,
+          sourceRefType ?? null,
+          sourceRefId != null ? String(sourceRefId) : null,
+          linkedScheduleEventId != null ? parseInt(linkedScheduleEventId, 10) || null : null,
+          ...baseParams.slice(17)
+        ]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD') throw e;
+      // Migration 1105 not applied yet — fall back to legacy columns.
+      [result] = await pool.execute(
+        `INSERT INTO tasks (
+          task_type, document_action_type, title, description, assigned_to_user_id, 
+          assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
+          due_date, reference_id, metadata,
+          task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time, target_count, is_required
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        baseParams
+      );
+    }
 
     const insertId = result.insertId;
     if (!insertId) {
@@ -134,10 +163,75 @@ class Task {
     return rows[0] || null;
   }
 
+  static _appendHubFilters(query, params, filters = {}) {
+    const view = String(filters.view || '').toLowerCase();
+    const userId = filters.userId != null ? Number(filters.userId) : null;
+    let q = query;
+    const p = params;
+
+    if (view === 'assigned' && userId) {
+      q += ' AND t.assigned_to_user_id = ?';
+      p.push(userId);
+    } else if (view === 'mine' && userId) {
+      q += ' AND t.assigned_by_user_id = ? AND (t.assigned_to_user_id IS NULL OR t.assigned_to_user_id != ?)';
+      p.push(userId, userId);
+    } else if (view === 'watchlist' && userId) {
+      q += ` AND t.task_list_id IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM task_list_members tlm
+          WHERE tlm.task_list_id = t.task_list_id AND tlm.user_id = ?
+        )
+        AND (t.assigned_to_user_id IS NULL OR t.assigned_to_user_id != ?)`;
+      p.push(userId, userId);
+    }
+
+    if (filters.urgency && ['low', 'medium', 'high'].includes(filters.urgency)) {
+      q += " AND COALESCE(t.urgency, 'medium') = ?";
+      p.push(filters.urgency);
+    }
+
+    if (filters.departmentId) {
+      const deptId = parseInt(filters.departmentId, 10);
+      if (!Number.isNaN(deptId)) {
+        q += ` AND (
+          t.department_id = ?
+          OR (
+            t.department_id IS NULL
+            AND t.assigned_to_user_id IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM user_department_assignments uda
+              WHERE uda.user_id = t.assigned_to_user_id AND uda.department_id = ?
+            )
+          )
+        )`;
+        p.push(deptId, deptId);
+      }
+    }
+
+    if (filters.q) {
+      const needle = `%${String(filters.q).trim().slice(0, 120)}%`;
+      q += ' AND (t.title LIKE ? OR t.description LIKE ?)';
+      p.push(needle, needle);
+    }
+
+    if (filters.due === 'overdue') {
+      q += ` AND t.due_date IS NOT NULL AND t.due_date < NOW() AND t.status NOT IN ('completed', 'overridden')`;
+    } else if (filters.due === 'today') {
+      q += ` AND t.due_date IS NOT NULL AND DATE(t.due_date) = CURDATE()`;
+    } else if (filters.due === 'week') {
+      q += ` AND t.due_date IS NOT NULL AND t.due_date >= CURDATE() AND t.due_date < DATE_ADD(CURDATE(), INTERVAL 7 DAY)`;
+    }
+
+    return { query: q, params: p };
+  }
+
   static async findByUser(userId, filters = {}) {
     let query = `
       SELECT t.*,
         tl.name as task_list_name,
+        ad.name as department_name,
+        assignee.first_name as assignee_first_name,
+        assignee.last_name as assignee_last_name,
         CASE 
           WHEN t.assigned_to_user_id = ? THEN 'direct'
           WHEN t.assigned_to_role IS NOT NULL THEN 'role'
@@ -146,6 +240,8 @@ class Task {
         END as assignment_type
       FROM tasks t
       LEFT JOIN task_lists tl ON tl.id = t.task_list_id
+      LEFT JOIN agency_departments ad ON ad.id = t.department_id
+      LEFT JOIN users assignee ON assignee.id = t.assigned_to_user_id
       WHERE (
         t.assigned_to_user_id = ?
         OR (t.assigned_to_role IS NOT NULL AND t.assigned_to_user_id IS NULL AND EXISTS (
@@ -164,10 +260,8 @@ class Task {
         ))
       )
     `;
-    const params = [userId, userId, userId, userId, userId];
+    let params = [userId, userId, userId, userId, userId];
 
-    // Include hiring tasks (e.g. "Call candidate X" from applicant flow) in user's task list
-    // so they appear in Momentum List and Checklist.
     if (filters.taskType) {
       query += ' AND t.task_type = ?';
       params.push(filters.taskType);
@@ -178,16 +272,185 @@ class Task {
       params.push(filters.status);
     }
 
+    ({ query, params } = this._appendHubFilters(query, params, {
+      ...filters,
+      userId: parseInt(userId, 10)
+    }));
+
     query += ` ORDER BY 
       CASE COALESCE(t.urgency, 'medium') WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
       (t.due_date IS NULL), t.due_date ASC,
       t.created_at DESC`;
 
-    const [rows] = await pool.execute(query, params);
-    return rows.map(row => ({
-      ...row,
-      metadata: this.parseMetadata(row.metadata)
-    }));
+    if (filters.limit != null) {
+      const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 50, 1), 200);
+      const offset = Math.max(parseInt(filters.offset, 10) || 0, 0);
+      query += ' LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+    }
+
+    try {
+      const [rows] = await pool.execute(query, params);
+      return rows.map((row) => ({
+        ...row,
+        metadata: this.parseMetadata(row.metadata)
+      }));
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      // Pre-1105 schema: retry without department / assignee joins.
+      let legacyQuery = `
+        SELECT t.*,
+          tl.name as task_list_name,
+          CASE 
+            WHEN t.assigned_to_user_id = ? THEN 'direct'
+            WHEN t.assigned_to_role IS NOT NULL THEN 'role'
+            WHEN t.assigned_to_agency_id IS NOT NULL AND t.assigned_to_user_id IS NULL THEN 'agency'
+            ELSE 'unknown'
+          END as assignment_type
+        FROM tasks t
+        LEFT JOIN task_lists tl ON tl.id = t.task_list_id
+        WHERE (
+          t.assigned_to_user_id = ?
+          OR (t.assigned_to_role IS NOT NULL AND t.assigned_to_user_id IS NULL AND EXISTS (
+            SELECT 1 FROM users u 
+            JOIN user_agencies ua ON u.id = ua.user_id
+            WHERE u.id = ? AND u.role = t.assigned_to_role
+            AND (t.assigned_to_agency_id IS NULL OR ua.agency_id = t.assigned_to_agency_id)
+          ))
+          OR (t.assigned_to_agency_id IS NOT NULL AND t.assigned_to_user_id IS NULL AND EXISTS (
+            SELECT 1 FROM user_agencies ua 
+            WHERE ua.user_id = ? AND ua.agency_id = t.assigned_to_agency_id
+          ))
+          OR (t.task_list_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM task_list_members tlm
+            WHERE tlm.task_list_id = t.task_list_id AND tlm.user_id = ?
+          ))
+        )
+      `;
+      let legacyParams = [userId, userId, userId, userId, userId];
+      if (filters.taskType) {
+        legacyQuery += ' AND t.task_type = ?';
+        legacyParams.push(filters.taskType);
+      }
+      if (filters.status) {
+        legacyQuery += ' AND t.status = ?';
+        legacyParams.push(filters.status);
+      }
+      legacyQuery += ` ORDER BY 
+        CASE COALESCE(t.urgency, 'medium') WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+        (t.due_date IS NULL), t.due_date ASC,
+        t.created_at DESC`;
+      const [rows] = await pool.execute(legacyQuery, legacyParams);
+      return rows.map((row) => ({
+        ...row,
+        metadata: this.parseMetadata(row.metadata)
+      }));
+    }
+  }
+
+  /**
+   * Hub listing: personal views or agency-wide (all) for admins/supervisors.
+   */
+  static async findForHub(userId, filters = {}) {
+    const uid = parseInt(userId, 10);
+    const view = String(filters.view || 'assigned').toLowerCase();
+    const hubFilters = { ...filters, userId: uid };
+
+    if (view === 'all' && filters.agencyId) {
+      let query = `
+        SELECT t.*,
+          tl.name as task_list_name,
+          ad.name as department_name,
+          assignee.first_name as assignee_first_name,
+          assignee.last_name as assignee_last_name,
+          'agency' as assignment_type
+        FROM tasks t
+        LEFT JOIN task_lists tl ON tl.id = t.task_list_id
+        LEFT JOIN agency_departments ad ON ad.id = t.department_id
+        LEFT JOIN users assignee ON assignee.id = t.assigned_to_user_id
+        WHERE t.assigned_to_agency_id = ?
+      `;
+      let params = [parseInt(filters.agencyId, 10)];
+      if (filters.taskType) {
+        query += ' AND t.task_type = ?';
+        params.push(filters.taskType);
+      }
+      if (filters.status) {
+        query += ' AND t.status = ?';
+        params.push(filters.status);
+      }
+      const filterOnly = { ...hubFilters, view: '' };
+      delete filterOnly.limit;
+      delete filterOnly.offset;
+      ({ query, params } = this._appendHubFilters(query, params, filterOnly));
+      query += ` ORDER BY
+        CASE COALESCE(t.urgency, 'medium') WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+        (t.due_date IS NULL), t.due_date ASC,
+        t.created_at DESC`;
+      if (filters.limit != null) {
+        const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 50, 1), 200);
+        const offset = Math.max(parseInt(filters.offset, 10) || 0, 0);
+        query += ' LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+      }
+      const [rows] = await pool.execute(query, params);
+      return rows.map((row) => ({ ...row, metadata: this.parseMetadata(row.metadata) }));
+    }
+
+    return this.findByUser(uid, hubFilters);
+  }
+
+  static async getHubCounts(userId, { agencyId = null, canViewAll = false } = {}) {
+    const uid = parseInt(userId, 10);
+    const tasks = await this.findByUser(uid, {});
+    const open = (t) => t.status !== 'completed' && t.status !== 'overridden';
+    const overdue = (t) =>
+      open(t) && t.due_date && new Date(t.due_date).getTime() < Date.now();
+
+    const assigned = tasks.filter((t) => Number(t.assigned_to_user_id) === uid);
+    const mine = tasks.filter(
+      (t) => Number(t.assigned_by_user_id) === uid && Number(t.assigned_to_user_id) !== uid
+    );
+    const watchlist = tasks.filter(
+      (t) =>
+        t.task_list_id &&
+        Number(t.assigned_to_user_id) !== uid &&
+        open(t)
+    );
+
+    let allOpen = 0;
+    let allOverdue = 0;
+    if (canViewAll && agencyId) {
+      const [rows] = await pool.execute(
+        `SELECT
+           SUM(CASE WHEN status NOT IN ('completed','overridden') THEN 1 ELSE 0 END) AS open_count,
+           SUM(CASE WHEN status NOT IN ('completed','overridden') AND due_date IS NOT NULL AND due_date < NOW() THEN 1 ELSE 0 END) AS overdue_count
+         FROM tasks WHERE assigned_to_agency_id = ?`,
+        [parseInt(agencyId, 10)]
+      );
+      allOpen = Number(rows?.[0]?.open_count || 0);
+      allOverdue = Number(rows?.[0]?.overdue_count || 0);
+    }
+
+    const pending = tasks.filter((t) => t.status === 'pending').length;
+    const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
+    const completed = tasks.filter((t) => t.status === 'completed').length;
+    const overdueCount = tasks.filter(overdue).length;
+
+    return {
+      training: await this.getTrainingTaskCount(uid),
+      document: await this.getDocumentTaskCount(uid),
+      assigned: assigned.filter(open).length,
+      mine: mine.filter(open).length,
+      watchlist: watchlist.length,
+      all: canViewAll ? allOpen : tasks.filter(open).length,
+      pending,
+      in_progress: inProgress,
+      completed,
+      overdue: overdueCount,
+      open: tasks.filter(open).length,
+      agency_overdue: allOverdue
+    };
   }
 
   static async findByAgency(agencyId, filters = {}) {

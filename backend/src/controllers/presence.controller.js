@@ -14,6 +14,7 @@ import {
   attachCalendarBusyToPresenceRows,
   getCurrentCalendarBusyForUser
 } from '../services/calendarPresence.service.js';
+import PlannedOut, { isPlannedOutActiveNow } from '../models/PlannedOut.model.js';
 
 /**
  * Chat / Messages presence (new model):
@@ -1258,6 +1259,48 @@ export const listPrivilegedPresence = async (req, res, next) => {
  * Super-admin: all users. Admin: agency-scoped when agency has presenceEnabled.
  * GET /api/presence (root) or GET /api/presence/agency/:agencyId
  */
+function availabilityBandFromPlannedOut(plannedOut) {
+  const avail = String(plannedOut?.availability || 'unavailable').toLowerCase();
+  return avail === 'available' ? 'away_reachable' : 'unavailable';
+}
+
+function plannedOutStatusLabel(plannedOut) {
+  const avail = String(plannedOut?.availability || 'unavailable').toLowerCase();
+  return avail === 'available' ? 'Planned out · available' : 'Planned out · unavailable';
+}
+
+function overlayPlannedOutsOnPresenceRows(rows, plannedOuts) {
+  if (!Array.isArray(rows) || !rows.length || !Array.isArray(plannedOuts) || !plannedOuts.length) {
+    return rows;
+  }
+  const now = new Date();
+  const activeByUser = new Map();
+  for (const po of plannedOuts) {
+    if (!isPlannedOutActiveNow(po, now)) continue;
+    const uid = Number(po.user_id);
+    if (!uid) continue;
+    const existing = activeByUser.get(uid);
+    if (!existing || String(po.availability || '').toLowerCase() !== 'available') {
+      activeByUser.set(uid, po);
+    }
+  }
+  if (!activeByUser.size) return rows;
+  return rows.map((person) => {
+    const po = activeByUser.get(Number(person.id));
+    if (!po) return person;
+    const band = availabilityBandFromPlannedOut(po);
+    const label = plannedOutStatusLabel(po);
+    return {
+      ...person,
+      availability_band: band,
+      status_label: label,
+      presence_display_label: label,
+      planned_out_active: true,
+      planned_out_id: po.id
+    };
+  });
+}
+
 const mapPresenceRows = (rows) => {
   return (rows || []).map((r) => {
     const firstName = r.first_name || '';
@@ -1298,6 +1341,102 @@ const mapPresenceRows = (rows) => {
   });
 };
 
+/**
+ * If someone deleted/expired a planned out but left sticky Out-for-the-Day presence,
+ * clear it when a cancelled PLANNED_OUT hold still covers today for that user.
+ */
+async function healStalePlannedOutPresence(mapped, agencyId) {
+  const list = Array.isArray(mapped) ? mapped : [];
+  const aid = Number(agencyId || 0);
+  if (!list.length || !aid) return list;
+  const candidates = list.filter((p) => {
+    const status = String(p.presence_status || '').toLowerCase();
+    const reason = String(p.presence_reason || '').toLowerCase();
+    const label = String(p.presence_display_label || p.status_label || '').toLowerCase();
+    if (p.planned_out_active) return false;
+    return (
+      label.includes('planned out') ||
+      status === 'out_full_day' ||
+      reason === 'out_day'
+    );
+  });
+  if (!candidates.length) return list;
+  const ids = candidates.map((p) => Number(p.id)).filter(Boolean);
+  if (!ids.length) return list;
+  const ph = ids.map(() => '?').join(',');
+  let cancelledUserIds = new Set();
+  try {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT provider_id AS user_id
+       FROM provider_schedule_events
+       WHERE provider_id IN (${ph})
+         AND UPPER(COALESCE(reason_code, '')) = 'PLANNED_OUT'
+         AND UPPER(COALESCE(status, '')) = 'CANCELLED'
+         AND (
+           DATE(updated_at) = UTC_DATE()
+           OR (all_day = 1 AND CURDATE() >= start_date AND CURDATE() < end_date)
+           OR (
+             all_day = 0
+             AND start_at IS NOT NULL
+             AND end_at IS NOT NULL
+             AND DATE(end_at) = UTC_DATE()
+           )
+         )`,
+      ids
+    );
+    cancelledUserIds = new Set((rows || []).map((r) => Number(r.user_id)).filter(Boolean));
+  } catch {
+    return list;
+  }
+  if (!cancelledUserIds.size) return list;
+  const cleared = new Set();
+  await Promise.all(
+    [...cancelledUserIds].map(async (uid) => {
+      try {
+        await UserPresenceStatus.clearForUser(uid);
+        cleared.add(uid);
+      } catch {
+        /* ignore */
+      }
+    })
+  );
+  if (!cleared.size) return list;
+  return list.map((p) => {
+    if (!cleared.has(Number(p.id))) return p;
+    return {
+      ...p,
+      availability_band: p.status === 'online' ? 'available' : p.availability_band,
+      status_label: p.status === 'online' ? 'Available' : p.status_label,
+      presence_status: 'in_available',
+      presence_reason: null,
+      presence_display_label: 'Active',
+      presence_note: null,
+      presence_expected_return_at: null,
+      presence_ends_at: null,
+      presence_session_extend_until: null,
+      planned_out_active: false,
+      planned_out_id: null
+    };
+  });
+}
+
+async function mapPresenceRowsWithPlannedOuts(rows, agencyId) {
+  const mapped = mapPresenceRows(rows);
+  const aid = Number(agencyId || 0);
+  if (!aid) return mapped;
+  try {
+    let withPlanned = mapped;
+    if (await PlannedOut.tableExists()) {
+      const plannedOuts = await PlannedOut.listActiveApprovedNowForAgency(aid);
+      withPlanned = overlayPlannedOutsOnPresenceRows(mapped, plannedOuts);
+    }
+    withPlanned = await healStalePlannedOutPresence(withPlanned, aid);
+    return attachCalendarBusyToPresenceRows(withPlanned, { preservePrimaryStatus: true });
+  } catch {
+    return mapped;
+  }
+}
+
 export const listPresence = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
@@ -1328,7 +1467,7 @@ export const listPresenceForAgency = async (req, res, next) => {
     await UserPresenceStatus.clearExpiredTimedAwayStatuses();
     if (role === 'super_admin') {
       const rows = await UserPresenceStatus.findAllWithUsersForAgency(agencyId);
-      return res.json(mapPresenceRows(rows));
+      return res.json(await mapPresenceRowsWithPlannedOuts(rows, agencyId));
     }
     // Admin + support need meal/day detail on Team Board (Messages peers stay Idle-only).
     if (role !== 'admin' && role !== 'support') {
@@ -1362,7 +1501,7 @@ export const listPresenceForAgency = async (req, res, next) => {
     }
 
     const rows = await UserPresenceStatus.findAllWithUsersForAgency(agencyId);
-    res.json(mapPresenceRows(rows));
+    res.json(await mapPresenceRowsWithPlannedOuts(rows, agencyId));
   } catch (e) {
     next(e);
   }

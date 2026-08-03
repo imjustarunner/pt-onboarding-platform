@@ -2,6 +2,7 @@ import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import PlannedOut from '../models/PlannedOut.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
+import UserPresenceStatus from '../models/UserPresenceStatus.model.js';
 import {
   wallMysqlToUtcMysql,
   dateToMysqlUtcDateTime,
@@ -88,6 +89,8 @@ async function createScheduleBlockForOut({ req, agencyId, userId, payload, userN
   const description = buildDescription(payload);
   const title = buildTitle(userName, payload.spanType);
   const allDay = payload.spanType === 'all_day' || !!payload.allDay;
+  // Admin/staff schedules use provider_schedule_events with provider_id = user id.
+  // SCHEDULE_HOLD + PLANNED_OUT is the admin-facing block on their day grid / ops panel.
   return ProviderScheduleEvent.create({
     agencyId,
     providerId: userId,
@@ -264,6 +267,31 @@ export const deletePlannedOut = async (req, res, next) => {
       });
     }
     await PlannedOut.deleteById(row.id);
+
+    // Planned-out overlay and "Out for the Day" often travel together — clear sticky
+    // away status so the board does not stay Unavailable after the block is gone.
+    const remaining = await PlannedOut.listActiveApprovedNowForAgency(row.agency_id, {
+      userId: row.user_id
+    });
+    if (!remaining.length) {
+      const presence = await UserPresenceStatus.findByUserId(row.user_id);
+      if (presence) {
+        const status = String(presence.status || '').toLowerCase();
+        const reason = String(presence.reason || '').toLowerCase();
+        const label = String(presence.display_label || '').toLowerCase();
+        const looksLinkedAway =
+          label.includes('planned out') ||
+          reason === 'out_day' ||
+          status === 'out_full_day' ||
+          status === 'out_am' ||
+          status === 'out_pm' ||
+          status === 'traveling_offsite';
+        if (looksLinkedAway) {
+          await UserPresenceStatus.clearForUser(row.user_id);
+        }
+      }
+    }
+
     return res.json({ ok: true });
   } catch (e) {
     return next(e);
@@ -307,6 +335,28 @@ export const reviewPlannedOut = async (req, res, next) => {
       reviewedAt: asMysqlDateTime(new Date()),
       scheduleEventId: action === 'reject' ? null : row.schedule_event_id
     });
+
+    if (action === 'reject') {
+      const remaining = await PlannedOut.listActiveApprovedNowForAgency(row.agency_id, {
+        userId: row.user_id
+      });
+      if (!remaining.length) {
+        const presence = await UserPresenceStatus.findByUserId(row.user_id);
+        const pStatus = String(presence?.status || '').toLowerCase();
+        const pReason = String(presence?.reason || '').toLowerCase();
+        const pLabel = String(presence?.display_label || '').toLowerCase();
+        if (
+          pLabel.includes('planned out') ||
+          pReason === 'out_day' ||
+          pStatus === 'out_full_day' ||
+          pStatus === 'out_am' ||
+          pStatus === 'out_pm'
+        ) {
+          await UserPresenceStatus.clearForUser(row.user_id);
+        }
+      }
+    }
+
     return res.json({ plannedOut: updated });
   } catch (e) {
     return next(e);

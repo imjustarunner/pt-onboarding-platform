@@ -2052,6 +2052,35 @@ export const markCandidateNotHired = async (req, res, next) => {
       coverLetterText: existing?.cover_letter_text || existing?.coverLetterText || null
     });
 
+    // Pre-hire users stay in PENDING_SETUP / PREHIRE_* until status changes — move them
+    // back to PROSPECTIVE so they leave Pre-Hire and appear under Applicants → Not hired.
+    const user = await User.findById(candidateUserId);
+    const statusUpper = String(user?.status || '').toUpperCase();
+    const preHireStatuses = new Set(['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW']);
+    if (user && preHireStatuses.has(statusUpper)) {
+      await User.updateStatus(candidateUserId, 'PROSPECTIVE', req.user.id);
+      try {
+        await pool.execute(
+          `UPDATE users
+           SET hired_at = NULL,
+               passwordless_token = NULL,
+               passwordless_token_expires_at = NULL,
+               passwordless_token_purpose = NULL
+           WHERE id = ?`,
+          [candidateUserId]
+        );
+      } catch {
+        await pool.execute(
+          `UPDATE users
+           SET hired_at = NULL,
+               passwordless_token = NULL,
+               passwordless_token_expires_at = NULL
+           WHERE id = ?`,
+          [candidateUserId]
+        );
+      }
+    }
+
     res.json({ ok: true, stage: 'not_hired' });
   } catch (e) {
     next(e);

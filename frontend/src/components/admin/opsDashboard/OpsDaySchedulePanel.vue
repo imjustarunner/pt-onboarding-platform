@@ -189,6 +189,14 @@ function isSameLocalDay(ms, ymd) {
   return localYmd(new Date(ms)) === ymd;
 }
 
+/** All-day spans use exclusive end_date YMD — compare as dates, not Date.parse (UTC skew). */
+function allDayCoversLocalDay(startDate, endDate, ymd) {
+  const start = String(startDate || '').slice(0, 10);
+  const end = String(endDate || '').slice(0, 10);
+  if (!start || !end || !ymd) return false;
+  return start <= ymd && ymd < end;
+}
+
 function formatTimeRange(startMs, endMs) {
   const opts = { hour: 'numeric', minute: '2-digit' };
   const start = startMs != null ? new Date(startMs).toLocaleTimeString([], opts) : '';
@@ -311,21 +319,42 @@ function buildTodayItems(summary) {
   }
 
   for (const e of s.scheduleEvents || []) {
-    const startMs = parseAt(e.startAt || e.startsAt || e.startDate);
-    const endMs = parseAt(e.endAt || e.endsAt || e.endDate);
-    if (!isSameLocalDay(startMs, ymd) && !isSameLocalDay(endMs, ymd)) continue;
     const eventKind = String(e.kind || '').trim().toUpperCase();
+    const reasonCode = String(e.reasonCode || e.reason_code || '').trim().toUpperCase();
+    const isCancelled = !!(e.isCancelled || String(e.status || '').toUpperCase() === 'CANCELLED');
+    // Deleted planned outs leave CANCELLED holds — hide them from Today's Schedule.
+    if (isCancelled && reasonCode === 'PLANNED_OUT') continue;
+
+    const allDay = !!(e.allDay || e.all_day);
+    let startMs = parseAt(e.startAt || e.startsAt);
+    let endMs = parseAt(e.endAt || e.endsAt);
+    if (allDay) {
+      if (!allDayCoversLocalDay(e.startDate || e.start_date, e.endDate || e.end_date, ymd)) continue;
+      // Wall-clock markers for sorting / status (local midnight → next midnight).
+      startMs = new Date(`${ymd}T00:00:00`).getTime();
+      endMs = new Date(`${ymd}T23:59:59`).getTime();
+    } else if (!isSameLocalDay(startMs, ymd) && !isSameLocalDay(endMs, ymd)) {
+      continue;
+    }
+
     const joins = scheduleJoinFields(e, eventKind);
+    const isPlannedOut = reasonCode === 'PLANNED_OUT';
+    const title = isPlannedOut
+      ? (e.title || 'Planned out')
+      : (e.title || e.kind || 'Scheduled event');
+    const subtitle = isPlannedOut
+      ? (e.description || 'Planned out · schedule block')
+      : (e.location || e.subtitle || e.description || '');
     rows.push({
       id: `sched-${e.kind || 'evt'}-${e.id || startMs}`,
-      kind: String(e.kind || 'event').toLowerCase(),
+      kind: isPlannedOut ? 'planned_out' : String(e.kind || 'event').toLowerCase(),
       eventKind,
       eventId: Number(e.id || 0) || null,
-      title: e.title || e.kind || 'Scheduled event',
-      subtitle: e.location || e.subtitle || e.description || '',
+      title,
+      subtitle,
       startMs,
       endMs,
-      timeLabel: formatTimeRange(startMs, endMs),
+      timeLabel: allDay ? 'All day' : formatTimeRange(startMs, endMs),
       status: statusForWindow(startMs, endMs, now),
       ...joins,
       clickable: true

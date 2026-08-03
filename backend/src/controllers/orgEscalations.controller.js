@@ -407,6 +407,22 @@ export const createEscalation = async (req, res, next) => {
     }
 
     const row = await loadEscalationById(ticketId);
+    try {
+      const { syncEscalationTask } = await import('../services/taskHubSync.service.js');
+      await syncEscalationTask({
+        ticketId,
+        title: subject,
+        description: issue,
+        assigneeUserId: assignee?.id || null,
+        agencyId,
+        departmentName: department,
+        actorUserId: req.user.id,
+        status: assignee ? 'pending' : 'pending',
+        linkedScheduleEventId: row?.linked_schedule_event_id || null
+      });
+    } catch (syncErr) {
+      console.warn('[escalations] sync task hub failed', syncErr?.message || syncErr);
+    }
     res.status(201).json(mapEscalationRow(row));
   } catch (e) {
     next(e);
@@ -634,6 +650,22 @@ export const updateEscalationStatus = async (req, res, next) => {
     }
 
     const updated = await loadEscalationById(id);
+    try {
+      const { syncEscalationTask } = await import('../services/taskHubSync.service.js');
+      await syncEscalationTask({
+        ticketId: id,
+        title: updated?.subject || row.subject,
+        description: updated?.question || row.question,
+        assigneeUserId: updated?.claimed_by_user_id || row.claimed_by_user_id,
+        agencyId: row.agency_id,
+        departmentName: updated?.affected_department || row.affected_department,
+        actorUserId: req.user.id,
+        status: nextStatus,
+        linkedScheduleEventId: updated?.linked_schedule_event_id || row.linked_schedule_event_id
+      });
+    } catch (syncErr) {
+      console.warn('[escalations] sync task hub failed', syncErr?.message || syncErr);
+    }
     res.json(mapEscalationRow(updated));
   } catch (e) {
     next(e);
@@ -941,6 +973,22 @@ export const assignEscalation = async (req, res, next) => {
       );
       await syncLinkedActionItemAssignee({ row, assigneeUserId: null, actorUserId: req.user.id });
       const updated = await loadEscalationById(id);
+      try {
+        const { syncEscalationTask } = await import('../services/taskHubSync.service.js');
+        await syncEscalationTask({
+          ticketId: id,
+          title: updated?.subject || row.subject,
+          description: updated?.question || row.question,
+          assigneeUserId: null,
+          agencyId: row.agency_id,
+          departmentName: updated?.affected_department || row.affected_department,
+          actorUserId: req.user.id,
+          status: nextStatus,
+          linkedScheduleEventId: updated?.linked_schedule_event_id || row.linked_schedule_event_id
+        });
+      } catch (syncErr) {
+        console.warn('[escalations] sync task hub failed', syncErr?.message || syncErr);
+      }
       return res.json(mapEscalationRow(updated));
     }
 
@@ -963,6 +1011,22 @@ export const assignEscalation = async (req, res, next) => {
     await syncLinkedActionItemAssignee({ row, assigneeUserId: assigneeId, actorUserId: req.user.id });
 
     const updated = await loadEscalationById(id);
+    try {
+      const { syncEscalationTask } = await import('../services/taskHubSync.service.js');
+      await syncEscalationTask({
+        ticketId: id,
+        title: updated?.subject || row.subject,
+        description: updated?.question || row.question,
+        assigneeUserId: assigneeId,
+        agencyId: row.agency_id,
+        departmentName: updated?.affected_department || row.affected_department,
+        actorUserId: req.user.id,
+        status: nextStatus,
+        linkedScheduleEventId: updated?.linked_schedule_event_id || row.linked_schedule_event_id
+      });
+    } catch (syncErr) {
+      console.warn('[escalations] sync task hub failed', syncErr?.message || syncErr);
+    }
     await notifyAssignee({ escalation: updated, assignee, assignedBy: req.user });
     res.json(mapEscalationRow(updated));
   } catch (e) {

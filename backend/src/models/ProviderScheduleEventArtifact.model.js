@@ -194,7 +194,18 @@ class ProviderScheduleEventArtifact {
     }
 
     const row = await this.findByEventId(eid);
-    return this.toWorkspaceDto(row);
+    const dto = this.toWorkspaceDto(row);
+    try {
+      const { syncMeetingActionTasks } = await import('../services/taskHubSync.service.js');
+      await syncMeetingActionTasks({
+        eventId: eid,
+        actionItems: dto.actionItems,
+        actorUserId: updatedByUserId
+      });
+    } catch (syncErr) {
+      console.warn('[workspace] sync meeting action tasks failed', syncErr?.message || syncErr);
+    }
+    return dto;
   }
 
   static async syncActionItemAssigneeByEscalationTicket({

@@ -6,7 +6,7 @@
     <button
       type="button"
       class="logout-split-caret btn btn-secondary"
-      aria-label="Logout or set timeout status"
+      aria-label="Logout or set your status"
       aria-haspopup="menu"
       :aria-expanded="menuOpen ? 'true' : 'false'"
       @click.stop="toggleMenu"
@@ -26,8 +26,8 @@
           <span class="logout-split-item-sub">End session now</span>
         </button>
         <button type="button" class="logout-split-item" role="menuitem" @click="onTimeout">
-          <span class="logout-split-item-title">Set timeout / Away</span>
-          <span class="logout-split-item-sub">Stay signed in up to 2 hours with a status</span>
+          <span class="logout-split-item-title">Set your status</span>
+          <span class="logout-split-item-sub">Short break, end of day, or available while logged out</span>
         </button>
       </div>
     </Teleport>
