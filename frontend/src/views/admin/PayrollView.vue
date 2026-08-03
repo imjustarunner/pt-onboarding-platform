@@ -14253,7 +14253,13 @@ const postPayroll = async () => {
     if (!selectedPeriodId.value) return;
     postingPayroll.value = true;
     error.value = '';
-    await api.post(`/payroll/periods/${selectedPeriodId.value}/post`);
+    const resp = await api.post(`/payroll/periods/${selectedPeriodId.value}/post`);
+    const accrual = resp?.data?.ptoAccrual;
+    if (accrual && accrual.ok === false) {
+      error.value = `Payroll posted, but PTO accrual failed: ${accrual.error || 'unknown error'}. Check server logs and re-run accrual if needed.`;
+    } else if (Array.isArray(accrual?.warnings) && accrual.warnings.length) {
+      error.value = `Payroll posted. PTO accrual finished with ${accrual.warnings.length} warning(s) for ${accrual.accruedUsers ?? 0} user(s).`;
+    }
     await loadPeriods();
     await loadPeriodDetails();
   } catch (e) {

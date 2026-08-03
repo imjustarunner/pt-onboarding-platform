@@ -18,7 +18,8 @@ Personal PTO
 Allotted paid time off for salaried employees, specified in individual employment agreements. Personal PTO may be used at the employee’s discretion, subject to accrual, probationary, and usage limitations outlined in this policy.
 Training PTO
 Paid time specifically earned for participation in approved professional development or training activities.
-Training PTO accrues for both fee-for-service and salaried employees at a rate of 0.25 hours per 30 hours worked or credits earned, unless otherwise specified.
+Training PTO accrues for fee-for-service and salaried employees (when eligible) at a rate of 0.25 hours per 30 hours worked or credits earned, unless otherwise specified.
+Hourly employees do not accrue Training PTO.
 Training PTO is restricted to training-related use only and may not be used for non-training purposes.
 See the “Continuing Education” section of the Employee Benefits Overview for additional details.
 Tracking and Usage
@@ -30,25 +31,28 @@ Training PTO earmarked for training may not be converted to general PTO and will
 PTO requests must be submitted to payroll@itsco.health.
 ITSCO reserves the right to deny Training PTO if sufficient documentation is not provided.
 Accrual and Eligibility by Classification
+Accrual is applied when a pay period is posted. The accrual basis is all paid time in that period: direct hours/credits, indirect hours/credits, and other paid-time hours (e.g. Other 1 / dual-rate Log Time, meetings, H0031 and other finalized service time). Flat dollar items (mileage, bonus, reimbursement) do not accrue PTO. Part-time employees and employees not in benefit tiers still accrue Sick Leave under these rules.
 Hourly Employees (Indirect Service)
-Sick Leave Accrual: 1 hour per 30 hours worked
+Sick Leave Accrual: 1 hour of Sick Leave per 1 hour of paid time (direct + indirect + other paid time)
+Training PTO: Not applicable
 Eligibility: Begins first week of employment
 Limitations: Governed by contract terms
 Hourly Employees (Direct or Dual Roles)
-Sick Leave Accrual: 1 hour per 30 hours worked
+Sick Leave Accrual: 1 hour of Sick Leave per 1 hour of paid time (direct + indirect + other paid time)
+Training PTO: Not applicable
 Eligibility: Begins first week of employment
 Limitations: Governed by contract terms
 Fee-for-Service Providers
-Sick Leave Accrual: 1 hour per 30 credits earned
-Training PTO: 0.25 hours per 30 credits earned
+Sick Leave Accrual: 1.2 hours of Sick Leave per 1 credit of paid time
+Training PTO: 0.25 hours per 30 credits earned (when Training PTO is enabled and the provider is eligible)
 Eligibility: Begins first week of employment
 Salaried Employees (Indirect Service)
-Personal PTO: As specified in contract
+Personal PTO: As specified in contract (not accrued from hours)
 Training PTO: Not applicable
 Eligibility: Personal PTO available after a 60-day probationary period; up to 10% may be used during probation
 Salaried Employees (Direct Service or Dual Roles)
-Personal PTO: As specified in contract
-Training PTO: 0.25 hours per 30 credits earned
+Personal PTO: As specified in contract (not accrued from hours)
+Training PTO: 0.25 hours per 30 credits earned (when Training PTO is enabled and the provider is eligible)
 Probationary Period: First 60 days; limited to 10% Personal PTO usage
 Salary Employee PTO Adjustments
 Early Termination (First 6 Months)

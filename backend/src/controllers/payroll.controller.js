@@ -6447,6 +6447,11 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     // Backward-compatible: some clients render manual lines from this top-level key.
     breakdown.__manualPayLines = manualPayLines;
 
+    // Paid-time hours outside direct/indirect (e.g. other_1 Log Time) for PTO accrual basis.
+    // Flat $ buckets (mileage/bonus/reimbursement) are never added to otherHours.
+    breakdown.otherPaidTimeHours = Number(otherHours || 0);
+    breakdown.__otherHours = Number(otherHours || 0);
+
     breakdown.__carryover = {
       oldDoneNotesUnitsTotal,
       oldDoneNotesNotesTotal,
@@ -13314,15 +13319,38 @@ export const postPayrollPeriod = async (req, res, next) => {
       // Do not block posting payroll if notifications fail.
     }
 
-    // Best-effort: accrue PTO balances for this posted pay period.
+    // Accrue PTO balances for this posted pay period (do not block post; surface result).
+    let ptoAccrual = null;
     try {
-      await runPtoAccrualForPostedPeriod({
+      ptoAccrual = await runPtoAccrualForPostedPeriod({
         agencyId: period.agency_id,
         payrollPeriodId,
         postedByUserId: req.user.id
       });
-    } catch {
-      // Do not block posting payroll if PTO accrual fails.
+      if (ptoAccrual && ptoAccrual.ok === false) {
+        console.error('[payroll] PTO accrual returned error after post', {
+          payrollPeriodId,
+          agencyId: period.agency_id,
+          error: ptoAccrual.error
+        });
+      } else if (Array.isArray(ptoAccrual?.warnings) && ptoAccrual.warnings.length) {
+        console.warn('[payroll] PTO accrual warnings after post', {
+          payrollPeriodId,
+          agencyId: period.agency_id,
+          warnings: ptoAccrual.warnings
+        });
+      }
+    } catch (ptoErr) {
+      console.error('[payroll] PTO accrual failed after post', {
+        payrollPeriodId,
+        agencyId: period.agency_id,
+        message: ptoErr?.message || String(ptoErr)
+      });
+      ptoAccrual = {
+        ok: false,
+        error: ptoErr?.message || 'pto_accrual_failed',
+        accruedUsers: 0
+      };
     }
 
     // Best-effort: prompt providers to review office reservations (biweekly cadence).
@@ -13398,7 +13426,11 @@ export const postPayrollPeriod = async (req, res, next) => {
       // Do not block posting if next-period creation fails.
     }
 
-    res.json(await PayrollPeriod.findById(payrollPeriodId));
+    const posted = await PayrollPeriod.findById(payrollPeriodId);
+    res.json({
+      ...posted,
+      ptoAccrual: ptoAccrual || { ok: true, skipped: 'not_run', accruedUsers: 0 }
+    });
   } catch (e) {
     next(e);
   }

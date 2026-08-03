@@ -237,7 +237,7 @@
                   <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === `time-${c.id}` || !isValidOpenPeriod(claimTargetByKey[`time-${c.id}`])" @click="approveTime(c)">
                     {{ busyId === `time-${c.id}` ? '…' : 'Approve' }}
                   </button>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === `time-${c.id}`" @click="rejectTime(c)">Reject</button>
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === `time-${c.id}`" @click="returnTime(c)">Send back…</button>
                 </td>
               </tr>
             </tbody>
@@ -423,6 +423,7 @@
                   </select>
                 </td>
                 <td class="right">
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === `mileage-${c.id}`" @click="openMileageClaimView(c)">View</button>
                   <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === `mileage-${c.id}` || !isValidOpenPeriod(claimTargetByKey[`mileage-${c.id}`])" @click="approveMileage(c)">
                     {{ busyId === `mileage-${c.id}` ? '…' : 'Approve' }}
                   </button>
@@ -600,6 +601,62 @@
         </div>
       </div>
 
+      <div v-if="mileageClaimViewOpen" class="pps-modal-backdrop" @click.self="closeMileageClaimView">
+        <div class="pps-modal" style="width: min(720px, 100%);">
+          <div class="pps-modal-header">
+            <div>
+              <div class="pps-modal-title">Mileage Submission Details</div>
+              <div class="hint" v-if="reviewedMileageClaim">
+                {{ claimName(reviewedMileageClaim) }} — {{ mileageTypeLabel(reviewedMileageClaim) }} — {{ fmtDate(reviewedMileageClaim.drive_date || reviewedMileageClaim.claim_date || reviewedMileageClaim.trip_date) }}
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" @click="closeMileageClaimView">Close</button>
+          </div>
+          <div v-if="reviewedMileageClaim" class="pps-modal-body">
+            <div class="pps-detail-grid">
+              <div class="field"><label>Claim ID</label><div>{{ reviewedMileageClaim.id || '—' }}</div></div>
+              <div class="field"><label>Status</label><div>{{ String(reviewedMileageClaim.status || '—').toUpperCase() }}</div></div>
+              <div class="field"><label>Drive date</label><div>{{ fmtDate(reviewedMileageClaim.drive_date || reviewedMileageClaim.claim_date || reviewedMileageClaim.trip_date) }}</div></div>
+              <div class="field"><label>Type</label><div>{{ mileageTypeLabel(reviewedMileageClaim) }}</div></div>
+              <div class="field"><label>Eligible miles</label><div>{{ fmtNum(Number(reviewedMileageClaim.eligible_miles ?? reviewedMileageClaim.miles ?? 0)) }}</div></div>
+              <div class="field"><label>Claim miles (stored)</label><div>{{ fmtNum(Number(reviewedMileageClaim.miles ?? 0)) }}</div></div>
+              <div class="field"><label>Suggested pay period</label><div>{{ periodLabelForId(reviewedMileageClaim.suggested_payroll_period_id) }}</div></div>
+              <div class="field"><label>Submitted by</label><div>{{ submitterLabel(reviewedMileageClaim) }}</div></div>
+            </div>
+
+            <div class="pps-detail-grid">
+              <div class="field"><label>Home ↔ School RT</label><div>{{ fmtNum(Number(reviewedMileageClaim.home_school_roundtrip_miles ?? 0)) }}</div></div>
+              <div class="field"><label>Home ↔ Office RT</label><div>{{ fmtNum(Number(reviewedMileageClaim.home_office_roundtrip_miles ?? 0)) }}</div></div>
+              <div class="field"><label>Round trip</label><div>{{ reviewedMileageClaim.round_trip === 0 || reviewedMileageClaim.round_trip === false ? 'No' : 'Yes' }}</div></div>
+              <div class="field"><label>Tier level</label><div>{{ reviewedMileageClaim.tier_level ?? '—' }}</div></div>
+            </div>
+
+            <div class="pps-detail-grid">
+              <div class="field"><label>Start location</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.start_location || '—' }}</div></div>
+              <div class="field"><label>End location</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.end_location || '—' }}</div></div>
+            </div>
+
+            <template v-if="String(reviewedMileageClaim.claim_type || '').toLowerCase() !== 'school_travel'">
+              <div class="card" style="padding: 10px; margin-top: 4px;">
+                <strong style="display:block; margin-bottom: 8px;">Trip details (Other Mileage)</strong>
+                <div class="pps-detail-grid">
+                  <div class="field"><label>Approved by</label><div>{{ reviewedMileageClaim.trip_approved_by || '—' }}</div></div>
+                  <div class="field"><label>Pre-approved</label><div>{{ mileagePreapprovedLabel(reviewedMileageClaim) }}</div></div>
+                  <div class="field"><label>Purpose</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.trip_purpose || '—' }}</div></div>
+                  <div class="field"><label>Cost center / client / school</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.cost_center || '—' }}</div></div>
+                </div>
+              </div>
+            </template>
+
+            <div class="field"><label>Notes</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.notes || '—' }}</div></div>
+
+            <div style="display:flex; justify-content:flex-end;">
+              <button type="button" class="btn btn-secondary" @click="closeMileageClaimView">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="eventTimeEditOpen" class="pps-modal-backdrop" @click.self="closeEventTimeEdit">
         <div class="pps-modal">
           <div class="pps-modal-header">
@@ -714,6 +771,8 @@ const claimTargetByKey = reactive({});
 const timeHoursOverrideById = reactive({});
 const timeClaimViewOpen = ref(false);
 const reviewedTimeClaim = ref(null);
+const mileageClaimViewOpen = ref(false);
+const reviewedMileageClaim = ref(null);
 
 const eventTimeSubmissions = ref([]);
 const eventTimeLoading = ref(false);
@@ -1372,6 +1431,28 @@ const closeTimeClaimView = () => {
   reviewedTimeClaim.value = null;
 };
 
+const openMileageClaimView = (c) => {
+  reviewedMileageClaim.value = c;
+  mileageClaimViewOpen.value = true;
+};
+
+const closeMileageClaimView = () => {
+  mileageClaimViewOpen.value = false;
+  reviewedMileageClaim.value = null;
+};
+
+const mileageTypeLabel = (c) => {
+  const t = String(c?.claim_type || '').toLowerCase();
+  return t === 'school_travel' ? 'School Mileage' : 'Other Mileage';
+};
+
+const mileagePreapprovedLabel = (c) => {
+  const v = c?.trip_preapproved;
+  if (v === 1 || v === true || v === '1') return 'Yes';
+  if (v === 0 || v === false || v === '0') return 'No';
+  return '—';
+};
+
 const approveTime = (c) => {
   const targetPayrollPeriodId = Number(claimTargetByKey[`time-${c.id}`] || 0);
   if (!isValidOpenPeriod(targetPayrollPeriodId)) return;
@@ -1391,12 +1472,12 @@ const approveTime = (c) => {
   );
 };
 
-const rejectTime = (c) => {
-  const reason = window.prompt('Rejection reason (optional):', '') ?? null;
-  if (reason === null) return;
+const returnTime = (c) => {
+  const note = window.prompt('Send back note (required):', '') || '';
+  if (!String(note).trim()) return;
   return withBusy(
     `time-${c.id}`,
-    () => api.patch(`/payroll/time-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() }),
+    () => api.patch(`/payroll/time-claims/${c.id}`, { action: 'return', note: String(note).trim() }),
     loadClaims
   );
 };

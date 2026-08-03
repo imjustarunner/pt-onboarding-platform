@@ -374,9 +374,17 @@
           </div>
 
           <div class="hint" style="margin-top: 10px;">
-            Policy reminders: Sick Leave accrues at {{ fmtNum(ptoPolicy?.sickAccrualPer30 ?? 1) }} hour per 30 {{ (ptoAccount?.employment_type === 'fee_for_service') ? 'credits' : 'hours' }}.
-            <span v-if="ptoPolicy?.trainingPtoEnabled === true">
-              Training PTO accrues at {{ fmtNum(ptoPolicy?.trainingAccrualPer30 ?? 0.25) }} hour per 30 {{ (ptoAccount?.employment_type === 'fee_for_service') ? 'credits' : 'hours' }} (if eligible).
+            <template v-if="ptoAccount?.employment_type === 'fee_for_service'">
+              Policy reminders: Sick Leave accrues at {{ fmtNum(ptoPolicy?.sickFfsMultiplier ?? 1.2) }} hours per 1 credit after payroll is posted.
+            </template>
+            <template v-else-if="ptoAccount?.employment_type === 'salaried'">
+              Policy reminders: Personal PTO is per your contract. Training PTO (if eligible) accrues at {{ fmtNum(ptoPolicy?.trainingAccrualPer30 ?? 0.25) }} hour per 30 credits after payroll is posted.
+            </template>
+            <template v-else>
+              Policy reminders: Sick Leave accrues at {{ fmtNum(ptoPolicy?.sickHourlyMultiplier ?? 1) }} hour per 1 worked hour (direct + indirect + other paid time) after payroll is posted. Hourly staff do not earn Training PTO.
+            </template>
+            <span v-if="ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.employment_type === 'fee_for_service'">
+              Training PTO accrues at {{ fmtNum(ptoPolicy?.trainingAccrualPer30 ?? 0.25) }} hour per 30 credits (if eligible).
             </span>
             PTO over {{ fmtNum(ptoPolicy?.ptoConsecutiveUseLimitHours ?? 15) }} hours consecutively requires {{ fmtNum(ptoPolicy?.ptoConsecutiveUseNoticeDays ?? 30) }} days notice and management approval.
           </div>

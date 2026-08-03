@@ -1586,10 +1586,18 @@ const postPayrollInWizard = async () => {
   actionError.value = false;
   actionMessage.value = '';
   try {
-    await api.post(`/payroll/periods/${selectedPeriodId.value}/post`);
+    const resp = await api.post(`/payroll/periods/${selectedPeriodId.value}/post`);
     await loadPeriods();
     await loadPeriodDetails();
-    actionMessage.value = 'Payroll posted successfully.';
+    const accrual = resp?.data?.ptoAccrual;
+    if (accrual && accrual.ok === false) {
+      actionError.value = true;
+      actionMessage.value = `Payroll posted, but PTO accrual failed: ${accrual.error || 'unknown error'}.`;
+    } else if (Array.isArray(accrual?.warnings) && accrual.warnings.length) {
+      actionMessage.value = `Payroll posted. PTO accrual had ${accrual.warnings.length} warning(s); accrued ${accrual.accruedUsers ?? 0} user(s).`;
+    } else {
+      actionMessage.value = `Payroll posted successfully.${accrual?.accruedUsers != null ? ` PTO accrued for ${accrual.accruedUsers} user(s).` : ''}`;
+    }
     await markStepComplete('post');
   } catch (e) {
     actionError.value = true;

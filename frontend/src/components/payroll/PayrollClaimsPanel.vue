@@ -59,7 +59,7 @@
                   <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === c.id || locked" @click="approveTime(c)">
                     {{ busyId === c.id ? '…' : 'Approve' }}
                   </button>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === c.id || locked" @click="rejectTime(c)">Reject</button>
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === c.id || locked" @click="returnTime(c)">Send back…</button>
                 </td>
               </tr>
             </tbody>
@@ -407,11 +407,11 @@ const approveTime = (c) =>
     });
   });
 
-const rejectTime = (c) => {
-  const reason = window.prompt('Rejection reason (optional):', '') ?? null;
-  if (reason === null) return;
+const returnTime = (c) => {
+  const note = window.prompt('Send back note (required):', '') || '';
+  if (!String(note).trim()) return;
   return withBusy(c.id, () =>
-    api.patch(`/payroll/time-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() })
+    api.patch(`/payroll/time-claims/${c.id}`, { action: 'return', note: String(note).trim() })
   );
 };
 

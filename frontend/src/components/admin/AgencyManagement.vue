@@ -3451,8 +3451,12 @@
 
             <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
               <div class="filters-group">
-                <label class="filters-label">Sick accrual (hours per 30)</label>
-                <input v-model="ptoPolicyDraft.sickAccrualPer30" class="filters-input" type="number" step="0.01" min="0" :disabled="ptoPolicyLoading || savingPtoPolicy" />
+                <label class="filters-label">Hourly sick (per worked hour)</label>
+                <input v-model="ptoPolicyDraft.sickHourlyMultiplier" class="filters-input" type="number" step="0.01" min="0" :disabled="ptoPolicyLoading || savingPtoPolicy" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">FFS sick (per credit)</label>
+                <input v-model="ptoPolicyDraft.sickFfsMultiplier" class="filters-input" type="number" step="0.01" min="0" :disabled="ptoPolicyLoading || savingPtoPolicy" />
               </div>
               <div class="filters-group">
                 <label class="filters-label">Training PTO enabled</label>
@@ -4823,7 +4827,8 @@ const ptoPolicyError = ref('');
 const ptoPolicyDraft = ref({
   ptoEnabled: true,
   defaultPayRate: 0,
-  sickAccrualPer30: 1.0,
+  sickHourlyMultiplier: 1.0,
+  sickFfsMultiplier: 1.2,
   trainingAccrualPer30: 0.25,
   trainingPtoEnabled: false,
   sickAnnualRolloverCap: 10,
@@ -6121,7 +6126,8 @@ const loadPtoPolicy = async () => {
     ptoPolicyDraft.value = {
       ptoEnabled: resp.data?.policy?.ptoEnabled !== false && resp.data?.ptoEnabled !== false,
       defaultPayRate: Number(resp.data?.defaultPayRate || 0),
-      sickAccrualPer30: Number(policy.sickAccrualPer30 ?? 1.0),
+      sickHourlyMultiplier: Number(policy.sickHourlyMultiplier ?? 1.0),
+      sickFfsMultiplier: Number(policy.sickFfsMultiplier ?? 1.2),
       trainingAccrualPer30: Number(policy.trainingAccrualPer30 ?? 0.25),
       trainingPtoEnabled: policy.trainingPtoEnabled === true,
       sickAnnualRolloverCap: Number(policy.sickAnnualRolloverCap ?? 10),
@@ -6148,7 +6154,8 @@ const savePtoPolicy = async () => {
       ptoEnabled: ptoPolicyDraft.value.ptoEnabled !== false,
       defaultPayRate: Number(ptoPolicyDraft.value.defaultPayRate || 0),
       policy: {
-        sickAccrualPer30: Number(ptoPolicyDraft.value.sickAccrualPer30 || 0),
+        sickHourlyMultiplier: Number(ptoPolicyDraft.value.sickHourlyMultiplier ?? 1),
+        sickFfsMultiplier: Number(ptoPolicyDraft.value.sickFfsMultiplier ?? 1.2),
         trainingAccrualPer30: Number(ptoPolicyDraft.value.trainingAccrualPer30 || 0),
         trainingPtoEnabled: ptoPolicyDraft.value.trainingPtoEnabled === true,
         sickAnnualRolloverCap: Number(ptoPolicyDraft.value.sickAnnualRolloverCap || 0),

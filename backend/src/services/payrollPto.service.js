@@ -6,11 +6,19 @@ import PayrollPtoRequest from '../models/PayrollPtoRequest.model.js';
 import PayrollAdjustment from '../models/PayrollAdjustment.model.js';
 import PayrollPeriod from '../models/PayrollPeriod.model.js';
 import { computeSubmissionWindow, resolveClaimTimeZone } from '../utils/payrollSubmissionWindow.js';
-import { computeAccrualFromBasisHours } from '../utils/payrollPtoAccrual.util.js';
+import {
+  computeAccrualFromBasisHours,
+  paidTimeBasisFromSummaryRow,
+  DEFAULT_PTO_ACCRUAL_POLICY
+} from '../utils/payrollPtoAccrual.util.js';
+import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
 
-export { computeAccrualFromBasisHours } from '../utils/payrollPtoAccrual.util.js';
+export { computeAccrualFromBasisHours, paidTimeBasisFromSummaryRow } from '../utils/payrollPtoAccrual.util.js';
 
 const DEFAULT_PTO_POLICY = {
+  sickHourlyMultiplier: DEFAULT_PTO_ACCRUAL_POLICY.sickHourlyMultiplier,
+  sickFfsMultiplier: DEFAULT_PTO_ACCRUAL_POLICY.sickFfsMultiplier,
+  /** @deprecated legacy field; sick math uses multipliers above */
   sickAccrualPer30: 1.0,
   trainingAccrualPer30: 0.25,
   trainingPtoEnabled: false,
@@ -63,6 +71,52 @@ export async function upsertAgencyPtoPolicy({ agencyId, policy, defaultPayRate, 
   return getAgencyPtoPolicy({ agencyId });
 }
 
+async function loadUserHourlyFlag(userId) {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT is_hourly_worker FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+    const v = rows?.[0]?.is_hourly_worker;
+    return v === 1 || v === true || v === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve employment type for PTO:
+ * hourly flag wins, else active salary → salaried, else keep configured (FFS) or default hourly.
+ */
+export async function resolvePtoEmploymentType({
+  agencyId,
+  userId,
+  asOfDate,
+  existingType = null
+}) {
+  const existing = String(existingType || '').trim().toLowerCase();
+  const isHourly = await loadUserHourlyFlag(userId);
+  if (isHourly) return 'hourly';
+
+  let hasSalary = false;
+  try {
+    const pos = await PayrollSalaryPosition.findActiveForUser({
+      agencyId,
+      userId,
+      asOfDate: asOfDate || todayYmd()
+    });
+    hasSalary = !!pos;
+  } catch {
+    hasSalary = false;
+  }
+  if (hasSalary) return 'salaried';
+
+  if (existing === 'fee_for_service' || existing === 'salaried' || existing === 'hourly') {
+    return existing;
+  }
+  return 'hourly';
+}
+
 export async function ensurePtoAccount({
   agencyId,
   userId,
@@ -72,8 +126,16 @@ export async function ensurePtoAccount({
   const existing = await PayrollPtoAccount.findForAgencyUser({ agencyId, userId });
   if (existing) return existing;
 
-  const employmentType = defaults.employmentType || 'hourly';
-  const trainingPtoEligible = defaults.trainingPtoEligible ? 1 : 0;
+  const employmentType = defaults.employmentType
+    || await resolvePtoEmploymentType({
+      agencyId,
+      userId,
+      asOfDate: defaults.asOfDate || null,
+      existingType: null
+    });
+  const trainingPtoEligible = defaults.trainingPtoEligible != null
+    ? (defaults.trainingPtoEligible ? 1 : 0)
+    : (employmentType === 'salaried' && defaults.trainingPtoEnabled ? 1 : 0);
   const emptyYmd = null;
   return PayrollPtoAccount.upsert({
     agencyId,
@@ -946,7 +1008,7 @@ export async function runPtoAccrualForPostedPeriod({
   postedByUserId
 }) {
   const { policy } = await getAgencyPtoPolicy({ agencyId });
-  if (policy.ptoEnabled === false) return { ok: true, skipped: 'pto_disabled' };
+  if (policy.ptoEnabled === false) return { ok: true, skipped: 'pto_disabled', accruedUsers: 0 };
 
   const [periodRows] = await pool.execute(
     `SELECT id, period_start, period_end, status
@@ -956,16 +1018,59 @@ export async function runPtoAccrualForPostedPeriod({
     [payrollPeriodId, agencyId]
   );
   const period = periodRows?.[0] || null;
-  if (!period) return { ok: false, error: 'pay_period_not_found' };
+  if (!period) return { ok: false, error: 'pay_period_not_found', accruedUsers: 0 };
 
   const year = Number(String(ymd(period.period_end) || '').slice(0, 4)) || null;
+  const asOfDate = ymd(period.period_end) || todayYmd();
 
-  const accounts = await PayrollPtoAccount.listForAgency({ agencyId });
+  // Accrue from everyone with a payroll summary this period (not only pre-existing PTO accounts).
+  const [summaryRows] = await pool.execute(
+    `SELECT user_id, direct_hours, indirect_hours, total_hours, breakdown
+     FROM payroll_summaries
+     WHERE payroll_period_id = ? AND agency_id = ?`,
+    [payrollPeriodId, agencyId]
+  );
+
   let accruedUsers = 0;
-  for (const acct of accounts || []) {
-    const userId = Number(acct.user_id);
+  const warnings = [];
+
+  for (const sum of summaryRows || []) {
+    const userId = Number(sum.user_id);
     if (!userId) continue;
+
+    let acct = await PayrollPtoAccount.findForAgencyUser({ agencyId, userId });
+    if (!acct) {
+      acct = await ensurePtoAccount({
+        agencyId,
+        userId,
+        updatedByUserId: postedByUserId,
+        defaults: {
+          asOfDate,
+          trainingPtoEnabled: policy.trainingPtoEnabled === true
+        }
+      });
+    }
+    if (!acct) {
+      warnings.push({ userId, message: 'Could not ensure PTO account' });
+      continue;
+    }
     if (Number(acct.last_accrued_payroll_period_id || 0) === Number(payrollPeriodId)) continue;
+
+    const employment = await resolvePtoEmploymentType({
+      agencyId,
+      userId,
+      asOfDate,
+      existingType: acct.employment_type
+    });
+
+    // Salaried: default training eligibility on when agency enables training (explicit 0 stays off).
+    let trainingEligible = Boolean(acct.training_pto_eligible);
+    if (employment === 'salaried' && policy.trainingPtoEnabled === true) {
+      trainingEligible = acct.training_pto_eligible === 0 || acct.training_pto_eligible === '0'
+        ? false
+        : true;
+    }
+    if (employment === 'hourly') trainingEligible = false;
 
     // Roll over sick leave once per year.
     let sickBal = Number(acct.sick_balance_hours || 0);
@@ -991,39 +1096,22 @@ export async function runPtoAccrualForPostedPeriod({
       }
     }
 
-    // Basis from payroll summary for this period.
-    // Hourly: direct_hours + indirect_hours only (excludes mileage/bonus/reimbursement/other flat buckets).
-    // Fee-for-service: direct_hours + indirect_hours as well (credit-based, all billable work).
-    // Salaried: no accrual on hours basis — skip.
-    const [sumRows] = await pool.execute(
-      `SELECT direct_hours, indirect_hours, breakdown
-       FROM payroll_summaries
-       WHERE payroll_period_id = ? AND agency_id = ? AND user_id = ?
-       LIMIT 1`,
-      [payrollPeriodId, agencyId, userId]
-    );
-    const s = sumRows?.[0] || null;
-    const directHours = Number(s?.direct_hours || 0);
-    const indirectHours = Number(s?.indirect_hours || 0);
-
-    const employment = String(acct.employment_type || 'hourly');
-    // Both hourly and fee_for_service accrue on direct + indirect hours/credits.
-    // Exclude manual-direct hours already credited at line-create time to avoid double accrual.
+    // Paid-time basis: direct + indirect + other_1 / other paid-time hours.
+    // Excludes mileage/bonus/reimbursement flat dollars. Subtract manual-direct
+    // hours already ledger-credited at line-create time to avoid double count.
     const alreadyCreditedManualDirect = await sumManualDirectBasisAlreadyCredited({
       agencyId,
       payrollPeriodId,
       userId
     });
-    const rawBasis = directHours + indirectHours - alreadyCreditedManualDirect;
-    const basis = (employment === 'hourly' || employment === 'fee_for_service')
-      ? Math.max(0, rawBasis)
-      : 0;
+    const paidBasis = paidTimeBasisFromSummaryRow(sum);
+    const basis = Math.max(0, paidBasis - alreadyCreditedManualDirect);
 
     const earned = computeAccrualFromBasisHours({
       basisHours: basis,
       policy,
       employmentType: employment,
-      trainingPtoEligible: Boolean(acct.training_pto_eligible)
+      trainingPtoEligible: trainingEligible
     });
     let sickEarn = earned.sickEarn;
     let trainingEarn = earned.trainingEarn;
@@ -1038,7 +1126,9 @@ export async function runPtoAccrualForPostedPeriod({
         effectiveDate: ymd(period.period_end),
         payrollPeriodId,
         requestId: null,
-        note: 'Sick leave accrual',
+        note: employment === 'fee_for_service'
+          ? `Sick leave accrual (${basis.toFixed(2)} credits × ${Number(policy.sickFfsMultiplier ?? 1.2)})`
+          : `Sick leave accrual (${basis.toFixed(2)} hours)`,
         createdByUserId: postedByUserId
       });
       sickBal += sickEarn;
@@ -1059,7 +1149,6 @@ export async function runPtoAccrualForPostedPeriod({
       trainingBal += trainingEarn;
     }
 
-    // Caps
     const sickCap = Number(policy.sickAnnualMaxAccrual ?? DEFAULT_PTO_POLICY.sickAnnualMaxAccrual);
     const trainingCap = Number(policy.trainingMaxBalance ?? DEFAULT_PTO_POLICY.trainingMaxBalance);
     if (Number.isFinite(sickCap) && sickBal > sickCap + 1e-9) sickBal = sickCap;
@@ -1069,7 +1158,7 @@ export async function runPtoAccrualForPostedPeriod({
       agencyId,
       userId,
       employmentType: employment,
-      trainingPtoEligible: acct.training_pto_eligible ? 1 : 0,
+      trainingPtoEligible: trainingEligible ? 1 : 0,
       sickStartHours: acct.sick_start_hours,
       sickStartEffectiveDate: acct.sick_start_effective_date,
       trainingStartHours: acct.training_start_hours,
@@ -1085,6 +1174,6 @@ export async function runPtoAccrualForPostedPeriod({
     accruedUsers += 1;
   }
 
-  return { ok: true, accruedUsers };
+  return { ok: true, accruedUsers, warnings, summaryUsers: (summaryRows || []).length };
 }
 
