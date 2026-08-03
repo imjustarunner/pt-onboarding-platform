@@ -458,28 +458,49 @@ const confirmOpen = (doc) => {
   confirmingDoc.value = doc;
 };
 
+const closePopupQuietly = (popup) => {
+  if (!popup || popup.closed) return;
+  try { popup.close(); } catch { /* ignore */ }
+};
+
+const writePopupLoading = (popup) => {
+  if (!popup || popup.closed) return;
+  try {
+    popup.document.open();
+    popup.document.write(
+      '<!doctype html><title>Loading document…</title>' +
+      '<body style="font-family:system-ui,sans-serif;padding:24px;color:#334155">' +
+      '<p>Loading document…</p></body>'
+    );
+    popup.document.close();
+  } catch {
+    // Cross-origin or closed — ignore
+  }
+};
+
+/**
+ * Navigate a tab opened synchronously on click.
+ * Do NOT use noopener on the interim about:blank window — browsers then return null
+ * (or a non-navigable handle), leaving a stuck blank tab after the async fetch.
+ */
 const navigateToUrl = (url, popup) => {
   if (!url) return false;
   if (popup && !popup.closed) {
     try {
+      try { popup.opener = null; } catch { /* ignore */ }
       popup.location.href = url;
       return true;
     } catch {
       // fall through
     }
   }
-  const opened = window.open(url, '_blank', 'noopener,noreferrer');
-  if (opened) return true;
+  const opened = window.open(url, '_blank');
+  if (opened) {
+    try { opened.opener = null; } catch { /* ignore */ }
+    return true;
+  }
   openModalLink.value = url;
   return false;
-};
-
-const openBlobInWindow = (blob, filename, popup) => {
-  const blobUrl = URL.createObjectURL(blob);
-  const opened = navigateToUrl(blobUrl, popup);
-  if (!opened) openModalLink.value = blobUrl;
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
-  return blobUrl;
 };
 
 const openDoc = async (doc) => {
@@ -487,8 +508,10 @@ const openDoc = async (doc) => {
   openModalError.value = '';
   openModalLink.value = '';
 
-  // Open tab synchronously on click so popup blockers do not silently discard window.open after the API call.
-  const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+  // Open tab synchronously on click so popup blockers do not discard window.open after the API call.
+  // Omit noopener here so we can set location after the fetch; null opener after navigate.
+  const popup = window.open('about:blank', '_blank');
+  if (popup) writePopupLoading(popup);
 
   try {
     opening.value = true;
@@ -503,19 +526,19 @@ const openDoc = async (doc) => {
       if (!url) throw new Error('Could not get a download link for this document.');
       const opened = navigateToUrl(url, popup);
       if (!opened) {
+        closePopupQuietly(popup);
         openModalLink.value = url;
-        openModalError.value = popup
-          ? 'The new tab was closed before the document loaded. Use the link below to open it.'
-          : 'Your browser blocked opening a new tab. Use the link below, or allow pop-ups for this site.';
+        openModalError.value =
+          'Your browser blocked opening a new tab. Use the link below, or allow pop-ups for this site.';
       }
     } else {
-      const filename = doc.original_name || doc.document_title || `document-${doc.id}`;
       const blob = resp.data instanceof Blob
         ? resp.data
         : new Blob([resp.data], { type: contentType || 'application/octet-stream' });
       const blobUrl = URL.createObjectURL(blob);
       const opened = navigateToUrl(blobUrl, popup);
       if (!opened) {
+        closePopupQuietly(popup);
         openModalLink.value = blobUrl;
         openModalError.value = 'Your browser blocked the document tab. Use the link below to open it.';
       }
@@ -527,9 +550,7 @@ const openDoc = async (doc) => {
       openModalError.value = 'If the document did not open, use the link below.';
     }
   } catch (e) {
-    if (popup && !popup.closed) {
-      try { popup.close(); } catch { /* ignore */ }
-    }
+    closePopupQuietly(popup);
     let message = 'Failed to open packet';
     if (e.response?.data instanceof Blob) {
       try {
