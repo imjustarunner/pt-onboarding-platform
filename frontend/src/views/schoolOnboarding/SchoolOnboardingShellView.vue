@@ -84,8 +84,9 @@
             <article v-if="requestedPaperPackets" class="so-thanks-info-card">
               <div class="so-thanks-info-icon" aria-hidden="true">✉</div>
               <p>
-                If you requested paper packets, you will receive those within
-                <strong>72 hours</strong> (uploaded into your school portal profile).
+                Paper referral packets will appear in the <strong>Documents</strong> section of your school portal
+                within <strong>72 hours</strong>. Print from the English or Spanish Google Document links there —
+                please do not save copies, as these are living documents we update from time to time.
               </p>
             </article>
           </div>
@@ -457,8 +458,8 @@
             <h2>Welcome materials</h2>
             <p class="muted">
               Every new school receives a small <strong>welcome package</strong> with a few starter items.
-              Let us know if you’d like anything extra, and whether you want printed paper referral packets
-              in addition to your digital intake links.
+              Let us know if you’d like anything extra, and how you’d like to handle paper referral packets
+              alongside your digital intake links.
             </p>
 
             <div class="so-materials-block">
@@ -479,13 +480,22 @@
             <div class="so-materials-block">
               <h3>Paper referral packets</h3>
               <p class="muted tiny">
-                You’ll have digital links for referrals. Would you also like paper packets printed for your school?
-                Paper packets take up to <strong>72 hours</strong> for us to create and upload into your portal profile.
+                You’ll have digital links for referrals. Paper referral packets will also be added to the
+                <strong>Documents</strong> section of your school portal. You can print directly from the linked
+                Google Documents (English and Spanish versions) — we update these occasionally as living documents.
+              </p>
+              <p class="muted tiny so-paper-living-docs">
+                If you print from those links, please <strong>do not save a copy</strong> to your computer.
+                Always use the latest version in your portal so you have the most current forms.
+              </p>
+              <p class="muted tiny">
+                Would you also like us to prepare paper packets for your school? This takes up to
+                <strong>72 hours</strong> to create and upload into your portal profile.
               </p>
               <div class="so-paper-choices">
                 <label class="so-paper-choice" :class="{ selected: requestPaperPackets === true }">
                   <input v-model="requestPaperPackets" type="radio" :value="true" />
-                  Yes, please print paper packets
+                  Yes, please add paper packets to my portal
                 </label>
                 <label class="so-paper-choice" :class="{ selected: requestPaperPackets === false }">
                   <input v-model="requestPaperPackets" type="radio" :value="false" />
@@ -781,7 +791,7 @@ const startHereGuide = computed(() => {
       bullets: [
         'You’ll receive a small welcome package',
         'Optional extras: trifolds, stress balls, pens',
-        'Paper packets available (up to 72 hours)'
+        'Paper packets in Documents (print from Google Docs)'
       ]
     };
   }
@@ -1886,6 +1896,14 @@ select {
   border-color: var(--so-primary);
   background: color-mix(in srgb, var(--so-primary) 8%, #fff);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--so-primary) 25%, transparent);
+}
+.so-paper-living-docs {
+  margin: 0.55rem 0 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--so-primary) 6%, #fff);
+  border: 1px solid color-mix(in srgb, var(--so-primary) 12%, #e2e8f0);
+  line-height: 1.45;
 }
 .so-thanks {
   position: relative;
