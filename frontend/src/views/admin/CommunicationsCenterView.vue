@@ -654,15 +654,17 @@ function formatTime(v) {
 function openPriorityItem(item) {
   let tab = 'dms';
   if (item.kind === 'sms') tab = 'sms';
-  else if (item.kind === 'team') tab = 'channels';
+  else if (item.kind === 'team') tab = 'dms';
 
+  const threadId = item.threadId || String(item.id || '').replace(/^chat-/, '');
   router.push({
     path: myMessagesPath.value,
     query: {
       ...route.query,
       view: 'workspace',
       tab,
-      threadId: String(item.id)
+      ...(threadId ? { threadId: String(threadId) } : {}),
+      ...(item.agencyId ? { agencyId: String(item.agencyId) } : {})
     }
   }).catch(() => {});
 }
@@ -718,9 +720,15 @@ async function load() {
   try {
     const agencyId = agencyStore.currentAgency?.id;
     const params = agencyId ? { agencyId } : {};
+    const role = String(authStore.user?.role || '').toLowerCase();
+    const membershipCount = (agencyStore.userAgencies || []).length;
+    const combineAll = role === 'super_admin' || membershipCount > 1;
+    const messageParams = {};
+    if (combineAll) messageParams.allAgencies = 'true';
+    else if (agencyId) messageParams.agencyId = agencyId;
     const [centerRes, personalRes, escRes] = await Promise.all([
       api.get('/communications/center-summary', { params, skipGlobalLoading: true }),
-      api.get('/messages/dashboard-summary', { params, skipGlobalLoading: true }).catch(() => ({ data: {} })),
+      api.get('/messages/dashboard-summary', { params: messageParams, skipGlobalLoading: true }).catch(() => ({ data: {} })),
       agencyId
         ? api.get('/escalations/summary', { params: { agencyId }, skipGlobalLoading: true }).catch(() => ({ data: {} }))
         : Promise.resolve({ data: {} })

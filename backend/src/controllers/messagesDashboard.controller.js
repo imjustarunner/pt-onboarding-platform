@@ -56,9 +56,6 @@ export const getMessagesDashboardSummary = async (req, res, next) => {
 
     try {
       const agencyClause = agencyId ? 'AND t.agency_id = ?' : '';
-      const baseParams = agencyId
-        ? [userId, userId, userId, userId, agencyId]
-        : [userId, userId, userId, userId];
       const [sumRows] = await pool.query(
         `SELECT
            COALESCE(SUM(CASE WHEN t.thread_type = 'direct' THEN (
@@ -66,18 +63,28 @@ export const getMessagesDashboardSummary = async (req, res, next) => {
              WHERE m2.thread_id = t.id
                AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
                AND m2.sender_user_id <> ?
+               AND NOT EXISTS (
+                 SELECT 1 FROM chat_message_deletes d
+                 WHERE d.user_id = ? AND d.message_id = m2.id
+               )
            ) ELSE 0 END), 0) AS dm_unread,
-           COALESCE(SUM(CASE WHEN t.thread_type IN ('channel', 'group', 'team', 'club') THEN (
+           COALESCE(SUM(CASE WHEN t.thread_type IN ('channel', 'group', 'team', 'club', 'skill_builders_event') THEN (
              SELECT COUNT(*) FROM chat_messages m2
              WHERE m2.thread_id = t.id
                AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
                AND m2.sender_user_id <> ?
+               AND NOT EXISTS (
+                 SELECT 1 FROM chat_message_deletes d
+                 WHERE d.user_id = ? AND d.message_id = m2.id
+               )
            ) ELSE 0 END), 0) AS channel_unread
          FROM chat_threads t
          JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
          LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
          WHERE 1=1 ${agencyClause}`,
-        baseParams
+        agencyId
+          ? [userId, userId, userId, userId, userId, userId, agencyId]
+          : [userId, userId, userId, userId, userId, userId]
       );
       dmUnread = Number(sumRows?.[0]?.dm_unread || 0);
       channelUnread = Number(sumRows?.[0]?.channel_unread || 0);
@@ -164,11 +171,17 @@ export const getMessagesDashboardSummary = async (req, res, next) => {
       unheardVoicemail = 0;
     }
 
-    // Priority conversation previews (recent DMs with unread)
+    // Priority conversation previews (recent threads with unread — direct + group/event)
     try {
+      const agencyClausePreview = agencyId ? 'AND t.agency_id = ?' : '';
+      const previewParams = agencyId
+        ? [userId, userId, userId, userId, agencyId]
+        : [userId, userId, userId, userId];
       const [preview] = await pool.query(
-        `SELECT t.id AS thread_id, t.thread_type, t.agency_id,
+        `SELECT t.id AS thread_id, t.thread_type, t.agency_id, t.company_event_id,
                 a.name AS agency_name,
+                ce.title AS event_title,
+                t.name AS channel_name,
                 u.first_name, u.last_name,
                 lm.body AS last_body,
                 lm.created_at AS last_at,
@@ -177,9 +190,14 @@ export const getMessagesDashboardSummary = async (req, res, next) => {
                   WHERE m.thread_id = t.id
                     AND m.sender_user_id <> ?
                     AND (r.last_read_message_id IS NULL OR m.id > r.last_read_message_id)
+                    AND NOT EXISTS (
+                      SELECT 1 FROM chat_message_deletes d
+                      WHERE d.user_id = ? AND d.message_id = m.id
+                    )
                 ) AS unread_count
          FROM chat_threads t
          LEFT JOIN agencies a ON a.id = t.agency_id
+         LEFT JOIN company_events ce ON ce.id = t.company_event_id
          INNER JOIN chat_thread_participants me ON me.thread_id = t.id AND me.user_id = ?
          LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
          LEFT JOIN chat_thread_participants other
@@ -188,21 +206,34 @@ export const getMessagesDashboardSummary = async (req, res, next) => {
          LEFT JOIN chat_messages lm ON lm.id = (
            SELECT m.id FROM chat_messages m WHERE m.thread_id = t.id ORDER BY m.id DESC LIMIT 1
          )
-         WHERE t.thread_type = 'direct'
+         WHERE 1=1 ${agencyClausePreview}
          HAVING unread_count > 0
          ORDER BY last_at DESC
          LIMIT 12`,
-        [userId, userId, userId, userId]
+        previewParams
       );
       for (const row of preview || []) {
+        const tType = String(row.thread_type || 'direct').toLowerCase();
+        const isDirect = tType === 'direct';
+        let label = 'Conversation';
+        if (isDirect) {
+          label = [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Conversation';
+        } else if (tType === 'skill_builders_event') {
+          label = String(row.event_title || '').trim() || 'Event chat';
+        } else if (tType === 'channel') {
+          label = String(row.channel_name || '').trim() || 'Channel';
+        } else {
+          label = 'Group chat';
+        }
         priority.push({
           id: `chat-${row.thread_id}`,
-          kind: 'secure',
-          label: [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Conversation',
+          kind: isDirect ? 'secure' : 'team',
+          label,
           snippet: String(row.last_body || '').slice(0, 120),
           unread: Number(row.unread_count || 0),
           occurredAt: row.last_at,
           threadId: row.thread_id,
+          threadType: tType,
           agencyId: row.agency_id,
           agencyName: row.agency_name || null
         });

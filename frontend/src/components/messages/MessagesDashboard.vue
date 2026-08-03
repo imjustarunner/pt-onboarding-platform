@@ -185,11 +185,14 @@ function formatTime(v) {
   }
 }
 
-function openWorkspace(tab = 'dms') {
-  emit('open-workspace', { tab });
+function openWorkspace(tab = 'dms', item = null) {
+  emit('open-workspace', { tab, item });
   const slug = String(route.params?.organizationSlug || '').trim();
   const path = slug ? `/${slug}/messages` : '/messages';
-  router.push({ path, query: { ...route.query, view: 'workspace', tab } }).catch(() => {});
+  const query = { ...route.query, view: 'workspace', tab };
+  if (item?.threadId) query.threadId = String(item.threadId);
+  if (item?.agencyId) query.agencyId = String(item.agencyId);
+  router.push({ path, query }).catch(() => {});
 }
 
 async function load() {
@@ -197,8 +200,14 @@ async function load() {
   error.value = '';
   try {
     const agencyId = agencyStore.currentAgency?.id;
+    const role = String(authStore.user?.role || '').toLowerCase();
+    const membershipCount = (agencyStore.userAgencies || []).length;
+    const combineAll = role === 'super_admin' || membershipCount > 1;
+    const params = {};
+    if (combineAll) params.allAgencies = 'true';
+    else if (agencyId) params.agencyId = agencyId;
     const r = await api.get('/messages/dashboard-summary', {
-      params: agencyId ? { agencyId } : {},
+      params,
       skipGlobalLoading: true
     });
     cards.value = { ...cards.value, ...(r.data?.cards || {}) };

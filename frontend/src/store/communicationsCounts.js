@@ -40,6 +40,11 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
       
       const agencyId = agencyStore.currentAgency?.id;
       const params = agencyId ? { agencyId } : {};
+      const membershipCount = (agencyStore.userAgencies || []).length;
+      const combineAll = role === 'super_admin' || membershipCount > 1;
+      const messageParams = {};
+      if (combineAll) messageParams.allAgencies = 'true';
+      else if (agencyId) messageParams.agencyId = agencyId;
       // Backend pending-count is admin/support/staff/super_admin only — skip for providers etc.
       const canFetchPendingDelivery =
         role === 'admin' ||
@@ -63,7 +68,7 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
         canFetchOpenTicketCount
           ? api.get('/communications/center-summary', { params, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: {} }),
-        api.get('/messages/dashboard-summary', { params, skipGlobalLoading: true, skipAuthRedirect: true }).catch(() => ({ data: {} })),
+        api.get('/messages/dashboard-summary', { params: messageParams, skipGlobalLoading: true, skipAuthRedirect: true }).catch(() => ({ data: {} })),
         canFetchOpenTicketCount
           ? api.get('/support-tickets/count', { params: { status: 'open' }, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: {} })

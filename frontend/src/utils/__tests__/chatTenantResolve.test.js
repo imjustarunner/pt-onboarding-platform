@@ -35,6 +35,27 @@ describe('sortDirectThreadsForPerson', () => {
     ];
     expect(sortDirectThreadsForPerson(threads, 42)[0].agency_id).toBe(10);
   });
+
+  it('ignores non-direct threads when ranking', () => {
+    const threads = [
+      {
+        thread_type: 'skill_builders_event',
+        agency_id: 10,
+        unread_count: 5,
+        thread_id: 78,
+        other_participant: null
+      },
+      {
+        thread_type: 'direct',
+        agency_id: 20,
+        unread_count: 1,
+        thread_id: 6,
+        other_participant: { id: 42 }
+      }
+    ];
+    expect(sortDirectThreadsForPerson(threads, 42)).toHaveLength(1);
+    expect(sortDirectThreadsForPerson(threads, 42)[0].thread_id).toBe(6);
+  });
 });
 
 describe('resolveChatContextForPerson', () => {

@@ -861,6 +861,7 @@ export const listMyThreads = async (req, res, next) => {
               t.agency_id,
               a.name AS agency_name,
               t.organization_id,
+              t.company_event_id,
               t.thread_type${teamCol}${channelCols},
               t.updated_at,
               lm.id AS last_message_id,
@@ -956,6 +957,20 @@ export const listMyThreads = async (req, res, next) => {
       }
     }
 
+    const eventThreadRows = (rows || []).filter(
+      (r) => String(r.thread_type || '').toLowerCase() === 'skill_builders_event' && Number(r.company_event_id) > 0
+    );
+    const eventLabelById = new Map();
+    if (eventThreadRows.length) {
+      const eventIds = [...new Set(eventThreadRows.map((r) => Number(r.company_event_id)).filter(Boolean))];
+      const ph = eventIds.map(() => '?').join(',');
+      const [evs] = await pool.execute(`SELECT id, title FROM company_events WHERE id IN (${ph})`, eventIds);
+      for (const ev of evs || []) {
+        const title = String(ev.title || '').trim();
+        eventLabelById.set(Number(ev.id), title || 'Event chat');
+      }
+    }
+
     const threads = (rows || []).map((r) => {
       const participants = participantsByThread[r.thread_id] || [];
       const others = participants.filter((p) => p.user_id !== userId);
@@ -971,12 +986,19 @@ export const listMyThreads = async (req, res, next) => {
         label = c?.label || 'Club thread';
       } else if (tType === 'channel') {
         label = r.channel_name || r.channel_slug || 'Channel';
+      } else if (tType === 'skill_builders_event') {
+        const evId = Number(r.company_event_id || 0);
+        label = (evId && eventLabelById.get(evId)) || 'Event chat';
+      } else if (tType === 'group') {
+        label = 'Group chat';
       }
+      const isDirect = tType === 'direct';
       return {
         thread_id: r.thread_id,
         agency_id: r.agency_id,
         agency_name: r.agency_name || null,
         organization_id: r.organization_id || null,
+        company_event_id: r.company_event_id || null,
         thread_type: tType,
         team_id: hasTeamCol ? (r.team_id || null) : null,
         thread_label: label,
@@ -1000,15 +1022,16 @@ export const listMyThreads = async (req, res, next) => {
           email: p.email,
           role: p.role
         })),
-        other_participant: other
-          ? {
-              id: other.user_id,
-              first_name: other.first_name,
-              last_name: other.last_name,
-              email: other.email,
-              role: other.role
-            }
-          : null
+        other_participant:
+          isDirect && other
+            ? {
+                id: other.user_id,
+                first_name: other.first_name,
+                last_name: other.last_name,
+                email: other.email,
+                role: other.role
+              }
+            : null
       };
     });
 
@@ -1995,12 +2018,25 @@ export const getThreadMeta = async (req, res, next) => {
       await assertAgencyOrOrgAccess(req.user, t.agency_id, t.organization_id || null);
     }
 
+    let eventTitle = null;
+    if (sbThread) {
+      try {
+        const [[ev]] = await pool.execute('SELECT title FROM company_events WHERE id = ? LIMIT 1', [evMeta]);
+        eventTitle = String(ev?.title || '').trim() || null;
+      } catch {
+        eventTitle = null;
+      }
+    }
+
     res.json({
       thread_id: t.thread_id,
       agency_id: t.agency_id,
       organization_id: t.organization_id || null,
       organization_slug: t.organization_slug || null,
-      organization_name: t.organization_name || null
+      organization_name: t.organization_name || null,
+      thread_type: t.thread_type || 'direct',
+      company_event_id: t.company_event_id || null,
+      event_title: eventTitle
     });
   } catch (e) {
     next(e);

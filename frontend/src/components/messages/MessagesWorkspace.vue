@@ -148,8 +148,10 @@
               class="person"
               @click="openThread(t)"
             >
-              <span class="dot" :class="dotClassForUserId(t.other_participant?.id)"></span>
+              <span v-if="isDirectUnreadThread(t)" class="dot" :class="dotClassForUserId(t.other_participant?.id)"></span>
+              <span v-else class="channel-hash" aria-hidden="true">💬</span>
               <PeerTenantMark
+                v-if="isDirectUnreadThread(t)"
                 :person="presencePersonForId(t.other_participant?.id) || t.other_participant"
                 :default-primary="defaultBrandPrimary"
                 :default-logo-url="defaultBrandLogo"
@@ -157,8 +159,11 @@
                 :viewer-memberships="viewerMembershipsForHover"
               />
               <span class="name-block">
-                <span class="name">{{ t.other_participant.first_name }} {{ t.other_participant.last_name }}</span>
-                <span class="status-line">{{ subtitleForUserId(t.other_participant?.id) }}</span>
+                <span class="name">
+                  {{ t.unreadTitle }}
+                  <span v-if="t.agencyLabel" class="agency-chip">{{ t.agencyLabel }}</span>
+                </span>
+                <span class="status-line">{{ t.unreadSubtitle }}</span>
               </span>
               <span class="pill">{{ t.unread_count }}</span>
             </button>
@@ -452,11 +457,13 @@
                 v-for="t in pendingThreads"
                 :key="`${t.agency_id}-${t.thread_id}`"
                 class="person"
-                :title="personHoverTitle(presencePersonForId(t.other_participant?.id) || t.other_participant)"
+                :title="isDirectUnreadThread(t) ? personHoverTitle(presencePersonForId(t.other_participant?.id) || t.other_participant) : t.unreadTitle"
                 @click="openThread(t)"
               >
-                <span class="dot" :class="dotClassForUserId(t.other_participant?.id)"></span>
+                <span v-if="isDirectUnreadThread(t)" class="dot" :class="dotClassForUserId(t.other_participant?.id)"></span>
+                <span v-else class="channel-hash" aria-hidden="true">💬</span>
                 <PeerTenantMark
+                  v-if="isDirectUnreadThread(t)"
                   :person="presencePersonForId(t.other_participant?.id) || t.other_participant"
                   :default-primary="defaultBrandPrimary"
                   :default-logo-url="defaultBrandLogo"
@@ -465,10 +472,10 @@
                 />
                 <span class="name-block">
                   <span class="name">
-                    {{ t.other_participant.first_name }} {{ t.other_participant.last_name }}
+                    {{ t.unreadTitle }}
                     <span v-if="!isClubContext && t.agencyLabel" class="agency-chip">{{ t.agencyLabel }}</span>
                   </span>
-                  <span class="status-line">{{ subtitleForUserId(t.other_participant?.id) }}</span>
+                  <span class="status-line">{{ t.unreadSubtitle }}</span>
                 </span>
                 <span class="pill">{{ t.unread_count }}</span>
               </button>
@@ -1086,7 +1093,8 @@ import { responsibilityFlagsLabel } from '../../utils/ticketTopics';
 import { pauseIdleForSessionExtend, clearSessionExtendPause, resetActivityTimer } from '../../utils/activityTracker';
 import {
   canDirectMessagePerson,
-  resolveChatContextForPerson
+  resolveChatContextForPerson,
+  sortDirectThreadsForPerson
 } from '../../utils/chatTenantResolve';
 
 const props = defineProps({
@@ -1632,11 +1640,37 @@ function tenantLabelForAgencyId(agencyId, fallbackName = '') {
   return '';
 }
 
+function threadUnreadTitle(t) {
+  if (String(t?.thread_type || 'direct') === 'direct' && t?.other_participant) {
+    const p = t.other_participant;
+    return `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Direct message';
+  }
+  return t?.thread_label || t?.channel_name || 'Group conversation';
+}
+
+function threadUnreadSubtitle(t) {
+  if (String(t?.thread_type || 'direct') === 'direct' && t?.other_participant?.id) {
+    return subtitleForUserId(t.other_participant.id);
+  }
+  const type = String(t?.thread_type || '').toLowerCase();
+  if (type === 'skill_builders_event') return 'Event chat';
+  if (type === 'channel') return 'Channel';
+  if (type === 'team') return 'Team chat';
+  if (type === 'club') return 'Club chat';
+  return 'Group chat';
+}
+
+function isDirectUnreadThread(t) {
+  return String(t?.thread_type || 'direct') === 'direct' && !!t?.other_participant;
+}
+
 const pendingThreads = computed(() => {
-  const list = (threads.value || []).filter((t) => (t.unread_count || 0) > 0 && t.other_participant);
+  const list = (threads.value || []).filter((t) => (t.unread_count || 0) > 0);
   const enriched = list.map((t) => ({
     ...t,
-    agencyLabel: tenantLabelForAgencyId(t.agency_id, t.agency_name)
+    agencyLabel: tenantLabelForAgencyId(t.agency_id, t.agency_name),
+    unreadTitle: threadUnreadTitle(t),
+    unreadSubtitle: threadUnreadSubtitle(t)
   }));
   return enriched.slice(0, 12);
 });
@@ -1650,7 +1684,8 @@ const filteredPeople = computed(() => {
 
 const unreadByUserId = computed(() => {
   const map = new Map();
-  for (const t of (threads.value || [])) {
+  for (const t of threads.value || []) {
+    if (String(t.thread_type || 'direct') !== 'direct') continue;
     const other = t.other_participant;
     if (!other) continue;
     map.set(other.id, (map.get(other.id) || 0) + (t.unread_count || 0));
@@ -2432,16 +2467,17 @@ async function openConversationByThreadId({
     chatLoading.value = true;
     activeThreadId.value = threadId;
     activeThreadAgencyId.value = aid || agencyId.value;
-    if (String(threadType || '').toLowerCase() === 'channel') {
+    const type = String(threadType || '').toLowerCase();
+    const groupLike = ['channel', 'skill_builders_event', 'group', 'team', 'club'].includes(type);
+    if (groupLike) {
       activeChannel.value = {
         thread_id: threadId,
         agency_id: aid || agencyId.value,
-        name: channelName || 'channel',
-        thread_type: 'channel'
+        name: channelName || (type === 'skill_builders_event' ? 'Event chat' : 'Channel'),
+        thread_type: type
       };
     } else {
-      // DM / group — show as chat without channel chrome
-      activeChatUser.value = { first_name: 'Conversation', last_name: '', id: null };
+      activeChatUser.value = { first_name: channelName || 'Conversation', last_name: '', id: null };
     }
     await loadMessages({ markRead: true, scrollToBottom: !focusMessageId });
     if (focusRootId) {
@@ -2727,6 +2763,26 @@ const createNewChannel = async () => {
   }
 };
 
+const openDirectThread = async (t) => {
+  if (!t?.thread_id || !t?.other_participant) return;
+  chatError.value = '';
+  chatMessages.value = [];
+  draft.value = '';
+  activeChannel.value = null;
+  mainTab.value = 'dms';
+  activeChatUser.value = t.other_participant;
+  activeThreadAgencyId.value = t.agency_id;
+  activeThreadId.value = t.thread_id;
+  try {
+    chatLoading.value = true;
+    await loadMessages({ markRead: true, scrollToBottom: true });
+  } catch (e) {
+    chatError.value = e.response?.data?.error?.message || 'Failed to open chat';
+  } finally {
+    chatLoading.value = false;
+  }
+};
+
 const openChat = async (u, agencyIdOverride = null, organizationIdOverride = null) => {
   chatError.value = '';
   chatMessages.value = [];
@@ -2742,6 +2798,12 @@ const openChat = async (u, agencyIdOverride = null, organizationIdOverride = nul
       activeThreadId.value = null;
       activeThreadAgencyId.value = null;
       chatMessages.value = [];
+      return;
+    }
+
+    const ranked = sortDirectThreadsForPerson(threads.value, u.id);
+    if (ranked.length) {
+      await openDirectThread({ ...ranked[0], other_participant: u });
       return;
     }
 
@@ -2773,7 +2835,9 @@ const openChat = async (u, agencyIdOverride = null, organizationIdOverride = nul
 };
 
 const openThread = async (t) => {
-  if (String(t?.thread_type || '') === 'channel') {
+  if (!t?.thread_id) return;
+  const type = String(t?.thread_type || 'direct').toLowerCase();
+  if (type === 'channel') {
     mainTab.value = 'channels';
     await openChannelThread({
       thread_id: t.thread_id,
@@ -2784,8 +2848,17 @@ const openThread = async (t) => {
     });
     return;
   }
-  if (!t?.other_participant) return;
-  await openChat(t.other_participant, t.agency_id, t.organization_id);
+  if (type === 'direct' && t.other_participant) {
+    await openDirectThread(t);
+    return;
+  }
+  mainTab.value = 'dms';
+  await openConversationByThreadId({
+    threadId: t.thread_id,
+    agencyId: t.agency_id,
+    threadType: t.thread_type,
+    channelName: t.thread_label || t.channel_name || 'Conversation'
+  });
 };
 
 /** Open a direct thread by user id (e.g. from URL openChatWith=userId&agencyId=...). Used when supervisor clicks "Chat with supervisee". */
@@ -2801,6 +2874,22 @@ const openChatByUserId = async (otherUserId, agencyIdOverride, displayName = '',
     chatError.value = "You don't share a tenant with this person.";
     return;
   }
+
+  const ranked = sortDirectThreadsForPerson(threads.value, parseInt(otherUserId, 10));
+  const matchingOverride = ranked.find((t) => {
+    if (agencyOverrideNum && Number(t.agency_id) !== agencyOverrideNum) return false;
+    if (orgOverrideNum != null && Number(t.organization_id || 0) !== orgOverrideNum) return false;
+    return true;
+  });
+  if (matchingOverride?.other_participant) {
+    await openDirectThread({ ...matchingOverride, other_participant: matchingOverride.other_participant });
+    return;
+  }
+  if (ranked.length && ranked[0]?.other_participant && !agencyOverrideNum) {
+    await openDirectThread({ ...ranked[0], other_participant: ranked[0].other_participant });
+    return;
+  }
+
   const ctx = resolveChatContextForPersonLocal(peer, agencyOverrideNum, orgOverrideNum);
   if (!ctx.agencyId) return;
   chatError.value = '';
@@ -3138,22 +3227,28 @@ watch(
   async (newVal) => {
     const threadIdStr = newVal.query?.threadId;
     if (threadIdStr) {
-      const tid = Number(threadIdStr);
+      const tid = Number(String(threadIdStr).replace(/^chat-/, ''));
       if (tid) {
         try {
           const metaRes = await api.get(`/chat/threads/${tid}/meta`, { skipGlobalLoading: true });
           const meta = metaRes.data;
-          
-          let cName = 'Channel';
-          if (meta.thread_type === 'channel') {
+          const metaType = String(meta.thread_type || '').toLowerCase();
+
+          let cName = meta.organization_name || 'Conversation';
+          if (metaType === 'channel') {
             if (!channels.value.length) await loadChannels();
             const found = channels.value.find(c => c.thread_id === tid);
             if (found) cName = found.name || 'Channel';
             mainTab.value = 'channels';
+          } else if (metaType === 'skill_builders_event') {
+            mainTab.value = 'dms';
+            cName = meta.event_title || (threads.value || []).find((t) => Number(t.thread_id) === tid)?.thread_label || 'Event chat';
+          } else if (metaType === 'direct') {
+            mainTab.value = 'dms';
           } else {
             mainTab.value = 'dms';
           }
-          
+
           await openConversationByThreadId({
             threadId: tid,
             agencyId: meta.agency_id,
