@@ -1131,17 +1131,17 @@
               >
                 Operations Dashboard
               </router-link>
-              <button
-                v-if="brandingStore.isSuperAdmin"
-                type="button"
-                class="btn btn-secondary"
-                :aria-pressed="builderStore.panelOpen ? 'true' : 'false'"
-                title="Superadmin UI overlay builder (not course content)"
-                @click="builderStore.togglePanel()"
-              >
-                UI Builder
-              </button>
               <div class="nav-right-group">
+                <button
+                  v-if="showFocusMusicNav"
+                  type="button"
+                  class="nav-icon-btn nav-focus-music-btn"
+                  title="Focus Music"
+                  aria-label="Focus Music"
+                  @click="openFocusMusic"
+                >
+                  <span aria-hidden="true">🎵</span>
+                </button>
                 <AskAssistantLauncher v-if="isAuthenticated" />
                 <WeatherChip />
                 <router-link
@@ -1259,6 +1259,14 @@
             <span>{{ indirectTimeSessionStore.statusLabel }}</span>
             <strong>{{ indirectTimeSessionStore.formattedElapsed }}</strong>
             <span>Log Time →</span>
+          </button>
+          <button
+            v-if="showFocusMusicNav"
+            type="button"
+            class="mobile-nav-link mobile-nav-link-assistant"
+            @click="openFocusMusic(); closeMobileMenu();"
+          >
+            🎵 Focus Music
           </button>
           <button
             v-if="isAuthenticated"
@@ -2296,6 +2304,73 @@
         :org-to="orgTo"
         @close="toolsAssignState = null"
       />
+      <FocusMusicModal
+        :open="focusMusic.modalOpen.value"
+        :sidebar-playlists="focusMusic.sidebarPlaylists.value"
+        :full-library-playlist-id="focusMusic.fullLibraryPlaylistId"
+        :my-focus-playlist-id="focusMusic.myFocusPlaylistId"
+        :is-full-library-active="focusMusic.isFullLibraryActive.value"
+        :is-my-focus-active="focusMusic.isMyFocusActive.value"
+        :platform-playlists="focusMusic.platformPlaylists.value"
+        :can-manage-platform-playlists="focusMusic.canManagePlatformPlaylists.value"
+        :managing-platform-id="focusMusic.managingPlatformId.value"
+        :managing-platform-playlist="focusMusic.managingPlatformPlaylist.value"
+        :is-platform-expanded="focusMusic.isPlatformExpanded"
+        :active-playlist="focusMusic.activePlaylist.value"
+        :active-playlist-id="focusMusic.activePlaylistId.value"
+        :playlist-tracks="focusMusic.playlistTracks.value"
+        :library-tracks="focusMusic.libraryTracks.value"
+        :all-tracks="focusMusic.tracks.value"
+        :loop-track-ids="focusMusic.loopTrackIds.value"
+        :show-library="focusMusic.showLibrary.value"
+        :shuffle-enabled="focusMusic.shuffleEnabled.value"
+        :loading="focusMusic.loading.value"
+        :load-error="focusMusic.loadError.value"
+        :current-track="focusMusic.currentTrack.value"
+        :current-track-id="focusMusic.currentTrackId.value"
+        :playing="focusMusic.playing.value"
+        :loop-mode="focusMusic.loopMode.value"
+        :current-time="focusMusic.currentTime.value"
+        :duration="focusMusic.duration.value"
+        :progress-pct="focusMusic.progressPct.value"
+        :volume="focusMusic.volume.value"
+        :format-time="focusMusic.formatTime"
+        @close="focusMusic.closeModal()"
+        @play="focusMusic.playTrack($event)"
+        @toggle-loop="focusMusic.toggleLoopTrack($event)"
+        @add-track="focusMusic.addTrackToPlaylist($event)"
+        @add-platform-track="({ platformId, trackId }) => focusMusic.addTrackToPlatformPlaylist(platformId, trackId)"
+        @remove-track="focusMusic.removeTrackFromPlaylist($event)"
+        @select-playlist="focusMusic.selectPlaylist($event)"
+        @create-playlist="focusMusic.createPlaylist()"
+        @rename-playlist="({ id, name }) => focusMusic.renamePlaylist(id, name)"
+        @delete-playlist="focusMusic.deletePlaylist($event)"
+        @toggle-library="focusMusic.toggleLibrary()"
+        @toggle-platform-expand="focusMusic.togglePlatformExpand($event)"
+        @import-platform-playlist="focusMusic.importPlatformPlaylist($event)"
+        @copy-platform-playlist="focusMusic.copyPlatformPlaylist($event)"
+        @create-platform-playlist="focusMusic.createPlatformPlaylist()"
+        @delete-platform-playlist="focusMusic.deletePlatformPlaylist($event)"
+        @start-managing-platform="focusMusic.startManagingPlatform($event)"
+        @stop-managing-platform="focusMusic.stopManagingPlatform()"
+        @set-loop-mode="focusMusic.setLoopMode($event)"
+        @set-shuffle-enabled="focusMusic.setShuffleEnabled($event)"
+        @toggle-shuffle="focusMusic.toggleShuffle()"
+        @start-looping="focusMusic.startLooping()"
+        @toggle-play="focusMusic.togglePlay()"
+        @prev="focusMusic.playPrev()"
+        @next="focusMusic.playNext()"
+        @set-volume="focusMusic.setVolume($event)"
+      />
+      <FocusMusicToast
+        v-if="showFocusMusicNav && focusMusic.showToast.value"
+        :track="focusMusic.currentTrack.value"
+        :playlist-name="focusMusic.playbackPlaylistName.value"
+        :playing="focusMusic.playing.value"
+        @toggle-play="focusMusic.togglePlay()"
+        @next="focusMusic.playNext()"
+        @open-modal="openFocusMusic()"
+      />
       </div>
     </div>
   </BrandingProvider>
@@ -2310,7 +2385,6 @@ import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';
 import { useOrganizationStore } from './store/organization';
 import { useTutorialStore } from './store/tutorial';
-import { useSuperadminBuilderStore } from './store/superadminBuilder';
 import { useNotificationStore } from './store/notifications';
 import { useCommunicationsCountsStore } from './store/communicationsCounts';
 import { useSessionLockStore } from './store/sessionLock';
@@ -2349,6 +2423,9 @@ import MomentumStickiesOverlay from './components/momentum/MomentumStickiesOverl
 import AddStickyFab from './components/momentum/AddStickyFab.vue';
 import AddToStickyContextMenu from './components/momentum/AddToStickyContextMenu.vue';
 import { useMomentumListAddon } from './composables/useMomentumListAddon';
+import { useFocusMusicPlayer } from './composables/useFocusMusicPlayer';
+import FocusMusicModal from './components/focusMusic/FocusMusicModal.vue';
+import FocusMusicToast from './components/focusMusic/FocusMusicToast.vue';
 import { useReminderSnooze, isLoginNotificationDismissed, markLoginNotificationDismissed } from './composables/useReminderSnooze';
 import WeatherChip from './components/WeatherChip.vue';
 import IndirectTimeClockChip from './components/IndirectTimeClockChip.vue';
@@ -2414,6 +2491,16 @@ const summitTeamBrandLabel = SUMMIT_STATS_TEAM_CHALLENGE_NAME;
 
 const currentAgencyIdForAddon = computed(() => agencyStore.currentAgency?.id ?? null);
 const { momentumListEnabled } = useMomentumListAddon(currentAgencyIdForAddon);
+const focusMusicUserId = computed(() => authStore.user?.id ?? null);
+const focusMusic = useFocusMusicPlayer({ userIdRef: focusMusicUserId });
+const showFocusMusicNav = computed(() => {
+  if (!isAuthenticated.value) return false;
+  if (!agencyStore.currentAgency?.id) return false;
+  return currentAgencyFeatureFlags.value?.focusMusicEnabled !== false;
+});
+const openFocusMusic = () => {
+  focusMusic.openModal();
+};
 const userIdForSnooze = computed(() => authStore.user?.id ?? null);
 const sessionIdForDefer = computed(() => {
   try {
@@ -2437,7 +2524,6 @@ const tutorialStore = useTutorialStore();
 watch(isSummitStatsChallengeChrome, (v) => {
   if (v) tutorialStore.setEnabled(false);
 });
-const builderStore = useSuperadminBuilderStore();
 const notificationStore = useNotificationStore();
 /** Declared before engagement-menu computeds that watch unread count (avoids TDZ when showEngagementMenu is evaluated early). */
 const notificationsUnreadCount = computed(() => Number(notificationStore.unreadCount || 0));
@@ -3309,6 +3395,7 @@ const formatNavBadgeCount = (n) => {
  * doesn't instantly steal the menu. Click still toggles immediately.
  */
 const NAV_HOVER_OPEN_DELAY_MS = 220;
+const NAV_HOVER_CLOSE_DELAY_MS = 280;
 
 const onNavMenuEnter = (key) => {
   // User setting: My Settings → Open menus on hover
@@ -3332,7 +3419,7 @@ const onNavMenuLeave = (key) => {
   navMenuHoverTimer.value = setTimeout(() => {
     closeNavMenuByKey(key);
     navMenuHoverTimer.value = null;
-  }, 180);
+  }, NAV_HOVER_CLOSE_DELAY_MS);
 };
 
 const toolsNavCategories = computed(() => {
@@ -6682,7 +6769,7 @@ onUnmounted(() => {
 
 .nav-dropdown-menu {
   position: absolute;
-  top: calc(100% + 10px);
+  top: calc(100% + 2px);
   left: 50%;
   transform: translateX(-50%);
   min-width: 220px;
@@ -6702,6 +6789,18 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 2px;
   /* Match top-nav text sizing */
+}
+
+.nav-dropdown-menu::before {
+  content: '';
+  position: absolute;
+  top: -14px;
+  left: -10px;
+  right: -10px;
+  height: 14px;
+}
+
+.nav-dropdown-menu {
   font-size: 16px;
 }
 
@@ -7304,9 +7403,12 @@ button.nav-dropdown-button-link:hover {
   flex-shrink: 0;
 }
 
-/* Dropdowns/flyouts need to paint outside the scroll row */
+/* Dropdowns/flyouts paint below the scroll row without disabling horizontal scroll */
 .nav-links-wrapper.nav-menus-open {
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: min(70vh, 520px);
+  margin-bottom: calc(-1 * min(70vh, 520px));
   mask-image: none;
   -webkit-mask-image: none;
 }

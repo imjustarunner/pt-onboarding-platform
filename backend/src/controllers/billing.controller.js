@@ -22,6 +22,7 @@ export const getAgencyAddons = async (req, res, next) => {
     const publicAvailability = Boolean(entitlements?.publicAvailability?.enabled);
     const geminiNoteAid = Boolean(entitlements?.geminiNoteAid?.enabled);
     const officeSchedulingPublishing = Boolean(entitlements?.officeSchedulingPublishing?.enabled);
+    const billingFocusMusic = Boolean(entitlements?.focusMusic?.enabled);
 
     const Agency = (await import('../models/Agency.model.js')).default;
     const agency = await Agency.findById(parsedAgencyId);
@@ -29,10 +30,12 @@ export const getAgencyAddons = async (req, res, next) => {
       ? (typeof agency.feature_flags === 'string' ? (() => { try { return JSON.parse(agency.feature_flags); } catch { return {}; } })() : agency.feature_flags)
       : {};
     const featureFlagMomentumList = Boolean(flags.momentumListEnabled);
+    const featureFlagFocusMusic = flags.focusMusicEnabled !== false;
 
     res.json({
       agencyId: parsedAgencyId,
       momentumList: billingMomentumList || featureFlagMomentumList,
+      focusMusic: billingFocusMusic || featureFlagFocusMusic,
       publicAvailability,
       geminiNoteAid,
       officeSchedulingPublishing

@@ -487,6 +487,14 @@ export const markOffline = async (req, res, next) => {
 export const getMyPresence = async (req, res, next) => {
   try {
     const userId = req.user.id;
+
+    // Clear stale timed/day-level Away rows before computing self status.
+    try {
+      await UserPresenceStatus.clearIfTimedAwayExpired(userId);
+    } catch {
+      /* ignore */
+    }
+
     const [[row]] = await pool.execute(
       `SELECT up.user_id, up.last_heartbeat_at, up.last_activity_at, up.session_phase, up.availability_level,
               ${PRESENCE_STATUS_JOIN}
@@ -558,6 +566,24 @@ export const getMyPresence = async (req, res, next) => {
     let displayLabel = computed.presence_display_label || statusLabel;
     let calendarBusy = null;
     // Calendar busy overlays Active only — Idle stays Idle (not Team Board / meal copy).
+    let plannedOutActive = false;
+    const agencyId = parseInt(req.headers['x-agency-id'], 10) || parseInt(req.user?.agencyId, 10) || 0;
+    if (agencyId && await PlannedOut.tableExists()) {
+      try {
+        const active = await PlannedOut.listActiveApprovedNowForAgency(agencyId, { userId });
+        const po = active?.[0];
+        if (po) {
+          plannedOutActive = true;
+          const poLabel = plannedOutStatusLabel(po);
+          if (computed.availability_band === 'unavailable' || computed.availability_band === 'away_reachable') {
+            displayLabel = poLabel;
+            statusLabel = poLabel;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
     if (computed.status === 'online') {
       try {
         const busy = await getCurrentCalendarBusyForUser(userId);
@@ -584,7 +610,8 @@ export const getMyPresence = async (req, res, next) => {
       presence_expected_return_at: computed.presence_expected_return_at,
       presence_session_extend_until: sessionExtendUntil,
       session_extend_active: sessionExtendActive,
-      calendar_busy: calendarBusy
+      calendar_busy: calendarBusy,
+      planned_out_active: plannedOutActive
     });
   } catch (e) {
     next(e);

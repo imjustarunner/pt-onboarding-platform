@@ -30,6 +30,7 @@ export const AVAILABLE_AGENCY_FEATURE_KEYS = [
   { key: 'presenceEnabled', label: 'Presence / Team Board' },
   { key: 'kudosEnabled', label: 'Kudos' },
   { key: 'momentumListEnabled', label: 'Momentum List' },
+  { key: 'focusMusicEnabled', label: 'Focus Music' },
   { key: 'medcancelEnabled', label: 'Med Cancel' },
   { key: 'inSchoolSubmissionsEnabled', label: 'In-School Submissions' },
   { key: 'googleSsoEnabled', label: 'Google Workspace SSO' },

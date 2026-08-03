@@ -229,6 +229,16 @@ const DEFAULT_FEATURE_CATALOG = {
     'Access to the mental health games platform and enabled game titles.',
     { featureFlagKey: 'gamesPlatformEnabled', perUserBillable: true }
   ),
+  focusMusic: createFeatureCatalogEntry(
+    'focusMusic',
+    'Focus Music',
+    'Ambient focus playlists for staff concentration during work.',
+    {
+      tenantMonthlyCents: 4000,
+      featureFlagKey: 'focusMusicEnabled',
+      defaultAvailable: true
+    }
+  ),
   summerProgramManagement: createFeatureCatalogEntry(
     'summerProgramManagement',
     'Summer program management',

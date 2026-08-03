@@ -64,6 +64,7 @@
     "html-to-docx": "^1.8.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
+    "music-metadata": "^11.14.0",
     "mysql2": "^3.6.5",
     "node-ical": "^0.23.1",
     "pdf-lib": "^1.17.1",

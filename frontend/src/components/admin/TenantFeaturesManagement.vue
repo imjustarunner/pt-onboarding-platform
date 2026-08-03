@@ -437,6 +437,7 @@ const isTruthy = (value) => {
 const BILLING_FEATURE_FLAG_KEY_OVERRIDES = {
   publicAvailability: 'publicProviderFinderEnabled',
   momentumList: 'momentumListEnabled',
+  focusMusic: 'focusMusicEnabled',
   geminiNoteAid: 'noteAidEnabled',
   officeSchedulingPublishing: 'shiftProgramsEnabled',
   payrollWorkspace: 'payrollEnabled',

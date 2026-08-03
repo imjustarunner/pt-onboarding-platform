@@ -1,7 +1,7 @@
 <template>
   <div class="presence-widget" :class="{ 'presence-widget--compact': compact }">
     <div v-if="!compact" class="presence-widget-header">
-      <span class="presence-widget-title">In status</span>
+      <span class="presence-widget-title">{{ headerLabel }}</span>
       <router-link v-if="canViewTeamBoard" to="/admin/presence" class="presence-team-link">View Team Board</router-link>
     </div>
     <div class="presence-widget-body" :class="{ 'presence-widget-body--compact': compact }">
@@ -12,7 +12,7 @@
         :disabled="saving"
         @change="onChange"
       >
-        <option value="">{{ compact ? 'In status…' : '— Set In status —' }}</option>
+        <option value="">{{ compact ? 'Status…' : '— Set status —' }}</option>
         <option
           v-for="opt in statusOptions"
           :key="opt.value"
@@ -40,7 +40,14 @@ import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { usePresenceSessionStore } from '../../store/presenceSession';
-import { IN_PRESENCE_OPTIONS, inPresenceOptionKey, isPrivilegedPresenceRole } from '../../utils/presenceStatus';
+import {
+  IN_PRESENCE_OPTIONS,
+  inPresenceOptionKey,
+  isPrivilegedPresenceRole,
+  labelForInPresenceOptionKey,
+  normalizePresenceDisplayLabel,
+  teamBoardStatusLabel
+} from '../../utils/presenceStatus';
 import api from '../../services/api';
 
 defineProps({
@@ -72,16 +79,32 @@ const openAwayPrompt = () => {
 const statusOptions = IN_PRESENCE_OPTIONS;
 
 const currentOptionKey = ref('');
+const presenceRow = ref(null);
 const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
+
+const currentStatusLabel = computed(() => {
+  if (currentOptionKey.value) return labelForInPresenceOptionKey(currentOptionKey.value);
+  const row = presenceRow.value;
+  if (!row) return '';
+  const rich = normalizePresenceDisplayLabel(row.presence_display_label || row.display_label || '');
+  if (rich) return rich;
+  return teamBoardStatusLabel(row) || '';
+});
+
+const headerLabel = computed(() => {
+  if (loading.value) return 'Status';
+  return currentStatusLabel.value || 'Status';
+});
 
 const fetchStatus = async () => {
   try {
     loading.value = true;
     error.value = '';
     const res = await api.get('/presence/status/me');
-    currentOptionKey.value = inPresenceOptionKey(res.data || {});
+    presenceRow.value = res.data || {};
+    currentOptionKey.value = inPresenceOptionKey(presenceRow.value);
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load';
     currentOptionKey.value = '';
@@ -106,6 +129,12 @@ const onChange = async (event) => {
       note: null
     });
     currentOptionKey.value = key;
+    presenceRow.value = {
+      ...(presenceRow.value || {}),
+      presence_status: opt.status || opt.value,
+      presence_display_label: opt.displayLabel || opt.label,
+      display_label: opt.displayLabel || opt.label
+    };
     emit('updated');
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to update';
