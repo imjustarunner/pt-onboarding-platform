@@ -1,5 +1,34 @@
 <template>
-  <div class="container" :class="{ 'container-wide': activeTab === 'my_schedule' || activeTab === 'overview' || activeTab === 'log_time' }">
+  <div :class="usePlatformShell ? 'pthq-personal' : undefined">
+    <header v-if="usePlatformShell" class="pthq-personal-top">
+      <div class="pthq-personal-brand">
+        <div class="pthq-personal-mark" aria-hidden="true">PT</div>
+        <div>
+          <div class="pthq-personal-brand-name">Plot Twist HQ</div>
+          <div class="pthq-personal-brand-sub">My Dashboard</div>
+        </div>
+      </div>
+      <div class="pthq-personal-actions">
+        <router-link to="/admin" class="pthq-personal-link">← Command center</router-link>
+        <router-link to="/admin?panel=messages" class="pthq-personal-link">Messages</router-link>
+        <span class="pthq-personal-pill">PERSONAL</span>
+        <button
+          type="button"
+          class="pthq-personal-logout"
+          :disabled="platformShellLoggingOut"
+          @click="handlePlatformShellLogout"
+        >
+          {{ platformShellLoggingOut ? 'Signing out…' : 'Log out' }}
+        </button>
+      </div>
+    </header>
+    <div
+      class="container"
+      :class="{
+        'container-wide': activeTab === 'my_schedule' || activeTab === 'overview' || activeTab === 'log_time',
+        'pthq-personal-inner': usePlatformShell,
+      }"
+    >
     <!-- Dashboard Header with Logo (shown in preview mode) -->
     <div v-if="previewMode" class="dashboard-header-preview">
       <div class="header-content">
@@ -16,7 +45,7 @@
     >
       <div class="dashboard-header-user__titles">
         <h1 data-tour="dash-header-title">{{ isPending && !isClubContext ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
-        <span v-if="activeTab !== 'overview'" class="badge badge-user">Personal</span>
+        <span v-if="activeTab !== 'overview' && !usePlatformShell" class="badge badge-user">Personal</span>
         <span v-if="tierBadgeText" class="badge badge-tier" :class="tierBadgeKind">{{ tierBadgeText }}</span>
       </div>
       <button
@@ -486,6 +515,7 @@
               :context-is-other="scheduleViewContextIsOther"
               :views="scheduleHubViews"
               :skill-builders-active="!skillBuildersSeriesCollapsed && seriesCompanyEvents.length > 0"
+              :platform-theme="usePlatformShell"
               @select-view="onScheduleHubSelectView"
             >
               <template #header-actions>
@@ -775,6 +805,7 @@
                 :hide-office-and-calendar-integration="isClubContext"
                 :show-skill-builders-programs-button="skillBuildersProgramsPickerRoleOk"
                 :show-company-events-calendar-button="!isClubContext"
+                :platform-theme="usePlatformShell"
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
                 @open-skill-builders-programs="goSkillBuildersProgramsPage"
                 @open-company-events-calendar="openCompanyEventsCalendar"
@@ -1128,6 +1159,7 @@
       @close="showCompanyEventsCalendar = false"
       @changed="onCompanyEventsCalendarChanged"
     />
+    </div>
   </div>
 </template>
 
@@ -1195,6 +1227,7 @@ import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { setDarkMode } from '../utils/darkMode';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
+import { usePlotTwistHqShell } from '../composables/usePlotTwistHqShell';
 import { isBookClubAgency as isBookClubPortalOrg } from '../utils/bookClubAgency.js';
 
 const props = defineProps({
@@ -1214,6 +1247,8 @@ const props = defineProps({
 
 const router = useRouter();
 const route = useRoute();
+const { usePlatformShell } = usePlotTwistHqShell();
+const platformShellLoggingOut = ref(false);
 
 function goSkillBuildersProgramsPage() {
   const slug = String(route.params?.organizationSlug || '').trim();
@@ -1231,6 +1266,25 @@ function onCompanyEventsCalendarChanged() {
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+
+async function handlePlatformShellLogout() {
+  if (platformShellLoggingOut.value) return;
+  platformShellLoggingOut.value = true;
+  try {
+    await authStore.logout();
+  } finally {
+    platformShellLoggingOut.value = false;
+  }
+}
+
+watch(
+  usePlatformShell,
+  (on) => {
+    if (on) setDarkMode(true);
+  },
+  { immediate: true }
+);
+
 /** SSTC / affiliation portal: hide HR-style tabs and schedule tooling. Declared early — many computeds depend on it. */
 const isClubContext = computed(() => {
   const t = String(
@@ -7534,6 +7588,186 @@ h1 {
   color: #166534;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+/* ── Plot Twist HQ personal dashboard shell (super admin, platform context) ── */
+.pthq-personal {
+  --line: rgba(148, 163, 184, 0.18);
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 500px at 10% -10%, rgba(139, 92, 246, 0.22), transparent 55%),
+    radial-gradient(900px 400px at 90% 0%, rgba(56, 189, 248, 0.12), transparent 50%),
+    #070b14;
+  color: var(--text);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+.pthq-personal-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.25rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.pthq-personal-brand {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.pthq-personal-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 0.78rem;
+  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  color: #fff;
+}
+
+.pthq-personal-brand-name {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+}
+
+.pthq-personal-brand-sub {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.pthq-personal-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.pthq-personal-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(15, 23, 42, 0.65);
+  color: #c4b5fd;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.pthq-personal-link:hover {
+  border-color: rgba(167, 139, 250, 0.45);
+  color: #e9d5ff;
+  background: rgba(139, 92, 246, 0.16);
+}
+
+.pthq-personal-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.35);
+}
+
+.pthq-personal-logout {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pthq-personal-logout:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(248, 113, 113, 0.45);
+}
+
+.pthq-personal-logout:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.pthq-personal-inner.container {
+  max-width: none;
+  width: 100%;
+  padding: 1rem 1.25rem 2rem;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.pthq-personal :deep(.dashboard-header-user) {
+  border-bottom-color: var(--line);
+}
+
+.pthq-personal :deep(.dashboard-header-user__titles h1) {
+  color: var(--text);
+}
+
+.pthq-personal :deep(.card-content--schedule-hub),
+.pthq-personal :deep(.card-content-schedule) {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.pthq-personal :deep(.dashboard-rail) {
+  background: rgba(17, 24, 39, 0.88);
+  border-color: var(--line);
+}
+
+.pthq-personal :deep(.rail-expand-btn) {
+  background: rgba(15, 23, 42, 0.65);
+  border-color: var(--line);
+  color: #c4b5fd;
+}
+
+.pthq-personal :deep(.card-content) {
+  background: rgba(17, 24, 39, 0.45);
+  border-color: var(--line);
+}
+
+.pthq-personal :deep(.btn-primary) {
+  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  border-color: transparent;
+  color: #fff;
+}
+
+.pthq-personal :deep(.btn-primary:hover:not(:disabled)) {
+  filter: brightness(1.08);
+}
+
+.pthq-personal :deep(.btn-secondary) {
+  background: rgba(15, 23, 42, 0.65);
+  border-color: var(--line);
+  color: #c4b5fd;
+}
+
+.pthq-personal :deep(.btn-secondary:hover:not(:disabled)) {
+  background: rgba(139, 92, 246, 0.16);
+  border-color: rgba(167, 139, 250, 0.45);
+}
+
+.pthq-personal :deep(.badge-user) {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.35);
 }
 
 </style>

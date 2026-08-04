@@ -1,5 +1,5 @@
 <template>
-  <div class="sched-hub">
+  <div class="sched-hub" :class="{ 'sched-hub--platform': platformTheme }">
     <header
       v-if="(activeTitle && activeTitle !== 'My schedule') || contextLine || $slots['header-actions']"
       class="sched-hub__header"
@@ -84,6 +84,7 @@ const props = defineProps({
   contextIsOther: { type: Boolean, default: false },
   views: { type: Array, default: () => [] },
   skillBuildersActive: { type: Boolean, default: false },
+  platformTheme: { type: Boolean, default: false },
 });
 
 defineEmits(['select-view']);
@@ -292,5 +293,75 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
 
 .sched-hub__content {
   min-width: 0;
+}
+
+/* Plot Twist HQ — dark platform shell (super admin, no tenant) */
+.sched-hub--platform {
+  --hub-green: #8b5cf6;
+  --hub-border: rgba(148, 163, 184, 0.18);
+  --hub-muted: #94a3b8;
+  color: #e5e7eb;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+.sched-hub--platform .sched-hub__view-label {
+  color: #cbd5e1;
+}
+
+.sched-hub--platform .sched-hub__context--other {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.sched-hub--platform .sched-hub__stat {
+  background: rgba(17, 24, 39, 0.88);
+  border-color: var(--hub-border);
+  color: #e5e7eb;
+  box-shadow: none;
+}
+
+.sched-hub--platform .sched-hub__stat:hover {
+  background: rgba(30, 41, 59, 0.92);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.sched-hub--platform .sched-hub__stat:focus-visible {
+  outline-color: #8b5cf6;
+}
+
+.sched-hub--platform .sched-hub__stat--active {
+  border-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.14);
+  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.18);
+}
+
+.sched-hub--platform .sched-hub__stat--active:hover {
+  border-color: #a78bfa;
+  background: rgba(139, 92, 246, 0.2);
+}
+
+.sched-hub--platform .sched-hub__stat-badge {
+  background: #8b5cf6;
+}
+
+.sched-hub--platform .sched-hub__stat-value {
+  color: #f3f4f6;
+}
+
+.sched-hub--platform .sched-hub__banner {
+  background: rgba(139, 92, 246, 0.12);
+  border-color: rgba(167, 139, 250, 0.35);
+  color: #c4b5fd;
+}
+
+.sched-hub--platform .sched-hub__banner-close {
+  color: #94a3b8;
+}
+
+.sched-hub--platform .sched-hub__stage {
+  background: rgba(17, 24, 39, 0.55);
+  border-color: var(--hub-border);
+  box-shadow: none;
 }
 </style>

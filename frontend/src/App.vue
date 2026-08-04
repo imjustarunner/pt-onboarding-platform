@@ -2717,7 +2717,7 @@ function isPlatformHqRoute(r) {
   if (!r) return false;
   if (String(r.params?.organizationSlug || '').trim()) return false;
   const path = String(r.path || '');
-  if (path === '/admin' || path === '/admin-dashboard') return true;
+  if (path === '/admin' || path === '/admin-dashboard' || path === '/dashboard') return true;
   if (r.meta?.platformCommandCenter === true) return true;
   return false;
 }
@@ -4057,8 +4057,9 @@ const hideGlobalNavForSchoolStaff = computed(() => {
     if (String(route.params?.organizationSlug || '').trim()) return false;
     const path = String(route.path || '');
     const onHqHome = path === '/admin' || path === '/admin-dashboard';
+    const onPersonalDashboard = path === '/dashboard';
     const onUnscopedHqSurface = route.meta?.platformCommandCenter === true;
-    if (onHqHome || onUnscopedHqSurface) return true;
+    if (onHqHome || onPersonalDashboard || onUnscopedHqSurface) return true;
   }
   return false;
 });
