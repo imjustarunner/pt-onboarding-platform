@@ -365,7 +365,7 @@
           v-if="voiceIsolationStatus"
           class="vsr__voice-iso"
           :class="{
-            'vsr__voice-iso--on': voiceIsolationStatus === 'on' || voiceIsolationStatus === 'processing' || voiceIsolationStatus === 'browser',
+            'vsr__voice-iso--on': voiceIsolationStatus === 'device' || voiceIsolationStatus === 'on' || voiceIsolationStatus === 'processing' || voiceIsolationStatus === 'browser',
             'vsr__voice-iso--off': voiceIsolationStatus === 'unavailable' || voiceIsolationStatus === 'unsupported'
           }"
           :title="voiceIsolationTitle"
@@ -442,6 +442,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { updateRemoteVideoState } from './remoteVideoState.js';
+import { acquireNativeAudioSource, nativeAudioConstraints } from './nativeAudioCapture.js';
 
 const props = defineProps({
   /** Vonage Application ID (preferred) or legacy OpenTok project API key */
@@ -694,25 +695,29 @@ function applyScreenShareGrantLocal(granted) {
 }
 
 const voiceIsolationLabel = computed(() => {
+  if (voiceIsolationStatus.value === 'device') return 'Voice isolation verified';
   if (voiceIsolationStatus.value === 'on') return 'Voice isolation on';
   if (voiceIsolationStatus.value === 'processing') return 'Enhancing mic…';
-  if (voiceIsolationStatus.value === 'browser') return 'Noise reduction on';
+  if (voiceIsolationStatus.value === 'browser') return 'Native noise reduction on';
   if (voiceIsolationStatus.value === 'unavailable') return 'Standard mic';
   if (voiceIsolationStatus.value === 'unsupported') return 'Mic processing N/A';
   return '';
 });
 const voiceIsolationTitle = computed(() => {
+  if (voiceIsolationStatus.value === 'device') {
+    return 'The published microphone track reports Voice Isolation enabled. Native echo cancellation, noise suppression, and automatic gain control were also requested.';
+  }
   if (voiceIsolationStatus.value === 'on') {
-    return 'Vonage advanced noise suppression is filtering background noise from your microphone. Echo cancellation is also active.';
+    return 'Advanced microphone noise suppression is active.';
   }
   if (voiceIsolationStatus.value === 'processing') {
-    return 'Starting advanced noise suppression…';
+    return 'Opening and verifying the native-processed microphone track…';
   }
   if (voiceIsolationStatus.value === 'browser') {
-    return 'Native browser/device noise reduction and voice isolation are requested. Echo cancellation and automatic gain control are also active.';
+    return 'The exact published track reports native noise reduction. System Voice Isolation may be active but Chrome does not expose that setting for verification.';
   }
   if (voiceIsolationStatus.value === 'unavailable') {
-    return 'Vonage advanced isolation is not available here. Your browser may still apply echo cancellation or system voice isolation separately.';
+    return 'This microphone track did not report noise reduction. Check the browser input and the device Mic Mode.';
   }
   if (voiceIsolationStatus.value === 'unsupported') {
     return 'This browser cannot report mic processing. Your system may still apply voice isolation.';
@@ -720,29 +725,15 @@ const voiceIsolationTitle = computed(() => {
   return '';
 });
 
-function nativeAudioConstraints() {
-  const constraints = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true
-  };
-  try {
-    const supported = navigator?.mediaDevices?.getSupportedConstraints?.() || {};
-    // Safari/WebKit exposes this when the device capture mode can be requested.
-    if (supported.voiceIsolation) constraints.voiceIsolation = true;
-  } catch { /* use the broadly-supported native constraints above */ }
-  return constraints;
-}
-
-function trackHasBrowserNoiseReduction(track) {
-  if (!track || typeof track.getSettings !== 'function') return false;
+function trackAudioEnhancementStatus(track) {
+  if (!track || typeof track.getSettings !== 'function') return '';
   try {
     const settings = track.getSettings() || {};
-    if (settings.noiseSuppression === true) return true;
     const vi = String(settings.voiceIsolation || '').toLowerCase();
-    if (vi && vi !== 'off' && vi !== 'false' && vi !== '0') return true;
+    if (vi && vi !== 'off' && vi !== 'false' && vi !== '0') return 'device';
+    if (settings.noiseSuppression === true) return 'browser';
   } catch { /* ignore */ }
-  return false;
+  return '';
 }
 
 function refreshAudioEnhancementStatus(publisher) {
@@ -754,22 +745,20 @@ function refreshAudioEnhancementStatus(publisher) {
     }
   } catch { /* ignore */ }
   try {
-    const stream = publisher?.getAudioSource?.() || publisher?.stream || null;
-    const track = stream?.getAudioTracks?.()?.[0]
-      || (typeof stream?.getTracks === 'function'
-        ? stream.getTracks().find((t) => t?.kind === 'audio')
-        : null);
-    if (trackHasBrowserNoiseReduction(track)) {
-      voiceIsolationStatus.value = 'browser';
+    const source = publisherAudioTrack || publisher?.getAudioSource?.() || publisher?.stream || null;
+    const track = source?.kind === 'audio'
+      ? source
+      : (source?.getAudioTracks?.()?.[0]
+        || (typeof source?.getTracks === 'function'
+          ? source.getTracks().find((t) => t?.kind === 'audio')
+          : null));
+    const status = trackAudioEnhancementStatus(track);
+    if (status) {
+      voiceIsolationStatus.value = status;
       return;
     }
   } catch { /* ignore */ }
-  // Publisher was created with browser noiseSuppression when Vonage ANS is unavailable.
-  if (voiceIsolationStatus.value === 'on' || voiceIsolationStatus.value === 'processing') {
-    voiceIsolationStatus.value = 'browser';
-  } else if (!voiceIsolationStatus.value) {
-    voiceIsolationStatus.value = 'browser';
-  }
+  voiceIsolationStatus.value = 'unavailable';
 }
 
 function playJoinChime() {
@@ -890,15 +879,10 @@ function rebroadcastLocalMediaState() {
  * Keep remote camera state consistent across SDK event gaps.
  * Split cam-off layout remounts tiles when hasVideo flips — refresh after DOM settles.
  */
-async function refreshRemoteVideo(streamId, hasVideo, { updateSubscription = false } = {}) {
+async function refreshRemoteVideo(streamId, hasVideo) {
   const id = String(streamId || '').trim();
   if (!id) return;
   const sub = subscribers.get(id);
-  if (sub && updateSubscription) {
-    try {
-      if (typeof sub.subscribeToVideo === 'function') sub.subscribeToVideo(!!hasVideo);
-    } catch { /* ignore */ }
-  }
   if (!hasVideo) return;
   for (const delay of [0, 50, 160, 320]) {
     // eslint-disable-next-line no-await-in-loop
@@ -924,16 +908,18 @@ async function refreshRemoteVideo(streamId, hasVideo, { updateSubscription = fal
 function setRemoteVideoState({ streamId = '', connectionId = '', hasVideo }) {
   const result = updateRemoteVideoState(remotes.value, { streamId, connectionId, hasVideo });
   remotes.value = result.remotes;
-  // SDK videoEnabled/videoDisabled events may echo subscribeToVideo(). Never
-  // re-subscribe when the authoritative state is already identical, or the SDK
-  // produces an event -> subscribe -> event feedback loop (and telemetry flood).
+  // SDK videoEnabled/videoDisabled events may echo local subscription changes.
+  // Never treat an identical echo as a new presentation update.
   if (!result.matched || !result.changed) return;
   const targets = remotes.value.filter((r) => (
     (result.streamId && r.streamId === result.streamId)
     || (result.connectionId && r.connectionId === result.connectionId)
   ));
   for (const r of targets) {
-    void refreshRemoteVideo(r.streamId, result.hasVideo, { updateSubscription: true });
+    // A publisher's hasVideo flag is display metadata. Stay subscribed and let
+    // Vonage resume the track when video returns. subscribeToVideo() itself logs
+    // two ClientEvent requests per call and can oscillate with SDK state events.
+    void refreshRemoteVideo(r.streamId, result.hasVideo);
   }
 }
 
@@ -1312,12 +1298,30 @@ const localInitials = computed(() => initialsFromLabel(props.localName));
 let session = null;
 let screenPublisher = null;
 let publisher = null;
+let publisherAudioStream = null;
+let publisherAudioTrack = null;
 /** Prevent intentional credential handoffs/unmounts from looking like a dropped call. */
 const intentionallyDisconnectedSessions = new WeakSet();
 /** Cached Vonage OT module for mid-call publisher rebuilds (e.g. unmute after muted join). */
 let OTApi = null;
 const subscribers = new Map();
 let screenSubscriber = null;
+
+function releasePublisherAudioSource() {
+  const tracks = new Set([
+    ...(publisherAudioStream?.getTracks?.() || []),
+    ...(publisherAudioTrack ? [publisherAudioTrack] : [])
+  ]);
+  for (const track of tracks) {
+    try { track.stop(); } catch { /* ignore */ }
+  }
+  publisherAudioStream = null;
+  publisherAudioTrack = null;
+}
+
+async function acquirePublisherAudioSource() {
+  return acquireNativeAudioSource(navigator?.mediaDevices);
+}
 
 function isOwnStream(stream) {
   if (!session || !stream) return false;
@@ -1811,13 +1815,12 @@ async function connect() {
     await nextTick();
     const publisherMountEl = localMediaStageEl.value || localPublisherHostEl.value;
     if (publisherMountEl) publisherMountEl.innerHTML = '';
-    // Keep processing in the native capture stack. The additional Vonage media
-    // processor caused a second WASM/audio pipeline during lobby -> room handoff,
-    // which can exhaust/crash Chrome renderers. Native Voice Isolation remains
-    // available and echo/noise/AGC constraints stay enabled below.
-    voiceIsolationStatus.value = props.lobbyMode ? '' : 'browser';
+    // Capture the main-room microphone ourselves and pass that exact constrained
+    // track to Vonage. This prevents the SDK from opening a different desktop
+    // track than the one configured for native microphone processing.
+    voiceIsolationStatus.value = props.lobbyMode ? '' : 'processing';
 
-    const buildPublisherOpts = (withAudio) => {
+    const buildPublisherOpts = (withAudio, audioTrack = null) => {
       const acquireAudio = !!withAudio && !props.lobbyMode;
       const opts = {
         insertMode: 'append',
@@ -1836,26 +1839,41 @@ async function connect() {
       };
       // publishAudio:false only mutes an acquired track. audioSource:null avoids
       // opening the microphone at all (critical for iPad lobby handoff/retry).
-      if (!acquireAudio) opts.audioSource = null;
+      opts.audioSource = acquireAudio ? audioTrack : null;
       return opts;
     };
 
-    const createPublisher = (withAudio) => new Promise((resolve, reject) => {
-      const pub = OT.initPublisher(
-        publisherMountEl,
-        buildPublisherOpts(withAudio),
-        (err) => {
-          if (err) {
-            console.error('[VideoSessionRoom] publisher error', err);
-            try { pub.destroy(); } catch { /* ignore */ }
-            reject(err);
-            return;
-          }
-          forceMediaFill(publisherMountEl);
-          resolve(pub);
+    const createPublisher = async (withAudio) => {
+      const acquireAudio = !!withAudio && !props.lobbyMode;
+      const audioSource = acquireAudio ? await acquirePublisherAudioSource() : null;
+      try {
+        const pub = await new Promise((resolve, reject) => {
+          const nextPublisher = OT.initPublisher(
+            publisherMountEl,
+            buildPublisherOpts(withAudio, audioSource?.track || null),
+            (err) => {
+              if (err) {
+                console.error('[VideoSessionRoom] publisher error', err);
+                try { nextPublisher.destroy(); } catch { /* ignore */ }
+                reject(err);
+                return;
+              }
+              forceMediaFill(publisherMountEl);
+              resolve(nextPublisher);
+            }
+          );
+        });
+        releasePublisherAudioSource();
+        publisherAudioStream = audioSource?.stream || null;
+        publisherAudioTrack = audioSource?.track || null;
+        return pub;
+      } catch (error) {
+        for (const track of audioSource?.stream?.getTracks?.() || []) {
+          try { track.stop(); } catch { /* ignore */ }
         }
-      );
-    });
+        throw error;
+      }
+    };
 
     const publishLocal = async (withAudio) => {
       const pub = await createPublisher(withAudio);
@@ -1863,6 +1881,7 @@ async function connect() {
         session.publish(pub, (err) => {
           if (err) {
             try { pub.destroy(); } catch { /* ignore */ }
+            releasePublisherAudioSource();
             reject(err);
             return;
           }
@@ -1892,7 +1911,7 @@ async function connect() {
       }
     }
     attachPublisherAudioLevel();
-    voiceIsolationStatus.value = props.lobbyMode ? '' : 'browser';
+    voiceIsolationStatus.value = props.lobbyMode ? '' : 'processing';
     refreshAudioEnhancementStatus(publisher);
     await syncLocalVideoPresentation();
 
@@ -2032,6 +2051,7 @@ function disconnect(emitEvent = true) {
       }
       publisher = null;
     }
+    releasePublisherAudioSource();
     subscribers.forEach((sub) => {
       try {
         session?.unsubscribe(sub);
@@ -2103,7 +2123,10 @@ async function rebuildPublisherWithAudio() {
     try { session.unpublish(old); } catch { /* ignore */ }
     try { old.destroy(); } catch { /* ignore */ }
   }
+  releasePublisherAudioSource();
   publisherMountEl.innerHTML = '';
+  voiceIsolationStatus.value = 'processing';
+  const audioSource = await acquirePublisherAudioSource();
   const opts = {
     insertMode: 'append',
     width: '100%',
@@ -2117,12 +2140,16 @@ async function rebuildPublisherWithAudio() {
     echoCancellation: true,
     autoGainControl: true,
     noiseSuppression: true,
-    disableAudioProcessing: false
+    disableAudioProcessing: false,
+    audioSource: audioSource.track
   };
   const pub = await new Promise((resolve, reject) => {
     const nextPub = OTApi.initPublisher(publisherMountEl, opts, (err) => {
       if (err) {
         try { nextPub.destroy(); } catch { /* ignore */ }
+        for (const track of audioSource.stream?.getTracks?.() || []) {
+          try { track.stop(); } catch { /* ignore */ }
+        }
         reject(err);
         return;
       }
@@ -2134,6 +2161,9 @@ async function rebuildPublisherWithAudio() {
     session.publish(pub, (err) => {
       if (err) {
         try { pub.destroy(); } catch { /* ignore */ }
+        for (const track of audioSource.stream?.getTracks?.() || []) {
+          try { track.stop(); } catch { /* ignore */ }
+        }
         reject(err);
         return;
       }
@@ -2141,10 +2171,12 @@ async function rebuildPublisherWithAudio() {
     });
   });
   publisher = pub;
+  publisherAudioStream = audioSource.stream;
+  publisherAudioTrack = audioSource.track;
   needsAudioPublisherRebuild.value = false;
   attachPublisherAudioLevel();
   await syncLocalVideoPresentation();
-  voiceIsolationStatus.value = 'browser';
+  voiceIsolationStatus.value = 'processing';
   refreshAudioEnhancementStatus(publisher);
 }
 
@@ -2168,13 +2200,14 @@ async function toggleMic() {
         video: false
       });
       const testTrack = testStream?.getAudioTracks?.()?.[0] || null;
-      if (trackHasBrowserNoiseReduction(testTrack)) voiceIsolationStatus.value = 'browser';
+      const testStatus = trackAudioEnhancementStatus(testTrack);
+      if (testStatus) voiceIsolationStatus.value = testStatus;
       for (const track of testStream?.getTracks?.() || []) {
         try { track.stop(); } catch { /* ignore */ }
       }
       publishAudio.value = true;
       automuteNoticeVisible.value = false;
-      voiceIsolationStatus.value = 'browser';
+      voiceIsolationStatus.value = testStatus || 'unavailable';
       showMicHint('Microphone ready — you will join with it on.');
     } catch (e) {
       publishAudio.value = false;

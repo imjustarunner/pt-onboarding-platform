@@ -2,7 +2,7 @@
   <div class="map" data-testid="meeting-attendance-panel">
     <div class="map__head">
       <h4>
-        Attendance
+        {{ trackingEnabled ? 'Attendance' : 'Participants' }}
         <span v-if="presentCount" class="map__present" title="In room now">{{ presentCount }} in room</span>
         <span v-if="raisedHands" class="map__hands" title="Hands raised">✋ {{ raisedHands }}</span>
         <span v-if="mutedCount" class="map__muted-summary" title="Muted participants">🔇 {{ mutedCount }}</span>
@@ -11,7 +11,7 @@
         <button type="button" class="btn btn-secondary btn-sm" :disabled="!copyNames" @click="copy(copyNames)">
           Copy names
         </button>
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="!copyWithTime" @click="copy(copyWithTime)">
+        <button v-if="trackingEnabled" type="button" class="btn btn-secondary btn-sm" :disabled="!copyWithTime" @click="copy(copyWithTime)">
           Copy with time
         </button>
         <button type="button" class="btn btn-ghost btn-sm" :disabled="loading" @click="load">Refresh</button>
@@ -20,8 +20,11 @@
     <p v-if="meetingCompletedAt" class="muted map__meta">
       Session completed {{ formatWhen(meetingCompletedAt) }}
     </p>
+    <p v-if="!trackingEnabled" class="map__live-only" role="status">
+      Live participant list only — attendance time is not being tracked for this meeting.
+    </p>
     <p v-if="error" class="error">{{ error }}</p>
-    <p v-else-if="loading" class="muted">Loading attendance…</p>
+    <p v-else-if="loading" class="muted">Loading {{ trackingEnabled ? 'attendance' : 'participants' }}…</p>
     <ul v-else-if="participants.length" class="map__list">
       <li
         v-for="p in participants"
@@ -37,7 +40,7 @@
           <span v-else-if="p.leftAt" class="map__status map__status--left">Left {{ formatWhen(p.leftAt) }}</span>
           <span v-else class="map__status map__status--away">Away</span>
         </span>
-        <span class="map__mins">
+        <span v-if="trackingEnabled" class="map__mins">
           {{ formatMins(p.totalMinutes) }}
           <small v-if="Number(p.segmentCount || 0) > 1" class="map__segments" title="Total time sums all join/leave segments">
             {{ p.segmentCount }} segments
@@ -48,7 +51,9 @@
         </span>
       </li>
     </ul>
-    <p v-else class="muted">No attendance recorded yet.</p>
+    <p v-else class="muted">
+      {{ trackingEnabled ? 'No attendance recorded yet.' : 'No one is in the meeting right now.' }}
+    </p>
     <p v-if="copied" class="map__copied">Copied</p>
   </div>
 </template>
@@ -63,6 +68,8 @@ const props = defineProps({
   meetingKind: { type: String, default: 'team-meeting' },
   /** When true, refresh totals every few seconds while the panel is mounted. */
   livePoll: { type: Boolean, default: false },
+  /** Whether elapsed attendance time is enabled for this meeting. */
+  trackingEnabled: { type: Boolean, default: true },
   /** Count of currently raised hands in the live room */
   raisedHands: { type: Number, default: 0 },
   /** Display names of participants with a raised hand */
@@ -317,6 +324,16 @@ defineExpose({ load });
 .map__mins { font-variant-numeric: tabular-nums; color: #475569; flex-shrink: 0; }
 .map__copied { margin: 0; font-size: 0.8rem; color: #15803d; }
 .map__meta { margin: 0; font-size: 0.8rem; }
+.map__live-only {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 0.8rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
 .error { color: #b91c1c; margin: 0; font-size: 0.85rem; }
 .muted { color: #64748b; margin: 0; font-size: 0.85rem; }
 </style>

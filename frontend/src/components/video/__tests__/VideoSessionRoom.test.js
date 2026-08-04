@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import VideoSessionRoom from '../VideoSessionRoom.vue';
 import { updateRemoteVideoState } from '../remoteVideoState.js';
+import { acquireNativeAudioSource } from '../nativeAudioCapture.js';
 
 const videoSdk = vi.hoisted(() => ({
   session: null,
@@ -106,22 +107,45 @@ describe('VideoSessionRoom connection lifecycle', () => {
     wrapper.unmount();
   });
 
-  it('stops re-subscribing when Vonage echoes the same video state event', () => {
-    let remotes = [{ streamId: 'remote-stream', connectionId: 'remote-connection', hasVideo: true }];
-    let subscribeCalls = 0;
-    const handleVideoEvent = (hasVideo) => {
-      const result = updateRemoteVideoState(remotes, { streamId: 'remote-stream', hasVideo });
-      remotes = result.remotes;
-      if (result.changed) {
-        subscribeCalls += 1;
-        // Model Vonage immediately echoing videoDisabled after the subscription update.
-        handleVideoEvent(hasVideo);
-      }
+  it('acquires and constrains the exact microphone track supplied to the publisher', async () => {
+    const stop = vi.fn();
+    const applyConstraints = vi.fn().mockResolvedValue(undefined);
+    const audioTrack = {
+      kind: 'audio',
+      stop,
+      applyConstraints,
+      getSettings: () => ({ noiseSuppression: true, echoCancellation: true, autoGainControl: true })
     };
+    const audioStream = {
+      getAudioTracks: () => [audioTrack],
+      getTracks: () => [audioTrack]
+    };
+    const getUserMedia = vi.fn().mockResolvedValue(audioStream);
+    const mediaDevices = {
+      getUserMedia,
+      getSupportedConstraints: () => ({ voiceIsolation: true })
+    };
+    const result = await acquireNativeAudioSource(mediaDevices);
 
-    handleVideoEvent(false);
+    const expectedAudio = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      voiceIsolation: true
+    };
+    expect(getUserMedia).toHaveBeenCalledWith({ audio: expectedAudio, video: false });
+    expect(applyConstraints).toHaveBeenCalledWith(expectedAudio);
+    expect(result).toMatchObject({ stream: audioStream, track: audioTrack, constraints: expectedAudio });
+  });
 
-    expect(subscribeCalls).toBe(1);
+  it('treats an echoed remote video state as unchanged', () => {
+    let remotes = [{ streamId: 'remote-stream', connectionId: 'remote-connection', hasVideo: true }];
+    const first = updateRemoteVideoState(remotes, { streamId: 'remote-stream', hasVideo: false });
+    remotes = first.remotes;
+    const echoed = updateRemoteVideoState(remotes, { streamId: 'remote-stream', hasVideo: false });
+
+    expect(first.changed).toBe(true);
+    expect(echoed.changed).toBe(false);
     expect(remotes[0].hasVideo).toBe(false);
   });
 });

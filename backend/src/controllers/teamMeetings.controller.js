@@ -223,21 +223,19 @@ async function admitJoinIdentity({ eventId, userId = null, joinIdentity = null }
 
 /**
  * Start attendance for every authenticated participant who is actively present in the main room.
- * Lobby-only users remain excluded. The first individual admit also enables tracking for general
- * team meetings so the host and admitted attendee begin accruing together.
+ * Lobby-only users remain excluded. General team meetings remain opt-in; huddles, admin meetings,
+ * town halls, and general meetings explicitly enabled by a host commence together on admission.
  */
 async function commenceTeamMeetingAttendance({ eventRow, eventId, includeUserIds = [] }) {
   const eid = Number(eventId || eventRow?.id || 0);
   if (!eid) return { opened: 0 };
+  if (!isAttendanceTrackingEnabledForEvent(eventRow)) {
+    return { opened: 0, trackingEnabled: false };
+  }
   const {
-    enableAttendanceTrackingForEvent,
     openAttendanceSegment,
     rebuildAttendanceRollupsFromSegments
   } = await import('../services/meetingAttendanceSegments.service.js');
-
-  await enableAttendanceTrackingForEvent(eid, {
-    actorUserId: Number(eventRow?.provider_id || 0) || null
-  });
 
   const [presenceRows] = await pool.execute(
     `SELECT join_identity
@@ -454,6 +452,54 @@ async function listWaitingLobbyPresence(eventId, {
       return true;
     });
   } catch {
+    return [];
+  }
+}
+
+async function listLiveMainRoomPresence(event) {
+  const eventId = Number(event?.id || 0);
+  if (!eventId) return [];
+  await pruneStaleJoinPresence(eventId);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT join_identity, display_name, is_guest, joined_at, last_seen_at
+       FROM provider_schedule_event_join_presence
+       WHERE event_id = ?
+         AND left_at IS NULL
+         AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)
+       ORDER BY joined_at ASC`,
+      [eventId]
+    );
+    const hostId = Number(event.provider_id || 0);
+    const waitingRoomEnabled = isWaitingRoomEnabled(event);
+    const participants = [];
+    for (const row of rows || []) {
+      const joinIdentity = normalizeJoinIdentity(row.join_identity);
+      const userId = userIdFromJoinIdentity(joinIdentity);
+      let isInMainRoom = !waitingRoomEnabled || Number(userId || 0) === hostId;
+      if (!isInMainRoom) {
+        // eslint-disable-next-line no-await-in-loop
+        isInMainRoom = await isUserAdmitted({ eventId, userId, joinIdentity });
+      }
+      if (!isInMainRoom) continue;
+      participants.push({
+        userId: Number(userId || 0) || joinIdentity,
+        joinIdentity,
+        name: String(row.display_name || '').trim() || (Number(userId || 0) === hostId ? 'Host' : 'Participant'),
+        isGuest: !!row.is_guest,
+        isHost: Number(userId || 0) === hostId,
+        isPresent: true,
+        joinedAt: row.joined_at || null,
+        lastSeenAt: row.last_seen_at || null,
+        totalMinutes: null,
+        totalSeconds: null,
+        segmentCount: 0,
+        timingTracked: false
+      });
+    }
+    return participants;
+  } catch (e) {
+    console.warn('[teamMeeting] live main-room presence failed', e?.message || e);
     return [];
   }
 }
@@ -1889,6 +1935,20 @@ export const getTeamMeetingAttendance = async (req, res, next) => {
     if (!(await canAccessTeamMeeting(req, event))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    const attendanceTrackingEnabled = isAttendanceTrackingEnabledForEvent(event);
+    if (!attendanceTrackingEnabled) {
+      const participants = await listLiveMainRoomPresence(event);
+      const names = participants.map((participant) => participant.name).filter(Boolean);
+      return res.json({
+        eventId,
+        attendanceTrackingEnabled: false,
+        timingTracked: false,
+        participants,
+        copyNamesCsv: names.join(', '),
+        copyNamesWithTimeCsv: '',
+        meetingCompletedAt: event.meeting_completed_at || null
+      });
+    }
     try {
       const { syncAttendanceSegmentsWithPresence } = await import('../services/meetingAttendanceSegments.service.js');
       await syncAttendanceSegmentsWithPresence(eventId, { staleSeconds: JOIN_PRESENCE_STALE_SECONDS });
@@ -1897,7 +1957,11 @@ export const getTeamMeetingAttendance = async (req, res, next) => {
     }
     const { listAttendanceSummary } = await import('../services/meetingAttendanceSegments.service.js');
     const summary = await listAttendanceSummary(eventId);
-    res.json(summary || { eventId, participants: [], copyNamesCsv: '', copyNamesWithTimeCsv: '' });
+    res.json({
+      ...(summary || { eventId, participants: [], copyNamesCsv: '', copyNamesWithTimeCsv: '' }),
+      attendanceTrackingEnabled: true,
+      timingTracked: true
+    });
   } catch (e) {
     next(e);
   }

@@ -227,6 +227,7 @@
                 ref="attendancePanelRef"
                 :event-id="resolvedEventId"
                 :live-poll="true"
+                :tracking-enabled="isAttendanceTrackingActive"
                 :raised-hands="raisedHandCount"
                 :raised-hand-names="raisedHandNames"
                 :muted-names="mutedParticipantNames"
@@ -563,7 +564,6 @@ const canGrantScreenShare = computed(() => {
 
 const showAttendanceTab = computed(() => {
   if (!canSeeFullWorkspace.value) return false;
-  if (!isAttendanceTrackingActive.value) return false;
   const kind = String(meetingKind.value || '').toUpperCase();
   return kind === 'HUDDLE' || kind === 'TEAM_MEETING';
 });
