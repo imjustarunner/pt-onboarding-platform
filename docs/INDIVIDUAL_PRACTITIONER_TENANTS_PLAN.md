@@ -4,6 +4,8 @@
 
 **Working rule:** Never ship a parallel feature when one exists. Prefer upgrade/overhaul in place. Update this document at the start of every phase and whenever a reuse decision changes.
 
+**Related:** Public Adaptive Intake shell + Quick Prospective — [`ADAPTIVE_INTAKE_SPEC.md`](./ADAPTIVE_INTAKE_SPEC.md). Practitioner verticals use framed basic intake templates on that shell; clinical packets stay on `intake_links`.
+
 ---
 
 ## Table of Contents

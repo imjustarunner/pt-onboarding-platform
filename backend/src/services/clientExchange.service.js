@@ -21,7 +21,8 @@ import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
  * approval, via the normal client record).
  */
 
-const OFFICE_CLIENT_TYPES = ['clinical', 'learning'];
+const OFFICE_CLIENT_TYPES = ['clinical', 'learning', 'basic_nonclinical'];
+
 
 function safeJson(value) {
   if (value === undefined || value === null) return null;
@@ -423,18 +424,35 @@ export async function resolveRequest({ requestId, action, actingUserId, denialRe
 export async function listPendingOfficeClients({ agencyId }) {
   const aid = Number(agencyId);
   if (!aid) return [];
-  const [rows] = await pool.execute(
-    `SELECT c.id, c.initials, c.full_name, c.identifier_code, c.client_type, c.status,
-            c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
-            c.created_at
-     FROM clients c
-     WHERE c.agency_id = ?
-       AND c.client_type IN (${OFFICE_CLIENT_TYPES.map(() => '?').join(',')})
+  const typePlaceholders = OFFICE_CLIENT_TYPES.map(() => '?').join(',');
+  const baseWhere = `WHERE c.agency_id = ?
+       AND c.client_type IN (${typePlaceholders})
        AND c.provider_id IS NULL
        AND c.status NOT IN ('ARCHIVED')
-     ORDER BY c.created_at ASC`,
-    [aid, ...OFFICE_CLIENT_TYPES]
-  );
+     ORDER BY c.created_at ASC`;
+  let rows;
+  try {
+    const [r] = await pool.execute(
+      `SELECT c.id, c.initials, c.full_name, c.identifier_code, c.client_type, c.status,
+              c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
+              c.adaptive_intake_meta_json, c.created_at
+       FROM clients c
+       ${baseWhere}`,
+      [aid, ...OFFICE_CLIENT_TYPES]
+    );
+    rows = r;
+  } catch (err) {
+    if (!/Unknown column|adaptive_intake_meta/i.test(String(err?.message || ''))) throw err;
+    const [r] = await pool.execute(
+      `SELECT c.id, c.initials, c.full_name, c.identifier_code, c.client_type, c.status,
+              c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
+              c.created_at
+       FROM clients c
+       ${baseWhere}`,
+      [aid, ...OFFICE_CLIENT_TYPES]
+    );
+    rows = r;
+  }
   return (rows || []).map((row) => ({
     id: Number(row.id),
     initials: row.initials,
@@ -446,6 +464,8 @@ export async function listPendingOfficeClients({ agencyId }) {
     submissionDate: row.submission_date,
     source: row.source,
     intakePreferences: parseJsonColumn(row.intake_preferences_json),
+    adaptiveMeta: parseJsonColumn(row.adaptive_intake_meta_json),
+    pathway: parseJsonColumn(row.adaptive_intake_meta_json)?.pathway || null,
     createdAt: row.created_at
   }));
 }
@@ -497,7 +517,11 @@ export async function createPublicOfficeIntakeClient({ agencySlugOrId, payload =
   const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
   const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'prospective' });
 
-  const clientType = String(payload.clientType || '').toLowerCase() === 'learning' ? 'learning' : 'clinical';
+  const requestedType = String(payload.clientType || '').toLowerCase();
+  const clientType = ['learning', 'basic_nonclinical', 'school', 'clinical'].includes(requestedType)
+    ? requestedType
+    : 'clinical';
+
 
   const intakePreferences = {
     preferredDays: Array.isArray(payload.preferredDays) ? payload.preferredDays : (payload.preferredDays ? [payload.preferredDays] : []),

@@ -250,6 +250,13 @@
         <div v-else class="intake-step-body">
         <h3 class="df-section-title">{{ t('questions') || "Welcome! Let's get started" }}</h3>
         <p class="df-section-help">{{ tx('Tell us a bit about you so we can prepare the right forms.') || 'Tell us a bit about you so we can prepare the right forms.' }}</p>
+        <div
+          v-if="adaptiveIntakeFieldGroups.length"
+          class="ai-pathway-badge"
+          style="margin-bottom: 0.75rem;"
+        >
+          {{ adaptiveIntakeFieldGroups.length }} sections in this packet
+        </div>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
 
         <div class="intake-section">
@@ -1360,8 +1367,33 @@
           </div>
         </div>
 
+        <div
+          v-if="currentFlowStep?.type === 'document' && documentConsentCards.length > 1"
+          class="ai-consent-list"
+          style="margin: 12px 0 16px;"
+        >
+          <AdaptiveConsentCard
+            v-for="card in documentConsentCards"
+            :key="card.id"
+            :title="card.title"
+            :description="card.description"
+            :icon="card.icon"
+            :signed="!!docStatus[card.id]"
+            :agreed="!!docStatus[card.id] || card.id === currentDoc?.id"
+            :can-view="true"
+            @view="jumpToDocumentById(card.id)"
+            @update:agreed="() => jumpToDocumentById(card.id)"
+          />
+        </div>
+
         <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-block" ref="signatureBlockRef" :class="{ 'signature-block--flash': signatureBlockFlash }">
-          <SignaturePad compact @signed="onSigned" />
+          <AdaptiveSignatureCapture
+            :signer-name="guardianDisplayName || ''"
+            :model-value="signatureData || ''"
+            :title="t('signature') || 'Digital Signature'"
+            @update:model-value="onSigned"
+            @signed="(payload) => onSigned(payload?.dataUrl || payload)"
+          />
           <div v-if="lastSignatureData && !signatureData" class="signature-reuse-actions" style="margin-top: 12px;">
             <button
               type="button"
@@ -1371,7 +1403,12 @@
               {{ t('useSavedSignature') }}
             </button>
           </div>
-          <div v-if="signatureData" class="muted" style="margin-top: 6px;">{{ t('signatureReady') }}</div>
+          <div v-if="signatureData" class="ai-signature-captured" style="margin-top: 6px;">✓ {{ t('signatureReady') }}</div>
+          <!-- Keep SignaturePad available as fallback for environments where typed canvas fails -->
+          <details class="signature-fallback" style="margin-top: 10px;">
+            <summary class="muted" style="cursor: pointer; font-size: 0.85rem;">Prefer classic draw pad</summary>
+            <SignaturePad compact @signed="onSigned" />
+          </details>
         </div>
 
         <div v-if="showSavedSigPrompt" class="saved-sig-prompt">
@@ -1731,6 +1768,11 @@ import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIn
 import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePaymentStep.vue';
 import {
+  AdaptiveConsentCard,
+  AdaptiveSignatureCapture
+} from '../components/adaptive-intake';
+import '../styles/adaptive-intake.css';
+import {
   DigitalFormShell,
   DigitalFormSelectionCard,
   DigitalFormNotice,
@@ -1744,6 +1786,7 @@ import {
   storedSpanishFieldText,
   isActuallyTranslated
 } from '../utils/intakeFieldSpanish.js';
+import { groupIntakeFieldsForAdaptiveShell } from '../utils/adaptiveIntakeFieldAdapter.js';
 
 const JOB_LANDING_ICON_PATHS = {
   school: [
@@ -4457,6 +4500,10 @@ const intakeFields = computed(() => {
 const guardianFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'guardian'));
 const submissionFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'submission'));
 const clientFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'client'));
+/** Adaptive shell section grouping for existing intake_fields (presentation helper; storage keys unchanged). */
+const adaptiveIntakeFieldGroups = computed(() =>
+  groupIntakeFieldsForAdaptiveShell(intakeFields.value || [])
+);
 
 const normalizeKey = (val) => String(val || '').trim().toLowerCase();
 const normalizeTokens = (val) =>
@@ -5449,11 +5496,34 @@ const submitConsent = async () => {
 };
 
 const onSigned = (dataUrl) => {
-  signatureData.value = dataUrl;
-  lastSignatureData.value = dataUrl;
+  const value = typeof dataUrl === 'string' ? dataUrl : dataUrl?.dataUrl || '';
+  if (!value) return;
+  signatureData.value = value;
+  lastSignatureData.value = value;
   showSavedSigPrompt.value = false;
   signatureBlockFlash.value = false;
 };
+
+const documentConsentCards = computed(() => {
+  const steps = (flowSteps.value || []).filter((s) => s?.type === 'document' && s?.template);
+  return steps.map((s, i) => ({
+    id: s.template.id,
+    title: s.template.name || s.label || `Document ${i + 1}`,
+    description: s.template.description || 'Review this document, then sign below when ready.',
+    icon: s.template.document_action_type === 'signature' ? '✍️' : '📄'
+  }));
+});
+
+function jumpToDocumentById(docId) {
+  const idx = (flowSteps.value || []).findIndex(
+    (s) => s?.type === 'document' && Number(s?.template?.id) === Number(docId)
+  );
+  if (idx >= 0) {
+    currentFlowIndex.value = idx;
+    syncDocIndexFromFlow();
+    stepError.value = '';
+  }
+}
 
 const onUseSavedSignatureClick = () => {
   if (!canProceed.value) {

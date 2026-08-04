@@ -309,6 +309,40 @@ async function alreadyNotifiedNewPacketUploadedAgencyWide({ agencyId, clientId }
   return !!rows[0]?.id;
 }
 
+/**
+ * Internal alert when a Quick Prospective / adaptive interest form is submitted.
+ */
+export async function notifyNewProspectiveInquiry({
+  agencyId,
+  clientId,
+  clientName,
+  pathway = 'quick_prospective',
+  vertical = 'clinical'
+}) {
+  if (!agencyId || !clientId) return;
+  const title = 'New prospective inquiry';
+  const message = `${clientName || `Client #${clientId}`} submitted a ${String(pathway).replace(/_/g, ' ')} (${vertical}).`;
+
+  await createNotificationAndDispatch({
+    type: 'new_prospective_inquiry',
+    severity: 'info',
+    title,
+    message,
+    audienceJson: {
+      admin: true,
+      clinicalPracticeAssistant: true,
+      schoolStaff: false,
+      supervisor: true,
+      provider: false
+    },
+    userId: null,
+    agencyId,
+    relatedEntityType: 'client',
+    relatedEntityId: clientId,
+    actorSource: 'System'
+  }).catch(() => null);
+}
+
 export async function notifyNewPacketUploaded({
   agencyId,
   schoolOrganizationId,

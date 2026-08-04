@@ -1868,6 +1868,12 @@ const routes = [
     path: '/:organizationSlug/office-intake',
     name: 'OrganizationPublicOfficeIntake',
     component: () => import('../views/public/PublicOfficeIntakeView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/join-intake',
+    name: 'OrganizationAdaptiveJoinAlt',
+    component: () => import('../views/public/AdaptiveJoinView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
@@ -3016,6 +3022,18 @@ const routes = [
     name: 'PublicOfficeIntake',
     component: () => import('../views/public/PublicOfficeIntakeView.vue'),
     meta: { requiresGuest: false }
+  },
+  {
+    path: '/join/:agencySlug',
+    name: 'AdaptiveJoin',
+    component: () => import('../views/public/AdaptiveJoinView.vue'),
+    meta: { requiresGuest: false, hideNav: true }
+  },
+  {
+    path: '/:organizationSlug/join',
+    name: 'OrganizationAdaptiveJoin',
+    component: () => import('../views/public/AdaptiveJoinView.vue'),
+    meta: { requiresGuest: false, hideNav: true }
   },
   {
     path: '/admin/caseload-hub/schools-staff',

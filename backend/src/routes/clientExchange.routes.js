@@ -16,5 +16,17 @@ router.post('/requests/:id/deny', authenticate, ctrl.denyRequest);
 
 router.get('/pending-office-clients', authenticate, ctrl.listPendingOfficeClients);
 router.get('/acceptance-metrics', authenticate, ctrl.getAcceptanceMetrics);
+router.post('/adaptive-convert', authenticate, async (req, res, next) => {
+  const { convertProspective } = await import('../controllers/adaptiveIntake.controller.js');
+  return convertProspective(req, res, next);
+});
+router.get('/adaptive-templates', authenticate, async (req, res, next) => {
+  const { getPathwayTemplates } = await import('../controllers/adaptiveIntake.controller.js');
+  return getPathwayTemplates(req, res, next);
+});
+router.post('/adaptive-bootstrap-frame', authenticate, async (req, res, next) => {
+  const { bootstrapPractitionerFrame } = await import('../controllers/adaptiveIntake.controller.js');
+  return bootstrapPractitionerFrame(req, res, next);
+});
 
 export default router;

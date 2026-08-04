@@ -88,6 +88,7 @@ import providerYearUpdateRoutes from './routes/providerYearUpdate.routes.js';
 import publicProviderYearUpdateRoutes from './routes/publicProviderYearUpdate.routes.js';
 import clientExchangeRoutes from './routes/clientExchange.routes.js';
 import publicOfficeIntakeRoutes from './routes/publicOfficeIntake.routes.js';
+import publicAdaptiveIntakeRoutes from './routes/publicAdaptiveIntake.routes.js';
 import {
   managerRouter as agencyMarketingSplashManagerRoutes,
   portalRouter as agencyMarketingSplashPortalRoutes,
@@ -663,6 +664,7 @@ app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
 app.use('/api/public/translations', publicTranslationsRoutes);
 app.use('/api/public/hiring/reference', publicHiringReferenceRoutes);
 app.use('/api/public/office-intake', publicOfficeIntakeRoutes);
+app.use('/api/public/adaptive-intake', publicAdaptiveIntakeRoutes);
 app.use('/api/discovery-sessions', discoverySessionsRoutes);
 app.use('/api/practitioner-packages', practitionerPackagesRoutes);
 app.use('/api/practitioner-team', practitionerTeamRoutes);

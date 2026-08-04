@@ -1,5 +1,8 @@
 # Digital Forms / Public Intake — Contract & Regression Guard
 
+> Adaptive shell / Quick Prospective work: see [`ADAPTIVE_INTAKE_SPEC.md`](./ADAPTIVE_INTAKE_SPEC.md).
+> Presentation-layer changes must still satisfy every checklist item below.
+
 This document is the **source of truth** for what the public intake / digital
 forms pipeline must do on every successful submission. We have repeatedly
 regressed in these areas (packet docs disappearing, completion email not

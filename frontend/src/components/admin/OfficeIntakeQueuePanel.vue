@@ -2,9 +2,9 @@
   <div class="office-intake-queue">
     <div class="oiq-header">
       <div>
-        <h2 style="margin: 0;">New office clients</h2>
+        <h2 style="margin: 0;">New office / prospective clients</h2>
         <p class="muted" style="margin: 4px 0 0;">
-          Clinical/learning clients from digital intake awaiting their first provider assignment.
+          Clients from Quick Prospective, office intake, and related pathways awaiting their first provider assignment.
         </p>
       </div>
       <button class="btn btn-secondary btn-sm" type="button" @click="loadAll" :disabled="loading">
@@ -62,16 +62,20 @@
           <tr>
             <th>Client</th>
             <th>Type</th>
+            <th>Pathway</th>
             <th>Submitted</th>
             <th>Preferences</th>
             <th>Contact</th>
-            <th>Assign provider</th>
+            <th>Assign / convert</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="c in clients" :key="c.id">
             <td>{{ c.fullName || c.initials || `Client #${c.id}` }}</td>
-            <td>{{ c.clientType === 'clinical' ? 'Office / Clinical' : 'Learning' }}</td>
+            <td>{{ clientTypeLabel(c.clientType) }}</td>
+            <td>
+              <span class="oiq-pathway">{{ pathwayLabel(c) }}</span>
+            </td>
             <td>{{ formatDate(c.createdAt) }}</td>
             <td>
               <div v-if="c.intakePreferences" class="oiq-prefs">
@@ -87,10 +91,13 @@
                 <span v-if="c.intakePreferences.presentingConcern">
                   Concern: {{ c.intakePreferences.presentingConcern }}
                 </span>
+                <span v-if="c.intakePreferences.concerns?.length">
+                  Interests: {{ c.intakePreferences.concerns.join(', ') }}
+                </span>
               </div>
               <span v-else class="muted">—</span>
             </td>
-            <td>{{ c.contactPhone || '—' }}</td>
+            <td>{{ c.contactPhone || c.adaptiveMeta?.respondent?.email || '—' }}</td>
             <td>
               <div class="oiq-assign">
                 <select v-model="assignSelections[c.id]" class="select select-sm">
@@ -107,6 +114,19 @@
                 >
                   {{ assigningId === c.id ? 'Assigning…' : 'Assign' }}
                 </button>
+                <button
+                  v-if="isProspectivePathway(c)"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="convertingId === c.id"
+                  @click="convertToFull(c)"
+                >
+                  {{ convertingId === c.id ? 'Preparing…' : 'Send full intake' }}
+                </button>
+              </div>
+              <div v-if="conversionLinks[c.id]" class="oiq-convert-link muted small">
+                Link ready:
+                <a :href="conversionLinks[c.id]" target="_blank" rel="noopener">Open intake</a>
               </div>
             </td>
           </tr>
@@ -133,6 +153,8 @@ const clients = ref([]);
 const providerOptions = ref([]);
 const assignSelections = reactive({});
 const assigningId = ref(null);
+const convertingId = ref(null);
+const conversionLinks = reactive({});
 const acceptance = ref(null);
 
 function formatDate(v) {
@@ -142,6 +164,27 @@ function formatDate(v) {
   } catch {
     return String(v);
   }
+}
+
+function clientTypeLabel(t) {
+  if (t === 'clinical') return 'Office / Clinical';
+  if (t === 'learning') return 'Learning';
+  if (t === 'basic_nonclinical') return 'Coaching / Consulting';
+  return t || '—';
+}
+
+function pathwayLabel(c) {
+  if (c.pathway === 'quick_prospective' || c.source === 'ADAPTIVE_QUICK_PROSPECTIVE') return 'Quick Prospective';
+  if (c.source === 'PUBLIC_BOOKING_INQUIRY') return 'Booking inquiry';
+  if (c.source === 'PUBLIC_OFFICE_INTAKE') return 'Office intake';
+  return c.source || '—';
+}
+
+function isProspectivePathway(c) {
+  return (
+    c.pathway === 'quick_prospective' ||
+    ['ADAPTIVE_QUICK_PROSPECTIVE', 'PUBLIC_OFFICE_INTAKE', 'PUBLIC_BOOKING_INQUIRY'].includes(c.source)
+  );
 }
 
 async function loadProviders() {
@@ -201,6 +244,26 @@ async function assign(client) {
   }
 }
 
+async function convertToFull(client) {
+  if (!agencyId.value) return;
+  convertingId.value = client.id;
+  error.value = '';
+  try {
+    const res = await api.post('/client-exchange/adaptive-convert', {
+      clientId: client.id,
+      agencyId: agencyId.value
+    });
+    const path = res.data?.intakeUrlPath;
+    if (path) {
+      conversionLinks[client.id] = path;
+    }
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to prepare full intake link';
+  } finally {
+    convertingId.value = null;
+  }
+}
+
 onMounted(() => {
   loadAll();
   loadProviders();
@@ -219,6 +282,21 @@ onMounted(() => {
   align-items: flex-start;
   gap: 12px;
   flex-wrap: wrap;
+}
+.oiq-pathway {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #14532d;
+  background: #ecfdf5;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+}
+.oiq-convert-link {
+  margin-top: 6px;
+}
+.oiq-convert-link a {
+  color: #14532d;
 }
 .oiq-acceptance {
   border: 1px solid var(--border, #e5e7eb);

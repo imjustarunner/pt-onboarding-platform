@@ -1,5 +1,10 @@
 # Client Exchange & Office (Clinical) Digital Intake
 
+> Related: [`ADAPTIVE_INTAKE_SPEC.md`](./ADAPTIVE_INTAKE_SPEC.md) — Quick Prospective
+> on `/join/:agencySlug` extends this office-intake pattern (prospective client +
+> `intake_preferences_json`) with a guided multi-step shell. The office queue still
+> lists clients awaiting first provider assignment.
+
 Phase 4 foundation for office clients: a minimal public digital intake for new
 clinical/office clients, a support/admin queue to assign them a first
 provider, and a "Client Exchange" marketplace so providers can hand off an
