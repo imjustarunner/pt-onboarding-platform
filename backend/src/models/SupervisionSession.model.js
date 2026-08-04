@@ -972,17 +972,20 @@ class SupervisionSession {
     return this.findById(sid);
   }
 
-  static async setLiveEnded(sessionId, { at = new Date() } = {}) {
+  static async setLiveEnded(sessionId, { at = new Date(), endedByUserId = null } = {}) {
     const sid = parseInt(sessionId, 10);
     if (!sid) return null;
     const when = at instanceof Date ? at : new Date(at);
     const pad = (n) => String(n).padStart(2, '0');
     const stamp = `${when.getUTCFullYear()}-${pad(when.getUTCMonth() + 1)}-${pad(when.getUTCDate())} ${pad(when.getUTCHours())}:${pad(when.getUTCMinutes())}:${pad(when.getUTCSeconds())}`;
+    const actorId = Number(endedByUserId || 0) || null;
     await pool.execute(
       `UPDATE supervision_sessions
-       SET live_ended_at = COALESCE(live_ended_at, ?), updated_at = CURRENT_TIMESTAMP
+       SET live_ended_at = COALESCE(live_ended_at, ?),
+           live_ended_by_user_id = COALESCE(live_ended_by_user_id, ?),
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [stamp, sid]
+      [stamp, actorId, sid]
     );
     return this.findById(sid);
   }

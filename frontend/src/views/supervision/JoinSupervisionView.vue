@@ -7,6 +7,8 @@
       meeting-label="session"
       session-kind="supervision"
       :banner-dismissed="exitBannerDismissed"
+      :closed-by-name="meetingClosedByName"
+      :closed-at="liveEndedAt"
       @rejoin="rejoinSession"
       @go-to-schedule="goToScheduleFromExit"
       @dismiss-banner="dismissHostEndedBanner"
@@ -56,10 +58,13 @@
       :waiting-goals="waitingGoals"
       :waiting-agenda="waitingAgenda"
       :waiting-action-items="waitingActionItems"
+      :is-guest-session="isGuestJoin"
+      :participant-join-url="participantJoinUrl"
       @leave="onLeaveRequest"
       @connected="onVideoConnected"
       @meeting-ended="onMeetingEnded"
       @disconnected="onVideoDisconnected"
+      @guest-login="goLogin"
     />
     <div v-else class="join-placeholder">Loading…</div>
   </div>
@@ -117,8 +122,22 @@ const exitBannerDismissed = ref(false);
 const liveRoomRef = ref(null);
 const videoConnected = ref(false);
 const liveEndedAt = ref(null);
+const meetingClosedByName = ref('');
+const participantJoinUrl = ref('');
 
 const sessionHasEnded = computed(() => !!liveEndedAt.value);
+
+function applyClosurePayload(data = {}) {
+  const closedAt = data.meetingClosedAt || data.liveEndedAt || data.live_ended_at || null;
+  if (closedAt) liveEndedAt.value = closedAt;
+  const closedBy = String(
+    data.meetingClosedByName
+    || data.closedByName
+    || data.liveEndedByName
+    || ''
+  ).trim();
+  if (closedBy) meetingClosedByName.value = closedBy;
+}
 
 const isInLobby = computed(() => roomMode.value === 'lobby' || String(roomName.value || '').endsWith('-lobby'));
 const isOpaqueJoinRef = computed(() => {
@@ -364,10 +383,11 @@ async function endLiveSessionForEveryone() {
   const sid = numericSessionId.value || sessionId.value;
   if (!sid) return;
   try {
-    await api.post(`/supervision/sessions/${encodeURIComponent(sid)}/end-live`, {}, {
+    const { data } = await api.post(`/supervision/sessions/${encodeURIComponent(sid)}/end-live`, {}, {
       skipGlobalLoading: true,
       skipAuthRedirect: true
     });
+    applyClosurePayload(data || {});
   } catch (e) {
     console.warn('[JoinSupervision] end-live failed', e?.message || e);
   }
@@ -391,8 +411,9 @@ async function onLeaveRequest(payload = {}) {
   await finishLeave({ variant: 'left', canRejoin: !sessionHasEnded.value });
 }
 
-function onMeetingEnded() {
+function onMeetingEnded(payload = {}) {
   if (sessionExit.value || intentionalLeave.value) return;
+  applyClosurePayload(payload || {});
   liveEndedAt.value = liveEndedAt.value || new Date().toISOString();
   void finishLeave({ variant: 'host-ended', canRejoin: false });
 }
@@ -437,6 +458,19 @@ async function resolveAndRedirect() {
       return 'error';
     }
     if (Number(data.sessionId || 0) > 0) numericSessionId.value = Number(data.sessionId);
+    const joinLink = String(
+      data.joinUrl
+      || data.participantJoinUrl
+      || data.participant_join_url
+      || ''
+    ).trim();
+    if (joinLink) participantJoinUrl.value = joinLink;
+    applyClosurePayload(data);
+    if (data.liveEndedAt || data.meetingClosedAt || sessionHasEnded.value) {
+      intentionalLeave.value = true;
+      showSessionExit({ variant: 'host-ended', canRejoin: false });
+      return 'error';
+    }
 
     // Dedicated portal hosts strip /{slug}/… — stay on /join/supervision/:id and continue.
     const hostSlug = String(hostPortalSlug.value || '').trim().toLowerCase();
@@ -452,7 +486,8 @@ async function resolveAndRedirect() {
     return 'continue';
   } catch (e) {
     if (Number(e?.response?.status || 0) === 410 || e?.response?.data?.liveEndedAt) {
-      liveEndedAt.value = e?.response?.data?.liveEndedAt || new Date().toISOString();
+      applyClosurePayload(e?.response?.data || {});
+      liveEndedAt.value = liveEndedAt.value || e?.response?.data?.liveEndedAt || new Date().toISOString();
       intentionalLeave.value = true;
       showSessionExit({ variant: 'host-ended', canRejoin: false });
       return 'error';
@@ -560,7 +595,8 @@ async function fetchTokenAndJoin() {
       return;
     }
     if (status === 410 || e?.response?.data?.liveEndedAt) {
-      liveEndedAt.value = e?.response?.data?.liveEndedAt || new Date().toISOString();
+      applyClosurePayload(e?.response?.data || {});
+      liveEndedAt.value = liveEndedAt.value || e?.response?.data?.liveEndedAt || new Date().toISOString();
       intentionalLeave.value = true;
       showSessionExit({ variant: 'host-ended', canRejoin: false });
       return;

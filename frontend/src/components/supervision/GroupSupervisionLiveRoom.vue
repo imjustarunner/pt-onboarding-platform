@@ -21,10 +21,35 @@
         >
           {{ viewAsAttendee ? 'Exit attendee view' : 'View as attendee' }}
         </button>
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="inviteBusy"
+          title="Copy the participant join link"
+          @click="copyInviteLink"
+        >
+          {{ inviteCopied ? 'Link copied' : 'Invite / share link' }}
+        </button>
         <span class="gsl__count" title="Participants">{{ participantHint }}</span>
-        <button type="button" class="btn btn-danger btn-sm" @click="onLeaveClick">Leave session</button>
+        <button type="button" class="btn btn-danger btn-sm" @click="onLeaveClick">
+          {{ isSupervisor ? 'Leave / End session' : 'Leave session' }}
+        </button>
       </div>
     </header>
+
+    <div
+      v-if="isGuestSession && !videoFullscreen"
+      class="gsl__guest-banner"
+      role="status"
+    >
+      <p>
+        You’re joined as a guest. To count attendance and log time, sign in with your account —
+        you’ll return to this same session.
+      </p>
+      <button type="button" class="btn btn-primary btn-sm" @click="$emit('guest-login')">
+        Log in to claim attendance
+      </button>
+    </div>
 
     <div
       v-if="showTranscriptionNotice && !videoFullscreen"
@@ -45,6 +70,7 @@
       v-if="showLobbyPanel"
       :session-id="numericSessionId"
       :is-supervisor="isSupervisor"
+      theme="dark"
     />
 
     <div
@@ -209,21 +235,6 @@
             theme="dark"
           />
         </section>
-        <section class="gsl__workspace-section gsl__workspace-section--activity">
-          <MeetingLiveActivityPanel
-            :session-id="numericSessionId || supervisionSessionId"
-            :join-token="joinToken"
-            :join-identity="joinIdentity"
-            :guest-display-name="localDisplayName"
-            :is-host="canFacilitate"
-            :can-create-polls="canFacilitate"
-            :can-answer-questions="canFacilitate"
-            :start-open="true"
-            :below-video="true"
-            theme="dark"
-            @activity-notice="onLiveActivityNotice"
-          />
-        </section>
         <section v-if="canFacilitate" class="gsl__workspace-section gsl__workspace-section--attendance">
           <MeetingAttendancePanel
             ref="attendancePanelRef"
@@ -241,7 +252,49 @@
           <pre v-if="transcriptCombined" class="gsl__transcript">{{ transcriptCombined }}</pre>
           <p v-else class="gsl__transcript-empty">Transcript will appear here once speech is detected.</p>
         </section>
+        <section class="gsl__workspace-section gsl__workspace-section--activity">
+          <MeetingLiveActivityPanel
+            :session-id="numericSessionId || supervisionSessionId"
+            :join-token="joinToken"
+            :join-identity="joinIdentity"
+            :guest-display-name="localDisplayName"
+            :is-host="canFacilitate"
+            :can-create-polls="canFacilitate"
+            :can-answer-questions="canFacilitate"
+            :start-open="true"
+            :below-video="true"
+            theme="dark"
+            @activity-notice="onLiveActivityNotice"
+          />
+        </section>
       </aside>
+    </div>
+
+    <div
+      v-if="showHostLeaveModal"
+      class="gsl__modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="gsl-leave-title"
+    >
+      <div class="gsl__modal">
+        <h3 id="gsl-leave-title">End this Group Supervision for everyone?</h3>
+        <p>
+          Closing ends the live room for all participants. You can also leave and keep the session open
+          for others.
+        </p>
+        <div class="gsl__modal-actions">
+          <button type="button" class="btn btn-danger" :disabled="endingBusy" @click="confirmEndForAll">
+            {{ endingBusy ? 'Ending…' : 'End for everyone' }}
+          </button>
+          <button type="button" class="btn btn-secondary" :disabled="endingBusy" @click="confirmLeaveOnly">
+            Leave only
+          </button>
+          <button type="button" class="btn btn-ghost" :disabled="endingBusy" @click="showHostLeaveModal = false">
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -264,8 +317,12 @@ import {
 
 const authStore = useAuthStore();
 
-const props = defineProps(supervisionLiveRoomProps);
-const emit = defineEmits(['leave', 'connected', 'meeting-ended', 'disconnected']);
+const props = defineProps({
+  ...supervisionLiveRoomProps,
+  isGuestSession: { type: Boolean, default: false },
+  participantJoinUrl: { type: String, default: '' }
+});
+const emit = defineEmits(['leave', 'connected', 'meeting-ended', 'disconnected', 'guest-login']);
 
 const videoRoomRef = ref(null);
 const transcriptionNoticeDismissed = ref(false);
@@ -274,6 +331,11 @@ const videoFullscreen = ref(false);
 const videoFullscreenActivityNotice = ref('');
 let fullscreenNoticeTimer = null;
 const waitingAgenda = ref([]);
+const showHostLeaveModal = ref(false);
+const endingBusy = ref(false);
+const inviteBusy = ref(false);
+const inviteCopied = ref(false);
+let inviteCopiedTimer = null;
 
 const videoStripCollapsed = computed(() => (
   !videoFullscreen.value && tileFocus.value === 'collapsed'
@@ -377,13 +439,60 @@ const canGrantScreenShare = computed(() => {
 
 function onLeaveClick() {
   if (props.isSupervisor) {
-    const endForAll = window.confirm(
-      'End this Group Supervision for everyone?\n\nOK = End for all participants\nCancel = Leave only (session stays open)'
-    );
-    emit('leave', { endForAll: !!endForAll });
+    showHostLeaveModal.value = true;
     return;
   }
   emit('leave', { endForAll: false });
+}
+
+function confirmLeaveOnly() {
+  showHostLeaveModal.value = false;
+  emit('leave', { endForAll: false });
+}
+
+function confirmEndForAll() {
+  endingBusy.value = true;
+  showHostLeaveModal.value = false;
+  emit('leave', { endForAll: true });
+}
+
+async function copyInviteLink() {
+  inviteBusy.value = true;
+  try {
+    let link = String(props.participantJoinUrl || '').trim();
+    if (!link) {
+      const sid = numericSessionId.value || props.supervisionSessionId;
+      const resp = await api.get(`/supervision/join-info/${encodeURIComponent(sid)}`, {
+        skipAuthRedirect: true,
+        skipGlobalLoading: true
+      });
+      link = String(
+        resp?.data?.joinUrl
+        || resp?.data?.participantJoinUrl
+        || resp?.data?.participant_join_url
+        || ''
+      ).trim();
+      if (!link && resp?.data?.joinToken) {
+        const origin = window.location.origin;
+        const slug = String(resp.data.orgSlug || '').trim();
+        link = slug
+          ? `${origin}/${slug}/join/supervision/${encodeURIComponent(resp.data.joinToken)}`
+          : `${origin}/join/supervision/${encodeURIComponent(resp.data.joinToken)}`;
+      }
+    }
+    if (!link) link = window.location.href;
+    await navigator.clipboard.writeText(link);
+    inviteCopied.value = true;
+    if (inviteCopiedTimer) clearTimeout(inviteCopiedTimer);
+    inviteCopiedTimer = setTimeout(() => {
+      inviteCopied.value = false;
+      inviteCopiedTimer = null;
+    }, 2200);
+  } catch (e) {
+    console.warn('[GroupSupervision] copy invite failed', e?.message || e);
+  } finally {
+    inviteBusy.value = false;
+  }
 }
 
 const attendancePanelRef = ref(null);
@@ -542,31 +651,33 @@ defineExpose({
   font-size: 0.9rem;
 }
 .gsl__video-strip {
-  flex: 0 1 34%;
-  min-height: min(28vh, 280px);
-  max-height: min(42vh, 420px);
+  flex: 0 1 22%;
+  min-height: min(18vh, 168px);
+  max-height: min(28vh, 260px);
   margin-bottom: 10px;
   position: relative;
   border-radius: 14px;
-  overflow: hidden;
+  overflow: visible;
   background: #070a10;
   border: 1px solid rgba(255, 255, 255, 0.08);
   transition: min-height 0.22s ease;
+  z-index: 6;
 }
 .gsl__video-strip--featured {
-  min-height: min(34vh, 340px);
-  max-height: min(48vh, 480px);
+  min-height: min(26vh, 240px);
+  max-height: min(36vh, 340px);
 }
 .gsl__video-strip--collapsed {
   flex: 0 0 auto;
-  min-height: 104px;
-  max-height: 120px;
+  min-height: 88px;
+  max-height: 104px;
 }
 .gsl__video-strip :deep(.supervision-video-room),
 .gsl__video-strip :deep(.vsr) {
   height: 100%;
   min-height: 0;
   border-radius: 0;
+  overflow: visible;
 }
 .gsl__video-strip :deep(.vsr__viewport),
 .gsl__video-strip :deep(.vsr__stage) {
@@ -576,7 +687,16 @@ defineExpose({
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--solo .vsr__tile),
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--duo .vsr__tile),
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--grid .vsr__tile) {
-  min-height: min(22vh, 220px);
+  min-height: 96px;
+}
+.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--grid) {
+  gap: 4px;
+}
+.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-3),
+.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-4),
+.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-5),
+.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-6) {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
 }
 .gsl__video-strip--lobby {
   overflow: hidden;
@@ -696,6 +816,25 @@ defineExpose({
 .gsl__case dd {
   margin: 2px 0 0;
 }
+.gsl__guest-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: rgba(30, 58, 138, 0.35);
+  border: 1px solid rgba(147, 197, 253, 0.5);
+  color: #dbeafe;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.gsl__guest-banner p {
+  margin: 0;
+  flex: 1;
+  line-height: 1.4;
+  font-size: 0.9rem;
+}
 .gsl__transcript-banner {
   display: flex;
   align-items: flex-start;
@@ -745,9 +884,9 @@ defineExpose({
   overflow: hidden;
 }
 .gsl__workspace-section--agenda {
-  flex: 0 1 26%;
-  min-height: 120px;
-  max-height: 32%;
+  flex: 0 1 22%;
+  min-height: 110px;
+  max-height: 28%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -755,6 +894,12 @@ defineExpose({
   z-index: 1;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   padding-bottom: 8px;
+}
+.gsl__workspace-section--agenda :deep(.agenda-item),
+.gsl__workspace-section--agenda :deep(.map__row),
+.gsl__workspace-section--agenda :deep(.agenda-items li) {
+  font-size: 0.9rem;
+  line-height: 1.35;
 }
 .gsl__workspace-section--agenda :deep(.meeting-agenda-panel) {
   flex: 1 1 auto;
@@ -786,13 +931,14 @@ defineExpose({
   isolation: isolate;
 }
 .gsl__workspace-section--activity {
-  flex: 1 1 38%;
+  flex: 1 1 42%;
   overflow: hidden;
-  min-height: 180px;
+  min-height: 200px;
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  padding-bottom: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 8px;
+  order: 4;
 }
 .gsl__workspace-section--activity :deep(.mlap),
 .gsl__workspace-section--activity :deep(.mlap--below-video) {
@@ -876,8 +1022,8 @@ defineExpose({
 }
 .gsl__main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(400px, 480px);
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+  gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -894,27 +1040,66 @@ defineExpose({
   background: #121722;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
-  min-height: 240px;
-  max-height: min(46vh, 480px);
-  padding: 22px;
+  min-height: 160px;
+  max-height: min(30vh, 300px);
+  padding: 14px 16px;
   overflow: auto;
 }
 .gsl__slide h2 {
-  margin: 0 0 14px;
-  font-size: 1.45rem;
+  margin: 0 0 10px;
+  font-size: 1.15rem;
 }
 .gsl__stage-empty {
   color: #8893a8;
   display: grid;
   place-items: center;
-  min-height: 240px;
+  min-height: 140px;
 }
 .gsl__embed {
   width: 100%;
-  min-height: 360px;
+  min-height: 200px;
+  max-height: min(26vh, 260px);
   border: 0;
   border-radius: 8px;
   background: #000;
+}
+.gsl__modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(2, 6, 14, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.gsl__modal {
+  width: min(440px, 100%);
+  background: #121722;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 22px 20px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45);
+  color: #e8edf5;
+}
+.gsl__modal h3 {
+  margin: 0 0 10px;
+  font-size: 1.15rem;
+  color: #f8fafc;
+}
+.gsl__modal p {
+  margin: 0 0 18px;
+  color: #94a3b8;
+  line-height: 1.45;
+  font-size: 0.92rem;
+}
+.gsl__modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gsl__modal-actions .btn {
+  width: 100%;
+  justify-content: center;
 }
 .gsl__stage-controls {
   display: flex;

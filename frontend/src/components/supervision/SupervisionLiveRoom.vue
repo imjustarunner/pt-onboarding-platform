@@ -7,6 +7,7 @@
     @connected="$emit('connected', $event)"
     @meeting-ended="$emit('meeting-ended', $event)"
     @disconnected="$emit('disconnected')"
+    @guest-login="$emit('guest-login')"
   />
   <GroupSupervisionLiveRoom
     v-else
@@ -16,6 +17,7 @@
     @connected="$emit('connected', $event)"
     @meeting-ended="$emit('meeting-ended', $event)"
     @disconnected="$emit('disconnected')"
+    @guest-login="$emit('guest-login')"
   />
 </template>
 
@@ -28,8 +30,12 @@ import {
   supervisionLiveRoomProps
 } from '../../composables/useSupervisionLiveSession';
 
-const props = defineProps(supervisionLiveRoomProps);
-defineEmits(['leave', 'connected', 'meeting-ended', 'disconnected']);
+const props = defineProps({
+  ...supervisionLiveRoomProps,
+  isGuestSession: { type: Boolean, default: false },
+  participantJoinUrl: { type: String, default: '' }
+});
+defineEmits(['leave', 'connected', 'meeting-ended', 'disconnected', 'guest-login']);
 
 const activeRoomRef = ref(null);
 
@@ -62,6 +68,8 @@ const roomProps = computed(() => ({
   hostStatusLabel: props.hostStatusLabel,
   waitingGoals: props.waitingGoals,
   waitingAgenda: props.waitingAgenda,
-  waitingActionItems: props.waitingActionItems
+  waitingActionItems: props.waitingActionItems,
+  isGuestSession: props.isGuestSession,
+  participantJoinUrl: props.participantJoinUrl
 }));
 </script>

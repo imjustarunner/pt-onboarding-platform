@@ -69,6 +69,7 @@
       v-if="showLobbyPanel"
       :session-id="numericSessionId"
       :is-supervisor="isSupervisor"
+      theme="dark"
     />
 
     <!-- Waiting room takeover -->

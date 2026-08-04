@@ -266,6 +266,7 @@ onUnmounted(stopPolling);
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+  color: #134e3a;
 }
 .lobby-panel-actions {
   display: flex;
@@ -321,10 +322,12 @@ onUnmounted(stopPolling);
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  color: #0f172a;
+  font-weight: 600;
 }
 .lobby-panel-guest {
   font-size: 11px;
-  color: var(--text-secondary);
+  color: #475569;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }

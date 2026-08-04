@@ -117,7 +117,7 @@
               title="Allow this participant to share their screen"
               @click.stop="grantScreenShare(r, true)"
             >
-              Allow share
+              Allow screen
             </button>
             <button
               v-else-if="canGrantScreenShare && r.connectionId && shareGrantedFor(r.connectionId)"
@@ -126,7 +126,7 @@
               title="Revoke screen share permission"
               @click.stop="grantScreenShare(r, false)"
             >
-              Revoke share
+              Revoke screen
             </button>
           </div>
 
@@ -249,7 +249,7 @@
                 title="Allow this participant to share their screen"
                 @click.stop="grantScreenShare(entry.remote || entry, true)"
               >
-                Allow share
+                Allow screen
               </button>
               <button
                 v-else-if="entry.kind === 'remote' && canGrantScreenShare && entry.connectionId && shareGrantedFor(entry.connectionId)"
@@ -258,7 +258,7 @@
                 title="Revoke screen share permission"
                 @click.stop="grantScreenShare(entry.remote || entry, false)"
               >
-                Revoke share
+                Revoke screen
               </button>
             </div>
           </div>
@@ -1123,16 +1123,23 @@ function toggleRaiseHand() {
   emit('hand-raised-change', next);
 }
 
+function clearFloatingReactions() {
+  floatingReactions.value = [];
+}
+
 function pushFloatingReaction({ emoji, displayName }) {
+  if (!sessionReady.value) return;
   reactionSeq += 1;
   const id = `rx-${Date.now()}-${reactionSeq}`;
   const left = `${8 + Math.random() * 70}%`;
   const top = `${55 + Math.random() * 30}%`;
   const duration = `${2.8 + Math.random() * 0.8}s`;
-  floatingReactions.value = [
+  // Cap the live stack so a disconnect/close cannot dump a huge backlog onto the DOM.
+  const next = [
     ...floatingReactions.value,
     { id, emoji, displayName: displayName || 'Someone', left, top, duration }
   ];
+  floatingReactions.value = next.slice(-12);
   window.setTimeout(() => {
     floatingReactions.value = floatingReactions.value.filter((r) => r.id !== id);
   }, 3600);
@@ -1860,6 +1867,7 @@ async function connect() {
     });
 
     session.on('signal:reaction', (event) => {
+      if (!sessionReady.value) return;
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
       const fromSelf = String(event?.from?.connectionId || '') === localConnectionId();
@@ -2171,6 +2179,7 @@ async function toggleScreenShare() {
 
 function disconnect(emitEvent = true) {
   try {
+    clearFloatingReactions();
     stopScreenShare();
     clearScreenShareTile();
     sessionReady.value = false;
@@ -3186,10 +3195,13 @@ defineExpose({
 }
 .vsr__layout-menu {
   position: absolute;
-  bottom: calc(100% + 6px);
+  top: calc(100% + 6px);
+  bottom: auto;
   left: 0;
-  z-index: 40;
+  z-index: 80;
   min-width: 200px;
+  max-height: min(50vh, 320px);
+  overflow: auto;
   background: #111827;
   border: 1px solid #334155;
   border-radius: 10px;

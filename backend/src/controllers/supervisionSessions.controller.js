@@ -39,6 +39,26 @@ function userIdFromSupervisionJoinIdentity(joinIdentity) {
   return m ? Number(m[1]) : 0;
 }
 
+async function resolveSupervisionClosedByName(row, fallbackUserId = null) {
+  const uid = Number(row?.live_ended_by_user_id || fallbackUserId || 0);
+  if (!uid) return '';
+  try {
+    const [rows] = await pool.execute(
+      `SELECT first_name, last_name, email
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
+      [uid]
+    );
+    const u = rows?.[0];
+    if (!u) return '';
+    const name = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+    return name || String(u.email || '').trim() || '';
+  } catch {
+    return '';
+  }
+}
+
 function isPresenceLastSeenStale(lastSeenAt, staleSeconds = JOIN_PRESENCE_STALE_SECONDS) {
   const atMs = parseAsDate(lastSeenAt)?.getTime();
   if (!Number.isFinite(atMs)) return true;
@@ -2025,15 +2045,20 @@ export const endSupervisionLiveSession = async (req, res, next) => {
 
     const liveEndedAt = row.live_ended_at || null;
     if (liveEndedAt) {
+      const closedByName = await resolveSupervisionClosedByName(row);
       return res.json({
         ok: true,
         sessionId: id,
         liveEndedAt,
+        meetingClosedAt: liveEndedAt,
+        meetingClosedByName: closedByName,
         alreadyEnded: true
       });
     }
 
-    await SupervisionSession.setLiveEnded(id);
+    await SupervisionSession.setLiveEnded(id, { endedByUserId: actorUserId });
+    const updated = await SupervisionSession.findById(id);
+    const closedByName = await resolveSupervisionClosedByName(updated || row, actorUserId);
 
     let carryover = null;
     try {
@@ -2047,12 +2072,23 @@ export const endSupervisionLiveSession = async (req, res, next) => {
     let videoEnd = null;
     if (roomSid) {
       try {
-        videoEnd = await completeRoom(roomSid);
+        videoEnd = await completeRoom(roomSid, {
+          closedByName,
+          closedAt: updated?.live_ended_at || new Date().toISOString()
+        });
       } catch (e) {
         console.warn('[supervision] end-live completeRoom failed', e?.message || e);
       }
     }
-    res.json({ ok: true, sessionId: id, videoEnd, carryover });
+    res.json({
+      ok: true,
+      sessionId: id,
+      liveEndedAt: updated?.live_ended_at || new Date().toISOString(),
+      meetingClosedAt: updated?.live_ended_at || new Date().toISOString(),
+      meetingClosedByName: closedByName,
+      videoEnd,
+      carryover
+    });
   } catch (e) {
     next(e);
   }
@@ -2098,6 +2134,10 @@ export const getSupervisionJoinInfo = async (req, res, next) => {
     const sessionType = String(session.session_type || 'individual').toLowerCase();
     const activeCount = await countActiveJoinPresence(session.id);
     const maxCapacity = maxJoinCapacityForSessionType(sessionType);
+    const appJoinUrl = supervisionAppJoinUrl(session);
+    const closedByName = session.live_ended_at
+      ? await resolveSupervisionClosedByName(session)
+      : '';
     res.json({
       orgSlug,
       sessionId: Number(session.id),
@@ -2106,8 +2146,12 @@ export const getSupervisionJoinInfo = async (req, res, next) => {
       participantJoinToken: participantKey || null,
       joinPath: `/join/supervision/${encodeURIComponent(redirectKey)}`,
       hostJoinPath: hostKey ? `/join/supervision/${encodeURIComponent(hostKey)}` : null,
-      joinUrl: supervisionAppJoinUrl(session),
+      joinUrl: appJoinUrl,
+      participantJoinUrl: appJoinUrl,
       hostJoinUrl: supervisionHostJoinUrl(session),
+      liveEndedAt: session.live_ended_at || null,
+      meetingClosedAt: session.live_ended_at || null,
+      meetingClosedByName: closedByName || null,
       waitingRoomEnabled: isWaitingRoomEnabled(session),
       joinTokenRole: tokenRole,
       sessionType,
@@ -2175,10 +2219,13 @@ export const getSupervisionGuestJoin = async (req, res, next) => {
       return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });
     }
     if (row.live_ended_at) {
+      const closedByName = await resolveSupervisionClosedByName(row);
       return res.status(410).json({
         error: { message: 'This session has ended.' },
         liveEnded: true,
-        liveEndedAt: row.live_ended_at
+        liveEndedAt: row.live_ended_at,
+        meetingClosedAt: row.live_ended_at,
+        meetingClosedByName: closedByName
       });
     }
 
@@ -2550,10 +2597,13 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       return res.status(400).json({ error: { message: `Session is ${status.toLowerCase()} and is not joinable.` } });
     }
     if (row.live_ended_at) {
+      const closedByName = await resolveSupervisionClosedByName(row);
       return res.status(410).json({
         error: { message: 'This session has ended.' },
         liveEnded: true,
-        liveEndedAt: row.live_ended_at
+        liveEndedAt: row.live_ended_at,
+        meetingClosedAt: row.live_ended_at,
+        meetingClosedByName: closedByName
       });
     }
 
