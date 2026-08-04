@@ -191,6 +191,64 @@ async function admitJoinIdentity({ eventId, userId = null, joinIdentity = null }
   }
 }
 
+/**
+ * Start attendance for every authenticated participant who is actively present in the main room.
+ * Lobby-only users remain excluded. The first individual admit also enables tracking for general
+ * team meetings so the host and admitted attendee begin accruing together.
+ */
+async function commenceTeamMeetingAttendance({ eventRow, eventId, includeUserIds = [] }) {
+  const eid = Number(eventId || eventRow?.id || 0);
+  if (!eid) return { opened: 0 };
+  const {
+    enableAttendanceTrackingForEvent,
+    openAttendanceSegment,
+    rebuildAttendanceRollupsFromSegments
+  } = await import('../services/meetingAttendanceSegments.service.js');
+
+  await enableAttendanceTrackingForEvent(eid, {
+    actorUserId: Number(eventRow?.provider_id || 0) || null
+  });
+
+  const [presenceRows] = await pool.execute(
+    `SELECT join_identity
+     FROM provider_schedule_event_join_presence
+     WHERE event_id = ?
+       AND left_at IS NULL
+       AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
+    [eid]
+  );
+  const userIds = new Set((includeUserIds || []).map(Number).filter((uid) => uid > 0));
+  for (const presence of presenceRows || []) {
+    const match = /^user-(\d+)$/i.exec(String(presence?.join_identity || '').trim());
+    if (match?.[1]) userIds.add(Number(match[1]));
+  }
+
+  const hostId = Number(eventRow?.provider_id || 0);
+  let opened = 0;
+  for (const uid of userIds) {
+    const identity = `user-${uid}`;
+    // The host is always in the main room. Everyone else must have an admission record.
+    // eslint-disable-next-line no-await-in-loop
+    const isMainRoom = uid === hostId || await isUserAdmitted({
+      eventId: eid,
+      userId: uid,
+      joinIdentity: identity
+    });
+    if (!isMainRoom) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const result = await openAttendanceSegment({
+      eventId: eid,
+      userId: uid,
+      joinIdentity: identity,
+      source: 'platform',
+      force: true
+    });
+    if (result?.created || result?.alreadyOpen) opened += 1;
+  }
+  await rebuildAttendanceRollupsFromSegments(eid, { syncClaims: false });
+  return { opened };
+}
+
 async function buildTeamMeetingHostStatus(row) {
   const eid = Number(row?.id || 0);
   const hostId = Number(row?.provider_id || 0);
@@ -771,22 +829,23 @@ export const admitTeamMeetingParticipant = async (req, res, next) => {
     if (!admitted) {
       return res.status(500).json({ error: { message: 'Failed to admit participant' } });
     }
+    let attendance = null;
     try {
-      const {
-        openAttendanceSegment,
-        rebuildAttendanceRollupsFromSegments
-      } = await import('../services/meetingAttendanceSegments.service.js');
-      await openAttendanceSegment({
+      attendance = await commenceTeamMeetingAttendance({
+        eventRow: row,
         eventId,
-        userId: userIdNum || null,
-        joinIdentity,
-        source: 'platform'
+        includeUserIds: userIdNum ? [userIdNum] : []
       });
-      await rebuildAttendanceRollupsFromSegments(eventId, { syncClaims: false });
     } catch (e) {
       console.warn('[teamMeeting] attendance open on admit failed', e?.message || e);
     }
-    res.json({ ok: true, admitted: userIdNum || joinIdentity, joinIdentity });
+    res.json({
+      ok: true,
+      admitted: userIdNum || joinIdentity,
+      joinIdentity,
+      meetingCommenced: true,
+      attendanceStartedCount: Number(attendance?.opened || 0)
+    });
   } catch (e) {
     next(e);
   }
@@ -828,11 +887,21 @@ export const setTeamMeetingWaitingRoomLive = async (req, res, next) => {
         if (ok) admittedCount += 1;
       }
     }
+    let attendance = null;
+    if (!enabled && admitWaiting) {
+      try {
+        attendance = await commenceTeamMeetingAttendance({ eventRow: row, eventId });
+      } catch (e) {
+        console.warn('[teamMeeting] attendance open on waiting-room release failed', e?.message || e);
+      }
+    }
     const fresh = await ProviderScheduleEvent.findById(eventId);
     res.json({
       ok: true,
       waitingRoomEnabled: isWaitingRoomEnabled(fresh || row),
-      admittedCount
+      admittedCount,
+      meetingCommenced: !enabled && admitWaiting,
+      attendanceStartedCount: Number(attendance?.opened || 0)
     });
   } catch (e) {
     next(e);

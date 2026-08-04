@@ -28,13 +28,18 @@
       </div>
     </div>
 
-    <div v-else-if="connecting" class="vsr__connecting">
+    <div v-if="!errorMessage && connecting" class="vsr__connecting" role="status" aria-live="polite">
       <div class="vsr__pulse" aria-hidden="true" />
       <p>Connecting to your session…</p>
       <button type="button" class="vsr__btn vsr__btn--ghost" @click="disconnect">Cancel</button>
     </div>
 
-    <template v-else>
+    <!--
+      Keep media targets mounted while connecting. Vonage can deliver remote streams before
+      session.connect()/publisher setup finishes; unmounting these nodes during that window
+      made subscriptions lose their target and left each participant seeing only themselves.
+    -->
+    <template v-if="!errorMessage">
       <div class="vsr__viewport" :class="{ 'vsr__viewport--split': useSplitCamOffLayout }">
         <div
           class="vsr__stage"
@@ -288,6 +293,9 @@
         <span class="vsr__muted-banner-text">{{ forceMutedByHost ? 'Muted by host — you cannot unmute yourself' : 'You are muted — others cannot hear you' }}</span>
       </div>
       <div v-if="micActionHint" class="vsr__mic-hint" role="alert">{{ micActionHint }}</div>
+      <div v-if="connectionNotice" class="vsr__connection-hint" role="status" aria-live="polite">
+        {{ connectionNotice }}
+      </div>
 
       <div v-if="!hideControls" class="vsr__controls" role="toolbar" aria-label="Session media controls">
         <button
@@ -523,6 +531,8 @@ const canSelfUnmute = computed(() => !forceMutedByHost.value);
 /** Non-blocking mic toggle feedback (do not use errorMessage — that unmounts the room). */
 const micActionHint = ref('');
 let micHintTimer = null;
+const connectionNotice = ref('');
+let connectionNoticeTimer = null;
 /** True when we published without audio after a mic-access failure — unmute must rebuild the publisher. */
 const needsAudioPublisherRebuild = ref(false);
 const hideSelfView = ref(false);
@@ -812,6 +822,16 @@ function playLeaveChime() {
     osc.start(now);
     osc.stop(now + 0.3);
   } catch { /* ignore */ }
+}
+
+function showConnectionNotice(message) {
+  connectionNotice.value = String(message || '').trim();
+  if (connectionNoticeTimer) clearTimeout(connectionNoticeTimer);
+  if (!connectionNotice.value) return;
+  connectionNoticeTimer = setTimeout(() => {
+    connectionNotice.value = '';
+    connectionNoticeTimer = null;
+  }, 8000);
 }
 
 function localConnectionId() {
@@ -1675,8 +1695,9 @@ async function connect() {
         if (gone?.connectionId) setHandState(gone.connectionId, false);
         if (gone) {
           playLeaveChime();
+          showConnectionNotice(`${gone.name || 'A participant'} left the session.`);
           emit('participant-left', {
-            displayName: gone.displayName || gone.label || 'Participant',
+            displayName: gone.name || 'Participant',
             connectionId: gone.connectionId || '',
             streamId
           });
@@ -2035,6 +2056,11 @@ function disconnect(emitEvent = true) {
     if (micHintTimer) {
       clearTimeout(micHintTimer);
       micHintTimer = null;
+    }
+    connectionNotice.value = '';
+    if (connectionNoticeTimer) {
+      clearTimeout(connectionNoticeTimer);
+      connectionNoticeTimer = null;
     }
   } finally {
     connecting.value = false;
@@ -2690,6 +2716,19 @@ defineExpose({
   line-height: 1.3;
   flex-shrink: 0;
 }
+.vsr__connection-hint {
+  margin: 0 0.35rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  font-weight: 650;
+  line-height: 1.3;
+  text-align: center;
+  flex-shrink: 0;
+}
 .vsr__hand-badge {
   position: absolute;
   top: 0.5rem;
@@ -3253,6 +3292,12 @@ defineExpose({
   padding: 1.5rem;
   text-align: center;
   min-height: 180px;
+}
+.vsr__connecting {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: rgba(12, 16, 24, 0.94);
 }
 .vsr__error {
   background: #1a2333;

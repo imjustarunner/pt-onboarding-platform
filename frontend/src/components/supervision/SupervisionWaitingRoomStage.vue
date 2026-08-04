@@ -77,15 +77,15 @@
     <audio
       v-if="!pip"
       ref="audioRef"
-      loop
       preload="none"
       :src="currentTrack.src"
+      @ended="onTrackEnded"
     />
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 
 const WAITING_ROOM_TRACKS = [
   { id: 'neoclassical-v3', label: 'Neoclassical v3', src: '/assets/audio/waiting-room/neoclassical-v3.mp3' },
@@ -112,7 +112,6 @@ defineEmits(['show-waiting-room']);
 const audioRef = ref(null);
 const trackIndex = ref(loadTrackIndex());
 const musicPlaying = ref(false);
-const musicEnabled = ref(false);
 
 const roleWord = computed(() => {
   const raw = String(props.hostRoleLabel || 'Host').trim() || 'Host';
@@ -179,7 +178,6 @@ async function playCurrentTrack() {
     el.volume = 0.55;
     await el.play();
     musicPlaying.value = true;
-    musicEnabled.value = true;
   } catch {
     musicPlaying.value = false;
   }
@@ -201,22 +199,27 @@ async function toggleMusic() {
   await playCurrentTrack();
 }
 
-function nextTrack() {
+async function advanceTrack({ play = musicPlaying.value } = {}) {
+  const el = audioRef.value;
+  if (el) el.pause();
+  musicPlaying.value = false;
   trackIndex.value = (trackIndex.value + 1) % WAITING_ROOM_TRACKS.length;
   saveTrackIndex();
-  if (musicEnabled.value) {
-    void playCurrentTrack();
-  }
+  // Wait for Vue to apply the new <audio src> before loading/playing it.
+  await nextTick();
+  const nextAudio = audioRef.value;
+  if (!nextAudio) return;
+  nextAudio.load();
+  if (play) await playCurrentTrack();
 }
 
-watch(trackIndex, () => {
-  const el = audioRef.value;
-  if (!el) return;
-  const wasPlaying = musicPlaying.value;
-  el.pause();
-  el.load();
-  if (wasPlaying) void playCurrentTrack();
-});
+function nextTrack() {
+  void advanceTrack({ play: musicPlaying.value });
+}
+
+function onTrackEnded() {
+  void advanceTrack({ play: true });
+}
 
 onBeforeUnmount(() => {
   pauseMusic();

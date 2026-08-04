@@ -14,7 +14,7 @@
           :disabled="admittingAll || !!admittingKey || disablingWaitingRoom"
           @click="admitAll"
         >
-          {{ admittingAll ? 'Admitting all…' : `Admit all (${participants.length})` }}
+          {{ admittingAll ? 'Opening room…' : `Admit all & open room (${participants.length})` }}
         </button>
         <button
           type="button"
@@ -184,29 +184,20 @@ async function admitAll() {
   admittingKey.value = null;
   admitError.value = '';
   admitSuccess.value = false;
-  const list = [...participants.value];
   try {
-    const results = await Promise.allSettled(list.map((p) => {
-      const pathId = p.userId || p.joinIdentity;
-      return api.post(admitPath(pathId), {
-        joinIdentity: p.joinIdentity
-      });
-    }));
-    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
-    const failed = results.length - succeeded;
-    await fetchLobbyParticipants();
-    if (failed === 0) {
-      admitSuccess.value = true;
-      setTimeout(() => { admitSuccess.value = false; }, 4000);
-    } else if (succeeded > 0) {
-      admitSuccess.value = true;
-      admitError.value = `Admitted ${succeeded} of ${results.length}. ${failed} could not be admitted.`;
-    } else {
-      const firstErr = results.find((r) => r.status === 'rejected');
-      admitError.value = firstErr?.reason?.response?.data?.error?.message
-        || firstErr?.reason?.message
-        || 'Failed to admit participants';
-    }
+    // One atomic server operation admits the current lobby and disables the waiting room,
+    // so later arrivals enter the same open meeting without getting stranded in a new lobby.
+    await api.post(waitingRoomPath(), {
+      enabled: false,
+      admitWaiting: true
+    }, { skipGlobalLoading: true, skipAuthRedirect: true });
+    waitingRoomEnabled.value = false;
+    participants.value = [];
+    emit('update:waitingCount', 0);
+    admitSuccess.value = true;
+    setTimeout(() => { admitSuccess.value = false; }, 4000);
+  } catch (e) {
+    admitError.value = e?.response?.data?.error?.message || e?.message || 'Failed to open the meeting';
   } finally {
     admittingAll.value = false;
   }

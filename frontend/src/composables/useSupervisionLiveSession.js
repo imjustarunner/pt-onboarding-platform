@@ -299,7 +299,9 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       lifecyclePosted.value = true;
       postLifecycle('joined');
     }
-    startLiveTranscriptCapture();
+    // The lobby already has a live Vonage publisher. Starting Web Speech there opens a
+    // second microphone pipeline and can lock up Chrome/iPad during admission handoff.
+    if (!props.isInLobby) startLiveTranscriptCapture();
     emit('connected');
   }
 
@@ -467,6 +469,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
 
   watch(() => props.isInLobby, (inLobby) => {
     if (!inLobby) prioritizeSelfView.value = false;
+    if (inLobby) stopLiveTranscriptCapture();
     refreshActivity();
     loadSessionTranscript();
     if (!inLobby) refreshPresentation();

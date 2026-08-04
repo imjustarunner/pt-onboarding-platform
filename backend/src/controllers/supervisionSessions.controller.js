@@ -140,6 +140,51 @@ async function ensureSupervisionAttendanceSegmentOpen({
   });
 }
 
+/**
+ * When supervision commences, align attendance for everyone actively in the main room.
+ * People who are only waiting in the lobby are deliberately excluded.
+ */
+async function commenceSupervisionAttendance({ sessionRow, sessionId, includeUserIds = [] }) {
+  const sid = Number(sessionId || sessionRow?.id || 0);
+  if (!sid || !sessionRow) return { opened: 0 };
+  const activeIds = await getActiveSupervisionPresenceUserIds(sid);
+  const userIds = new Set([
+    ...(activeIds || []),
+    ...(includeUserIds || [])
+  ].map(Number).filter((uid) => uid > 0));
+  const facilitatorIds = new Set([
+    Number(sessionRow.supervisor_user_id || 0),
+    Number(sessionRow.co_facilitator_user_id || 0)
+  ].filter((uid) => uid > 0));
+
+  let opened = 0;
+  for (const uid of userIds) {
+    const identity = `user-${uid}`;
+    // eslint-disable-next-line no-await-in-loop
+    const isMainRoom = facilitatorIds.has(uid) || await isUserAdmittedToSupervision({
+      sessionId: sid,
+      userId: uid,
+      joinIdentity: identity
+    });
+    if (!isMainRoom) continue;
+    // Facilitators normally receive an admission on token mint; repair it if necessary so
+    // the attendance helper uses one consistent main-room rule.
+    if (facilitatorIds.has(uid)) {
+      // eslint-disable-next-line no-await-in-loop
+      await admitSupervisionJoinIdentity({ sessionId: sid, userId: uid, joinIdentity: identity });
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const result = await ensureSupervisionAttendanceSegmentOpen({
+      sessionRow,
+      sessionId: sid,
+      userId: uid,
+      joinIdentity: identity
+    });
+    if (result) opened += 1;
+  }
+  return { opened };
+}
+
 async function loadSupervisionPresenceByUser(sessionId, {
   staleSeconds = JOIN_PRESENCE_STALE_SECONDS
 } = {}) {
@@ -2828,20 +2873,26 @@ export const admitToMainRoom = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to admit participant' } });
     }
 
+    let attendance = null;
     if (userIdNum) {
       try {
-        await ensureSupervisionAttendanceSegmentOpen({
+        attendance = await commenceSupervisionAttendance({
           sessionRow: row,
           sessionId: id,
-          userId: userIdNum,
-          joinIdentity
+          includeUserIds: [userIdNum]
         });
       } catch {
         /* ignore */
       }
     }
 
-    res.json({ ok: true, admitted: userIdNum || joinIdentity, joinIdentity });
+    res.json({
+      ok: true,
+      admitted: userIdNum || joinIdentity,
+      joinIdentity,
+      meetingCommenced: true,
+      attendanceStartedCount: Number(attendance?.opened || 0)
+    });
   } catch (e) {
     next(e);
   }
@@ -2899,11 +2950,22 @@ export const setSupervisionWaitingRoomLive = async (req, res, next) => {
       }
     }
 
+    let attendance = null;
+    if (!enabled && admitWaiting) {
+      try {
+        attendance = await commenceSupervisionAttendance({ sessionRow: row, sessionId: id });
+      } catch (e) {
+        console.warn('[supervision] attendance open on waiting-room release failed', e?.message || e);
+      }
+    }
+
     const fresh = await SupervisionSession.findById(id);
     res.json({
       ok: true,
       waitingRoomEnabled: isWaitingRoomEnabled(fresh || row),
-      admittedCount
+      admittedCount,
+      meetingCommenced: !enabled && admitWaiting,
+      attendanceStartedCount: Number(attendance?.opened || 0)
     });
   } catch (e) {
     next(e);
@@ -5078,4 +5140,3 @@ export const withdrawFromSupervisionSession = async (req, res, next) => {
     next(e);
   }
 };
-
