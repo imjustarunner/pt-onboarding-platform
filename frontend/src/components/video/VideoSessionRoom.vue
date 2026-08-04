@@ -443,6 +443,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { updateRemoteVideoState } from './remoteVideoState.js';
 import { acquireNativeAudioSource, nativeAudioConstraints } from './nativeAudioCapture.js';
+import { attachPublisherAudioSource, silenceLocalPublisherMedia } from './localPublisherMedia.js';
 
 const props = defineProps({
   /** Vonage Application ID (preferred) or legacy OpenTok project API key */
@@ -540,8 +541,8 @@ const micActionHint = ref('');
 let micHintTimer = null;
 const connectionNotice = ref('');
 let connectionNoticeTimer = null;
-/** True when we published without audio after a mic-access failure — unmute must rebuild the publisher. */
-const needsAudioPublisherRebuild = ref(false);
+/** True when the muted publisher has no audio track yet; attach one without restarting video. */
+const needsAudioSourceAttach = ref(false);
 const hideSelfView = ref(false);
 /** on | processing | unavailable | unsupported */
 const voiceIsolationStatus = ref('');
@@ -1237,6 +1238,8 @@ async function syncLocalVideoPresentation() {
   try {
     const mediaEl = typeof publisher.element === 'function' ? publisher.element() : null;
     reparentMediaElement(mediaEl, target);
+    silenceLocalPublisherMedia(mediaEl);
+    silenceLocalPublisherMedia(target);
   } catch { /* ignore */ }
 }
 
@@ -1317,8 +1320,6 @@ let publisherAudioStream = null;
 let publisherAudioTrack = null;
 /** Prevent intentional credential handoffs/unmounts from looking like a dropped call. */
 const intentionallyDisconnectedSessions = new WeakSet();
-/** Cached Vonage OT module for mid-call publisher rebuilds (e.g. unmute after muted join). */
-let OTApi = null;
 const subscribers = new Map();
 let screenSubscriber = null;
 
@@ -1664,7 +1665,6 @@ async function connect() {
     if (!OT?.initSession) {
       throw new Error('Vonage Video client SDK failed to load.');
     }
-    OTApi = OT;
     disconnect(false);
     // Vonage Video JWT tokens: first arg must be Application ID (not account API key).
     session = OT.initSession(projectId, props.sessionId);
@@ -1874,10 +1874,19 @@ async function connect() {
                 return;
               }
               forceMediaFill(publisherMountEl);
+              silenceLocalPublisherMedia(publisherMountEl);
               resolve(nextPublisher);
             }
           );
         });
+        pub?.on?.('videoElementCreated', (event) => {
+          silenceLocalPublisherMedia(event?.element || event?.videoElement || null);
+          silenceLocalPublisherMedia(publisherMountEl);
+        });
+        try {
+          silenceLocalPublisherMedia(typeof pub?.element === 'function' ? pub.element() : null);
+          silenceLocalPublisherMedia(publisherMountEl);
+        } catch { /* ignore */ }
         releasePublisherAudioSource();
         publisherAudioStream = audioSource?.stream || null;
         publisherAudioTrack = audioSource?.track || null;
@@ -1909,8 +1918,8 @@ async function connect() {
     try {
       publisher = await publishLocal(publishAudio.value);
       // A main-room publisher created with audioSource:null has no track for
-      // publishAudio(true) to unmute. Rebuild it on the first Unmute tap.
-      needsAudioPublisherRebuild.value = !props.lobbyMode && !publishAudio.value;
+      // publishAudio(true); attach one without restarting the camera on first unmute.
+      needsAudioSourceAttach.value = !props.lobbyMode && !publishAudio.value;
     } catch (publishErr) {
       // iOS often fails when another tab/app holds the mic — join muted instead of hard-failing.
       if (publishAudio.value && isMicAccessError(publishErr)) {
@@ -1918,7 +1927,7 @@ async function connect() {
         if (publisherMountEl) publisherMountEl.innerHTML = '';
         publishAudio.value = false;
         automuteNoticeVisible.value = false;
-        needsAudioPublisherRebuild.value = true;
+        needsAudioSourceAttach.value = true;
         publisher = await publishLocal(false);
         showMicHint('Joined muted — mic was busy. Tap Unmute when ready (close other apps using the mic first).');
       } else {
@@ -2089,7 +2098,7 @@ function disconnect(emitEvent = true) {
     clearRemote();
     speakingByKey.value = {};
     voiceIsolationStatus.value = '';
-    needsAudioPublisherRebuild.value = false;
+    needsAudioSourceAttach.value = false;
     forceMutedByHost.value = false;
     micActionHint.value = '';
     if (micHintTimer) {
@@ -2126,73 +2135,17 @@ function showMicHint(message) {
   }, 6000);
 }
 
-async function rebuildPublisherWithAudio() {
-  if (!session || !OTApi?.initPublisher) {
-    throw new Error('Video session is not ready.');
-  }
-  const publisherMountEl = localPublisherHostEl.value;
-  if (!publisherMountEl) throw new Error('Microphone UI is not ready.');
-  const old = publisher;
-  publisher = null;
-  if (old) {
-    try { session.unpublish(old); } catch { /* ignore */ }
-    try { old.destroy(); } catch { /* ignore */ }
-  }
-  releasePublisherAudioSource();
-  publisherMountEl.innerHTML = '';
+async function addPublisherAudioWithoutRestartingCamera() {
+  if (!publisher) throw new Error('Video session is not ready.');
   voiceIsolationStatus.value = 'processing';
   const audioSource = await acquirePublisherAudioSource();
-  const opts = {
-    insertMode: 'append',
-    width: '100%',
-    height: '100%',
-    fitMode: 'cover',
-    publishAudio: true,
-    publishVideo: publishVideo.value,
-    name: props.localName,
-    mirror: true,
-    style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' },
-    echoCancellation: true,
-    autoGainControl: true,
-    noiseSuppression: true,
-    disableAudioProcessing: false,
-    audioSource: audioSource.track
-  };
-  const pub = await new Promise((resolve, reject) => {
-    const nextPub = OTApi.initPublisher(publisherMountEl, opts, (err) => {
-      if (err) {
-        try { nextPub.destroy(); } catch { /* ignore */ }
-        for (const track of audioSource.stream?.getTracks?.() || []) {
-          try { track.stop(); } catch { /* ignore */ }
-        }
-        reject(err);
-        return;
-      }
-      forceMediaFill(publisherMountEl);
-      resolve(nextPub);
-    });
-  });
-  await new Promise((resolve, reject) => {
-    session.publish(pub, (err) => {
-      if (err) {
-        try { pub.destroy(); } catch { /* ignore */ }
-        for (const track of audioSource.stream?.getTracks?.() || []) {
-          try { track.stop(); } catch { /* ignore */ }
-        }
-        reject(err);
-        return;
-      }
-      resolve();
-    });
-  });
-  publisher = pub;
-  publisherAudioStream = audioSource.stream;
-  publisherAudioTrack = audioSource.track;
-  needsAudioPublisherRebuild.value = false;
-  attachPublisherAudioLevel();
-  await syncLocalVideoPresentation();
-  voiceIsolationStatus.value = 'processing';
+  await attachPublisherAudioSource(publisher, audioSource);
+  releasePublisherAudioSource();
+  publisherAudioStream = audioSource?.stream || null;
+  publisherAudioTrack = audioSource?.track || null;
+  needsAudioSourceAttach.value = false;
   refreshAudioEnhancementStatus(publisher);
+  await syncLocalVideoPresentation();
 }
 
 async function toggleMic() {
@@ -2266,7 +2219,7 @@ async function toggleMic() {
     showMicHint('Muted by host — you cannot unmute yourself.');
     return;
   }
-  if (!publisher && !needsAudioPublisherRebuild.value) {
+  if (!publisher && !needsAudioSourceAttach.value) {
     console.warn('[VideoSessionRoom] mic toggled before publisher ready');
     showMicHint('Microphone is not ready yet. Wait a moment and try again.');
     return;
@@ -2276,11 +2229,10 @@ async function toggleMic() {
   if (next) automuteNoticeVisible.value = false;
   micActionHint.value = '';
   try {
-    if (next && needsAudioPublisherRebuild.value) {
-      await rebuildPublisherWithAudio();
-    } else {
-      publisher.publishAudio(next);
+    if (next && needsAudioSourceAttach.value) {
+      await addPublisherAudioWithoutRestartingCamera();
     }
+    publisher.publishAudio(next);
     broadcastMicState(next);
     // Peers sometimes miss the first signal right as streams settle.
     if (next) {
