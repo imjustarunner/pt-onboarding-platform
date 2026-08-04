@@ -96,7 +96,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
+        autoGainControl: false,
         voiceIsolation: true
       },
       video: false
@@ -156,7 +156,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
       kind: 'audio',
       stop,
       applyConstraints,
-      getSettings: () => ({ noiseSuppression: true, echoCancellation: true, autoGainControl: true })
+      getSettings: () => ({ noiseSuppression: true, echoCancellation: true, autoGainControl: false })
     };
     const audioStream = {
       getAudioTracks: () => [audioTrack],
@@ -172,7 +172,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
     const expectedAudio = {
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: true,
+      autoGainControl: false,
       voiceIsolation: true
     };
     expect(getUserMedia).toHaveBeenCalledWith({ audio: expectedAudio, video: false });

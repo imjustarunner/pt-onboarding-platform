@@ -775,19 +775,19 @@ const voiceIsolationTitle = computed(() => {
     return 'The published microphone track reports Voice Isolation enabled. Native echo cancellation, noise suppression, and automatic gain control were also requested.';
   }
   if (voiceIsolationStatus.value === 'on') {
-    return 'Vonage advanced noise suppression is active. This is not the same as Apple Voice Isolation.';
+    return 'Vonage advanced noise suppression is active and automatic gain control is disabled so the mic does not amplify the whole room. This is not Apple Voice Isolation.';
   }
   if (voiceIsolationStatus.value === 'processing') {
     return 'Opening and verifying the native-processed microphone track…';
   }
   if (voiceIsolationStatus.value === 'browser') {
-    return 'The published track reports browser noise suppression, but Voice Isolation is not enabled on this track. Use headphones for spoken meetings, and set Mac Mic Mode to Voice Isolation if available.';
+    return 'Browser noise suppression is on and automatic gain control is disabled. Apple Voice Isolation is not enabled on this published track.';
   }
   if (voiceIsolationStatus.value === 'unavailable') {
-    return 'This microphone track did not report noise reduction. Check the browser input and the device Mic Mode. Headphones are recommended for spoken meetings.';
+    return 'This microphone track did not report noise reduction. Check the browser input and Mac Mic Mode (Voice Isolation).';
   }
   if (voiceIsolationStatus.value === 'unsupported') {
-    return 'This browser cannot report mic processing. Your system may still apply voice isolation. Headphones are recommended for spoken meetings.';
+    return 'This browser cannot report mic processing. Your system may still apply voice isolation.';
   }
   return '';
 });
@@ -805,8 +805,7 @@ const lobbyMicButtonTitle = computed(() => {
   return publishAudio.value ? 'Join muted' : 'Test microphone and join with it on';
 });
 
-function resolvePublisherAudioTrack(pub = publisher) {
-  const source = publisherAudioTrack || pub?.getAudioSource?.() || pub?.stream || null;
+function trackFromAudioSource(source) {
   if (!source) return null;
   if (source.kind === 'audio') return source;
   if (typeof source.getAudioTracks === 'function') {
@@ -816,6 +815,32 @@ function resolvePublisherAudioTrack(pub = publisher) {
     return source.getTracks().find((t) => t?.kind === 'audio') || null;
   }
   return null;
+}
+
+function resolvePublisherAudioTrack(pub = publisher) {
+  // Prefer the live Vonage source over any cached track — diagnostics showed a
+  // stale ended MediaStreamTrack surviving after publisher handoffs.
+  const candidates = [];
+  try {
+    const live = pub?.getAudioSource?.();
+    if (live) candidates.push(live);
+  } catch { /* ignore */ }
+  if (publisherAudioTrack) candidates.push(publisherAudioTrack);
+  try {
+    if (pub?.stream) candidates.push(pub.stream);
+  } catch { /* ignore */ }
+
+  let endedFallback = null;
+  for (const source of candidates) {
+    const track = trackFromAudioSource(source);
+    if (!track) continue;
+    if (track.readyState !== 'ended') {
+      publisherAudioTrack = track;
+      return track;
+    }
+    if (!endedFallback) endedFallback = track;
+  }
+  return endedFallback;
 }
 
 function trackAudioEnhancementStatus(track) {
@@ -837,6 +862,15 @@ function refreshAudioEnhancementStatus(pub = publisher) {
   try {
     const track = resolvePublisherAudioTrack(pub);
     const status = trackAudioEnhancementStatus(track);
+    if (status === 'device') {
+      voiceIsolationStatus.value = 'device';
+      return;
+    }
+    const filter = pub?.getAudioFilter?.();
+    if (filter?.type === 'advancedNoiseSuppression') {
+      voiceIsolationStatus.value = 'on';
+      return;
+    }
     if (status) {
       voiceIsolationStatus.value = status;
       return;
@@ -852,19 +886,47 @@ function refreshAudioEnhancementStatus(pub = publisher) {
   voiceIsolationStatus.value = 'unavailable';
 }
 
+function vonageAudioProcessorSupported() {
+  try {
+    if (typeof OTApi?.hasMediaProcessorSupport !== 'function') return true;
+    const flagged = OTApi.hasMediaProcessorSupport('audio');
+    if (typeof flagged === 'boolean') return flagged;
+    return !!OTApi.hasMediaProcessorSupport();
+  } catch {
+    return false;
+  }
+}
+
+async function applyVonageAdvancedNoiseSuppression(pub = publisher) {
+  if (!pub || typeof pub.applyAudioFilter !== 'function') return false;
+  if (!vonageAudioProcessorSupported()) return false;
+  try {
+    const existing = pub.getAudioFilter?.();
+    if (existing?.type === 'advancedNoiseSuppression') return true;
+    await pub.applyAudioFilter({ type: 'advancedNoiseSuppression' });
+    return true;
+  } catch (e) {
+    console.warn('[VideoSessionRoom] advancedNoiseSuppression failed', e?.message || e);
+    return false;
+  }
+}
+
 async function enhanceLocalPublisherAudio(reason = 'enhance') {
   const track = resolvePublisherAudioTrack(publisher);
-  if (!track) {
+  if (!track || track.readyState === 'ended') {
     refreshAudioEnhancementStatus(publisher);
     return null;
   }
   publisherAudioTrack = track;
   const result = await enhancePublishedAudioTrack(track);
+  const vonageAns = await applyVonageAdvancedNoiseSuppression(publisher);
   refreshAudioEnhancementStatus(publisher);
   logAudioDiagnostics('mic_enhance', {
     reason: String(reason || 'enhance'),
     applied: !!result?.applied,
     voiceIsolation: !!result?.voiceIsolation,
+    autoGainControl: result?.settings?.autoGainControl ?? null,
+    vonageAdvancedNoiseSuppression: vonageAns,
     settings: result?.settings || null
   });
   return result;
@@ -2166,11 +2228,17 @@ async function connect() {
         mirror: true,
         style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' },
         echoCancellation: true,
-        autoGainControl: true,
+        // AGC off: prevents the laptop mic from pumping ambient room noise.
+        autoGainControl: false,
         noiseSuppression: true,
         disableAudioProcessing: false,
         ...audioProcessing
       };
+      // Chromium + Vonage Media Processor: stronger noise suppression than the
+      // browser NS flag alone (does not replace Apple Voice Isolation).
+      if (mainRoom && captureAudio && vonageAudioProcessorSupported()) {
+        opts.audioFilter = { type: 'advancedNoiseSuppression' };
+      }
       // In the main room, omit audioSource so Vonage and the browser own one
       // native capture track (the same path used by mature meeting clients).
       // The waiting room and mic-failure fallback explicitly avoid capture.

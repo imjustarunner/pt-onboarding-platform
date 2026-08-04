@@ -13,19 +13,19 @@ describe('nativeAudioConstraints', () => {
     expect(nativeAudioConstraints(mediaDevices)).toEqual({
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: true,
+      autoGainControl: false,
       voiceIsolation: true
     });
   });
 
-  it('omits voiceIsolation when unsupported', () => {
+  it('omits voiceIsolation when unsupported and keeps AGC off', () => {
     const mediaDevices = {
       getSupportedConstraints: () => ({})
     };
     expect(nativeAudioConstraints(mediaDevices)).toEqual({
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: true
+      autoGainControl: false
     });
   });
 });
@@ -80,7 +80,7 @@ describe('enhancePublishedAudioTrack', () => {
     expect(applyConstraints.mock.calls.some((call) => (
       call[0]?.echoCancellation === true
       && call[0]?.noiseSuppression === true
-      && call[0]?.autoGainControl === true
+      && call[0]?.autoGainControl === false
       && call[0]?.voiceIsolation == null
       && !call[0]?.advanced
     ))).toBe(true);
@@ -109,7 +109,7 @@ describe('acquireNativeAudioSource', () => {
       getSettings: () => ({
         noiseSuppression: true,
         echoCancellation: true,
-        autoGainControl: true,
+        autoGainControl: false,
         voiceIsolation: true
       })
     };
@@ -129,7 +129,7 @@ describe('acquireNativeAudioSource', () => {
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
+        autoGainControl: false,
         voiceIsolation: true
       },
       video: false
