@@ -7223,7 +7223,7 @@ h1 {
   width: min(700px, 96vw);
   border-radius: 16px;
   border: 1px solid var(--border);
-  background: var(--bg-card);
+  background: var(--bg, #fff);
   padding: 20px;
   box-shadow: var(--shadow-lg);
 }
